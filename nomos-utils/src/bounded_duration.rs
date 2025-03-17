@@ -10,10 +10,10 @@ use time::Duration;
 // https://doc.rust-lang.org/beta/unstable-book/language-features/adt-const-params.html
 // This means that we could add different bound from a const configuration
 // checked on compile time.
-/// This is a proxy type to be use to bound `Duration` deserialization checks.
+/// This is a proxy type to be used to bound `Duration` deserialization checks.
 ///
 /// It embeds the checks at type level. It implements the pertinent types from
-/// the `serde_with` crate so it can be use within `serde_as` macros.
+/// the `serde_with` crate so it can be used within `serde_as` macros.
 ///
 /// # Examples
 /// ```rust
