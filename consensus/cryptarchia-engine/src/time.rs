@@ -136,7 +136,7 @@ impl EpochConfig {
 #[derive(Copy, Clone, Debug)]
 pub struct SlotConfig {
     #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
-    pub slot_duration: Duration, // TODO: BOUNDED DURATION
+    pub slot_duration: Duration,
     /// Start of the first epoch
     pub chain_start_time: OffsetDateTime,
 }

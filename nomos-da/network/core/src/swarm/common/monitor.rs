@@ -208,7 +208,7 @@ pub trait PeerHealthPolicy {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct DAConnectionMonitorSettings {
     #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
-    pub failure_time_window: Duration, // TODO: BOUNDED
+    pub failure_time_window: Duration,
     pub time_decay_factor: U57F7,
 }
 

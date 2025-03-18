@@ -28,13 +28,13 @@ use crate::{
 pub enum MempoolPublishStrategy {
     Immediately,
     #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
-    Timeout(Duration), // TODO: BOUNDED DURATION
+    Timeout(Duration),
     SampleSubnetworks {
         sample_threshold: usize,
         #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
-        timeout: Duration, // TODO: BOUNDED DURATION
+        timeout: Duration,
         #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
-        cooldown: Duration, // TODO: BOUNDED DURATION
+        cooldown: Duration,
     },
 }
 
@@ -50,7 +50,7 @@ pub struct EncoderSettings {
 pub struct DispersalKZGRSBackendSettings {
     pub encoder_settings: EncoderSettings,
     #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
-    pub dispersal_timeout: Duration, // TODO: BOUNDED DURATION
+    pub dispersal_timeout: Duration,
     pub mempool_strategy: MempoolPublishStrategy,
 }
 

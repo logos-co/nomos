@@ -23,7 +23,7 @@ pub struct ConnectionMonitorSettings {
     /// Time interval to measure/evaluate the number of messages sent by each
     /// peer.
     #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
-    pub interval: Duration, // TODO: BOUNDED
+    pub interval: Duration,
     /// The number of effective (data or cover) messages that a peer is expected
     /// to send in a given time window.
     ///

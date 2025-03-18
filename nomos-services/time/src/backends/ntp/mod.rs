@@ -32,7 +32,7 @@ pub struct NtpSettings {
     pub ntpclient_settings: NTPClientSettings,
     /// Interval for the backend to contact the ntp server and update its time
     #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
-    pub update_interval: Duration, // TODO: BOUNDED DURATION
+    pub update_interval: Duration,
     /// Slot settings in order to compute proper slot times
     pub slot_config: SlotConfig,
     /// Epoch settings in order to compute proper epoch times

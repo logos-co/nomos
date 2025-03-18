@@ -254,9 +254,9 @@ pub struct BlendConfig<BackendSettings, BackendNodeId> {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CoverTrafficExtSettings {
     #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
-    pub epoch_duration: Duration, // TODO: BOUND DURATION
+    pub epoch_duration: Duration,
     #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
-    pub slot_duration: Duration, // TODO: BOUND DURATION
+    pub slot_duration: Duration,
 }
 
 impl CoverTrafficExtSettings {
