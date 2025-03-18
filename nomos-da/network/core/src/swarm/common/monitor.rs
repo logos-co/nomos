@@ -204,9 +204,11 @@ pub trait PeerHealthPolicy {
     fn is_peer_unhealthy(&self, stats: &Self::PeerStats) -> bool;
 }
 
+#[cfg_attr(feature = "time", serde_with::serde_as)]
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct DAConnectionMonitorSettings {
-    pub failure_time_window: Duration,
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    pub failure_time_window: Duration, // TODO: BOUNDED
     pub time_decay_factor: U57F7,
 }
 
