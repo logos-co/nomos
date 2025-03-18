@@ -32,7 +32,7 @@ use time::Duration;
     private_bounds,
     reason = "The `TimeTag` trait is not public, is just to tie up types for `MinimalBoundedDuration` and its implemented only by the supported types."
 )]
-#[derive(Serialize)]
+#[derive(Serialize, Copy, Clone, Debug)]
 #[serde(transparent)]
 pub struct MinimalBoundedDuration<const MIN_DURATION: usize, TAG: TimeTag> {
     duration: Duration,
