@@ -96,9 +96,11 @@ pub struct TemporalProcessor<M, S> {
     scheduler: S,
 }
 
+#[cfg_attr(feature = "time", serde_with::serde_as)]
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct TemporalSchedulerSettings {
-    pub max_delay_seconds: u64,
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    pub max_delay_seconds: u64, // TODO: BOUND DURATION
 }
 
 impl<M, S> TemporalProcessor<M, S> {

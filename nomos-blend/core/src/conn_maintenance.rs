@@ -17,11 +17,13 @@ pub struct ConnectionMonitor {
     drop_messages: U57F7,
 }
 
+#[cfg_attr(feature = "time", serde_with::serde_as)]
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct ConnectionMonitorSettings {
     /// Time interval to measure/evaluate the number of messages sent by each
     /// peer.
-    pub interval: Duration,
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    pub interval: Duration, // TODO: BOUNDED
     /// The number of effective (data or cover) messages that a peer is expected
     /// to send in a given time window.
     ///
