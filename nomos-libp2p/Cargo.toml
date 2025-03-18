@@ -1,20 +1,20 @@
 [package]
 edition = "2021"
 license = { workspace = true }
-name = "nomos-libp2p"
+name    = "nomos-libp2p"
 version = "0.1.0"
 
 [dependencies]
-blake2 = { version = "0.10" }
-futures = "0.3"
-hex = "0.4.3"
-libp2p = { workspace = true, features = ["dns", "gossipsub", "macros", "quic", "secp256k1", "tokio"] }
-multiaddr = "0.18"
-serde = { version = "1.0.166", features = ["derive"] }
-thiserror = "1.0.40"
-tracing = "0.1"
+blake2      = { version = "0.10" }
+futures     = "0.3"
+hex         = "0.4.3"
+libp2p      = { workspace = true, features = ["dns", "gossipsub", "macros", "quic", "secp256k1", "tokio"] }
+multiaddr   = "0.18"
 nomos-utils = { workspace = true, features = ["time"], optional = true }
-serde_with = { version = "3.12", optional = true }
+serde       = { version = "1.0.166", features = ["derive"] }
+serde_with  = { version = "3.12", optional = true }
+thiserror   = "1.0.40"
+tracing     = "0.1"
 
 [dev-dependencies]
 serde_json = "1.0.99"
