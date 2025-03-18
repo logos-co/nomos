@@ -23,6 +23,7 @@ use crate::{
     EpochSlotTickStream, SlotTick,
 };
 
+#[cfg_attr(feature = "time", serde_with::serde_as)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct NtpSettings {
     /// Ntp server address
@@ -30,7 +31,8 @@ pub struct NtpSettings {
     /// Ntp server settings
     pub ntpclient_settings: NTPClientSettings,
     /// Interval for the backend to contact the ntp server and update its time
-    pub update_interval: Duration,
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    pub update_interval: Duration, // TODO: BOUNDED DURATION
     /// Slot settings in order to compute proper slot times
     pub slot_config: SlotConfig,
     /// Epoch settings in order to compute proper epoch times
