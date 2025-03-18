@@ -220,7 +220,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                     num_blend_layers: 1,
                 },
                 temporal_processor: TemporalSchedulerSettings {
-                    max_delay_seconds: 2,
+                    max_delay: Duration::from_secs(2),
                 },
             },
             cover_traffic: nomos_blend_service::CoverTrafficExtSettings {
