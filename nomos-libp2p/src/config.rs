@@ -30,6 +30,7 @@ impl Default for SwarmConfig {
 
 // A partial copy of gossipsub::Config for deriving Serialize/Deserialize
 // remotely https://serde.rs/remote-derive.html
+#[cfg_attr(feature = "time", serde_with::serde_as)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(remote = "gossipsub::Config")]
 #[expect(
@@ -54,15 +55,19 @@ struct GossipsubConfigDef {
     #[serde(getter = "gossipsub::Config::gossip_factor")]
     gossip_factor: f64,
     #[serde(getter = "gossipsub::Config::heartbeat_initial_delay")]
-    heartbeat_initial_delay: Duration,
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    heartbeat_initial_delay: Duration, // TODO: BOUNDED
     #[serde(getter = "gossipsub::Config::heartbeat_interval")]
-    heartbeat_interval: Duration,
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    heartbeat_interval: Duration, // TODO: BOUNDED
     #[serde(getter = "gossipsub::Config::fanout_ttl")]
-    fanout_ttl: Duration,
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    fanout_ttl: Duration, // TODO: BOUNDED
     #[serde(getter = "gossipsub::Config::check_explicit_peers_ticks")]
     check_explicit_peers_ticks: u64,
     #[serde(getter = "gossipsub::Config::duplicate_cache_time")]
-    duplicate_cache_time: Duration,
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    duplicate_cache_time: Duration, // TODO: BOUNDED
     #[serde(getter = "gossipsub::Config::validate_messages")]
     validate_messages: bool,
     #[serde(getter = "gossipsub::Config::allow_self_origin")]
@@ -72,15 +77,18 @@ struct GossipsubConfigDef {
     #[serde(getter = "gossipsub::Config::prune_peers")]
     prune_peers: usize,
     #[serde(getter = "gossipsub::Config::prune_backoff")]
-    prune_backoff: Duration,
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    prune_backoff: Duration, // TODO: BOUNDED
     #[serde(getter = "gossipsub::Config::unsubscribe_backoff")]
-    unsubscribe_backoff: Duration,
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    unsubscribe_backoff: Duration, // TODO: BOUNDED
     #[serde(getter = "gossipsub::Config::backoff_slack")]
     backoff_slack: u32,
     #[serde(getter = "gossipsub::Config::flood_publish")]
     flood_publish: bool,
     #[serde(getter = "gossipsub::Config::graft_flood_threshold")]
-    graft_flood_threshold: Duration,
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    graft_flood_threshold: Duration, // TODO: BOUNDED
     #[serde(getter = "gossipsub::Config::mesh_outbound_min")]
     mesh_outbound_min: usize,
     #[serde(getter = "gossipsub::Config::opportunistic_graft_ticks")]
@@ -96,9 +104,11 @@ struct GossipsubConfigDef {
     #[serde(getter = "gossipsub::Config::max_ihave_messages")]
     max_ihave_messages: usize,
     #[serde(getter = "gossipsub::Config::iwant_followup_time")]
-    iwant_followup_time: Duration,
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    iwant_followup_time: Duration, // TODO: BOUNDED
     #[serde(getter = "gossipsub::Config::published_message_ids_cache_time")]
-    published_message_ids_cache_time: Duration,
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    published_message_ids_cache_time: Duration, // TODO: BOUNDED
 }
 
 #[expect(
