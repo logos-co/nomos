@@ -1,29 +1,32 @@
 [package]
 edition = "2021"
 license = { workspace = true }
-name    = "nomos-blend-service"
+name = "nomos-blend-service"
 version = "0.1.0"
 
 [dependencies]
-async-trait         = "0.1"
-futures             = "0.3"
-libp2p              = { workspace = true, features = ["ed25519"] }
-nomos-blend         = { workspace = true }
+async-trait = "0.1"
+futures = "0.3"
+libp2p = { workspace = true, features = ["ed25519"] }
+nomos-blend = { workspace = true }
 nomos-blend-message = { workspace = true }
 nomos-blend-network = { workspace = true, features = ["tokio"] }
-nomos-core          = { workspace = true }
-nomos-libp2p        = { workspace = true, optional = true }
-nomos-network       = { workspace = true }
-overwatch           = { workspace = true }
-rand                = "0.8.5"
-rand_chacha         = "0.3"
-serde               = { version = "1.0", features = ["derive"] }
-services-utils      = { workspace = true }
-tokio               = { version = "1", features = ["macros", "sync"] }
-tokio-stream        = "0.1"
-tracing             = "0.1"
-x25519-dalek        = { version = "2", features = ["getrandom", "static_secrets"] }
+nomos-core = { workspace = true }
+nomos-libp2p = { workspace = true, optional = true }
+nomos-network = { workspace = true }
+overwatch = { workspace = true }
+rand = "0.8.5"
+rand_chacha = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+services-utils = { workspace = true }
+tokio = { version = "1", features = ["macros", "sync"] }
+tokio-stream = "0.1"
+tracing = "0.1"
+x25519-dalek = { version = "2", features = ["getrandom", "static_secrets"] }
+nomos-utils = { workspace = true, features = ["time"], optional = true }
+serde_with = { version = "3.12", optional = true }
 
 [features]
 default = []
-libp2p  = ["dep:nomos-libp2p", "nomos-network/libp2p"]
+libp2p = ["dep:nomos-libp2p", "nomos-network/libp2p"]
+time = ["dep:nomos-utils", "dep:serde_with"]

@@ -250,10 +250,13 @@ pub struct BlendConfig<BackendSettings, BackendNodeId> {
         Vec<Node<BackendNodeId, <SphinxMessage as nomos_blend_message::BlendMessage>::PublicKey>>,
 }
 
+#[cfg_attr(feature = "time", serde_with::serde_as)]
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CoverTrafficExtSettings {
-    pub epoch_duration: Duration,
-    pub slot_duration: Duration,
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    pub epoch_duration: Duration, // TODO: BOUND DURATION
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    pub slot_duration: Duration, // TODO: BOUND DURATION
 }
 
 impl CoverTrafficExtSettings {
