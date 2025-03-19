@@ -27,13 +27,13 @@ use crate::{
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum MempoolPublishStrategy {
     Immediately,
-    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, NANO>"))]
     Timeout(Duration),
     SampleSubnetworks {
         sample_threshold: usize,
-        #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+        #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, NANO>"))]
         timeout: Duration,
-        #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+        #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, NANO>"))]
         cooldown: Duration,
     },
 }
@@ -49,7 +49,7 @@ pub struct EncoderSettings {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DispersalKZGRSBackendSettings {
     pub encoder_settings: EncoderSettings,
-    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, NANO>"))]
     pub dispersal_timeout: Duration,
     pub mempool_strategy: MempoolPublishStrategy,
 }

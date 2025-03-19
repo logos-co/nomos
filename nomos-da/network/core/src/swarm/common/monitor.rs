@@ -207,7 +207,7 @@ pub trait PeerHealthPolicy {
 #[cfg_attr(feature = "time", serde_with::serde_as)]
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct DAConnectionMonitorSettings {
-    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, NANO>"))]
     pub failure_time_window: Duration,
     pub time_decay_factor: U57F7,
 }

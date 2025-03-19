@@ -99,7 +99,7 @@ pub struct TemporalProcessor<M, S> {
 #[cfg_attr(feature = "time", serde_with::serde_as)]
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct TemporalSchedulerSettings {
-    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<0, SECOND>"))]
     pub max_delay: Duration,
 }
 

@@ -22,7 +22,7 @@ pub enum Error {
 #[derive(Copy, Clone)]
 pub struct NTPClientSettings {
     /// NTP server requests timeout duration
-    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, NANO>"))]
     timeout: Duration,
     /// NTP server socket address
     address: SocketAddr,
