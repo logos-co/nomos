@@ -24,3 +24,7 @@ tokio       = { version = "1", features = ["rt-multi-thread", "time"] }
 
 [features]
 time = ["dep:nomos-utils", "dep:serde_with"]
+
+[package.metadata.cargo-machete]
+# False positives.
+ignored = ["nomos-utils"]

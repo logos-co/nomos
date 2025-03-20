@@ -30,3 +30,7 @@ x25519-dalek        = { version = "2", features = ["getrandom", "static_secrets"
 default = []
 libp2p  = ["dep:nomos-libp2p", "nomos-network/libp2p"]
 time    = ["dep:nomos-utils", "dep:serde_with"]
+
+[package.metadata.cargo-machete]
+# False positives.
+ignored = ["nomos-utils"]

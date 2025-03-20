@@ -39,3 +39,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [features]
 time = ["dep:nomos-utils", "dep:serde_with"]
+
+[package.metadata.cargo-machete]
+# False positives.
+ignored = ["nomos-utils"]

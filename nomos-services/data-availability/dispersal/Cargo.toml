@@ -27,3 +27,7 @@ tracing                  = "0.1"
 
 [features]
 time = ["dep:nomos-utils", "dep:serde_with"]
+
+[package.metadata.cargo-machete]
+# False positives.
+ignored = ["nomos-utils"]

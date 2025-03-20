@@ -24,3 +24,7 @@ tokio-stream       = "0.1"
 ntp   = ["dep:sntpc", "dep:thiserror"]
 serde = ["dep:serde"]
 time  = ["dep:nomos-utils", "dep:serde_with", "serde"]
+
+[package.metadata.cargo-machete]
+# False positives.
+ignored = ["nomos-utils"]
