@@ -253,10 +253,7 @@ pub struct BlendConfig<BackendSettings, BackendNodeId> {
 #[cfg_attr(feature = "time", serde_with::serde_as)]
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CoverTrafficExtSettings {
-    #[cfg_attr(
-        feature = "time",
-        serde_as(as = "MinimalBoundedDuration<432000, SECOND>")
-    )]
+    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
     pub epoch_duration: Duration,
     #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
     pub slot_duration: Duration,
