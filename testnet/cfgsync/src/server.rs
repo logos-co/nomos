@@ -41,19 +41,10 @@ pub struct CfgSyncConfig {
     pub monitor_failure_time_window: Duration,
     pub balancer_interval_secs: u64,
     pub mempool_publish_strategy: MempoolPublishStrategy,
-    pub replication_settings: HumanReadableReplicationConfig,
+    pub replication_settings: ReplicationConfig,
 
     // Tracing params
     pub tracing_settings: TracingSettings,
-}
-
-// TODO remove this workaround once [`MinimumBoundedDuration`]'s serialized
-// representation is human-readable and deals with [`std::time::Duration`]` or
-// the codebase switches to [`time::Duration`]
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
-pub struct HumanReadableReplicationConfig {
-    pub seen_message_cache_size: usize,
-    pub seen_message_ttl_secs: u64,
 }
 
 impl CfgSyncConfig {
@@ -98,12 +89,7 @@ impl CfgSyncConfig {
             },
             balancer_interval: Duration::from_secs(self.balancer_interval_secs),
             redial_cooldown: Duration::ZERO,
-            replication_settings: ReplicationConfig {
-                seen_message_cache_size: self.replication_settings.seen_message_cache_size,
-                seen_message_ttl: Duration::from_secs(
-                    self.replication_settings.seen_message_ttl_secs,
-                ),
-            },
+            replication_settings: self.replication_settings,
         }
     }
 

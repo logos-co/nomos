@@ -14,6 +14,7 @@ mod tests {
 
     use futures::future::join_all;
     use nomos_da_dispersal::backend::kzgrs::MempoolPublishStrategy;
+    use nomos_da_network_core::swarm::ReplicationConfig;
     use nomos_libp2p::{ed25519, libp2p, Multiaddr, PeerId, Protocol};
     use nomos_node::Config as ValidatorConfig;
     use nomos_tracing_service::TracingSettings;
@@ -22,7 +23,7 @@ mod tests {
 
     use crate::{
         client::get_config,
-        server::{cfgsync_app, CfgSyncConfig, HumanReadableReplicationConfig},
+        server::{cfgsync_app, CfgSyncConfig},
     };
 
     #[tokio::test]
@@ -47,7 +48,10 @@ mod tests {
             monitor_failure_time_window: Duration::from_nanos(1),
             balancer_interval_secs: 0,
             tracing_settings: TracingSettings::default(),
-            replication_settings: HumanReadableReplicationConfig::default(),
+            replication_settings: ReplicationConfig {
+                seen_message_cache_size: 0,
+                seen_message_ttl: Duration::from_secs(60),
+            },
         };
 
         let app_addr: SocketAddr = "127.0.0.1:4321".parse().unwrap();

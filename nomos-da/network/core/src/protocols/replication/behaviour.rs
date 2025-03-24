@@ -187,7 +187,7 @@ impl PendingOutbound {
 }
 
 #[serde_as]
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReplicationConfig {
     pub seen_message_cache_size: usize,
     #[serde_as(as = "MinimalBoundedDuration<1, MINUTE>")]

@@ -30,7 +30,7 @@ mempool_publish_strategy: !SampleSubnetworks
 
 replication_settings:
   seen_message_cache_size: 204800
-  seen_message_ttl_secs: 900
+  seen_message_ttl: "900.0"
 
 # Tracing
 tracing_settings:
