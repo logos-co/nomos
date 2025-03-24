@@ -51,7 +51,7 @@ use super::handlers::{
     cryptarchia_headers, cryptarchia_info, da_get_commitments, da_get_light_share, da_get_shares,
     get_range, libp2p_info, unblock_peer,
 };
-use crate::{api::paths, RuntimeServiceId};
+use crate::api::paths;
 
 /// Configuration for the Http Server
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]

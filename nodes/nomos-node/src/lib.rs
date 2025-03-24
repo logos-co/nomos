@@ -1,5 +1,5 @@
 pub mod api;
-// pub mod config;
+pub mod config;
 mod tx;
 
 use bytes::Bytes;
@@ -53,16 +53,16 @@ pub use nomos_system_sig::SystemSig;
 use nomos_time::{backends::system_time::SystemTimeBackend, TimeService};
 #[cfg(feature = "tracing")]
 pub use nomos_tracing_service::Tracing;
-use overwatch::{derive_services, OpaqueServiceHandle};
-use overwatch_derive::Services;
+use overwatch::derive_services;
 use rand_chacha::ChaCha20Rng;
 use serde::{de::DeserializeOwned, Serialize};
 use subnetworks_assignations::versions::v1::FillFromNodeList;
 
 use crate::api::backend::AxumBackend;
-// pub use crate::config::{Config, CryptarchiaArgs, HttpArgs, LogArgs,
-// NetworkArgs};
-pub use crate::tx::Tx;
+pub use crate::{
+    config::{Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs},
+    tx::Tx,
+};
 
 /// Membership used by the DA Network service.
 pub type NomosDaMembership = FillFromNodeList;
@@ -93,9 +93,9 @@ pub type NomosApiService = ApiService<
     RuntimeServiceId,
 >;
 
-// pub const CONSENSUS_TOPIC: &str = "/cryptarchia/proto";
-// pub const CL_TOPIC: &str = "cl";
-// pub const DA_TOPIC: &str = "da";
+pub const CONSENSUS_TOPIC: &str = "/cryptarchia/proto";
+pub const CL_TOPIC: &str = "cl";
+pub const DA_TOPIC: &str = "da";
 pub const MB16: usize = 1024 * 1024 * 16;
 
 pub type Cryptarchia<SamplingAdapter> = cryptarchia_consensus::CryptarchiaConsensus<
