@@ -1,11 +1,9 @@
 // pub mod api;
 // pub mod config;
-// mod tx;
+mod tx;
 
-// use api::backend::AxumBackend;
 use bytes::Bytes;
 use color_eyre::eyre::Result;
-// pub use config::{Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs};
 use kzgrs_backend::common::share::DaShare;
 pub use kzgrs_backend::dispersal::BlobInfo;
 use nomos_api::ApiService;
@@ -60,7 +58,10 @@ use overwatch_derive::Services;
 use rand_chacha::ChaCha20Rng;
 use serde::{de::DeserializeOwned, Serialize};
 use subnetworks_assignations::versions::v1::FillFromNodeList;
-// pub use tx::Tx;
+
+// use crate::api::backend::AxumBackend;
+// pub use crate::config::{Config, CryptarchiaArgs, HttpArgs, LogArgs,
+// NetworkArgs}; pub use crate::tx::Tx;
 
 // /// Membership used by the DA Network service.
 // pub type NomosDaMembership = FillFromNodeList;
