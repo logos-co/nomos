@@ -6,7 +6,10 @@ use std::{
 
 use axum::{http::HeaderValue, routing, Router, Server};
 use hyper::header::{CONTENT_TYPE, USER_AGENT};
-use nomos_api::{http::cl::ClMempoolService, Backend};
+use nomos_api::{
+    http::{cl::ClMempoolService, consensus::Cryptarchia},
+    Backend,
+};
 use nomos_core::{
     da::{
         blob::{info::DispersedBlobInfo, metadata::Metadata, LightShare, Share},
@@ -235,7 +238,24 @@ where
         + Display
         + Clone
         + 'static
-        + AsServiceId<ClMempoolService<Tx, RuntimeServiceId>>,
+        + AsServiceId<ClMempoolService<Tx, RuntimeServiceId>>
+        + AsServiceId<
+            Cryptarchia<
+                Tx,
+                DaStorageSerializer,
+                SamplingBackend,
+                SamplingNetworkAdapter,
+                SamplingRng,
+                SamplingStorage,
+                DaVerifierBackend,
+                DaVerifierNetwork,
+                DaVerifierStorage,
+                TimeBackend,
+                ApiAdapter,
+                RuntimeServiceId,
+                SIZE,
+            >,
+        >,
 {
     type Error = hyper::Error;
     type Settings = AxumBackendSettings;
@@ -297,25 +317,26 @@ where
                 paths::CL_STATUS,
                 routing::post(cl_status::<Tx, RuntimeServiceId>),
             )
-            // .route(
-            //     paths::CRYPTARCHIA_INFO,
-            //     routing::get(
-            //         cryptarchia_info::<
-            //             Tx,
-            //             DaStorageSerializer,
-            //             SamplingBackend,
-            //             SamplingNetworkAdapter,
-            //             SamplingRng,
-            //             SamplingStorage,
-            //             DaVerifierBackend,
-            //             DaVerifierNetwork,
-            //             DaVerifierStorage,
-            //             TimeBackend,
-            //             ApiAdapter,
-            //             SIZE,
-            //         >,
-            //     ),
-            // )
+            .route(
+                paths::CRYPTARCHIA_INFO,
+                routing::get(
+                    cryptarchia_info::<
+                        Tx,
+                        DaStorageSerializer,
+                        SamplingBackend,
+                        SamplingNetworkAdapter,
+                        SamplingRng,
+                        SamplingStorage,
+                        DaVerifierBackend,
+                        DaVerifierNetwork,
+                        DaVerifierStorage,
+                        TimeBackend,
+                        ApiAdapter,
+                        RuntimeServiceId,
+                        SIZE,
+                    >,
+                ),
+            )
             // .route(
             //     paths::CRYPTARCHIA_HEADERS,
             //     routing::get(
