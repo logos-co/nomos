@@ -524,14 +524,14 @@ where
                 paths::DA_GET_SHARES_COMMITMENTS,
                 routing::get(da_get_commitments::<DaStorageSerializer, DaShare, RuntimeServiceId>),
             )
-            // .route(
-            //     paths::DA_GET_LIGHT_SHARE,
-            //     routing::get(da_get_light_share::<DaStorageSerializer, DaShare>),
-            // )
-            // .route(
-            //     paths::DA_GET_SHARES,
-            //     routing::get(da_get_shares::<DaStorageSerializer, DaShare>),
-            // )
+            .route(
+                paths::DA_GET_LIGHT_SHARE,
+                routing::get(da_get_light_share::<DaStorageSerializer, DaShare, RuntimeServiceId>),
+            )
+            .route(
+                paths::DA_GET_SHARES,
+                routing::get(da_get_shares::<DaStorageSerializer, DaShare, RuntimeServiceId>),
+            )
             .with_state(handle);
 
         Server::bind(&self.settings.address)
