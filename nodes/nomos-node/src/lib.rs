@@ -213,20 +213,20 @@ pub struct Nomos {
     // cryptarchia: OpaqueServiceHandle<NodeCryptarchia>,
     // time: OpaqueServiceHandle<NomosTimeService>,
     // http: OpaqueServiceHandle<NomosApiService>,
-    // storage: OpaqueServiceHandle<StorageService<RocksBackend<Wire>>>,
+    storage: StorageService<RocksBackend<Wire>, RuntimeServiceId>,
     system_sig: SystemSig<RuntimeServiceId>,
 }
 
-// pub struct Wire;
+pub struct Wire;
 
-// impl StorageSerde for Wire {
-//     type Error = wire::Error;
+impl StorageSerde for Wire {
+    type Error = wire::Error;
 
-//     fn serialize<T: Serialize>(value: T) -> Bytes {
-//         wire::serialize(&value).unwrap().into()
-//     }
+    fn serialize<T: Serialize>(value: T) -> Bytes {
+        wire::serialize(&value).unwrap().into()
+    }
 
-//     fn deserialize<T: DeserializeOwned>(buff: Bytes) -> Result<T,
-// Self::Error> {         wire::deserialize(&buff)
-//     }
-// }
+    fn deserialize<T: DeserializeOwned>(buff: Bytes) -> Result<T, Self::Error> {
+        wire::deserialize(&buff)
+    }
+}
