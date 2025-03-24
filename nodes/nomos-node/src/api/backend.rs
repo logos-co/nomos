@@ -293,7 +293,10 @@ where
                 paths::CL_METRICS,
                 routing::get(cl_metrics::<Tx, RuntimeServiceId>),
             )
-            // .route(paths::CL_STATUS, routing::post(cl_status::<Tx>))
+            .route(
+                paths::CL_STATUS,
+                routing::post(cl_status::<Tx, RuntimeServiceId>),
+            )
             // .route(
             //     paths::CRYPTARCHIA_INFO,
             //     routing::get(
