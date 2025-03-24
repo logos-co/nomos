@@ -287,6 +287,12 @@ where
                 RuntimeServiceId,
                 SIZE,
             >,
+        >
+        + AsServiceId<
+            nomos_da_network_service::NetworkService<
+                DaNetworkValidatorBackend<Membership>,
+                RuntimeServiceId,
+            >,
         >,
 {
     type Error = hyper::Error;
@@ -424,18 +430,24 @@ where
                     >,
                 ),
             )
-            // .route(
-            //     paths::DA_BLOCK_PEER,
-            //     routing::post(block_peer::<DaNetworkValidatorBackend<Membership>>),
-            // )
-            // .route(
-            //     paths::DA_UNBLOCK_PEER,
-            //     routing::post(unblock_peer::<DaNetworkValidatorBackend<Membership>>),
-            // )
-            // .route(
-            //     paths::DA_BLACKLISTED_PEERS,
-            //     routing::get(blacklisted_peers::<DaNetworkValidatorBackend<Membership>>),
-            // )
+            .route(
+                paths::DA_BLOCK_PEER,
+                routing::post(
+                    block_peer::<DaNetworkValidatorBackend<Membership>, RuntimeServiceId>,
+                ),
+            )
+            .route(
+                paths::DA_UNBLOCK_PEER,
+                routing::post(
+                    unblock_peer::<DaNetworkValidatorBackend<Membership>, RuntimeServiceId>,
+                ),
+            )
+            .route(
+                paths::DA_BLACKLISTED_PEERS,
+                routing::get(
+                    blacklisted_peers::<DaNetworkValidatorBackend<Membership>, RuntimeServiceId>,
+                ),
+            )
             // .route(paths::NETWORK_INFO, routing::get(libp2p_info))
             // .route(
             //     paths::STORAGE_BLOCK,
