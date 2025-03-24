@@ -231,14 +231,14 @@ impl Mock {
 }
 
 #[async_trait::async_trait]
-impl NetworkBackend for Mock {
+impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Mock {
     type Settings = MockConfig;
     type State = NoState<MockConfig>;
     type Message = MockBackendMessage;
     type EventKind = EventKind;
     type NetworkEvent = NetworkEvent;
 
-    fn new<RuntimeServiceId>(config: Self::Settings, _: OverwatchHandle<RuntimeServiceId>) -> Self {
+    fn new(config: Self::Settings, _: OverwatchHandle<RuntimeServiceId>) -> Self {
         let message_event = broadcast::channel(BROADCAST_CHANNEL_BUF).0;
 
         Self {

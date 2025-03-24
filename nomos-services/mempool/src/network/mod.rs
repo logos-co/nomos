@@ -7,7 +7,7 @@ use overwatch::services::{relay::OutboundRelay, ServiceData};
 
 #[async_trait::async_trait]
 pub trait NetworkAdapter<RuntimeServiceId> {
-    type Backend: NetworkBackend + 'static;
+    type Backend: NetworkBackend<RuntimeServiceId> + 'static;
     type Settings: Clone;
     type Payload: Send + Sync + 'static;
     type Key: Send + Sync + 'static;

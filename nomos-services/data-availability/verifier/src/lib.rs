@@ -142,6 +142,7 @@ where
         + Display
         + Sync
         + Send
+        + 'static
         + AsServiceId<Self>
         + AsServiceId<NetworkService<N::Backend, RuntimeServiceId>>
         + AsServiceId<StorageService<S::Backend, RuntimeServiceId>>,

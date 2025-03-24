@@ -12,7 +12,7 @@ use serde::{de::DeserializeOwned, Serialize};
 #[async_trait::async_trait]
 pub trait NetworkAdapter<RuntimeServiceId> {
     /// The network backend used by the network service.
-    type Backend: NetworkBackend + 'static;
+    type Backend: NetworkBackend<RuntimeServiceId> + 'static;
     /// Settings used to broadcast messages using the network service.
     type BroadcastSettings: Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static;
 

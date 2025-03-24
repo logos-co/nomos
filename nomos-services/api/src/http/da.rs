@@ -374,9 +374,10 @@ pub async fn block_peer<B, RuntimeServiceId>(
     peer_id: PeerId,
 ) -> Result<bool, DynError>
 where
-    B: NetworkBackend + 'static + Send,
+    B: NetworkBackend<RuntimeServiceId> + 'static + Send,
     B::Message: PeerMessagesFactory,
-    RuntimeServiceId: Debug + Sync + Display + AsServiceId<NetworkService<B, RuntimeServiceId>>,
+    RuntimeServiceId:
+        Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
 {
     let relay = handle
         .relay::<NetworkService<B, RuntimeServiceId>>()
@@ -396,9 +397,10 @@ pub async fn unblock_peer<B, RuntimeServiceId>(
     peer_id: PeerId,
 ) -> Result<bool, DynError>
 where
-    B: NetworkBackend + 'static + Send,
+    B: NetworkBackend<RuntimeServiceId> + 'static + Send,
     B::Message: PeerMessagesFactory,
-    RuntimeServiceId: Debug + Sync + Display + AsServiceId<NetworkService<B, RuntimeServiceId>>,
+    RuntimeServiceId:
+        Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
 {
     let relay = handle
         .relay::<NetworkService<B, RuntimeServiceId>>()
@@ -421,9 +423,10 @@ pub async fn blacklisted_peers<B, RuntimeServiceId>(
     handle: &OverwatchHandle<RuntimeServiceId>,
 ) -> Result<Vec<PeerId>, DynError>
 where
-    B: NetworkBackend + 'static + Send,
+    B: NetworkBackend<RuntimeServiceId> + 'static + Send,
     B::Message: PeerMessagesFactory,
-    RuntimeServiceId: Debug + Sync + Display + AsServiceId<NetworkService<B, RuntimeServiceId>>,
+    RuntimeServiceId:
+        Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
 {
     let relay = handle
         .relay::<NetworkService<B, RuntimeServiceId>>()

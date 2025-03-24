@@ -73,7 +73,8 @@ pub struct DaNetworkValidatorBackend<Membership> {
 }
 
 #[async_trait::async_trait]
-impl<Membership> NetworkBackend for DaNetworkValidatorBackend<Membership>
+impl<Membership, RuntimeServiceId> NetworkBackend<RuntimeServiceId>
+    for DaNetworkValidatorBackend<Membership>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -88,10 +89,7 @@ where
     type EventKind = DaNetworkEventKind;
     type NetworkEvent = DaNetworkEvent;
 
-    fn new<RuntimeServiceId>(
-        config: Self::Settings,
-        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-    ) -> Self {
+    fn new(config: Self::Settings, overwatch_handle: OverwatchHandle<RuntimeServiceId>) -> Self {
         let keypair =
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
         let (mut validator_swarm, validator_events_stream) = ValidatorSwarm::new(

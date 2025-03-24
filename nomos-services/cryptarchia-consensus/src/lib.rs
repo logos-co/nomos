@@ -451,6 +451,7 @@ where
         + Send
         + Sync
         + Display
+        + 'static
         + AsServiceId<Self>
         + AsServiceId<NetworkService<NetAdapter::Backend, RuntimeServiceId>>
         + AsServiceId<BlendService<BlendAdapter::Backend, BlendAdapter::Network, RuntimeServiceId>>
@@ -468,7 +469,8 @@ where
                 ApiAdapter,
                 RuntimeServiceId,
             >,
-        > + AsServiceId<StorageService<Storage, RuntimeServiceId>>
+        >
+        + AsServiceId<StorageService<Storage, RuntimeServiceId>>
         + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>,
 {
     fn init(

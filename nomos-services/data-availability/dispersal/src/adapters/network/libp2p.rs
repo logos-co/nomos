@@ -36,7 +36,8 @@ where
         + Sync
         + 'static,
 {
-    outbound_relay: OutboundRelay<DaNetworkMsg<DaNetworkExecutorBackend<Membership>>>,
+    outbound_relay:
+        OutboundRelay<DaNetworkMsg<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>>,
     _phantom: PhantomData<RuntimeServiceId>,
 }
 

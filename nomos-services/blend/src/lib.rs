@@ -89,7 +89,8 @@ where
         + Debug
         + Display
         + Sync
-        + Send,
+        + Send
+        + 'static,
 {
     fn init(
         service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,

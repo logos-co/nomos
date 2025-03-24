@@ -96,7 +96,8 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Membership> NetworkBackend for DaNetworkExecutorBackend<Membership>
+impl<Membership, RuntimeServiceId> NetworkBackend<RuntimeServiceId>
+    for DaNetworkExecutorBackend<Membership>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -111,10 +112,7 @@ where
     type EventKind = DaNetworkEventKind;
     type NetworkEvent = DaNetworkEvent;
 
-    fn new<RuntimeServiceId>(
-        config: Self::Settings,
-        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-    ) -> Self {
+    fn new(config: Self::Settings, overwatch_handle: OverwatchHandle<RuntimeServiceId>) -> Self {
         let keypair = libp2p::identity::Keypair::from(ed25519::Keypair::from(
             config.validator_settings.node_key.clone(),
         ));

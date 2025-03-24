@@ -34,7 +34,8 @@ use crate::{
     CryptarchiaConsensus, MempoolRelay, SamplingRelay,
 };
 
-type NetworkRelay<NetworkBackend> = OutboundRelay<NetworkMsg<NetworkBackend>>;
+type NetworkRelay<NetworkBackend, RuntimeServiceId> =
+    OutboundRelay<NetworkMsg<NetworkBackend, RuntimeServiceId>>;
 type BlendRelay<BlendAdapterNetworkBroadcastSettings> =
     OutboundRelay<ServiceMessage<BlendAdapterNetworkBroadcastSettings>>;
 type ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> = MempoolRelay<
@@ -78,8 +79,10 @@ pub struct CryptarchiaConsensusRelays<
     TxS: TxSelect,
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend,
 {
-    network_relay:
-        NetworkRelay<<NetworkAdapter as network::NetworkAdapter<RuntimeServiceId>>::Backend>,
+    network_relay: NetworkRelay<
+        <NetworkAdapter as network::NetworkAdapter<RuntimeServiceId>>::Backend,
+        RuntimeServiceId,
+    >,
     blend_relay: BlendRelay<
         <<BlendAdapter as blend::BlendAdapter<RuntimeServiceId>>::Network as BlendNetworkAdapter<
             RuntimeServiceId,
@@ -158,6 +161,7 @@ where
     pub async fn new(
         network_relay: NetworkRelay<
             <NetworkAdapter as network::NetworkAdapter<RuntimeServiceId>>::Backend,
+            RuntimeServiceId,
         >,
         blend_relay: BlendRelay<
             <<BlendAdapter as blend::BlendAdapter<RuntimeServiceId>>::Network as BlendNetworkAdapter<RuntimeServiceId>>::BroadcastSettings,>,
@@ -243,10 +247,12 @@ where
             + Sync
             + Send
             + Display
+            + 'static
             + AsServiceId<NetworkService<NetworkAdapter::Backend, RuntimeServiceId>>
             + AsServiceId<
                 BlendService<BlendAdapter::Backend, BlendAdapter::Network, RuntimeServiceId>,
-            > + AsServiceId<TxMempoolService<ClPoolAdapter, ClPool, RuntimeServiceId>>
+            >
+            + AsServiceId<TxMempoolService<ClPoolAdapter, ClPool, RuntimeServiceId>>
             + AsServiceId<TxMempoolService<DaPoolAdapter, DaPool, RuntimeServiceId>>
             + AsServiceId<
                 DaSamplingService<
@@ -260,7 +266,8 @@ where
                     ApiAdapter,
                     RuntimeServiceId,
                 >,
-            > + AsServiceId<StorageService<Storage, RuntimeServiceId>>,
+            >
+            + AsServiceId<StorageService<Storage, RuntimeServiceId>>,
     {
         let network_relay = state_handle
             .overwatch_handle
@@ -324,7 +331,10 @@ where
 
     pub const fn network_relay(
         &self,
-    ) -> &NetworkRelay<<NetworkAdapter as network::NetworkAdapter<RuntimeServiceId>>::Backend> {
+    ) -> &NetworkRelay<
+        <NetworkAdapter as network::NetworkAdapter<RuntimeServiceId>>::Backend,
+        RuntimeServiceId,
+    > {
         &self.network_relay
     }
 

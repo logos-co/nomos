@@ -24,7 +24,7 @@ pub async fn add_tx<N, A, Item, Key, RuntimeServiceId>(
     converter: impl Fn(&Item) -> Key,
 ) -> Result<(), DynError>
 where
-    N: NetworkBackend,
+    N: NetworkBackend<RuntimeServiceId>,
     A: NetworkAdapter<RuntimeServiceId, Backend = N, Payload = Item, Key = Key>
         + Send
         + Sync
@@ -76,7 +76,7 @@ pub async fn add_blob_info<
     converter: impl Fn(&A::Payload) -> Key,
 ) -> Result<(), DynError>
 where
-    N: NetworkBackend,
+    N: NetworkBackend<RuntimeServiceId>,
     A: NetworkAdapter<RuntimeServiceId, Backend = N, Key = Key> + Send + Sync + 'static,
     A::Payload: DispersedBlobInfo + Into<Item> + Debug,
     A::Settings: Send + Sync,

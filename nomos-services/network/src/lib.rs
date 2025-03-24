@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use services_utils::overwatch::lifecycle;
 use tokio::sync::{broadcast, oneshot};
 
-pub enum NetworkMsg<B: NetworkBackend> {
+pub enum NetworkMsg<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> {
     Process(B::Message),
     Subscribe {
         kind: B::EventKind,
@@ -23,7 +23,9 @@ pub enum NetworkMsg<B: NetworkBackend> {
     },
 }
 
-impl<B: NetworkBackend> Debug for NetworkMsg<B> {
+impl<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> Debug
+    for NetworkMsg<B, RuntimeServiceId>
+{
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Process(msg) => write!(fmt, "NetworkMsg::Process({msg:?})"),
@@ -36,38 +38,40 @@ impl<B: NetworkBackend> Debug for NetworkMsg<B> {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct NetworkConfig<B: NetworkBackend> {
+pub struct NetworkConfig<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> {
     pub backend: B::Settings,
 }
 
-impl<B: NetworkBackend> Debug for NetworkConfig<B> {
+impl<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> Debug
+    for NetworkConfig<B, RuntimeServiceId>
+{
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(fmt, "NetworkConfig {{ backend: {:?}}}", self.backend)
     }
 }
 
-pub struct NetworkService<B: NetworkBackend + 'static, RuntimeServiceId> {
+pub struct NetworkService<B: NetworkBackend<RuntimeServiceId> + 'static, RuntimeServiceId> {
     backend: B,
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
 }
 
-pub struct NetworkState<B: NetworkBackend> {
+pub struct NetworkState<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> {
     backend: B::State,
 }
 
-impl<B: NetworkBackend + 'static, RuntimeServiceId> ServiceData
+impl<B: NetworkBackend<RuntimeServiceId> + 'static, RuntimeServiceId> ServiceData
     for NetworkService<B, RuntimeServiceId>
 {
-    type Settings = NetworkConfig<B>;
-    type State = NetworkState<B>;
+    type Settings = NetworkConfig<B, RuntimeServiceId>;
+    type State = NetworkState<B, RuntimeServiceId>;
     type StateOperator = NoOperator<Self::State, Self::Settings>;
-    type Message = NetworkMsg<B>;
+    type Message = NetworkMsg<B, RuntimeServiceId>;
 }
 
 #[async_trait]
 impl<B, RuntimeServiceId> ServiceCore<RuntimeServiceId> for NetworkService<B, RuntimeServiceId>
 where
-    B: NetworkBackend + Send + 'static,
+    B: NetworkBackend<RuntimeServiceId> + Send + 'static,
     B::State: Send + Sync,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send,
 {
@@ -76,7 +80,7 @@ where
         _init_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
         Ok(Self {
-            backend: <B as NetworkBackend>::new(
+            backend: <B as NetworkBackend<RuntimeServiceId>>::new(
                 service_state.settings_reader.get_updated_settings().backend,
                 service_state.overwatch_handle.clone(),
             ),
@@ -118,10 +122,10 @@ where
 
 impl<B, RuntimeServiceId> NetworkService<B, RuntimeServiceId>
 where
-    B: NetworkBackend + Send + 'static,
+    B: NetworkBackend<RuntimeServiceId> + Send + 'static,
     B::State: Send + Sync,
 {
-    async fn handle_network_service_message(msg: NetworkMsg<B>, backend: &mut B) {
+    async fn handle_network_service_message(msg: NetworkMsg<B, RuntimeServiceId>, backend: &mut B) {
         match msg {
             NetworkMsg::Process(msg) => {
                 // split sending in two steps to help the compiler understand we do not
@@ -140,7 +144,9 @@ where
     }
 }
 
-impl<B: NetworkBackend> Clone for NetworkConfig<B> {
+impl<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> Clone
+    for NetworkConfig<B, RuntimeServiceId>
+{
     fn clone(&self) -> Self {
         Self {
             backend: self.backend.clone(),
@@ -148,7 +154,9 @@ impl<B: NetworkBackend> Clone for NetworkConfig<B> {
     }
 }
 
-impl<B: NetworkBackend> Clone for NetworkState<B> {
+impl<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> Clone
+    for NetworkState<B, RuntimeServiceId>
+{
     fn clone(&self) -> Self {
         Self {
             backend: self.backend.clone(),
@@ -156,8 +164,10 @@ impl<B: NetworkBackend> Clone for NetworkState<B> {
     }
 }
 
-impl<B: NetworkBackend> ServiceState for NetworkState<B> {
-    type Settings = NetworkConfig<B>;
+impl<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> ServiceState
+    for NetworkState<B, RuntimeServiceId>
+{
+    type Settings = NetworkConfig<B, RuntimeServiceId>;
     type Error = <B::State as ServiceState>::Error;
 
     fn from_settings(settings: &Self::Settings) -> Result<Self, Self::Error> {

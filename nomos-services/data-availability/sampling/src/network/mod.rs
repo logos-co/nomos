@@ -16,7 +16,7 @@ use overwatch::{
 
 #[async_trait::async_trait]
 pub trait NetworkAdapter<RuntimeServiceId> {
-    type Backend: NetworkBackend + Send + 'static;
+    type Backend: NetworkBackend<RuntimeServiceId> + Send + 'static;
     type Settings: Clone;
 
     async fn new(

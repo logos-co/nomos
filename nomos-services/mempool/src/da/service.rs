@@ -250,6 +250,7 @@ where
         + Sync
         + Display
         + Send
+        + 'static
         + AsServiceId<Self>
         + AsServiceId<NetworkService<NetworkAdapter::Backend, RuntimeServiceId>>
         + AsServiceId<
@@ -382,6 +383,7 @@ where
     NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId, Payload = Pool::Item> + Send,
     NetworkAdapter::Settings: Clone + Send + 'static,
     RecoveryBackend: RecoveryBackendTrait,
+    RuntimeServiceId: 'static,
 {
     #[expect(
         clippy::cognitive_complexity,
@@ -390,7 +392,7 @@ where
     fn handle_mempool_message(
         &mut self,
         message: MempoolMsg<Pool::BlockId, NetworkAdapter::Payload, Pool::Item, Pool::Key>,
-        network_relay: OutboundRelay<NetworkMsg<NetworkAdapter::Backend>>,
+        network_relay: OutboundRelay<NetworkMsg<NetworkAdapter::Backend, RuntimeServiceId>>,
     ) {
         match message {
             MempoolMsg::Add {
