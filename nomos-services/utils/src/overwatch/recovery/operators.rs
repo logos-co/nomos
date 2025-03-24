@@ -57,7 +57,7 @@ where
     async fn run(&mut self, state: Self::StateInput) {
         let save_result = self.recovery_backend.save_state(&state);
         if let Err(error) = save_result {
-            error!("{}", error);
+            error!("{error}");
         }
     }
 }
