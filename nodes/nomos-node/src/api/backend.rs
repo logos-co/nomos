@@ -293,6 +293,12 @@ where
                 DaNetworkValidatorBackend<Membership>,
                 RuntimeServiceId,
             >,
+        >
+        + AsServiceId<
+            nomos_network::NetworkService<
+                nomos_network::backends::libp2p::Libp2p,
+                RuntimeServiceId,
+            >,
         >,
 {
     type Error = hyper::Error;
@@ -448,7 +454,10 @@ where
                     blacklisted_peers::<DaNetworkValidatorBackend<Membership>, RuntimeServiceId>,
                 ),
             )
-            // .route(paths::NETWORK_INFO, routing::get(libp2p_info))
+            .route(
+                paths::NETWORK_INFO,
+                routing::get(libp2p_info::<RuntimeServiceId>),
+            )
             // .route(
             //     paths::STORAGE_BLOCK,
             //     routing::post(block::<DaStorageSerializer, Tx>),
