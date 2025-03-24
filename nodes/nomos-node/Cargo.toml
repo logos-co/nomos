@@ -39,6 +39,7 @@ rand_chacha              = "0.3"
 serde                    = "1"
 serde_yaml               = "0.9"
 subnetworks-assignations = { workspace = true }
+tokio                    = "1"
 tracing                  = "0.1"
 
 # openapi related dependencies
