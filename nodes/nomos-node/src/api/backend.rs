@@ -520,10 +520,10 @@ where
                     >,
                 ),
             )
-            // .route(
-            //     paths::DA_GET_SHARES_COMMITMENTS,
-            //     routing::get(da_get_commitments::<DaStorageSerializer, DaShare>),
-            // )
+            .route(
+                paths::DA_GET_SHARES_COMMITMENTS,
+                routing::get(da_get_commitments::<DaStorageSerializer, DaShare, RuntimeServiceId>),
+            )
             // .route(
             //     paths::DA_GET_LIGHT_SHARE,
             //     routing::get(da_get_light_share::<DaStorageSerializer, DaShare>),
