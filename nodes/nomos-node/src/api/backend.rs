@@ -28,7 +28,10 @@ use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_da_verifier::backend::VerifierBackend;
 use nomos_libp2p::PeerId;
 use nomos_mempool::{tx::service::openapi::Status, MempoolMetrics};
-use nomos_storage::backends::StorageSerde;
+use nomos_storage::{
+    backends::{rocksdb::RocksBackend, StorageSerde},
+    StorageService,
+};
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -299,7 +302,8 @@ where
                 nomos_network::backends::libp2p::Libp2p,
                 RuntimeServiceId,
             >,
-        >,
+        >
+        + AsServiceId<StorageService<RocksBackend<DaStorageSerializer>, RuntimeServiceId>>,
 {
     type Error = hyper::Error;
     type Settings = AxumBackendSettings;
@@ -458,10 +462,10 @@ where
                 paths::NETWORK_INFO,
                 routing::get(libp2p_info::<RuntimeServiceId>),
             )
-            // .route(
-            //     paths::STORAGE_BLOCK,
-            //     routing::post(block::<DaStorageSerializer, Tx>),
-            // )
+            .route(
+                paths::STORAGE_BLOCK,
+                routing::post(block::<DaStorageSerializer, Tx, RuntimeServiceId>),
+            )
             // .route(paths::MEMPOOL_ADD_TX, routing::post(add_tx::<Tx>))
             // .route(
             //     paths::MEMPOOL_ADD_BLOB_INFO,
