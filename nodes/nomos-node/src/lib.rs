@@ -61,7 +61,8 @@ use subnetworks_assignations::versions::v1::FillFromNodeList;
 
 // use crate::api::backend::AxumBackend;
 // pub use crate::config::{Config, CryptarchiaArgs, HttpArgs, LogArgs,
-// NetworkArgs}; pub use crate::tx::Tx;
+// NetworkArgs};
+pub use crate::tx::Tx;
 
 /// Membership used by the DA Network service.
 pub type NomosDaMembership = FillFromNodeList;
@@ -122,10 +123,11 @@ pub type NomosDaMembership = FillFromNodeList;
 // pub type NodeCryptarchia =
 //     Cryptarchia<nomos_da_sampling::network::adapters::validator::Libp2pAdapter<NomosDaMembership>>;
 
-// pub type TxMempool = TxMempoolService<
-//     MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash>,
-//     MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
-// >;
+pub type TxMempool = TxMempoolService<
+    MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
+    MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
+    RuntimeServiceId,
+>;
 
 // pub type DaMempool = DaMempoolService<
 //     MempoolNetworkAdapter<BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
@@ -209,7 +211,7 @@ pub struct Nomos {
     da_verifier: NodeDaVerifier,
     da_sampling: NodeDaSampling,
     da_network: DaNetworkService<DaNetworkValidatorBackend<NomosDaMembership>, RuntimeServiceId>,
-    // cl_mempool: OpaqueServiceHandle<TxMempool>,
+    cl_mempool: TxMempool,
     // da_mempool: OpaqueServiceHandle<DaMempool>,
     // cryptarchia: OpaqueServiceHandle<NodeCryptarchia>,
     time: NomosTimeService,
