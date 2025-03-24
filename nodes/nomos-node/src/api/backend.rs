@@ -7,7 +7,7 @@ use std::{
 use axum::{http::HeaderValue, routing, Router, Server};
 use hyper::header::{CONTENT_TYPE, USER_AGENT};
 use nomos_api::{
-    http::{cl::ClMempoolService, consensus::Cryptarchia},
+    http::{cl::ClMempoolService, consensus::Cryptarchia, da::DaVerifier},
     Backend,
 };
 use nomos_core::{
@@ -255,6 +255,15 @@ where
                 RuntimeServiceId,
                 SIZE,
             >,
+        >
+        + AsServiceId<
+            DaVerifier<
+                DaShare,
+                Membership,
+                DaVerifierBackend,
+                DaStorageSerializer,
+                RuntimeServiceId,
+            >,
         >,
 {
     type Error = hyper::Error;
@@ -357,18 +366,19 @@ where
                     >,
                 ),
             )
-            // .route(
-            //     paths::DA_ADD_SHARE,
-            //     routing::post(
-            //         add_share::<
-            //             DaAttestation,
-            //             DaShare,
-            //             Membership,
-            //             DaVerifierBackend,
-            //             DaStorageSerializer,
-            //         >,
-            //     ),
-            // )
+            .route(
+                paths::DA_ADD_SHARE,
+                routing::post(
+                    add_share::<
+                        DaAttestation,
+                        DaShare,
+                        Membership,
+                        DaVerifierBackend,
+                        DaStorageSerializer,
+                        RuntimeServiceId,
+                    >,
+                ),
+            )
             // .route(
             //     paths::DA_GET_RANGE,
             //     routing::post(
