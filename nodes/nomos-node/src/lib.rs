@@ -214,7 +214,7 @@ pub struct Nomos {
     // time: OpaqueServiceHandle<NomosTimeService>,
     // http: OpaqueServiceHandle<NomosApiService>,
     // storage: OpaqueServiceHandle<StorageService<RocksBackend<Wire>>>,
-    // system_sig: OpaqueServiceHandle<SystemSig>,
+    system_sig: SystemSig<RuntimeServiceId>,
 }
 
 // pub struct Wire;
