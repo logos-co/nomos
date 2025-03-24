@@ -19,24 +19,24 @@ use overwatch::services::ServiceData;
 use serde::{Deserialize, Serialize};
 use subnetworks_assignations::versions::v1::FillFromNodeList;
 
-use crate::ExecutorApiService;
+use crate::{ExecutorApiService, RuntimeServiceId};
 
 #[derive(Deserialize, Debug, Clone, Serialize)]
 pub struct Config {
     #[cfg(feature = "tracing")]
-    pub tracing: <nomos_node::Tracing as ServiceData>::Settings,
-    pub network: <NetworkService<NetworkBackend> as ServiceData>::Settings,
-    pub blend: <BlendService<BlendBackend, BlendNetworkAdapter> as ServiceData>::Settings,
+    pub tracing: <nomos_node::Tracing<RuntimeServiceId> as ServiceData>::Settings,
+    pub network: <NetworkService<NetworkBackend, nomos_node::RuntimeServiceId> as ServiceData>::Settings,
+    pub blend: <BlendService<BlendBackend, BlendNetworkAdapter<RuntimeServiceId>, RuntimeServiceId> as ServiceData>::Settings,
     pub da_dispersal: <crate::DaDispersal as ServiceData>::Settings,
     pub da_network:
-        <DaNetworkService<DaNetworkExecutorBackend<FillFromNodeList>> as ServiceData>::Settings,
+        <DaNetworkService<DaNetworkExecutorBackend<FillFromNodeList>, RuntimeServiceId> as ServiceData>::Settings,
     pub da_indexer: <crate::ExecutorDaIndexer as ServiceData>::Settings,
     pub da_verifier: <crate::ExecutorDaVerifier as ServiceData>::Settings,
     pub da_sampling: <crate::ExecutorDaSampling as ServiceData>::Settings,
     pub http: <ExecutorApiService as ServiceData>::Settings,
     pub cryptarchia: <crate::ExecutorCryptarchia as ServiceData>::Settings,
-    pub time: <NomosTimeService as ServiceData>::Settings,
-    pub storage: <crate::StorageService<RocksBackend<Wire>> as ServiceData>::Settings,
+    pub time: <NomosTimeService<RuntimeServiceId> as ServiceData>::Settings,
+    pub storage: <crate::StorageService<RocksBackend<Wire>, RuntimeServiceId> as ServiceData>::Settings,
     pub mempool: MempoolConfig,
 }
 

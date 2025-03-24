@@ -98,47 +98,53 @@ pub const CL_TOPIC: &str = "cl";
 pub const DA_TOPIC: &str = "da";
 pub const MB16: usize = 1024 * 1024 * 16;
 
-pub type Cryptarchia<SamplingAdapter> = cryptarchia_consensus::CryptarchiaConsensus<
-    cryptarchia_consensus::network::adapters::libp2p::LibP2pAdapter<Tx, BlobInfo, RuntimeServiceId>,
-    cryptarchia_consensus::blend::adapters::libp2p::LibP2pAdapter<
-        BlendNetworkAdapter<RuntimeServiceId>,
-        Tx,
-        BlobInfo,
+pub type Cryptarchia<SamplingAdapter, RuntimeServiceId> =
+    cryptarchia_consensus::CryptarchiaConsensus<
+        cryptarchia_consensus::network::adapters::libp2p::LibP2pAdapter<
+            Tx,
+            BlobInfo,
+            RuntimeServiceId,
+        >,
+        cryptarchia_consensus::blend::adapters::libp2p::LibP2pAdapter<
+            BlendNetworkAdapter<RuntimeServiceId>,
+            Tx,
+            BlobInfo,
+            RuntimeServiceId,
+        >,
+        MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
+        MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
+        MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
+        MempoolNetworkAdapter<BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId, RuntimeServiceId>,
+        FillSizeWithTx<MB16, Tx>,
+        FillSizeWithBlobs<MB16, BlobInfo>,
+        RocksBackend<Wire>,
+        KzgrsSamplingBackend<ChaCha20Rng>,
+        SamplingAdapter,
+        ChaCha20Rng,
+        SamplingStorageAdapter<DaShare, Wire>,
+        KzgrsDaVerifier,
+        VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+        VerifierStorageAdapter<DaShare, Wire>,
+        SystemTimeBackend,
+        HttApiAdapter<NomosDaMembership>,
         RuntimeServiceId,
-    >,
-    MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
-    MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
-    MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
-    MempoolNetworkAdapter<BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId, RuntimeServiceId>,
-    FillSizeWithTx<MB16, Tx>,
-    FillSizeWithBlobs<MB16, BlobInfo>,
-    RocksBackend<Wire>,
-    KzgrsSamplingBackend<ChaCha20Rng>,
-    SamplingAdapter,
-    ChaCha20Rng,
-    SamplingStorageAdapter<DaShare, Wire>,
-    KzgrsDaVerifier,
-    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
-    VerifierStorageAdapter<DaShare, Wire>,
-    SystemTimeBackend,
-    HttApiAdapter<NomosDaMembership>,
-    RuntimeServiceId,
->;
+    >;
 
 pub type NodeCryptarchia = Cryptarchia<
     nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
         NomosDaMembership,
         RuntimeServiceId,
     >,
+    RuntimeServiceId,
 >;
 
-pub type TxMempool = TxMempoolService<
+pub type TxMempool<RuntimeServiceId> = TxMempoolService<
     MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
     MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
     RuntimeServiceId,
 >;
 
-pub type DaMempool = DaMempoolService<
+pub type DaMempool<RuntimeServiceId> = DaMempoolService<
     MempoolNetworkAdapter<BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId, RuntimeServiceId>,
     MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
     KzgrsSamplingBackend<ChaCha20Rng>,
@@ -155,7 +161,7 @@ pub type DaMempool = DaMempoolService<
     RuntimeServiceId,
 >;
 
-pub type DaIndexer<SamplingAdapter> = DataIndexerService<
+pub type DaIndexer<SamplingAdapter, RuntimeServiceId> = DataIndexerService<
     // Indexer specific.
     DaShare,
     IndexerStorageAdapter<Wire, BlobInfo>,
@@ -192,9 +198,10 @@ pub type NodeDaIndexer = DaIndexer<
         NomosDaMembership,
         RuntimeServiceId,
     >,
+    RuntimeServiceId,
 >;
 
-pub type DaSampling<SamplingAdapter> = DaSamplingService<
+pub type DaSampling<SamplingAdapter, RuntimeServiceId> = DaSamplingService<
     KzgrsSamplingBackend<ChaCha20Rng>,
     SamplingAdapter,
     ChaCha20Rng,
@@ -206,18 +213,20 @@ pub type DaSampling<SamplingAdapter> = DaSamplingService<
     RuntimeServiceId,
 >;
 
-pub type NodeDaSampling = DaSampling<SamplingLibp2pAdapter<NomosDaMembership, RuntimeServiceId>>;
+pub type NodeDaSampling =
+    DaSampling<SamplingLibp2pAdapter<NomosDaMembership, RuntimeServiceId>, RuntimeServiceId>;
 
-pub type DaVerifier<VerifierAdapter> = DaVerifierService<
+pub type DaVerifier<VerifierAdapter, RuntimeServiceId> = DaVerifierService<
     KzgrsDaVerifier,
     VerifierAdapter,
     VerifierStorageAdapter<DaShare, Wire>,
     RuntimeServiceId,
 >;
 
-pub type NodeDaVerifier = DaVerifier<VerifierNetworkAdapter<FillFromNodeList, RuntimeServiceId>>;
+pub type NodeDaVerifier =
+    DaVerifier<VerifierNetworkAdapter<FillFromNodeList, RuntimeServiceId>, RuntimeServiceId>;
 
-pub type NomosTimeService = TimeService<SystemTimeBackend, RuntimeServiceId>;
+pub type NomosTimeService<RuntimeServiceId> = TimeService<SystemTimeBackend, RuntimeServiceId>;
 
 #[derive_services]
 pub struct Nomos {
@@ -229,10 +238,10 @@ pub struct Nomos {
     da_verifier: NodeDaVerifier,
     da_sampling: NodeDaSampling,
     da_network: DaNetworkService<DaNetworkValidatorBackend<NomosDaMembership>, RuntimeServiceId>,
-    cl_mempool: TxMempool,
-    da_mempool: DaMempool,
+    cl_mempool: TxMempool<RuntimeServiceId>,
+    da_mempool: DaMempool<RuntimeServiceId>,
     cryptarchia: NodeCryptarchia,
-    time: NomosTimeService,
+    time: NomosTimeService<RuntimeServiceId>,
     http: NomosApiService,
     storage: StorageService<RocksBackend<Wire>, RuntimeServiceId>,
     system_sig: SystemSig<RuntimeServiceId>,

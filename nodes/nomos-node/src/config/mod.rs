@@ -26,9 +26,7 @@ use serde::{Deserialize, Serialize};
 use subnetworks_assignations::versions::v1::FillFromNodeList;
 use tracing::Level;
 
-use crate::{
-    config::mempool::MempoolConfig, NomosApiService, NomosDaMembership, RuntimeServiceId, Wire,
-};
+use crate::{config::mempool::MempoolConfig, NomosApiService, RuntimeServiceId, Wire};
 
 pub mod mempool;
 
@@ -145,9 +143,7 @@ pub struct Config {
     pub da_verifier: <crate::NodeDaVerifier as ServiceData>::Settings,
     pub da_sampling: <crate::NodeDaSampling as ServiceData>::Settings,
     pub http: <NomosApiService as ServiceData>::Settings,
-    pub cryptarchia: <crate::Cryptarchia<
-        nomos_da_sampling::network::adapters::validator::Libp2pAdapter<NomosDaMembership, RuntimeServiceId>,
-    > as ServiceData>::Settings,
+    pub cryptarchia: <crate::NodeCryptarchia as ServiceData>::Settings,
     pub time: nomos_time::TimeServiceSettings<
         nomos_time::backends::system_time::SystemTimeBackendSettings,
     >,
