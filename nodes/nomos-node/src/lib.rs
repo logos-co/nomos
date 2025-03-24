@@ -195,7 +195,7 @@ use subnetworks_assignations::versions::v1::FillFromNodeList;
 // pub type NodeDaVerifier =
 // DaVerifier<VerifierNetworkAdapter<FillFromNodeList>>;
 
-// pub type NomosTimeService = TimeService<SystemTimeBackend>;
+pub type NomosTimeService = TimeService<SystemTimeBackend, RuntimeServiceId>;
 
 #[derive_services]
 pub struct Nomos {
@@ -211,7 +211,7 @@ pub struct Nomos {
     // cl_mempool: OpaqueServiceHandle<TxMempool>,
     // da_mempool: OpaqueServiceHandle<DaMempool>,
     // cryptarchia: OpaqueServiceHandle<NodeCryptarchia>,
-    // time: OpaqueServiceHandle<NomosTimeService>,
+    time: NomosTimeService,
     // http: OpaqueServiceHandle<NomosApiService>,
     storage: StorageService<RocksBackend<Wire>, RuntimeServiceId>,
     system_sig: SystemSig<RuntimeServiceId>,
