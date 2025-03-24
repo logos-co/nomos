@@ -28,7 +28,8 @@ use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_da_verifier::backend::VerifierBackend;
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
-    backend::mockpool::MockPool, tx::service::openapi::Status, MempoolMetrics, TxMempoolService,
+    backend::mockpool::MockPool, tx::service::openapi::Status, DaMempoolService, MempoolMetrics,
+    TxMempoolService,
 };
 use nomos_storage::{
     backends::{rocksdb::RocksBackend, StorageSerde},
@@ -316,6 +317,25 @@ where
                 MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
                 RuntimeServiceId,
             >,
+        >
+        + AsServiceId<
+            DaMempoolService<
+                nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
+                    DaVerifiedBlobInfo,
+                    DaVerifiedBlobInfo::BlobId,
+                    RuntimeServiceId,
+                >,
+                MockPool<HeaderId, DaVerifiedBlobInfo, DaVerifiedBlobInfo::BlobId>,
+                SamplingBackend,
+                SamplingNetworkAdapter,
+                SamplingRng,
+                SamplingStorage,
+                DaVerifierBackend,
+                DaVerifierNetwork,
+                DaVerifierStorage,
+                ApiAdapter,
+                RuntimeServiceId,
+            >,
         >,
 {
     type Error = hyper::Error;
@@ -483,22 +503,23 @@ where
                 paths::MEMPOOL_ADD_TX,
                 routing::post(add_tx::<Tx, RuntimeServiceId>),
             )
-            // .route(
-            //     paths::MEMPOOL_ADD_BLOB_INFO,
-            //     routing::post(
-            //         add_blob_info::<
-            //             DaVerifiedBlobInfo,
-            //             SamplingBackend,
-            //             SamplingNetworkAdapter,
-            //             SamplingRng,
-            //             SamplingStorage,
-            //             DaVerifierBackend,
-            //             DaVerifierNetwork,
-            //             DaVerifierStorage,
-            //             ApiAdapter,
-            //         >,
-            //     ),
-            // )
+            .route(
+                paths::MEMPOOL_ADD_BLOB_INFO,
+                routing::post(
+                    add_blob_info::<
+                        DaVerifiedBlobInfo,
+                        SamplingBackend,
+                        SamplingNetworkAdapter,
+                        SamplingRng,
+                        SamplingStorage,
+                        DaVerifierBackend,
+                        DaVerifierNetwork,
+                        DaVerifierStorage,
+                        ApiAdapter,
+                        RuntimeServiceId,
+                    >,
+                ),
+            )
             // .route(
             //     paths::DA_GET_SHARES_COMMITMENTS,
             //     routing::get(da_get_commitments::<DaStorageSerializer, DaShare>),
