@@ -27,7 +27,9 @@ use nomos_da_messages::{
     packing::{pack_to_writer, unpack_from_reader},
     replication::{ReplicationRequest, ReplicationResponseId},
 };
+use nomos_utils::bounded_duration::{MinimalBoundedDuration, MINUTE};
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use subnetworks_assignations::MembershipHandler;
 use thiserror::Error;
 use tokio::sync::mpsc;
@@ -184,9 +186,11 @@ impl PendingOutbound {
     }
 }
 
+#[serde_as]
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct ReplicationConfig {
     pub seen_message_cache_size: usize,
+    #[serde_as(as = "MinimalBoundedDuration<1, MINUTE>")]
     pub seen_message_ttl: Duration,
 }
 
