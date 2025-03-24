@@ -200,7 +200,7 @@ use subnetworks_assignations::versions::v1::FillFromNodeList;
 pub struct Nomos {
     #[cfg(feature = "tracing")]
     tracing: Tracing<RuntimeServiceId>,
-    // network: OpaqueServiceHandle<NetworkService<NetworkBackend>>,
+    network: NetworkService<NetworkBackend, RuntimeServiceId>,
     // blend: OpaqueServiceHandle<BlendService<BlendBackend, BlendNetworkAdapter>>,
     // da_indexer: OpaqueServiceHandle<NodeDaIndexer>,
     // da_verifier: OpaqueServiceHandle<NodeDaVerifier>,
