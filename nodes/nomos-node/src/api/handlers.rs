@@ -14,7 +14,11 @@ use http::{header, StatusCode};
 use nomos_api::http::{
     cl::{self, ClMempoolService},
     consensus::{self, Cryptarchia},
-    da::{self, DaIndexer, DaVerifier, PeerMessagesFactory},
+    da::{self, BalancerMessageFactory, DaIndexer, DaVerifier, MonitorMessageFactory},
+    /*
+    cl, consensus,
+    da::{self, BalancerMessageFactory, MonitorMessageFactory},
+     */
     da_shares, libp2p, mempool, storage,
 };
 use nomos_core::{
@@ -481,7 +485,7 @@ pub async fn block_peer<Backend, RuntimeServiceId>(
 ) -> Response
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
-    Backend::Message: PeerMessagesFactory,
+    Backend::Message: MonitorMessageFactory,
     RuntimeServiceId:
         Debug + Sync + Display + 'static + AsServiceId<NetworkService<Backend, RuntimeServiceId>>,
 {
@@ -505,7 +509,7 @@ pub async fn unblock_peer<Backend, RuntimeServiceId>(
 ) -> Response
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
-    Backend::Message: PeerMessagesFactory,
+    Backend::Message: MonitorMessageFactory,
     RuntimeServiceId:
         Debug + Sync + Display + 'static + AsServiceId<NetworkService<Backend, RuntimeServiceId>>,
 {
@@ -527,7 +531,7 @@ pub async fn blacklisted_peers<Backend, RuntimeServiceId>(
 ) -> Response
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
-    Backend::Message: PeerMessagesFactory,
+    Backend::Message: MonitorMessageFactory,
     RuntimeServiceId:
         Debug + Sync + Display + 'static + AsServiceId<NetworkService<Backend, RuntimeServiceId>>,
 {
@@ -693,6 +697,46 @@ where
         }
         Err(e) => IntoResponse::into_response((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
+}
+
+#[utoipa::path(
+    get,
+    path = paths::DA_BALANCER_STATS,
+    responses(
+        (status = 200, description = "Get balancer stats", body = String),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
+pub async fn balancer_stats<Backend, RuntimeServiceId>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+) -> Response
+where
+    Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
+    Backend::Message: BalancerMessageFactory,
+    RuntimeServiceId:
+        Debug + Sync + Display + 'static + AsServiceId<NetworkService<Backend, RuntimeServiceId>>,
+{
+    make_request_and_return_response!(da::balancer_stats::<Backend, RuntimeServiceId>(&handle))
+}
+
+#[utoipa::path(
+    get,
+    path = paths::DA_BALANCER_STATS,
+    responses(
+        (status = 200, description = "Get monitor stats", body = String),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
+pub async fn monitor_stats<Backend, RuntimeServiceId>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+) -> Response
+where
+    Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
+    Backend::Message: MonitorMessageFactory,
+    RuntimeServiceId:
+        Debug + Sync + Display + 'static + AsServiceId<NetworkService<Backend, RuntimeServiceId>>,
+{
+    make_request_and_return_response!(da::monitor_stats::<Backend, RuntimeServiceId>(&handle))
 }
 
 #[utoipa::path(

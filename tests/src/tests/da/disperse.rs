@@ -85,6 +85,15 @@ async fn disseminate_retrieve_reconstruct() {
         let reconstructed = reconstruct_without_missing_data(&blobs);
         assert_eq!(reconstructed, data);
     }
+
+    let validator = &topology.validators()[0];
+
+    // TODO think about a test with malicious/unhealthy peers that'd trigger
+    // recording some monitor stats too
+    assert_eq!(executor.balancer_stats().await.len(), 2);
+    assert!(executor.monitor_stats().await.0.is_empty());
+    assert_eq!(validator.balancer_stats().await.len(), 2);
+    assert!(validator.monitor_stats().await.0.is_empty());
 }
 
 #[tokio::test]

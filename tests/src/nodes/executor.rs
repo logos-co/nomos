@@ -23,6 +23,7 @@ use nomos_da_indexer::{
     storage::adapters::rocksdb::RocksAdapterSettings as IndexerStorageAdapterSettings,
     IndexerSettings,
 };
+use nomos_da_network_core::swarm::{BalancerStats, MonitorStats};
 use nomos_da_network_service::{
     backends::libp2p::{
         common::DaNetworkBackendSettings, executor::DaNetworkExecutorBackendSettings,
@@ -41,7 +42,10 @@ use nomos_da_verifier::{
 use nomos_executor::{api::backend::AxumBackendSettings, config::Config};
 use nomos_network::{backends::libp2p::Libp2pConfig, NetworkConfig};
 use nomos_node::{
-    api::paths::{CL_METRICS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER, DA_GET_RANGE, DA_UNBLOCK_PEER},
+    api::paths::{
+        CL_METRICS, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER, DA_GET_RANGE,
+        DA_MONITOR_STATS, DA_UNBLOCK_PEER,
+    },
     config::mempool::MempoolConfig,
     RocksBackendSettings,
 };
@@ -198,6 +202,24 @@ impl Executor {
     #[must_use]
     pub const fn config(&self) -> &Config {
         &self.config
+    }
+
+    pub async fn balancer_stats(&self) -> BalancerStats {
+        self.get(DA_BALANCER_STATS)
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
+    }
+
+    pub async fn monitor_stats(&self) -> MonitorStats {
+        self.get(DA_MONITOR_STATS)
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
     }
 }
 

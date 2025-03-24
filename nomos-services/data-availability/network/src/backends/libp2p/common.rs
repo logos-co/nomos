@@ -1,15 +1,14 @@
-use std::time::Duration;
+use std::{fmt::Debug, time::Duration};
 
 use futures::StreamExt;
 use kzgrs_backend::common::{
     share::{DaLightShare, DaShare},
     ShareIndex,
 };
-use libp2p::PeerId;
 use log::error;
 use nomos_core::da::BlobId;
 use nomos_da_network_core::{
-    maintenance::monitor::PeerCommand,
+    maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::sampling::{
         self,
         behaviour::{BehaviourSampleReq, BehaviourSampleRes, SamplingError},
@@ -78,13 +77,6 @@ impl SamplingEvent {
     pub fn has_blob_id(&self, target: &BlobId) -> bool {
         self.blob_id() == Some(target)
     }
-}
-
-#[derive(Debug)]
-pub enum MonitorCommand {
-    BlockPeer(PeerId, oneshot::Sender<bool>),
-    UnblockPeer(PeerId, oneshot::Sender<bool>),
-    BlacklistedPeers(oneshot::Sender<Vec<PeerId>>),
 }
 
 /// Task that handles forwarding of events to the subscriptions channels/stream
@@ -168,37 +160,22 @@ pub(crate) async fn handle_sample_request(
     }
 }
 
-pub(crate) async fn handle_block_peer_request(
-    monitor_request_channel: &UnboundedSender<PeerCommand>,
-    peer_id: PeerId,
-    response_sender: oneshot::Sender<bool>,
+pub(crate) async fn handle_monitor_command<Stats: Debug>(
+    monitor_request_channel: &UnboundedSender<ConnectionMonitorCommand<Stats>>,
+    command: ConnectionMonitorCommand<Stats>,
 ) {
-    if let Err(SendError(cmd)) =
-        monitor_request_channel.send(PeerCommand::Block(peer_id, response_sender))
-    {
-        error!("Error peer request: {cmd:?}");
+    if let Err(SendError(cmd)) = monitor_request_channel.send(command) {
+        error!("Channel closed when sending command to monitor: {cmd:?}");
     }
 }
 
-pub(crate) async fn handle_unblock_peer_request(
-    monitor_request_channel: &UnboundedSender<PeerCommand>,
-    peer_id: PeerId,
-    response_sender: oneshot::Sender<bool>,
+pub(crate) async fn handle_balancer_command<Stats: Debug>(
+    balancer_request_channel: &UnboundedSender<ConnectionBalancerCommand<Stats>>,
+    response_sender: oneshot::Sender<Stats>,
 ) {
     if let Err(SendError(cmd)) =
-        monitor_request_channel.send(PeerCommand::Unblock(peer_id, response_sender))
+        balancer_request_channel.send(ConnectionBalancerCommand::Stats(response_sender))
     {
-        error!("Error peer request: {cmd:?}");
-    }
-}
-
-pub(crate) async fn handle_blacklisted_peer_request(
-    monitor_request_channel: &UnboundedSender<PeerCommand>,
-    response_sender: oneshot::Sender<Vec<PeerId>>,
-) {
-    if let Err(SendError(cmd)) =
-        monitor_request_channel.send(PeerCommand::BlacklistedPeers(response_sender))
-    {
-        error!("Error peer request: {cmd:?}");
+        error!("Error stats request: {cmd:?}");
     }
 }

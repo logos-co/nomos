@@ -17,10 +17,9 @@ use tokio::{
 };
 use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
 
-use super::ConnectionBalancer;
 use crate::{
     behaviour::executor::{ExecutorBehaviour, ExecutorBehaviourEvent},
-    maintenance::monitor::PeerCommand,
+    maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::{
         dispersal::{
             executor::behaviour::DispersalExecutorEvent, validator::behaviour::DispersalEvent,
@@ -38,7 +37,8 @@ use crate::{
             policy::DAConnectionPolicy,
         },
         validator::ValidatorEventsStream,
-        ConnectionMonitor, DAConnectionMonitorSettings, DAConnectionPolicySettings,
+        BalancerStats, ConnectionBalancer, ConnectionMonitor, DAConnectionMonitorSettings,
+        DAConnectionPolicySettings, MonitorStats,
     },
     SubnetworkId,
 };
@@ -199,11 +199,19 @@ where
             .open_stream_sender()
     }
 
-    pub fn peer_request_channel(&mut self) -> UnboundedSender<PeerCommand> {
+    pub fn balancer_command_channel(
+        &mut self,
+    ) -> UnboundedSender<ConnectionBalancerCommand<BalancerStats>> {
         self.swarm
             .behaviour()
-            .monitor_behavior()
-            .peer_request_channel()
+            .balancer_behaviour()
+            .command_channel()
+    }
+
+    pub fn monitor_command_channel(
+        &mut self,
+    ) -> UnboundedSender<ConnectionMonitorCommand<MonitorStats>> {
+        self.swarm.behaviour().monitor_behavior().command_channel()
     }
 
     pub fn local_peer_id(&self) -> &PeerId {

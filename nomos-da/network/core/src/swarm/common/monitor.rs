@@ -99,9 +99,43 @@ impl From<&SamplingEvent> for MonitorEvent {
     }
 }
 
+pub mod dto {
+    use std::collections::HashMap;
+
+    use fixed::types::U57F7;
+    use libp2p::PeerId;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Deserialize, Serialize, PartialEq)]
+    pub struct MonitorStats(pub HashMap<PeerId, PeerStats>);
+
+    impl From<&HashMap<PeerId, super::PeerStats>> for MonitorStats {
+        fn from(stats: &HashMap<PeerId, super::PeerStats>) -> Self {
+            Self(stats.into_iter().map(|(k, v)| (*k, v.into())).collect())
+        }
+    }
+
+    #[derive(Copy, Clone, Debug, Deserialize, Serialize, PartialEq)]
+    pub struct PeerStats {
+        pub dispersal_failures_rate: U57F7,
+        pub sampling_failures_rate: U57F7,
+        pub replication_failures_rate: U57F7,
+    }
+
+    impl From<&super::PeerStats> for PeerStats {
+        fn from(stats: &super::PeerStats) -> Self {
+            Self {
+                dispersal_failures_rate: stats.dispersal_failures_rate,
+                sampling_failures_rate: stats.sampling_failures_rate,
+                replication_failures_rate: stats.replication_failures_rate,
+            }
+        }
+    }
+}
+
 /// Tracks failure rates for different protocols using exponential weighted
 /// moving average.
-#[derive(Default, Debug)]
+#[derive(Copy, Clone, Default, Debug)]
 pub struct PeerStats {
     // Calculated using EWMA to give more weight to recent failures while gradually decaying over
     // time.
@@ -258,6 +292,7 @@ where
     Policy: PeerHealthPolicy<PeerStats = PeerStats>,
 {
     type Event = MonitorEvent;
+    type Stats = dto::MonitorStats;
 
     fn record_event(&mut self, event: Self::Event) -> Option<ConnectionMonitorOutput> {
         if let Some(peer_id) = event.peer_id() {
@@ -303,6 +338,10 @@ where
 
     fn reset_peer(&mut self, peer_id: &PeerId) {
         self.peer_stats.remove(peer_id);
+    }
+
+    fn stats(&self) -> Self::Stats {
+        (&self.peer_stats).into()
     }
 }
 

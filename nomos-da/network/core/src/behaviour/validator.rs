@@ -38,9 +38,9 @@ where
     monitor: ConnectionMonitorBehaviour<Monitor>,
 }
 
-impl<Balancer, Monitor, Membership> ValidatorBehaviour<Balancer, Monitor, Membership>
+impl<Balancer, BalancerStats, Monitor, Membership> ValidatorBehaviour<Balancer, Monitor, Membership>
 where
-    Balancer: ConnectionBalancer,
+    Balancer: ConnectionBalancer<Stats = BalancerStats>,
     Monitor: ConnectionMonitor,
     Membership: MembershipHandler + Clone + Send + 'static,
     <Membership as MembershipHandler>::NetworkId: Send,
@@ -106,5 +106,9 @@ where
         &mut self,
     ) -> &mut ConnectionBalancerBehaviour<Balancer, Membership> {
         &mut self.balancer
+    }
+
+    pub fn balancer_behaviour(&self) -> &ConnectionBalancerBehaviour<Balancer, Membership> {
+        &self.balancer
     }
 }

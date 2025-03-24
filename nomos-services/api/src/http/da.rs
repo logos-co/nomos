@@ -24,12 +24,10 @@ use nomos_da_indexer::{
     consensus::adapters::cryptarchia::CryptarchiaConsensusAdapter,
     storage::adapters::rocksdb::RocksAdapter as IndexerStorageAdapter, DaMsg, DataIndexerService,
 };
-use nomos_da_network_core::SubnetworkId;
+use nomos_da_network_core::{maintenance::monitor::ConnectionMonitorCommand, SubnetworkId};
 use nomos_da_network_service::{
     backends::{
-        libp2p::{
-            common::MonitorCommand, executor::ExecutorDaNetworkMessage, validator::DaNetworkMessage,
-        },
+        libp2p::{executor::ExecutorDaNetworkMessage, validator::DaNetworkMessage},
         NetworkBackend,
     },
     DaNetworkMsg, NetworkService,
@@ -340,7 +338,7 @@ pub async fn block_peer<B, RuntimeServiceId>(
 ) -> Result<bool, DynError>
 where
     B: NetworkBackend<RuntimeServiceId> + 'static + Send,
-    B::Message: PeerMessagesFactory,
+    B::Message: MonitorMessageFactory,
     RuntimeServiceId:
         Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
 {
@@ -361,7 +359,7 @@ pub async fn unblock_peer<B, RuntimeServiceId>(
 ) -> Result<bool, DynError>
 where
     B: NetworkBackend<RuntimeServiceId> + 'static + Send,
-    B::Message: PeerMessagesFactory,
+    B::Message: MonitorMessageFactory,
     RuntimeServiceId:
         Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
 {
@@ -385,7 +383,7 @@ pub async fn blacklisted_peers<B, RuntimeServiceId>(
 ) -> Result<Vec<PeerId>, DynError>
 where
     B: NetworkBackend<RuntimeServiceId> + 'static + Send,
-    B::Message: PeerMessagesFactory,
+    B::Message: MonitorMessageFactory,
     RuntimeServiceId:
         Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
 {
@@ -404,37 +402,141 @@ where
     .await
 }
 
-// Factory for generating messages for peers (validator and executor).
-pub trait PeerMessagesFactory {
+pub async fn balancer_stats<B, RuntimeServiceId>(
+    handle: &OverwatchHandle<RuntimeServiceId>,
+) -> Result<<B::Message as BalancerMessageFactory>::BalancerStats, DynError>
+where
+    B: NetworkBackend<RuntimeServiceId> + 'static + Send,
+    B::Message: BalancerMessageFactory,
+    RuntimeServiceId:
+        Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
+{
+    let relay = handle.relay().await?;
+    let (sender, receiver) = oneshot::channel();
+    let message = B::Message::create_stats_message(sender);
+    relay
+        .send(DaNetworkMsg::Process(message))
+        .await
+        .map_err(|(e, _)| e)?;
+
+    wait_with_timeout(
+        receiver,
+        "Timeout while waiting for balancer stats".to_owned(),
+    )
+    .await
+}
+
+pub async fn monitor_stats<B, RuntimeServiceId>(
+    handle: &OverwatchHandle<RuntimeServiceId>,
+) -> Result<<B::Message as MonitorMessageFactory>::MonitorStats, DynError>
+where
+    B: NetworkBackend<RuntimeServiceId> + 'static + Send,
+    B::Message: MonitorMessageFactory,
+    RuntimeServiceId:
+        Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
+{
+    let relay = handle.relay().await?;
+    let (sender, receiver) = oneshot::channel();
+    let message = B::Message::create_stats_message(sender);
+    relay
+        .send(DaNetworkMsg::Process(message))
+        .await
+        .map_err(|(e, _)| e)?;
+
+    wait_with_timeout(
+        receiver,
+        "Timeout while waiting for monitor stats".to_owned(),
+    )
+    .await
+}
+
+// Factory for generating messages for connection monitor (validator and
+// executor).
+pub trait MonitorMessageFactory {
+    type MonitorStats: Debug + Serialize;
+
     fn create_block_message(peer_id: PeerId, sender: oneshot::Sender<bool>) -> Self;
     fn create_unblock_message(peer_id: PeerId, sender: oneshot::Sender<bool>) -> Self;
     fn create_blacklisted_message(sender: oneshot::Sender<Vec<PeerId>>) -> Self;
+    fn create_stats_message(sender: oneshot::Sender<Self::MonitorStats>) -> Self;
 }
 
-impl PeerMessagesFactory for DaNetworkMessage {
+impl<BalancerStats, MonitorStats> MonitorMessageFactory
+    for DaNetworkMessage<BalancerStats, MonitorStats>
+where
+    BalancerStats: Debug + Serialize,
+    MonitorStats: Debug + Serialize,
+{
+    type MonitorStats = MonitorStats;
+
     fn create_block_message(peer_id: PeerId, sender: oneshot::Sender<bool>) -> Self {
-        Self::PeerRequest(MonitorCommand::BlockPeer(peer_id, sender))
+        Self::MonitorRequest(ConnectionMonitorCommand::Block(peer_id, sender))
     }
 
     fn create_unblock_message(peer_id: PeerId, sender: oneshot::Sender<bool>) -> Self {
-        Self::PeerRequest(MonitorCommand::UnblockPeer(peer_id, sender))
+        Self::MonitorRequest(ConnectionMonitorCommand::Unblock(peer_id, sender))
     }
 
     fn create_blacklisted_message(sender: oneshot::Sender<Vec<PeerId>>) -> Self {
-        Self::PeerRequest(MonitorCommand::BlacklistedPeers(sender))
+        Self::MonitorRequest(ConnectionMonitorCommand::BlacklistedPeers(sender))
+    }
+
+    fn create_stats_message(sender: oneshot::Sender<Self::MonitorStats>) -> Self {
+        Self::MonitorRequest(ConnectionMonitorCommand::Stats(sender))
     }
 }
 
-impl PeerMessagesFactory for ExecutorDaNetworkMessage {
+impl<BalancerStats, MonitorStats> MonitorMessageFactory
+    for ExecutorDaNetworkMessage<BalancerStats, MonitorStats>
+where
+    BalancerStats: Debug + Serialize,
+    MonitorStats: Debug + Serialize,
+{
+    type MonitorStats = MonitorStats;
+
     fn create_block_message(peer_id: PeerId, sender: oneshot::Sender<bool>) -> Self {
-        Self::PeerRequest(MonitorCommand::BlockPeer(peer_id, sender))
+        Self::MonitorRequest(ConnectionMonitorCommand::Block(peer_id, sender))
     }
 
     fn create_unblock_message(peer_id: PeerId, sender: oneshot::Sender<bool>) -> Self {
-        Self::PeerRequest(MonitorCommand::UnblockPeer(peer_id, sender))
+        Self::MonitorRequest(ConnectionMonitorCommand::Unblock(peer_id, sender))
     }
 
     fn create_blacklisted_message(sender: oneshot::Sender<Vec<PeerId>>) -> Self {
-        Self::PeerRequest(MonitorCommand::BlacklistedPeers(sender))
+        Self::MonitorRequest(ConnectionMonitorCommand::BlacklistedPeers(sender))
+    }
+
+    fn create_stats_message(sender: oneshot::Sender<Self::MonitorStats>) -> Self {
+        Self::MonitorRequest(ConnectionMonitorCommand::Stats(sender))
+    }
+}
+
+pub trait BalancerMessageFactory {
+    type BalancerStats: Debug + Serialize;
+
+    fn create_stats_message(sender: oneshot::Sender<Self::BalancerStats>) -> Self;
+}
+
+impl<BalancerStats, MonitorStats> BalancerMessageFactory
+    for DaNetworkMessage<BalancerStats, MonitorStats>
+where
+    BalancerStats: Debug + Serialize,
+{
+    type BalancerStats = BalancerStats;
+
+    fn create_stats_message(sender: oneshot::Sender<BalancerStats>) -> Self {
+        Self::BalancerStats(sender)
+    }
+}
+
+impl<BalancerStats, MonitorStats> BalancerMessageFactory
+    for ExecutorDaNetworkMessage<BalancerStats, MonitorStats>
+where
+    BalancerStats: Debug + Serialize,
+{
+    type BalancerStats = BalancerStats;
+
+    fn create_stats_message(sender: oneshot::Sender<BalancerStats>) -> Self {
+        Self::BalancerStats(sender)
     }
 }

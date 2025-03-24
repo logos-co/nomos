@@ -33,9 +33,9 @@ use nomos_mempool::{
 };
 use nomos_node::{
     api::handlers::{
-        add_blob_info, add_share, add_tx, blacklisted_peers, block, block_peer, cl_metrics,
-        cl_status, cryptarchia_headers, cryptarchia_info, da_get_commitments, da_get_light_share,
-        da_get_shares, get_range, libp2p_info, unblock_peer,
+        add_blob_info, add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer,
+        cl_metrics, cl_status, cryptarchia_headers, cryptarchia_info, da_get_commitments,
+        da_get_light_share, da_get_shares, get_range, libp2p_info, monitor_stats, unblock_peer,
     },
     RocksBackend,
 };
@@ -573,6 +573,18 @@ where
             .route(
                 paths::DA_GET_SHARES,
                 routing::get(da_get_shares::<DaStorageSerializer, DaShare, RuntimeServiceId>),
+            )
+            .route(
+                paths::DA_BALANCER_STATS,
+                routing::get(
+                    balancer_stats::<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>,
+                ),
+            )
+            .route(
+                paths::DA_MONITOR_STATS,
+                routing::get(
+                    monitor_stats::<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>,
+                ),
             )
             .with_state(handle);
 

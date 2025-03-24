@@ -8,38 +8,44 @@ use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;
 use nomos_core::da::BlobId;
 use nomos_da_network_core::{
-    maintenance::monitor::PeerCommand, swarm::validator::ValidatorSwarm, SubnetworkId,
+    maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
+    swarm::{validator::ValidatorSwarm, BalancerStats, MonitorStats},
+    SubnetworkId,
 };
 use nomos_libp2p::ed25519;
 use nomos_tracing::info_with_id;
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
+use serde::Serialize;
 use subnetworks_assignations::MembershipHandler;
 use tokio::{
-    sync::{broadcast, mpsc::UnboundedSender},
+    sync::{broadcast, mpsc::UnboundedSender, oneshot},
     task::JoinHandle,
 };
 use tokio_stream::wrappers::BroadcastStream;
 use tracing::instrument;
 
-use super::common::MonitorCommand;
 use crate::backends::{
     libp2p::common::{
-        handle_blacklisted_peer_request, handle_block_peer_request, handle_sample_request,
-        handle_unblock_peer_request, handle_validator_events_stream, DaNetworkBackendSettings,
-        SamplingEvent, BROADCAST_CHANNEL_SIZE,
+        handle_balancer_command, handle_monitor_command, handle_sample_request,
+        handle_validator_events_stream, DaNetworkBackendSettings, SamplingEvent,
+        BROADCAST_CHANNEL_SIZE,
     },
     NetworkBackend,
 };
 
 /// Message that the backend replies to
 #[derive(Debug)]
-pub enum DaNetworkMessage {
+pub enum DaNetworkMessage<BalancerStats, MonitorStats>
+where
+    BalancerStats: Debug + Serialize,
+{
     /// Kickstart a network sapling
     RequestSample {
         subnetwork_id: SubnetworkId,
         blob_id: BlobId,
     },
-    PeerRequest(MonitorCommand),
+    MonitorRequest(ConnectionMonitorCommand<MonitorStats>),
+    BalancerStats(oneshot::Sender<BalancerStats>),
 }
 
 /// Events types to subscribe to
@@ -66,7 +72,8 @@ pub struct DaNetworkValidatorBackend<Membership> {
     task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     sampling_request_channel: UnboundedSender<(SubnetworkId, BlobId)>,
-    peer_request_channel: UnboundedSender<PeerCommand>,
+    balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
+    monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
     verifying_broadcast_receiver: broadcast::Receiver<DaShare>,
     _membership: PhantomData<Membership>,
@@ -82,10 +89,11 @@ where
         + Send
         + Sync
         + 'static,
+    BalancerStats: Debug + Serialize + Send + Sync + 'static,
 {
     type Settings = DaNetworkBackendSettings<Membership>;
     type State = NoState<Self::Settings>;
-    type Message = DaNetworkMessage;
+    type Message = DaNetworkMessage<BalancerStats, MonitorStats>;
     type EventKind = DaNetworkEventKind;
     type NetworkEvent = DaNetworkEvent;
 
@@ -111,7 +119,8 @@ where
             });
 
         let sampling_request_channel = validator_swarm.sample_request_channel();
-        let peer_request_channel = validator_swarm.peer_request_channel();
+        let balancer_command_sender = validator_swarm.balancer_command_channel();
+        let monitor_command_sender = validator_swarm.monitor_command_channel();
 
         let (task_abort_handle, abort_registration) = AbortHandle::new_pair();
         let task = (
@@ -141,7 +150,8 @@ where
             task,
             replies_task,
             sampling_request_channel,
-            peer_request_channel,
+            balancer_command_sender,
+            monitor_command_sender,
             sampling_broadcast_receiver,
             verifying_broadcast_receiver,
             _membership: PhantomData,
@@ -168,22 +178,20 @@ where
                 info_with_id!(&blob_id, "RequestSample");
                 handle_sample_request(&self.sampling_request_channel, subnetwork_id, blob_id).await;
             }
-            DaNetworkMessage::PeerRequest(MonitorCommand::BlockPeer(peer_id, response_sender)) => {
-                info_with_id!(&peer_id.to_bytes(), "BlockPeer");
-                handle_block_peer_request(&self.peer_request_channel, peer_id, response_sender)
-                    .await;
+            DaNetworkMessage::MonitorRequest(command) => {
+                match command.peer_id() {
+                    Some(peer_id) => {
+                        tracing::info!(%peer_id, "{}", command.discriminant());
+                    }
+                    None => {
+                        tracing::info!("{}", command.discriminant());
+                    }
+                }
+                handle_monitor_command(&self.monitor_command_sender, command).await;
             }
-            DaNetworkMessage::PeerRequest(MonitorCommand::UnblockPeer(
-                peer_id,
-                response_sender,
-            )) => {
-                info_with_id!(&peer_id.to_bytes(), "UnblockPeer");
-                handle_unblock_peer_request(&self.peer_request_channel, peer_id, response_sender)
-                    .await;
-            }
-            DaNetworkMessage::PeerRequest(MonitorCommand::BlacklistedPeers(response_sender)) => {
-                tracing::info!("BlacklistedPeers");
-                handle_blacklisted_peer_request(&self.peer_request_channel, response_sender).await;
+            DaNetworkMessage::BalancerStats(response_sender) => {
+                tracing::info!("BalancerStats");
+                handle_balancer_command(&self.balancer_command_sender, response_sender).await;
             }
         }
     }

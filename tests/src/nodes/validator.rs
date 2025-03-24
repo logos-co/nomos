@@ -20,7 +20,7 @@ use nomos_da_indexer::{
     storage::adapters::rocksdb::RocksAdapterSettings as IndexerStorageAdapterSettings,
     IndexerSettings,
 };
-use nomos_da_network_core::swarm::DAConnectionPolicySettings;
+use nomos_da_network_core::swarm::{BalancerStats, DAConnectionPolicySettings, MonitorStats};
 use nomos_da_network_service::{
     backends::libp2p::common::DaNetworkBackendSettings, NetworkConfig as DaNetworkConfig,
 };
@@ -38,7 +38,10 @@ use nomos_network::{backends::libp2p::Libp2pConfig, NetworkConfig};
 use nomos_node::{
     api::{
         backend::AxumBackendSettings,
-        paths::{CL_METRICS, CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_GET_RANGE, STORAGE_BLOCK},
+        paths::{
+            CL_METRICS, CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_RANGE,
+            DA_MONITOR_STATS, STORAGE_BLOCK,
+        },
     },
     config::mempool::MempoolConfig,
     BlobInfo, Config, HeaderId, RocksBackendSettings, Tx,
@@ -245,6 +248,24 @@ impl Validator {
         let res = self.get(CRYPTARCHIA_INFO).await;
         println!("{res:?}");
         res.unwrap().json().await.unwrap()
+    }
+
+    pub async fn balancer_stats(&self) -> BalancerStats {
+        self.get(DA_BALANCER_STATS)
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
+    }
+
+    pub async fn monitor_stats(&self) -> MonitorStats {
+        self.get(DA_MONITOR_STATS)
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
     }
 }
 
