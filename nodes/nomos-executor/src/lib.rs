@@ -1,7 +1,7 @@
-pub mod api;
-pub mod config;
+// pub mod api;
+// pub mod config;
 
-use api::backend::AxumBackend;
+// use api::backend::AxumBackend;
 use kzgrs_backend::common::share::DaShare;
 use nomos_api::ApiService;
 use nomos_blend_service::{
@@ -28,6 +28,8 @@ use nomos_da_verifier::{
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
 use nomos_mempool::backend::mockpool::MockPool;
+#[cfg(feature = "tracing")]
+use nomos_node::Tracing;
 use nomos_node::{
     BlobInfo, Cryptarchia, DaIndexer, DaMempool, DaNetworkService, DaSampling, DaVerifier,
     HeaderId, MempoolNetworkAdapter, NetworkBackend, NetworkService, NomosDaMembership,
@@ -36,111 +38,112 @@ use nomos_node::{
 use overwatch::derive_services;
 use rand_chacha::ChaCha20Rng;
 
-pub type ExecutorApiService = ApiService<
-    AxumBackend<
-        (),
-        DaShare,
-        BlobInfo,
-        NomosDaMembership,
-        BlobInfo,
-        KzgrsDaVerifier,
-        VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
-        VerifierStorageAdapter<DaShare, Wire>,
-        Tx,
-        Wire,
-        DispersalKZGRSBackend<
-            DispersalNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
-            DispersalMempoolAdapter,
-        >,
-        DispersalNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
-        DispersalMempoolAdapter,
-        kzgrs_backend::dispersal::Metadata,
-        KzgrsSamplingBackend<ChaCha20Rng>,
-        nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
-            NomosDaMembership,
-            RuntimeServiceId,
-        >,
-        ChaCha20Rng,
-        SamplingStorageAdapter<DaShare, Wire>,
-        nomos_time::backends::system_time::SystemTimeBackend,
-        HttApiAdapter<NomosDaMembership>,
-        MB16,
-    >,
-    RuntimeServiceId,
->;
+// pub type ExecutorApiService = ApiService<
+//     AxumBackend<
+//         (),
+//         DaShare,
+//         BlobInfo,
+//         NomosDaMembership,
+//         BlobInfo,
+//         KzgrsDaVerifier,
+//         VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+//         VerifierStorageAdapter<DaShare, Wire>,
+//         Tx,
+//         Wire,
+//         DispersalKZGRSBackend<
+//             DispersalNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+//             DispersalMempoolAdapter,
+//         >,
+//         DispersalNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+//         DispersalMempoolAdapter,
+//         kzgrs_backend::dispersal::Metadata,
+//         KzgrsSamplingBackend<ChaCha20Rng>,
+//         nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
+//             NomosDaMembership,
+//             RuntimeServiceId,
+//         >,
+//         ChaCha20Rng,
+//         SamplingStorageAdapter<DaShare, Wire>,
+//         nomos_time::backends::system_time::SystemTimeBackend,
+//         HttApiAdapter<NomosDaMembership>,
+//         MB16,
+//     >,
+//     RuntimeServiceId,
+// >;
 
-pub type DispersalMempoolAdapter = KzgrsMempoolAdapter<
-    MempoolNetworkAdapter<BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId, RuntimeServiceId>,
-    MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
-    KzgrsSamplingBackend<ChaCha20Rng>,
-    nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
-        NomosDaMembership,
-        RuntimeServiceId,
-    >,
-    ChaCha20Rng,
-    SamplingStorageAdapter<DaShare, Wire>,
-    KzgrsDaVerifier,
-    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
-    VerifierStorageAdapter<DaShare, Wire>,
-    HttApiAdapter<NomosDaMembership>,
-    RuntimeServiceId,
->;
+// pub type DispersalMempoolAdapter = KzgrsMempoolAdapter<
+//     MempoolNetworkAdapter<BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId,
+// RuntimeServiceId>,     MockPool<HeaderId, BlobInfo, <BlobInfo as
+// DispersedBlobInfo>::BlobId>,     KzgrsSamplingBackend<ChaCha20Rng>,
+//     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
+//         NomosDaMembership,
+//         RuntimeServiceId,
+//     >,
+//     ChaCha20Rng,
+//     SamplingStorageAdapter<DaShare, Wire>,
+//     KzgrsDaVerifier,
+//     VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+//     VerifierStorageAdapter<DaShare, Wire>,
+//     HttApiAdapter<NomosDaMembership>,
+//     RuntimeServiceId,
+// >;
 
-pub type DaDispersal = DispersalService<
-    DispersalKZGRSBackend<
-        DispersalNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
-        DispersalMempoolAdapter,
-    >,
-    DispersalNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
-    DispersalMempoolAdapter,
-    NomosDaMembership,
-    kzgrs_backend::dispersal::Metadata,
-    RuntimeServiceId,
->;
+// pub type DaDispersal = DispersalService<
+//     DispersalKZGRSBackend<
+//         DispersalNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+//         DispersalMempoolAdapter,
+//     >,
+//     DispersalNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+//     DispersalMempoolAdapter,
+//     NomosDaMembership,
+//     kzgrs_backend::dispersal::Metadata,
+//     RuntimeServiceId,
+// >;
 
-pub type ExecutorCryptarchia = Cryptarchia<
-    nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
-        NomosDaMembership,
-        RuntimeServiceId,
-    >,
-    RuntimeServiceId,
->;
+// pub type ExecutorCryptarchia = Cryptarchia<
+//     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
+//         NomosDaMembership,
+//         RuntimeServiceId,
+//     >,
+//     RuntimeServiceId,
+// >;
 
-pub type ExecutorDaIndexer = DaIndexer<
-    nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
-        NomosDaMembership,
-        RuntimeServiceId,
-    >,
-    RuntimeServiceId,
->;
+// pub type ExecutorDaIndexer = DaIndexer<
+//     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
+//         NomosDaMembership,
+//         RuntimeServiceId,
+//     >,
+//     RuntimeServiceId,
+// >;
 
-pub type ExecutorDaSampling = DaSampling<
-    nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
-        NomosDaMembership,
-        RuntimeServiceId,
-    >,
-    RuntimeServiceId,
->;
+// pub type ExecutorDaSampling = DaSampling<
+//     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
+//         NomosDaMembership,
+//         RuntimeServiceId,
+//     >,
+//     RuntimeServiceId,
+// >;
 
-pub type ExecutorDaVerifier =
-    DaVerifier<VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>, RuntimeServiceId>;
+// pub type ExecutorDaVerifier =
+//     DaVerifier<VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+// RuntimeServiceId>;
 
 #[derive_services]
 pub struct NomosExecutor {
     #[cfg(feature = "tracing")]
-    tracing: nomos_node::Tracing<RuntimeServiceId>,
+    tracing: Tracing<RuntimeServiceId>,
     network: NetworkService<NetworkBackend, RuntimeServiceId>,
-    blend: BlendService<BlendBackend, BlendNetworkAdapter<RuntimeServiceId>, RuntimeServiceId>,
-    da_dispersal: DaDispersal,
-    da_indexer: ExecutorDaIndexer,
-    da_verifier: ExecutorDaVerifier,
-    da_sampling: ExecutorDaSampling,
-    da_network: DaNetworkService<DaNetworkExecutorBackend<NomosDaMembership>, RuntimeServiceId>,
-    cl_mempool: TxMempool<RuntimeServiceId>,
-    da_mempool: DaMempool<RuntimeServiceId>,
-    cryptarchia: ExecutorCryptarchia,
-    time: NomosTimeService<RuntimeServiceId>,
-    http: ExecutorApiService,
-    storage: StorageService<RocksBackend<Wire>, RuntimeServiceId>,
-    system_sig: SystemSig<RuntimeServiceId>,
+    // blend: BlendService<BlendBackend, BlendNetworkAdapter<RuntimeServiceId>, RuntimeServiceId>,
+    // da_dispersal: DaDispersal,
+    // da_indexer: ExecutorDaIndexer,
+    // da_verifier: ExecutorDaVerifier,
+    // da_sampling: ExecutorDaSampling,
+    // da_network: DaNetworkService<DaNetworkExecutorBackend<NomosDaMembership>, RuntimeServiceId>,
+    // cl_mempool: TxMempool<RuntimeServiceId>,
+    // da_mempool: DaMempool<RuntimeServiceId>,
+    // cryptarchia: ExecutorCryptarchia,
+    // time: NomosTimeService<RuntimeServiceId>,
+    // http: ExecutorApiService,
+    // storage: StorageService<RocksBackend<Wire>, RuntimeServiceId>,
+    // system_sig: SystemSig<RuntimeServiceId>,
 }
