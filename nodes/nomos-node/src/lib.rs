@@ -188,12 +188,14 @@ pub type NomosDaMembership = FillFromNodeList;
 // pub type NodeDaSampling =
 // DaSampling<SamplingLibp2pAdapter<NomosDaMembership>>;
 
-// pub type DaVerifier<VerifierAdapter> =
-//     DaVerifierService<KzgrsDaVerifier, VerifierAdapter,
-// VerifierStorageAdapter<DaShare, Wire>>;
+pub type DaVerifier<VerifierAdapter> = DaVerifierService<
+    KzgrsDaVerifier,
+    VerifierAdapter,
+    VerifierStorageAdapter<DaShare, Wire>,
+    RuntimeServiceId,
+>;
 
-// pub type NodeDaVerifier =
-// DaVerifier<VerifierNetworkAdapter<FillFromNodeList>>;
+pub type NodeDaVerifier = DaVerifier<VerifierNetworkAdapter<FillFromNodeList, RuntimeServiceId>>;
 
 pub type NomosTimeService = TimeService<SystemTimeBackend, RuntimeServiceId>;
 
@@ -204,7 +206,7 @@ pub struct Nomos {
     network: NetworkService<NetworkBackend, RuntimeServiceId>,
     blend: BlendService<BlendBackend, BlendNetworkAdapter<RuntimeServiceId>, RuntimeServiceId>,
     // da_indexer: OpaqueServiceHandle<NodeDaIndexer>,
-    // da_verifier: OpaqueServiceHandle<NodeDaVerifier>,
+    da_verifier: NodeDaVerifier,
     // da_sampling: OpaqueServiceHandle<NodeDaSampling>,
     da_network: DaNetworkService<DaNetworkValidatorBackend<NomosDaMembership>, RuntimeServiceId>,
     // cl_mempool: OpaqueServiceHandle<TxMempool>,
