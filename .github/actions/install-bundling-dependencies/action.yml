@@ -1,4 +1,4 @@
-name: "Install Nomos Dependencies"
+name: "Install Nomos Dependencies for Building and Bundling"
 
 inputs:
   github_token:
@@ -20,8 +20,6 @@ runs:
       uses: ./.github/actions/install-risc0
       with:
         github_token: ${{ inputs.github_token }}
-        os: ${{ inputs.os }}
-        target_triple: ${{ inputs.target_triple }}
 
     - name: Setup linux system
       if: inputs.os == 'linux'

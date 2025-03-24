@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*.*.*"
+  pull_request:
   workflow_dispatch:
     inputs:
       version:
@@ -45,27 +46,28 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - os: linux
-            arch: amd64
-            builder: ubuntu-24.04
-            target_triple: x86_64-unknown-linux-gnu
-          - os: linux
-            arch: i686
-            builder: ubuntu-24.04
-            target_triple: i686-unknown-linux-gnu
-          - os: macos
-            arch: aarch64
-            builder: macos-14
-            target_triple: aarch64-apple-darwin
-          # # `rzup` not available for this platform yet.
+          #          - os: linux
+          #            arch: amd64
+          #            builder: ubuntu-24.04
+          #            target_triple: x86_64-unknown-linux-gnu
+          #          - os: linux
+          #            arch: i686
+          #            builder: ubuntu-24.04
+          #            target_triple: i686-unknown-linux-gnu
+          #          - os: macos
+          #            arch: aarch64
+          #            builder: macos-14
+          #            target_triple: aarch64-apple-darwin
+          # `risc0` is not available for this platform yet.
           # - os: macos
           #   arch: amd64
           #   builder: macos-13
           #   target_triple: x86_64-apple-darwin
-          # - os: windows
-          #   arch: amd64
-          #   builder: windows-2022
-          #   target_triple: x86_64-pc-windows-msvc
+          # `risc0` is not available for this platform yet.
+          - os: windows
+            arch: amd64
+            builder: windows-2022
+            target_triple: x86_64-pc-windows-msvc
 
     runs-on: ${{ matrix.platform.builder }}
     steps:
@@ -76,7 +78,7 @@ jobs:
         name: Install Rust toolchain
 
       - name: Install dependencies
-        uses: ./.github/actions/install-dependencies
+        uses: ./.github/actions/install-bundling-dependencies
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           os: ${{ matrix.platform.os }}
@@ -84,6 +86,14 @@ jobs:
 
       - uses: actions-rs/cargo@v1
         name: Build Nomos Node
+        if: matrix.platform.os != 'windows'
+        with:
+          command: build
+          args: --package nomos-node --release --no-default-features --target ${{ matrix.platform.target_triple }}
+
+      - uses: actions-rs/cargo@v1
+        name: Build Nomos Node without Risc0
+        if: matrix.platform.os == 'windows'
         with:
           command: build
           args: --package nomos-node --release --no-default-features --target ${{ matrix.platform.target_triple }}
@@ -271,14 +281,13 @@ jobs:
           asset_name: ${{ env.BINARY_NAME }}
           asset_content_type: application/octet-stream
 
-      # Not available yet
-      # - name: Upload MSI asset
-      #   uses: actions/upload-release-asset@v1
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      #     BINARY_NAME: nomos-node_${{ env.VERSION }}_amd64.msi
-      #   with:
-      #     upload_url: ${{ env.UPLOAD_URL }}
-      #     asset_path: ${{ github.workspace }}/amd64_msi/nomos-node_${{ env.VERSION }}_amd64.msi
-      #     asset_name: ${{ env.BINARY_NAME }}
-      #     asset_content_type: application/octet-stream
+      - name: Upload MSI asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BINARY_NAME: nomos-node_${{ env.VERSION }}_amd64.msi
+        with:
+          upload_url: ${{ env.UPLOAD_URL }}
+          asset_path: ${{ github.workspace }}/amd64_msi/nomos-node_${{ env.VERSION }}_amd64.msi
+          asset_name: ${{ env.BINARY_NAME }}
+          asset_content_type: application/octet-stream
