@@ -16,7 +16,7 @@ use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
 use nomos_mempool::{
     backend::{MemPool, RecoverableMempool},
     network::NetworkAdapter as MempoolAdapter,
-    TxMempoolService,
+    DaMempoolService, TxMempoolService,
 };
 use nomos_network::{NetworkMsg, NetworkService};
 use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
@@ -144,7 +144,7 @@ where
     DaPool::Key: Debug + 'static,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     DaPool::Settings: Clone,
-    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key, Payload = DaPool::Item>,
+    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
     NetworkAdapter::Settings: Send,
@@ -253,7 +253,21 @@ where
                 BlendService<BlendAdapter::Backend, BlendAdapter::Network, RuntimeServiceId>,
             >
             + AsServiceId<TxMempoolService<ClPoolAdapter, ClPool, RuntimeServiceId>>
-            + AsServiceId<TxMempoolService<DaPoolAdapter, DaPool, RuntimeServiceId>>
+            + AsServiceId<
+                DaMempoolService<
+                    DaPoolAdapter,
+                    DaPool,
+                    SamplingBackend,
+                    SamplingNetworkAdapter,
+                    SamplingRng,
+                    SamplingStorage,
+                    DaVerifierBackend,
+                    DaVerifierNetwork,
+                    DaVerifierStorage,
+                    ApiAdapter,
+                    RuntimeServiceId,
+                >,
+            >
             + AsServiceId<
                 DaSamplingService<
                     SamplingBackend,
@@ -292,7 +306,19 @@ where
 
         let da_mempool_relay = state_handle
             .overwatch_handle
-            .relay::<TxMempoolService<DaPoolAdapter, DaPool, RuntimeServiceId>>()
+            .relay::<DaMempoolService<
+                DaPoolAdapter,
+                DaPool,
+                SamplingBackend,
+                SamplingNetworkAdapter,
+                SamplingRng,
+                SamplingStorage,
+                DaVerifierBackend,
+                DaVerifierNetwork,
+                DaVerifierStorage,
+                ApiAdapter,
+                RuntimeServiceId,
+            >>()
             .await
             .expect("Relay connection with MemPoolService should succeed");
 

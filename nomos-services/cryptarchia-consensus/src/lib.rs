@@ -26,8 +26,8 @@ use nomos_da_sampling::{
 };
 use nomos_ledger::{leader_proof::LeaderProof, LedgerState};
 use nomos_mempool::{
-    backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter, MempoolMsg,
-    TxMempoolService,
+    backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter, DaMempoolService,
+    MempoolMsg, TxMempoolService,
 };
 use nomos_network::NetworkService;
 use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
@@ -422,10 +422,7 @@ where
         + Send
         + Sync
         + 'static,
-    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key, Payload = DaPool::Item>
-        + Send
-        + Sync
-        + 'static,
+    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key> + Send + Sync + 'static,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     TxS: TxSelect<Tx = ClPool::Item> + Clone + Send + Sync + 'static,
     TxS::Settings: Send + Sync + 'static,
@@ -456,7 +453,21 @@ where
         + AsServiceId<NetworkService<NetAdapter::Backend, RuntimeServiceId>>
         + AsServiceId<BlendService<BlendAdapter::Backend, BlendAdapter::Network, RuntimeServiceId>>
         + AsServiceId<TxMempoolService<ClPoolAdapter, ClPool, RuntimeServiceId>>
-        + AsServiceId<TxMempoolService<DaPoolAdapter, DaPool, RuntimeServiceId>>
+        + AsServiceId<
+            DaMempoolService<
+                DaPoolAdapter,
+                DaPool,
+                SamplingBackend,
+                SamplingNetworkAdapter,
+                SamplingRng,
+                SamplingStorage,
+                DaVerifierBackend,
+                DaVerifierNetwork,
+                DaVerifierStorage,
+                ApiAdapter,
+                RuntimeServiceId,
+            >,
+        >
         + AsServiceId<
             DaSamplingService<
                 SamplingBackend,
@@ -706,10 +717,7 @@ where
         + 'static,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     DaPool::Settings: Clone + Send + Sync + 'static,
-    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key, Payload = DaPool::Item>
-        + Send
-        + Sync
-        + 'static,
+    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key> + Send + Sync + 'static,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     TxS: TxSelect<Tx = ClPool::Item> + Clone + Send + Sync + 'static,
     TxS::Settings: Send,
