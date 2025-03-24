@@ -12,7 +12,7 @@ use tokio::sync::oneshot;
 
 use crate::wait_with_timeout;
 
-type ClMempoolService<T, RuntimeServiceId> = TxMempoolService<
+pub type ClMempoolService<T, RuntimeServiceId> = TxMempoolService<
     MempoolNetworkAdapter<T, <T as Transaction>::Hash, RuntimeServiceId>,
     MockPool<HeaderId, T, <T as Transaction>::Hash>,
     RuntimeServiceId,

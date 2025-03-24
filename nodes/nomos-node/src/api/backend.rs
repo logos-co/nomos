@@ -1,8 +1,12 @@
-use std::{error::Error, fmt::Debug, hash::Hash};
+use std::{
+    error::Error,
+    fmt::{Debug, Display},
+    hash::Hash,
+};
 
 use axum::{http::HeaderValue, routing, Router, Server};
 use hyper::header::{CONTENT_TYPE, USER_AGENT};
-use nomos_api::Backend;
+use nomos_api::{http::cl::ClMempoolService, Backend};
 use nomos_core::{
     da::{
         blob::{info::DispersedBlobInfo, metadata::Metadata, LightShare, Share},
@@ -18,7 +22,7 @@ use nomos_da_verifier::backend::VerifierBackend;
 use nomos_libp2p::PeerId;
 use nomos_mempool::{tx::service::openapi::Status, MempoolMetrics};
 use nomos_storage::backends::StorageSerde;
-use overwatch::overwatch::handle::OverwatchHandle;
+use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
@@ -34,7 +38,7 @@ use super::handlers::{
     cryptarchia_headers, cryptarchia_info, da_get_commitments, da_get_light_share, da_get_shares,
     get_range, libp2p_info, unblock_peer,
 };
-use crate::api::paths;
+use crate::{api::paths, RuntimeServiceId};
 
 /// Configuration for the Http Server
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -115,7 +119,8 @@ impl<
         TimeBackend,
         ApiAdapter,
         const SIZE: usize,
-    > Backend
+        RuntimeServiceId,
+    > Backend<RuntimeServiceId>
     for AxumBackend<
         DaAttestation,
         DaShare,
@@ -178,8 +183,10 @@ where
     DaVerifierBackend: VerifierBackend + CoreDaVerifier<DaShare = DaShare> + Send + Sync + 'static,
     <DaVerifierBackend as VerifierBackend>::Settings: Clone,
     <DaVerifierBackend as CoreDaVerifier>::Error: Error,
-    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter + Send + Sync + 'static,
-    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter + Send + Sync + 'static,
+    DaVerifierNetwork:
+        nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    DaVerifierStorage:
+        nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
     Tx: Transaction
         + Clone
         + Debug
@@ -214,12 +221,21 @@ where
         AsRef<[u8]> + Serialize + DeserializeOwned + Hash + Eq + Send + Sync + 'static,
     DaShare::LightShare: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     DaShare::SharesCommitments: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
-    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter + Send + 'static,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter + Send + 'static,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + 'static,
+    SamplingStorage:
+        nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + 'static,
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend + Send + 'static,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync + 'static,
+    RuntimeServiceId: Debug
+        + Sync
+        + Send
+        + Display
+        + Clone
+        + 'static
+        + AsServiceId<ClMempoolService<Tx, RuntimeServiceId>>,
 {
     type Error = hyper::Error;
     type Settings = AxumBackendSettings;
@@ -250,7 +266,7 @@ where
     }
 
     #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
-    async fn serve(self, handle: OverwatchHandle) -> Result<(), Self::Error> {
+    async fn serve(self, handle: OverwatchHandle<RuntimeServiceId>) -> Result<(), Self::Error> {
         let mut builder = CorsLayer::new();
         if self.settings.cors_origins.is_empty() {
             builder = builder.allow_origin(Any);
@@ -273,125 +289,128 @@ where
             )
             .layer(TraceLayer::new_for_http())
             .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
-            .route(paths::CL_METRICS, routing::get(cl_metrics::<Tx>))
-            .route(paths::CL_STATUS, routing::post(cl_status::<Tx>))
             .route(
-                paths::CRYPTARCHIA_INFO,
-                routing::get(
-                    cryptarchia_info::<
-                        Tx,
-                        DaStorageSerializer,
-                        SamplingBackend,
-                        SamplingNetworkAdapter,
-                        SamplingRng,
-                        SamplingStorage,
-                        DaVerifierBackend,
-                        DaVerifierNetwork,
-                        DaVerifierStorage,
-                        TimeBackend,
-                        ApiAdapter,
-                        SIZE,
-                    >,
-                ),
+                paths::CL_METRICS,
+                routing::get(cl_metrics::<Tx, RuntimeServiceId>),
             )
-            .route(
-                paths::CRYPTARCHIA_HEADERS,
-                routing::get(
-                    cryptarchia_headers::<
-                        Tx,
-                        DaStorageSerializer,
-                        SamplingBackend,
-                        SamplingNetworkAdapter,
-                        SamplingRng,
-                        SamplingStorage,
-                        DaVerifierBackend,
-                        DaVerifierNetwork,
-                        DaVerifierStorage,
-                        TimeBackend,
-                        ApiAdapter,
-                        SIZE,
-                    >,
-                ),
-            )
-            .route(
-                paths::DA_ADD_SHARE,
-                routing::post(
-                    add_share::<
-                        DaAttestation,
-                        DaShare,
-                        Membership,
-                        DaVerifierBackend,
-                        DaStorageSerializer,
-                    >,
-                ),
-            )
-            .route(
-                paths::DA_GET_RANGE,
-                routing::post(
-                    get_range::<
-                        Tx,
-                        DaBlobInfo,
-                        DaVerifiedBlobInfo,
-                        DaStorageSerializer,
-                        SamplingBackend,
-                        SamplingNetworkAdapter,
-                        SamplingRng,
-                        SamplingStorage,
-                        DaVerifierBackend,
-                        DaVerifierNetwork,
-                        DaVerifierStorage,
-                        TimeBackend,
-                        ApiAdapter,
-                        SIZE,
-                    >,
-                ),
-            )
-            .route(
-                paths::DA_BLOCK_PEER,
-                routing::post(block_peer::<DaNetworkValidatorBackend<Membership>>),
-            )
-            .route(
-                paths::DA_UNBLOCK_PEER,
-                routing::post(unblock_peer::<DaNetworkValidatorBackend<Membership>>),
-            )
-            .route(
-                paths::DA_BLACKLISTED_PEERS,
-                routing::get(blacklisted_peers::<DaNetworkValidatorBackend<Membership>>),
-            )
-            .route(paths::NETWORK_INFO, routing::get(libp2p_info))
-            .route(
-                paths::STORAGE_BLOCK,
-                routing::post(block::<DaStorageSerializer, Tx>),
-            )
-            .route(paths::MEMPOOL_ADD_TX, routing::post(add_tx::<Tx>))
-            .route(
-                paths::MEMPOOL_ADD_BLOB_INFO,
-                routing::post(
-                    add_blob_info::<
-                        DaVerifiedBlobInfo,
-                        SamplingBackend,
-                        SamplingNetworkAdapter,
-                        SamplingRng,
-                        SamplingStorage,
-                        DaVerifierBackend,
-                        DaVerifierNetwork,
-                        DaVerifierStorage,
-                        ApiAdapter,
-                    >,
-                ),
-            )
-            .route(
-                paths::DA_GET_SHARES_COMMITMENTS,
-                routing::get(da_get_commitments::<DaStorageSerializer, DaShare>),
-            )
-            .route(
-                paths::DA_GET_LIGHT_SHARE,
-                routing::get(da_get_light_share::<DaStorageSerializer, DaShare>),
-            )
-            .route(
-                paths::DA_GET_SHARES,
-                routing::get(da_get_shares::<DaStorageSerializer, DaShare>),
-            )
+            // .route(paths::CL_STATUS, routing::post(cl_status::<Tx>))
+            // .route(
+            //     paths::CRYPTARCHIA_INFO,
+            //     routing::get(
+            //         cryptarchia_info::<
+            //             Tx,
+            //             DaStorageSerializer,
+            //             SamplingBackend,
+            //             SamplingNetworkAdapter,
+            //             SamplingRng,
+            //             SamplingStorage,
+            //             DaVerifierBackend,
+            //             DaVerifierNetwork,
+            //             DaVerifierStorage,
+            //             TimeBackend,
+            //             ApiAdapter,
+            //             SIZE,
+            //         >,
+            //     ),
+            // )
+            // .route(
+            //     paths::CRYPTARCHIA_HEADERS,
+            //     routing::get(
+            //         cryptarchia_headers::<
+            //             Tx,
+            //             DaStorageSerializer,
+            //             SamplingBackend,
+            //             SamplingNetworkAdapter,
+            //             SamplingRng,
+            //             SamplingStorage,
+            //             DaVerifierBackend,
+            //             DaVerifierNetwork,
+            //             DaVerifierStorage,
+            //             TimeBackend,
+            //             ApiAdapter,
+            //             SIZE,
+            //         >,
+            //     ),
+            // )
+            // .route(
+            //     paths::DA_ADD_SHARE,
+            //     routing::post(
+            //         add_share::<
+            //             DaAttestation,
+            //             DaShare,
+            //             Membership,
+            //             DaVerifierBackend,
+            //             DaStorageSerializer,
+            //         >,
+            //     ),
+            // )
+            // .route(
+            //     paths::DA_GET_RANGE,
+            //     routing::post(
+            //         get_range::<
+            //             Tx,
+            //             DaBlobInfo,
+            //             DaVerifiedBlobInfo,
+            //             DaStorageSerializer,
+            //             SamplingBackend,
+            //             SamplingNetworkAdapter,
+            //             SamplingRng,
+            //             SamplingStorage,
+            //             DaVerifierBackend,
+            //             DaVerifierNetwork,
+            //             DaVerifierStorage,
+            //             TimeBackend,
+            //             ApiAdapter,
+            //             SIZE,
+            //         >,
+            //     ),
+            // )
+            // .route(
+            //     paths::DA_BLOCK_PEER,
+            //     routing::post(block_peer::<DaNetworkValidatorBackend<Membership>>),
+            // )
+            // .route(
+            //     paths::DA_UNBLOCK_PEER,
+            //     routing::post(unblock_peer::<DaNetworkValidatorBackend<Membership>>),
+            // )
+            // .route(
+            //     paths::DA_BLACKLISTED_PEERS,
+            //     routing::get(blacklisted_peers::<DaNetworkValidatorBackend<Membership>>),
+            // )
+            // .route(paths::NETWORK_INFO, routing::get(libp2p_info))
+            // .route(
+            //     paths::STORAGE_BLOCK,
+            //     routing::post(block::<DaStorageSerializer, Tx>),
+            // )
+            // .route(paths::MEMPOOL_ADD_TX, routing::post(add_tx::<Tx>))
+            // .route(
+            //     paths::MEMPOOL_ADD_BLOB_INFO,
+            //     routing::post(
+            //         add_blob_info::<
+            //             DaVerifiedBlobInfo,
+            //             SamplingBackend,
+            //             SamplingNetworkAdapter,
+            //             SamplingRng,
+            //             SamplingStorage,
+            //             DaVerifierBackend,
+            //             DaVerifierNetwork,
+            //             DaVerifierStorage,
+            //             ApiAdapter,
+            //         >,
+            //     ),
+            // )
+            // .route(
+            //     paths::DA_GET_SHARES_COMMITMENTS,
+            //     routing::get(da_get_commitments::<DaStorageSerializer, DaShare>),
+            // )
+            // .route(
+            //     paths::DA_GET_LIGHT_SHARE,
+            //     routing::get(da_get_light_share::<DaStorageSerializer, DaShare>),
+            // )
+            // .route(
+            //     paths::DA_GET_SHARES,
+            //     routing::get(da_get_shares::<DaStorageSerializer, DaShare>),
+            // )
             .with_state(handle);
 
         Server::bind(&self.settings.address)

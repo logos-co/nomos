@@ -1,4 +1,4 @@
-// pub mod api;
+pub mod api;
 // pub mod config;
 mod tx;
 
@@ -59,7 +59,7 @@ use rand_chacha::ChaCha20Rng;
 use serde::{de::DeserializeOwned, Serialize};
 use subnetworks_assignations::versions::v1::FillFromNodeList;
 
-// use crate::api::backend::AxumBackend;
+use crate::api::backend::AxumBackend;
 // pub use crate::config::{Config, CryptarchiaArgs, HttpArgs, LogArgs,
 // NetworkArgs};
 pub use crate::tx::Tx;
@@ -67,27 +67,31 @@ pub use crate::tx::Tx;
 /// Membership used by the DA Network service.
 pub type NomosDaMembership = FillFromNodeList;
 
-// pub type NomosApiService = ApiService<
-//     AxumBackend<
-//         (),
-//         DaShare,
-//         BlobInfo,
-//         NomosDaMembership,
-//         BlobInfo,
-//         KzgrsDaVerifier,
-//         VerifierNetworkAdapter<NomosDaMembership>,
-//         VerifierStorageAdapter<DaShare, Wire>,
-//         Tx,
-//         Wire,
-//         KzgrsSamplingBackend<ChaCha20Rng>,
-//         nomos_da_sampling::network::adapters::validator::Libp2pAdapter<NomosDaMembership>,
-//         ChaCha20Rng,
-//         SamplingStorageAdapter<DaShare, Wire>,
-//         SystemTimeBackend,
-//         HttApiAdapter<NomosDaMembership>,
-//         MB16,
-//     >,
-// >;
+pub type NomosApiService = ApiService<
+    AxumBackend<
+        (),
+        DaShare,
+        BlobInfo,
+        NomosDaMembership,
+        BlobInfo,
+        KzgrsDaVerifier,
+        VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+        VerifierStorageAdapter<DaShare, Wire>,
+        Tx,
+        Wire,
+        KzgrsSamplingBackend<ChaCha20Rng>,
+        nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
+            NomosDaMembership,
+            RuntimeServiceId,
+        >,
+        ChaCha20Rng,
+        SamplingStorageAdapter<DaShare, Wire>,
+        SystemTimeBackend,
+        HttApiAdapter<NomosDaMembership>,
+        MB16,
+    >,
+    RuntimeServiceId,
+>;
 
 // pub const CONSENSUS_TOPIC: &str = "/cryptarchia/proto";
 // pub const CL_TOPIC: &str = "cl";
@@ -229,7 +233,7 @@ pub struct Nomos {
     da_mempool: DaMempool,
     cryptarchia: NodeCryptarchia,
     time: NomosTimeService,
-    // http: OpaqueServiceHandle<NomosApiService>,
+    http: NomosApiService,
     storage: StorageService<RocksBackend<Wire>, RuntimeServiceId>,
     system_sig: SystemSig<RuntimeServiceId>,
 }
