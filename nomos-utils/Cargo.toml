@@ -14,8 +14,7 @@ serde_with  = { workspace = true, optional = true }
 time        = { version = "0.3", optional = true, features = ["serde-human-readable"] }
 
 [features]
-serde = ["dep:serde"]
-time  = ["dep:humantime", "dep:serde_with", "dep:time", "serde"]
+time = ["dep:humantime", "dep:serde_with", "dep:time", "serde"]
 
 [dev-dependencies]
 serde_json = "1.0"
