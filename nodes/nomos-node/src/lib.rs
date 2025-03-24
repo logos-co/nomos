@@ -63,8 +63,8 @@ use subnetworks_assignations::versions::v1::FillFromNodeList;
 // pub use crate::config::{Config, CryptarchiaArgs, HttpArgs, LogArgs,
 // NetworkArgs}; pub use crate::tx::Tx;
 
-// /// Membership used by the DA Network service.
-// pub type NomosDaMembership = FillFromNodeList;
+/// Membership used by the DA Network service.
+pub type NomosDaMembership = FillFromNodeList;
 
 // pub type NomosApiService = ApiService<
 //     AxumBackend<
@@ -206,8 +206,7 @@ pub struct Nomos {
     // da_indexer: OpaqueServiceHandle<NodeDaIndexer>,
     // da_verifier: OpaqueServiceHandle<NodeDaVerifier>,
     // da_sampling: OpaqueServiceHandle<NodeDaSampling>,
-    // da_network:
-    // OpaqueServiceHandle<DaNetworkService<DaNetworkValidatorBackend<NomosDaMembership>>>,
+    da_network: DaNetworkService<DaNetworkValidatorBackend<NomosDaMembership>, RuntimeServiceId>,
     // cl_mempool: OpaqueServiceHandle<TxMempool>,
     // da_mempool: OpaqueServiceHandle<DaMempool>,
     // cryptarchia: OpaqueServiceHandle<NodeCryptarchia>,
