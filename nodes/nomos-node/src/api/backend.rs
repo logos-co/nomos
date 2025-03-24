@@ -27,7 +27,9 @@ use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBac
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_da_verifier::backend::VerifierBackend;
 use nomos_libp2p::PeerId;
-use nomos_mempool::{tx::service::openapi::Status, MempoolMetrics};
+use nomos_mempool::{
+    backend::mockpool::MockPool, tx::service::openapi::Status, MempoolMetrics, TxMempoolService,
+};
 use nomos_storage::{
     backends::{rocksdb::RocksBackend, StorageSerde},
     StorageService,
@@ -303,7 +305,18 @@ where
                 RuntimeServiceId,
             >,
         >
-        + AsServiceId<StorageService<RocksBackend<DaStorageSerializer>, RuntimeServiceId>>,
+        + AsServiceId<StorageService<RocksBackend<DaStorageSerializer>, RuntimeServiceId>>
+        + AsServiceId<
+            TxMempoolService<
+                nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
+                    Tx,
+                    <Tx as Transaction>::Hash,
+                    RuntimeServiceId,
+                >,
+                MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
+                RuntimeServiceId,
+            >,
+        >,
 {
     type Error = hyper::Error;
     type Settings = AxumBackendSettings;
@@ -466,7 +479,10 @@ where
                 paths::STORAGE_BLOCK,
                 routing::post(block::<DaStorageSerializer, Tx, RuntimeServiceId>),
             )
-            // .route(paths::MEMPOOL_ADD_TX, routing::post(add_tx::<Tx>))
+            .route(
+                paths::MEMPOOL_ADD_TX,
+                routing::post(add_tx::<Tx, RuntimeServiceId>),
+            )
             // .route(
             //     paths::MEMPOOL_ADD_BLOB_INFO,
             //     routing::post(
