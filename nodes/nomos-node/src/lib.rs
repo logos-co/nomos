@@ -201,7 +201,7 @@ pub struct Nomos {
     #[cfg(feature = "tracing")]
     tracing: Tracing<RuntimeServiceId>,
     network: NetworkService<NetworkBackend, RuntimeServiceId>,
-    // blend: OpaqueServiceHandle<BlendService<BlendBackend, BlendNetworkAdapter>>,
+    blend: BlendService<BlendBackend, BlendNetworkAdapter<RuntimeServiceId>, RuntimeServiceId>,
     // da_indexer: OpaqueServiceHandle<NodeDaIndexer>,
     // da_verifier: OpaqueServiceHandle<NodeDaVerifier>,
     // da_sampling: OpaqueServiceHandle<NodeDaSampling>,
