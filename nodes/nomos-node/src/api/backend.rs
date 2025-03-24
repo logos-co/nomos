@@ -7,7 +7,11 @@ use std::{
 use axum::{http::HeaderValue, routing, Router, Server};
 use hyper::header::{CONTENT_TYPE, USER_AGENT};
 use nomos_api::{
-    http::{cl::ClMempoolService, consensus::Cryptarchia, da::DaVerifier},
+    http::{
+        cl::ClMempoolService,
+        consensus::Cryptarchia,
+        da::{DaIndexer, DaVerifier},
+    },
     Backend,
 };
 use nomos_core::{
@@ -264,6 +268,25 @@ where
                 DaStorageSerializer,
                 RuntimeServiceId,
             >,
+        >
+        + AsServiceId<
+            DaIndexer<
+                Tx,
+                DaBlobInfo,
+                DaVerifiedBlobInfo,
+                DaStorageSerializer,
+                SamplingBackend,
+                SamplingNetworkAdapter,
+                SamplingRng,
+                SamplingStorage,
+                DaVerifierBackend,
+                DaVerifierNetwork,
+                DaVerifierStorage,
+                TimeBackend,
+                ApiAdapter,
+                RuntimeServiceId,
+                SIZE,
+            >,
         >,
 {
     type Error = hyper::Error;
@@ -379,27 +402,28 @@ where
                     >,
                 ),
             )
-            // .route(
-            //     paths::DA_GET_RANGE,
-            //     routing::post(
-            //         get_range::<
-            //             Tx,
-            //             DaBlobInfo,
-            //             DaVerifiedBlobInfo,
-            //             DaStorageSerializer,
-            //             SamplingBackend,
-            //             SamplingNetworkAdapter,
-            //             SamplingRng,
-            //             SamplingStorage,
-            //             DaVerifierBackend,
-            //             DaVerifierNetwork,
-            //             DaVerifierStorage,
-            //             TimeBackend,
-            //             ApiAdapter,
-            //             SIZE,
-            //         >,
-            //     ),
-            // )
+            .route(
+                paths::DA_GET_RANGE,
+                routing::post(
+                    get_range::<
+                        Tx,
+                        DaBlobInfo,
+                        DaVerifiedBlobInfo,
+                        DaStorageSerializer,
+                        SamplingBackend,
+                        SamplingNetworkAdapter,
+                        SamplingRng,
+                        SamplingStorage,
+                        DaVerifierBackend,
+                        DaVerifierNetwork,
+                        DaVerifierStorage,
+                        TimeBackend,
+                        ApiAdapter,
+                        RuntimeServiceId,
+                        SIZE,
+                    >,
+                ),
+            )
             // .route(
             //     paths::DA_BLOCK_PEER,
             //     routing::post(block_peer::<DaNetworkValidatorBackend<Membership>>),
