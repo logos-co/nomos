@@ -337,25 +337,26 @@ where
                     >,
                 ),
             )
-            // .route(
-            //     paths::CRYPTARCHIA_HEADERS,
-            //     routing::get(
-            //         cryptarchia_headers::<
-            //             Tx,
-            //             DaStorageSerializer,
-            //             SamplingBackend,
-            //             SamplingNetworkAdapter,
-            //             SamplingRng,
-            //             SamplingStorage,
-            //             DaVerifierBackend,
-            //             DaVerifierNetwork,
-            //             DaVerifierStorage,
-            //             TimeBackend,
-            //             ApiAdapter,
-            //             SIZE,
-            //         >,
-            //     ),
-            // )
+            .route(
+                paths::CRYPTARCHIA_HEADERS,
+                routing::get(
+                    cryptarchia_headers::<
+                        Tx,
+                        DaStorageSerializer,
+                        SamplingBackend,
+                        SamplingNetworkAdapter,
+                        SamplingRng,
+                        SamplingStorage,
+                        DaVerifierBackend,
+                        DaVerifierNetwork,
+                        DaVerifierStorage,
+                        TimeBackend,
+                        ApiAdapter,
+                        RuntimeServiceId,
+                        SIZE,
+                    >,
+                ),
+            )
             // .route(
             //     paths::DA_ADD_SHARE,
             //     routing::post(
