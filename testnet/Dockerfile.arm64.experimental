@@ -1,6 +1,6 @@
 # BUILD IMAGE ---------------------------------------------------------
 
-FROM rust:1.84.0-slim-bookworm AS builder
+FROM rust:1.85.1-bookworm
 
 LABEL maintainer="augustinas@status.im" \
       source="https://github.com/logos-co/nomos-node" \
@@ -18,9 +18,7 @@ WORKDIR /opt/risc0
 
 RUN cargo install --path rzup
 
-ENV PATH="/root/.cargo/bin:${PATH}"
-
-RUN rzup build rust eeb90cda1969383f56a2637cbd3037bdf598841c
+RUN rzup build rust --tag-or-commit eeb90cda1969383f56a2637cbd3037bdf598841c
 
 RUN git checkout origin/release-1.2
 
