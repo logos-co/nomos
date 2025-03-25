@@ -164,7 +164,6 @@ impl<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings> FileBackendSettings
 }
 
 #[expect(clippy::allow_attributes_without_reason)]
-#[expect(clippy::type_complexity)]
 pub struct CryptarchiaConsensus<
     NetAdapter,
     BlendAdapter,

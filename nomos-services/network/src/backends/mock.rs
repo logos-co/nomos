@@ -362,51 +362,60 @@ mod tests {
 
         // broadcast
         for val in FOO_BROADCAST_MESSAGES {
-            mock.process(MockBackendMessage::Broadcast {
-                topic: "foo".to_owned(),
-                msg: MockMessage {
-                    payload: (*val).to_owned(),
-                    content_topic: MockContentTopic {
-                        application_name: "mock".into(),
+            <Mock as NetworkBackend<()>>::process(
+                &mock,
+                MockBackendMessage::Broadcast {
+                    topic: "foo".to_owned(),
+                    msg: MockMessage {
+                        payload: (*val).to_owned(),
+                        content_topic: MockContentTopic {
+                            application_name: "mock".into(),
+                            version: 1,
+                            content_topic_name: "foo content".into(),
+                        },
                         version: 1,
-                        content_topic_name: "foo content".into(),
+                        timestamp: chrono::Utc::now()
+                            .timestamp_nanos_opt()
+                            .expect("timestamp should be in valid range")
+                            as usize,
                     },
-                    version: 1,
-                    timestamp: chrono::Utc::now()
-                        .timestamp_nanos_opt()
-                        .expect("timestamp should be in valid range")
-                        as usize,
                 },
-            })
+            )
             .await;
         }
 
         for val in BAR_BROADCAST_MESSAGES {
-            mock.process(MockBackendMessage::Broadcast {
-                topic: "bar".to_owned(),
-                msg: MockMessage {
-                    payload: (*val).to_owned(),
-                    content_topic: MockContentTopic {
-                        application_name: "mock".into(),
+            <Mock as NetworkBackend<()>>::process(
+                &mock,
+                MockBackendMessage::Broadcast {
+                    topic: "bar".to_owned(),
+                    msg: MockMessage {
+                        payload: (*val).to_owned(),
+                        content_topic: MockContentTopic {
+                            application_name: "mock".into(),
+                            version: 1,
+                            content_topic_name: "bar content".into(),
+                        },
                         version: 1,
-                        content_topic_name: "bar content".into(),
+                        timestamp: chrono::Utc::now()
+                            .timestamp_nanos_opt()
+                            .expect("timestamp should be in valid range")
+                            as usize,
                     },
-                    version: 1,
-                    timestamp: chrono::Utc::now()
-                        .timestamp_nanos_opt()
-                        .expect("timestamp should be in valid range")
-                        as usize,
                 },
-            })
+            )
             .await;
         }
 
         // query
         let (qtx, qrx) = oneshot::channel();
-        mock.process(MockBackendMessage::Query {
-            topic: "foo".to_owned(),
-            tx: qtx,
-        })
+        <Mock as NetworkBackend<()>>::process(
+            &mock,
+            MockBackendMessage::Query {
+                topic: "foo".to_owned(),
+                tx: qtx,
+            },
+        )
         .await;
         let query_result = qrx.await.unwrap();
         assert_eq!(query_result.len(), 2);
@@ -415,27 +424,39 @@ mod tests {
         }
 
         // subscribe
-        mock.process(MockBackendMessage::RelaySubscribe {
-            topic: "foo".to_owned(),
-        })
+        <Mock as NetworkBackend<()>>::process(
+            &mock,
+            MockBackendMessage::RelaySubscribe {
+                topic: "foo".to_owned(),
+            },
+        )
         .await;
-        mock.process(MockBackendMessage::RelaySubscribe {
-            topic: "bar".to_owned(),
-        })
+        <Mock as NetworkBackend<()>>::process(
+            &mock,
+            MockBackendMessage::RelaySubscribe {
+                topic: "bar".to_owned(),
+            },
+        )
         .await;
         assert!(mock.subscribed_topics.lock().unwrap().contains("foo"));
         assert!(mock.subscribed_topics.lock().unwrap().contains("bar"));
 
         // unsubscribe
-        mock.process(MockBackendMessage::RelayUnSubscribe {
-            topic: "foo".to_owned(),
-        })
+        <Mock as NetworkBackend<()>>::process(
+            &mock,
+            MockBackendMessage::RelayUnSubscribe {
+                topic: "foo".to_owned(),
+            },
+        )
         .await;
         assert!(!mock.subscribed_topics.lock().unwrap().contains("foo"));
         assert!(mock.subscribed_topics.lock().unwrap().contains("bar"));
-        mock.process(MockBackendMessage::RelayUnSubscribe {
-            topic: "bar".to_owned(),
-        })
+        <Mock as NetworkBackend<()>>::process(
+            &mock,
+            MockBackendMessage::RelayUnSubscribe {
+                topic: "bar".to_owned(),
+            },
+        )
         .await;
         assert!(!mock.subscribed_topics.lock().unwrap().contains("foo"));
         assert!(!mock.subscribed_topics.lock().unwrap().contains("bar"));
