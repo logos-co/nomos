@@ -47,7 +47,7 @@ pub(crate) type BlendService = nomos_blend_service::BlendService<
     RuntimeServiceId,
 >;
 
-pub(crate) type DispersalMempoolAdapter = KzgrsMempoolAdapter<
+type DispersalMempoolAdapter = KzgrsMempoolAdapter<
     MempoolNetworkAdapter<BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId, RuntimeServiceId>,
     MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
     KzgrsSamplingBackend<ChaCha20Rng>,
