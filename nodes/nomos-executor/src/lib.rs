@@ -100,13 +100,14 @@ pub type DaDispersal = DispersalService<
     RuntimeServiceId,
 >;
 
-// pub type ExecutorCryptarchia = Cryptarchia<
-//     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
-//         NomosDaMembership,
-//         RuntimeServiceId,
-//     >,
-//     RuntimeServiceId,
-// >;
+pub type ExecutorCryptarchia = Cryptarchia<
+    nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
+        NomosDaMembership,
+        RuntimeServiceId,
+    >,
+    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    RuntimeServiceId,
+>;
 
 // pub type ExecutorDaIndexer = DaIndexer<
 //     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
@@ -151,7 +152,7 @@ pub struct NomosExecutor {
         VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
         RuntimeServiceId,
     >,
-    // cryptarchia: ExecutorCryptarchia,
+    cryptarchia: ExecutorCryptarchia,
     time: NomosTimeService<RuntimeServiceId>,
     // http: ExecutorApiService,
     storage: StorageService<RocksBackend<Wire>, RuntimeServiceId>,

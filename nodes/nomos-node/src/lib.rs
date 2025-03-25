@@ -98,7 +98,7 @@ pub const CL_TOPIC: &str = "cl";
 pub const DA_TOPIC: &str = "da";
 pub const MB16: usize = 1024 * 1024 * 16;
 
-pub type Cryptarchia<SamplingAdapter, RuntimeServiceId> =
+pub type Cryptarchia<SamplingAdapter, VerifierNetwork, RuntimeServiceId> =
     cryptarchia_consensus::CryptarchiaConsensus<
         cryptarchia_consensus::network::adapters::libp2p::LibP2pAdapter<
             Tx,
@@ -123,7 +123,7 @@ pub type Cryptarchia<SamplingAdapter, RuntimeServiceId> =
         ChaCha20Rng,
         SamplingStorageAdapter<DaShare, Wire>,
         KzgrsDaVerifier,
-        VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+        VerifierNetwork,
         VerifierStorageAdapter<DaShare, Wire>,
         SystemTimeBackend,
         HttApiAdapter<NomosDaMembership>,
@@ -135,6 +135,7 @@ pub type NodeCryptarchia = Cryptarchia<
         NomosDaMembership,
         RuntimeServiceId,
     >,
+    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
