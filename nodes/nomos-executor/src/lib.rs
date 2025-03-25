@@ -71,34 +71,34 @@ use rand_chacha::ChaCha20Rng;
 //     RuntimeServiceId,
 // >;
 
-// pub type DispersalMempoolAdapter = KzgrsMempoolAdapter<
-//     MempoolNetworkAdapter<BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId,
-// RuntimeServiceId>,     MockPool<HeaderId, BlobInfo, <BlobInfo as
-// DispersedBlobInfo>::BlobId>,     KzgrsSamplingBackend<ChaCha20Rng>,
-//     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
-//         NomosDaMembership,
-//         RuntimeServiceId,
-//     >,
-//     ChaCha20Rng,
-//     SamplingStorageAdapter<DaShare, Wire>,
-//     KzgrsDaVerifier,
-//     VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
-//     VerifierStorageAdapter<DaShare, Wire>,
-//     HttApiAdapter<NomosDaMembership>,
-//     RuntimeServiceId,
-// >;
+pub type DispersalMempoolAdapter = KzgrsMempoolAdapter<
+    MempoolNetworkAdapter<BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId, RuntimeServiceId>,
+    MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
+    KzgrsSamplingBackend<ChaCha20Rng>,
+    nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
+        NomosDaMembership,
+        RuntimeServiceId,
+    >,
+    ChaCha20Rng,
+    SamplingStorageAdapter<DaShare, Wire>,
+    KzgrsDaVerifier,
+    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    VerifierStorageAdapter<DaShare, Wire>,
+    HttApiAdapter<NomosDaMembership>,
+    RuntimeServiceId,
+>;
 
-// pub type DaDispersal = DispersalService<
-//     DispersalKZGRSBackend<
-//         DispersalNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
-//         DispersalMempoolAdapter,
-//     >,
-//     DispersalNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
-//     DispersalMempoolAdapter,
-//     NomosDaMembership,
-//     kzgrs_backend::dispersal::Metadata,
-//     RuntimeServiceId,
-// >;
+pub type DaDispersal = DispersalService<
+    DispersalKZGRSBackend<
+        DispersalNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+        DispersalMempoolAdapter,
+    >,
+    DispersalNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    DispersalMempoolAdapter,
+    NomosDaMembership,
+    kzgrs_backend::dispersal::Metadata,
+    RuntimeServiceId,
+>;
 
 // pub type ExecutorCryptarchia = Cryptarchia<
 //     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
@@ -137,7 +137,7 @@ pub struct NomosExecutor {
     tracing: Tracing<RuntimeServiceId>,
     network: NetworkService<NetworkBackend, RuntimeServiceId>,
     blend: BlendService<BlendBackend, BlendNetworkAdapter<RuntimeServiceId>, RuntimeServiceId>,
-    // da_dispersal: DaDispersal,
+    da_dispersal: DaDispersal,
     // da_indexer: ExecutorDaIndexer,
     da_verifier: ExecutorDaVerifier,
     da_sampling: ExecutorDaSampling,
