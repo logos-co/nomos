@@ -123,6 +123,7 @@ where
             config.validator_settings.monitor_settings.clone(),
             config.validator_settings.balancer_interval,
             config.validator_settings.redial_cooldown,
+            config.validator_settings.replication_settings,
         );
         let address = config.validator_settings.listening_address;
         // put swarm to listen at the specified configuration address

@@ -5,6 +5,7 @@ name    = "nomos-da-network-core"
 version = "0.1.0"
 
 [dependencies]
+cached                   = { workspace = true }
 either                   = "1.13.0"
 fixed                    = { version = "1", features = ["serde-str"] }
 futures                  = "0.3"

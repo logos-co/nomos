@@ -13,7 +13,7 @@ use crate::{
             executor::behaviour::DispersalExecutorBehaviour,
             validator::behaviour::DispersalValidatorBehaviour,
         },
-        replication::behaviour::ReplicationBehaviour,
+        replication::behaviour::{ReplicationBehaviour, ReplicationConfig},
         sampling::behaviour::SamplingBehaviour,
     },
 };
@@ -56,13 +56,14 @@ where
         balancer: Balancer,
         monitor: Monitor,
         redial_cooldown: Duration,
+        replication_config: ReplicationConfig,
     ) -> Self {
         let peer_id = PeerId::from_public_key(&key.public());
         Self {
             sampling: SamplingBehaviour::new(peer_id, membership.clone()),
             executor_dispersal: DispersalExecutorBehaviour::new(membership.clone()),
             validator_dispersal: DispersalValidatorBehaviour::new(membership.clone()),
-            replication: ReplicationBehaviour::new(peer_id, membership.clone()),
+            replication: ReplicationBehaviour::new(replication_config, peer_id, membership.clone()),
             balancer: ConnectionBalancerBehaviour::new(membership, balancer),
             monitor: ConnectionMonitorBehaviour::new(monitor, redial_cooldown),
         }

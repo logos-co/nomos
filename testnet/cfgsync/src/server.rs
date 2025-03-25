@@ -2,7 +2,9 @@ use std::{fs, net::Ipv4Addr, num::NonZero, path::PathBuf, sync::Arc, time::Durat
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::post, Json, Router};
 use nomos_da_dispersal::backend::kzgrs::MempoolPublishStrategy;
-use nomos_da_network_core::swarm::{DAConnectionMonitorSettings, DAConnectionPolicySettings};
+use nomos_da_network_core::swarm::{
+    DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
+};
 use nomos_tracing_service::TracingSettings;
 use serde::{Deserialize, Serialize};
 use tests::{
@@ -39,9 +41,19 @@ pub struct CfgSyncConfig {
     pub monitor_failure_time_window_secs: u64,
     pub balancer_interval_secs: u64,
     pub mempool_publish_strategy: MempoolPublishStrategy,
+    pub replication_settings: HumanReadableReplicationConfig,
 
     // Tracing params
     pub tracing_settings: TracingSettings,
+}
+
+// TODO remove this workaround once [`MinimumBoundedDuration`]'s serialized
+// representation is human-readable and deals with [`std::time::Duration`]` or
+// the codebase switches to [`time::Duration`]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+pub struct HumanReadableReplicationConfig {
+    pub seen_message_cache_size: usize,
+    pub seen_message_ttl_secs: u64,
 }
 
 impl CfgSyncConfig {
@@ -86,6 +98,12 @@ impl CfgSyncConfig {
             },
             balancer_interval: Duration::from_secs(self.balancer_interval_secs),
             redial_cooldown: Duration::ZERO,
+            replication_settings: ReplicationConfig {
+                seen_message_cache_size: self.replication_settings.seen_message_cache_size,
+                seen_message_ttl: Duration::from_secs(
+                    self.replication_settings.seen_message_ttl_secs,
+                ),
+            },
         }
     }
 

@@ -99,6 +99,7 @@ where
             config.monitor_settings,
             config.balancer_interval,
             config.redial_cooldown,
+            config.replication_settings,
         );
         let address = config.listening_address;
         // put swarm to listen at the specified configuration address

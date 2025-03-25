@@ -22,7 +22,7 @@ mod tests {
 
     use crate::{
         client::get_config,
-        server::{cfgsync_app, CfgSyncConfig},
+        server::{cfgsync_app, CfgSyncConfig, HumanReadableReplicationConfig},
     };
 
     #[tokio::test]
@@ -47,6 +47,7 @@ mod tests {
             monitor_failure_time_window_secs: 0,
             balancer_interval_secs: 0,
             tracing_settings: TracingSettings::default(),
+            replication_settings: HumanReadableReplicationConfig::default(),
         };
 
         let app_addr: SocketAddr = "127.0.0.1:4321".parse().unwrap();

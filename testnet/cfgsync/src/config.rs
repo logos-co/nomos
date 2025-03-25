@@ -240,7 +240,9 @@ mod cfgsync_tests {
     use std::{net::Ipv4Addr, num::NonZero, str::FromStr, time::Duration};
 
     use nomos_da_dispersal::backend::kzgrs::MempoolPublishStrategy;
-    use nomos_da_network_core::swarm::{DAConnectionMonitorSettings, DAConnectionPolicySettings};
+    use nomos_da_network_core::swarm::{
+        DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
+    };
     use nomos_libp2p::{ed25519, libp2p, Multiaddr, PeerId, Protocol};
     use nomos_tracing_service::{
         FilterLayer, LoggerLayer, MetricsLayer, TracingLayer, TracingSettings,
@@ -284,6 +286,10 @@ mod cfgsync_tests {
                 monitor_settings: DAConnectionMonitorSettings::default(),
                 balancer_interval: Duration::ZERO,
                 redial_cooldown: Duration::ZERO,
+                replication_settings: ReplicationConfig {
+                    seen_message_cache_size: 0,
+                    seen_message_ttl: Duration::ZERO,
+                },
             },
             &TracingSettings {
                 logger: LoggerLayer::None,

@@ -16,6 +16,7 @@ use nomos_da_network_core::{
     },
     swarm::{
         validator::ValidatorEventsStream, DAConnectionMonitorSettings, DAConnectionPolicySettings,
+        ReplicationConfig,
     },
     SubnetworkId,
 };
@@ -41,6 +42,7 @@ pub struct DaNetworkBackendSettings<Membership> {
     pub monitor_settings: DAConnectionMonitorSettings,
     pub balancer_interval: Duration,
     pub redial_cooldown: Duration,
+    pub replication_settings: ReplicationConfig,
 }
 
 /// Sampling events coming from da network
