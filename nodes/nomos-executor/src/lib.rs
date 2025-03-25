@@ -142,7 +142,7 @@ pub struct NomosExecutor {
     // cl_mempool: TxMempool<RuntimeServiceId>,
     // da_mempool: DaMempool<RuntimeServiceId>,
     // cryptarchia: ExecutorCryptarchia,
-    // time: NomosTimeService<RuntimeServiceId>,
+    time: NomosTimeService<RuntimeServiceId>,
     // http: ExecutorApiService,
     // storage: StorageService<RocksBackend<Wire>, RuntimeServiceId>,
     // system_sig: SystemSig<RuntimeServiceId>,
