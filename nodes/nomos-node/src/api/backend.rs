@@ -267,7 +267,7 @@ where
         + AsServiceId<
             DaVerifier<
                 DaShare,
-                Membership,
+                DaVerifierNetwork,
                 DaVerifierBackend,
                 DaStorageSerializer,
                 RuntimeServiceId,
@@ -442,7 +442,7 @@ where
                     add_share::<
                         DaAttestation,
                         DaShare,
-                        Membership,
+                        DaVerifierNetwork,
                         DaVerifierBackend,
                         DaStorageSerializer,
                         RuntimeServiceId,

@@ -28,7 +28,6 @@ use nomos_core::{
 use nomos_da_messages::http::da::{
     DASharesCommitmentsRequest, DaSamplingRequest, GetRangeReq, GetSharesRequest,
 };
-use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{backends::NetworkBackend, NetworkService};
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_da_verifier::backend::VerifierBackend;
@@ -45,7 +44,6 @@ use nomos_storage::{
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use subnetworks_assignations::MembershipHandler;
 
 use super::paths;
 
@@ -317,7 +315,7 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn add_share<A, S, M, VB, SS, RuntimeServiceId>(
+pub async fn add_share<A, S, N, VB, SS, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(share): Json<S>,
 ) -> Response
@@ -329,20 +327,16 @@ where
         AsRef<[u8]> + Serialize + DeserializeOwned + Hash + Eq + Send + Sync + 'static,
     <S as Share>::LightShare: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     <S as Share>::SharesCommitments: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
-    M: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
-        + Clone
-        + Debug
-        + Send
-        + Sync
-        + 'static,
+    N: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
+    N::Settings: Clone,
     VB: VerifierBackend + CoreDaVerifier<DaShare = S>,
     <VB as VerifierBackend>::Settings: Clone,
     <VB as CoreDaVerifier>::Error: Error,
     SS: StorageSerde + Send + Sync + 'static,
     RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<DaVerifier<S, M, VB, SS, RuntimeServiceId>>,
+        Debug + Sync + Display + 'static + AsServiceId<DaVerifier<S, N, VB, SS, RuntimeServiceId>>,
 {
-    make_request_and_return_response!(da::add_share::<A, S, M, VB, SS, RuntimeServiceId>(
+    make_request_and_return_response!(da::add_share::<A, S, N, VB, SS, RuntimeServiceId>(
         &handle, share
     ))
 }
