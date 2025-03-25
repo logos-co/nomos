@@ -43,7 +43,7 @@ impl Config {
                 reason = "`log_args` is only used to update tracing configs when the `tracing` feature is enabled."
             )
         )]
-        log_args: &LogArgs,
+        log_args: LogArgs,
         network_args: NetworkArgs,
         blend_args: BlendArgs,
         http_args: HttpArgs,
