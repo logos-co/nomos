@@ -10,7 +10,7 @@ use serde::{de::DeserializeOwned, Serialize};
 #[async_trait::async_trait]
 pub trait BlendAdapter<RuntimeServiceId> {
     type Settings: Clone + 'static;
-    type Backend: BlendBackend + 'static;
+    type Backend: BlendBackend<RuntimeServiceId> + 'static;
     type Network: NetworkAdapter<RuntimeServiceId> + 'static;
     type Tx: Serialize + DeserializeOwned + Clone + Eq + Hash + 'static;
     type BlobCertificate: Serialize + DeserializeOwned + Clone + Eq + Hash + 'static;

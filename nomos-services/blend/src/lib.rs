@@ -49,7 +49,7 @@ use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
 /// backend.
 pub struct BlendService<Backend, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend + 'static,
+    Backend: BlendBackend<RuntimeServiceId> + 'static,
     Backend::Settings: Clone + Debug,
     Network: NetworkAdapter<RuntimeServiceId>,
     Network::BroadcastSettings: Clone + Debug + Serialize + DeserializeOwned,
@@ -62,7 +62,7 @@ where
 impl<Backend, Network, RuntimeServiceId> ServiceData
     for BlendService<Backend, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend + 'static,
+    Backend: BlendBackend<RuntimeServiceId> + 'static,
     Backend::Settings: Clone,
     Network: NetworkAdapter<RuntimeServiceId>,
     Network::BroadcastSettings: Clone + Debug + Serialize + DeserializeOwned,
@@ -77,7 +77,7 @@ where
 impl<Backend, Network, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for BlendService<Backend, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend + Send + 'static,
+    Backend: BlendBackend<RuntimeServiceId> + Send + 'static,
     Backend::Settings: Clone,
     Backend::NodeId: Hash + Eq + Unpin,
     Network: NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
@@ -98,7 +98,7 @@ where
     ) -> Result<Self, overwatch::DynError> {
         let blend_config = service_state.settings_reader.get_updated_settings();
         Ok(Self {
-            backend: <Backend as BlendBackend>::new(
+            backend: <Backend as BlendBackend<RuntimeServiceId>>::new(
                 service_state.settings_reader.get_updated_settings().backend,
                 service_state.overwatch_handle.clone(),
                 blend_config.membership(),
@@ -223,7 +223,7 @@ where
 
 impl<Backend, Network, RuntimeServiceId> BlendService<Backend, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend + Send + 'static,
+    Backend: BlendBackend<RuntimeServiceId> + Send + 'static,
     Backend::Settings: Clone,
     Backend::NodeId: Hash + Eq,
     Network: NetworkAdapter<RuntimeServiceId>,

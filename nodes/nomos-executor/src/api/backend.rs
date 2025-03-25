@@ -8,7 +8,6 @@ use axum::{http::HeaderValue, routing, Router, Server};
 use hyper::header::{CONTENT_TYPE, USER_AGENT};
 use nomos_api::{
     http::{
-        cl::ClMempoolService,
         consensus::Cryptarchia,
         da::{DaDispersal, DaIndexer, DaVerifier},
     },
@@ -289,7 +288,6 @@ where
         + Display
         + Clone
         + 'static
-        + AsServiceId<ClMempoolService<Tx, RuntimeServiceId>>
         + AsServiceId<
             Cryptarchia<
                 Tx,

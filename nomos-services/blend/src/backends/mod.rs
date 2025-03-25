@@ -11,11 +11,11 @@ use rand::RngCore;
 
 /// A trait for blend backends that send messages to the blend network.
 #[async_trait::async_trait]
-pub trait BlendBackend {
+pub trait BlendBackend<RuntimeServiceId> {
     type Settings: Clone + Debug + Send + Sync + 'static;
     type NodeId: Clone + Debug + Send + Sync + 'static;
 
-    fn new<R, RuntimeServiceId>(
+    fn new<R>(
         config: Self::Settings,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Membership<Self::NodeId, SphinxMessage>,
