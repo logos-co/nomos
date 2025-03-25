@@ -124,9 +124,8 @@ use rand_chacha::ChaCha20Rng;
 //     RuntimeServiceId,
 // >;
 
-// pub type ExecutorDaVerifier =
-//     DaVerifier<VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
-// RuntimeServiceId>;
+pub type ExecutorDaVerifier =
+    DaVerifier<VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>, RuntimeServiceId>;
 
 #[derive_services]
 pub struct NomosExecutor {
@@ -136,7 +135,7 @@ pub struct NomosExecutor {
     blend: BlendService<BlendBackend, BlendNetworkAdapter<RuntimeServiceId>, RuntimeServiceId>,
     // da_dispersal: DaDispersal,
     // da_indexer: ExecutorDaIndexer,
-    // da_verifier: ExecutorDaVerifier,
+    da_verifier: ExecutorDaVerifier,
     // da_sampling: ExecutorDaSampling,
     da_network: DaNetworkService<DaNetworkExecutorBackend<NomosDaMembership>, RuntimeServiceId>,
     cl_mempool: TxMempool<RuntimeServiceId>,
