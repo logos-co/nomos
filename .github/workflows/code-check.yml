@@ -17,14 +17,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Install required libraries
-        run: sudo apt install -y graphviz perceptualdiff
+        run: sudo apt install -y graphviz
       - name: Install cargo-depgraph
         run: cargo install cargo-depgraph@1.6.0
       - name: Generate new graph
-        run: cargo depgraph --all-deps --dedup-transitive-deps --workspace-only --all-features | dot -Tpng > ${{ runner.temp }}/dependencies_graph.png
+        run: cargo depgraph --all-deps --dedup-transitive-deps --workspace-only --all-features | dot -Tsvg > ${{ runner.temp }}/dependencies_graph.svg
       - name: Compare dependency graphs
         run: |
-          perceptualdiff dependencies_graph.png ${{ runner.temp }}/dependencies_graph.png || exit 1
+          diff dependencies_graph.svg ${{ runner.temp }}/dependencies_graph.svg || exit 1
   formatting:
     name: Check formatting
     runs-on: ubuntu-latest
