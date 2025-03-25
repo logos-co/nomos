@@ -159,7 +159,7 @@ pub type DaMempool<DaSamplingNetwork, VerifierNetwork, RuntimeServiceId> = DaMem
     RuntimeServiceId,
 >;
 
-pub type DaIndexer<SamplingAdapter, RuntimeServiceId> = DataIndexerService<
+pub type DaIndexer<SamplingAdapter, VerifierNetwork, RuntimeServiceId> = DataIndexerService<
     // Indexer specific.
     DaShare,
     IndexerStorageAdapter<Wire, BlobInfo>,
@@ -184,7 +184,7 @@ pub type DaIndexer<SamplingAdapter, RuntimeServiceId> = DataIndexerService<
     ChaCha20Rng,
     SamplingStorageAdapter<DaShare, Wire>,
     KzgrsDaVerifier,
-    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    VerifierNetwork,
     VerifierStorageAdapter<DaShare, Wire>,
     SystemTimeBackend,
     HttApiAdapter<NomosDaMembership>,
@@ -196,6 +196,7 @@ pub type NodeDaIndexer = DaIndexer<
         NomosDaMembership,
         RuntimeServiceId,
     >,
+    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
     RuntimeServiceId,
 >;
 

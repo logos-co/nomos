@@ -109,13 +109,14 @@ pub type ExecutorCryptarchia = Cryptarchia<
     RuntimeServiceId,
 >;
 
-// pub type ExecutorDaIndexer = DaIndexer<
-//     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
-//         NomosDaMembership,
-//         RuntimeServiceId,
-//     >,
-//     RuntimeServiceId,
-// >;
+pub type ExecutorDaIndexer = DaIndexer<
+    nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
+        NomosDaMembership,
+        RuntimeServiceId,
+    >,
+    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    RuntimeServiceId,
+>;
 
 pub type ExecutorDaSampling = DaSampling<
     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
@@ -139,7 +140,7 @@ pub struct NomosExecutor {
     network: NetworkService<NetworkBackend, RuntimeServiceId>,
     blend: BlendService<BlendBackend, BlendNetworkAdapter<RuntimeServiceId>, RuntimeServiceId>,
     da_dispersal: DaDispersal,
-    // da_indexer: ExecutorDaIndexer,
+    da_indexer: ExecutorDaIndexer,
     da_verifier: ExecutorDaVerifier,
     da_sampling: ExecutorDaSampling,
     da_network: DaNetworkService<DaNetworkExecutorBackend<NomosDaMembership>, RuntimeServiceId>,
