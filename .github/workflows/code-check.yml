@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      - name: Install graphviz library
+        run: sudo apt install graphviz
       - name: Install cargo-depgraph
         run: cargo install cargo-depgraph@1.6.0
       - name: Generate new graph
