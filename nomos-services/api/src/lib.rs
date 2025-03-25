@@ -47,7 +47,7 @@ impl<B: Backend<RuntimeServiceId>, RuntimeServiceId> ServiceData
 
     type State = NoState<Self::Settings>;
 
-    type StateOperator = NoOperator<Self::State, Self::Settings>;
+    type StateOperator = NoOperator<Self::State>;
 
     type Message = ();
 }

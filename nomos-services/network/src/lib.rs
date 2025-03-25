@@ -64,7 +64,7 @@ impl<B: NetworkBackend<RuntimeServiceId> + 'static, RuntimeServiceId> ServiceDat
 {
     type Settings = NetworkConfig<B, RuntimeServiceId>;
     type State = NetworkState<B, RuntimeServiceId>;
-    type StateOperator = NoOperator<Self::State, Self::Settings>;
+    type StateOperator = NoOperator<Self::State>;
     type Message = NetworkMsg<B, RuntimeServiceId>;
 }
 

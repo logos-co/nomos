@@ -28,7 +28,7 @@ impl<RuntimeServiceId> ServiceData for SystemSig<RuntimeServiceId> {
     const SERVICE_RELAY_BUFFER_SIZE: usize = 1;
     type Settings = ();
     type State = NoState<Self::Settings>;
-    type StateOperator = NoOperator<Self::State, Self::Settings>;
+    type StateOperator = NoOperator<Self::State>;
     type Message = ();
 }
 

@@ -69,7 +69,7 @@ where
 {
     type Settings = BlendConfig<Backend::Settings, Backend::NodeId>;
     type State = NoState<Self::Settings>;
-    type StateOperator = NoOperator<Self::State, Self::Settings>;
+    type StateOperator = NoOperator<Self::State>;
     type Message = ServiceMessage<Network::BroadcastSettings>;
 }
 

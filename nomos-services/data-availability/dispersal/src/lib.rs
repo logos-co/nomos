@@ -87,7 +87,7 @@ where
 {
     type Settings = DispersalServiceSettings<Backend::Settings>;
     type State = NoState<Self::Settings>;
-    type StateOperator = NoOperator<Self::State, Self::Settings>;
+    type StateOperator = NoOperator<Self::State>;
     type Message = DaDispersalMsg<Metadata>;
 }
 

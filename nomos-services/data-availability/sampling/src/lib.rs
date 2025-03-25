@@ -359,7 +359,7 @@ where
 {
     type Settings = DaSamplingServiceSettings<SamplingBackend::Settings, ApiAdapter::Settings>;
     type State = NoState<Self::Settings>;
-    type StateOperator = NoOperator<Self::State, Self::Settings>;
+    type StateOperator = NoOperator<Self::State>;
     type Message = DaSamplingServiceMsg<SamplingBackend::BlobId>;
 }
 

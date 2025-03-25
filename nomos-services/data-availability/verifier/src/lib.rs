@@ -114,7 +114,7 @@ where
 {
     type Settings = DaVerifierServiceSettings<Backend::Settings, N::Settings, S::Settings>;
     type State = NoState<Self::Settings>;
-    type StateOperator = NoOperator<Self::State, Self::Settings>;
+    type StateOperator = NoOperator<Self::State>;
     type Message = DaVerifierMsg<
         <Backend::DaShare as Share>::SharesCommitments,
         <Backend::DaShare as Share>::LightShare,

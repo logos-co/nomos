@@ -67,7 +67,7 @@ impl<B: NetworkBackend<RuntimeServiceId> + 'static + Send, RuntimeServiceId> Ser
 {
     type Settings = NetworkConfig<B, RuntimeServiceId>;
     type State = NetworkState<B, RuntimeServiceId>;
-    type StateOperator = NoOperator<Self::State, Self::Settings>;
+    type StateOperator = NoOperator<Self::State>;
     type Message = DaNetworkMsg<B, RuntimeServiceId>;
 }
 

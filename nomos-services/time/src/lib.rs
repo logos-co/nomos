@@ -65,7 +65,7 @@ where
 {
     type Settings = TimeServiceSettings<Backend::Settings>;
     type State = NoState<Self::Settings>;
-    type StateOperator = NoOperator<Self::State, Self::Settings>;
+    type StateOperator = NoOperator<Self::State>;
     type Message = TimeServiceMessage;
 }
 

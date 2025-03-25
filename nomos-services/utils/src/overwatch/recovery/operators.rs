@@ -37,24 +37,23 @@ where
         + Send,
     Backend::State: Serialize + DeserializeOwned + Send,
 {
-    type StateInput = Backend::State;
-    type Settings = Backend::Settings;
+    type State = Backend::State;
     type LoadError = RecoveryError;
 
     fn try_load(
-        settings: &<Self::StateInput as ServiceState>::Settings,
-    ) -> Result<Option<Self::StateInput>, Self::LoadError> {
+        settings: &<Self::State as ServiceState>::Settings,
+    ) -> Result<Option<Self::State>, Self::LoadError> {
         Backend::from_settings(settings)
             .load_state()
             .map(Option::from)
     }
 
-    fn from_settings(settings: <Self::StateInput as ServiceState>::Settings) -> Self {
-        let recovery_backend = Backend::from_settings(&settings);
+    fn from_settings(settings: &<Self::State as ServiceState>::Settings) -> Self {
+        let recovery_backend = Backend::from_settings(settings);
         Self::new(recovery_backend)
     }
 
-    async fn run(&mut self, state: Self::StateInput) {
+    async fn run(&mut self, state: Self::State) {
         let save_result = self.recovery_backend.save_state(&state);
         if let Err(error) = save_result {
             error!("{error}");
