@@ -26,7 +26,6 @@ nomos-node               = { workspace = true }
 nomos-storage            = { workspace = true, features = ["rocksdb-backend"] }
 nomos-time               = { workspace = true }
 overwatch                = { workspace = true }
-overwatch-derive         = { workspace = true }
 rand                     = "0.8"
 rand_chacha              = "0.3"
 serde                    = { version = "1", features = ["derive"] }
@@ -48,4 +47,6 @@ tracing         = ["nomos-node/tracing"]
 ignored = [
     # Required by Overwatch's `#[derive(Services)]` macro.
     "tracing",
+    # Required by Overwatch's `#[derive(Services)]` macro.
+    "tokio",
 ]
