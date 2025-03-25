@@ -29,7 +29,8 @@ use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_da_verifier::backend::VerifierBackend;
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
-    backend::mockpool::MockPool, tx::service::openapi::Status, MempoolMetrics, TxMempoolService,
+    backend::mockpool::MockPool, tx::service::openapi::Status, DaMempoolService, MempoolMetrics,
+    TxMempoolService,
 };
 use nomos_node::{
     api::handlers::{
@@ -37,9 +38,9 @@ use nomos_node::{
         cl_status, cryptarchia_headers, cryptarchia_info, da_get_commitments, da_get_light_share,
         da_get_shares, get_range, libp2p_info, unblock_peer,
     },
-    DaMempoolService, RocksBackend, StorageService,
+    RocksBackend,
 };
-use nomos_storage::backends::StorageSerde;
+use nomos_storage::{backends::StorageSerde, StorageService};
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -52,6 +53,7 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use super::handlers::disperse_data;
+use crate::api::paths;
 
 /// Configuration for the Http Server
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -308,7 +310,7 @@ where
         + AsServiceId<
             DaVerifier<
                 DaShare,
-                Membership,
+                DaVerifierNetwork,
                 DaVerifierBackend,
                 DaStorageSerializer,
                 RuntimeServiceId,
@@ -478,7 +480,7 @@ where
                     add_share::<
                         DaAttestation,
                         DaShare,
-                        Membership,
+                        DaVerifierNetwork,
                         DaVerifierBackend,
                         DaStorageSerializer,
                         RuntimeServiceId,

@@ -9,6 +9,7 @@ use color_eyre::eyre::{eyre, Result};
 use hex::FromHex;
 use nomos_core::{proofs::covenant::CovenantProof, staking::NMO_UNIT};
 use nomos_libp2p::{ed25519::SecretKey, Multiaddr};
+use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 use nomos_tracing::logging::{gelf::GelfConfig, local::FileConfig};
 use nomos_tracing_service::{LoggerLayer, Tracing};
 use overwatch::services::ServiceData;
@@ -151,7 +152,7 @@ impl Config {
         cryptarchia_args: CryptarchiaArgs,
     ) -> Result<Self> {
         update_tracing(&mut self.tracing, log_args)?;
-        update_network(&mut self.network, network_args)?;
+        update_network::<RuntimeServiceId>(&mut self.network, network_args)?;
         update_blend(&mut self.blend, blend_args)?;
         update_http(&mut self.http, http_args)?;
         update_cryptarchia_consensus(&mut self.cryptarchia, cryptarchia_args)?;
@@ -202,8 +203,8 @@ pub fn update_tracing(
     Ok(())
 }
 
-pub fn update_network(
-    network: &mut <NetworkService as ServiceData>::Settings,
+pub fn update_network<RuntimeServiceId>(
+    network: &mut <nomos_network::NetworkService<NetworkBackend, RuntimeServiceId> as ServiceData>::Settings,
     network_args: NetworkArgs,
 ) -> Result<()> {
     let NetworkArgs {

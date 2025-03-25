@@ -1,12 +1,11 @@
 pub mod api;
-// pub mod config;
+pub mod config;
 
 use api::backend::AxumBackend;
 use kzgrs_backend::common::share::DaShare;
-use nomos_api::ApiService;
 use nomos_blend_service::{
     backends::libp2p::Libp2pBlendBackend as BlendBackend,
-    network::libp2p::Libp2pAdapter as BlendNetworkAdapter, BlendService,
+    network::libp2p::Libp2pAdapter as BlendNetworkAdapter,
 };
 use nomos_core::da::blob::info::DispersedBlobInfo;
 use nomos_da_dispersal::{
@@ -31,22 +30,24 @@ use nomos_mempool::backend::mockpool::MockPool;
 #[cfg(feature = "tracing")]
 use nomos_node::Tracing;
 use nomos_node::{
-    BlobInfo, Cryptarchia, DaIndexer, DaMempool, DaNetworkService, DaSampling, DaVerifier,
-    HeaderId, MempoolNetworkAdapter, NetworkBackend, NetworkService, NomosDaMembership,
-    NomosTimeService, RocksBackend, StorageService, SystemSig, Tx, TxMempool, Wire, MB16,
+    BlobInfo, HeaderId, MempoolNetworkAdapter, NetworkBackend, NomosDaMembership, RocksBackend,
+    SystemSig, Tx, Wire, MB16,
 };
 use overwatch::derive_services;
 use rand_chacha::ChaCha20Rng;
 
 #[cfg(feature = "tracing")]
-type ExecutorTracingService = Tracing<RuntimeServiceId>;
+pub(crate) type TracingService = Tracing<RuntimeServiceId>;
 
-type ExecutorNetworkService = NetworkService<NetworkBackend, RuntimeServiceId>;
+pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-type ExecutorBlendService =
-    BlendService<BlendBackend, BlendNetworkAdapter<RuntimeServiceId>, RuntimeServiceId>;
+pub(crate) type BlendService = nomos_blend_service::BlendService<
+    BlendBackend,
+    BlendNetworkAdapter<RuntimeServiceId>,
+    RuntimeServiceId,
+>;
 
-type DispersalMempoolAdapter = KzgrsMempoolAdapter<
+pub(crate) type DispersalMempoolAdapter = KzgrsMempoolAdapter<
     MempoolNetworkAdapter<BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId, RuntimeServiceId>,
     MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
     KzgrsSamplingBackend<ChaCha20Rng>,
@@ -62,7 +63,7 @@ type DispersalMempoolAdapter = KzgrsMempoolAdapter<
     HttApiAdapter<NomosDaMembership>,
     RuntimeServiceId,
 >;
-type ExecutorDaDispersalService = DispersalService<
+pub(crate) type DaDispersalService = DispersalService<
     DispersalKZGRSBackend<
         DispersalNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
         DispersalMempoolAdapter,
@@ -74,7 +75,7 @@ type ExecutorDaDispersalService = DispersalService<
     RuntimeServiceId,
 >;
 
-type ExecutorDaIndexerService = DaIndexer<
+pub(crate) type DaIndexerService = nomos_node::generic_services::DaIndexerService<
     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
         NomosDaMembership,
         RuntimeServiceId,
@@ -83,10 +84,12 @@ type ExecutorDaIndexerService = DaIndexer<
     RuntimeServiceId,
 >;
 
-type ExecutorDaVerifierService =
-    DaVerifier<VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>, RuntimeServiceId>;
+pub(crate) type DaVerifierService = nomos_node::generic_services::DaVerifierService<
+    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    RuntimeServiceId,
+>;
 
-type ExecutorDaSamplingService = DaSampling<
+pub(crate) type DaSamplingService = nomos_node::generic_services::DaSamplingService<
     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
         NomosDaMembership,
         RuntimeServiceId,
@@ -98,12 +101,14 @@ type ExecutorDaSamplingService = DaSampling<
     RuntimeServiceId,
 >;
 
-type ExecutorDaNetworkService =
-    DaNetworkService<DaNetworkExecutorBackend<NomosDaMembership>, RuntimeServiceId>;
+pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
+    DaNetworkExecutorBackend<NomosDaMembership>,
+    RuntimeServiceId,
+>;
 
-type ExecutorClMempoolService = TxMempool<RuntimeServiceId>;
+pub(crate) type ClMempoolService = nomos_node::generic_services::TxMempoolService<RuntimeServiceId>;
 
-type ExecutorDaMempoolService = DaMempool<
+pub(crate) type DaMempoolService = nomos_node::generic_services::DaMempoolService<
     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
         NomosDaMembership,
         RuntimeServiceId,
@@ -112,7 +117,7 @@ type ExecutorDaMempoolService = DaMempool<
     RuntimeServiceId,
 >;
 
-type ExecutorCryptarchiaService = Cryptarchia<
+pub(crate) type CryptarchiaService = nomos_node::generic_services::CryptarchiaService<
     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
         NomosDaMembership,
         RuntimeServiceId,
@@ -121,9 +126,9 @@ type ExecutorCryptarchiaService = Cryptarchia<
     RuntimeServiceId,
 >;
 
-type ExecutorTimeService = NomosTimeService<RuntimeServiceId>;
+pub(crate) type TimeService = nomos_node::generic_services::TimeService<RuntimeServiceId>;
 
-type ExecutorApiService = ApiService<
+pub(crate) type ApiService = nomos_api::ApiService<
     AxumBackend<
         (),
         DaShare,
@@ -156,26 +161,27 @@ type ExecutorApiService = ApiService<
     RuntimeServiceId,
 >;
 
-type ExecutorStorageService = StorageService<RocksBackend<Wire>, RuntimeServiceId>;
+pub(crate) type StorageService =
+    nomos_storage::StorageService<RocksBackend<Wire>, RuntimeServiceId>;
 
-type ExecutorSystemSigService = SystemSig<RuntimeServiceId>;
+pub(crate) type SystemSigService = SystemSig<RuntimeServiceId>;
 
 #[derive_services]
 pub struct NomosExecutor {
     #[cfg(feature = "tracing")]
-    tracing: ExecutorTracingService,
-    network: ExecutorNetworkService,
-    blend: ExecutorBlendService,
-    da_dispersal: ExecutorDaDispersalService,
-    da_indexer: ExecutorDaIndexerService,
-    da_verifier: ExecutorDaVerifierService,
-    da_sampling: ExecutorDaSamplingService,
-    da_network: ExecutorDaNetworkService,
-    cl_mempool: ExecutorClMempoolService,
-    da_mempool: ExecutorDaMempoolService,
-    cryptarchia: ExecutorCryptarchiaService,
-    time: ExecutorTimeService,
-    http: ExecutorApiService,
-    storage: ExecutorStorageService,
-    system_sig: ExecutorSystemSigService,
+    tracing: TracingService,
+    network: NetworkService,
+    blend: BlendService,
+    da_dispersal: DaDispersalService,
+    da_indexer: DaIndexerService,
+    da_verifier: DaVerifierService,
+    da_sampling: DaSamplingService,
+    da_network: DaNetworkService,
+    cl_mempool: ClMempoolService,
+    da_mempool: DaMempoolService,
+    cryptarchia: CryptarchiaService,
+    time: TimeService,
+    http: ApiService,
+    storage: StorageService,
+    system_sig: SystemSigService,
 }
