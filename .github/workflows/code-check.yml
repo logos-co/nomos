@@ -24,10 +24,10 @@ jobs:
         run: cargo depgraph --all-deps --dedup-transitive-deps --workspace-only --all-features | dot -Tpng > ${{ runner.temp }}/dependencies_graph.png
       - name: Hash existing dependencies graph image
         id: generate-existing-graph-hash
-        run: echo "hash=$(hashFiles('dependencies_graph.png'))" > $GITHUB_OUTPUT
+        run: echo "hash=$(sha256sum dependencies_graph.png | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Hash new dependencies graph image
         id: generate-new-graph-hash
-        run: echo "hash=$(hashFiles('${{ runner.temp }}/dependencies_graph.png'))" > $GITHUB_OUTPUT
+        run: echo "hash=$(sha256sum ${{ runner.temp }}/dependencies_graph.png | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Compare two hashes
         run: |
           if [ "${{ steps.generate-existing-graph-hash.outputs.hash }}" == "${{ steps.generate-new-graph-hash.outputs.hash }}" ]; then
