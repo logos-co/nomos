@@ -133,7 +133,7 @@ pub struct NomosExecutor {
     #[cfg(feature = "tracing")]
     tracing: Tracing<RuntimeServiceId>,
     network: NetworkService<NetworkBackend, RuntimeServiceId>,
-    // blend: BlendService<BlendBackend, BlendNetworkAdapter<RuntimeServiceId>, RuntimeServiceId>,
+    blend: BlendService<BlendBackend, BlendNetworkAdapter<RuntimeServiceId>, RuntimeServiceId>,
     // da_dispersal: DaDispersal,
     // da_indexer: ExecutorDaIndexer,
     // da_verifier: ExecutorDaVerifier,
