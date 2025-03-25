@@ -139,7 +139,7 @@ pub struct NomosExecutor {
     // da_verifier: ExecutorDaVerifier,
     // da_sampling: ExecutorDaSampling,
     // da_network: DaNetworkService<DaNetworkExecutorBackend<NomosDaMembership>, RuntimeServiceId>,
-    // cl_mempool: TxMempool<RuntimeServiceId>,
+    cl_mempool: TxMempool<RuntimeServiceId>,
     // da_mempool: DaMempool<RuntimeServiceId>,
     // cryptarchia: ExecutorCryptarchia,
     time: NomosTimeService<RuntimeServiceId>,
