@@ -47,8 +47,6 @@ name          = "ring"
 [sources]
 unknown-git      = "deny"
 unknown-registry = "deny"
-# TODO: Remove once the issue is fixed in the `deranged` repo: https://github.com/jhpratt/deranged/issues/18
-allow-git = ["https://github.com/jhpratt/deranged"]
 
 [sources.allow-org]
 github = ["logos-co"]

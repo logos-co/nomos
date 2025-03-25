@@ -101,7 +101,3 @@ risc0-zkvm       = "1.2.0"
 
 [workspace.package]
 license = "MIT or Apache-2.0"
-
-# TODO: Remove once the issue is fixed in the `deranged` repo: https://github.com/jhpratt/deranged/issues/18
-[patch.crates-io]
-deranged = { git = "https://github.com/jhpratt/deranged", rev = "3c95431a375bca409a4731ae8749acc84e076267" }

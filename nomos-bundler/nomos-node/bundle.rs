@@ -109,12 +109,12 @@ fn build_package(version: String) {
         .split('-')
         .next()
         .expect("Could not determine target architecture.");
-    info!("Bundling for '{}'", arch);
+    info!("Bundling for '{arch}'");
 
     prepare_environment(arch);
 
     if let Err(error) = tauri_bundler::bundle_project(&settings) {
-        error!("Error while bundling project: {:?}", error);
+        error!("Error while bundling project: {error:?}");
     } else {
         info!("Package bundled successfully");
     }
