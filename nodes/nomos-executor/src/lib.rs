@@ -144,6 +144,6 @@ pub struct NomosExecutor {
     // cryptarchia: ExecutorCryptarchia,
     time: NomosTimeService<RuntimeServiceId>,
     // http: ExecutorApiService,
-    // storage: StorageService<RocksBackend<Wire>, RuntimeServiceId>,
+    storage: StorageService<RocksBackend<Wire>, RuntimeServiceId>,
     system_sig: SystemSig<RuntimeServiceId>,
 }
