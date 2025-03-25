@@ -144,18 +144,15 @@ pub type TxMempool<RuntimeServiceId> = TxMempoolService<
     RuntimeServiceId,
 >;
 
-pub type DaMempool<RuntimeServiceId> = DaMempoolService<
+pub type DaMempool<DaSamplingNetwork, VerifierNetwork, RuntimeServiceId> = DaMempoolService<
     MempoolNetworkAdapter<BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId, RuntimeServiceId>,
     MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
     KzgrsSamplingBackend<ChaCha20Rng>,
-    nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
-        NomosDaMembership,
-        RuntimeServiceId,
-    >,
+    DaSamplingNetwork,
     ChaCha20Rng,
     SamplingStorageAdapter<DaShare, Wire>,
     KzgrsDaVerifier,
-    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    VerifierNetwork,
     VerifierStorageAdapter<DaShare, Wire>,
     HttApiAdapter<NomosDaMembership>,
     RuntimeServiceId,
@@ -242,7 +239,14 @@ pub struct Nomos {
     da_sampling: NodeDaSampling,
     da_network: DaNetworkService<DaNetworkValidatorBackend<NomosDaMembership>, RuntimeServiceId>,
     cl_mempool: TxMempool<RuntimeServiceId>,
-    da_mempool: DaMempool<RuntimeServiceId>,
+    da_mempool: DaMempool<
+        nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
+            NomosDaMembership,
+            RuntimeServiceId,
+        >,
+        VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+        RuntimeServiceId,
+    >,
     cryptarchia: NodeCryptarchia,
     time: NomosTimeService<RuntimeServiceId>,
     http: NomosApiService,
