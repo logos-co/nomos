@@ -201,20 +201,23 @@ pub type NodeDaIndexer = DaIndexer<
     RuntimeServiceId,
 >;
 
-pub type DaSampling<SamplingAdapter, RuntimeServiceId> = DaSamplingService<
+pub type DaSampling<SamplingAdapter, VerifierNetworkAdapter, RuntimeServiceId> = DaSamplingService<
     KzgrsSamplingBackend<ChaCha20Rng>,
     SamplingAdapter,
     ChaCha20Rng,
     SamplingStorageAdapter<DaShare, Wire>,
     KzgrsDaVerifier,
-    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    VerifierNetworkAdapter,
     VerifierStorageAdapter<DaShare, Wire>,
     HttApiAdapter<NomosDaMembership>,
     RuntimeServiceId,
 >;
 
-pub type NodeDaSampling =
-    DaSampling<SamplingLibp2pAdapter<NomosDaMembership, RuntimeServiceId>, RuntimeServiceId>;
+pub type NodeDaSampling = DaSampling<
+    SamplingLibp2pAdapter<NomosDaMembership, RuntimeServiceId>,
+    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    RuntimeServiceId,
+>;
 
 pub type DaVerifier<VerifierAdapter, RuntimeServiceId> = DaVerifierService<
     KzgrsDaVerifier,

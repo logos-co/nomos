@@ -116,13 +116,17 @@ use rand_chacha::ChaCha20Rng;
 //     RuntimeServiceId,
 // >;
 
-// pub type ExecutorDaSampling = DaSampling<
-//     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
-//         NomosDaMembership,
-//         RuntimeServiceId,
-//     >,
-//     RuntimeServiceId,
-// >;
+pub type ExecutorDaSampling = DaSampling<
+    nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
+        NomosDaMembership,
+        RuntimeServiceId,
+    >,
+    nomos_da_verifier::network::adapters::executor::Libp2pAdapter<
+        NomosDaMembership,
+        RuntimeServiceId,
+    >,
+    RuntimeServiceId,
+>;
 
 pub type ExecutorDaVerifier =
     DaVerifier<VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>, RuntimeServiceId>;
@@ -136,7 +140,7 @@ pub struct NomosExecutor {
     // da_dispersal: DaDispersal,
     // da_indexer: ExecutorDaIndexer,
     da_verifier: ExecutorDaVerifier,
-    // da_sampling: ExecutorDaSampling,
+    da_sampling: ExecutorDaSampling,
     da_network: DaNetworkService<DaNetworkExecutorBackend<NomosDaMembership>, RuntimeServiceId>,
     cl_mempool: TxMempool<RuntimeServiceId>,
     // da_mempool: DaMempool<RuntimeServiceId>,
