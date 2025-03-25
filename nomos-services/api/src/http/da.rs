@@ -36,9 +36,8 @@ use nomos_da_network_service::{
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_da_verifier::{
-    backend::VerifierBackend, network::adapters::validator::Libp2pAdapter,
-    storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter, DaVerifierMsg,
-    DaVerifierService,
+    backend::VerifierBackend, storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
+    DaVerifierMsg, DaVerifierService,
 };
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
@@ -101,10 +100,10 @@ pub type DaIndexer<
     RuntimeServiceId,
 >;
 
-pub type DaVerifier<Blob, Membership, VerifierBackend, StorageSerializer, RuntimeServiceId> =
+pub type DaVerifier<Blob, NetworkAdapter, VerifierBackend, StorageSerializer, RuntimeServiceId> =
     DaVerifierService<
         VerifierBackend,
-        Libp2pAdapter<Membership, RuntimeServiceId>,
+        NetworkAdapter,
         VerifierStorageAdapter<Blob, StorageSerializer>,
         RuntimeServiceId,
     >;
@@ -127,7 +126,7 @@ pub type DaDispersal<
 
 pub type DaNetwork<Backend, RuntimeServiceId> = NetworkService<Backend, RuntimeServiceId>;
 
-pub async fn add_share<A, S, M, VB, SS, RuntimeServiceId>(
+pub async fn add_share<A, S, N, VB, SS, RuntimeServiceId>(
     handle: &OverwatchHandle<RuntimeServiceId>,
     share: S,
 ) -> Result<Option<()>, DynError>
@@ -139,21 +138,17 @@ where
         AsRef<[u8]> + Serialize + DeserializeOwned + Eq + Hash + Send + Sync + 'static,
     <S as Share>::LightShare: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     <S as Share>::SharesCommitments: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
-    M: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
-        + Clone
-        + Debug
-        + Send
-        + Sync
-        + 'static,
+    N: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
+    N::Settings: Clone,
     VB: VerifierBackend + CoreDaVerifier<DaShare = S>,
     <VB as VerifierBackend>::Settings: Clone,
     <VB as CoreDaVerifier>::Error: Error,
     SS: StorageSerde + Send + Sync + 'static,
     RuntimeServiceId:
-        Debug + Sync + Display + AsServiceId<DaVerifier<S, M, VB, SS, RuntimeServiceId>>,
+        Debug + Sync + Display + AsServiceId<DaVerifier<S, N, VB, SS, RuntimeServiceId>>,
 {
     let relay = handle
-        .relay::<DaVerifier<S, M, VB, SS, RuntimeServiceId>>()
+        .relay::<DaVerifier<S, N, VB, SS, RuntimeServiceId>>()
         .await?;
     let (sender, receiver) = oneshot::channel();
     relay
