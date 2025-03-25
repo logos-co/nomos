@@ -93,8 +93,8 @@ tests                    = { path = "./tests" }
 
 # External
 libp2p           = "0.55"
-overwatch        = { git = "https://github.com/logos-co/Overwatch", rev = "b5305501b215af54398c07cc5bc3b3e975d54760" }
-overwatch-derive = { git = "https://github.com/logos-co/Overwatch", rev = "b5305501b215af54398c07cc5bc3b3e975d54760" }
+overwatch        = { git = "https://github.com/logos-co/Overwatch", rev = "f0895b8" }
+overwatch-derive = { git = "https://github.com/logos-co/Overwatch", rev = "f0895b8" }
 reqwest          = "0.12"
 risc0-zkvm       = "1.2.0"
 
