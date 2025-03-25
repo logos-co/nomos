@@ -16,26 +16,15 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Install graphviz library
-        run: sudo apt install graphviz
+      - name: Install required libraries
+        run: sudo apt install -y graphviz perceptualdiff
       - name: Install cargo-depgraph
         run: cargo install cargo-depgraph@1.6.0
       - name: Generate new graph
         run: cargo depgraph --all-deps --dedup-transitive-deps --workspace-only --all-features | dot -Tpng > ${{ runner.temp }}/dependencies_graph.png
-      - name: Hash existing dependencies graph image
-        id: generate-existing-graph-hash
-        run: echo "hash=$(sha256sum dependencies_graph.png | awk '{print $1}')" >> $GITHUB_OUTPUT
-      - name: Hash new dependencies graph image
-        id: generate-new-graph-hash
-        run: echo "hash=$(sha256sum ${{ runner.temp }}/dependencies_graph.png | awk '{print $1}')" >> $GITHUB_OUTPUT
-      - name: Compare two hashes
+      - name: Compare dependency graphs
         run: |
-          if [ "${{ steps.generate-existing-graph-hash.outputs.hash }}" == "${{ steps.generate-new-graph-hash.outputs.hash }}" ]; then
-            echo "Dependency graph is unchanged."
-          else
-            echo "Dependency graph has changed as has not been updated."
-            exit 1
-          fi
+          perceptualdiff dependencies_graph.png ${{ runner.temp }}/dependencies_graph.png || exit 1
   formatting:
     name: Check formatting
     runs-on: ubuntu-latest
