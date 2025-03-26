@@ -4,6 +4,7 @@ members = [
   "clients/common-http-client",
   "clients/executor-http-client",
   "consensus/cryptarchia-engine",
+  "consensus/cryptarchia-sync/network",
   "ledger/nomos-ledger",
   "nodes/nomos-executor",
   "nodes/nomos-node",
@@ -54,6 +55,7 @@ cl                       = { path = "./nomos-core/cl" }
 common-http-client       = { path = "./clients/common-http-client" }
 cryptarchia-consensus    = { path = "./nomos-services/cryptarchia-consensus" }
 cryptarchia-engine       = { path = "./consensus/cryptarchia-engine" }
+cryptarchia-sync-network = { path = "./consensus/cryptarchia-sync/network" }
 executor-http-client     = { path = "./clients/executor-http-client" }
 full-replication         = { path = "./nomos-da/full-replication" }
 key-management-system    = { path = "./nomos-services/key-management-system" }

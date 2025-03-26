@@ -1,0 +1,23 @@
+[package]
+edition           = "2021"
+license.workspace = true
+name              = "cryptarchia-sync-network"
+version           = "0.1.0"
+
+[dependencies]
+futures                  = "0.3"
+libp2p                   = { workspace = true, features = ["macros", "quic", "tokio"] }
+libp2p-stream            = "0.3.0-alpha"
+nomos-core               = { workspace = true }
+serde                    = { version = "1.0.215", features = ["derive"] }
+subnetworks-assignations = { workspace = true }
+thiserror                = "1.0"
+tokio                    = { version = "1" }
+tokio-stream             = "0.1"
+tracing                  = "0.1"
+
+[dev-dependencies]
+libp2p             = { workspace = true, features = ["ed25519", "macros", "noise", "ping", "plaintext", "quic", "tcp", "yamux"] }
+rand               = "0.8"
+tokio              = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tracing-subscriber = "0.2.25"
