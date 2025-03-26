@@ -17,22 +17,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Install required libraries
-        run: sudo apt install -y graphviz dos2unix
+        run: sudo apt install -y graphviz
       - name: Install cargo-depgraph
         run: cargo install cargo-depgraph@1.6.0
       - name: Generate new graph
-        run: cargo depgraph --all-deps --dedup-transitive-deps --workspace-only --all-features | dot -Tsvg > ${{ runner.temp }}/dependencies_graph.svg
-      - name: Normalize existing dependencies graph
-        run: |
-          dos2unix dependencies_graph.svg
-          grep -vE "generated|timestamp" dependencies_graph.svg | sort > dependencies_graph_normalized.svg
-      - name: Normalize new dependencies graph
-        run: |
-          dos2unix ${{ runner.temp }}/dependencies_graph.svg   # Normalize line endings (LF vs CRLF)
-          grep -vE "generated|timestamp" ${{ runner.temp }}/dependencies_graph.svg | sort > ${{ runner.temp }}/dependencies_graph_normalized.svg
+        run: cargo depgraph --all-deps --dedup-transitive-deps --workspace-only --all-features > ${{ runner.temp }}/dependencies_graph.dot
       - name: Compare dependency graphs
         run: |
-          diff dependencies_graph_normalized.svg ${{ runner.temp }}/dependencies_graph_normalized.svg || exit 1
+          diff dependencies_graph.dot ${{ runner.temp }}/dependencies_graph.dot || exit 1
   formatting:
     name: Check formatting
     runs-on: ubuntu-latest
