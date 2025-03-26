@@ -285,13 +285,13 @@ where
     {
         let network_relay = state_handle
             .overwatch_handle
-            .relay::<NetworkService<NetworkAdapter::Backend, RuntimeServiceId>>()
+            .relay::<NetworkService<_, _>>()
             .await
             .expect("Relay connection with NetworkService should succeed");
 
         let blend_relay = state_handle
             .overwatch_handle
-            .relay::<BlendService<BlendAdapter::Backend, BlendAdapter::Network, RuntimeServiceId>>()
+            .relay::<BlendService<_, _, _>>()
             .await
             .expect(
                 "Relay connection with nomos_blend_service::BlendService should
@@ -300,47 +300,25 @@ where
 
         let cl_mempool_relay = state_handle
             .overwatch_handle
-            .relay::<TxMempoolService<ClPoolAdapter, ClPool, RuntimeServiceId>>()
+            .relay::<TxMempoolService<_, _, _>>()
             .await
-            .expect("Relay connection with MemPoolService should succeed");
+            .expect("Relay connection with CL MemPoolService should succeed");
 
         let da_mempool_relay = state_handle
             .overwatch_handle
-            .relay::<DaMempoolService<
-                DaPoolAdapter,
-                DaPool,
-                SamplingBackend,
-                SamplingNetworkAdapter,
-                SamplingRng,
-                SamplingStorage,
-                DaVerifierBackend,
-                DaVerifierNetwork,
-                DaVerifierStorage,
-                ApiAdapter,
-                RuntimeServiceId,
-            >>()
+            .relay::<DaMempoolService<_, _, _, _, _, _, _, _, _, _, _>>()
             .await
-            .expect("Relay connection with MemPoolService should succeed");
+            .expect("Relay connection with DA MemPoolService should succeed");
 
         let sampling_relay = state_handle
             .overwatch_handle
-            .relay::<DaSamplingService<
-                SamplingBackend,
-                SamplingNetworkAdapter,
-                SamplingRng,
-                SamplingStorage,
-                DaVerifierBackend,
-                DaVerifierNetwork,
-                DaVerifierStorage,
-                ApiAdapter,
-                RuntimeServiceId,
-            >>()
+            .relay::<DaSamplingService<_, _, _, _, _, _, _, _, _>>()
             .await
             .expect("Relay connection with SamplingService should succeed");
 
         let storage_relay = state_handle
             .overwatch_handle
-            .relay::<StorageService<Storage, RuntimeServiceId>>()
+            .relay::<StorageService<_, _>>()
             .await
             .expect("Relay connection with StorageService should succeed");
 

@@ -51,9 +51,7 @@ where
         + Display
         + AsServiceId<StorageService<RocksBackend<StorageOp>, RuntimeServiceId>>,
 {
-    let storage_relay = handle
-        .relay::<StorageService<RocksBackend<StorageOp>, RuntimeServiceId>>()
-        .await?;
+    let storage_relay = handle.relay().await?;
 
     let blob_shares =
         load_blob_shares_index::<StorageOp, DaShare>(&storage_relay, &blob_id).await?;

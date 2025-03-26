@@ -513,32 +513,13 @@ where
 
         let consensus_relay = service_state
             .overwatch_handle
-            .relay::<CryptarchiaConsensus<
-                NetAdapter,
-                BlendAdapter,
-                ClPool,
-                ClPoolAdapter,
-                DaPool,
-                DaPoolAdapter,
-                TxS,
-                BS,
-                ConsensusStorage,
-                SamplingBackend,
-                SamplingNetworkAdapter,
-                SamplingRng,
-                SamplingStorage,
-                DaVerifierBackend,
-                DaVerifierNetwork,
-                DaVerifierStorage,
-                TimeBackend,
-                ApiAdapter,
-                RuntimeServiceId,
-            >>()
+            .relay::<CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _>>(
+            )
             .await
             .expect("Relay connection with ConsensusService should succeed");
         let storage_relay = service_state
             .overwatch_handle
-            .relay::<StorageService<DaStorage::Backend, RuntimeServiceId>>()
+            .relay::<StorageService<_, _>>()
             .await
             .expect("Relay connection with StorageService should succeed");
 

@@ -178,14 +178,14 @@ where
 
         let network_relay = service_state
             .overwatch_handle
-            .relay::<NetworkService<N::Backend, RuntimeServiceId>>()
+            .relay::<NetworkService<_, _>>()
             .await?;
         let network_adapter = N::new(network_adapter_settings, network_relay).await;
         let mut share_stream = network_adapter.share_stream().await;
 
         let storage_relay = service_state
             .overwatch_handle
-            .relay::<StorageService<S::Backend, RuntimeServiceId>>()
+            .relay::<StorageService<_, _>>()
             .await?;
         let storage_adapter = S::new(storage_relay).await;
 

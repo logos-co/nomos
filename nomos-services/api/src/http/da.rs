@@ -147,9 +147,7 @@ where
     RuntimeServiceId:
         Debug + Sync + Display + AsServiceId<DaVerifier<S, N, VB, SS, RuntimeServiceId>>,
 {
-    let relay = handle
-        .relay::<DaVerifier<S, N, VB, SS, RuntimeServiceId>>()
-        .await?;
+    let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
     relay
         .send(DaVerifierMsg::AddShare {
@@ -261,25 +259,7 @@ where
             >,
         >,
 {
-    let relay = handle
-        .relay::<DaIndexer<
-            Tx,
-            C,
-            V,
-            SS,
-            SamplingBackend,
-            SamplingNetworkAdapter,
-            SamplingRng,
-            SamplingStorage,
-            DaVerifierBackend,
-            DaVerifierNetwork,
-            DaVerifierStorage,
-            TimeBackend,
-            ApiAdapter,
-            RuntimeServiceId,
-            SIZE,
-        >>()
-        .await?;
+    let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
     relay
         .send(DaMsg::GetRange {
@@ -336,17 +316,7 @@ where
             >,
         >,
 {
-    let relay =
-        handle
-            .relay::<DaDispersal<
-                Backend,
-                NetworkAdapter,
-                MempoolAdapter,
-                Membership,
-                Metadata,
-                RuntimeServiceId,
-            >>()
-            .await?;
+    let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
     relay
         .send(DaDispersalMsg::Disperse {
@@ -374,9 +344,7 @@ where
     RuntimeServiceId:
         Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
 {
-    let relay = handle
-        .relay::<NetworkService<B, RuntimeServiceId>>()
-        .await?;
+    let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
     let message = B::Message::create_block_message(peer_id, sender);
     relay
@@ -397,9 +365,7 @@ where
     RuntimeServiceId:
         Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
 {
-    let relay = handle
-        .relay::<NetworkService<B, RuntimeServiceId>>()
-        .await?;
+    let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
     let message = B::Message::create_unblock_message(peer_id, sender);
     relay
@@ -423,9 +389,7 @@ where
     RuntimeServiceId:
         Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
 {
-    let relay = handle
-        .relay::<NetworkService<B, RuntimeServiceId>>()
-        .await?;
+    let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
     let message = B::Message::create_blacklisted_message(sender);
     relay

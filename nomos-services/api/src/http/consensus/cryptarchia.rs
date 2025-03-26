@@ -139,23 +139,7 @@ where
             >,
         >,
 {
-    let relay = handle
-        .relay::<Cryptarchia<
-            Tx,
-            SS,
-            SamplingBackend,
-            SamplingNetworkAdapter,
-            SamplingRng,
-            SamplingStorage,
-            DaVerifierBackend,
-            DaVerifierNetwork,
-            DaVerifierStorage,
-            TimeBackend,
-            ApiAdapter,
-            RuntimeServiceId,
-            SIZE,
-        >>()
-        .await?;
+    let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
     relay
         .send(ConsensusMsg::Info { tx: sender })
@@ -236,23 +220,7 @@ where
             >,
         >,
 {
-    let relay = handle
-        .relay::<Cryptarchia<
-            Tx,
-            SS,
-            SamplingBackend,
-            SamplingNetworkAdapter,
-            SamplingRng,
-            SamplingStorage,
-            DaVerifierBackend,
-            DaVerifierNetwork,
-            DaVerifierStorage,
-            TimeBackend,
-            ApiAdapter,
-            RuntimeServiceId,
-            SIZE,
-        >>()
-        .await?;
+    let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
     relay
         .send(ConsensusMsg::GetHeaders {

@@ -440,27 +440,21 @@ where
 
         let network_relay = service_state
             .overwatch_handle
-            .relay::<NetworkService<SamplingNetwork::Backend, RuntimeServiceId>>()
+            .relay::<NetworkService<_, _>>()
             .await?;
         let mut network_adapter = SamplingNetwork::new(network_relay).await;
         let mut sampling_message_stream = network_adapter.listen_to_sampling_messages().await?;
 
         let storage_relay = service_state
             .overwatch_handle
-            .relay::<StorageService<SamplingStorage::Backend, RuntimeServiceId>>()
+            .relay::<StorageService<_, _>>()
             .await?;
         let storage_adapter = SamplingStorage::new(storage_relay).await;
 
-        let verifier_relay =
-            service_state
-                .overwatch_handle
-                .relay::<DaVerifierService<
-                    VerifierBackend,
-                    VerifierNetwork,
-                    VerifierStorage,
-                    RuntimeServiceId,
-                >>()
-                .await?;
+        let verifier_relay = service_state
+            .overwatch_handle
+            .relay::<DaVerifierService<_, _, _, _>>()
+            .await?;
 
         let api_adapter = ApiAdapter::new(api_adapter_settings);
 

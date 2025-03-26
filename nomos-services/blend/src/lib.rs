@@ -123,7 +123,7 @@ where
         );
         let network_relay = service_state
             .overwatch_handle
-            .relay::<NetworkService<Network::Backend, RuntimeServiceId>>()
+            .relay::<NetworkService<_, _>>()
             .await?;
         let network_adapter = Network::new(network_relay);
 

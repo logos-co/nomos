@@ -37,9 +37,7 @@ where
         + Display
         + AsServiceId<TxMempoolService<A, MockPool<HeaderId, Item, Key>, RuntimeServiceId>>,
 {
-    let relay = handle
-        .relay::<TxMempoolService<A, MockPool<HeaderId, Item, Key>, RuntimeServiceId>>()
-        .await?;
+    let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
 
     relay
@@ -114,21 +112,7 @@ where
             >,
         >,
 {
-    let relay = handle
-        .relay::<DaMempoolService<
-            A,
-            MockPool<HeaderId, Item, Key>,
-            SamplingBackend,
-            SamplingAdapter,
-            SamplingRng,
-            SamplingStorage,
-            DaVerifierBackend,
-            DaVerifierNetwork,
-            DaVerifierStorage,
-            ApiAdapter,
-            RuntimeServiceId,
-        >>()
-        .await?;
+    let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
 
     relay

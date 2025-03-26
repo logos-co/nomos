@@ -147,7 +147,7 @@ where
         let network_service_relay = self
             .service_state_handle
             .overwatch_handle
-            .relay::<NetworkService<NetworkAdapter::Backend, RuntimeServiceId>>()
+            .relay::<NetworkService<_, _>>()
             .await
             .expect("Relay connection with NetworkService should succeed");
 

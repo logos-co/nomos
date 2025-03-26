@@ -35,9 +35,7 @@ where
         std::cmp::Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     RuntimeServiceId: Debug + Sync + Display + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
 {
-    let relay = handle
-        .relay::<ClMempoolService<T, RuntimeServiceId>>()
-        .await?;
+    let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
     relay
         .send(MempoolMsg::Metrics {
@@ -71,9 +69,7 @@ where
         std::cmp::Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     RuntimeServiceId: Debug + Sync + Display + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
 {
-    let relay = handle
-        .relay::<ClMempoolService<T, RuntimeServiceId>>()
-        .await?;
+    let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
     relay
         .send(MempoolMsg::Status {

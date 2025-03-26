@@ -520,7 +520,7 @@ where
         let time_relay = self
             .service_state
             .overwatch_handle
-            .relay::<TimeService<TimeBackend, RuntimeServiceId>>()
+            .relay::<TimeService<_, _>>()
             .await
             .expect("Relay conneciton with TimeService should succeed.");
 

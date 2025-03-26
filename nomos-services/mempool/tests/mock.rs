@@ -103,7 +103,7 @@ fn test_mockmempool() {
         let overwatch_handle = app.handle().clone();
         app.spawn(async move {
             let network_outbound = overwatch_handle
-                .relay::<NetworkService<Mock, RuntimeServiceId>>()
+                .relay::<NetworkService<_, _>>()
                 .await
                 .unwrap();
             let mempool_outbound = overwatch_handle

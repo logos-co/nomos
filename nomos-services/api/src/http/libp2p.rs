@@ -16,9 +16,7 @@ where
     RuntimeServiceId:
         AsServiceId<NetworkService<Libp2p, RuntimeServiceId>> + Debug + Sync + Display + 'static,
 {
-    let relay = handle
-        .relay::<NetworkService<Libp2p, RuntimeServiceId>>()
-        .await?;
+    let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
 
     relay

@@ -23,9 +23,7 @@ where
     RuntimeServiceId:
         AsServiceId<StorageService<RocksBackend<S>, RuntimeServiceId>> + Debug + Sync + Display,
 {
-    let relay = handle
-        .relay::<StorageService<RocksBackend<S>, RuntimeServiceId>>()
-        .await?;
+    let relay = handle.relay().await?;
     let (msg, receiver) = StorageMsg::new_load_message(id);
     relay.send(msg).await.map_err(|(e, _)| e)?;
 
@@ -53,9 +51,7 @@ where
         + Sync
         + Display,
 {
-    let relay = handle
-        .relay::<StorageService<RocksBackend<StorageOp>, RuntimeServiceId>>()
-        .await?;
+    let relay = handle.relay().await?;
 
     let commitments_id = key_bytes(DA_SHARED_COMMITMENTS_PREFIX, blob_id.as_ref());
     let (reply_tx, reply_rcv) = tokio::sync::oneshot::channel();
@@ -96,9 +92,7 @@ where
         + Sync
         + Display,
 {
-    let relay = handle
-        .relay::<StorageService<RocksBackend<StorageOp>, RuntimeServiceId>>()
-        .await?;
+    let relay = handle.relay().await?;
 
     let share_idx = create_share_idx(blob_id.as_ref(), share_idx.as_ref());
     let share_key = key_bytes(DA_SHARE_PREFIX, share_idx);

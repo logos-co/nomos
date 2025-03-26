@@ -288,24 +288,14 @@ where
         let network_service_relay = self
             .service_state_handle
             .overwatch_handle
-            .relay::<NetworkService<NetworkAdapter::Backend, RuntimeServiceId>>()
+            .relay::<NetworkService<_, _>>()
             .await
             .expect("Relay connection with NetworkService should succeed");
 
         let sampling_relay = self
             .service_state_handle
             .overwatch_handle
-            .relay::<DaSamplingService<
-                DaSamplingBackend,
-                DaSamplingNetwork,
-                DaSamplingRng,
-                DaSamplingStorage,
-                DaVerifierBackend,
-                DaVerifierNetwork,
-                DaVerifierStorage,
-                DaApiAdapter,
-                RuntimeServiceId,
-            >>()
+            .relay::<DaSamplingService<_, _, _, _, _, _, _, _, _>>()
             .await
             .expect("Relay connection with SamplingService should succeed");
 
