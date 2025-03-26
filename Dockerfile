@@ -2,7 +2,7 @@
 # BUILD IMAGE
 # ===========================
 
-FROM rust:1.84.0-slim-bookworm AS builder
+FROM rust:1.85.0-slim-bookworm AS builder
 
 LABEL maintainer="augustinas@status.im" \
       source="https://github.com/logos-co/nomos-node" \
@@ -18,8 +18,8 @@ RUN apt-get update && apt-get install -yq \
 RUN cargo install cargo-binstall --locked
 
 # Versions of cargo-risczero > 1.2.0 use rzup install instead
-RUN cargo binstall cargo-risczero@1.2.0 --no-confirm
-RUN cargo risczero install
+RUN cargo binstall cargo-risczero@2.0.0 --no-confirm
+RUN cargo risczero install --version r0.1.85.0
 
 RUN cargo build --release -p nomos-node
 
