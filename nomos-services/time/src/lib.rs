@@ -1,3 +1,9 @@
+#![allow(
+    clippy::disallowed_script_idents,
+    reason = "The crate `cfg_eval` contains Sinhala script identifiers. \
+    Using the `expect` or `allow` macro on top of their usage does not remove the warning"
+)]
+
 use std::{
     fmt::{Debug, Formatter},
     pin::Pin,
