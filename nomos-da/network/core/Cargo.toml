@@ -6,7 +6,6 @@ version = "0.1.0"
 
 [dependencies]
 cached                   = { workspace = true }
-cfg_eval                 = { version = "0.1" }
 either                   = "1.13.0"
 fixed                    = { version = "1", features = ["serde-str"] }
 futures                  = "0.3"

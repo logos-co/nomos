@@ -6,7 +6,6 @@ version = "0.1.0"
 
 [dependencies]
 blake2              = "0.10"
-cfg_eval            = { version = "0.1" }
 fixed               = { version = "1", features = ["serde-str"] }
 futures             = "0.3"
 multiaddr           = "0.18"
