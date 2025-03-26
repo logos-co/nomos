@@ -37,7 +37,3 @@ libp2p-swarm-test  = { version = "0.5.0", features = ["tokio"] }
 rstest             = "0.25"
 tokio              = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-[package.metadata.cargo-machete]
-# False positives.
-ignored = ["nomos-utils"]

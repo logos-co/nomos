@@ -22,7 +22,3 @@ tracing             = "0.1"
 [dev-dependencies]
 rand_chacha = "0.3"
 tokio       = { version = "1", features = ["rt-multi-thread", "time"] }
-
-[package.metadata.cargo-machete]
-# False positives.
-ignored = ["nomos-utils"]

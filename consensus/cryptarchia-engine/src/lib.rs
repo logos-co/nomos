@@ -1,3 +1,9 @@
+#![allow(
+    clippy::disallowed_script_idents,
+    reason = "The crate `cfg_eval` contains Sinhala script identifiers. \
+    For some reason, the warning only triggers in this crate, and the `expect` macro does not work."
+)]
+
 pub mod config;
 pub mod time;
 

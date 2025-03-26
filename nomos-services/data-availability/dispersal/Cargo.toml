@@ -25,7 +25,3 @@ subnetworks-assignations = { workspace = true }
 tokio                    = "1"
 tokio-stream             = "0.1.15"
 tracing                  = "0.1"
-
-[package.metadata.cargo-machete]
-# False positives.
-ignored = ["nomos-utils"]
