@@ -22,6 +22,7 @@ use nomos_blend::{
 use nomos_blend_message::{sphinx::SphinxMessage, BlendMessage};
 use nomos_core::wire;
 use nomos_network::NetworkService;
+use nomos_utils::bounded_duration::{MinimalBoundedDuration, SECOND};
 use overwatch::{
     services::{
         relay::{Relay, RelayMessage},
@@ -250,12 +251,12 @@ pub struct BlendConfig<BackendSettings, BackendNodeId> {
         Vec<Node<BackendNodeId, <SphinxMessage as nomos_blend_message::BlendMessage>::PublicKey>>,
 }
 
-#[cfg_attr(feature = "time", serde_with::serde_as)]
+#[serde_with::serde_as]
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CoverTrafficExtSettings {
-    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    #[serde_as(as = "MinimalBoundedDuration<1, SECOND>")]
     pub epoch_duration: Duration,
-    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    #[serde_as(as = "MinimalBoundedDuration<1, SECOND>")]
     pub slot_duration: Duration,
 }
 

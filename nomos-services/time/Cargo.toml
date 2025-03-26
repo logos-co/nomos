@@ -6,6 +6,7 @@ version = "0.1.0"
 
 [dependencies]
 async-trait        = "0.1"
+cfg_eval           = { version = "0.1", optional = true }
 cryptarchia-engine = { workspace = true, features = ["serde", "tokio"] }
 futures            = "0.3"
 log                = "0.4.22"
@@ -22,8 +23,7 @@ tokio-stream       = "0.1"
 
 [features]
 ntp   = ["dep:sntpc", "dep:thiserror"]
-serde = ["dep:serde"]
-time  = ["dep:nomos-utils", "dep:serde_with", "serde"]
+serde = ["cfg_eval", "dep:nomos-utils", "dep:serde", "dep:serde_with"]
 
 [package.metadata.cargo-machete]
 # False positives.

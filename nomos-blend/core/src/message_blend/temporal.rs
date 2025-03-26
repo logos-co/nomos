@@ -6,6 +6,7 @@ use std::{
 };
 
 use futures::{Future, Stream, StreamExt};
+use nomos_utils::bounded_duration::{MinimalBoundedDuration, SECOND};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use tokio::time;
@@ -96,10 +97,10 @@ pub struct TemporalProcessor<M, S> {
     scheduler: S,
 }
 
-#[cfg_attr(feature = "time", serde_with::serde_as)]
+#[serde_with::serde_as]
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct TemporalSchedulerSettings {
-    #[cfg_attr(feature = "time", serde_as(as = "MinimalBoundedDuration<0, SECOND>"))]
+    #[serde_as(as = "MinimalBoundedDuration<0, SECOND>")]
     pub max_delay: Duration,
 }
 

@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use nomos_da_dispersal::backend::kzgrs::MempoolPublishStrategy;
+use nomos_da_dispersal::backend::kzgrs::{MempoolPublishStrategy, SampleSubnetworks};
 use nomos_da_network_core::swarm::{
     DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
 };
@@ -55,11 +55,11 @@ impl Default for DaParams {
             old_blobs_check_interval: Duration::from_secs(5),
             blobs_validity_duration: Duration::from_secs(60),
             global_params_path: GLOBAL_PARAMS_PATH.to_string(),
-            mempool_strategy: MempoolPublishStrategy::SampleSubnetworks {
+            mempool_strategy: MempoolPublishStrategy::SampleSubnetworks(SampleSubnetworks {
                 sample_threshold: 2,
                 timeout: Duration::from_secs(10),
                 cooldown: Duration::from_millis(100),
-            },
+            }),
             policy_settings: DAConnectionPolicySettings {
                 min_dispersal_peers: 1,
                 min_replication_peers: 1,
