@@ -11,7 +11,7 @@ runs:
   using: "composite"
   steps:
     - name: Install cargo-binstall
-      uses: cargo-bins/cargo-binstall@b9bf440 # Version 1.12.2
+      uses: cargo-bins/cargo-binstall@b9bf4400702f721d469eec4d280125f650c85638 # Version 1.12.2
       env:
         # Required to avoid throttling by GitHub
         GITHUB_TOKEN: ${{ inputs.github_token }}
