@@ -17,7 +17,7 @@ pkgs.mkShell {
 
   buildInputs = with pkgs; [
     pkg-config
-    rust-bin.stable."1.80.0".default
+    rust-bin.stable."1.85.1".default
     clang_14
     llvmPackages_14.libclang
     openssl.dev

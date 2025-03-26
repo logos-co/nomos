@@ -1,8 +1,8 @@
-FROM rust:1.84.0-slim-bookworm
+FROM rust:1.85.1-slim-bookworm
 
 LABEL maintainer="augustinas@status.im" \
-      source="https://github.com/logos-co/nomos-node" \
-      description="nomos-node ci build image"
+    source="https://github.com/logos-co/nomos-node" \
+    description="nomos-node ci build image"
 
 # Dependecies for publishing documentation.
 RUN apt-get update && apt-get install -yq \

@@ -1,10 +1,10 @@
 # BUILD IMAGE ---------------------------------------------------------
 
-FROM rust:1.84.0-slim-bookworm AS builder
+FROM rust:1.85.1-slim-bookworm AS builder
 
 LABEL maintainer="augustinas@status.im" \
-      source="https://github.com/logos-co/nomos-node" \
-      description="Nomos testnet image"
+    source="https://github.com/logos-co/nomos-node" \
+    description="Nomos testnet image"
 
 WORKDIR /nomos
 COPY . .
