@@ -14,18 +14,22 @@ necessary for running and interacting with the Nomos blockchain. Key features in
 
 ## Table of Contents
 
-- [Requirements](#requirements)
-- [Design Goals](#design-goals)
+- [Nomos](#nomos)
+  - [Table of Contents](#table-of-contents)
+  - [Requirements](#requirements)
+  - [Design Goals](#design-goals)
     - [Service Architecture](#service-architecture)
     - [Static Dispatching](#static-dispatching)
-- [Project Structure](#project-structure)
-- [Development Workflow](#development-workflow)
+  - [Project Structure](#project-structure)
+  - [Development Workflow](#development-workflow)
     - [Docker](#docker)
-    - [Running Tests](#running-tests)
-    - [Generating Documentation](#generating-documentation)
-- [Contributing](#contributing)
-- [License](#license)
-- [Community](#community)
+      - [Building the Image](#building-the-image)
+      - [Running a Nomos Node](#running-a-nomos-node)
+  - [Running Tests](#running-tests)
+  - [Generating Documentation](#generating-documentation)
+  - [Contributing](#contributing)
+  - [License](#license)
+  - [Community](#community)
 
 ## Requirements
 
@@ -49,13 +53,13 @@ This modular approach allows for easy replacement of components in a declarative
 For example:
 
 ```rust ignore
-#[derive(Services)]
+#[derive_services]
 struct MockPoolNode {
-    logging: OpaqueServiceHandle<Logger>,
-    network: OpaqueServiceHandle<NetworkService<Waku>>,
-    mockpool: OpaqueServiceHandle<MempoolService<WakuAdapter<Tx>, MockPool<TxId, Tx>>>,
-    http: OpaqueServiceHandle<HttpService<AxumBackend>>,
-    bridges: OpaqueServiceHandle<HttpBridgeService>,
+    logging: Logger,
+    network: NetworkService<Waku>,
+    mockpool: MempoolService<WakuAdapter<Tx>, MockPool<TxId, Tx>>,
+    http: HttpService<AxumBackend>,
+    bridges: HttpBridgeService,
 }
 ```
 
