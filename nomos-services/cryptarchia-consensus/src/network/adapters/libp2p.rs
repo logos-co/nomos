@@ -10,6 +10,7 @@ use overwatch::{
     DynError,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use tokio::sync::mpsc::UnboundedReceiver;
 use tokio_stream::{
     wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
     StreamExt,
@@ -17,7 +18,7 @@ use tokio_stream::{
 
 use crate::{
     messages::NetworkMessage,
-    network::{BoxedStream, NetworkAdapter},
+    network::{BoxedStream, NetworkAdapter, SyncRequest},
 };
 
 type Relay<T> = OutboundRelay<<NetworkService<T> as ServiceData>::Message>;
@@ -79,6 +80,15 @@ where
         }
     }
 
+    async fn request_sync(&self, slot: u64) -> Result<UnboundedReceiver<Vec<u8>>, DynError> {
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        self.network_relay
+            .send(NetworkMsg::Process(Command::Sync(slot, sender)))
+            .await
+            .unwrap();
+        Ok(receiver)
+    }
+
     async fn blocks_stream(
         &self,
     ) -> Result<BoxedStream<Block<Self::Tx, Self::BlobCertificate>>, DynError> {
@@ -108,6 +118,41 @@ where
                             }
                         },
                     ),
+                    Err(BroadcastStreamRecvError::Lagged(n)) => {
+                        tracing::error!("lagged messages: {n}");
+                        None
+                    }
+                    Ok(Event::SyncRequest(_, _)) => None,
+                }
+            }),
+        ))
+    }
+
+    // Stream to listen sync requests commands
+    // Not used right now. We may go with different approach as well
+    async fn sync_requests_stream(&self) -> Result<BoxedStream<SyncRequest>, DynError> {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        if let Err((e, _)) = self
+            .network_relay
+            .send(NetworkMsg::Subscribe {
+                kind: EventKind::SyncRequest,
+                sender,
+            })
+            .await
+        {
+            return Err(Box::new(e));
+        }
+        Ok(Box::new(
+            BroadcastStream::new(receiver.await.map_err(Box::new)?).filter_map(|message| {
+                match message {
+                    Ok(Event::SyncRequest(slot, reply_channel)) => {
+                        tracing::debug!("received sync request for slot {slot}");
+                        Some(SyncRequest {
+                            slot,
+                            reply_channel,
+                        })
+                    }
+                    Ok(Event::Message(_)) => None,
                     Err(BroadcastStreamRecvError::Lagged(n)) => {
                         tracing::error!("lagged messages: {n}");
                         None

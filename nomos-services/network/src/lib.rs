@@ -6,7 +6,7 @@ use backends::NetworkBackend;
 use futures::StreamExt;
 use overwatch::{
     services::{
-        relay::RelayMessage,
+        relay::{Relay, RelayMessage},
         state::{NoOperator, ServiceState},
         ServiceCore, ServiceData, ServiceId,
     },

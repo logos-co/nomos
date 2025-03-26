@@ -12,6 +12,10 @@ use blake2::{
     Blake2b,
 };
 pub use config::{secret_key_serde, SwarmConfig};
+use cryptarchia_sync_network::{
+    behaviour::{BehaviourSyncingEvent::ForwardSyncRequest, SyncCommand},
+    membership::AllNeighbours,
+};
 pub use libp2p::{
     self,
     core::upgrade,
@@ -25,6 +29,7 @@ use libp2p::{
     swarm::ConnectionId,
 };
 pub use multiaddr::{multiaddr, Multiaddr, Protocol};
+use tokio::sync::mpsc::UnboundedSender;
 
 // TODO: Risc0 proofs are HUGE (220 Kb) and it's the only reason we need to have
 // this limit so large. Remove this once we transition to smaller proofs.
@@ -39,10 +44,16 @@ pub struct Swarm {
 #[derive(NetworkBehaviour)]
 pub struct Behaviour {
     gossipsub: gossipsub::Behaviour,
+    sync: cryptarchia_sync_network::behaviour::Behaviour<AllNeighbours>,
 }
 
 impl Behaviour {
-    fn new(peer_id: PeerId, gossipsub_config: gossipsub::Config) -> Result<Self, Box<dyn Error>> {
+    fn new(
+        peer_id: PeerId,
+        gossipsub_config: gossipsub::Config,
+        // Temporarily "static"
+        membership: AllNeighbours,
+    ) -> Result<Self, Box<dyn Error>> {
         let gossipsub = gossipsub::Behaviour::new(
             gossipsub::MessageAuthenticity::Author(peer_id),
             gossipsub::ConfigBuilder::from(gossipsub_config)
@@ -51,7 +62,8 @@ impl Behaviour {
                 .max_transmit_size(DATA_LIMIT)
                 .build()?,
         )?;
-        Ok(Self { gossipsub })
+        let sync = cryptarchia_sync_network::behaviour::Behaviour::new(peer_id, membership);
+        Ok(Self { gossipsub, sync })
     }
 }
 
@@ -63,7 +75,6 @@ pub enum SwarmError {
 
 /// How long to keep a connection alive once it is idling.
 const IDLE_CONN_TIMEOUT: Duration = Duration::from_secs(300);
-
 impl Swarm {
     /// Builds a [`Swarm`] configured for use with Nomos on top of a tokio
     /// executor.
@@ -75,11 +86,15 @@ impl Swarm {
         let peer_id = PeerId::from(keypair.public());
         tracing::info!("libp2p peer_id:{}", peer_id);
 
+        // TODO: just a placeholder for now to make it compile
+        let membership = AllNeighbours::new();
         let mut swarm = libp2p::SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()
             .with_dns()?
-            .with_behaviour(|_| Behaviour::new(peer_id, config.gossipsub_config.clone()).unwrap())?
+            .with_behaviour(|_| {
+                Behaviour::new(peer_id, config.gossipsub_config.clone(), membership).unwrap()
+            })?
             .with_swarm_config(|c| c.with_idle_connection_timeout(IDLE_CONN_TIMEOUT))
             .build();
 
@@ -118,6 +133,18 @@ impl Swarm {
             .behaviour_mut()
             .gossipsub
             .publish(gossipsub::IdentTopic::new(topic), message)
+    }
+
+    pub fn start_sync(&mut self, slot: u64, reply_channel: UnboundedSender<Vec<u8>>) {
+        self.swarm
+            .behaviour_mut()
+            .sync
+            .sync_request_channel()
+            .send(SyncCommand::StartForwardSync {
+                slot,
+                response_sender: reply_channel,
+            })
+            .expect("Failed to send sync request");
     }
 
     /// Unsubscribes from a topic

@@ -4,7 +4,7 @@ pub(crate) mod swarm;
 
 pub use nomos_libp2p::libp2p::gossipsub::{Message, TopicHash};
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, mpsc::UnboundedSender};
 
 use self::swarm::SwarmHandler;
 pub use self::{
@@ -21,12 +21,14 @@ pub struct Libp2p {
 #[derive(Debug)]
 pub enum EventKind {
     Message,
+    SyncRequest,
 }
 
 /// Events emitted from [`NomosLibp2p`], which users can subscribe
 #[derive(Debug, Clone)]
 pub enum Event {
     Message(Message),
+    SyncRequest(u64, UnboundedSender<Vec<u8>>),
 }
 
 const BUFFER_SIZE: usize = 64;
@@ -67,7 +69,9 @@ impl NetworkBackend for Libp2p {
         kind: Self::EventKind,
     ) -> broadcast::Receiver<Self::NetworkEvent> {
         match kind {
-            EventKind::Message => {
+            // Might be cleaner to use different channels depending on `kind`.
+            // At the same time `events_tx` is common to all events. Maybe fine this way
+            EventKind::Message | EventKind::SyncRequest => {
                 tracing::debug!("processed subscription to incoming messages");
                 self.events_tx.subscribe()
             }
