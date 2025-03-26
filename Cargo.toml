@@ -4,6 +4,7 @@ members = [
   "clients/common-http-client",
   "clients/executor-http-client",
   "consensus/cryptarchia-engine",
+  "consensus/cryptarchia-sync",
   "ledger/nomos-ledger",
   "nodes/nomos-executor",
   "nodes/nomos-node",

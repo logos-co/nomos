@@ -1,0 +1,7 @@
+[package]
+edition = "2021"
+license = { workspace = true }
+name    = "cryptarchia-sync"
+version = "0.1.0"
+
+[dependencies]
