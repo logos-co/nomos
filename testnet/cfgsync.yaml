@@ -16,7 +16,7 @@ blobs_validity_duration_secs: 60
 global_params_path: "/kzgrs_test_params"
 min_dispersal_peers: 1
 min_replication_peers: 1
-monitor_failure_time_window_secs: 5
+monitor_failure_time_window: [5, 0]
 balancer_interval_secs: 5
 # Dispersal mempool publish strategy
 mempool_publish_strategy: !SampleSubnetworks
