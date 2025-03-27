@@ -25,10 +25,11 @@ pub enum Error {
 pub struct NTPClientSettings {
     /// NTP server requests timeout duration
     #[cfg_attr(feature = "serde", serde_as(as = "MinimalBoundedDuration<1, NANO>"))]
-    timeout: Duration,
-    /// NTP server socket address
-    address: SocketAddr,
+    pub timeout: Duration,
+    /// Local socket address to listen for responses
+    pub local_socket: SocketAddr,
 }
+
 #[derive(Clone)]
 pub struct AsyncNTPClient {
     settings: NTPClientSettings,
@@ -45,11 +46,11 @@ impl AsyncNTPClient {
     }
 
     /// Request a timestamp from an NTP server
-    pub async fn request_timestamp<T: ToSocketAddrs + Sync>(
+    pub async fn request_timestamp<Addresses: ToSocketAddrs + Sync>(
         &self,
-        pool: T,
+        pool: Addresses,
     ) -> Result<NtpResult, Error> {
-        let socket = &UdpSocket::bind(self.settings.address)
+        let socket = &UdpSocket::bind(self.settings.local_socket)
             .await
             .map_err(Error::Io)?;
         let hosts = lookup_host(&pool).await.map_err(Error::Io)?;

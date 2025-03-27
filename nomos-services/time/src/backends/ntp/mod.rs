@@ -1,4 +1,6 @@
 mod async_client;
+#[cfg(feature = "testutils")]
+mod testutils;
 
 use std::{
     num::NonZero,
