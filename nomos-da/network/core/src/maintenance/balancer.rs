@@ -39,7 +39,7 @@ pub trait ConnectionBalancer {
 
 #[derive(Debug)]
 pub enum ConnectionBalancerCommand<Stats> {
-    Stats(oneshot::Sender<Stats>), // TODO use some other type
+    Stats(oneshot::Sender<Stats>),
 }
 
 pub struct ConnectionBalancerBehaviour<Balancer, Membership>
@@ -232,7 +232,7 @@ mod tests {
             }
         }
 
-        fn stats(&self) -> () {
+        fn stats(&self) {
             unimplemented!()
         }
     }

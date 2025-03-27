@@ -16,7 +16,7 @@ use crate::{
 
 pub type BalancerStats = HashMap<SubnetworkId, SubnetworkStats>;
 
-#[derive(Copy, Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SubnetworkStats {
     pub inbound: usize,
     pub outbound: usize,

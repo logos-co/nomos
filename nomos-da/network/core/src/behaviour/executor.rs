@@ -127,7 +127,7 @@ where
         &mut self.balancer
     }
 
-    pub fn balancer_behaviour(&self) -> &ConnectionBalancerBehaviour<Balancer, Membership> {
+    pub const fn balancer_behaviour(&self) -> &ConnectionBalancerBehaviour<Balancer, Membership> {
         &self.balancer
     }
 }

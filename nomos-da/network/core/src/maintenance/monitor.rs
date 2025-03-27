@@ -45,11 +45,12 @@ pub enum ConnectionMonitorCommand<Stats> {
     Block(PeerId, oneshot::Sender<bool>),
     Unblock(PeerId, oneshot::Sender<bool>),
     BlacklistedPeers(oneshot::Sender<Vec<PeerId>>),
-    Stats(oneshot::Sender<Stats>), // TODO use some other type
+    Stats(oneshot::Sender<Stats>),
 }
 
 impl<Stats> ConnectionMonitorCommand<Stats> {
-    pub fn discriminant(&self) -> &str {
+    #[must_use]
+    pub const fn discriminant(&self) -> &str {
         match self {
             Self::Block(_, _) => "Block",
             Self::Unblock(_, _) => "Unblock",
@@ -58,12 +59,11 @@ impl<Stats> ConnectionMonitorCommand<Stats> {
         }
     }
 
-    pub fn peer_id(&self) -> Option<&PeerId> {
+    #[must_use]
+    pub const fn peer_id(&self) -> Option<&PeerId> {
         match self {
-            Self::Block(peer, _) => Some(peer),
-            Self::Unblock(peer, _) => Some(peer),
-            Self::BlacklistedPeers(_) => None,
-            Self::Stats(_) => None,
+            Self::Block(peer, _) | Self::Unblock(peer, _) => Some(peer),
+            Self::BlacklistedPeers(_) | Self::Stats(_) => None,
         }
     }
 }
@@ -335,7 +335,7 @@ mod tests {
             self.stats.remove(peer_id);
         }
 
-        fn stats(&self) -> () {
+        fn stats(&self) {
             unimplemented!()
         }
     }

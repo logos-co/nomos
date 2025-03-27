@@ -106,28 +106,32 @@ pub mod dto {
     use libp2p::PeerId;
     use serde::{Deserialize, Serialize};
 
-    #[derive(Debug, Deserialize, Serialize, PartialEq)]
+    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub struct MonitorStats(pub HashMap<PeerId, PeerStats>);
 
     impl From<&HashMap<PeerId, super::PeerStats>> for MonitorStats {
         fn from(stats: &HashMap<PeerId, super::PeerStats>) -> Self {
-            Self(stats.into_iter().map(|(k, v)| (*k, v.into())).collect())
+            Self(stats.iter().map(|(k, v)| (*k, v.into())).collect())
         }
     }
 
-    #[derive(Copy, Clone, Debug, Deserialize, Serialize, PartialEq)]
+    #[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub struct PeerStats {
-        pub dispersal_failures_rate: U57F7,
-        pub sampling_failures_rate: U57F7,
-        pub replication_failures_rate: U57F7,
+        // Workaround for clippy: "all fields have the same postfix: `failures_rate`"
+        #[serde(rename = "dispersal_failure_rate")]
+        pub dispersal: U57F7,
+        #[serde(rename = "sampling_failure_rate")]
+        pub sampling: U57F7,
+        #[serde(rename = "replication_failure_rate")]
+        pub replication: U57F7,
     }
 
     impl From<&super::PeerStats> for PeerStats {
         fn from(stats: &super::PeerStats) -> Self {
             Self {
-                dispersal_failures_rate: stats.dispersal_failures_rate,
-                sampling_failures_rate: stats.sampling_failures_rate,
-                replication_failures_rate: stats.replication_failures_rate,
+                dispersal: stats.dispersal_failures_rate,
+                sampling: stats.sampling_failures_rate,
+                replication: stats.replication_failures_rate,
             }
         }
     }
