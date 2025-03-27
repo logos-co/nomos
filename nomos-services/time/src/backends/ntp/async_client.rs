@@ -27,6 +27,9 @@ pub struct NTPClientSettings {
     #[cfg_attr(feature = "serde", serde_as(as = "MinimalBoundedDuration<1, NANO>"))]
     pub timeout: Duration,
     /// Local socket address to listen for responses
+    /// The bound IP behaves like a server listening IP. This means for WAN
+    /// requests you probably want to bind to `0.0.0.0`. For LAN requests
+    /// you can simply bind to the local IP.
     pub local_socket: SocketAddr,
 }
 
@@ -46,6 +49,13 @@ impl AsyncNTPClient {
     }
 
     /// Request a timestamp from an NTP server
+    ///
+    /// # Errors
+    ///
+    /// Making a WAN request with a local IP bound socket will result in a
+    /// [`Error::Sntp`] containing a
+    /// [`ResponseAddressMismatch`](sntpc::Error::ResponseAddressMismatch)
+    /// error.
     pub async fn request_timestamp<Addresses: ToSocketAddrs + Sync>(
         &self,
         pool: Addresses,
