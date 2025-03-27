@@ -64,3 +64,32 @@ impl AsyncNTPClient {
             .map_err(Error::Sntp)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        net::{IpAddr, Ipv4Addr, SocketAddr},
+        time::Duration,
+    };
+
+    use super::*;
+
+    #[tokio::test]
+    async fn real_ntp_request() -> Result<(), Error> {
+        // 0.europe.pool.ntp.org
+        // Uses IP instead of domain to avoid random SNTP::ResponseAddressMismatch
+        // errors.
+        let ntp_server_ip = "185.251.115.30";
+        let ntp_server_address = format!("{ntp_server_ip}:123");
+
+        let settings = NTPClientSettings {
+            timeout: Duration::from_secs(3),
+            local_socket: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 12345),
+        };
+        let client = AsyncNTPClient::new(settings);
+
+        let _response = client.request_timestamp(ntp_server_address).await?;
+
+        Ok(())
+    }
+}
