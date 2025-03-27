@@ -19,6 +19,11 @@ runs:
       # rzup manage risc0 rust toolchain. To check what are supported versions
       # visit https://github.com/risc0/risc0 and https://github.com/risc0/rust
       # release pages.
+      #
+      # When updating rzup, risczero or risc0 rust toolchain also update these files:
+      # * Dockerfile
+      # * ci/Dockerfile
+      # * testnet/Dockerfile
       run: |
         cargo install rzup --version 0.4.1 --locked \
           && ~/.cargo/bin/rzup install cargo-risczero 2.0.0 \

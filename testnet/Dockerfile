@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -yq \
     git gcc g++ clang libssl-dev pkg-config ca-certificates
 
 RUN cargo install cargo-binstall --locked
-RUN cargo binstall risc0 --no-confirm
+RUN cargo install rzup --version 0.4.1 --locked
 RUN rzup install cargo-risczero 2.0.0
 RUN rzup install rust 1.85.0
 
