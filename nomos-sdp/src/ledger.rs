@@ -15,7 +15,9 @@ use crate::{
 #[derive(thiserror::Error, Debug)]
 pub enum DeclarationRepositoryError {
     #[error("Provider not found: {0:?}")]
-    NotFound(ProviderId),
+    ProviderNotFound(ProviderId),
+    #[error("Declaration not found: {0:?}")]
+    DeclarationNotFound(DeclarationId),
     #[error(transparent)]
     Other(Box<dyn Error + Send>),
 }
@@ -268,7 +270,7 @@ where
             Ok(provider_info) => {
                 ProviderState::from_info(block_number, provider_info, &service_params)
             }
-            Err(DeclarationRepositoryError::NotFound(_)) => {
+            Err(DeclarationRepositoryError::ProviderNotFound(_)) => {
                 ProviderState::new(block_number, provider_id, declaration_id)
             }
             Err(err) => return Err(SdpLedgerError::DeclarationRepository(err)),
@@ -305,5 +307,260 @@ where
             .insert(pending_state);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex},
+    };
+
+    use async_trait::async_trait;
+
+    use super::*;
+    use crate::*;
+
+    #[derive(Default, Clone)]
+    struct MockDeclarationRepository {
+        providers: Arc<Mutex<HashMap<ProviderId, ProviderInfo>>>,
+        declarations: Arc<Mutex<HashMap<DeclarationId, Declaration>>>,
+    }
+
+    #[async_trait]
+    impl DeclarationRepository for MockDeclarationRepository {
+        async fn get_provider_info(
+            &self,
+            id: ProviderId,
+        ) -> Result<ProviderInfo, DeclarationRepositoryError> {
+            self.providers
+                .lock()
+                .unwrap()
+                .get(&id)
+                .copied()
+                .ok_or(DeclarationRepositoryError::ProviderNotFound(id))
+        }
+
+        async fn get_declaration(
+            &self,
+            id: DeclarationId,
+        ) -> Result<Declaration, DeclarationRepositoryError> {
+            self.declarations
+                .lock()
+                .unwrap()
+                .get(&id)
+                .cloned()
+                .ok_or(DeclarationRepositoryError::DeclarationNotFound(id))
+        }
+    }
+
+    #[derive(Default, Clone)]
+    struct MockRewardsRequestSender {
+        requested_rewards: Arc<Mutex<Vec<RewardMessage>>>,
+    }
+
+    #[async_trait]
+    impl RewardRequestSender for MockRewardsRequestSender {
+        async fn request_reward(
+            &self,
+            _reward_contract: MockContractAddress,
+            reward_message: RewardMessage,
+        ) -> Result<(), RewardsSenderError> {
+            self.requested_rewards.lock().unwrap().push(reward_message);
+            Ok(())
+        }
+    }
+
+    #[derive(Default, Clone)]
+    struct MockServiceRepository {
+        service_params: Arc<Mutex<HashMap<ServiceType, ServiceParameters>>>,
+    }
+
+    #[async_trait]
+    impl ServiceRepository for MockServiceRepository {
+        async fn get_parameters(
+            &self,
+            service_type: ServiceType,
+        ) -> Result<ServiceParameters, ServiceRepositoryError> {
+            self.service_params
+                .lock()
+                .unwrap()
+                .get(&service_type)
+                .cloned()
+                .ok_or(ServiceRepositoryError::NotFound(service_type))
+        }
+    }
+
+    fn create_test_provider_key() -> ProviderId {
+        ed25519_dalek::VerifyingKey::from_bytes(&[0u8; 32]).unwrap()
+    }
+
+    fn create_default_service_params() -> ServiceParameters {
+        ServiceParameters {
+            lock_period: 10,
+            inactivity_period: 20,
+            retention_period: 30,
+            reward_contract: [0u8; 32],
+            timestamp: 0,
+        }
+    }
+
+    fn setup_ledger() -> (
+        SdpLedger<MockDeclarationRepository, MockRewardsRequestSender, MockServiceRepository>,
+        MockDeclarationRepository,
+        MockRewardsRequestSender,
+        MockServiceRepository,
+    ) {
+        let declaration_repo = MockDeclarationRepository::default();
+        let rewards_sender = MockRewardsRequestSender::default();
+        let service_repo = MockServiceRepository::default();
+
+        {
+            let mut params = service_repo.service_params.lock().unwrap();
+            params.insert(ServiceType::BlendNetwork, create_default_service_params());
+        };
+
+        let ledger = SdpLedger {
+            provider_repo: declaration_repo.clone(),
+            reward_request_sender: rewards_sender.clone(),
+            services_repo: service_repo.clone(),
+            pending_block_states: HashMap::new(),
+            pending_block_declarations: HashMap::new(),
+            pending_rewards: HashMap::new(),
+        };
+
+        (ledger, declaration_repo, rewards_sender, service_repo)
+    }
+
+    #[tokio::test]
+    async fn test_process_declare_message() {
+        let (mut ledger, _, _, _) = setup_ledger();
+
+        let provider_id = create_test_provider_key();
+        let declaration_message = DeclarationMessage {
+            service_type: ServiceType::BlendNetwork,
+            locators: vec![],
+            proof_of_funds: [0u8; 64],
+            provider_id,
+        };
+
+        let result = ledger
+            .process_sdp_message(
+                100,
+                SdpMessage::Declare(declaration_message.clone()),
+                [0u8; 32],
+            )
+            .await;
+
+        assert!(result.is_ok());
+
+        assert_eq!(ledger.pending_block_states.len(), 1);
+        assert!(ledger.pending_block_states.contains_key(&100));
+
+        assert_eq!(ledger.pending_block_declarations.len(), 1);
+        let pending_declarations = ledger.pending_block_declarations.get(&100).unwrap();
+        assert_eq!(pending_declarations.declarations.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_process_reward_message() {
+        let (mut ledger, _, rewards_sender, _) = setup_ledger();
+        let provider_id = create_test_provider_key();
+        let declaration_id = [1u8; 32];
+
+        let reward_message = RewardMessage {
+            declaration_id,
+            service_type: ServiceType::BlendNetwork,
+            provider_id,
+            nonce: 1,
+            metadata: None,
+        };
+
+        let result = ledger
+            .process_sdp_message(100, SdpMessage::Reward(reward_message.clone()), [0u8; 32])
+            .await;
+
+        assert!(result.is_ok());
+
+        assert_eq!(ledger.pending_block_states.len(), 1);
+        assert!(ledger.pending_block_states.contains_key(&100));
+
+        let requested_rewards = rewards_sender.requested_rewards.lock().unwrap();
+        assert_eq!(requested_rewards.len(), 1);
+        assert_eq!(requested_rewards[0].provider_id, provider_id);
+        drop(requested_rewards); // clippy strict >:)
+    }
+
+    #[tokio::test]
+    async fn test_process_withdraw_message() {
+        let (mut ledger, declaration_repo, rewards_sender, _) = setup_ledger();
+        let provider_id = create_test_provider_key();
+        let declaration_id = [1u8; 32];
+
+        {
+            let mut providers = declaration_repo.providers.lock().unwrap();
+            providers.insert(
+                provider_id,
+                ProviderInfo::new(provider_id, declaration_id, 50),
+            );
+        };
+
+        let withdraw_message = WithdrawMessage {
+            declaration_id,
+            service_type: ServiceType::BlendNetwork,
+            provider_id,
+            nonce: 1,
+            metadata: Some([2u8; 256]),
+        };
+
+        let result = ledger
+            .process_sdp_message(
+                100,
+                SdpMessage::Withdraw(withdraw_message.clone()),
+                [0u8; 32],
+            )
+            .await;
+
+        assert!(result.is_ok());
+
+        assert_eq!(ledger.pending_block_states.len(), 1);
+        assert!(ledger.pending_block_states.contains_key(&100));
+
+        let requested_rewards = rewards_sender.requested_rewards.lock().unwrap();
+        assert_eq!(requested_rewards.len(), 1);
+        assert_eq!(requested_rewards[0].provider_id, provider_id);
+        drop(requested_rewards);
+    }
+
+    #[tokio::test]
+    async fn test_duplicate_declaration_prevention() {
+        let (mut ledger, _, _, _) = setup_ledger();
+
+        let provider_id = create_test_provider_key();
+        let declaration_message = DeclarationMessage {
+            service_type: ServiceType::BlendNetwork,
+            locators: vec![],
+            proof_of_funds: [0u8; 64],
+            provider_id,
+        };
+
+        let result1 = ledger
+            .process_sdp_message(
+                100,
+                SdpMessage::Declare(declaration_message.clone()),
+                [0u8; 32],
+            )
+            .await;
+        assert!(result1.is_ok());
+
+        let result2 = ledger
+            .process_sdp_message(
+                100,
+                SdpMessage::Declare(declaration_message.clone()),
+                [0u8; 32],
+            )
+            .await;
+        assert!(result2.is_err());
     }
 }

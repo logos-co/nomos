@@ -75,6 +75,7 @@ impl ProviderInfo {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Declaration {
     pub declaration_id: DeclarationId,
     pub locators: Vec<Locator>,

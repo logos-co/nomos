@@ -10,3 +10,6 @@ blake2        = "0.10"
 ed25519-dalek = "2"
 multiaddr     = "0.18" 
 thiserror     = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
