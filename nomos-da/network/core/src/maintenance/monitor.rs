@@ -432,7 +432,7 @@ mod tests {
 
         let listener_peer = *listener.local_peer_id();
 
-        let sender_channel = { dialer.lock().unwrap().behaviour_mut().command_channel() };
+        let sender_channel = dialer.lock().unwrap().behaviour_mut().command_channel();
 
         let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
 
