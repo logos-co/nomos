@@ -99,6 +99,7 @@ impl From<&SamplingEvent> for MonitorEvent {
     }
 }
 
+/// Data Transfer Object (DTO) for the connection monitor stats.
 pub mod dto {
     use std::collections::HashMap;
 
