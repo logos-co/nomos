@@ -20,7 +20,7 @@ use nomos_mempool::{
 };
 use nomos_network::{NetworkMsg, NetworkService};
 use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
-use nomos_time::backends::TimeBackend as TimeBackendTrait;
+use nomos_time::{backends::TimeBackend as TimeBackendTrait, TimeService, TimeServiceMessage};
 use overwatch::{
     services::{relay::OutboundRelay, AsServiceId},
     OpaqueServiceStateHandle,
@@ -49,6 +49,7 @@ type DaMempoolRelay<DaPool, DaPoolAdapter, SamplingBackendBlobId, RuntimeService
     SamplingBackendBlobId,
 >;
 type StorageRelay<Storage> = OutboundRelay<StorageMsg<Storage>>;
+type TimeRelay = OutboundRelay<TimeServiceMessage>;
 
 pub struct CryptarchiaConsensusRelays<
     BlendAdapter,
@@ -93,6 +94,7 @@ pub struct CryptarchiaConsensusRelays<
         DaMempoolRelay<DaPool, DaPoolAdapter, SamplingBackend::BlobId, RuntimeServiceId>,
     storage_adapter: StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
     sampling_relay: SamplingRelay<DaPool::Key>,
+    time_relay: TimeRelay,
     _phantom_data: PhantomData<DaVerifierBackend>,
 }
 
@@ -174,6 +176,7 @@ where
         >,
         sampling_relay: SamplingRelay<DaPool::Key>,
         storage_relay: StorageRelay<Storage>,
+        time_relay: TimeRelay,
     ) -> Self {
         let storage_adapter =
             StorageAdapter::<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>::new(storage_relay)
@@ -185,6 +188,7 @@ where
             da_mempool_relay,
             sampling_relay,
             storage_adapter,
+            time_relay,
             _phantom_data: PhantomData,
         }
     }
@@ -281,7 +285,8 @@ where
                     RuntimeServiceId,
                 >,
             >
-            + AsServiceId<StorageService<Storage, RuntimeServiceId>>,
+            + AsServiceId<StorageService<Storage, RuntimeServiceId>>
+            + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>,
     {
         let network_relay = state_handle
             .overwatch_handle
@@ -322,6 +327,12 @@ where
             .await
             .expect("Relay connection with StorageService should succeed");
 
+        let time_relay = state_handle
+            .overwatch_handle
+            .relay::<TimeService<_, _>>()
+            .await
+            .expect("Relay connection with TimeService should succeed");
+
         Self::new(
             network_relay,
             blend_relay,
@@ -329,6 +340,7 @@ where
             da_mempool_relay,
             sampling_relay,
             storage_relay,
+            time_relay,
         )
         .await
     }
@@ -370,5 +382,9 @@ where
         &self,
     ) -> &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId> {
         &self.storage_adapter
+    }
+
+    pub const fn time_relay(&self) -> &TimeRelay {
+        &self.time_relay
     }
 }
