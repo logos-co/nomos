@@ -51,9 +51,7 @@ use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
 pub struct BlendService<Backend, Network, RuntimeServiceId>
 where
     Backend: BlendBackend<RuntimeServiceId> + 'static,
-    Backend::Settings: Clone + Debug,
     Network: NetworkAdapter<RuntimeServiceId>,
-    Network::BroadcastSettings: Clone + Debug + Serialize + DeserializeOwned,
 {
     backend: Backend,
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
@@ -258,8 +256,7 @@ pub struct BlendConfig<BackendSettings, BackendNodeId> {
     pub message_blend: MessageBlendSettings<SphinxMessage>,
     pub persistent_transmission: PersistentTransmissionSettings,
     pub cover_traffic: CoverTrafficExtSettings,
-    pub membership:
-        Vec<Node<BackendNodeId, <SphinxMessage as nomos_blend_message::BlendMessage>::PublicKey>>,
+    pub membership: Vec<Node<BackendNodeId, <SphinxMessage as BlendMessage>::PublicKey>>,
 }
 
 #[serde_with::serde_as]
