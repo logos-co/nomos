@@ -44,12 +44,13 @@ pub struct NtpSettings {
     /// Base period length related to epochs, used to compute epochs as well
     pub base_period_length: NonZero<u64>,
 }
-pub struct Ntp {
+
+pub struct NtpTimeBackend {
     settings: NtpSettings,
     client: AsyncNTPClient,
 }
 
-impl TimeBackend for Ntp {
+impl TimeBackend for NtpTimeBackend {
     type Settings = NtpSettings;
 
     fn init(settings: Self::Settings) -> Self {
