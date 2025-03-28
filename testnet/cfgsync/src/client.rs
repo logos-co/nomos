@@ -1,9 +1,21 @@
 use std::net::Ipv4Addr;
 
-use reqwest::Client;
+use reqwest::{Client, Response};
 use serde::de::DeserializeOwned;
 
 use crate::server::ClientIp;
+
+async fn deserialize_response<Config: DeserializeOwned>(
+    response: Response,
+) -> Result<Config, String> {
+    let body = response
+        .text()
+        .await
+        .map_err(|error| format!("Failed to read response body: {error}"))?;
+    let mut json_deserializer = serde_json::Deserializer::from_str(&body);
+    serde_path_to_error::deserialize(&mut json_deserializer)
+        .map_err(|error| format!("Failed to deserialize body: {error}"))
+}
 
 pub async fn get_config<Config: DeserializeOwned>(
     ip: Ipv4Addr,
@@ -23,8 +35,5 @@ pub async fn get_config<Config: DeserializeOwned>(
         return Err(format!("Server error: {:?}", response.status()));
     }
 
-    response
-        .json::<Config>()
-        .await
-        .map_err(|err| format!("Failed to parse response: {err}"))
+    deserialize_response(response).await
 }

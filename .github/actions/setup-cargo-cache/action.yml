@@ -14,7 +14,7 @@ runs:
   using: composite
   steps:
     - name: Set up Cargo cache
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # Version 4.2.3
       with:
         path: |
           ~/.cargo/registry/index/

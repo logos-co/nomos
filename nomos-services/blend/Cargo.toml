@@ -14,10 +14,12 @@ nomos-blend-network = { workspace = true, features = ["tokio"] }
 nomos-core          = { workspace = true }
 nomos-libp2p        = { workspace = true, optional = true }
 nomos-network       = { workspace = true }
+nomos-utils         = { workspace = true, features = ["time"] }
 overwatch           = { workspace = true }
 rand                = "0.8.5"
 rand_chacha         = "0.3"
 serde               = { version = "1.0", features = ["derive"] }
+serde_with          = { workspace = true }
 services-utils      = { workspace = true }
 tokio               = { version = "1", features = ["macros", "sync"] }
 tokio-stream        = "0.1"

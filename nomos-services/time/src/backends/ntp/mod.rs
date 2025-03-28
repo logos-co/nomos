@@ -9,6 +9,8 @@ use std::{
 
 use cryptarchia_engine::{time::SlotConfig, EpochConfig, Slot};
 use futures::{Stream, StreamExt};
+#[cfg(feature = "serde")]
+use nomos_utils::bounded_duration::{MinimalBoundedDuration, NANO};
 use sntpc::{fraction_to_nanoseconds, NtpResult};
 use time::OffsetDateTime;
 use tokio::time::{interval, MissedTickBehavior};
@@ -23,6 +25,7 @@ use crate::{
     EpochSlotTickStream, SlotTick,
 };
 
+#[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct NtpSettings {
     /// Ntp server address
@@ -30,6 +33,7 @@ pub struct NtpSettings {
     /// Ntp server settings
     pub ntpclient_settings: NTPClientSettings,
     /// Interval for the backend to contact the ntp server and update its time
+    #[cfg_attr(feature = "serde", serde_as(as = "MinimalBoundedDuration<1, NANO>"))]
     pub update_interval: Duration,
     /// Slot settings in order to compute proper slot times
     pub slot_config: SlotConfig,

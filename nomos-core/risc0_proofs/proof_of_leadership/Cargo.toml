@@ -9,11 +9,9 @@ version = "0.1.0"
 [dependencies]
 cl                     = { path = "../../cl" }
 nomos_proof_statements = { path = "../../proof_statements" }
-risc0-zkvm             = { version = "1.2.0", default-features = false, features = ['std'] }
+risc0-zkvm             = { version = "2.0.0", default-features = false, features = ['std'] }
 
 [patch.crates-io]
-# TODO: remove when risc0 suppors rust 1.85; bytemuck_derive version 1.8.1
-bytemuck_derive = { git = "https://github.com/Lokathor/bytemuck.git", rev = "45fbae7d8ddb8d75353588920c6fab16943e96bd" }
 # add RISC Zero accelerator support for all downstream usages of the following crates.
 crypto-bigint = { git = "https://github.com/risc0/RustCrypto-crypto-bigint", tag = "v0.5.5-risczero.0" }
 sha2          = { git = "https://github.com/risc0/RustCrypto-hashes", tag = "sha2-v0.10.8-risczero.0" }

@@ -1,8 +1,8 @@
-FROM rust:1.84.0-slim-bookworm
+FROM rust:1.85.1-slim-bookworm
 
 LABEL maintainer="augustinas@status.im" \
-      source="https://github.com/logos-co/nomos-node" \
-      description="nomos-node ci build image"
+    source="https://github.com/logos-co/nomos-node" \
+    description="nomos-node ci build image"
 
 # Dependecies for publishing documentation.
 RUN apt-get update && apt-get install -yq \
@@ -24,5 +24,6 @@ RUN mkdir -p /home/jenkins/.local/share/cargo-risczero/toolchains \
 USER jenkins
 
 RUN cargo install cargo-binstall --locked
-RUN cargo binstall -y cargo-risczero
-RUN cargo risczero install
+RUN cargo install rzup --version 0.4.1 --locked
+RUN /home/jenkins/.cargo/bin/rzup install cargo-risczero 2.0.0
+RUN /home/jenkins/.cargo/bin/rzup install rust 1.85.0

@@ -70,7 +70,7 @@ jobs:
     runs-on: ${{ matrix.platform.builder }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
 
       - run: rustup target add ${{ matrix.platform.target_triple }}
         name: Install Rust toolchain
@@ -82,13 +82,13 @@ jobs:
           os: ${{ matrix.platform.os }}
           target_triple: ${{ matrix.platform.target_triple }}
 
-      - uses: actions-rs/cargo@v1
+      - uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         name: Build Nomos Node
         with:
           command: build
           args: --package nomos-node --release --no-default-features --target ${{ matrix.platform.target_triple }}
 
-      - uses: actions-rs/cargo@v1
+      - uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         name: Build Nomos Node Bundler
         with:
           command: build
@@ -108,7 +108,7 @@ jobs:
 
       - name: Upload RPM
         if: matrix.platform.os == 'linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@6027e3dd177782cd8ab9af838c04fd81a07f1d47 # Version 4.6.2
         with:
           name: "${{ matrix.platform.arch }}_rpm"
           path: "target/${{ matrix.platform.target_triple }}/release/bundle/rpm/nomos-node-${{ env.VERSION }}-.x86_64.rpm"
@@ -116,7 +116,7 @@ jobs:
 
       - name: Upload DEB
         if: matrix.platform.os == 'linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@6027e3dd177782cd8ab9af838c04fd81a07f1d47 # Version 4.6.2
         with:
           name: "${{ matrix.platform.arch }}_deb"
           path: "target/${{ matrix.platform.target_triple }}/release/bundle/deb/nomos-node_${{ env.VERSION }}_amd64.deb"
@@ -124,7 +124,7 @@ jobs:
 
       - name: Upload AppImage
         if: matrix.platform.os == 'linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@6027e3dd177782cd8ab9af838c04fd81a07f1d47 # Version 4.6.2
         with:
           name: "${{ matrix.platform.arch }}_appimage"
           path: "target/${{ matrix.platform.target_triple }}/release/bundle/appimage/nomos-node_${{ env.VERSION }}_amd64.AppImage"
@@ -132,7 +132,7 @@ jobs:
 
       - name: Upload DMG
         if: matrix.platform.os == 'macos'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@6027e3dd177782cd8ab9af838c04fd81a07f1d47 # Version 4.6.2
         with:
           name: "${{ matrix.platform.arch }}_dmg"
           path: "target/${{ matrix.platform.target_triple }}/release/bundle/dmg/nomos-node_${{ env.VERSION }}_${{ matrix.platform.arch }}.dmg"
@@ -140,7 +140,7 @@ jobs:
 
       - name: Upload MSI
         if: matrix.platform.os == 'windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@6027e3dd177782cd8ab9af838c04fd81a07f1d47 # Version 4.6.2
         with:
           name: "${{ matrix.platform.arch }}_msi"
           path: "target/${{ matrix.platform.target_triple }}/release/bundle/msi/nomos-node_${{ env.VERSION }}_amd64.msi"
@@ -158,7 +158,7 @@ jobs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
     steps:
       - name: Create Release
-        uses: actions/create-release@v1
+        uses: actions/create-release@4c11c9fe1dcd9636620a16455165783b20fc7ea0  # Version 1.1.4
         id: create_release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -192,10 +192,10 @@ jobs:
       UPLOAD_URL: ${{ needs.create-release.outputs.upload_url }}
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # Version 4.2.1
 
       - name: Upload RPM asset (amd64)
-        uses: actions/upload-release-asset@v1
+        uses: actions/upload-release-asset@ef2adfe8cb8ebfa540930c452c576b3819990faa  # Version 1.0.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BINARY_NAME: nomos-node_${{ env.VERSION }}_amd64.rpm
@@ -206,7 +206,7 @@ jobs:
           asset_content_type: application/octet-stream
 
       - name: Upload RPM asset (i686)
-        uses: actions/upload-release-asset@v1
+        uses: actions/upload-release-asset@ef2adfe8cb8ebfa540930c452c576b3819990faa  # Version 1.0.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BINARY_NAME: nomos-node_${{ env.VERSION }}_i686.rpm
@@ -217,7 +217,7 @@ jobs:
           asset_content_type: application/octet-stream
 
       - name: Upload DEB asset (amd64)
-        uses: actions/upload-release-asset@v1
+        uses: actions/upload-release-asset@ef2adfe8cb8ebfa540930c452c576b3819990faa  # Version 1.0.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BINARY_NAME: nomos-node_${{ env.VERSION }}_amd64.deb
@@ -228,7 +228,7 @@ jobs:
           asset_content_type: application/octet-stream
 
       - name: Upload DEB asset (i686)
-        uses: actions/upload-release-asset@v1
+        uses: actions/upload-release-asset@ef2adfe8cb8ebfa540930c452c576b3819990faa  # Version 1.0.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BINARY_NAME: nomos-node_${{ env.VERSION }}_i686.deb
@@ -239,7 +239,7 @@ jobs:
           asset_content_type: application/octet-stream
 
       - name: Upload AppImage asset (amd64)
-        uses: actions/upload-release-asset@v1
+        uses: actions/upload-release-asset@ef2adfe8cb8ebfa540930c452c576b3819990faa  # Version 1.0.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BINARY_NAME: nomos-node_${{ env.VERSION }}_amd64.AppImage
@@ -250,7 +250,7 @@ jobs:
           asset_content_type: application/octet-stream
 
       - name: Upload AppImage asset (i686)
-        uses: actions/upload-release-asset@v1
+        uses: actions/upload-release-asset@ef2adfe8cb8ebfa540930c452c576b3819990faa  # Version 1.0.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BINARY_NAME: nomos-node_${{ env.VERSION }}_i686.AppImage
@@ -261,7 +261,7 @@ jobs:
           asset_content_type: application/octet-stream
 
       - name: Upload DMG asset
-        uses: actions/upload-release-asset@v1
+        uses: actions/upload-release-asset@ef2adfe8cb8ebfa540930c452c576b3819990faa  # Version 1.0.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BINARY_NAME: nomos-node_${{ env.VERSION }}_aarch64.dmg
@@ -273,7 +273,7 @@ jobs:
 
       # Not available yet
       # - name: Upload MSI asset
-      #   uses: actions/upload-release-asset@v1
+      #   uses: actions/upload-release-asset@ef2adfe8cb8ebfa540930c452c576b3819990faa  # Version 1.0.2
       #   env:
       #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       #     BINARY_NAME: nomos-node_${{ env.VERSION }}_amd64.msi

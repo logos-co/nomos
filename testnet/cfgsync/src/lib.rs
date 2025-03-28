@@ -44,7 +44,7 @@ mod tests {
             mempool_publish_strategy: MempoolPublishStrategy::Immediately,
             min_dispersal_peers: 0,
             min_replication_peers: 0,
-            monitor_failure_time_window_secs: 0,
+            monitor_failure_time_window: Duration::from_nanos(1),
             balancer_interval_secs: 0,
             tracing_settings: TracingSettings::default(),
             replication_settings: HumanReadableReplicationConfig::default(),
