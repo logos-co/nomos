@@ -108,7 +108,7 @@ where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>,
     Policy: SubnetworkConnectionPolicy,
 {
-    type Stats = HashMap<SubnetworkId, SubnetworkStats>;
+    type Stats = BalancerStats;
 
     fn record_event(&mut self, event: ConnectionEvent) {
         match event {
