@@ -15,10 +15,6 @@ use nomos_api::http::{
     cl::{self, ClMempoolService},
     consensus::{self, Cryptarchia},
     da::{self, BalancerMessageFactory, DaIndexer, DaVerifier, MonitorMessageFactory},
-    /*
-    cl, consensus,
-    da::{self, BalancerMessageFactory, MonitorMessageFactory},
-     */
     da_shares, libp2p, mempool, storage,
 };
 use nomos_core::{
