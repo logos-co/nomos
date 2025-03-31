@@ -1,10 +1,10 @@
 # BUILD IMAGE ---------------------------------------------------------
 
-FROM rust:1.85.1-bookworm
+FROM rust:1.85.1-slim-bookworm AS builder
 
 LABEL maintainer="augustinas@status.im" \
       source="https://github.com/logos-co/nomos-node" \
-      description="Nomos testnet image"
+      description="Nomos testnet debug image"
 
 # Install dependencies needed for building RocksDB and etcd.
 RUN apt-get update && apt-get install -yq \
@@ -18,20 +18,22 @@ WORKDIR /opt/risc0
 
 RUN cargo install --path rzup
 
-RUN rzup build rust --tag-or-commit eeb90cda1969383f56a2637cbd3037bdf598841c
+RUN rzup build rust --tag-or-commit 4d91de4e48198da2e33413efdcd9cd2cc0c46688
 
-RUN git checkout origin/release-1.2
+RUN git checkout origin/release-2.0
 
 RUN cargo install --path risc0/cargo-risczero
 
 WORKDIR /nomos
 COPY . .
 
-RUN cp /nomos/target/release/nomos-node /usr/bin/nomos-node && \
-    cp /nomos/target/release/nomos-executor /usr/bin/nomos-executor && \
-    cp /nomos/target/release/nomos-cli /usr/bin/nomos-cli && \
-    cp /nomos/target/release/cfgsync-server /usr/bin/cfgsync-server && \
-    cp /nomos/target/release/cfgsync-client /usr/bin/cfgsync-client
+RUN cargo build
+
+RUN cp /nomos/target/debug/nomos-node /usr/bin/nomos-node && \
+    cp /nomos/target/debug/nomos-executor /usr/bin/nomos-executor && \
+    cp /nomos/target/debug/nomos-cli /usr/bin/nomos-cli && \
+    cp /nomos/target/debug/cfgsync-server /usr/bin/cfgsync-server && \
+    cp /nomos/target/debug/cfgsync-client /usr/bin/cfgsync-client
 
 # nomos default ports
 EXPOSE 3000 8080 9000 60000
