@@ -61,7 +61,7 @@ impl ConfigRepo {
             timeout_duration,
         });
 
-        let repo_clone = repo.clone();
+        let repo_clone = Arc::clone(&repo);
         tokio::spawn(async move {
             repo_clone.run().await;
         });

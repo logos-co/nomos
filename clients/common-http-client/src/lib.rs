@@ -53,9 +53,6 @@ impl CommonHttpClient {
             basic_auth,
         }
     }
-}
-
-impl CommonHttpClient {
     pub async fn post<Req, Res>(&self, request_url: Url, request_body: &Req) -> Result<Res, Error>
     where
         Req: Serialize + ?Sized + Send + Sync,

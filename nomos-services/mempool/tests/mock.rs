@@ -1,6 +1,7 @@
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use nomos_core::{
@@ -58,7 +59,7 @@ fn test_mockmempool() {
     let recovery_file_path = get_test_random_path();
     run_with_recovery_teardown(&recovery_file_path, || {
         let exist = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let exist2 = exist.clone();
+        let exist2 = Arc::clone(&exist);
 
         let predefined_messages = vec![
             MockMessage {
