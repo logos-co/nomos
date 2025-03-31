@@ -1,4 +1,4 @@
-mod state;
+pub mod state;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -151,7 +151,7 @@ pub struct RewardMessage<Metadata> {
 }
 
 impl<Metadata> RewardMessage<Metadata> {
-    fn reward_id(&self) -> RewardId {
+    pub fn reward_id(&self) -> RewardId {
         let mut hasher = Blake2b::new();
         hasher.update(self.declaration_id.0);
         hasher.update(self.provider_id.0);

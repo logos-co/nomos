@@ -15,7 +15,7 @@ pub enum ActiveStateError {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub(crate) struct ActiveState(ProviderInfo);
+pub struct ActiveState(ProviderInfo);
 
 impl ActiveState {
     const fn try_into_updated(
@@ -71,7 +71,7 @@ pub enum InactiveStateError {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub(crate) struct InactiveState(ProviderInfo);
+pub struct InactiveState(ProviderInfo);
 
 impl InactiveState {
     const fn try_into_active(
@@ -159,7 +159,7 @@ pub enum ProviderStateError {
 }
 
 #[derive(Debug, Eq, PartialEq, Hash)]
-pub(crate) enum ProviderState {
+pub enum ProviderState {
     Active(ActiveState),
     Inactive(InactiveState),
     Withdrawn(WithdrawnState),
@@ -312,7 +312,7 @@ mod tests {
 
     type MockContractAddress = [u8; 32];
 
-    fn default_service_params() -> ServiceParameters<MockContractAddress> {
+    const fn default_service_params() -> ServiceParameters<MockContractAddress> {
         ServiceParameters {
             lock_period: 10,
             inactivity_period: 20,
