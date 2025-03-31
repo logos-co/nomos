@@ -6,7 +6,7 @@ use nomos_da_sampling::{api::http::HttApiAdapter, backend::kzgrs::KzgrsSamplingB
 use nomos_da_verifier::backend::kzgrs::KzgrsDaVerifier;
 use nomos_mempool::backend::mockpool::MockPool;
 use nomos_storage::backends::rocksdb::RocksBackend;
-use nomos_time::backends::system_time::SystemTimeBackend;
+use nomos_time::backends::NtpTimeBackend;
 use rand_chacha::ChaCha20Rng;
 
 use crate::{NomosDaMembership, Tx, Wire, MB16};
@@ -21,8 +21,7 @@ pub type TxMempoolService<RuntimeServiceId> = nomos_mempool::TxMempoolService<
     RuntimeServiceId,
 >;
 
-pub type TimeService<RuntimeServiceId> =
-    nomos_time::TimeService<SystemTimeBackend, RuntimeServiceId>;
+pub type TimeService<RuntimeServiceId> = nomos_time::TimeService<NtpTimeBackend, RuntimeServiceId>;
 
 pub type DaIndexerService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> =
     nomos_da_indexer::DataIndexerService<
@@ -64,7 +63,7 @@ pub type DaIndexerService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> =
         KzgrsDaVerifier,
         VerifierNetwork,
         nomos_da_verifier::storage::adapters::rocksdb::RocksAdapter<DaShare, Wire>,
-        SystemTimeBackend,
+        NtpTimeBackend,
         HttApiAdapter<NomosDaMembership>,
         RuntimeServiceId,
     >;
@@ -144,7 +143,7 @@ pub type CryptarchiaService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> 
         KzgrsDaVerifier,
         VerifierNetwork,
         nomos_da_verifier::storage::adapters::rocksdb::RocksAdapter<DaShare, Wire>,
-        SystemTimeBackend,
+        NtpTimeBackend,
         HttApiAdapter<NomosDaMembership>,
         RuntimeServiceId,
     >;

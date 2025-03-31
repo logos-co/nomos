@@ -40,7 +40,7 @@ pub use nomos_storage::backends::{
     StorageSerde,
 };
 pub use nomos_system_sig::SystemSig;
-use nomos_time::backends::system_time::SystemTimeBackend;
+use nomos_time::backends::NtpTimeBackend;
 #[cfg(feature = "tracing")]
 pub use nomos_tracing_service::Tracing;
 use overwatch::derive_services;
@@ -153,7 +153,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
         >,
         ChaCha20Rng,
         SamplingStorageAdapter<DaShare, Wire>,
-        SystemTimeBackend,
+        NtpTimeBackend,
         HttApiAdapter<NomosDaMembership>,
         MB16,
     >,

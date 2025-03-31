@@ -1,4 +1,8 @@
-use std::{net::SocketAddr, time::Duration};
+use std::{
+    fmt::{Debug, Formatter},
+    net::SocketAddr,
+    time::Duration,
+};
 
 use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
 #[cfg(feature = "serde")]
@@ -21,7 +25,7 @@ pub enum Error {
 
 #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct NTPClientSettings {
     /// NTP server requests timeout duration
     #[cfg_attr(feature = "serde", serde_as(as = "MinimalBoundedDuration<1, NANO>"))]
@@ -39,7 +43,16 @@ pub struct AsyncNTPClient {
     ntp_context: NtpContext<StdTimestampGen>,
 }
 
+impl Debug for AsyncNTPClient {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AsyncNTPClient")
+            .field("settings", &self.settings)
+            .finish_non_exhaustive()
+    }
+}
+
 impl AsyncNTPClient {
+    #[must_use]
     pub fn new(settings: NTPClientSettings) -> Self {
         let ntp_context = NtpContext::new(StdTimestampGen::default());
         Self {

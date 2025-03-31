@@ -33,6 +33,7 @@ use nomos_node::{
     BlobInfo, HeaderId, MempoolNetworkAdapter, NetworkBackend, NomosDaMembership, RocksBackend,
     SystemSig, Tx, Wire, MB16,
 };
+use nomos_time::backends::NtpTimeBackend;
 use overwatch::derive_services;
 use rand_chacha::ChaCha20Rng;
 
@@ -154,7 +155,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
         >,
         ChaCha20Rng,
         SamplingStorageAdapter<DaShare, Wire>,
-        nomos_time::backends::system_time::SystemTimeBackend,
+        NtpTimeBackend,
         HttApiAdapter<NomosDaMembership>,
         MB16,
     >,
