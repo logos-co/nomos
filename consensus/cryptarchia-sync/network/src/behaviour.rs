@@ -7,8 +7,8 @@ use futures::{
 };
 use libp2p::{
     swarm::{
-        ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent,
-        ToSwarm,
+        ConnectionClosed, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
+        THandlerOutEvent, ToSwarm,
     },
     Multiaddr, PeerId, Stream, StreamProtocol,
 };
@@ -311,12 +311,13 @@ where
         local_addr: &Multiaddr,
         remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        self.stream_behaviour.handle_established_inbound_connection(
-            connection_id,
-            peer,
-            local_addr,
-            remote_addr,
-        )
+        self.stream_behaviour
+            .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)
+            .inspect(|_| {
+                self.membership.add_member(peer);
+                self.membership
+                    .update_member_address(peer, remote_addr.clone());
+            })
     }
 
     fn handle_established_outbound_connection(
@@ -335,9 +336,15 @@ where
                 role_override,
                 port_use,
             )
+            .inspect(|_| {
+                self.membership.add_member(peer);
+                self.membership.update_member_address(peer, addr.clone());
+            })
     }
-
     fn on_swarm_event(&mut self, event: FromSwarm) {
+        if let FromSwarm::ConnectionClosed(ConnectionClosed { peer_id, .. }) = event {
+            self.membership.remove_member(&peer_id);
+        }
         self.stream_behaviour.on_swarm_event(event);
     }
 

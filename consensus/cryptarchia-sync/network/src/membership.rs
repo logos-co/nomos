@@ -15,11 +15,13 @@ pub trait ConsensusMembershipHandler {
     fn add_member(&mut self, peer_id: Self::Id);
 
     fn remove_member(&mut self, peer_id: &Self::Id);
+
+    fn update_member_address(&mut self, peer_id: Self::Id, address: Multiaddr);
 }
 
 #[derive(Clone, Default)]
 pub struct AllNeighbours {
-    neighbours: HashSet<PeerId>,
+    peers: HashSet<PeerId>,
     addresses: HashMap<PeerId, Multiaddr>,
 }
 
@@ -30,7 +32,7 @@ impl AllNeighbours {
     }
 
     pub fn add_neighbour(&mut self, peer_id: PeerId) {
-        self.neighbours.insert(peer_id);
+        self.peers.insert(peer_id);
     }
 
     #[cfg(test)]
@@ -47,18 +49,23 @@ impl ConsensusMembershipHandler for AllNeighbours {
     }
 
     fn members(&self) -> HashSet<Self::Id> {
-        self.neighbours.clone()
+        self.peers.clone()
     }
 
     fn get_address(&self, peer_id: &PeerId) -> Option<Multiaddr> {
         self.addresses.get(peer_id).cloned()
     }
 
-    fn add_member(&mut self, _peer_id: Self::Id) {
-        todo!()
+    fn add_member(&mut self, peer_id: Self::Id) {
+        self.peers.insert(peer_id);
     }
 
-    fn remove_member(&mut self, _peer_id: &Self::Id) {
-        todo!()
+    fn remove_member(&mut self, peer_id: &Self::Id) {
+        self.peers.remove(peer_id);
+        self.addresses.remove(peer_id);
+    }
+
+    fn update_member_address(&mut self, peer_id: Self::Id, address: Multiaddr) {
+        self.addresses.insert(peer_id, address);
     }
 }
