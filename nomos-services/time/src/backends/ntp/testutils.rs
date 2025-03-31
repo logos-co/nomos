@@ -16,6 +16,7 @@ pub struct NtpTimestamp {
 }
 
 impl NtpTimestamp {
+    #[must_use]
     pub const fn from_unix(unix_nanos: u128) -> Self {
         let ntp_seconds = (unix_nanos / 1_000_000_000) as u32 + NTP_EPOCH_OFFSET;
         let ntp_nanos = (unix_nanos % 1_000_000_000) as u32;
