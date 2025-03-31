@@ -1,6 +1,5 @@
 use std::{collections::HashMap, time::Duration};
 
-use cryptarchia_sync_network::behaviour::BehaviourSyncingEvent;
 use nomos_libp2p::{
     gossipsub, libp2p::swarm::ConnectionId, BehaviourEvent, Multiaddr, PeerId, Swarm, SwarmEvent,
 };
@@ -93,16 +92,9 @@ impl SwarmHandler {
                 tracing::debug!("Got message with id: {id} from peer: {peer_id}");
                 log_error!(self.events_tx.send(Event::Message(message)));
             }
-            SwarmEvent::Behaviour(BehaviourEvent::Sync(
-                BehaviourSyncingEvent::ForwardSyncRequest {
-                    slot,
-                    response_sender,
-                },
-            )) => {
-                tracing::debug!("Received syncing request for slot: {slot}");
-                self.events_tx
-                    .send(Event::SyncRequest(slot, response_sender))
-                    .unwrap();
+            SwarmEvent::Behaviour(se @ BehaviourEvent::Sync(..)) => {
+                tracing::debug!("Received syncing request {se:?}");
+                self.events_tx.send(se.try_into().unwrap()).unwrap();
             }
             SwarmEvent::ConnectionEstablished {
                 peer_id,
@@ -179,9 +171,9 @@ impl SwarmHandler {
             } => {
                 self.broadcast_and_retry(topic, message, retry_count);
             }
-            Command::Sync(slot, reply_channel) => {
+            Command::Sync(slot, _reply_channel) => {
                 tracing::debug!("syncing to slot: {slot}");
-                self.swarm.start_sync(slot, reply_channel);
+                // self.swarm.start_sync(slot, reply_channel);
             }
         }
     }

@@ -2,19 +2,23 @@ pub mod adapters;
 
 use std::hash::Hash;
 
+use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
 use futures::Stream;
 use nomos_core::block::Block;
-use nomos_network::{backends::NetworkBackend, NetworkService};
+use nomos_network::{
+    backends::{libp2p::SyncRequestKind, NetworkBackend},
+    NetworkService,
+};
 use overwatch::{
     services::{relay::OutboundRelay, ServiceData},
     DynError,
 };
 use serde::{de::DeserializeOwned, Serialize};
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{Sender, UnboundedReceiver};
 
 pub struct SyncRequest {
-    pub slot: u64,
-    pub reply_channel: UnboundedSender<Vec<u8>>,
+    pub kind: SyncRequestKind,
+    pub reply_channel: Sender<BehaviourSyncReply>,
 }
 
 type BoxedStream<T> = Box<dyn Stream<Item = T> + Send + Sync + Unpin>;

@@ -1,466 +1,308 @@
-use std::{
-    collections::HashMap,
-    task::{Context, Poll, Waker},
-};
+use std::task::{Context, Poll};
 
-use futures::{future::BoxFuture, AsyncWriteExt, FutureExt, StreamExt};
+use futures::{
+    future::BoxFuture,
+    stream::{FuturesUnordered, StreamExt},
+    AsyncWriteExt, FutureExt,
+};
 use libp2p::{
-    core::{transport::PortUse, Endpoint},
     swarm::{
-        dial_opts::DialOpts, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler,
-        THandlerInEvent, THandlerOutEvent, ToSwarm,
+        ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent,
+        ToSwarm,
     },
     Multiaddr, PeerId, Stream, StreamProtocol,
 };
-use libp2p_stream::{Control, IncomingStreams};
-use nomos_core::wire::packing::{pack_to_writer, unpack_from_reader};
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
-use tokio::sync::mpsc::{self, UnboundedSender};
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio::sync::mpsc::{self, Sender};
+use tokio_stream::wrappers::ReceiverStream;
 use tracing::{error, info};
 
-use crate::membership::ConsensusMembershipHandler;
+use crate::{
+    membership,
+    sync_incoming::{read_request_from_stream, send_response_to_peer},
+    sync_outgoing::sync_after_requesting_tips,
+};
 
-/// The protocol used for synchronization streams in the network.
 pub const SYNC_PROTOCOL: StreamProtocol = StreamProtocol::new("/nomos/cryptarchia/0.1.0/sync");
 
-pub type SubnetworkId = u16;
-pub type RequestId = u64;
-
-/// Maximum number of concurrent incoming sync requests allowed.
+// Not sure what the right value should be. But it seems reasonable to have some
+// limit
 const MAX_INCOMING_SYNCS: usize = 5;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub enum WireSyncCommand {
-    WireForwardSyncRequest { slot: u64 },
+pub enum SyncDirection {
+    Forward,
+    Backward,
 }
 
-impl WireSyncCommand {
-    #[must_use]
-    pub const fn forward_sync_request(slot: u64) -> Self {
-        Self::WireForwardSyncRequest { slot }
-    }
+/// Sync request from a peer
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub enum SyncRequest {
+    Sync { direction: SyncDirection, slot: u64 },
+    RequestTip,
 }
 
+/// Command from services
 #[derive(Debug, Clone)]
 pub enum SyncCommand {
-    StartForwardSync {
+    StartSync {
+        direction: SyncDirection,
         slot: u64,
-        response_sender: UnboundedSender<Vec<u8>>,
+        response_sender: Sender<Vec<u8>>,
     },
 }
 
+/// Event to be sent to the Swarm
 #[derive(Debug, Clone)]
-pub enum BehaviourSyncingEvent {
-    ForwardSyncRequest {
+pub enum BehaviourSyncEvent {
+    SyncRequest {
+        direction: SyncDirection,
         slot: u64,
-        response_sender: UnboundedSender<Vec<u8>>,
+        response_sender: Sender<BehaviourSyncReply>,
+    },
+    TipRequest {
+        response_sender: Sender<BehaviourSyncReply>,
     },
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BlockResponse {
+    Block(Vec<u8>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BehaviourSyncReply {
+    Block(BlockResponse),
+    TipData(u64),
+}
+
+#[derive(Debug)]
+pub enum RequestKind {
+    Sync { direction: SyncDirection, slot: u64 },
+    Tip,
+}
+
+#[derive(Debug)]
+pub struct IncomingSyncRequest {
+    /// Incoming stream
+    pub(crate) stream: Stream,
+    /// Kind of request
+    pub(crate) kind: RequestKind,
+    /// Replies from services
+    pub(crate) response_sender: Sender<BehaviourSyncReply>,
+    /// Where we wait service responses
+    pub(crate) response_stream: ReceiverStream<BehaviourSyncReply>,
+}
+
+#[derive(Debug, thiserror::Error)]
 pub enum SyncError {
     #[error("Failed to open stream: {0}")]
-    StreamOpenError(String),
-    #[error("Serialization error: {0}")]
-    SerializationError(String),
+    StreamOpenError(#[from] libp2p_stream::OpenStreamError),
     #[error("No peers available")]
     NoPeersAvailable,
-    #[error("Channel send error")]
-    ChannelSendError,
+    #[error("Channel send error: {0}")]
+    ChannelSendError(#[from] mpsc::error::SendError<BehaviourSyncReply>),
     #[error("IO error: {0}")]
     IOError(#[from] std::io::Error),
 }
 
-struct IncomingRequest {
-    stream: Stream,
-    slot: u64,
-    response_sender: UnboundedSender<Vec<u8>>,
-    response_stream: UnboundedReceiverStream<Vec<u8>>,
-}
-
-enum IncomingForwardSync {
-    /// Initialising state, waiting for the request to be read from the stream.
-    Initialising(BoxFuture<'static, Result<IncomingRequest, SyncError>>),
-    /// Sending blocks state, forwarding blocks to the peer.
-    SendingBlocks(BoxFuture<'static, Result<(), SyncError>>),
-}
-
-type LocalSyncFuture = BoxFuture<'static, Result<(), SyncError>>;
-
-/// A network behaviour for synchronizing blocks across peers.
-///
-/// This behaviour manages both local sync requests initiated by this node and
-/// incoming sync requests from other peers.
-pub struct Behaviour<Membership> {
-    /// The `PeerId` of the local node running this behaviour.
+pub struct SyncBehaviour<Membership> {
+    /// The local peer ID
     local_peer_id: PeerId,
-    /// The underlying libp2p stream behaviour for managing connections.
+    /// Underlying stream behaviour
     stream_behaviour: libp2p_stream::Behaviour,
-    /// Control handle for opening streams to peers.
-    control: Control,
-    /// Stream of incoming sync requests from other peers.
-    incoming_streams: IncomingStreams,
+    /// Control for managing streams
+    control: libp2p_stream::Control,
+    /// A handle to inbound streams
+    incoming_streams: libp2p_stream::IncomingStreams,
     /// Streams waiting to be closed
-    to_close_streams: HashMap<PeerId, Stream>,
-    /// Membership handler providing peer information.
+    closing_streams: FuturesUnordered<BoxFuture<'static, ()>>,
+    /// Membership handler
     membership: Membership,
-    /// Channel for submitting local sync commands to this behaviour.
-    sync_commands_sender: UnboundedSender<SyncCommand>,
-    /// Receiver for processing local sync commands submitted via
-    /// `sync_commands_sender`.
-    sync_commands_receiver: UnboundedReceiverStream<SyncCommand>,
-    /// Waker for scheduling future polls of this behaviour.
-    waker: Option<Waker>,
-    /// Future representing an in-progress local sync request, if any.
-    in_progress_local_sync_request: Option<LocalSyncFuture>,
-    /// Map of active incoming sync requests, keyed by request ID.
-    incoming_requests: HashMap<RequestId, IncomingForwardSync>,
-    /// The next ID to assign to an incoming sync request.
-    next_request_id: RequestId,
+    /// Sender for commands from services
+    sync_commands_sender: Sender<SyncCommand>,
+    /// Receiver for commands from services
+    sync_commands_receiver: ReceiverStream<SyncCommand>,
+    /// Progress of local forward and backward syncs
+    local_sync_progress: FuturesUnordered<BoxFuture<'static, Result<(), SyncError>>>,
+    /// Read request and send behaviour event to Swarm
+    read_sync_requests:
+        FuturesUnordered<BoxFuture<'static, Result<IncomingSyncRequest, SyncError>>>,
+    /// Send service responses to stream
+    sending_data_to_peers: FuturesUnordered<BoxFuture<'static, Result<(), SyncError>>>,
 }
 
-impl<Membership> Behaviour<Membership>
+impl<Membership> SyncBehaviour<Membership>
 where
-    Membership: ConsensusMembershipHandler<Id = PeerId> + 'static,
+    Membership: membership::ConsensusMembershipHandler<Id = PeerId> + Clone + 'static + Send,
 {
-    /// Creates a new `Behaviour` instance.
-    ///
-    /// Initializes the behaviour with a local peer ID and membership handler.
     pub fn new(local_peer_id: PeerId, membership: Membership) -> Self {
         let stream_behaviour = libp2p_stream::Behaviour::new();
         let mut control = stream_behaviour.new_control();
         let incoming_streams = control.accept(SYNC_PROTOCOL).expect("Valid protocol");
 
-        let (sync_commands_sender, sync_commands_receiver) = mpsc::unbounded_channel();
-        let sync_commands_receiver = UnboundedReceiverStream::new(sync_commands_receiver);
+        let (sync_commands_sender, sync_commands_receiver) = mpsc::channel(10);
+        let sync_commands_receiver = ReceiverStream::new(sync_commands_receiver);
 
         Self {
             local_peer_id,
             stream_behaviour,
             control,
             incoming_streams,
-            to_close_streams: HashMap::default(),
+            closing_streams: FuturesUnordered::new(),
             membership,
             sync_commands_sender,
             sync_commands_receiver,
-            waker: None,
-            in_progress_local_sync_request: None,
-            incoming_requests: HashMap::new(),
-            next_request_id: 0,
+            local_sync_progress: FuturesUnordered::new(),
+            read_sync_requests: FuturesUnordered::new(),
+            sending_data_to_peers: FuturesUnordered::new(),
         }
     }
 
-    /// Selects a peer to sync with.
-    fn choose_peer(
-        local_peer_id: PeerId,
-        membership: &mut Membership,
-    ) -> Result<PeerId, SyncError> {
-        membership
-            .members()
-            .iter()
-            .filter(|&id| id != &local_peer_id)
-            .copied()
-            .next()
-            .ok_or(SyncError::NoPeersAvailable)
-    }
-
-    /// Opens a stream to a peer using the sync protocol.
-    async fn open_stream(peer_id: PeerId, mut control: Control) -> Result<Stream, SyncError> {
-        info!("Opening stream with peer {}", peer_id);
-        control
-            .open_stream(peer_id, SYNC_PROTOCOL)
-            .await
-            .map_err(|e| SyncError::StreamOpenError(e.to_string()))
-    }
-
-    /// Returns a channel for submitting local sync commands.
-    ///
-    /// This allows external code to initiate sync requests by sending
-    /// `SyncCommand`s.
-    pub fn sync_request_channel(&self) -> UnboundedSender<SyncCommand> {
+    pub fn sync_request_channel(&self) -> Sender<SyncCommand> {
         self.sync_commands_sender.clone()
     }
 
-    fn poll_local_sync(
+    fn handle_outgoing_syncs(
         &mut self,
         cx: &mut Context<'_>,
     ) -> Option<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
-        self.try_start_local_sync(cx);
-        self.poll_in_progress_local_sync(cx)
+        self.process_sync_commands(cx);
+        self.receive_data_from_peers(cx)
     }
 
-    fn poll_incoming_requests(
+    fn handle_incoming_syncs(
         &mut self,
         cx: &mut Context<'_>,
     ) -> Option<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
-        self.poll_new_incoming_streams(cx);
-        self.poll_ongoing_incoming_requests(cx)
+        self.accept_incoming_streams(cx);
+
+        if let Some(event) = self.read_sync_requests(cx) {
+            return Some(event);
+        }
+
+        self.send_data_to_peers(cx);
+
+        // If we rejected any streams above, close them here
+        while self.closing_streams.poll_next_unpin(cx) == Poll::Ready(Some(())) {}
+
+        None
     }
 
-    fn try_start_local_sync(&mut self, cx: &mut Context<'_>) {
-        if self.in_progress_local_sync_request.is_none() {
-            if let Poll::Ready(Some(SyncCommand::StartForwardSync {
-                slot,
-                response_sender,
-            })) = self.sync_commands_receiver.poll_next_unpin(cx)
-            {
-                match Self::choose_peer(self.local_peer_id, &mut self.membership) {
-                    Ok(peer_id) => {
-                        info!(peer_id = %peer_id, slot = %slot, "Starting local sync");
-                        let sync_future = Self::stream_blocks_from_peer(
-                            peer_id,
-                            &self.control,
-                            slot,
-                            response_sender,
-                        );
-                        self.in_progress_local_sync_request = Some(sync_future);
-                        cx.waker().wake_by_ref();
-                    }
-                    Err(_) => {
-                        error!("No peers available to start local sync");
-                    }
+    fn process_sync_commands(&mut self, cx: &mut Context<'_>) {
+        while let Poll::Ready(Some(command)) = self.sync_commands_receiver.poll_next_unpin(cx) {
+            match command {
+                SyncCommand::StartSync {
+                    direction,
+                    slot,
+                    response_sender,
+                } => {
+                    info!(
+                        direction = ?direction,
+                        slot = slot,
+                        "Starting local sync"
+                    );
+                    let local_sync = sync_after_requesting_tips(
+                        self.control.clone(),
+                        self.membership.clone(),
+                        self.local_peer_id,
+                        direction,
+                        slot,
+                        response_sender,
+                    );
+                    self.local_sync_progress.push(local_sync);
                 }
             }
         }
     }
 
-    fn poll_in_progress_local_sync(
+    fn receive_data_from_peers(
         &mut self,
         cx: &mut Context<'_>,
     ) -> Option<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
-        if let Some(future) = &mut self.in_progress_local_sync_request {
-            match future.poll_unpin(cx) {
-                Poll::Ready(Ok(())) => {
-                    info!("Local sync completed");
-                    self.in_progress_local_sync_request = None;
-                }
-                Poll::Ready(Err(e)) => {
-                    error!("Local sync failed: {:?}", e);
-                    self.in_progress_local_sync_request = None;
-                }
-                Poll::Pending => {}
+        while let Poll::Ready(Some(result)) = self.local_sync_progress.poll_next_unpin(cx) {
+            match result {
+                Ok(()) => info!("Local sync completed successfully"),
+                Err(e) => error!(error = %e, "Local sync failed"),
             }
         }
         None
     }
 
-    fn poll_new_incoming_streams(&mut self, cx: &mut Context<'_>) {
-        if let Poll::Ready(Some((peer_id, stream))) = self.incoming_streams.poll_next_unpin(cx) {
-            if self.incoming_requests.len() < MAX_INCOMING_SYNCS {
-                let request_id = self.next_request_id;
-                self.next_request_id += 1;
+    fn accept_incoming_streams(&mut self, cx: &mut Context<'_>) {
+        let incoming_sync_count = self.read_sync_requests.len() + self.sending_data_to_peers.len();
 
-                info!(request_id = %request_id, peer_id = %peer_id, "Received new incoming stream");
-                self.incoming_requests.insert(
-                    request_id,
-                    IncomingForwardSync::Initialising(Self::read_request_from_stream(stream)),
-                );
+        if let Poll::Ready(Some((peer_id, mut stream))) = self.incoming_streams.poll_next_unpin(cx)
+        {
+            if self.local_sync_progress.is_empty() || incoming_sync_count < MAX_INCOMING_SYNCS {
+                info!(peer_id = %peer_id, "Processing incoming sync stream");
+
+                self.read_sync_requests
+                    .push(read_request_from_stream(stream));
             } else {
-                info!(
-                    "Maximum incoming sync requests ({}) reached, rejecting new requests",
-                    MAX_INCOMING_SYNCS
+                info!(peer_id = %peer_id, "Closing incoming sync stream");
+                self.closing_streams.push(
+                    async move {
+                        if let Err(e) = stream.close().await {
+                            error!(peer_id = %peer_id, error = %e, "Failed to close stream");
+                        }
+                    }
+                    .boxed(),
                 );
-                self.to_close_streams.insert(peer_id, stream);
             }
         }
     }
 
-    fn poll_ongoing_incoming_requests(
+    fn read_sync_requests(
         &mut self,
         cx: &mut Context<'_>,
-    ) -> Option<ToSwarm<<Behaviour<Membership> as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>>
-    {
-        let mut completed_requests = Vec::new();
-        let mut to_swarm_event = None;
+    ) -> Option<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
+        while let Poll::Ready(Some(result)) = self.read_sync_requests.poll_next_unpin(cx) {
+            match result {
+                Ok(req) => {
+                    info!(kind = ?req.kind, "Incoming sync request initialized");
 
-        for (&request_id, request_state) in self.incoming_requests.iter_mut() {
-            match request_state {
-                IncomingForwardSync::Initialising(init_future) => {
-                    match init_future.poll_unpin(cx) {
-                        Poll::Ready(Ok(req)) => {
-                            info!(
-                                request_id = %request_id, slot = %req.slot, "Incoming request read successfully"
-                            );
+                    let response_sender = req.response_sender.clone();
 
-                            let response_sender = req.response_sender.clone();
-                            let slot = req.slot;
-
-                            *request_state = IncomingForwardSync::SendingBlocks(
-                                Self::forward_blocks_to_peer(req),
-                            );
-
-                            to_swarm_event = Some(ToSwarm::GenerateEvent(
-                                BehaviourSyncingEvent::ForwardSyncRequest {
-                                    slot,
-                                    response_sender,
-                                },
-                            ));
+                    let event = match req.kind {
+                        RequestKind::Sync { direction, slot } => {
+                            ToSwarm::GenerateEvent(BehaviourSyncEvent::SyncRequest {
+                                direction,
+                                slot,
+                                response_sender,
+                            })
                         }
-                        Poll::Ready(Err(e)) => {
-                            error!(
-                                request_id = %request_id, "Incoming request failed reading: {:?}", e
-                            );
-                            completed_requests.push(request_id);
+                        RequestKind::Tip => {
+                            ToSwarm::GenerateEvent(BehaviourSyncEvent::TipRequest {
+                                response_sender,
+                            })
                         }
-                        Poll::Pending => {}
-                    }
+                    };
+                    self.sending_data_to_peers.push(send_response_to_peer(req));
+                    return Some(event);
                 }
-
-                IncomingForwardSync::SendingBlocks(blocks_future) => {
-                    match blocks_future.poll_unpin(cx) {
-                        Poll::Ready(Ok(())) => {
-                            info!(
-                                request_id = %request_id, "Incoming sync request completed successfully"
-                            );
-                            completed_requests.push(request_id);
-                        }
-                        Poll::Ready(Err(e)) => {
-                            error!(
-                                request_id = %request_id, "Incoming sync failed: {:?}", e
-                            );
-                            completed_requests.push(request_id);
-                        }
-                        Poll::Pending => {}
-                    }
-                }
-            }
-        }
-
-        for request_id in completed_requests {
-            self.incoming_requests.remove(&request_id);
-        }
-
-        to_swarm_event
-    }
-
-    /// Polls for dial events from the underlying stream behaviour.
-    fn poll_dial_events(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Option<ToSwarm<<Behaviour<Membership> as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>>
-    {
-        if let Poll::Ready(ToSwarm::Dial { mut opts }) = self.stream_behaviour.poll(cx) {
-            if let Some(address) = opts
-                .get_peer_id()
-                .and_then(|peer_id| self.membership.get_address(&peer_id))
-            {
-                opts = DialOpts::peer_id(opts.get_peer_id().unwrap())
-                    .addresses(vec![address])
-                    .extend_addresses_through_behaviour()
-                    .build();
-                cx.waker().wake_by_ref();
-                return Some(ToSwarm::Dial { opts });
+                Err(e) => error!(error = %e, "Failed to initialize incoming request"),
             }
         }
         None
     }
 
-    fn poll_close_streams(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Option<ToSwarm<<Behaviour<Membership> as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>>
-    {
-        let mut to_remove = Vec::new();
-        for (peer_id, stream) in self.to_close_streams.iter_mut() {
-            match stream.close().poll_unpin(cx) {
-                Poll::Ready(Ok(())) => {
-                    info!(peer_id = %peer_id, "Closed stream");
-                    to_remove.push(*peer_id);
-                }
-                Poll::Ready(Err(e)) => {
-                    error!(peer_id = %peer_id, "Failed to close stream: {:?}", e);
-                    to_remove.push(*peer_id);
-                }
-                Poll::Pending => {}
+    fn send_data_to_peers(&mut self, cx: &mut Context<'_>) {
+        while let Poll::Ready(Some(result)) = self.sending_data_to_peers.poll_next_unpin(cx) {
+            match result {
+                Ok(()) => info!("Incoming sync response sending completed"),
+                Err(e) => error!(error = %e, "Incoming sync response sending failed"),
             }
         }
-
-        for peer_id in to_remove {
-            self.to_close_streams.remove(&peer_id);
-        }
-
-        None
-    }
-
-    /// Streams blocks from a peer.
-    ///
-    /// Opens a stream to the specified peer, sends a sync request for the given
-    /// slot, and forwards received blocks to the provided response sender.
-    fn stream_blocks_from_peer(
-        peer_id: PeerId,
-        control: &Control,
-        slot: u64,
-        response_sender: UnboundedSender<Vec<u8>>,
-    ) -> BoxFuture<'static, Result<(), SyncError>> {
-        let control = control.clone();
-        async move {
-            let mut stream = Self::open_stream(peer_id, control).await?;
-            let request = WireSyncCommand::forward_sync_request(slot);
-            pack_to_writer(&request, &mut stream)
-                .await
-                .map_err(|e| SyncError::SerializationError(e.to_string()))?;
-            stream.flush().await?;
-
-            while let Ok(block) = unpack_from_reader(&mut stream).await {
-                info!(peer_id = %peer_id, "Received block");
-                response_sender
-                    .send(block)
-                    .map_err(|_| SyncError::ChannelSendError)?;
-            }
-            stream.close().await?;
-            Ok(())
-        }
-        .boxed()
-    }
-
-    /// Reads a sync request from an incoming stream.
-    fn read_request_from_stream(
-        mut stream: Stream,
-    ) -> BoxFuture<'static, Result<IncomingRequest, SyncError>> {
-        async move {
-            let WireSyncCommand::WireForwardSyncRequest { slot } = unpack_from_reader(&mut stream)
-                .await
-                .map_err(|e| SyncError::SerializationError(e.to_string()))?;
-            let (response_sender, response_receiver) = mpsc::unbounded_channel();
-            Ok(IncomingRequest {
-                stream,
-                slot,
-                response_sender,
-                response_stream: UnboundedReceiverStream::new(response_receiver),
-            })
-        }
-        .boxed()
-    }
-
-    /// Sends blocks received from a channel to a peer over a stream.
-    ///
-    /// Takes blocks from the response stream and writes them to the peer's
-    /// stream until the response stream is exhausted.
-    fn forward_blocks_to_peer(state: IncomingRequest) -> BoxFuture<'static, Result<(), SyncError>> {
-        async move {
-            let mut stream = state.stream;
-            let mut response_stream = state.response_stream;
-            while let Some(block) = response_stream.next().await {
-                pack_to_writer(&block, &mut stream)
-                    .await
-                    .map_err(|e| SyncError::SerializationError(e.to_string()))?;
-                stream.flush().await?;
-            }
-            stream.close().await?;
-            Ok(())
-        }
-        .boxed()
     }
 }
 
-impl<M> NetworkBehaviour for Behaviour<M>
+impl<Membership> NetworkBehaviour for SyncBehaviour<Membership>
 where
-    M: ConsensusMembershipHandler<Id = PeerId> + 'static,
+    Membership: membership::ConsensusMembershipHandler<Id = PeerId> + Clone + Send + 'static,
 {
     type ConnectionHandler = <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler;
-    type ToSwarm = BehaviourSyncingEvent;
+    type ToSwarm = BehaviourSyncEvent;
 
     fn handle_established_inbound_connection(
         &mut self,
@@ -468,7 +310,7 @@ where
         peer: PeerId,
         local_addr: &Multiaddr,
         remote_addr: &Multiaddr,
-    ) -> Result<THandler<Self>, ConnectionDenied> {
+    ) -> Result<THandler<Self>, libp2p::swarm::ConnectionDenied> {
         self.stream_behaviour.handle_established_inbound_connection(
             connection_id,
             peer,
@@ -482,9 +324,9 @@ where
         connection_id: ConnectionId,
         peer: PeerId,
         addr: &Multiaddr,
-        role_override: Endpoint,
-        port_use: PortUse,
-    ) -> Result<THandler<Self>, ConnectionDenied> {
+        role_override: libp2p::core::Endpoint,
+        port_use: libp2p::core::transport::PortUse,
+    ) -> Result<THandler<Self>, libp2p::swarm::ConnectionDenied> {
         self.stream_behaviour
             .handle_established_outbound_connection(
                 connection_id,
@@ -512,22 +354,13 @@ where
     fn poll(
         &mut self,
         cx: &mut Context<'_>,
-    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
-        self.waker = Some(cx.waker().clone());
-
-        if let Some(event) = self.poll_local_sync(cx) {
+    ) -> Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
+        if let Some(event) = self.handle_outgoing_syncs(cx) {
             return Poll::Ready(event);
         }
-        if let Some(event) = self.poll_incoming_requests(cx) {
+        if let Some(event) = self.handle_incoming_syncs(cx) {
             return Poll::Ready(event);
         }
-        if let Some(event) = self.poll_dial_events(cx) {
-            return Poll::Ready(event);
-        }
-        if let Some(event) = self.poll_close_streams(cx) {
-            return Poll::Ready(event);
-        }
-
         Poll::Pending
     }
 }
@@ -537,131 +370,232 @@ mod test {
     use std::time::Duration;
 
     use libp2p::{
-        core::{transport::MemoryTransport, upgrade::Version},
+        core::{transport::MemoryTransport, upgrade::Version, Multiaddr},
         identity::Keypair,
-        swarm::{NetworkBehaviour, SwarmEvent},
-        Multiaddr, PeerId, Swarm, Transport,
+        swarm::{Swarm, SwarmEvent},
+        PeerId, SwarmBuilder, Transport,
     };
     use rand::Rng;
     use tokio::{
-        sync::mpsc,
-        time::{sleep, timeout},
+        sync::mpsc::{self, Sender},
+        time::sleep,
     };
     use tracing::debug;
-    use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
     use super::*;
-    use crate::{behaviour::BehaviourSyncingEvent::ForwardSyncRequest, membership::AllNeighbours};
+    use crate::membership::AllNeighbours;
 
     const MSG_COUNT: usize = 10;
-    const TIMEOUT_SECS: u64 = 5;
+
+    // Use 2 at the moment. In future can run more to test parallel sync
+    const NUM_SWARMS: usize = 2;
 
     #[tokio::test]
-    async fn test_request_blocks() {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .with_writer(TestWriter::new())
-            .try_init();
+    async fn test_sync_forward() {
+        tracing_subscriber::fmt::init();
 
-        let (swarm_1, swarm_2, request_sender_1) = setup_swarm_pair().await;
+        let (request_senders, handles) = setup_and_run_swarms(NUM_SWARMS).await;
+        let blocks = perform_sync(request_senders[0].clone(), SyncDirection::Forward, 0).await;
 
-        let swarm_1_handle = tokio::spawn(async move { run_swarm(swarm_1).await });
-        let swarm_2_handle = tokio::spawn(async move { run_swarm(swarm_2).await });
+        assert_eq!(blocks.len(), MSG_COUNT);
 
-        sleep(Duration::from_secs(2)).await;
+        for handle in handles {
+            handle.abort();
+        }
+    }
 
-        let (response_sender_1, mut response_receiver_1) = mpsc::unbounded_channel();
-        request_sender_1
-            .send(SyncCommand::StartForwardSync {
-                slot: 0,
-                response_sender: response_sender_1,
+    #[tokio::test]
+    async fn test_sync_backward() {
+        tracing_subscriber::fmt::init();
+
+        let (request_senders, handles) = setup_and_run_swarms(NUM_SWARMS).await;
+        let slot = MSG_COUNT as u64;
+        let blocks = perform_sync(request_senders[0].clone(), SyncDirection::Backward, slot).await;
+
+        assert_eq!(blocks.len(), MSG_COUNT);
+
+        for handle in handles {
+            handle.abort();
+        }
+    }
+
+    struct SwarmNetwork {
+        swarms: Vec<Swarm<SyncBehaviour<AllNeighbours>>>,
+        swarm_command_senders: Vec<Sender<SyncCommand>>,
+        swarm_addresses: Vec<Multiaddr>,
+    }
+
+    async fn setup_and_run_swarms(
+        num_swarms: usize,
+    ) -> (Vec<Sender<SyncCommand>>, Vec<tokio::task::JoinHandle<()>>) {
+        let swarm_network = setup_swarms(num_swarms);
+
+        let mut handles = Vec::new();
+        for (i, swarm) in swarm_network.swarms.into_iter().enumerate() {
+            let handle = tokio::spawn(run_swarm(swarm, swarm_network.swarm_addresses.clone(), i));
+            handles.push(handle);
+        }
+
+        sleep(Duration::from_millis(100)).await;
+        (swarm_network.swarm_command_senders, handles)
+    }
+
+    fn generate_keys(num_swarms: usize) -> Vec<Keypair> {
+        (0..num_swarms)
+            .map(|_| Keypair::generate_ed25519())
+            .collect()
+    }
+
+    fn extract_peer_ids(keys: &[Keypair]) -> Vec<PeerId> {
+        keys.iter()
+            .map(|k| PeerId::from_public_key(&k.public()))
+            .collect()
+    }
+
+    fn generate_addresses(num_swarms: usize) -> Vec<Multiaddr> {
+        (0..num_swarms)
+            .map(|_| {
+                let port = rand::thread_rng().gen::<u64>();
+                format!("/memory/{port}").parse().unwrap()
             })
-            .expect("Failed to send sync command");
-
-        let blocks = collect_blocks(&mut response_receiver_1).await;
-        assert_eq!(blocks.len(), MSG_COUNT,);
-
-        swarm_1_handle.abort();
-        swarm_2_handle.abort();
+            .collect()
     }
 
-    async fn setup_swarm_pair() -> (
-        Swarm<Behaviour<AllNeighbours>>,
-        Swarm<Behaviour<AllNeighbours>>,
-        UnboundedSender<SyncCommand>,
-    ) {
-        let k1 = Keypair::generate_ed25519();
-        let p1 = PeerId::from_public_key(&k1.public());
-        let k2 = Keypair::generate_ed25519();
-        let p2 = PeerId::from_public_key(&k2.public());
-
-        let p1_id = rand::thread_rng().gen::<u64>();
-        let p1_address: Multiaddr = format!("/memory/{}", p1_id).parse().unwrap();
-        let p2_id = rand::thread_rng().gen::<u64>();
-        let p2_address: Multiaddr = format!("/memory/{}", p2_id).parse().unwrap();
-
+    fn create_swarm(
+        key: &Keypair,
+        peer_id: PeerId,
+        all_peer_ids: &[PeerId],
+        all_addresses: &[Multiaddr],
+        index: usize,
+    ) -> (Swarm<SyncBehaviour<AllNeighbours>>, Sender<SyncCommand>) {
         let mut neighbours = AllNeighbours::default();
-        neighbours.add_neighbour(p1);
-        neighbours.add_neighbour(p2);
-        neighbours.update_address(p1, p1_address.clone());
-        neighbours.update_address(p2, p2_address.clone());
 
-        let mut swarm_1 = new_swarm_in_memory(&k1, Behaviour::new(p1, neighbours.clone()));
-        let mut swarm_2 = new_swarm_in_memory(&k2, Behaviour::new(p2, neighbours));
-        let request_sender_1 = swarm_1.behaviour().sync_request_channel();
+        for j in 0..all_peer_ids.len() {
+            if index != j {
+                neighbours.add_neighbour(all_peer_ids[j]);
+                neighbours.update_address(all_peer_ids[j], all_addresses[j].clone());
+            }
+        }
 
-        swarm_1
-            .listen_on(p1_address)
-            .expect("Swarm 1 failed to listen");
-        swarm_2
-            .listen_on(p2_address)
-            .expect("Swarm 2 failed to listen");
+        let behaviour = SyncBehaviour::new(peer_id, neighbours);
+        let mut swarm = new_swarm_in_memory(key, behaviour);
 
-        (swarm_1, swarm_2, request_sender_1)
+        swarm
+            .listen_on(all_addresses[index].clone())
+            .expect("Failed to listen");
+
+        let sender = swarm.behaviour().sync_request_channel();
+        (swarm, sender)
     }
 
-    async fn run_swarm(mut swarm: Swarm<Behaviour<AllNeighbours>>) {
+    fn setup_swarms(num_swarms: usize) -> SwarmNetwork {
+        let keys = generate_keys(num_swarms);
+        let peer_ids = extract_peer_ids(&keys);
+        let addresses = generate_addresses(num_swarms);
+
+        let mut swarms = Vec::new();
+        let mut request_senders = Vec::new();
+
+        for i in 0..num_swarms {
+            let (swarm, sender) = create_swarm(&keys[i], peer_ids[i], &peer_ids, &addresses, i);
+            swarms.push(swarm);
+            request_senders.push(sender);
+        }
+
+        SwarmNetwork {
+            swarms,
+            swarm_command_senders: request_senders,
+            swarm_addresses: addresses,
+        }
+    }
+    async fn run_swarm(
+        mut swarm: Swarm<SyncBehaviour<AllNeighbours>>,
+        addresses: Vec<Multiaddr>,
+        swarm_index: usize,
+    ) {
+        for address in &addresses {
+            swarm.dial(address.clone()).expect("Dial failed");
+        }
+
         loop {
             match swarm.next().await {
-                Some(SwarmEvent::Behaviour(ForwardSyncRequest {
-                    slot,
-                    response_sender,
-                })) => {
-                    debug!("Received block request for slot {}", slot);
-                    tokio::spawn(async move {
-                        for _ in 0..MSG_COUNT {
-                            response_sender
-                                .send(vec![0; 32])
-                                .expect("Failed to send block");
-                        }
-                    });
-                }
-                Some(event) => debug!("Swarm event: {:?}", event),
+                Some(SwarmEvent::Behaviour(event)) => match event {
+                    BehaviourSyncEvent::SyncRequest {
+                        direction,
+                        slot,
+                        response_sender,
+                    } => {
+                        debug!(
+                            "Swarm {} received sync request: direction {:?}, slot {}",
+                            swarm_index, direction, slot
+                        );
+                        tokio::spawn(async move {
+                            if direction == SyncDirection::Forward {
+                                for _ in 0..MSG_COUNT {
+                                    response_sender
+                                        .send(BehaviourSyncReply::Block(BlockResponse::Block(
+                                            vec![],
+                                        )))
+                                        .await
+                                        .expect("Failed to send block");
+                                }
+                            } else {
+                                let start = slot - MSG_COUNT as u64;
+                                for _ in (start..=slot).rev() {
+                                    response_sender
+                                        .send(BehaviourSyncReply::Block(BlockResponse::Block(
+                                            vec![],
+                                        )))
+                                        .await
+                                        .expect("Failed to send block");
+                                }
+                            }
+                        });
+                    }
+                    BehaviourSyncEvent::TipRequest { response_sender } => {
+                        response_sender
+                            .send(BehaviourSyncReply::TipData(swarm_index as u64 * 100))
+                            .await
+                            .expect("Failed to send tip");
+                    }
+                },
+                Some(_) => continue,
                 None => break,
             }
         }
     }
 
-    async fn collect_blocks(receiver: &mut mpsc::UnboundedReceiver<Vec<u8>>) -> Vec<Vec<u8>> {
+    async fn perform_sync(
+        request_sender: Sender<SyncCommand>,
+        direction: SyncDirection,
+        slot: u64,
+    ) -> Vec<Vec<u8>> {
+        let (response_sender, mut response_receiver) = mpsc::channel(10);
+        request_sender
+            .send(SyncCommand::StartSync {
+                direction,
+                slot,
+                response_sender,
+            })
+            .await
+            .expect("Failed to send sync command");
+
         let mut blocks = Vec::new();
-        match timeout(Duration::from_secs(TIMEOUT_SECS), async {
-            while let Some(block) = receiver.recv().await {
-                debug!("Received block: {:?}", block);
+        for _ in 0..MSG_COUNT {
+            if let Some(block) = response_receiver.recv().await {
                 blocks.push(block);
+            } else {
+                break;
             }
-        })
-        .await
-        {
-            Ok(()) => blocks,
-            Err(_) => panic!("Timed out "),
         }
+        blocks
     }
 
     fn new_swarm_in_memory<TBehavior>(key: &Keypair, behavior: TBehavior) -> Swarm<TBehavior>
     where
         TBehavior: NetworkBehaviour + Send,
     {
-        libp2p::SwarmBuilder::with_existing_identity(key.clone())
+        SwarmBuilder::with_existing_identity(key.clone())
             .with_tokio()
             .with_other_transport(|_| {
                 Ok(MemoryTransport::default()
