@@ -1,5 +1,5 @@
 use std::{
-    fmt::{Debug, Formatter},
+    fmt::{Debug, Display, Formatter},
     future::Future,
     pin::Pin,
 };
@@ -9,9 +9,8 @@ use futures::StreamExt;
 use log::error;
 use overwatch::{
     services::{
-        relay::RelayMessage,
         state::{NoOperator, NoState},
-        ServiceCore, ServiceData, ServiceId,
+        AsServiceId, ServiceCore, ServiceData,
     },
     DynError, OpaqueServiceStateHandle,
 };
@@ -23,8 +22,6 @@ use crate::{backend::KMSBackend, secure_key::SecuredKey};
 mod backend;
 mod keys;
 mod secure_key;
-
-const KMS_TAG: ServiceId = "KMS";
 
 // TODO: Use [`AsyncFnMut`](https://doc.rust-lang.org/stable/std/ops/trait.AsyncFnMut.html#tymethod.async_call_mut) once it is stabilized.
 pub type KMSOperator = Box<
@@ -88,14 +85,12 @@ where
     }
 }
 
-impl<B: backend::KMSBackend + 'static> RelayMessage for KMSMessage<B> {}
-
 #[derive(Clone)]
 pub struct KMSServiceSettings<BackendSettings> {
     backend_settings: BackendSettings,
 }
 
-pub struct KMSService<Backend>
+pub struct KMSService<Backend, RuntimeServiceId>
 where
     Backend: KMSBackend + 'static,
     Backend::KeyId: Debug,
@@ -103,33 +98,34 @@ where
     Backend::Settings: Clone,
 {
     backend: Backend,
-    service_state: OpaqueServiceStateHandle<Self>,
+    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
 }
 
-impl<Backend> ServiceData for KMSService<Backend>
+impl<Backend, RuntimeServiceId> ServiceData for KMSService<Backend, RuntimeServiceId>
 where
     Backend: KMSBackend + 'static,
     Backend::KeyId: Debug,
     Backend::SupportedKeyTypes: Debug,
     Backend::Settings: Clone,
 {
-    const SERVICE_ID: ServiceId = KMS_TAG;
     type Settings = KMSServiceSettings<Backend::Settings>;
     type State = NoState<Self::Settings>;
-    type StateOperator = NoOperator<Self::State, Self::Settings>;
+    type StateOperator = NoOperator<Self::State>;
     type Message = KMSMessage<Backend>;
 }
 
 #[async_trait::async_trait]
-impl<Backend> ServiceCore for KMSService<Backend>
+impl<Backend, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for KMSService<Backend, RuntimeServiceId>
 where
     Backend: KMSBackend + Send + 'static,
     Backend::KeyId: Debug + Send,
     Backend::SupportedKeyTypes: Debug + Send,
     Backend::Settings: Clone + Send + Sync,
+    RuntimeServiceId: AsServiceId<Self> + Display + Send,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self>,
+        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, DynError> {
         let KMSServiceSettings { backend_settings } =
@@ -157,7 +153,7 @@ where
                     Self::handle_kms_message(msg, &mut backend).await;
                 }
                 Some(msg) = lifecycle_stream.next() => {
-                    if lifecycle::should_stop_service::<Self>(&msg) {
+                    if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
                         return Ok(());
                     }
                 }
@@ -166,7 +162,7 @@ where
     }
 }
 
-impl<Backend> KMSService<Backend>
+impl<Backend, RuntimeServiceId> KMSService<Backend, RuntimeServiceId>
 where
     Backend: KMSBackend + 'static,
     Backend::KeyId: Debug,

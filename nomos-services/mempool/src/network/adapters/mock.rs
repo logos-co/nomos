@@ -15,12 +15,12 @@ pub const MOCK_PUB_SUB_TOPIC: &str = "MockPubSubTopic";
 pub const MOCK_CONTENT_TOPIC: &str = "MockContentTopic";
 pub const MOCK_TX_CONTENT_TOPIC: MockContentTopic = MockContentTopic::new("Mock", 1, "Tx");
 
-pub struct MockAdapter {
-    network_relay: OutboundRelay<<NetworkService<Mock> as ServiceData>::Message>,
+pub struct MockAdapter<RuntimeServiceId> {
+    network_relay: OutboundRelay<<NetworkService<Mock, RuntimeServiceId> as ServiceData>::Message>,
 }
 
 #[async_trait::async_trait]
-impl NetworkAdapter for MockAdapter {
+impl<RuntimeServiceId> NetworkAdapter<RuntimeServiceId> for MockAdapter<RuntimeServiceId> {
     type Backend = Mock;
     type Settings = ();
     type Payload = MockTransaction<MockMessage>;
@@ -28,7 +28,9 @@ impl NetworkAdapter for MockAdapter {
 
     async fn new(
         _settings: Self::Settings,
-        network_relay: OutboundRelay<<NetworkService<Self::Backend> as ServiceData>::Message>,
+        network_relay: OutboundRelay<
+            <NetworkService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
+        >,
     ) -> Self {
         // send message to boot the network producer
         if let Err(e) = network_relay
@@ -78,12 +80,10 @@ impl NetworkAdapter for MockAdapter {
                 match event {
                     Ok(NetworkEvent::RawMessage(message)) => {
                         tracing::info!("Received message: {:?}", message.payload());
-                        if message.content_topic().eq(&MOCK_TX_CONTENT_TOPIC) {
+                        message.content_topic().eq(&MOCK_TX_CONTENT_TOPIC).then(|| {
                             let tx = MockTransaction::new(message);
-                            Some((tx.id(), tx))
-                        } else {
-                            None
-                        }
+                            (tx.id(), tx)
+                        })
                     }
                     Err(_e) => None,
                 }

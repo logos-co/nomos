@@ -7,12 +7,13 @@ mod states;
 pub mod storage;
 
 use core::fmt::Debug;
-use std::{collections::BTreeSet, hash::Hash, path::PathBuf};
+use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 
 use cryptarchia_engine::Slot;
 use futures::StreamExt;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
+use nomos_blend_service::BlendService;
 use nomos_core::{
     block::{builder::BlockBuilder, Block},
     da::blob::{info::DispersedBlobInfo, metadata::Metadata as BlobMetadata, BlobSelect},
@@ -32,10 +33,7 @@ use nomos_network::NetworkService;
 use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
-    services::{
-        relay::{OutboundRelay, Relay, RelayMessage},
-        ServiceCore, ServiceData, ServiceId,
-    },
+    services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},
     DynError, OpaqueServiceStateHandle,
 };
 use rand::{RngCore, SeedableRng};
@@ -64,7 +62,7 @@ type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
 
 // Limit the number of blocks returned by GetHeaders
 const HEADERS_LIMIT: usize = 512;
-const CRYPTARCHIA_ID: ServiceId = "Cryptarchia";
+const CRYPTARCHIA_ID: &str = "Cryptarchia";
 
 #[derive(Debug, Clone, Error)]
 pub enum Error {
@@ -166,7 +164,6 @@ impl<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings> FileBackendSettings
 }
 
 #[expect(clippy::allow_attributes_without_reason)]
-#[expect(clippy::type_complexity)]
 pub struct CryptarchiaConsensus<
     NetAdapter,
     BlendAdapter,
@@ -186,24 +183,25 @@ pub struct CryptarchiaConsensus<
     DaVerifierStorage,
     TimeBackend,
     ApiAdapter,
+    RuntimeServiceId,
 > where
-    NetAdapter: NetworkAdapter,
+    NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Backend: 'static,
     NetAdapter::Settings: Send,
-    BlendAdapter: blend::BlendAdapter,
+    BlendAdapter: blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone,
     ClPool::Item: Clone + Eq + Hash + Debug + 'static,
     ClPool::Key: Debug + 'static,
-    ClPoolAdapter: MempoolAdapter<Payload = ClPool::Item, Key = ClPool::Key>,
+    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     DaPool: RecoverableMempool<BlockId = HeaderId>,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     DaPool::Item: Clone + Eq + Hash + Debug + 'static,
     DaPool::Key: Debug + 'static,
     DaPool::Settings: Clone,
-    DaPoolAdapter: MempoolAdapter<Key = DaPool::Key>,
+    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     TxS: TxSelect<Tx = ClPool::Item>,
     TxS::Settings: Send,
@@ -214,54 +212,20 @@ pub struct CryptarchiaConsensus<
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
-    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter,
+    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingRng: SeedableRng + RngCore,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter,
-    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + 'static,
     DaVerifierBackend::Settings: Clone,
-    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter,
+    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
-    service_state: OpaqueServiceStateHandle<Self>,
-    // underlying networking backend. We need this so we can relay and check the types properly
-    // when implementing ServiceCore for CryptarchiaConsensus
-    network_relay: Relay<NetworkService<NetAdapter::Backend>>,
-    blend_relay:
-        Relay<nomos_blend_service::BlendService<BlendAdapter::Backend, BlendAdapter::Network>>,
-    cl_mempool_relay: Relay<TxMempoolService<ClPoolAdapter, ClPool>>,
-    da_mempool_relay: Relay<
-        DaMempoolService<
-            DaPoolAdapter,
-            DaPool,
-            SamplingBackend,
-            SamplingNetworkAdapter,
-            SamplingRng,
-            SamplingStorage,
-            DaVerifierBackend,
-            DaVerifierNetwork,
-            DaVerifierStorage,
-            ApiAdapter,
-        >,
-    >,
-    sampling_relay: Relay<
-        DaSamplingService<
-            SamplingBackend,
-            SamplingNetworkAdapter,
-            SamplingRng,
-            SamplingStorage,
-            DaVerifierBackend,
-            DaVerifierNetwork,
-            DaVerifierStorage,
-            ApiAdapter,
-        >,
-    >,
+    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
     block_subscription_sender: broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    storage_relay: Relay<StorageService<Storage>>,
-    time_relay: Relay<TimeService<TimeBackend>>,
     initial_state: <Self as ServiceData>::State,
 }
 
@@ -284,6 +248,7 @@ impl<
         DaVerifierStorage,
         TimeBackend,
         ApiAdapter,
+        RuntimeServiceId,
     > ServiceData
     for CryptarchiaConsensus<
         NetAdapter,
@@ -304,24 +269,25 @@ impl<
         DaVerifierStorage,
         TimeBackend,
         ApiAdapter,
+        RuntimeServiceId,
     >
 where
-    NetAdapter: NetworkAdapter,
+    NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Settings: Send,
-    BlendAdapter: blend::BlendAdapter,
+    BlendAdapter: blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone,
     ClPool::Item: Clone + Eq + Hash + Debug,
     ClPool::Key: Debug,
-    ClPoolAdapter: MempoolAdapter<Payload = ClPool::Item, Key = ClPool::Key>,
+    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     DaPool: RecoverableMempool<BlockId = HeaderId>,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     DaPool::Item: Clone + Eq + Hash + Debug,
     DaPool::Key: Debug,
     DaPool::Settings: Clone,
-    DaPoolAdapter: MempoolAdapter<Key = DaPool::Key>,
+    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     TxS: TxSelect<Tx = ClPool::Item>,
     TxS::Settings: Send,
@@ -332,19 +298,18 @@ where
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
-    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter,
+    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingRng: SeedableRng + RngCore,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter,
-    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + 'static,
     DaVerifierBackend::Settings: Clone,
-    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter,
+    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
-    const SERVICE_ID: ServiceId = CRYPTARCHIA_ID;
     type Settings = CryptarchiaSettings<
         TxS::Settings,
         BS::Settings,
@@ -382,7 +347,8 @@ impl<
         DaVerifierStorage,
         TimeBackend,
         ApiAdapter,
-    > ServiceCore
+        RuntimeServiceId,
+    > ServiceCore<RuntimeServiceId>
     for CryptarchiaConsensus<
         NetAdapter,
         BlendAdapter,
@@ -402,15 +368,16 @@ impl<
         DaVerifierStorage,
         TimeBackend,
         ApiAdapter,
+        RuntimeServiceId,
     >
 where
-    NetAdapter: NetworkAdapter<Tx = ClPool::Item, BlobCertificate = DaPool::Item>
+    NetAdapter: NetworkAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = DaPool::Item>
         + Clone
         + Send
         + Sync
         + 'static,
     NetAdapter::Settings: Send + Sync + 'static,
-    BlendAdapter: blend::BlendAdapter<Tx = ClPool::Item, BlobCertificate = DaPool::Item>
+    BlendAdapter: blend::BlendAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = DaPool::Item>
         + Clone
         + Send
         + Sync
@@ -430,8 +397,10 @@ where
         + Sync
         + 'static,
     ClPool::Key: Debug + Send + Sync,
-    ClPoolAdapter:
-        MempoolAdapter<Payload = ClPool::Item, Key = ClPool::Key> + Send + Sync + 'static,
+    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
+        + Send
+        + Sync
+        + 'static,
     DaPool: RecoverableMempool<BlockId = HeaderId, Key = SamplingBackend::BlobId>
         + Send
         + Sync
@@ -450,7 +419,7 @@ where
         + Send
         + Sync
         + 'static,
-    DaPoolAdapter: MempoolAdapter<Key = DaPool::Key> + Send + Sync + 'static,
+    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key> + Send + Sync + 'static,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     TxS: TxSelect<Tx = ClPool::Item> + Clone + Send + Sync + 'static,
     TxS::Settings: Send + Sync + 'static,
@@ -461,41 +430,66 @@ where
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + Send + 'static,
     SamplingBackend::BlobId: Debug + Ord + Send + Sync + 'static,
-    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter,
+    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingRng: SeedableRng + RngCore,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter,
-    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter + Send + Sync,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + Sync + 'static,
     DaVerifierBackend::Settings: Clone,
-    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter + Send + Sync,
+    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
+    RuntimeServiceId: Debug
+        + Send
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<Self>
+        + AsServiceId<NetworkService<NetAdapter::Backend, RuntimeServiceId>>
+        + AsServiceId<BlendService<BlendAdapter::Backend, BlendAdapter::Network, RuntimeServiceId>>
+        + AsServiceId<TxMempoolService<ClPoolAdapter, ClPool, RuntimeServiceId>>
+        + AsServiceId<
+            DaMempoolService<
+                DaPoolAdapter,
+                DaPool,
+                SamplingBackend,
+                SamplingNetworkAdapter,
+                SamplingRng,
+                SamplingStorage,
+                DaVerifierBackend,
+                DaVerifierNetwork,
+                DaVerifierStorage,
+                ApiAdapter,
+                RuntimeServiceId,
+            >,
+        >
+        + AsServiceId<
+            DaSamplingService<
+                SamplingBackend,
+                SamplingNetworkAdapter,
+                SamplingRng,
+                SamplingStorage,
+                DaVerifierBackend,
+                DaVerifierNetwork,
+                DaVerifierStorage,
+                ApiAdapter,
+                RuntimeServiceId,
+            >,
+        >
+        + AsServiceId<StorageService<Storage, RuntimeServiceId>>
+        + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self>,
+        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
         initial_state: Self::State,
     ) -> Result<Self, DynError> {
-        let network_relay = service_state.overwatch_handle.relay();
-        let blend_relay = service_state.overwatch_handle.relay();
-        let cl_mempool_relay = service_state.overwatch_handle.relay();
-        let da_mempool_relay = service_state.overwatch_handle.relay();
-        let storage_relay = service_state.overwatch_handle.relay();
-        let sampling_relay = service_state.overwatch_handle.relay();
-        let time_relay = service_state.overwatch_handle.relay();
         let (block_subscription_sender, _) = broadcast::channel(16);
 
         Ok(Self {
             service_state,
-            network_relay,
-            blend_relay,
-            cl_mempool_relay,
-            da_mempool_relay,
-            sampling_relay,
             block_subscription_sender,
-            storage_relay,
-            time_relay,
             initial_state,
         })
     }
@@ -515,21 +509,11 @@ where
             Storage,
             TxS,
             DaVerifierBackend,
-        > = CryptarchiaConsensusRelays::from_relays(
-            self.network_relay,
-            self.blend_relay,
-            self.cl_mempool_relay,
-            self.da_mempool_relay,
-            self.sampling_relay,
-            self.storage_relay,
+            RuntimeServiceId,
+        > = CryptarchiaConsensusRelays::from_service_state_handle::<_, _, _, _, _, _>(
+            &self.service_state,
         )
         .await;
-
-        let time_relay: OutboundRelay<_> = self
-            .time_relay
-            .connect()
-            .await
-            .expect("Relay conneciton with TimeService should succeed.");
 
         let CryptarchiaSettings {
             config: ledger_config,
@@ -564,7 +548,8 @@ where
 
         let mut slot_timer = {
             let (sender, receiver) = oneshot::channel();
-            time_relay
+            relays
+                .time_relay()
                 .send(TimeServiceMessage::Subscribe { sender })
                 .await
                 .expect("Request time subscription to time service should succeed");
@@ -627,7 +612,7 @@ where
                         Self::process_message(&cryptarchia, &self.block_subscription_sender, msg);
                     }
                     Some(msg) = lifecycle_stream.next() => {
-                        if lifecycle::should_stop_service::<Self>(&msg) {
+                        if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
                             break;
                         }
                     }
@@ -660,6 +645,7 @@ impl<
         DaVerifierStorage,
         TimeBackend,
         ApiAdapter,
+        RuntimeServiceId,
     >
     CryptarchiaConsensus<
         NetAdapter,
@@ -680,11 +666,12 @@ impl<
         DaVerifierStorage,
         TimeBackend,
         ApiAdapter,
+        RuntimeServiceId,
     >
 where
-    NetAdapter: NetworkAdapter + Clone + Send + Sync + 'static,
+    NetAdapter: NetworkAdapter<RuntimeServiceId> + Clone + Send + Sync + 'static,
     NetAdapter::Settings: Send,
-    BlendAdapter: blend::BlendAdapter + Clone + Send + Sync + 'static,
+    BlendAdapter: blend::BlendAdapter<RuntimeServiceId> + Clone + Send + Sync + 'static,
     BlendAdapter::Settings: Send,
     ClPool: RecoverableMempool<BlockId = HeaderId> + Send + Sync + 'static,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
@@ -700,8 +687,10 @@ where
         + Sync
         + 'static,
     ClPool::Key: Debug + Send + Sync,
-    ClPoolAdapter:
-        MempoolAdapter<Payload = ClPool::Item, Key = ClPool::Key> + Send + Sync + 'static,
+    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
+        + Send
+        + Sync
+        + 'static,
     DaPool::Item: DispersedBlobInfo<BlobId = DaPool::Key>
         + BlobMetadata
         + Debug
@@ -719,7 +708,7 @@ where
         + 'static,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     DaPool::Settings: Clone + Send + Sync + 'static,
-    DaPoolAdapter: MempoolAdapter<Key = DaPool::Key> + Send + Sync + 'static,
+    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key> + Send + Sync + 'static,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     TxS: TxSelect<Tx = ClPool::Item> + Clone + Send + Sync + 'static,
     TxS::Settings: Send,
@@ -730,13 +719,13 @@ where
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + Ord + Send + Sync + 'static,
-    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter,
+    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingRng: SeedableRng + RngCore,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter,
-    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter + Send + Sync,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + Sync + 'static,
     DaVerifierBackend::Settings: Clone,
-    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter + Send + Sync,
+    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
@@ -817,6 +806,7 @@ where
             Storage,
             TxS,
             DaVerifierBackend,
+            RuntimeServiceId,
         >,
         block_broadcaster: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> Cryptarchia {
@@ -910,6 +900,7 @@ where
             Storage,
             TxS,
             DaVerifierBackend,
+            RuntimeServiceId,
         >,
     ) -> Option<Block<ClPool::Item, DaPool::Item>> {
         let mut output = None;
@@ -1000,7 +991,7 @@ where
     async fn get_blocks_in_range(
         from: HeaderId,
         to: HeaderId,
-        storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId>,
+        storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
     ) -> Vec<Block<ClPool::Item, DaPool::Item>> {
         // Due to the blocks traversal order, this yields `to..from` order
         let blocks = futures::stream::unfold(to, |header_id| async move {
@@ -1071,6 +1062,7 @@ where
             Storage,
             TxS,
             DaVerifierBackend,
+            RuntimeServiceId,
         >,
         block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> (Cryptarchia, Leader) {
@@ -1147,6 +1139,7 @@ where
             Storage,
             TxS,
             DaVerifierBackend,
+            RuntimeServiceId,
         >,
         block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> Cryptarchia {
@@ -1204,6 +1197,7 @@ where
             Storage,
             TxS,
             DaVerifierBackend,
+            RuntimeServiceId,
         >,
         block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> (Cryptarchia, Leader) {
@@ -1248,6 +1242,7 @@ where
             Storage,
             TxS,
             DaVerifierBackend,
+            RuntimeServiceId,
         >,
         block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> (Cryptarchia, Leader) {
@@ -1288,8 +1283,6 @@ pub enum ConsensusMsg<Block> {
     },
 }
 
-impl<Block: 'static> RelayMessage for ConsensusMsg<Block> {}
-
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -1301,7 +1294,11 @@ pub struct CryptarchiaInfo {
 
 async fn get_mempool_contents<Payload, Item, Key>(
     mempool: OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>,
-) -> Result<Box<dyn Iterator<Item = Item> + Send>, tokio::sync::oneshot::error::RecvError> {
+) -> Result<Box<dyn Iterator<Item = Item> + Send>, tokio::sync::oneshot::error::RecvError>
+where
+    Key: Send,
+    Payload: Send,
+{
     let (reply_channel, rx) = tokio::sync::oneshot::channel();
 
     mempool
@@ -1319,7 +1316,10 @@ async fn mark_in_block<Payload, Item, Key>(
     mempool: OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>,
     ids: impl Iterator<Item = Key>,
     block: HeaderId,
-) {
+) where
+    Key: Send,
+    Payload: Send,
+{
     mempool
         .send(MempoolMsg::MarkInBlock {
             ids: ids.collect(),
@@ -1329,7 +1329,7 @@ async fn mark_in_block<Payload, Item, Key>(
         .unwrap_or_else(|(e, _)| tracing::error!("Could not mark items in block: {e}"));
 }
 
-async fn mark_blob_in_block<BlobId: Debug>(
+async fn mark_blob_in_block<BlobId: Debug + Send>(
     sampling_relay: SamplingRelay<BlobId>,
     blobs_id: Vec<BlobId>,
 ) {
@@ -1343,7 +1343,10 @@ async fn mark_blob_in_block<BlobId: Debug>(
 
 async fn get_sampled_blobs<BlobId>(
     sampling_relay: SamplingRelay<BlobId>,
-) -> Result<BTreeSet<BlobId>, DynError> {
+) -> Result<BTreeSet<BlobId>, DynError>
+where
+    BlobId: Send,
+{
     let (sender, receiver) = oneshot::channel();
     sampling_relay
         .send(DaSamplingServiceMsg::GetValidatedBlobs {

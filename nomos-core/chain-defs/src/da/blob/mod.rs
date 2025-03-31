@@ -2,6 +2,11 @@ pub mod info;
 pub mod metadata;
 pub mod select;
 
+pub trait LightShare {
+    type ShareIndex;
+    fn share_idx(&self) -> Self::ShareIndex;
+}
+
 pub trait Share {
     type BlobId;
     type ShareIndex;

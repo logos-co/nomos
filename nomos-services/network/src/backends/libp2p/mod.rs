@@ -32,14 +32,14 @@ pub enum Event {
 const BUFFER_SIZE: usize = 64;
 
 #[async_trait::async_trait]
-impl NetworkBackend for Libp2p {
+impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Libp2p {
     type Settings = Libp2pConfig;
     type State = NoState<Libp2pConfig>;
     type Message = Command;
     type EventKind = EventKind;
     type NetworkEvent = Event;
 
-    fn new(config: Self::Settings, overwatch_handle: OverwatchHandle) -> Self {
+    fn new(config: Self::Settings, overwatch_handle: OverwatchHandle<RuntimeServiceId>) -> Self {
         let (commands_tx, commands_rx) = tokio::sync::mpsc::channel(BUFFER_SIZE);
         let (events_tx, _) = tokio::sync::broadcast::channel(BUFFER_SIZE);
 

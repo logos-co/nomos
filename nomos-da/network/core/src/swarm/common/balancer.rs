@@ -6,6 +6,7 @@ use std::{
 
 use libp2p::PeerId;
 use rand::seq::IteratorRandom;
+use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 
 use crate::{
@@ -13,7 +14,9 @@ use crate::{
     SubnetworkId,
 };
 
-#[derive(Default)]
+pub type BalancerStats = HashMap<SubnetworkId, SubnetworkStats>;
+
+#[derive(Copy, Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SubnetworkStats {
     pub inbound: usize,
     pub outbound: usize,
@@ -44,7 +47,7 @@ pub struct DAConnectionBalancer<Membership, Policy> {
     membership: Membership,
     policy: Policy,
     interval: Pin<Box<dyn futures::Stream<Item = ()> + Send>>,
-    subnetwork_stats: HashMap<SubnetworkId, SubnetworkStats>,
+    subnetwork_stats: BalancerStats,
     connected_peers: HashSet<PeerId>,
 }
 
@@ -105,6 +108,8 @@ where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>,
     Policy: SubnetworkConnectionPolicy,
 {
+    type Stats = BalancerStats;
+
     fn record_event(&mut self, event: ConnectionEvent) {
         match event {
             ConnectionEvent::OpenInbound(peer) => {
@@ -166,6 +171,10 @@ where
         } else {
             Poll::Pending
         }
+    }
+
+    fn stats(&self) -> Self::Stats {
+        self.subnetwork_stats.clone()
     }
 }
 

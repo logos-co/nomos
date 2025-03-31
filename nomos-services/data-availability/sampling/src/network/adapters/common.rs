@@ -1,6 +1,6 @@
 macro_rules! adapter_for {
     ($DaNetworkBackend:ident, $DaNetworkMessage:ident, $DaEventKind:ident, $DaNetworkEvent:ident) => {
-        pub struct Libp2pAdapter<Membership>
+        pub struct Libp2pAdapter<Membership, RuntimeServiceId>
         where
             Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
                 + Debug
@@ -10,12 +10,12 @@ macro_rules! adapter_for {
                 + 'static,
         {
             network_relay: OutboundRelay<
-                <NetworkService<$DaNetworkBackend<Membership>> as ServiceData>::Message,
+                <NetworkService<$DaNetworkBackend<Membership>, RuntimeServiceId> as ServiceData>::Message,
             >,
         }
 
         #[async_trait::async_trait]
-        impl<Membership> NetworkAdapter for Libp2pAdapter<Membership>
+        impl<Membership, RuntimeServiceId> NetworkAdapter<RuntimeServiceId> for Libp2pAdapter<Membership, RuntimeServiceId>
         where
             Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
                 + Debug
@@ -28,7 +28,7 @@ macro_rules! adapter_for {
             type Settings = ();
 
             async fn new(
-                network_relay: OutboundRelay<<NetworkService<Self::Backend> as ServiceData>::Message>,
+                network_relay: OutboundRelay<<NetworkService<Self::Backend, RuntimeServiceId> as ServiceData>::Message>,
             ) -> Self {
                 Self { network_relay }
             }

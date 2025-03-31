@@ -3,7 +3,6 @@ use std::{future::Future, sync::OnceLock, time::Duration};
 use overwatch::{
     overwatch::handle::OverwatchHandle,
     services::{
-        relay::NoMessage,
         state::{NoOperator, NoState},
         ServiceCore, ServiceData,
     },
@@ -18,7 +17,7 @@ const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 /// A simple abstraction so that we can easily
 /// change the underlying http server
 #[async_trait::async_trait]
-pub trait Backend {
+pub trait Backend<RuntimeServiceId> {
     type Error: std::error::Error + Send + Sync + 'static;
     type Settings: Clone + Send + Sync + 'static;
 
@@ -26,7 +25,7 @@ pub trait Backend {
     where
         Self: Sized;
 
-    async fn serve(self, handle: OverwatchHandle) -> Result<(), Self::Error>;
+    async fn serve(self, handle: OverwatchHandle<RuntimeServiceId>) -> Result<(), Self::Error>;
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -36,31 +35,32 @@ pub struct ApiServiceSettings<S> {
     pub request_timeout: Option<Duration>,
 }
 
-pub struct ApiService<B: Backend> {
+pub struct ApiService<B: Backend<RuntimeServiceId>, RuntimeServiceId> {
     settings: ApiServiceSettings<B::Settings>,
-    handle: OverwatchHandle,
+    handle: OverwatchHandle<RuntimeServiceId>,
 }
 
-impl<B: Backend> ServiceData for ApiService<B> {
-    const SERVICE_ID: overwatch::services::ServiceId = "nomos-api";
-
+impl<B: Backend<RuntimeServiceId>, RuntimeServiceId> ServiceData
+    for ApiService<B, RuntimeServiceId>
+{
     type Settings = ApiServiceSettings<B::Settings>;
 
     type State = NoState<Self::Settings>;
 
-    type StateOperator = NoOperator<Self::State, Self::Settings>;
+    type StateOperator = NoOperator<Self::State>;
 
-    type Message = NoMessage;
+    type Message = ();
 }
 
 #[async_trait::async_trait]
-impl<B> ServiceCore for ApiService<B>
+impl<B, RuntimeServiceId> ServiceCore<RuntimeServiceId> for ApiService<B, RuntimeServiceId>
 where
-    B: Backend + Send + Sync + 'static,
+    B: Backend<RuntimeServiceId> + Send + Sync + 'static,
+    RuntimeServiceId: Send,
 {
     /// Initialize the service with the given state
     fn init(
-        service_state: OpaqueServiceStateHandle<Self>,
+        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
         _init_state: Self::State,
     ) -> Result<Self, DynError> {
         let settings = service_state.settings_reader.get_updated_settings();

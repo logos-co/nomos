@@ -7,26 +7,20 @@ use cl::{Nonce, NoteWitness, NullifierSecret};
 use clap::{Parser, ValueEnum};
 use color_eyre::eyre::{eyre, Result};
 use hex::FromHex;
-use nomos_blend_service::{
-    backends::libp2p::Libp2pBlendBackend as BlendBackend,
-    network::libp2p::Libp2pAdapter as BlendNetworkAdapter, BlendService,
-};
 use nomos_core::{proofs::covenant::CovenantProof, staking::NMO_UNIT};
-use nomos_da_network_service::{
-    backends::libp2p::validator::DaNetworkValidatorBackend, NetworkService as DaNetworkService,
-};
 use nomos_libp2p::{ed25519::SecretKey, Multiaddr};
-use nomos_network::{backends::libp2p::Libp2p as NetworkBackend, NetworkService};
-use nomos_storage::backends::rocksdb::RocksBackend;
-use nomos_time::TimeService;
+use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 use nomos_tracing::logging::{gelf::GelfConfig, local::FileConfig};
 use nomos_tracing_service::{LoggerLayer, Tracing};
 use overwatch::services::ServiceData;
 use serde::{Deserialize, Serialize};
-use subnetworks_assignations::versions::v1::FillFromNodeList;
 use tracing::Level;
 
-use crate::{config::mempool::MempoolConfig, NomosApiService, NomosDaMembership, Wire};
+use crate::{
+    config::mempool::MempoolConfig, ApiService, BlendService, CryptarchiaService, DaIndexerService,
+    DaNetworkService, DaSamplingService, DaVerifierService, NetworkService, RuntimeServiceId,
+    StorageService, TimeService,
+};
 
 pub mod mempool;
 
@@ -134,22 +128,17 @@ pub struct TimeArgs {
 
 #[derive(Deserialize, Debug, Clone, Serialize)]
 pub struct Config {
-    pub tracing: <Tracing as ServiceData>::Settings,
-    pub network: <NetworkService<NetworkBackend> as ServiceData>::Settings,
-    pub blend: <BlendService<BlendBackend, BlendNetworkAdapter> as ServiceData>::Settings,
-    pub da_network:
-        <DaNetworkService<DaNetworkValidatorBackend<FillFromNodeList>> as ServiceData>::Settings,
-    pub da_indexer: <crate::NodeDaIndexer as ServiceData>::Settings,
-    pub da_verifier: <crate::NodeDaVerifier as ServiceData>::Settings,
-    pub da_sampling: <crate::NodeDaSampling as ServiceData>::Settings,
-    pub http: <NomosApiService as ServiceData>::Settings,
-    pub cryptarchia: <crate::Cryptarchia<
-        nomos_da_sampling::network::adapters::validator::Libp2pAdapter<NomosDaMembership>,
-    > as ServiceData>::Settings,
-    pub time: nomos_time::TimeServiceSettings<
-        nomos_time::backends::system_time::SystemTimeBackendSettings,
-    >,
-    pub storage: <crate::StorageService<RocksBackend<Wire>> as ServiceData>::Settings,
+    pub tracing: <Tracing<RuntimeServiceId> as ServiceData>::Settings,
+    pub network: <NetworkService as ServiceData>::Settings,
+    pub blend: <BlendService as ServiceData>::Settings,
+    pub da_network: <DaNetworkService as ServiceData>::Settings,
+    pub da_indexer: <DaIndexerService as ServiceData>::Settings,
+    pub da_verifier: <DaVerifierService as ServiceData>::Settings,
+    pub da_sampling: <DaSamplingService as ServiceData>::Settings,
+    pub http: <ApiService as ServiceData>::Settings,
+    pub cryptarchia: <CryptarchiaService as ServiceData>::Settings,
+    pub time: <TimeService as ServiceData>::Settings,
+    pub storage: <StorageService as ServiceData>::Settings,
     pub mempool: MempoolConfig,
 }
 
@@ -163,7 +152,7 @@ impl Config {
         cryptarchia_args: CryptarchiaArgs,
     ) -> Result<Self> {
         update_tracing(&mut self.tracing, log_args)?;
-        update_network(&mut self.network, network_args)?;
+        update_network::<RuntimeServiceId>(&mut self.network, network_args)?;
         update_blend(&mut self.blend, blend_args)?;
         update_http(&mut self.http, http_args)?;
         update_cryptarchia_consensus(&mut self.cryptarchia, cryptarchia_args)?;
@@ -172,7 +161,7 @@ impl Config {
 }
 
 pub fn update_tracing(
-    tracing: &mut <Tracing as ServiceData>::Settings,
+    tracing: &mut <Tracing<RuntimeServiceId> as ServiceData>::Settings,
     tracing_args: LogArgs,
 ) -> Result<()> {
     let LogArgs {
@@ -214,8 +203,8 @@ pub fn update_tracing(
     Ok(())
 }
 
-pub fn update_network(
-    network: &mut <NetworkService<NetworkBackend> as ServiceData>::Settings,
+pub fn update_network<RuntimeServiceId>(
+    network: &mut <nomos_network::NetworkService<NetworkBackend, RuntimeServiceId> as ServiceData>::Settings,
     network_args: NetworkArgs,
 ) -> Result<()> {
     let NetworkArgs {
@@ -248,7 +237,7 @@ pub fn update_network(
 }
 
 pub fn update_blend(
-    blend: &mut <BlendService<BlendBackend, BlendNetworkAdapter> as ServiceData>::Settings,
+    blend: &mut <BlendService as ServiceData>::Settings,
     blend_args: BlendArgs,
 ) -> Result<()> {
     let BlendArgs {
@@ -274,7 +263,7 @@ pub fn update_blend(
 }
 
 pub fn update_http(
-    http: &mut <NomosApiService as ServiceData>::Settings,
+    http: &mut <ApiService as ServiceData>::Settings,
     http_args: HttpArgs,
 ) -> Result<()> {
     let HttpArgs {
@@ -294,7 +283,7 @@ pub fn update_http(
 }
 
 pub fn update_cryptarchia_consensus(
-    cryptarchia: &mut <crate::NodeCryptarchia as ServiceData>::Settings,
+    cryptarchia: &mut <CryptarchiaService as ServiceData>::Settings,
     consensus_args: CryptarchiaArgs,
 ) -> Result<()> {
     let CryptarchiaArgs {
@@ -323,7 +312,7 @@ pub fn update_cryptarchia_consensus(
 }
 
 pub fn update_time(
-    time: &mut <TimeService<nomos_time::backends::system_time::SystemTimeBackend> as ServiceData>::Settings,
+    time: &mut <TimeService as ServiceData>::Settings,
     time_args: &TimeArgs,
 ) -> Result<()> {
     let TimeArgs {

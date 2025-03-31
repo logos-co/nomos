@@ -1,14 +1,17 @@
-use std::{fmt::Debug, sync::Arc};
+use std::{collections::HashSet, fmt::Debug, hash::Hash, sync::Arc};
 
+use futures::{Stream, StreamExt};
 use nomos_core::da::blob::Share;
-use nomos_da_messages::http::da::{DASharesCommitmentsRequest, DaSamplingRequest};
+use nomos_da_messages::http::da::{
+    DASharesCommitmentsRequest, DaSamplingRequest, GetSharesRequest,
+};
 use reqwest::{Client, ClientBuilder, RequestBuilder, StatusCode, Url};
 use serde::{de::DeserializeOwned, Serialize};
 
 // These could be moved into shared location, perhaps to upcoming `nomos-lib`
 const DA_GET_SHARES_COMMITMENTS: &str = "/da/get-commitments";
-
 const DA_GET_LIGHT_SHARE: &str = "/da/get-share";
+const DA_GET_SHARES: &str = "/da/sampling/shares";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -50,9 +53,6 @@ impl CommonHttpClient {
             basic_auth,
         }
     }
-}
-
-impl CommonHttpClient {
     pub async fn post<Req, Res>(&self, request_url: Url, request_body: &Req) -> Result<Res, Error>
     where
         Req: Serialize + ?Sized + Send + Sync,
@@ -127,5 +127,48 @@ impl CommonHttpClient {
         let path = DA_GET_LIGHT_SHARE.trim_start_matches('/');
         let request_url = base_url.join(path).map_err(Error::Url)?;
         self.get(request_url, &request).await
+    }
+
+    pub async fn get_shares<B>(
+        &self,
+        base_url: Url,
+        blob_id: B::BlobId,
+        requested_shares: HashSet<B::ShareIndex>,
+        filter_shares: HashSet<B::ShareIndex>,
+        return_available: bool,
+    ) -> Result<impl Stream<Item = B::LightShare>, Error>
+    where
+        B: Share,
+        <B as Share>::BlobId: serde::Serialize + Send + Sync,
+        <B as Share>::ShareIndex: serde::Serialize + DeserializeOwned + Eq + Hash + Send + Sync,
+        <B as Share>::LightShare: DeserializeOwned + Send + Sync,
+    {
+        let request: GetSharesRequest<B> = GetSharesRequest {
+            blob_id,
+            requested_shares,
+            filter_shares,
+            return_available,
+        };
+        let request_url = base_url
+            .join(DA_GET_SHARES.trim_start_matches('/'))
+            .map_err(Error::Url)?;
+        let mut request = self.client.get(request_url).json(&request);
+
+        if let Some(basic_auth) = &self.basic_auth {
+            request = request.basic_auth(&basic_auth.username, basic_auth.password.as_deref());
+        }
+
+        let response = request.send().await.map_err(Error::Request)?;
+        let status = response.status();
+
+        let shares_stream = response.bytes_stream().filter_map(|item| async move {
+            item.ok()
+                .and_then(|bytes| serde_json::from_slice::<B::LightShare>(&bytes).ok())
+        });
+        match status {
+            StatusCode::OK => Ok(shares_stream),
+            StatusCode::INTERNAL_SERVER_ERROR => Err(Error::Server("Error".to_owned())),
+            _ => Err(Error::Server(format!("Unexpected response [{status}]",))),
+        }
     }
 }

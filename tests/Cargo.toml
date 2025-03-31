@@ -13,6 +13,7 @@ cryptarchia-consensus    = { workspace = true }
 cryptarchia-engine       = { workspace = true, features = ["serde"] }
 executor-http-client     = { workspace = true }
 futures                  = "0.3"
+futures-util             = "0.3.31"
 hex                      = "0.4.3"
 kzgrs-backend            = { workspace = true }
 nomos-api                = { workspace = true }

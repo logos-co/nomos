@@ -1,7 +1,7 @@
 pub mod backends;
 
 use std::{
-    fmt::{Debug, Formatter},
+    fmt::{Debug, Display, Formatter},
     marker::PhantomData,
 };
 
@@ -11,9 +11,8 @@ use bytes::Bytes;
 use futures::StreamExt;
 use overwatch::{
     services::{
-        relay::RelayMessage,
         state::{NoOperator, NoState},
-        ServiceCore, ServiceData, ServiceId,
+        AsServiceId, ServiceCore, ServiceData,
     },
     OpaqueServiceStateHandle,
 };
@@ -156,8 +155,6 @@ impl<Backend: StorageBackend> Debug for StorageMsg<Backend> {
     }
 }
 
-impl<Backend: StorageBackend + 'static> RelayMessage for StorageMsg<Backend> {}
-
 /// Storage error
 /// Errors that may happen when performing storage operations
 #[derive(Debug, thiserror::Error)]
@@ -169,12 +166,14 @@ enum StorageServiceError<Backend: StorageBackend> {
 }
 
 /// Storage service that wraps a [`StorageBackend`]
-pub struct StorageService<Backend: StorageBackend + Send + Sync + 'static> {
+pub struct StorageService<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId> {
     backend: Backend,
-    service_state: OpaqueServiceStateHandle<Self>,
+    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
 }
 
-impl<Backend: StorageBackend + Send + Sync + 'static> StorageService<Backend> {
+impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
+    StorageService<Backend, RuntimeServiceId>
+{
     async fn handle_storage_message(msg: StorageMsg<Backend>, backend: &mut Backend) {
         if let Err(e) = match msg {
             StorageMsg::Load { key, reply_channel } => {
@@ -285,9 +284,13 @@ impl<Backend: StorageBackend + Send + Sync + 'static> StorageService<Backend> {
 }
 
 #[async_trait]
-impl<Backend: StorageBackend + Send + Sync + 'static> ServiceCore for StorageService<Backend> {
+impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
+    ServiceCore<RuntimeServiceId> for StorageService<Backend, RuntimeServiceId>
+where
+    RuntimeServiceId: AsServiceId<Self> + Display + Send,
+{
     fn init(
-        service_state: OpaqueServiceStateHandle<Self>,
+        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
         _init_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
         Ok(Self {
@@ -300,7 +303,7 @@ impl<Backend: StorageBackend + Send + Sync + 'static> ServiceCore for StorageSer
         let Self {
             mut backend,
             service_state:
-                OpaqueServiceStateHandle::<Self> {
+                OpaqueServiceStateHandle::<Self, RuntimeServiceId> {
                     mut inbound_relay,
                     lifecycle_handle,
                     ..
@@ -318,7 +321,7 @@ impl<Backend: StorageBackend + Send + Sync + 'static> ServiceCore for StorageSer
                     Self::handle_storage_message(msg, backend).await;
                 }
                 Some(msg) = lifecycle_stream.next() => {
-                    if lifecycle::should_stop_service::<Self>(&msg) {
+                    if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
                         // TODO: Try to finish pending transactions if any and close connections properly
                         break;
                     }
@@ -329,10 +332,11 @@ impl<Backend: StorageBackend + Send + Sync + 'static> ServiceCore for StorageSer
     }
 }
 
-impl<Backend: StorageBackend + Send + Sync> ServiceData for StorageService<Backend> {
-    const SERVICE_ID: ServiceId = "Storage";
+impl<Backend: StorageBackend + Send + Sync, RuntimeServiceId> ServiceData
+    for StorageService<Backend, RuntimeServiceId>
+{
     type Settings = Backend::Settings;
     type State = NoState<Self::Settings>;
-    type StateOperator = NoOperator<Self::State, Self::Settings>;
+    type StateOperator = NoOperator<Self::State>;
     type Message = StorageMsg<Backend>;
 }

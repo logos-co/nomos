@@ -10,14 +10,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check-dependencies-graph:
+    name: Check dependencies graph
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
+      - name: Install cargo-depgraph
+        run: cargo install cargo-depgraph@1.6.0
+      - name: Generate new graph
+        run: cargo depgraph --all-deps --dedup-transitive-deps --workspace-only --all-features > ${{ runner.temp }}/dependencies_graph.dot
+      - name: Compare dependency graphs
+        run: |
+          diff dependencies_graph.dot ${{ runner.temp }}/dependencies_graph.dot || exit 1
   formatting:
     name: Check formatting
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4        
+        uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
       - name: Install nightly toolchain
-        uses: actions-rs/toolchain@v1
+        uses: actions-rs/toolchain@88dc2356392166efad76775c878094f4e83ff746  # Version 1.0.6
         with:
           # The same version must be used in the `.pre-commit-config.yaml` file
           toolchain: nightly-2025-01-03
@@ -25,7 +38,7 @@ jobs:
           components: rustfmt
           override: true
       - name: Run cargo fmt
-        uses: actions-rs/cargo@v1
+        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         with:
           command: fmt
           args: --all --check
@@ -36,9 +49,9 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
       - name: Run `cargo deny`
-        uses: EmbarkStudios/cargo-deny-action@v2
+        uses: EmbarkStudios/cargo-deny-action@34899fc7ba81ca6268d5947a7a16b4649013fea1 # Version 2.0.11
         with:
           # All is set in the config file
           arguments:
@@ -49,9 +62,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
       - name: Install cargo-hack
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@5651179950649c44da31d346537e20c0534f0f25  # Version 2.49.35
         with:
           tool: cargo-hack
       - name: Set up Cargo cache
@@ -75,9 +88,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
       - name: Install cargo-machete
-        uses: bnjbvr/cargo-machete@v0.8.0
+        uses: bnjbvr/cargo-machete@9f0895d780783da0089162cae9668f6ec6e896c4  # Version 0.8.0
         # This step also runs `cargo-machete` without the `--with-metadata` flag, which can trigger more false positives.
         # We ignore errors and run `cargo-machete` with the `--with-metadata` flag for the actual result.
         continue-on-error: true
@@ -89,18 +102,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Install risc0 dependencies
-        uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+        uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
       - name: Set up Cargo cache
         uses: ./.github/actions/setup-cargo-cache
         with:
           key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}
           github-token: ${{ secrets.GITHUB_TOKEN }}        
       - name: Run cargo clippy
-        uses: actions-rs/cargo@v1
+        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         env:
           RISC0_SKIP_BUILD: true
         with:
@@ -122,7 +131,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
       - name: Install risc0 dependencies
         uses: ./.github/actions/install-risc0
         with:
@@ -133,12 +142,12 @@ jobs:
           key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
           github-token: ${{ secrets.GITHUB_TOKEN }}        
       - name: Build required binaries
-        uses: actions-rs/cargo@v1
+        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         with:
           command: build
           args: --all-features -p nomos-node -p nomos-executor
       - name: Cargo test
-        uses: actions-rs/cargo@v1
+        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         env:
           RISC0_DEV_MODE: true
           CONSENSUS_SLOT_TIME: 5
@@ -152,7 +161,7 @@ jobs:
         with:
           key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
       - name: Upload integration tests results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@6027e3dd177782cd8ab9af838c04fd81a07f1d47 # Version 4.6.2
         if: failure()
         with:
           name: integration-test-artifacts
@@ -172,7 +181,7 @@ jobs:
       DOCKER_BUILD_WORKFLOW_FILE: build-docker.yml # Change this in case of file renamings
     steps:
       - name: Trigger "Docker build" workflow
-        uses: actions/github-script@v7
+        uses: actions/github-script@3908079ba1e7bce10117ad701c321d07e89017a9 # Version 7.0.1
         with:
           script: |
             github.rest.actions.createWorkflowDispatch({

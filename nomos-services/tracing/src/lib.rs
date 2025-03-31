@@ -1,5 +1,5 @@
 use std::{
-    fmt::{Debug, Formatter},
+    fmt::{Debug, Display, Formatter},
     io::Write,
     panic,
     sync::{Arc, Mutex},
@@ -19,9 +19,8 @@ use nomos_tracing::{
 use overwatch::{
     services::{
         life_cycle::LifecycleMessage,
-        relay::NoMessage,
         state::{NoOperator, NoState},
-        ServiceCore, ServiceData,
+        AsServiceId, ServiceCore, ServiceData,
     },
     OpaqueServiceStateHandle,
 };
@@ -30,8 +29,8 @@ use tracing::{error, Level};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
-pub struct Tracing {
-    service_state: OpaqueServiceStateHandle<Self>,
+pub struct Tracing<RuntimeServiceId> {
+    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
     logger_guard: Option<WorkerGuard>,
 }
 
@@ -61,7 +60,7 @@ impl SharedWriter {
 
     #[must_use]
     pub fn into_inner(&self) -> Arc<Mutex<dyn Write + Send + Sync>> {
-        self.inner.clone()
+        Arc::clone(&self.inner)
     }
 
     pub fn from_inner(inner: Arc<Mutex<dyn Write + Send + Sync>>) -> Self {
@@ -148,18 +147,20 @@ impl TracingSettings {
     }
 }
 
-impl ServiceData for Tracing {
-    const SERVICE_ID: &'static str = "Tracing";
+impl<RuntimeServiceId> ServiceData for Tracing<RuntimeServiceId> {
     type Settings = TracingSettings;
     type State = NoState<Self::Settings>;
-    type StateOperator = NoOperator<Self::State, Self::Settings>;
-    type Message = NoMessage;
+    type StateOperator = NoOperator<Self::State>;
+    type Message = ();
 }
 
 #[async_trait::async_trait]
-impl ServiceCore for Tracing {
+impl<RuntimeServiceId> ServiceCore<RuntimeServiceId> for Tracing<RuntimeServiceId>
+where
+    RuntimeServiceId: AsServiceId<Self> + Display + Send,
+{
     fn init(
-        service_state: OpaqueServiceStateHandle<Self>,
+        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
         _init_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
         #[cfg(test)]
@@ -265,7 +266,7 @@ impl ServiceCore for Tracing {
                         if sender.send(()).is_err() {
                             error!(
                                 "Error sending successful shutdown signal from service {}",
-                                Self::SERVICE_ID
+                                RuntimeServiceId::SERVICE_ID
                             );
                         }
                         break;

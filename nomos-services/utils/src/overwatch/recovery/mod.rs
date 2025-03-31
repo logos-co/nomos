@@ -16,13 +16,12 @@ mod tests {
 
     use async_trait::async_trait;
     use overwatch::{
+        derive_services,
         overwatch::OverwatchRunner,
-        services::{relay::RelayMessage, state::ServiceState, ServiceCore, ServiceData, ServiceId},
-        DynError, OpaqueServiceHandle, OpaqueServiceStateHandle,
+        services::{state::ServiceState, ServiceCore, ServiceData},
+        DynError, OpaqueServiceStateHandle,
     };
-    use overwatch_derive::Services;
     use serde::{Deserialize, Serialize};
-    use tracing;
 
     use super::*;
     use crate::{overwatch::recovery::backends::FileBackendSettings, traits::FromSettings};
@@ -43,8 +42,6 @@ mod tests {
     #[derive(Debug)]
     pub enum MyMessage {}
 
-    impl RelayMessage for MyMessage {}
-
     #[derive(Debug, Clone)]
     pub struct SettingsWithRecovery {
         recovery_file: PathBuf,
@@ -57,11 +54,10 @@ mod tests {
     }
 
     struct Recovery {
-        service_state_handle: OpaqueServiceStateHandle<Self>,
+        service_state_handle: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
     }
 
     impl ServiceData for Recovery {
-        const SERVICE_ID: ServiceId = "RECOVERY_SERVICE";
         type Settings = SettingsWithRecovery;
         type State = MyState;
         type StateOperator = RecoveryOperator<JsonFileBackend<Self::State, Self::Settings>>;
@@ -69,9 +65,9 @@ mod tests {
     }
 
     #[async_trait]
-    impl ServiceCore for Recovery {
+    impl ServiceCore<RuntimeServiceId> for Recovery {
         fn init(
-            service_state: OpaqueServiceStateHandle<Self>,
+            service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
             initial_state: Self::State,
         ) -> Result<Self, DynError> {
             assert_eq!(initial_state.value, "");
@@ -94,9 +90,9 @@ mod tests {
         }
     }
 
-    #[derive(Services)]
+    #[derive_services]
     pub struct RecoveryTest {
-        recovery: OpaqueServiceHandle<Recovery>,
+        recovery: Recovery,
     }
 
     #[test]

@@ -10,13 +10,15 @@ use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 
 use crate::network::NetworkAdapter;
 
-pub struct Libp2pAdapter<Item, Key> {
-    network_relay: OutboundRelay<<NetworkService<Libp2p> as ServiceData>::Message>,
+pub struct Libp2pAdapter<Item, Key, RuntimeServiceId> {
+    network_relay:
+        OutboundRelay<<NetworkService<Libp2p, RuntimeServiceId> as ServiceData>::Message>,
     settings: Settings<Key, Item>,
 }
 
 #[async_trait::async_trait]
-impl<Item, Key> NetworkAdapter for Libp2pAdapter<Item, Key>
+impl<Item, Key, RuntimeServiceId> NetworkAdapter<RuntimeServiceId>
+    for Libp2pAdapter<Item, Key, RuntimeServiceId>
 where
     Item: DeserializeOwned + Serialize + Send + Sync + 'static + Clone,
     Key: Clone + Send + Sync + 'static,
@@ -28,7 +30,9 @@ where
 
     async fn new(
         settings: Self::Settings,
-        network_relay: OutboundRelay<<NetworkService<Self::Backend> as ServiceData>::Message>,
+        network_relay: OutboundRelay<
+            <NetworkService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
+        >,
     ) -> Self {
         network_relay
             .send(NetworkMsg::Process(Command::Subscribe(

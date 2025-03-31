@@ -14,6 +14,7 @@ mod tests {
 
     use futures::future::join_all;
     use nomos_da_dispersal::backend::kzgrs::MempoolPublishStrategy;
+    use nomos_da_network_core::swarm::ReplicationConfig;
     use nomos_libp2p::{ed25519, libp2p, Multiaddr, PeerId, Protocol};
     use nomos_node::Config as ValidatorConfig;
     use nomos_tracing_service::TracingSettings;
@@ -44,9 +45,13 @@ mod tests {
             mempool_publish_strategy: MempoolPublishStrategy::Immediately,
             min_dispersal_peers: 0,
             min_replication_peers: 0,
-            monitor_failure_time_window_secs: 0,
+            monitor_failure_time_window: Duration::from_nanos(1),
             balancer_interval_secs: 0,
             tracing_settings: TracingSettings::default(),
+            replication_settings: ReplicationConfig {
+                seen_message_cache_size: 0,
+                seen_message_ttl: Duration::from_secs(60),
+            },
         };
 
         let app_addr: SocketAddr = "127.0.0.1:4321".parse().unwrap();

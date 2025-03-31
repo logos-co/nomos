@@ -10,7 +10,8 @@ use crate::{
     },
     protocols::{
         dispersal::validator::behaviour::DispersalValidatorBehaviour,
-        replication::behaviour::ReplicationBehaviour, sampling::behaviour::SamplingBehaviour,
+        replication::behaviour::{ReplicationBehaviour, ReplicationConfig},
+        sampling::behaviour::SamplingBehaviour,
     },
 };
 
@@ -37,9 +38,9 @@ where
     monitor: ConnectionMonitorBehaviour<Monitor>,
 }
 
-impl<Balancer, Monitor, Membership> ValidatorBehaviour<Balancer, Monitor, Membership>
+impl<Balancer, BalancerStats, Monitor, Membership> ValidatorBehaviour<Balancer, Monitor, Membership>
 where
-    Balancer: ConnectionBalancer,
+    Balancer: ConnectionBalancer<Stats = BalancerStats>,
     Monitor: ConnectionMonitor,
     Membership: MembershipHandler + Clone + Send + 'static,
     <Membership as MembershipHandler>::NetworkId: Send,
@@ -50,12 +51,13 @@ where
         balancer: Balancer,
         monitor: Monitor,
         redial_cooldown: Duration,
+        replication_config: ReplicationConfig,
     ) -> Self {
         let peer_id = PeerId::from_public_key(&key.public());
         Self {
             sampling: SamplingBehaviour::new(peer_id, membership.clone()),
             dispersal: DispersalValidatorBehaviour::new(membership.clone()),
-            replication: ReplicationBehaviour::new(peer_id, membership.clone()),
+            replication: ReplicationBehaviour::new(replication_config, peer_id, membership.clone()),
             balancer: ConnectionBalancerBehaviour::new(membership, balancer),
             monitor: ConnectionMonitorBehaviour::new(monitor, redial_cooldown),
         }
@@ -104,5 +106,9 @@ where
         &mut self,
     ) -> &mut ConnectionBalancerBehaviour<Balancer, Membership> {
         &mut self.balancer
+    }
+
+    pub const fn balancer_behaviour(&self) -> &ConnectionBalancerBehaviour<Balancer, Membership> {
+        &self.balancer
     }
 }

@@ -6,6 +6,7 @@ version = "0.1.0"
 
 [dependencies]
 common-http-client = { workspace = true }
+futures            = "0.3.31"
 nomos-core         = { workspace = true }
 nomos-executor     = { workspace = true }
 reqwest            = { workspace = true }

@@ -20,7 +20,7 @@ use nomos_da_indexer::{
     storage::adapters::rocksdb::RocksAdapterSettings as IndexerStorageAdapterSettings,
     IndexerSettings,
 };
-use nomos_da_network_core::swarm::DAConnectionPolicySettings;
+use nomos_da_network_core::swarm::{BalancerStats, DAConnectionPolicySettings, MonitorStats};
 use nomos_da_network_service::{
     backends::libp2p::common::DaNetworkBackendSettings, NetworkConfig as DaNetworkConfig,
 };
@@ -38,7 +38,10 @@ use nomos_network::{backends::libp2p::Libp2pConfig, NetworkConfig};
 use nomos_node::{
     api::{
         backend::AxumBackendSettings,
-        paths::{CL_METRICS, CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_GET_RANGE, STORAGE_BLOCK},
+        paths::{
+            CL_METRICS, CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_RANGE,
+            DA_MONITOR_STATS, STORAGE_BLOCK,
+        },
     },
     config::mempool::MempoolConfig,
     BlobInfo, Config, HeaderId, RocksBackendSettings, Tx,
@@ -212,11 +215,7 @@ impl Validator {
             .filter_map(|entry| {
                 let entry = entry.unwrap();
                 let path = entry.path();
-                if path.is_file() && path.to_str().unwrap().contains(LOGS_PREFIX) {
-                    Some(path)
-                } else {
-                    None
-                }
+                (path.is_file() && path.to_str().unwrap().contains(LOGS_PREFIX)).then_some(path)
             })
             .map(|f| std::fs::read_to_string(f).unwrap())
             .collect::<String>()
@@ -250,6 +249,24 @@ impl Validator {
         println!("{res:?}");
         res.unwrap().json().await.unwrap()
     }
+
+    pub async fn balancer_stats(&self) -> BalancerStats {
+        self.get(DA_BALANCER_STATS)
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
+    }
+
+    pub async fn monitor_stats(&self) -> MonitorStats {
+        self.get(DA_MONITOR_STATS)
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
+    }
 }
 
 #[must_use]
@@ -272,7 +289,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                     num_blend_layers: 1,
                 },
                 temporal_processor: TemporalSchedulerSettings {
-                    max_delay_seconds: 2,
+                    max_delay: Duration::from_secs(2),
                 },
             },
             cover_traffic: nomos_blend_service::CoverTrafficExtSettings {
@@ -316,6 +333,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 monitor_settings: config.da_config.monitor_settings,
                 balancer_interval: config.da_config.balancer_interval,
                 redial_cooldown: config.da_config.redial_cooldown,
+                replication_settings: config.da_config.replication_settings,
             },
         },
         da_indexer: IndexerSettings {

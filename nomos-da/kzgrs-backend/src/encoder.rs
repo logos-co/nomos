@@ -79,9 +79,7 @@ impl EncodedData {
                 .collect(),
         })
     }
-}
 
-impl EncodedData {
     #[must_use]
     pub const fn iter(&self) -> EncodedDataIterator {
         EncodedDataIterator::new(self)

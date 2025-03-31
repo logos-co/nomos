@@ -17,6 +17,10 @@ use libp2p::{
     Multiaddr, PeerId,
 };
 use subnetworks_assignations::MembershipHandler;
+use tokio::sync::{
+    mpsc::{self, UnboundedReceiver, UnboundedSender},
+    oneshot,
+};
 
 pub enum ConnectionEvent {
     OpenInbound(PeerId),
@@ -26,14 +30,29 @@ pub enum ConnectionEvent {
 }
 
 pub trait ConnectionBalancer {
+    type Stats;
+
     fn record_event(&mut self, event: ConnectionEvent);
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<VecDeque<PeerId>>;
+    fn stats(&self) -> Self::Stats;
 }
 
-pub struct ConnectionBalancerBehaviour<Balancer, Membership> {
+#[derive(Debug)]
+pub enum ConnectionBalancerCommand<Stats> {
+    Stats(oneshot::Sender<Stats>),
+}
+
+pub struct ConnectionBalancerBehaviour<Balancer, Membership>
+where
+    Balancer: ConnectionBalancer,
+{
     membership: Membership,
     balancer: Balancer,
     peers_to_dial: VecDeque<PeerId>,
+    command_sender:
+        UnboundedSender<ConnectionBalancerCommand<<Balancer as ConnectionBalancer>::Stats>>,
+    command_receiver:
+        UnboundedReceiver<ConnectionBalancerCommand<<Balancer as ConnectionBalancer>::Stats>>,
     waker: Option<Waker>,
 }
 
@@ -42,11 +61,15 @@ where
     Balancer: ConnectionBalancer,
     Membership: MembershipHandler,
 {
-    pub const fn new(membership: Membership, balancer: Balancer) -> Self {
+    pub fn new(membership: Membership, balancer: Balancer) -> Self {
+        let (command_sender, command_receiver) = mpsc::unbounded_channel();
+
         Self {
             membership,
             balancer,
             peers_to_dial: VecDeque::new(),
+            command_sender,
+            command_receiver,
             waker: None,
         }
     }
@@ -56,6 +79,12 @@ where
         if let Some(waker) = self.waker.take() {
             waker.wake();
         }
+    }
+
+    pub fn command_channel(
+        &self,
+    ) -> UnboundedSender<ConnectionBalancerCommand<<Balancer as ConnectionBalancer>::Stats>> {
+        self.command_sender.clone()
     }
 }
 
@@ -119,6 +148,19 @@ where
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+        self.waker = Some(cx.waker().clone());
+
+        if let Poll::Ready(Some(cmd)) = self.command_receiver.poll_recv(cx) {
+            match cmd {
+                ConnectionBalancerCommand::Stats(response) => {
+                    let stats = self.balancer.stats();
+                    let _ = response.send(stats);
+                }
+            }
+
+            cx.waker().wake_by_ref();
+        }
+
         if self.peers_to_dial.is_empty() {
             if let Poll::Ready(peers) = self.balancer.poll(cx) {
                 self.peers_to_dial = peers;
@@ -135,7 +177,6 @@ where
             }
         }
 
-        self.waker = Some(cx.waker().clone());
         Poll::Pending
     }
 }
@@ -170,6 +211,8 @@ mod tests {
     }
 
     impl ConnectionBalancer for MockBalancer {
+        type Stats = ();
+
         fn record_event(&mut self, event: ConnectionEvent) {
             match event {
                 ConnectionEvent::OpenInbound(peer) | ConnectionEvent::OpenOutbound(peer) => {
@@ -187,6 +230,10 @@ mod tests {
             } else {
                 Poll::Ready(self.peers_to_connect.drain(..).collect())
             }
+        }
+
+        fn stats(&self) {
+            unimplemented!()
         }
     }
 

@@ -8,7 +8,6 @@ use nomos_libp2p::{
     identity::Keypair,
     Multiaddr, PeerId,
 };
-use nomos_node::BlendBackend;
 
 use crate::get_available_port;
 
@@ -16,12 +15,7 @@ use crate::get_available_port;
 pub struct GeneralBlendConfig {
     pub backend: Libp2pBlendBackendSettings,
     pub private_key: x25519_dalek::StaticSecret,
-    pub membership: Vec<
-        Node<
-            <BlendBackend as nomos_blend_service::backends::BlendBackend>::NodeId,
-            <SphinxMessage as BlendMessage>::PublicKey,
-        >,
-    >,
+    pub membership: Vec<Node<PeerId, <SphinxMessage as BlendMessage>::PublicKey>>,
 }
 
 #[must_use]
@@ -61,12 +55,7 @@ pub fn create_blend_configs(ids: &[[u8; 32]]) -> Vec<GeneralBlendConfig> {
 
 fn blend_nodes(
     configs: &[GeneralBlendConfig],
-) -> Vec<
-    Node<
-        <BlendBackend as nomos_blend_service::backends::BlendBackend>::NodeId,
-        <SphinxMessage as BlendMessage>::PublicKey,
-    >,
-> {
+) -> Vec<Node<PeerId, <SphinxMessage as BlendMessage>::PublicKey>> {
     configs
         .iter()
         .map(|config| Node {

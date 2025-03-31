@@ -51,7 +51,7 @@ impl<SerdeOp> RocksBackend<SerdeOp> {
         executor: impl FnOnce(&DB) -> Result<Option<Bytes>, Error> + Send + Sync + 'static,
     ) -> Transaction {
         Transaction {
-            rocks: self.rocks.clone(),
+            rocks: Arc::clone(&self.rocks),
             executor: Box::new(executor),
         }
     }

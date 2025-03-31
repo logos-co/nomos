@@ -1,7 +1,11 @@
 pub mod backends;
 pub mod network;
 
-use std::{fmt::Debug, hash::Hash, time::Duration};
+use std::{
+    fmt::{Debug, Display},
+    hash::Hash,
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use backends::BlendBackend;
@@ -22,11 +26,11 @@ use nomos_blend::{
 use nomos_blend_message::{sphinx::SphinxMessage, BlendMessage};
 use nomos_core::wire;
 use nomos_network::NetworkService;
+use nomos_utils::bounded_duration::{MinimalBoundedDuration, SECOND};
 use overwatch::{
     services::{
-        relay::{Relay, RelayMessage},
         state::{NoOperator, NoState},
-        ServiceCore, ServiceData, ServiceId,
+        AsServiceId, ServiceCore, ServiceData,
     },
     OpaqueServiceStateHandle,
 };
@@ -44,58 +48,62 @@ use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
 /// independent with each other. For example, the blend backend can use the
 /// libp2p network stack, while the network adapter can use the other network
 /// backend.
-pub struct BlendService<Backend, Network>
+pub struct BlendService<Backend, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend + 'static,
-    Backend::Settings: Clone + Debug,
-    Network: NetworkAdapter,
-    Network::BroadcastSettings: Clone + Debug + Serialize + DeserializeOwned,
+    Backend: BlendBackend<RuntimeServiceId> + 'static,
+    Network: NetworkAdapter<RuntimeServiceId>,
 {
     backend: Backend,
-    service_state: OpaqueServiceStateHandle<Self>,
-    network_relay: Relay<NetworkService<Network::Backend>>,
+    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
     membership: Membership<Backend::NodeId, SphinxMessage>,
 }
 
-impl<Backend, Network> ServiceData for BlendService<Backend, Network>
+impl<Backend, Network, RuntimeServiceId> ServiceData
+    for BlendService<Backend, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend + 'static,
+    Backend: BlendBackend<RuntimeServiceId> + 'static,
     Backend::Settings: Clone,
-    Network: NetworkAdapter,
+    Network: NetworkAdapter<RuntimeServiceId>,
     Network::BroadcastSettings: Clone + Debug + Serialize + DeserializeOwned,
 {
-    const SERVICE_ID: ServiceId = "Blend";
     type Settings = BlendConfig<Backend::Settings, Backend::NodeId>;
     type State = NoState<Self::Settings>;
-    type StateOperator = NoOperator<Self::State, Self::Settings>;
+    type StateOperator = NoOperator<Self::State>;
     type Message = ServiceMessage<Network::BroadcastSettings>;
 }
 
 #[async_trait]
-impl<Backend, Network> ServiceCore for BlendService<Backend, Network>
+impl<Backend, Network, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for BlendService<Backend, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend + Send + 'static,
+    Backend: BlendBackend<RuntimeServiceId> + Send + 'static,
     Backend::Settings: Clone,
     Backend::NodeId: Hash + Eq + Unpin,
-    Network: NetworkAdapter + Send + Sync + 'static,
+    Network: NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
     Network::BroadcastSettings:
         Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
+    RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
+        + AsServiceId<Self>
+        + Clone
+        + Debug
+        + Display
+        + Sync
+        + Send
+        + 'static,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self>,
+        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
         _init_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
-        let network_relay = service_state.overwatch_handle.relay();
         let blend_config = service_state.settings_reader.get_updated_settings();
         Ok(Self {
-            backend: <Backend as BlendBackend>::new(
+            backend: <Backend as BlendBackend<RuntimeServiceId>>::new(
                 service_state.settings_reader.get_updated_settings().backend,
                 service_state.overwatch_handle.clone(),
                 blend_config.membership(),
                 ChaCha12Rng::from_entropy(),
             ),
             service_state,
-            network_relay,
             membership: blend_config.membership(),
         })
     }
@@ -104,7 +112,6 @@ where
         let Self {
             service_state,
             mut backend,
-            network_relay,
             membership,
         } = self;
         let blend_config = service_state.settings_reader.get_updated_settings();
@@ -113,7 +120,10 @@ where
             membership.clone(),
             ChaCha12Rng::from_entropy(),
         );
-        let network_relay = network_relay.connect().await?;
+        let network_relay = service_state
+            .overwatch_handle
+            .relay::<NetworkService<_, _>>()
+            .await?;
         let network_adapter = Network::new(network_relay);
 
         // tier 1 persistent transmission
@@ -198,7 +208,7 @@ where
                     Self::wrap_and_send_to_persistent_transmission(&msg, &mut cryptographic_processor, &persistent_sender);
                 }
                 Some(msg) = lifecycle_stream.next() => {
-                    if lifecycle::should_stop_service::<Self>(&msg) {
+                    if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
                         // TODO: Maybe add a call to backend to handle this. Maybe trying to save unprocessed messages?
                         break;
                     }
@@ -210,12 +220,12 @@ where
     }
 }
 
-impl<Backend, Network> BlendService<Backend, Network>
+impl<Backend, Network, RuntimeServiceId> BlendService<Backend, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend + Send + 'static,
+    Backend: BlendBackend<RuntimeServiceId> + Send + 'static,
     Backend::Settings: Clone,
     Backend::NodeId: Hash + Eq,
-    Network: NetworkAdapter,
+    Network: NetworkAdapter<RuntimeServiceId>,
     Network::BroadcastSettings: Clone + Debug + Serialize + DeserializeOwned,
 {
     fn wrap_and_send_to_persistent_transmission(
@@ -246,13 +256,15 @@ pub struct BlendConfig<BackendSettings, BackendNodeId> {
     pub message_blend: MessageBlendSettings<SphinxMessage>,
     pub persistent_transmission: PersistentTransmissionSettings,
     pub cover_traffic: CoverTrafficExtSettings,
-    pub membership:
-        Vec<Node<BackendNodeId, <SphinxMessage as nomos_blend_message::BlendMessage>::PublicKey>>,
+    pub membership: Vec<Node<BackendNodeId, <SphinxMessage as BlendMessage>::PublicKey>>,
 }
 
+#[serde_with::serde_as]
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CoverTrafficExtSettings {
+    #[serde_as(as = "MinimalBoundedDuration<1, SECOND>")]
     pub epoch_duration: Duration,
+    #[serde_as(as = "MinimalBoundedDuration<1, SECOND>")]
     pub slot_duration: Duration,
 }
 
@@ -324,11 +336,6 @@ pub enum ServiceMessage<BroadcastSettings> {
     /// To send a message to the blend network and eventually broadcast it to
     /// the [`NetworkService`].
     Blend(NetworkMessage<BroadcastSettings>),
-}
-
-impl<BroadcastSettings> RelayMessage for ServiceMessage<BroadcastSettings> where
-    BroadcastSettings: 'static
-{
 }
 
 /// A message that is sent to the blend network.

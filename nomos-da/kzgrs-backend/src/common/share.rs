@@ -126,6 +126,14 @@ pub struct DaLightShare {
     pub rows_proofs: Vec<Proof>,
 }
 
+impl blob::LightShare for DaLightShare {
+    type ShareIndex = [u8; 2];
+
+    fn share_idx(&self) -> Self::ShareIndex {
+        self.share_idx.to_be_bytes()
+    }
+}
+
 #[derive(Debug, Clone, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DaSharesCommitments {
     #[serde(

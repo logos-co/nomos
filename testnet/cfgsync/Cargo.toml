@@ -9,7 +9,6 @@ axum                     = { version = "0.6" }
 clap                     = { version = "4", features = ["derive"] }
 nomos-blend              = { workspace = true }
 nomos-blend-message      = { workspace = true }
-nomos-blend-service      = { workspace = true }
 nomos-da-dispersal       = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-executor           = { workspace = true }
@@ -19,6 +18,8 @@ nomos-tracing-service    = { workspace = true }
 rand                     = "0.8"
 reqwest                  = { workspace = true, features = ["json", "rustls-tls"] }
 serde                    = { version = "1", features = ["derive"] }
+serde_json               = "1.0"
+serde_path_to_error      = "0.1"
 serde_yaml               = "0.9"
 subnetworks-assignations = { workspace = true }
 tests                    = { workspace = true }

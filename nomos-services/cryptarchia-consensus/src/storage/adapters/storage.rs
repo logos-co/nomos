@@ -7,16 +7,18 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use crate::storage::StorageAdapter as StorageAdapterTrait;
 
-pub struct StorageAdapter<Storage, Tx, BlobCertificate>
+pub struct StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync,
 {
-    pub storage_relay: OutboundRelay<<StorageService<Storage> as ServiceData>::Message>,
+    pub storage_relay:
+        OutboundRelay<<StorageService<Storage, RuntimeServiceId> as ServiceData>::Message>,
     _tx: PhantomData<Tx>,
     _blob_certificate: PhantomData<BlobCertificate>,
 }
 
-impl<Storage, Tx, BlobCertificate> StorageAdapter<Storage, Tx, BlobCertificate>
+impl<Storage, Tx, BlobCertificate, RuntimeServiceId>
+    StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync,
     Tx: Sync,
@@ -44,8 +46,8 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Storage, Tx, BlobCertificate> StorageAdapterTrait
-    for StorageAdapter<Storage, Tx, BlobCertificate>
+impl<Storage, Tx, BlobCertificate, RuntimeServiceId> StorageAdapterTrait<RuntimeServiceId>
+    for StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync,
     Tx: Clone + Eq + Hash + DeserializeOwned + Send + Sync,
@@ -55,7 +57,9 @@ where
     type Block = Block<Tx, BlobCertificate>;
 
     async fn new(
-        storage_relay: OutboundRelay<<StorageService<Self::Backend> as ServiceData>::Message>,
+        storage_relay: OutboundRelay<
+            <StorageService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
+        >,
     ) -> Self {
         Self {
             storage_relay,

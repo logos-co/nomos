@@ -1,5 +1,9 @@
 use std::{num::NonZero, ops::Add, time::Duration};
 
+#[cfg(feature = "serde")]
+use nomos_utils::bounded_duration::{MinimalBoundedDuration, SECOND};
+#[cfg(feature = "serde")]
+use serde_with::serde_as;
 use time::OffsetDateTime;
 #[cfg(feature = "tokio")]
 use tokio::time::{Interval, MissedTickBehavior};
@@ -129,9 +133,11 @@ impl EpochConfig {
     }
 }
 
+#[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug)]
 pub struct SlotConfig {
+    #[cfg_attr(feature = "serde", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
     pub slot_duration: Duration,
     /// Start of the first epoch
     pub chain_start_time: OffsetDateTime,

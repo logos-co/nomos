@@ -1,5 +1,8 @@
+use std::{collections::HashSet, hash::Hash};
+
 pub use common_http_client::BasicAuthCredentials;
 use common_http_client::{CommonHttpClient, Error};
+use futures::Stream;
 use nomos_core::da::blob::Share;
 use nomos_executor::api::{handlers::DispersalRequest, paths};
 use reqwest::Url;
@@ -66,6 +69,31 @@ impl ExecutorHttpClient {
     {
         self.client
             .get_share::<S, C>(base_url, blob_id, share_idx)
+            .await
+    }
+
+    pub async fn get_shares<B>(
+        &self,
+        base_url: Url,
+        blob_id: B::BlobId,
+        requested_shares: HashSet<B::ShareIndex>,
+        filter_shares: HashSet<B::ShareIndex>,
+        return_available: bool,
+    ) -> Result<impl Stream<Item = B::LightShare>, Error>
+    where
+        B: Share,
+        <B as Share>::BlobId: serde::Serialize + Send + Sync,
+        <B as Share>::ShareIndex: serde::Serialize + DeserializeOwned + Eq + Hash + Send + Sync,
+        <B as Share>::LightShare: DeserializeOwned + Send + Sync,
+    {
+        self.client
+            .get_shares::<B>(
+                base_url,
+                blob_id,
+                requested_shares,
+                filter_shares,
+                return_available,
+            )
             .await
     }
 }

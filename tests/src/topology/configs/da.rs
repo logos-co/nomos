@@ -6,8 +6,10 @@ use std::{
     time::Duration,
 };
 
-use nomos_da_dispersal::backend::kzgrs::MempoolPublishStrategy;
-use nomos_da_network_core::swarm::{DAConnectionMonitorSettings, DAConnectionPolicySettings};
+use nomos_da_dispersal::backend::kzgrs::{MempoolPublishStrategy, SampleSubnetworks};
+use nomos_da_network_core::swarm::{
+    DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
+};
 use nomos_libp2p::{ed25519, Multiaddr, PeerId};
 use nomos_node::NomosDaMembership;
 use once_cell::sync::Lazy;
@@ -40,6 +42,7 @@ pub struct DaParams {
     pub monitor_settings: DAConnectionMonitorSettings,
     pub balancer_interval: Duration,
     pub redial_cooldown: Duration,
+    pub replication_settings: ReplicationConfig,
 }
 
 impl Default for DaParams {
@@ -52,11 +55,11 @@ impl Default for DaParams {
             old_blobs_check_interval: Duration::from_secs(5),
             blobs_validity_duration: Duration::from_secs(60),
             global_params_path: GLOBAL_PARAMS_PATH.to_string(),
-            mempool_strategy: MempoolPublishStrategy::SampleSubnetworks {
+            mempool_strategy: MempoolPublishStrategy::SampleSubnetworks(SampleSubnetworks {
                 sample_threshold: 2,
                 timeout: Duration::from_secs(10),
                 cooldown: Duration::from_millis(100),
-            },
+            }),
             policy_settings: DAConnectionPolicySettings {
                 min_dispersal_peers: 1,
                 min_replication_peers: 1,
@@ -71,6 +74,10 @@ impl Default for DaParams {
             },
             balancer_interval: Duration::from_secs(5),
             redial_cooldown: Duration::ZERO,
+            replication_settings: ReplicationConfig {
+                seen_message_cache_size: 1000,
+                seen_message_ttl: Duration::from_secs(3600),
+            },
         }
     }
 }
@@ -94,6 +101,7 @@ pub struct GeneralDaConfig {
     pub monitor_settings: DAConnectionMonitorSettings,
     pub balancer_interval: Duration,
     pub redial_cooldown: Duration,
+    pub replication_settings: ReplicationConfig,
 }
 
 #[must_use]
@@ -157,6 +165,7 @@ pub fn create_da_configs(ids: &[[u8; 32]], da_params: &DaParams) -> Vec<GeneralD
                 monitor_settings: da_params.monitor_settings.clone(),
                 balancer_interval: da_params.balancer_interval,
                 redial_cooldown: da_params.redial_cooldown,
+                replication_settings: da_params.replication_settings,
             }
         })
         .collect()

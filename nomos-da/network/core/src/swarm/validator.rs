@@ -17,12 +17,12 @@ use tokio::{
 };
 use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
 
-use super::ConnectionBalancer;
 use crate::{
     behaviour::validator::{ValidatorBehaviour, ValidatorBehaviourEvent},
-    maintenance::monitor::PeerCommand,
+    maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::{
-        dispersal::validator::behaviour::DispersalEvent, replication::behaviour::ReplicationEvent,
+        dispersal::validator::behaviour::DispersalEvent,
+        replication::behaviour::{ReplicationConfig, ReplicationEvent},
         sampling::behaviour::SamplingEvent,
     },
     swarm::{
@@ -34,7 +34,8 @@ use crate::{
             monitor::{DAConnectionMonitorSettings, MonitorEvent},
             policy::DAConnectionPolicy,
         },
-        ConnectionMonitor, DAConnectionPolicySettings,
+        BalancerStats, ConnectionBalancer, ConnectionMonitor, DAConnectionPolicySettings,
+        MonitorStats,
     },
     SubnetworkId,
 };
@@ -74,6 +75,7 @@ where
         monitor_settings: DAConnectionMonitorSettings,
         balancer_interval: Duration,
         redial_cooldown: Duration,
+        replication_config: ReplicationConfig,
     ) -> (Self, ValidatorEventsStream) {
         let (sampling_events_sender, sampling_events_receiver) = unbounded_channel();
         let (validation_events_sender, validation_events_receiver) = unbounded_channel();
@@ -102,7 +104,14 @@ where
 
         (
             Self {
-                swarm: Self::build_swarm(key, membership, balancer, monitor, redial_cooldown),
+                swarm: Self::build_swarm(
+                    key,
+                    membership,
+                    balancer,
+                    monitor,
+                    redial_cooldown,
+                    replication_config,
+                ),
                 sampling_events_sender,
                 validation_events_sender,
             },
@@ -118,6 +127,7 @@ where
         balancer: ConnectionBalancer<Membership>,
         monitor: ConnectionMonitor<Membership>,
         redial_cooldown: Duration,
+        replication_config: ReplicationConfig,
     ) -> Swarm<
         ValidatorBehaviour<
             ConnectionBalancer<Membership>,
@@ -129,7 +139,14 @@ where
             .with_tokio()
             .with_quic()
             .with_behaviour(|key| {
-                ValidatorBehaviour::new(key, membership, balancer, monitor, redial_cooldown)
+                ValidatorBehaviour::new(
+                    key,
+                    membership,
+                    balancer,
+                    monitor,
+                    redial_cooldown,
+                    replication_config,
+                )
             })
             .expect("Validator behaviour should build")
             .with_swarm_config(|cfg| {
@@ -157,11 +174,19 @@ where
             .sample_request_channel()
     }
 
-    pub fn peer_request_channel(&mut self) -> UnboundedSender<PeerCommand> {
+    pub fn balancer_command_channel(
+        &mut self,
+    ) -> UnboundedSender<ConnectionBalancerCommand<BalancerStats>> {
         self.swarm
             .behaviour()
-            .monitor_behavior()
-            .peer_request_channel()
+            .balancer_behaviour()
+            .command_channel()
+    }
+
+    pub fn monitor_command_channel(
+        &mut self,
+    ) -> UnboundedSender<ConnectionMonitorCommand<MonitorStats>> {
+        self.swarm.behaviour().monitor_behavior().command_channel()
     }
 
     pub fn local_peer_id(&self) -> &PeerId {

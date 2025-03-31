@@ -41,13 +41,13 @@ pub struct Libp2pBlendBackendSettings {
 const CHANNEL_SIZE: usize = 64;
 
 #[async_trait]
-impl BlendBackend for Libp2pBlendBackend {
+impl<RuntimeServiceId> BlendBackend<RuntimeServiceId> for Libp2pBlendBackend {
     type Settings = Libp2pBlendBackendSettings;
     type NodeId = PeerId;
 
     fn new<R>(
         config: Self::Settings,
-        overwatch_handle: OverwatchHandle,
+        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Membership<Self::NodeId, SphinxMessage>,
         rng: R,
     ) -> Self

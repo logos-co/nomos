@@ -15,9 +15,11 @@ nomos-da-sampling        = { workspace = true }
 nomos-da-verifier        = { workspace = true }
 nomos-mempool            = { workspace = true, features = ["libp2p"] }
 nomos-tracing            = { workspace = true }
+nomos-utils              = { workspace = true, features = ["time"] }
 overwatch                = { workspace = true }
 rand                     = "0.8"
 serde                    = { version = "1.0", features = ["derive"] }
+serde_with               = { workspace = true }
 subnetworks-assignations = { workspace = true }
 tokio                    = "1"
 tokio-stream             = "0.1.15"
