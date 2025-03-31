@@ -7,32 +7,33 @@ version = "0.1.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-trait            = "0.1"
-cl                     = { workspace = true }
-cryptarchia-engine     = { workspace = true, features = ["serde"] }
-futures                = "0.3"
-nomos-blend-service    = { workspace = true }
-nomos-core             = { workspace = true }
-nomos-da-sampling      = { workspace = true }
-nomos-da-verifier      = { workspace = true }
-nomos-ledger           = { workspace = true, features = ["serde"] }
-nomos-mempool          = { workspace = true }
-nomos-network          = { workspace = true }
-nomos-storage          = { workspace = true }
-nomos-time             = { workspace = true }
-nomos_proof_statements = { workspace = true }
-overwatch              = { workspace = true }
-rand                   = "0.8"
-risc0-zkvm             = { workspace = true }
-serde                  = { version = "1", features = ["derive"] }
-serde_with             = "3.0.0"
-services-utils         = { workspace = true }
-thiserror              = "1.0"
-tokio                  = { version = "1", features = ["sync"] }
-tokio-stream           = "0.1"
-tracing                = "0.1"
-tracing-futures        = "0.2"
-utoipa                 = { version = "4.0", optional = true }
+async-trait              = "0.1"
+cl                       = { workspace = true }
+cryptarchia-engine       = { workspace = true, features = ["serde"] }
+cryptarchia-sync-network = { workspace = true }
+futures                  = "0.3"
+nomos-blend-service      = { workspace = true }
+nomos-core               = { workspace = true }
+nomos-da-sampling        = { workspace = true }
+nomos-da-verifier        = { workspace = true }
+nomos-ledger             = { workspace = true, features = ["serde"] }
+nomos-mempool            = { workspace = true }
+nomos-network            = { workspace = true }
+nomos-storage            = { workspace = true }
+nomos-time               = { workspace = true }
+nomos_proof_statements   = { workspace = true }
+overwatch                = { workspace = true }
+rand                     = "0.8"
+risc0-zkvm               = { workspace = true }
+serde                    = { version = "1", features = ["derive"] }
+serde_with               = "3.0.0"
+services-utils           = { workspace = true }
+thiserror                = "1.0"
+tokio                    = { version = "1", features = ["sync"] }
+tokio-stream             = "0.1"
+tracing                  = "0.1"
+tracing-futures          = "0.2"
+utoipa                   = { version = "4.0", optional = true }
 
 [features]
 default = []

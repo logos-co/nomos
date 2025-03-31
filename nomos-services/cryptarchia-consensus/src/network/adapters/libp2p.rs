@@ -116,13 +116,17 @@ where
                                 tracing::debug!("received block {:?}", block.header().id());
                                 Some(block)
                             }
+                            NetworkMessage::SyncRequest(_) => {
+                                tracing::debug!("unrecognized message");
+                                None
+                            }
                         },
                     ),
                     Err(BroadcastStreamRecvError::Lagged(n)) => {
                         tracing::error!("lagged messages: {n}");
                         None
                     }
-                    Ok(Event::SyncRequest(_, _)) => None,
+                    _ => None,
                 }
             }),
         ))
@@ -145,18 +149,21 @@ where
         Ok(Box::new(
             BroadcastStream::new(receiver.await.map_err(Box::new)?).filter_map(|message| {
                 match message {
-                    Ok(Event::SyncRequest(slot, reply_channel)) => {
-                        tracing::debug!("received sync request for slot {slot}");
+                    Ok(Event::IncomingSyncRequest {
+                        kind,
+                        reply_channel,
+                    }) => {
+                        tracing::debug!("received sync request {kind:?}");
                         Some(SyncRequest {
-                            slot,
+                            kind,
                             reply_channel,
                         })
                     }
-                    Ok(Event::Message(_)) => None,
                     Err(BroadcastStreamRecvError::Lagged(n)) => {
                         tracing::error!("lagged messages: {n}");
                         None
                     }
+                    _ => None,
                 }
             }),
         ))

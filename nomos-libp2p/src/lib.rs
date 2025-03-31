@@ -12,10 +12,7 @@ use blake2::{
     Blake2b,
 };
 pub use config::{secret_key_serde, SwarmConfig};
-use cryptarchia_sync_network::{
-    behaviour::{BehaviourSyncingEvent::ForwardSyncRequest, SyncCommand},
-    membership::AllNeighbours,
-};
+use cryptarchia_sync_network::membership::AllNeighbours;
 pub use libp2p::{
     self,
     core::upgrade,
@@ -29,7 +26,6 @@ use libp2p::{
     swarm::ConnectionId,
 };
 pub use multiaddr::{multiaddr, Multiaddr, Protocol};
-use tokio::sync::mpsc::UnboundedSender;
 
 // TODO: Risc0 proofs are HUGE (220 Kb) and it's the only reason we need to have
 // this limit so large. Remove this once we transition to smaller proofs.
@@ -44,7 +40,7 @@ pub struct Swarm {
 #[derive(NetworkBehaviour)]
 pub struct Behaviour {
     gossipsub: gossipsub::Behaviour,
-    sync: cryptarchia_sync_network::behaviour::Behaviour<AllNeighbours>,
+    sync: cryptarchia_sync_network::behaviour::SyncBehaviour<AllNeighbours>,
 }
 
 impl Behaviour {
@@ -62,7 +58,7 @@ impl Behaviour {
                 .max_transmit_size(DATA_LIMIT)
                 .build()?,
         )?;
-        let sync = cryptarchia_sync_network::behaviour::Behaviour::new(peer_id, membership);
+        let sync = cryptarchia_sync_network::behaviour::SyncBehaviour::new(peer_id, membership);
         Ok(Self { gossipsub, sync })
     }
 }
@@ -135,17 +131,17 @@ impl Swarm {
             .publish(gossipsub::IdentTopic::new(topic), message)
     }
 
-    pub fn start_sync(&mut self, slot: u64, reply_channel: UnboundedSender<Vec<u8>>) {
-        self.swarm
-            .behaviour_mut()
-            .sync
-            .sync_request_channel()
-            .send(SyncCommand::StartForwardSync {
-                slot,
-                response_sender: reply_channel,
-            })
-            .expect("Failed to send sync request");
-    }
+    // pub fn start_sync(&mut self, slot: u64, reply_channel:
+    // UnboundedSender<Vec<u8>>) {     self.swarm
+    //         .behaviour_mut()
+    //         .sync
+    //         .sync_request_channel()
+    //         .send(SyncCommand::StartForwardSync {
+    //             slot,
+    //             response_sender: reply_channel,
+    //         })
+    //         .expect("Failed to send sync request");
+    // }
 
     /// Unsubscribes from a topic
     ///
