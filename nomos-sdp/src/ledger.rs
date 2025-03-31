@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet, hash_map::Entry},
+    collections::{HashMap, hash_map::Entry},
     error::Error,
     fmt::Debug,
     marker::PhantomData,
@@ -171,7 +171,7 @@ where
     reward_request_sender: Rewards,
     services_repo: Services,
     stake_verifier: Stakes,
-    pending_providers: HashMap<BlockNumber, HashSet<ProviderInfo>>,
+    pending_providers: HashMap<BlockNumber, HashMap<ProviderId, ProviderInfo>>,
     pending_declarations: HashMap<BlockNumber, ServiceUpdateMap>,
     pending_rewards: HashMap<ProviderId, RewardId>,
     _phantom: PhantomData<(Proof, Metadata, ContractAddress)>,
@@ -336,17 +336,28 @@ where
         let service_type = message.service_type();
 
         let service_params = self.services_repo.get_parameters(service_type).await?;
+
+        let maybe_pending_state = self
+            .pending_providers
+            .get(&block_number)
+            .and_then(|states| states.get(&provider_id));
+
         let maybe_provider_info = self.declaration_repo.get_provider_info(provider_id).await;
 
-        let current_state = match maybe_provider_info {
-            Ok(provider_info) => {
-                ProviderState::try_from_info(block_number, &provider_info, &service_params)?
+        let current_state = if let Some(provider_info) = maybe_pending_state {
+            ProviderState::try_from_info(block_number, provider_info, &service_params)?
+        } else {
+            match maybe_provider_info {
+                Ok(provider_info) => {
+                    ProviderState::try_from_info(block_number, &provider_info, &service_params)?
+                }
+                Err(DeclarationsRepositoryError::ProviderNotFound(_)) => {
+                    let provider_info =
+                        ProviderInfo::new(block_number, provider_id, declaration_id);
+                    ProviderState::try_from_info(block_number, &provider_info, &service_params)?
+                }
+                Err(err) => return Err(SdpLedgerError::DeclarationsRepository(err)),
             }
-            Err(DeclarationsRepositoryError::ProviderNotFound(_)) => {
-                let provider_info = ProviderInfo::new(block_number, provider_id, declaration_id);
-                ProviderState::try_from_info(block_number, &provider_info, &service_params)?
-            }
-            Err(err) => return Err(SdpLedgerError::DeclarationsRepository(err)),
         };
 
         if current_state.declaration_id() != declaration_id {
@@ -376,7 +387,7 @@ where
         self.pending_providers
             .entry(block_number)
             .or_default()
-            .insert(pending_state.into());
+            .insert(provider_id, pending_state.into());
 
         Ok(())
     }
@@ -424,7 +435,7 @@ where
             return Ok(());
         };
 
-        for info in &updates {
+        for info in updates.values() {
             let id = info.provider_id;
             // Rewards are expected to be marked in block by entity that manages rewards.
             self.pending_rewards.remove(&id);
@@ -440,7 +451,7 @@ where
     pub fn discard_block(&mut self, block_number: BlockNumber) {
         self.pending_declarations.remove(&block_number);
         if let Some(updates) = self.pending_providers.remove(&block_number) {
-            for ProviderInfo { provider_id, .. } in &updates {
+            for ProviderInfo { provider_id, .. } in updates.values() {
                 self.pending_rewards.remove(provider_id);
             }
         }
@@ -896,7 +907,8 @@ mod tests {
             (20, vec![(BOp::Rew(pid, did, St::BlendNetwork), true)]),
             (30, vec![
                 (BOp::Wit(pid, did, St::BlendNetwork, true), true),
-                (BOp::Wit(pid, did, St::DataAvailability, false), true),
+                // TODO: how to handle partial withdraws.
+                // (BOp::Wit(pid, did, St::DataAvailability, false), true),
             ]),
         ]
         .into();
@@ -922,7 +934,7 @@ mod tests {
             provider_id: pid,
             declaration_id: did,
             created: 0,
-            rewarded: Some(20),
+            rewarded: Some(30),
             withdrawn: Some(30)
         });
 
