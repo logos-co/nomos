@@ -30,7 +30,7 @@ nomos-mempool            = { workspace = true, features = ["libp2p", "mock"] }
 nomos-network            = { workspace = true, features = ["libp2p"] }
 nomos-storage            = { workspace = true, features = ["rocksdb-backend"] }
 nomos-system-sig         = { workspace = true }
-nomos-time               = { workspace = true, features = ["serde"] }
+nomos-time               = { workspace = true, features = ["ntp", "serde"] }
 nomos-tracing            = { workspace = true }
 nomos-tracing-service    = { workspace = true }
 overwatch                = { workspace = true }
@@ -60,6 +60,6 @@ tracing         = []
 [package.metadata.cargo-machete]
 # False positives.
 ignored = [
-    # Required by Overwatch's `#[derive(Services)]` macro.
-    "tokio",
+  # Required by Overwatch's `#[derive(Services)]` macro.
+  "tokio",
 ]
