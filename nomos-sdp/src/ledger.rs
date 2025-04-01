@@ -136,31 +136,6 @@ pub enum SdpLedgerError<ContractAddress: Debug> {
     Other(Box<dyn Error>),
 }
 
-type ServiceUpdates = HashMap<ServiceType, DeclarationUpdate>;
-
-#[derive(Default)]
-struct ServiceUpdateMap {
-    updates: HashMap<ProviderId, ServiceUpdates>,
-}
-
-impl ServiceUpdateMap {
-    fn get(&self, id: &ProviderId, service_type: ServiceType) -> Option<&DeclarationUpdate> {
-        let services = self.updates.get(id)?;
-        services.get(&service_type)
-    }
-    fn insert(&mut self, provider_id: ProviderId, update: DeclarationUpdate) {
-        let services = self.updates.entry(provider_id).or_default();
-        services.entry(update.service_type).or_insert(update);
-    }
-    fn remove(&mut self, provider_id: &ProviderId) -> Option<ServiceUpdates> {
-        self.updates.remove(provider_id)
-    }
-    #[cfg(test)]
-    fn len(&self) -> usize {
-        self.updates.len()
-    }
-}
-
 pub struct SdpLedger<Declarations, Rewards, Services, Stakes, Proof, Metadata, ContractAddress>
 where
     Declarations: DeclarationsRepository,
@@ -172,7 +147,7 @@ where
     services_repo: Services,
     stake_verifier: Stakes,
     pending_providers: HashMap<BlockNumber, HashMap<ProviderId, ProviderInfo>>,
-    pending_declarations: HashMap<BlockNumber, ServiceUpdateMap>,
+    pending_declarations: HashMap<BlockNumber, HashMap<ProviderId, DeclarationUpdate>>,
     pending_rewards: HashMap<ProviderId, RewardId>,
     _phantom: PhantomData<(Proof, Metadata, ContractAddress)>,
 }
@@ -209,14 +184,16 @@ where
 
         // Multiple declarations can be included in the block, pending declarations need
         // to be checked also.
-        if let Some(pending_declaration) = self
+        //
+        // ProviderId needs to be unique per service in declaration, the provider is
+        // expected to derive the ProviderId (pubkey) using one of the service types,
+        // but in ledger we just check for uniquenes of ProviderId in the declaration.
+        if self
             .pending_declarations
             .get(&block_number)
-            .and_then(|pending| pending.get(&provider_id, service_type))
+            .is_some_and(|pending| pending.contains_key(&provider_id))
         {
-            if pending_declaration.service_type == service_type {
-                return Err(SdpLedgerError::DuplicateDeclarationInBlock);
-            }
+            return Err(SdpLedgerError::DuplicateDeclarationInBlock);
         }
 
         let declaration_update = DeclarationUpdate::from(&declaration_message);
@@ -411,16 +388,18 @@ where
             return Err(err.into());
         }
 
-        // One declaration could have multiple updates in one block.
-        if let Some(declaration_updates) = self
+        // One provider id can declare only one service in one declaration.
+        if let Some(declaration_update) = self
             .pending_declarations
             .get_mut(&block_number)
             .and_then(|updates| updates.remove(&provider_id))
         {
-            for (_, update) in declaration_updates {
-                if let Err(err) = self.declaration_repo.update_declaration(update).await {
-                    tracing::error!("Declaration could not be updated: {err}");
-                }
+            if let Err(err) = self
+                .declaration_repo
+                .update_declaration(declaration_update)
+                .await
+            {
+                tracing::error!("Declaration could not be updated: {err}");
             }
         }
 
@@ -900,15 +879,19 @@ mod tests {
         let did = declaration_id(&locators);
         let blocks = [
             (0, vec![
-                (BOp::Dec(pid, St::DataAvailability, locators.clone()), true),
                 (BOp::Dec(pid, St::BlendNetwork, locators.clone()), true),
+                // One provider id can not be used for mutliple services in one declaration
+                (BOp::Dec(pid, St::DataAvailability, locators.clone()), false),
             ]),
-            (10, vec![(BOp::Rew(pid, did, St::DataAvailability), true)]),
-            (20, vec![(BOp::Rew(pid, did, St::BlendNetwork), true)]),
+            (10, vec![(BOp::Rew(pid, did, St::BlendNetwork), true)]),
+            // This provider is registered with the BlendNetwork service, should fail to get reward
+            // for DataAvailability service.
+            (20, vec![(BOp::Rew(pid, did, St::DataAvailability), false)]),
             (30, vec![
                 (BOp::Wit(pid, did, St::BlendNetwork, true), true),
-                // TODO: how to handle partial withdraws.
-                // (BOp::Wit(pid, did, St::DataAvailability, false), true),
+                // Provider only registered the BlendNetwork service - withdrawal for DA should
+                // fail.
+                (BOp::Wit(pid, did, St::DataAvailability, false), false),
             ]),
         ]
         .into();
@@ -944,7 +927,6 @@ mod tests {
         let declaration = declarations.get(&did).unwrap();
         let mut expected_services = HashMap::new();
         expected_services.insert(ServiceType::BlendNetwork, [pid].into());
-        expected_services.insert(ServiceType::DataAvailability, [pid].into());
         assert_eq!(declaration, &Declaration {
             declaration_id: did,
             locators,
