@@ -1,15 +1,82 @@
-name: NTP
-
+name: macOS NTP Debug
 on:
   pull_request:
 
 jobs:
-  do_stuff:
+  macos-ntp-debug:
+    name: macOS NTP Diagnostics
     runs-on: macos-latest
+    timeout-minutes: 15
     steps:
-      - name: "Stuff"
-        shell: bash
+      - name: Install dependencies
         run: |
-          ping -c 3 time.euro.apple.com  # Verify DNS resolution
-          nc -vzu time.euro.apple.com 123  # Check UDP port 123
-          sntp -d -sS time.euro.apple.com  # Retrieve time
+          brew update
+          brew install jq
+
+      - name: Test UDP connectivity
+        run: |
+          servers=(
+              "time.google.com:123"
+              "162.159.200.1:123"  # Cloudflare
+              "pool.ntp.org:123"
+              "17.253.4.125:123"    # Apple
+          )
+          echo "Testing UDP/123 connectivity..."
+          for server in "${servers[@]}"; do
+              ip=${server%:*}
+              port=${server#*:}
+              echo -n "$ip:$port → "
+              nc -vzu $ip $port 2>&1 | grep succeeded || echo "FAILED"
+          done
+
+      - name: Check clock skew
+        run: |
+          sys_time=$(date -u +%s)
+          web_time=$(curl -s https://worldtimeapi.org/api/ip | jq .unixtime)
+          diff=$((web_time - sys_time))
+          
+          echo "System time: $(date -u -r $sys_time)"
+          echo "Web API time: $(date -u -r $web_time)"
+          echo "Difference: $diff seconds"
+          
+          if (( ${diff#-} > 5 )); then
+              echo "::warning::Clock skew exceeds 5 seconds!"
+          fi
+
+      - name: GitHub environment check
+        run: |
+          if nc -vzu pool.ntp.org 123 2>&1 | grep succeeded; then
+              echo "::notice::UDP/123 unexpectedly allowed!"
+          else
+              echo "::notice::UDP/123 blocked (GitHub default)"
+          fi
+
+      - name: macOS NTP service check
+        run: |
+          echo "Current NTP config:"
+          sudo systemsetup -getnetworktimeserver
+          
+          echo "Disabling system NTP..."
+          sudo systemsetup -setusingnetworktime off || true
+          
+          echo "Testing with sntp:"
+          sntp -sS time.google.com || true
+          
+          echo "Re-enabling system NTP..."
+          sudo systemsetup -setusingnetworktime on || true
+
+      - name: Firewall test
+        run: |
+          echo "Current firewall rules:"
+          sudo pfctl -s rules || true
+          
+          echo "Testing with firewall disabled:"
+          sudo pfctl -d || true
+          sntp -sS time.google.com || true
+          sudo pfctl -e || true
+
+      - name: System call trace (diagnostic)
+        run: |
+          echo "Network system calls during sntp:"
+          sudo dtruss -n sntp -sS time.google.com 2>&1 | \
+            grep -E 'connect|sendto|recvfrom' || true
