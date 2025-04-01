@@ -1,6 +1,7 @@
 use std::{hash::Hash, marker::PhantomData};
 
-use nomos_core::{block::Block, wire};
+use cryptarchia_engine::Slot;
+use nomos_core::{block::Block, header::HeaderId, wire};
 use nomos_network::{
     backends::libp2p::{Command, Event, EventKind, Libp2p},
     NetworkMsg, NetworkService,
@@ -118,5 +119,19 @@ where
                 }
             }),
         ))
+    }
+
+    async fn fetch_blocks_from_slot(
+        &self,
+        _start_slot: Slot,
+    ) -> Result<BoxedStream<Block<Self::Tx, Self::BlobCertificate>>, DynError> {
+        todo!()
+    }
+
+    async fn fetch_chain_backward(
+        &self,
+        _tip: HeaderId,
+    ) -> Result<BoxedStream<Block<Self::Tx, Self::BlobCertificate>>, DynError> {
+        todo!()
     }
 }
