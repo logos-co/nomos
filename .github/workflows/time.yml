@@ -8,11 +8,12 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
-      - name: Alt client
+      - name: Connectivity Test
         run: |
-          # Install alternative client
-          brew install ntp
-          
-          # Test with ntpd in query mode
-          ntpq -pn
-          ntpdate -q time.google.com
+          # Run this in GitHub macOS CI:
+          echo "Testing UDP/123 to Google's NTP IP (216.239.35.0):"
+          if nc -vzu 216.239.35.0 123 2>&1 | grep succeeded; then
+            echo "NTP allowed (unlikely)"
+          else
+            echo "NTP blocked (expected)"
+          fi
