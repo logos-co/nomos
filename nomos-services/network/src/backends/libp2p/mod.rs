@@ -31,6 +31,7 @@ pub enum EventKind {
 #[derive(Debug, Clone)]
 pub enum SyncRequestKind {
     ForwardSyncRequest(u64),
+    // TODO: HeaderId must be used as an argument of a backward sync, instead of Slot.
     BackwardSyncRequest(u64),
 }
 
@@ -113,6 +114,10 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Libp2p {
         match kind {
             // Might be cleaner to use different channels depending on `kind`.
             // At the same time `events_tx` is common to all events. Maybe fine this way
+            //
+            // TODO from @youngjoon-lee: Yeah, I have the same concern.
+            // I think it's better to use different channels
+            // to differentiate the sync from the gossipsub (if possible).
             EventKind::Message | EventKind::SyncRequest => {
                 tracing::debug!("processed subscription to incoming messages");
                 self.events_tx.subscribe()

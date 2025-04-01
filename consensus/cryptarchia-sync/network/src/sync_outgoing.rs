@@ -16,6 +16,7 @@ use crate::{
     sync_utils,
 };
 
+// TODO: This should return the peers grouped by their tip
 pub async fn select_best_peer_for_sync<Membership>(
     control: Control,
     membership: Membership,
