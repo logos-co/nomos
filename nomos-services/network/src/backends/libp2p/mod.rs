@@ -2,9 +2,13 @@ mod command;
 mod config;
 pub(crate) mod swarm;
 
+use cryptarchia_sync_network::behaviour::{
+    BehaviourSyncEvent::SyncRequest, BehaviourSyncReply, SyncDirection,
+};
 pub use nomos_libp2p::libp2p::gossipsub::{Message, TopicHash};
+use nomos_libp2p::{gossipsub, BehaviourEvent};
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, mpsc::Sender};
 
 use self::swarm::SwarmHandler;
 pub use self::{
@@ -21,12 +25,52 @@ pub struct Libp2p {
 #[derive(Debug)]
 pub enum EventKind {
     Message,
+    SyncRequest,
+}
+
+#[derive(Debug, Clone)]
+pub enum SyncRequestKind {
+    ForwardSyncRequest(u64),
+    BackwardSyncRequest(u64),
 }
 
 /// Events emitted from [`NomosLibp2p`], which users can subscribe
 #[derive(Debug, Clone)]
 pub enum Event {
     Message(Message),
+    IncomingSyncRequest {
+        kind: SyncRequestKind,
+        reply_channel: Sender<BehaviourSyncReply>,
+    },
+}
+
+impl TryFrom<BehaviourEvent> for Event {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(event: BehaviourEvent) -> Result<Self, Self::Error> {
+        match event {
+            BehaviourEvent::Gossipsub(gossipsub::Event::Message {
+                propagation_source: _propagation_source,
+                message_id: _message_id,
+                message,
+            }) => Ok(Self::Message(message)),
+            BehaviourEvent::Sync(SyncRequest {
+                direction,
+                slot,
+                response_sender,
+            }) => match direction {
+                SyncDirection::Forward => Ok(Self::IncomingSyncRequest {
+                    kind: SyncRequestKind::ForwardSyncRequest(slot),
+                    reply_channel: response_sender,
+                }),
+                SyncDirection::Backward => Ok(Self::IncomingSyncRequest {
+                    kind: SyncRequestKind::BackwardSyncRequest(slot),
+                    reply_channel: response_sender,
+                }),
+            },
+            _ => Err("Event not supported".into()),
+        }
+    }
 }
 
 const BUFFER_SIZE: usize = 64;
@@ -67,7 +111,9 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Libp2p {
         kind: Self::EventKind,
     ) -> broadcast::Receiver<Self::NetworkEvent> {
         match kind {
-            EventKind::Message => {
+            // Might be cleaner to use different channels depending on `kind`.
+            // At the same time `events_tx` is common to all events. Maybe fine this way
+            EventKind::Message | EventKind::SyncRequest => {
                 tracing::debug!("processed subscription to incoming messages");
                 self.events_tx.subscribe()
             }

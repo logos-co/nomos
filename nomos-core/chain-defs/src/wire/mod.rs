@@ -5,6 +5,10 @@ pub(crate) mod bincode;
 pub mod deserialization;
 pub mod errors;
 pub mod serialization;
+
+// TODO: this is duplicate logic from da. Refactor da to use common code
+pub mod packing;
+
 // Exports
 pub use deserialization::{deserialize, deserializer};
 pub use errors::Error;
