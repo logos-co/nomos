@@ -56,7 +56,6 @@ use crate::{
         SecurityRecoveryStrategy,
     },
     storage::{adapters::StorageAdapter, StorageAdapter as _},
-    sync::Synchronization,
 };
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
@@ -538,7 +537,7 @@ where
 
         let genesis_id = HeaderId::from([0; 32]);
 
-        let (cryptarchia, mut leader) = Self::build_cryptarchia(
+        let (mut cryptarchia, mut leader) = Self::build_cryptarchia(
             self.initial_state,
             genesis_id,
             genesis_state,
@@ -554,35 +553,36 @@ where
         let tx_selector = TxS::new(transaction_selector_settings);
         let blob_selector = BS::new(blob_selector_settings);
 
-        let mut cryptarchia = Synchronization::<
-            NetAdapter,
-            BlendAdapter,
-            ClPool,
-            ClPoolAdapter,
-            DaPool,
-            DaPoolAdapter,
-            TxS,
-            BS,
-            Storage,
-            SamplingBackend,
-            SamplingNetworkAdapter,
-            SamplingRng,
-            SamplingStorage,
-            DaVerifierBackend,
-            DaVerifierNetwork,
-            DaVerifierStorage,
-            TimeBackend,
-            ApiAdapter,
-            RuntimeServiceId,
-        >::initiate(
-            cryptarchia,
-            &mut leader,
-            ledger_config,
-            &relays,
-            &mut self.block_subscription_sender,
-            &network_adapter,
-        )
-        .await;
+        // TODO: Uncomment this once it's ready.
+        // let mut cryptarchia = Synchronization::<
+        //     NetAdapter,
+        //     BlendAdapter,
+        //     ClPool,
+        //     ClPoolAdapter,
+        //     DaPool,
+        //     DaPoolAdapter,
+        //     TxS,
+        //     BS,
+        //     Storage,
+        //     SamplingBackend,
+        //     SamplingNetworkAdapter,
+        //     SamplingRng,
+        //     SamplingStorage,
+        //     DaVerifierBackend,
+        //     DaVerifierNetwork,
+        //     DaVerifierStorage,
+        //     TimeBackend,
+        //     ApiAdapter,
+        //     RuntimeServiceId,
+        // >::initiate(
+        //     cryptarchia,
+        //     &mut leader,
+        //     ledger_config,
+        //     &relays,
+        //     &mut self.block_subscription_sender,
+        //     &network_adapter,
+        // )
+        // .await;
 
         let mut incoming_blocks = network_adapter.blocks_stream().await?;
 

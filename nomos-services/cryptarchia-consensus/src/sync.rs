@@ -194,6 +194,7 @@ where
         clippy::type_complexity,
         reason = "CryptarchiaConsensusRelays amount of generics."
     )]
+    #[expect(dead_code, reason = "Sync protocol is not integrated yet.")]
     pub async fn initiate(
         cryptarchia: Cryptarchia,
         leader: &mut Leader,
