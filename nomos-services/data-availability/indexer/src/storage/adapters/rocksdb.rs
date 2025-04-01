@@ -36,7 +36,7 @@ where
 }
 
 #[async_trait::async_trait]
-impl<S, Meta> DaStorageAdapter for RocksAdapter<S, Meta>
+impl<S, Meta, RuntimeServiceId> DaStorageAdapter<RuntimeServiceId> for RocksAdapter<S, Meta>
 where
     S: StorageSerde + Send + Sync + 'static,
     Meta: DispersedBlobInfo<BlobId = BlobId> + Metadata + Send + Sync,
@@ -49,7 +49,9 @@ where
     type Settings = RocksAdapterSettings;
 
     async fn new(
-        storage_relay: OutboundRelay<<StorageService<Self::Backend> as ServiceData>::Message>,
+        storage_relay: OutboundRelay<
+            <StorageService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
+        >,
     ) -> Self {
         Self {
             storage_relay,

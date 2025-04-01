@@ -3,7 +3,6 @@ use std::{collections::HashMap, net::Ipv4Addr, str::FromStr};
 use nomos_blend::membership::Node;
 use nomos_blend_message::{sphinx::SphinxMessage, BlendMessage};
 use nomos_libp2p::{Multiaddr, PeerId};
-use nomos_node::BlendBackend;
 use nomos_tracing_service::{LoggerLayer, MetricsLayer, TracingLayer, TracingSettings};
 use rand::{thread_rng, Rng};
 use tests::topology::configs::{
@@ -178,18 +177,8 @@ fn update_da_peer_addresses(
 
 fn update_blend_membership(
     hosts: Vec<Host>,
-    membership: Vec<
-        Node<
-            <BlendBackend as nomos_blend_service::backends::BlendBackend>::NodeId,
-            <SphinxMessage as BlendMessage>::PublicKey,
-        >,
-    >,
-) -> Vec<
-    Node<
-        <BlendBackend as nomos_blend_service::backends::BlendBackend>::NodeId,
-        <SphinxMessage as BlendMessage>::PublicKey,
-    >,
-> {
+    membership: Vec<Node<PeerId, <SphinxMessage as BlendMessage>::PublicKey>>,
+) -> Vec<Node<PeerId, <SphinxMessage as BlendMessage>::PublicKey>> {
     membership
         .into_iter()
         .zip(hosts)
@@ -240,7 +229,9 @@ mod cfgsync_tests {
     use std::{net::Ipv4Addr, num::NonZero, str::FromStr, time::Duration};
 
     use nomos_da_dispersal::backend::kzgrs::MempoolPublishStrategy;
-    use nomos_da_network_core::swarm::{DAConnectionMonitorSettings, DAConnectionPolicySettings};
+    use nomos_da_network_core::swarm::{
+        DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
+    };
     use nomos_libp2p::{ed25519, libp2p, Multiaddr, PeerId, Protocol};
     use nomos_tracing_service::{
         FilterLayer, LoggerLayer, MetricsLayer, TracingLayer, TracingSettings,
@@ -284,6 +275,10 @@ mod cfgsync_tests {
                 monitor_settings: DAConnectionMonitorSettings::default(),
                 balancer_interval: Duration::ZERO,
                 redial_cooldown: Duration::ZERO,
+                replication_settings: ReplicationConfig {
+                    seen_message_cache_size: 0,
+                    seen_message_ttl: Duration::ZERO,
+                },
             },
             &TracingSettings {
                 logger: LoggerLayer::None,

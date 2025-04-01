@@ -1,22 +1,25 @@
 use core::{fmt::Debug, hash::Hash};
+use std::fmt::Display;
 
 use nomos_core::{header::HeaderId, tx::Transaction};
 use nomos_mempool::{
     backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
     tx::service::openapi::Status, MempoolMetrics, MempoolMsg, TxMempoolService,
 };
+use overwatch::services::AsServiceId;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
 use crate::wait_with_timeout;
 
-type ClMempoolService<T> = TxMempoolService<
-    MempoolNetworkAdapter<T, <T as Transaction>::Hash>,
+pub type ClMempoolService<T, RuntimeServiceId> = TxMempoolService<
+    MempoolNetworkAdapter<T, <T as Transaction>::Hash, RuntimeServiceId>,
     MockPool<HeaderId, T, <T as Transaction>::Hash>,
+    RuntimeServiceId,
 >;
 
-pub async fn cl_mempool_metrics<T>(
-    handle: &overwatch::overwatch::handle::OverwatchHandle,
+pub async fn cl_mempool_metrics<T, RuntimeServiceId>(
+    handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
 ) -> Result<MempoolMetrics, super::DynError>
 where
     T: Transaction
@@ -30,8 +33,9 @@ where
         + 'static,
     <T as nomos_core::tx::Transaction>::Hash:
         std::cmp::Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+    RuntimeServiceId: Debug + Sync + Display + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
 {
-    let relay = handle.relay::<ClMempoolService<T>>().connect().await?;
+    let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
     relay
         .send(MempoolMsg::Metrics {
@@ -47,8 +51,8 @@ where
     .await
 }
 
-pub async fn cl_mempool_status<T>(
-    handle: &overwatch::overwatch::handle::OverwatchHandle,
+pub async fn cl_mempool_status<T, RuntimeServiceId>(
+    handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
     items: Vec<<T as Transaction>::Hash>,
 ) -> Result<Vec<Status<HeaderId>>, super::DynError>
 where
@@ -63,8 +67,9 @@ where
         + 'static,
     <T as nomos_core::tx::Transaction>::Hash:
         std::cmp::Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+    RuntimeServiceId: Debug + Sync + Display + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
 {
-    let relay = handle.relay::<ClMempoolService<T>>().connect().await?;
+    let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
     relay
         .send(MempoolMsg::Status {

@@ -9,8 +9,9 @@ use super::NetworkAdapter;
 
 /// A network adapter for the network service that uses libp2p backend.
 #[derive(Clone)]
-pub struct Libp2pAdapter {
-    network_relay: OutboundRelay<<NetworkService<Libp2p> as ServiceData>::Message>,
+pub struct Libp2pAdapter<RuntimeServiceId> {
+    network_relay:
+        OutboundRelay<<NetworkService<Libp2p, RuntimeServiceId> as ServiceData>::Message>,
 }
 
 /// Settings used to broadcast messages to the network service that uses libp2p
@@ -21,12 +22,14 @@ pub struct Libp2pBroadcastSettings {
 }
 
 #[async_trait::async_trait]
-impl NetworkAdapter for Libp2pAdapter {
+impl<RuntimeServiceId> NetworkAdapter<RuntimeServiceId> for Libp2pAdapter<RuntimeServiceId> {
     type Backend = Libp2p;
     type BroadcastSettings = Libp2pBroadcastSettings;
 
     fn new(
-        network_relay: OutboundRelay<<NetworkService<Self::Backend> as ServiceData>::Message>,
+        network_relay: OutboundRelay<
+            <NetworkService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
+        >,
     ) -> Self {
         Self { network_relay }
     }

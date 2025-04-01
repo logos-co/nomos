@@ -9,9 +9,11 @@ use kzgrs_backend::{
 use nomos_core::da::{BlobId, DaDispersal, DaEncoder};
 use nomos_mempool::backend::MempoolError;
 use nomos_tracing::info_with_id;
+use nomos_utils::bounded_duration::{MinimalBoundedDuration, NANO};
 use overwatch::DynError;
 use rand::{seq::IteratorRandom, thread_rng};
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use tokio::time::error::Elapsed;
 use tracing::instrument;
 
@@ -23,15 +25,28 @@ use crate::{
     backend::DispersalBackend,
 };
 
+#[serde_as]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SampleSubnetworks {
+    pub sample_threshold: usize,
+    #[serde_as(as = "MinimalBoundedDuration<1, NANO>")]
+    pub timeout: Duration,
+    #[serde_as(as = "MinimalBoundedDuration<1, NANO>")]
+    pub cooldown: Duration,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Timeout {
+    #[serde_as(as = "MinimalBoundedDuration<1, NANO>")]
+    pub wait_duration: Duration,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum MempoolPublishStrategy {
     Immediately,
-    Timeout(Duration),
-    SampleSubnetworks {
-        sample_threshold: usize,
-        timeout: Duration,
-        cooldown: Duration,
-    },
+    Timeout(Timeout),
+    SampleSubnetworks(SampleSubnetworks),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -41,9 +56,11 @@ pub struct EncoderSettings {
     pub global_params_path: String,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DispersalKZGRSBackendSettings {
     pub encoder_settings: EncoderSettings,
+    #[serde_as(as = "MinimalBoundedDuration<1, NANO>")]
     pub dispersal_timeout: Duration,
     pub mempool_strategy: MempoolPublishStrategy,
 }
@@ -199,15 +216,16 @@ where
             MempoolPublishStrategy::Immediately => {
                 self.publish_to_mempool(blob_id, metadata).await?;
             }
-            MempoolPublishStrategy::Timeout(wait_duration) => {
+            // MempoolPublishStrategy::Timeout { wait_duration } => {
+            MempoolPublishStrategy::Timeout(Timeout { wait_duration }) => {
                 tokio::time::sleep(wait_duration).await;
                 self.publish_to_mempool(blob_id, metadata).await?;
             }
-            MempoolPublishStrategy::SampleSubnetworks {
+            MempoolPublishStrategy::SampleSubnetworks(SampleSubnetworks {
                 sample_threshold,
                 timeout,
                 cooldown,
-            } => {
+            }) => {
                 let subnets = {
                     // ThreadRng is not Send, need to drop before await bound.
                     let mut rng = thread_rng();

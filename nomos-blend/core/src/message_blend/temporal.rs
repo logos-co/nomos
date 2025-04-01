@@ -6,7 +6,8 @@ use std::{
 };
 
 use futures::{Future, Stream, StreamExt};
-use rand::{Rng, RngCore};
+use nomos_utils::bounded_duration::{MinimalBoundedDuration, SECOND};
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use tokio::time;
 
@@ -24,7 +25,7 @@ pub struct TemporalScheduler<Rng> {
 
 impl<Rng> TemporalScheduler<Rng> {
     pub fn new(settings: TemporalSchedulerSettings, rng: Rng) -> Self {
-        let lottery_interval = Self::lottery_interval(settings.max_delay_seconds);
+        let lottery_interval = Self::lottery_interval(settings.max_delay);
         Self {
             settings,
             lottery_interval,
@@ -34,9 +35,9 @@ impl<Rng> TemporalScheduler<Rng> {
     }
 
     /// Create [`time::Interval`] for running the lottery to release a message.
-    fn lottery_interval(max_delay_seconds: u64) -> time::Interval {
+    fn lottery_interval(max_delay: Duration) -> time::Interval {
         time::interval(Duration::from_secs(Self::lottery_interval_seconds(
-            max_delay_seconds,
+            max_delay.as_secs(),
         )))
     }
 
@@ -51,12 +52,12 @@ impl<Rng> TemporalScheduler<Rng> {
 
 impl<Rng> TemporalScheduler<Rng>
 where
-    Rng: RngCore,
+    Rng: rand::Rng,
 {
     /// Run the lottery to determine the delay before releasing a message.
     /// The delay is in [0, `lottery_interval_seconds`).
     fn run_lottery(&mut self) -> u64 {
-        let interval = Self::lottery_interval_seconds(self.settings.max_delay_seconds);
+        let interval = Self::lottery_interval_seconds(self.settings.max_delay.as_secs());
         self.rng.gen_range(0..interval)
     }
 }
@@ -96,9 +97,11 @@ pub struct TemporalProcessor<M, S> {
     scheduler: S,
 }
 
+#[serde_with::serde_as]
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct TemporalSchedulerSettings {
-    pub max_delay_seconds: u64,
+    #[serde_as(as = "MinimalBoundedDuration<0, SECOND>")]
+    pub max_delay: Duration,
 }
 
 impl<M, S> TemporalProcessor<M, S> {

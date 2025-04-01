@@ -22,3 +22,11 @@ repos:
     hooks:
       - id: taplo-format
       - id: taplo-lint
+
+  - repo: local
+    hooks:
+      - id: dependency-graph
+        language: script
+        name: Generate dependency graph
+        entry: ./hooks/generate-dependency-graph.sh
+        stages: [commit]

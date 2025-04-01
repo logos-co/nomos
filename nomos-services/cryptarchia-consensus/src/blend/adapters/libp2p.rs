@@ -10,23 +10,26 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use crate::{blend::BlendAdapter, messages::NetworkMessage};
 
 #[derive(Clone)]
-pub struct LibP2pAdapter<Network, Tx, BlobCert>
+pub struct LibP2pAdapter<Network, Tx, BlobCert, RuntimeServiceId>
 where
-    Network: NetworkAdapter,
+    Network: NetworkAdapter<RuntimeServiceId>,
     Network::BroadcastSettings: Clone,
     Tx: Clone + Eq + Hash,
     BlobCert: Clone + Eq + Hash,
 {
     settings: LibP2pAdapterSettings<Network::BroadcastSettings>,
-    blend_relay: OutboundRelay<<BlendService<Libp2pBlendBackend, Network> as ServiceData>::Message>,
+    blend_relay: OutboundRelay<
+        <BlendService<Libp2pBlendBackend, Network, RuntimeServiceId> as ServiceData>::Message,
+    >,
     _tx: PhantomData<Tx>,
     _blob_cert: PhantomData<BlobCert>,
 }
 
 #[async_trait::async_trait]
-impl<Network, Tx, BlobCert> BlendAdapter for LibP2pAdapter<Network, Tx, BlobCert>
+impl<Network, Tx, BlobCert, RuntimeServiceId> BlendAdapter<RuntimeServiceId>
+    for LibP2pAdapter<Network, Tx, BlobCert, RuntimeServiceId>
 where
-    Network: NetworkAdapter + 'static,
+    Network: NetworkAdapter<RuntimeServiceId> + 'static,
     Network::BroadcastSettings: Clone,
     Tx: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
     BlobCert: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
@@ -40,7 +43,7 @@ where
     async fn new(
         settings: Self::Settings,
         blend_relay: OutboundRelay<
-            <BlendService<Self::Backend, Self::Network> as ServiceData>::Message,
+            <BlendService<Self::Backend, Self::Network, RuntimeServiceId> as ServiceData>::Message,
         >,
     ) -> Self {
         // this wait seems to be helpful in some cases since we give the time

@@ -64,14 +64,14 @@ pub struct MockExecutorBackend {
 }
 
 #[async_trait::async_trait]
-impl NetworkBackend for MockExecutorBackend {
+impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend {
     type Settings = MockConfig;
     type State = NoState<MockConfig>;
     type Message = Command;
     type EventKind = EventKind;
     type NetworkEvent = Event;
 
-    fn new(config: Self::Settings, _: OverwatchHandle) -> Self {
+    fn new(config: Self::Settings, _: OverwatchHandle<RuntimeServiceId>) -> Self {
         let (commands_tx, _) = tokio::sync::mpsc::channel(BUFFER_SIZE);
         let (events_tx, _) = tokio::sync::broadcast::channel(BUFFER_SIZE);
         Self {

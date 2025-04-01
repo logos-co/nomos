@@ -11,7 +11,7 @@ use overwatch::{
 };
 
 #[async_trait::async_trait]
-pub trait DaStorageAdapter {
+pub trait DaStorageAdapter<RuntimeServiceId> {
     type Backend: StorageBackend + Send + Sync + 'static;
     type Settings: Clone;
 
@@ -19,7 +19,9 @@ pub trait DaStorageAdapter {
     type Info: DispersedBlobInfo;
 
     async fn new(
-        storage_relay: OutboundRelay<<StorageService<Self::Backend> as ServiceData>::Message>,
+        storage_relay: OutboundRelay<
+            <StorageService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
+        >,
     ) -> Self;
 
     async fn add_index(&self, vid: &Self::Info) -> Result<(), DynError>;

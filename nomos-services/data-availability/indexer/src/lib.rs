@@ -2,7 +2,7 @@ pub mod consensus;
 pub mod storage;
 
 use std::{
-    fmt::{Debug, Formatter},
+    fmt::{Debug, Display, Formatter},
     hash::Hash,
     ops::Range,
 };
@@ -25,9 +25,8 @@ use nomos_storage::{backends::StorageBackend, StorageService};
 use nomos_tracing::info_with_id;
 use overwatch::{
     services::{
-        relay::{Relay, RelayMessage},
         state::{NoOperator, NoState},
-        ServiceCore, ServiceData, ServiceId,
+        AsServiceId, ServiceCore, ServiceData,
     },
     DynError, OpaqueServiceStateHandle,
 };
@@ -37,50 +36,6 @@ use services_utils::overwatch::lifecycle;
 use storage::DaStorageAdapter;
 use tokio::sync::oneshot::Sender;
 use tracing::instrument;
-
-const DA_INDEXER_TAG: ServiceId = "DA-Indexer";
-
-pub type ConsensusRelay<
-    NetAdapter,
-    BlendAdapter,
-    ClPool,
-    ClPoolAdapter,
-    DaPool,
-    DaPoolAdapter,
-    TxS,
-    BS,
-    Storage,
-    SamplingBackend,
-    SamplingNetworkAdapter,
-    SamplingRng,
-    SamplingStorage,
-    DaVerifierBackend,
-    DaVerifierNetwork,
-    DaVerifierStorage,
-    TimeBackend,
-    ApiAdapter,
-> = Relay<
-    CryptarchiaConsensus<
-        NetAdapter,
-        BlendAdapter,
-        ClPool,
-        ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
-        TxS,
-        BS,
-        Storage,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingRng,
-        SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
-        TimeBackend,
-        ApiAdapter,
-    >,
->;
 
 pub struct DataIndexerService<
     Share,
@@ -104,18 +59,19 @@ pub struct DataIndexerService<
     DaVerifierStorage,
     TimeBackend,
     ApiAdapter,
+    RuntimeServiceId,
 > where
     Share: 'static,
-    NetAdapter: NetworkAdapter,
+    NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Settings: Send,
-    BlendAdapter: cryptarchia_consensus::blend::BlendAdapter,
+    BlendAdapter: cryptarchia_consensus::blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
-    ClPoolAdapter: MempoolAdapter<Payload = ClPool::Item, Key = ClPool::Key>,
+    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     DaPool: RecoverableMempool<BlockId = HeaderId>,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPoolAdapter: MempoolAdapter<Key = DaPool::Key>,
+    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     ClPool::Item: Clone + Eq + Hash + Debug + 'static,
     ClPool::Key: Debug + 'static,
@@ -128,48 +84,25 @@ pub struct DataIndexerService<
     TxS::Settings: Send,
     BS: BlobSelect<BlobId = DaPool::Item>,
     BS::Settings: Send,
-    DaStorage: DaStorageAdapter<Info = DaPool::Item, Share = Share>,
+    DaStorage: DaStorageAdapter<RuntimeServiceId, Info = DaPool::Item, Share = Share>,
     ConsensusStorage: StorageBackend + Send + Sync + 'static,
     SamplingRng: SeedableRng + RngCore,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
-    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter,
+    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + 'static,
     DaVerifierBackend::Settings: Clone,
-    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter,
-    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter,
+    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
+    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
-    service_state: OpaqueServiceStateHandle<Self>,
-    storage_relay: Relay<StorageService<DaStorage::Backend>>,
-    #[expect(clippy::allow_attributes_without_reason)]
-    #[expect(clippy::type_complexity)]
-    consensus_relay: ConsensusRelay<
-        NetAdapter,
-        BlendAdapter,
-        ClPool,
-        ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
-        TxS,
-        BS,
-        ConsensusStorage,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingRng,
-        SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
-        TimeBackend,
-        ApiAdapter,
-    >,
+    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
 }
 
 pub enum DaMsg<Blob, Meta: Metadata> {
@@ -196,8 +129,6 @@ impl<Blob: 'static, Meta: Metadata + 'static> Debug for DaMsg<Blob, Meta> {
     }
 }
 
-impl<Blob: 'static, Meta: Metadata + 'static> RelayMessage for DaMsg<Blob, Meta> {}
-
 impl<
         Share,
         DaStorage,
@@ -220,6 +151,7 @@ impl<
         DaVerifierStorage,
         TimeBackend,
         ApiAdapter,
+        RuntimeServiceId,
     > ServiceData
     for DataIndexerService<
         Share,
@@ -243,19 +175,20 @@ impl<
         DaVerifierStorage,
         TimeBackend,
         ApiAdapter,
+        RuntimeServiceId,
     >
 where
     Share: 'static,
-    NetAdapter: NetworkAdapter,
+    NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Settings: Send,
-    BlendAdapter: cryptarchia_consensus::blend::BlendAdapter,
+    BlendAdapter: cryptarchia_consensus::blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
-    ClPoolAdapter: MempoolAdapter<Payload = ClPool::Item, Key = ClPool::Key>,
+    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     DaPool: RecoverableMempool<BlockId = HeaderId>,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPoolAdapter: MempoolAdapter<Key = DaPool::Key>,
+    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     ClPool::Item: Clone + Eq + Hash + Debug + 'static,
     ClPool::Key: Debug + 'static,
@@ -268,28 +201,27 @@ where
     TxS::Settings: Send,
     BS: BlobSelect<BlobId = DaPool::Item>,
     BS::Settings: Send,
-    DaStorage: DaStorageAdapter<Info = DaPool::Item, Share = Share>,
+    DaStorage: DaStorageAdapter<RuntimeServiceId, Info = DaPool::Item, Share = Share>,
     ConsensusStorage: StorageBackend + Send + Sync + 'static,
     SamplingRng: SeedableRng + RngCore,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
-    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter,
+    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send,
     DaVerifierBackend::Settings: Clone,
-    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter,
-    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter,
+    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
+    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
-    const SERVICE_ID: ServiceId = DA_INDEXER_TAG;
     type Settings = IndexerSettings<DaStorage::Settings>;
     type State = NoState<Self::Settings>;
-    type StateOperator = NoOperator<Self::State, Self::Settings>;
+    type StateOperator = NoOperator<Self::State>;
     type Message = DaMsg<Share, DaPool::Item>;
 }
 
@@ -315,6 +247,7 @@ impl<
         DaVerifierStorage,
         TimeBackend,
         ApiAdapter,
+        RuntimeServiceId,
     >
     DataIndexerService<
         Share,
@@ -338,19 +271,20 @@ impl<
         DaVerifierStorage,
         TimeBackend,
         ApiAdapter,
+        RuntimeServiceId,
     >
 where
     Share: Send + Sync + 'static,
-    NetAdapter: NetworkAdapter,
+    NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Settings: Send,
-    BlendAdapter: cryptarchia_consensus::blend::BlendAdapter,
+    BlendAdapter: cryptarchia_consensus::blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
-    ClPoolAdapter: MempoolAdapter<Payload = ClPool::Item, Key = ClPool::Key>,
+    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     DaPool: RecoverableMempool<BlockId = HeaderId>,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPoolAdapter: MempoolAdapter<Key = DaPool::Key>,
+    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     ClPool::Item: Clone + Eq + Hash + Debug + 'static,
     ClPool::Key: Debug + 'static,
@@ -365,19 +299,19 @@ where
     TxS::Settings: Send,
     BS: BlobSelect<BlobId = DaPool::Item>,
     BS::Settings: Send,
-    DaStorage: DaStorageAdapter<Info = DaPool::Item, Share = Share> + Sync,
+    DaStorage: DaStorageAdapter<RuntimeServiceId, Info = DaPool::Item, Share = Share> + Sync,
     ConsensusStorage: StorageBackend + Send + Sync + 'static,
     SamplingRng: SeedableRng + RngCore,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
-    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter,
-    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter,
+    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send,
     DaVerifierBackend::Settings: Clone,
-    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter,
+    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
@@ -444,7 +378,8 @@ impl<
         DaVerifierStorage,
         TimeBackend,
         ApiAdapter,
-    > ServiceCore
+        RuntimeServiceId,
+    > ServiceCore<RuntimeServiceId>
     for DataIndexerService<
         Share,
         DaStorage,
@@ -467,19 +402,20 @@ impl<
         DaVerifierStorage,
         TimeBackend,
         ApiAdapter,
+        RuntimeServiceId,
     >
 where
     Share: Debug + Send + Sync,
-    NetAdapter: NetworkAdapter,
+    NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Settings: Send,
-    BlendAdapter: cryptarchia_consensus::blend::BlendAdapter,
+    BlendAdapter: cryptarchia_consensus::blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
-    ClPoolAdapter: MempoolAdapter<Payload = ClPool::Item, Key = ClPool::Key>,
+    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     DaPool: RecoverableMempool<BlockId = HeaderId>,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPoolAdapter: MempoolAdapter<Key = DaPool::Key>,
+    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     ClPool::Key: Debug + 'static,
     ClPool::Settings: Clone,
@@ -514,7 +450,10 @@ where
     TxS::Settings: Send,
     BS: BlobSelect<BlobId = DaPool::Item>,
     BS::Settings: Send,
-    DaStorage: DaStorageAdapter<Info = DaPool::Item, Share = Share> + Send + Sync + 'static,
+    DaStorage: DaStorageAdapter<RuntimeServiceId, Info = DaPool::Item, Share = Share>
+        + Send
+        + Sync
+        + 'static,
     DaStorage::Settings: Clone + Send + Sync + 'static,
     ConsensusStorage: StorageBackend + Send + Sync + 'static,
     Consensus: ConsensusAdapter<Tx = ClPool::Item, Cert = DaPool::Item> + Send + Sync,
@@ -523,44 +462,64 @@ where
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
-    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter,
-    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter,
+    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send,
     DaVerifierBackend::Settings: Clone,
-    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter,
+    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + Send
+        + AsServiceId<Self>
+        + AsServiceId<
+            CryptarchiaConsensus<
+                NetAdapter,
+                BlendAdapter,
+                ClPool,
+                ClPoolAdapter,
+                DaPool,
+                DaPoolAdapter,
+                TxS,
+                BS,
+                ConsensusStorage,
+                SamplingBackend,
+                SamplingNetworkAdapter,
+                SamplingRng,
+                SamplingStorage,
+                DaVerifierBackend,
+                DaVerifierNetwork,
+                DaVerifierStorage,
+                TimeBackend,
+                ApiAdapter,
+                RuntimeServiceId,
+            >,
+        > + AsServiceId<StorageService<DaStorage::Backend, RuntimeServiceId>>,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self>,
+        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
         _init_state: Self::State,
     ) -> Result<Self, DynError> {
-        let consensus_relay = service_state.overwatch_handle.relay();
-        let storage_relay = service_state.overwatch_handle.relay();
-
-        Ok(Self {
-            service_state,
-            storage_relay,
-            consensus_relay,
-        })
+        Ok(Self { service_state })
     }
 
     async fn run(self) -> Result<(), DynError> {
-        let Self {
-            mut service_state,
-            consensus_relay,
-            storage_relay,
-        } = self;
+        let Self { mut service_state } = self;
 
-        let consensus_relay = consensus_relay
-            .connect()
+        let consensus_relay = service_state
+            .overwatch_handle
+            .relay::<CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _>>(
+            )
             .await
             .expect("Relay connection with ConsensusService should succeed");
-        let storage_relay = storage_relay
-            .connect()
+        let storage_relay = service_state
+            .overwatch_handle
+            .relay::<StorageService<_, _>>()
             .await
             .expect("Relay connection with StorageService should succeed");
 
@@ -586,7 +545,7 @@ where
                     }
                 }
                 Some(msg) = lifecycle_stream.next() => {
-                    if lifecycle::should_stop_service::<Self>(&msg) {
+                    if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
                         break;
                     }
                 }

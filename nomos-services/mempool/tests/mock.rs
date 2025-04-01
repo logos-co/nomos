@@ -1,6 +1,7 @@
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use nomos_core::{
@@ -18,7 +19,7 @@ use nomos_network::{
     NetworkConfig, NetworkMsg, NetworkService,
 };
 use nomos_tracing_service::{Tracing, TracingSettings};
-use overwatch::{overwatch::OverwatchRunner, OpaqueServiceHandle};
+use overwatch::overwatch::OverwatchRunner;
 use overwatch_derive::*;
 use rand::distributions::{Alphanumeric, DistString};
 use services_utils::{
@@ -32,15 +33,16 @@ type MockRecoveryBackend = JsonFileBackend<
 >;
 type MockMempoolService = GenericTxMempoolService<
     MockPool<HeaderId, MockTransaction<MockMessage>, MockTxId>,
-    MockAdapter,
+    MockAdapter<RuntimeServiceId>,
     MockRecoveryBackend,
+    RuntimeServiceId,
 >;
 
-#[derive(Services)]
+#[derive_services]
 struct MockPoolNode {
-    logging: OpaqueServiceHandle<Tracing>,
-    network: OpaqueServiceHandle<NetworkService<Mock>>,
-    mockpool: OpaqueServiceHandle<MockMempoolService>,
+    logging: Tracing<RuntimeServiceId>,
+    network: NetworkService<Mock, RuntimeServiceId>,
+    mockpool: MockMempoolService,
 }
 
 fn run_with_recovery_teardown(recovery_path: &Path, run: impl Fn()) {
@@ -57,7 +59,7 @@ fn test_mockmempool() {
     let recovery_file_path = get_test_random_path();
     run_with_recovery_teardown(&recovery_file_path, || {
         let exist = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let exist2 = exist.clone();
+        let exist2 = Arc::clone(&exist);
 
         let predefined_messages = vec![
             MockMessage {
@@ -99,12 +101,16 @@ fn test_mockmempool() {
         .map_err(|e| eprintln!("Error encountered: {e}"))
         .unwrap();
 
-        let network = app.handle().relay::<NetworkService<Mock>>();
-        let mempool = app.handle().relay::<MockMempoolService>();
-
+        let overwatch_handle = app.handle().clone();
         app.spawn(async move {
-            let network_outbound = network.connect().await.unwrap();
-            let mempool_outbound = mempool.connect().await.unwrap();
+            let network_outbound = overwatch_handle
+                .relay::<NetworkService<_, _>>()
+                .await
+                .unwrap();
+            let mempool_outbound = overwatch_handle
+                .relay::<MockMempoolService>()
+                .await
+                .unwrap();
 
             // subscribe to the mock content topic
             network_outbound

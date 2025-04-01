@@ -5,7 +5,9 @@ use std::{
 };
 
 use fixed::types::U57F7;
+use nomos_utils::bounded_duration::{MinimalBoundedDuration, SECOND};
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 
 /// Counts the number of effective and drop messages received from a peer during
 /// an interval. `interval` is a field that implements [`futures::Stream`] to
@@ -17,10 +19,12 @@ pub struct ConnectionMonitor {
     drop_messages: U57F7,
 }
 
+#[serde_as]
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct ConnectionMonitorSettings {
     /// Time interval to measure/evaluate the number of messages sent by each
     /// peer.
+    #[serde_as(as = "MinimalBoundedDuration<1, SECOND>")]
     pub interval: Duration,
     /// The number of effective (data or cover) messages that a peer is expected
     /// to send in a given time window.

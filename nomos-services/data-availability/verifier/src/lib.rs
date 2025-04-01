@@ -4,7 +4,7 @@ pub mod storage;
 
 use std::{
     error::Error,
-    fmt::{Debug, Formatter},
+    fmt::{Debug, Display, Formatter},
     sync::Arc,
 };
 
@@ -16,9 +16,8 @@ use nomos_storage::StorageService;
 use nomos_tracing::info_with_id;
 use overwatch::{
     services::{
-        relay::{Relay, RelayMessage},
         state::{NoOperator, NoState},
-        ServiceCore, ServiceData, ServiceId,
+        AsServiceId, ServiceCore, ServiceData,
     },
     DynError, OpaqueServiceStateHandle,
 };
@@ -29,7 +28,6 @@ use tokio::sync::oneshot::Sender;
 use tokio_stream::StreamExt;
 use tracing::{error, instrument};
 
-const DA_VERIFIER_TAG: ServiceId = "DA-Verifier";
 pub enum DaVerifierMsg<Commitments, LightShare, Share, Answer> {
     AddShare {
         share: Share,
@@ -55,33 +53,29 @@ impl<C: 'static, L: 'static, B: 'static, A: 'static> Debug for DaVerifierMsg<C, 
     }
 }
 
-impl<C: 'static, L: 'static, B: 'static, A: 'static> RelayMessage for DaVerifierMsg<C, L, B, A> {}
-
-pub struct DaVerifierService<Backend, N, S>
+pub struct DaVerifierService<Backend, N, S, RuntimeServiceId>
 where
     Backend: VerifierBackend,
     Backend::Settings: Clone,
     Backend::DaShare: 'static,
-    N: NetworkAdapter,
+    N: NetworkAdapter<RuntimeServiceId>,
     N::Settings: Clone,
-    S: DaStorageAdapter,
+    S: DaStorageAdapter<RuntimeServiceId>,
 {
-    network_relay: Relay<NetworkService<N::Backend>>,
-    service_state: OpaqueServiceStateHandle<Self>,
-    storage_relay: Relay<StorageService<S::Backend>>,
+    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
     verifier: Backend,
 }
 
-impl<Backend, N, S> DaVerifierService<Backend, N, S>
+impl<Backend, N, S, RuntimeServiceId> DaVerifierService<Backend, N, S, RuntimeServiceId>
 where
     Backend: VerifierBackend + Send + Sync + 'static,
     Backend::DaShare: Debug + Send,
     Backend::Error: Error + Send + Sync,
     Backend::Settings: Clone,
     <Backend::DaShare as Share>::BlobId: AsRef<[u8]>,
-    N: NetworkAdapter<Share = Backend::DaShare> + Send + 'static,
+    N: NetworkAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + 'static,
     N::Settings: Clone,
-    S: DaStorageAdapter<Share = Backend::DaShare> + Send + Sync + 'static,
+    S: DaStorageAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + Sync + 'static,
 {
     #[instrument(skip_all)]
     async fn handle_new_share(
@@ -108,19 +102,19 @@ where
     }
 }
 
-impl<Backend, N, S> ServiceData for DaVerifierService<Backend, N, S>
+impl<Backend, N, S, RuntimeServiceId> ServiceData
+    for DaVerifierService<Backend, N, S, RuntimeServiceId>
 where
     Backend: VerifierBackend,
     Backend::Settings: Clone,
-    N: NetworkAdapter,
+    N: NetworkAdapter<RuntimeServiceId>,
     N::Settings: Clone,
-    S: DaStorageAdapter,
+    S: DaStorageAdapter<RuntimeServiceId>,
     S::Settings: Clone,
 {
-    const SERVICE_ID: ServiceId = DA_VERIFIER_TAG;
     type Settings = DaVerifierServiceSettings<Backend::Settings, N::Settings, S::Settings>;
     type State = NoState<Self::Settings>;
-    type StateOperator = NoOperator<Self::State, Self::Settings>;
+    type StateOperator = NoOperator<Self::State>;
     type Message = DaVerifierMsg<
         <Backend::DaShare as Share>::SharesCommitments,
         <Backend::DaShare as Share>::LightShare,
@@ -130,7 +124,8 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Backend, N, S> ServiceCore for DaVerifierService<Backend, N, S>
+impl<Backend, N, S, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for DaVerifierService<Backend, N, S, RuntimeServiceId>
 where
     Backend: VerifierBackend + Send + Sync + 'static,
     Backend::Settings: Clone + Send + Sync + 'static,
@@ -139,23 +134,27 @@ where
     <Backend::DaShare as Share>::BlobId: AsRef<[u8]> + Debug + Send + Sync + 'static,
     <Backend::DaShare as Share>::LightShare: Debug + Send + Sync + 'static,
     <Backend::DaShare as Share>::SharesCommitments: Debug + Send + Sync + 'static,
-    N: NetworkAdapter<Share = Backend::DaShare> + Send + Sync + 'static,
+    N: NetworkAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + Sync + 'static,
     N::Settings: Clone + Send + Sync + 'static,
-    S: DaStorageAdapter<Share = Backend::DaShare> + Send + Sync + 'static,
+    S: DaStorageAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + Sync + 'static,
     S::Settings: Clone + Send + Sync + 'static,
+    RuntimeServiceId: Debug
+        + Display
+        + Sync
+        + Send
+        + 'static
+        + AsServiceId<Self>
+        + AsServiceId<NetworkService<N::Backend, RuntimeServiceId>>
+        + AsServiceId<StorageService<S::Backend, RuntimeServiceId>>,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self>,
+        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
         _init_state: Self::State,
     ) -> Result<Self, DynError> {
         let DaVerifierServiceSettings {
             verifier_settings, ..
         } = service_state.settings_reader.get_updated_settings();
-        let network_relay = service_state.overwatch_handle.relay();
-        let storage_relay = service_state.overwatch_handle.relay();
         Ok(Self {
-            network_relay,
-            storage_relay,
             service_state,
             verifier: Backend::new(verifier_settings),
         })
@@ -168,8 +167,6 @@ where
         // his own index coming from the position of his bls public key landing
         // in the above-mentioned list.
         let Self {
-            network_relay,
-            storage_relay,
             mut service_state,
             verifier,
         } = self;
@@ -179,11 +176,17 @@ where
             ..
         } = service_state.settings_reader.get_updated_settings();
 
-        let network_relay = network_relay.connect().await?;
+        let network_relay = service_state
+            .overwatch_handle
+            .relay::<NetworkService<_, _>>()
+            .await?;
         let network_adapter = N::new(network_adapter_settings, network_relay).await;
         let mut share_stream = network_adapter.share_stream().await;
 
-        let storage_relay = storage_relay.connect().await?;
+        let storage_relay = service_state
+            .overwatch_handle
+            .relay::<StorageService<_, _>>()
+            .await?;
         let storage_adapter = S::new(storage_relay).await;
 
         let mut lifecycle_stream = service_state.lifecycle_handle.message_stream();
@@ -236,7 +239,7 @@ where
                     }
                 }
                 Some(msg) = lifecycle_stream.next() => {
-                    if lifecycle::should_stop_service::<Self>(&msg) {
+                    if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
                         break;
                     }
                 }

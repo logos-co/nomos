@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt::Debug, pin::Pin, time::Duration};
+use std::{collections::HashSet, fmt::Debug, marker::PhantomData, pin::Pin, time::Duration};
 
 use futures::{stream::BoxStream, Stream, StreamExt};
 use kzgrs_backend::common::share::DaShare;
@@ -27,7 +27,7 @@ use tokio::sync::oneshot;
 
 use crate::adapters::network::DispersalNetworkAdapter;
 
-pub struct Libp2pNetworkAdapter<Membership>
+pub struct Libp2pNetworkAdapter<Membership, RuntimeServiceId>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -36,10 +36,12 @@ where
         + Sync
         + 'static,
 {
-    outbound_relay: OutboundRelay<DaNetworkMsg<DaNetworkExecutorBackend<Membership>>>,
+    outbound_relay:
+        OutboundRelay<DaNetworkMsg<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>>,
+    _phantom: PhantomData<RuntimeServiceId>,
 }
 
-impl<Membership> Libp2pNetworkAdapter<Membership>
+impl<Membership, RuntimeServiceId> Libp2pNetworkAdapter<Membership, RuntimeServiceId>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -47,6 +49,7 @@ where
         + Send
         + Sync
         + 'static,
+    RuntimeServiceId: Sync,
 {
     async fn start_sampling(
         &self,
@@ -70,7 +73,8 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Membership> DispersalNetworkAdapter for Libp2pNetworkAdapter<Membership>
+impl<Membership, RuntimeServiceId> DispersalNetworkAdapter
+    for Libp2pNetworkAdapter<Membership, RuntimeServiceId>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -78,13 +82,17 @@ where
         + Send
         + Sync
         + 'static,
+    RuntimeServiceId: Sync,
 {
-    type NetworkService = NetworkService<DaNetworkExecutorBackend<Membership>>;
+    type NetworkService = NetworkService<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>;
 
     type SubnetworkId = Membership::NetworkId;
 
     fn new(outbound_relay: OutboundRelay<<Self::NetworkService as ServiceData>::Message>) -> Self {
-        Self { outbound_relay }
+        Self {
+            outbound_relay,
+            _phantom: PhantomData,
+        }
     }
 
     async fn disperse(

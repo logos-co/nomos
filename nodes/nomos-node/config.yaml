@@ -61,12 +61,8 @@ blend:
     max_emission_frequency: 1.0
     drop_message_probability: 0.5
   cover_traffic:
-    epoch_duration:
-      secs: 432000
-      nanos: 0
-    slot_duration:
-      secs: 20
-      nanos: 0
+    epoch_duration: [432000, 0]
+    slot_duration: [20, 0]
   membership:
     - id: 12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
       address: /ip4/127.0.0.1/udp/8720/quic-v1
@@ -165,9 +161,7 @@ da_network:
       max_replication_failures: 3
       malicious_threshold: 5
     monitor_settings:
-      failure_time_window:
-        secs: 10
-        nanos: 0
+      failure_time_window: [10, 0],
       time_decay_factor: "0.8"
     balancer_interval:
       secs: 5
@@ -561,9 +555,7 @@ cryptarchia:
         roots: []
       total_stake: 2
   time:
-    slot_duration:
-      secs: 2
-      nanos: 0
+    slot_duration: [2, 0]
     chain_start_time: [2025, 41, 9, 38, 29, 993653000, 0, 0, 0]
   leader_config:
     notes:

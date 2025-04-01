@@ -5,6 +5,7 @@ name    = "common-http-client"
 version = "0.1.0"
 
 [dependencies]
+futures             = "0.3.31"
 nomos-core          = { workspace = true }
 nomos-da-messages   = { workspace = true }
 reqwest             = { workspace = true }

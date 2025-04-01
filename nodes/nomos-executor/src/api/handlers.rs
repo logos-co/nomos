@@ -1,7 +1,7 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 
 use axum::{extract::State, response::Response, Json};
-use nomos_api::http::da;
+use nomos_api::http::da::{self, DaDispersal};
 use nomos_core::da::blob::metadata;
 use nomos_da_dispersal::{
     adapters::{mempool::DaMempoolAdapter, network::DispersalNetworkAdapter},
@@ -10,7 +10,7 @@ use nomos_da_dispersal::{
 use nomos_da_network_core::SubnetworkId;
 use nomos_libp2p::PeerId;
 use nomos_node::make_request_and_return_response;
-use overwatch::overwatch::handle::OverwatchHandle;
+use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 
@@ -30,8 +30,15 @@ pub struct DispersalRequest<Metadata> {
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn disperse_data<Backend, NetworkAdapter, MempoolAdapter, Membership, Metadata>(
-    State(handle): State<OverwatchHandle>,
+pub async fn disperse_data<
+    Backend,
+    NetworkAdapter,
+    MempoolAdapter,
+    Membership,
+    Metadata,
+    RuntimeServiceId,
+>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(dispersal_req): Json<DispersalRequest<Metadata>>,
 ) -> Response
 where
@@ -51,6 +58,19 @@ where
     NetworkAdapter: DispersalNetworkAdapter<SubnetworkId = Membership::NetworkId> + Send,
     MempoolAdapter: DaMempoolAdapter,
     Metadata: DeserializeOwned + metadata::Metadata + Debug + Send + 'static,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + AsServiceId<
+            DaDispersal<
+                Backend,
+                NetworkAdapter,
+                MempoolAdapter,
+                Membership,
+                Metadata,
+                RuntimeServiceId,
+            >,
+        >,
 {
     make_request_and_return_response!(da::disperse_data::<
         Backend,
@@ -58,5 +78,6 @@ where
         MempoolAdapter,
         Membership,
         Metadata,
+        RuntimeServiceId,
     >(&handle, dispersal_req.data, dispersal_req.metadata))
 }

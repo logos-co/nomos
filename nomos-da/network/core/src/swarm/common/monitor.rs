@@ -5,6 +5,7 @@ use std::{
 
 use fixed::types::U57F7;
 use libp2p::PeerId;
+use nomos_utils::bounded_duration::{MinimalBoundedDuration, NANO};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -98,9 +99,48 @@ impl From<&SamplingEvent> for MonitorEvent {
     }
 }
 
+/// Data Transfer Object (DTO) for the connection monitor stats.
+pub mod dto {
+    use std::collections::HashMap;
+
+    use fixed::types::U57F7;
+    use libp2p::PeerId;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+    pub struct MonitorStats(pub HashMap<PeerId, PeerStats>);
+
+    impl From<&HashMap<PeerId, super::PeerStats>> for MonitorStats {
+        fn from(stats: &HashMap<PeerId, super::PeerStats>) -> Self {
+            Self(stats.iter().map(|(k, v)| (*k, v.into())).collect())
+        }
+    }
+
+    #[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+    pub struct PeerStats {
+        // Workaround for clippy: "all fields have the same postfix: `failures_rate`"
+        #[serde(rename = "dispersal_failure_rate")]
+        pub dispersal: U57F7,
+        #[serde(rename = "sampling_failure_rate")]
+        pub sampling: U57F7,
+        #[serde(rename = "replication_failure_rate")]
+        pub replication: U57F7,
+    }
+
+    impl From<&super::PeerStats> for PeerStats {
+        fn from(stats: &super::PeerStats) -> Self {
+            Self {
+                dispersal: stats.dispersal_failures_rate,
+                sampling: stats.sampling_failures_rate,
+                replication: stats.replication_failures_rate,
+            }
+        }
+    }
+}
+
 /// Tracks failure rates for different protocols using exponential weighted
 /// moving average.
-#[derive(Default, Debug)]
+#[derive(Copy, Clone, Default, Debug)]
 pub struct PeerStats {
     // Calculated using EWMA to give more weight to recent failures while gradually decaying over
     // time.
@@ -204,8 +244,10 @@ pub trait PeerHealthPolicy {
     fn is_peer_unhealthy(&self, stats: &Self::PeerStats) -> bool;
 }
 
+#[serde_with::serde_as]
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct DAConnectionMonitorSettings {
+    #[serde_as(as = "MinimalBoundedDuration<1, NANO>")]
     pub failure_time_window: Duration,
     pub time_decay_factor: U57F7,
 }
@@ -255,6 +297,7 @@ where
     Policy: PeerHealthPolicy<PeerStats = PeerStats>,
 {
     type Event = MonitorEvent;
+    type Stats = dto::MonitorStats;
 
     fn record_event(&mut self, event: Self::Event) -> Option<ConnectionMonitorOutput> {
         if let Some(peer_id) = event.peer_id() {
@@ -300,6 +343,10 @@ where
 
     fn reset_peer(&mut self, peer_id: &PeerId) {
         self.peer_stats.remove(peer_id);
+    }
+
+    fn stats(&self) -> Self::Stats {
+        (&self.peer_stats).into()
     }
 }
 

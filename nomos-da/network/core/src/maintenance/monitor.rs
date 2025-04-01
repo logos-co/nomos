@@ -14,7 +14,10 @@ use libp2p::{
     Multiaddr, PeerId,
 };
 use thiserror::Error;
-use tokio::sync::{mpsc, mpsc::UnboundedSender, oneshot};
+use tokio::sync::{
+    mpsc::{self, UnboundedReceiver, UnboundedSender},
+    oneshot,
+};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum PeerStatus {
@@ -30,29 +33,57 @@ pub struct ConnectionMonitorOutput {
 
 pub trait ConnectionMonitor {
     type Event;
+    type Stats;
 
     fn record_event(&mut self, event: Self::Event) -> Option<ConnectionMonitorOutput>;
     fn reset_peer(&mut self, peer_id: &PeerId);
+    fn stats(&self) -> Self::Stats;
 }
 
 #[derive(Debug)]
-pub enum PeerCommand {
+pub enum ConnectionMonitorCommand<Stats> {
     Block(PeerId, oneshot::Sender<bool>),
     Unblock(PeerId, oneshot::Sender<bool>),
     BlacklistedPeers(oneshot::Sender<Vec<PeerId>>),
+    Stats(oneshot::Sender<Stats>),
+}
+
+impl<Stats> ConnectionMonitorCommand<Stats> {
+    #[must_use]
+    pub const fn discriminant(&self) -> &str {
+        match self {
+            Self::Block(_, _) => "Block",
+            Self::Unblock(_, _) => "Unblock",
+            Self::BlacklistedPeers(_) => "BlacklistedPeers",
+            Self::Stats(_) => "Stats",
+        }
+    }
+
+    #[must_use]
+    pub const fn peer_id(&self) -> Option<&PeerId> {
+        match self {
+            Self::Block(peer, _) | Self::Unblock(peer, _) => Some(peer),
+            Self::BlacklistedPeers(_) | Self::Stats(_) => None,
+        }
+    }
 }
 
 /// A `NetworkBehaviour` that block connections to malicious peers or
 /// temporarily disconnects from unhealthy peers.
 #[derive(Debug)]
-pub struct ConnectionMonitorBehaviour<Monitor> {
+pub struct ConnectionMonitorBehaviour<Monitor>
+where
+    Monitor: ConnectionMonitor,
+{
     monitor: Monitor,
-    malicous_peers: HashSet<PeerId>,
+    malicious_peers: HashSet<PeerId>,
     unhealthy_peers: HashMap<PeerId, Instant>,
     close_connections: VecDeque<PeerId>,
     redial_cooldown: Duration,
-    peer_request_sender: UnboundedSender<PeerCommand>,
-    peer_receiver: mpsc::UnboundedReceiver<PeerCommand>,
+    command_sender:
+        UnboundedSender<ConnectionMonitorCommand<<Monitor as ConnectionMonitor>::Stats>>,
+    command_receiver:
+        UnboundedReceiver<ConnectionMonitorCommand<<Monitor as ConnectionMonitor>::Stats>>,
     waker: Option<Waker>,
 }
 
@@ -61,16 +92,16 @@ where
     Monitor: ConnectionMonitor,
 {
     pub fn new(monitor: Monitor, redial_cooldown: Duration) -> Self {
-        let (block_peer_request_sender, block_peer_receiver) = mpsc::unbounded_channel();
+        let (command_sender, command_receiver) = mpsc::unbounded_channel();
 
         Self {
             monitor,
-            malicous_peers: HashSet::new(),
+            malicious_peers: HashSet::new(),
             unhealthy_peers: HashMap::new(),
             close_connections: VecDeque::new(),
             redial_cooldown,
-            peer_request_sender: block_peer_request_sender,
-            peer_receiver: block_peer_receiver,
+            command_sender,
+            command_receiver,
             waker: None,
         }
     }
@@ -88,7 +119,7 @@ where
     /// Returns whether the peer was newly inserted. Does nothing if the peer
     /// was already present in the set.
     pub fn block_peer(&mut self, peer: PeerId) -> bool {
-        let inserted = self.malicous_peers.insert(peer);
+        let inserted = self.malicious_peers.insert(peer);
         if inserted {
             self.close_connections.push_back(peer);
         }
@@ -112,7 +143,7 @@ where
     /// Returns whether the peer was present in the set. Does nothing if the
     /// peer was not present in the set.
     pub fn unblock_peer(&mut self, peer: PeerId) -> bool {
-        self.malicous_peers.remove(&peer) || self.unhealthy_peers.remove(&peer).is_some()
+        self.malicious_peers.remove(&peer) || self.unhealthy_peers.remove(&peer).is_some()
     }
 
     pub fn record_event(&mut self, event: Monitor::Event) {
@@ -131,8 +162,10 @@ where
         }
     }
 
-    pub fn peer_request_channel(&self) -> UnboundedSender<PeerCommand> {
-        self.peer_request_sender.clone()
+    pub fn command_channel(
+        &self,
+    ) -> UnboundedSender<ConnectionMonitorCommand<<Monitor as ConnectionMonitor>::Stats>> {
+        self.command_sender.clone()
     }
 
     /// Enforce connection rules (deny blocked peers).
@@ -141,7 +174,7 @@ where
         self.unhealthy_peers
             .retain(|_peer, &mut until| now <= until);
 
-        if self.malicous_peers.contains(peer) {
+        if self.malicious_peers.contains(peer) {
             return Err(ConnectionDenied::new(Blocked { peer: *peer }));
         }
         if self.unhealthy_peers.contains_key(peer) {
@@ -228,19 +261,23 @@ where
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         self.waker = Some(cx.waker().clone());
 
-        if let Poll::Ready(Some(cmd)) = self.peer_receiver.poll_recv(cx) {
+        if let Poll::Ready(Some(cmd)) = self.command_receiver.poll_recv(cx) {
             match cmd {
-                PeerCommand::Block(peer, response) => {
+                ConnectionMonitorCommand::Block(peer, response) => {
                     let result = self.block_peer(peer);
                     let _ = response.send(result);
                 }
-                PeerCommand::Unblock(peer, response) => {
+                ConnectionMonitorCommand::Unblock(peer, response) => {
                     let result = self.unblock_peer(peer);
                     let _ = response.send(result);
                 }
-                PeerCommand::BlacklistedPeers(response) => {
-                    let blacklisted_peers = self.malicous_peers.iter().copied().collect();
+                ConnectionMonitorCommand::BlacklistedPeers(response) => {
+                    let blacklisted_peers = self.malicious_peers.iter().copied().collect();
                     let _ = response.send(blacklisted_peers);
+                }
+                ConnectionMonitorCommand::Stats(response) => {
+                    let stats = self.monitor.stats();
+                    let _ = response.send(stats);
                 }
             }
 
@@ -270,8 +307,8 @@ mod tests {
     use tokio::sync::oneshot;
 
     use crate::maintenance::monitor::{
-        Blocked, ConnectionMonitor, ConnectionMonitorBehaviour, ConnectionMonitorOutput,
-        PeerCommand, PeerStatus, TemporarilyBlocked,
+        Blocked, ConnectionMonitor, ConnectionMonitorBehaviour, ConnectionMonitorCommand,
+        ConnectionMonitorOutput, PeerStatus, TemporarilyBlocked,
     };
 
     #[derive(Default)]
@@ -281,6 +318,7 @@ mod tests {
 
     impl ConnectionMonitor for MockMonitor {
         type Event = (PeerId, PeerStatus);
+        type Stats = ();
 
         fn record_event(
             &mut self,
@@ -295,6 +333,10 @@ mod tests {
 
         fn reset_peer(&mut self, peer_id: &PeerId) {
             self.stats.remove(peer_id);
+        }
+
+        fn stats(&self) {
+            unimplemented!()
         }
     }
 
@@ -390,13 +432,7 @@ mod tests {
 
         let listener_peer = *listener.local_peer_id();
 
-        let sender_channel = {
-            dialer
-                .lock()
-                .unwrap()
-                .behaviour_mut()
-                .peer_request_channel()
-        };
+        let sender_channel = dialer.lock().unwrap().behaviour_mut().command_channel();
 
         let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
 
@@ -421,7 +457,10 @@ mod tests {
         let response_channel = oneshot::channel();
 
         sender_channel
-            .send(PeerCommand::Block(listener_peer, response_channel.0))
+            .send(ConnectionMonitorCommand::Block(
+                listener_peer,
+                response_channel.0,
+            ))
             .unwrap();
 
         let result = tokio::time::timeout(Duration::from_millis(100), response_channel.1)
@@ -433,7 +472,9 @@ mod tests {
         // blacklisted peers
         let response_channel = oneshot::channel();
         sender_channel
-            .send(PeerCommand::BlacklistedPeers(response_channel.0))
+            .send(ConnectionMonitorCommand::BlacklistedPeers(
+                response_channel.0,
+            ))
             .unwrap();
 
         let blacklisted_peers =
@@ -448,7 +489,10 @@ mod tests {
         // unblock
         let response_channel = oneshot::channel();
         sender_channel
-            .send(PeerCommand::Unblock(listener_peer, response_channel.0))
+            .send(ConnectionMonitorCommand::Unblock(
+                listener_peer,
+                response_channel.0,
+            ))
             .unwrap();
 
         let result = tokio::time::timeout(Duration::from_millis(100), response_channel.1)
@@ -460,7 +504,9 @@ mod tests {
         // blacklisted peers
         let response_channel = oneshot::channel();
         sender_channel
-            .send(PeerCommand::BlacklistedPeers(response_channel.0))
+            .send(ConnectionMonitorCommand::BlacklistedPeers(
+                response_channel.0,
+            ))
             .unwrap();
 
         let blacklisted_peers =

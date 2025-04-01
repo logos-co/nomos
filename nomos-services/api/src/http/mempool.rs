@@ -1,4 +1,5 @@
 use core::{fmt::Debug, hash::Hash};
+use std::fmt::Display;
 
 use nomos_core::{da::blob::info::DispersedBlobInfo, header::HeaderId};
 use nomos_da_sampling::{
@@ -10,29 +11,33 @@ use nomos_mempool::{
     TxMempoolService,
 };
 use nomos_network::backends::NetworkBackend;
-use overwatch::DynError;
+use overwatch::{services::AsServiceId, DynError};
 use rand::{RngCore, SeedableRng};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
 use crate::wait_with_timeout;
 
-pub async fn add_tx<N, A, Item, Key>(
-    handle: &overwatch::overwatch::handle::OverwatchHandle,
+pub async fn add_tx<N, A, Item, Key, RuntimeServiceId>(
+    handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
     item: Item,
     converter: impl Fn(&Item) -> Key,
 ) -> Result<(), DynError>
 where
-    N: NetworkBackend,
-    A: NetworkAdapter<Backend = N, Payload = Item, Key = Key> + Send + Sync + 'static,
+    N: NetworkBackend<RuntimeServiceId>,
+    A: NetworkAdapter<RuntimeServiceId, Backend = N, Payload = Item, Key = Key>
+        + Send
+        + Sync
+        + 'static,
     A::Settings: Send + Sync,
     Item: Clone + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static + Hash,
     Key: Clone + Debug + Ord + Hash + Send + Serialize + for<'de> Deserialize<'de> + 'static,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + AsServiceId<TxMempoolService<A, MockPool<HeaderId, Item, Key>, RuntimeServiceId>>,
 {
-    let relay = handle
-        .relay::<TxMempoolService<A, MockPool<HeaderId, Item, Key>>>()
-        .connect()
-        .await?;
+    let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
 
     relay
@@ -62,14 +67,15 @@ pub async fn add_blob_info<
     DaVerifierNetwork,
     DaVerifierStorage,
     ApiAdapter,
+    RuntimeServiceId,
 >(
-    handle: &overwatch::overwatch::handle::OverwatchHandle,
+    handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
     item: A::Payload,
     converter: impl Fn(&A::Payload) -> Key,
 ) -> Result<(), DynError>
 where
-    N: NetworkBackend,
-    A: NetworkAdapter<Backend = N, Key = Key> + Send + Sync + 'static,
+    N: NetworkBackend<RuntimeServiceId>,
+    A: NetworkAdapter<RuntimeServiceId, Backend = N, Key = Key> + Send + Sync + 'static,
     A::Payload: DispersedBlobInfo + Into<Item> + Debug,
     A::Settings: Send + Sync,
     Item: Clone + Debug + Send + Sync + 'static + Hash + Serialize + for<'de> Deserialize<'de>,
@@ -78,31 +84,35 @@ where
     SamplingBackend::BlobId: Debug,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::Settings: Clone,
-    SamplingAdapter: DaSamplingNetworkAdapter + Send,
+    SamplingAdapter: DaSamplingNetworkAdapter<RuntimeServiceId> + Send,
     SamplingRng: SeedableRng + RngCore + Send,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter,
-    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
     DaVerifierBackend: VerifierBackend + Send + 'static,
     DaVerifierBackend::Settings: Clone,
-    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter,
+    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + AsServiceId<
+            DaMempoolService<
+                A,
+                MockPool<HeaderId, Item, Key>,
+                SamplingBackend,
+                SamplingAdapter,
+                SamplingRng,
+                SamplingStorage,
+                DaVerifierBackend,
+                DaVerifierNetwork,
+                DaVerifierStorage,
+                ApiAdapter,
+                RuntimeServiceId,
+            >,
+        >,
 {
-    let relay = handle
-        .relay::<DaMempoolService<
-            A,
-            MockPool<HeaderId, Item, Key>,
-            SamplingBackend,
-            SamplingAdapter,
-            SamplingRng,
-            SamplingStorage,
-            DaVerifierBackend,
-            DaVerifierNetwork,
-            DaVerifierStorage,
-            ApiAdapter,
-        >>()
-        .connect()
-        .await?;
+    let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
 
     relay

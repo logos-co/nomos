@@ -31,9 +31,10 @@ pub struct KzgrsMempoolAdapter<
     DaVerifierNetwork,
     DaVerifierStorage,
     ApiAdapter,
+    RuntimeServiceId,
 > where
     DaPool: MemPool<BlockId = HeaderId>,
-    DaPoolAdapter: MempoolAdapter<Key = DaPool::Key>,
+    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     DaPool::Item: Clone + Eq + Hash + Debug + 'static,
     DaPool::Key: Debug + 'static,
@@ -61,6 +62,7 @@ impl<
         DaVerifierNetwork,
         DaVerifierStorage,
         ApiAdapter,
+        RuntimeServiceId,
     > DaMempoolAdapter
     for KzgrsMempoolAdapter<
         DaPoolAdapter,
@@ -73,11 +75,12 @@ impl<
         DaVerifierNetwork,
         DaVerifierStorage,
         ApiAdapter,
+        RuntimeServiceId,
     >
 where
     DaPool: RecoverableMempool<BlockId = HeaderId, Key = BlobId>,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPoolAdapter: MempoolAdapter<Key = DaPool::Key, Payload = BlobInfo>,
+    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key, Payload = BlobInfo>,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug + Send,
     DaPool::Item: Clone + Eq + Hash + Debug + Send + 'static,
     DaPool::Key: Debug + Send + 'static,
@@ -87,12 +90,13 @@ where
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
-    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter + Send + Sync,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter + Send + Sync,
-    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter + Send + Sync,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + Sync + 'static,
     DaVerifierBackend::Settings: Clone,
-    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter + Send + Sync,
+    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
     DaVerifierNetwork::Settings: Clone,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
@@ -107,6 +111,7 @@ where
         DaVerifierNetwork,
         DaVerifierStorage,
         ApiAdapter,
+        RuntimeServiceId,
     >;
     type BlobId = BlobId;
     type Metadata = dispersal::Metadata;

@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{collections::HashSet, hash::Hash, ops::Range};
 
 use nomos_core::da::blob::{metadata::Metadata, Share};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -24,4 +24,15 @@ pub struct DASharesCommitmentsRequest<S: Share> {
 pub struct DaSamplingRequest<S: Share> {
     pub blob_id: S::BlobId,
     pub share_idx: S::ShareIndex,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct GetSharesRequest<B: Share>
+where
+    <B as Share>::ShareIndex: Serialize + DeserializeOwned + Eq + Hash,
+{
+    pub blob_id: B::BlobId,
+    pub requested_shares: HashSet<B::ShareIndex>,
+    pub filter_shares: HashSet<B::ShareIndex>,
+    pub return_available: bool,
 }

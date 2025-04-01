@@ -8,7 +8,6 @@ use std::fmt::{Debug, Error, Formatter};
 
 use backend::{MempoolError, Status};
 pub use da::{service::DaMempoolService, settings::DaMempoolSettings};
-use overwatch::services::relay::RelayMessage;
 use tokio::sync::oneshot::Sender;
 pub use tx::{service::TxMempoolService, settings::TxMempoolSettings};
 
@@ -78,9 +77,4 @@ where
 pub struct MempoolMetrics {
     pub pending_items: usize,
     pub last_item_timestamp: u64,
-}
-
-impl<BlockId: 'static, Payload: 'static, Item: 'static, Key: 'static> RelayMessage
-    for MempoolMsg<BlockId, Payload, Item, Key>
-{
 }

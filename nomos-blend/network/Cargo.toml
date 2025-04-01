@@ -5,7 +5,7 @@ name    = "nomos-blend-network"
 version = "0.1.0"
 
 [dependencies]
-cached              = "0.53.1"
+cached              = { workspace = true }
 futures             = "0.3.30"
 libp2p              = { workspace = true }
 nomos-blend         = { workspace = true }

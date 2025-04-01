@@ -9,12 +9,14 @@ use overwatch::{
 };
 
 #[async_trait::async_trait]
-pub trait DaStorageAdapter {
+pub trait DaStorageAdapter<RuntimeServiceId> {
     type Backend: StorageBackend + Send + Sync + 'static;
     type Settings: Clone + Send + Sync + 'static;
     type Share: Share + Clone;
     async fn new(
-        storage_relay: OutboundRelay<<StorageService<Self::Backend> as ServiceData>::Message>,
+        storage_relay: OutboundRelay<
+            <StorageService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
+        >,
     ) -> Self;
 
     async fn get_commitments(

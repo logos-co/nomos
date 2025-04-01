@@ -1,38 +1,44 @@
+use std::fmt::{Debug, Display};
+
 use futures::stream::StreamExt;
 use overwatch::{
     overwatch::handle::OverwatchHandle,
     services::{
-        relay::NoMessage,
         state::{NoOperator, NoState},
-        ServiceCore, ServiceData, ServiceId,
+        AsServiceId, ServiceCore, ServiceData,
     },
     DynError, OpaqueServiceStateHandle,
 };
 use services_utils::overwatch::lifecycle;
 
-pub struct SystemSig {
-    service_state: OpaqueServiceStateHandle<Self>,
+pub struct SystemSig<RuntimeServiceId> {
+    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
 }
 
-impl SystemSig {
-    async fn ctrlc_signal_received(overwatch_handle: &OverwatchHandle) {
+impl<RuntimeServiceId> SystemSig<RuntimeServiceId>
+where
+    RuntimeServiceId: Debug + Display + Sync,
+{
+    async fn ctrlc_signal_received(overwatch_handle: &OverwatchHandle<RuntimeServiceId>) {
         overwatch_handle.kill().await;
     }
 }
 
-impl ServiceData for SystemSig {
-    const SERVICE_ID: ServiceId = "SystemSig";
+impl<RuntimeServiceId> ServiceData for SystemSig<RuntimeServiceId> {
     const SERVICE_RELAY_BUFFER_SIZE: usize = 1;
     type Settings = ();
     type State = NoState<Self::Settings>;
-    type StateOperator = NoOperator<Self::State, Self::Settings>;
-    type Message = NoMessage;
+    type StateOperator = NoOperator<Self::State>;
+    type Message = ();
 }
 
 #[async_trait::async_trait]
-impl ServiceCore for SystemSig {
+impl<RuntimeServiceId> ServiceCore<RuntimeServiceId> for SystemSig<RuntimeServiceId>
+where
+    RuntimeServiceId: Debug + Display + Sync + Send + AsServiceId<Self>,
+{
     fn init(
-        service_state: OpaqueServiceStateHandle<Self>,
+        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
         _init_state: Self::State,
     ) -> Result<Self, DynError> {
         Ok(Self { service_state })
@@ -52,7 +58,7 @@ impl ServiceCore for SystemSig {
                     Self::ctrlc_signal_received(&service_state.overwatch_handle).await;
                 }
                 Some(msg) = lifecycle_stream.next() => {
-                    if  lifecycle::should_stop_service::<Self>(&msg) {
+                    if  lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
                         break;
                     }
                 }

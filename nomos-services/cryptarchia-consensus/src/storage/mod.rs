@@ -5,12 +5,14 @@ use nomos_storage::{backends::StorageBackend, StorageService};
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 
 #[async_trait::async_trait]
-pub trait StorageAdapter {
+pub trait StorageAdapter<RuntimeServiceId> {
     type Backend: StorageBackend + Send + Sync;
     type Block;
 
     async fn new(
-        network_relay: OutboundRelay<<StorageService<Self::Backend> as ServiceData>::Message>,
+        network_relay: OutboundRelay<
+            <StorageService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
+        >,
     ) -> Self;
 
     /// Sends a store message to the storage service to retrieve a block by its

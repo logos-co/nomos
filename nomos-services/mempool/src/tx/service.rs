@@ -4,13 +4,16 @@ pub mod openapi {
     pub use crate::backend::Status;
 }
 
-use std::{fmt::Debug, marker::PhantomData};
+use std::{
+    fmt::{Debug, Display},
+    marker::PhantomData,
+};
 
 use futures::StreamExt;
 use nomos_network::{NetworkMsg, NetworkService};
 use overwatch::{
     services::{
-        handle::ServiceStateHandle, relay::OutboundRelay, ServiceCore, ServiceData, ServiceId,
+        handle::ServiceStateHandle, relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData,
     },
     OpaqueServiceStateHandle,
 };
@@ -28,47 +31,51 @@ use crate::{
 
 /// A tx mempool service that uses a [`JsonFileBackend`] as a recovery
 /// mechanism.
-pub type TxMempoolService<NetworkAdapter, Pool> = GenericTxMempoolService<
+pub type TxMempoolService<NetworkAdapter, Pool, RuntimeServiceId> = GenericTxMempoolService<
     Pool,
     NetworkAdapter,
     JsonFileBackend<
         TxMempoolState<
             <Pool as RecoverableMempool>::RecoveryState,
             <Pool as MemPool>::Settings,
-            <NetworkAdapter as NetworkAdapterTrait>::Settings,
+            <NetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Settings,
         >,
         TxMempoolSettings<
             <Pool as MemPool>::Settings,
-            <NetworkAdapter as NetworkAdapterTrait>::Settings,
+            <NetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Settings,
         >,
     >,
+    RuntimeServiceId,
 >;
 
 /// A generic tx mempool service which wraps around a mempool, a network
 /// adapter, and a recovery backend.
-pub struct GenericTxMempoolService<Pool, NetworkAdapter, RecoveryBackend>
+pub struct GenericTxMempoolService<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId>
 where
     Pool: RecoverableMempool,
     Pool::Settings: Clone,
-    NetworkAdapter: NetworkAdapterTrait,
+    NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId>,
     NetworkAdapter::Settings: Clone,
     RecoveryBackend: RecoveryBackendTrait,
 {
     pool: Pool,
-    service_state_handle: OpaqueServiceStateHandle<Self>,
+    service_state_handle: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
     _phantom: PhantomData<(NetworkAdapter, RecoveryBackend)>,
 }
 
-impl<Pool, NetworkAdapter, RecoveryBackend>
-    GenericTxMempoolService<Pool, NetworkAdapter, RecoveryBackend>
+impl<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId>
+    GenericTxMempoolService<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId>
 where
     Pool: RecoverableMempool,
     Pool::Settings: Clone,
-    NetworkAdapter: NetworkAdapterTrait,
+    NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId>,
     NetworkAdapter::Settings: Clone,
     RecoveryBackend: RecoveryBackendTrait,
 {
-    pub const fn new(pool: Pool, service_state_handle: OpaqueServiceStateHandle<Self>) -> Self {
+    pub const fn new(
+        pool: Pool,
+        service_state_handle: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+    ) -> Self {
         Self {
             pool,
             service_state_handle,
@@ -77,16 +84,15 @@ where
     }
 }
 
-impl<Pool, NetworkAdapter, RecoveryBackend> ServiceData
-    for GenericTxMempoolService<Pool, NetworkAdapter, RecoveryBackend>
+impl<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId> ServiceData
+    for GenericTxMempoolService<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId>
 where
     Pool: RecoverableMempool,
     Pool::Settings: Clone,
-    NetworkAdapter: NetworkAdapterTrait,
+    NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId>,
     NetworkAdapter::Settings: Clone,
     RecoveryBackend: RecoveryBackendTrait,
 {
-    const SERVICE_ID: ServiceId = "mempool-cl";
     type Settings = TxMempoolSettings<Pool::Settings, NetworkAdapter::Settings>;
     type State = TxMempoolState<Pool::RecoveryState, Pool::Settings, NetworkAdapter::Settings>;
     type StateOperator = RecoveryOperator<RecoveryBackend>;
@@ -94,8 +100,8 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Pool, NetworkAdapter, RecoveryBackend> ServiceCore
-    for GenericTxMempoolService<Pool, NetworkAdapter, RecoveryBackend>
+impl<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for GenericTxMempoolService<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId>
 where
     Pool: RecoverableMempool + Send,
     Pool::RecoveryState: Debug + Send + Sync,
@@ -103,12 +109,25 @@ where
     Pool::Item: Clone + Send + 'static,
     Pool::BlockId: Send,
     Pool::Settings: Clone + Sync + Send,
-    NetworkAdapter: NetworkAdapterTrait<Payload = Pool::Item, Key = Pool::Key> + Send,
+    NetworkAdapter:
+        NetworkAdapterTrait<RuntimeServiceId, Payload = Pool::Item, Key = Pool::Key> + Send,
     NetworkAdapter::Settings: Clone + Send + Sync + 'static,
     RecoveryBackend: RecoveryBackendTrait + Send,
+    RuntimeServiceId: Display
+        + Debug
+        + Sync
+        + Send
+        + 'static
+        + AsServiceId<Self>
+        + AsServiceId<NetworkService<NetworkAdapter::Backend, RuntimeServiceId>>,
 {
     fn init(
-        service_state: ServiceStateHandle<Self::Message, Self::Settings, Self::State>,
+        service_state: ServiceStateHandle<
+            Self::Message,
+            Self::Settings,
+            Self::State,
+            RuntimeServiceId,
+        >,
         init_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
         tracing::trace!(
@@ -128,8 +147,7 @@ where
         let network_service_relay = self
             .service_state_handle
             .overwatch_handle
-            .relay::<NetworkService<_>>()
-            .connect()
+            .relay::<NetworkService<_, _>>()
             .await
             .expect("Relay connection with NetworkService should succeed");
 
@@ -161,7 +179,7 @@ where
                     self.service_state_handle.state_updater.update(self.pool.save().into());
                 }
                 Some(lifecycle_msg) = lifecycle_stream.next() =>  {
-                    if lifecycle::should_stop_service::<Self>(&lifecycle_msg) {
+                    if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&lifecycle_msg) {
                         break;
                     }
                 }
@@ -171,15 +189,16 @@ where
     }
 }
 
-impl<Pool, NetworkAdapter, RecoveryBackend>
-    GenericTxMempoolService<Pool, NetworkAdapter, RecoveryBackend>
+impl<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId>
+    GenericTxMempoolService<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId>
 where
     Pool: RecoverableMempool,
     Pool::Item: Clone + Send + 'static,
     Pool::Settings: Clone,
-    NetworkAdapter: NetworkAdapterTrait<Payload = Pool::Item> + Send,
+    NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId, Payload = Pool::Item> + Send,
     NetworkAdapter::Settings: Clone + Send + 'static,
     RecoveryBackend: RecoveryBackendTrait,
+    RuntimeServiceId: 'static,
 {
     #[expect(
         clippy::cognitive_complexity,
@@ -188,7 +207,7 @@ where
     fn handle_mempool_message(
         &mut self,
         message: MempoolMsg<Pool::BlockId, Pool::Item, Pool::Item, Pool::Key>,
-        network_relay: OutboundRelay<NetworkMsg<NetworkAdapter::Backend>>,
+        network_relay: OutboundRelay<NetworkMsg<NetworkAdapter::Backend, RuntimeServiceId>>,
     ) {
         match message {
             MempoolMsg::Add {

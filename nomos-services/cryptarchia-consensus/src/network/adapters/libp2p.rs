@@ -1,6 +1,7 @@
 use std::{hash::Hash, marker::PhantomData};
 
-use nomos_core::{block::Block, wire};
+use cryptarchia_engine::Slot;
+use nomos_core::{block::Block, header::HeaderId, wire};
 use nomos_network::{
     backends::libp2p::{Command, Event, EventKind, Libp2p},
     NetworkMsg, NetworkService,
@@ -21,15 +22,17 @@ use crate::{
     network::{BoxedStream, NetworkAdapter, SyncRequest},
 };
 
-type Relay<T> = OutboundRelay<<NetworkService<T> as ServiceData>::Message>;
+type Relay<T, RuntimeServiceId> =
+    OutboundRelay<<NetworkService<T, RuntimeServiceId> as ServiceData>::Message>;
 
 #[derive(Clone)]
-pub struct LibP2pAdapter<Tx, BlobCert>
+pub struct LibP2pAdapter<Tx, BlobCert, RuntimeServiceId>
 where
     Tx: Clone + Eq + Hash,
     BlobCert: Clone + Eq + Hash,
 {
-    network_relay: OutboundRelay<<NetworkService<Libp2p> as ServiceData>::Message>,
+    network_relay:
+        OutboundRelay<<NetworkService<Libp2p, RuntimeServiceId> as ServiceData>::Message>,
     _phantom_tx: PhantomData<Tx>,
     _blob_cert: PhantomData<BlobCert>,
 }
@@ -39,12 +42,12 @@ pub struct LibP2pAdapterSettings {
     pub topic: String,
 }
 
-impl<Tx, BlobCert> LibP2pAdapter<Tx, BlobCert>
+impl<Tx, BlobCert, RuntimeServiceId> LibP2pAdapter<Tx, BlobCert, RuntimeServiceId>
 where
     Tx: Clone + Eq + Hash + Serialize,
     BlobCert: Clone + Eq + Hash + Serialize,
 {
-    async fn subscribe(relay: &Relay<Libp2p>, topic: &str) {
+    async fn subscribe(relay: &Relay<Libp2p, RuntimeServiceId>, topic: &str) {
         if let Err((e, _)) = relay
             .send(NetworkMsg::Process(Command::Subscribe(topic.into())))
             .await
@@ -55,7 +58,8 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Tx, BlobCert> NetworkAdapter for LibP2pAdapter<Tx, BlobCert>
+impl<Tx, BlobCert, RuntimeServiceId> NetworkAdapter<RuntimeServiceId>
+    for LibP2pAdapter<Tx, BlobCert, RuntimeServiceId>
 where
     Tx: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
     BlobCert: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
@@ -65,7 +69,7 @@ where
     type Tx = Tx;
     type BlobCertificate = BlobCert;
 
-    async fn new(settings: Self::Settings, network_relay: Relay<Libp2p>) -> Self {
+    async fn new(settings: Self::Settings, network_relay: Relay<Libp2p, RuntimeServiceId>) -> Self {
         let relay = network_relay.clone();
         Self::subscribe(&relay, settings.topic.as_str()).await;
         tracing::debug!("Starting up...");
@@ -167,5 +171,19 @@ where
                 }
             }),
         ))
+    }
+
+    async fn fetch_blocks_from_slot(
+        &self,
+        _start_slot: Slot,
+    ) -> Result<BoxedStream<Block<Self::Tx, Self::BlobCertificate>>, DynError> {
+        todo!()
+    }
+
+    async fn fetch_chain_backward(
+        &self,
+        _tip: HeaderId,
+    ) -> Result<BoxedStream<Block<Self::Tx, Self::BlobCertificate>>, DynError> {
+        todo!()
     }
 }

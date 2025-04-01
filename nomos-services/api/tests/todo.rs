@@ -7,10 +7,9 @@ use std::{
 use axum::{routing, Router, Server};
 use nomos_api::{ApiService, ApiServiceSettings, Backend};
 use overwatch::{
+    derive_services,
     overwatch::{handle::OverwatchHandle, OverwatchRunner},
-    OpaqueServiceHandle,
 };
-use overwatch_derive::Services;
 use utoipa::{
     openapi::security::{ApiKey, ApiKeyValue, SecurityScheme},
     Modify, OpenApi,
@@ -19,9 +18,9 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::todo::Store;
 
-#[derive(Services)]
+#[derive_services]
 pub struct NomosApi {
-    http: OpaqueServiceHandle<ApiService<WebServer>>,
+    http: ApiService<WebServer, RuntimeServiceId>,
 }
 
 #[derive(OpenApi)]
@@ -61,7 +60,7 @@ pub struct WebServer {
 }
 
 #[async_trait::async_trait]
-impl Backend for WebServer {
+impl Backend<RuntimeServiceId> for WebServer {
     type Error = hyper::Error;
 
     type Settings = SocketAddr;
@@ -73,7 +72,7 @@ impl Backend for WebServer {
         Ok(Self { addr: settings })
     }
 
-    async fn serve(self, _handle: OverwatchHandle) -> Result<(), Self::Error> {
+    async fn serve(self, _handle: OverwatchHandle<RuntimeServiceId>) -> Result<(), Self::Error> {
         let store = Arc::new(Store::default());
         let app = Router::new()
             .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
