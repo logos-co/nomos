@@ -5,6 +5,7 @@ pub mod network;
 mod relays;
 mod states;
 pub mod storage;
+mod sync;
 
 use core::fmt::Debug;
 use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
@@ -55,6 +56,7 @@ use crate::{
         SecurityRecoveryStrategy,
     },
     storage::{adapters::StorageAdapter, StorageAdapter as _},
+    sync::Synchronization,
 };
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
@@ -70,6 +72,10 @@ pub enum Error {
     Ledger(#[from] nomos_ledger::LedgerError<HeaderId>),
     #[error("Consensus error: {0}")]
     Consensus(#[from] cryptarchia_engine::Error<HeaderId>),
+    #[error("Blob sampling error")]
+    BlobSamplingError(HeaderId),
+    #[error("Blob verification failure")]
+    BlobVerificationFailure(HeaderId),
 }
 
 struct Cryptarchia {
@@ -138,6 +144,10 @@ impl Cryptarchia {
         } else {
             None
         }
+    }
+
+    pub fn ledger_state(&self, id: &HeaderId) -> Option<&LedgerState> {
+        self.ledger.state(id)
     }
 }
 
@@ -528,7 +538,7 @@ where
 
         let genesis_id = HeaderId::from([0; 32]);
 
-        let (mut cryptarchia, mut leader) = Self::build_cryptarchia(
+        let (cryptarchia, mut leader) = Self::build_cryptarchia(
             self.initial_state,
             genesis_id,
             genesis_state,
@@ -543,6 +553,36 @@ where
             NetAdapter::new(network_adapter_settings, relays.network_relay().clone()).await;
         let tx_selector = TxS::new(transaction_selector_settings);
         let blob_selector = BS::new(blob_selector_settings);
+
+        let mut cryptarchia = Synchronization::<
+            NetAdapter,
+            BlendAdapter,
+            ClPool,
+            ClPoolAdapter,
+            DaPool,
+            DaPoolAdapter,
+            TxS,
+            BS,
+            Storage,
+            SamplingBackend,
+            SamplingNetworkAdapter,
+            SamplingRng,
+            SamplingStorage,
+            DaVerifierBackend,
+            DaVerifierNetwork,
+            DaVerifierStorage,
+            TimeBackend,
+            ApiAdapter,
+            RuntimeServiceId,
+        >::initiate(
+            cryptarchia,
+            &mut leader,
+            ledger_config,
+            &relays,
+            &mut self.block_subscription_sender,
+            &network_adapter,
+        )
+        .await;
 
         let mut incoming_blocks = network_adapter.blocks_stream().await?;
 
@@ -574,7 +614,9 @@ where
                             &relays,
                             &mut self.block_subscription_sender,
                         )
-                        .await;
+                        .await.unwrap_or_else(|(_, cryptarchia)| {
+                            cryptarchia
+                        });
 
                         self.service_state.state_updater.update(Self::State::from_cryptarchia(&cryptarchia, &leader));
 
@@ -790,7 +832,7 @@ where
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(cryptarchia, leader, relays))]
     async fn process_block(
-        mut cryptarchia: Cryptarchia,
+        cryptarchia: Cryptarchia,
         leader: &mut leadership::Leader,
         block: Block<ClPool::Item, DaPool::Item>,
         relays: &CryptarchiaConsensusRelays<
@@ -809,7 +851,7 @@ where
             RuntimeServiceId,
         >,
         block_broadcaster: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> Cryptarchia {
+    ) -> Result<Cryptarchia, (Error, Cryptarchia)> {
         tracing::debug!("received proposal {:?}", block);
 
         // TODO: filter on time?
@@ -820,12 +862,12 @@ where
             Ok(sampled_blobs) => sampled_blobs,
             Err(error) => {
                 error!("Unable to retrieved sampled blobs: {error}");
-                return cryptarchia;
+                return Err((Error::BlobSamplingError(id), cryptarchia));
             }
         };
         if !Self::validate_block(&block, &sampled_blobs) {
             error!("Invalid block: {block:?}");
-            return cryptarchia;
+            return Err((Error::BlobVerificationFailure(id), cryptarchia));
         }
 
         match cryptarchia.try_apply_header(header) {
@@ -863,19 +905,21 @@ where
                     tracing::error!("Could not notify block to services {e}");
                 }
 
-                cryptarchia = new_state;
+                Ok(new_state)
             }
             Err(
-                Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(parent))
-                | Error::Consensus(cryptarchia_engine::Error::ParentMissing(parent)),
+                e @ (Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(_))
+                | Error::Consensus(cryptarchia_engine::Error::ParentMissing(_))),
             ) => {
-                tracing::debug!("missing parent {:?}", parent);
+                tracing::debug!("missing parent {:?}", header.parent());
                 // TODO: request parent block
+                Err((e, cryptarchia))
             }
-            Err(e) => tracing::debug!("invalid block {:?}: {e:?}", block),
+            Err(e) => {
+                tracing::debug!("invalid block {:?}: {e:?}", block);
+                Err((e, cryptarchia))
+            }
         }
-
-        cryptarchia
     }
 
     #[expect(clippy::allow_attributes_without_reason)]
@@ -1156,7 +1200,8 @@ where
                 relays,
                 block_subscription_sender,
             )
-            .await;
+            .await
+            .unwrap_or_else(|(_, cryptarchia)| cryptarchia);
         }
 
         cryptarchia
