@@ -18,7 +18,7 @@ use nomos_mempool::backend::RecoverableMempool;
 use nomos_storage::backends::StorageBackend;
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use tokio::sync::broadcast;
+use tokio::{pin, sync::broadcast};
 
 use crate::{
     blend, leadership::Leader, network, relays::CryptarchiaConsensusRelays, Cryptarchia,
@@ -234,6 +234,7 @@ where
                 .fetch_blocks_from_slot(cryptarchia.as_ref().unwrap().tip_state().slot())
                 .await
                 .unwrap();
+
             while let Some(block) = stream.next().await {
                 num_blocks += 1;
                 // Reject blocks that have been rejected in the past

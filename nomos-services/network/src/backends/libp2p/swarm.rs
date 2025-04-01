@@ -171,9 +171,8 @@ impl SwarmHandler {
             } => {
                 self.broadcast_and_retry(topic, message, retry_count);
             }
-            Command::Sync(slot, _reply_channel) => {
-                tracing::debug!("syncing to slot: {slot}");
-                // self.swarm.start_sync(slot, reply_channel);
+            Command::StartSync(direction, reply_channel) => {
+                self.swarm.start_sync(direction, reply_channel);
             }
         }
     }

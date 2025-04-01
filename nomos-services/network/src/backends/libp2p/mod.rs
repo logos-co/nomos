@@ -31,7 +31,7 @@ pub enum EventKind {
 #[derive(Debug, Clone)]
 pub enum SyncRequestKind {
     ForwardSyncRequest(u64),
-    BackwardSyncRequest(u64),
+    BackwardSyncRequest([u8; 32]),
 }
 
 /// Events emitted from [`NomosLibp2p`], which users can subscribe
@@ -56,15 +56,14 @@ impl TryFrom<BehaviourEvent> for Event {
             }) => Ok(Self::Message(message)),
             BehaviourEvent::Sync(SyncRequest {
                 direction,
-                slot,
                 response_sender,
             }) => match direction {
-                SyncDirection::Forward => Ok(Self::IncomingSyncRequest {
+                SyncDirection::Forward(slot) => Ok(Self::IncomingSyncRequest {
                     kind: SyncRequestKind::ForwardSyncRequest(slot),
                     reply_channel: response_sender,
                 }),
-                SyncDirection::Backward => Ok(Self::IncomingSyncRequest {
-                    kind: SyncRequestKind::BackwardSyncRequest(slot),
+                SyncDirection::Backward(header_id) => Ok(Self::IncomingSyncRequest {
+                    kind: SyncRequestKind::BackwardSyncRequest(header_id),
                     reply_channel: response_sender,
                 }),
             },
@@ -84,8 +83,8 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Libp2p {
     type NetworkEvent = Event;
 
     fn new(config: Self::Settings, overwatch_handle: OverwatchHandle<RuntimeServiceId>) -> Self {
-        let (commands_tx, commands_rx) = tokio::sync::mpsc::channel(BUFFER_SIZE);
-        let (events_tx, _) = tokio::sync::broadcast::channel(BUFFER_SIZE);
+        let (commands_tx, commands_rx) = mpsc::channel(BUFFER_SIZE);
+        let (events_tx, _) = broadcast::channel(BUFFER_SIZE);
 
         let mut swarm_handler =
             SwarmHandler::new(&config, commands_tx.clone(), commands_rx, events_tx.clone());

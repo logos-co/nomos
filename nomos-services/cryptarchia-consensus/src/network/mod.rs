@@ -16,6 +16,7 @@ use overwatch::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::mpsc::{Sender, UnboundedReceiver};
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
 pub struct SyncRequest {
     pub kind: SyncRequestKind,
@@ -36,8 +37,6 @@ pub trait NetworkAdapter<RuntimeServiceId> {
             <NetworkService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
         >,
     ) -> Self;
-
-    async fn request_sync(&self, slot: u64) -> Result<UnboundedReceiver<Vec<u8>>, DynError>;
 
     async fn blocks_stream(
         &self,

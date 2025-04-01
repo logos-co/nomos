@@ -1,6 +1,8 @@
 use std::{hash::Hash, marker::PhantomData};
 
 use cryptarchia_engine::Slot;
+use cryptarchia_sync_network::behaviour::SyncDirection;
+use futures::Stream;
 use nomos_core::{block::Block, header::HeaderId, wire};
 use nomos_network::{
     backends::libp2p::{Command, Event, EventKind, Libp2p},
@@ -13,7 +15,7 @@ use overwatch::{
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio_stream::{
-    wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
+    wrappers::{errors::BroadcastStreamRecvError, BroadcastStream, UnboundedReceiverStream},
     StreamExt,
 };
 
@@ -84,15 +86,6 @@ where
         }
     }
 
-    async fn request_sync(&self, slot: u64) -> Result<UnboundedReceiver<Vec<u8>>, DynError> {
-        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-        self.network_relay
-            .send(NetworkMsg::Process(Command::Sync(slot, sender)))
-            .await
-            .unwrap();
-        Ok(receiver)
-    }
-
     async fn blocks_stream(
         &self,
     ) -> Result<BoxedStream<Block<Self::Tx, Self::BlobCertificate>>, DynError> {
@@ -136,8 +129,22 @@ where
         ))
     }
 
-    // Stream to listen sync requests commands
-    // Not used right now. We may go with different approach as well
+    // We can use 2 patterns how to get data from a Behaviour(Swarm).
+    //
+    // 1. We receive data by using `swarm.next()`. This is done by GossipSub for
+    //    example.
+    // 2. We use a temporary channels to get messages from swarm. This is approach
+    //    taken by outgoing sync requests.
+    //
+    // I am not sure yet if one approach is the best or each works for different use
+    // cases.
+    //
+    // 1. Seems to be logically suitable for subscriptions when have some permanent
+    //    interest in incoming data
+    // 2. Seems to be logically suitable for one-time requests
+    //
+    // For local sync request we currently use option 2. And listening incoming sync
+    // requests we use option 1.
     async fn sync_requests_stream(&self) -> Result<BoxedStream<SyncRequest>, DynError> {
         let (sender, receiver) = tokio::sync::oneshot::channel();
         if let Err((e, _)) = self
@@ -175,15 +182,41 @@ where
 
     async fn fetch_blocks_from_slot(
         &self,
-        _start_slot: Slot,
+        start_slot: Slot,
     ) -> Result<BoxedStream<Block<Self::Tx, Self::BlobCertificate>>, DynError> {
-        todo!()
-    }
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        if let Err((e, _)) = self
+            .network_relay
+            .send(NetworkMsg::Process(Command::StartSync(
+                SyncDirection::Forward(start_slot.into()),
+                sender,
+            )))
+            .await
+        {
+            return Err(Box::new(e));
+        }
 
+        let stream = UnboundedReceiverStream::new(receiver)
+            .filter_map(|block| wire::deserialize(&block).unwrap());
+
+        Ok(Box::new(stream))
+    }
     async fn fetch_chain_backward(
         &self,
-        _tip: HeaderId,
+        tip: HeaderId,
     ) -> Result<BoxedStream<Block<Self::Tx, Self::BlobCertificate>>, DynError> {
-        todo!()
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        self.network_relay
+            .send(NetworkMsg::Process(Command::StartSync(
+                SyncDirection::Backward(tip.into()),
+                sender,
+            )))
+            .await
+            .unwrap();
+
+        let stream = UnboundedReceiverStream::new(receiver)
+            .filter_map(|block| wire::deserialize(&block).unwrap());
+
+        Ok(Box::new(stream))
     }
 }
