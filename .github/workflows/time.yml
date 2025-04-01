@@ -8,45 +8,35 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
-      - name: Raw UDP Connectivity
+      - name: Deps
         run: |
-          # Run in GitHub macOS CI
-          echo "Testing raw UDP socket:"
-          python3 -c 'import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.sendto(b"\x1b" + b"\0"*47, ("216.239.35.0", 123))'
-          echo "Exit code $? (0=success)"
+          pip install ntplib
 
-      - name: Test Minimal NTP Client
+      - name: Test NTP with Python
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-          cat << 'EOF' > ntp_test.rs
-          use std::net::UdpSocket;
-          use std::time::Duration;
+          python - <<EOF
+          import ntplib
+          from datetime import datetime
           
-          fn main() -> std::io::Result<()> {
-              let socket = UdpSocket::bind("0.0.0.0:0")?;
-              socket.set_read_timeout(Some(Duration::from_secs(2)))?;
+          server = '185.251.115.30'
+          print(f"Testing NTP connectivity to {server}")
           
-              // NTP v4 client mode (LI=0, VN=4, Mode=3)
-              let mut request = [0u8; 48];
-              request[0] = 0x23;
+          def test_ntp(version):
+              try:
+                  c = ntplib.NTPClient()
+                  response = c.request(server, version=version, timeout=5)
+                  print(f"\nNTP v{version} Success:")
+                  print(f"Time: {datetime.fromtimestamp(response.tx_time)}")
+                  print(f"Stratum: {response.stratum}")
+                  print(f"Offset: {response.offset:.6f} sec")
+                  return True
+              except Exception as e:
+                  print(f"\nNTP v{version} Failed: {type(e).__name__}: {e}")
+                  return False
           
-              socket.send_to(&request, "216.239.35.0:123")?;
+          v3_success = test_ntp(3)
+          v4_success = test_ntp(4)
           
-              let mut response = [0u8; 48];
-              match socket.recv_from(&mut response) {
-                  Ok((size, src)) => println!("Received {} bytes from {}", size, src),
-                  Err(e) => eprintln!("Error: {}", e),
-              }
-              Ok(())
-          }
+          if not v3_success and not v4_success:
+              print("\n::warning::All NTP requests failed - UDP/123 may be blocked")
           EOF
-          rustc ntp_test.rs && ./ntp_test
-
-      - name: Protocol specific checks
-        run: |
-          # Force IPv4 + NTPv4
-          sntp -4 -V 4 -d -S 216.239.35.0
-  
-          # Check for ICMP errors
-          sudo tcpdump -ni any "icmp and host 216.239.35.0"
