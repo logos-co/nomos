@@ -1,0 +1,14 @@
+name: NTP
+
+on:
+  pull_request:
+
+jobs:
+  do_stuff:
+    runs-on: macos-latest
+    steps:
+      - name: "Stuff"
+        shell: bash
+        run: |
+          sntp time.euro.apple.com
+          echo "Current time: $(date)"
