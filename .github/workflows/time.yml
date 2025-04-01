@@ -10,5 +10,6 @@ jobs:
       - name: "Stuff"
         shell: bash
         run: |
-          sntp -sS time.euro.apple.com
-          echo "Current time: $(date)"
+          ping -c 3 time.euro.apple.com  # Verify DNS resolution
+          nc -vzu time.euro.apple.com 123  # Check UDP port 123
+          sntp -d -sS time.euro.apple.com  # Retrieve time
