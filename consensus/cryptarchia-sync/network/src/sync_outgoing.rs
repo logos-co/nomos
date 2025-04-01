@@ -4,6 +4,7 @@ use futures::{
 };
 use libp2p::PeerId;
 use libp2p_stream::Control;
+use serde::Serialize;
 use tokio::{
     sync::mpsc::Sender,
     time::{timeout, Duration},
@@ -11,19 +12,20 @@ use tokio::{
 use tracing::{error, info};
 
 use crate::{
-    behaviour::{SyncDirection, SyncError, SyncRequest, SYNC_PROTOCOL},
+    behaviour::{FetchBlocksRequest, SyncError, SyncRequest, SYNC_PROTOCOL},
     membership::ConsensusMembershipHandler,
     sync_utils,
 };
 
 // TODO: This should return the peers grouped by their tip
-pub async fn select_best_peer_for_sync<Membership>(
+pub async fn select_best_peer_for_sync<Membership, BlockHeaderId>(
     control: Control,
     membership: Membership,
     local_peer_id: PeerId,
 ) -> Result<PeerId, SyncError>
 where
     Membership: ConsensusMembershipHandler<Id = PeerId> + Clone + 'static + Send,
+    BlockHeaderId: Serialize + Sync,
 {
     let peers: Vec<PeerId> = membership
         .members()
@@ -44,7 +46,7 @@ where
             // Probably should do something about peers that timeout
             timeout(
                 Duration::from_secs(5),
-                request_tip_from_peer(peer_id, control.clone()),
+                request_tip_from_peer::<BlockHeaderId>(peer_id, control.clone()),
             )
         })
         .collect();
@@ -70,17 +72,19 @@ where
     best_peer.ok_or(SyncError::NoPeersAvailable)
 }
 
-pub async fn stream_blocks_from_peer(
+pub async fn stream_blocks_from_peer<BlockHeaderId>(
     peer_id: PeerId,
     control: &mut Control,
-    direction: SyncDirection,
-    slot: u64,
+    request: FetchBlocksRequest<BlockHeaderId>,
     response_sender: Sender<Vec<u8>>,
-) -> Result<(), SyncError> {
+) -> Result<(), SyncError>
+where
+    BlockHeaderId: Serialize + Sync,
+{
     info!(peer_id = %peer_id, "Streaming blocks");
 
     let mut stream = sync_utils::open_stream(peer_id, control, SYNC_PROTOCOL).await?;
-    sync_utils::send_data(&mut stream, &SyncRequest::Sync { direction, slot }).await?;
+    sync_utils::send_data(&mut stream, &SyncRequest::FetchBlocks(request)).await?;
 
     while let Ok(block) = sync_utils::receive_data(&mut stream).await {
         if response_sender.send(block).await.is_err() {
@@ -93,9 +97,15 @@ pub async fn stream_blocks_from_peer(
     Ok(())
 }
 
-async fn request_tip_from_peer(peer_id: PeerId, mut control: Control) -> Result<u64, SyncError> {
+async fn request_tip_from_peer<BlockHeaderId>(
+    peer_id: PeerId,
+    mut control: Control,
+) -> Result<u64, SyncError>
+where
+    BlockHeaderId: Serialize + Sync,
+{
     let mut stream = sync_utils::open_stream(peer_id, &mut control, SYNC_PROTOCOL).await?;
-    sync_utils::send_data(&mut stream, &SyncRequest::RequestTip).await?;
+    sync_utils::send_data(&mut stream, &SyncRequest::<BlockHeaderId>::RequestTip).await?;
 
     let tip = sync_utils::receive_data(&mut stream).await?;
     stream.close().await?;
@@ -104,30 +114,27 @@ async fn request_tip_from_peer(peer_id: PeerId, mut control: Control) -> Result<
     Ok(tip)
 }
 
-pub fn sync_after_requesting_tips<Membership>(
+pub fn sync_after_requesting_tips<Membership, BlockHeaderId>(
     control: Control,
     membership: Membership,
     local_peer_id: PeerId,
-    direction: SyncDirection,
-    slot: u64,
+    request: FetchBlocksRequest<BlockHeaderId>,
     response_sender: Sender<Vec<u8>>,
 ) -> BoxFuture<'static, Result<(), SyncError>>
 where
     Membership: ConsensusMembershipHandler<Id = PeerId> + Clone + 'static + Send,
+    BlockHeaderId: Serialize + Send + Sync + 'static,
 {
     async move {
-        let best_peer =
-            select_best_peer_for_sync(control.clone(), membership, local_peer_id).await?;
+        let best_peer = select_best_peer_for_sync::<Membership, BlockHeaderId>(
+            control.clone(),
+            membership,
+            local_peer_id,
+        )
+        .await?;
 
         info!(peer_id = %best_peer, "Chosen peer for sync");
-        stream_blocks_from_peer(
-            best_peer,
-            &mut control.clone(),
-            direction,
-            slot,
-            response_sender,
-        )
-        .await
+        stream_blocks_from_peer(best_peer, &mut control.clone(), request, response_sender).await
     }
     .boxed()
 }

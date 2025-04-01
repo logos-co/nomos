@@ -11,16 +11,16 @@ use crate::{
     sync_utils,
 };
 
-pub fn read_request_from_stream(
+pub fn read_request_from_stream<BlockHeaderId>(
     mut stream: Stream,
-) -> BoxFuture<'static, Result<IncomingSyncRequest, SyncError>> {
+) -> BoxFuture<'static, Result<IncomingSyncRequest<BlockHeaderId>, SyncError>> {
     Box::pin(async move {
         let command: SyncRequest = sync_utils::receive_data(&mut stream).await?;
 
         let kind = match command {
-            SyncRequest::Sync { direction, slot } => {
-                info!(direction = ?direction, slot = slot, "Received sync request");
-                RequestKind::Sync { direction, slot }
+            SyncRequest::FetchBlocks(request) => {
+                info!(request = ?request, "Received FetchBlocksRequest");
+                RequestKind::FetchBlocks(request)
             }
             SyncRequest::RequestTip => {
                 info!("Received tip request");

@@ -1,5 +1,9 @@
-use std::task::{Context, Poll};
+use std::{
+    fmt::Debug,
+    task::{Context, Poll},
+};
 
+use cryptarchia_engine::Slot;
 use futures::{
     future::BoxFuture,
     stream::{FuturesUnordered, StreamExt},
@@ -29,35 +33,33 @@ pub const SYNC_PROTOCOL: StreamProtocol = StreamProtocol::new("/nomos/cryptarchi
 // limit
 const MAX_INCOMING_SYNCS: usize = 5;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub enum SyncDirection {
-    Forward,
-    Backward,
-}
-
 /// Sync request from a peer
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub enum SyncRequest {
-    Sync { direction: SyncDirection, slot: u64 },
+pub enum SyncRequest<BlockHeaderId> {
+    FetchBlocks(FetchBlocksRequest<BlockHeaderId>),
     RequestTip,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub enum FetchBlocksRequest<BlockHeaderId> {
+    Forward { start_slot: Slot },
+    Backward { tip: BlockHeaderId },
 }
 
 /// Command from services
 #[derive(Debug, Clone)]
-pub enum SyncCommand {
+pub enum SyncCommand<BlockHeaderId> {
     StartSync {
-        direction: SyncDirection,
-        slot: u64,
+        request: FetchBlocksRequest<BlockHeaderId>,
         response_sender: Sender<Vec<u8>>,
     },
 }
 
 /// Event to be sent to the Swarm
 #[derive(Debug, Clone)]
-pub enum BehaviourSyncEvent {
+pub enum BehaviourSyncEvent<BlockHeaderId> {
     SyncRequest {
-        direction: SyncDirection,
-        slot: u64,
+        request: FetchBlocksRequest<BlockHeaderId>,
         response_sender: Sender<BehaviourSyncReply>,
     },
     TipRequest {
@@ -77,17 +79,17 @@ pub enum BehaviourSyncReply {
 }
 
 #[derive(Debug)]
-pub enum RequestKind {
-    Sync { direction: SyncDirection, slot: u64 },
+pub enum RequestKind<BlockHeaderId> {
+    FetchBlocks(FetchBlocksRequest<BlockHeaderId>),
     Tip,
 }
 
 #[derive(Debug)]
-pub struct IncomingSyncRequest {
+pub struct IncomingSyncRequest<BlockHeaderId> {
     /// Incoming stream
     pub(crate) stream: Stream,
     /// Kind of request
-    pub(crate) kind: RequestKind,
+    pub(crate) kind: RequestKind<BlockHeaderId>,
     /// Replies from services
     pub(crate) response_sender: Sender<BehaviourSyncReply>,
     /// Where we wait service responses
@@ -106,7 +108,7 @@ pub enum SyncError {
     IOError(#[from] std::io::Error),
 }
 
-pub struct SyncBehaviour<Membership> {
+pub struct SyncBehaviour<Membership, BlockHeaderId> {
     /// The local peer ID
     local_peer_id: PeerId,
     /// Underlying stream behaviour
@@ -120,21 +122,22 @@ pub struct SyncBehaviour<Membership> {
     /// Membership handler
     membership: Membership,
     /// Sender for commands from services
-    sync_commands_sender: Sender<SyncCommand>,
+    sync_commands_sender: Sender<SyncCommand<BlockHeaderId>>,
     /// Receiver for commands from services
-    sync_commands_receiver: ReceiverStream<SyncCommand>,
+    sync_commands_receiver: ReceiverStream<SyncCommand<BlockHeaderId>>,
     /// Progress of local forward and backward syncs
     local_sync_progress: FuturesUnordered<BoxFuture<'static, Result<(), SyncError>>>,
     /// Read request and send behaviour event to Swarm
     read_sync_requests:
-        FuturesUnordered<BoxFuture<'static, Result<IncomingSyncRequest, SyncError>>>,
+        FuturesUnordered<BoxFuture<'static, Result<IncomingSyncRequest<BlockHeaderId>, SyncError>>>,
     /// Send service responses to stream
     sending_data_to_peers: FuturesUnordered<BoxFuture<'static, Result<(), SyncError>>>,
 }
 
-impl<Membership> SyncBehaviour<Membership>
+impl<Membership, BlockHeaderId> SyncBehaviour<Membership, BlockHeaderId>
 where
     Membership: membership::ConsensusMembershipHandler<Id = PeerId> + Clone + 'static + Send,
+    BlockHeaderId: Debug + Serialize + Send + Sync + 'static,
 {
     pub fn new(local_peer_id: PeerId, membership: Membership) -> Self {
         let stream_behaviour = libp2p_stream::Behaviour::new();
@@ -159,7 +162,7 @@ where
         }
     }
 
-    pub fn sync_request_channel(&self) -> Sender<SyncCommand> {
+    pub fn sync_request_channel(&self) -> Sender<SyncCommand<BlockHeaderId>> {
         self.sync_commands_sender.clone()
     }
 
@@ -193,21 +196,18 @@ where
         while let Poll::Ready(Some(command)) = self.sync_commands_receiver.poll_next_unpin(cx) {
             match command {
                 SyncCommand::StartSync {
-                    direction,
-                    slot,
+                    request,
                     response_sender,
                 } => {
                     info!(
-                        direction = ?direction,
-                        slot = slot,
-                        "Starting local sync"
+                        request = ?request,
+                        "Processing a StartSync command"
                     );
                     let local_sync = sync_after_requesting_tips(
                         self.control.clone(),
                         self.membership.clone(),
                         self.local_peer_id,
-                        direction,
-                        slot,
+                        request,
                         response_sender,
                     );
                     self.local_sync_progress.push(local_sync);
@@ -265,10 +265,9 @@ where
                     let response_sender = req.response_sender.clone();
 
                     let event = match req.kind {
-                        RequestKind::Sync { direction, slot } => {
+                        RequestKind::FetchBlocks(request) => {
                             ToSwarm::GenerateEvent(BehaviourSyncEvent::SyncRequest {
-                                direction,
-                                slot,
+                                request,
                                 response_sender,
                             })
                         }
@@ -297,12 +296,13 @@ where
     }
 }
 
-impl<Membership> NetworkBehaviour for SyncBehaviour<Membership>
+impl<Membership, BlockHeaderId> NetworkBehaviour for SyncBehaviour<Membership, BlockHeaderId>
 where
     Membership: membership::ConsensusMembershipHandler<Id = PeerId> + Clone + Send + 'static,
+    BlockHeaderId: Debug + Serialize + Send + Sync + 'static,
 {
     type ConnectionHandler = <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler;
-    type ToSwarm = BehaviourSyncEvent;
+    type ToSwarm = BehaviourSyncEvent<BlockHeaderId>;
 
     fn handle_established_inbound_connection(
         &mut self,
@@ -390,12 +390,20 @@ mod test {
     // Use 2 at the moment. In future can run more to test parallel sync
     const NUM_SWARMS: usize = 2;
 
+    type HeaderId = u64;
+
     #[tokio::test]
     async fn test_sync_forward() {
         tracing_subscriber::fmt::init();
 
         let (request_senders, handles) = setup_and_run_swarms(NUM_SWARMS).await;
-        let blocks = perform_sync(request_senders[0].clone(), SyncDirection::Forward, 0).await;
+        let blocks = perform_sync(
+            request_senders[0].clone(),
+            FetchBlocksRequest::Forward {
+                start_slot: Slot::from(0),
+            },
+        )
+        .await;
 
         assert_eq!(blocks.len(), MSG_COUNT);
 
@@ -409,8 +417,12 @@ mod test {
         tracing_subscriber::fmt::init();
 
         let (request_senders, handles) = setup_and_run_swarms(NUM_SWARMS).await;
-        let slot = MSG_COUNT as u64;
-        let blocks = perform_sync(request_senders[0].clone(), SyncDirection::Backward, slot).await;
+        let tip = MSG_COUNT as HeaderId;
+        let blocks = perform_sync(
+            request_senders[0].clone(),
+            FetchBlocksRequest::Backward { tip },
+        )
+        .await;
 
         assert_eq!(blocks.len(), MSG_COUNT);
 
@@ -566,15 +578,13 @@ mod test {
     }
 
     async fn perform_sync(
-        request_sender: Sender<SyncCommand>,
-        direction: SyncDirection,
-        slot: u64,
+        request_sender: Sender<SyncCommand<HeaderId>>,
+        request: FetchBlocksRequest<HeaderId>,
     ) -> Vec<Vec<u8>> {
         let (response_sender, mut response_receiver) = mpsc::channel(10);
         request_sender
             .send(SyncCommand::StartSync {
-                direction,
-                slot,
+                request,
                 response_sender,
             })
             .await
