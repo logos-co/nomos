@@ -8,24 +8,6 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
-      - name: Version test
-        run: |
-          sntp -V 4 -d -S pool.ntp.org
-          sntp -o 3 -d -S pool.ntp.org
-
-      - name: Packet size
-        run: |
-          # Test with reduced packet size
-          sntp -d -S time.google.com --packet-size=48  # Standard NTP size
-          
-          # Check for fragmentation
-          ping -D -s 1400 time.google.com  # Test large packets
-
-      - name: Auth
-        run: |
-          # Check if server requires autokey/md5
-          sntp -d -S time.cloudflare.com --authentication=no
-
       - name: Alt client
         run: |
           # Install alternative client
