@@ -10,5 +10,5 @@ jobs:
       - name: "Stuff"
         shell: bash
         run: |
-          sntp time.euro.apple.com
+          sntp -sS time.euro.apple.com
           echo "Current time: $(date)"
