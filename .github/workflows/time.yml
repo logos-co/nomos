@@ -8,75 +8,29 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
-      - name: Install dependencies
+      - name: Version test
         run: |
-          brew update
-          brew install jq
+          sntp -V 4 -d -S pool.ntp.org
+          sntp -o 3 -d -S pool.ntp.org
 
-      - name: Test UDP connectivity
+      - name: Packet size
         run: |
-          servers=(
-              "time.google.com:123"
-              "162.159.200.1:123"  # Cloudflare
-              "pool.ntp.org:123"
-              "17.253.4.125:123"    # Apple
-          )
-          echo "Testing UDP/123 connectivity..."
-          for server in "${servers[@]}"; do
-              ip=${server%:*}
-              port=${server#*:}
-              echo -n "$ip:$port → "
-              nc -vzu $ip $port 2>&1 | grep succeeded || echo "FAILED"
-          done
+          # Test with reduced packet size
+          sntp -d -S time.google.com --packet-size=48  # Standard NTP size
+          
+          # Check for fragmentation
+          ping -D -s 1400 time.google.com  # Test large packets
 
-      - name: Check clock skew
+      - name: Auth
         run: |
-          sys_time=$(date -u +%s)
-          web_time=$(curl -s https://worldtimeapi.org/api/ip | jq .unixtime)
-          diff=$((web_time - sys_time))
-          
-          echo "System time: $(date -u -r $sys_time)"
-          echo "Web API time: $(date -u -r $web_time)"
-          echo "Difference: $diff seconds"
-          
-          if (( ${diff#-} > 5 )); then
-              echo "::warning::Clock skew exceeds 5 seconds!"
-          fi
+          # Check if server requires autokey/md5
+          sntp -d -S time.cloudflare.com --authentication=no
 
-      - name: GitHub environment check
+      - name: Alt client
         run: |
-          if nc -vzu pool.ntp.org 123 2>&1 | grep succeeded; then
-              echo "::notice::UDP/123 unexpectedly allowed!"
-          else
-              echo "::notice::UDP/123 blocked (GitHub default)"
-          fi
-
-      - name: macOS NTP service check
-        run: |
-          echo "Current NTP config:"
-          sudo systemsetup -getnetworktimeserver
+          # Install alternative client
+          brew install ntp
           
-          echo "Disabling system NTP..."
-          sudo systemsetup -setusingnetworktime off || true
-          
-          echo "Testing with sntp:"
-          sntp -sS time.google.com || true
-          
-          echo "Re-enabling system NTP..."
-          sudo systemsetup -setusingnetworktime on || true
-
-      - name: Firewall test
-        run: |
-          echo "Current firewall rules:"
-          sudo pfctl -s rules || true
-          
-          echo "Testing with firewall disabled:"
-          sudo pfctl -d || true
-          sntp -sS time.google.com || true
-          sudo pfctl -e || true
-
-      - name: System call trace (diagnostic)
-        run: |
-          echo "Network system calls during sntp:"
-          sudo dtruss -n sntp -sS time.google.com 2>&1 | \
-            grep -E 'connect|sendto|recvfrom' || true
+          # Test with ntpd in query mode
+          ntpq -pn
+          ntpdate -q time.google.com
