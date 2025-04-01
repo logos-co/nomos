@@ -14,29 +14,20 @@ jobs:
 
       - name: Test NTP with Python
         run: |
-          python - <<EOF
+          python -c "
           import ntplib
-          from datetime import datetime
+          host = '185.251.115.30'
+          c = ntplib.NTPClient()
           
-          server = '185.251.115.30'
-          print(f"Testing NTP connectivity to {server}")
+          try:
+              response_v3 = c.request(host, version=3)
+              print(f'NTP v3 success - Time: {response_v3.tx_time}')
+          except Exception as e:
+              print(f'::error::NTP v3 failed: {e}')
           
-          def test_ntp(version):
-              try:
-                  c = ntplib.NTPClient()
-                  response = c.request(server, version=version, timeout=5)
-                  print(f"\nNTP v{version} Success:")
-                  print(f"Time: {datetime.fromtimestamp(response.tx_time)}")
-                  print(f"Stratum: {response.stratum}")
-                  print(f"Offset: {response.offset:.6f} sec")
-                  return True
-              except Exception as e:
-                  print(f"\nNTP v{version} Failed: {type(e).__name__}: {e}")
-                  return False
-          
-          v3_success = test_ntp(3)
-          v4_success = test_ntp(4)
-          
-          if not v3_success and not v4_success:
-              print("\n::warning::All NTP requests failed - UDP/123 may be blocked")
-          EOF
+          try:
+              response_v4 = c.request(host, version=4)
+              print(f'NTP v4 success - Time: {response_v4.tx_time}')
+          except Exception as e:
+              print(f'::error::NTP v4 failed: {e}')
+          "
