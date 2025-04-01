@@ -137,6 +137,10 @@ impl SwarmHandler {
                 self.handle_kademlia_event(event);
             }
 
+            SwarmEvent::Behaviour(se @ BehaviourEvent::Sync(..)) => {
+                tracing::debug!("Received syncing request {se:?}");
+                self.events_tx.send(se.try_into().unwrap()).unwrap();
+            }
             SwarmEvent::ConnectionEstablished {
                 peer_id,
                 connection_id,
@@ -220,6 +224,10 @@ impl SwarmHandler {
                 retry_count,
             } => {
                 self.broadcast_and_retry(topic, message, retry_count);
+            }
+            Command::Sync(slot, _reply_channel) => {
+                tracing::debug!("syncing to slot: {slot}");
+                // self.swarm.start_sync(slot, reply_channel);
             }
         }
     }

@@ -15,6 +15,8 @@ use blake2::{
     Blake2b,
 };
 pub use config::{secret_key_serde, IdentifySettings, KademliaSettings, SwarmConfig};
+pub use config::{secret_key_serde, SwarmConfig};
+use cryptarchia_sync_network::membership::AllNeighbours;
 pub use libp2p::{
     self,
     core::upgrade,
@@ -53,6 +55,7 @@ pub struct Behaviour {
     // todo: support persistent store if needed
     kademlia: Toggle<kad::Behaviour<kad::store::MemoryStore>>,
     identify: Toggle<identify::Behaviour>,
+    sync: cryptarchia_sync_network::behaviour::SyncBehaviour<AllNeighbours>,
 }
 
 impl Behaviour {
@@ -93,10 +96,14 @@ impl Behaviour {
             },
         );
 
+        let sync =
+            cryptarchia_sync_network::behaviour::SyncBehaviour::new(peer_id, AllNeighbours::new());
+
         Ok(Self {
             gossipsub,
             kademlia,
             identify,
+            sync,
         })
     }
 
@@ -170,7 +177,6 @@ pub enum SwarmError {
 
 /// How long to keep a connection alive once it is idling.
 const IDLE_CONN_TIMEOUT: Duration = Duration::from_secs(300);
-
 impl Swarm {
     /// Builds a [`Swarm`] configured for use with Nomos on top of a tokio
     /// executor.
@@ -256,6 +262,18 @@ impl Swarm {
             .gossipsub
             .publish(gossipsub::IdentTopic::new(topic), message)
     }
+
+    // pub fn start_sync(&mut self, slot: u64, reply_channel:
+    // UnboundedSender<Vec<u8>>) {     self.swarm
+    //         .behaviour_mut()
+    //         .sync
+    //         .sync_request_channel()
+    //         .send(SyncCommand::StartForwardSync {
+    //             slot,
+    //             response_sender: reply_channel,
+    //         })
+    //         .expect("Failed to send sync request");
+    // }
 
     /// Unsubscribes from a topic
     ///

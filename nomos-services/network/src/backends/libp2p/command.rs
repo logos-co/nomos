@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use nomos_libp2p::{libp2p::kad::PeerInfo, Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc::UnboundedSender, oneshot};
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -19,6 +19,7 @@ pub enum PubSubCommand {
         message: Box<[u8]>,
         retry_count: usize,
     },
+    Sync(u64, UnboundedSender<Vec<u8>>),
 }
 
 #[derive(Debug)]

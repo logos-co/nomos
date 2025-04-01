@@ -16,6 +16,7 @@ bytes                  = "1.3"
 cl                     = { workspace = true }
 const-hex              = "1"
 cryptarchia-engine     = { workspace = true, features = ["serde"] }
+futures                = "0.3.31"
 indexmap               = { version = "1.9", features = ["serde"] }
 nomos-ledger           = { workspace = true, features = ["serde"] }
 nomos_proof_statements = { workspace = true }
@@ -28,6 +29,7 @@ tracing                = "0.1"
 [dev-dependencies]
 rand       = "0.8"
 risc0-zkvm = { workspace = true, features = ["prove"] }
+tokio      = { version = "1", features = ["macros"] }
 
 [features]
 default = []
