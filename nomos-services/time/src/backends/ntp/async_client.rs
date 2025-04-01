@@ -106,7 +106,42 @@ mod tests {
         let ntp_server_address = format!("{ntp_server_ip}:123");
 
         let settings = NTPClientSettings {
-            timeout: Duration::from_secs(3),
+            timeout: Duration::from_secs(60),
+            local_socket: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 12345),
+        };
+        let client = AsyncNTPClient::new(settings);
+
+        let _response = client.request_timestamp(ntp_server_address).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn real_ntp_request2() -> Result<(), Error> {
+        // 0.europe.pool.ntp.org
+        // Uses IP instead of domain to avoid random SNTP::ResponseAddressMismatch
+        // errors.
+        let ntp_server_ip = "185.251.115.30";
+        let ntp_server_address = format!("{ntp_server_ip}:123");
+
+        let settings = NTPClientSettings {
+            timeout: Duration::from_secs(60),
+            local_socket: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0),
+        };
+        let client = AsyncNTPClient::new(settings);
+
+        let _response = client.request_timestamp(ntp_server_address).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn real_ntp_request3() -> Result<(), Error> {
+        let ntp_server_ip = "0.europe.pool.ntp.org";
+        let ntp_server_address = format!("{ntp_server_ip}:123");
+
+        let settings = NTPClientSettings {
+            timeout: Duration::from_secs(60),
             local_socket: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 12345),
         };
         let client = AsyncNTPClient::new(settings);
