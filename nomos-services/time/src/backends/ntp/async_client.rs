@@ -65,8 +65,8 @@ impl AsyncNTPClient {
     ///
     /// # Errors
     ///
-    /// Making a WAN request with a local IP bound socket will result in a
-    /// [`Error::Sntp`] containing a
+    /// Making a request to a domain that resolves to multiple IPs (randomly)
+    /// will result in a [`Error::Sntp`] containing a
     /// [`ResponseAddressMismatch`](sntpc::Error::ResponseAddressMismatch)
     /// error.
     pub async fn request_timestamp<Addresses: ToSocketAddrs + Sync>(
