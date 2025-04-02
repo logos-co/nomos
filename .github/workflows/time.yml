@@ -8,6 +8,10 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
+      - name: Local
+        run: |
+          sudo sntp -sS 185.251.115.30
+
       - name: Checkout
         uses: actions/checkout@v2
 
