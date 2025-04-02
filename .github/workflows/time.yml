@@ -20,7 +20,17 @@ jobs:
         run: |
           RISC0_DEV_MODE=true cargo test -F ntp -p nomos-time real_ntp_request -- --nocapture
 
+      - name: SUDO Real ntp request
+        continue-on-error: true
+        run: |
+          sudo RISC0_DEV_MODE=true cargo test -F ntp -p nomos-time real_ntp_request -- --nocapture
+
       - name: Deconstructed
         continue-on-error: true
         run: |
           RISC0_DEV_MODE=true cargo test -F ntp -p nomos-time deconstructed -- --nocapture
+
+      - name: SUDO Deconstructed
+        continue-on-error: true
+        run: |
+          sudo RISC0_DEV_MODE=true cargo test -F ntp -p nomos-time deconstructed -- --nocapture
