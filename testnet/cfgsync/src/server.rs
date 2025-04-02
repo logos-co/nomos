@@ -6,7 +6,9 @@ use nomos_da_network_core::swarm::{
     DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
 };
 use nomos_tracing_service::TracingSettings;
+use nomos_utils::bounded_duration::{MinimalBoundedDuration, SECOND};
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use tests::{
     nodes::{executor::create_executor_config, validator::create_validator_config},
     topology::configs::{consensus::ConsensusParams, da::DaParams},
@@ -18,6 +20,7 @@ use crate::{
     repo::{ConfigRepo, RepoResponse},
 };
 
+#[serde_as]
 #[derive(Debug, Deserialize)]
 pub struct CfgSyncConfig {
     pub port: u16,
@@ -33,13 +36,17 @@ pub struct CfgSyncConfig {
     pub dispersal_factor: usize,
     pub num_samples: u16,
     pub num_subnets: u16,
-    pub old_blobs_check_interval_secs: u64,
-    pub blobs_validity_duration_secs: u64,
+    #[serde_as(as = "MinimalBoundedDuration<0, SECOND>")]
+    pub old_blobs_check_interval: Duration,
+    #[serde_as(as = "MinimalBoundedDuration<0, SECOND>")]
+    pub blobs_validity_duration: Duration,
     pub global_params_path: String,
     pub min_dispersal_peers: usize,
     pub min_replication_peers: usize,
+    #[serde_as(as = "MinimalBoundedDuration<0, SECOND>")]
     pub monitor_failure_time_window: Duration,
-    pub balancer_interval_secs: u64,
+    #[serde_as(as = "MinimalBoundedDuration<0, SECOND>")]
+    pub balancer_interval: Duration,
     pub mempool_publish_strategy: MempoolPublishStrategy,
     pub replication_settings: ReplicationConfig,
 
@@ -71,8 +78,8 @@ impl CfgSyncConfig {
             dispersal_factor: self.dispersal_factor,
             num_samples: self.num_samples,
             num_subnets: self.num_subnets,
-            old_blobs_check_interval: Duration::from_secs(self.old_blobs_check_interval_secs),
-            blobs_validity_duration: Duration::from_secs(self.blobs_validity_duration_secs),
+            old_blobs_check_interval: self.old_blobs_check_interval,
+            blobs_validity_duration: self.blobs_validity_duration,
             global_params_path: self.global_params_path.clone(),
             mempool_strategy: self.mempool_publish_strategy.clone(),
             policy_settings: DAConnectionPolicySettings {
@@ -87,7 +94,7 @@ impl CfgSyncConfig {
                 failure_time_window: self.monitor_failure_time_window,
                 ..Default::default()
             },
-            balancer_interval: Duration::from_secs(self.balancer_interval_secs),
+            balancer_interval: self.balancer_interval,
             redial_cooldown: Duration::ZERO,
             replication_settings: self.replication_settings,
         }
