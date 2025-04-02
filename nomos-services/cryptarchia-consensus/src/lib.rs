@@ -566,7 +566,7 @@ where
             )>,
         };
         // TODO: Uncomment this once it's ready.
-        let sync_adapter = Synchronization::run(sync_adapter, &network_adapter).await?;
+        // let sync_adapter = Synchronization::run(sync_adapter, &network_adapter).await?;
         let (mut cryptarchia, mut leader, relays) = sync_adapter.take();
 
         let mut incoming_blocks = network_adapter.blocks_stream().await?;
