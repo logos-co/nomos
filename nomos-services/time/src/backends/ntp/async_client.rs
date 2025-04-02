@@ -96,9 +96,13 @@ mod tests {
         time::Duration,
     };
 
-    use sntpc::{sntp_process_response, WrappedIoError};
+    use sntpc::{sntp_process_response, RawNtpPacket, WrappedIoError};
 
     use super::*;
+
+    fn get_version(li_vn_mode: u8) -> u8 {
+        (li_vn_mode & 0b0011_1000) >> 3
+    }
 
     #[tokio::test]
     async fn real_ntp_request() -> Result<(), Error> {
@@ -131,7 +135,7 @@ mod tests {
         let packet = sntpc::NtpPacket::new(ntp_context.timestamp_gen);
         let raw_packet = sntpc::RawNtpPacket::from(&packet);
 
-        let local_socket_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 12345);
+        let local_socket_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 12346);
         let local_socket = UdpSocket::bind(local_socket_address)
             .await
             .expect("Failed to bind local socket");
@@ -165,10 +169,20 @@ mod tests {
             }
         };
 
-        let send_request_result = sntpc::SendRequestResult::from(packet);
-        let x = sntp_process_response(destination, &local_socket, ntp_context, send_request_result)
-            .await;
+        // let send_request_result = sntpc::SendRequestResult::from(packet);
+        // let x = sntp_process_response(destination, &local_socket, ntp_context,
+        // send_request_result)     .await;
+        //
+        // dbg!("sntp_process_response: {:?}", x);
 
-        dbg!("sntp_process_response: {:?}", x);
+        let mut response_buf = RawNtpPacket::default();
+        let (response, src) = local_socket
+            .recv_from(response_buf.0.as_mut())
+            .await
+            .unwrap();
+        let response = sntpc::NtpPacket::from(response_buf);
+
+        dbg!("Request version: {:?}", get_version(packet.li_vn_mode));
+        dbg!("Response version: {:?}", get_version(response.li_vn_mode));
     }
 }

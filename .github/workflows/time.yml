@@ -35,12 +35,12 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Sudo-less test
+      - name: Real ntp request
         continue-on-error: true
         run: |
           RISC0_DEV_MODE=true cargo test -F ntp -p nomos-time real_ntp_request -- --nocapture
 
-      - name: Sudo Test
+      - name: Deconstructed
         continue-on-error: true
         run: |
-          sudo RISC0_DEV_MODE=true cargo test -F ntp -p nomos-time real_ntp_request -- --nocapture
+          RISC0_DEV_MODE=true cargo test -F ntp -p nomos-time deconstructed -- --nocapture
