@@ -16,9 +16,11 @@ jobs:
           toolchain: stable
 
       - name: Sudo-less test
+        continue-on-error: true
         run: |
           RISC0_DEV_MODE=true cargo test -F ntp -p nomos-time real_ntp_request
 
       - name: Sudo Test
+        continue-on-error: true
         run: |
           sudo RISC0_DEV_MODE=true cargo test -F ntp -p nomos-time real_ntp_request
