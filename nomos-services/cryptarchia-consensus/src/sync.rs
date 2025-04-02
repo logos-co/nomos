@@ -24,8 +24,7 @@ impl<Cryptarchia, Network, Tx, BlobCertificate, RuntimeServiceId>
 where
     Tx: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + 'static,
     BlobCertificate: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + 'static,
-    Cryptarchia:
-        CryptarchiaAdapter<Tx = Tx, BlobCertificate = BlobCertificate> + Sync + Send + 'static,
+    Cryptarchia: CryptarchiaAdapter<Tx = Tx, BlobCertificate = BlobCertificate> + Sync + Send,
     Network: network::NetworkAdapter<RuntimeServiceId, Tx = Tx, BlobCertificate = BlobCertificate>
         + Sync,
 {
@@ -33,10 +32,10 @@ where
     /// This covers the case where the local tip is not on the latest honest
     /// chain anymore.
     #[expect(dead_code, reason = "Sync protocol is not integrated yet.")]
-    pub async fn initiate(
+    pub async fn run(
         mut cryptarchia: Cryptarchia,
         network: &Network,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    ) -> Result<Cryptarchia, Box<dyn std::error::Error + Send + Sync + 'static>> {
         // Repeat the sync process until no peer has a tip ahead of the local tip,
         // because peers' tips may advance during the sync process.
         let mut rejected_blocks = HashSet::new();
@@ -106,7 +105,7 @@ where
             }
         }
 
-        Ok(())
+        Ok(cryptarchia)
     }
 
     /// Backfills a fork, which is absent in the local block tree

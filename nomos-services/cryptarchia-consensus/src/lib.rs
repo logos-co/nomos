@@ -43,7 +43,7 @@ use serde_with::serde_as;
 use services_utils::overwatch::{
     lifecycle, recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator,
 };
-use sync::CryptarchiaAdapterError;
+use sync::{CryptarchiaAdapterError, Synchronization};
 use thiserror::Error;
 use tokio::sync::{broadcast, oneshot, oneshot::Sender};
 use tracing::{error, info, instrument, span, Level};
@@ -432,7 +432,7 @@ where
     BS: BlobSelect<BlobId = DaPool::Item> + Clone + Send + Sync + 'static,
     BS::Settings: Send + Sync + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng> + Send,
+    SamplingBackend: DaSamplingServiceBackend<SamplingRng> + Send + 'static,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + Send + 'static,
     SamplingBackend::BlobId: Debug + Ord + Send + Sync + 'static,
@@ -534,7 +534,7 @@ where
 
         let genesis_id = HeaderId::from([0; 32]);
 
-        let (mut cryptarchia, mut leader) = Self::build_cryptarchia(
+        let (cryptarchia, leader) = Self::build_cryptarchia(
             self.initial_state,
             genesis_id,
             genesis_state,
@@ -551,6 +551,14 @@ where
         let blob_selector = BS::new(blob_selector_settings);
 
         // TODO: Uncomment this once it's ready.
+        let sync_adapter = CryptarchiaSyncAdapter {
+            cryptarchia: Some(cryptarchia),
+            leader,
+            relays,
+            block_broadcaster: self.block_subscription_sender.clone(),
+        };
+        let sync_adapter = Synchronization::run(sync_adapter, &network_adapter).await?;
+        let (mut cryptarchia, mut leader, relays) = sync_adapter.take();
         // let mut cryptarchia = Synchronization::<
         //     NetAdapter,
         //     BlendAdapter,
@@ -1437,7 +1445,7 @@ struct CryptarchiaSyncAdapter<
     BS: BlobSelect<BlobId = DaPool::Item>,
     BS::Settings: Send,
     Storage: StorageBackend + Send + Sync + 'static,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
+    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send + 'static,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
@@ -1463,6 +1471,96 @@ struct CryptarchiaSyncAdapter<
         RuntimeServiceId,
     >,
     block_broadcaster: broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
+}
+impl<
+        NetAdapter,
+        BlendAdapter,
+        ClPool,
+        ClPoolAdapter,
+        DaPool,
+        DaPoolAdapter,
+        TxS,
+        BS,
+        Storage,
+        SamplingBackend,
+        SamplingRng,
+        DaVerifierBackend,
+        RuntimeServiceId,
+    >
+    CryptarchiaSyncAdapter<
+        NetAdapter,
+        BlendAdapter,
+        ClPool,
+        ClPoolAdapter,
+        DaPool,
+        DaPoolAdapter,
+        TxS,
+        BS,
+        Storage,
+        SamplingBackend,
+        SamplingRng,
+        DaVerifierBackend,
+        RuntimeServiceId,
+    >
+where
+    NetAdapter: NetworkAdapter<RuntimeServiceId>,
+    NetAdapter::Backend: 'static,
+    NetAdapter::Settings: Send,
+    BlendAdapter: blend::BlendAdapter<RuntimeServiceId>,
+    BlendAdapter::Settings: Send,
+    ClPool: RecoverableMempool<BlockId = HeaderId>,
+    ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    ClPool::Settings: Clone,
+    ClPool::Item: Clone + Eq + Hash + Debug + 'static,
+    ClPool::Key: Debug + 'static,
+    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
+    DaPool: RecoverableMempool<BlockId = HeaderId>,
+    DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    DaPool::Item: Clone + Eq + Hash + Debug + 'static,
+    DaPool::Key: Debug + 'static,
+    DaPool::Settings: Clone,
+    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
+    DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
+    TxS: TxSelect<Tx = ClPool::Item>,
+    TxS::Settings: Send,
+    BS: BlobSelect<BlobId = DaPool::Item>,
+    BS::Settings: Send,
+    Storage: StorageBackend + Send + Sync + 'static,
+    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send + 'static,
+    SamplingBackend::Settings: Clone,
+    SamplingBackend::Share: Debug + 'static,
+    SamplingBackend::BlobId: Debug + 'static,
+    SamplingRng: SeedableRng + RngCore,
+    DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + 'static,
+    DaVerifierBackend::Settings: Clone,
+{
+    fn take(
+        self,
+    ) -> (
+        Cryptarchia,
+        leadership::Leader,
+        CryptarchiaConsensusRelays<
+            BlendAdapter,
+            BS,
+            ClPool,
+            ClPoolAdapter,
+            DaPool,
+            DaPoolAdapter,
+            NetAdapter,
+            SamplingBackend,
+            SamplingRng,
+            Storage,
+            TxS,
+            DaVerifierBackend,
+            RuntimeServiceId,
+        >,
+    ) {
+        (
+            self.cryptarchia.expect("Cryptarchia is not set"),
+            self.leader,
+            self.relays,
+        )
+    }
 }
 
 #[async_trait::async_trait]
@@ -1543,7 +1641,7 @@ where
     BS: BlobSelect<BlobId = DaPool::Item> + Clone + Send + Sync + 'static,
     BS::Settings: Send,
     Storage: StorageBackend + Send + Sync + 'static,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng> + Send,
+    SamplingBackend: DaSamplingServiceBackend<SamplingRng> + Send + 'static,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + Ord + Send + Sync + 'static,
@@ -1556,7 +1654,7 @@ where
 
     async fn process_block(
         &mut self,
-        block: Block<Self::Tx, Self::BlobCertificate>,
+        _block: Block<Self::Tx, Self::BlobCertificate>,
     ) -> Result<(), CryptarchiaAdapterError> {
         todo!()
     }
@@ -1565,7 +1663,7 @@ where
         todo!()
     }
 
-    fn has_block(&self, id: &HeaderId) -> bool {
+    fn has_block(&self, _id: &HeaderId) -> bool {
         todo!()
     }
 }
