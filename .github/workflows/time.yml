@@ -18,6 +18,11 @@ jobs:
         run: |
           sudo sntp -sS time.windows.com
 
+      - name: Bash windows ip
+        continue-on-error: true
+        run: |
+          sudo sntp -sS 40.119.6.228
+
       - name: Bash apple
         continue-on-error: true
         run: |

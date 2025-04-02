@@ -105,7 +105,8 @@ mod tests {
         // 0.europe.pool.ntp.org
         // Uses IP instead of domain to avoid random SNTP::ResponseAddressMismatch
         // errors.
-        let ntp_server_ip = "185.251.115.30";
+        let ntp_server_ip = "40.119.6.228";
+        // let ntp_server_ip = "185.251.115.30";
         let ntp_server_address = format!("{ntp_server_ip}:123");
 
         let settings = NTPClientSettings {
@@ -121,7 +122,8 @@ mod tests {
 
     #[tokio::test]
     async fn deconstructed() {
-        let ntp_server_ip = "185.251.115.30";
+        let ntp_server_ip = "40.119.6.228";
+        // let ntp_server_ip = "185.251.115.30";
         let ntp_server_address = format!("{ntp_server_ip}:123");
         let destination = ntp_server_address.parse::<SocketAddr>().unwrap();
 
