@@ -65,13 +65,8 @@ pub enum BehaviourSyncEvent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum BlockResponse {
-    Block(Vec<u8>),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BehaviourSyncReply {
-    Block(BlockResponse),
+    Block(Vec<u8>),
     TipData(u64),
 }
 
@@ -540,7 +535,7 @@ mod test {
                         tokio::spawn(async move {
                             for _ in 0..MSG_COUNT {
                                 response_sender
-                                    .send(BehaviourSyncReply::Block(BlockResponse::Block(vec![])))
+                                    .send(BehaviourSyncReply::Block(vec![]))
                                     .await
                                     .expect("Failed to send block");
                             }

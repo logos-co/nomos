@@ -2,6 +2,7 @@ mod command;
 mod config;
 pub(crate) mod swarm;
 
+use futures::channel::mpsc::UnboundedSender;
 use cryptarchia_sync_network::behaviour::{
     BehaviourSyncEvent::SyncRequest, BehaviourSyncReply, SyncDirection,
 };
@@ -15,11 +16,11 @@ pub use self::{
     command::{Command, Dial, Libp2pInfo, Topic},
     config::Libp2pConfig,
 };
-use super::NetworkBackend;
+use super::{NetworkBackend, SyncRequestKind};
 
 pub struct Libp2p {
     events_tx: broadcast::Sender<Event>,
-    commands_tx: mpsc::Sender<Command>,
+    commands_tx: Sender<Command>,
 }
 
 #[derive(Debug)]
@@ -28,11 +29,6 @@ pub enum EventKind {
     SyncRequest,
 }
 
-#[derive(Debug, Clone)]
-pub enum SyncRequestKind {
-    ForwardSyncRequest(u64),
-    BackwardSyncRequest([u8; 32]),
-}
 
 /// Events emitted from [`NomosLibp2p`], which users can subscribe
 #[derive(Debug, Clone)]

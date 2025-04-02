@@ -49,6 +49,7 @@ use tokio::sync::{broadcast, oneshot, oneshot::Sender};
 use tracing::{error, info, instrument, span, Level};
 use tracing_futures::Instrument;
 
+use crate::storage::sync::SyncBlocksProvider;
 use crate::{
     leadership::Leader,
     relays::CryptarchiaConsensusRelays,
@@ -551,6 +552,7 @@ where
         let tx_selector = TxS::new(transaction_selector_settings);
         let blob_selector = BS::new(blob_selector_settings);
 
+        let storage_relay = relays.storage_adapter().storage_relay.clone();
         let sync_adapter = CryptarchiaSyncAdapter {
             cryptarchia: Some(cryptarchia),
             leader,
@@ -568,9 +570,17 @@ where
         // TODO: Uncomment this once it's ready.
         // let sync_adapter = Synchronization::run(sync_adapter,
         // &network_adapter).await?;
+
+        let sync_data_provider: SyncBlocksProvider<Storage, ClPool, DaPool, RuntimeServiceId> =
+            SyncBlocksProvider::new(
+                storage_relay,
+                self.service_state.overwatch_handle.runtime().clone(),
+            );
+
         let (mut cryptarchia, mut leader, relays) = sync_adapter.take();
 
         let mut incoming_blocks = network_adapter.blocks_stream().await?;
+        let mut incoming_sync_requests = network_adapter.sync_requests_stream().await?;
 
         let mut slot_timer = {
             let (sender, receiver) = oneshot::channel();
@@ -638,6 +648,14 @@ where
 
                     Some(msg) = self.service_state.inbound_relay.next() => {
                         Self::process_message(&cryptarchia, &self.block_subscription_sender, msg);
+                    }
+                    // TODO: Not tested
+                    Some(msg) = incoming_sync_requests.next() => {
+                        // Cryptarchia service is not the right place to provide blocks
+                        // for external sync requests because it's just reading data from DB.
+                        // But we need a glue code to connect networking and storage.
+                        // Might be worth considering implementing a separate service for this.
+                        sync_data_provider.process_sync_request(msg).await;
                     }
                     Some(msg) = lifecycle_stream.next() => {
                         if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {

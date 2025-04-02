@@ -129,22 +129,6 @@ where
         ))
     }
 
-    // We can use 2 patterns how to get data from a Behaviour(Swarm).
-    //
-    // 1. We receive data by using `swarm.next()`. This is done by GossipSub for
-    //    example.
-    // 2. We use a temporary channels to get messages from swarm. This is approach
-    //    taken by outgoing sync requests.
-    //
-    // I am not sure yet if one approach is the best or each works for different use
-    // cases.
-    //
-    // 1. Seems to be logically suitable for subscriptions when have some permanent
-    //    interest in incoming data
-    // 2. Seems to be logically suitable for one-time requests
-    //
-    // For local sync request we currently use option 2. And listening incoming sync
-    // requests we use option 1.
     async fn sync_requests_stream(&self) -> Result<BoxedStream<SyncRequest>, DynError> {
         let (sender, receiver) = tokio::sync::oneshot::channel();
         if let Err((e, _)) = self

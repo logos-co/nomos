@@ -6,18 +6,16 @@ use cryptarchia_engine::Slot;
 use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
 use futures::Stream;
 use nomos_core::{block::Block, header::HeaderId};
-use nomos_network::{
-    backends::{libp2p::SyncRequestKind, NetworkBackend},
-    NetworkService,
-};
+use nomos_network::{backends::NetworkBackend, NetworkService};
 use overwatch::{
     services::{relay::OutboundRelay, ServiceData},
     DynError,
 };
 use serde::{de::DeserializeOwned, Serialize};
-use tokio::sync::mpsc::{Sender, UnboundedReceiver};
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio::sync::mpsc::Sender;
+use nomos_network::backends::SyncRequestKind;
 
+#[derive(Debug, Clone)]
 pub struct SyncRequest {
     pub kind: SyncRequestKind,
     pub reply_channel: Sender<BehaviourSyncReply>,

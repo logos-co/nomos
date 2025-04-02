@@ -5,9 +5,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tracing::info;
 
 use crate::{
-    behaviour::{
-        BehaviourSyncReply, BlockResponse, IncomingSyncRequest, RequestKind, SyncError, SyncRequest,
-    },
+    behaviour::{BehaviourSyncReply, IncomingSyncRequest, RequestKind, SyncError, SyncRequest},
     sync_utils,
 };
 
@@ -50,8 +48,7 @@ pub fn send_response_to_peer(
                     info!(tip = tip, "Sending tip");
                     sync_utils::send_data(&mut req.stream, &tip).await?;
                 }
-                BehaviourSyncReply::Block(data) => {
-                    let BlockResponse::Block(block) = data;
+                BehaviourSyncReply::Block(block) => {
                     sync_utils::send_data(&mut req.stream, &block).await?;
                 }
             }

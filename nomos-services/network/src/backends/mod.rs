@@ -9,6 +9,13 @@ pub mod libp2p;
 #[cfg(feature = "mock")]
 pub mod mock;
 
+// TODO: find a better place(that is not behind libp2p feature flag)
+#[derive(Debug, Clone)]
+pub enum SyncRequestKind {
+    ForwardSyncRequest(u64),
+    BackwardSyncRequest([u8; 32]),
+}
+
 #[async_trait::async_trait]
 pub trait NetworkBackend<RuntimeServiceId> {
     type Settings: Clone + Debug + Send + Sync + 'static;
