@@ -92,8 +92,11 @@ impl AsyncNTPClient {
 mod tests {
     use std::{
         net::{IpAddr, Ipv4Addr, SocketAddr},
+        sync::Arc,
         time::Duration,
     };
+
+    use sntpc::{sntp_process_response, WrappedIoError};
 
     use super::*;
 
@@ -114,5 +117,56 @@ mod tests {
         let _response = client.request_timestamp(ntp_server_address).await?;
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn deconstructed() {
+        let ntp_server_ip = "185.251.115.30";
+        let ntp_server_address = format!("{ntp_server_ip}:123");
+        let destination = ntp_server_address.parse::<SocketAddr>().unwrap();
+
+        let ntp_context = NtpContext::new(StdTimestampGen::default());
+        let packet = sntpc::NtpPacket::new(ntp_context.timestamp_gen);
+        let raw_packet = sntpc::RawNtpPacket::from(&packet);
+
+        let local_socket_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 12345);
+        let local_socket = UdpSocket::bind(local_socket_address)
+            .await
+            .expect("Failed to bind local socket");
+
+        let raw_packet_inner: &[u8; size_of::<sntpc::RawNtpPacket>()] = unsafe {
+            std::mem::transmute::<&sntpc::RawNtpPacket, &[u8; size_of::<sntpc::RawNtpPacket>()]>(
+                &raw_packet,
+            )
+        };
+
+        let res = match local_socket.send_to(raw_packet_inner, destination).await {
+            Ok(size) => {
+                if size == raw_packet_inner.len() {
+                    dbg!("Request size matched. Sent: {}", size);
+                    Ok(())
+                } else {
+                    dbg!(
+                        "Request size mismatch. Sent: {}, expected: {}",
+                        size,
+                        raw_packet_inner.len()
+                    );
+                    Err(sntpc::Error::ResponseSizeMismatch(
+                        raw_packet_inner.len(),
+                        size,
+                    ))
+                }
+            }
+            Err(e) => {
+                dbg!("Failed to send request: {:?}", &e);
+                Err(sntpc::Error::Network(e.into()))
+            }
+        };
+
+        let send_request_result = sntpc::SendRequestResult::from(packet);
+        let x = sntp_process_response(destination, &local_socket, ntp_context, send_request_result)
+            .await;
+
+        dbg!("sntp_process_response: {:?}", x);
     }
 }

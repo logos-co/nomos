@@ -18,9 +18,9 @@ jobs:
       - name: Sudo-less test
         continue-on-error: true
         run: |
-          RISC0_DEV_MODE=true cargo test -F ntp -p nomos-time real_ntp_request
+          RISC0_DEV_MODE=true cargo test -F ntp -p nomos-time real_ntp_request -- --nocapture
 
       - name: Sudo Test
         continue-on-error: true
         run: |
-          sudo RISC0_DEV_MODE=true cargo test -F ntp -p nomos-time real_ntp_request
+          sudo RISC0_DEV_MODE=true cargo test -F ntp -p nomos-time real_ntp_request -- --nocapture

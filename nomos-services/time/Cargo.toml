@@ -15,11 +15,15 @@ overwatch          = { workspace = true }
 serde              = { version = "1.0", optional = true, features = ["derive"] }
 serde_with         = { workspace = true, optional = true }
 services-utils     = { workspace = true }
-sntpc              = { version = "0.5", optional = true, features = ["tokio-socket"] }
-thiserror          = { version = "2.0", optional = true }
-time               = "0.3"
-tokio              = { version = "1", features = ["macros", "sync"] }
-tokio-stream       = "0.1"
+#sntpc              = { version = "0.5", optional = true, features = ["tokio-socket"] }
+sntpc = { git = "https://github.com/strinnityk/sntpc", rev = "7ffe36129c19204a24781701aedc377f2328c6bd", optional = true, features = [
+  "embassy-socket",
+  "tokio-socket",
+] }
+thiserror = { version = "2.0", optional = true }
+time = "0.3"
+tokio = { version = "1", features = ["macros", "sync"] }
+tokio-stream = "0.1"
 
 [features]
 ntp       = ["dep:sntpc", "dep:thiserror"]
