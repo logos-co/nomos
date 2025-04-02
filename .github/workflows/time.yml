@@ -8,26 +8,5 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
-      - name: Deps
-        run: |
-          pip install ntplib
-
-      - name: Test NTP with Python
-        run: |
-          python -c "
-          import ntplib
-          host = '185.251.115.30'
-          c = ntplib.NTPClient()
-          
-          try:
-              response_v3 = c.request(host, version=3)
-              print(f'NTP v3 success - Time: {response_v3.tx_time}')
-          except Exception as e:
-              print(f'::error::NTP v3 failed: {e}')
-          
-          try:
-              response_v4 = c.request(host, version=4)
-              print(f'NTP v4 success - Time: {response_v4.tx_time}')
-          except Exception as e:
-              print(f'::error::NTP v4 failed: {e}')
-          "
+      - name: Sync clock
+        run: sudo sntp -sS time.windows.com
