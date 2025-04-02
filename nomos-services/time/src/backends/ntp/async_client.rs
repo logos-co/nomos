@@ -174,10 +174,19 @@ mod tests {
         // dbg!("sntp_process_response: {:?}", x);
 
         let mut response_buf = RawNtpPacket::default();
-        let (response, src) = local_socket
-            .recv_from(response_buf.0.as_mut())
-            .await
-            .unwrap();
+
+        let (response, src) = timeout(
+            Duration::from_secs(10),
+            local_socket.recv_from(response_buf.0.as_mut()),
+        )
+        .await
+        .map_err(|_| ())?
+        .map_err(|_| {})?;
+
+        // let (response, src) = local_socket
+        //     .recv_from(response_buf.0.as_mut())
+        //     .await
+        //     .unwrap();
         let response = sntpc::NtpPacket::from(response_buf);
 
         Ok((

@@ -8,46 +8,6 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
-      - name: Bash ntp.org
-        continue-on-error: true
-        run: |
-          sudo sntp -sS 185.251.115.30
-
-      - name: Bash windows
-        continue-on-error: true
-        run: |
-          sudo sntp -sS time.windows.com
-
-      - name: Bash windows ip
-        continue-on-error: true
-        run: |
-          sudo sntp -sS 40.119.6.228
-
-      - name: Bash apple
-        continue-on-error: true
-        run: |
-          sudo sntp -sS time.apple.com
-
-      - name: Cloudflare
-        continue-on-error: true
-        run: |
-          sudo sntp -sS time.cloudflare.com
-
-      - name: NTP Pool
-        continue-on-error: true
-        run: |
-          sudo sntp -sS ntppool1.time.nl
-
-      - name: Netnod
-        continue-on-error: true
-        run: |
-          sudo sntp -sS nts.netnod.se
-
-      - name: PTB
-        continue-on-error: true
-        run: |
-          sudo sntp -sS ptbtime1.ptb.de
-
       - name: Checkout
         uses: actions/checkout@v2
 
