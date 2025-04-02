@@ -1730,13 +1730,17 @@ where
     }
 
     fn tip_slot(&self) -> Slot {
-        self.cryptarchia.as_ref().unwrap().tip_state().slot()
+        self.cryptarchia
+            .as_ref()
+            .expect("Cryptarchia is being used")
+            .tip_state()
+            .slot()
     }
 
     fn has_block(&self, id: &HeaderId) -> bool {
         self.cryptarchia
             .as_ref()
-            .unwrap()
+            .expect("Cryptarchia is being used")
             .ledger
             .state(id)
             .is_some()
