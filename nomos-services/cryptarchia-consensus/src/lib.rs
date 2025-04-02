@@ -144,10 +144,6 @@ impl Cryptarchia {
             None
         }
     }
-
-    pub fn ledger_state(&self, id: &HeaderId) -> Option<&LedgerState> {
-        self.ledger.state(id)
-    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
