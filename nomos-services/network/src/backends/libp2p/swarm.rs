@@ -116,105 +116,17 @@ impl SwarmHandler {
         }
     }
 
-    #[expect(
-        clippy::cognitive_complexity,
-        clippy::too_many_lines,
-        reason = "TODO: Address this at some point."
-    )]
     fn handle_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
         match event {
-            SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(gossipsub::Event::Message {
-                propagation_source: peer_id,
-                message_id: id,
-                message,
-            })) => {
-                tracing::debug!("Got message with id: {id} from peer: {peer_id}");
-                log_error!(self.events_tx.send(Event::Message(message)));
+            SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => {
+                self.handle_gossipsub_event(event);
             }
-            // identify events (used for peer discovery)
-            SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received {
-                peer_id,
-                info,
-                ..
-            })) => {
-                tracing::debug!(
-                    "Identified peer {} with addresses {:?}",
-                    peer_id,
-                    info.listen_addrs
-                );
-
-                let kad_protocol_names = self.swarm.get_kademlia_protocol_names();
-
-                if info
-                    .protocols
-                    .iter()
-                    .any(|p| kad_protocol_names.contains(&p.to_string()))
-                {
-                    // we need to add the peer to the kademlia routing table
-                    // in order to enable peer discovery
-                    for addr in &info.listen_addrs {
-                        self.swarm
-                            .swarm_mut()
-                            .behaviour_mut()
-                            .kademlia_add_address(peer_id, addr.clone());
-                    }
-                }
-            }
-
-            SwarmEvent::Behaviour(BehaviourEvent::Kademlia(
-                kad::Event::OutboundQueryProgressed {
-                    id,
-                    result: kad::QueryResult::GetClosestPeers(Ok(result)),
-                    ..
-                },
-            )) => {
-                if let Some(sender) = self.pending_queries.remove(&id) {
-                    let _ = sender.send(result.peers);
-                }
-            }
-
-            SwarmEvent::Behaviour(BehaviourEvent::Kademlia(
-                kad::Event::OutboundQueryProgressed {
-                    id,
-                    result: kad::QueryResult::GetClosestPeers(Err(err)),
-                    ..
-                },
-            )) => {
-                tracing::warn!("Failed to find closest peers: {:?}", err);
-
-                if let Some(sender) = self.pending_queries.remove(&id) {
-                    let _ = sender.send(Vec::new());
-                }
-            }
-            SwarmEvent::Behaviour(BehaviourEvent::Kademlia(
-                kad::Event::OutboundQueryProgressed {
-                    id,
-                    result: kad::QueryResult::Bootstrap(result),
-                    ..
-                },
-            )) => match result {
-                Ok(_) => {
-                    tracing::debug!("Bootstrap successful. Query ID: {:?}", id);
-                }
-                Err(e) => {
-                    tracing::warn!("Bootstrap failed: {:?}, Query ID: {:?}", e, id);
-                }
-            },
-
-            SwarmEvent::Behaviour(BehaviourEvent::Kademlia(kad::Event::RoutingUpdated {
-                peer,
-                addresses,
-                old_peer,
-                is_new_peer,
-                bucket_range,
-            })) => {
-                tracing::debug!(
-                    "Routing table updated: peer: {peer}, addresses: {addresses:?}, old_peer: {old_peer:?}, is_new_peer: {is_new_peer}, bucket_range: {bucket_range:?}"
-                );
+            SwarmEvent::Behaviour(BehaviourEvent::Identify(event)) => {
+                self.handle_identify_event(event);
             }
 
             SwarmEvent::Behaviour(BehaviourEvent::Kademlia(event)) => {
-                tracing::debug!("Kademlia event: {:?}", event);
+                self.handle_kademlia_event(event);
             }
 
             SwarmEvent::ConnectionEstablished {
@@ -415,9 +327,98 @@ impl SwarmHandler {
         }
     }
 
+    fn handle_gossipsub_event(&self, event: nomos_libp2p::libp2p::gossipsub::Event) {
+        if let nomos_libp2p::libp2p::gossipsub::Event::Message { message, .. } = event {
+            let message = Event::Message(message);
+            if let Err(e) = self.events_tx.send(message) {
+                tracing::error!("Failed to send gossipsub message event: {}", e);
+            }
+        }
+    }
+
+    fn handle_identify_event(&mut self, event: identify::Event) {
+        match event {
+            identify::Event::Received { peer_id, info, .. } => {
+                tracing::debug!(
+                    "Identified peer {} with addresses {:?}",
+                    peer_id,
+                    info.listen_addrs
+                );
+                let kad_protocol_names = self.swarm.get_kademlia_protocol_names();
+                if info
+                    .protocols
+                    .iter()
+                    .any(|p| kad_protocol_names.contains(&p.to_string()))
+                {
+                    // we need to add the peer to the kademlia routing table
+                    // in order to enable peer discovery
+                    for addr in &info.listen_addrs {
+                        self.swarm
+                            .swarm_mut()
+                            .behaviour_mut()
+                            .kademlia_add_address(peer_id, addr.clone());
+                    }
+                }
+            }
+            // Handle other identify events if needed
+            _ => {}
+        }
+    }
+
+    pub fn handle_kademlia_event(&mut self, event: kad::Event) {
+        match event {
+            kad::Event::OutboundQueryProgressed { id, result, .. } => {
+                self.handle_query_progress(id, result);
+            }
+            kad::Event::RoutingUpdated {
+                peer,
+                addresses,
+                old_peer,
+                is_new_peer,
+                ..
+            } => {
+                log_routing_update(peer, &addresses.into_vec(), old_peer, is_new_peer);
+            }
+            event => {
+                tracing::debug!("Kademlia event: {:?}", event);
+            }
+        }
+    }
+
+    fn handle_query_progress(&mut self, id: QueryId, result: kad::QueryResult) {
+        match result {
+            kad::QueryResult::GetClosestPeers(Ok(result)) => {
+                if let Some(sender) = self.pending_queries.remove(&id) {
+                    let _ = sender.send(result.peers);
+                }
+            }
+            kad::QueryResult::GetClosestPeers(Err(err)) => {
+                tracing::warn!("Failed to find closest peers: {:?}", err);
+                if let Some(sender) = self.pending_queries.remove(&id) {
+                    let _ = sender.send(Vec::new());
+                }
+            }
+            _ => {
+                tracing::debug!("Handle kademlia query result: {:?}", result);
+            }
+        }
+    }
+
     const fn exp_backoff(retry: usize) -> Duration {
         std::time::Duration::from_secs(BACKOFF.pow(retry as u32))
     }
+}
+
+fn log_routing_update(
+    peer: PeerId,
+    address: &[Multiaddr],
+    old_peer: Option<PeerId>,
+    is_new_peer: bool,
+) {
+    tracing::debug!(
+        "Routing table updated: peer: {peer}, address: {address:?}, \
+         old_peer: {old_peer:?}, is_new_peer: {is_new_peer}"
+    );
 }
 
 #[cfg(test)]
