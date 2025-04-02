@@ -7,7 +7,7 @@ use nomos_libp2p::{
         kad::{self, PeerInfo, QueryId},
         swarm::ConnectionId,
     },
-    BehaviourEvent, Multiaddr, PeerId, Protocol, Swarm, SwarmEvent, KAD_PROTOCOL_NAME,
+    BehaviourEvent, Multiaddr, PeerId, Protocol, Swarm, SwarmEvent,
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::StreamExt;
@@ -143,13 +143,20 @@ impl SwarmHandler {
                     info.listen_addrs
                 );
 
-                let behaviour = self.swarm.swarm_mut().behaviour_mut();
+                let kad_protocol_names = self.swarm.get_kademlia_protocol_names();
 
-                if info.protocols.iter().any(|p| *p == KAD_PROTOCOL_NAME) {
+                if info
+                    .protocols
+                    .iter()
+                    .any(|p| kad_protocol_names.contains(&p.to_string()))
+                {
                     // we need to add the peer to the kademlia routing table
                     // in order to enable peer discovery
                     for addr in &info.listen_addrs {
-                        behaviour.kademlia_add_address(peer_id, addr.clone());
+                        self.swarm
+                            .swarm_mut()
+                            .behaviour_mut()
+                            .kademlia_add_address(peer_id, addr.clone());
                     }
                 }
             }
@@ -286,13 +293,20 @@ impl SwarmHandler {
                 self.broadcast_and_retry(topic, message, retry_count);
             }
 
-            // this is just an illustration what kind of commands we could expose to other services
-            // it is not optimized and is just a proof of concept
             Command::GetClosestPeers { peer_id, reply } => {
-                tracing::info!("Getting closest peers to: {peer_id}");
-                let query_id = self.swarm.get_closest_peers(peer_id);
-                tracing::info!("Query id: {query_id:?}");
-                self.pending_queries.insert(query_id, reply);
+                match self.swarm.get_closest_peers(peer_id) {
+                    Ok(query_id) => {
+                        tracing::debug!("Pending query ID: {query_id}");
+                        self.pending_queries.insert(query_id, reply);
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            "Failed to get closest peers for peer ID: {peer_id}: {:?}",
+                            err
+                        );
+                        let _ = reply.send(Vec::new());
+                    }
+                }
             }
             Command::DumpRoutingTable { reply } => {
                 let result = self
@@ -300,6 +314,8 @@ impl SwarmHandler {
                     .swarm_mut()
                     .behaviour_mut()
                     .kademlia_routing_table_dump();
+
+                tracing::info!("Routing table dump: {result:?}");
                 let _ = reply.send(result);
             }
         }
@@ -428,6 +444,8 @@ mod tests {
             port,
             node_key: nomos_libp2p::ed25519::SecretKey::generate(),
             gossipsub_config: gossipsub::Config::default(),
+            kademlia_config: Some(nomos_libp2p::KademliaSettings::default()),
+            identity_config: Some(nomos_libp2p::IdentifySettings::default()),
         }
     }
 
