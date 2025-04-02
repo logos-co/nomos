@@ -13,7 +13,7 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::StreamExt;
 
 use super::{
-    command::{Command, Dial, Topic},
+    command::{Command, Dial, DiscoveryCommand, NetworkCommand, PubSubCommand, Topic},
     Event, Libp2pConfig,
 };
 use crate::backends::libp2p::Libp2pInfo;
@@ -165,27 +165,20 @@ impl SwarmHandler {
         }
     }
 
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "TODO: Address this at some point."
-    )]
     fn handle_command(&mut self, command: Command) {
         match command {
-            Command::Connect(dial) => {
+            Command::Network(network_cmd) => self.handle_network_command(network_cmd),
+            Command::PubSub(pubsub_cmd) => self.handle_pubsub_command(pubsub_cmd),
+            Command::Discovery(discovery_cmd) => self.handle_discovery_command(discovery_cmd),
+        }
+    }
+
+    fn handle_network_command(&mut self, command: NetworkCommand) {
+        match command {
+            NetworkCommand::Connect(dial) => {
                 self.connect(dial);
             }
-            Command::Broadcast { topic, message } => {
-                self.broadcast_and_retry(topic, message, 0);
-            }
-            Command::Subscribe(topic) => {
-                tracing::debug!("subscribing to topic: {topic}");
-                log_error!(self.swarm.subscribe(&topic));
-            }
-            Command::Unsubscribe(topic) => {
-                tracing::debug!("unsubscribing to topic: {topic}");
-                self.swarm.unsubscribe(&topic);
-            }
-            Command::Info { reply } => {
+            NetworkCommand::Info { reply } => {
                 let swarm = self.swarm.swarm();
                 let network_info = swarm.network_info();
                 let counters = network_info.connection_counters();
@@ -197,15 +190,35 @@ impl SwarmHandler {
                 };
                 log_error!(reply.send(info));
             }
-            Command::RetryBroadcast {
+        }
+    }
+
+    fn handle_pubsub_command(&mut self, command: PubSubCommand) {
+        match command {
+            PubSubCommand::Broadcast { topic, message } => {
+                self.broadcast_and_retry(topic, message, 0);
+            }
+            PubSubCommand::Subscribe(topic) => {
+                tracing::debug!("subscribing to topic: {topic}");
+                log_error!(self.swarm.subscribe(&topic));
+            }
+            PubSubCommand::Unsubscribe(topic) => {
+                tracing::debug!("unsubscribing to topic: {topic}");
+                self.swarm.unsubscribe(&topic);
+            }
+            PubSubCommand::RetryBroadcast {
                 topic,
                 message,
                 retry_count,
             } => {
                 self.broadcast_and_retry(topic, message, retry_count);
             }
+        }
+    }
 
-            Command::GetClosestPeers { peer_id, reply } => {
+    fn handle_discovery_command(&mut self, command: DiscoveryCommand) {
+        match command {
+            DiscoveryCommand::GetClosestPeers { peer_id, reply } => {
                 match self.swarm.get_closest_peers(peer_id) {
                     Ok(query_id) => {
                         tracing::debug!("Pending query ID: {query_id}");
@@ -220,13 +233,12 @@ impl SwarmHandler {
                     }
                 }
             }
-            Command::DumpRoutingTable { reply } => {
+            DiscoveryCommand::DumpRoutingTable { reply } => {
                 let result = self
                     .swarm
                     .swarm_mut()
                     .behaviour_mut()
                     .kademlia_routing_table_dump();
-
                 tracing::info!("Routing table dump: {result:?}");
                 let _ = reply.send(result);
             }
@@ -235,7 +247,7 @@ impl SwarmHandler {
 
     async fn schedule_connect(dial: Dial, commands_tx: mpsc::Sender<Command>) {
         commands_tx
-            .send(Command::Connect(dial))
+            .send(Command::Network(NetworkCommand::Connect(dial)))
             .await
             .unwrap_or_else(|_| tracing::error!("could not schedule connect"));
     }
@@ -312,11 +324,11 @@ impl SwarmHandler {
                 tokio::spawn(async move {
                     tokio::time::sleep(wait).await;
                     commands_tx
-                        .send(Command::RetryBroadcast {
+                        .send(Command::PubSub(PubSubCommand::RetryBroadcast {
                             topic,
                             message,
                             retry_count: retry_count + 1,
-                        })
+                        }))
                         .await
                         .unwrap_or_else(|_| tracing::error!("could not schedule retry"));
                 });
@@ -484,8 +496,8 @@ mod tests {
         // Wait for bootstrap node to start
         tokio::time::sleep(Duration::from_secs(5)).await;
 
-        let (info_tx, info_rx) = oneshot::channel();
-        tx1.send(Command::Info { reply: info_tx })
+        let (reply, info_rx) = oneshot::channel();
+        tx1.send(Command::Network(NetworkCommand::Info { reply }))
             .await
             .expect("Failed to send info command");
         let bootstrap_info = info_rx.await.expect("Failed to get bootstrap node info");
@@ -542,10 +554,12 @@ mod tests {
             let mut indices_to_remove = Vec::new();
 
             for (idx, tx) in txs.iter().enumerate() {
-                let (dump_tx, dump_rx) = oneshot::channel();
-                tx.send(Command::DumpRoutingTable { reply: dump_tx })
-                    .await
-                    .expect("Failed to send dump command");
+                let (reply, dump_rx) = oneshot::channel();
+                tx.send(Command::Discovery(DiscoveryCommand::DumpRoutingTable {
+                    reply,
+                }))
+                .await
+                .expect("Failed to send dump command");
 
                 let routing_table = dump_rx.await.expect("Failed to receive routing table dump");
 
@@ -578,10 +592,10 @@ mod tests {
 
         // Verify closest peers from the bootstrap node
         let (closest_tx, closest_rx) = oneshot::channel();
-        tx1.send(Command::GetClosestPeers {
+        tx1.send(Command::Discovery(DiscoveryCommand::GetClosestPeers {
             peer_id: bootstrap_node_peer_id,
             reply: closest_tx,
-        })
+        }))
         .await
         .expect("Failed to send get closest peers command");
 
