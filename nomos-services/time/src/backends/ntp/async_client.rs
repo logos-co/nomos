@@ -124,12 +124,10 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn deconstructed() {
-        let ntp_server_ip = "40.119.6.228";
-        // let ntp_server_ip = "185.251.115.30";
-        let ntp_server_address = format!("{ntp_server_ip}:123");
-        let destination = ntp_server_address.parse::<SocketAddr>().unwrap();
+    async fn deconstructed_ntp_request(domain: &str) -> Result<(&str, u8, u8), ()> {
+        println!("\n[{}]", domain);
+        let ntp_server_address = format!("{domain}:123");
+        let destination = ntp_server_address.parse::<SocketAddr>().map_err(|_| ())?;
 
         let ntp_context = NtpContext::new(StdTimestampGen::default());
         let packet = sntpc::NtpPacket::new(ntp_context.timestamp_gen);
@@ -149,10 +147,10 @@ mod tests {
         let res = match local_socket.send_to(raw_packet_inner, destination).await {
             Ok(size) => {
                 if size == raw_packet_inner.len() {
-                    dbg!("Request size matched. Sent: {}", size);
+                    println!("Request size matched. Sent: {}", size);
                     Ok(())
                 } else {
-                    dbg!(
+                    println!(
                         "Request size mismatch. Sent: {}, expected: {}",
                         size,
                         raw_packet_inner.len()
@@ -164,7 +162,7 @@ mod tests {
                 }
             }
             Err(e) => {
-                dbg!("Failed to send request: {:?}", &e);
+                println!("Failed to send request: {:?}", &e);
                 Err(sntpc::Error::Network(e.into()))
             }
         };
@@ -182,7 +180,42 @@ mod tests {
             .unwrap();
         let response = sntpc::NtpPacket::from(response_buf);
 
-        dbg!("Request version: {:?}", get_version(packet.li_vn_mode));
-        dbg!("Response version: {:?}", get_version(response.li_vn_mode));
+        Ok((
+            domain,
+            get_version(packet.li_vn_mode),
+            get_version(response.li_vn_mode),
+        ))
+    }
+
+    #[tokio::test]
+    async fn deconstructed() {
+        let ntp_server_ip = "40.119.6.228"; // time.windows.com
+                                            // let ntp_server_ip = "185.251.115.30"; // 0.europe.pool.ntp.org
+        let domains = [
+            "0.europe.pool.ntp.org",
+            "185.251.115.30",
+            "time.windows.com",
+            "40.119.6.228",
+            "51.137.137.111",
+            "time.apple.com",
+            "17.253.28.253",
+            "time.cloudflare.com",
+            "162.159.200.123",
+            "ntppool1.time.nl",
+            "94.198.159.15",
+            "nts.netnod.se",
+            "ptbtime1.ptb.de",
+            "192.53.103.108",
+        ];
+
+        for domain in domains {
+            if let Ok((domain, sent_version, received_version)) =
+                deconstructed_ntp_request(domain).await
+            {
+                println!("-> Domain: {domain}, sent version: {sent_version}, received version: {received_version}");
+            } else {
+                println!("-> Failed to get response for domain: {domain}");
+            }
+        }
     }
 }
