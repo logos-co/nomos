@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use nomos_libp2p::{libp2p::kad::PeerInfo, Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
@@ -29,7 +31,7 @@ pub enum Command {
     },
 
     DumpRoutingTable {
-        reply: oneshot::Sender<Vec<PeerId>>,
+        reply: oneshot::Sender<HashMap<u32, Vec<PeerId>>>,
     },
 }
 

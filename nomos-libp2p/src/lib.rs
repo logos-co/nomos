@@ -1,6 +1,7 @@
 mod config;
 
 use std::{
+    collections::HashMap,
     error::Error,
     pin::Pin,
     task::{Context, Poll},
@@ -101,19 +102,19 @@ impl Behaviour {
         }
     }
 
-    pub fn kademlia_routing_table_dump(&mut self) -> Vec<PeerId> {
+    pub fn kademlia_routing_table_dump(&mut self) -> HashMap<u32, Vec<PeerId>> {
         self.kademlia
             .as_mut()
-            .map_or_else(std::vec::Vec::new, |kademlia| {
+            .map_or_else(HashMap::new, |kademlia| {
                 kademlia
                     .kbuckets()
-                    .flat_map(|bucket| {
+                    .enumerate()
+                    .map(|(bucket_idx, bucket)| {
                         let peers = bucket
                             .iter()
                             .map(|entry| *entry.node.key.preimage())
                             .collect::<Vec<_>>();
-
-                        peers
+                        (bucket_idx as u32, peers)
                     })
                     .collect()
             })

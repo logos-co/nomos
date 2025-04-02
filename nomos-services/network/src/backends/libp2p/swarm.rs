@@ -548,6 +548,11 @@ mod tests {
 
                 let routing_table = dump_rx.await.expect("Failed to receive routing table dump");
 
+                let routing_table = routing_table
+                    .into_iter()
+                    .flat_map(|(_, peers)| peers)
+                    .collect::<Vec<_>>();
+
                 if routing_table.len() >= NODE_COUNT - 1 {
                     // This node's routing table is fully populated, mark for removal
                     indices_to_remove.push(idx);
