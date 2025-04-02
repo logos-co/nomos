@@ -1682,7 +1682,7 @@ where
         &mut self,
         block: Block<Self::Tx, Self::BlobCertificate>,
     ) -> Result<(), CryptarchiaAdapterError> {
-        CryptarchiaConsensus::<
+        let result = CryptarchiaConsensus::<
             NetAdapter,
             BlendAdapter,
             ClPool,
@@ -1710,9 +1710,23 @@ where
             &mut self.block_broadcaster,
         )
         .await;
-        //TODO: handle result
 
-        Ok(())
+        match result {
+            Ok(cryptarchia) => {
+                self.cryptarchia = Some(cryptarchia);
+                Ok(())
+            }
+            Err((e, cryptarchia)) => {
+                self.cryptarchia = Some(cryptarchia);
+                match e {
+                    Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(_))
+                    | Error::Consensus(cryptarchia_engine::Error::ParentMissing(_)) => {
+                        Err(CryptarchiaAdapterError::ParentNotFound)
+                    }
+                    e => Err(CryptarchiaAdapterError::InvalidBlock(Box::new(e))),
+                }
+            }
+        }
     }
 
     fn tip_slot(&self) -> Slot {
