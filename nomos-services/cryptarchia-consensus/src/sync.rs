@@ -13,8 +13,11 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use crate::network;
 
-// TODO: Replace Tx and BlobCertificate with Block.
-//       This requires refactoring NetworkAdapter.
+// TODO: Consider moving this to a separate crate.
+// (e.g. consensus/cryptarchia-sync/core)
+
+// TODO: Replace Tx and BlobCertificate with Block if possible.
+// This requires refactoring NetworkAdapter.
 pub struct Synchronization<Cryptarchia, Network, Tx, BlobCertificate, RuntimeServiceId> {
     _marker: PhantomData<(Cryptarchia, Network, Tx, BlobCertificate, RuntimeServiceId)>,
 }
@@ -181,15 +184,7 @@ pub trait CryptarchiaAdapter {
 #[derive(thiserror::Error, Debug)]
 pub enum CryptarchiaAdapterError {
     #[error("Parent not found")]
-    #[expect(
-        dead_code,
-        reason = "CryptarchiaAdapter is not implemented yet anywhere"
-    )]
     ParentNotFound,
     #[error("Invalid block: {0}")]
-    #[expect(
-        dead_code,
-        reason = "CryptarchiaAdapter is not implemented yet anywhere"
-    )]
     InvalidBlock(Box<dyn std::error::Error + Send + Sync>),
 }

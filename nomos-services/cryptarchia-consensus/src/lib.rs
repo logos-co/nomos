@@ -43,7 +43,7 @@ use serde_with::serde_as;
 use services_utils::overwatch::{
     lifecycle, recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator,
 };
-use sync::{CryptarchiaAdapterError, Synchronization};
+use sync::CryptarchiaAdapterError;
 use thiserror::Error;
 use tokio::sync::{broadcast, oneshot, oneshot::Sender};
 use tracing::{error, info, instrument, span, Level};
@@ -566,7 +566,8 @@ where
             )>,
         };
         // TODO: Uncomment this once it's ready.
-        // let sync_adapter = Synchronization::run(sync_adapter, &network_adapter).await?;
+        // let sync_adapter = Synchronization::run(sync_adapter,
+        // &network_adapter).await?;
         let (mut cryptarchia, mut leader, relays) = sync_adapter.take();
 
         let mut incoming_blocks = network_adapter.blocks_stream().await?;
@@ -1387,6 +1388,10 @@ where
     receiver.await.map_err(|error| Box::new(error) as DynError)
 }
 
+#[expect(
+    clippy::type_complexity,
+    reason = "CryptarchiaConsensus amount of generics."
+)]
 struct CryptarchiaSyncAdapter<
     NetAdapter,
     BlendAdapter,
@@ -1466,6 +1471,11 @@ struct CryptarchiaSyncAdapter<
         TimeBackend,
     )>,
 }
+
+#[expect(
+    clippy::type_complexity,
+    reason = "CryptarchiaConsensus amount of generics."
+)]
 impl<
         NetAdapter,
         BlendAdapter,
@@ -1732,7 +1742,7 @@ where
     fn tip_slot(&self) -> Slot {
         self.cryptarchia
             .as_ref()
-            .expect("Cryptarchia is being used")
+            .expect("Cryptarchia shouldn't be in use")
             .tip_state()
             .slot()
     }
@@ -1740,7 +1750,7 @@ where
     fn has_block(&self, id: &HeaderId) -> bool {
         self.cryptarchia
             .as_ref()
-            .expect("Cryptarchia is being used")
+            .expect("Cryptarchia shouldn't be in use")
             .ledger
             .state(id)
             .is_some()
