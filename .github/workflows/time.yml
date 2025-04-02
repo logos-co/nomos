@@ -8,7 +8,17 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
-      - name: Sudo
-        run: sudo sntp -sS time.windows.com
-      - name: Sudoless
-        run: sntp -sS time.windows.com
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Sudo-less test
+        run: |
+          RISC0_DEV_MODE=true cargo test -p nomos-time --test real_ntp_request
+
+      - name: Sudo Test
+        run: |
+          sudo RISC0_DEV_MODE=true cargo test -p nomos-time --test real_ntp_request
