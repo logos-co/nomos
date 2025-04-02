@@ -17,8 +17,8 @@ jobs:
 
       - name: Sudo-less test
         run: |
-          RISC0_DEV_MODE=true cargo test -p nomos-time --test real_ntp_request
+          RISC0_DEV_MODE=true cargo test -F ntp -p nomos-time real_ntp_request
 
       - name: Sudo Test
         run: |
-          sudo RISC0_DEV_MODE=true cargo test -p nomos-time --test real_ntp_request
+          sudo RISC0_DEV_MODE=true cargo test -F ntp -p nomos-time real_ntp_request
