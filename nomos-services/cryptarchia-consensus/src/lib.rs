@@ -43,6 +43,7 @@ use serde_with::serde_as;
 use services_utils::overwatch::{
     lifecycle, recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator,
 };
+use sync::CryptarchiaAdapterError;
 use thiserror::Error;
 use tokio::sync::{broadcast, oneshot, oneshot::Sender};
 use tracing::{error, info, instrument, span, Level};
@@ -1396,4 +1397,175 @@ where
         .await
         .map_err(|(error, _)| Box::new(error) as DynError)?;
     receiver.await.map_err(|error| Box::new(error) as DynError)
+}
+
+struct CryptarchiaSyncAdapter<
+    NetAdapter,
+    BlendAdapter,
+    ClPool,
+    ClPoolAdapter,
+    DaPool,
+    DaPoolAdapter,
+    TxS,
+    BS,
+    Storage,
+    SamplingBackend,
+    SamplingRng,
+    DaVerifierBackend,
+    RuntimeServiceId,
+> where
+    NetAdapter: NetworkAdapter<RuntimeServiceId>,
+    NetAdapter::Backend: 'static,
+    NetAdapter::Settings: Send,
+    BlendAdapter: blend::BlendAdapter<RuntimeServiceId>,
+    BlendAdapter::Settings: Send,
+    ClPool: RecoverableMempool<BlockId = HeaderId>,
+    ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    ClPool::Settings: Clone,
+    ClPool::Item: Clone + Eq + Hash + Debug + 'static,
+    ClPool::Key: Debug + 'static,
+    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
+    DaPool: RecoverableMempool<BlockId = HeaderId>,
+    DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    DaPool::Item: Clone + Eq + Hash + Debug + 'static,
+    DaPool::Key: Debug + 'static,
+    DaPool::Settings: Clone,
+    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
+    DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
+    TxS: TxSelect<Tx = ClPool::Item>,
+    TxS::Settings: Send,
+    BS: BlobSelect<BlobId = DaPool::Item>,
+    BS::Settings: Send,
+    Storage: StorageBackend + Send + Sync + 'static,
+    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
+    SamplingBackend::Settings: Clone,
+    SamplingBackend::Share: Debug + 'static,
+    SamplingBackend::BlobId: Debug + 'static,
+    SamplingRng: SeedableRng + RngCore,
+    DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + 'static,
+    DaVerifierBackend::Settings: Clone,
+{
+    cryptarchia: Option<Cryptarchia>,
+    leader: leadership::Leader,
+    relays: CryptarchiaConsensusRelays<
+        BlendAdapter,
+        BS,
+        ClPool,
+        ClPoolAdapter,
+        DaPool,
+        DaPoolAdapter,
+        NetAdapter,
+        SamplingBackend,
+        SamplingRng,
+        Storage,
+        TxS,
+        DaVerifierBackend,
+        RuntimeServiceId,
+    >,
+    block_broadcaster: broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
+}
+
+#[async_trait::async_trait]
+impl<
+        NetAdapter,
+        BlendAdapter,
+        ClPool,
+        ClPoolAdapter,
+        DaPool,
+        DaPoolAdapter,
+        TxS,
+        BS,
+        Storage,
+        SamplingBackend,
+        SamplingRng,
+        DaVerifierBackend,
+        RuntimeServiceId,
+    > sync::CryptarchiaAdapter
+    for CryptarchiaSyncAdapter<
+        NetAdapter,
+        BlendAdapter,
+        ClPool,
+        ClPoolAdapter,
+        DaPool,
+        DaPoolAdapter,
+        TxS,
+        BS,
+        Storage,
+        SamplingBackend,
+        SamplingRng,
+        DaVerifierBackend,
+        RuntimeServiceId,
+    >
+where
+    NetAdapter: NetworkAdapter<RuntimeServiceId> + Clone + Send + Sync + 'static,
+    NetAdapter::Settings: Send,
+    BlendAdapter: blend::BlendAdapter<RuntimeServiceId> + Clone + Send + Sync + 'static,
+    BlendAdapter::Settings: Send,
+    ClPool: RecoverableMempool<BlockId = HeaderId> + Send + Sync + 'static,
+    ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    ClPool::Settings: Clone + Send + Sync + 'static,
+    ClPool::Item: Transaction<Hash = ClPool::Key>
+        + Debug
+        + Clone
+        + Eq
+        + Hash
+        + Serialize
+        + serde::de::DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
+    ClPool::Key: Debug + Send + Sync,
+    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
+        + Send
+        + Sync
+        + 'static,
+    DaPool::Item: DispersedBlobInfo<BlobId = DaPool::Key>
+        + BlobMetadata
+        + Debug
+        + Clone
+        + Eq
+        + Hash
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
+    DaPool: RecoverableMempool<BlockId = HeaderId, Key = SamplingBackend::BlobId>
+        + Send
+        + Sync
+        + 'static,
+    DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    DaPool::Settings: Clone + Send + Sync + 'static,
+    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key> + Send + Sync + 'static,
+    DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
+    TxS: TxSelect<Tx = ClPool::Item> + Clone + Send + Sync + 'static,
+    TxS::Settings: Send,
+    BS: BlobSelect<BlobId = DaPool::Item> + Clone + Send + Sync + 'static,
+    BS::Settings: Send,
+    Storage: StorageBackend + Send + Sync + 'static,
+    SamplingBackend: DaSamplingServiceBackend<SamplingRng> + Send,
+    SamplingBackend::Settings: Clone,
+    SamplingBackend::Share: Debug + 'static,
+    SamplingBackend::BlobId: Debug + Ord + Send + Sync + 'static,
+    SamplingRng: SeedableRng + RngCore,
+    DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + Sync + 'static,
+    DaVerifierBackend::Settings: Clone,
+{
+    type Tx = ClPool::Item;
+    type BlobCertificate = DaPool::Item;
+
+    async fn process_block(
+        &mut self,
+        block: Block<Self::Tx, Self::BlobCertificate>,
+    ) -> Result<(), CryptarchiaAdapterError> {
+        todo!()
+    }
+
+    fn tip_slot(&self) -> Slot {
+        todo!()
+    }
+
+    fn has_block(&self, id: &HeaderId) -> bool {
+        todo!()
+    }
 }
