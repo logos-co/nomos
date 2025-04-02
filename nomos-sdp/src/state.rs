@@ -193,7 +193,8 @@ impl ProviderState {
             return Ok(WithdrawnState(*provider_info).into());
         }
 
-        // Newly created provider is considered active.
+        // This section checks if recently created provider is still considered active
+        // even without having requested a reward yet.
         if provider_info
             .created
             .wrapping_add(service_params.inactivity_period)
@@ -202,7 +203,8 @@ impl ProviderState {
             return Ok(ActiveState(*provider_info).into());
         }
 
-        // Determining if provider is active using the last reward timestamp.
+        // Check if provider has ever got the reward first and then see if the reward
+        // request was recent.
         if let Some(rewarded) = provider_info.rewarded {
             if block_number.wrapping_sub(rewarded) <= service_params.inactivity_period {
                 return Ok(ActiveState(*provider_info).into());
@@ -511,10 +513,15 @@ mod tests {
         let active_state = inactive_state.try_into_active(100, EventType::Declaration);
         assert!(active_state.is_err());
 
+        // Try to make inactive state active again and then withdraw.
         let inactive_state =
             ProviderState::try_from_info(100, &provider_info, &service_params).unwrap();
+        let active_state = inactive_state
+            .try_into_active(105, EventType::Reward)
+            .unwrap();
+
         let withdrawn_state =
-            inactive_state.try_into_withdrawn(115, EventType::Withdrawal, &service_params);
+            active_state.try_into_withdrawn(115, EventType::Withdrawal, &service_params);
 
         assert!(withdrawn_state.is_ok());
     }
@@ -564,7 +571,7 @@ mod tests {
     }
 
     #[test]
-    fn test_active_cannot_reward_directly() {
+    fn test_active_cannot_reward_directly_when_withdrawing() {
         let provider_id = ProviderId([0; 32]);
         let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
