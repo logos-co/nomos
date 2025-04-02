@@ -8,5 +8,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
-      - name: Sync clock
+      - name: Sudo
         run: sudo sntp -sS time.windows.com
+      - name: Sudoless
+        run: sntp -sS time.windows.com
