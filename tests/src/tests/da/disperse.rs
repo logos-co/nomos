@@ -52,7 +52,7 @@ async fn disseminate_and_retrieve() {
 async fn disseminate_retrieve_reconstruct() {
     const ITERATIONS: usize = 10;
 
-    let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
+    let topology = Topology::spawn(TopologyConfig::validators_and_executor(3, 4, 2)).await;
     let executor = &topology.executors()[0];
     let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
@@ -134,7 +134,7 @@ async fn disseminate_same_data() {
 #[ignore = "for local debugging"]
 #[tokio::test]
 async fn local_testnet() {
-    let topology = Topology::spawn(TopologyConfig::validators_and_executor(3, 2)).await;
+    let topology = Topology::spawn(TopologyConfig::validators_and_executor(3, 2, 2)).await;
     let executor = &topology.executors()[0];
     let app_id = hex::decode(APP_ID).expect("Invalid APP_ID");
 
