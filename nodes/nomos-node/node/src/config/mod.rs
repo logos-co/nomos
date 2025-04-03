@@ -4,7 +4,7 @@ use std::{
 };
 
 use cl::{Nonce, NoteWitness, NullifierSecret};
-use clap::{Parser, ValueEnum};
+use clap::{builder::OsStr, Parser, ValueEnum};
 use color_eyre::eyre::{eyre, Result};
 use hex::FromHex as _;
 use nomos_core::{proofs::covenant::CovenantProof, staking::NMO_UNIT};
@@ -33,18 +33,41 @@ pub enum LoggerLayerType {
     Stderr,
 }
 
+impl From<LoggerLayerType> for OsStr {
+    fn from(value: LoggerLayerType) -> Self {
+        match value {
+            LoggerLayerType::Gelf => "Gelf".into(),
+            LoggerLayerType::File => "File".into(),
+            LoggerLayerType::Stderr => "Stderr".into(),
+            LoggerLayerType::Stdout => "Stdout".into(),
+        }
+    }
+}
+
 #[derive(Parser, Debug, Clone)]
 pub struct LogArgs {
     /// Address for the Gelf backend
-    #[clap(long = "log-addr", env = "LOG_ADDR", required_if_eq("backend", "Gelf"))]
+    #[clap(
+        long = "log-addr",
+        env = "LOG_ADDR",
+        required_if_eq("backend", LoggerLayerType::Gelf)
+    )]
     log_addr: Option<String>,
 
     /// Directory for the File backend
-    #[clap(long = "log-dir", env = "LOG_DIR", required_if_eq("backend", "File"))]
+    #[clap(
+        long = "log-dir",
+        env = "LOG_DIR",
+        required_if_eq("backend", LoggerLayerType::File)
+    )]
     directory: Option<PathBuf>,
 
     /// Prefix for the File backend
-    #[clap(long = "log-path", env = "LOG_PATH", required_if_eq("backend", "File"))]
+    #[clap(
+        long = "log-path",
+        env = "LOG_PATH",
+        required_if_eq("backend", LoggerLayerType::File)
+    )]
     prefix: Option<PathBuf>,
 
     /// Backend type
