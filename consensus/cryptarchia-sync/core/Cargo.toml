@@ -12,3 +12,6 @@ itertools          = "0.14"
 nomos-core         = { workspace = true }
 serde              = "1"
 thiserror          = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros"] }
