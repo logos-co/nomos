@@ -1,9 +1,12 @@
 use std::{hash::Hash, marker::PhantomData};
 
 use cryptarchia_engine::Slot;
+use nomos_core::{
+    block::{AbstractBlock, Block},
+    wire,
+};
 use cryptarchia_sync_network::behaviour::SyncDirection;
 use futures::Stream;
-use nomos_core::{block::Block, header::HeaderId, wire};
 use nomos_network::{
     backends::libp2p::{Command, Event, EventKind, Libp2p},
     NetworkMsg, NetworkService,
@@ -18,7 +21,7 @@ use tokio_stream::{
     wrappers::{errors::BroadcastStreamRecvError, BroadcastStream, UnboundedReceiverStream},
     StreamExt,
 };
-
+use nomos_core::header::HeaderId;
 use crate::{
     messages::NetworkMessage,
     network::{BoxedStream, NetworkAdapter, SyncRequest},
@@ -163,11 +166,21 @@ where
             }),
         ))
     }
+}
+
+#[async_trait::async_trait]
+impl<Tx, BlobCert, RuntimeServiceId> cryptarchia_sync::adapter::NetworkAdapter
+    for LibP2pAdapter<Tx, BlobCert, RuntimeServiceId>
+where
+    Tx: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
+    BlobCert: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
+{
+    type Block = Block<Tx, BlobCert>;
 
     async fn fetch_blocks_from_slot(
         &self,
         start_slot: Slot,
-    ) -> Result<BoxedStream<Block<Self::Tx, Self::BlobCertificate>>, DynError> {
+    ) -> Result<BoxedStream<Self::Block>, Box<dyn std::error::Error + Send + Sync>> {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
         if let Err((e, _)) = self
             .network_relay
@@ -188,7 +201,7 @@ where
     async fn fetch_chain_backward(
         &self,
         tip: HeaderId,
-    ) -> Result<BoxedStream<Block<Self::Tx, Self::BlobCertificate>>, DynError> {
+    ) -> Result<BoxedStream<Self::Block>, Box<dyn std::error::Error + Send + Sync>> {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
         self.network_relay
             .send(NetworkMsg::Process(Command::StartSync(
