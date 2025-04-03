@@ -113,7 +113,7 @@ impl InactiveState {
 
 #[derive(Error, Debug)]
 pub enum WithdrawnStateError {
-    #[error("Withdawn state can be rewarded only during the same blcok")]
+    #[error("Withdawn state can be rewarded only during the same block")]
     ToWithdrawnRewardedNotSameBlock,
     #[error("Withdrawn can not transition to withdrawn rewarded during {0:?} event")]
     ToWithdrawnRewardedInvalidEvent(EventType),
