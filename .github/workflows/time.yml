@@ -10,7 +10,7 @@ jobs:
     steps:
       - name: Tools
         run: |
-          brew install sntp
+          brew install ntp
 
       - name: Netcats
         run: |
