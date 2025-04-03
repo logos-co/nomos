@@ -92,6 +92,7 @@ impl AsyncNTPClient {
 mod tests {
     use std::{
         net::{IpAddr, Ipv4Addr, SocketAddr},
+        str::FromStr,
         sync::Arc,
         time::Duration,
     };
@@ -124,11 +125,7 @@ mod tests {
         Ok(())
     }
 
-    async fn deconstructed_ntp_request(domain: &str) -> Result<(&str, u8, u8), ()> {
-        println!("\n[{}]", domain);
-        let ntp_server_address = format!("{domain}:123");
-        let destination = ntp_server_address.parse::<SocketAddr>().map_err(|_| ())?;
-
+    async fn deconstructed_ntp_request(destination: SocketAddr) -> Result<(String, u8, u8), ()> {
         let ntp_context = NtpContext::new(StdTimestampGen::default());
         let packet = sntpc::NtpPacket::new(ntp_context.timestamp_gen);
         let raw_packet = sntpc::RawNtpPacket::from(&packet);
@@ -190,7 +187,7 @@ mod tests {
         let response = sntpc::NtpPacket::from(response_buf);
 
         Ok((
-            domain,
+            destination.to_string(),
             get_version(packet.li_vn_mode),
             get_version(response.li_vn_mode),
         ))
@@ -201,30 +198,36 @@ mod tests {
         let ntp_server_ip = "40.119.6.228"; // time.windows.com
                                             // let ntp_server_ip = "185.251.115.30"; // 0.europe.pool.ntp.org
         let domains = [
-            "0.europe.pool.ntp.org",
-            "185.251.115.30",
-            "time.windows.com",
-            "40.119.6.228",
-            "51.137.137.111",
-            "time.apple.com",
-            "17.253.28.253",
-            "time.cloudflare.com",
-            "162.159.200.123",
-            "ntppool1.time.nl",
-            "94.198.159.15",
-            "nts.netnod.se",
-            "ptbtime1.ptb.de",
-            "192.53.103.108",
+            "0.europe.pool.ntp.org:123",
+            "185.251.115.30:123",
+            "time.windows.com:123",
+            "40.119.6.228:123",
+            "51.137.137.111:123",
+            "time.apple.com:123",
+            "17.253.28.253:123",
+            "time.cloudflare.com:123",
+            "162.159.200.123:123",
+            "ntppool1.time.nl:123",
+            "94.198.159.15:123",
+            "nts.netnod.se:123",
+            "ptbtime1.ptb.de:123",
+            "192.53.103.108:123",
         ];
 
-        for domain in domains {
-            if let Ok((domain, sent_version, received_version)) =
-                deconstructed_ntp_request(domain).await
+        for mut domain in domains {
+            let host = lookup_host(domain)
+                .await
+                .expect("Failed to resolve domain")
+                .next()
+                .unwrap();
+
+            println!("--- [{}] ---", domain);
+            if let Ok((host, sent_version, received_version)) =
+                deconstructed_ntp_request(host).await
             {
                 println!("-> Domain: {domain}, sent version: {sent_version}, received version: {received_version}");
-            } else {
-                println!("-> Failed to get response for domain: {domain}");
             }
+            println!("\n");
         }
     }
 }
