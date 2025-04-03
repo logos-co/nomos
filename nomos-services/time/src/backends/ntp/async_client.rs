@@ -97,6 +97,13 @@ mod tests {
 
     use super::*;
 
+    // This test is disabled macOS because NTP v4 requests fail on Github's macOS
+    // runners. Everywhere else it works fine, including other macOS machines.
+    // The request seems to be sent successfully, but the test timeouts when
+    // receiving the response. Responses only come through when querying
+    // `time.windows.com`, which runs NTP v3. The library we're using,
+    // [`sntpc`], requires NTP v4.
+    #[cfg(not(target_os = "macos"))]
     #[tokio::test]
     async fn real_ntp_request() -> Result<(), Error> {
         // 0.europe.pool.ntp.org
