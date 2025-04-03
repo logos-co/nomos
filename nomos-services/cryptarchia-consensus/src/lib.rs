@@ -225,8 +225,6 @@ pub struct CryptarchiaConsensus<
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-    // underlying networking backend. We need this so we can relay and check the types properly
-    // when implementing ServiceCore for CryptarchiaConsensus
     block_subscription_sender: broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     initial_state: <Self as ServiceData>::State,
 }
@@ -512,17 +510,10 @@ where
             TxS,
             DaVerifierBackend,
             RuntimeServiceId,
-        > = CryptarchiaConsensusRelays::from_service_state_handle::<_, _, _, _, TimeBackend, _>(
+        > = CryptarchiaConsensusRelays::from_service_state_handle::<_, _, _, _, _, _>(
             &self.service_state,
         )
         .await;
-
-        let time_relay = self
-            .service_state
-            .overwatch_handle
-            .relay::<TimeService<_, _>>()
-            .await
-            .expect("Relay conneciton with TimeService should succeed.");
 
         let CryptarchiaSettings {
             config: ledger_config,
@@ -557,7 +548,8 @@ where
 
         let mut slot_timer = {
             let (sender, receiver) = oneshot::channel();
-            time_relay
+            relays
+                .time_relay()
                 .send(TimeServiceMessage::Subscribe { sender })
                 .await
                 .expect("Request time subscription to time service should succeed");

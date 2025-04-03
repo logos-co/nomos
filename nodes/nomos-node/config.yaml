@@ -56,7 +56,7 @@ blend:
         ]
       num_blend_layers: 1
     temporal_processor:
-      max_delay_seconds: 2
+      max_delay: "2.0"
   persistent_transmission:
     max_emission_frequency: 1.0
     drop_message_probability: 0.5
@@ -161,7 +161,7 @@ da_network:
       max_replication_failures: 3
       malicious_threshold: 5
     monitor_settings:
-      failure_time_window: [10, 0],
+      failure_time_window: "10.0"
       time_decay_factor: "0.8"
     balancer_interval:
       secs: 5
@@ -169,6 +169,9 @@ da_network:
     redial_cooldown:
       secs: 5
       nanos: 0
+    replication_settings:
+      seen_message_cache_size: 1000
+      seen_message_ttl: "3600.0"
 da_indexer:
   storage:
     blob_storage_directory: ./
@@ -197,6 +200,7 @@ da_sampling:
     blob_storage_directory: ./
   api_adapter_settings:
     api_port: 8722
+    is_secure: false
     membership:
       assignations:
         - - 12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
@@ -214,13 +218,22 @@ http:
     cors_origins: []
 time:
   backend_settings:
-    epoch_stake_distribution_stabilization: 3
-    epoch_period_nonce_buffer: 3
-    epoch_period_nonce_stabilization: 4
+    slot_config:
+      slot_duration: '2.0'
+      chain_start_time: [2025, 41, 9, 38, 29, 993653000, 0, 0, 0]
+    epoch_config:
+      epoch_stake_distribution_stabilization: 3
+      epoch_period_nonce_buffer: 3
+      epoch_period_nonce_stabilization: 4
+    base_period_length: 11
 cryptarchia:
   transaction_selector_settings: null
   blob_selector_settings: null
   config:
+    epoch_config:
+      epoch_stake_distribution_stabilization: 3
+      epoch_period_nonce_buffer: 3
+      epoch_period_nonce_stabilization: 4
     consensus_config:
       security_param: 10
       active_slot_coeff: 0.9

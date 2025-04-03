@@ -60,7 +60,7 @@ impl SharedWriter {
 
     #[must_use]
     pub fn into_inner(&self) -> Arc<Mutex<dyn Write + Send + Sync>> {
-        self.inner.clone()
+        Arc::clone(&self.inner)
     }
 
     pub fn from_inner(inner: Arc<Mutex<dyn Write + Send + Sync>>) -> Self {

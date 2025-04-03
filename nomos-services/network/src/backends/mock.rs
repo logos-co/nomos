@@ -355,7 +355,7 @@ mod tests {
             OverwatchHandle::<()>::new(tokio::runtime::Handle::current(), mpsc::channel(1).0),
         ));
         // run producer
-        let task = mock.clone();
+        let task = Arc::clone(&mock);
         tokio::spawn(async move {
             task.run_producer_handler().await.unwrap();
         });

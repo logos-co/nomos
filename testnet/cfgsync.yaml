@@ -11,22 +11,18 @@ subnetwork_size: 2
 dispersal_factor: 2
 num_samples: 1
 num_subnets: 2
-old_blobs_check_interval_secs: 5
-blobs_validity_duration_secs: 60
+old_blobs_check_interval: "5.0"
+blobs_validity_duration: "60.0"
 global_params_path: "/kzgrs_test_params"
 min_dispersal_peers: 1
 min_replication_peers: 1
-monitor_failure_time_window: [5, 0]
-balancer_interval_secs: 5
+monitor_failure_time_window: "5.0"
+balancer_interval: "5.0"
 # Dispersal mempool publish strategy
 mempool_publish_strategy: !SampleSubnetworks
   sample_threshold: 2
-  timeout:
-    secs: 2
-    nanos: 0
-  cooldown:
-    secs: 0
-    nanos: 100000000
+  timeout: "2.0"
+  cooldown: "0.0001"
 
 replication_settings:
   seen_message_cache_size: 204800
