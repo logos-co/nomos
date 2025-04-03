@@ -515,28 +515,29 @@ mod tests {
             &mut self,
             block: MockBlock,
         ) -> Result<(), CryptarchiaAdapterError> {
-            if self.blocks.contains_key(&block.id()) {
+            let id = block.id();
+            let parent = block.parent();
+
+            if self.blocks.contains_key(&id) {
                 return Ok(());
-            } else if !self.blocks.contains_key(&block.parent()) {
+            } else if !self.blocks.contains_key(&parent) {
                 return Err(CryptarchiaAdapterError::ParentNotFound);
             }
 
-            self.blocks.insert(block.id(), block.clone());
-            self.blocks_by_slot
-                .entry(block.slot())
-                .or_default()
-                .insert(block.id());
+            let slot = block.slot();
+            self.blocks.insert(id, block);
+            self.blocks_by_slot.entry(slot).or_default().insert(id);
 
-            if block.parent() == self.honest_chain {
+            if parent == self.honest_chain {
                 // simply extending the honest chain
-                self.honest_chain = block.id();
+                self.honest_chain = id;
             } else {
                 // otherwise, this block creates a fork
-                self.forks.insert(block.id());
+                self.forks.insert(id);
 
                 // remove any existing fork that is superceded by this block
-                if self.forks.contains(&block.parent()) {
-                    self.forks.remove(&block.parent());
+                if self.forks.contains(&parent) {
+                    self.forks.remove(&parent);
                 }
 
                 // We may need to switch forks, let's run the fork choice rule
@@ -554,7 +555,7 @@ mod tests {
         /// chain.
         fn fork_choice(&self) -> Id {
             let mut honest_chain = self.honest_chain;
-            for fork in self.forks.iter() {
+            for fork in &self.forks {
                 honest_chain = honest_chain.max(*fork);
             }
             honest_chain
@@ -592,7 +593,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl<'a> NetworkAdapter for MockNetworkAdapter<'a> {
+    impl NetworkAdapter for MockNetworkAdapter<'_> {
         type Block = MockBlock;
 
         async fn fetch_blocks_from_slot(
@@ -600,14 +601,13 @@ mod tests {
             start_slot: Slot,
         ) -> Result<BoxedStream<Self::Block>, Box<dyn std::error::Error + Send + Sync>> {
             let mut blocks = Vec::new();
-            for peer in self.peers.iter() {
+            for peer in &self.peers {
                 blocks.extend(
                     peer.blocks_by_slot
                         .range(start_slot..)
                         .flat_map(|(_, ids)| ids)
                         .map(|id| peer.blocks.get(id).unwrap())
-                        .cloned()
-                        .collect::<Vec<_>>(),
+                        .cloned(),
                 );
             }
             Ok(Box::new(futures::stream::iter(blocks)))
@@ -619,7 +619,7 @@ mod tests {
         ) -> Result<BoxedStream<Self::Block>, Box<dyn std::error::Error + Send + Sync>> {
             let mut blocks = Vec::new();
             let mut id = tip;
-            for peer in self.peers.iter() {
+            for peer in &self.peers {
                 while let Some(block) = peer.blocks.get(&id) {
                     blocks.push(block.clone());
                     if block.is_genesis() {
