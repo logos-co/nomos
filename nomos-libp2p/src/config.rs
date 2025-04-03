@@ -242,6 +242,11 @@ pub struct KademliaSettings {
     /// Some(x) means periodic bootstrap is enabled for x seconds period
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub periodic_bootstrap_interval_secs: Option<u64>,
+
+    /// The Kademlia node is in client mode if it does not
+    /// expose its own Kademlia ID and only connects to other nodes
+    /// Default from libp2p: false (server mode)
+    pub client_mode: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -277,6 +282,7 @@ impl Default for KademliaSettings {
             kbucket_inserts: None,
             caching: None,
             periodic_bootstrap_interval_secs: None,
+            client_mode: false,
         }
     }
 }
