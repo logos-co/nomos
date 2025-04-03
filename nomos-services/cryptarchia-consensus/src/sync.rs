@@ -188,3 +188,31 @@ pub enum CryptarchiaAdapterError {
     #[error("Invalid block: {0}")]
     InvalidBlock(Box<dyn std::error::Error + Send + Sync>),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct DummyAdapter;
+
+    #[async_trait::async_trait]
+    impl CryptarchiaAdapter for DummyAdapter {
+        type Tx;
+        type BlobCertificate;
+
+        async fn process_block(
+            &mut self,
+            block: Block<Self::Tx, Self::BlobCertificate>,
+        ) -> Result<(), CryptarchiaAdapterError> {
+            todo!()
+        }
+
+        fn tip_slot(&self) -> Slot {
+            todo!()
+        }
+
+        fn has_block(&self, id: &HeaderId) -> bool {
+            todo!()
+        }
+    }
+}
