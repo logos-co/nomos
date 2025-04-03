@@ -24,6 +24,8 @@ use crate::{
 };
 
 pub mod mempool;
+#[cfg(test)]
+mod tests;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -58,6 +60,8 @@ impl CliArgs {
         &self.config
     }
 
+    /// If flags the blend service group to start if either all service groups
+    /// are flagged to start or the blend service group is.
     #[must_use]
     pub const fn dry_run(&self) -> bool {
         self.check_config_only
@@ -65,16 +69,20 @@ impl CliArgs {
 
     #[must_use]
     pub fn must_blend_service_group_start(&self) -> bool {
-        self.must_all_service_groups_start() || self.blend.start_at_boot == Some(true)
+        self.must_all_service_groups_start() || self.blend.start_blend_at_boot
     }
 
+    /// If flags the DA service group to start if either all service groups are
+    /// flagged to start or the DA service group is.
     #[must_use]
     pub fn must_da_service_group_start(&self) -> bool {
-        self.must_all_service_groups_start() || self.da.start_at_boot == Some(true)
+        self.must_all_service_groups_start() || self.da.start_da_at_boot
     }
 
+    /// If no "start" flag is explicitly set for any service group, then all
+    /// service groups are flagged to start.
     const fn must_all_service_groups_start(&self) -> bool {
-        self.blend.start_at_boot.is_none() && self.da.start_at_boot.is_none()
+        !self.blend.start_blend_at_boot && !self.da.start_da_at_boot
     }
 }
 
@@ -159,8 +167,8 @@ pub struct BlendArgs {
 
     #[clap(long = "blend-num-blend-layers", env = "BLEND_NUM_BLEND_LAYERS")]
     blend_num_blend_layers: Option<usize>,
-    #[clap(long = "blend-service")]
-    start_at_boot: Option<bool>,
+    #[clap(long = "blend-service-group", action)]
+    start_blend_at_boot: bool,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -214,8 +222,8 @@ pub struct TimeArgs {
 
 #[derive(Parser, Debug, Clone)]
 pub struct DaArgs {
-    #[clap(long = "da-service")]
-    start_at_boot: Option<bool>,
+    #[clap(long = "da-service-group", action)]
+    start_da_at_boot: bool,
 }
 
 #[derive(Deserialize, Debug, Clone, Serialize)]
