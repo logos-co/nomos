@@ -173,7 +173,7 @@ mod tests {
         let mut response_buf = RawNtpPacket::default();
 
         let (response, src) = timeout(
-            Duration::from_secs(10),
+            Duration::from_secs(2),
             local_socket.recv_from(response_buf.0.as_mut()),
         )
         .await
