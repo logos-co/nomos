@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 type StorageService = nomos_storage::StorageService<RocksBackend<Wire>, RuntimeServiceId>;
 
-type Cryptarchia = CryptarchiaSyncService<RocksBackend<Wire>, MockBlock, RuntimeServiceId>;
+type Cryptarchia = CryptarchiaSyncService<RocksBackend<Wire>, NetworkBackend, RuntimeServiceId>;
 
 #[derive_services]
 pub struct NomosLightNode {
@@ -41,7 +41,7 @@ fn test_sync_two_nodes() {
             read_only: false,
             column_family: None,
         },
-        cryptarchia: CryptarchiaSyncServiceConfig {},
+        cryptarchia: CryptarchiaSyncServiceConfig { topic: "topic".to_string() },
     };
 
     // Create settings for second node
@@ -62,7 +62,7 @@ fn test_sync_two_nodes() {
             read_only: false,
             column_family: None,
         },
-        cryptarchia: CryptarchiaSyncServiceConfig {},
+        cryptarchia: CryptarchiaSyncServiceConfig { topic: "topic".to_string() },
     };
 
     // Start first node

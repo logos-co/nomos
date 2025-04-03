@@ -3,15 +3,16 @@ use std::{
     fmt::{Debug, Display},
     hash::Hash,
     marker::PhantomData,
-    pin::Pin,
 };
 
 use async_trait::async_trait;
+use cryptarchia_consensus::network::adapters::libp2p::{LibP2pAdapter, LibP2pAdapterSettings};
+use cryptarchia_consensus::network::NetworkAdapter as ConsensusNetworkAdapter;
 use cryptarchia_engine::Slot;
 use cryptarchia_sync::adapter::{CryptarchiaAdapter, CryptarchiaAdapterError, NetworkAdapter};
-use futures::Stream;
 use nomos_core::block::AbstractBlock;
 use nomos_core::header::HeaderId;
+use nomos_network::NetworkService;
 use nomos_storage::backends::StorageBackend;
 use overwatch::{
     services::{
@@ -45,27 +46,27 @@ impl AbstractBlock for MockBlock {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CryptarchiaSyncServiceConfig {}
+pub struct CryptarchiaSyncServiceConfig {
+    pub topic: String,
+}
 
-pub struct CryptarchiaSyncService<Storage, Block, RuntimeServiceId>
+pub struct CryptarchiaSyncService<Storage, Network, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync + 'static,
-    Block: AbstractBlock + Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
-    <Block as AbstractBlock>::Id: Eq + Hash + Clone + Send + Sync + 'static,
+    Network: ConsensusNetworkAdapter<RuntimeServiceId> + Sync + Send + 'static,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + 'static,
 {
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-    blocks: HashMap<<Block as AbstractBlock>::Id, Block>,
+    blocks: HashMap<HeaderId, MockBlock>,
     tip_slot: Slot,
-    _marker: PhantomData<(Storage, Block)>,
+    _marker: PhantomData<(Storage, Network)>,
 }
 
-impl<Storage, Block, RuntimeServiceId> ServiceData
-    for CryptarchiaSyncService<Storage, Block, RuntimeServiceId>
+impl<Storage, Network, RuntimeServiceId> ServiceData
+    for CryptarchiaSyncService<Storage, Network, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync + 'static,
-    Block: AbstractBlock + Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
-    <Block as AbstractBlock>::Id: Eq + Hash + Clone + Send + Sync + 'static,
+    Network: ConsensusNetworkAdapter<RuntimeServiceId> + Sync + Send + 'static,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + 'static,
 {
     type Settings = CryptarchiaSyncServiceConfig;
@@ -75,12 +76,11 @@ where
 }
 
 #[async_trait]
-impl<Storage, Block, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for CryptarchiaSyncService<Storage, Block, RuntimeServiceId>
+impl<Storage, Network, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for CryptarchiaSyncService<Storage, Network, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync + 'static,
-    Block: AbstractBlock + Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
-    <Block as AbstractBlock>::Id: Eq + Hash + Clone + Send + Sync + 'static,
+    Network: ConsensusNetworkAdapter<RuntimeServiceId> + Sync + Send + 'static,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + 'static,
 {
     fn init(
@@ -96,6 +96,24 @@ where
     }
 
     async fn run(mut self) -> Result<(), DynError> {
+        let CryptarchiaSyncServiceConfig { topic } =
+            self.service_state.settings_reader.get_updated_settings();
+
+        let network_relay = self
+            .service_state
+            .overwatch_handle
+            .relay::<NetworkService<_, _>>()
+            .await
+            .expect("Relay connection with NetworkService should succeed");
+
+        let libp2p_settings = LibP2pAdapterSettings {
+            topic: topic.clone(),
+        };
+
+        let network_relay = network_relay.clone();
+        let network_adapter = LibP2pAdapter::new(libp2p_settings, network_relay).await?;
+
+        let sync_adapter = cryptarchia_sync::Synchronization::run(self, &network_adapter).await?;
         // Service loop
         // loop {
         // tokio::select! {
@@ -109,15 +127,13 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Storage, Block, RuntimeServiceId> CryptarchiaAdapter
-    for CryptarchiaSyncService<Storage, Block, RuntimeServiceId>
+impl<Storage, Network, RuntimeServiceId> CryptarchiaAdapter
+    for CryptarchiaSyncService<Storage, Network, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync + 'static,
-    Block: AbstractBlock + Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
-    <Block as AbstractBlock>::Id: Eq + Hash + Clone + Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + 'static,
 {
-    type Block = Block;
+    type Block = MockBlock;
 
     async fn process_block(&mut self, block: Self::Block) -> Result<(), CryptarchiaAdapterError> {
         todo!();
