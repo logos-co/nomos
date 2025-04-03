@@ -5,21 +5,19 @@ on:
 jobs:
   macos-ntp-debug:
     name: macOS NTP Diagnostics
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        os:
+          - macos-15-large
+          - macos-latest
+          - macos-14
+          - macos-13
+          - ubuntu-latest
+          - ubuntu-22.04
+          - ubuntu-20.04
     timeout-minutes: 15
+    runs-on: ${{ matrix.os }}
     steps:
-      - name: Tools
-        run: |
-          brew install ntp
-
-      - name: Netcats
-        run: |
-          sntp time.euro.apple.com
-          nc -i 2 -w 2 -u -v 129.6.15.28 123 || echo ""
-          nc -i 2 -w 2 -u -v 40.119.6.228 123 || echo ""
-          nc -i 2 -w 2 -u -v 185.251.115.30 123 || echo ""
-          nc -i 2 -w 2 -u -v 94.198.159.15 123 || echo ""
-
       - name: Checkout
         uses: actions/checkout@v2
 
@@ -32,17 +30,7 @@ jobs:
         run: |
           RISC0_DEV_MODE=true cargo test -F ntp -p nomos-time real_ntp_request -- --nocapture
 
-      - name: SUDO Real ntp request
-        continue-on-error: true
-        run: |
-          sudo RISC0_DEV_MODE=true cargo test -F ntp -p nomos-time real_ntp_request -- --nocapture
-
       - name: Deconstructed
         continue-on-error: true
         run: |
           RISC0_DEV_MODE=true cargo test -F ntp -p nomos-time deconstructed -- --nocapture
-
-      - name: SUDO Deconstructed
-        continue-on-error: true
-        run: |
-          sudo RISC0_DEV_MODE=true cargo test -F ntp -p nomos-time deconstructed -- --nocapture
