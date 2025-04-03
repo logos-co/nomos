@@ -1,0 +1,14 @@
+[package]
+edition           = "2021"
+license.workspace = true
+name              = "cryptarchia-sync"
+version           = "0.1.0"
+
+[dependencies]
+async-trait        = "0.1"
+cryptarchia-engine = { workspace = true }
+futures            = "0.3"
+itertools          = "0.14"
+nomos-core         = { workspace = true }
+serde              = "1"
+thiserror          = "2"

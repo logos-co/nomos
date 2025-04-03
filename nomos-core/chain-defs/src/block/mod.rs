@@ -4,9 +4,23 @@ use core::hash::Hash;
 
 use ::serde::{de::DeserializeOwned, Deserialize, Serialize};
 use bytes::Bytes;
+use cryptarchia_engine::Slot;
 use indexmap::IndexSet;
 
-use crate::{header::Header, wire};
+use crate::{
+    header::{Header, HeaderId},
+    wire,
+};
+
+// TODO: Rename this to Block
+//       by renaming the existing Block to something else.
+pub trait AbstractBlock {
+    type Id: Eq + Hash + Copy;
+
+    fn id(&self) -> Self::Id;
+    fn parent(&self) -> Self::Id;
+    fn slot(&self) -> Slot;
+}
 
 pub type TxHash = [u8; 32];
 
@@ -16,6 +30,24 @@ pub struct Block<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> {
     header: Header,
     cl_transactions: IndexSet<Tx>,
     bl_blobs: IndexSet<BlobCertificate>,
+}
+
+impl<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> AbstractBlock
+    for Block<Tx, BlobCertificate>
+{
+    type Id = HeaderId;
+
+    fn id(&self) -> Self::Id {
+        self.header().id()
+    }
+
+    fn parent(&self) -> Self::Id {
+        self.header().parent()
+    }
+
+    fn slot(&self) -> Slot {
+        self.header().slot()
+    }
 }
 
 impl<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> Block<Tx, BlobCertificate> {
