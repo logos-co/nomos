@@ -165,16 +165,12 @@ pub enum ProviderState {
     Withdrawn(WithdrawnState),
 }
 
-#[expect(
-    clippy::from_over_into,
-    reason = "ProviderState can not be derived from ProviderInfo alone"
-)]
-impl Into<ProviderInfo> for ProviderState {
-    fn into(self) -> ProviderInfo {
-        match self {
-            Self::Active(active_state) => active_state.0,
-            Self::Inactive(inactive_state) => inactive_state.0,
-            Self::Withdrawn(withdrawn_state) => withdrawn_state.0,
+impl From<ProviderState> for ProviderInfo {
+    fn from(state: ProviderState) -> Self {
+        match state {
+            ProviderState::Active(active_state) => active_state.0,
+            ProviderState::Inactive(inactive_state) => inactive_state.0,
+            ProviderState::Withdrawn(withdrawn_state) => withdrawn_state.0,
         }
     }
 }
@@ -492,7 +488,7 @@ mod tests {
     }
 
     #[test]
-    fn test_inactive_to_active_to_withdraw() {
+    fn test_inactive_to_withdraw() {
         let provider_id = ProviderId([0; 32]);
         let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
@@ -513,9 +509,34 @@ mod tests {
         let active_state = inactive_state.try_into_active(100, EventType::Declaration);
         assert!(active_state.is_err());
 
+        // Try to make inactive state then withdraw.
+        let inactive_state =
+            ProviderState::try_from_info(100, &provider_info, &service_params).unwrap();
+
+        let withdrawn_state =
+            inactive_state.try_into_withdrawn(115, EventType::Withdrawal, &service_params);
+
+        assert!(withdrawn_state.is_ok());
+    }
+
+    #[test]
+    fn test_inactive_to_active_to_withdraw() {
+        let provider_id = ProviderId([0; 32]);
+        let declaration_id = DeclarationId([1; 32]);
+        let service_params = default_service_params();
+
+        let provider_info = ProviderInfo {
+            provider_id,
+            declaration_id,
+            created: 0,
+            rewarded: None,
+            withdrawn: None,
+        };
+
         // Try to make inactive state active again and then withdraw.
         let inactive_state =
             ProviderState::try_from_info(100, &provider_info, &service_params).unwrap();
+
         let active_state = inactive_state
             .try_into_active(105, EventType::Reward)
             .unwrap();
