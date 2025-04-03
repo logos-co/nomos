@@ -187,7 +187,7 @@ impl Swarm {
                     peer_id,
                     config.gossipsub_config.clone(),
                     config.kademlia_config.clone(),
-                    config.identity_config.clone(),
+                    config.identify_config.clone(),
                     keypair.public(),
                 )
                 .unwrap()

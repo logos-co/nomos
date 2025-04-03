@@ -27,7 +27,7 @@ pub struct SwarmConfig {
     pub kademlia_config: Option<KademliaSettings>,
 
     #[serde(default)]
-    pub identity_config: Option<IdentifySettings>,
+    pub identify_config: Option<IdentifySettings>,
 }
 
 impl Default for SwarmConfig {
@@ -38,7 +38,7 @@ impl Default for SwarmConfig {
             node_key: ed25519::SecretKey::generate(),
             gossipsub_config: gossipsub::Config::default(),
             kademlia_config: None,
-            identity_config: None,
+            identify_config: None,
         }
     }
 }

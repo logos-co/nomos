@@ -458,7 +458,7 @@ mod tests {
             node_key: nomos_libp2p::ed25519::SecretKey::generate(),
             gossipsub_config: gossipsub::Config::default(),
             kademlia_config: Some(nomos_libp2p::KademliaSettings::default()),
-            identity_config: Some(nomos_libp2p::IdentifySettings::default()),
+            identify_config: Some(nomos_libp2p::IdentifySettings::default()),
         }
     }
 
