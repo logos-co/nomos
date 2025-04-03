@@ -15,9 +15,10 @@ jobs:
       - name: Netcats
         run: |
           sntp time.euro.apple.com
-          nc -u -v 40.119.6.228 123
-          nc -u -v 185.251.115.30 123
-          nc -u -v 94.198.159.15 123
+          nc -i 2 -w 2 -u -v 129.6.15.28 123 || echo ""
+          nc -i 2 -w 2 -u -v 40.119.6.228 123 || echo ""
+          nc -i 2 -w 2 -u -v 185.251.115.30 123 || echo ""
+          nc -i 2 -w 2 -u -v 94.198.159.15 123 || echo ""
 
       - name: Checkout
         uses: actions/checkout@v2
