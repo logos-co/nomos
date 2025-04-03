@@ -21,7 +21,7 @@ pub enum CryptarchiaAdapterError {
     InvalidBlock(Box<dyn std::error::Error + Send + Sync>),
 }
 
-type BoxedStream<T> = Box<dyn Stream<Item = T> + Send + Sync + Unpin>;
+pub type BoxedStream<T> = Box<dyn Stream<Item = T> + Send + Sync + Unpin>;
 
 #[async_trait::async_trait]
 pub trait NetworkAdapter {
