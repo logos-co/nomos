@@ -246,6 +246,7 @@ pub struct KademliaSettings {
     /// The Kademlia node is in client mode if it does not
     /// expose its own Kademlia ID and only connects to other nodes
     /// Default from libp2p: false (server mode)
+    #[serde(default)]
     pub client_mode: bool,
 }
 
