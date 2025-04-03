@@ -1,7 +1,10 @@
 use std::{hash::Hash, marker::PhantomData};
 
 use cryptarchia_engine::Slot;
-use nomos_core::{block::Block, header::HeaderId, wire};
+use nomos_core::{
+    block::{AbstractBlock, Block},
+    wire,
+};
 use nomos_network::{
     backends::libp2p::{Command, Event, EventKind, Libp2p},
     NetworkMsg, NetworkService,
@@ -172,18 +175,28 @@ where
             }),
         ))
     }
+}
+
+#[async_trait::async_trait]
+impl<Tx, BlobCert, RuntimeServiceId> cryptarchia_sync::adapter::NetworkAdapter
+    for LibP2pAdapter<Tx, BlobCert, RuntimeServiceId>
+where
+    Tx: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
+    BlobCert: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
+{
+    type Block = Block<Tx, BlobCert>;
 
     async fn fetch_blocks_from_slot(
         &self,
         _start_slot: Slot,
-    ) -> Result<BoxedStream<Block<Self::Tx, Self::BlobCertificate>>, DynError> {
+    ) -> Result<BoxedStream<Self::Block>, Box<dyn std::error::Error + Send + Sync>> {
         todo!()
     }
 
     async fn fetch_chain_backward(
         &self,
-        _tip: HeaderId,
-    ) -> Result<BoxedStream<Block<Self::Tx, Self::BlobCertificate>>, DynError> {
+        _tip: <Self::Block as AbstractBlock>::Id,
+    ) -> Result<BoxedStream<Self::Block>, Box<dyn std::error::Error + Send + Sync>> {
         todo!()
     }
 }
