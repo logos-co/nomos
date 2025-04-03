@@ -12,8 +12,9 @@ pub mod mock;
 // TODO: find a better place(that is not behind libp2p feature flag)
 #[derive(Debug, Clone)]
 pub enum SyncRequestKind {
-    ForwardSyncRequest(u64),
-    BackwardSyncRequest([u8; 32]),
+    ForwardChain(u64),
+    BackwardChain([u8; 32]),
+    Tip
 }
 
 #[async_trait::async_trait]

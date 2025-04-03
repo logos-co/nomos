@@ -55,11 +55,11 @@ impl TryFrom<BehaviourEvent> for Event {
                 response_sender,
             }) => match direction {
                 SyncDirection::Forward(slot) => Ok(Self::IncomingSyncRequest {
-                    kind: SyncRequestKind::ForwardSyncRequest(slot),
+                    kind: SyncRequestKind::ForwardChain(slot),
                     reply_channel: response_sender,
                 }),
                 SyncDirection::Backward(header_id) => Ok(Self::IncomingSyncRequest {
-                    kind: SyncRequestKind::BackwardSyncRequest(header_id),
+                    kind: SyncRequestKind::BackwardChain(header_id),
                     reply_channel: response_sender,
                 }),
             },

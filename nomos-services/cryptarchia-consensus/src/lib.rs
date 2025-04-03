@@ -7,11 +7,21 @@ mod states;
 pub mod storage;
 mod sync;
 
+use crate::network::SyncRequest;
+use crate::storage::sync::SyncBlocksProvider;
+use crate::{
+    leadership::Leader,
+    relays::CryptarchiaConsensusRelays,
+    states::{
+        CryptarchiaConsensusState, CryptarchiaInitialisationStrategy, GenesisRecoveryStrategy,
+        SecurityRecoveryStrategy,
+    },
+    storage::{adapters::StorageAdapter, StorageAdapter as _},
+};
 use core::fmt::Debug;
-use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
-use std::marker::PhantomData;
 use cryptarchia_engine::Slot;
-use futures::StreamExt;
+use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
+use futures::{StreamExt, TryFutureExt};
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
 use nomos_blend_service::BlendService;
@@ -30,6 +40,7 @@ use nomos_mempool::{
     backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter, DaMempoolService,
     MempoolMsg, TxMempoolService,
 };
+use nomos_network::backends::SyncRequestKind;
 use nomos_network::NetworkService;
 use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
@@ -43,22 +54,13 @@ use serde_with::serde_as;
 use services_utils::overwatch::{
     lifecycle, recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator,
 };
+use std::marker::PhantomData;
+use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 use sync::CryptarchiaSyncAdapter;
 use thiserror::Error;
 use tokio::sync::{broadcast, oneshot, oneshot::Sender};
 use tracing::{error, info, instrument, span, Level};
 use tracing_futures::Instrument;
-
-use crate::storage::sync::SyncBlocksProvider;
-use crate::{
-    leadership::Leader,
-    relays::CryptarchiaConsensusRelays,
-    states::{
-        CryptarchiaConsensusState, CryptarchiaInitialisationStrategy, GenesisRecoveryStrategy,
-        SecurityRecoveryStrategy,
-    },
-    storage::{adapters::StorageAdapter, StorageAdapter as _},
-};
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
 type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
@@ -665,13 +667,8 @@ where
                     Some(msg) = self.service_state.inbound_relay.next() => {
                         Self::process_message(&cryptarchia, &self.block_subscription_sender, msg);
                     }
-                    // TODO: Not tested
                     Some(msg) = incoming_sync_requests.next() => {
-                        // Cryptarchia service is not the right place to provide blocks
-                        // for external sync requests because it's just reading data from DB.
-                        // But we need a glue code to connect networking and storage.
-                        // Might be worth considering implementing a separate service for this.
-                        sync_data_provider.process_sync_request(msg).await;
+                        Self::process_sync_request(&cryptarchia, &sync_data_provider, msg).await;
                     }
                     Some(msg) = lifecycle_stream.next() => {
                         if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
@@ -1028,6 +1025,27 @@ where
             transactions = transactions,
             blobs = blobs
         );
+    }
+
+    async fn process_sync_request(
+        cryptarchia: &Cryptarchia,
+        sync_data_provider: &SyncBlocksProvider<Storage, ClPool, DaPool, RuntimeServiceId>,
+        request: SyncRequest,
+    ) {
+        match request.kind {
+            SyncRequestKind::Tip => {
+                request
+                    .reply_channel
+                    .send(BehaviourSyncReply::TipData(cryptarchia.tip()))
+                    .await
+                    .unwrap_or_else(|_| {
+                        error!("Could not send tip data through channel");
+                    });
+            }
+            _ => {
+                sync_data_provider.process_sync_request(request).await;
+            }
+        }
     }
 
     /// Retrieves the blocks in the range from `from` to `to` from the storage.

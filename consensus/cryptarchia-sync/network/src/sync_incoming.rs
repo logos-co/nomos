@@ -45,7 +45,7 @@ pub fn send_response_to_peer(
         while let Some(service_response) = response_receiver.next().await {
             match service_response {
                 BehaviourSyncReply::TipData(tip) => {
-                    info!(tip = tip, "Sending tip");
+                    info!(tip = ?tip, "Sending tip");
                     sync_utils::send_data(&mut req.stream, &tip).await?;
                 }
                 BehaviourSyncReply::Block(block) => {

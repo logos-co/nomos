@@ -68,11 +68,16 @@ where
             return;
         }
         match request.kind {
-            SyncRequestKind::ForwardSyncRequest(slot) => {
+            SyncRequestKind::ForwardChain(slot) => {
                 self.spawn_fetch_blocks_from_slot_forwards(slot, request.reply_channel);
             }
-            SyncRequestKind::BackwardSyncRequest(tip) => {
+            SyncRequestKind::BackwardChain(tip) => {
                 self.spawn_fetch_blocks_from_header_backwards(tip.into(), request.reply_channel);
+            }
+            _ => {
+                tracing::warn!("Unsupported sync request kind");
+                self.in_progress_requests.fetch_sub(1, Ordering::SeqCst);
+                return;
             }
         }
     }
