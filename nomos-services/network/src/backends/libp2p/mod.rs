@@ -2,7 +2,13 @@ mod command;
 mod config;
 pub(crate) mod swarm;
 
-use futures::channel::mpsc::UnboundedSender;
+use self::swarm::SwarmHandler;
+pub use self::{
+    command::{Command, Dial, Libp2pInfo, Topic},
+    config::Libp2pConfig,
+};
+use super::{NetworkBackend};
+use cryptarchia_sync_network::behaviour::BehaviourSyncEvent::TipRequest;
 use cryptarchia_sync_network::behaviour::{
     BehaviourSyncEvent::SyncRequest, BehaviourSyncReply, SyncDirection,
 };
@@ -10,13 +16,7 @@ pub use nomos_libp2p::libp2p::gossipsub::{Message, TopicHash};
 use nomos_libp2p::{gossipsub, BehaviourEvent};
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
 use tokio::sync::{broadcast, mpsc, mpsc::Sender};
-
-use self::swarm::SwarmHandler;
-pub use self::{
-    command::{Command, Dial, Libp2pInfo, Topic},
-    config::Libp2pConfig,
-};
-use super::{NetworkBackend, SyncRequestKind};
+use cryptarchia_sync_network::SyncRequestKind;
 
 pub struct Libp2p {
     events_tx: broadcast::Sender<Event>,
@@ -28,7 +28,6 @@ pub enum EventKind {
     Message,
     SyncRequest,
 }
-
 
 /// Events emitted from [`NomosLibp2p`], which users can subscribe
 #[derive(Debug, Clone)]
@@ -63,6 +62,10 @@ impl TryFrom<BehaviourEvent> for Event {
                     reply_channel: response_sender,
                 }),
             },
+            BehaviourEvent::Sync(TipRequest { response_sender }) => Ok(Self::IncomingSyncRequest {
+                kind: SyncRequestKind::Tip,
+                reply_channel: response_sender,
+            }),
             _ => Err("Event not supported".into()),
         }
     }

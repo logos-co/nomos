@@ -5,7 +5,7 @@ use futures::{
 use libp2p::PeerId;
 use libp2p_stream::Control;
 use tokio::{
-    sync::mpsc::{Sender, UnboundedSender},
+    sync::mpsc::UnboundedSender,
     time::{timeout, Duration},
 };
 use tracing::{error, info};

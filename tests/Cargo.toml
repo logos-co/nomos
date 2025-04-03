@@ -12,6 +12,7 @@ common-http-client       = { workspace = true }
 cryptarchia-consensus    = { workspace = true }
 cryptarchia-engine       = { workspace = true, features = ["serde"] }
 cryptarchia-sync         = { workspace = true }
+cryptarchia-sync-network = { workspace = true }
 executor-http-client     = { workspace = true }
 futures                  = "0.3"
 futures-util             = "0.3.31"
@@ -52,6 +53,7 @@ tokio                    = "1"
 tracing                  = "0.1"
 x25519-dalek             = { version = "2", features = ["getrandom", "static_secrets"] }
 async-trait = "0.1.87"
+tracing-subscriber = "0.2.25"
 
 [[test]]
 name = "test_cryptarchia_happy_path"

@@ -373,10 +373,7 @@ mod test {
         PeerId, SwarmBuilder, Transport,
     };
     use rand::Rng;
-    use tokio::{
-        sync::mpsc::{self, Sender},
-        time::sleep,
-    };
+    use tokio::{sync::mpsc, time::sleep};
     use tracing::debug;
 
     use super::*;
@@ -406,7 +403,6 @@ mod test {
         tracing_subscriber::fmt::init();
 
         let (request_senders, handles) = setup_and_run_swarms(NUM_SWARMS).await;
-        let slot = MSG_COUNT as u64;
         let blocks =
             perform_sync(request_senders[0].clone(), SyncDirection::Backward([0; 32])).await;
 
@@ -543,9 +539,7 @@ mod test {
                     }
                     BehaviourSyncEvent::TipRequest { response_sender } => {
                         response_sender
-                            .send(BehaviourSyncReply::TipData(
-                                [swarm_index as u8; 32].try_into().unwrap(),
-                            ))
+                            .send(BehaviourSyncReply::TipData([swarm_index as u8; 32].into()))
                             .await
                             .expect("Failed to send tip");
                     }
@@ -557,7 +551,7 @@ mod test {
     }
 
     async fn perform_sync(
-        mut request_sender: UnboundedSender<SyncCommand>,
+        request_sender: UnboundedSender<SyncCommand>,
         direction: SyncDirection,
     ) -> Vec<Vec<u8>> {
         let (response_sender, mut response_receiver) = mpsc::unbounded_channel();

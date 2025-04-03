@@ -21,7 +21,8 @@ use crate::{
 use core::fmt::Debug;
 use cryptarchia_engine::Slot;
 use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
-use futures::{StreamExt, TryFutureExt};
+use cryptarchia_sync_network::SyncRequestKind;
+use futures::StreamExt;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
 use nomos_blend_service::BlendService;
@@ -40,7 +41,6 @@ use nomos_mempool::{
     backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter, DaMempoolService,
     MempoolMsg, TxMempoolService,
 };
-use nomos_network::backends::SyncRequestKind;
 use nomos_network::NetworkService;
 use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
@@ -54,7 +54,6 @@ use serde_with::serde_as;
 use services_utils::overwatch::{
     lifecycle, recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator,
 };
-use std::marker::PhantomData;
 use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 use sync::CryptarchiaSyncAdapter;
 use thiserror::Error;
@@ -380,7 +379,7 @@ impl<
         RuntimeServiceId,
     >
 where
-    NetAdapter: NetworkAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = DaPool::Item>
+    NetAdapter: NetworkAdapter<RuntimeServiceId, Block = Block<ClPool::Item, DaPool::Item>>
         + cryptarchia_sync::adapter::NetworkAdapter<Block = Block<ClPool::Item, DaPool::Item>>
         + Clone
         + Send
@@ -589,11 +588,14 @@ where
         //     cryptarchia_sync::Synchronization::run(sync_adapter,
         // &network_adapter).await?;
 
-        let sync_data_provider: SyncBlocksProvider<Storage, ClPool, DaPool, RuntimeServiceId> =
-            SyncBlocksProvider::new(
-                storage_relay,
-                self.service_state.overwatch_handle.runtime().clone(),
-            );
+        let sync_data_provider: SyncBlocksProvider<
+            Storage,
+            Block<ClPool::Item, DaPool::Item>,
+            RuntimeServiceId,
+        > = SyncBlocksProvider::new(
+            storage_relay,
+            self.service_state.overwatch_handle.runtime().clone(),
+        );
 
         let (mut cryptarchia, mut leader, relays) = sync_adapter.take();
 
@@ -1029,7 +1031,11 @@ where
 
     async fn process_sync_request(
         cryptarchia: &Cryptarchia,
-        sync_data_provider: &SyncBlocksProvider<Storage, ClPool, DaPool, RuntimeServiceId>,
+        sync_data_provider: &SyncBlocksProvider<
+            Storage,
+            Block<ClPool::Item, DaPool::Item>,
+            RuntimeServiceId,
+        >,
         request: SyncRequest,
     ) {
         match request.kind {
@@ -1043,7 +1049,7 @@ where
                     });
             }
             _ => {
-                sync_data_provider.process_sync_request(request).await;
+                sync_data_provider.process_sync_request(request);
             }
         }
     }
@@ -1073,7 +1079,7 @@ where
     async fn get_blocks_in_range(
         from: HeaderId,
         to: HeaderId,
-        storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
+        storage_adapter: &StorageAdapter<Storage, Block<TxS::Tx, BS::BlobId>, RuntimeServiceId>,
     ) -> Vec<Block<ClPool::Item, DaPool::Item>> {
         // Due to the blocks traversal order, this yields `to..from` order
         let blocks = futures::stream::unfold(to, |header_id| async move {

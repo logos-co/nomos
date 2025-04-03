@@ -95,19 +95,15 @@ impl<Backend: StorageBackend> StorageReplyReceiver<Vec<Bytes>, Backend> {
     where
         Output: DeserializeOwned,
     {
-        let result = self
-            .channel
-            .await
-            .map(|values| {
-                values
-                    .into_iter()
-                    .map(|bytes| {
-                        Backend::SerdeOperator::deserialize(bytes)
-                            .expect("Deserialization from storage should never fail")
-                    })
-                    .collect()
-            });
-        result
+        self.channel.await.map(|values| {
+            values
+                .into_iter()
+                .map(|bytes| {
+                    Backend::SerdeOperator::deserialize(bytes)
+                        .expect("Deserialization from storage should never fail")
+                })
+                .collect()
+        })
     }
 }
 

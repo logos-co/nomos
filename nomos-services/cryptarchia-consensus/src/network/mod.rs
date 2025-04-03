@@ -3,9 +3,8 @@ pub mod adapters;
 use std::hash::Hash;
 
 use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
+use cryptarchia_sync_network::SyncRequestKind;
 use futures::Stream;
-use nomos_core::block::Block;
-use nomos_network::backends::SyncRequestKind;
 use nomos_network::{backends::NetworkBackend, NetworkService};
 use overwatch::{
     services::{relay::OutboundRelay, ServiceData},
@@ -26,8 +25,7 @@ type BoxedStream<T> = Box<dyn Stream<Item = T> + Send + Sync + Unpin>;
 pub trait NetworkAdapter<RuntimeServiceId> {
     type Backend: NetworkBackend<RuntimeServiceId> + 'static;
     type Settings: Clone + 'static;
-    type Tx: Serialize + DeserializeOwned + Clone + Eq + Hash + 'static;
-    type BlobCertificate: Serialize + DeserializeOwned + Clone + Eq + Hash + 'static;
+    type Block: Serialize + DeserializeOwned + Clone + Eq + Hash + 'static;
     async fn new(
         settings: Self::Settings,
         network_relay: OutboundRelay<
@@ -37,7 +35,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
 
     async fn blocks_stream(
         &self,
-    ) -> Result<BoxedStream<Block<Self::Tx, Self::BlobCertificate>>, DynError>;
+    ) -> Result<BoxedStream<Self::Block>, DynError>;
 
     async fn sync_requests_stream(&self) -> Result<BoxedStream<SyncRequest>, DynError>;
 }

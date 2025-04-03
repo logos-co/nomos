@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use crate::upgrade::Version;
 use blake2::{
     digest::{consts::U32, Digest},
     Blake2b,
@@ -16,6 +17,7 @@ use cryptarchia_sync_network::{
     behaviour::{SyncCommand, SyncDirection},
     membership::AllNeighbours,
 };
+use libp2p::core::transport::MemoryTransport;
 pub use libp2p::{
     self,
     core::upgrade,
@@ -29,7 +31,7 @@ use libp2p::{
     swarm::ConnectionId,
 };
 pub use multiaddr::{multiaddr, Multiaddr, Protocol};
-use tokio::sync::mpsc::{Sender, UnboundedSender};
+use tokio::sync::mpsc::UnboundedSender;
 
 // TODO: Risc0 proofs are HUGE (220 Kb) and it's the only reason we need to have
 // this limit so large. Remove this once we transition to smaller proofs.
@@ -88,15 +90,25 @@ impl Swarm {
 
         // TODO: just a placeholder for now to make it compile
         let membership = AllNeighbours::new();
-        let mut swarm = libp2p::SwarmBuilder::with_existing_identity(keypair)
+
+        let mut swarm = libp2p::SwarmBuilder::with_existing_identity(keypair.clone())
             .with_tokio()
             .with_quic()
+            .with_other_transport(|_| {
+                Ok(MemoryTransport::default()
+                    .upgrade(Version::V1)
+                    .authenticate(libp2p::plaintext::Config::new(&keypair))
+                    .multiplex(libp2p::yamux::Config::default())
+                    .timeout(Duration::from_secs(20)))
+            })?
             .with_dns()?
             .with_behaviour(|_| {
                 Behaviour::new(peer_id, config.gossipsub_config.clone(), membership).unwrap()
             })?
             .with_swarm_config(|c| c.with_idle_connection_timeout(IDLE_CONN_TIMEOUT))
             .build();
+
+        swarm.listen_on(format!("/memory/{}", config.port).parse().unwrap())?;
 
         swarm.listen_on(Self::multiaddr(config.host, config.port))?;
 

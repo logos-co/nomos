@@ -2,18 +2,22 @@ use std::{
     collections::HashMap,
     fmt::{Debug, Display},
     hash::Hash,
-    marker::PhantomData,
 };
 
 use async_trait::async_trait;
 use cryptarchia_consensus::network::adapters::libp2p::{LibP2pAdapter, LibP2pAdapterSettings};
-use cryptarchia_consensus::network::NetworkAdapter as ConsensusNetworkAdapter;
+use cryptarchia_consensus::network::{NetworkAdapter, SyncRequest};
+use cryptarchia_consensus::storage::sync::SyncBlocksProvider;
 use cryptarchia_engine::Slot;
-use cryptarchia_sync::adapter::{CryptarchiaAdapter, CryptarchiaAdapterError, NetworkAdapter};
+use cryptarchia_sync::adapter::{CryptarchiaAdapter, CryptarchiaAdapterError};
+use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
+use cryptarchia_sync_network::SyncRequestKind;
+use futures_util::StreamExt;
 use nomos_core::block::AbstractBlock;
 use nomos_core::header::HeaderId;
 use nomos_network::NetworkService;
-use nomos_storage::backends::StorageBackend;
+use nomos_node::{NetworkBackend, Wire};
+use nomos_storage::backends::rocksdb::RocksBackend;
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -21,15 +25,18 @@ use overwatch::{
     },
     DynError, OpaqueServiceStateHandle,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
+use tracing::info;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct MockBlock {
-    id: HeaderId,
-    slot: Slot,
+pub struct TestBlock {
+    pub id: HeaderId,
+    pub parent: Option<HeaderId>,
+    pub slot: Slot,
+    pub data: Vec<u8>,
 }
 
-impl AbstractBlock for MockBlock {
+impl AbstractBlock for TestBlock {
     type Id = HeaderId;
 
     fn id(&self) -> Self::Id {
@@ -37,7 +44,7 @@ impl AbstractBlock for MockBlock {
     }
 
     fn parent(&self) -> Self::Id {
-        self.id
+        self.parent.unwrap_or_else(|| [0; 32].into())
     }
 
     fn slot(&self) -> Slot {
@@ -50,24 +57,34 @@ pub struct CryptarchiaSyncServiceConfig {
     pub topic: String,
 }
 
-pub struct CryptarchiaSyncService<Storage, Network, RuntimeServiceId>
+pub struct CryptarchiaSyncService<RuntimeServiceId>
 where
-    Storage: StorageBackend + Send + Sync + 'static,
-    Network: ConsensusNetworkAdapter<RuntimeServiceId> + Sync + Send + 'static,
-    RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + 'static,
+    RuntimeServiceId: AsServiceId<Self>
+        + AsServiceId<NetworkService<NetworkBackend, RuntimeServiceId>>
+        + AsServiceId<nomos_storage::StorageService<RocksBackend<Wire>, RuntimeServiceId>>
+        + Clone
+        + Debug
+        + Display
+        + Send
+        + Sync
+        + 'static,
 {
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-    blocks: HashMap<HeaderId, MockBlock>,
-    tip_slot: Slot,
-    _marker: PhantomData<(Storage, Network)>,
+    blocks: HashMap<HeaderId, TestBlock>,
+    tip: Slot,
 }
 
-impl<Storage, Network, RuntimeServiceId> ServiceData
-    for CryptarchiaSyncService<Storage, Network, RuntimeServiceId>
+impl<RuntimeServiceId> ServiceData for CryptarchiaSyncService<RuntimeServiceId>
 where
-    Storage: StorageBackend + Send + Sync + 'static,
-    Network: ConsensusNetworkAdapter<RuntimeServiceId> + Sync + Send + 'static,
-    RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + 'static,
+    RuntimeServiceId: AsServiceId<Self>
+        + AsServiceId<NetworkService<NetworkBackend, RuntimeServiceId>>
+        + AsServiceId<nomos_storage::StorageService<RocksBackend<Wire>, RuntimeServiceId>>
+        + Clone
+        + Debug
+        + Display
+        + Send
+        + Sync
+        + 'static,
 {
     type Settings = CryptarchiaSyncServiceConfig;
     type State = NoState<Self::Settings>;
@@ -76,12 +93,17 @@ where
 }
 
 #[async_trait]
-impl<Storage, Network, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for CryptarchiaSyncService<Storage, Network, RuntimeServiceId>
+impl<RuntimeServiceId> ServiceCore<RuntimeServiceId> for CryptarchiaSyncService<RuntimeServiceId>
 where
-    Storage: StorageBackend + Send + Sync + 'static,
-    Network: ConsensusNetworkAdapter<RuntimeServiceId> + Sync + Send + 'static,
-    RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + 'static,
+    RuntimeServiceId: AsServiceId<Self>
+        + AsServiceId<NetworkService<NetworkBackend, RuntimeServiceId>>
+        + AsServiceId<nomos_storage::StorageService<RocksBackend<Wire>, RuntimeServiceId>>
+        + Clone
+        + Debug
+        + Display
+        + Send
+        + Sync
+        + 'static,
 {
     fn init(
         service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
@@ -90,8 +112,7 @@ where
         Ok(Self {
             service_state,
             blocks: HashMap::new(),
-            tip_slot: Slot::genesis(),
-            _marker: PhantomData,
+            tip: Slot::genesis(),
         })
     }
 
@@ -111,39 +132,127 @@ where
         };
 
         let network_relay = network_relay.clone();
-        let network_adapter = LibP2pAdapter::new(libp2p_settings, network_relay).await?;
+        let network_adapter: LibP2pAdapter<TestBlock, RuntimeServiceId> =
+            LibP2pAdapter::new(libp2p_settings, network_relay).await;
 
-        let sync_adapter = cryptarchia_sync::Synchronization::run(self, &network_adapter).await?;
-        // Service loop
-        // loop {
-        // tokio::select! {
-        //     _ = self.service_state.recv() => {
-        //         // Handle service messages
-        //     }
-        // }
-        // }
+        let mut incoming_sync_requests = network_adapter.sync_requests_stream().await?;
+        let storage_relay = self
+            .service_state
+            .overwatch_handle
+            .relay::<nomos_storage::StorageService<_, _>>()
+            .await
+            .expect("Relay connection with StorageService should succeed");
+
+        self.insert_test_blocks(100).await?;
+
+        let sync_data_provider: SyncBlocksProvider<
+            RocksBackend<Wire>,
+            TestBlock,
+            RuntimeServiceId,
+        > = SyncBlocksProvider::new(
+            storage_relay,
+            self.service_state.overwatch_handle.runtime().clone(),
+        );
+
+        self.service_state
+            .overwatch_handle
+            .runtime()
+            .spawn(async move {
+                while let Some(sync_request) = incoming_sync_requests.next().await {
+                    let SyncRequest {
+                        kind,
+                        reply_channel,
+                    } = &sync_request;
+                    match kind {
+                        SyncRequestKind::Tip => {
+                            reply_channel
+                                .send(BehaviourSyncReply::TipData([0; 32].into()))
+                                .await
+                                .expect("Failed to send tip response");
+                        }
+                        _ => {
+                            sync_data_provider.process_sync_request(sync_request);
+                        }
+                    }
+                }
+            });
+
+        cryptarchia_sync::Synchronization::run(self, &network_adapter).await?;
+
         Ok(())
     }
 }
 
 #[async_trait::async_trait]
-impl<Storage, Network, RuntimeServiceId> CryptarchiaAdapter
-    for CryptarchiaSyncService<Storage, Network, RuntimeServiceId>
+impl<RuntimeServiceId> CryptarchiaAdapter for CryptarchiaSyncService<RuntimeServiceId>
 where
-    Storage: StorageBackend + Send + Sync + 'static,
-    RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + 'static,
+    RuntimeServiceId: AsServiceId<Self>
+        + AsServiceId<NetworkService<NetworkBackend, RuntimeServiceId>>
+        + AsServiceId<nomos_storage::StorageService<RocksBackend<Wire>, RuntimeServiceId>>
+        + Clone
+        + Debug
+        + Display
+        + Send
+        + Sync
+        + 'static,
 {
-    type Block = MockBlock;
+    type Block = TestBlock;
 
     async fn process_block(&mut self, block: Self::Block) -> Result<(), CryptarchiaAdapterError> {
-        todo!();
+        info!("PROCESSING BLOCK {:?}", block.id());
+        self.blocks.insert(block.id(), block);
+        Ok(())
     }
 
     fn tip_slot(&self) -> Slot {
-        self.tip_slot
+        self.tip
     }
 
     fn has_block(&self, id: &<Self::Block as AbstractBlock>::Id) -> bool {
         self.blocks.contains_key(id)
+    }
+}
+
+impl<RuntimeServiceId> CryptarchiaSyncService<RuntimeServiceId>
+where
+    RuntimeServiceId: AsServiceId<Self>
+        + AsServiceId<NetworkService<NetworkBackend, RuntimeServiceId>>
+        + AsServiceId<nomos_storage::StorageService<RocksBackend<Wire>, RuntimeServiceId>>
+        + Clone
+        + Debug
+        + Display
+        + Send
+        + Sync
+        + 'static,
+{
+    pub async fn insert_test_blocks(&self, count: u64) -> Result<(), DynError> {
+        let storage_relay = self
+            .service_state
+            .overwatch_handle
+            .relay::<nomos_storage::StorageService<_, _>>()
+            .await
+            .expect("Relay connection with StorageService should succeed");
+
+        for i in 0..count {
+            let parent = if i == 0 {
+                None
+            } else {
+                Some([i as u8 - 1; 32].into())
+            };
+            let block = TestBlock {
+                id: [i as u8; 32].into(),
+                parent,
+                slot: Slot::from(i),
+                data: vec![],
+            };
+
+            let store_msg = nomos_storage::StorageMsg::new_store_message(block.id(), block.clone());
+            if let Err((e, _)) = storage_relay.send(store_msg).await {
+                tracing::error!("Failed to send storage message: {}", e);
+                return Err(e.into());
+            }
+        }
+
+        Ok(())
     }
 }

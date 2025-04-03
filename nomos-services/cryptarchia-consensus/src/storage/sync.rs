@@ -1,10 +1,8 @@
 use crate::network::SyncRequest;
 use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
-use nomos_core::block::Block;
-use nomos_core::header::HeaderId;
+use cryptarchia_sync_network::SyncRequestKind;
+use nomos_core::block::AbstractBlock;
 use nomos_core::wire;
-use nomos_mempool::backend::RecoverableMempool;
-use nomos_network::backends::SyncRequestKind;
 use nomos_storage::{StorageMsg, StorageService};
 use overwatch::services::relay::OutboundRelay;
 use overwatch::services::ServiceData;
@@ -17,36 +15,31 @@ use std::sync::Arc;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::Sender;
 use tokio::time::{sleep, Duration};
+use tracing::info;
 
 const MAX_CONCURRENT_REQUESTS: usize = 1;
 const BLOCK_SEND_DELAY_MS: u64 = 50;
 
 pub struct SyncBlocksProvider<
     Storage: nomos_storage::backends::StorageBackend + Send + Sync + 'static,
-    ClPool,
-    DaPool,
+    Block,
     RuntimeServiceId,
 > {
     storage_relay:
         OutboundRelay<<StorageService<Storage, RuntimeServiceId> as ServiceData>::Message>,
     runtime: Handle,
     in_progress_requests: Arc<AtomicUsize>,
-    phantom_data: PhantomData<(ClPool, DaPool)>,
+    phantom_data: PhantomData<Block>,
 }
 
-impl<
-        Storage: nomos_storage::backends::StorageBackend + Send + Sync + 'static,
-        ClPool: RecoverableMempool,
-        DaPool: RecoverableMempool,
-        RuntimeServiceId,
-    > SyncBlocksProvider<Storage, ClPool, DaPool, RuntimeServiceId>
+impl<Storage, Block, RuntimeServiceId> SyncBlocksProvider<Storage, Block, RuntimeServiceId>
 where
-    Storage: Send + Sync + 'static,
-    ClPool: Send + Sync + 'static,
-    ClPool::Item: Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
-    DaPool: Send + Sync + 'static,
-    DaPool::Item: Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
+    Storage: nomos_storage::backends::StorageBackend + Send + Sync + 'static,
+    Block: AbstractBlock + Serialize + DeserializeOwned + Send + Sync + 'static + std::fmt::Debug,
+    <Block as AbstractBlock>::Id:
+        From<[u8; 32]> + Serialize + DeserializeOwned + Hash + Eq + Send + Sync + 'static,
 {
+    #[must_use]
     pub fn new(
         storage_relay: OutboundRelay<
             <StorageService<Storage, RuntimeServiceId> as ServiceData>::Message,
@@ -61,7 +54,8 @@ where
         }
     }
 
-    pub async fn process_sync_request(&self, request: SyncRequest) {
+    #[expect(clippy::cognitive_complexity, reason = "Seems strange because it does not have a lot of logic.")]
+    pub fn process_sync_request(&self, request: SyncRequest) {
         if self.in_progress_requests.fetch_add(1, Ordering::SeqCst) >= MAX_CONCURRENT_REQUESTS {
             tracing::warn!("Max concurrent sync requests reached");
             self.in_progress_requests.fetch_sub(1, Ordering::SeqCst);
@@ -69,15 +63,16 @@ where
         }
         match request.kind {
             SyncRequestKind::ForwardChain(slot) => {
+                info!("Syncing from slot {:?}", slot);
                 self.spawn_fetch_blocks_from_slot_forwards(slot, request.reply_channel);
             }
             SyncRequestKind::BackwardChain(tip) => {
+                info!("Syncing from header {:?}", tip);
                 self.spawn_fetch_blocks_from_header_backwards(tip.into(), request.reply_channel);
             }
-            _ => {
+            SyncRequestKind::Tip => {
                 tracing::warn!("Unsupported sync request kind");
                 self.in_progress_requests.fetch_sub(1, Ordering::SeqCst);
-                return;
             }
         }
     }
@@ -89,23 +84,24 @@ where
         reply_channel: Sender<BehaviourSyncReply>,
     ) {
         let storage_relay = self.storage_relay.clone();
-        let in_progress_requests = self.in_progress_requests.clone();
+        let in_progress_requests = Arc::<AtomicUsize>::clone(&self.in_progress_requests);
         self.runtime.spawn(async move {
             let mut epoch = 0;
             loop {
-                let prefix = format!("blocks_epoch_{}", epoch);
+                let prefix = format!("blocks_epoch_{epoch}");
                 let (msg, receiver) = <StorageMsg<Storage>>::new_load_prefix_message(prefix);
 
                 if let Err((e, _)) = storage_relay.send(msg).await {
                     tracing::error!("Failed to send storage message {}", e);
                 } else {
-                    match receiver.recv::<Block<ClPool::Item, DaPool::Item>>().await {
+                    match receiver.recv::<Block>().await {
                         Ok(blocks) => {
                             if blocks.is_empty() {
                                 break;
                             }
+                            info!("Received blocks from database: {:?}", blocks.len());
                             for block in blocks {
-                                if let Err(_) = Self::send_block(&block, &reply_channel).await {
+                                if Self::send_block(&block, &reply_channel).await.is_err() {
                                     break;
                                 }
                             }
@@ -123,11 +119,11 @@ where
 
     fn spawn_fetch_blocks_from_header_backwards(
         &self,
-        header_id: HeaderId,
+        header_id: <Block as AbstractBlock>::Id,
         reply_channel: Sender<BehaviourSyncReply>,
     ) {
         let storage_relay = self.storage_relay.clone();
-        let in_progress_requests = self.in_progress_requests.clone();
+        let in_progress_requests = Arc::<AtomicUsize>::clone(&self.in_progress_requests);
         self.runtime.spawn(async move {
             let mut current_header_id = header_id;
             loop {
@@ -136,10 +132,10 @@ where
                     tracing::error!("Failed to send storage message: {}", e);
                     break;
                 }
-                match receiver.recv::<Block<ClPool::Item, DaPool::Item>>().await {
+                match receiver.recv::<Block>().await {
                     Ok(Some(block)) => {
-                        current_header_id = block.header().parent();
-                        if let Err(_) = Self::send_block(&block, &reply_channel).await {
+                        current_header_id = block.parent();
+                        if Self::send_block(&block, &reply_channel).await.is_err() {
                             break;
                         }
                     }
@@ -155,7 +151,7 @@ where
     }
 
     async fn send_block(
-        block: &Block<ClPool::Item, DaPool::Item>,
+        block: &Block,
         reply_channel: &Sender<BehaviourSyncReply>,
     ) -> Result<(), ()> {
         let serialized_block = wire::serialize(block).map_err(|e| {

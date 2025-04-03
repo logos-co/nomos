@@ -94,7 +94,9 @@ impl SwarmHandler {
             }
             SwarmEvent::Behaviour(se @ BehaviourEvent::Sync(..)) => {
                 tracing::debug!("Received syncing request {se:?}");
-                self.events_tx.send(se.try_into().unwrap()).unwrap();
+                if let Err(e) = self.events_tx.send(se.try_into().unwrap()){
+                    tracing::error!("failed to send sync request: {e:?}");
+                }
             }
             SwarmEvent::ConnectionEstablished {
                 peer_id,

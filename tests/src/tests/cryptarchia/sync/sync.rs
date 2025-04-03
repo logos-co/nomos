@@ -1,18 +1,16 @@
 mod cryptarchia;
 
-use crate::cryptarchia::{CryptarchiaSyncService, CryptarchiaSyncServiceConfig, MockBlock};
-use nomos_libp2p::{ed25519, Multiaddr, SwarmConfig};
+use crate::cryptarchia::{CryptarchiaSyncService, CryptarchiaSyncServiceConfig};
+use nomos_libp2p::{ed25519, gossipsub, SwarmConfig};
 use nomos_network::{backends::libp2p::Libp2pConfig, NetworkConfig};
 use nomos_node::{NetworkBackend, RocksBackend, Wire};
 use nomos_storage::backends::rocksdb::RocksBackendSettings;
 use overwatch::derive_services;
 use overwatch::overwatch::OverwatchRunner;
-use serde::{Deserialize, Serialize};
 
 type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 type StorageService = nomos_storage::StorageService<RocksBackend<Wire>, RuntimeServiceId>;
-
-type Cryptarchia = CryptarchiaSyncService<RocksBackend<Wire>, NetworkBackend, RuntimeServiceId>;
+type Cryptarchia = CryptarchiaSyncService<RuntimeServiceId>;
 
 #[derive_services]
 pub struct NomosLightNode {
@@ -23,7 +21,7 @@ pub struct NomosLightNode {
 
 #[test]
 fn test_sync_two_nodes() {
-    // Create settings for first node
+    tracing_subscriber::fmt::init();
     let node1_settings = NomosLightNodeServiceSettings {
         network: NetworkConfig {
             backend: Libp2pConfig {
@@ -31,17 +29,19 @@ fn test_sync_two_nodes() {
                     host: "0.0.0.0".parse().unwrap(),
                     port: 3000,
                     node_key: ed25519::SecretKey::generate(),
-                    gossipsub_config: Default::default(),
+                    gossipsub_config: gossipsub::Config::default(),
                 },
-                initial_peers: vec![],
+                initial_peers: vec!["/memory/3001".parse().unwrap()],
             },
         },
         storage: RocksBackendSettings {
-            db_path: "node1_db".into(),
+            db_path: "node3_db".into(),
             read_only: false,
             column_family: None,
         },
-        cryptarchia: CryptarchiaSyncServiceConfig { topic: "topic".to_string() },
+        cryptarchia: CryptarchiaSyncServiceConfig {
+            topic: "topic".to_owned(),
+        },
     };
 
     // Create settings for second node
@@ -52,26 +52,25 @@ fn test_sync_two_nodes() {
                     host: "0.0.0.0".parse().unwrap(),
                     port: 3001,
                     node_key: ed25519::SecretKey::generate(),
-                    gossipsub_config: Default::default(),
+                    gossipsub_config: gossipsub::Config::default(),
                 },
-                initial_peers: vec!["/ip4/127.0.0.1/tcp/3000".parse().unwrap()],
+                initial_peers: vec!["/memory/3000".parse().unwrap()],
             },
         },
         storage: RocksBackendSettings {
-            db_path: "node2_db".into(),
+            db_path: "node4_db".into(),
             read_only: false,
             column_family: None,
         },
-        cryptarchia: CryptarchiaSyncServiceConfig { topic: "topic".to_string() },
+        cryptarchia: CryptarchiaSyncServiceConfig {
+            topic: "topic".to_owned(),
+        },
     };
 
-    // Start first node
     let node1 = OverwatchRunner::<NomosLightNode>::run(node1_settings, None).unwrap();
 
-    // Start second node
     let node2 = OverwatchRunner::<NomosLightNode>::run(node2_settings, None).unwrap();
 
-    // Wait for nodes to finish
     node1.wait_finished();
     node2.wait_finished();
 }
