@@ -39,10 +39,13 @@ pub enum ServiceType {
 }
 
 pub type Nonce = [u8; 16];
+
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
 pub struct ProviderId(pub [u8; 32]);
+
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
 pub struct DeclarationId(pub [u8; 32]);
+
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
 pub struct RewardId(pub [u8; 32]);
 
