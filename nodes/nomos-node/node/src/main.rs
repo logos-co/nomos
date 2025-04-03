@@ -8,62 +8,21 @@ use nomos_membership::{backends::mock::MockMembershipBackendSettings, BackendSet
 use nomos_mempool::{
     network::adapters::libp2p::Settings as AdapterSettings, tx::settings::TxMempoolSettings,
 };
-use nomos_node::{
-    config::BlendArgs, Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs, Nomos,
-    NomosServiceSettings, Tx,
-};
+use nomos_node::{config::CliArgs, Config, Nomos, NomosServiceSettings, Tx};
 use overwatch::overwatch::OverwatchRunner;
-
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    /// Path for a yaml-encoded network config file
-    config: std::path::PathBuf,
-    /// Dry-run flag. If active, the binary will try to deserialize the config
-    /// file and then exit.
-    #[clap(long = "check-config", action)]
-    check_config_only: bool,
-    /// Overrides log config.
-    #[clap(flatten)]
-    log: LogArgs,
-    /// Overrides network config.
-    #[clap(flatten)]
-    network: NetworkArgs,
-    /// Overrides blend config.
-    #[clap(flatten)]
-    blend: BlendArgs,
-    /// Overrides http config.
-    #[clap(flatten)]
-    http: HttpArgs,
-    #[clap(flatten)]
-    cryptarchia: CryptarchiaArgs,
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let Args {
-        config,
-        check_config_only,
-        log: log_args,
-        http: http_args,
-        network: network_args,
-        blend: blend_args,
-        cryptarchia: cryptarchia_args,
-    } = Args::parse();
-    let config = serde_yaml::from_reader::<_, Config>(std::fs::File::open(config)?)?
-        .update_from_args(
-            log_args,
-            network_args,
-            blend_args,
-            http_args,
-            cryptarchia_args,
-        )?;
+    let cli_args = CliArgs::parse();
+    let config =
+        serde_yaml::from_reader::<_, Config>(std::fs::File::open(cli_args.config_path())?)?
+            .update_from_args(cli_args)?;
 
     #[expect(
         clippy::non_ascii_literal,
         reason = "Use of green checkmark for better UX."
     )]
-    if check_config_only {
+    if cli_args.dry_run() {
         println!("Config file is valid! ✅");
         return Ok(());
     }
