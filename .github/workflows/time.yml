@@ -10,11 +10,11 @@ jobs:
     steps:
       - name: Tools
         run: |
-          brew install netcat
+          brew install sntp
 
       - name: Netcats
         run: |
-          nc -u -v 129.6.15.28 123
+          sntp time.euro.apple.com
           nc -u -v 40.119.6.228 123
           nc -u -v 185.251.115.30 123
           nc -u -v 94.198.159.15 123
