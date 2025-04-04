@@ -9,6 +9,7 @@ use adapter::{CryptarchiaAdapter, CryptarchiaAdapterError, NetworkAdapter};
 use futures::{Stream, StreamExt};
 use itertools::Itertools;
 use nomos_core::block::AbstractBlock;
+use tracing::info;
 
 pub struct Synchronization<Cryptarchia, Network, Block> {
     _marker: PhantomData<(Cryptarchia, Network, Block)>,
@@ -39,10 +40,11 @@ where
             let mut num_processed_blocks = 0;
 
             // TODO: handle network error
+            info!("Fetching blocks from slot {:?}", cryptarchia.tip_slot() + 1);
             let mut stream = network
                 .fetch_blocks_from_slot(cryptarchia.tip_slot() + 1)
-                .await
-                .unwrap();
+                .await?;
+
             while let Some(block) = stream.next().await {
                 // Reject blocks that have been rejected in the past
                 // or whose parent has been rejected.
@@ -71,6 +73,7 @@ where
             // Finish the sync process if no block has been processed,
             // which means that no peer has blocks that the local node doesn't know.
             if num_processed_blocks == 0 {
+                info!("No new blocks to process");
                 break;
             }
 

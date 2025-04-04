@@ -27,7 +27,7 @@ use overwatch::{
 };
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-
+use nomos_core::block::Block;
 use crate::{
     blend, network,
     storage::{adapters::StorageAdapter, StorageAdapter as StorageAdapterTrait},
@@ -69,6 +69,7 @@ pub struct CryptarchiaConsensusRelays<
     BlendAdapter:
         blend::BlendAdapter<RuntimeServiceId, Network: BlendNetworkAdapter<RuntimeServiceId>>,
     BS: BlobSelect,
+    <BS as BlobSelect>::BlobId: Debug + Clone + Eq + Hash,
     ClPool: MemPool,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId>,
     DaPool: MemPool,
@@ -78,6 +79,7 @@ pub struct CryptarchiaConsensusRelays<
     SamplingRng: SeedableRng + RngCore,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng>,
     TxS: TxSelect,
+    <TxS as TxSelect>::Tx: Clone + Eq + Hash,
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend,
 {
     network_relay: NetworkRelay<
@@ -92,7 +94,7 @@ pub struct CryptarchiaConsensusRelays<
     cl_mempool_relay: ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId>,
     da_mempool_relay:
         DaMempoolRelay<DaPool, DaPoolAdapter, SamplingBackend::BlobId, RuntimeServiceId>,
-    storage_adapter: StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
+    storage_adapter: StorageAdapter<Storage, Block<TxS::Tx, BS::BlobId>, RuntimeServiceId>,
     sampling_relay: SamplingRelay<DaPool::Key>,
     time_relay: TimeRelay,
     _phantom_data: PhantomData<DaVerifierBackend>,
@@ -179,7 +181,7 @@ where
         time_relay: TimeRelay,
     ) -> Self {
         let storage_adapter =
-            StorageAdapter::<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>::new(storage_relay)
+            StorageAdapter::<Storage, Block<TxS::Tx, BS::BlobId>, RuntimeServiceId>::new(storage_relay)
                 .await;
         Self {
             network_relay,
@@ -380,7 +382,7 @@ where
 
     pub const fn storage_adapter(
         &self,
-    ) -> &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId> {
+    ) -> &StorageAdapter<Storage, Block<TxS::Tx, BS::BlobId>, RuntimeServiceId> {
         &self.storage_adapter
     }
 

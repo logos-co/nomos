@@ -1,4 +1,5 @@
 pub mod adapters;
+pub mod sync;
 
 use nomos_core::header::HeaderId;
 use nomos_storage::{backends::StorageBackend, StorageService};

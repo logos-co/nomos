@@ -1,28 +1,26 @@
 use std::{hash::Hash, marker::PhantomData};
 
-use nomos_core::{block::Block, header::HeaderId};
+use nomos_core::header::HeaderId;
 use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::storage::StorageAdapter as StorageAdapterTrait;
 
-pub struct StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
+pub struct StorageAdapter<Storage, Block, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync,
 {
     pub storage_relay:
         OutboundRelay<<StorageService<Storage, RuntimeServiceId> as ServiceData>::Message>,
-    _tx: PhantomData<Tx>,
-    _blob_certificate: PhantomData<BlobCertificate>,
+    _tx: PhantomData<Block>,
 }
 
-impl<Storage, Tx, BlobCertificate, RuntimeServiceId>
-    StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
+impl<Storage, Block, RuntimeServiceId>
+    StorageAdapter<Storage, Block, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync,
-    Tx: Sync,
-    BlobCertificate: Sync,
+    Block: Sync,
 {
     /// Sends a store message to the storage service to retrieve a value by its
     /// key
@@ -46,15 +44,14 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Storage, Tx, BlobCertificate, RuntimeServiceId> StorageAdapterTrait<RuntimeServiceId>
-    for StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
+impl<Storage, Block, RuntimeServiceId> StorageAdapterTrait<RuntimeServiceId>
+    for StorageAdapter<Storage, Block, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync,
-    Tx: Clone + Eq + Hash + DeserializeOwned + Send + Sync,
-    BlobCertificate: Clone + Eq + Hash + DeserializeOwned + Send + Sync,
+    Block: Clone + Eq + Hash + DeserializeOwned + Send + Sync,
 {
     type Backend = Storage;
-    type Block = Block<Tx, BlobCertificate>;
+    type Block = Block;
 
     async fn new(
         storage_relay: OutboundRelay<
@@ -64,7 +61,6 @@ where
         Self {
             storage_relay,
             _tx: PhantomData,
-            _blob_certificate: PhantomData,
         }
     }
 

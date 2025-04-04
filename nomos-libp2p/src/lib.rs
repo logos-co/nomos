@@ -16,7 +16,10 @@ use blake2::{
 };
 pub use config::{secret_key_serde, IdentifySettings, KademliaSettings, SwarmConfig};
 pub use config::{secret_key_serde, SwarmConfig};
-use cryptarchia_sync_network::membership::AllNeighbours;
+use cryptarchia_sync_network::{
+    behaviour::{SyncCommand, SyncDirection},
+    membership::AllNeighbours,
+};
 pub use libp2p::{
     self,
     core::upgrade,
@@ -26,12 +29,16 @@ pub use libp2p::{
     PeerId, SwarmBuilder, Transport,
 };
 use libp2p::{
+    core::transport::MemoryTransport,
     gossipsub::{Message, MessageId, TopicHash},
     identify,
     kad::{self, QueryId},
     swarm::{behaviour::toggle::Toggle, ConnectionId},
 };
 pub use multiaddr::{multiaddr, Multiaddr, Protocol};
+use tokio::sync::mpsc::UnboundedSender;
+
+use crate::upgrade::Version;
 use protocol_name::ProtocolName;
 
 // TODO: Risc0 proofs are HUGE (220 Kb) and it's the only reason we need to have
@@ -198,6 +205,13 @@ impl Swarm {
         let mut swarm = libp2p::SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()
+            .with_other_transport(|_| {
+                Ok(MemoryTransport::default()
+                    .upgrade(Version::V1)
+                    .authenticate(libp2p::plaintext::Config::new(&keypair))
+                    .multiplex(libp2p::yamux::Config::default())
+                    .timeout(Duration::from_secs(20)))
+            })?
             .with_dns()?
             .with_behaviour(|keypair| {
                 Behaviour::new(
@@ -263,17 +277,21 @@ impl Swarm {
             .publish(gossipsub::IdentTopic::new(topic), message)
     }
 
-    // pub fn start_sync(&mut self, slot: u64, reply_channel:
-    // UnboundedSender<Vec<u8>>) {     self.swarm
-    //         .behaviour_mut()
-    //         .sync
-    //         .sync_request_channel()
-    //         .send(SyncCommand::StartForwardSync {
-    //             slot,
-    //             response_sender: reply_channel,
-    //         })
-    //         .expect("Failed to send sync request");
-    // }
+    pub fn start_sync(
+        &mut self,
+        direction: SyncDirection,
+        reply_channel: UnboundedSender<Vec<u8>>,
+    ) {
+        self.swarm
+            .behaviour_mut()
+            .sync
+            .sync_request_channel()
+            .send(SyncCommand::StartSync {
+                direction,
+                response_sender: reply_channel,
+            })
+            .expect("Failed to send sync request");
+    }
 
     /// Unsubscribes from a topic
     ///
