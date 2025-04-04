@@ -54,12 +54,12 @@ pub struct Behaviour {
 
 impl Behaviour {
     fn new(
-        peer_id: PeerId,
         gossipsub_config: gossipsub::Config,
         kad_config: Option<KademliaSettings>,
         identify_config: Option<IdentifySettings>,
         public_key: identity::PublicKey,
     ) -> Result<Self, Box<dyn Error>> {
+        let peer_id = PeerId::from(public_key.clone());
         let gossipsub = gossipsub::Behaviour::new(
             gossipsub::MessageAuthenticity::Author(peer_id),
             gossipsub::ConfigBuilder::from(gossipsub_config)
@@ -184,7 +184,6 @@ impl Swarm {
             .with_dns()?
             .with_behaviour(|keypair| {
                 Behaviour::new(
-                    peer_id,
                     config.gossipsub_config.clone(),
                     config.kademlia_config.clone(),
                     config.identify_config.clone(),
