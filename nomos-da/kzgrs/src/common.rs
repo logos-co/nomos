@@ -138,11 +138,12 @@ pub fn compute_roots_of_unity(size: usize) -> Vec<Fr> {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use ark_bls12_381::fr::Fr;
     use ark_ff::{BigInteger, PrimeField};
     use ark_poly::{EvaluationDomain, GeneralEvaluationDomain, Polynomial};
     use blst::BLST_ERROR;
-    use once_cell::sync::Lazy;
     use rand::{thread_rng, Fill};
 
     use super::{
@@ -150,8 +151,8 @@ mod test {
     };
 
     const CHUNK_SIZE: usize = 31;
-    static DOMAIN: Lazy<GeneralEvaluationDomain<Fr>> =
-        Lazy::new(|| GeneralEvaluationDomain::new(128).unwrap());
+    static DOMAIN: LazyLock<GeneralEvaluationDomain<Fr>> =
+        LazyLock::new(|| GeneralEvaluationDomain::new(128).unwrap());
     #[test]
     fn encode_random_polynomial() {
         const N: usize = 100;

@@ -226,7 +226,7 @@ impl<D: ConsistentLengthLayeredCipherData> ConsistentLengthLayeredCipher<D> {
         let total_data_with_zero_filler = encrypted_total_data
             .iter()
             .copied()
-            .chain(std::iter::repeat(0u8).take(Self::SINGLE_LAYER_SIZE))
+            .chain(std::iter::repeat_n(0u8, Self::SINGLE_LAYER_SIZE))
             .collect::<Vec<_>>();
 
         // Decrypt the extended data.

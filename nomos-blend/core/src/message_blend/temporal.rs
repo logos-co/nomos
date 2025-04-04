@@ -129,7 +129,7 @@ where
             if let Some(msg) = self.queue.pop_front() {
                 return Poll::Ready(Some(msg));
             }
-        };
+        }
         Poll::Pending
     }
 }

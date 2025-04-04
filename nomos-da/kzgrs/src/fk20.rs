@@ -66,8 +66,7 @@ pub fn fk20_batch_generate_elements_proofs(
             .collect();
         Cow::Owned(toeplitz1(&global_parameters, polynomial_degree))
     };
-    let toeplitz_coefficients: Vec<Fr> = std::iter::repeat(Fr::ZERO)
-        .take(polynomial_degree)
+    let toeplitz_coefficients: Vec<Fr> = std::iter::repeat_n(Fr::ZERO, polynomial_degree)
         .chain(polynomial.coeffs.iter().copied())
         .collect();
     let h_extended_vector = toeplitz2(&toeplitz_coefficients, &extended_vector);
@@ -101,10 +100,11 @@ impl Toeplitz1Cache {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use ark_bls12_381::{Bls12_381, Fr};
     use ark_poly::{univariate::DensePolynomial, EvaluationDomain, GeneralEvaluationDomain};
     use ark_poly_commit::kzg10::KZG10;
-    use once_cell::sync::Lazy;
     use rand::SeedableRng;
 
     use crate::{
@@ -114,7 +114,7 @@ mod test {
         GlobalParameters, Proof, BYTES_PER_FIELD_ELEMENT,
     };
 
-    static GLOBAL_PARAMETERS: Lazy<GlobalParameters> = Lazy::new(|| {
+    static GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new(|| {
         let mut rng = rand::rngs::StdRng::seed_from_u64(1987);
         KZG10::<Bls12_381, DensePolynomial<Fr>>::setup(4096, true, &mut rng).unwrap()
     });

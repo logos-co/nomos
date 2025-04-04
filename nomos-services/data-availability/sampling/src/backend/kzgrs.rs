@@ -146,9 +146,8 @@ impl<R: Rng + Sync + Send> DaSamplingServiceBackend<R> for KzgrsSamplingBackend<
     }
 
     fn get_commitments(&self, blob_id: &Self::BlobId) -> Option<Arc<Self::SharesCommitments>> {
-        self.pending_sampling_blobs
-            .get(blob_id)
-            .and_then(|ctx| ctx.commitment.clone())
+        let ctx = self.pending_sampling_blobs.get(blob_id)?;
+        ctx.commitment.clone()
     }
 
     fn add_commitments(&mut self, blob_id: &Self::BlobId, commitments: Self::SharesCommitments) {

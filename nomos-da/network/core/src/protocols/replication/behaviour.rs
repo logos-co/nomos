@@ -129,7 +129,7 @@ enum WriteHalfState {
 }
 
 impl WriteHalfState {
-    pub fn take(&mut self) -> Self {
+    pub const fn take(&mut self) -> Self {
         let mut ret = Self::Busy;
         std::mem::swap(self, &mut ret);
         ret
@@ -714,18 +714,17 @@ where
     messages.shift_remove(disconnected);
     // If the marker pointed to the disconnected peer, move it backwards one step,
     // wrapping around if necessary
-    last_scheduled.and_then(|id| {
-        if id == *disconnected {
-            let i = i.expect("Valid index");
-            if i == 0 {
-                messages.last().map(|(id, _)| *id)
-            } else {
-                messages.get_index(i - 1).map(|(id, _)| *id)
-            }
+    let id = last_scheduled?;
+    if id == *disconnected {
+        let i = i.expect("Valid index");
+        if i == 0 {
+            messages.last().map(|(id, _)| *id)
         } else {
-            None
+            messages.get_index(i - 1).map(|(id, _)| *id)
         }
-    })
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]

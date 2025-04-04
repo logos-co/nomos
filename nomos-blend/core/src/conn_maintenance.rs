@@ -106,7 +106,7 @@ impl ConnectionMonitor {
         }
     }
 
-    fn reset(&mut self) {
+    const fn reset(&mut self) {
         self.effective_messages = U57F7::ZERO;
         self.drop_messages = U57F7::ZERO;
     }

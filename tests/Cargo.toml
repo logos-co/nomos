@@ -36,7 +36,6 @@ nomos-node               = { workspace = true, default-features = false }
 nomos-time               = { workspace = true }
 nomos-tracing            = { workspace = true }
 nomos-tracing-service    = { workspace = true }
-once_cell                = "1"
 rand                     = "0.8"
 reqwest                  = { workspace = true, features = ["json"] }
 serde                    = { version = "1", features = ["derive"] }

@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use ark_bls12_381::{Bls12_381, Fr};
 use ark_poly::{univariate::DensePolynomial, EvaluationDomain, GeneralEvaluationDomain};
 use ark_poly_commit::kzg10::{UniversalParams, KZG10};
@@ -6,7 +8,6 @@ use kzgrs::{
     common::bytes_to_polynomial_unchecked,
     kzg::{commit_polynomial, generate_element_proof, verify_element_proof},
 };
-use once_cell::sync::Lazy;
 use rand::RngCore;
 #[cfg(feature = "parallel")]
 use rayon::iter::IntoParallelIterator;
@@ -22,7 +23,7 @@ fn main() {
 // #[global_allocator]
 // static ALLOC: AllocProfiler = AllocProfiler::system();
 
-static GLOBAL_PARAMETERS: Lazy<UniversalParams<Bls12_381>> = Lazy::new(|| {
+static GLOBAL_PARAMETERS: LazyLock<UniversalParams<Bls12_381>> = LazyLock::new(|| {
     let mut rng = rand::thread_rng();
     KZG10::<Bls12_381, DensePolynomial<Fr>>::setup(4096, true, &mut rng).unwrap()
 });

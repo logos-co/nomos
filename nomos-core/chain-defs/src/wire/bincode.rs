@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use bincode::{
     config::{
         Bounded, FixintEncoding, LittleEndian, RejectTrailing, WithOtherEndian,
@@ -6,7 +8,6 @@ use bincode::{
     de::read::SliceReader,
     Error, ErrorKind, Options,
 };
-use once_cell::sync::Lazy;
 
 // Type composition is cool but also makes naming types a bit awkward
 pub type BincodeOptions = WithOtherTrailing<
@@ -21,7 +22,7 @@ pub type BincodeOptions = WithOtherTrailing<
 // Risc0 proofs are HUGE (220 Kb) and it's the only reason we need to have this
 // limit so large
 pub const DATA_LIMIT: u64 = 1 << 18; // Do not serialize/deserialize more than 256 KiB
-pub static OPTIONS: Lazy<BincodeOptions> = Lazy::new(|| {
+pub static OPTIONS: LazyLock<BincodeOptions> = LazyLock::new(|| {
     bincode::DefaultOptions::new()
         .with_little_endian()
         .with_limit(DATA_LIMIT)

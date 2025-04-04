@@ -151,6 +151,8 @@ impl DaVerifier {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use ark_bls12_381::Fr;
     use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
     use kzgrs::{
@@ -159,7 +161,6 @@ mod test {
         PolynomialEvaluationDomain, Proof, BYTES_PER_FIELD_ELEMENT,
     };
     use nomos_core::da::{blob::Share, DaEncoder};
-    use once_cell::sync::Lazy;
 
     use crate::{
         common::{hash_commitment, share::DaShare, Chunk, Column},
@@ -182,7 +183,7 @@ mod test {
     fn prepare_column(
         with_new_global_params: bool,
     ) -> Result<ColumnVerifyData, Box<dyn std::error::Error>> {
-        pub static NEW_GLOBAL_PARAMETERS: Lazy<GlobalParameters> = Lazy::new(|| {
+        pub static NEW_GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new(|| {
             let mut rng = rand::thread_rng();
             global_parameters_from_randomness(&mut rng)
         });
