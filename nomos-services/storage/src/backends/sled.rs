@@ -54,6 +54,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for SledBacke
     type Settings = SledBackendSettings;
     type Error = Error;
     type Transaction = SledTransaction;
+    type Iterator = (); // TODO: not implemented
     type SerdeOperator = SerdeOp;
 
     fn new(config: Self::Settings) -> Result<Self, Self::Error> {
@@ -73,6 +74,10 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for SledBacke
     }
 
     async fn load_prefix(&mut self, _key: &[u8]) -> Result<Vec<Bytes>, Self::Error> {
+        unimplemented!()
+    }
+
+    async fn scan_range(&self, prefix: &[u8], start: &[u8]) -> Result<Self::Iterator, Self::Error> {
         unimplemented!()
     }
 

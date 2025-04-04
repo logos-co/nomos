@@ -2,6 +2,7 @@ use std::{marker::PhantomData, path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures::stream::BoxStream;
 pub use rocksdb::Error;
 use rocksdb::{Options, DB};
 use serde::{Deserialize, Serialize};
@@ -68,6 +69,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
     type Settings = RocksBackendSettings;
     type Error = rocksdb::Error;
     type Transaction = Transaction;
+    type Iterator = RocksIterator<'static>;
     type SerdeOperator = SerdeOp;
 
     fn new(config: Self::Settings) -> Result<Self, Self::Error> {
@@ -134,6 +136,17 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
         Ok(values)
     }
 
+    async fn scan_range(&self, prefix: &[u8], start: &[u8]) -> Result<Self::Iterator, Self::Error> {
+        // Returns just an wrapper of Arc<DB> instead of a real iterator,
+        // because of the design of rocksdb API and borrow checker.
+        // An iterator can be created by the returned [`RocksIterator`].
+        Ok(RocksIterator::new(
+            Arc::clone(&self.rocks),
+            prefix.to_vec(),
+            start.to_vec(),
+        ))
+    }
+
     async fn remove(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
         self.load(key).await.and_then(|val| {
             if val.is_some() {
@@ -152,8 +165,51 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
     }
 }
 
+pub struct RocksIterator<'a> {
+    rocks: Arc<DB>,
+    prefix: Vec<u8>,
+    start: Vec<u8>,
+    _marker: PhantomData<&'a ()>,
+}
+
+impl<'a> RocksIterator<'a> {
+    #[must_use]
+    const fn new(rocks: Arc<DB>, prefix: Vec<u8>, start: Vec<u8>) -> Self {
+        Self {
+            rocks,
+            prefix,
+            start,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Open a stream of values in the range of the iterator.
+    /// The stream operate on a consistent snapshot of the DB
+    /// taken at the moment the stream is created.
+    /// Any updates made after the stream is created won't be visible
+    /// to that stream.
+    #[must_use]
+    pub fn stream(&'a self) -> BoxStream<'a, Result<(Bytes, Bytes), Error>> {
+        let iter = self.rocks.snapshot().iterator(rocksdb::IteratorMode::From(
+            &[self.prefix.as_slice(), self.start.as_slice()].concat(),
+            rocksdb::Direction::Forward,
+        ));
+        let stream = futures::stream::iter(
+            iter.take_while(
+                move |result| matches!(result, Ok((key, _)) if key.starts_with(&self.prefix)),
+            )
+            .map(move |result| match result {
+                Ok((key, value)) => Ok((Bytes::from(key.to_vec()), Bytes::from(value.to_vec()))),
+                Err(e) => Err(e),
+            }),
+        );
+        Box::pin(stream)
+    }
+}
+
 #[cfg(test)]
 mod test {
+    use futures::StreamExt;
     use tempfile::TempDir;
 
     use super::{super::testing::NoStorageSerde, *};
@@ -265,5 +321,87 @@ mod test {
             }
         }
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_scan_range() {
+        let temp_path = TempDir::new().unwrap();
+        let settings = RocksBackendSettings {
+            db_path: temp_path.path().to_path_buf(),
+            read_only: false,
+            column_family: None,
+        };
+
+        let mut db: RocksBackend<NoStorageSerde> = RocksBackend::new(settings).unwrap();
+
+        // Store test data with different prefixes
+        db.store(b"prefix1/a".to_vec().into(), b"v1".to_vec().into())
+            .await
+            .unwrap();
+        db.store(b"prefix1/b".to_vec().into(), b"v2".to_vec().into())
+            .await
+            .unwrap();
+        db.store(b"prefix1/c".to_vec().into(), b"v3".to_vec().into())
+            .await
+            .unwrap();
+        db.store(b"prefix2/a".to_vec().into(), b"v4".to_vec().into())
+            .await
+            .unwrap();
+        db.store(b"prefix2/b".to_vec().into(), b"v5".to_vec().into())
+            .await
+            .unwrap();
+
+        // Test 1: Basic range scan within prefix
+        let iterator = db.scan_range(b"prefix1/", b"b").await.unwrap();
+        let mut stream = iterator.stream();
+        assert_eq!(
+            stream.next().await,
+            Some(Ok((b"prefix1/b".to_vec().into(), b"v2".to_vec().into())))
+        );
+        assert_eq!(
+            stream.next().await,
+            Some(Ok((b"prefix1/c".to_vec().into(), b"v3".to_vec().into())))
+        );
+        assert_eq!(stream.next().await, None);
+
+        // Test 2: Snapshot isolation
+        let iterator = db.scan_range(b"prefix1/", b"b").await.unwrap();
+        let mut stream = iterator.stream();
+        // Add new data after creating stream. This should not appear in the stream.
+        db.store(b"prefix1/bb".to_vec().into(), b"v6".to_vec().into())
+            .await
+            .unwrap();
+        assert_eq!(
+            stream.next().await,
+            Some(Ok((b"prefix1/b".to_vec().into(), b"v2".to_vec().into())))
+        );
+        assert_eq!(
+            stream.next().await,
+            Some(Ok((b"prefix1/c".to_vec().into(), b"v3".to_vec().into())))
+        );
+        assert_eq!(stream.next().await, None);
+
+        // Test 3: Empty range
+        let iterator = db.scan_range(b"prefix3/", b"a").await.unwrap();
+        let mut stream = iterator.stream();
+        assert_eq!(stream.next().await, None);
+
+        // Test 4: Start from the prefix that is not the first prefix in the DB
+        let iterator = db.scan_range(b"prefix2/", b"").await.unwrap();
+        let mut stream = iterator.stream();
+        assert_eq!(
+            stream.next().await,
+            Some(Ok((b"prefix2/a".to_vec().into(), b"v4".to_vec().into())))
+        );
+        assert_eq!(
+            stream.next().await,
+            Some(Ok((b"prefix2/b".to_vec().into(), b"v5".to_vec().into())))
+        );
+        assert_eq!(stream.next().await, None);
+
+        // Test 5: Start position beyond available data
+        let iterator = db.scan_range(b"prefix1/", b"z").await.unwrap();
+        let mut stream = iterator.stream();
+        assert_eq!(stream.next().await, None);
     }
 }
