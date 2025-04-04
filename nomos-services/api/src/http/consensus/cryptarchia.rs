@@ -27,7 +27,7 @@ use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::sync::oneshot;
-
+use nomos_core::block::Block;
 use crate::http::DynError;
 
 pub type Cryptarchia<
@@ -45,7 +45,7 @@ pub type Cryptarchia<
     RuntimeServiceId,
     const SIZE: usize,
 > = CryptarchiaConsensus<
-    ConsensusNetworkAdapter<Tx, BlobInfo, RuntimeServiceId>,
+    ConsensusNetworkAdapter<Block<Tx, BlobInfo>, RuntimeServiceId>,
     BlendAdapter<BlendNetworkAdapter<RuntimeServiceId>, Tx, BlobInfo, RuntimeServiceId>,
     MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
     MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,

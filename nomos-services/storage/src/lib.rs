@@ -88,6 +88,25 @@ impl<Backend: StorageBackend> StorageReplyReceiver<Option<Bytes>, Backend> {
     }
 }
 
+impl<Backend: StorageBackend> StorageReplyReceiver<Vec<Bytes>, Backend> {
+    /// Receive and transform the reply into the desired type
+    /// Target type must implement `From` from the original backend stored type.
+    pub async fn recv<Output>(self) -> Result<Vec<Output>, tokio::sync::oneshot::error::RecvError>
+    where
+        Output: DeserializeOwned,
+    {
+        self.channel.await.map(|values| {
+            values
+                .into_iter()
+                .map(|bytes| {
+                    Backend::SerdeOperator::deserialize(bytes)
+                        .expect("Deserialization from storage should never fail")
+                })
+                .collect()
+        })
+    }
+}
+
 impl<Backend: StorageBackend> StorageMsg<Backend> {
     pub fn new_load_message<K: Serialize>(
         key: K,
@@ -96,6 +115,20 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
         let (reply_channel, receiver) = tokio::sync::oneshot::channel();
         (
             Self::Load { key, reply_channel },
+            StorageReplyReceiver::new(receiver),
+        )
+    }
+
+    pub fn new_load_prefix_message<K: Serialize>(
+        prefix: K,
+    ) -> (Self, StorageReplyReceiver<Vec<Bytes>, Backend>) {
+        let prefix = Backend::SerdeOperator::serialize(prefix);
+        let (reply_channel, receiver) = tokio::sync::oneshot::channel();
+        (
+            Self::LoadPrefix {
+                prefix,
+                reply_channel,
+            },
             StorageReplyReceiver::new(receiver),
         )
     }
