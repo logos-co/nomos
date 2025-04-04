@@ -1,13 +1,24 @@
-use std::{net::SocketAddr, time::SystemTime};
+use std::{
+    cell::LazyCell,
+    net::SocketAddr,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use log::info;
 use sntpc::NtpResult;
-use time::{error::ComponentRange, OffsetDateTime};
+use time::{error::ComponentRange, Date, Month, OffsetDateTime, Time};
 use tokio::net::UdpSocket;
 
 // NTP epoch starts on Jan 1, 1900; Unix starts on Jan 1, 1970.
 // Offset between epochs: 70 years + 17 leap days.
-pub const NTP_EPOCH_OFFSET: u32 = 70 * 365 * 24 * 60 * 60 + 17 * 24 * 60 * 60;
+pub const NTP_EPOCH_OFFSET: LazyCell<Duration> = LazyCell::new(|| {
+    let ntp_date =
+        Date::from_calendar_date(1900, Month::January, 1).expect("This date should be valid.");
+    let ntp_system_time = SystemTime::from(OffsetDateTime::new_utc(ntp_date, Time::MIDNIGHT));
+    UNIX_EPOCH
+        .duration_since(ntp_system_time)
+        .expect("This duration should be valid.")
+});
 pub const SNTP_PACKET_SIZE: usize = 48;
 
 pub struct NtpTimestamp {
@@ -17,8 +28,9 @@ pub struct NtpTimestamp {
 
 impl NtpTimestamp {
     #[must_use]
-    pub const fn from_unix(unix_nanos: u128) -> Self {
-        let ntp_seconds = (unix_nanos / 1_000_000_000) as u32 + NTP_EPOCH_OFFSET;
+    pub fn from_unix(unix_nanos: u128) -> Self {
+        let ntp_seconds =
+            (unix_nanos / 1_000_000_000) as u32 + (*NTP_EPOCH_OFFSET).as_secs() as u32;
         let ntp_nanos = (unix_nanos % 1_000_000_000) as u32;
         Self {
             seconds: ntp_seconds,
@@ -198,7 +210,7 @@ mod tests {
 
         let client = AsyncNTPClient::new(NTPClientSettings {
             timeout: Duration::from_secs(1),
-            interface: IpAddr::from([127, 0, 0, 1]),
+            listening_interface: IpAddr::from([127, 0, 0, 1]),
         });
 
         let formatted_server_socket_address = format!("{server_ip_address}:{server_port}");

@@ -385,7 +385,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 ntp_server: config.time_config.ntp_server,
                 ntp_client_settings: NTPClientSettings {
                     timeout: config.time_config.timeout,
-                    interface: config.time_config.interface,
+                    listening_interface: config.time_config.interface,
                 },
                 update_interval: config.time_config.update_interval,
                 slot_config: SlotConfig {

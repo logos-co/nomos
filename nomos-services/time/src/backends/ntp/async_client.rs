@@ -30,11 +30,7 @@ pub struct NTPClientSettings {
     /// NTP server requests timeout duration
     #[cfg_attr(feature = "serde", serde_as(as = "MinimalBoundedDuration<1, NANO>"))]
     pub timeout: Duration,
-    /// Local socket address to listen for responses
-    /// The bound IP behaves like a server listening IP. This means for WAN
-    /// requests you probably want to bind to `0.0.0.0`. For LAN requests
-    /// you can simply bind to the local IP.
-    pub interface: IpAddr,
+    pub listening_interface: IpAddr,
 }
 
 #[derive(Clone)]
@@ -62,20 +58,12 @@ impl AsyncNTPClient {
     }
 
     async fn get_time(&self, host: SocketAddr) -> sntpc::Result<NtpResult> {
-        let socket = UdpSocket::bind(SocketAddr::new(self.settings.interface, 0))
+        let socket = UdpSocket::bind(SocketAddr::new(self.settings.listening_interface, 0))
             .await
             .map_err(|_| sntpc::Error::Network)?; // same error that get_time returns for io
         get_time(host, &socket, self.ntp_context).await
     }
 
-    /// Request a timestamp from an NTP server
-    ///
-    /// # Errors
-    ///
-    /// Making a request to a domain that resolves to multiple IPs (randomly)
-    /// will result in a [`Error::Sntp`] containing a
-    /// [`ResponseAddressMismatch`](sntpc::Error::ResponseAddressMismatch)
-    /// error.
     pub async fn request_timestamp<Addresses: ToSocketAddrs + Sync>(
         &self,
         pool: Addresses,
@@ -101,24 +89,21 @@ mod tests {
 
     use super::*;
 
-    // This test is disabled macOS because NTP v4 requests fail on Github's macOS
-    // runners. Everywhere else it works fine, including other macOS machines.
-    // The request seems to be sent successfully, but the test timeouts when
-    // receiving the response. Responses only come through when querying
-    // `time.windows.com`, which runs NTP v3. The library we're using,
-    // [`sntpc`], requires NTP v4.
+    // This test is disabled macOS because NTP v4 requests fail on Github's
+    // non-self-hosted runners, and our test runners are `self-hosted` (where it
+    // works) and `macos-latest`. The request seems to be sent successfully, but
+    // the test timeouts when receiving the response.
+    // Responses only come through when querying `time.windows.com`, which runs NTP
+    // v3. The library we're using, [`sntpc`], requires NTP v4.
     #[cfg(not(target_os = "macos"))]
     #[tokio::test]
     async fn real_ntp_request() -> Result<(), Error> {
-        // 0.europe.pool.ntp.org
-        // Uses IP instead of domain to avoid random SNTP::ResponseAddressMismatch
-        // errors.
         let ntp_server_ip = "pool.ntp.org";
         let ntp_server_address = format!("{ntp_server_ip}:123");
 
         let settings = NTPClientSettings {
             timeout: Duration::from_secs(3),
-            interface: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            listening_interface: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
         };
         let client = AsyncNTPClient::new(settings);
 
