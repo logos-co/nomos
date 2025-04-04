@@ -1,6 +1,6 @@
 use std::{
-    cell::LazyCell,
     net::SocketAddr,
+    sync::LazyLock,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -10,8 +10,7 @@ use time::{error::ComponentRange, Date, Month, OffsetDateTime, Time};
 use tokio::net::UdpSocket;
 
 // NTP epoch starts on Jan 1, 1900; Unix starts on Jan 1, 1970.
-// Offset between epochs: 70 years + 17 leap days.
-pub const NTP_EPOCH_OFFSET: LazyCell<Duration> = LazyCell::new(|| {
+static NTP_EPOCH_OFFSET: LazyLock<Duration> = LazyLock::new(|| {
     let ntp_date =
         Date::from_calendar_date(1900, Month::January, 1).expect("This date should be valid.");
     let ntp_system_time = SystemTime::from(OffsetDateTime::new_utc(ntp_date, Time::MIDNIGHT));
@@ -29,8 +28,7 @@ pub struct NtpTimestamp {
 impl NtpTimestamp {
     #[must_use]
     pub fn from_unix(unix_nanos: u128) -> Self {
-        let ntp_seconds =
-            (unix_nanos / 1_000_000_000) as u32 + (*NTP_EPOCH_OFFSET).as_secs() as u32;
+        let ntp_seconds = (unix_nanos / 1_000_000_000) as u32 + NTP_EPOCH_OFFSET.as_secs() as u32;
         let ntp_nanos = (unix_nanos % 1_000_000_000) as u32;
         Self {
             seconds: ntp_seconds,
@@ -127,7 +125,6 @@ impl<TimestampGenerator: TimestampGeneratorTrait + Send + Sync> FakeNTPServer<Ti
                     .expect("Failed to send data");
             } else {
                 info!("Failed to receive data");
-                continue;
             }
         }
     }
