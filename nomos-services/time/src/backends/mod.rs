@@ -3,6 +3,10 @@ mod common;
 pub mod ntp;
 pub mod system_time;
 
+#[cfg(feature = "ntp")]
+pub use ntp::{NtpTimeBackend, NtpTimeBackendSettings};
+pub use system_time::{SystemTimeBackend, SystemTimeBackendSettings};
+
 use crate::EpochSlotTickStream;
 
 /// Abstraction over slot ticking systems
