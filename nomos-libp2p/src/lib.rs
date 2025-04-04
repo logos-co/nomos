@@ -172,11 +172,18 @@ impl Swarm {
     /// executor.
     //
     // TODO: define error types
-    pub fn build(config: &SwarmConfig) -> Result<Self, Box<dyn Error>> {
+    pub fn build(config: SwarmConfig) -> Result<Self, Box<dyn Error>> {
         let keypair =
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
         let peer_id = PeerId::from(keypair.public());
         tracing::info!("libp2p peer_id:{}", peer_id);
+
+        let SwarmConfig {
+            gossipsub_config,
+            kademlia_config,
+            identify_config,
+            ..
+        } = config;
 
         let mut swarm = libp2p::SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
@@ -184,9 +191,9 @@ impl Swarm {
             .with_dns()?
             .with_behaviour(|keypair| {
                 Behaviour::new(
-                    config.gossipsub_config.clone(),
-                    config.kademlia_config.clone(),
-                    config.identify_config.clone(),
+                    gossipsub_config,
+                    kademlia_config.clone(),
+                    identify_config,
                     keypair.public(),
                 )
                 .unwrap()
@@ -199,7 +206,7 @@ impl Swarm {
 
         // if kademlia is enabled and is not in client mode then it is operating in a
         // server mode
-        if let Some(kademlia_config) = &config.kademlia_config {
+        if let Some(kademlia_config) = &kademlia_config {
             if !kademlia_config.client_mode {
                 // libp2p2-kad server mode is implicitly enabled
                 // by adding external addressess

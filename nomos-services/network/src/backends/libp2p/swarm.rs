@@ -43,12 +43,12 @@ const MAX_RETRY: usize = 3;
 
 impl SwarmHandler {
     pub fn new(
-        config: &Libp2pConfig,
+        config: Libp2pConfig,
         commands_tx: mpsc::Sender<Command>,
         commands_rx: mpsc::Receiver<Command>,
         events_tx: broadcast::Sender<Event>,
     ) -> Self {
-        let swarm = Swarm::build(&config.inner).unwrap();
+        let swarm = Swarm::build(config.inner).unwrap();
 
         // Keep the dialing history since swarm.connect doesn't return the result
         // synchronously
@@ -484,7 +484,7 @@ mod tests {
 
         let (events_tx1, _) = broadcast::channel(10);
         let config = create_libp2p_config(vec![], 8000);
-        let mut bootstrap_node = SwarmHandler::new(&config, tx1.clone(), rx1, events_tx1.clone());
+        let mut bootstrap_node = SwarmHandler::new(config, tx1.clone(), rx1, events_tx1.clone());
 
         let bootstrap_node_peer_id = *bootstrap_node.swarm.swarm().local_peer_id();
 
@@ -529,7 +529,7 @@ mod tests {
 
             // Each node connects to the bootstrap node
             let config = create_libp2p_config(vec![bootstrap_addr.clone()], 8000 + i as u16);
-            let mut handler = SwarmHandler::new(&config, tx.clone(), rx, events_tx);
+            let mut handler = SwarmHandler::new(config, tx.clone(), rx, events_tx);
 
             let peer_id = *handler.swarm.swarm().local_peer_id();
             tracing::info!("Starting node {} with peer ID: {}", i, peer_id);
