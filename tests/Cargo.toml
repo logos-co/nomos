@@ -67,3 +67,7 @@ path = "src/tests/da/disperse.rs"
 name = "test_api"
 path = "src/tests/da/api.rs"
 
+[[test]]
+name = "test_sync"
+path = "src/tests/cryptarchia/sync/sync.rs"
+
