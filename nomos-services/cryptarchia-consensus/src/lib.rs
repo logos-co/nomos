@@ -1042,7 +1042,7 @@ where
             SyncRequestKind::Tip => {
                 request
                     .reply_channel
-                    .send(BehaviourSyncReply::TipData(cryptarchia.tip()))
+                    .send(BehaviourSyncReply::TipData(cryptarchia.tip_state().slot().into()))
                     .await
                     .unwrap_or_else(|_| {
                         error!("Could not send tip data through channel");

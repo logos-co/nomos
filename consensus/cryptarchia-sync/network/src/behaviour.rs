@@ -67,7 +67,7 @@ pub enum BehaviourSyncEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BehaviourSyncReply {
     Block(Vec<u8>),
-    TipData(HeaderId),
+    TipData(u64),
 }
 
 #[derive(Debug)]
@@ -539,7 +539,7 @@ mod test {
                     }
                     BehaviourSyncEvent::TipRequest { response_sender } => {
                         response_sender
-                            .send(BehaviourSyncReply::TipData([swarm_index as u8; 32].into()))
+                            .send(BehaviourSyncReply::TipData(swarm_index as u64))
                             .await
                             .expect("Failed to send tip");
                     }

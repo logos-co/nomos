@@ -8,6 +8,7 @@ use overwatch::services::relay::OutboundRelay;
 use overwatch::services::ServiceData;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -29,6 +30,7 @@ pub struct SyncBlocksProvider<
         OutboundRelay<<StorageService<Storage, RuntimeServiceId> as ServiceData>::Message>,
     runtime: Handle,
     in_progress_requests: Arc<AtomicUsize>,
+    number_of_slots_per_epoch: u64,
     phantom_data: PhantomData<Block>,
 }
 
@@ -50,11 +52,15 @@ where
             storage_relay,
             runtime,
             in_progress_requests: Arc::new(AtomicUsize::new(0)),
+            number_of_slots_per_epoch: 100,
             phantom_data: PhantomData,
         }
     }
 
-    #[expect(clippy::cognitive_complexity, reason = "Seems strange because it does not have a lot of logic.")]
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "Seems strange because it does not have a lot of logic."
+    )]
     pub fn process_sync_request(&self, request: SyncRequest) {
         if self.in_progress_requests.fetch_add(1, Ordering::SeqCst) >= MAX_CONCURRENT_REQUESTS {
             tracing::warn!("Max concurrent sync requests reached");
@@ -79,17 +85,18 @@ where
 
     fn spawn_fetch_blocks_from_slot_forwards(
         &self,
-        // Ignore for now for genesis sync
-        _slot: u64,
+        slot: u64,
         reply_channel: Sender<BehaviourSyncReply>,
     ) {
         let storage_relay = self.storage_relay.clone();
         let in_progress_requests = Arc::<AtomicUsize>::clone(&self.in_progress_requests);
+        let mut epoch = slot / self.number_of_slots_per_epoch;
         self.runtime.spawn(async move {
-            let mut epoch = 0;
             loop {
-                let prefix = format!("blocks_epoch_{epoch}");
-                let (msg, receiver) = <StorageMsg<Storage>>::new_load_prefix_message(prefix);
+                let prefix = format!("blocks_epoch_{epoch}").into_bytes();
+                info!("Loading blocks from prefix: {:?}", prefix);
+
+                let (msg, receiver) = <StorageMsg<Storage>>::new_load_prefix_message(prefix.into());
 
                 if let Err((e, _)) = storage_relay.send(msg).await {
                     tracing::error!("Failed to send storage message {}", e);
@@ -97,6 +104,7 @@ where
                     match receiver.recv::<Block>().await {
                         Ok(blocks) => {
                             if blocks.is_empty() {
+                                tracing::debug!("No more blocks found for epoch {}", epoch);
                                 break;
                             }
                             info!("Received blocks from database: {:?}", blocks.len());

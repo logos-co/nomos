@@ -139,7 +139,6 @@ where
                         kind,
                         reply_channel,
                     }) => {
-                        tracing::debug!("received sync request {kind:?}");
                         Some(SyncRequest {
                             kind,
                             reply_channel,

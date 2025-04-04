@@ -266,4 +266,30 @@ mod test {
         }
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_load_prefix(
+    ) -> Result<(), <RocksBackend<NoStorageSerde> as StorageBackend>::Error> {
+        let temp_path = TempDir::new().unwrap();
+        let settings = RocksBackendSettings {
+            db_path: temp_path.path().to_path_buf(),
+            read_only: false,
+            column_family: None,
+        };
+        let mut db: RocksBackend<NoStorageSerde> = RocksBackend::new(settings)?;
+
+        db.store(b"blocks_0_0".as_ref().into(), b"block_0".as_ref().into())
+            .await?;
+        db.store(b"blocks_0_0".as_ref().into(), b"block_1".as_ref().into())
+            .await?;
+        db.store(b"blocks_1_0".as_ref().into(), b"block_2".as_ref().into())
+            .await?;
+
+        let key  = format!("blocks_0_{}", 0);
+        let result = db.load_prefix(key.as_bytes()).await?;
+        let values: Vec<Vec<u8>> = result.into_iter().map(|b| b.to_vec()).collect();
+        assert_eq!(2, values.len());
+
+        Ok(())
+    }
 }

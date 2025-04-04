@@ -15,9 +15,11 @@ use cryptarchia_sync_network::SyncRequestKind;
 use futures_util::StreamExt;
 use nomos_core::block::AbstractBlock;
 use nomos_core::header::HeaderId;
+use nomos_core::wire;
 use nomos_network::NetworkService;
 use nomos_node::{NetworkBackend, Wire};
 use nomos_storage::backends::rocksdb::RocksBackend;
+use nomos_storage::StorageMsg;
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -166,11 +168,12 @@ where
                     match kind {
                         SyncRequestKind::Tip => {
                             reply_channel
-                                .send(BehaviourSyncReply::TipData([0; 32].into()))
+                                .send(BehaviourSyncReply::TipData(100))
                                 .await
                                 .expect("Failed to send tip response");
                         }
                         _ => {
+                            info!("Received sync request {:?}", kind);
                             sync_data_provider.process_sync_request(sync_request);
                         }
                     }
@@ -200,6 +203,11 @@ where
 
     async fn process_block(&mut self, block: Self::Block) -> Result<(), CryptarchiaAdapterError> {
         info!("PROCESSING BLOCK {:?}", block.id());
+        if self.has_block(&block.id()) {
+            return Ok(());
+        }
+        self.tip = block.slot();
+        info!("NEW TIP {:?}", self.tip);
         self.blocks.insert(block.id(), block);
         Ok(())
     }
@@ -246,11 +254,21 @@ where
                 data: vec![],
             };
 
-            let store_msg = nomos_storage::StorageMsg::new_store_message(block.id(), block.clone());
-            if let Err((e, _)) = storage_relay.send(store_msg).await {
-                tracing::error!("Failed to send storage message: {}", e);
-                return Err(e.into());
-            }
+            let key = format!("blocks_epoch_0_slot_{i}");
+            let key = key.into_bytes();
+            // let store_msg = nomos_storage::StorageMsg::new_store_message(key, block.clone());
+            storage_relay
+                .send(StorageMsg::Store {
+                    key: key.into(),
+                    value: wire::serialize(&block).unwrap().into(),
+                })
+                .await
+                .unwrap();
+
+            // if let Err((e, _)) = storage_relay.send(store_msg).await {
+            //     tracing::error!("Failed to send storage message: {}", e);
+            //     return Err(e.into());
+            // }
         }
 
         Ok(())
