@@ -344,7 +344,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 ntp_server: config.time_config.ntp_server,
                 ntp_client_settings: NTPClientSettings {
                     timeout: config.time_config.timeout,
-                    local_socket: config.time_config.local_socket,
+                    interface: config.time_config.interface,
                 },
                 update_interval: config.time_config.update_interval,
                 slot_config: SlotConfig {

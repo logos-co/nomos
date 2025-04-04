@@ -1,5 +1,5 @@
 use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr},
     str::FromStr,
     time::Duration,
 };
@@ -15,7 +15,7 @@ pub struct GeneralTimeConfig {
     pub chain_start_time: OffsetDateTime,
     pub ntp_server: String,
     pub timeout: Duration,
-    pub local_socket: SocketAddr,
+    pub interface: IpAddr,
     pub update_interval: Duration,
 }
 
@@ -27,9 +27,9 @@ pub fn default_time_config() -> GeneralTimeConfig {
     GeneralTimeConfig {
         slot_duration: Duration::from_secs(slot_duration),
         chain_start_time: OffsetDateTime::now_utc(),
-        ntp_server: String::from("185.251.115.30"), // 0.europe.pool.ntp.org
+        ntp_server: String::from("pool.ntp.org"),
         timeout: Duration::from_secs(5),
-        local_socket: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 31123),
+        interface: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
         update_interval: Duration::from_secs(16),
     }
 }

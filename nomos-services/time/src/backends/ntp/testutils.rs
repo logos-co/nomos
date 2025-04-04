@@ -193,18 +193,12 @@ mod tests {
         let server_socket_address =
             SocketAddr::new(IpAddr::from(parsed_server_ip_address), server_port);
 
-        let client_ip_address = "127.0.0.1";
-        let client_port = 12301;
-        let parsed_client_ip_address: Ipv4Addr = client_ip_address.parse().unwrap();
-        let client_socket_address =
-            SocketAddr::new(IpAddr::from(parsed_client_ip_address), client_port);
-
         let server = FakeNTPServer::from_address(server_socket_address, NowTimestampGenerator);
         let server_handle = tokio::spawn(async move { server.run().await });
 
         let client = AsyncNTPClient::new(NTPClientSettings {
             timeout: Duration::from_secs(1),
-            local_socket: client_socket_address,
+            interface: IpAddr::from([127, 0, 0, 1]),
         });
 
         let formatted_server_socket_address = format!("{server_ip_address}:{server_port}");
