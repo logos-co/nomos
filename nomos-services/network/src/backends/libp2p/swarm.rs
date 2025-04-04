@@ -76,23 +76,7 @@ impl SwarmHandler {
                 .kademlia_add_address(local_peer_id, addr);
         }
 
-        for peer_addr in &initial_peers {
-            if let Some(Protocol::P2p(peer_id_bytes)) = peer_addr.iter().last() {
-                if let Ok(peer_id) = PeerId::from_multihash(peer_id_bytes.into()) {
-                    self.swarm
-                        .swarm_mut()
-                        .behaviour_mut()
-                        .kademlia_add_address(peer_id, peer_addr.clone());
-                    tracing::debug!("Added peer to Kademlia: {} at {}", peer_id, peer_addr);
-                } else {
-                    tracing::warn!("Failed to parse peer ID from multiaddr: {}", peer_addr);
-                }
-            } else {
-                tracing::warn!("Multiaddr doesn't contain peer ID: {}", peer_addr);
-            }
-
-            self.swarm.swarm_mut().behaviour_mut().bootstrap_kademlia();
-        }
+        self.bootstrap_kad_from_peers(&initial_peers);
 
         for initial_peer in &initial_peers {
             let (tx, _) = oneshot::channel();
@@ -112,6 +96,24 @@ impl SwarmHandler {
                 Some(command) = self.commands_rx.recv() => {
                     self.handle_command(command);
                 }
+            }
+        }
+    }
+
+    fn bootstrap_kad_from_peers(&mut self, initial_peers: &Vec<Multiaddr>) {
+        for peer_addr in initial_peers {
+            if let Some(Protocol::P2p(peer_id_bytes)) = peer_addr.iter().last() {
+                if let Ok(peer_id) = PeerId::from_multihash(peer_id_bytes.into()) {
+                    self.swarm
+                        .swarm_mut()
+                        .behaviour_mut()
+                        .kademlia_add_address(peer_id, peer_addr.clone());
+                    tracing::debug!("Added peer to Kademlia: {} at {}", peer_id, peer_addr);
+                } else {
+                    tracing::warn!("Failed to parse peer ID from multiaddr: {}", peer_addr);
+                }
+            } else {
+                tracing::warn!("Multiaddr doesn't contain peer ID: {}", peer_addr);
             }
         }
     }
