@@ -44,7 +44,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
       - name: Create a GH issue (if it does not exist)
-        uses: JasonEtco/create-an-issue@56fdd2d6f960e970fa9d5ca3cf3884b6ba5af477 # Version 2.9.2
+        uses: JasonEtco/create-an-issue@1b14a70e4d8dc185e5cc76d3bec9eab20257b2c5 # Version 2.9.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUST_VERSION: ${{ needs.check-latest-version.outputs.new-version }}
