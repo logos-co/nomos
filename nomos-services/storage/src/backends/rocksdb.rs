@@ -2,6 +2,7 @@ use std::{marker::PhantomData, path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures::stream::BoxStream;
 pub use rocksdb::Error;
 use rocksdb::{Options, DB};
 use serde::{Deserialize, Serialize};
@@ -134,6 +135,33 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
         Ok(values)
     }
 
+    async fn load_range(
+        &self,
+        prefix: &[u8],
+        start: &[u8],
+    ) -> Result<BoxStream<Result<Bytes, Self::Error>>, Self::Error> {
+        // An iterator operate on a consistent snapshot of the DB
+        // taken at the moment the iterator is created.
+        // Any updates made after the iterator is created won't be visible to that
+        // iterator.
+        let iter = self.rocks.iterator(rocksdb::IteratorMode::From(
+            &[prefix, start].concat(),
+            rocksdb::Direction::Forward,
+        ));
+        let prefix = prefix.to_vec();
+        let stream = futures::stream::iter(
+            iter.take_while(
+                move |result| matches!(result, Ok((key, _)) if key.starts_with(&prefix)),
+            )
+            .map(|result| match result {
+                Ok((_, value)) => Ok(Bytes::from(value.to_vec())),
+                Err(e) => Err(e),
+            }),
+        );
+
+        Ok(Box::pin(stream))
+    }
+
     async fn remove(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
         self.load(key).await.and_then(|val| {
             if val.is_some() {
@@ -154,6 +182,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
 
 #[cfg(test)]
 mod test {
+    use futures::StreamExt;
     use tempfile::TempDir;
 
     use super::{super::testing::NoStorageSerde, *};
@@ -264,6 +293,81 @@ mod test {
                 }
             }
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_load_range() -> Result<(), <RocksBackend<NoStorageSerde> as StorageBackend>::Error>
+    {
+        let temp_path = TempDir::new().unwrap();
+        let settings = RocksBackendSettings {
+            db_path: temp_path.path().to_path_buf(),
+            read_only: false,
+            column_family: None,
+        };
+
+        let mut db: RocksBackend<NoStorageSerde> = RocksBackend::new(settings)?;
+
+        // Store test data with different prefixes
+        db.store(b"prefix1/a".to_vec().into(), b"v1".to_vec().into())
+            .await?;
+        db.store(b"prefix1/b".to_vec().into(), b"v2".to_vec().into())
+            .await?;
+        db.store(b"prefix1/c".to_vec().into(), b"v3".to_vec().into())
+            .await?;
+        db.store(b"prefix2/a".to_vec().into(), b"v4".to_vec().into())
+            .await?;
+        db.store(b"prefix2/b".to_vec().into(), b"v5".to_vec().into())
+            .await?;
+
+        // Test 1: Basic range scan within prefix
+        let mut stream = db.load_range(b"prefix1/", b"b").await?;
+        let mut values = Vec::new();
+        while let Some(result) = stream.next().await {
+            values.push(result?);
+        }
+        assert_eq!(values.len(), 2); // Should see prefix1/b and prefix1/c
+        assert_eq!(values[0], b"v2".as_ref());
+        assert_eq!(values[1], b"v3".as_ref());
+
+        // // Test 2: Snapshot isolation
+        // let mut stream = db.load_range(b"prefix1/", b"b").await?;
+        // // Add new data after creating stream
+        // db.store(b"prefix1/bb".to_vec().into(), b"v6".to_vec().into())
+        //     .await?;
+
+        // let mut values = Vec::new();
+        // while let Some(result) = stream.next().await {
+        //     values.push(result?);
+        // }
+        // assert_eq!(values.len(), 2); // Should still only see original values
+
+        // Test 3: Empty range
+        let mut stream = db.load_range(b"prefix3/", b"a").await?;
+        let mut values = Vec::new();
+        while let Some(result) = stream.next().await {
+            values.push(result?);
+        }
+        assert_eq!(values.len(), 0); // Should see no values
+
+        // Test 4: Start from beginning of prefix
+        let mut stream = db.load_range(b"prefix2/", b"").await?;
+        let mut values = Vec::new();
+        while let Some(result) = stream.next().await {
+            values.push(result?);
+        }
+        assert_eq!(values.len(), 2); // Should see all `prefix2/` values
+        assert_eq!(values[0], b"v4".as_ref());
+        assert_eq!(values[1], b"v5".as_ref());
+
+        // Test 5: Start position beyond available data
+        let mut stream = db.load_range(b"prefix1/", b"z").await?;
+        let mut values = Vec::new();
+        while let Some(result) = stream.next().await {
+            values.push(result?);
+        }
+        assert_eq!(values.len(), 0); // Should see no values
+
         Ok(())
     }
 }
