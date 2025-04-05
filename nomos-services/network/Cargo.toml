@@ -20,6 +20,8 @@ utoipa         = { version = "4.0", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
 
 [features]
 default = []

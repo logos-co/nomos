@@ -2,7 +2,7 @@ use std::{hash::Hash, marker::PhantomData};
 
 use nomos_core::{block::Block, wire};
 use nomos_network::{
-    backends::libp2p::{Command, Event, EventKind, Libp2p},
+    backends::libp2p::{Command, Event, EventKind, Libp2p, PubSubCommand::Subscribe},
     NetworkMsg, NetworkService,
 };
 use overwatch::{
@@ -47,7 +47,9 @@ where
 {
     async fn subscribe(relay: &Relay<Libp2p, RuntimeServiceId>, topic: &str) {
         if let Err((e, _)) = relay
-            .send(NetworkMsg::Process(Command::Subscribe(topic.into())))
+            .send(NetworkMsg::Process(Command::PubSub(Subscribe(
+                topic.into(),
+            ))))
             .await
         {
             tracing::error!("error subscribing to {topic}: {e}");

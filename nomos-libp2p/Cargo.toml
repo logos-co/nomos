@@ -8,7 +8,7 @@ version = "0.1.0"
 blake2    = { version = "0.10" }
 futures   = "0.3"
 hex       = "0.4.3"
-libp2p    = { workspace = true, features = ["dns", "gossipsub", "macros", "quic", "secp256k1", "tokio"] }
+libp2p    = { workspace = true, features = ["dns", "gossipsub", "macros", "quic", "secp256k1", "tokio", "kad", "identify"] }
 multiaddr = "0.18"
 serde     = { version = "1.0.166", features = ["derive"] }
 thiserror = "1.0.40"

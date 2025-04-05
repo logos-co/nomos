@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Display};
 
 use nomos_network::{
-    backends::libp2p::{Command, Libp2p, Libp2pInfo},
+    backends::libp2p::{Command, Libp2p, Libp2pInfo, NetworkCommand::Info},
     NetworkMsg, NetworkService,
 };
 use overwatch::services::AsServiceId;
@@ -20,7 +20,9 @@ where
     let (sender, receiver) = oneshot::channel();
 
     relay
-        .send(NetworkMsg::Process(Command::Info { reply: sender }))
+        .send(NetworkMsg::Process(Command::Network(Info {
+            reply: sender,
+        })))
         .await
         .map_err(|(e, _)| e)?;
 

@@ -1,5 +1,5 @@
 use nomos_network::{
-    backends::libp2p::{Command, Libp2p},
+    backends::libp2p::{Command, Libp2p, PubSubCommand},
     NetworkMsg, NetworkService,
 };
 use overwatch::services::{relay::OutboundRelay, ServiceData};
@@ -37,10 +37,12 @@ impl<RuntimeServiceId> NetworkAdapter<RuntimeServiceId> for Libp2pAdapter<Runtim
     async fn broadcast(&self, message: Vec<u8>, broadcast_settings: Self::BroadcastSettings) {
         if let Err((e, _)) = self
             .network_relay
-            .send(NetworkMsg::Process(Command::Broadcast {
-                topic: broadcast_settings.topic.clone(),
-                message: message.into_boxed_slice(),
-            }))
+            .send(NetworkMsg::Process(Command::PubSub(
+                PubSubCommand::Broadcast {
+                    topic: broadcast_settings.topic.clone(),
+                    message: message.into_boxed_slice(),
+                },
+            )))
             .await
         {
             tracing::error!("error broadcasting message: {e}");
