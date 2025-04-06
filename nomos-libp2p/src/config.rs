@@ -22,6 +22,16 @@ pub struct SwarmConfig {
     #[serde(with = "GossipsubConfigDef", default = "gossipsub::Config::default")]
     pub gossipsub_config: gossipsub::Config,
 
+    /// Protocol name env for Kademlia and Identify protocol names.
+    /// This is used to determine the protocol names for Kademlia and Identify.
+    ///
+    /// Allowed values are:
+    /// - `mainnet`
+    /// - `testnet`
+    /// - `unittest`
+    /// - `integration`
+    ///
+    /// Default is `unittest`.
     #[serde(default)]
     pub protocol_name_env: ProtocolName,
 
