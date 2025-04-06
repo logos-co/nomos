@@ -43,6 +43,7 @@ pub struct SwarmConfig {
     pub kademlia_config: Option<KademliaSettings>,
 
     /// Identify config
+    /// When a value is None, identify is disabled.
     #[serde(default)]
     pub identify_config: Option<IdentifySettings>,
 }
