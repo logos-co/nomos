@@ -35,9 +35,14 @@ pub struct SwarmConfig {
     #[serde(default)]
     pub protocol_name_env: ProtocolName,
 
+    /// Kademlia config
+    /// When a value is None, kademlia is disabled.
+    /// Note: Kademlia requires identify or another identity protocol to be
+    /// enabled.
     #[serde(default)]
     pub kademlia_config: Option<KademliaSettings>,
 
+    /// Identify config
     #[serde(default)]
     pub identify_config: Option<IdentifySettings>,
 }
