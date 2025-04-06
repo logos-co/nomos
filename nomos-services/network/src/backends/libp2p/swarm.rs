@@ -241,7 +241,7 @@ impl SwarmHandler {
                     .swarm_mut()
                     .behaviour_mut()
                     .kademlia_routing_table_dump();
-                tracing::info!("Routing table dump: {result:?}");
+                tracing::debug!("Routing table dump: {result:?}");
                 let _ = reply.send(result);
             }
         }
