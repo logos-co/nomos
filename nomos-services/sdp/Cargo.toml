@@ -3,3 +3,13 @@ edition = "2021"
 license = { workspace = true }
 name    = "nomos-sdp"
 version = "0.1.0"
+
+[dependencies]
+async-trait    = "0.1"
+futures        = "0.3"
+overwatch      = { workspace = true }
+serde          = { version = "1.0", features = ["derive"] }
+services-utils = { workspace = true }
+tokio          = { version = "1", features = ["macros", "sync"] }
+tokio-stream   = "0.1.15"
+tracing        = { version = "0.1", features = ["attributes"] }

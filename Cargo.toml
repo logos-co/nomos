@@ -36,6 +36,7 @@ members = [
   "nomos-services/mempool",
   "nomos-services/network",
   "nomos-services/storage",
+  "nomos-services/sdp",
   "nomos-services/system-sig",
   "nomos-services/time",
   "nomos-services/tracing",
