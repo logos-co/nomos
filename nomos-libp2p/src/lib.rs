@@ -1,6 +1,6 @@
 mod config;
 
-mod protocol_name;
+pub mod protocol_name;
 
 use std::{
     collections::HashMap,
@@ -30,6 +30,7 @@ use libp2p::{
     swarm::{behaviour::toggle::Toggle, ConnectionId},
 };
 pub use multiaddr::{multiaddr, Multiaddr, Protocol};
+use protocol_name::ProtocolName;
 
 // TODO: Risc0 proofs are HUGE (220 Kb) and it's the only reason we need to have
 // this limit so large. Remove this once we transition to smaller proofs.
@@ -59,6 +60,7 @@ impl Behaviour {
         gossipsub_config: gossipsub::Config,
         kad_config: Option<KademliaSettings>,
         identify_config: Option<IdentifySettings>,
+        protocol_name: ProtocolName,
         public_key: identity::PublicKey,
     ) -> Result<Self, Box<dyn Error>> {
         let peer_id = PeerId::from(public_key.clone());
@@ -75,7 +77,7 @@ impl Behaviour {
             || Toggle::from(None),
             |identify_config| {
                 Toggle::from(Some(identify::Behaviour::new(
-                    identify_config.to_libp2p_config(public_key),
+                    identify_config.to_libp2p_config(public_key, protocol_name),
                 )))
             },
         );
@@ -86,7 +88,7 @@ impl Behaviour {
                 Toggle::from(Some(kad::Behaviour::with_config(
                     peer_id,
                     kad::store::MemoryStore::new(peer_id),
-                    kad_config.to_libp2p_config(),
+                    kad_config.to_libp2p_config(protocol_name),
                 )))
             },
         );
@@ -196,6 +198,7 @@ impl Swarm {
                     gossipsub_config,
                     kademlia_config.clone(),
                     identify_config,
+                    config.protocol_name_env,
                     keypair.public(),
                 )
                 .unwrap()

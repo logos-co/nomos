@@ -439,6 +439,7 @@ fn log_routing_update(
 mod tests {
     use std::{net::Ipv4Addr, sync::Once, time::Instant};
 
+    use nomos_libp2p::protocol_name::ProtocolName;
     use tracing_subscriber::EnvFilter;
 
     use super::*;
@@ -461,6 +462,7 @@ mod tests {
             gossipsub_config: gossipsub::Config::default(),
             kademlia_config: Some(nomos_libp2p::KademliaSettings::default()),
             identify_config: Some(nomos_libp2p::IdentifySettings::default()),
+            protocol_name_env: ProtocolName::Unittest,
         }
     }
 

@@ -23,6 +23,7 @@ pub enum ProtocolName {
 }
 
 impl ProtocolName {
+    #[must_use]
     pub const fn kad_protocol_name(self) -> &'static str {
         match self {
             Self::Mainnet => MAINNET_KAD_PROTOCOL_NAME,
@@ -32,6 +33,7 @@ impl ProtocolName {
         }
     }
 
+    #[must_use]
     pub const fn identify_protocol_name(self) -> &'static str {
         match self {
             Self::Mainnet => MAINNET_IDENTIFY_PROTOCOL_NAME,

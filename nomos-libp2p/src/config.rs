@@ -23,6 +23,9 @@ pub struct SwarmConfig {
     pub gossipsub_config: gossipsub::Config,
 
     #[serde(default)]
+    pub protocol_name_env: ProtocolName,
+
+    #[serde(default)]
     pub kademlia_config: Option<KademliaSettings>,
 
     #[serde(default)]
@@ -36,6 +39,7 @@ impl Default for SwarmConfig {
             port: 60000,
             node_key: ed25519::SecretKey::generate(),
             gossipsub_config: gossipsub::Config::default(),
+            protocol_name_env: ProtocolName::default(),
             kademlia_config: None,
             identify_config: None,
         }
@@ -191,11 +195,6 @@ pub mod secret_key_serde {
 /// When a value is None, the libp2p defaults are used.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct KademliaSettings {
-    /// The protocol name to use for Kademlia
-    /// Default: "/unittest/nomos/kad/1.0.0"
-    #[serde(default)]
-    pub protocol_name: ProtocolName,
-
     /// The timeout for a single query in seconds
     /// Default from libp2p: 60 seconds
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -270,9 +269,8 @@ pub enum CachingSettings {
 
 impl KademliaSettings {
     #[must_use]
-    pub fn to_libp2p_config(&self) -> kad::Config {
-        let mut config =
-            kad::Config::new(StreamProtocol::new(self.protocol_name.kad_protocol_name()));
+    pub fn to_libp2p_config(&self, protocol_name: ProtocolName) -> kad::Config {
+        let mut config = kad::Config::new(StreamProtocol::new(protocol_name.kad_protocol_name()));
 
         // Apply only the settings that were specified
         if let Some(timeout) = self.query_timeout_secs {
@@ -336,22 +334,12 @@ impl KademliaSettings {
 
         config
     }
-
-    #[must_use]
-    pub const fn get_protocol_name(&self) -> &'static str {
-        self.protocol_name.kad_protocol_name()
-    }
 }
 
 /// A serializable representation of Identify configuration options.
 /// When a value is None, the libp2p defaults are used.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct IdentifySettings {
-    /// The protocol name to use for Identify
-    /// Default: "/unittest/identify/kad/1.0.0"
-    #[serde(default)]
-    pub protocol_name: ProtocolName,
-
     /// Agent version string to advertise
     /// Default from libp2p: 'rust-libp2p/{version}'
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -381,9 +369,13 @@ pub struct IdentifySettings {
 
 impl IdentifySettings {
     #[must_use]
-    pub fn to_libp2p_config(&self, public_key: identity::PublicKey) -> identify::Config {
+    pub fn to_libp2p_config(
+        &self,
+        public_key: identity::PublicKey,
+        protocol_name: ProtocolName,
+    ) -> identify::Config {
         let mut config = identify::Config::new(
-            self.protocol_name.identify_protocol_name().to_owned(),
+            protocol_name.identify_protocol_name().to_owned(),
             public_key,
         );
 
@@ -410,11 +402,6 @@ impl IdentifySettings {
         }
 
         config
-    }
-
-    #[must_use]
-    pub const fn get_protocol_name(&self) -> &'static str {
-        self.protocol_name.identify_protocol_name()
     }
 }
 
