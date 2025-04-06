@@ -11,6 +11,7 @@ use nomos_libp2p::{
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::StreamExt;
+use tracing::event;
 
 use super::{
     command::{Command, Dial, DiscoveryCommand, NetworkCommand, PubSubCommand, Topic},
@@ -374,8 +375,9 @@ impl SwarmHandler {
                     }
                 }
             }
-            // Handle other identify events if needed
-            _ => {}
+            event => {
+                tracing::debug!("Identify event: {:?}", event);
+            }
         }
     }
 
