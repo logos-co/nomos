@@ -24,6 +24,7 @@ members = [
   "nomos-da/storage",
   "nomos-libp2p",
   "nomos-services/api",
+  "nomos-sdp",
   "nomos-services/blend",
   "nomos-services/cryptarchia-consensus",
   "nomos-services/data-availability/dispersal",
