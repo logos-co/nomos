@@ -15,6 +15,10 @@ impl Bundle {
         Self { partials }
     }
 
+    #[expect(
+        clippy::missing_const_for_fn,
+        reason = "Using `Deref` which is not const."
+    )]
     #[must_use]
     pub fn partial_txs(&self) -> &[PartialTx] {
         &self.partials
@@ -42,6 +46,10 @@ impl BundleWitness {
         )
     }
 
+    #[expect(
+        clippy::missing_const_for_fn,
+        reason = "Using `Deref` which is not const."
+    )]
     #[must_use]
     pub fn partial_witnesses(&self) -> &[PartialTxWitness] {
         &self.partials

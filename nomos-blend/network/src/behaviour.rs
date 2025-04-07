@@ -218,7 +218,7 @@ where
             if remaining_established == 0 {
                 self.negotiated_peers.remove(&peer_id);
             }
-        };
+        }
 
         self.try_wake();
     }

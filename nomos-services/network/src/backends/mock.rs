@@ -203,7 +203,7 @@ impl Mock {
                 Err(e) => {
                     tracing::error!("error sending message: {:?}", e);
                 }
-            };
+            }
         }
     }
 
@@ -224,7 +224,7 @@ impl Mock {
                 Err(e) => {
                     tracing::error!("error sending message: {:?}", e);
                 }
-            };
+            }
         }
         Ok(())
     }
@@ -296,7 +296,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Mock {
                     .unwrap_or_default();
                 let _ = tx.send(msgs);
             }
-        };
+        }
     }
 
     async fn subscribe(&mut self, kind: Self::EventKind) -> Receiver<Self::NetworkEvent> {

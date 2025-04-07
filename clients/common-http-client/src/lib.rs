@@ -162,8 +162,8 @@ impl CommonHttpClient {
         let status = response.status();
 
         let shares_stream = response.bytes_stream().filter_map(|item| async move {
-            item.ok()
-                .and_then(|bytes| serde_json::from_slice::<B::LightShare>(&bytes).ok())
+            let bytes = item.ok()?;
+            serde_json::from_slice::<B::LightShare>(&bytes).ok()
         });
         match status {
             StatusCode::OK => Ok(shares_stream),

@@ -1,9 +1,10 @@
+use std::sync::LazyLock;
+
 // Reexport global parameters loading from file.
 pub use kzgrs::global_parameters_from_file;
 use kzgrs::{global_parameters_from_randomness, GlobalParameters};
-use once_cell::sync::Lazy;
 
-pub static GLOBAL_PARAMETERS: Lazy<GlobalParameters> = Lazy::new(|| {
+pub static GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new(|| {
     println!("WARNING: Global parameters are randomly generated. Use for development only.");
     let mut rng = rand::thread_rng();
     global_parameters_from_randomness(&mut rng)

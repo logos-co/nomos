@@ -93,27 +93,27 @@ where
         &self.replication
     }
 
-    pub fn sampling_behaviour_mut(&mut self) -> &mut SamplingBehaviour<Membership> {
+    pub const fn sampling_behaviour_mut(&mut self) -> &mut SamplingBehaviour<Membership> {
         &mut self.sampling
     }
 
-    pub fn dispersal_executor_behaviour_mut(
+    pub const fn dispersal_executor_behaviour_mut(
         &mut self,
     ) -> &mut DispersalExecutorBehaviour<Membership> {
         &mut self.executor_dispersal
     }
 
-    pub fn dispersal_validator_behaviour_mut(
+    pub const fn dispersal_validator_behaviour_mut(
         &mut self,
     ) -> &mut DispersalValidatorBehaviour<Membership> {
         &mut self.validator_dispersal
     }
 
-    pub fn replication_behaviour_mut(&mut self) -> &mut ReplicationBehaviour<Membership> {
+    pub const fn replication_behaviour_mut(&mut self) -> &mut ReplicationBehaviour<Membership> {
         &mut self.replication
     }
 
-    pub fn monitor_behaviour_mut(&mut self) -> &mut ConnectionMonitorBehaviour<Monitor> {
+    pub const fn monitor_behaviour_mut(&mut self) -> &mut ConnectionMonitorBehaviour<Monitor> {
         &mut self.monitor
     }
 
@@ -121,7 +121,7 @@ where
         &self.monitor
     }
 
-    pub fn balancer_behaviour_mut(
+    pub const fn balancer_behaviour_mut(
         &mut self,
     ) -> &mut ConnectionBalancerBehaviour<Balancer, Membership> {
         &mut self.balancer

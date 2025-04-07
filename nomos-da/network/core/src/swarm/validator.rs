@@ -205,7 +205,7 @@ where
         &self.swarm
     }
 
-    pub fn protocol_swarm_mut(
+    pub const fn protocol_swarm_mut(
         &mut self,
     ) -> &mut Swarm<
         ValidatorBehaviour<

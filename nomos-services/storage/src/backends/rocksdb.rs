@@ -135,13 +135,12 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
     }
 
     async fn remove(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
-        self.load(key).await.and_then(|val| {
-            if val.is_some() {
-                self.rocks.delete(key).map(|()| val)
-            } else {
-                Ok(None)
-            }
-        })
+        let val = self.load(key).await?;
+        if val.is_some() {
+            self.rocks.delete(key).map(|()| val)
+        } else {
+            Ok(None)
+        }
     }
 
     async fn execute(
