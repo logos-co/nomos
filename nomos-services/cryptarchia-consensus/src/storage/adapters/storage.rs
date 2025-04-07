@@ -16,8 +16,7 @@ where
     _tx: PhantomData<Block>,
 }
 
-impl<Storage, Block, RuntimeServiceId>
-    StorageAdapter<Storage, Block, RuntimeServiceId>
+impl<Storage, Block, RuntimeServiceId> StorageAdapter<Storage, Block, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync,
     Block: Sync,

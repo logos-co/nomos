@@ -1,20 +1,24 @@
 use crate::network::SyncRequest;
+use bytes::Bytes;
+use cryptarchia_engine::Slot;
 use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
 use cryptarchia_sync_network::SyncRequestKind;
 use nomos_core::block::AbstractBlock;
 use nomos_core::wire;
+use nomos_storage::backends::StorageBackend;
 use nomos_storage::{StorageMsg, StorageService};
 use overwatch::services::relay::OutboundRelay;
 use overwatch::services::ServiceData;
+use overwatch::DynError;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::collections::HashMap;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::Sender;
+use tokio::sync::oneshot;
 use tokio::time::{sleep, Duration};
 use tracing::info;
 
@@ -22,7 +26,7 @@ const MAX_CONCURRENT_REQUESTS: usize = 1;
 const BLOCK_SEND_DELAY_MS: u64 = 50;
 
 pub struct SyncBlocksProvider<
-    Storage: nomos_storage::backends::StorageBackend + Send + Sync + 'static,
+    Storage: StorageBackend + Send + Sync + 'static,
     Block,
     RuntimeServiceId,
 > {
@@ -30,16 +34,22 @@ pub struct SyncBlocksProvider<
         OutboundRelay<<StorageService<Storage, RuntimeServiceId> as ServiceData>::Message>,
     runtime: Handle,
     in_progress_requests: Arc<AtomicUsize>,
-    number_of_slots_per_epoch: u64,
     phantom_data: PhantomData<Block>,
 }
 
 impl<Storage, Block, RuntimeServiceId> SyncBlocksProvider<Storage, Block, RuntimeServiceId>
 where
-    Storage: nomos_storage::backends::StorageBackend + Send + Sync + 'static,
+    Storage: StorageBackend + Send + Sync + 'static,
     Block: AbstractBlock + Serialize + DeserializeOwned + Send + Sync + 'static + std::fmt::Debug,
-    <Block as AbstractBlock>::Id:
-        From<[u8; 32]> + Serialize + DeserializeOwned + Hash + Eq + Send + Sync + 'static,
+    <Block as AbstractBlock>::Id: Into<[u8; 32]>
+        + From<[u8; 32]>
+        + Serialize
+        + DeserializeOwned
+        + Hash
+        + Eq
+        + Send
+        + Sync
+        + 'static,
 {
     #[must_use]
     pub fn new(
@@ -52,7 +62,6 @@ where
             storage_relay,
             runtime,
             in_progress_requests: Arc::new(AtomicUsize::new(0)),
-            number_of_slots_per_epoch: 100,
             phantom_data: PhantomData,
         }
     }
@@ -89,34 +98,32 @@ where
         reply_channel: Sender<BehaviourSyncReply>,
     ) {
         let storage_relay = self.storage_relay.clone();
-        let in_progress_requests = Arc::<AtomicUsize>::clone(&self.in_progress_requests);
-        let mut epoch = slot / self.number_of_slots_per_epoch;
+        let in_progress_requests = Arc::clone(&self.in_progress_requests);
         self.runtime.spawn(async move {
+            let mut epoch = 0;
             loop {
-                let prefix = format!("blocks_epoch_{epoch}").into_bytes();
-                info!("Loading blocks from prefix: {:?}", prefix);
+                let prefix = format!("blocks_epoch_{epoch}").into_bytes().into();
+                info!("Loading blocks from epoch: {:?}", epoch);
+                match Self::load_prefix(&storage_relay, prefix).await {
+                    Ok(blocks) => {
+                        if blocks.is_empty() {
+                            tracing::debug!("No more blocks found for epoch {}", epoch);
+                            break;
+                        }
 
-                let (msg, receiver) = <StorageMsg<Storage>>::new_load_prefix_message(prefix.into());
-
-                if let Err((e, _)) = storage_relay.send(msg).await {
-                    tracing::error!("Failed to send storage message {}", e);
-                } else {
-                    match receiver.recv::<Block>().await {
-                        Ok(blocks) => {
-                            if blocks.is_empty() {
-                                tracing::debug!("No more blocks found for epoch {}", epoch);
+                        for block in blocks {
+                            let block: Block =
+                                wire::deserialize(&block).expect("Deserialization failed");
+                            if block.slot() >= Slot::from(slot)
+                                && Self::send_block(&block, &reply_channel).await.is_err()
+                            {
                                 break;
                             }
-                            info!("Received blocks from database: {:?}", blocks.len());
-                            for block in blocks {
-                                if Self::send_block(&block, &reply_channel).await.is_err() {
-                                    break;
-                                }
-                            }
                         }
-                        Err(e) => {
-                            tracing::error!("Failed to receive blocks {}", e);
-                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to load prefix: {}", e);
+                        break;
                     }
                 }
                 epoch += 1;
@@ -131,25 +138,32 @@ where
         reply_channel: Sender<BehaviourSyncReply>,
     ) {
         let storage_relay = self.storage_relay.clone();
-        let in_progress_requests = Arc::<AtomicUsize>::clone(&self.in_progress_requests);
+        let in_progress_requests = Arc::clone(&self.in_progress_requests);
         self.runtime.spawn(async move {
             let mut current_header_id = header_id;
             loop {
-                let (msg, receiver) = <StorageMsg<Storage>>::new_load_message(current_header_id);
-                if let Err((e, _)) = storage_relay.send(msg).await {
-                    tracing::error!("Failed to send storage message: {}", e);
-                    break;
-                }
-                match receiver.recv::<Block>().await {
+                info!("Loading block from header {:?}", current_header_id);
+                let key: [u8; 32] = current_header_id.into();
+                let bytes = Bytes::copy_from_slice(&key);
+                match Self::load_block(&storage_relay, bytes).await {
                     Ok(Some(block)) => {
-                        current_header_id = block.parent();
+                        let block: Block =
+                            wire::deserialize(&block).expect("Deserialization failed");
                         if Self::send_block(&block, &reply_channel).await.is_err() {
                             break;
                         }
+                        current_header_id = block.parent();
+                        if current_header_id == [0; 32].into() {
+                            tracing::debug!("Reached genesis block");
+                            break;
+                        }
                     }
-                    Ok(None) => break,
+                    Ok(None) => {
+                        tracing::debug!("No more blocks found for header {:?}", current_header_id);
+                        break;
+                    }
                     Err(e) => {
-                        tracing::error!("Failed to receive block: {}", e);
+                        tracing::error!("Failed to load block: {}", e);
                         break;
                     }
                 }
@@ -169,9 +183,41 @@ where
         reply_channel.send(reply).await.map_err(|_| {
             tracing::warn!("Reply channel closed");
         })?;
-
-        // Introduce a delay to avoid overwhelming everything else
         sleep(Duration::from_millis(BLOCK_SEND_DELAY_MS)).await;
         Ok(())
+    }
+
+    async fn load_prefix(
+        storage_relay: &OutboundRelay<
+            <StorageService<Storage, RuntimeServiceId> as ServiceData>::Message,
+        >,
+        prefix: Bytes,
+    ) -> Result<Vec<Bytes>, DynError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        storage_relay
+            .send(StorageMsg::LoadPrefix {
+                prefix,
+                reply_channel: reply_tx,
+            })
+            .await
+            .map_err(|(e, _)| Box::new(e) as DynError)?;
+        reply_rx.await.map_err(|e| Box::new(e) as DynError)
+    }
+
+    async fn load_block(
+        storage_relay: &OutboundRelay<
+            <StorageService<Storage, RuntimeServiceId> as ServiceData>::Message,
+        >,
+        key: Bytes,
+    ) -> Result<Option<Bytes>, DynError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        storage_relay
+            .send(StorageMsg::Load {
+                key,
+                reply_channel: reply_tx,
+            })
+            .await
+            .map_err(|(e, _)| Box::new(e) as DynError)?;
+        reply_rx.await.map_err(|e| Box::new(e) as DynError)
     }
 }

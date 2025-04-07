@@ -7,16 +7,16 @@ pub use self::{
     command::{Command, Dial, Libp2pInfo, Topic},
     config::Libp2pConfig,
 };
-use super::{NetworkBackend};
+use super::NetworkBackend;
 use cryptarchia_sync_network::behaviour::BehaviourSyncEvent::TipRequest;
 use cryptarchia_sync_network::behaviour::{
     BehaviourSyncEvent::SyncRequest, BehaviourSyncReply, SyncDirection,
 };
+use cryptarchia_sync_network::SyncRequestKind;
 pub use nomos_libp2p::libp2p::gossipsub::{Message, TopicHash};
 use nomos_libp2p::{gossipsub, BehaviourEvent};
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
 use tokio::sync::{broadcast, mpsc, mpsc::Sender};
-use cryptarchia_sync_network::SyncRequestKind;
 
 pub struct Libp2p {
     events_tx: broadcast::Sender<Event>,

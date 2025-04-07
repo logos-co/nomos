@@ -1,12 +1,20 @@
 mod cryptarchia;
 
-use crate::cryptarchia::{CryptarchiaSyncService, CryptarchiaSyncServiceConfig};
-use nomos_libp2p::{ed25519, gossipsub, SwarmConfig};
+use crate::cryptarchia::{
+    CryptarchiaSyncService, CryptarchiaSyncServiceConfig, CryptarchiaSyncServiceMessage, TestBlock,
+};
+use cryptarchia_engine::Config;
+use nomos_core::header::HeaderId;
+use nomos_libp2p::{ed25519, SwarmConfig};
 use nomos_network::{backends::libp2p::Libp2pConfig, NetworkConfig};
 use nomos_node::{NetworkBackend, RocksBackend, Wire};
 use nomos_storage::backends::rocksdb::RocksBackendSettings;
 use overwatch::derive_services;
-use overwatch::overwatch::OverwatchRunner;
+use overwatch::overwatch::{Overwatch, OverwatchRunner};
+use std::num::NonZero;
+use tempfile::Builder;
+use tests::get_available_port;
+use tokio::sync::oneshot::Receiver;
 
 type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 type StorageService = nomos_storage::StorageService<RocksBackend<Wire>, RuntimeServiceId>;
@@ -19,58 +27,221 @@ pub struct NomosLightNode {
     cryptarchia: Cryptarchia,
 }
 
+fn linear_chain(start: u64, end: u64) -> Vec<TestBlock> {
+    (start..=end)
+        .map(|id| (id, if id == 0 { None } else { Some(id - 1) }, id).into())
+        .collect()
+}
+
+// 0 -> 1 -> 2 -> 5
+//   -> 3 -> 4
+fn fork_blocks() -> Vec<TestBlock> {
+    // Header, Parent, Slot
+    vec![
+        (0, None, 0),    // Genesis
+        (1, Some(0), 1), // Main chain
+        (2, Some(1), 2),
+        (3, Some(0), 1), // Fork
+        (4, Some(3), 2),
+        (5, Some(2), 3),
+    ]
+    .into_iter()
+    .map(Into::into)
+    .collect()
+}
+
+#[must_use]
+pub fn id_from_u64(id: u64) -> HeaderId {
+    let mut bytes = [0; 32];
+    bytes[0..8].copy_from_slice(&id.to_le_bytes());
+    bytes.into()
+}
+
+async fn validate_sync_result(
+    reply_rcv: Receiver<Vec<TestBlock>>,
+    mut expected_blocks: Vec<TestBlock>,
+) {
+    let mut blocks = reply_rcv.await.unwrap();
+    blocks.sort_by(|a, b| a.id.cmp(&b.id).then(a.slot.cmp(&b.slot)));
+    expected_blocks.sort_by(|a, b| a.id.cmp(&b.id).then(a.slot.cmp(&b.slot)));
+    assert_eq!(blocks, expected_blocks);
+
+    let config = Config {
+        security_param: NonZero::new(1).unwrap(),
+        active_slot_coeff: 1.0,
+    };
+
+    // Make sure that Cryptarchia also agrees with the blocks
+    blocks.sort_by(|a, b| a.slot.cmp(&b.slot));
+    let mut cryptarchia = cryptarchia_engine::Cryptarchia::new(HeaderId::from([0; 32]), config);
+    for block in &blocks[1..] {
+        let updated_cryptarchia =
+            cryptarchia.receive_block(block.id, block.parent.unwrap(), block.slot);
+        assert!(updated_cryptarchia.is_ok());
+        cryptarchia = updated_cryptarchia.unwrap();
+    }
+}
+
 #[test]
-fn test_sync_two_nodes() {
-    tracing_subscriber::fmt::init();
-    let node1_settings = NomosLightNodeServiceSettings {
+fn run_sync_empty_blockchain() {
+    let genesis_block: Vec<_> = vec![(0, None, 0).into()];
+
+    let (_passive_node, active_node, reply_rcv) =
+        setup_nodes(&genesis_block, genesis_block.clone());
+
+    let runtime = active_node.handle().runtime().clone();
+    active_node.wait_finished();
+
+    runtime.block_on(validate_sync_result(reply_rcv, genesis_block));
+}
+
+#[test]
+fn run_sync_single_chain_from_genesis() {
+    let all_blocks = linear_chain(0, 9);
+    let active_blocks = linear_chain(0, 0);
+    let (_passive_node, active_node, reply_rcv) = setup_nodes(&all_blocks, active_blocks);
+
+    let runtime = active_node.handle().runtime().clone();
+    active_node.wait_finished();
+
+    runtime.block_on(validate_sync_result(reply_rcv, all_blocks));
+}
+
+#[test]
+fn run_sync_single_chain_from_middle() {
+    let all_blocks = linear_chain(0, 9);
+    let active_blocks = linear_chain(0, 4);
+    let (_passive_node, active_node, reply_rcv) = setup_nodes(&all_blocks, active_blocks);
+
+    let runtime = active_node.handle().runtime().clone();
+    active_node.wait_finished();
+
+    runtime.block_on(validate_sync_result(reply_rcv, all_blocks));
+}
+
+#[test]
+fn run_sync_forks_from_genesis() {
+    let all_blocks = fork_blocks();
+    let active_blocks = linear_chain(0, 0);
+    let (_passive_node, active_node, reply_rcv) = setup_nodes(&all_blocks, active_blocks);
+
+    let runtime = active_node.handle().runtime().clone();
+    active_node.wait_finished();
+
+    runtime.block_on(validate_sync_result(reply_rcv, all_blocks));
+}
+
+#[test]
+fn run_sync_forks_from_middle() {
+    let all_blocks = fork_blocks();
+    let active_blocks = vec![(0, None, 0), (1, Some(0), 1), (3, Some(0), 1)]
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    let (_passive_node, active_node, reply_rcv) = setup_nodes(&all_blocks, active_blocks);
+
+    let runtime = active_node.handle().runtime().clone();
+    active_node.wait_finished();
+
+    runtime.block_on(validate_sync_result(reply_rcv, all_blocks));
+}
+
+#[test]
+fn run_sync_forks_by_backfilling() {
+    let all_blocks = fork_blocks();
+    let active_blocks = vec![(0, None, 0), (1, Some(0), 1)]
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    let (_passive_node, active_node, reply_rcv) = setup_nodes(&all_blocks, active_blocks);
+
+    let runtime = active_node.handle().runtime().clone();
+    active_node.wait_finished();
+
+    runtime.block_on(validate_sync_result(reply_rcv, all_blocks));
+}
+
+fn setup_nodes(
+    all_blocks: &[TestBlock],
+    behind_blocks: Vec<TestBlock>,
+) -> (
+    Overwatch<RuntimeServiceId>,
+    Overwatch<RuntimeServiceId>,
+    Receiver<Vec<TestBlock>>,
+) {
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .with_test_writer()
+        .try_init();
+    let passive_port = get_available_port();
+    let passive_settings = NomosLightNodeServiceSettings {
         network: NetworkConfig {
             backend: Libp2pConfig {
                 inner: SwarmConfig {
-                    host: "0.0.0.0".parse().unwrap(),
-                    port: 3000,
+                    port: passive_port,
                     node_key: ed25519::SecretKey::generate(),
-                    gossipsub_config: gossipsub::Config::default(),
+                    ..Default::default()
                 },
-                initial_peers: vec!["/memory/3001".parse().unwrap()],
+                initial_peers: vec![],
             },
         },
         storage: RocksBackendSettings {
-            db_path: "node3_db".into(),
+            db_path: Builder::new()
+                .prefix("node_1")
+                .tempdir()
+                .unwrap()
+                .path()
+                .to_path_buf(),
             read_only: false,
             column_family: None,
         },
         cryptarchia: CryptarchiaSyncServiceConfig {
             topic: "topic".to_owned(),
+            active: false,
+            initial_blocks: all_blocks.to_owned(),
         },
     };
 
-    // Create settings for second node
-    let node2_settings = NomosLightNodeServiceSettings {
+    let active_settings = NomosLightNodeServiceSettings {
         network: NetworkConfig {
             backend: Libp2pConfig {
                 inner: SwarmConfig {
-                    host: "0.0.0.0".parse().unwrap(),
-                    port: 3001,
-                    node_key: ed25519::SecretKey::generate(),
-                    gossipsub_config: gossipsub::Config::default(),
+                    port: get_available_port(),
+                    ..Default::default()
                 },
-                initial_peers: vec!["/memory/3000".parse().unwrap()],
+                initial_peers: vec![format!("/memory/{passive_port}").parse().unwrap()],
             },
         },
         storage: RocksBackendSettings {
-            db_path: "node4_db".into(),
+            db_path: Builder::new()
+                .prefix("node_2")
+                .tempdir()
+                .unwrap()
+                .path()
+                .to_path_buf(),
             read_only: false,
             column_family: None,
         },
         cryptarchia: CryptarchiaSyncServiceConfig {
             topic: "topic".to_owned(),
+            active: true,
+            initial_blocks: behind_blocks,
         },
     };
 
-    let node1 = OverwatchRunner::<NomosLightNode>::run(node1_settings, None).unwrap();
+    let passive_node = OverwatchRunner::<NomosLightNode>::run(passive_settings, None).unwrap();
+    let active_node = OverwatchRunner::<NomosLightNode>::run(active_settings, None).unwrap();
 
-    let node2 = OverwatchRunner::<NomosLightNode>::run(node2_settings, None).unwrap();
+    let runtime = passive_node.handle().runtime();
+    let (reply_tx, reply_rcv) = tokio::sync::oneshot::channel();
+    let handle = active_node.handle().clone();
+    runtime.spawn(async move {
+        let outbound_relay = handle.relay::<CryptarchiaSyncService<_>>().await.unwrap();
+        outbound_relay
+            .send(CryptarchiaSyncServiceMessage { reply_tx })
+            .await
+            .unwrap();
+    });
 
-    node1.wait_finished();
-    node2.wait_finished();
+    (passive_node, active_node, reply_rcv)
 }
