@@ -108,7 +108,10 @@ impl<B: SdpBackend<RuntimeServiceId> + Send + Sync + 'static, RuntimeServiceId>
                 result_sender,
             } => {
                 let result = backend.mark_in_block(block_number).await;
-                let _ = result_sender.send(result);
+                let result = result_sender.send(result);
+                if let Err(e) = result {
+                    tracing::error!("Error sending result: {:?}", e);
+                }
             }
             SdpMessage::DiscardBlock(block_number) => {
                 backend.discard_block(block_number);
