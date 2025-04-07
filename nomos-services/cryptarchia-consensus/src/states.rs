@@ -28,7 +28,7 @@ pub struct GenesisRecoveryStrategy {
 pub struct SecurityRecoveryStrategy {
     pub tip: HeaderId,
     pub security_block_id: HeaderId,
-    pub security_ledger_state: LedgerState,
+    pub security_ledger_state: LedgerState, // TODO: No longer needed
     pub security_leader_notes: Vec<NoteWitness>,
 }
 

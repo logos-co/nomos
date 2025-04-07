@@ -78,6 +78,7 @@ struct Cryptarchia {
 }
 
 impl Cryptarchia {
+    // TODO: This should always be initialised from genesis
     pub fn new(
         header_id: HeaderId,
         ledger_state: LedgerState,
@@ -1087,6 +1088,8 @@ where
                 info!("Recovering Cryptarchia with Security strategy.");
                 Self::recover_from_security(
                     *strategy,
+                    genesis_id,
+                    genesis_state,
                     leader_config,
                     ledger_config,
                     relays,
@@ -1095,70 +1098,6 @@ where
                 .await
             }
         }
-    }
-
-    /// Recovers cryptarchia from a previously saved state.
-    ///
-    /// # Arguments
-    ///
-    /// * `from_header_id` - The header id where the recovery should start from.
-    ///   In case none was stored, the genesis block id should be passed.
-    /// * `from_ledger_state` - The ledger state up to the security block. In
-    ///   case none was stored, the genesis ledger state should be passed.
-    /// * `to_header_id` - The header id up to which the ledger state should be
-    ///   restored.
-    /// * `leader` - The leader instance to be used for the recovery. The passed
-    ///   leader needs to be up-to-date with the state of the ledger up to the
-    ///   security block.
-    /// * `relays` - The relays object containing all the necessary relays for
-    ///   the consensus.
-    /// * `block_broadcaster` - The broadcast channel to send the blocks to the
-    ///   services.
-    /// * `ledger_config` - The ledger configuration.
-    #[expect(
-        clippy::type_complexity,
-        reason = "CryptarchiaConsensusRelays amount of generics."
-    )]
-    async fn recover_cryptarchia(
-        from_header_id: HeaderId,
-        from_ledger_state: LedgerState,
-        to_header_id: HeaderId,
-        leader: &mut Leader,
-        ledger_config: nomos_ledger::Config,
-        relays: &CryptarchiaConsensusRelays<
-            BlendAdapter,
-            BS,
-            ClPool,
-            ClPoolAdapter,
-            DaPool,
-            DaPoolAdapter,
-            NetAdapter,
-            SamplingBackend,
-            SamplingRng,
-            Storage,
-            TxS,
-            DaVerifierBackend,
-            RuntimeServiceId,
-        >,
-        block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> Cryptarchia {
-        let mut cryptarchia = Cryptarchia::new(from_header_id, from_ledger_state, ledger_config);
-
-        let blocks =
-            Self::get_blocks_in_range(from_header_id, to_header_id, relays.storage_adapter()).await;
-
-        for block in blocks {
-            cryptarchia = Self::process_block(
-                cryptarchia,
-                leader,
-                block,
-                relays,
-                block_subscription_sender,
-            )
-            .await;
-        }
-
-        cryptarchia
     }
 
     fn build_from_genesis(
@@ -1173,6 +1112,20 @@ where
         (cryptarchia, leader)
     }
 
+    /// Recovers cryptarchia from genesis to the saved tip
+    ///
+    /// # Arguments
+    ///
+    /// * `GenesisRecoveryStrategy` - Strategy instance containing the genesis
+    ///   recovery information.
+    /// * `genesis_id` - The genesis block id.
+    /// * `genesis_state` - The genesis ledger state.
+    /// * `leader_config` - The leader configuration.
+    /// * `ledger_config` - The ledger configuration.
+    /// * `relays` - The relays object containing all the necessary relays for
+    ///   the consensus.
+    /// * `block_subscription_sender` - The broadcast channel to send the blocks
+    ///   to the services.
     #[expect(
         clippy::type_complexity,
         reason = "CryptarchiaConsensusRelays amount of generics."
@@ -1200,21 +1153,44 @@ where
         >,
         block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> (Cryptarchia, Leader) {
+        let mut cryptarchia = Cryptarchia::new(genesis_id, genesis_state, ledger_config);
+
         let mut leader = Leader::from_genesis(genesis_id, leader_config, ledger_config);
-        let cryptarchia = Self::recover_cryptarchia(
-            genesis_id,
-            genesis_state,
-            tip,
-            &mut leader,
-            ledger_config,
-            relays,
-            block_subscription_sender,
-        )
-        .await;
+
+        let blocks = Self::get_blocks_in_range(genesis_id, tip, relays.storage_adapter()).await;
+
+        // Skip genesis blocks since Cryptarchia is already built from it
+        let blocks = blocks.into_iter().skip(1);
+
+        for block in blocks {
+            cryptarchia = Self::process_block(
+                cryptarchia,
+                &mut leader,
+                block,
+                relays,
+                block_subscription_sender,
+            )
+            .await;
+        }
 
         (cryptarchia, leader)
     }
 
+    /// Recovers cryptarchia from a previously saved security block to the saved
+    /// tip
+    ///
+    /// # Arguments
+    ///
+    /// * `SecurityRecoveryStrategy` - Strategy instance containing the security
+    ///   recovery information.
+    /// * `genesis_id` - The genesis block id.
+    /// * `genesis_state` - The genesis ledger state.
+    /// * `leader_config` - The leader configuration.
+    /// * `ledger_config` - The ledger configuration.
+    /// * `relays` - The relays object containing all the necessary relays for
+    ///   the consensus.
+    /// * `block_subscription_sender` - The broadcast channel to send the blocks
+    ///   to the services.
     #[expect(
         clippy::type_complexity,
         reason = "CryptarchiaConsensusRelays amount of generics."
@@ -1223,9 +1199,11 @@ where
         SecurityRecoveryStrategy {
             tip,
             security_block_id,
-            security_ledger_state,
             security_leader_notes,
+            ..
         }: SecurityRecoveryStrategy,
+        genesis_id: HeaderId,
+        genesis_state: LedgerState,
         leader_config: LeaderConfig,
         ledger_config: nomos_ledger::Config,
         relays: &CryptarchiaConsensusRelays<
@@ -1245,6 +1223,8 @@ where
         >,
         block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> (Cryptarchia, Leader) {
+        let mut cryptarchia = Cryptarchia::new(genesis_id, genesis_state, ledger_config);
+
         let mut leader = Leader::new(
             security_block_id,
             security_leader_notes,
@@ -1252,16 +1232,19 @@ where
             ledger_config,
         );
 
-        let cryptarchia = Self::recover_cryptarchia(
-            security_block_id,
-            security_ledger_state,
-            tip,
-            &mut leader,
-            ledger_config,
-            relays,
-            block_subscription_sender,
-        )
-        .await;
+        let blocks =
+            Self::get_blocks_in_range(security_block_id, tip, relays.storage_adapter()).await;
+
+        for block in blocks {
+            cryptarchia = Self::process_block(
+                cryptarchia,
+                &mut leader,
+                block,
+                relays,
+                block_subscription_sender,
+            )
+            .await;
+        }
 
         (cryptarchia, leader)
     }
