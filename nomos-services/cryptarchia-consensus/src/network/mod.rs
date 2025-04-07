@@ -3,19 +3,17 @@ pub mod adapters;
 use std::hash::Hash;
 
 use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
+use cryptarchia_sync_network::SyncRequestKind;
 use futures::Stream;
-use nomos_core::block::Block;
-use nomos_network::{
-    backends::{libp2p::SyncRequestKind, NetworkBackend},
-    NetworkService,
-};
+use nomos_network::{backends::NetworkBackend, NetworkService};
 use overwatch::{
     services::{relay::OutboundRelay, ServiceData},
     DynError,
 };
 use serde::{de::DeserializeOwned, Serialize};
-use tokio::sync::mpsc::{Sender, UnboundedReceiver};
+use tokio::sync::mpsc::Sender;
 
+#[derive(Debug, Clone)]
 pub struct SyncRequest {
     pub kind: SyncRequestKind,
     pub reply_channel: Sender<BehaviourSyncReply>,
@@ -27,8 +25,7 @@ type BoxedStream<T> = Box<dyn Stream<Item = T> + Send + Sync + Unpin>;
 pub trait NetworkAdapter<RuntimeServiceId> {
     type Backend: NetworkBackend<RuntimeServiceId> + 'static;
     type Settings: Clone + 'static;
-    type Tx: Serialize + DeserializeOwned + Clone + Eq + Hash + 'static;
-    type BlobCertificate: Serialize + DeserializeOwned + Clone + Eq + Hash + 'static;
+    type Block: Serialize + DeserializeOwned + Clone + Eq + Hash + 'static;
     async fn new(
         settings: Self::Settings,
         network_relay: OutboundRelay<
@@ -36,11 +33,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
         >,
     ) -> Self;
 
-    async fn request_sync(&self, slot: u64) -> Result<UnboundedReceiver<Vec<u8>>, DynError>;
-
-    async fn blocks_stream(
-        &self,
-    ) -> Result<BoxedStream<Block<Self::Tx, Self::BlobCertificate>>, DynError>;
+    async fn blocks_stream(&self) -> Result<BoxedStream<Self::Block>, DynError>;
 
     async fn sync_requests_stream(&self) -> Result<BoxedStream<SyncRequest>, DynError>;
 }

@@ -13,8 +13,8 @@ use libp2p::{
     Multiaddr, PeerId, Stream, StreamProtocol,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::{self, Sender};
-use tokio_stream::wrappers::ReceiverStream;
+use tokio::sync::mpsc::{self, Sender, UnboundedSender};
+use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 use tracing::{error, info};
 
 use crate::{
@@ -31,14 +31,14 @@ const MAX_INCOMING_SYNCS: usize = 5;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum SyncDirection {
-    Forward,
-    Backward,
+    Forward(u64),
+    Backward([u8; 32]),
 }
 
 /// Sync request from a peer
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum SyncRequest {
-    Sync { direction: SyncDirection, slot: u64 },
+    Sync { direction: SyncDirection },
     RequestTip,
 }
 
@@ -47,8 +47,7 @@ pub enum SyncRequest {
 pub enum SyncCommand {
     StartSync {
         direction: SyncDirection,
-        slot: u64,
-        response_sender: Sender<Vec<u8>>,
+        response_sender: UnboundedSender<Vec<u8>>,
     },
 }
 
@@ -57,7 +56,6 @@ pub enum SyncCommand {
 pub enum BehaviourSyncEvent {
     SyncRequest {
         direction: SyncDirection,
-        slot: u64,
         response_sender: Sender<BehaviourSyncReply>,
     },
     TipRequest {
@@ -66,19 +64,14 @@ pub enum BehaviourSyncEvent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum BlockResponse {
-    Block(Vec<u8>),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BehaviourSyncReply {
-    Block(BlockResponse),
+    Block(Vec<u8>),
     TipData(u64),
 }
 
 #[derive(Debug)]
 pub enum RequestKind {
-    Sync { direction: SyncDirection, slot: u64 },
+    Sync { direction: SyncDirection },
     Tip,
 }
 
@@ -120,9 +113,9 @@ pub struct SyncBehaviour<Membership> {
     /// Membership handler
     membership: Membership,
     /// Sender for commands from services
-    sync_commands_sender: Sender<SyncCommand>,
+    sync_commands_sender: UnboundedSender<SyncCommand>,
     /// Receiver for commands from services
-    sync_commands_receiver: ReceiverStream<SyncCommand>,
+    sync_commands_receiver: UnboundedReceiverStream<SyncCommand>,
     /// Progress of local forward and backward syncs
     local_sync_progress: FuturesUnordered<BoxFuture<'static, Result<(), SyncError>>>,
     /// Read request and send behaviour event to Swarm
@@ -141,8 +134,8 @@ where
         let mut control = stream_behaviour.new_control();
         let incoming_streams = control.accept(SYNC_PROTOCOL).expect("Valid protocol");
 
-        let (sync_commands_sender, sync_commands_receiver) = mpsc::channel(10);
-        let sync_commands_receiver = ReceiverStream::new(sync_commands_receiver);
+        let (sync_commands_sender, sync_commands_receiver) = mpsc::unbounded_channel();
+        let sync_commands_receiver = UnboundedReceiverStream::new(sync_commands_receiver);
 
         Self {
             local_peer_id,
@@ -159,7 +152,7 @@ where
         }
     }
 
-    pub fn sync_request_channel(&self) -> Sender<SyncCommand> {
+    pub fn sync_request_channel(&self) -> UnboundedSender<SyncCommand> {
         self.sync_commands_sender.clone()
     }
 
@@ -194,12 +187,10 @@ where
             match command {
                 SyncCommand::StartSync {
                     direction,
-                    slot,
                     response_sender,
                 } => {
                     info!(
                         direction = ?direction,
-                        slot = slot,
                         "Starting local sync"
                     );
                     let local_sync = sync_after_requesting_tips(
@@ -207,7 +198,6 @@ where
                         self.membership.clone(),
                         self.local_peer_id,
                         direction,
-                        slot,
                         response_sender,
                     );
                     self.local_sync_progress.push(local_sync);
@@ -265,10 +255,9 @@ where
                     let response_sender = req.response_sender.clone();
 
                     let event = match req.kind {
-                        RequestKind::Sync { direction, slot } => {
+                        RequestKind::Sync { direction } => {
                             ToSwarm::GenerateEvent(BehaviourSyncEvent::SyncRequest {
                                 direction,
-                                slot,
                                 response_sender,
                             })
                         }
@@ -383,10 +372,7 @@ mod test {
         PeerId, SwarmBuilder, Transport,
     };
     use rand::Rng;
-    use tokio::{
-        sync::mpsc::{self, Sender},
-        time::sleep,
-    };
+    use tokio::{sync::mpsc, time::sleep};
     use tracing::debug;
 
     use super::*;
@@ -399,10 +385,8 @@ mod test {
 
     #[tokio::test]
     async fn test_sync_forward() {
-        tracing_subscriber::fmt::init();
-
         let (request_senders, handles) = setup_and_run_swarms(NUM_SWARMS).await;
-        let blocks = perform_sync(request_senders[0].clone(), SyncDirection::Forward, 0).await;
+        let blocks = perform_sync(request_senders[0].clone(), SyncDirection::Forward(0)).await;
 
         assert_eq!(blocks.len(), MSG_COUNT);
 
@@ -413,11 +397,9 @@ mod test {
 
     #[tokio::test]
     async fn test_sync_backward() {
-        tracing_subscriber::fmt::init();
-
         let (request_senders, handles) = setup_and_run_swarms(NUM_SWARMS).await;
-        let slot = MSG_COUNT as u64;
-        let blocks = perform_sync(request_senders[0].clone(), SyncDirection::Backward, slot).await;
+        let blocks =
+            perform_sync(request_senders[0].clone(), SyncDirection::Backward([0; 32])).await;
 
         assert_eq!(blocks.len(), MSG_COUNT);
 
@@ -428,13 +410,16 @@ mod test {
 
     struct SwarmNetwork {
         swarms: Vec<Swarm<SyncBehaviour<AllNeighbours>>>,
-        swarm_command_senders: Vec<Sender<SyncCommand>>,
+        swarm_command_senders: Vec<UnboundedSender<SyncCommand>>,
         swarm_addresses: Vec<Multiaddr>,
     }
 
     async fn setup_and_run_swarms(
         num_swarms: usize,
-    ) -> (Vec<Sender<SyncCommand>>, Vec<tokio::task::JoinHandle<()>>) {
+    ) -> (
+        Vec<UnboundedSender<SyncCommand>>,
+        Vec<tokio::task::JoinHandle<()>>,
+    ) {
         let swarm_network = setup_swarms(num_swarms);
 
         let mut handles = Vec::new();
@@ -474,7 +459,10 @@ mod test {
         all_peer_ids: &[PeerId],
         all_addresses: &[Multiaddr],
         index: usize,
-    ) -> (Swarm<SyncBehaviour<AllNeighbours>>, Sender<SyncCommand>) {
+    ) -> (
+        Swarm<SyncBehaviour<AllNeighbours>>,
+        UnboundedSender<SyncCommand>,
+    ) {
         let mut neighbours = AllNeighbours::default();
 
         for j in 0..all_peer_ids.len() {
@@ -529,39 +517,24 @@ mod test {
                 Some(SwarmEvent::Behaviour(event)) => match event {
                     BehaviourSyncEvent::SyncRequest {
                         direction,
-                        slot,
                         response_sender,
                     } => {
                         debug!(
-                            "Swarm {} received sync request: direction {:?}, slot {}",
-                            swarm_index, direction, slot
+                            "Swarm {} received sync request: direction {:?}",
+                            swarm_index, direction
                         );
                         tokio::spawn(async move {
-                            if direction == SyncDirection::Forward {
-                                for _ in 0..MSG_COUNT {
-                                    response_sender
-                                        .send(BehaviourSyncReply::Block(BlockResponse::Block(
-                                            vec![],
-                                        )))
-                                        .await
-                                        .expect("Failed to send block");
-                                }
-                            } else {
-                                let start = slot - MSG_COUNT as u64;
-                                for _ in (start..=slot).rev() {
-                                    response_sender
-                                        .send(BehaviourSyncReply::Block(BlockResponse::Block(
-                                            vec![],
-                                        )))
-                                        .await
-                                        .expect("Failed to send block");
-                                }
+                            for _ in 0..MSG_COUNT {
+                                response_sender
+                                    .send(BehaviourSyncReply::Block(vec![]))
+                                    .await
+                                    .expect("Failed to send block");
                             }
                         });
                     }
                     BehaviourSyncEvent::TipRequest { response_sender } => {
                         response_sender
-                            .send(BehaviourSyncReply::TipData(swarm_index as u64 * 100))
+                            .send(BehaviourSyncReply::TipData(swarm_index as u64))
                             .await
                             .expect("Failed to send tip");
                     }
@@ -573,18 +546,15 @@ mod test {
     }
 
     async fn perform_sync(
-        request_sender: Sender<SyncCommand>,
+        request_sender: UnboundedSender<SyncCommand>,
         direction: SyncDirection,
-        slot: u64,
     ) -> Vec<Vec<u8>> {
-        let (response_sender, mut response_receiver) = mpsc::channel(10);
+        let (response_sender, mut response_receiver) = mpsc::unbounded_channel();
         request_sender
             .send(SyncCommand::StartSync {
                 direction,
-                slot,
                 response_sender,
             })
-            .await
             .expect("Failed to send sync command");
 
         let mut blocks = Vec::new();

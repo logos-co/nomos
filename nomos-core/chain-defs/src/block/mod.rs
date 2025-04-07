@@ -1,11 +1,11 @@
 pub mod builder;
 
-use core::hash::Hash;
-
 use ::serde::{de::DeserializeOwned, Deserialize, Serialize};
 use bytes::Bytes;
+use core::hash::Hash;
 use cryptarchia_engine::Slot;
 use indexmap::IndexSet;
+use std::fmt::Debug;
 
 use crate::{
     header::{Header, HeaderId},
@@ -15,7 +15,7 @@ use crate::{
 // TODO: Rename this to Block
 //       by renaming the existing Block to something else.
 pub trait AbstractBlock {
-    type Id: Eq + Hash + Copy;
+    type Id: Eq + Hash + Copy + Debug;
 
     fn id(&self) -> Self::Id;
     fn parent(&self) -> Self::Id;
@@ -89,5 +89,26 @@ impl<
     #[must_use]
     pub fn bl_blobs_len(&self) -> usize {
         self.bl_blobs.len()
+    }
+}
+
+// TODO: We need to implement Hash and Eq for `Block` if using `Block` in type definitions instead of Tx and BlobCertificate
+// Seems related to Overwatch and RuntimeServiceId somehow.
+impl<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> PartialEq
+    for Block<Tx, BlobCertificate>
+{
+    fn eq(&self, _other: &Self) -> bool {
+        false
+    }
+}
+
+impl<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> Eq for Block<Tx, BlobCertificate> {}
+
+//TODO: Implementing Hash for Block
+impl<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> Hash
+    for Block<Tx, BlobCertificate>
+{
+    fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {
+        todo!()
     }
 }

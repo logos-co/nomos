@@ -5,8 +5,10 @@ use std::{
     hash::Hash,
 };
 
+use crate::wait_with_timeout;
 use kzgrs_backend::common::share::DaShare;
 use nomos_blend_service::network::libp2p::Libp2pAdapter as BlendNetworkAdapter;
+use nomos_core::block::Block;
 use nomos_core::{
     da::{
         blob::{info::DispersedBlobInfo, metadata, select::FillSize as FillSizeWithBlobs, Share},
@@ -48,8 +50,6 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
 
-use crate::wait_with_timeout;
-
 pub type DaIndexer<
     Tx,
     C,
@@ -72,7 +72,7 @@ pub type DaIndexer<
     IndexerStorageAdapter<SS, V>,
     CryptarchiaConsensusAdapter<Tx, V>,
     // Cryptarchia specific, should be the same as in `Cryptarchia` type above.
-    cryptarchia_consensus::network::adapters::libp2p::LibP2pAdapter<Tx, V, RuntimeServiceId>,
+    cryptarchia_consensus::network::adapters::libp2p::LibP2pAdapter<Block<Tx, V>, RuntimeServiceId>,
     cryptarchia_consensus::blend::adapters::libp2p::LibP2pAdapter<
         BlendNetworkAdapter<RuntimeServiceId>,
         Tx,
