@@ -12,7 +12,6 @@ use libp2p::{
     },
     Multiaddr, PeerId, Stream, StreamProtocol,
 };
-use nomos_core::header::HeaderId;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{self, Sender, UnboundedSender};
 use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
@@ -67,7 +66,7 @@ pub enum BehaviourSyncEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BehaviourSyncReply {
     Block(Vec<u8>),
-    TipData(HeaderId),
+    TipData(u64),
 }
 
 #[derive(Debug)]
@@ -386,8 +385,6 @@ mod test {
 
     #[tokio::test]
     async fn test_sync_forward() {
-        tracing_subscriber::fmt::init();
-
         let (request_senders, handles) = setup_and_run_swarms(NUM_SWARMS).await;
         let blocks = perform_sync(request_senders[0].clone(), SyncDirection::Forward(0)).await;
 
@@ -400,8 +397,6 @@ mod test {
 
     #[tokio::test]
     async fn test_sync_backward() {
-        tracing_subscriber::fmt::init();
-
         let (request_senders, handles) = setup_and_run_swarms(NUM_SWARMS).await;
         let blocks =
             perform_sync(request_senders[0].clone(), SyncDirection::Backward([0; 32])).await;
@@ -539,7 +534,7 @@ mod test {
                     }
                     BehaviourSyncEvent::TipRequest { response_sender } => {
                         response_sender
-                            .send(BehaviourSyncReply::TipData([swarm_index as u8; 32].into()))
+                            .send(BehaviourSyncReply::TipData(swarm_index as u64))
                             .await
                             .expect("Failed to send tip");
                     }

@@ -70,6 +70,8 @@ where
                 };
             }
 
+            info!("Fetched {} blocks", num_processed_blocks);
+
             // Finish the sync process if no block has been processed,
             // which means that no peer has blocks that the local node doesn't know.
             if num_processed_blocks == 0 {

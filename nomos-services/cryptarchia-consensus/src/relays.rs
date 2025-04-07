@@ -4,9 +4,15 @@ use std::{
     marker::PhantomData,
 };
 
+use crate::{
+    blend, network,
+    storage::{adapters::StorageAdapter, StorageAdapter as StorageAdapterTrait},
+    CryptarchiaConsensus, MempoolRelay, SamplingRelay,
+};
 use nomos_blend_service::{
     network::NetworkAdapter as BlendNetworkAdapter, BlendService, ServiceMessage,
 };
+use nomos_core::block::Block;
 use nomos_core::{
     da::blob::{info::DispersedBlobInfo, BlobSelect},
     header::HeaderId,
@@ -27,12 +33,6 @@ use overwatch::{
 };
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use nomos_core::block::Block;
-use crate::{
-    blend, network,
-    storage::{adapters::StorageAdapter, StorageAdapter as StorageAdapterTrait},
-    CryptarchiaConsensus, MempoolRelay, SamplingRelay,
-};
 
 type NetworkRelay<NetworkBackend, RuntimeServiceId> =
     OutboundRelay<NetworkMsg<NetworkBackend, RuntimeServiceId>>;
@@ -181,8 +181,10 @@ where
         time_relay: TimeRelay,
     ) -> Self {
         let storage_adapter =
-            StorageAdapter::<Storage, Block<TxS::Tx, BS::BlobId>, RuntimeServiceId>::new(storage_relay)
-                .await;
+            StorageAdapter::<Storage, Block<TxS::Tx, BS::BlobId>, RuntimeServiceId>::new(
+                storage_relay,
+            )
+            .await;
         Self {
             network_relay,
             blend_relay,

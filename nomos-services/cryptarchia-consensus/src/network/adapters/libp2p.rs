@@ -20,6 +20,7 @@ use tokio_stream::{
     wrappers::{errors::BroadcastStreamRecvError, BroadcastStream, UnboundedReceiverStream},
     StreamExt,
 };
+use tracing::info;
 
 type Relay<T, RuntimeServiceId> =
     OutboundRelay<<NetworkService<T, RuntimeServiceId> as ServiceData>::Message>;
@@ -138,13 +139,10 @@ where
                     Ok(Event::IncomingSyncRequest {
                         kind,
                         reply_channel,
-                    }) => {
-                        tracing::debug!("received sync request {kind:?}");
-                        Some(SyncRequest {
-                            kind,
-                            reply_channel,
-                        })
-                    }
+                    }) => Some(SyncRequest {
+                        kind,
+                        reply_channel,
+                    }),
                     Err(BroadcastStreamRecvError::Lagged(n)) => {
                         tracing::error!("lagged messages: {n}");
                         None
@@ -171,6 +169,7 @@ where
         &self,
         start_slot: Slot,
     ) -> Result<BoxedStream<Block>, Box<dyn std::error::Error + Send + Sync>> {
+        info!("fetching blocks from slot {start_slot:?}");
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
         if let Err((e, _)) = self
             .network_relay

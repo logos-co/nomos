@@ -16,14 +16,8 @@ pub fn read_request_from_stream(
         let command: SyncRequest = sync_utils::receive_data(&mut stream).await?;
 
         let kind = match command {
-            SyncRequest::Sync { direction } => {
-                info!(direction = ?direction,"Received sync request");
-                RequestKind::Sync { direction }
-            }
-            SyncRequest::RequestTip => {
-                info!("Received tip request");
-                RequestKind::Tip
-            }
+            SyncRequest::Sync { direction } => RequestKind::Sync { direction },
+            SyncRequest::RequestTip => RequestKind::Tip,
         };
 
         let (response_sender, response_receiver) = channel(10);
