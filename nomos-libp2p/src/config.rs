@@ -219,12 +219,12 @@ pub struct KademliaSettings {
     /// The replication factor to use
     /// Default from libp2p: 20 (`K_VALUE`)
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub replication_factor: Option<usize>,
+    pub replication_factor: Option<NonZeroUsize>,
 
     /// The allowed level of parallelism for iterative queries
     /// Default from libp2p: 3 (`ALPHA_VALUE`)
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parallelism: Option<usize>,
+    pub parallelism: Option<NonZeroUsize>,
 
     /// Require iterative queries to use disjoint paths
     /// Default from libp2p: false
@@ -292,13 +292,13 @@ impl KademliaSettings {
             config.set_query_timeout(Duration::from_secs(timeout));
         }
 
-        handle_non_zero(self.replication_factor, "Replication factor", |factor| {
-            config.set_replication_factor(factor);
-        });
+        if let Some(replication_factor) = self.replication_factor {
+            config.set_replication_factor(replication_factor);
+        }
 
-        handle_non_zero(self.parallelism, "Parallelism", |parallel| {
-            config.set_parallelism(parallel);
-        });
+        if let Some(parallelism) = self.parallelism {
+            config.set_parallelism(parallelism);
+        }
 
         if let Some(disjoint) = self.disjoint_query_paths {
             config.disjoint_query_paths(disjoint);
@@ -344,19 +344,6 @@ impl KademliaSettings {
         }
 
         config
-    }
-}
-
-fn handle_non_zero<F>(value: Option<usize>, field_name: &str, f: F)
-where
-    F: FnOnce(NonZeroUsize),
-{
-    if let Some(val) = value {
-        if let Some(non_zero) = NonZeroUsize::new(val) {
-            f(non_zero);
-        } else {
-            tracing::warn!("{} value is 0, setting to default", field_name);
-        }
     }
 }
 
