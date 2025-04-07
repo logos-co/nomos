@@ -2,11 +2,12 @@ use std::{marker::PhantomData, path::PathBuf};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures::stream::BoxStream;
 use sled::transaction::{
     ConflictableTransactionResult, TransactionError, TransactionResult, TransactionalTree,
 };
 
-use super::{StorageBackend, StorageSerde, StorageTransaction};
+use super::{StorageBackend, StorageIterator, StorageSerde, StorageTransaction};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -54,6 +55,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for SledBacke
     type Settings = SledBackendSettings;
     type Error = Error;
     type Transaction = SledTransaction;
+    type Iterator = SledIterator;
     type SerdeOperator = SerdeOp;
 
     fn new(config: Self::Settings) -> Result<Self, Self::Error> {
@@ -76,6 +78,14 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for SledBacke
         unimplemented!()
     }
 
+    async fn scan_range(
+        &self,
+        _prefix: &[u8],
+        _start: &[u8],
+    ) -> Result<Self::Iterator, Self::Error> {
+        unimplemented!()
+    }
+
     async fn remove(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
         Ok(self.sled.remove(key)?.map(|ivec| ivec.to_vec().into()))
     }
@@ -85,6 +95,16 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for SledBacke
         transaction: Self::Transaction,
     ) -> Result<<Self::Transaction as StorageTransaction>::Result, Self::Error> {
         Ok(self.sled.transaction(transaction))
+    }
+}
+
+pub struct SledIterator;
+
+impl StorageIterator for SledIterator {
+    type Error = Error;
+
+    fn stream(&self) -> BoxStream<'_, Result<(Bytes, Bytes), Self::Error>> {
+        unimplemented!()
     }
 }
 
