@@ -184,6 +184,7 @@ fn setup_nodes(
                 inner: SwarmConfig {
                     port: passive_port,
                     node_key: ed25519::SecretKey::generate(),
+                    enable_memory_transport: true,
                     ..Default::default()
                 },
                 initial_peers: vec![],
@@ -211,6 +212,7 @@ fn setup_nodes(
             backend: Libp2pConfig {
                 inner: SwarmConfig {
                     port: get_available_port(),
+                    enable_memory_transport: true,
                     ..Default::default()
                 },
                 initial_peers: vec![format!("/memory/{passive_port}").parse().unwrap()],
