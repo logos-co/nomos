@@ -58,7 +58,7 @@ impl Default for SwarmConfig {
             port: 60000,
             node_key: ed25519::SecretKey::generate(),
             gossipsub_config: gossipsub::Config::default(),
-            enable_memory_transport: true,
+            enable_memory_transport: false,
             protocol_name_env: ProtocolName::default(),
             kademlia_config: None,
             identify_config: None,
