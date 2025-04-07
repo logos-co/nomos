@@ -3,7 +3,6 @@ use std::{
     hash::Hash,
 };
 
-use crate::http::DynError;
 use cryptarchia_consensus::{
     blend::adapters::libp2p::LibP2pAdapter as BlendAdapter,
     network::adapters::libp2p::LibP2pAdapter as ConsensusNetworkAdapter, ConsensusMsg,
@@ -11,8 +10,8 @@ use cryptarchia_consensus::{
 };
 use kzgrs_backend::dispersal::BlobInfo;
 use nomos_blend_service::network::libp2p::Libp2pAdapter as BlendNetworkAdapter;
-use nomos_core::block::Block;
 use nomos_core::{
+    block::Block,
     da::{
         blob::{self, select::FillSize as FillSizeWithBlobs},
         BlobId,
@@ -29,6 +28,8 @@ use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::sync::oneshot;
+
+use crate::http::DynError;
 
 pub type Cryptarchia<
     Tx,

@@ -13,6 +13,7 @@ libp2p                   = { workspace = true, features = ["dns", "gossipsub", "
 multiaddr                = "0.18"
 serde                    = { version = "1.0.166", features = ["derive"] }
 thiserror                = "1.0.40"
+tokio                    = { version = "1" }
 tracing                  = "0.1"
 
 [dev-dependencies]

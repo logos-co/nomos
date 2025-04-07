@@ -1,11 +1,12 @@
 pub mod builder;
 
+use core::hash::Hash;
+use std::fmt::Debug;
+
 use ::serde::{de::DeserializeOwned, Deserialize, Serialize};
 use bytes::Bytes;
-use core::hash::Hash;
 use cryptarchia_engine::Slot;
 use indexmap::IndexSet;
-use std::fmt::Debug;
 
 use crate::{
     header::{Header, HeaderId},
@@ -88,8 +89,9 @@ impl<
     }
 }
 
-// TODO: We need to implement Hash and Eq for `Block` if using `Block` in type definitions instead of Tx and BlobCertificate
-// Seems related to Overwatch and RuntimeServiceId somehow.
+// TODO: We need to implement Hash and Eq for `Block` if using `Block` in type
+// definitions instead of Tx and BlobCertificate Seems related to Overwatch and
+// RuntimeServiceId somehow.
 impl<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> PartialEq
     for Block<Tx, BlobCertificate>
 {

@@ -2,22 +2,23 @@ mod command;
 mod config;
 pub(crate) mod swarm;
 
-use self::swarm::SwarmHandler;
-pub use self::{
-    command::{Command, Dial, Libp2pInfo, Topic},
-    config::Libp2pConfig,
-};
-use super::NetworkBackend;
 use cryptarchia_engine::Slot;
-use cryptarchia_sync_network::behaviour::BehaviourSyncEvent::TipRequest;
 use cryptarchia_sync_network::behaviour::{
-    BehaviourSyncEvent::SyncRequest, BehaviourSyncReply, SyncDirection,
+    BehaviourSyncEvent::{SyncRequest, TipRequest},
+    BehaviourSyncReply, SyncDirection,
 };
 use nomos_core::header::HeaderId;
 pub use nomos_libp2p::libp2p::gossipsub::{Message, TopicHash};
 use nomos_libp2p::{gossipsub, BehaviourEvent};
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
 use tokio::sync::{broadcast, mpsc, mpsc::Sender};
+
+use self::swarm::SwarmHandler;
+pub use self::{
+    command::{Command, Dial, Libp2pInfo, Topic},
+    config::Libp2pConfig,
+};
+use super::NetworkBackend;
 
 pub struct Libp2p {
     events_tx: broadcast::Sender<Event>,
@@ -118,8 +119,6 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Libp2p {
         kind: Self::EventKind,
     ) -> broadcast::Receiver<Self::NetworkEvent> {
         match kind {
-            // Might be cleaner to use different channels depending on `kind`.
-            // At the same time `events_tx` is common to all events. Maybe fine this way
             EventKind::Message | EventKind::SyncRequest => {
                 tracing::debug!("processed subscription to incoming messages");
                 self.events_tx.subscribe()

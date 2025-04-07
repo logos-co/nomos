@@ -1,13 +1,8 @@
 use std::{hash::Hash, marker::PhantomData};
 
-use crate::{
-    messages::NetworkMessage,
-    network::{BoxedStream, NetworkAdapter, SyncRequest},
-};
 use cryptarchia_engine::Slot;
 use cryptarchia_sync_network::behaviour::SyncDirection;
-use nomos_core::header::HeaderId;
-use nomos_core::{block::AbstractBlock, wire};
+use nomos_core::{block::AbstractBlock, header::HeaderId, wire};
 use nomos_network::{
     backends::libp2p::{Command, Event, EventKind, Libp2p, PubSubCommand::Subscribe},
     NetworkMsg, NetworkService,
@@ -20,6 +15,11 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio_stream::{
     wrappers::{errors::BroadcastStreamRecvError, BroadcastStream, UnboundedReceiverStream},
     StreamExt,
+};
+
+use crate::{
+    messages::NetworkMessage,
+    network::{BoxedStream, NetworkAdapter, SyncRequest},
 };
 
 type Relay<T, RuntimeServiceId> =
@@ -172,7 +172,7 @@ where
         if let Err((e, _)) = self
             .network_relay
             .send(NetworkMsg::Process(Command::StartSync(
-                SyncDirection::Forward(start_slot.into()),
+                SyncDirection::Forward(start_slot),
                 sender,
             )))
             .await

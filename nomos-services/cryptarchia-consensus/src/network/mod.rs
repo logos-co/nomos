@@ -4,8 +4,10 @@ use std::hash::Hash;
 
 use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
 use futures::Stream;
-use nomos_network::backends::libp2p::SyncRequestKind;
-use nomos_network::{backends::NetworkBackend, NetworkService};
+use nomos_network::{
+    backends::{libp2p::SyncRequestKind, NetworkBackend},
+    NetworkService,
+};
 use overwatch::{
     services::{relay::OutboundRelay, ServiceData},
     DynError,

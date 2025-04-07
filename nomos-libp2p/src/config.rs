@@ -48,7 +48,6 @@ pub struct SwarmConfig {
     pub identify_config: Option<IdentifySettings>,
     // Enable memory transport
     pub enable_memory_transport: bool,
-
 }
 
 impl Default for SwarmConfig {

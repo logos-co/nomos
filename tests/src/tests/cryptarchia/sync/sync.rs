@@ -1,20 +1,24 @@
 mod cryptarchia;
 
-use crate::cryptarchia::{
-    CryptarchiaSyncService, CryptarchiaSyncServiceConfig, CryptarchiaSyncServiceMessage, TestBlock,
-};
+use std::num::NonZero;
+
 use cryptarchia_engine::Config;
 use nomos_core::header::HeaderId;
 use nomos_libp2p::{ed25519, SwarmConfig};
 use nomos_network::{backends::libp2p::Libp2pConfig, NetworkConfig};
 use nomos_node::{NetworkBackend, RocksBackend, Wire};
 use nomos_storage::backends::rocksdb::RocksBackendSettings;
-use overwatch::derive_services;
-use overwatch::overwatch::{Overwatch, OverwatchRunner};
-use std::num::NonZero;
+use overwatch::{
+    derive_services,
+    overwatch::{Overwatch, OverwatchRunner},
+};
 use tempfile::Builder;
 use tests::get_available_port;
 use tokio::sync::oneshot::Receiver;
+
+use crate::cryptarchia::{
+    CryptarchiaSyncService, CryptarchiaSyncServiceConfig, CryptarchiaSyncServiceMessage, TestBlock,
+};
 
 type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 type StorageService = nomos_storage::StorageService<RocksBackend<Wire>, RuntimeServiceId>;
