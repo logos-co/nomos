@@ -1,5 +1,3 @@
-mod sync;
-
 use std::{collections::HashSet, time::Duration};
 
 use futures::stream::{self, StreamExt};

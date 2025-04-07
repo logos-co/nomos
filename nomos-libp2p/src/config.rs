@@ -46,6 +46,9 @@ pub struct SwarmConfig {
     /// When a value is None, identify is disabled.
     #[serde(default)]
     pub identify_config: Option<IdentifySettings>,
+    // Enable memory transport
+    pub enable_memory_transport: bool,
+
 }
 
 impl Default for SwarmConfig {
@@ -55,6 +58,7 @@ impl Default for SwarmConfig {
             port: 60000,
             node_key: ed25519::SecretKey::generate(),
             gossipsub_config: gossipsub::Config::default(),
+            enable_memory_transport: true,
             protocol_name_env: ProtocolName::default(),
             kademlia_config: None,
             identify_config: None,

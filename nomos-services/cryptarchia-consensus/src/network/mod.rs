@@ -33,9 +33,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
         >,
     ) -> Self;
 
-    async fn blocks_stream(
-        &self,
-    ) -> Result<BoxedStream<Self::Block>, DynError>;
+    async fn blocks_stream(&self) -> Result<BoxedStream<Self::Block>, DynError>;
 
     async fn sync_requests_stream(&self) -> Result<BoxedStream<SyncRequest>, DynError>;
 }

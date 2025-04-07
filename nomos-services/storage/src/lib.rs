@@ -119,10 +119,10 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
         )
     }
 
-    pub fn new_load_prefix_message<K: Serialize>(
-        prefix: K,
+    pub fn new_load_prefix_message(
+        prefix: Bytes,
     ) -> (Self, StorageReplyReceiver<Vec<Bytes>, Backend>) {
-        let prefix = Backend::SerdeOperator::serialize(prefix);
+        // let prefix = Backend::SerdeOperator::serialize(prefix);
         let (reply_channel, receiver) = tokio::sync::oneshot::channel();
         (
             Self::LoadPrefix {
