@@ -39,6 +39,7 @@ pub trait StorageBackend: Sized {
     /// Usually it will be some function that modifies the storage directly or
     /// operates over the backend as per the backend specification.
     type Transaction: StorageTransaction;
+    /// Backend iterator type
     type Iterator;
     /// Operator to dump/load custom types into the defined backend store type
     /// [`Bytes`]
