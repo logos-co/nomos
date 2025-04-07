@@ -42,10 +42,16 @@ use nomos_mempool::{
     MempoolMsg, TxMempoolService,
 };
 use nomos_network::NetworkService;
-use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
+use nomos_storage::{
+    backends::{StorageBackend, StorageSerde},
+    StorageMsg, StorageService,
+};
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
-    services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},
+    services::{
+        relay::{OutboundRelay, RelayError},
+        AsServiceId, ServiceCore, ServiceData,
+    },
     DynError, OpaqueServiceStateHandle,
 };
 use rand::{RngCore, SeedableRng};
@@ -915,8 +921,7 @@ where
                 .await;
 
                 // store block
-                let msg = <StorageMsg<_>>::new_store_message(header.id(), block.clone());
-                if let Err((e, _msg)) = relays.storage_adapter().storage_relay.send(msg).await {
+                if let Err(e) = Self::store_block(block.clone(), relays).await {
                     tracing::error!("Could not send block to storage: {e}");
                 }
 
@@ -1356,6 +1361,63 @@ where
         .await;
 
         (cryptarchia, leader)
+    }
+
+    #[expect(
+        clippy::type_complexity,
+        reason = "CryptarchiaConsensusRelays amount of generics."
+    )]
+    async fn store_block(
+        block: Block<ClPool::Item, DaPool::Item>,
+        relays: &CryptarchiaConsensusRelays<
+            BlendAdapter,
+            BS,
+            ClPool,
+            ClPoolAdapter,
+            DaPool,
+            DaPoolAdapter,
+            NetAdapter,
+            SamplingBackend,
+            SamplingRng,
+            Storage,
+            TxS,
+            DaVerifierBackend,
+            RuntimeServiceId,
+        >,
+    ) -> Result<(), RelayError> {
+        let slot = block.header().slot();
+        let id: [u8; 32] = block.header().id().into();
+        // TODO: Add prefix to the key: "block/id/{id}"
+        // TODO: Currently, using new_store_message to not break any existing code.
+        //       But it's better to use the raw `Store` message.
+        let msg = <StorageMsg<_>>::new_store_message(id, block.clone());
+        relays
+            .storage_adapter()
+            .storage_relay
+            .send(msg)
+            .await
+            .map_err(|(e, _)| e)?;
+
+        // Build a key: "block/slot/{slot}/id/{id}"
+        let mut key = Vec::with_capacity(11 + 8 + 4 + 32);
+        key.extend_from_slice(b"block/slot/");
+        key.extend_from_slice(&slot.to_be_bytes());
+        key.extend_from_slice(b"/id/");
+        key.extend_from_slice(&id);
+        // TODO: Currently, storing the block as a value, but store the block ID
+        //       and update the corresponding code that scans blocks.
+        let msg = StorageMsg::Store {
+            key: key.into(),
+            value: <<Storage as StorageBackend>::SerdeOperator as StorageSerde>::serialize(block),
+        };
+        relays
+            .storage_adapter()
+            .storage_relay
+            .send(msg)
+            .await
+            .map_err(|(e, _)| e)?;
+
+        Ok(())
     }
 }
 
