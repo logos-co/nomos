@@ -34,7 +34,10 @@ use nomos_network::NetworkService;
 use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
-    services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},
+    services::{
+        relay::{OutboundRelay, RelayError},
+        AsServiceId, ServiceCore, ServiceData,
+    },
     DynError, OpaqueServiceStateHandle,
 };
 use rand::{RngCore, SeedableRng};
@@ -896,8 +899,7 @@ where
                 .await;
 
                 // store block
-                let msg = <StorageMsg<_>>::new_store_message(header.id(), block.clone());
-                if let Err((e, _msg)) = relays.storage_adapter().storage_relay.send(msg).await {
+                if let Err(e) = Self::store_block(block.clone(), relays).await {
                     tracing::error!("Could not send block to storage: {e}");
                 }
 
@@ -1310,6 +1312,55 @@ where
         .await;
 
         (cryptarchia, leader)
+    }
+
+    #[expect(
+        clippy::type_complexity,
+        reason = "CryptarchiaConsensusRelays amount of generics."
+    )]
+    async fn store_block(
+        block: Block<ClPool::Item, DaPool::Item>,
+        relays: &CryptarchiaConsensusRelays<
+            BlendAdapter,
+            BS,
+            ClPool,
+            ClPoolAdapter,
+            DaPool,
+            DaPoolAdapter,
+            NetAdapter,
+            SamplingBackend,
+            SamplingRng,
+            Storage,
+            TxS,
+            DaVerifierBackend,
+            RuntimeServiceId,
+        >,
+    ) -> Result<(), RelayError> {
+        let slot = block.header().slot();
+        let id: [u8; 32] = block.header().id().into();
+        let msg = <StorageMsg<_>>::new_store_message(id, block);
+        relays
+            .storage_adapter()
+            .storage_relay
+            .send(msg)
+            .await
+            .map_err(|(e, _)| e)?;
+
+        // Build a key: "block/{slot}/{id}"
+        let mut key = Vec::with_capacity(6 + 8 + 1 + 32);
+        key.extend_from_slice(b"block/");
+        key.extend_from_slice(&slot.to_be_bytes());
+        key.push(b'/');
+        key.extend_from_slice(&id);
+        let msg = <StorageMsg<_>>::new_store_message(key, id);
+        relays
+            .storage_adapter()
+            .storage_relay
+            .send(msg)
+            .await
+            .map_err(|(e, _)| e)?;
+
+        Ok(())
     }
 }
 
