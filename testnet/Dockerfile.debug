@@ -10,6 +10,7 @@ COPY . /nomos
 
 WORKDIR /opt
 
+# Commit 4d91de4e48198da2e33413efdcd9cd2cc0c46688 corresponds to Rust v1.85.0.
 RUN git clone https://github.com/risc0/risc0.git && \
     cd risc0 && \
     cargo install --path rzup && \
