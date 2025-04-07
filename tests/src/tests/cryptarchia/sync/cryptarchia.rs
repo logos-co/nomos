@@ -6,12 +6,12 @@ use cryptarchia_engine::Slot;
 use cryptarchia_sync::adapter::{CryptarchiaAdapter, CryptarchiaAdapterError};
 use cryptarchia_sync::Synchronization;
 use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
-use cryptarchia_sync_network::SyncRequestKind;
 use futures_util::StreamExt;
 use nomos_core::block::AbstractBlock;
 use nomos_core::header::HeaderId;
 use nomos_core::wire;
 use nomos_libp2p::libp2p::bytes::Bytes;
+use nomos_network::backends::libp2p::SyncRequestKind;
 use nomos_network::NetworkService;
 use nomos_node::{NetworkBackend, Wire};
 use nomos_storage::backends::rocksdb::RocksBackend;
@@ -41,13 +41,11 @@ pub struct TestBlock {
 }
 
 impl AbstractBlock for TestBlock {
-    type Id = HeaderId;
-
-    fn id(&self) -> Self::Id {
+    fn id(&self) -> HeaderId {
         self.id
     }
 
-    fn parent(&self) -> Self::Id {
+    fn parent(&self) -> HeaderId {
         self.parent.unwrap_or_else(|| [0; 32].into())
     }
 
@@ -325,7 +323,7 @@ where
         self.tip
     }
 
-    fn has_block(&self, id: &<Self::Block as AbstractBlock>::Id) -> bool {
+    fn has_block(&self, id: &HeaderId) -> bool {
         self.blocks.contains_key(id)
     }
 }

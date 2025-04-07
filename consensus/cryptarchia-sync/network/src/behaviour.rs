@@ -1,5 +1,11 @@
 use std::task::{Context, Poll};
 
+use crate::{
+    membership,
+    sync_incoming::{read_request_from_stream, send_response_to_peer},
+    sync_outgoing::sync_after_requesting_tips,
+};
+use cryptarchia_engine::Slot;
 use futures::{
     future::BoxFuture,
     stream::{FuturesUnordered, StreamExt},
@@ -12,27 +18,21 @@ use libp2p::{
     },
     Multiaddr, PeerId, Stream, StreamProtocol,
 };
+use nomos_core::header::HeaderId;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{self, Sender, UnboundedSender};
 use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 use tracing::{error, info};
 
-use crate::{
-    membership,
-    sync_incoming::{read_request_from_stream, send_response_to_peer},
-    sync_outgoing::sync_after_requesting_tips,
-};
-
 pub const SYNC_PROTOCOL: StreamProtocol = StreamProtocol::new("/nomos/cryptarchia/0.1.0/sync");
 
-// Not sure what the right value should be. But it seems reasonable to have some
-// limit
+// Not sure what the right value should be. But it seems reasonable to have some limit.
 const MAX_INCOMING_SYNCS: usize = 5;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum SyncDirection {
-    Forward(u64),
-    Backward([u8; 32]),
+    Forward(Slot),
+    Backward(HeaderId),
 }
 
 /// Sync request from a peer
@@ -386,7 +386,11 @@ mod test {
     #[tokio::test]
     async fn test_sync_forward() {
         let (request_senders, handles) = setup_and_run_swarms(NUM_SWARMS).await;
-        let blocks = perform_sync(request_senders[0].clone(), SyncDirection::Forward(0)).await;
+        let blocks = perform_sync(
+            request_senders[0].clone(),
+            SyncDirection::Forward(Slot::genesis()),
+        )
+        .await;
 
         assert_eq!(blocks.len(), MSG_COUNT);
 
@@ -398,8 +402,11 @@ mod test {
     #[tokio::test]
     async fn test_sync_backward() {
         let (request_senders, handles) = setup_and_run_swarms(NUM_SWARMS).await;
-        let blocks =
-            perform_sync(request_senders[0].clone(), SyncDirection::Backward([0; 32])).await;
+        let blocks = perform_sync(
+            request_senders[0].clone(),
+            SyncDirection::Backward(HeaderId::from([0; 32])),
+        )
+        .await;
 
         assert_eq!(blocks.len(), MSG_COUNT);
 
