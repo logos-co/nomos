@@ -17,7 +17,6 @@ pub struct SwarmConfig {
     pub gossipsub_config: gossipsub::Config,
     // Enable memory transport
     pub enable_memory_transport: bool,
-
 }
 
 impl Default for SwarmConfig {

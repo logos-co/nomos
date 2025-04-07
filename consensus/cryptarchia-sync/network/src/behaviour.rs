@@ -1,10 +1,5 @@
 use std::task::{Context, Poll};
 
-use crate::{
-    membership,
-    sync_incoming::{read_request_from_stream, send_response_to_peer},
-    sync_outgoing::sync_after_requesting_tips,
-};
 use cryptarchia_engine::Slot;
 use futures::{
     future::BoxFuture,
@@ -24,9 +19,16 @@ use tokio::sync::mpsc::{self, Sender, UnboundedSender};
 use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 use tracing::{error, info};
 
+use crate::{
+    membership,
+    sync_incoming::{read_request_from_stream, send_response_to_peer},
+    sync_outgoing::sync_after_requesting_tips,
+};
+
 pub const SYNC_PROTOCOL: StreamProtocol = StreamProtocol::new("/nomos/cryptarchia/0.1.0/sync");
 
-// Not sure what the right value should be. But it seems reasonable to have some limit.
+// Not sure what the right value should be. But it seems reasonable to have some
+// limit.
 const MAX_INCOMING_SYNCS: usize = 5;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]

@@ -1,7 +1,6 @@
 use cryptarchia_engine::Slot;
 use futures::Stream;
-use nomos_core::block::AbstractBlock;
-use nomos_core::header::HeaderId;
+use nomos_core::{block::AbstractBlock, header::HeaderId};
 
 #[async_trait::async_trait]
 pub trait CryptarchiaAdapter {

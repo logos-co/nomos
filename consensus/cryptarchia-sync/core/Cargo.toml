@@ -9,6 +9,7 @@ async-trait        = "0.1"
 cryptarchia-engine = { workspace = true }
 futures            = "0.3"
 itertools          = "0.14"
+lazy_static        = "1.4"
 nomos-core         = { workspace = true }
 serde              = "1"
 thiserror          = "2"

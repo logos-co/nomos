@@ -8,8 +8,7 @@ use std::{
 use adapter::{CryptarchiaAdapter, CryptarchiaAdapterError, NetworkAdapter};
 use futures::{Stream, StreamExt};
 use itertools::Itertools;
-use nomos_core::block::AbstractBlock;
-use nomos_core::header::HeaderId;
+use nomos_core::{block::AbstractBlock, header::HeaderId};
 use tracing::info;
 
 pub struct Synchronization<Cryptarchia, Network, Block> {
@@ -585,7 +584,7 @@ mod tests {
     }
 
     impl MockBlock {
-        fn new(id: HeaderId, parent: HeaderId, slot: Slot, is_valid: bool) -> Self {
+        const fn new(id: HeaderId, parent: HeaderId, slot: Slot, is_valid: bool) -> Self {
             Self {
                 id,
                 parent,

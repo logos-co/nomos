@@ -1,8 +1,8 @@
-use crate::{NomosDaMembership, Tx, Wire, MB16};
 use cryptarchia_consensus::CryptarchiaConsensus;
 use kzgrs_backend::{common::share::DaShare, dispersal::BlobInfo};
-use nomos_core::block::Block;
-use nomos_core::{da::blob::info::DispersedBlobInfo, header::HeaderId, tx::Transaction};
+use nomos_core::{
+    block::Block, da::blob::info::DispersedBlobInfo, header::HeaderId, tx::Transaction,
+};
 use nomos_da_indexer::consensus::adapters::cryptarchia::CryptarchiaConsensusAdapter;
 use nomos_da_sampling::{api::http::HttApiAdapter, backend::kzgrs::KzgrsSamplingBackend};
 use nomos_da_verifier::backend::kzgrs::KzgrsDaVerifier;
@@ -10,6 +10,8 @@ use nomos_mempool::backend::mockpool::MockPool;
 use nomos_storage::backends::rocksdb::RocksBackend;
 use nomos_time::backends::system_time::SystemTimeBackend;
 use rand_chacha::ChaCha20Rng;
+
+use crate::{NomosDaMembership, Tx, Wire, MB16};
 
 pub type TxMempoolService<RuntimeServiceId> = nomos_mempool::TxMempoolService<
     nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
