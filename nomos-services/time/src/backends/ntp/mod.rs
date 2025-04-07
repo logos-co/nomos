@@ -1,4 +1,6 @@
-mod async_client;
+pub mod async_client;
+#[cfg(feature = "testutils")]
+pub mod testutils;
 
 use std::{
     num::NonZero,
@@ -27,11 +29,12 @@ use crate::{
 
 #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct NtpSettings {
+#[derive(Clone, Debug)]
+pub struct NtpTimeBackendSettings {
     /// Ntp server address
     pub ntp_server: String,
     /// Ntp server settings
-    pub ntpclient_settings: NTPClientSettings,
+    pub ntp_client_settings: NTPClientSettings,
     /// Interval for the backend to contact the ntp server and update its time
     #[cfg_attr(feature = "serde", serde_as(as = "MinimalBoundedDuration<1, NANO>"))]
     pub update_interval: Duration,
@@ -42,16 +45,18 @@ pub struct NtpSettings {
     /// Base period length related to epochs, used to compute epochs as well
     pub base_period_length: NonZero<u64>,
 }
-pub struct Ntp {
-    settings: NtpSettings,
+
+#[derive(Clone, Debug)]
+pub struct NtpTimeBackend {
+    settings: NtpTimeBackendSettings,
     client: AsyncNTPClient,
 }
 
-impl TimeBackend for Ntp {
-    type Settings = NtpSettings;
+impl TimeBackend for NtpTimeBackend {
+    type Settings = NtpTimeBackendSettings;
 
     fn init(settings: Self::Settings) -> Self {
-        let client = AsyncNTPClient::new(settings.ntpclient_settings);
+        let client = AsyncNTPClient::new(settings.ntp_client_settings);
         Self { settings, client }
     }
 
