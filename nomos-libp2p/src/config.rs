@@ -288,22 +288,17 @@ impl KademliaSettings {
     pub fn to_libp2p_config(&self, protocol_name: ProtocolName) -> kad::Config {
         let mut config = kad::Config::new(StreamProtocol::new(protocol_name.kad_protocol_name()));
 
-        // Apply only the settings that were specified
         if let Some(timeout) = self.query_timeout_secs {
             config.set_query_timeout(Duration::from_secs(timeout));
         }
 
-        if let Some(factor) = self.replication_factor {
-            if let Some(factor) = NonZeroUsize::new(factor) {
-                config.set_replication_factor(factor);
-            }
-        }
+        handle_non_zero(self.replication_factor, "Replication factor", |factor| {
+            config.set_replication_factor(factor);
+        });
 
-        if let Some(parallel) = self.parallelism {
-            if let Some(parallel) = NonZeroUsize::new(parallel) {
-                config.set_parallelism(parallel);
-            }
-        }
+        handle_non_zero(self.parallelism, "Parallelism", |parallel| {
+            config.set_parallelism(parallel);
+        });
 
         if let Some(disjoint) = self.disjoint_query_paths {
             config.disjoint_query_paths(disjoint);
@@ -349,6 +344,19 @@ impl KademliaSettings {
         }
 
         config
+    }
+}
+
+fn handle_non_zero<F>(value: Option<usize>, field_name: &str, f: F)
+where
+    F: FnOnce(NonZeroUsize),
+{
+    if let Some(val) = value {
+        if let Some(non_zero) = NonZeroUsize::new(val) {
+            f(non_zero);
+        } else {
+            tracing::warn!("{} value is 0, setting to default", field_name);
+        }
     }
 }
 

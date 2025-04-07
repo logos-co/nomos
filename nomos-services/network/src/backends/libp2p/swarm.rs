@@ -4,7 +4,7 @@ use nomos_libp2p::{
     gossipsub,
     libp2p::{
         identify,
-        kad::{self, PeerInfo, QueryId},
+        kad::{self, PeerInfo, ProgressStep, QueryId},
         swarm::ConnectionId,
     },
     BehaviourEvent, Multiaddr, PeerId, Protocol, Swarm, SwarmEvent,
@@ -18,6 +18,12 @@ use super::{
 };
 use crate::backends::libp2p::Libp2pInfo;
 
+// Define a struct to hold the data
+struct PendingQueryData {
+    sender: oneshot::Sender<Vec<PeerInfo>>,
+    accumulated_results: Vec<PeerInfo>,
+}
+
 pub struct SwarmHandler {
     pub swarm: Swarm,
     pub pending_dials: HashMap<ConnectionId, Dial>,
@@ -25,7 +31,7 @@ pub struct SwarmHandler {
     pub commands_rx: mpsc::Receiver<Command>,
     pub events_tx: broadcast::Sender<Event>,
 
-    pending_queries: HashMap<QueryId, oneshot::Sender<Vec<PeerInfo>>>,
+    pending_queries: HashMap<QueryId, PendingQueryData>,
 }
 
 macro_rules! log_error {
@@ -224,7 +230,13 @@ impl SwarmHandler {
                 match self.swarm.get_closest_peers(peer_id) {
                     Ok(query_id) => {
                         tracing::debug!("Pending query ID: {query_id}");
-                        self.pending_queries.insert(query_id, reply);
+                        self.pending_queries.insert(
+                            query_id,
+                            PendingQueryData {
+                                sender: reply,
+                                accumulated_results: Vec::new(),
+                            },
+                        );
                     }
                     Err(err) => {
                         tracing::warn!(
@@ -382,8 +394,10 @@ impl SwarmHandler {
 
     pub fn handle_kademlia_event(&mut self, event: kad::Event) {
         match event {
-            kad::Event::OutboundQueryProgressed { id, result, .. } => {
-                self.handle_query_progress(id, result);
+            kad::Event::OutboundQueryProgressed {
+                id, result, step, ..
+            } => {
+                self.handle_query_progress(id, result, &step);
             }
             kad::Event::RoutingUpdated {
                 peer,
@@ -400,17 +414,29 @@ impl SwarmHandler {
         }
     }
 
-    fn handle_query_progress(&mut self, id: QueryId, result: kad::QueryResult) {
+    fn handle_query_progress(
+        &mut self,
+        id: QueryId,
+        result: kad::QueryResult,
+        step: &ProgressStep,
+    ) {
         match result {
             kad::QueryResult::GetClosestPeers(Ok(result)) => {
-                if let Some(sender) = self.pending_queries.remove(&id) {
-                    let _ = sender.send(result.peers);
+                if let Some(query_data) = self.pending_queries.get_mut(&id) {
+                    query_data.accumulated_results.extend(result.peers);
+
+                    if step.last {
+                        if let Some(query_data) = self.pending_queries.remove(&id) {
+                            let _ = query_data.sender.send(query_data.accumulated_results);
+                        }
+                    }
                 }
             }
             kad::QueryResult::GetClosestPeers(Err(err)) => {
                 tracing::warn!("Failed to find closest peers: {:?}", err);
-                if let Some(sender) = self.pending_queries.remove(&id) {
-                    let _ = sender.send(Vec::new());
+                // For errors, we should probably just send what we have so far
+                if let Some(query_data) = self.pending_queries.remove(&id) {
+                    let _ = query_data.sender.send(query_data.accumulated_results);
                 }
             }
             _ => {
