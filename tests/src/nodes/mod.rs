@@ -1,15 +1,14 @@
 pub mod executor;
 pub mod validator;
 
-use std::ops::Range;
+use std::{ops::Range, sync::LazyLock};
 
-use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 
 const LOGS_PREFIX: &str = "__logs";
-static CLIENT: Lazy<Client> = Lazy::new(Client::new);
+static CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
 
 fn create_tempdir() -> std::io::Result<TempDir> {
     // It's easier to use the current location instead of OS-default tempfile

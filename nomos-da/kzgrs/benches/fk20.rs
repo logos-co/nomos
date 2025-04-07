@@ -1,4 +1,4 @@
-use std::hint::black_box;
+use std::{hint::black_box, sync::LazyLock};
 
 use ark_bls12_381::{Bls12_381, Fr};
 use ark_poly::{univariate::DensePolynomial, EvaluationDomain, GeneralEvaluationDomain};
@@ -9,7 +9,6 @@ use kzgrs::{
     fk20::{fk20_batch_generate_elements_proofs, Toeplitz1Cache},
     GlobalParameters, BYTES_PER_FIELD_ELEMENT,
 };
-use once_cell::sync::Lazy;
 use rand::SeedableRng;
 #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -18,7 +17,7 @@ fn main() {
     divan::main();
 }
 
-static GLOBAL_PARAMETERS: Lazy<GlobalParameters> = Lazy::new(|| {
+static GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new(|| {
     let mut rng = rand::rngs::StdRng::seed_from_u64(1987);
     KZG10::<Bls12_381, DensePolynomial<Fr>>::setup(4096, true, &mut rng).unwrap()
 });

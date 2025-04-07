@@ -69,6 +69,10 @@ impl Header {
         self.slot
     }
 
+    #[expect(
+        clippy::missing_const_for_fn,
+        reason = "Using `Deref` which is not const."
+    )]
     #[must_use]
     pub fn orphaned_proofs(&self) -> &[Self] {
         &self.orphaned_leader_proofs

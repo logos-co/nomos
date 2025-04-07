@@ -344,7 +344,7 @@ impl nomos_core::da::DaEncoder for DaEncoder {
 
 #[cfg(test)]
 pub mod test {
-    use std::ops::Div;
+    use std::{ops::Div, sync::LazyLock};
 
     use ark_ff::PrimeField;
     use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
@@ -354,7 +354,6 @@ pub mod test {
         PolynomialEvaluationDomain, BYTES_PER_FIELD_ELEMENT,
     };
     use nomos_core::da::DaEncoder as _;
-    use once_cell::sync::Lazy;
     use rand::RngCore;
 
     use crate::{
@@ -363,9 +362,9 @@ pub mod test {
     };
 
     pub static DOMAIN_SIZE: usize = 16;
-    pub static PARAMS: Lazy<DaEncoderParams> =
-        Lazy::new(|| DaEncoderParams::default_with(DOMAIN_SIZE));
-    pub static ENCODER: Lazy<DaEncoder> = Lazy::new(|| DaEncoder::new(PARAMS.clone()));
+    pub static PARAMS: LazyLock<DaEncoderParams> =
+        LazyLock::new(|| DaEncoderParams::default_with(DOMAIN_SIZE));
+    pub static ENCODER: LazyLock<DaEncoder> = LazyLock::new(|| DaEncoder::new(PARAMS.clone()));
 
     #[must_use]
     pub fn rand_data(elements_count: usize) -> Vec<u8> {

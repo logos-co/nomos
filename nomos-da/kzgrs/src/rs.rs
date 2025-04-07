@@ -93,9 +93,10 @@ pub fn points_to_bytes<const CHUNK_SIZE: usize>(points: &[Fr]) -> Vec<u8> {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use ark_bls12_381::Fr;
     use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
-    use once_cell::sync::Lazy;
     use rand::{thread_rng, Fill};
 
     use crate::{
@@ -104,8 +105,8 @@ mod test {
     };
 
     const COEFFICIENTS_SIZE: usize = 32;
-    static DOMAIN: Lazy<GeneralEvaluationDomain<Fr>> =
-        Lazy::new(|| GeneralEvaluationDomain::new(COEFFICIENTS_SIZE).unwrap());
+    static DOMAIN: LazyLock<GeneralEvaluationDomain<Fr>> =
+        LazyLock::new(|| GeneralEvaluationDomain::new(COEFFICIENTS_SIZE).unwrap());
 
     #[test]
     fn test_encode_decode() {

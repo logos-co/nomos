@@ -325,7 +325,7 @@ where
         } else {
             // There is no pending request, so just idle the stream
             idle_streams.insert(stream.peer_id, stream);
-        };
+        }
     }
 
     /// Get a pending request if its available

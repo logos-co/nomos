@@ -39,7 +39,7 @@ pub fn generate_element_proof(
     let u = domain.element(element_index);
     if u.is_zero() {
         return Err(KzgRsError::DivisionByZeroPolynomial);
-    };
+    }
 
     // Instead of evaluating over the polynomial, we can reuse the evaluation points
     // from the rs encoding let v = polynomial.evaluate(&u);
@@ -76,12 +76,13 @@ pub fn verify_element_proof(
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use ark_bls12_381::{Bls12_381, Fr};
     use ark_poly::{
         univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, GeneralEvaluationDomain,
     };
     use ark_poly_commit::kzg10::{UniversalParams, KZG10};
-    use once_cell::sync::Lazy;
     use rand::{thread_rng, Fill};
     use rayon::{
         iter::{IndexedParallelIterator, ParallelIterator},
@@ -94,7 +95,7 @@ mod test {
     };
 
     const COEFFICIENTS_SIZE: usize = 16;
-    static GLOBAL_PARAMETERS: Lazy<UniversalParams<Bls12_381>> = Lazy::new(|| {
+    static GLOBAL_PARAMETERS: LazyLock<UniversalParams<Bls12_381>> = LazyLock::new(|| {
         let mut rng = rand::thread_rng();
         KZG10::<Bls12_381, DensePolynomial<Fr>>::setup(
             crate::kzg::test::COEFFICIENTS_SIZE - 1,
@@ -104,8 +105,8 @@ mod test {
         .unwrap()
     });
 
-    static DOMAIN: Lazy<GeneralEvaluationDomain<Fr>> =
-        Lazy::new(|| GeneralEvaluationDomain::new(COEFFICIENTS_SIZE).unwrap());
+    static DOMAIN: LazyLock<GeneralEvaluationDomain<Fr>> =
+        LazyLock::new(|| GeneralEvaluationDomain::new(COEFFICIENTS_SIZE).unwrap());
     #[test]
     fn test_poly_commit() {
         let poly = DensePolynomial::from_coefficients_vec((0..10).map(Fr::from).collect());

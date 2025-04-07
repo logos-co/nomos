@@ -189,7 +189,7 @@ pub fn update_tracing(
             LoggerLayerType::Stdout => LoggerLayer::Stdout,
             LoggerLayerType::Stderr => LoggerLayer::Stderr,
         }
-    };
+    }
 
     if let Some(level_str) = level {
         tracing.level = match level_str.as_str() {

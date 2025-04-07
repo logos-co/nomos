@@ -4,4 +4,7 @@
 # * shell.nix
 # * ci/Dockerfile
 # * testnet/Dockerfile
-channel = "1.85.1"
+# Also, update the version of the nightly toolchain to the latest nightly of the new version specified in the following places:
+# * workflows/code-check.yml (fmt job)
+# * .pre-commit-config.yml (fmt hook)
+channel = "1.86.0"

@@ -47,18 +47,17 @@ pub mod serde {
         deserializer: D,
     ) -> Result<[u8; N], D::Error> {
         use serde::Deserialize;
-        <&[u8]>::deserialize(deserializer).and_then(|bytes| {
-            if bytes.len() == N {
-                let mut output = [0u8; N];
-                output.copy_from_slice(bytes);
-                Ok(output)
-            } else {
-                Err(<D::Error as serde::de::Error>::invalid_length(
-                    bytes.len(),
-                    &format!("{N}").as_str(),
-                ))
-            }
-        })
+        let bytes = <&[u8]>::deserialize(deserializer)?;
+        if bytes.len() == N {
+            let mut output = [0u8; N];
+            output.copy_from_slice(bytes);
+            Ok(output)
+        } else {
+            Err(<D::Error as serde::de::Error>::invalid_length(
+                bytes.len(),
+                &format!("{N}").as_str(),
+            ))
+        }
     }
 
     pub fn deserialize_bytes_array<'de, const N: usize, D: serde::Deserializer<'de>>(

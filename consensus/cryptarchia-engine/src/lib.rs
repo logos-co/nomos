@@ -229,15 +229,14 @@ where
 
     pub fn get_security_block_header_id(&self) -> Option<Id> {
         (0..self.config.security_param.get()).try_fold(self.tip(), |header, _| {
-            self.branches.get(&header).and_then(|branch| {
-                let parent = branch.parent;
-                if header == parent {
-                    // If the header is the genesis block, we arrived at the end of the chain
-                    None
-                } else {
-                    Some(parent)
-                }
-            })
+            let branch = self.branches.get(&header)?;
+            let parent = branch.parent;
+            if header == parent {
+                // If the header is the genesis block, we arrived at the end of the chain
+                None
+            } else {
+                Some(parent)
+            }
         })
     }
 }

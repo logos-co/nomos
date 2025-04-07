@@ -56,7 +56,7 @@ impl BlendMessage for MockBlendMessage {
         // Append payload with padding
         message.extend(payload);
         message.push(PAYLOAD_PADDING_SEPARATOR);
-        message.extend(std::iter::repeat(0).take(MAX_PAYLOAD_SIZE - payload.len()));
+        message.extend(std::iter::repeat_n(0, MAX_PAYLOAD_SIZE - payload.len()));
         Ok(message)
     }
 

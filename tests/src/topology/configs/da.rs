@@ -3,6 +3,7 @@ use std::{
     env,
     path::PathBuf,
     str::FromStr,
+    sync::LazyLock,
     time::Duration,
 };
 
@@ -12,12 +13,11 @@ use nomos_da_network_core::swarm::{
 };
 use nomos_libp2p::{ed25519, Multiaddr, PeerId};
 use nomos_node::NomosDaMembership;
-use once_cell::sync::Lazy;
 use subnetworks_assignations::MembershipHandler;
 
 use crate::{get_available_port, secret_key_to_peer_id};
 
-pub static GLOBAL_PARAMS_PATH: Lazy<String> = Lazy::new(|| {
+pub static GLOBAL_PARAMS_PATH: LazyLock<String> = LazyLock::new(|| {
     let relative_path = "./kzgrs/kzgrs_test_params";
     let current_dir = env::current_dir().expect("Failed to get current directory");
     current_dir

@@ -55,7 +55,7 @@ impl<RuntimeServiceId> NetworkAdapter<RuntimeServiceId> for MockAdapter<RuntimeS
             .await
         {
             panic!("Couldn't send subscribe message to the network service: {e}",);
-        };
+        }
         Self { network_relay }
     }
 
@@ -72,7 +72,7 @@ impl<RuntimeServiceId> NetworkAdapter<RuntimeServiceId> for MockAdapter<RuntimeS
             .await
         {
             tracing::error!(err = ?e);
-        };
+        }
 
         let receiver = receiver.await.unwrap();
         Box::new(Box::pin(BroadcastStream::new(receiver).filter_map(
