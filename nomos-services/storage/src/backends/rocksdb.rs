@@ -136,7 +136,10 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
         Ok(values)
     }
 
-    async fn load_range(&self, prefix: &[u8], start: &[u8]) -> Result<Self::Iterator, Self::Error> {
+    async fn scan_range(&self, prefix: &[u8], start: &[u8]) -> Result<Self::Iterator, Self::Error> {
+        // Returns just an wrapper of Arc<DB> instead of a real iterator,
+        // because of the design of rocksdb API and borrow checker.
+        // An iterator can be created by the returned [`RocksIterator`].
         Ok(RocksIterator::new(
             Arc::clone(&self.rocks),
             prefix.to_vec(),
@@ -180,20 +183,20 @@ impl<'a> RocksIterator<'a> {
         }
     }
 
+    /// Open a stream of values in the range of the iterator.
+    /// The stream operate on a consistent snapshot of the DB
+    /// taken at the moment the stream is created.
+    /// Any updates made after the stream is created won't be visible
+    /// to that stream.
     #[must_use]
     pub fn stream(&'a self) -> BoxStream<'a, Result<Bytes, Error>> {
-        // An iterator operate on a consistent snapshot of the DB
-        // taken at the moment the iterator is created.
-        // Any updates made after the iterator is created won't be visible to that
-        // iterator.
         let iter = self.rocks.snapshot().iterator(rocksdb::IteratorMode::From(
             &[self.prefix.as_slice(), self.start.as_slice()].concat(),
             rocksdb::Direction::Forward,
         ));
-        let prefix = self.prefix.clone();
         let stream = futures::stream::iter(
             iter.take_while(
-                move |result| matches!(result, Ok((key, _)) if key.starts_with(&prefix)),
+                move |result| matches!(result, Ok((key, _)) if key.starts_with(&self.prefix)),
             )
             .map(move |result| match result {
                 Ok((_, value)) => Ok(Bytes::from(value.to_vec())),
@@ -349,7 +352,7 @@ mod test {
             .unwrap();
 
         // Test 1: Basic range scan within prefix
-        let iterator = db.load_range(b"prefix1/", b"b").await.unwrap();
+        let iterator = db.scan_range(b"prefix1/", b"b").await.unwrap();
         let mut stream = iterator.stream();
         let mut values = Vec::new();
         while let Some(result) = stream.next().await {
@@ -360,7 +363,7 @@ mod test {
         assert_eq!(values[1], b"v3".as_ref());
 
         // Test 2: Snapshot isolation
-        let iterator = db.load_range(b"prefix1/", b"b").await.unwrap();
+        let iterator = db.scan_range(b"prefix1/", b"b").await.unwrap();
         let mut stream = iterator.stream();
         // Add new data after creating stream.
         // This should not appear in the stream.
@@ -376,12 +379,12 @@ mod test {
         assert_eq!(values[1], b"v3".as_ref());
 
         // Test 3: Empty range
-        let iterator = db.load_range(b"prefix3/", b"a").await.unwrap();
+        let iterator = db.scan_range(b"prefix3/", b"a").await.unwrap();
         let mut stream = iterator.stream();
         assert_eq!(stream.next().await, None);
 
         // Test 4: Start from the prefix that is not the first prefix in the DB
-        let iterator = db.load_range(b"prefix2/", b"").await.unwrap();
+        let iterator = db.scan_range(b"prefix2/", b"").await.unwrap();
         let mut stream = iterator.stream();
         let mut values = Vec::new();
         while let Some(result) = stream.next().await {
@@ -392,7 +395,7 @@ mod test {
         assert_eq!(values[1], b"v5".as_ref());
 
         // Test 5: Start position beyond available data
-        let iterator = db.load_range(b"prefix1/", b"z").await.unwrap();
+        let iterator = db.scan_range(b"prefix1/", b"z").await.unwrap();
         let mut stream = iterator.stream();
         assert_eq!(stream.next().await, None);
     }

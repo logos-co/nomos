@@ -48,10 +48,8 @@ pub trait StorageBackend: Sized {
     async fn load(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error>;
     /// Loads all values whose keys start with the given prefix.
     async fn load_prefix(&mut self, prefix: &[u8]) -> Result<Vec<Bytes>, Self::Error>;
-
-    /// Returns a stream of values in a given key range
-    async fn load_range(&self, prefix: &[u8], start: &[u8]) -> Result<Self::Iterator, Self::Error>;
-
+    /// Returns an iterator of values in a given key range
+    async fn scan_range(&self, prefix: &[u8], start: &[u8]) -> Result<Self::Iterator, Self::Error>;
     async fn remove(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error>;
     /// Execute a transaction in the current backend
     async fn execute(
