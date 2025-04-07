@@ -1,29 +1,35 @@
-use crate::network::SyncRequest;
+use std::{
+    hash::Hash,
+    marker::PhantomData,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
+
 use bytes::Bytes;
-use cryptarchia_engine::Slot;
-use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
-use cryptarchia_sync_network::SyncRequestKind;
-use nomos_core::block::AbstractBlock;
-use nomos_core::wire;
-use nomos_storage::backends::StorageBackend;
-use nomos_storage::{StorageMsg, StorageService};
-use overwatch::services::relay::OutboundRelay;
-use overwatch::services::ServiceData;
-use overwatch::DynError;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
-use std::hash::Hash;
-use std::marker::PhantomData;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use tokio::runtime::Handle;
-use tokio::sync::mpsc::Sender;
-use tokio::sync::oneshot;
-use tokio::time::{sleep, Duration};
+use cryptarchia_sync_network::{behaviour::BehaviourSyncReply, SyncRequestKind};
+use nomos_core::{block::AbstractBlock, wire};
+use nomos_storage::{backends::StorageBackend, ScanResult, StorageMsg, StorageService};
+use overwatch::{
+    services::{relay::OutboundRelay, ServiceData},
+    DynError,
+};
+use serde::{de::DeserializeOwned, Serialize};
+use tokio::{
+    runtime::Handle,
+    sync::{mpsc::Sender, oneshot},
+    time::{sleep, Duration},
+};
 use tracing::info;
+
+use crate::{network::SyncRequest, storage::BLOCK_INDEX_PREFIX};
 
 const MAX_CONCURRENT_REQUESTS: usize = 1;
 const BLOCK_SEND_DELAY_MS: u64 = 50;
+
+type StorageRelay<Storage, RuntimeServiceId> =
+    OutboundRelay<<StorageService<Storage, RuntimeServiceId> as ServiceData>::Message>;
 
 pub struct SyncBlocksProvider<
     Storage: StorageBackend + Send + Sync + 'static,
@@ -100,33 +106,27 @@ where
         let storage_relay = self.storage_relay.clone();
         let in_progress_requests = Arc::clone(&self.in_progress_requests);
         self.runtime.spawn(async move {
-            let mut epoch = 0;
-            loop {
-                let prefix = format!("blocks_epoch_{epoch}").into_bytes().into();
-                info!("Loading blocks from epoch: {:?}", epoch);
-                match Self::load_prefix(&storage_relay, prefix).await {
-                    Ok(blocks) => {
-                        if blocks.is_empty() {
-                            tracing::debug!("No more blocks found for epoch {}", epoch);
-                            break;
-                        }
-
-                        for block in blocks {
-                            let block: Block =
-                                wire::deserialize(&block).expect("Deserialization failed");
-                            if block.slot() >= Slot::from(slot)
-                                && Self::send_block(&block, &reply_channel).await.is_err()
-                            {
+            match Self::get_blocks_from_slot(&storage_relay, slot).await {
+                Ok(mut block_receiver) => {
+                    while let Some(result) = block_receiver.recv().await {
+                        match result {
+                            Ok((_key, value)) => {
+                                let block: Block =
+                                    wire::deserialize(&value).expect("Deserialization failed");
+                                if Self::send_block(&block, &reply_channel).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to process block: {}", e);
                                 break;
                             }
                         }
                     }
-                    Err(e) => {
-                        tracing::error!("Failed to load prefix: {}", e);
-                        break;
-                    }
                 }
-                epoch += 1;
+                Err(e) => {
+                    tracing::error!("Failed to load prefix: {}", e);
+                }
             }
             in_progress_requests.fetch_sub(1, Ordering::SeqCst);
         });
@@ -187,21 +187,24 @@ where
         Ok(())
     }
 
-    async fn load_prefix(
-        storage_relay: &OutboundRelay<
-            <StorageService<Storage, RuntimeServiceId> as ServiceData>::Message,
-        >,
-        prefix: Bytes,
-    ) -> Result<Vec<Bytes>, DynError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
+    async fn get_blocks_from_slot(
+        storage_relay: &StorageRelay<Storage, RuntimeServiceId>,
+        slot: u64,
+    ) -> Result<tokio::sync::mpsc::Receiver<ScanResult<Storage>>, DynError> {
+        let prefix = Bytes::copy_from_slice(BLOCK_INDEX_PREFIX);
+        let start = Bytes::copy_from_slice(&slot.to_be_bytes());
+        let (msg, receiver) = StorageMsg::new_scan_range_message(prefix, start);
         storage_relay
-            .send(StorageMsg::LoadPrefix {
-                prefix,
-                reply_channel: reply_tx,
-            })
+            .send(msg)
             .await
             .map_err(|(e, _)| Box::new(e) as DynError)?;
-        reply_rx.await.map_err(|e| Box::new(e) as DynError)
+
+        let result_receiver = receiver
+            .into_inner()
+            .await
+            .map_err(|e| Box::new(e) as DynError)?;
+
+        Ok(result_receiver)
     }
 
     async fn load_block(

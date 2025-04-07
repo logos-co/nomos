@@ -7,21 +7,11 @@ mod states;
 pub mod storage;
 mod sync;
 
-use crate::network::SyncRequest;
-use crate::storage::sync::SyncBlocksProvider;
-use crate::{
-    leadership::Leader,
-    relays::CryptarchiaConsensusRelays,
-    states::{
-        CryptarchiaConsensusState, CryptarchiaInitialisationStrategy, GenesisRecoveryStrategy,
-        SecurityRecoveryStrategy,
-    },
-    storage::{adapters::StorageAdapter, StorageAdapter as _},
-};
 use core::fmt::Debug;
+use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
+
 use cryptarchia_engine::Slot;
-use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
-use cryptarchia_sync_network::SyncRequestKind;
+use cryptarchia_sync_network::{behaviour::BehaviourSyncReply, SyncRequestKind};
 use futures::StreamExt;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
@@ -60,12 +50,24 @@ use serde_with::serde_as;
 use services_utils::overwatch::{
     lifecycle, recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator,
 };
-use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 use sync::CryptarchiaSyncAdapter;
 use thiserror::Error;
 use tokio::sync::{broadcast, oneshot, oneshot::Sender};
 use tracing::{error, info, instrument, span, Level};
 use tracing_futures::Instrument;
+
+use crate::{
+    leadership::Leader,
+    network::SyncRequest,
+    relays::CryptarchiaConsensusRelays,
+    states::{
+        CryptarchiaConsensusState, CryptarchiaInitialisationStrategy, GenesisRecoveryStrategy,
+        SecurityRecoveryStrategy,
+    },
+    storage::{
+        adapters::StorageAdapter, sync::SyncBlocksProvider, StorageAdapter as _, BLOCK_INDEX_PREFIX,
+    },
+};
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
 type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
@@ -1400,7 +1402,7 @@ where
 
         // Build a key: "block/slot/{slot}/id/{id}"
         let mut key = Vec::with_capacity(11 + 8 + 4 + 32);
-        key.extend_from_slice(b"block/slot/");
+        key.extend_from_slice(BLOCK_INDEX_PREFIX);
         key.extend_from_slice(&slot.to_be_bytes());
         key.extend_from_slice(b"/id/");
         key.extend_from_slice(&id);
