@@ -31,7 +31,10 @@ use nomos_mempool::{
     MempoolMsg, TxMempoolService,
 };
 use nomos_network::NetworkService;
-use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
+use nomos_storage::{
+    backends::{StorageBackend, StorageSerde},
+    StorageMsg, StorageService,
+};
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
     services::{
@@ -1338,8 +1341,10 @@ where
     ) -> Result<(), RelayError> {
         let slot = block.header().slot();
         let id: [u8; 32] = block.header().id().into();
-        // TODO: add prefix to the key: "block/id/{id}"
-        let msg = <StorageMsg<_>>::new_store_message(id, block);
+        // TODO: Add prefix to the key: "block/id/{id}"
+        // TODO: Currently, using new_store_message to not break any existing code.
+        //       But it's better to use the raw `Store` message.
+        let msg = <StorageMsg<_>>::new_store_message(id, block.clone());
         relays
             .storage_adapter()
             .storage_relay
@@ -1353,7 +1358,12 @@ where
         key.extend_from_slice(&slot.to_be_bytes());
         key.extend_from_slice(b"/id/");
         key.extend_from_slice(&id);
-        let msg = <StorageMsg<_>>::new_store_message(key, id);
+        // TODO: Currently, storing the block as a value, but store the block ID
+        //       and update the corresponding code that scans blocks.
+        let msg = StorageMsg::Store {
+            key: key.into(),
+            value: <<Storage as StorageBackend>::SerdeOperator as StorageSerde>::serialize(block),
+        };
         relays
             .storage_adapter()
             .storage_relay
