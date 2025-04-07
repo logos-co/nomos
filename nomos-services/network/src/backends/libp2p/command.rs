@@ -1,3 +1,4 @@
+use cryptarchia_sync_network::behaviour::SyncDirection;
 use nomos_libp2p::{Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
@@ -21,7 +22,7 @@ pub enum Command {
         message: Box<[u8]>,
         retry_count: usize,
     },
-    Sync(u64, UnboundedSender<Vec<u8>>),
+    StartSync(SyncDirection, UnboundedSender<Vec<u8>>),
 }
 
 #[derive(Debug)]

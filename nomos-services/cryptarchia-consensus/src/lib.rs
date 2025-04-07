@@ -7,10 +7,21 @@ mod states;
 pub mod storage;
 mod sync;
 
+use crate::network::SyncRequest;
+use crate::storage::sync::SyncBlocksProvider;
+use crate::{
+    leadership::Leader,
+    relays::CryptarchiaConsensusRelays,
+    states::{
+        CryptarchiaConsensusState, CryptarchiaInitialisationStrategy, GenesisRecoveryStrategy,
+        SecurityRecoveryStrategy,
+    },
+    storage::{adapters::StorageAdapter, StorageAdapter as _},
+};
 use core::fmt::Debug;
-use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
-
 use cryptarchia_engine::Slot;
+use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
+use cryptarchia_sync_network::SyncRequestKind;
 use futures::StreamExt;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
@@ -49,21 +60,12 @@ use serde_with::serde_as;
 use services_utils::overwatch::{
     lifecycle, recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator,
 };
+use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 use sync::CryptarchiaSyncAdapter;
 use thiserror::Error;
 use tokio::sync::{broadcast, oneshot, oneshot::Sender};
 use tracing::{error, info, instrument, span, Level};
 use tracing_futures::Instrument;
-
-use crate::{
-    leadership::Leader,
-    relays::CryptarchiaConsensusRelays,
-    states::{
-        CryptarchiaConsensusState, CryptarchiaInitialisationStrategy, GenesisRecoveryStrategy,
-        SecurityRecoveryStrategy,
-    },
-    storage::{adapters::StorageAdapter, StorageAdapter as _},
-};
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
 type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
@@ -383,7 +385,7 @@ impl<
         RuntimeServiceId,
     >
 where
-    NetAdapter: NetworkAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = DaPool::Item>
+    NetAdapter: NetworkAdapter<RuntimeServiceId, Block = Block<ClPool::Item, DaPool::Item>>
         + cryptarchia_sync::adapter::NetworkAdapter<Block = Block<ClPool::Item, DaPool::Item>>
         + Clone
         + Send
@@ -558,6 +560,8 @@ where
         let tx_selector = TxS::new(transaction_selector_settings);
         let blob_selector = BS::new(blob_selector_settings);
 
+        let storage_relay = relays.storage_adapter().storage_relay.clone();
+
         let sync_adapter = CryptarchiaSyncAdapter::<
             NetAdapter,
             BlendAdapter,
@@ -584,13 +588,25 @@ where
             relays,
             self.block_subscription_sender.clone(),
         );
+
         // TODO: Uncomment this once it's ready.
         // let sync_adapter =
         //     cryptarchia_sync::Synchronization::run(sync_adapter,
         // &network_adapter).await?;
+
+        let sync_data_provider: SyncBlocksProvider<
+            Storage,
+            Block<ClPool::Item, DaPool::Item>,
+            RuntimeServiceId,
+        > = SyncBlocksProvider::new(
+            storage_relay,
+            self.service_state.overwatch_handle.runtime().clone(),
+        );
+
         let (mut cryptarchia, mut leader, relays) = sync_adapter.take();
 
         let mut incoming_blocks = network_adapter.blocks_stream().await?;
+        let mut incoming_sync_requests = network_adapter.sync_requests_stream().await?;
 
         let mut slot_timer = {
             let (sender, receiver) = oneshot::channel();
@@ -658,6 +674,9 @@ where
 
                     Some(msg) = self.service_state.inbound_relay.next() => {
                         Self::process_message(&cryptarchia, &self.block_subscription_sender, msg);
+                    }
+                    Some(msg) = incoming_sync_requests.next() => {
+                        Self::process_sync_request(&cryptarchia, &sync_data_provider, msg).await;
                     }
                     Some(msg) = lifecycle_stream.next() => {
                         if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
@@ -1015,6 +1034,33 @@ where
         );
     }
 
+    async fn process_sync_request(
+        cryptarchia: &Cryptarchia,
+        sync_data_provider: &SyncBlocksProvider<
+            Storage,
+            Block<ClPool::Item, DaPool::Item>,
+            RuntimeServiceId,
+        >,
+        request: SyncRequest,
+    ) {
+        match request.kind {
+            SyncRequestKind::Tip => {
+                request
+                    .reply_channel
+                    .send(BehaviourSyncReply::TipData(
+                        cryptarchia.tip_state().slot().into(),
+                    ))
+                    .await
+                    .unwrap_or_else(|_| {
+                        error!("Could not send tip data through channel");
+                    });
+            }
+            _ => {
+                sync_data_provider.process_sync_request(request);
+            }
+        }
+    }
+
     /// Retrieves the blocks in the range from `from` to `to` from the storage.
     /// Both `from` and `to` are included in the range.
     /// This is implemented here, and not as a method of `StorageAdapter`, to
@@ -1040,7 +1086,7 @@ where
     async fn get_blocks_in_range(
         from: HeaderId,
         to: HeaderId,
-        storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
+        storage_adapter: &StorageAdapter<Storage, Block<TxS::Tx, BS::BlobId>, RuntimeServiceId>,
     ) -> Vec<Block<ClPool::Item, DaPool::Item>> {
         // Due to the blocks traversal order, this yields `to..from` order
         let blocks = futures::stream::unfold(to, |header_id| async move {

@@ -12,7 +12,10 @@ use blake2::{
     Blake2b,
 };
 pub use config::{secret_key_serde, SwarmConfig};
-use cryptarchia_sync_network::membership::AllNeighbours;
+use cryptarchia_sync_network::{
+    behaviour::{SyncCommand, SyncDirection},
+    membership::AllNeighbours,
+};
 pub use libp2p::{
     self,
     core::upgrade,
@@ -22,10 +25,14 @@ pub use libp2p::{
     PeerId, SwarmBuilder, Transport,
 };
 use libp2p::{
+    core::transport::MemoryTransport,
     gossipsub::{Message, MessageId, TopicHash},
     swarm::ConnectionId,
 };
 pub use multiaddr::{multiaddr, Multiaddr, Protocol};
+use tokio::sync::mpsc::UnboundedSender;
+
+use crate::upgrade::Version;
 
 // TODO: Risc0 proofs are HUGE (220 Kb) and it's the only reason we need to have
 // this limit so large. Remove this once we transition to smaller proofs.
@@ -72,19 +79,63 @@ pub enum SwarmError {
 /// How long to keep a connection alive once it is idling.
 const IDLE_CONN_TIMEOUT: Duration = Duration::from_secs(300);
 impl Swarm {
-    /// Builds a [`Swarm`] configured for use with Nomos on top of a tokio
-    /// executor.
-    //
-    // TODO: define error types
+    /// Builds a [`Swarm`] configured for use with Nomos on top of a tokio executor.
     pub fn build(config: &SwarmConfig) -> Result<Self, Box<dyn Error>> {
         let keypair =
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
         let peer_id = PeerId::from(keypair.public());
         tracing::info!("libp2p peer_id:{}", peer_id);
 
-        // TODO: just a placeholder for now to make it compile
+        // TODO: needs to be implemented before starting testing with real nodes
+        // Have to read from config for now
         let membership = AllNeighbours::new();
-        let mut swarm = libp2p::SwarmBuilder::with_existing_identity(keypair)
+
+        let mut swarm = if config.enable_memory_transport {
+            Self::build_with_memory_transport(keypair, peer_id, config, membership)?
+        } else {
+            Self::build_with_quic_transport(keypair, peer_id, config, membership)?
+        };
+
+        if config.enable_memory_transport {
+            swarm.listen_on(format!("/memory/{}", config.port).parse().unwrap())?;
+        } else {
+            swarm.listen_on(Self::multiaddr(config.host, config.port))?;
+        }
+
+        Ok(Self { swarm })
+    }
+
+    fn build_with_memory_transport(
+        keypair: identity::Keypair,
+        peer_id: PeerId,
+        config: &SwarmConfig,
+        membership: AllNeighbours,
+    ) -> Result<libp2p::Swarm<Behaviour>, Box<dyn Error>> {
+        let transport = MemoryTransport::default()
+            .upgrade(Version::V1)
+            .authenticate(libp2p::plaintext::Config::new(&keypair))
+            .multiplex(libp2p::yamux::Config::default())
+            .timeout(Duration::from_secs(20))
+            .boxed();
+
+        Ok(libp2p::SwarmBuilder::with_existing_identity(keypair)
+            .with_tokio()
+            .with_other_transport(|_| transport)?
+            .with_dns()?
+            .with_behaviour(|_| {
+                Behaviour::new(peer_id, config.gossipsub_config.clone(), membership).unwrap()
+            })?
+            .with_swarm_config(|c| c.with_idle_connection_timeout(IDLE_CONN_TIMEOUT))
+            .build())
+    }
+
+    fn build_with_quic_transport(
+        keypair: identity::Keypair,
+        peer_id: PeerId,
+        config: &SwarmConfig,
+        membership: AllNeighbours,
+    ) -> Result<libp2p::Swarm<Behaviour>, Box<dyn Error>> {
+        Ok(libp2p::SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()
             .with_dns()?
@@ -92,11 +143,7 @@ impl Swarm {
                 Behaviour::new(peer_id, config.gossipsub_config.clone(), membership).unwrap()
             })?
             .with_swarm_config(|c| c.with_idle_connection_timeout(IDLE_CONN_TIMEOUT))
-            .build();
-
-        swarm.listen_on(Self::multiaddr(config.host, config.port))?;
-
-        Ok(Self { swarm })
+            .build())
     }
 
     /// Initiates a connection attempt to a peer
@@ -131,17 +178,21 @@ impl Swarm {
             .publish(gossipsub::IdentTopic::new(topic), message)
     }
 
-    // pub fn start_sync(&mut self, slot: u64, reply_channel:
-    // UnboundedSender<Vec<u8>>) {     self.swarm
-    //         .behaviour_mut()
-    //         .sync
-    //         .sync_request_channel()
-    //         .send(SyncCommand::StartForwardSync {
-    //             slot,
-    //             response_sender: reply_channel,
-    //         })
-    //         .expect("Failed to send sync request");
-    // }
+    pub fn start_sync(
+        &mut self,
+        direction: SyncDirection,
+        reply_channel: UnboundedSender<Vec<u8>>,
+    ) {
+        self.swarm
+            .behaviour_mut()
+            .sync
+            .sync_request_channel()
+            .send(SyncCommand::StartSync {
+                direction,
+                response_sender: reply_channel,
+            })
+            .expect("Failed to send sync request");
+    }
 
     /// Unsubscribes from a topic
     ///

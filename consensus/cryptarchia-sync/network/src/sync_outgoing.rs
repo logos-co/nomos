@@ -5,7 +5,7 @@ use futures::{
 use libp2p::PeerId;
 use libp2p_stream::Control;
 use tokio::{
-    sync::mpsc::Sender,
+    sync::mpsc::UnboundedSender,
     time::{timeout, Duration},
 };
 use tracing::{error, info};
@@ -73,16 +73,15 @@ pub async fn stream_blocks_from_peer(
     peer_id: PeerId,
     control: &mut Control,
     direction: SyncDirection,
-    slot: u64,
-    response_sender: Sender<Vec<u8>>,
+    response_sender: UnboundedSender<Vec<u8>>,
 ) -> Result<(), SyncError> {
     info!(peer_id = %peer_id, "Streaming blocks");
 
     let mut stream = sync_utils::open_stream(peer_id, control, SYNC_PROTOCOL).await?;
-    sync_utils::send_data(&mut stream, &SyncRequest::Sync { direction, slot }).await?;
+    sync_utils::send_data(&mut stream, &SyncRequest::Sync { direction }).await?;
 
     while let Ok(block) = sync_utils::receive_data(&mut stream).await {
-        if response_sender.send(block).await.is_err() {
+        if response_sender.send(block).is_err() {
             break;
         }
     }
@@ -108,8 +107,7 @@ pub fn sync_after_requesting_tips<Membership>(
     membership: Membership,
     local_peer_id: PeerId,
     direction: SyncDirection,
-    slot: u64,
-    response_sender: Sender<Vec<u8>>,
+    response_sender: UnboundedSender<Vec<u8>>,
 ) -> BoxFuture<'static, Result<(), SyncError>>
 where
     Membership: ConsensusMembershipHandler<Id = PeerId> + Clone + 'static + Send,
@@ -119,14 +117,7 @@ where
             select_best_peer_for_sync(control.clone(), membership, local_peer_id).await?;
 
         info!(peer_id = %best_peer, "Chosen peer for sync");
-        stream_blocks_from_peer(
-            best_peer,
-            &mut control.clone(),
-            direction,
-            slot,
-            response_sender,
-        )
-        .await
+        stream_blocks_from_peer(best_peer, &mut control.clone(), direction, response_sender).await
     }
     .boxed()
 }

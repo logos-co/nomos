@@ -3,6 +3,7 @@ use std::{
     hash::Hash,
 };
 
+use crate::http::DynError;
 use cryptarchia_consensus::{
     blend::adapters::libp2p::LibP2pAdapter as BlendAdapter,
     network::adapters::libp2p::LibP2pAdapter as ConsensusNetworkAdapter, ConsensusMsg,
@@ -10,6 +11,7 @@ use cryptarchia_consensus::{
 };
 use kzgrs_backend::dispersal::BlobInfo;
 use nomos_blend_service::network::libp2p::Libp2pAdapter as BlendNetworkAdapter;
+use nomos_core::block::Block;
 use nomos_core::{
     da::{
         blob::{self, select::FillSize as FillSizeWithBlobs},
@@ -28,8 +30,6 @@ use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::sync::oneshot;
 
-use crate::http::DynError;
-
 pub type Cryptarchia<
     Tx,
     SS,
@@ -45,7 +45,7 @@ pub type Cryptarchia<
     RuntimeServiceId,
     const SIZE: usize,
 > = CryptarchiaConsensus<
-    ConsensusNetworkAdapter<Tx, BlobInfo, RuntimeServiceId>,
+    ConsensusNetworkAdapter<Block<Tx, BlobInfo>, RuntimeServiceId>,
     BlendAdapter<BlendNetworkAdapter<RuntimeServiceId>, Tx, BlobInfo, RuntimeServiceId>,
     MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
     MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
