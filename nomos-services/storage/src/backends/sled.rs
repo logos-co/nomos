@@ -50,7 +50,9 @@ impl<SerdeOp> core::fmt::Debug for SledBackend<SerdeOp> {
 }
 
 #[async_trait]
-impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for SledBackend<SerdeOp> {
+impl<'a, SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend<'a>
+    for SledBackend<SerdeOp>
+{
     type Settings = SledBackendSettings;
     type Error = Error;
     type Transaction = SledTransaction;
@@ -101,7 +103,7 @@ mod test {
 
     #[tokio::test]
     async fn test_store_load_remove(
-    ) -> Result<(), <SledBackend<NoStorageSerde> as StorageBackend>::Error> {
+    ) -> Result<(), <SledBackend<NoStorageSerde> as StorageBackend<'static>>::Error> {
         let temp_path = TempDir::new().unwrap();
         let sled_settings = SledBackendSettings {
             db_path: temp_path.path().to_path_buf(),
@@ -122,8 +124,8 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_transaction() -> Result<(), <SledBackend<NoStorageSerde> as StorageBackend>::Error>
-    {
+    async fn test_transaction(
+    ) -> Result<(), <SledBackend<NoStorageSerde> as StorageBackend<'static>>::Error> {
         let temp_path = TempDir::new().unwrap();
 
         let sled_settings = SledBackendSettings {

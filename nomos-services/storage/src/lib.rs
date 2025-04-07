@@ -6,7 +6,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use backends::{StorageBackend, StorageSerde, StorageTransaction};
+use backends::{StorageBackend, StorageIterator, StorageSerde, StorageTransaction};
 use bytes::Bytes;
 use futures::StreamExt;
 use overwatch::{
@@ -34,6 +34,12 @@ pub enum StorageMsg<Backend: StorageBackend> {
         key: Bytes,
         value: Bytes,
     },
+    ScanRange {
+        prefix: Bytes,
+        start: Bytes,
+        reply_channel:
+            tokio::sync::oneshot::Sender<tokio::sync::mpsc::Receiver<ScanResult<Backend>>>,
+    },
     Remove {
         key: Bytes,
         reply_channel: tokio::sync::oneshot::Sender<Option<Bytes>>,
@@ -44,6 +50,8 @@ pub enum StorageMsg<Backend: StorageBackend> {
             tokio::sync::oneshot::Sender<<Backend::Transaction as StorageTransaction>::Result>,
     },
 }
+
+type ScanResult<Backend> = Result<(Bytes, Bytes), StorageServiceError<Backend>>;
 
 /// Reply channel for storage messages
 pub struct StorageReplyReceiver<T, Backend> {
@@ -147,6 +155,9 @@ impl<Backend: StorageBackend> Debug for StorageMsg<Backend> {
             Self::Store { key, value } => {
                 write!(f, "Store {{ {key:?}, {value:?}}}")
             }
+            Self::ScanRange { prefix, start, .. } => {
+                write!(f, "ScanRange {{ {prefix:?}, {start:?} }}")
+            }
             Self::Remove { key, .. } => {
                 write!(f, "Remove {{ {key:?} }}")
             }
@@ -158,7 +169,7 @@ impl<Backend: StorageBackend> Debug for StorageMsg<Backend> {
 /// Storage error
 /// Errors that may happen when performing storage operations
 #[derive(Debug, thiserror::Error)]
-enum StorageServiceError<Backend: StorageBackend> {
+pub enum StorageServiceError<Backend: StorageBackend> {
     #[error("Couldn't send a reply for operation `{operation}` with key [{key:?}]")]
     ReplyError { operation: String, key: Bytes },
     #[error("Storage backend error")]
@@ -184,6 +195,11 @@ impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
                 reply_channel,
             } => Self::handle_load_prefix(backend, prefix, reply_channel).await,
             StorageMsg::Store { key, value } => Self::handle_store(backend, key, value).await,
+            StorageMsg::ScanRange {
+                prefix,
+                start,
+                reply_channel,
+            } => Self::handle_scan_range(backend, prefix, start, reply_channel).await,
             StorageMsg::Remove { key, reply_channel } => {
                 Self::handle_remove(backend, key, reply_channel).await
             }
@@ -228,6 +244,42 @@ impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
             .send(result)
             .map_err(|_| StorageServiceError::ReplyError {
                 operation: "LoadPrefix".to_owned(),
+                key: prefix,
+            })
+    }
+
+    /// Handle scan range message
+    async fn handle_scan_range(
+        backend: &Backend,
+        prefix: Bytes,
+        start: Bytes,
+        reply_channel: tokio::sync::oneshot::Sender<
+            tokio::sync::mpsc::Receiver<ScanResult<Backend>>,
+        >,
+    ) -> Result<(), StorageServiceError<Backend>> {
+        let iterator = backend
+            .scan_range(&prefix, &start)
+            .await
+            .map_err(StorageServiceError::BackendError)?;
+
+        let (result_sender, result_receiver) = tokio::sync::mpsc::channel(1);
+        tokio::spawn(async move {
+            let mut stream = iterator.stream();
+            while let Some(result) = stream.next().await {
+                if result_sender
+                    .send(result.map_err(StorageServiceError::BackendError))
+                    .await
+                    .is_err()
+                {
+                    break; // Break if receiver is dropped
+                }
+            }
+        });
+
+        reply_channel
+            .send(result_receiver)
+            .map_err(|_| StorageServiceError::ReplyError {
+                operation: "ScanRange".to_owned(),
                 key: prefix,
             })
     }

@@ -7,7 +7,7 @@ pub use rocksdb::Error;
 use rocksdb::{Options, DB};
 use serde::{Deserialize, Serialize};
 
-use super::{StorageBackend, StorageSerde, StorageTransaction};
+use super::{StorageBackend, StorageIterator, StorageSerde, StorageTransaction};
 
 /// Rocks backend setting
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -69,7 +69,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
     type Settings = RocksBackendSettings;
     type Error = rocksdb::Error;
     type Transaction = Transaction;
-    type Iterator = RocksIterator<'static>;
+    type Iterator = RocksIterator;
     type SerdeOperator = SerdeOp;
 
     fn new(config: Self::Settings) -> Result<Self, Self::Error> {
@@ -165,23 +165,25 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
     }
 }
 
-pub struct RocksIterator<'a> {
+pub struct RocksIterator {
     rocks: Arc<DB>,
     prefix: Vec<u8>,
     start: Vec<u8>,
-    _marker: PhantomData<&'a ()>,
 }
 
-impl<'a> RocksIterator<'a> {
+impl RocksIterator {
     #[must_use]
     const fn new(rocks: Arc<DB>, prefix: Vec<u8>, start: Vec<u8>) -> Self {
         Self {
             rocks,
             prefix,
             start,
-            _marker: PhantomData,
         }
     }
+}
+
+impl StorageIterator for RocksIterator {
+    type Error = rocksdb::Error;
 
     /// Open a stream of values in the range of the iterator.
     /// The stream operate on a consistent snapshot of the DB
@@ -189,7 +191,7 @@ impl<'a> RocksIterator<'a> {
     /// Any updates made after the stream is created won't be visible
     /// to that stream.
     #[must_use]
-    pub fn stream(&'a self) -> BoxStream<'a, Result<(Bytes, Bytes), Error>> {
+    fn stream(&self) -> BoxStream<'_, Result<(Bytes, Bytes), Error>> {
         let iter = self.rocks.snapshot().iterator(rocksdb::IteratorMode::From(
             &[self.prefix.as_slice(), self.start.as_slice()].concat(),
             rocksdb::Direction::Forward,
