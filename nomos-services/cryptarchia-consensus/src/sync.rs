@@ -4,7 +4,7 @@ use std::{hash::Hash, marker::PhantomData};
 use cryptarchia_engine::Slot;
 use cryptarchia_sync::adapter::CryptarchiaAdapterError;
 use nomos_core::{
-    block::{AbstractBlock, Block},
+    block::Block,
     da::blob::{info::DispersedBlobInfo, metadata::Metadata as BlobMetadata, BlobSelect},
     header::HeaderId,
     tx::{Transaction, TxSelect},
@@ -412,7 +412,7 @@ where
             .slot()
     }
 
-    fn has_block(&self, id: &<Self::Block as AbstractBlock>::Id) -> bool {
+    fn has_block(&self, id: &HeaderId) -> bool {
         self.cryptarchia
             .as_ref()
             .expect("Cryptarchia shouldn't be in use")

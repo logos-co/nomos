@@ -15,10 +15,8 @@ use crate::{
 // TODO: Rename this to Block
 //       by renaming the existing Block to something else.
 pub trait AbstractBlock {
-    type Id: Eq + Hash + Copy + Debug;
-
-    fn id(&self) -> Self::Id;
-    fn parent(&self) -> Self::Id;
+    fn id(&self) -> HeaderId;
+    fn parent(&self) -> HeaderId;
     fn slot(&self) -> Slot;
 }
 
@@ -35,13 +33,11 @@ pub struct Block<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> {
 impl<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> AbstractBlock
     for Block<Tx, BlobCertificate>
 {
-    type Id = HeaderId;
-
-    fn id(&self) -> Self::Id {
+    fn id(&self) -> HeaderId {
         self.header().id()
     }
 
-    fn parent(&self) -> Self::Id {
+    fn parent(&self) -> HeaderId {
         self.header().parent()
     }
 

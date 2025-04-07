@@ -9,6 +9,7 @@ use adapter::{CryptarchiaAdapter, CryptarchiaAdapterError, NetworkAdapter};
 use futures::{Stream, StreamExt};
 use itertools::Itertools;
 use nomos_core::block::AbstractBlock;
+use nomos_core::header::HeaderId;
 use tracing::info;
 
 pub struct Synchronization<Cryptarchia, Network, Block> {
@@ -18,7 +19,6 @@ pub struct Synchronization<Cryptarchia, Network, Block> {
 impl<Cryptarchia, Network, Block> Synchronization<Cryptarchia, Network, Block>
 where
     Block: AbstractBlock + Send,
-    Block::Id: Send + Sync,
     Cryptarchia: CryptarchiaAdapter<Block = Block> + Sync + Send,
     Network: NetworkAdapter<Block = Block> + Sync,
 {
@@ -111,9 +111,9 @@ where
     /// During backfilling, the fork choice rule is continuously applied.
     async fn backfill_fork(
         cryptarchia: &mut Cryptarchia,
-        tip: Block::Id,
+        tip: HeaderId,
         network: &Network,
-    ) -> Result<(), (CryptarchiaAdapterError, Vec<Block::Id>)> {
+    ) -> Result<(), (CryptarchiaAdapterError, Vec<HeaderId>)> {
         let suffix = Self::find_missing_part(
             // TODO: handle network error
             network.fetch_chain_backward(tip).await.unwrap(),
@@ -175,10 +175,15 @@ mod tests {
         // G - b1 - b2 - b3
         let mut peer = MockCryptarchia::new();
         for i in 1..=3 {
-            peer.process_block(MockBlock::new(i, i - 1, Slot::from(i), true))
-                .unwrap();
+            peer.process_block(MockBlock::new(
+                HeaderId::from(i),
+                HeaderId::from(i - 1),
+                Slot::from(i),
+                true,
+            ))
+            .unwrap();
         }
-        assert_eq!(peer.honest_chain, 3);
+        assert_eq!(peer.honest_chain, HeaderId::from(3));
         assert!(peer.forks.is_empty());
 
         // Start a sync from genesis.
@@ -196,10 +201,15 @@ mod tests {
         // G - b1 - b2 - b3
         let mut peer = MockCryptarchia::new();
         for i in 1..=3 {
-            peer.process_block(MockBlock::new(i, i - 1, Slot::from(i), true))
-                .unwrap();
+            peer.process_block(MockBlock::new(
+                HeaderId::from(i),
+                HeaderId::from(i - 1),
+                Slot::from(i),
+                true,
+            ))
+            .unwrap();
         }
-        assert_eq!(peer.honest_chain, 3);
+        assert_eq!(peer.honest_chain, HeaderId::from(3));
         assert!(peer.forks.is_empty());
 
         // Start a sync from a tree:
@@ -208,7 +218,7 @@ mod tests {
         // Result: The same block tree as the peer's
         let mut local = MockCryptarchia::new();
         local
-            .process_block(peer.blocks.get(&1).unwrap().clone())
+            .process_block(peer.blocks.get(&HeaderId::from(1)).unwrap().clone())
             .unwrap();
         let local = Synchronization::run(local, &MockNetworkAdapter::new(vec![&peer]))
             .await
@@ -223,18 +233,43 @@ mod tests {
         //   \
         //     b3 - b4
         let mut peer = MockCryptarchia::new();
-        peer.process_block(MockBlock::new(1, GENESIS_ID, Slot::from(1), true))
-            .unwrap();
-        peer.process_block(MockBlock::new(2, 1, Slot::from(2), true))
-            .unwrap();
-        peer.process_block(MockBlock::new(3, GENESIS_ID, Slot::from(1), true))
-            .unwrap();
-        peer.process_block(MockBlock::new(4, 3, Slot::from(2), true))
-            .unwrap();
-        peer.process_block(MockBlock::new(5, 2, Slot::from(3), true))
-            .unwrap();
-        assert_eq!(peer.honest_chain, 5);
-        assert_eq!(peer.forks, HashSet::from([4]));
+        peer.process_block(MockBlock::new(
+            HeaderId::from(1),
+            *GENESIS_ID,
+            Slot::from(1),
+            true,
+        ))
+        .unwrap();
+        peer.process_block(MockBlock::new(
+            HeaderId::from(2),
+            HeaderId::from(1),
+            Slot::from(2),
+            true,
+        ))
+        .unwrap();
+        peer.process_block(MockBlock::new(
+            HeaderId::from(3),
+            *GENESIS_ID,
+            Slot::from(1),
+            true,
+        ))
+        .unwrap();
+        peer.process_block(MockBlock::new(
+            HeaderId::from(4),
+            HeaderId::from(3),
+            Slot::from(2),
+            true,
+        ))
+        .unwrap();
+        peer.process_block(MockBlock::new(
+            HeaderId::from(5),
+            HeaderId::from(2),
+            Slot::from(3),
+            true,
+        ))
+        .unwrap();
+        assert_eq!(peer.honest_chain, HeaderId::from(5));
+        assert_eq!(peer.forks, HashSet::from([HeaderId::from(4)]));
 
         // Start a sync from genesis.
         // Result: The same block tree as the peer's.
@@ -252,18 +287,43 @@ mod tests {
         //   \
         //     b3 - b4
         let mut peer = MockCryptarchia::new();
-        peer.process_block(MockBlock::new(1, GENESIS_ID, Slot::from(1), true))
-            .unwrap();
-        peer.process_block(MockBlock::new(2, 1, Slot::from(2), true))
-            .unwrap();
-        peer.process_block(MockBlock::new(3, GENESIS_ID, Slot::from(1), true))
-            .unwrap();
-        peer.process_block(MockBlock::new(4, 3, Slot::from(2), true))
-            .unwrap();
-        peer.process_block(MockBlock::new(5, 2, Slot::from(3), true))
-            .unwrap();
-        assert_eq!(peer.honest_chain, 5);
-        assert_eq!(peer.forks, HashSet::from([4]));
+        peer.process_block(MockBlock::new(
+            HeaderId::from(1),
+            *GENESIS_ID,
+            Slot::from(1),
+            true,
+        ))
+        .unwrap();
+        peer.process_block(MockBlock::new(
+            HeaderId::from(2),
+            HeaderId::from(1),
+            Slot::from(2),
+            true,
+        ))
+        .unwrap();
+        peer.process_block(MockBlock::new(
+            HeaderId::from(3),
+            *GENESIS_ID,
+            Slot::from(1),
+            true,
+        ))
+        .unwrap();
+        peer.process_block(MockBlock::new(
+            HeaderId::from(4),
+            HeaderId::from(3),
+            Slot::from(2),
+            true,
+        ))
+        .unwrap();
+        peer.process_block(MockBlock::new(
+            HeaderId::from(5),
+            HeaderId::from(2),
+            Slot::from(3),
+            true,
+        ))
+        .unwrap();
+        assert_eq!(peer.honest_chain, HeaderId::from(5));
+        assert_eq!(peer.forks, HashSet::from([HeaderId::from(4)]));
 
         // Start a sync from a tree:
         // G - b1
@@ -272,10 +332,10 @@ mod tests {
         // Result: The same block tree as the peer's.
         let mut local = MockCryptarchia::new();
         local
-            .process_block(peer.blocks.get(&1).unwrap().clone())
+            .process_block(peer.blocks.get(&HeaderId::from(1)).unwrap().clone())
             .unwrap();
         local
-            .process_block(peer.blocks.get(&3).unwrap().clone())
+            .process_block(peer.blocks.get(&HeaderId::from(3)).unwrap().clone())
             .unwrap();
         let local = Synchronization::run(local, &MockNetworkAdapter::new(vec![&peer]))
             .await
@@ -290,18 +350,43 @@ mod tests {
         //   \
         //     b3 - b4
         let mut peer = MockCryptarchia::new();
-        peer.process_block(MockBlock::new(1, GENESIS_ID, Slot::from(1), true))
-            .unwrap();
-        peer.process_block(MockBlock::new(2, 1, Slot::from(2), true))
-            .unwrap();
-        peer.process_block(MockBlock::new(3, GENESIS_ID, Slot::from(1), true))
-            .unwrap();
-        peer.process_block(MockBlock::new(4, 3, Slot::from(2), true))
-            .unwrap();
-        peer.process_block(MockBlock::new(5, 2, Slot::from(3), true))
-            .unwrap();
-        assert_eq!(peer.honest_chain, 5);
-        assert_eq!(peer.forks, HashSet::from([4]));
+        peer.process_block(MockBlock::new(
+            HeaderId::from(1),
+            *GENESIS_ID,
+            Slot::from(1),
+            true,
+        ))
+        .unwrap();
+        peer.process_block(MockBlock::new(
+            HeaderId::from(2),
+            HeaderId::from(1),
+            Slot::from(2),
+            true,
+        ))
+        .unwrap();
+        peer.process_block(MockBlock::new(
+            HeaderId::from(3),
+            *GENESIS_ID,
+            Slot::from(1),
+            true,
+        ))
+        .unwrap();
+        peer.process_block(MockBlock::new(
+            HeaderId::from(4),
+            HeaderId::from(3),
+            Slot::from(2),
+            true,
+        ))
+        .unwrap();
+        peer.process_block(MockBlock::new(
+            HeaderId::from(5),
+            HeaderId::from(2),
+            Slot::from(3),
+            true,
+        ))
+        .unwrap();
+        assert_eq!(peer.honest_chain, HeaderId::from(5));
+        assert_eq!(peer.forks, HashSet::from([HeaderId::from(4)]));
 
         // Start a sync from a tree without the fork:
         // G - b1
@@ -309,7 +394,7 @@ mod tests {
         // Result: The same block tree as the peer's.
         let mut local = MockCryptarchia::new();
         local
-            .process_block(peer.blocks.get(&1).unwrap().clone())
+            .process_block(peer.blocks.get(&HeaderId::from(1)).unwrap().clone())
             .unwrap();
         let local = Synchronization::run(local, &MockNetworkAdapter::new(vec![&peer]))
             .await
@@ -325,12 +410,12 @@ mod tests {
         // Peer-1: G - b1 - b2 - b3
         //                \
         // Peer-2:          b4 - b5
-        let b1 = MockBlock::new(1, GENESIS_ID, Slot::from(1), true);
-        let b2 = MockBlock::new(2, 1, Slot::from(2), true);
-        let b3 = MockBlock::new(3, 2, Slot::from(3), true);
-        let b4 = MockBlock::new(4, 1, Slot::from(2), true);
-        let b5 = MockBlock::new(5, 4, Slot::from(3), true);
-        let b6 = MockBlock::new(6, 3, Slot::from(4), true);
+        let b1 = MockBlock::new(HeaderId::from(1), *GENESIS_ID, Slot::from(1), true);
+        let b2 = MockBlock::new(HeaderId::from(2), HeaderId::from(1), Slot::from(2), true);
+        let b3 = MockBlock::new(HeaderId::from(3), HeaderId::from(2), Slot::from(3), true);
+        let b4 = MockBlock::new(HeaderId::from(4), HeaderId::from(1), Slot::from(2), true);
+        let b5 = MockBlock::new(HeaderId::from(5), HeaderId::from(4), Slot::from(3), true);
+        let b6 = MockBlock::new(HeaderId::from(6), HeaderId::from(3), Slot::from(4), true);
         let mut peer0 = MockCryptarchia::new();
         peer0.process_block(b1.clone()).unwrap();
         peer0.process_block(b2.clone()).unwrap();
@@ -360,8 +445,8 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(local.honest_chain, 6);
-        assert_eq!(local.forks, HashSet::from([5]));
+        assert_eq!(local.honest_chain, HeaderId::from(6));
+        assert_eq!(local.forks, HashSet::from([HeaderId::from(5)]));
         assert_eq!(local.blocks.len(), 7);
         assert_eq!(local.blocks_by_slot.len(), 5);
     }
@@ -372,14 +457,24 @@ mod tests {
         // G - b1 - b2 - b3 - (invalid_b4) - (invalid_b5) == tip
         let mut peer = MockCryptarchia::new();
         for i in 1..=3 {
-            peer.process_block(MockBlock::new(i, i - 1, Slot::from(i), true))
-                .unwrap();
+            peer.process_block(MockBlock::new(
+                HeaderId::from(i),
+                HeaderId::from(i - 1),
+                Slot::from(i),
+                true,
+            ))
+            .unwrap();
         }
         for i in 4..=5 {
-            peer.process_block_without_validation(MockBlock::new(i, i - 1, Slot::from(i), false))
-                .unwrap();
+            peer.process_block_without_validation(MockBlock::new(
+                HeaderId::from(i),
+                HeaderId::from(i - 1),
+                Slot::from(i),
+                false,
+            ))
+            .unwrap();
         }
-        assert_eq!(peer.honest_chain, 5);
+        assert_eq!(peer.honest_chain, HeaderId::from(5));
         assert!(peer.forks.is_empty());
 
         // Start a sync from genesis.
@@ -389,7 +484,7 @@ mod tests {
         let local = Synchronization::run(local, &MockNetworkAdapter::new(vec![&peer]))
             .await
             .unwrap();
-        assert_eq!(local.honest_chain, 3);
+        assert_eq!(local.honest_chain, HeaderId::from(3));
         assert_eq!(local.blocks.len(), 4);
         assert_eq!(local.blocks_by_slot.len(), 4);
     }
@@ -401,24 +496,64 @@ mod tests {
         //        \
         //          b4 - (invalid_b5) - (invalid_b6)
         let mut peer = MockCryptarchia::new();
-        peer.process_block(MockBlock::new(1, GENESIS_ID, Slot::from(1), true))
-            .unwrap();
-        peer.process_block(MockBlock::new(2, 1, Slot::from(2), true))
-            .unwrap();
-        peer.process_block(MockBlock::new(3, 2, Slot::from(3), true))
-            .unwrap();
-        peer.process_block(MockBlock::new(4, 1, Slot::from(2), true))
-            .unwrap();
-        peer.process_block_without_validation(MockBlock::new(5, 4, Slot::from(3), false))
-            .unwrap();
-        peer.process_block_without_validation(MockBlock::new(6, 5, Slot::from(4), false))
-            .unwrap();
-        peer.process_block(MockBlock::new(7, 3, Slot::from(4), true))
-            .unwrap();
-        peer.process_block(MockBlock::new(8, 7, Slot::from(5), true))
-            .unwrap();
-        assert_eq!(peer.honest_chain, 8);
-        assert_eq!(peer.forks, HashSet::from([6]));
+        peer.process_block(MockBlock::new(
+            HeaderId::from(1),
+            *GENESIS_ID,
+            Slot::from(1),
+            true,
+        ))
+        .unwrap();
+        peer.process_block(MockBlock::new(
+            HeaderId::from(2),
+            HeaderId::from(1),
+            Slot::from(2),
+            true,
+        ))
+        .unwrap();
+        peer.process_block(MockBlock::new(
+            HeaderId::from(3),
+            HeaderId::from(2),
+            Slot::from(3),
+            true,
+        ))
+        .unwrap();
+        peer.process_block(MockBlock::new(
+            HeaderId::from(4),
+            HeaderId::from(1),
+            Slot::from(2),
+            true,
+        ))
+        .unwrap();
+        peer.process_block_without_validation(MockBlock::new(
+            HeaderId::from(5),
+            HeaderId::from(4),
+            Slot::from(3),
+            false,
+        ))
+        .unwrap();
+        peer.process_block_without_validation(MockBlock::new(
+            HeaderId::from(6),
+            HeaderId::from(5),
+            Slot::from(4),
+            false,
+        ))
+        .unwrap();
+        peer.process_block(MockBlock::new(
+            HeaderId::from(7),
+            HeaderId::from(3),
+            Slot::from(4),
+            true,
+        ))
+        .unwrap();
+        peer.process_block(MockBlock::new(
+            HeaderId::from(8),
+            HeaderId::from(7),
+            Slot::from(5),
+            true,
+        ))
+        .unwrap();
+        assert_eq!(peer.honest_chain, HeaderId::from(8));
+        assert_eq!(peer.forks, HashSet::from([HeaderId::from(6)]));
 
         // Start a sync from a tree:
         // G - b1 - b3 - b4
@@ -431,25 +566,26 @@ mod tests {
         let local = Synchronization::run(local, &MockNetworkAdapter::new(vec![&peer]))
             .await
             .unwrap();
-        assert_eq!(local.honest_chain, 8);
-        assert_eq!(local.forks, HashSet::from([4]));
+        assert_eq!(local.honest_chain, HeaderId::from(8));
+        assert_eq!(local.forks, HashSet::from([HeaderId::from(4)]));
         assert_eq!(local.blocks.len(), 7);
         assert_eq!(local.blocks_by_slot.len(), 6);
     }
 
-    type Id = u64;
-    const GENESIS_ID: Id = 0;
+    lazy_static::lazy_static! {
+        static ref GENESIS_ID: HeaderId = HeaderId::from([0; 32]);
+    }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct MockBlock {
-        id: Id,
-        parent: Id,
+        id: HeaderId,
+        parent: HeaderId,
         slot: Slot,
         is_valid: bool,
     }
 
     impl MockBlock {
-        const fn new(id: Id, parent: Id, slot: Slot, is_valid: bool) -> Self {
+        fn new(id: HeaderId, parent: HeaderId, slot: Slot, is_valid: bool) -> Self {
             Self {
                 id,
                 parent,
@@ -458,19 +594,17 @@ mod tests {
             }
         }
 
-        const fn is_genesis(&self) -> bool {
-            self.id == GENESIS_ID
+        fn is_genesis(&self) -> bool {
+            self.id == *GENESIS_ID
         }
     }
 
     impl AbstractBlock for MockBlock {
-        type Id = u64;
-
-        fn id(&self) -> Self::Id {
+        fn id(&self) -> HeaderId {
             self.id
         }
 
-        fn parent(&self) -> Self::Id {
+        fn parent(&self) -> HeaderId {
             self.parent
         }
 
@@ -483,17 +617,17 @@ mod tests {
     /// similar as the one in the executable specification.
     #[derive(Debug, PartialEq, Eq)]
     struct MockCryptarchia {
-        blocks: HashMap<Id, MockBlock>,
-        blocks_by_slot: BTreeMap<Slot, HashSet<Id>>,
-        honest_chain: Id,
-        forks: HashSet<Id>,
+        blocks: HashMap<HeaderId, MockBlock>,
+        blocks_by_slot: BTreeMap<Slot, HashSet<HeaderId>>,
+        honest_chain: HeaderId,
+        forks: HashSet<HeaderId>,
     }
 
     impl MockCryptarchia {
         fn new() -> Self {
             let genesis_block = MockBlock {
-                id: GENESIS_ID,
-                parent: GENESIS_ID,
+                id: *GENESIS_ID,
+                parent: *GENESIS_ID,
                 slot: Slot::from(0),
                 is_valid: true,
             };
@@ -558,7 +692,7 @@ mod tests {
         /// Mock implementation of the fork choice rule.
         /// This always choose the block with the highest Id as the honest
         /// chain.
-        fn fork_choice(&self) -> Id {
+        fn fork_choice(&self) -> HeaderId {
             let mut honest_chain = self.honest_chain;
             for fork in &self.forks {
                 honest_chain = honest_chain.max(*fork);
@@ -582,7 +716,7 @@ mod tests {
             self.blocks[&self.honest_chain].slot()
         }
 
-        fn has_block(&self, id: &<Self::Block as AbstractBlock>::Id) -> bool {
+        fn has_block(&self, id: &HeaderId) -> bool {
             self.blocks.contains_key(id)
         }
     }
@@ -620,7 +754,7 @@ mod tests {
 
         async fn fetch_chain_backward(
             &self,
-            tip: <Self::Block as AbstractBlock>::Id,
+            tip: HeaderId,
         ) -> Result<BoxedStream<Self::Block>, Box<dyn std::error::Error + Send + Sync>> {
             let mut blocks = Vec::new();
             let mut id = tip;

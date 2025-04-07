@@ -147,6 +147,14 @@ impl From<[u8; 32]> for HeaderId {
     }
 }
 
+impl From<u64> for HeaderId {
+    fn from(id: u64) -> Self {
+        let mut bytes = [0u8; 32];
+        bytes[24..32].copy_from_slice(&id.to_be_bytes());
+        Self(bytes)
+    }
+}
+
 impl From<HeaderId> for [u8; 32] {
     fn from(id: HeaderId) -> Self {
         id.0

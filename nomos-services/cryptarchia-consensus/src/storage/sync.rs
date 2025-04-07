@@ -2,9 +2,10 @@ use crate::network::SyncRequest;
 use bytes::Bytes;
 use cryptarchia_engine::Slot;
 use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
-use cryptarchia_sync_network::SyncRequestKind;
 use nomos_core::block::AbstractBlock;
+use nomos_core::header::HeaderId;
 use nomos_core::wire;
+use nomos_network::backends::libp2p::SyncRequestKind;
 use nomos_storage::backends::StorageBackend;
 use nomos_storage::{StorageMsg, StorageService};
 use overwatch::services::relay::OutboundRelay;
@@ -12,7 +13,6 @@ use overwatch::services::ServiceData;
 use overwatch::DynError;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -40,16 +40,7 @@ pub struct SyncBlocksProvider<
 impl<Storage, Block, RuntimeServiceId> SyncBlocksProvider<Storage, Block, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync + 'static,
-    Block: AbstractBlock + Serialize + DeserializeOwned + Send + Sync + 'static + std::fmt::Debug,
-    <Block as AbstractBlock>::Id: Into<[u8; 32]>
-        + From<[u8; 32]>
-        + Serialize
-        + DeserializeOwned
-        + Hash
-        + Eq
-        + Send
-        + Sync
-        + 'static,
+    Block: AbstractBlock + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     #[must_use]
     pub fn new(
@@ -94,7 +85,7 @@ where
 
     fn spawn_fetch_blocks_from_slot_forwards(
         &self,
-        slot: u64,
+        slot: Slot,
         reply_channel: Sender<BehaviourSyncReply>,
     ) {
         let storage_relay = self.storage_relay.clone();
@@ -134,7 +125,7 @@ where
 
     fn spawn_fetch_blocks_from_header_backwards(
         &self,
-        header_id: <Block as AbstractBlock>::Id,
+        header_id: HeaderId,
         reply_channel: Sender<BehaviourSyncReply>,
     ) {
         let storage_relay = self.storage_relay.clone();
