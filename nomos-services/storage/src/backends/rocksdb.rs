@@ -324,7 +324,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_load_range() {
+    async fn test_scan_range() {
         let temp_path = TempDir::new().unwrap();
         let settings = RocksBackendSettings {
             db_path: temp_path.path().to_path_buf(),
