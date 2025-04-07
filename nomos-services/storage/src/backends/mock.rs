@@ -2,9 +2,10 @@ use std::{collections::HashMap, marker::PhantomData};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures::stream::BoxStream;
 use thiserror::Error;
 
-use super::{StorageBackend, StorageSerde, StorageTransaction};
+use super::{StorageBackend, StorageIterator, StorageSerde, StorageTransaction};
 
 #[derive(Debug, Error)]
 #[error("Errors in MockStorage should not happen")]
@@ -34,6 +35,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for MockStora
     type Settings = ();
     type Error = MockStorageError;
     type Transaction = MockStorageTransaction;
+    type Iterator = MockIterator;
     type SerdeOperator = SerdeOp;
 
     fn new(_config: Self::Settings) -> Result<Self, Self::Error> {
@@ -56,6 +58,10 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for MockStora
         unimplemented!()
     }
 
+    async fn scan_range(&self, prefix: &[u8], start: &[u8]) -> Result<Self::Iterator, Self::Error> {
+        unimplemented!()
+    }
+
     async fn remove(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
         Ok(self.inner.remove(key))
     }
@@ -63,5 +69,15 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for MockStora
     async fn execute(&mut self, transaction: Self::Transaction) -> Result<(), Self::Error> {
         transaction(&mut self.inner);
         Ok(())
+    }
+}
+
+pub struct MockIterator;
+
+impl StorageIterator for MockIterator {
+    type Error = MockStorageError;
+
+    fn stream(&self) -> BoxStream<'_, Result<(Bytes, Bytes), Self::Error>> {
+        unimplemented!()
     }
 }

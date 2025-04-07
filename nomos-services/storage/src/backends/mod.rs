@@ -10,6 +10,7 @@ use std::error::Error;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures::stream::BoxStream;
 use serde::{de::DeserializeOwned, Serialize};
 
 /// Trait that defines how to translate from user types to the storage buffer
@@ -28,6 +29,12 @@ pub trait StorageTransaction: Send + Sync {
     type Transaction: Send + Sync;
 }
 
+pub trait StorageIterator {
+    type Error;
+
+    fn stream(&self) -> BoxStream<'_, Result<(Bytes, Bytes), Self::Error>>;
+}
+
 /// Main storage functionality trait
 #[async_trait]
 pub trait StorageBackend: Sized {
@@ -39,6 +46,8 @@ pub trait StorageBackend: Sized {
     /// Usually it will be some function that modifies the storage directly or
     /// operates over the backend as per the backend specification.
     type Transaction: StorageTransaction;
+    /// Backend iterator type
+    type Iterator: StorageIterator<Error = Self::Error> + Send + Sync + 'static;
     /// Operator to dump/load custom types into the defined backend store type
     /// [`Bytes`]
     type SerdeOperator: StorageSerde + Send + Sync + 'static;
@@ -47,6 +56,8 @@ pub trait StorageBackend: Sized {
     async fn load(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error>;
     /// Loads all values whose keys start with the given prefix.
     async fn load_prefix(&mut self, prefix: &[u8]) -> Result<Vec<Bytes>, Self::Error>;
+    /// Returns an iterator of values in a given key range
+    async fn scan_range(&self, prefix: &[u8], start: &[u8]) -> Result<Self::Iterator, Self::Error>;
     async fn remove(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error>;
     /// Execute a transaction in the current backend
     async fn execute(
