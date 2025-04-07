@@ -337,54 +337,83 @@ mod test {
         let mut db: RocksBackend<NoStorageSerde> = RocksBackend::new(settings).unwrap();
 
         // Store test data with different prefixes
-        db.store(b"prefix1/a".to_vec().into(), b"v1".to_vec().into())
+        db.store(b"prefix1/00/v/v1".to_vec().into(), b"v1".to_vec().into())
             .await
             .unwrap();
-        db.store(b"prefix1/b".to_vec().into(), b"v2".to_vec().into())
+        db.store(b"prefix1/01/v/v2".to_vec().into(), b"v2".to_vec().into())
             .await
             .unwrap();
-        db.store(b"prefix1/c".to_vec().into(), b"v3".to_vec().into())
+        db.store(b"prefix1/01/v/v3".to_vec().into(), b"v3".to_vec().into())
             .await
             .unwrap();
-        db.store(b"prefix2/a".to_vec().into(), b"v4".to_vec().into())
+        db.store(b"prefix1/02/v/v3".to_vec().into(), b"v3".to_vec().into())
             .await
             .unwrap();
-        db.store(b"prefix2/b".to_vec().into(), b"v5".to_vec().into())
+        db.store(b"prefix2/00/v/v4".to_vec().into(), b"v4".to_vec().into())
+            .await
+            .unwrap();
+        db.store(b"prefix2/01/v/v5".to_vec().into(), b"v5".to_vec().into())
             .await
             .unwrap();
 
         // Test 1: Basic range scan within prefix
-        let iterator = db.scan_range(b"prefix1/", b"b").await.unwrap();
+        let iterator = db.scan_range(b"prefix1/", b"01").await.unwrap();
         let mut stream = iterator.stream();
         assert_eq!(
             stream.next().await,
-            Some(Ok((b"prefix1/b".to_vec().into(), b"v2".to_vec().into())))
+            Some(Ok((
+                b"prefix1/01/v/v2".to_vec().into(),
+                b"v2".to_vec().into()
+            )))
         );
         assert_eq!(
             stream.next().await,
-            Some(Ok((b"prefix1/c".to_vec().into(), b"v3".to_vec().into())))
+            Some(Ok((
+                b"prefix1/01/v/v3".to_vec().into(),
+                b"v3".to_vec().into()
+            )))
+        );
+        assert_eq!(
+            stream.next().await,
+            Some(Ok((
+                b"prefix1/02/v/v3".to_vec().into(),
+                b"v3".to_vec().into()
+            )))
         );
         assert_eq!(stream.next().await, None);
 
         // Test 2: Snapshot isolation
-        let iterator = db.scan_range(b"prefix1/", b"b").await.unwrap();
+        let iterator = db.scan_range(b"prefix1/", b"01").await.unwrap();
         let mut stream = iterator.stream();
         // Add new data after creating stream. This should not appear in the stream.
-        db.store(b"prefix1/bb".to_vec().into(), b"v6".to_vec().into())
+        db.store(b"prefix1/03/v/v6".to_vec().into(), b"v6".to_vec().into())
             .await
             .unwrap();
         assert_eq!(
             stream.next().await,
-            Some(Ok((b"prefix1/b".to_vec().into(), b"v2".to_vec().into())))
+            Some(Ok((
+                b"prefix1/01/v/v2".to_vec().into(),
+                b"v2".to_vec().into()
+            )))
         );
         assert_eq!(
             stream.next().await,
-            Some(Ok((b"prefix1/c".to_vec().into(), b"v3".to_vec().into())))
+            Some(Ok((
+                b"prefix1/01/v/v3".to_vec().into(),
+                b"v3".to_vec().into()
+            )))
+        );
+        assert_eq!(
+            stream.next().await,
+            Some(Ok((
+                b"prefix1/02/v/v3".to_vec().into(),
+                b"v3".to_vec().into()
+            )))
         );
         assert_eq!(stream.next().await, None);
 
         // Test 3: Empty range
-        let iterator = db.scan_range(b"prefix3/", b"a").await.unwrap();
+        let iterator = db.scan_range(b"prefix3/", b"00").await.unwrap();
         let mut stream = iterator.stream();
         assert_eq!(stream.next().await, None);
 
@@ -393,16 +422,22 @@ mod test {
         let mut stream = iterator.stream();
         assert_eq!(
             stream.next().await,
-            Some(Ok((b"prefix2/a".to_vec().into(), b"v4".to_vec().into())))
+            Some(Ok((
+                b"prefix2/00/v/v4".to_vec().into(),
+                b"v4".to_vec().into()
+            )))
         );
         assert_eq!(
             stream.next().await,
-            Some(Ok((b"prefix2/b".to_vec().into(), b"v5".to_vec().into())))
+            Some(Ok((
+                b"prefix2/01/v/v5".to_vec().into(),
+                b"v5".to_vec().into()
+            )))
         );
         assert_eq!(stream.next().await, None);
 
         // Test 5: Start position beyond available data
-        let iterator = db.scan_range(b"prefix1/", b"z").await.unwrap();
+        let iterator = db.scan_range(b"prefix1/", b"99").await.unwrap();
         let mut stream = iterator.stream();
         assert_eq!(stream.next().await, None);
     }
