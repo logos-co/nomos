@@ -17,7 +17,6 @@ pub struct SwarmConfig {
     pub gossipsub_config: gossipsub::Config,
     // Enable memory transport
     pub enable_memory_transport: bool,
-
 }
 
 impl Default for SwarmConfig {
@@ -27,7 +26,7 @@ impl Default for SwarmConfig {
             port: 60000,
             node_key: ed25519::SecretKey::generate(),
             gossipsub_config: gossipsub::Config::default(),
-            enable_memory_transport: true,
+            enable_memory_transport: false,
         }
     }
 }

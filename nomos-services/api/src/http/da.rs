@@ -5,11 +5,10 @@ use std::{
     hash::Hash,
 };
 
-use crate::wait_with_timeout;
 use kzgrs_backend::common::share::DaShare;
 use nomos_blend_service::network::libp2p::Libp2pAdapter as BlendNetworkAdapter;
-use nomos_core::block::Block;
 use nomos_core::{
+    block::Block,
     da::{
         blob::{info::DispersedBlobInfo, metadata, select::FillSize as FillSizeWithBlobs, Share},
         BlobId, DaVerifier as CoreDaVerifier,
@@ -49,6 +48,8 @@ use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
+
+use crate::wait_with_timeout;
 
 pub type DaIndexer<
     Tx,

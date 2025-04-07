@@ -7,21 +7,11 @@ mod states;
 pub mod storage;
 mod sync;
 
-use crate::network::SyncRequest;
-use crate::storage::sync::SyncBlocksProvider;
-use crate::{
-    leadership::Leader,
-    relays::CryptarchiaConsensusRelays,
-    states::{
-        CryptarchiaConsensusState, CryptarchiaInitialisationStrategy, GenesisRecoveryStrategy,
-        SecurityRecoveryStrategy,
-    },
-    storage::{adapters::StorageAdapter, StorageAdapter as _},
-};
 use core::fmt::Debug;
+use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
+
 use cryptarchia_engine::Slot;
 use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
-use cryptarchia_sync_network::SyncRequestKind;
 use futures::StreamExt;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
@@ -41,7 +31,7 @@ use nomos_mempool::{
     backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter, DaMempoolService,
     MempoolMsg, TxMempoolService,
 };
-use nomos_network::NetworkService;
+use nomos_network::{backends::libp2p::SyncRequestKind, NetworkService};
 use nomos_storage::{
     backends::{StorageBackend, StorageSerde},
     StorageMsg, StorageService,
@@ -60,12 +50,22 @@ use serde_with::serde_as;
 use services_utils::overwatch::{
     lifecycle, recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator,
 };
-use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 use sync::CryptarchiaSyncAdapter;
 use thiserror::Error;
 use tokio::sync::{broadcast, oneshot, oneshot::Sender};
 use tracing::{error, info, instrument, span, Level};
 use tracing_futures::Instrument;
+
+use crate::{
+    leadership::Leader,
+    network::SyncRequest,
+    relays::CryptarchiaConsensusRelays,
+    states::{
+        CryptarchiaConsensusState, CryptarchiaInitialisationStrategy, GenesisRecoveryStrategy,
+        SecurityRecoveryStrategy,
+    },
+    storage::{adapters::StorageAdapter, sync::SyncBlocksProvider, StorageAdapter as _},
+};
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
 type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;

@@ -1,26 +1,30 @@
-use crate::network::SyncRequest;
+use std::{
+    marker::PhantomData,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
+
 use bytes::Bytes;
 use cryptarchia_engine::Slot;
 use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
-use cryptarchia_sync_network::SyncRequestKind;
-use nomos_core::block::AbstractBlock;
-use nomos_core::wire;
-use nomos_storage::backends::StorageBackend;
-use nomos_storage::{StorageMsg, StorageService};
-use overwatch::services::relay::OutboundRelay;
-use overwatch::services::ServiceData;
-use overwatch::DynError;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
-use std::hash::Hash;
-use std::marker::PhantomData;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use tokio::runtime::Handle;
-use tokio::sync::mpsc::Sender;
-use tokio::sync::oneshot;
-use tokio::time::{sleep, Duration};
+use nomos_core::{block::AbstractBlock, header::HeaderId, wire};
+use nomos_network::backends::libp2p::SyncRequestKind;
+use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
+use overwatch::{
+    services::{relay::OutboundRelay, ServiceData},
+    DynError,
+};
+use serde::{de::DeserializeOwned, Serialize};
+use tokio::{
+    runtime::Handle,
+    sync::{mpsc::Sender, oneshot},
+    time::{sleep, Duration},
+};
 use tracing::info;
+
+use crate::network::SyncRequest;
 
 const MAX_CONCURRENT_REQUESTS: usize = 1;
 const BLOCK_SEND_DELAY_MS: u64 = 50;
@@ -40,16 +44,7 @@ pub struct SyncBlocksProvider<
 impl<Storage, Block, RuntimeServiceId> SyncBlocksProvider<Storage, Block, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync + 'static,
-    Block: AbstractBlock + Serialize + DeserializeOwned + Send + Sync + 'static + std::fmt::Debug,
-    <Block as AbstractBlock>::Id: Into<[u8; 32]>
-        + From<[u8; 32]>
-        + Serialize
-        + DeserializeOwned
-        + Hash
-        + Eq
-        + Send
-        + Sync
-        + 'static,
+    Block: AbstractBlock + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     #[must_use]
     pub fn new(
@@ -83,7 +78,7 @@ where
             }
             SyncRequestKind::BackwardChain(tip) => {
                 info!("Syncing from header {:?}", tip);
-                self.spawn_fetch_blocks_from_header_backwards(tip.into(), request.reply_channel);
+                self.spawn_fetch_blocks_from_header_backwards(tip, request.reply_channel);
             }
             SyncRequestKind::Tip => {
                 tracing::warn!("Unsupported sync request kind");
@@ -94,7 +89,7 @@ where
 
     fn spawn_fetch_blocks_from_slot_forwards(
         &self,
-        slot: u64,
+        slot: Slot,
         reply_channel: Sender<BehaviourSyncReply>,
     ) {
         let storage_relay = self.storage_relay.clone();
@@ -114,7 +109,7 @@ where
                         for block in blocks {
                             let block: Block =
                                 wire::deserialize(&block).expect("Deserialization failed");
-                            if block.slot() >= Slot::from(slot)
+                            if block.slot() >= slot
                                 && Self::send_block(&block, &reply_channel).await.is_err()
                             {
                                 break;
@@ -134,7 +129,7 @@ where
 
     fn spawn_fetch_blocks_from_header_backwards(
         &self,
-        header_id: <Block as AbstractBlock>::Id,
+        header_id: HeaderId,
         reply_channel: Sender<BehaviourSyncReply>,
     ) {
         let storage_relay = self.storage_relay.clone();

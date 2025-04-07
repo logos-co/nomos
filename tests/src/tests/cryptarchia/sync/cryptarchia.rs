@@ -1,21 +1,28 @@
-use crate::id_from_u64;
-use cryptarchia_consensus::network::adapters::libp2p::{LibP2pAdapter, LibP2pAdapterSettings};
-use cryptarchia_consensus::network::NetworkAdapter;
-use cryptarchia_consensus::storage::sync::SyncBlocksProvider;
+use std::{
+    collections::HashMap,
+    fmt::{Debug, Display},
+    hash::Hash,
+};
+
+use cryptarchia_consensus::{
+    network::{
+        adapters::libp2p::{LibP2pAdapter, LibP2pAdapterSettings},
+        NetworkAdapter,
+    },
+    storage::sync::SyncBlocksProvider,
+};
 use cryptarchia_engine::Slot;
-use cryptarchia_sync::adapter::{CryptarchiaAdapter, CryptarchiaAdapterError};
-use cryptarchia_sync::Synchronization;
+use cryptarchia_sync::{
+    adapter::{CryptarchiaAdapter, CryptarchiaAdapterError},
+    Synchronization,
+};
 use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
-use cryptarchia_sync_network::SyncRequestKind;
 use futures_util::StreamExt;
-use nomos_core::block::AbstractBlock;
-use nomos_core::header::HeaderId;
-use nomos_core::wire;
+use nomos_core::{block::AbstractBlock, header::HeaderId, wire};
 use nomos_libp2p::libp2p::bytes::Bytes;
-use nomos_network::NetworkService;
+use nomos_network::{backends::libp2p::SyncRequestKind, NetworkService};
 use nomos_node::{NetworkBackend, Wire};
-use nomos_storage::backends::rocksdb::RocksBackend;
-use nomos_storage::{StorageMsg, StorageService};
+use nomos_storage::{backends::rocksdb::RocksBackend, StorageMsg, StorageService};
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -25,13 +32,10 @@ use overwatch::{
 };
 use serde::{Deserialize, Serialize};
 use services_utils::overwatch::lifecycle;
-use std::{
-    collections::HashMap,
-    fmt::{Debug, Display},
-    hash::Hash,
-};
 use tokio::sync::oneshot;
 use tracing::info;
+
+use crate::id_from_u64;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TestBlock {
@@ -41,13 +45,11 @@ pub struct TestBlock {
 }
 
 impl AbstractBlock for TestBlock {
-    type Id = HeaderId;
-
-    fn id(&self) -> Self::Id {
+    fn id(&self) -> HeaderId {
         self.id
     }
 
-    fn parent(&self) -> Self::Id {
+    fn parent(&self) -> HeaderId {
         self.parent.unwrap_or_else(|| [0; 32].into())
     }
 
@@ -263,8 +265,6 @@ where
             .expect("Storage relay should connect");
 
         for block in blocks {
-            // Not sure if randomness in storage layer is fine for a blockchain if functionality is nevertheless deterministic
-            // But probably better to avoid outside test code.
             let rnd_u8 = rand::random::<u16>();
             let slot = u64::from_be_bytes(block.slot.to_be_bytes());
             let key = format!("blocks_epoch_0_slot_{slot}_{rnd_u8}").into_bytes();
@@ -325,7 +325,7 @@ where
         self.tip
     }
 
-    fn has_block(&self, id: &<Self::Block as AbstractBlock>::Id) -> bool {
+    fn has_block(&self, id: &HeaderId) -> bool {
         self.blocks.contains_key(id)
     }
 }

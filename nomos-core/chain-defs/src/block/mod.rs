@@ -1,11 +1,12 @@
 pub mod builder;
 
+use core::hash::Hash;
+use std::fmt::Debug;
+
 use ::serde::{de::DeserializeOwned, Deserialize, Serialize};
 use bytes::Bytes;
-use core::hash::Hash;
 use cryptarchia_engine::Slot;
 use indexmap::IndexSet;
-use std::fmt::Debug;
 
 use crate::{
     header::{Header, HeaderId},
@@ -15,10 +16,8 @@ use crate::{
 // TODO: Rename this to Block
 //       by renaming the existing Block to something else.
 pub trait AbstractBlock {
-    type Id: Eq + Hash + Copy + Debug;
-
-    fn id(&self) -> Self::Id;
-    fn parent(&self) -> Self::Id;
+    fn id(&self) -> HeaderId;
+    fn parent(&self) -> HeaderId;
     fn slot(&self) -> Slot;
 }
 
@@ -35,13 +34,11 @@ pub struct Block<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> {
 impl<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> AbstractBlock
     for Block<Tx, BlobCertificate>
 {
-    type Id = HeaderId;
-
-    fn id(&self) -> Self::Id {
+    fn id(&self) -> HeaderId {
         self.header().id()
     }
 
-    fn parent(&self) -> Self::Id {
+    fn parent(&self) -> HeaderId {
         self.header().parent()
     }
 
@@ -92,8 +89,9 @@ impl<
     }
 }
 
-// TODO: We need to implement Hash and Eq for `Block` if using `Block` in type definitions instead of Tx and BlobCertificate
-// Seems related to Overwatch and RuntimeServiceId somehow.
+// TODO: We need to implement Hash and Eq for `Block` if using `Block` in type
+// definitions instead of Tx and BlobCertificate Seems related to Overwatch and
+// RuntimeServiceId somehow.
 impl<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> PartialEq
     for Block<Tx, BlobCertificate>
 {

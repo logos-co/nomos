@@ -911,6 +911,6 @@ pub mod tests {
             Some(LedgerError::InvalidSlot { parent, block })
                 if parent == slot && block == slot2 => {}
             _ => panic!("error does not match the LedgerError::InvalidSlot pattern"),
-        };
+        }
     }
 }
