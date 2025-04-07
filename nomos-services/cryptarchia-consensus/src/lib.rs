@@ -21,7 +21,6 @@ use crate::{
 use core::fmt::Debug;
 use cryptarchia_engine::Slot;
 use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
-use cryptarchia_sync_network::SyncRequestKind;
 use futures::StreamExt;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
@@ -41,6 +40,7 @@ use nomos_mempool::{
     backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter, DaMempoolService,
     MempoolMsg, TxMempoolService,
 };
+use nomos_network::backends::libp2p::SyncRequestKind;
 use nomos_network::NetworkService;
 use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
