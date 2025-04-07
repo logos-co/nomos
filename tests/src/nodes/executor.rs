@@ -49,7 +49,10 @@ use nomos_node::{
     config::mempool::MempoolConfig,
     RocksBackendSettings,
 };
-use nomos_time::{backends::system_time::SystemTimeBackendSettings, TimeServiceSettings};
+use nomos_time::{
+    backends::{ntp::async_client::NTPClientSettings, NtpTimeBackendSettings},
+    TimeServiceSettings,
+};
 use nomos_tracing::logging::local::FileConfig;
 use nomos_tracing_service::LoggerLayer;
 use tempfile::NamedTempFile;
@@ -337,7 +340,13 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             },
         },
         time: TimeServiceSettings {
-            backend_settings: SystemTimeBackendSettings {
+            backend_settings: NtpTimeBackendSettings {
+                ntp_server: config.time_config.ntp_server,
+                ntp_client_settings: NTPClientSettings {
+                    timeout: config.time_config.timeout,
+                    listening_interface: config.time_config.interface,
+                },
+                update_interval: config.time_config.update_interval,
                 slot_config: SlotConfig {
                     slot_duration: config.time_config.slot_duration,
                     chain_start_time: config.time_config.chain_start_time,
