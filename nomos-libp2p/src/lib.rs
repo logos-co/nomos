@@ -280,7 +280,7 @@ impl Swarm {
     pub fn start_sync(
         &mut self,
         direction: SyncDirection,
-        reply_channel: UnboundedSender<Vec<u8>>,
+        response_sender: UnboundedSender<Vec<u8>>,
     ) {
         self.swarm
             .behaviour_mut()
@@ -288,7 +288,7 @@ impl Swarm {
             .sync_request_channel()
             .send(SyncCommand::StartSync {
                 direction,
-                response_sender: reply_channel,
+                response_sender,
             })
             .expect("Failed to send sync request");
     }
