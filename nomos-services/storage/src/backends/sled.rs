@@ -2,11 +2,12 @@ use std::{marker::PhantomData, path::PathBuf};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures::stream::BoxStream;
 use sled::transaction::{
     ConflictableTransactionResult, TransactionError, TransactionResult, TransactionalTree,
 };
 
-use super::{StorageBackend, StorageSerde, StorageTransaction};
+use super::{StorageBackend, StorageIterator, StorageSerde, StorageTransaction};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -50,13 +51,11 @@ impl<SerdeOp> core::fmt::Debug for SledBackend<SerdeOp> {
 }
 
 #[async_trait]
-impl<'a, SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend<'a>
-    for SledBackend<SerdeOp>
-{
+impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for SledBackend<SerdeOp> {
     type Settings = SledBackendSettings;
     type Error = Error;
     type Transaction = SledTransaction;
-    type Iterator = (); // TODO: not implemented
+    type Iterator = SledIterator;
     type SerdeOperator = SerdeOp;
 
     fn new(config: Self::Settings) -> Result<Self, Self::Error> {
@@ -79,7 +78,11 @@ impl<'a, SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend<'a>
         unimplemented!()
     }
 
-    async fn scan_range(&self, prefix: &[u8], start: &[u8]) -> Result<Self::Iterator, Self::Error> {
+    async fn scan_range(
+        &self,
+        _prefix: &[u8],
+        _start: &[u8],
+    ) -> Result<Self::Iterator, Self::Error> {
         unimplemented!()
     }
 
@@ -95,6 +98,16 @@ impl<'a, SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend<'a>
     }
 }
 
+pub struct SledIterator;
+
+impl StorageIterator for SledIterator {
+    type Error = Error;
+
+    fn stream(&self) -> BoxStream<'_, Result<(Bytes, Bytes), Self::Error>> {
+        unimplemented!()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use tempfile::TempDir;
@@ -103,7 +116,7 @@ mod test {
 
     #[tokio::test]
     async fn test_store_load_remove(
-    ) -> Result<(), <SledBackend<NoStorageSerde> as StorageBackend<'static>>::Error> {
+    ) -> Result<(), <SledBackend<NoStorageSerde> as StorageBackend>::Error> {
         let temp_path = TempDir::new().unwrap();
         let sled_settings = SledBackendSettings {
             db_path: temp_path.path().to_path_buf(),
@@ -124,8 +137,8 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_transaction(
-    ) -> Result<(), <SledBackend<NoStorageSerde> as StorageBackend<'static>>::Error> {
+    async fn test_transaction() -> Result<(), <SledBackend<NoStorageSerde> as StorageBackend>::Error>
+    {
         let temp_path = TempDir::new().unwrap();
 
         let sled_settings = SledBackendSettings {
