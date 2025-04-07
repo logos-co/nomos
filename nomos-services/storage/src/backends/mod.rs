@@ -10,7 +10,6 @@ use std::error::Error;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures::stream::BoxStream;
 use serde::{de::DeserializeOwned, Serialize};
 
 /// Trait that defines how to translate from user types to the storage buffer
@@ -40,6 +39,7 @@ pub trait StorageBackend: Sized {
     /// Usually it will be some function that modifies the storage directly or
     /// operates over the backend as per the backend specification.
     type Transaction: StorageTransaction;
+    type Iterator;
     /// Operator to dump/load custom types into the defined backend store type
     /// [`Bytes`]
     type SerdeOperator: StorageSerde + Send + Sync + 'static;
@@ -50,11 +50,7 @@ pub trait StorageBackend: Sized {
     async fn load_prefix(&mut self, prefix: &[u8]) -> Result<Vec<Bytes>, Self::Error>;
 
     /// Returns a stream of values in a given key range
-    async fn load_range(
-        &self,
-        prefix: &[u8],
-        start: &[u8],
-    ) -> Result<BoxStream<Result<Bytes, Self::Error>>, Self::Error>;
+    async fn load_range(&self, prefix: &[u8], start: &[u8]) -> Result<Self::Iterator, Self::Error>;
 
     async fn remove(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error>;
     /// Execute a transaction in the current backend
