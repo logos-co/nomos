@@ -1338,6 +1338,7 @@ where
     ) -> Result<(), RelayError> {
         let slot = block.header().slot();
         let id: [u8; 32] = block.header().id().into();
+        // TODO: add prefix to the key: "block/id/{id}"
         let msg = <StorageMsg<_>>::new_store_message(id, block);
         relays
             .storage_adapter()
@@ -1346,11 +1347,11 @@ where
             .await
             .map_err(|(e, _)| e)?;
 
-        // Build a key: "block/{slot}/{id}"
-        let mut key = Vec::with_capacity(6 + 8 + 1 + 32);
-        key.extend_from_slice(b"block/");
+        // Build a key: "block/slot/{slot}/id/{id}"
+        let mut key = Vec::with_capacity(11 + 8 + 4 + 32);
+        key.extend_from_slice(b"block/slot/");
         key.extend_from_slice(&slot.to_be_bytes());
-        key.push(b'/');
+        key.extend_from_slice(b"/id/");
         key.extend_from_slice(&id);
         let msg = <StorageMsg<_>>::new_store_message(key, id);
         relays
