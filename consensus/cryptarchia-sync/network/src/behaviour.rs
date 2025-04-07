@@ -63,7 +63,8 @@ pub enum BehaviourSyncEvent {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Reply from services to the behaviour
+#[derive(Debug, Clone)]
 pub enum BehaviourSyncReply {
     Block(Vec<u8>),
     TipData(u64),
