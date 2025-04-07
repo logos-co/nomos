@@ -26,6 +26,7 @@ impl std::error::Error for KzgrsDaVerifierError {}
 
 pub struct KzgrsDaVerifier {
     verifier: NomosKzgrsVerifier,
+    domain_size: usize,
 }
 
 impl VerifierBackend for KzgrsDaVerifier {
@@ -36,7 +37,10 @@ impl VerifierBackend for KzgrsDaVerifier {
             .expect("Global parameters has to be loaded from file");
 
         let verifier = NomosKzgrsVerifier::new(global_params);
-        Self { verifier }
+        Self {
+            verifier,
+            domain_size: settings.domain_size,
+        }
     }
 }
 
@@ -51,9 +55,8 @@ impl DaVerifier for KzgrsDaVerifier {
     ) -> Result<(), Self::Error> {
         // TODO: Prepare the domain depending the size, if fixed, so fixed domain, if
         // not it needs to come with some metadata.
-        let domain_size = 2usize;
         self.verifier
-            .verify(commitments, light_share, domain_size)
+            .verify(commitments, light_share, self.domain_size)
             .then_some(())
             .ok_or(KzgrsDaVerifierError::VerificationError)
     }
@@ -62,4 +65,5 @@ impl DaVerifier for KzgrsDaVerifier {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KzgrsDaVerifierSettings {
     pub global_params_path: String,
+    pub domain_size: usize,
 }

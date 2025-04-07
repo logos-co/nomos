@@ -84,7 +84,7 @@ impl TopologyConfig {
                 subnetwork_size: num_subnets,
                 num_subnets: num_subnets as u16,
                 policy_settings: DAConnectionPolicySettings {
-                    min_dispersal_peers: num_subnets - 1,
+                    min_dispersal_peers: num_subnets,
                     min_replication_peers: dispersal_factor - 1,
                     max_dispersal_failures: 0,
                     max_sampling_failures: 0,
