@@ -16,7 +16,7 @@ use cryptarchia_sync::{
     adapter::{CryptarchiaAdapter, CryptarchiaAdapterError},
     Synchronization,
 };
-use cryptarchia_sync_network::{behaviour::BehaviourSyncReply, SyncRequestKind};
+use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
 use futures_util::StreamExt;
 use nomos_core::{block::AbstractBlock, header::HeaderId, wire};
 use nomos_libp2p::libp2p::bytes::Bytes;
