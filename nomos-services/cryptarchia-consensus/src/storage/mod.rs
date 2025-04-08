@@ -4,6 +4,7 @@ pub mod sync;
 use nomos_core::header::HeaderId;
 use nomos_storage::{backends::StorageBackend, StorageService};
 use overwatch::services::{relay::OutboundRelay, ServiceData};
+pub const BLOCK_INDEX_PREFIX: &[u8; 11] = b"block/slot/";
 
 #[async_trait::async_trait]
 pub trait StorageAdapter<RuntimeServiceId> {

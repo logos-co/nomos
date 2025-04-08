@@ -64,7 +64,9 @@ use crate::{
         CryptarchiaConsensusState, CryptarchiaInitialisationStrategy, GenesisRecoveryStrategy,
         SecurityRecoveryStrategy,
     },
-    storage::{adapters::StorageAdapter, sync::SyncBlocksProvider, StorageAdapter as _},
+    storage::{
+        adapters::StorageAdapter, sync::SyncBlocksProvider, StorageAdapter as _, BLOCK_INDEX_PREFIX,
+    },
 };
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
@@ -1400,7 +1402,7 @@ where
 
         // Build a key: "block/slot/{slot}/id/{id}"
         let mut key = Vec::with_capacity(11 + 8 + 4 + 32);
-        key.extend_from_slice(b"block/slot/");
+        key.extend_from_slice(BLOCK_INDEX_PREFIX);
         key.extend_from_slice(&slot.to_be_bytes());
         key.extend_from_slice(b"/id/");
         key.extend_from_slice(&id);
