@@ -18,6 +18,7 @@ use overwatch::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 use services_utils::overwatch::lifecycle;
+use tokio::sync::mpsc;
 use tracing::error;
 
 /// Storage message that maps to [`StorageBackend`] trait
@@ -37,8 +38,7 @@ pub enum StorageMsg<Backend: StorageBackend> {
     ScanRange {
         prefix: Bytes,
         start: Bytes,
-        reply_channel:
-            tokio::sync::oneshot::Sender<tokio::sync::mpsc::Receiver<ScanResult<Backend>>>,
+        reply_channel: tokio::sync::oneshot::Sender<mpsc::Receiver<ScanResult<Backend>>>,
     },
     Remove {
         key: Bytes,
@@ -51,7 +51,7 @@ pub enum StorageMsg<Backend: StorageBackend> {
     },
 }
 
-type ScanResult<Backend> = Result<(Bytes, Bytes), StorageServiceError<Backend>>;
+pub type ScanResult<Backend> = Result<(Bytes, Bytes), StorageServiceError<Backend>>;
 
 /// Reply channel for storage messages
 pub struct StorageReplyReceiver<T, Backend> {
@@ -135,6 +135,24 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
         (
             Self::LoadPrefix {
                 prefix,
+                reply_channel,
+            },
+            StorageReplyReceiver::new(receiver),
+        )
+    }
+
+    pub fn new_scan_range_message(
+        prefix: Bytes,
+        start: Bytes,
+    ) -> (
+        Self,
+        StorageReplyReceiver<mpsc::Receiver<ScanResult<Backend>>, Backend>,
+    ) {
+        let (reply_channel, receiver) = tokio::sync::oneshot::channel();
+        (
+            Self::ScanRange {
+                prefix,
+                start,
                 reply_channel,
             },
             StorageReplyReceiver::new(receiver),

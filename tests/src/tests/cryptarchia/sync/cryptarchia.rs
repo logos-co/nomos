@@ -265,9 +265,9 @@ where
             .expect("Storage relay should connect");
 
         for block in blocks {
-            let rnd_u8 = rand::random::<u16>();
-            let slot = u64::from_be_bytes(block.slot.to_be_bytes());
-            let key = format!("blocks_epoch_0_slot_{slot}_{rnd_u8}").into_bytes();
+            let header_id: [u8; 32] = block.id().into();
+            let key = generate_block_key(block.slot().into(), &header_id);
+
             storage_relay
                 .send(StorageMsg::Store {
                     key: key.into(),
@@ -276,10 +276,9 @@ where
                 .await
                 .unwrap();
 
-            let id_key: [u8; 32] = block.id.into();
             storage_relay
                 .send(StorageMsg::Store {
-                    key: Bytes::copy_from_slice(&id_key),
+                    key: Bytes::copy_from_slice(&header_id),
                     value: wire::serialize(&block).unwrap().into(),
                 })
                 .await
@@ -328,4 +327,13 @@ where
     fn has_block(&self, id: &HeaderId) -> bool {
         self.blocks.contains_key(id)
     }
+}
+
+fn generate_block_key(slot: u64, header_id: &[u8; 32]) -> Vec<u8> {
+    let mut key = Vec::with_capacity(11 + 8 + 4 + 32);
+    key.extend_from_slice(b"block/slot/");
+    key.extend_from_slice(&slot.to_be_bytes());
+    key.extend_from_slice(b"/id/");
+    key.extend_from_slice(header_id);
+    key
 }
