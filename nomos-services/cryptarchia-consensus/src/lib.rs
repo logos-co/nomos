@@ -1,3 +1,12 @@
+pub mod blend;
+mod leadership;
+mod messages;
+pub mod network;
+mod relays;
+mod states;
+pub mod storage;
+mod sync;
+
 use core::fmt::Debug;
 use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 
@@ -59,15 +68,6 @@ use crate::{
         adapters::StorageAdapter, sync::SyncBlocksProvider, StorageAdapter as _, BLOCK_INDEX_PREFIX,
     },
 };
-
-pub mod blend;
-mod leadership;
-mod messages;
-pub mod network;
-mod relays;
-mod states;
-pub mod storage;
-mod sync;
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
 type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
