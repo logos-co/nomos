@@ -1,17 +1,8 @@
-pub mod blend;
-mod leadership;
-mod messages;
-pub mod network;
-mod relays;
-mod states;
-pub mod storage;
-mod sync;
-
 use core::fmt::Debug;
 use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 
 use cryptarchia_engine::Slot;
-use cryptarchia_sync_network::{behaviour::BehaviourSyncReply, SyncRequestKind};
+use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
 use futures::StreamExt;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
@@ -31,7 +22,7 @@ use nomos_mempool::{
     backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter, DaMempoolService,
     MempoolMsg, TxMempoolService,
 };
-use nomos_network::NetworkService;
+use nomos_network::{backends::libp2p::SyncRequestKind, NetworkService};
 use nomos_storage::{
     backends::{StorageBackend, StorageSerde},
     StorageMsg, StorageService,
@@ -68,6 +59,15 @@ use crate::{
         adapters::StorageAdapter, sync::SyncBlocksProvider, StorageAdapter as _, BLOCK_INDEX_PREFIX,
     },
 };
+
+pub mod blend;
+mod leadership;
+mod messages;
+pub mod network;
+mod relays;
+mod states;
+pub mod storage;
+mod sync;
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
 type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;

@@ -1,6 +1,6 @@
 use cryptarchia_engine::Slot;
 use futures::Stream;
-use nomos_core::block::AbstractBlock;
+use nomos_core::{block::AbstractBlock, header::HeaderId};
 
 #[async_trait::async_trait]
 pub trait CryptarchiaAdapter {
@@ -10,7 +10,7 @@ pub trait CryptarchiaAdapter {
 
     fn tip_slot(&self) -> Slot;
 
-    fn has_block(&self, id: &<Self::Block as AbstractBlock>::Id) -> bool;
+    fn has_block(&self, id: &HeaderId) -> bool;
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -34,6 +34,6 @@ pub trait NetworkAdapter {
 
     async fn fetch_chain_backward(
         &self,
-        tip: <Self::Block as AbstractBlock>::Id,
+        tip: HeaderId,
     ) -> Result<BoxedStream<Self::Block>, Box<dyn std::error::Error + Send + Sync>>;
 }

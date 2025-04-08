@@ -3,9 +3,11 @@ pub mod adapters;
 use std::hash::Hash;
 
 use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
-use cryptarchia_sync_network::SyncRequestKind;
 use futures::Stream;
-use nomos_network::{backends::NetworkBackend, NetworkService};
+use nomos_network::{
+    backends::{libp2p::SyncRequestKind, NetworkBackend},
+    NetworkService,
+};
 use overwatch::{
     services::{relay::OutboundRelay, ServiceData},
     DynError,

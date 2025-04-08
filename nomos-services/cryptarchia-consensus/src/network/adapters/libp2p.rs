@@ -1,12 +1,8 @@
 use std::{hash::Hash, marker::PhantomData};
 
-use crate::{
-    messages::NetworkMessage,
-    network::{BoxedStream, NetworkAdapter, SyncRequest},
-};
 use cryptarchia_engine::Slot;
 use cryptarchia_sync_network::behaviour::SyncDirection;
-use nomos_core::{block::AbstractBlock, wire};
+use nomos_core::{block::AbstractBlock, header::HeaderId, wire};
 use nomos_network::{
     backends::libp2p::{Command, Event, EventKind, Libp2p},
     NetworkMsg, NetworkService,
@@ -20,7 +16,11 @@ use tokio_stream::{
     wrappers::{errors::BroadcastStreamRecvError, BroadcastStream, UnboundedReceiverStream},
     StreamExt,
 };
-use tracing::info;
+
+use crate::{
+    messages::NetworkMessage,
+    network::{BoxedStream, NetworkAdapter, SyncRequest},
+};
 
 type Relay<T, RuntimeServiceId> =
     OutboundRelay<<NetworkService<T, RuntimeServiceId> as ServiceData>::Message>;
@@ -159,9 +159,6 @@ impl<Block, RuntimeServiceId> cryptarchia_sync::adapter::NetworkAdapter
     for LibP2pAdapter<Block, RuntimeServiceId>
 where
     Block: AbstractBlock + Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
-    // TODO: This is temporary
-    <Block as AbstractBlock>::Id:
-        TryInto<[u8; 32]> + Serialize + DeserializeOwned + Hash + Eq + Send + Sync + 'static,
 {
     type Block = Block;
 
@@ -169,12 +166,11 @@ where
         &self,
         start_slot: Slot,
     ) -> Result<BoxedStream<Block>, Box<dyn std::error::Error + Send + Sync>> {
-        info!("fetching blocks from slot {start_slot:?}");
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
         if let Err((e, _)) = self
             .network_relay
             .send(NetworkMsg::Process(Command::StartSync(
-                SyncDirection::Forward(start_slot.into()),
+                SyncDirection::Forward(start_slot),
                 sender,
             )))
             .await
@@ -189,14 +185,9 @@ where
     }
     async fn fetch_chain_backward(
         &self,
-        tip: <Block as AbstractBlock>::Id,
+        tip: HeaderId,
     ) -> Result<BoxedStream<Block>, Box<dyn std::error::Error + Send + Sync>> {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-
-        // TODO: find a nicer way. Probably should add `Block` generic bound to the types reelated to NetworkBehaviour
-        let tip = tip
-            .try_into()
-            .map_err(|_| "Failed to convert header id to [u8; 32]".to_owned())?;
 
         self.network_relay
             .send(NetworkMsg::Process(Command::StartSync(

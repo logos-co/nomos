@@ -51,12 +51,7 @@ pub struct Behaviour {
 }
 
 impl Behaviour {
-    fn new(
-        peer_id: PeerId,
-        gossipsub_config: gossipsub::Config,
-        // Temporarily "static"
-        membership: AllNeighbours,
-    ) -> Result<Self, Box<dyn Error>> {
+    fn new(peer_id: PeerId, gossipsub_config: gossipsub::Config) -> Result<Self, Box<dyn Error>> {
         let gossipsub = gossipsub::Behaviour::new(
             gossipsub::MessageAuthenticity::Author(peer_id),
             gossipsub::ConfigBuilder::from(gossipsub_config)
@@ -65,6 +60,13 @@ impl Behaviour {
                 .max_transmit_size(DATA_LIMIT)
                 .build()?,
         )?;
+
+        // Currently initial peers are read from "Libp2pConfig::initial_peers"(as
+        // before) and the membership is filled when SyncBehaviour receives
+        // connection events from Swarm. Maybe we even don't need to use a Membership
+        // trait. Let's see how the rest of membership will be handled in
+        // consensus before we decide.
+        let membership = AllNeighbours::new();
         let sync = cryptarchia_sync_network::behaviour::SyncBehaviour::new(peer_id, membership);
         Ok(Self { gossipsub, sync })
     }
@@ -79,21 +81,18 @@ pub enum SwarmError {
 /// How long to keep a connection alive once it is idling.
 const IDLE_CONN_TIMEOUT: Duration = Duration::from_secs(300);
 impl Swarm {
-    /// Builds a [`Swarm`] configured for use with Nomos on top of a tokio executor.
+    /// Builds a [`Swarm`] configured for use with Nomos on top of a tokio
+    /// executor.
     pub fn build(config: &SwarmConfig) -> Result<Self, Box<dyn Error>> {
         let keypair =
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
         let peer_id = PeerId::from(keypair.public());
         tracing::info!("libp2p peer_id:{}", peer_id);
 
-        // TODO: needs to be implemented before starting testing with real nodes
-        // Have to read from config for now
-        let membership = AllNeighbours::new();
-
         let mut swarm = if config.enable_memory_transport {
-            Self::build_with_memory_transport(keypair, peer_id, config, membership)?
+            Self::build_with_memory_transport(keypair, peer_id, config)?
         } else {
-            Self::build_with_quic_transport(keypair, peer_id, config, membership)?
+            Self::build_with_quic_transport(keypair, peer_id, config)?
         };
 
         if config.enable_memory_transport {
@@ -109,7 +108,6 @@ impl Swarm {
         keypair: identity::Keypair,
         peer_id: PeerId,
         config: &SwarmConfig,
-        membership: AllNeighbours,
     ) -> Result<libp2p::Swarm<Behaviour>, Box<dyn Error>> {
         let transport = MemoryTransport::default()
             .upgrade(Version::V1)
@@ -122,9 +120,7 @@ impl Swarm {
             .with_tokio()
             .with_other_transport(|_| transport)?
             .with_dns()?
-            .with_behaviour(|_| {
-                Behaviour::new(peer_id, config.gossipsub_config.clone(), membership).unwrap()
-            })?
+            .with_behaviour(|_| Behaviour::new(peer_id, config.gossipsub_config.clone()).unwrap())?
             .with_swarm_config(|c| c.with_idle_connection_timeout(IDLE_CONN_TIMEOUT))
             .build())
     }
@@ -133,15 +129,12 @@ impl Swarm {
         keypair: identity::Keypair,
         peer_id: PeerId,
         config: &SwarmConfig,
-        membership: AllNeighbours,
     ) -> Result<libp2p::Swarm<Behaviour>, Box<dyn Error>> {
         Ok(libp2p::SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()
             .with_dns()?
-            .with_behaviour(|_| {
-                Behaviour::new(peer_id, config.gossipsub_config.clone(), membership).unwrap()
-            })?
+            .with_behaviour(|_| Behaviour::new(peer_id, config.gossipsub_config.clone()).unwrap())?
             .with_swarm_config(|c| c.with_idle_connection_timeout(IDLE_CONN_TIMEOUT))
             .build())
     }
@@ -181,7 +174,7 @@ impl Swarm {
     pub fn start_sync(
         &mut self,
         direction: SyncDirection,
-        reply_channel: UnboundedSender<Vec<u8>>,
+        response_sender: UnboundedSender<Vec<u8>>,
     ) {
         self.swarm
             .behaviour_mut()
@@ -189,7 +182,7 @@ impl Swarm {
             .sync_request_channel()
             .send(SyncCommand::StartSync {
                 direction,
-                response_sender: reply_channel,
+                response_sender,
             })
             .expect("Failed to send sync request");
     }

@@ -1,5 +1,4 @@
 use std::{
-    hash::Hash,
     marker::PhantomData,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -8,8 +7,10 @@ use std::{
 };
 
 use bytes::Bytes;
-use cryptarchia_sync_network::{behaviour::BehaviourSyncReply, SyncRequestKind};
-use nomos_core::{block::AbstractBlock, wire};
+use cryptarchia_engine::Slot;
+use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
+use nomos_core::{block::AbstractBlock, header::HeaderId, wire};
+use nomos_network::backends::libp2p::SyncRequestKind;
 use nomos_storage::{backends::StorageBackend, ScanResult, StorageMsg, StorageService};
 use overwatch::{
     services::{relay::OutboundRelay, ServiceData},
@@ -46,16 +47,7 @@ pub struct SyncBlocksProvider<
 impl<Storage, Block, RuntimeServiceId> SyncBlocksProvider<Storage, Block, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync + 'static,
-    Block: AbstractBlock + Serialize + DeserializeOwned + Send + Sync + 'static + std::fmt::Debug,
-    <Block as AbstractBlock>::Id: Into<[u8; 32]>
-        + From<[u8; 32]>
-        + Serialize
-        + DeserializeOwned
-        + Hash
-        + Eq
-        + Send
-        + Sync
-        + 'static,
+    Block: AbstractBlock + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     #[must_use]
     pub fn new(
@@ -89,7 +81,7 @@ where
             }
             SyncRequestKind::BackwardChain(tip) => {
                 info!("Syncing from header {:?}", tip);
-                self.spawn_fetch_blocks_from_header_backwards(tip.into(), request.reply_channel);
+                self.spawn_fetch_blocks_from_header_backwards(tip, request.reply_channel);
             }
             SyncRequestKind::Tip => {
                 tracing::warn!("Unsupported sync request kind");
@@ -100,7 +92,7 @@ where
 
     fn spawn_fetch_blocks_from_slot_forwards(
         &self,
-        slot: u64,
+        slot: Slot,
         reply_channel: Sender<BehaviourSyncReply>,
     ) {
         let storage_relay = self.storage_relay.clone();
@@ -134,7 +126,7 @@ where
 
     fn spawn_fetch_blocks_from_header_backwards(
         &self,
-        header_id: <Block as AbstractBlock>::Id,
+        header_id: HeaderId,
         reply_channel: Sender<BehaviourSyncReply>,
     ) {
         let storage_relay = self.storage_relay.clone();
@@ -189,7 +181,7 @@ where
 
     async fn get_blocks_from_slot(
         storage_relay: &StorageRelay<Storage, RuntimeServiceId>,
-        slot: u64,
+        slot: Slot,
     ) -> Result<tokio::sync::mpsc::Receiver<ScanResult<Storage>>, DynError> {
         let prefix = Bytes::copy_from_slice(BLOCK_INDEX_PREFIX);
         let start = Bytes::copy_from_slice(&slot.to_be_bytes());
