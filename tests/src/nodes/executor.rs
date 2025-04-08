@@ -296,6 +296,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         da_verifier: DaVerifierServiceSettings {
             verifier_settings: KzgrsDaVerifierSettings {
                 global_params_path: config.da_config.global_params_path.clone(),
+                domain_size: config.da_config.num_subnets as usize,
             },
             network_adapter_settings: (),
             storage_adapter_settings: VerifierStorageAdapterSettings {
