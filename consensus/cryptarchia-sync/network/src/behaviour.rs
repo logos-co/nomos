@@ -100,6 +100,8 @@ pub enum SyncError {
     ChannelSendError(#[from] mpsc::error::SendError<BehaviourSyncReply>),
     #[error("IO error: {0}")]
     IOError(#[from] std::io::Error),
+    #[error("Invalid message: {0}")]
+    InvalidMessage(String),
 }
 
 pub struct SyncBehaviour<Membership> {
