@@ -24,17 +24,13 @@ use libp2p::{
 };
 use libp2p_stream::{Control, IncomingStreams, OpenStreamError};
 use nomos_core::{da::BlobId, wire};
-use nomos_da_messages::{
-    common,
-    packing::{pack_to_writer, unpack_from_reader},
-    sampling,
-};
+use nomos_da_messages::{common, sampling};
 use subnetworks_assignations::MembershipHandler;
 use thiserror::Error;
 use tokio::sync::{mpsc, mpsc::UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::error;
-
+use nomos_core::wire::packing::{pack_to_writer, unpack_from_reader};
 use crate::{protocol::SAMPLING_PROTOCOL, SubnetworkId};
 
 #[derive(Debug, Error)]
