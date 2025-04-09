@@ -879,6 +879,8 @@ where
             RuntimeServiceId,
         >,
         block_broadcaster: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
+        // TODO: Replace this with `BlobValidationStrategy`
+        //       This boolean is for making chain sync and recovery work temporarily.
         skip_blob_validation: bool,
     ) -> Result<Cryptarchia, (Error, Cryptarchia)> {
         tracing::debug!("received proposal {:?}", block);
