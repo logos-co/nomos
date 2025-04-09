@@ -105,6 +105,11 @@ impl TopologyConfig {
             network_params: NetworkParams::default(),
         }
     }
+
+    #[must_use]
+    pub const fn total_participants(&self) -> usize {
+        self.n_validators + self.n_executors
+    }
 }
 
 pub struct Topology {
