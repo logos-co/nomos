@@ -1,6 +1,9 @@
 mod config;
 
+pub mod protocol_name;
+
 use std::{
+    collections::HashMap,
     error::Error,
     pin::Pin,
     task::{Context, Poll},
@@ -11,7 +14,7 @@ use blake2::{
     digest::{consts::U32, Digest},
     Blake2b,
 };
-pub use config::{secret_key_serde, SwarmConfig};
+pub use config::{secret_key_serde, IdentifySettings, KademliaSettings, SwarmConfig};
 pub use libp2p::{
     self,
     core::upgrade,
@@ -22,9 +25,12 @@ pub use libp2p::{
 };
 use libp2p::{
     gossipsub::{Message, MessageId, TopicHash},
-    swarm::ConnectionId,
+    identify,
+    kad::{self, QueryId},
+    swarm::{behaviour::toggle::Toggle, ConnectionId},
 };
 pub use multiaddr::{multiaddr, Multiaddr, Protocol};
+use protocol_name::ProtocolName;
 
 // TODO: Risc0 proofs are HUGE (220 Kb) and it's the only reason we need to have
 // this limit so large. Remove this once we transition to smaller proofs.
@@ -36,13 +42,28 @@ pub struct Swarm {
     swarm: libp2p::Swarm<Behaviour>,
 }
 
+#[derive(Debug, Clone)]
+pub enum BehaviourError {
+    OperationNotSupported,
+}
+
 #[derive(NetworkBehaviour)]
 pub struct Behaviour {
     gossipsub: gossipsub::Behaviour,
+    // todo: support persistent store if needed
+    kademlia: Toggle<kad::Behaviour<kad::store::MemoryStore>>,
+    identify: Toggle<identify::Behaviour>,
 }
 
 impl Behaviour {
-    fn new(peer_id: PeerId, gossipsub_config: gossipsub::Config) -> Result<Self, Box<dyn Error>> {
+    fn new(
+        gossipsub_config: gossipsub::Config,
+        kad_config: Option<KademliaSettings>,
+        identify_config: Option<IdentifySettings>,
+        protocol_name: ProtocolName,
+        public_key: identity::PublicKey,
+    ) -> Result<Self, Box<dyn Error>> {
+        let peer_id = PeerId::from(public_key.clone());
         let gossipsub = gossipsub::Behaviour::new(
             gossipsub::MessageAuthenticity::Author(peer_id),
             gossipsub::ConfigBuilder::from(gossipsub_config)
@@ -51,7 +72,90 @@ impl Behaviour {
                 .max_transmit_size(DATA_LIMIT)
                 .build()?,
         )?;
-        Ok(Self { gossipsub })
+
+        let identify = identify_config.map_or_else(
+            || Toggle::from(None),
+            |identify_config| {
+                Toggle::from(Some(identify::Behaviour::new(
+                    identify_config.to_libp2p_config(public_key, protocol_name),
+                )))
+            },
+        );
+
+        let kademlia = kad_config.map_or_else(
+            || Toggle::from(None),
+            |kad_config| {
+                Toggle::from(Some(kad::Behaviour::with_config(
+                    peer_id,
+                    kad::store::MemoryStore::new(peer_id),
+                    kad_config.to_libp2p_config(protocol_name),
+                )))
+            },
+        );
+
+        Ok(Self {
+            gossipsub,
+            kademlia,
+            identify,
+        })
+    }
+
+    pub fn kademlia_add_address(&mut self, peer_id: PeerId, addr: Multiaddr) {
+        if let Some(kademlia) = self.kademlia.as_mut() {
+            kademlia.add_address(&peer_id, addr);
+        }
+    }
+
+    pub fn kademlia_routing_table_dump(&mut self) -> HashMap<u32, Vec<PeerId>> {
+        self.kademlia
+            .as_mut()
+            .map_or_else(HashMap::new, |kademlia| {
+                kademlia
+                    .kbuckets()
+                    .enumerate()
+                    .map(|(bucket_idx, bucket)| {
+                        let peers = bucket
+                            .iter()
+                            .map(|entry| *entry.node.key.preimage())
+                            .collect::<Vec<_>>();
+                        (bucket_idx as u32, peers)
+                    })
+                    .collect()
+            })
+    }
+
+    pub fn get_kademlia_protocol_names(&self) -> Vec<String> {
+        self.kademlia
+            .as_ref()
+            .map_or_else(std::vec::Vec::new, |kademlia| {
+                kademlia
+                    .protocol_names()
+                    .iter()
+                    .map(std::string::ToString::to_string)
+                    .collect()
+            })
+    }
+
+    pub fn kademlia_get_closest_peers(
+        &mut self,
+        peer_id: PeerId,
+    ) -> Result<QueryId, BehaviourError> {
+        self.kademlia.as_mut().map_or_else(
+            || {
+                tracing::error!("kademlia is not enabled");
+                Err(BehaviourError::OperationNotSupported)
+            },
+            |kademlia| Ok(kademlia.get_closest_peers(peer_id)),
+        )
+    }
+
+    pub fn bootstrap_kademlia(&mut self) {
+        if let Some(kademlia) = self.kademlia.as_mut() {
+            let res = kademlia.bootstrap();
+            if let Err(e) = res {
+                tracing::error!("failed to bootstrap kademlia: {e}");
+            }
+        }
     }
 }
 
@@ -59,6 +163,9 @@ impl Behaviour {
 pub enum SwarmError {
     #[error("duplicate dialing")]
     DuplicateDialing,
+
+    #[error("no known peers")]
+    NoKnownPeers,
 }
 
 /// How long to keep a connection alive once it is idling.
@@ -69,21 +176,51 @@ impl Swarm {
     /// executor.
     //
     // TODO: define error types
-    pub fn build(config: &SwarmConfig) -> Result<Self, Box<dyn Error>> {
+    pub fn build(config: SwarmConfig) -> Result<Self, Box<dyn Error>> {
         let keypair =
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
         let peer_id = PeerId::from(keypair.public());
         tracing::info!("libp2p peer_id:{}", peer_id);
 
+        let SwarmConfig {
+            gossipsub_config,
+            kademlia_config,
+            identify_config,
+            ..
+        } = config;
+
         let mut swarm = libp2p::SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()
             .with_dns()?
-            .with_behaviour(|_| Behaviour::new(peer_id, config.gossipsub_config.clone()).unwrap())?
+            .with_behaviour(|keypair| {
+                Behaviour::new(
+                    gossipsub_config,
+                    kademlia_config.clone(),
+                    identify_config,
+                    config.protocol_name_env,
+                    keypair.public(),
+                )
+                .unwrap()
+            })?
             .with_swarm_config(|c| c.with_idle_connection_timeout(IDLE_CONN_TIMEOUT))
             .build();
 
-        swarm.listen_on(Self::multiaddr(config.host, config.port))?;
+        let listen_addr = Self::multiaddr(config.host, config.port);
+        swarm.listen_on(listen_addr.clone())?;
+
+        // if kademlia is enabled and is not in client mode then it is operating in a
+        // server mode
+        if let Some(kademlia_config) = &kademlia_config {
+            if !kademlia_config.client_mode {
+                // libp2p2-kad server mode is implicitly enabled
+                // by adding external addressess
+                // <https://github.com/libp2p/rust-libp2p/blob/master/protocols/kad/CHANGELOG.md#0440>
+                let external_addr = listen_addr.with(Protocol::P2p(peer_id));
+                swarm.add_external_address(external_addr.clone());
+                tracing::info!("Added external address: {}", external_addr);
+            }
+        }
 
         Ok(Self { swarm })
     }
@@ -135,6 +272,10 @@ impl Swarm {
         &self.swarm
     }
 
+    pub const fn swarm_mut(&mut self) -> &mut libp2p::Swarm<Behaviour> {
+        &mut self.swarm
+    }
+
     pub fn is_subscribed(&mut self, topic: &str) -> bool {
         let topic_hash = Self::topic_hash(topic);
 
@@ -144,6 +285,19 @@ impl Swarm {
             .gossipsub
             .topics()
             .any(|h| h == &topic_hash)
+    }
+
+    pub fn get_closest_peers(
+        &mut self,
+        peer_id: libp2p::PeerId,
+    ) -> Result<QueryId, BehaviourError> {
+        self.swarm
+            .behaviour_mut()
+            .kademlia_get_closest_peers(peer_id)
+    }
+
+    pub fn get_kademlia_protocol_names(&self) -> Vec<String> {
+        self.swarm.behaviour().get_kademlia_protocol_names()
     }
 
     #[must_use]
