@@ -265,7 +265,7 @@ where
             .await
             .expect("slot timer shouldn't be closed")
             .slot;
-        // Drain the stream until the latest slot
+        // Drain the stream until the latest slot without blocking
         while let Some(slot_tick) = self.slot_timer.next().now_or_never() {
             slot = slot_tick.expect("slot timer shouldn't be closed").slot;
         }
