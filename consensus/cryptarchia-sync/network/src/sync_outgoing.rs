@@ -12,20 +12,16 @@ use tracing::{error, info};
 
 use crate::{
     behaviour::{SyncDirection, SyncError, SyncRequest, SYNC_PROTOCOL},
-    membership::ConsensusMembershipHandler,
+    membership::ConnectedPeers,
     sync_utils,
 };
 
-pub async fn select_best_peer_for_sync<Membership>(
+pub async fn select_best_peer_for_sync(
     control: Control,
-    membership: Membership,
+    peers: Vec<PeerId>,
     local_peer_id: PeerId,
-) -> Result<PeerId, SyncError>
-where
-    Membership: ConsensusMembershipHandler<Id = PeerId> + Clone + 'static + Send,
-{
-    let peers: Vec<PeerId> = membership
-        .members()
+) -> Result<PeerId, SyncError> {
+    let peers: Vec<PeerId> = peers
         .iter()
         .filter(|&&id| id != local_peer_id)
         .copied()
@@ -102,19 +98,16 @@ async fn request_tip_from_peer(peer_id: PeerId, mut control: Control) -> Result<
     Ok(tip)
 }
 
-pub fn sync_after_requesting_tips<Membership>(
+pub fn sync_after_requesting_tips(
     control: Control,
-    membership: Membership,
+    membership: &ConnectedPeers,
     local_peer_id: PeerId,
     direction: SyncDirection,
     response_sender: UnboundedSender<Vec<u8>>,
-) -> BoxFuture<'static, Result<(), SyncError>>
-where
-    Membership: ConsensusMembershipHandler<Id = PeerId> + Clone + 'static + Send,
-{
+) -> BoxFuture<'static, Result<(), SyncError>> {
+    let peers = membership.members();
     async move {
-        let best_peer =
-            select_best_peer_for_sync(control.clone(), membership, local_peer_id).await?;
+        let best_peer = select_best_peer_for_sync(control.clone(), peers, local_peer_id).await?;
 
         info!(peer_id = %best_peer, "Chosen peer for sync");
         stream_blocks_from_peer(best_peer, &mut control.clone(), direction, response_sender).await
