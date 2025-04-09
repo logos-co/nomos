@@ -1,19 +1,27 @@
-use std::{collections::HashMap, marker::PhantomData};
+use std::{error::Error as StdError, fmt};
 
 use async_trait::async_trait;
-use thiserror::Error;
 
 use super::SdpBackend;
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum MockSdpBackendError {
-    #[error("Process message failure")]
     ProcessMessageFailure,
-    #[error("Mark in block failure")]
     MarkInBlockFailure,
-    #[error("Other mock error: {0}")]
     Other(String),
 }
+
+impl fmt::Display for MockSdpBackendError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ProcessMessageFailure => write!(f, "Process message failure"),
+            Self::MarkInBlockFailure => write!(f, "Mark in block failure"),
+            Self::Other(msg) => write!(f, "Other mock error: {msg}"),
+        }
+    }
+}
+
+impl StdError for MockSdpBackendError {}
 
 pub struct MockSdpBackend<BN, M> {
     pub processed_messages: Vec<(BN, M)>,
@@ -36,7 +44,8 @@ impl<BN, M> Default for MockSdpBackend<BN, M> {
 }
 
 impl<BN, M> MockSdpBackend<BN, M> {
-    pub fn new_with_behavior(should_fail_process: bool, should_fail_mark: bool) -> Self {
+    #[must_use]
+    pub const fn new(should_fail_process: bool, should_fail_mark: bool) -> Self {
         Self {
             processed_messages: Vec::new(),
             marked_blocks: Vec::new(),
@@ -76,7 +85,7 @@ where
 
     fn new(settings: Self::Settings) -> Self {
         let (should_fail_process, should_fail_mark) = settings;
-        Self::new_with_behavior(should_fail_process, should_fail_mark)
+        Self::new(should_fail_process, should_fail_mark)
     }
 
     async fn process_sdp_message(
@@ -119,6 +128,7 @@ impl<BN: PartialEq, M> MockSdpBackend<BN, M> {
         self.discarded_blocks.contains(block_number)
     }
 
+    #[must_use]
     pub fn count_processed_messages(&self) -> usize {
         self.processed_messages.len()
     }
