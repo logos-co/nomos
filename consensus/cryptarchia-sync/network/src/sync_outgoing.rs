@@ -73,7 +73,7 @@ pub async fn stream_blocks_from_peer(
     peer_id: PeerId,
     control: &mut Control,
     direction: SyncDirection,
-    response_sender: UnboundedSender<Vec<u8>>,
+    response_sender: UnboundedSender<(Vec<u8>, PeerId)>,
 ) -> Result<(), SyncError> {
     info!(peer_id = %peer_id, "Streaming blocks");
 
@@ -81,7 +81,7 @@ pub async fn stream_blocks_from_peer(
     sync_utils::send_data(&mut stream, &SyncRequest::Sync { direction }).await?;
 
     while let Ok(block) = sync_utils::receive_data(&mut stream).await {
-        if response_sender.send(block).is_err() {
+        if response_sender.send((block, peer_id)).is_err() {
             break;
         }
     }
@@ -107,17 +107,29 @@ pub fn sync_after_requesting_tips<Membership>(
     membership: Membership,
     local_peer_id: PeerId,
     direction: SyncDirection,
-    response_sender: UnboundedSender<Vec<u8>>,
+    response_sender: UnboundedSender<(Vec<u8>, PeerId)>,
 ) -> BoxFuture<'static, Result<(), SyncError>>
 where
     Membership: ConsensusMembershipHandler<Id = PeerId> + Clone + 'static + Send,
 {
     async move {
-        let best_peer =
-            select_best_peer_for_sync(control.clone(), membership, local_peer_id).await?;
+        match direction {
+            SyncDirection::Forward(_start_slot) => {
+                // TODO: use start_slot to filter out peers that aren't ahead of us.
+                let best_peer =
+                    select_best_peer_for_sync(control.clone(), membership, local_peer_id).await?;
 
-        info!(peer_id = %best_peer, "Chosen peer for sync");
-        stream_blocks_from_peer(best_peer, &mut control.clone(), direction, response_sender).await
+                info!(peer_id = %best_peer, "Chosen peer for sync");
+                stream_blocks_from_peer(best_peer, &mut control.clone(), direction, response_sender)
+                    .await
+            }
+            SyncDirection::Backward { peer, .. } => {
+                // NOTE: Actually, the `peer` info included in the `direction` doesn't need to
+                //       be sent to the peer via network. But just not refactor this yet.
+                stream_blocks_from_peer(peer, &mut control.clone(), direction, response_sender)
+                    .await
+            }
+        }
     }
     .boxed()
 }
