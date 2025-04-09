@@ -2,7 +2,7 @@ use futures::{future::BoxFuture, AsyncWriteExt, StreamExt};
 use libp2p::Stream;
 use tokio::sync::mpsc::channel;
 use tokio_stream::wrappers::ReceiverStream;
-
+use tracing::info;
 use crate::{
     behaviour::{BehaviourSyncReply, IncomingSyncRequest, RequestKind, SyncError, SyncRequest},
     sync_utils,
@@ -42,6 +42,10 @@ pub fn send_response_to_peer(
                 }
                 BehaviourSyncReply::Block(block) => {
                     sync_utils::send_data(&mut req.stream, &block).await?;
+                }
+                BehaviourSyncReply::Failed(e) => {
+                    info!("Service reported sync failure: {e:?}");
+
                 }
             }
             req.stream.flush().await?;

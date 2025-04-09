@@ -1058,7 +1058,7 @@ where
                     });
             }
             _ => {
-                sync_data_provider.process_sync_request(request);
+                sync_data_provider.process_sync_request(request).await;
             }
         }
     }

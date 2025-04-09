@@ -26,7 +26,7 @@ use tracing::info;
 
 use crate::{network::SyncRequest, storage::BLOCK_INDEX_PREFIX};
 
-const MAX_CONCURRENT_REQUESTS: usize = 1;
+const MAX_CONCURRENT_REQUESTS: usize = 5;
 const BLOCK_SEND_DELAY_MS: u64 = 50;
 
 type StorageRelay<Storage, RuntimeServiceId> =
@@ -64,14 +64,19 @@ where
         }
     }
 
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "Seems strange because it does not have a lot of logic."
-    )]
-    pub fn process_sync_request(&self, request: SyncRequest) {
+    pub async fn process_sync_request(&self, request: SyncRequest) {
         if self.in_progress_requests.fetch_add(1, Ordering::SeqCst) >= MAX_CONCURRENT_REQUESTS {
             tracing::warn!("Max concurrent sync requests reached");
             self.in_progress_requests.fetch_sub(1, Ordering::SeqCst);
+            request
+                .reply_channel
+                .send(BehaviourSyncReply::Failed(
+                    "Max concurrent sync requests reached".to_owned(),
+                ))
+                .await
+                .unwrap_or_else(|_| {
+                    tracing::warn!("Failed to send error reply");
+                });
             return;
         }
         match request.kind {

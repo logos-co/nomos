@@ -240,7 +240,7 @@ where
                                         .expect("Failed to send tip response");
                                 }
                                 _ => {
-                                    sync_data_provider.process_sync_request(sync_request);
+                                    sync_data_provider.process_sync_request(sync_request).await;
                                 }
                             }
                         },
