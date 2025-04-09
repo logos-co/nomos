@@ -821,9 +821,43 @@ where
 
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
+    async fn validate_received_block(
+        block: &Block<ClPool::Item, DaPool::Item>,
+        relays: &CryptarchiaConsensusRelays<
+            BlendAdapter,
+            BS,
+            ClPool,
+            ClPoolAdapter,
+            DaPool,
+            DaPoolAdapter,
+            NetAdapter,
+            SamplingBackend,
+            SamplingRng,
+            Storage,
+            TxS,
+            DaVerifierBackend,
+            RuntimeServiceId,
+        >,
+    ) -> bool {
+        let sampled_blobs = match get_sampled_blobs(relays.sampling_relay().clone()).await {
+            Ok(sampled_blobs) => sampled_blobs,
+            Err(error) => {
+                error!("Unable to retrieved sampled blobs: {error}");
+                return false;
+            }
+        };
+        if !Self::validate_blocks_blobs(block, &sampled_blobs) {
+            error!("Invalid block: {block:?}");
+            return false;
+        }
+        true
+    }
+
+    #[expect(clippy::allow_attributes_without_reason)]
+    #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(cryptarchia, leader, relays))]
     async fn process_block(
-        mut cryptarchia: Cryptarchia,
+        cryptarchia: Cryptarchia,
         leader: &mut leadership::Leader,
         block: Block<ClPool::Item, DaPool::Item>,
         relays: &CryptarchiaConsensusRelays<
@@ -844,22 +878,39 @@ where
         block_broadcaster: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> Cryptarchia {
         tracing::debug!("received proposal {:?}", block);
-
-        // TODO: filter on time?
-
-        let header = block.header();
-        let id = header.id();
-        let sampled_blobs = match get_sampled_blobs(relays.sampling_relay().clone()).await {
-            Ok(sampled_blobs) => sampled_blobs,
-            Err(error) => {
-                error!("Unable to retrieved sampled blobs: {error}");
-                return cryptarchia;
-            }
-        };
-        if !Self::validate_block(&block, &sampled_blobs) {
-            error!("Invalid block: {block:?}");
+        if !Self::validate_received_block(&block, relays).await {
             return cryptarchia;
         }
+        Self::_process_block(cryptarchia, leader, block, relays, block_broadcaster).await
+    }
+
+    #[expect(clippy::allow_attributes_without_reason)]
+    #[expect(clippy::type_complexity)]
+    #[instrument(level = "debug", skip(cryptarchia, leader, relays))]
+    async fn _process_block(
+        mut cryptarchia: Cryptarchia,
+        leader: &mut leadership::Leader,
+        block: Block<ClPool::Item, DaPool::Item>,
+        relays: &CryptarchiaConsensusRelays<
+            BlendAdapter,
+            BS,
+            ClPool,
+            ClPoolAdapter,
+            DaPool,
+            DaPoolAdapter,
+            NetAdapter,
+            SamplingBackend,
+            SamplingRng,
+            Storage,
+            TxS,
+            DaVerifierBackend,
+            RuntimeServiceId,
+        >,
+        block_broadcaster: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
+    ) -> Cryptarchia {
+        // TODO: filter on time?
+        let header = block.header();
+        let id = header.id();
 
         match cryptarchia.try_apply_header(header) {
             Ok(new_state) => {
@@ -971,7 +1022,7 @@ where
         output
     }
 
-    fn validate_block(
+    fn validate_blocks_blobs(
         block: &Block<ClPool::Item, DaPool::Item>,
         sampled_blobs_ids: &BTreeSet<DaPool::Key>,
     ) -> bool {
