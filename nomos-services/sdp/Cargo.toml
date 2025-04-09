@@ -14,3 +14,6 @@ services-utils = { workspace = true }
 tokio          = { version = "1", features = ["macros", "sync"] }
 tokio-stream   = "0.1.15"
 tracing        = { version = "0.1", features = ["attributes"] }
+
+[features]
+mock = []

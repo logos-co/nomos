@@ -1,5 +1,8 @@
 pub mod sdpledger;
 
+#[cfg(feature = "mock")]
+pub mod mock;
+
 #[async_trait::async_trait]
 pub trait SdpBackend {
     type BlockNumber: Clone + Send + Sync;
