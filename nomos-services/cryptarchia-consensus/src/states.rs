@@ -6,7 +6,7 @@ use nomos_ledger::LedgerState;
 use overwatch::services::state::ServiceState;
 use serde::{Deserialize, Serialize};
 
-use crate::{leadership::Leader, Cryptarchia, CryptarchiaSettings, Error};
+use crate::{Cryptarchia, CryptarchiaSettings, Error, leadership::Leader};
 
 /// Indicates that there's stored data so [`Cryptarchia`] should be recovered.
 /// However, the number of stored epochs is fewer than
@@ -28,7 +28,7 @@ pub struct GenesisRecoveryStrategy {
 pub struct SecurityRecoveryStrategy {
     pub tip: HeaderId,
     pub security_block_id: HeaderId,
-    pub security_ledger_state: LedgerState, // TODO: No longer needed
+    pub security_ledger_state: LedgerState,
     pub security_leader_notes: Vec<NoteWitness>,
 }
 
