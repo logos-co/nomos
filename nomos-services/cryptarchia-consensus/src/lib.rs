@@ -881,13 +881,13 @@ where
         if !Self::validate_received_block(&block, relays).await {
             return cryptarchia;
         }
-        Self::_process_block(cryptarchia, leader, block, relays, block_broadcaster).await
+        Self::process_block_unchecked(cryptarchia, leader, block, relays, block_broadcaster).await
     }
 
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(cryptarchia, leader, relays))]
-    async fn _process_block(
+    async fn process_block_unchecked(
         mut cryptarchia: Cryptarchia,
         leader: &mut leadership::Leader,
         block: Block<ClPool::Item, DaPool::Item>,
