@@ -161,6 +161,24 @@ where
     Stakes: StakesVerifier<Proof = Proof> + Send + Sync,
     ContractAddress: Debug,
 {
+    pub fn new(
+        declaration_repo: Declarations,
+        reward_request_sender: Rewards,
+        services_repo: Services,
+        stake_verifier: Stakes,
+    ) -> Self {
+        Self {
+            declaration_repo,
+            reward_request_sender,
+            services_repo,
+            stake_verifier,
+            pending_providers: HashMap::new(),
+            pending_declarations: HashMap::new(),
+            pending_rewards: HashMap::new(),
+            _phantom: PhantomData,
+        }
+    }
+
     async fn process_declare(
         &mut self,
         block_number: BlockNumber,

@@ -16,7 +16,7 @@ use services_utils::overwatch::lifecycle;
 use tokio::sync::oneshot;
 
 #[derive(Debug)]
-pub enum SdpMessage<B: SdpBackend<RuntimeServiceId>, RuntimeServiceId> {
+pub enum SdpMessage<B: SdpBackend> {
     Process {
         block_number: B::BlockNumber,
         message: B::Message,
@@ -29,16 +29,16 @@ pub enum SdpMessage<B: SdpBackend<RuntimeServiceId>, RuntimeServiceId> {
     DiscardBlock(B::BlockNumber),
 }
 
-impl<B: SdpBackend<RuntimeServiceId> + 'static + Send + Sync, RuntimeServiceId> ServiceData
+impl<B: SdpBackend + 'static + Send + Sync, RuntimeServiceId> ServiceData
     for SdpService<B, RuntimeServiceId>
 {
     type Settings = B::Settings;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
-    type Message = SdpMessage<B, RuntimeServiceId>;
+    type Message = SdpMessage<B>;
 }
 
-pub struct SdpService<B: SdpBackend<RuntimeServiceId> + Send + Sync + 'static, RuntimeServiceId> {
+pub struct SdpService<B: SdpBackend + Send + Sync + 'static, RuntimeServiceId> {
     backend: B,
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
 }
@@ -46,7 +46,7 @@ pub struct SdpService<B: SdpBackend<RuntimeServiceId> + Send + Sync + 'static, R
 #[async_trait]
 impl<B, RuntimeServiceId> ServiceCore<RuntimeServiceId> for SdpService<B, RuntimeServiceId>
 where
-    B: SdpBackend<RuntimeServiceId> + Send + Sync + 'static,
+    B: SdpBackend + Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send,
 {
     fn init(
@@ -54,10 +54,7 @@ where
         _initstate: Self::State,
     ) -> Result<Self, overwatch::DynError> {
         Ok(Self {
-            backend: B::new(
-                service_state.settings_reader.get_updated_settings(),
-                service_state.overwatch_handle.clone(),
-            ),
+            backend: B::new(service_state.settings_reader.get_updated_settings()),
             service_state,
         })
     }
@@ -90,10 +87,8 @@ where
     }
 }
 
-impl<B: SdpBackend<RuntimeServiceId> + Send + Sync + 'static, RuntimeServiceId>
-    SdpService<B, RuntimeServiceId>
-{
-    async fn handle_sdp_message(msg: SdpMessage<B, RuntimeServiceId>, backend: &mut B) {
+impl<B: SdpBackend + Send + Sync + 'static, RuntimeServiceId> SdpService<B, RuntimeServiceId> {
+    async fn handle_sdp_message(msg: SdpMessage<B>, backend: &mut B) {
         match msg {
             SdpMessage::Process {
                 block_number,

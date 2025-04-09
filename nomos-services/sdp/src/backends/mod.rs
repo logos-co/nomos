@@ -1,13 +1,13 @@
-use overwatch::overwatch::handle::OverwatchHandle;
+pub mod sdpledger;
 
 #[async_trait::async_trait]
-pub trait SdpBackend<RuntimeServiceId> {
+pub trait SdpBackend {
     type BlockNumber: Clone + Send + Sync;
     type Message: Send + Sync;
     type Error: std::error::Error + 'static + Send + Sync;
     type Settings: Clone + Send + Sync + 'static;
 
-    fn new(settings: Self::Settings, overwatch_handle: OverwatchHandle<RuntimeServiceId>) -> Self;
+    fn new(settings: Self::Settings) -> Self;
 
     async fn process_sdp_message(
         &mut self,
