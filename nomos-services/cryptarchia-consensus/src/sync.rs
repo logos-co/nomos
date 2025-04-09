@@ -17,8 +17,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::sync::broadcast;
 
 use crate::{
-    blend, leadership, network::NetworkAdapter, relays::CryptarchiaConsensusRelays, Cryptarchia,
-    CryptarchiaConsensus, Error,
+    blend, leadership, network::NetworkAdapter, relays::CryptarchiaConsensusRelays,
+    BlobValidationStrategy, Cryptarchia, CryptarchiaConsensus, Error,
 };
 
 #[expect(
@@ -381,6 +381,7 @@ where
             self.cryptarchia.take().unwrap(),
             &mut self.leader,
             block,
+            BlobValidationStrategy::Skip, // TODO: do not skip
             &self.relays,
             &mut self.block_broadcaster,
         )
