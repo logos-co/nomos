@@ -78,18 +78,19 @@ struct Cryptarchia {
 }
 
 impl Cryptarchia {
-    // TODO: This should always be initialised from genesis
-    pub fn new(
-        header_id: HeaderId,
-        ledger_state: LedgerState,
+    /// Initialize a new [`Cryptarchia`] instance.
+    /// [`Cryptarchia`] must always be initialized from genesis.
+    pub fn from_genesis(
+        genesis_id: HeaderId,
+        genesis_ledger_state: LedgerState,
         ledger_config: nomos_ledger::Config,
     ) -> Self {
         Self {
-            consensus: <cryptarchia_engine::Cryptarchia<_>>::new(
-                header_id,
+            consensus: <cryptarchia_engine::Cryptarchia<_>>::from_genesis(
+                genesis_id,
                 ledger_config.consensus_config,
             ),
-            ledger: <nomos_ledger::Ledger<_>>::new(header_id, ledger_state, ledger_config),
+            ledger: <nomos_ledger::Ledger<_>>::new(genesis_id, genesis_ledger_state, ledger_config),
         }
     }
 
@@ -107,6 +108,38 @@ impl Cryptarchia {
         self.consensus.genesis()
     }
 
+    /// Create a new [`Cryptarchia`] with the updated state.
+    /// This method adds a parent-less header to the new [`Cryptarchia`] without
+    /// running validation. Due to this, the preferred method is
+    /// [`Cryptarchia::try_apply_header`].
+    ///
+    /// # Warning
+    ///
+    /// **This method bypasses safety checks** and can corrupt the state if used
+    /// incorrectly.
+    /// Only use for recovery, debugging, or other manipulations where the input
+    /// is known to be valid.
+    pub fn try_apply_header_unchecked(
+        &self,
+        unchecked_header: &Header,
+        unchecked_ledger_state: LedgerState,
+        unchecked_block_length: u64,
+    ) -> Self {
+        let unchecked_header_id = unchecked_header.id();
+        let unchecked_slot = unchecked_header.slot();
+        let ledger = self
+            .ledger
+            .try_update_unchecked(unchecked_header_id, unchecked_ledger_state);
+        let consensus = self.consensus.receive_block_unchecked(
+            unchecked_header_id,
+            unchecked_slot,
+            unchecked_block_length,
+        );
+        Self { ledger, consensus }
+    }
+
+    /// Create a new [`Cryptarchia`] with the updated state.
+    #[must_use = "Returns a new instance with the updated state, without modifying the original."]
     fn try_apply_header(&self, header: &Header) -> Result<Self, Error> {
         let id = header.id();
         let parent = header.parent();
@@ -1107,7 +1140,7 @@ where
         ledger_config: nomos_ledger::Config,
     ) -> (Cryptarchia, Leader) {
         let leader = Leader::from_genesis(genesis_id, leader_config, ledger_config);
-        let cryptarchia = Cryptarchia::new(genesis_id, genesis_state, ledger_config);
+        let cryptarchia = Cryptarchia::from_genesis(genesis_id, genesis_state, ledger_config);
 
         (cryptarchia, leader)
     }
@@ -1153,7 +1186,7 @@ where
         >,
         block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> (Cryptarchia, Leader) {
-        let mut cryptarchia = Cryptarchia::new(genesis_id, genesis_state, ledger_config);
+        let mut cryptarchia = Cryptarchia::from_genesis(genesis_id, genesis_state, ledger_config);
 
         let mut leader = Leader::from_genesis(genesis_id, leader_config, ledger_config);
 
@@ -1199,8 +1232,9 @@ where
         SecurityRecoveryStrategy {
             tip,
             security_block_id,
+            security_ledger_state,
             security_leader_notes,
-            ..
+            security_block_length,
         }: SecurityRecoveryStrategy,
         genesis_id: HeaderId,
         genesis_state: LedgerState,
@@ -1223,8 +1257,7 @@ where
         >,
         block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> (Cryptarchia, Leader) {
-        let mut cryptarchia = Cryptarchia::new(genesis_id, genesis_state, ledger_config);
-
+        let mut cryptarchia = Cryptarchia::from_genesis(genesis_id, genesis_state, ledger_config);
         let mut leader = Leader::new(
             security_block_id,
             security_leader_notes,
@@ -1235,7 +1268,19 @@ where
         let blocks =
             Self::get_blocks_in_range(security_block_id, tip, relays.storage_adapter()).await;
 
-        for block in blocks {
+        // Apply security block with _unchecked_ since it has no parent.
+        let mut blocks_iter = blocks.into_iter();
+        let security_block = blocks_iter
+            .next()
+            .expect("Security block must be present when recovering from security block.");
+        cryptarchia = cryptarchia.try_apply_header_unchecked(
+            security_block.header(),
+            security_ledger_state,
+            security_block_length,
+        );
+
+        // Apply remaining blocks normally
+        for block in blocks_iter {
             cryptarchia = Self::process_block(
                 cryptarchia,
                 &mut leader,
