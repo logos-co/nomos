@@ -9,7 +9,7 @@ use adapter::{CryptarchiaAdapter, CryptarchiaAdapterError, NetworkAdapter};
 use futures::{Stream, StreamExt};
 use itertools::Itertools;
 use nomos_core::{block::AbstractBlock, header::HeaderId};
-use tracing::info;
+use tracing::{debug, info};
 
 pub struct Synchronization<Cryptarchia, Network, Block> {
     _marker: PhantomData<(Cryptarchia, Network, Block)>,
@@ -28,6 +28,10 @@ where
         mut cryptarchia: Cryptarchia,
         network: &Network,
     ) -> Result<Cryptarchia, Box<dyn std::error::Error + Send + Sync + 'static>> {
+        info!(
+            "Starting sync process from tip {:?}",
+            cryptarchia.tip_slot()
+        );
         // Repeat the sync process until no peer has a tip ahead of the local tip,
         // because peers' tips may advance during the sync process.
         let mut rejected_blocks = HashSet::new();
@@ -59,11 +63,14 @@ where
                     Ok(()) => {
                         num_processed_blocks += 1;
                         orphan_blocks.remove(&id);
+                        debug!("Processed block {id:?}");
                     }
                     Err(CryptarchiaAdapterError::ParentNotFound) => {
+                        debug!("Parent not found for block {id:?}");
                         orphan_blocks.insert(id, slot);
                     }
-                    Err(CryptarchiaAdapterError::InvalidBlock(_)) => {
+                    Err(CryptarchiaAdapterError::InvalidBlock(e)) => {
+                        debug!("Invalid block {id:?}: {e}");
                         rejected_blocks.insert(id);
                     }
                 };
@@ -101,6 +108,11 @@ where
                 }
             }
         }
+
+        info!(
+            "Finished sync process with tip {:?}",
+            cryptarchia.tip_slot()
+        );
 
         Ok(cryptarchia)
     }

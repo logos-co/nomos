@@ -591,10 +591,8 @@ where
             self.block_subscription_sender.clone(),
         );
 
-        // TODO: Uncomment this once it's ready.
-        // let sync_adapter =
-        //     cryptarchia_sync::Synchronization::run(sync_adapter,
-        // &network_adapter).await?;
+        let sync_adapter =
+            cryptarchia_sync::Synchronization::run(sync_adapter, &network_adapter).await?;
 
         let sync_data_provider: SyncBlocksProvider<
             Storage,
