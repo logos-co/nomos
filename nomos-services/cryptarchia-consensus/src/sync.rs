@@ -3,6 +3,7 @@ use std::{hash::Hash, marker::PhantomData};
 
 use cryptarchia_engine::Slot;
 use cryptarchia_sync::adapter::CryptarchiaAdapterError;
+use futures::FutureExt;
 use nomos_core::{
     block::Block,
     da::blob::{info::DispersedBlobInfo, metadata::Metadata as BlobMetadata, BlobSelect},
@@ -12,9 +13,11 @@ use nomos_core::{
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_mempool::{backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter};
 use nomos_storage::backends::StorageBackend;
+use nomos_time::EpochSlotTickStream;
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::sync::broadcast;
+use tokio_stream::StreamExt;
 
 use crate::{
     blend, leadership, network::NetworkAdapter, relays::CryptarchiaConsensusRelays,
@@ -79,6 +82,8 @@ pub struct CryptarchiaSyncAdapter<
 {
     cryptarchia: Option<Cryptarchia>,
     leader: leadership::Leader,
+    da_availability_window: Slot,
+    slot_timer: EpochSlotTickStream,
     relays: CryptarchiaConsensusRelays<
         BlendAdapter,
         BS,
@@ -186,6 +191,8 @@ where
     pub const fn new(
         cryptarchia: Cryptarchia,
         leader: leadership::Leader,
+        da_availability_window: Slot,
+        slot_timer: EpochSlotTickStream,
         relays: CryptarchiaConsensusRelays<
             BlendAdapter,
             BS,
@@ -206,6 +213,8 @@ where
         Self {
             cryptarchia: Some(cryptarchia),
             leader,
+            da_availability_window,
+            slot_timer,
             relays,
             block_broadcaster,
             _marker: PhantomData::<(
@@ -224,6 +233,7 @@ where
     ) -> (
         Cryptarchia,
         leadership::Leader,
+        EpochSlotTickStream,
         CryptarchiaConsensusRelays<
             BlendAdapter,
             BS,
@@ -243,8 +253,23 @@ where
         (
             self.cryptarchia.expect("Cryptarchia is not set"),
             self.leader,
+            self.slot_timer,
             self.relays,
         )
+    }
+
+    async fn current_slot(&mut self) -> Slot {
+        let mut slot = self
+            .slot_timer
+            .next()
+            .await
+            .expect("slot timer shouldn't be closed")
+            .slot;
+        // Drain the stream until the latest slot
+        while let Some(slot_tick) = self.slot_timer.next().now_or_never() {
+            slot = slot_tick.expect("slot timer shouldn't be closed").slot;
+        }
+        slot
     }
 }
 
@@ -357,6 +382,7 @@ where
     type Block = Block<ClPool::Item, DaPool::Item>;
 
     async fn process_block(&mut self, block: Self::Block) -> Result<(), CryptarchiaAdapterError> {
+        let current_slot = self.current_slot().await;
         let result = CryptarchiaConsensus::<
             NetAdapter,
             BlendAdapter,
@@ -381,7 +407,10 @@ where
             self.cryptarchia.take().unwrap(),
             &mut self.leader,
             block,
-            BlobValidationStrategy::Skip, // TODO: do not skip
+            BlobValidationStrategy::ValidateSampled {
+                da_availability_window: self.da_availability_window,
+                current_slot,
+            },
             &self.relays,
             &mut self.block_broadcaster,
         )

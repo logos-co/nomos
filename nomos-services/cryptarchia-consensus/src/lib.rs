@@ -564,6 +564,16 @@ where
 
         let storage_relay = relays.storage_adapter().storage_relay.clone();
 
+        let slot_timer = {
+            let (sender, receiver) = oneshot::channel();
+            relays
+                .time_relay()
+                .send(TimeServiceMessage::Subscribe { sender })
+                .await
+                .expect("Request time subscription to time service should succeed");
+            receiver.await?
+        };
+
         let sync_adapter = CryptarchiaSyncAdapter::<
             NetAdapter,
             BlendAdapter,
@@ -587,6 +597,11 @@ where
         >::new(
             cryptarchia,
             leader,
+            // TODO: Use the real DA availability window
+            //       once triggering samples is implemented.
+            //       For now, use 0 to skip all blob validations during sync.
+            Slot::from(0),
+            slot_timer,
             relays,
             self.block_subscription_sender.clone(),
         );
@@ -605,28 +620,16 @@ where
             self.service_state.overwatch_handle.runtime().clone(),
         );
 
-        let (mut cryptarchia, mut leader, relays) = sync_adapter.take();
+        let (mut cryptarchia, mut leader, mut slot_timer, relays) = sync_adapter.take();
 
         let mut incoming_blocks = network_adapter.blocks_stream().await?;
         let mut incoming_sync_requests = network_adapter.sync_requests_stream().await?;
-
-        let mut slot_timer = {
-            let (sender, receiver) = oneshot::channel();
-            relays
-                .time_relay()
-                .send(TimeServiceMessage::Subscribe { sender })
-                .await
-                .expect("Request time subscription to time service should succeed");
-            receiver.await?
-        };
 
         let blend_adapter =
             BlendAdapter::new(blend_adapter_settings, relays.blend_relay().clone()).await;
 
         let mut lifecycle_stream = self.service_state.lifecycle_handle.message_stream();
 
-        // TODO: Obtain this from the proper DA service
-        let da_availability_window = Slot::from(10_000_000);
         let mut current_slot = slot_timer
             .next()
             .await
@@ -644,7 +647,8 @@ where
                             &mut leader,
                             block,
                             BlobValidationStrategy::ValidateSampled {
-                                da_availability_window,
+                                // TODO: Obtain this from the proper DA service
+                                da_availability_window: Slot::from(86400),
                                 current_slot,
                             },
                             &relays,
