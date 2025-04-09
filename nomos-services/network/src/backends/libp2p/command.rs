@@ -1,26 +1,51 @@
-use nomos_libp2p::{Multiaddr, PeerId};
+use std::collections::HashMap;
+
+use nomos_libp2p::{libp2p::kad::PeerInfo, Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
 #[derive(Debug)]
 #[non_exhaustive]
-pub enum Command {
-    Connect(Dial),
+pub enum PubSubCommand {
     Broadcast {
         topic: Topic,
         message: Box<[u8]>,
     },
     Subscribe(Topic),
     Unsubscribe(Topic),
-    Info {
-        reply: oneshot::Sender<Libp2pInfo>,
-    },
     #[doc(hidden)]
     RetryBroadcast {
         topic: Topic,
         message: Box<[u8]>,
         retry_count: usize,
     },
+}
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum DiscoveryCommand {
+    GetClosestPeers {
+        peer_id: PeerId,
+        reply: oneshot::Sender<Vec<PeerInfo>>,
+    },
+    DumpRoutingTable {
+        reply: oneshot::Sender<HashMap<u32, Vec<PeerId>>>,
+    },
+}
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum NetworkCommand {
+    Connect(Dial),
+    Info { reply: oneshot::Sender<Libp2pInfo> },
+}
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum Command {
+    PubSub(PubSubCommand),
+    Discovery(DiscoveryCommand),
+    Network(NetworkCommand),
 }
 
 #[derive(Debug)]

@@ -1,7 +1,7 @@
 use futures::Stream;
 use nomos_core::wire;
 use nomos_network::{
-    backends::libp2p::{Command, Event, EventKind, Libp2p, Message, TopicHash},
+    backends::libp2p::{Command, Event, EventKind, Libp2p, Message, PubSubCommand, TopicHash},
     NetworkMsg, NetworkService,
 };
 use overwatch::services::{relay::OutboundRelay, ServiceData};
@@ -35,8 +35,8 @@ where
         >,
     ) -> Self {
         network_relay
-            .send(NetworkMsg::Process(Command::Subscribe(
-                settings.topic.clone(),
+            .send(NetworkMsg::Process(Command::PubSub(
+                PubSubCommand::Subscribe(settings.topic.clone()),
             )))
             .await
             .expect("Network backend should be ready");
@@ -79,10 +79,12 @@ where
         if let Ok(wire) = wire::serialize(&item) {
             if let Err((e, _)) = self
                 .network_relay
-                .send(NetworkMsg::Process(Command::Broadcast {
-                    topic: self.settings.topic.clone(),
-                    message: wire.into(),
-                }))
+                .send(NetworkMsg::Process(Command::PubSub(
+                    PubSubCommand::Broadcast {
+                        topic: self.settings.topic.clone(),
+                        message: wire.into(),
+                    },
+                )))
                 .await
             {
                 tracing::error!("failed to send item to topic: {e}");
