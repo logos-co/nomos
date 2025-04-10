@@ -10,13 +10,13 @@ use backends::{StorageBackend, StorageIterator, StorageSerde, StorageTransaction
 use bytes::Bytes;
 use futures::StreamExt;
 use overwatch::{
-    services::{
-        state::{NoOperator, NoState},
-        AsServiceId, ServiceCore, ServiceData,
-    },
     OpaqueServiceStateHandle,
+    services::{
+        AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, NoState},
+    },
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use services_utils::overwatch::lifecycle;
 use tokio::sync::mpsc;
 use tracing::error;
@@ -236,26 +236,28 @@ pub struct StorageService<Backend: StorageBackend + Send + Sync + 'static, Runti
 impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
     StorageService<Backend, RuntimeServiceId>
 {
-    async fn handle_storage_message(&mut self, msg: StorageMsg<Backend>) {
+    async fn handle_storage_message(msg: StorageMsg<Backend>, backend: &mut Backend) {
         if let Err(e) = match msg {
-            StorageMsg::Load { key, reply_channel } => self.handle_load(key, reply_channel).await,
+            StorageMsg::Load { key, reply_channel } => {
+                Self::handle_load(backend, key, reply_channel).await
+            }
             StorageMsg::LoadPrefix {
                 prefix,
                 reply_channel,
-            } => self.handle_load_prefix(prefix, reply_channel).await,
-            StorageMsg::Store { key, value } => self.handle_store(key, value).await,
+            } => Self::handle_load_prefix(backend, prefix, reply_channel).await,
             StorageMsg::ScanRange {
                 prefix,
                 start,
                 reply_channel,
-            } => self.handle_scan_range(prefix, start, reply_channel).await,
+            } => Self::handle_scan_range(backend, prefix, start, reply_channel).await,
+            StorageMsg::Store { key, value } => Self::handle_store(backend, key, value).await,
             StorageMsg::Remove { key, reply_channel } => {
-                self.handle_remove(key, reply_channel).await
+                Self::handle_remove(backend, key, reply_channel).await
             }
             StorageMsg::Execute {
                 transaction,
                 reply_channel,
-            } => self.handle_execute(transaction, reply_channel).await,
+            } => Self::handle_execute(backend, transaction, reply_channel).await,
         } {
             // TODO: add proper logging
             println!("{e}");
@@ -263,12 +265,11 @@ impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
     }
     /// Handle load message
     async fn handle_load(
-        &mut self,
+        backend: &mut Backend,
         key: Bytes,
         reply_channel: tokio::sync::oneshot::Sender<Option<Bytes>>,
     ) -> Result<(), StorageServiceError<Backend>> {
-        let result: Option<Bytes> = self
-            .backend
+        let result: Option<Bytes> = backend
             .load(&key)
             .await
             .map_err(StorageServiceError::BackendError)?;
@@ -282,12 +283,11 @@ impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
 
     /// Handle load prefix message
     async fn handle_load_prefix(
-        &mut self,
+        backend: &mut Backend,
         prefix: Bytes,
         reply_channel: tokio::sync::oneshot::Sender<Vec<Bytes>>,
     ) -> Result<(), StorageServiceError<Backend>> {
-        let result: Vec<Bytes> = self
-            .backend
+        let result: Vec<Bytes> = backend
             .load_prefix(&prefix)
             .await
             .map_err(StorageServiceError::BackendError)?;
@@ -301,35 +301,34 @@ impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
 
     /// Handle scan range message
     async fn handle_scan_range(
-        &self,
+        backend: &Backend,
         prefix: Bytes,
         start: Bytes,
         reply_channel: tokio::sync::oneshot::Sender<
             tokio::sync::mpsc::Receiver<ScanResult<Backend>>,
         >,
     ) -> Result<(), StorageServiceError<Backend>> {
-        let iterator = self
-            .backend
+        let iterator = backend
             .scan_range(&prefix, &start)
             .await
             .map_err(StorageServiceError::BackendError)?;
 
         let (result_sender, result_receiver) = tokio::sync::mpsc::channel(1);
-        self.service_state
-            .overwatch_handle
-            .runtime()
-            .spawn(async move {
-                let mut stream = iterator.stream();
-                while let Some(result) = stream.next().await {
-                    if result_sender
-                        .send(result.map_err(StorageServiceError::BackendError))
-                        .await
-                        .is_err()
-                    {
-                        break; // Break if receiver is dropped
-                    }
+
+        // TODO: pass handle from OverWatch
+        let runtime = tokio::runtime::Handle::current();
+        runtime.spawn(async move {
+            let mut stream = iterator.stream();
+            while let Some(result) = stream.next().await {
+                if result_sender
+                    .send(result.map_err(StorageServiceError::BackendError))
+                    .await
+                    .is_err()
+                {
+                    break; // Break if receiver is dropped
                 }
-            });
+            }
+        });
 
         reply_channel
             .send(result_receiver)
@@ -341,12 +340,11 @@ impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
 
     /// Handle remove message
     async fn handle_remove(
-        &mut self,
+        backend: &mut Backend,
         key: Bytes,
         reply_channel: tokio::sync::oneshot::Sender<Option<Bytes>>,
     ) -> Result<(), StorageServiceError<Backend>> {
-        let result: Option<Bytes> = self
-            .backend
+        let result: Option<Bytes> = backend
             .remove(&key)
             .await
             .map_err(StorageServiceError::BackendError)?;
@@ -360,11 +358,11 @@ impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
 
     /// Handle store message
     async fn handle_store(
-        &mut self,
+        backend: &mut Backend,
         key: Bytes,
         value: Bytes,
     ) -> Result<(), StorageServiceError<Backend>> {
-        self.backend
+        backend
             .store(key, value)
             .await
             .map_err(StorageServiceError::BackendError)
@@ -372,14 +370,13 @@ impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
 
     /// Handle execute message
     async fn handle_execute(
-        &mut self,
+        backend: &mut Backend,
         transaction: Backend::Transaction,
         reply_channel: tokio::sync::oneshot::Sender<
             <Backend::Transaction as StorageTransaction>::Result,
         >,
     ) -> Result<(), StorageServiceError<Backend>> {
-        let result = self
-            .backend
+        let result = backend
             .execute(transaction)
             .await
             .map_err(StorageServiceError::BackendError)?;
@@ -422,8 +419,8 @@ where
         let backend = &mut backend;
         loop {
             tokio::select! {
-                Some(msg) = self.service_state.inbound_relay.recv() => {
-                    self.handle_storage_message(msg).await;
+                Some(msg) = inbound_relay.recv() => {
+                    Self::handle_storage_message(msg, backend).await;
                 }
                 Some(msg) = lifecycle_stream.next() => {
                     if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {

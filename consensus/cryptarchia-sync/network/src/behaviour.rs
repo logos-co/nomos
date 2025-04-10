@@ -2,16 +2,16 @@ use std::task::{Context, Poll};
 
 use cryptarchia_engine::Slot;
 use futures::{
+    AsyncWriteExt, FutureExt,
     future::BoxFuture,
     stream::{FuturesUnordered, StreamExt},
-    AsyncWriteExt, FutureExt,
 };
 use libp2p::{
+    Multiaddr, PeerId, Stream, StreamProtocol,
     swarm::{
         ConnectionClosed, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
         THandlerOutEvent, ToSwarm,
     },
-    Multiaddr, PeerId, Stream, StreamProtocol,
 };
 use nomos_core::header::HeaderId;
 use serde::{Deserialize, Serialize};
@@ -33,7 +33,7 @@ const MAX_INCOMING_SYNCS: usize = 5;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum SyncDirection {
-    Forward(Slot),
+    Forward { slot: Slot },
     Backward { start_block: HeaderId, peer: PeerId },
 }
 
@@ -366,10 +366,10 @@ mod test {
     use std::time::Duration;
 
     use libp2p::{
-        core::{transport::MemoryTransport, upgrade::Version, Multiaddr},
+        PeerId, SwarmBuilder, Transport,
+        core::{Multiaddr, transport::MemoryTransport, upgrade::Version},
         identity::Keypair,
         swarm::{Swarm, SwarmEvent},
-        PeerId, SwarmBuilder, Transport,
     };
     use rand::Rng;
     use tokio::{sync::mpsc, time::sleep};
@@ -388,7 +388,9 @@ mod test {
         let blocks = perform_sync(
             request_senders[0].clone(),
             peer_ids[1],
-            SyncDirection::Forward(Slot::genesis()),
+            SyncDirection::Forward {
+                slot: Slot::genesis(),
+            },
         )
         .await;
 
@@ -464,7 +466,7 @@ mod test {
     fn generate_addresses(num_swarms: usize) -> Vec<Multiaddr> {
         (0..num_swarms)
             .map(|_| {
-                let port = rand::thread_rng().gen::<u64>();
+                let port = rand::thread_rng().r#gen::<u64>();
                 format!("/memory/{port}").parse().unwrap()
             })
             .collect()
@@ -543,7 +545,7 @@ mod test {
                             .expect("Failed to send tip");
                     }
                 },
-                Some(_) => continue,
+                Some(_) => {}
                 None => break,
             }
         }

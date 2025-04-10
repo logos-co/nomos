@@ -1,20 +1,20 @@
 use std::{collections::HashMap, time::Duration};
 
+use cryptarchia_sync_network::behaviour::{BehaviourSyncEvent, SyncCommand, SyncDirection};
 use nomos_libp2p::{
-    gossipsub,
+    BehaviourEvent, Multiaddr, PeerId, Protocol, Swarm, SwarmEvent, gossipsub,
     libp2p::{
         identify,
         kad::{self, PeerInfo, ProgressStep, QueryId},
         swarm::ConnectionId,
     },
-    BehaviourEvent, Multiaddr, PeerId, Protocol, Swarm, SwarmEvent,
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::StreamExt;
 
 use super::{
+    Event, Libp2pConfig, SyncRequestKind, SyncingCommand,
     command::{Command, Dial, DiscoveryCommand, NetworkCommand, PubSubCommand, Topic},
-    Event, Libp2pConfig,
 };
 use crate::backends::libp2p::Libp2pInfo;
 
@@ -126,23 +126,37 @@ impl SwarmHandler {
 
     fn handle_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
         match event {
-            SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => {
+            SwarmEvent::Behaviour(behaviour_event) => {
+                self.handle_behaviour_event(behaviour_event);
+            }
+            connection_event @ (SwarmEvent::ConnectionEstablished { .. }
+            | SwarmEvent::ConnectionClosed { .. }
+            | SwarmEvent::OutgoingConnectionError { .. }) => {
+                self.handle_connection_event(connection_event);
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_behaviour_event(&mut self, event: BehaviourEvent) {
+        match event {
+            BehaviourEvent::Gossipsub(event) => {
                 self.handle_gossipsub_event(event);
             }
-            SwarmEvent::Behaviour(BehaviourEvent::Identify(event)) => {
+            BehaviourEvent::Identify(event) => {
                 self.handle_identify_event(event);
             }
-
-            SwarmEvent::Behaviour(BehaviourEvent::Kademlia(event)) => {
+            BehaviourEvent::Kademlia(event) => {
                 self.handle_kademlia_event(event);
             }
-
-            SwarmEvent::Behaviour(se @ BehaviourEvent::Sync(..)) => {
-                tracing::debug!("Received syncing request {se:?}");
-                if let Err(e) = self.events_tx.send(se.try_into().unwrap()) {
-                    tracing::error!("failed to send sync request: {e:?}");
-                }
+            BehaviourEvent::Sync(ev) => {
+                self.handle_sync_event(ev);
             }
+        }
+    }
+
+    fn handle_connection_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
+        match event {
             SwarmEvent::ConnectionEstablished {
                 peer_id,
                 connection_id,
@@ -184,6 +198,16 @@ impl SwarmHandler {
             Command::Network(network_cmd) => self.handle_network_command(network_cmd),
             Command::PubSub(pubsub_cmd) => self.handle_pubsub_command(pubsub_cmd),
             Command::Discovery(discovery_cmd) => self.handle_discovery_command(discovery_cmd),
+            Command::Sync(sync_cmd) => {
+                let SyncingCommand::StartSync {
+                    direction,
+                    response_sender,
+                } = sync_cmd;
+                self.swarm.start_sync(SyncCommand::StartSync {
+                    direction,
+                    response_sender,
+                });
+            }
         }
     }
 
@@ -226,9 +250,6 @@ impl SwarmHandler {
                 retry_count,
             } => {
                 self.broadcast_and_retry(topic, message, retry_count);
-            }
-            Command::StartSync(direction, reply_channel) => {
-                self.swarm.start_sync(direction, reply_channel);
             }
         }
     }
@@ -341,7 +362,9 @@ impl SwarmHandler {
             }
             Err(gossipsub::PublishError::InsufficientPeers) if retry_count < MAX_RETRY => {
                 let wait = Self::exp_backoff(retry_count);
-                tracing::error!("failed to broadcast message to topic due to insufficient peers, trying again in {wait:?}");
+                tracing::error!(
+                    "failed to broadcast message to topic due to insufficient peers, trying again in {wait:?}"
+                );
 
                 let commands_tx = self.commands_tx.clone();
                 tokio::spawn(async move {
@@ -422,6 +445,31 @@ impl SwarmHandler {
             }
         }
     }
+    fn handle_sync_event(&self, event: BehaviourSyncEvent) {
+        tracing::debug!("Received syncing request {event:?}");
+        let event = match event {
+            BehaviourSyncEvent::SyncRequest {
+                direction,
+                response_sender,
+            } => match direction {
+                SyncDirection::Forward { slot } => Event::IncomingSyncRequest {
+                    kind: SyncRequestKind::ForwardChain(slot),
+                    reply_channel: response_sender,
+                },
+                SyncDirection::Backward { start_block, peer } => Event::IncomingSyncRequest {
+                    kind: SyncRequestKind::BackwardChain { start_block, peer },
+                    reply_channel: response_sender,
+                },
+            },
+            BehaviourSyncEvent::TipRequest { response_sender } => Event::IncomingSyncRequest {
+                kind: SyncRequestKind::Tip,
+                reply_channel: response_sender,
+            },
+        };
+        if let Err(e) = self.events_tx.send(event) {
+            tracing::error!("failed to send sync request: {e:?}");
+        }
+    }
 
     fn handle_query_progress(
         &mut self,
@@ -499,6 +547,7 @@ mod tests {
             kademlia_config: Some(nomos_libp2p::KademliaSettings::default()),
             identify_config: Some(nomos_libp2p::IdentifySettings::default()),
             protocol_name_env: ProtocolName::Unittest,
+            enable_memory_transport: false,
         }
     }
 

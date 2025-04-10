@@ -8,24 +8,26 @@ use cryptarchia_sync_network::behaviour::{
     BehaviourSyncReply, SyncDirection,
 };
 use nomos_core::header::HeaderId;
-use nomos_libp2p::{gossipsub, BehaviourEvent};
 pub use nomos_libp2p::{
+    BehaviourEvent, PeerId, gossipsub,
     libp2p::gossipsub::{Message, TopicHash},
-    PeerId,
 };
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
-use tokio::sync::{broadcast, mpsc, mpsc::Sender};
+use tokio::sync::{broadcast, mpsc};
 
 use self::swarm::SwarmHandler;
 pub use self::{
-    command::{Command, Dial, Libp2pInfo, Topic},
+    command::{
+        Command, Dial, DiscoveryCommand, Libp2pInfo, NetworkCommand, PubSubCommand, SyncingCommand,
+        Topic,
+    },
     config::Libp2pConfig,
 };
 use super::NetworkBackend;
 
 pub struct Libp2p {
     events_tx: broadcast::Sender<Event>,
-    commands_tx: Sender<Command>,
+    commands_tx: mpsc::Sender<Command>,
 }
 
 #[derive(Debug)]
@@ -47,7 +49,7 @@ pub enum Event {
     Message(Message),
     IncomingSyncRequest {
         kind: SyncRequestKind,
-        reply_channel: Sender<BehaviourSyncReply>,
+        reply_channel: mpsc::Sender<BehaviourSyncReply>,
     },
 }
 
@@ -65,7 +67,7 @@ impl TryFrom<BehaviourEvent> for Event {
                 direction,
                 response_sender,
             }) => match direction {
-                SyncDirection::Forward(slot) => Ok(Self::IncomingSyncRequest {
+                SyncDirection::Forward { slot } => Ok(Self::IncomingSyncRequest {
                     kind: SyncRequestKind::ForwardChain(slot),
                     reply_channel: response_sender,
                 }),

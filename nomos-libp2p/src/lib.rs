@@ -11,32 +11,29 @@ use std::{
 };
 
 use blake2::{
-    digest::{consts::U32, Digest},
     Blake2b,
+    digest::{Digest, consts::U32},
 };
-pub use config::{secret_key_serde, IdentifySettings, KademliaSettings, SwarmConfig};
-pub use config::{secret_key_serde, SwarmConfig};
-use cryptarchia_sync_network::behaviour::{SyncCommand, SyncDirection};
+pub use config::{IdentifySettings, KademliaSettings, SwarmConfig, secret_key_serde};
+use cryptarchia_sync_network::behaviour::SyncCommand;
 pub use libp2p::{
-    self,
+    self, PeerId, SwarmBuilder, Transport,
     core::upgrade,
     gossipsub::{self, PublishError, SubscriptionError},
     identity::{self, ed25519},
-    swarm::{dial_opts::DialOpts, DialError, NetworkBehaviour, SwarmEvent},
-    PeerId, SwarmBuilder, Transport,
+    swarm::{DialError, NetworkBehaviour, SwarmEvent, dial_opts::DialOpts},
 };
 use libp2p::{
     core::transport::MemoryTransport,
     gossipsub::{Message, MessageId, TopicHash},
     identify,
     kad::{self, QueryId},
-    swarm::{behaviour::toggle::Toggle, ConnectionId},
+    swarm::{ConnectionId, behaviour::toggle::Toggle},
 };
-pub use multiaddr::{multiaddr, Multiaddr, Protocol};
-use tokio::sync::mpsc::UnboundedSender;
+pub use multiaddr::{Multiaddr, Protocol, multiaddr};
+use protocol_name::ProtocolName;
 
 use crate::upgrade::Version;
-use protocol_name::ProtocolName;
 
 // TODO: Risc0 proofs are HUGE (220 Kb) and it's the only reason we need to have
 // this limit so large. Remove this once we transition to smaller proofs.
@@ -59,7 +56,7 @@ pub struct Behaviour {
     // todo: support persistent store if needed
     kademlia: Toggle<kad::Behaviour<kad::store::MemoryStore>>,
     identify: Toggle<identify::Behaviour>,
-    sync: cryptarchia_sync_network::behaviour::SyncBehaviour<AllNeighbours>,
+    sync: cryptarchia_sync_network::behaviour::SyncBehaviour,
 }
 
 impl Behaviour {
@@ -100,8 +97,7 @@ impl Behaviour {
             },
         );
 
-        let sync =
-            cryptarchia_sync_network::behaviour::SyncBehaviour::new(peer_id, AllNeighbours::new());
+        let sync = cryptarchia_sync_network::behaviour::SyncBehaviour::new(peer_id);
 
         Ok(Self {
             gossipsub,
@@ -184,8 +180,6 @@ const IDLE_CONN_TIMEOUT: Duration = Duration::from_secs(300);
 impl Swarm {
     /// Builds a [`Swarm`] configured for use with Nomos on top of a tokio
     /// executor.
-    //
-    // TODO: define error types
     pub fn build(config: SwarmConfig) -> Result<Self, Box<dyn Error>> {
         let keypair =
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
@@ -196,35 +190,34 @@ impl Swarm {
             gossipsub_config,
             kademlia_config,
             identify_config,
+            enable_memory_transport,
             ..
         } = config;
 
-        let mut swarm = libp2p::SwarmBuilder::with_existing_identity(keypair)
-            .with_tokio()
-            .with_quic()
-            .with_other_transport(|_| {
-                Ok(MemoryTransport::default()
-                    .upgrade(Version::V1)
-                    .authenticate(libp2p::plaintext::Config::new(&keypair))
-                    .multiplex(libp2p::yamux::Config::default())
-                    .timeout(Duration::from_secs(20)))
-            })?
-            .with_dns()?
-            .with_behaviour(|keypair| {
-                Behaviour::new(
-                    gossipsub_config,
-                    kademlia_config.clone(),
-                    identify_config,
-                    config.protocol_name_env,
-                    keypair.public(),
-                )
-                .unwrap()
-            })?
-            .with_swarm_config(|c| c.with_idle_connection_timeout(IDLE_CONN_TIMEOUT))
-            .build();
+        let mut swarm = if enable_memory_transport {
+            Self::build_with_memory_transport(
+                keypair,
+                gossipsub_config,
+                kademlia_config.clone(),
+                identify_config,
+                config.protocol_name_env,
+            )?
+        } else {
+            Self::build_with_quic_transport(
+                keypair,
+                gossipsub_config,
+                kademlia_config.clone(),
+                identify_config,
+                config.protocol_name_env,
+            )?
+        };
 
         let listen_addr = Self::multiaddr(config.host, config.port);
-        swarm.listen_on(listen_addr.clone())?;
+        if enable_memory_transport {
+            swarm.listen_on(format!("/memory/{}", config.port).parse().unwrap())?;
+        } else {
+            swarm.listen_on(listen_addr.clone())?;
+        }
 
         // if kademlia is enabled and is not in client mode then it is operating in a
         // server mode
@@ -240,6 +233,63 @@ impl Swarm {
         }
 
         Ok(Self { swarm })
+    }
+
+    fn build_with_memory_transport(
+        keypair: identity::Keypair,
+        gossipsub_config: gossipsub::Config,
+        kademlia_config: Option<KademliaSettings>,
+        identify_config: Option<IdentifySettings>,
+        protocol_name: ProtocolName,
+    ) -> Result<libp2p::Swarm<Behaviour>, Box<dyn Error>> {
+        Ok(libp2p::SwarmBuilder::with_existing_identity(keypair)
+            .with_tokio()
+            .with_quic()
+            .with_other_transport(|keypair| {
+                Ok(MemoryTransport::default()
+                    .upgrade(Version::V1)
+                    .authenticate(libp2p::plaintext::Config::new(keypair))
+                    .multiplex(libp2p::yamux::Config::default())
+                    .timeout(Duration::from_secs(20)))
+            })?
+            .with_dns()?
+            .with_behaviour(|keypair| {
+                Behaviour::new(
+                    gossipsub_config,
+                    kademlia_config,
+                    identify_config,
+                    protocol_name,
+                    keypair.public(),
+                )
+                .unwrap()
+            })?
+            .with_swarm_config(|c| c.with_idle_connection_timeout(IDLE_CONN_TIMEOUT))
+            .build())
+    }
+
+    fn build_with_quic_transport(
+        keypair: identity::Keypair,
+        gossipsub_config: gossipsub::Config,
+        kademlia_config: Option<KademliaSettings>,
+        identify_config: Option<IdentifySettings>,
+        protocol_name: ProtocolName,
+    ) -> Result<libp2p::Swarm<Behaviour>, Box<dyn Error>> {
+        Ok(libp2p::SwarmBuilder::with_existing_identity(keypair)
+            .with_tokio()
+            .with_quic()
+            .with_dns()?
+            .with_behaviour(|keypair| {
+                Behaviour::new(
+                    gossipsub_config,
+                    kademlia_config,
+                    identify_config,
+                    protocol_name,
+                    keypair.public(),
+                )
+                .unwrap()
+            })?
+            .with_swarm_config(|c| c.with_idle_connection_timeout(IDLE_CONN_TIMEOUT))
+            .build())
     }
 
     /// Initiates a connection attempt to a peer
@@ -274,11 +324,11 @@ impl Swarm {
             .publish(gossipsub::IdentTopic::new(topic), message)
     }
 
-    pub fn start_sync(
-        &mut self,
-        direction: SyncDirection,
-        response_sender: UnboundedSender<(Vec<u8>, PeerId)>,
-    ) {
+    pub fn start_sync(&mut self, command: SyncCommand) {
+        let SyncCommand::StartSync {
+            direction,
+            response_sender,
+        } = command;
         self.swarm
             .behaviour_mut()
             .sync

@@ -1,9 +1,9 @@
 use std::{hash::Hash, marker::PhantomData};
 
 use nomos_core::header::HeaderId;
-use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
-use overwatch::services::{relay::OutboundRelay, ServiceData};
-use serde::{de::DeserializeOwned, Serialize};
+use nomos_storage::{StorageMsg, StorageService, backends::StorageBackend};
+use overwatch::services::{ServiceData, relay::OutboundRelay};
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::storage::StorageAdapter as StorageAdapterTrait;
 

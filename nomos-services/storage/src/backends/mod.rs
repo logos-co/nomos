@@ -11,7 +11,7 @@ use std::error::Error;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::BoxStream;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 /// Trait that defines how to translate from user types to the storage buffer
 /// type
@@ -69,7 +69,7 @@ pub trait StorageBackend: Sized {
 #[cfg(test)]
 pub mod testing {
     use bytes::Bytes;
-    use serde::{de::DeserializeOwned, Serialize};
+    use serde::{Serialize, de::DeserializeOwned};
     use thiserror::Error;
 
     use super::StorageSerde;

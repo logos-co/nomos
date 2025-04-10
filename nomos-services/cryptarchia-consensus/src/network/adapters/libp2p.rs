@@ -4,17 +4,20 @@ use cryptarchia_engine::Slot;
 use cryptarchia_sync_network::behaviour::SyncDirection;
 use nomos_core::{block::AbstractBlock, header::HeaderId, wire};
 use nomos_network::{
-    backends::libp2p::{Command, Event, EventKind, Libp2p, PubSubCommand::Subscribe},
     NetworkMsg, NetworkService,
+    backends::libp2p::{
+        Command, Event, EventKind, Libp2p, PeerId, PubSubCommand::Subscribe,
+        SyncingCommand::StartSync,
+    },
 };
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio_stream::{
-    wrappers::{errors::BroadcastStreamRecvError, BroadcastStream, UnboundedReceiverStream},
     StreamExt,
+    wrappers::{BroadcastStream, UnboundedReceiverStream, errors::BroadcastStreamRecvError},
 };
 
 use crate::{
@@ -173,14 +176,11 @@ where
         Box<dyn std::error::Error + Send + Sync>,
     > {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-        if let Err((e, _)) = self
-            .network_relay
-            .send(NetworkMsg::Process(Command::StartSync(
-                SyncDirection::Forward(start_slot),
-                sender,
-            )))
-            .await
-        {
+        let command = Command::Sync(StartSync {
+            direction: SyncDirection::Forward { slot: start_slot },
+            response_sender: sender,
+        });
+        if let Err((e, _)) = self.network_relay.send(NetworkMsg::Process(command)).await {
             return Err(Box::new(e));
         }
 
@@ -198,13 +198,13 @@ where
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
 
         self.network_relay
-            .send(NetworkMsg::Process(Command::StartSync(
-                SyncDirection::Backward {
+            .send(NetworkMsg::Process(Command::Sync(StartSync {
+                direction: SyncDirection::Backward {
                     start_block: tip,
                     peer: provider_id,
                 },
-                sender,
-            )))
+                response_sender: sender,
+            })))
             .await
             .unwrap();
 

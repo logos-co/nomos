@@ -58,7 +58,11 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for MockStora
         unimplemented!()
     }
 
-    async fn scan_range(&self, prefix: &[u8], start: &[u8]) -> Result<Self::Iterator, Self::Error> {
+    async fn scan_range(
+        &self,
+        _prefix: &[u8],
+        _start: &[u8],
+    ) -> Result<Self::Iterator, Self::Error> {
         unimplemented!()
     }
 

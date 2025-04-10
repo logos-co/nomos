@@ -4,12 +4,12 @@ use std::{
     time::Duration,
 };
 
-use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt, stream::FuturesUnordered};
 #[cfg(feature = "serde")]
 use nomos_utils::bounded_duration::{MinimalBoundedDuration, NANO};
-use sntpc::{get_time, Error as SntpError, NtpContext, NtpResult, StdTimestampGen};
+use sntpc::{Error as SntpError, NtpContext, NtpResult, StdTimestampGen, get_time};
 use tokio::{
-    net::{lookup_host, ToSocketAddrs, UdpSocket},
+    net::{ToSocketAddrs, UdpSocket, lookup_host},
     time::{error::Elapsed, timeout},
 };
 
@@ -81,6 +81,7 @@ impl AsyncNTPClient {
 }
 
 #[cfg(test)]
+#[expect(unused_imports, reason = "confuses clippy")]
 mod tests {
     use std::{
         net::{IpAddr, Ipv4Addr},

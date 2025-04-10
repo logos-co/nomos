@@ -1,17 +1,17 @@
 use futures::{
-    future::{join_all, BoxFuture},
     AsyncWriteExt, FutureExt,
+    future::{BoxFuture, join_all},
 };
 use libp2p::PeerId;
 use libp2p_stream::Control;
 use tokio::{
     sync::mpsc::UnboundedSender,
-    time::{timeout, Duration},
+    time::{Duration, timeout},
 };
 use tracing::{error, info};
 
 use crate::{
-    behaviour::{SyncDirection, SyncError, SyncRequest, SYNC_PROTOCOL},
+    behaviour::{SYNC_PROTOCOL, SyncDirection, SyncError, SyncRequest},
     membership::ConnectedPeers,
     messages::SyncPeerMessage,
     sync_utils,
@@ -135,7 +135,7 @@ pub fn sync_after_requesting_tips(
     let peers = membership.members();
     async move {
         match direction {
-            SyncDirection::Forward(_start_slot) => {
+            SyncDirection::Forward { .. } => {
                 // TODO: use start_slot to filter out peers that aren't ahead of us.
                 let best_peer =
                     select_best_peer_for_sync(control.clone(), peers, local_peer_id).await?;

@@ -5,14 +5,14 @@ use std::hash::Hash;
 use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
 use futures::Stream;
 use nomos_network::{
-    backends::{libp2p::SyncRequestKind, NetworkBackend},
     NetworkService,
+    backends::{NetworkBackend, libp2p::SyncRequestKind},
 };
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::mpsc::Sender;
 
 #[derive(Debug, Clone)]

@@ -2,8 +2,8 @@ pub mod adapters;
 pub mod sync;
 
 use nomos_core::header::HeaderId;
-use nomos_storage::{backends::StorageBackend, StorageService};
-use overwatch::services::{relay::OutboundRelay, ServiceData};
+use nomos_storage::{StorageService, backends::StorageBackend};
+use overwatch::services::{ServiceData, relay::OutboundRelay};
 pub const BLOCK_INDEX_PREFIX: &[u8; 11] = b"block/slot/";
 
 #[async_trait::async_trait]

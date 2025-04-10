@@ -5,34 +5,33 @@ use std::{
 };
 
 use nomos_blend_service::{
-    network::NetworkAdapter as BlendNetworkAdapter, BlendService, ServiceMessage,
+    BlendService, ServiceMessage, network::NetworkAdapter as BlendNetworkAdapter,
 };
 use nomos_core::{
     block::Block,
-    da::blob::{info::DispersedBlobInfo, BlobSelect},
+    da::blob::{BlobSelect, info::DispersedBlobInfo},
     header::HeaderId,
     tx::TxSelect,
 };
-use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
+use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
 use nomos_mempool::{
+    DaMempoolService, TxMempoolService,
     backend::{MemPool, RecoverableMempool},
     network::NetworkAdapter as MempoolAdapter,
-    DaMempoolService, TxMempoolService,
 };
 use nomos_network::{NetworkMsg, NetworkService};
-use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
-use nomos_time::{backends::TimeBackend as TimeBackendTrait, TimeService, TimeServiceMessage};
+use nomos_storage::{StorageMsg, StorageService, backends::StorageBackend};
+use nomos_time::{TimeService, TimeServiceMessage, backends::TimeBackend as TimeBackendTrait};
 use overwatch::{
-    services::{relay::OutboundRelay, AsServiceId},
     OpaqueServiceStateHandle,
+    services::{AsServiceId, relay::OutboundRelay},
 };
 use rand::{RngCore, SeedableRng};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
-    blend, network,
-    storage::{adapters::StorageAdapter, StorageAdapter as StorageAdapterTrait},
-    CryptarchiaConsensus, MempoolRelay, SamplingRelay,
+    CryptarchiaConsensus, MempoolRelay, SamplingRelay, blend, network,
+    storage::{StorageAdapter as StorageAdapterTrait, adapters::StorageAdapter},
 };
 
 type NetworkRelay<NetworkBackend, RuntimeServiceId> =
@@ -102,20 +101,20 @@ pub struct CryptarchiaConsensusRelays<
 }
 
 impl<
-        BlendAdapter,
-        BS,
-        ClPool,
-        ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
-        NetworkAdapter,
-        SamplingBackend,
-        SamplingRng,
-        Storage,
-        TxS,
-        DaVerifierBackend,
-        RuntimeServiceId,
-    >
+    BlendAdapter,
+    BS,
+    ClPool,
+    ClPoolAdapter,
+    DaPool,
+    DaPoolAdapter,
+    NetworkAdapter,
+    SamplingBackend,
+    SamplingRng,
+    Storage,
+    TxS,
+    DaVerifierBackend,
+    RuntimeServiceId,
+>
     CryptarchiaConsensusRelays<
         BlendAdapter,
         BS,

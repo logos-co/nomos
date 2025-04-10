@@ -1,8 +1,8 @@
 use std::{
     marker::PhantomData,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
@@ -11,16 +11,16 @@ use cryptarchia_engine::Slot;
 use cryptarchia_sync_network::behaviour::BehaviourSyncReply;
 use nomos_core::{block::AbstractBlock, header::HeaderId, wire};
 use nomos_network::backends::libp2p::SyncRequestKind;
-use nomos_storage::{backends::StorageBackend, ScanResult, StorageMsg, StorageService};
+use nomos_storage::{ScanResult, StorageMsg, StorageService, backends::StorageBackend};
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use tokio::{
     runtime::Handle,
     sync::{mpsc::Sender, oneshot},
-    time::{sleep, Duration},
+    time::{Duration, sleep},
 };
 use tracing::info;
 

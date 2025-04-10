@@ -176,7 +176,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, sync::LazyLock};
 
     use cryptarchia_engine::Slot;
     use nomos_core::block::AbstractBlock;
@@ -594,9 +594,7 @@ mod tests {
         assert_eq!(local.blocks_by_slot.len(), 6);
     }
 
-    lazy_static::lazy_static! {
-        static ref GENESIS_ID: HeaderId = HeaderId::from([0; 32]);
-    }
+    static GENESIS_ID: LazyLock<HeaderId> = LazyLock::new(|| HeaderId::from([0; 32]));
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct MockBlock {

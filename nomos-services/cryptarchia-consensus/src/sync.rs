@@ -5,7 +5,7 @@ use cryptarchia_engine::Slot;
 use cryptarchia_sync::adapter::CryptarchiaAdapterError;
 use nomos_core::{
     block::Block,
-    da::blob::{info::DispersedBlobInfo, metadata::Metadata as BlobMetadata, BlobSelect},
+    da::blob::{BlobSelect, info::DispersedBlobInfo, metadata::Metadata as BlobMetadata},
     header::HeaderId,
     tx::{Transaction, TxSelect},
 };
@@ -13,12 +13,12 @@ use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_mempool::{backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter};
 use nomos_storage::backends::StorageBackend;
 use rand::{RngCore, SeedableRng};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::sync::broadcast;
 
 use crate::{
-    blend, leadership, network::NetworkAdapter, relays::CryptarchiaConsensusRelays, Cryptarchia,
-    CryptarchiaConsensus, Error,
+    Cryptarchia, CryptarchiaConsensus, Error, blend, leadership, network::NetworkAdapter,
+    relays::CryptarchiaConsensusRelays,
 };
 
 #[expect(
@@ -110,26 +110,26 @@ pub struct CryptarchiaSyncAdapter<
     reason = "CryptarchiaConsensus amount of generics."
 )]
 impl<
-        NetAdapter,
-        BlendAdapter,
-        ClPool,
-        ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
-        TxS,
-        BS,
-        Storage,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingRng,
-        SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
-        TimeBackend,
-        ApiAdapter,
-        RuntimeServiceId,
-    >
+    NetAdapter,
+    BlendAdapter,
+    ClPool,
+    ClPoolAdapter,
+    DaPool,
+    DaPoolAdapter,
+    TxS,
+    BS,
+    Storage,
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingRng,
+    SamplingStorage,
+    DaVerifierBackend,
+    DaVerifierNetwork,
+    DaVerifierStorage,
+    TimeBackend,
+    ApiAdapter,
+    RuntimeServiceId,
+>
     CryptarchiaSyncAdapter<
         NetAdapter,
         BlendAdapter,
@@ -250,26 +250,26 @@ where
 
 #[async_trait::async_trait]
 impl<
-        NetAdapter,
-        BlendAdapter,
-        ClPool,
-        ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
-        TxS,
-        BS,
-        Storage,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingRng,
-        SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
-        TimeBackend,
-        ApiAdapter,
-        RuntimeServiceId,
-    > cryptarchia_sync::adapter::CryptarchiaAdapter
+    NetAdapter,
+    BlendAdapter,
+    ClPool,
+    ClPoolAdapter,
+    DaPool,
+    DaPoolAdapter,
+    TxS,
+    BS,
+    Storage,
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingRng,
+    SamplingStorage,
+    DaVerifierBackend,
+    DaVerifierNetwork,
+    DaVerifierStorage,
+    TimeBackend,
+    ApiAdapter,
+    RuntimeServiceId,
+> cryptarchia_sync::adapter::CryptarchiaAdapter
     for CryptarchiaSyncAdapter<
         NetAdapter,
         BlendAdapter,

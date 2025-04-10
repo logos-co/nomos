@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use nomos_libp2p::{libp2p::kad::PeerInfo, Multiaddr, PeerId};
+use cryptarchia_sync_network::behaviour::SyncDirection;
+use nomos_libp2p::{Multiaddr, PeerId, libp2p::kad::PeerInfo};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
-use cryptarchia_sync_network::behaviour::SyncDirection;
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -20,7 +20,6 @@ pub enum PubSubCommand {
         message: Box<[u8]>,
         retry_count: usize,
     },
-    StartSync(SyncDirection, UnboundedSender<(Vec<u8>, PeerId)>),
 }
 
 #[derive(Debug)]
@@ -44,10 +43,20 @@ pub enum NetworkCommand {
 
 #[derive(Debug)]
 #[non_exhaustive]
+pub enum SyncingCommand {
+    StartSync {
+        direction: SyncDirection,
+        response_sender: UnboundedSender<(Vec<u8>, PeerId)>,
+    },
+}
+
+#[derive(Debug)]
+#[non_exhaustive]
 pub enum Command {
     PubSub(PubSubCommand),
     Discovery(DiscoveryCommand),
     Network(NetworkCommand),
+    Sync(SyncingCommand),
 }
 
 #[derive(Debug)]
