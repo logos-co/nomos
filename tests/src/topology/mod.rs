@@ -34,6 +34,17 @@ pub struct TopologyConfig {
 
 impl TopologyConfig {
     #[must_use]
+    pub fn validators(n: usize) -> Self {
+        Self {
+            n_validators: n,
+            n_executors: 0,
+            consensus_params: ConsensusParams::default_for_participants(n),
+            da_params: DaParams::default(),
+            network_params: NetworkParams::default(),
+        }
+    }
+
+    #[must_use]
     pub fn two_validators() -> Self {
         Self {
             n_validators: 2,
@@ -97,6 +108,11 @@ impl TopologyConfig {
             network_params: NetworkParams::default(),
         }
     }
+
+    #[must_use]
+    pub const fn total_participants(&self) -> usize {
+        self.n_validators + self.n_executors
+    }
 }
 
 pub struct Topology {
@@ -106,8 +122,33 @@ pub struct Topology {
 
 impl Topology {
     pub async fn spawn(config: TopologyConfig) -> Self {
-        let n_participants = config.n_validators + config.n_executors;
+        let configurations = Self::create_configs(&config);
+        Self::spawn_with_config(configurations.0, configurations.1).await
+    }
 
+    pub async fn spawn_with_config(
+        validator_configs: Vec<GeneralConfig>,
+        executor_configs: Vec<GeneralConfig>,
+    ) -> Self {
+        let mut validators = Vec::new();
+        for config in validator_configs {
+            validators.push(Validator::spawn(create_validator_config(config)).await);
+        }
+
+        let mut executors = Vec::new();
+        for config in executor_configs {
+            executors.push(Executor::spawn(create_executor_config(config)).await);
+        }
+
+        Self {
+            validators,
+            executors,
+        }
+    }
+
+    #[must_use]
+    pub fn create_configs(config: &TopologyConfig) -> (Vec<GeneralConfig>, Vec<GeneralConfig>) {
+        let n_participants = config.n_validators + config.n_executors;
         // we use the same random bytes for:
         // * da id
         // * coin sk
@@ -126,9 +167,9 @@ impl Topology {
         let tracing_configs = create_tracing_configs(&ids);
         let time_config = default_time_config();
 
-        let mut validators = Vec::new();
+        let mut validator_configs = Vec::new();
         for i in 0..config.n_validators {
-            let config = create_validator_config(GeneralConfig {
+            let config = GeneralConfig {
                 consensus_config: consensus_configs[i].clone(),
                 da_config: da_configs[i].clone(),
                 network_config: network_configs[i].clone(),
@@ -136,13 +177,13 @@ impl Topology {
                 api_config: api_configs[i].clone(),
                 tracing_config: tracing_configs[i].clone(),
                 time_config: time_config.clone(),
-            });
-            validators.push(Validator::spawn(config).await);
+            };
+            validator_configs.push(config);
         }
 
-        let mut executors = Vec::new();
+        let mut executor_configs = Vec::new();
         for i in config.n_validators..n_participants {
-            let config = create_executor_config(GeneralConfig {
+            let config = GeneralConfig {
                 consensus_config: consensus_configs[i].clone(),
                 da_config: da_configs[i].clone(),
                 network_config: network_configs[i].clone(),
@@ -150,14 +191,11 @@ impl Topology {
                 api_config: api_configs[i].clone(),
                 tracing_config: tracing_configs[i].clone(),
                 time_config: time_config.clone(),
-            });
-            executors.push(Executor::spawn(config).await);
+            };
+            executor_configs.push(config);
         }
 
-        Self {
-            validators,
-            executors,
-        }
+        (validator_configs, executor_configs)
     }
 
     #[expect(
