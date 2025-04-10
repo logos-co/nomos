@@ -105,10 +105,9 @@ where
         }
     }
 
-    /// Create a new [`Ledger`] with the updated state.
-    /// This method adds a parent-less header to the new [`Ledger`] without
-    /// running validation. Due to this, the preferred method is
-    /// [`Ledger::try_update`].
+    /// Create a new [`Ledger`] instance with the updated state.
+    /// This method adds a [`LedgerState`] to the new [`Ledger`] without running
+    /// validation.
     ///
     /// # Warning
     ///
@@ -117,7 +116,7 @@ where
     /// Only use for recovery, debugging, or other manipulations where the input
     /// is known to be valid.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    pub fn try_update_unchecked(&self, id: Id, state: LedgerState) -> Self {
+    pub fn apply_state_unchecked(&self, id: Id, state: LedgerState) -> Self {
         let mut states = self.states.clone();
         states.insert(id, state);
         Self {
@@ -165,14 +164,7 @@ where
                 .clone()
                 .try_update(slot, proof, &orphan_proofs, &self.config)?;
 
-        let mut states = self.states.clone();
-
-        states.insert(id, new_state);
-
-        Ok(Self {
-            states,
-            config: self.config,
-        })
+        Ok(self.apply_state_unchecked(id, new_state))
     }
 
     pub fn state(&self, id: &Id) -> Option<&LedgerState> {

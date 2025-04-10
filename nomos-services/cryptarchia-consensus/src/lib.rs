@@ -108,10 +108,9 @@ impl Cryptarchia {
         self.consensus.genesis()
     }
 
-    /// Create a new [`Cryptarchia`] with the updated state.
-    /// This method adds a parent-less header to the new [`Cryptarchia`] without
-    /// running validation. Due to this, the preferred method is
-    /// [`Cryptarchia::try_apply_header`].
+    /// Create a new [`Cryptarchia`] instance with the updated state.
+    /// This method adds a [`LedgerState`] and [`Header`] to the new instance
+    /// without running validation.
     ///
     /// # Warning
     ///
@@ -119,21 +118,19 @@ impl Cryptarchia {
     /// incorrectly.
     /// Only use for recovery, debugging, or other manipulations where the input
     /// is known to be valid.
-    pub fn try_apply_header_unchecked(
+    pub fn apply_unchecked(
         &self,
-        unchecked_header: &Header,
-        unchecked_ledger_state: LedgerState,
-        unchecked_block_length: u64,
+        header: &Header,
+        ledger_state: LedgerState,
+        block_length: u64,
     ) -> Self {
-        let unchecked_header_id = unchecked_header.id();
-        let unchecked_slot = unchecked_header.slot();
-        let ledger = self
-            .ledger
-            .try_update_unchecked(unchecked_header_id, unchecked_ledger_state);
+        let header_id = header.id();
+        let ledger = self.ledger.apply_state_unchecked(header_id, ledger_state);
         let consensus = self.consensus.receive_block_unchecked(
-            unchecked_header_id,
-            unchecked_slot,
-            unchecked_block_length,
+            header_id,
+            header.parent(),
+            header.slot(),
+            block_length,
         );
         Self { ledger, consensus }
     }
@@ -853,6 +850,9 @@ where
         true
     }
 
+    /// Add a [`Block`] to [`Cryptarchia`].
+    /// A [`Block`] is only added if it's valid
+    /// ([`CryptarchiaConsensus::validate_received_block`]).
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(cryptarchia, leader, relays))]
@@ -884,6 +884,8 @@ where
         Self::process_block_unchecked(cryptarchia, leader, block, relays, block_broadcaster).await
     }
 
+    /// Add a [`Block`] to [`Cryptarchia`].
+    /// This method does not validate the block.
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(cryptarchia, leader, relays))]
@@ -1319,20 +1321,21 @@ where
         let blocks =
             Self::get_blocks_in_range(security_block_id, tip, relays.storage_adapter()).await;
 
-        // Apply security block with _unchecked_ since it has no parent.
+        // Apply security block with _unchecked_ since it's already validated and in its
+        // final form.
         let mut blocks_iter = blocks.into_iter();
         let security_block = blocks_iter
             .next()
             .expect("Security block must be present when recovering from security block.");
-        cryptarchia = cryptarchia.try_apply_header_unchecked(
+        cryptarchia = cryptarchia.apply_unchecked(
             security_block.header(),
             security_ledger_state,
             security_block_length,
         );
 
-        // Apply remaining blocks normally
+        // Apply remaining blocks with _unchecked_ to bypass blobs validation
         for block in blocks_iter {
-            cryptarchia = Self::process_block(
+            cryptarchia = Self::process_block_unchecked(
                 cryptarchia,
                 &mut leader,
                 block,

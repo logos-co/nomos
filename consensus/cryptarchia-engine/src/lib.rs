@@ -71,9 +71,8 @@ where
     }
 
     /// Create a new [`Branches`] instance with the updated state.
-    /// This method adds a parent-less header to the new [`Branches`] without
-    /// running validation. Due to this, the preferred method is
-    /// [`Branches::receive_block`].
+    /// This method adds a [`Branch`] to the new instance without running
+    /// validation.
     ///
     /// # Warning
     ///
@@ -82,16 +81,22 @@ where
     /// Only use for recovery, debugging, or other manipulations where the input
     /// is known to be valid.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    fn apply_header_unchecked(&self, header: Id, slot: Slot, length: u64) -> Self {
+    fn apply_header_unchecked(&self, header: Id, parent: Id, slot: Slot, length: u64) -> Self {
+        let mut branches = self.branches.clone();
+
+        // Add the new header to the branches. Parent doesn't need to be removed since
+        // it should not be in the tips set.
+        // Maybe we can run the `tips.remove(parent)` nonetheless (since it would be a
+        // no-op). That would allow us to reuse this method in the
+        // [`Self::apply_header`].
         let mut tips = self.tips.clone();
         tips.insert(header);
 
-        let mut branches = self.branches.clone();
         branches.insert(
             header,
             Branch {
                 id: header,
-                parent: header, // TODO: None
+                parent,
                 length,
                 slot,
             },
@@ -104,16 +109,18 @@ where
     #[must_use = "this returns the result of the operation, without modifying the original"]
     fn apply_header(&self, header: Id, parent: Id, slot: Slot) -> Result<Self, Error<Id>> {
         let mut branches = self.branches.clone();
-        let mut tips = self.tips.clone();
-        // if the parent was the head of a branch, remove it as it has been superseded
+
+        // If the parent was the head of a branch, remove it as it has been superseded
         // by the new header
+        let mut tips = self.tips.clone();
         tips.remove(&parent);
+        tips.insert(header);
+
         let length = branches
             .get(&parent)
             .ok_or(Error::ParentMissing(parent))?
             .length
             + 1;
-        tips.insert(header);
         branches.insert(
             header,
             Branch {
@@ -201,9 +208,8 @@ where
     }
 
     /// Create a new [`Cryptarchia`] instance with the updated state.
-    /// This method adds a parent-less block to the new [`Cryptarchia`] without
-    /// running validation. Due to this, the preferred method is
-    /// [`Cryptarchia::receive_block`].
+    /// This method adds a [`Block`] to the new instance without running
+    /// validation.
     ///
     /// # Warning
     ///
@@ -212,9 +218,11 @@ where
     /// Only use for recovery, debugging, or other manipulations where the input
     /// is known to be valid.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    pub fn receive_block_unchecked(&self, id: Id, slot: Slot, length: u64) -> Self {
+    pub fn receive_block_unchecked(&self, id: Id, parent: Id, slot: Slot, length: u64) -> Self {
         let mut new = self.clone();
-        new.branches = new.branches.apply_header_unchecked(id, slot, length);
+        new.branches = new
+            .branches
+            .apply_header_unchecked(id, parent, slot, length);
         new.local_chain = new.fork_choice();
         new
     }
