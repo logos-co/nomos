@@ -10,23 +10,19 @@ use tokio::{
 };
 use tracing::{error, info};
 
-use crate::messages::SyncPeerMessage;
 use crate::{
     behaviour::{SyncDirection, SyncError, SyncRequest, SYNC_PROTOCOL},
-    membership::ConsensusMembershipHandler,
+    membership::ConnectedPeers,
+    messages::SyncPeerMessage,
     sync_utils,
 };
 
-pub async fn select_best_peer_for_sync<Membership>(
+pub async fn select_best_peer_for_sync(
     control: Control,
-    membership: Membership,
+    peers: Vec<PeerId>,
     local_peer_id: PeerId,
-) -> Result<PeerId, SyncError>
-where
-    Membership: ConsensusMembershipHandler<Id = PeerId> + Clone + 'static + Send,
-{
-    let peers: Vec<PeerId> = membership
-        .members()
+) -> Result<PeerId, SyncError> {
+    let peers: Vec<PeerId> = peers
         .iter()
         .filter(|&&id| id != local_peer_id)
         .copied()
@@ -74,7 +70,7 @@ pub async fn stream_blocks_from_peer(
     peer_id: PeerId,
     control: &mut Control,
     direction: SyncDirection,
-    response_sender: UnboundedSender<Vec<u8>>,
+    response_sender: UnboundedSender<(Vec<u8>, PeerId)>,
 ) -> Result<(), SyncError> {
     info!(peer_id = %peer_id, "Streaming blocks");
 
@@ -85,7 +81,7 @@ pub async fn stream_blocks_from_peer(
         let message: SyncPeerMessage = sync_utils::receive_data(&mut stream).await?;
         match message {
             SyncPeerMessage::Block(block) => {
-                if response_sender.send(block).is_err() {
+                if response_sender.send((block, peer_id)).is_err() {
                     break;
                 }
             }
@@ -128,22 +124,33 @@ async fn request_tip_from_peer(peer_id: PeerId, mut control: Control) -> Result<
     info!(peer_id = %peer_id, tip = tip, "Received tip");
     Ok(tip)
 }
-pub fn sync_after_requesting_tips<Membership>(
+
+pub fn sync_after_requesting_tips(
     control: Control,
-    membership: Membership,
+    membership: &ConnectedPeers,
     local_peer_id: PeerId,
     direction: SyncDirection,
-    response_sender: UnboundedSender<Vec<u8>>,
-) -> BoxFuture<'static, Result<(), SyncError>>
-where
-    Membership: ConsensusMembershipHandler<Id = PeerId> + Clone + 'static + Send,
-{
+    response_sender: UnboundedSender<(Vec<u8>, PeerId)>,
+) -> BoxFuture<'static, Result<(), SyncError>> {
+    let peers = membership.members();
     async move {
-        let best_peer =
-            select_best_peer_for_sync(control.clone(), membership, local_peer_id).await?;
+        match direction {
+            SyncDirection::Forward(_start_slot) => {
+                // TODO: use start_slot to filter out peers that aren't ahead of us.
+                let best_peer =
+                    select_best_peer_for_sync(control.clone(), peers, local_peer_id).await?;
 
-        info!(peer_id = %best_peer, "Chosen peer for sync");
-        stream_blocks_from_peer(best_peer, &mut control.clone(), direction, response_sender).await
+                info!(peer_id = %best_peer, "Chosen peer for sync");
+                stream_blocks_from_peer(best_peer, &mut control.clone(), direction, response_sender)
+                    .await
+            }
+            SyncDirection::Backward { peer, .. } => {
+                // NOTE: Actually, the `peer` info included in the `direction` doesn't need to
+                //       be sent to the peer via network. But just not refactor this yet.
+                stream_blocks_from_peer(peer, &mut control.clone(), direction, response_sender)
+                    .await
+            }
+        }
     }
     .boxed()
 }

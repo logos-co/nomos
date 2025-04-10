@@ -388,7 +388,7 @@ impl<
     >
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId, Block = Block<ClPool::Item, DaPool::Item>>
-        + cryptarchia_sync::adapter::NetworkAdapter<Block = Block<ClPool::Item, DaPool::Item>>
+        + cryptarchia_sync::adapter::BlockFetcher<Block = Block<ClPool::Item, DaPool::Item>>
         + Clone
         + Send
         + Sync
@@ -591,10 +591,8 @@ where
             self.block_subscription_sender.clone(),
         );
 
-        // TODO: Uncomment this once it's ready.
-        // let sync_adapter =
-        //     cryptarchia_sync::Synchronization::run(sync_adapter,
-        // &network_adapter).await?;
+        let sync_adapter =
+            cryptarchia_sync::Synchronization::run(sync_adapter, &network_adapter).await?;
 
         let sync_data_provider: SyncBlocksProvider<
             Storage,
@@ -637,6 +635,7 @@ where
                             block,
                             &relays,
                             &mut self.block_subscription_sender,
+                            false,
                         )
                         .await.unwrap_or_else(|(_, cryptarchia)| {
                             cryptarchia
@@ -878,6 +877,9 @@ where
             RuntimeServiceId,
         >,
         block_broadcaster: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
+        // TODO: Replace this with `BlobValidationStrategy`
+        //       This boolean is for making chain sync and recovery work temporarily.
+        skip_blob_validation: bool,
     ) -> Result<Cryptarchia, (Error, Cryptarchia)> {
         tracing::debug!("received proposal {:?}", block);
 
@@ -885,16 +887,18 @@ where
 
         let header = block.header();
         let id = header.id();
-        let sampled_blobs = match get_sampled_blobs(relays.sampling_relay().clone()).await {
-            Ok(sampled_blobs) => sampled_blobs,
-            Err(error) => {
-                error!("Unable to retrieved sampled blobs: {error}");
-                return Err((Error::BlobSamplingError(id), cryptarchia));
+        if !skip_blob_validation {
+            let sampled_blobs = match get_sampled_blobs(relays.sampling_relay().clone()).await {
+                Ok(sampled_blobs) => sampled_blobs,
+                Err(error) => {
+                    error!("Unable to retrieved sampled blobs: {error}");
+                    return Err((Error::BlobSamplingError(id), cryptarchia));
+                }
+            };
+            if !Self::validate_block(&block, &sampled_blobs) {
+                error!("Invalid block: {block:?}");
+                return Err((Error::BlobVerificationFailure(id), cryptarchia));
             }
-        };
-        if !Self::validate_block(&block, &sampled_blobs) {
-            error!("Invalid block: {block:?}");
-            return Err((Error::BlobVerificationFailure(id), cryptarchia));
         }
 
         match cryptarchia.try_apply_header(header) {
@@ -1252,6 +1256,7 @@ where
                 block,
                 relays,
                 block_subscription_sender,
+                true,
             )
             .await
             .unwrap_or_else(|(_, cryptarchia)| cryptarchia);

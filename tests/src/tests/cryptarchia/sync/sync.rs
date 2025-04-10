@@ -1,4 +1,5 @@
 mod cryptarchia;
+mod sync_e2e;
 
 use std::num::NonZero;
 

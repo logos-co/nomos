@@ -3,9 +3,9 @@ use libp2p::Stream;
 use tokio::sync::mpsc::channel;
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::messages::SyncPeerMessage;
 use crate::{
     behaviour::{BehaviourSyncReply, IncomingSyncRequest, RequestKind, SyncError, SyncRequest},
+    messages::SyncPeerMessage,
     sync_utils,
 };
 
