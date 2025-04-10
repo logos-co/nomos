@@ -20,7 +20,7 @@ use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 use tracing::{error, info};
 
 use crate::{
-    membership,
+    membership::ConnectedPeers,
     sync_incoming::{read_request_from_stream, send_response_to_peer},
     sync_outgoing::sync_after_requesting_tips,
 };
@@ -102,7 +102,7 @@ pub enum SyncError {
     IOError(#[from] std::io::Error),
 }
 
-pub struct SyncBehaviour<Membership> {
+pub struct SyncBehaviour {
     /// The local peer ID
     local_peer_id: PeerId,
     /// Underlying stream behaviour
@@ -114,7 +114,7 @@ pub struct SyncBehaviour<Membership> {
     /// Streams waiting to be closed
     closing_streams: FuturesUnordered<BoxFuture<'static, ()>>,
     /// Membership handler
-    membership: Membership,
+    membership: ConnectedPeers,
     /// Sender for commands from services
     sync_commands_sender: UnboundedSender<SyncCommand>,
     /// Receiver for commands from services
@@ -128,11 +128,9 @@ pub struct SyncBehaviour<Membership> {
     sending_data_to_peers: FuturesUnordered<BoxFuture<'static, Result<(), SyncError>>>,
 }
 
-impl<Membership> SyncBehaviour<Membership>
-where
-    Membership: membership::ConsensusMembershipHandler<Id = PeerId> + Clone + 'static + Send,
-{
-    pub fn new(local_peer_id: PeerId, membership: Membership) -> Self {
+impl SyncBehaviour {
+    #[must_use]
+    pub fn new(local_peer_id: PeerId) -> Self {
         let stream_behaviour = libp2p_stream::Behaviour::new();
         let mut control = stream_behaviour.new_control();
         let incoming_streams = control.accept(SYNC_PROTOCOL).expect("Valid protocol");
@@ -146,7 +144,7 @@ where
             control,
             incoming_streams,
             closing_streams: FuturesUnordered::new(),
-            membership,
+            membership: ConnectedPeers::new(),
             sync_commands_sender,
             sync_commands_receiver,
             local_sync_progress: FuturesUnordered::new(),
@@ -198,7 +196,7 @@ where
                     );
                     let local_sync = sync_after_requesting_tips(
                         self.control.clone(),
-                        self.membership.clone(),
+                        &self.membership,
                         self.local_peer_id,
                         direction,
                         response_sender,
@@ -289,10 +287,7 @@ where
     }
 }
 
-impl<Membership> NetworkBehaviour for SyncBehaviour<Membership>
-where
-    Membership: membership::ConsensusMembershipHandler<Id = PeerId> + Clone + Send + 'static,
-{
+impl NetworkBehaviour for SyncBehaviour {
     type ConnectionHandler = <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler;
     type ToSwarm = BehaviourSyncEvent;
 
@@ -379,7 +374,6 @@ mod test {
     use tracing::debug;
 
     use super::*;
-    use crate::membership::AllNeighbours;
 
     const MSG_COUNT: usize = 10;
 
@@ -424,7 +418,7 @@ mod test {
     }
 
     struct SwarmNetwork {
-        swarms: Vec<Swarm<SyncBehaviour<AllNeighbours>>>,
+        swarms: Vec<Swarm<SyncBehaviour>>,
         swarm_command_senders: Vec<UnboundedSender<SyncCommand>>,
         swarm_addresses: Vec<Multiaddr>,
     }
@@ -477,23 +471,10 @@ mod test {
     fn create_swarm(
         key: &Keypair,
         peer_id: PeerId,
-        all_peer_ids: &[PeerId],
         all_addresses: &[Multiaddr],
         index: usize,
-    ) -> (
-        Swarm<SyncBehaviour<AllNeighbours>>,
-        UnboundedSender<SyncCommand>,
-    ) {
-        let mut neighbours = AllNeighbours::default();
-
-        for j in 0..all_peer_ids.len() {
-            if index != j {
-                neighbours.add_neighbour(all_peer_ids[j]);
-                neighbours.update_address(all_peer_ids[j], all_addresses[j].clone());
-            }
-        }
-
-        let behaviour = SyncBehaviour::new(peer_id, neighbours);
+    ) -> (Swarm<SyncBehaviour>, UnboundedSender<SyncCommand>) {
+        let behaviour = SyncBehaviour::new(peer_id);
         let mut swarm = new_swarm_in_memory(key, behaviour);
 
         swarm
@@ -513,7 +494,7 @@ mod test {
         let mut request_senders = Vec::new();
 
         for i in 0..num_swarms {
-            let (swarm, sender) = create_swarm(&keys[i], peer_ids[i], &peer_ids, &addresses, i);
+            let (swarm, sender) = create_swarm(&keys[i], peer_ids[i], &addresses, i);
             swarms.push(swarm);
             request_senders.push(sender);
         }
@@ -525,7 +506,7 @@ mod test {
         }
     }
     async fn run_swarm(
-        mut swarm: Swarm<SyncBehaviour<AllNeighbours>>,
+        mut swarm: Swarm<SyncBehaviour>,
         addresses: Vec<Multiaddr>,
         swarm_index: usize,
     ) {

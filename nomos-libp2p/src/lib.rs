@@ -16,10 +16,7 @@ use blake2::{
 };
 pub use config::{secret_key_serde, IdentifySettings, KademliaSettings, SwarmConfig};
 pub use config::{secret_key_serde, SwarmConfig};
-use cryptarchia_sync_network::{
-    behaviour::{SyncCommand, SyncDirection},
-    membership::AllNeighbours,
-};
+use cryptarchia_sync_network::behaviour::{SyncCommand, SyncDirection};
 pub use libp2p::{
     self,
     core::upgrade,
