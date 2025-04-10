@@ -5,15 +5,13 @@ use nomos_core::{
     da::{blob::info::DispersedBlobInfo, BlobId},
     header::HeaderId,
 };
-use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_mempool::{
     backend::{MemPool, RecoverableMempool},
     network::NetworkAdapter as MempoolAdapter,
     service::MempoolService,
-    MempoolMsg,
+    MempoolItem, MempoolMsg,
 };
 use overwatch::services::{relay::OutboundRelay, ServiceData};
-use rand::{RngCore, SeedableRng};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
@@ -22,22 +20,8 @@ use super::{DaMempoolAdapter, DaMempoolAdapterError};
 type MempoolRelay<Key, TxItem, DaItem, SdpItem> =
     OutboundRelay<MempoolMsg<HeaderId, Key, TxItem, DaItem, SdpItem>>;
 
-pub struct KzgrsMempoolAdapter<
-    DaPoolAdapter,
-    DaPool,
-    SamplingBackend,
-    SamplingNetworkAdapter,
-    SamplingRng,
-    SamplingStorage,
-    DaVerifierBackend,
-    DaVerifierNetwork,
-    DaVerifierStorage,
-    ApiAdapter,
-    RuntimeServiceId,
-    TxItem,
-    DaItem,
-    SdpItem,
-> where
+pub struct KzgrsMempoolAdapter<DaPoolAdapter, DaPool, RuntimeServiceId, TxItem, DaItem, SdpItem>
+where
     DaPool: MemPool<BlockId = HeaderId>,
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
@@ -45,88 +29,31 @@ pub struct KzgrsMempoolAdapter<
     DaPool::Key: Debug + 'static,
 {
     pub mempool_relay: MempoolRelay<DaPool::Key, TxItem, DaItem, SdpItem>,
-    _phantom: PhantomData<(
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingRng,
-        SamplingStorage,
-    )>,
-    _phantom2: PhantomData<(DaVerifierBackend, DaVerifierNetwork, DaVerifierStorage)>,
-    _phantom3: PhantomData<ApiAdapter>,
+    _phantom: PhantomData<(DaPoolAdapter, RuntimeServiceId)>,
 }
 
 #[async_trait::async_trait]
-impl<
-        DaPoolAdapter,
-        DaPool,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingRng,
-        SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
-        ApiAdapter,
-        RuntimeServiceId,
-        TxItem,
-        DaItem,
-        SdpItem,
-    > DaMempoolAdapter
-    for KzgrsMempoolAdapter<
-        DaPoolAdapter,
-        DaPool,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingRng,
-        SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
-        ApiAdapter,
-        RuntimeServiceId,
-        TxItem,
-        DaItem,
-        SdpItem,
-    >
+impl<DaPoolAdapter, DaPool, RuntimeServiceId, TxItem, DaItem, SdpItem> DaMempoolAdapter
+    for KzgrsMempoolAdapter<DaPoolAdapter, DaPool, RuntimeServiceId, TxItem, BlobInfo, SdpItem>
 where
     DaPool: RecoverableMempool<BlockId = HeaderId, Key = BlobId>,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key, Payload = BlobInfo>,
+    DaPoolAdapter: MempoolAdapter<
+            RuntimeServiceId,
+            Key = DaPool::Key,
+            Payload = MempoolItem<TxItem, DaItem, SdpItem>,
+        > + Sync,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug + Send,
     DaPool::Item: Clone + Eq + Hash + Debug + Send + 'static,
     DaPool::Key: Debug + Send + 'static,
     DaPool::Settings: Clone,
-    SamplingRng: SeedableRng + RngCore + Sync,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send + Sync,
-    SamplingBackend::Settings: Clone,
-    SamplingBackend::Share: Debug + 'static,
-    SamplingBackend::BlobId: Debug + 'static,
-    SamplingNetworkAdapter:
-        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
-    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
-    DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + Sync + 'static,
-    DaVerifierBackend::Settings: Clone,
-    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
-    DaVerifierNetwork::Settings: Clone,
-    ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
+    RuntimeServiceId: Sync,
+    TxItem: Send,
+    DaItem: Send,
+    SdpItem: Send,
 {
-    type MempoolService = MempoolService<
-        DaPoolAdapter,
-        DaPool,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingRng,
-        SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
-        ApiAdapter,
-        RuntimeServiceId,
-        TxItem,
-        DaItem,
-        SdpItem,
-    >;
+    type MempoolService =
+        MempoolService<DaPoolAdapter, DaPool, RuntimeServiceId, TxItem, BlobInfo, SdpItem>;
     type BlobId = BlobId;
     type Metadata = dispersal::Metadata;
 
@@ -134,8 +61,6 @@ where
         Self {
             mempool_relay,
             _phantom: PhantomData,
-            _phantom2: PhantomData,
-            _phantom3: PhantomData,
         }
     }
 
@@ -147,7 +72,7 @@ where
         let (reply_channel, receiver) = oneshot::channel();
         self.mempool_relay
             .send(MempoolMsg::Add {
-                payload: BlobInfo::new(blob_id, metadata),
+                item: MempoolItem::Da(BlobInfo::new(blob_id, metadata)),
                 key: blob_id,
                 reply_channel,
             })
