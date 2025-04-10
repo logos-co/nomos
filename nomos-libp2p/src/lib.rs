@@ -12,10 +12,7 @@ use blake2::{
     Blake2b,
 };
 pub use config::{secret_key_serde, SwarmConfig};
-use cryptarchia_sync_network::{
-    behaviour::{SyncCommand, SyncDirection},
-    membership::AllNeighbours,
-};
+use cryptarchia_sync_network::behaviour::{SyncCommand, SyncDirection};
 pub use libp2p::{
     self,
     core::upgrade,
@@ -47,7 +44,7 @@ pub struct Swarm {
 #[derive(NetworkBehaviour)]
 pub struct Behaviour {
     gossipsub: gossipsub::Behaviour,
-    sync: cryptarchia_sync_network::behaviour::SyncBehaviour<AllNeighbours>,
+    sync: cryptarchia_sync_network::behaviour::SyncBehaviour,
 }
 
 impl Behaviour {
@@ -61,13 +58,7 @@ impl Behaviour {
                 .build()?,
         )?;
 
-        // Currently initial peers are read from "Libp2pConfig::initial_peers"(as
-        // before) and the membership is filled when SyncBehaviour receives
-        // connection events from Swarm. Maybe we even don't need to use a Membership
-        // trait. Let's see how the rest of membership will be handled in
-        // consensus before we decide.
-        let membership = AllNeighbours::new();
-        let sync = cryptarchia_sync_network::behaviour::SyncBehaviour::new(peer_id, membership);
+        let sync = cryptarchia_sync_network::behaviour::SyncBehaviour::new(peer_id);
         Ok(Self { gossipsub, sync })
     }
 }

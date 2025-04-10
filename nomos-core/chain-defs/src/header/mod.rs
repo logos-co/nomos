@@ -1,3 +1,5 @@
+use std::hash::Hash;
+
 use blake2::Digest;
 use cryptarchia_engine::Slot;
 use nomos_ledger::leader_proof::LeaderProof;
@@ -29,6 +31,35 @@ pub struct Header {
     content_id: ContentId,
     leader_proof: Risc0LeaderProof,
     orphaned_leader_proofs: Vec<Header>,
+}
+
+impl PartialEq for Header {
+    fn eq(&self, other: &Self) -> bool {
+        self.parent == other.parent
+            && self.slot == other.slot
+            && self.content_size == other.content_size
+            && self.content_id == other.content_id
+            && self.leader_proof.nullifier() == other.leader_proof.nullifier()
+            && self.leader_proof.evolved_commitment() == other.leader_proof.evolved_commitment()
+            && self.orphaned_leader_proofs == other.orphaned_leader_proofs
+    }
+}
+
+impl Eq for Header {}
+
+impl Hash for Header {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.parent.hash(state);
+        self.slot.hash(state);
+        self.content_size.hash(state);
+        self.content_id.hash(state);
+        self.leader_proof.nullifier().as_bytes().hash(state);
+        self.leader_proof
+            .evolved_commitment()
+            .as_bytes()
+            .hash(state);
+        self.orphaned_leader_proofs.hash(state);
+    }
 }
 
 impl Header {
