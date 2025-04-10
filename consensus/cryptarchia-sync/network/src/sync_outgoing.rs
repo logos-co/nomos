@@ -13,6 +13,7 @@ use tracing::{error, info};
 use crate::{
     behaviour::{SyncDirection, SyncError, SyncRequest, SYNC_PROTOCOL},
     membership::ConnectedPeers,
+    messages::SyncPeerMessage,
     sync_utils,
 };
 
@@ -76,9 +77,22 @@ pub async fn stream_blocks_from_peer(
     let mut stream = sync_utils::open_stream(peer_id, control, SYNC_PROTOCOL).await?;
     sync_utils::send_data(&mut stream, &SyncRequest::Sync { direction }).await?;
 
-    while let Ok(block) = sync_utils::receive_data(&mut stream).await {
-        if response_sender.send((block, peer_id)).is_err() {
-            break;
+    loop {
+        let message: SyncPeerMessage = sync_utils::receive_data(&mut stream).await?;
+        match message {
+            SyncPeerMessage::Block(block) => {
+                if response_sender.send((block, peer_id)).is_err() {
+                    break;
+                }
+            }
+            SyncPeerMessage::End => {
+                info!(peer_id = %peer_id, "Received end signal");
+                break;
+            }
+            SyncPeerMessage::TipData(_) => {
+                error!("Unexpected message during sync: {:?}", message);
+                break;
+            }
         }
     }
     stream.close().await?;
@@ -86,12 +100,25 @@ pub async fn stream_blocks_from_peer(
     info!(peer_id = %peer_id, "Finished streaming blocks");
     Ok(())
 }
-
 async fn request_tip_from_peer(peer_id: PeerId, mut control: Control) -> Result<u64, SyncError> {
     let mut stream = sync_utils::open_stream(peer_id, &mut control, SYNC_PROTOCOL).await?;
     sync_utils::send_data(&mut stream, &SyncRequest::RequestTip).await?;
 
-    let tip = sync_utils::receive_data(&mut stream).await?;
+    let message: SyncPeerMessage = sync_utils::receive_data(&mut stream).await?;
+    let SyncPeerMessage::TipData(tip) = message else {
+        return Err(SyncError::InvalidMessage(
+            "Expected TipData message".to_owned(),
+        ));
+    };
+
+    let end_message: SyncPeerMessage = sync_utils::receive_data(&mut stream).await?;
+    if matches!(end_message, SyncPeerMessage::End) {
+    } else {
+        return Err(SyncError::InvalidMessage(
+            "Expected End message after TipData".to_owned(),
+        ));
+    }
+
     stream.close().await?;
 
     info!(peer_id = %peer_id, tip = tip, "Received tip");

@@ -5,6 +5,7 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
     behaviour::{BehaviourSyncReply, IncomingSyncRequest, RequestKind, SyncError, SyncRequest},
+    messages::SyncPeerMessage,
     sync_utils,
 };
 
@@ -37,16 +38,23 @@ pub fn send_response_to_peer(
 
         while let Some(service_response) = response_receiver.next().await {
             match service_response {
-                BehaviourSyncReply::TipData(tip) => {
-                    sync_utils::send_data(&mut req.stream, &tip).await?;
-                }
                 BehaviourSyncReply::Block(block) => {
-                    sync_utils::send_data(&mut req.stream, &block).await?;
+                    let message = SyncPeerMessage::Block(block);
+                    sync_utils::send_data(&mut req.stream, &message).await?;
+                }
+                BehaviourSyncReply::TipData(tip) => {
+                    let message = SyncPeerMessage::TipData(tip);
+                    sync_utils::send_data(&mut req.stream, &message).await?;
                 }
             }
             req.stream.flush().await?;
         }
+
+        sync_utils::send_data(&mut req.stream, &SyncPeerMessage::End).await?;
+
+        req.stream.flush().await?;
         req.stream.close().await?;
+
         Ok(())
     })
 }
