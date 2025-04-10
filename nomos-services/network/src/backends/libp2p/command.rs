@@ -20,7 +20,7 @@ pub enum PubSubCommand {
         message: Box<[u8]>,
         retry_count: usize,
     },
-    StartSync(SyncDirection, UnboundedSender<Vec<u8>>),
+    StartSync(SyncDirection, UnboundedSender<(Vec<u8>, PeerId)>),
 }
 
 #[derive(Debug)]

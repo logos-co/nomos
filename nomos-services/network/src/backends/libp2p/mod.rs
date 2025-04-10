@@ -8,8 +8,11 @@ use cryptarchia_sync_network::behaviour::{
     BehaviourSyncReply, SyncDirection,
 };
 use nomos_core::header::HeaderId;
-pub use nomos_libp2p::libp2p::gossipsub::{Message, TopicHash};
 use nomos_libp2p::{gossipsub, BehaviourEvent};
+pub use nomos_libp2p::{
+    libp2p::gossipsub::{Message, TopicHash},
+    PeerId,
+};
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
 use tokio::sync::{broadcast, mpsc, mpsc::Sender};
 
@@ -34,7 +37,7 @@ pub enum EventKind {
 #[derive(Debug, Clone)]
 pub enum SyncRequestKind {
     ForwardChain(Slot),
-    BackwardChain(HeaderId),
+    BackwardChain { start_block: HeaderId, peer: PeerId },
     Tip,
 }
 
@@ -66,8 +69,8 @@ impl TryFrom<BehaviourEvent> for Event {
                     kind: SyncRequestKind::ForwardChain(slot),
                     reply_channel: response_sender,
                 }),
-                SyncDirection::Backward(header_id) => Ok(Self::IncomingSyncRequest {
-                    kind: SyncRequestKind::BackwardChain(header_id),
+                SyncDirection::Backward { start_block, peer } => Ok(Self::IncomingSyncRequest {
+                    kind: SyncRequestKind::BackwardChain { start_block, peer },
                     reply_channel: response_sender,
                 }),
             },

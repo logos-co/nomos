@@ -157,17 +157,21 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Block, RuntimeServiceId> cryptarchia_sync::adapter::NetworkAdapter
+impl<Block, RuntimeServiceId> cryptarchia_sync::adapter::BlockFetcher
     for LibP2pAdapter<Block, RuntimeServiceId>
 where
     Block: AbstractBlock + Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
 {
     type Block = Block;
+    type ProviderId = PeerId;
 
     async fn fetch_blocks_from_slot(
         &self,
         start_slot: Slot,
-    ) -> Result<BoxedStream<Block>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<
+        BoxedStream<(Self::Block, Self::ProviderId)>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
         if let Err((e, _)) = self
             .network_relay
@@ -180,27 +184,32 @@ where
             return Err(Box::new(e));
         }
 
-        let stream = UnboundedReceiverStream::new(receiver)
-            .filter_map(|block| Some(wire::deserialize(&block).unwrap()));
+        let stream = UnboundedReceiverStream::new(receiver).filter_map(|(block, provider_id)| {
+            Some((wire::deserialize(&block).unwrap(), provider_id))
+        });
 
         Ok(Box::new(stream))
     }
     async fn fetch_chain_backward(
         &self,
         tip: HeaderId,
+        provider_id: Self::ProviderId,
     ) -> Result<BoxedStream<Block>, Box<dyn std::error::Error + Send + Sync>> {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
 
         self.network_relay
             .send(NetworkMsg::Process(Command::StartSync(
-                SyncDirection::Backward(tip),
+                SyncDirection::Backward {
+                    start_block: tip,
+                    peer: provider_id,
+                },
                 sender,
             )))
             .await
             .unwrap();
 
         let stream = UnboundedReceiverStream::new(receiver)
-            .filter_map(|block| Some(wire::deserialize(&block).unwrap()));
+            .filter_map(|(block, _)| Some(wire::deserialize(&block).unwrap()));
 
         Ok(Box::new(stream))
     }
