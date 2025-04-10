@@ -12,10 +12,8 @@ use libp2p::{
 };
 use libp2p_stream::IncomingStreams;
 use log::debug;
-use nomos_da_messages::{
-    dispersal,
-    packing::{pack_to_writer, unpack_from_reader},
-};
+use nomos_core::wire::packing::{pack_to_writer, unpack_from_reader};
+use nomos_da_messages::dispersal;
 use subnetworks_assignations::MembershipHandler;
 use thiserror::Error;
 

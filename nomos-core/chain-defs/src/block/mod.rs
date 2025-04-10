@@ -89,24 +89,28 @@ impl<
     }
 }
 
-// TODO: We need to implement Hash and Eq for `Block` if using `Block` in type
-// definitions instead of Tx and BlobCertificate Seems related to Overwatch and
-// RuntimeServiceId somehow.
 impl<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> PartialEq
     for Block<Tx, BlobCertificate>
 {
-    fn eq(&self, _other: &Self) -> bool {
-        false
+    fn eq(&self, other: &Self) -> bool {
+        self.header == other.header
+            && self.cl_transactions == other.cl_transactions
+            && self.bl_blobs == other.bl_blobs
     }
 }
 
 impl<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> Eq for Block<Tx, BlobCertificate> {}
 
-//TODO: Implementing Hash for Block
 impl<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> Hash
     for Block<Tx, BlobCertificate>
 {
-    fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {
-        todo!()
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.header.hash(state);
+        for tx in &self.cl_transactions {
+            tx.hash(state);
+        }
+        for blob in &self.bl_blobs {
+            blob.hash(state);
+        }
     }
 }
