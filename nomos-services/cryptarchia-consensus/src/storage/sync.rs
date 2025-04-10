@@ -79,9 +79,9 @@ where
                 info!("Syncing from slot {:?}", slot);
                 self.spawn_fetch_blocks_from_slot_forwards(slot, request.reply_channel);
             }
-            SyncRequestKind::BackwardChain(tip) => {
-                info!("Syncing from header {:?}", tip);
-                self.spawn_fetch_blocks_from_header_backwards(tip, request.reply_channel);
+            SyncRequestKind::BackwardChain { start_block, .. } => {
+                info!("Syncing from header {:?}", start_block);
+                self.spawn_fetch_blocks_from_header_backwards(start_block, request.reply_channel);
             }
             SyncRequestKind::Tip => {
                 tracing::warn!("Unsupported sync request kind");

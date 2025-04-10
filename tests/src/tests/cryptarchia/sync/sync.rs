@@ -237,6 +237,7 @@ fn setup_nodes(
     };
 
     let passive_node = OverwatchRunner::<NomosLightNode>::run(passive_settings, None).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(100));
     let active_node = OverwatchRunner::<NomosLightNode>::run(active_settings, None).unwrap();
 
     let runtime = passive_node.handle().runtime();
