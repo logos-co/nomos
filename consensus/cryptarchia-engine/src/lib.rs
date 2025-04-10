@@ -80,6 +80,15 @@ where
     /// incorrectly.
     /// Only use for recovery, debugging, or other manipulations where the input
     /// is known to be valid.
+    ///
+    /// # Arguments
+    ///
+    /// * `header` - The ID of the block to be added.
+    /// * `parent` - The ID of the parent block. Due to the nature of the method
+    ///   (`unchecked`),
+    /// the existence of the parent block is not verified.
+    /// * `slot` - The slot of the block to be added.
+    /// * `length`: The position of the block in the chain.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
     fn apply_header_unchecked(&self, header: Id, parent: Id, slot: Slot, length: u64) -> Self {
         let mut branches = self.branches.clone();
@@ -217,12 +226,21 @@ where
     /// incorrectly.
     /// Only use for recovery, debugging, or other manipulations where the input
     /// is known to be valid.
+    ///
+    /// # Arguments
+    ///
+    /// * `header` - The ID of the block to be added.
+    /// * `parent` - The ID of the parent block. Due to the nature of the method
+    ///   (`unchecked`),
+    /// the existence of the parent block is not verified.
+    /// * `slot` - The slot of the block to be added.
+    /// * `length`: The position of the block in the chain.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    pub fn receive_block_unchecked(&self, id: Id, parent: Id, slot: Slot, length: u64) -> Self {
+    pub fn receive_block_unchecked(&self, header: Id, parent: Id, slot: Slot, length: u64) -> Self {
         let mut new = self.clone();
         new.branches = new
             .branches
-            .apply_header_unchecked(id, parent, slot, length);
+            .apply_header_unchecked(header, parent, slot, length);
         new.local_chain = new.fork_choice();
         new
     }

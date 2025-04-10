@@ -118,6 +118,16 @@ impl Cryptarchia {
     /// incorrectly.
     /// Only use for recovery, debugging, or other manipulations where the input
     /// is known to be valid.
+    ///
+    /// # Arguments
+    ///
+    /// * `header`: The header to apply.
+    /// * `ledger_state`: The ledger state to apply.
+    /// * `block_length`: The position of the block in the chain.
+    ///
+    /// # Returns
+    ///
+    /// A new [`Cryptarchia`] instance with the updated state.
     pub fn apply_unchecked(
         &self,
         header: &Header,

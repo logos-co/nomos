@@ -115,6 +115,11 @@ where
     /// incorrectly.
     /// Only use for recovery, debugging, or other manipulations where the input
     /// is known to be valid.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The id of the [`LedgerState`].
+    /// * `state` - The [`LedgerState`] to be added.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
     pub fn apply_state_unchecked(&self, id: Id, state: LedgerState) -> Self {
         let mut states = self.states.clone();
