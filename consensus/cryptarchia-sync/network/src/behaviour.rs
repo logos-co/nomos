@@ -4,6 +4,7 @@ use cryptarchia_engine::Slot;
 use futures::{
     future::BoxFuture,
     stream::{FuturesUnordered, StreamExt},
+    AsyncWriteExt, FutureExt,
 };
 use libp2p::{
     swarm::{
@@ -25,6 +26,8 @@ use crate::{
 };
 
 pub const SYNC_PROTOCOL: StreamProtocol = StreamProtocol::new("/nomos/cryptarchia/0.1.0/sync");
+
+const MAX_INCOMING_SYNCS: usize = 10;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum SyncDirection {
@@ -109,6 +112,8 @@ pub struct SyncBehaviour {
     control: libp2p_stream::Control,
     /// A handle to inbound streams
     incoming_streams: libp2p_stream::IncomingStreams,
+    /// Streams waiting to be closed
+    closing_streams: FuturesUnordered<BoxFuture<'static, ()>>,
     /// Membership handler
     membership: ConnectedPeers,
     /// Sender for commands from services
@@ -139,6 +144,7 @@ impl SyncBehaviour {
             stream_behaviour,
             control,
             incoming_streams,
+            closing_streams: FuturesUnordered::new(),
             membership: ConnectedPeers::new(),
             sync_commands_sender,
             sync_commands_receiver,
@@ -171,6 +177,9 @@ impl SyncBehaviour {
         }
 
         self.send_data_to_peers(cx);
+
+        // If we rejected any streams above, close them here
+        while self.closing_streams.poll_next_unpin(cx) == Poll::Ready(Some(())) {}
 
         None
     }
@@ -213,10 +222,26 @@ impl SyncBehaviour {
     }
 
     fn accept_incoming_streams(&mut self, cx: &mut Context<'_>) {
-        if let Poll::Ready(Some((peer_id, stream))) = self.incoming_streams.poll_next_unpin(cx) {
-            info!(peer_id = %peer_id, "Processing incoming sync stream");
-            self.read_sync_requests
-                .push(read_request_from_stream(stream));
+        let incoming_sync_count = self.read_sync_requests.len() + self.sending_data_to_peers.len();
+
+        if let Poll::Ready(Some((peer_id, mut stream))) = self.incoming_streams.poll_next_unpin(cx)
+        {
+            if self.local_sync_progress.is_empty() || incoming_sync_count < MAX_INCOMING_SYNCS {
+                info!(peer_id = %peer_id, "Processing incoming sync stream");
+
+                self.read_sync_requests
+                    .push(read_request_from_stream(stream));
+            } else {
+                info!(peer_id = %peer_id, "Closing incoming sync stream");
+                self.closing_streams.push(
+                    async move {
+                        if let Err(e) = stream.close().await {
+                            error!(peer_id = %peer_id, error = %e, "Failed to close stream");
+                        }
+                    }
+                    .boxed(),
+                );
+            }
         }
     }
 
