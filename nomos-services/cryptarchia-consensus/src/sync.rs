@@ -383,6 +383,7 @@ where
             block,
             &self.relays,
             &mut self.block_broadcaster,
+            true,
         )
         .await;
 

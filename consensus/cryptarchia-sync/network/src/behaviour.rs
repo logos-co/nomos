@@ -34,7 +34,7 @@ const MAX_INCOMING_SYNCS: usize = 5;
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum SyncDirection {
     Forward(Slot),
-    Backward(HeaderId),
+    Backward { start_block: HeaderId, peer: PeerId },
 }
 
 /// Sync request from a peer
@@ -49,7 +49,7 @@ pub enum SyncRequest {
 pub enum SyncCommand {
     StartSync {
         direction: SyncDirection,
-        response_sender: UnboundedSender<Vec<u8>>,
+        response_sender: UnboundedSender<(Vec<u8>, PeerId)>,
     },
 }
 
@@ -382,9 +382,10 @@ mod test {
 
     #[tokio::test]
     async fn test_sync_forward() {
-        let (request_senders, handles) = setup_and_run_swarms(NUM_SWARMS).await;
+        let (request_senders, peer_ids, handles) = setup_and_run_swarms(NUM_SWARMS).await;
         let blocks = perform_sync(
             request_senders[0].clone(),
+            peer_ids[1],
             SyncDirection::Forward(Slot::genesis()),
         )
         .await;
@@ -398,10 +399,14 @@ mod test {
 
     #[tokio::test]
     async fn test_sync_backward() {
-        let (request_senders, handles) = setup_and_run_swarms(NUM_SWARMS).await;
+        let (request_senders, peer_ids, handles) = setup_and_run_swarms(NUM_SWARMS).await;
         let blocks = perform_sync(
             request_senders[0].clone(),
-            SyncDirection::Backward(HeaderId::from([0; 32])),
+            peer_ids[1],
+            SyncDirection::Backward {
+                start_block: HeaderId::from([0; 32]),
+                peer: peer_ids[1],
+            },
         )
         .await;
 
@@ -422,9 +427,15 @@ mod test {
         num_swarms: usize,
     ) -> (
         Vec<UnboundedSender<SyncCommand>>,
+        Vec<PeerId>,
         Vec<tokio::task::JoinHandle<()>>,
     ) {
         let swarm_network = setup_swarms(num_swarms);
+        let peer_ids = swarm_network
+            .swarms
+            .iter()
+            .map(|swarm| *swarm.local_peer_id())
+            .collect::<Vec<_>>();
 
         let mut handles = Vec::new();
         for (i, swarm) in swarm_network.swarms.into_iter().enumerate() {
@@ -433,7 +444,7 @@ mod test {
         }
 
         sleep(Duration::from_millis(100)).await;
-        (swarm_network.swarm_command_senders, handles)
+        (swarm_network.swarm_command_senders, peer_ids, handles)
     }
 
     fn generate_keys(num_swarms: usize) -> Vec<Keypair> {
@@ -538,6 +549,7 @@ mod test {
 
     async fn perform_sync(
         request_sender: UnboundedSender<SyncCommand>,
+        expected_block_provider: PeerId,
         direction: SyncDirection,
     ) -> Vec<Vec<u8>> {
         let (response_sender, mut response_receiver) = mpsc::unbounded_channel();
@@ -550,7 +562,8 @@ mod test {
 
         let mut blocks = Vec::new();
         for _ in 0..MSG_COUNT {
-            if let Some(block) = response_receiver.recv().await {
+            if let Some((block, provider_id)) = response_receiver.recv().await {
+                assert_eq!(provider_id, expected_block_provider);
                 blocks.push(block);
             } else {
                 break;

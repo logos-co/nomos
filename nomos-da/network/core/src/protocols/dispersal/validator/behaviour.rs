@@ -12,12 +12,11 @@ use libp2p::{
 };
 use libp2p_stream::IncomingStreams;
 use log::debug;
-use nomos_da_messages::{
-    dispersal,
-};
+use nomos_core::wire::packing::{pack_to_writer, unpack_from_reader};
+use nomos_da_messages::dispersal;
 use subnetworks_assignations::MembershipHandler;
 use thiserror::Error;
-use nomos_core::wire::packing::{pack_to_writer, unpack_from_reader};
+
 use crate::{protocol::DISPERSAL_PROTOCOL, SubnetworkId};
 
 #[derive(Debug, Error)]

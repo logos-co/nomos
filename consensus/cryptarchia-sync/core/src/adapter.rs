@@ -24,16 +24,21 @@ pub enum CryptarchiaAdapterError {
 pub type BoxedStream<T> = Box<dyn Stream<Item = T> + Send + Sync + Unpin>;
 
 #[async_trait::async_trait]
-pub trait NetworkAdapter {
+pub trait BlockFetcher {
     type Block: AbstractBlock;
+    type ProviderId: Clone + Send + Sync;
 
     async fn fetch_blocks_from_slot(
         &self,
         start_slot: Slot,
-    ) -> Result<BoxedStream<Self::Block>, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> Result<
+        BoxedStream<(Self::Block, Self::ProviderId)>,
+        Box<dyn std::error::Error + Send + Sync>,
+    >;
 
     async fn fetch_chain_backward(
         &self,
         tip: HeaderId,
+        provider_id: Self::ProviderId,
     ) -> Result<BoxedStream<Self::Block>, Box<dyn std::error::Error + Send + Sync>>;
 }

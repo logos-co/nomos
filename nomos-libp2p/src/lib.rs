@@ -165,7 +165,7 @@ impl Swarm {
     pub fn start_sync(
         &mut self,
         direction: SyncDirection,
-        response_sender: UnboundedSender<Vec<u8>>,
+        response_sender: UnboundedSender<(Vec<u8>, PeerId)>,
     ) {
         self.swarm
             .behaviour_mut()

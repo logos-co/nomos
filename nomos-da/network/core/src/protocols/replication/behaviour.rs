@@ -23,9 +23,8 @@ use libp2p::{
 };
 use libp2p_stream::{Control, IncomingStreams, OpenStreamError};
 use log::{error, trace};
-use nomos_da_messages::{
-    replication::{ReplicationRequest, ReplicationResponseId},
-};
+use nomos_core::wire::packing::{pack_to_writer, unpack_from_reader};
+use nomos_da_messages::replication::{ReplicationRequest, ReplicationResponseId};
 use nomos_utils::bounded_duration::{MinimalBoundedDuration, MINUTE};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -33,7 +32,7 @@ use subnetworks_assignations::MembershipHandler;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use nomos_core::wire::packing::{pack_to_writer, unpack_from_reader};
+
 use crate::{protocol::REPLICATION_PROTOCOL, SubnetworkId};
 
 #[derive(Debug, Error)]
