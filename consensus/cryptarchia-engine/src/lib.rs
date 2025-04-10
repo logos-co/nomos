@@ -85,8 +85,7 @@ where
     ///
     /// * `header` - The ID of the block to be added.
     /// * `parent` - The ID of the parent block. Due to the nature of the method
-    ///   (`unchecked`),
-    /// the existence of the parent block is not verified.
+    ///   (`unchecked`), the existence of the parent block is not verified.
     /// * `slot` - The slot of the block to be added.
     /// * `length`: The position of the block in the chain.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
@@ -231,8 +230,7 @@ where
     ///
     /// * `header` - The ID of the block to be added.
     /// * `parent` - The ID of the parent block. Due to the nature of the method
-    ///   (`unchecked`),
-    /// the existence of the parent block is not verified.
+    ///   (`unchecked`), the existence of the parent block is not verified.
     /// * `slot` - The slot of the block to be added.
     /// * `length`: The position of the block in the chain.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
