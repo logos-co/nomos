@@ -3,6 +3,8 @@ pub mod mockpool;
 
 use serde::{Deserialize, Serialize};
 
+use crate::ItemKind;
+
 #[derive(thiserror::Error, Debug)]
 pub enum MempoolError {
     #[error("Item already in mempool")]
@@ -34,7 +36,11 @@ pub trait MemPool {
     /// The hint on the ancestor *can* be used by the implementation to display
     /// additional items that were not included up to that point if
     /// available.
-    fn view(&self, ancestor_hint: Self::BlockId) -> Box<dyn Iterator<Item = Self::Item> + Send>;
+    fn view<T>(
+        &self,
+        ancestor_hint: Self::BlockId,
+        kind: ItemKind,
+    ) -> Box<dyn Iterator<Item = T> + Send>;
 
     /// Record that a set of items were included in a block
     fn mark_in_block(&mut self, items: &[Self::Key], block: Self::BlockId);

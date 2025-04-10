@@ -459,6 +459,9 @@ where
                     .send(self.pool.status(&items))
                     .unwrap_or_else(|_| tracing::debug!("could not send back mempool status"));
             }
+            MempoolMsg::Subscribe { sender } => {
+                unimplemented!()
+            }
         }
     }
 }

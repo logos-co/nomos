@@ -13,7 +13,8 @@ use overwatch::services::state::ServiceState;
 use super::Status;
 use crate::{
     backend::{MemPool, MempoolError, RecoverableMempool},
-    tx::settings::TxMempoolSettings,
+    service::settings::TxMempoolSettings,
+    ItemKind,
 };
 
 mod serde;
@@ -145,13 +146,20 @@ where
         Ok(())
     }
 
-    fn view(&self, _ancestor_hint: BlockId) -> Box<dyn Iterator<Item = Self::Item> + Send> {
-        #[expect(
-            clippy::needless_collect,
-            reason = "We need to have an owned version of the iterator to bypass adding a lifetime bound to the return iterator type"
-        )]
-        let pending_items: Vec<Item> = self.pending_items.values().cloned().collect();
-        Box::new(pending_items.into_iter())
+    fn view<T>(
+        &self,
+        _ancestor_hint: BlockId,
+        kind: ItemKind,
+    ) -> Box<dyn Iterator<Item = T> + Send> {
+        todo!();
+        // #[expect(
+        //     clippy::needless_collect,
+        //     reason = "We need to have an owned version of the iterator to
+        // bypass adding a lifetime bound to the return iterator type"
+        // )]
+        // let pending_items: Vec<Item> =
+        // self.pending_items.values().cloned().collect();
+        // Box::new(pending_items.into_iter())
     }
 
     fn mark_in_block(&mut self, keys: &[Self::Key], block: BlockId) {

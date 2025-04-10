@@ -9,7 +9,8 @@ use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_mempool::{
     backend::{MemPool, RecoverableMempool},
     network::NetworkAdapter as MempoolAdapter,
-    DaMempoolService, MempoolMsg,
+    service::MempoolService,
+    MempoolMsg,
 };
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 use rand::{RngCore, SeedableRng};
@@ -18,7 +19,8 @@ use tokio::sync::oneshot;
 
 use super::{DaMempoolAdapter, DaMempoolAdapterError};
 
-type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
+type MempoolRelay<Key, TxItem, DaItem, SdpItem> =
+    OutboundRelay<MempoolMsg<HeaderId, Key, TxItem, DaItem, SdpItem>>;
 
 pub struct KzgrsMempoolAdapter<
     DaPoolAdapter,
@@ -32,6 +34,9 @@ pub struct KzgrsMempoolAdapter<
     DaVerifierStorage,
     ApiAdapter,
     RuntimeServiceId,
+    TxItem,
+    DaItem,
+    SdpItem,
 > where
     DaPool: MemPool<BlockId = HeaderId>,
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
@@ -39,7 +44,7 @@ pub struct KzgrsMempoolAdapter<
     DaPool::Item: Clone + Eq + Hash + Debug + 'static,
     DaPool::Key: Debug + 'static,
 {
-    pub mempool_relay: MempoolRelay<DaPoolAdapter::Payload, DaPool::Item, DaPool::Key>,
+    pub mempool_relay: MempoolRelay<DaPool::Key, TxItem, DaItem, SdpItem>,
     _phantom: PhantomData<(
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -63,6 +68,9 @@ impl<
         DaVerifierStorage,
         ApiAdapter,
         RuntimeServiceId,
+        TxItem,
+        DaItem,
+        SdpItem,
     > DaMempoolAdapter
     for KzgrsMempoolAdapter<
         DaPoolAdapter,
@@ -76,6 +84,9 @@ impl<
         DaVerifierStorage,
         ApiAdapter,
         RuntimeServiceId,
+        TxItem,
+        DaItem,
+        SdpItem,
     >
 where
     DaPool: RecoverableMempool<BlockId = HeaderId, Key = BlobId>,
@@ -100,7 +111,7 @@ where
     DaVerifierNetwork::Settings: Clone,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
-    type MempoolService = DaMempoolService<
+    type MempoolService = MempoolService<
         DaPoolAdapter,
         DaPool,
         SamplingBackend,
@@ -112,6 +123,9 @@ where
         DaVerifierStorage,
         ApiAdapter,
         RuntimeServiceId,
+        TxItem,
+        DaItem,
+        SdpItem,
     >;
     type BlobId = BlobId;
     type Metadata = dispersal::Metadata;

@@ -7,16 +7,13 @@ use std::{
 use nomos_blend_service::{
     network::NetworkAdapter as BlendNetworkAdapter, BlendService, ServiceMessage,
 };
-use nomos_core::{
-    da::blob::{info::DispersedBlobInfo, BlobSelect},
-    header::HeaderId,
-    tx::TxSelect,
-};
+use nomos_core::{da::blob::BlobSelect, header::HeaderId, tx::TxSelect};
 use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
 use nomos_mempool::{
     backend::{MemPool, RecoverableMempool},
     network::NetworkAdapter as MempoolAdapter,
-    DaMempoolService, TxMempoolService,
+    service::MempoolService,
+    MempoolItem, TransactionId,
 };
 use nomos_network::{NetworkMsg, NetworkService};
 use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
@@ -38,16 +35,6 @@ type NetworkRelay<NetworkBackend, RuntimeServiceId> =
     OutboundRelay<NetworkMsg<NetworkBackend, RuntimeServiceId>>;
 type BlendRelay<BlendAdapterNetworkBroadcastSettings> =
     OutboundRelay<ServiceMessage<BlendAdapterNetworkBroadcastSettings>>;
-type ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> = MempoolRelay<
-    <ClPoolAdapter as MempoolAdapter<RuntimeServiceId>>::Payload,
-    <ClPool as MemPool>::Item,
-    <ClPool as MemPool>::Key,
->;
-type DaMempoolRelay<DaPool, DaPoolAdapter, SamplingBackendBlobId, RuntimeServiceId> = MempoolRelay<
-    <DaPoolAdapter as MempoolAdapter<RuntimeServiceId>>::Payload,
-    <DaPool as MemPool>::Item,
-    SamplingBackendBlobId,
->;
 type StorageRelay<Storage> = OutboundRelay<StorageMsg<Storage>>;
 type TimeRelay = OutboundRelay<TimeServiceMessage>;
 
@@ -56,8 +43,6 @@ pub struct CryptarchiaConsensusRelays<
     BS,
     ClPool,
     ClPoolAdapter,
-    DaPool,
-    DaPoolAdapter,
     NetworkAdapter,
     SamplingBackend,
     SamplingRng,
@@ -65,14 +50,15 @@ pub struct CryptarchiaConsensusRelays<
     TxS,
     DaVerifierBackend,
     RuntimeServiceId,
+    TxItem,
+    DaItem,
+    SdpItem,
 > where
     BlendAdapter:
         blend::BlendAdapter<RuntimeServiceId, Network: BlendNetworkAdapter<RuntimeServiceId>>,
-    BS: BlobSelect,
+    BS: BlobSelect<BlobId = DaItem>,
     ClPool: MemPool,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId>,
-    DaPool: MemPool,
-    DaPoolAdapter: MempoolAdapter<RuntimeServiceId>,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
     Storage: StorageBackend + Send + Sync,
     SamplingRng: SeedableRng + RngCore,
@@ -89,13 +75,18 @@ pub struct CryptarchiaConsensusRelays<
             RuntimeServiceId,
         >>::BroadcastSettings,
     >,
-    cl_mempool_relay: ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId>,
-    da_mempool_relay:
-        DaMempoolRelay<DaPool, DaPoolAdapter, SamplingBackend::BlobId, RuntimeServiceId>,
-    storage_adapter: StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
-    sampling_relay: SamplingRelay<DaPool::Key>,
+    mempool_relay: MempoolRelay<ClPool, TxItem, DaItem, SdpItem>,
+    storage_adapter: StorageAdapter<Storage, TxItem, DaItem, RuntimeServiceId>,
+    sampling_relay: SamplingRelay<ClPool::Key>,
     time_relay: TimeRelay,
-    _phantom_data: PhantomData<DaVerifierBackend>,
+    _phantom_data: PhantomData<(
+        DaVerifierBackend,
+        TxS,
+        BS,
+        ClPoolAdapter,
+        SamplingBackend,
+        SamplingRng,
+    )>,
 }
 
 impl<
@@ -103,8 +94,6 @@ impl<
         BS,
         ClPool,
         ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
         NetworkAdapter,
         SamplingBackend,
         SamplingRng,
@@ -112,14 +101,15 @@ impl<
         TxS,
         DaVerifierBackend,
         RuntimeServiceId,
+        TxItem,
+        DaItem,
+        SdpItem,
     >
     CryptarchiaConsensusRelays<
         BlendAdapter,
         BS,
         ClPool,
         ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
         NetworkAdapter,
         SamplingBackend,
         SamplingRng,
@@ -127,38 +117,44 @@ impl<
         TxS,
         DaVerifierBackend,
         RuntimeServiceId,
+        TxItem,
+        DaItem,
+        SdpItem,
     >
 where
     BlendAdapter:
         blend::BlendAdapter<RuntimeServiceId, Network: BlendNetworkAdapter<RuntimeServiceId>>,
     BlendAdapter::Settings: Send,
-    BS: BlobSelect<BlobId = DaPool::Item>,
+    BS: BlobSelect<BlobId = DaItem>,
     BS::Settings: Send,
-    ClPool: RecoverableMempool<BlockId = HeaderId>,
+    ClPool: RecoverableMempool<BlockId = HeaderId, Item = MempoolItem<TxItem, DaItem, SdpItem>>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    ClPool::Item: Debug + DeserializeOwned + Eq + Hash + Clone + Send + Sync + 'static,
+    ClPool::Item: TransactionId<ClPool::Key>
+        + Debug
+        + DeserializeOwned
+        + Eq
+        + Hash
+        + Clone
+        + Send
+        + Sync
+        + 'static,
     ClPool::Key: Debug + 'static,
     ClPool::Settings: Clone,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
-    DaPool: RecoverableMempool<BlockId = HeaderId>,
-    DaPool::BlockId: Debug,
-    DaPool::Item: Debug + DeserializeOwned + Eq + Hash + Clone + Send + Sync + 'static,
-    DaPool::Key: Debug + 'static,
-    DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPool::Settings: Clone,
-    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
-    DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
     NetworkAdapter::Settings: Send,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
+    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = ClPool::Key> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingRng: SeedableRng + RngCore,
     Storage: StorageBackend + Send + Sync + 'static,
-    TxS: TxSelect<Tx = ClPool::Item>,
+    TxS: TxSelect<Tx = TxItem>,
     TxS::Settings: Send,
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + Sync + 'static,
     DaVerifierBackend::Settings: Clone,
+    TxItem: Eq + Clone + Hash + Send + Sync + for<'de> Deserialize<'de> + 'static,
+    DaItem: Eq + Clone + Hash + Send + Sync + for<'de> Deserialize<'de> + 'static,
+    SdpItem: Eq + Clone + Hash + 'static,
 {
     pub async fn new(
         network_relay: NetworkRelay<
@@ -167,25 +163,17 @@ where
         >,
         blend_relay: BlendRelay<
             <<BlendAdapter as blend::BlendAdapter<RuntimeServiceId>>::Network as BlendNetworkAdapter<RuntimeServiceId>>::BroadcastSettings,>,
-        cl_mempool_relay: ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId>,
-        da_mempool_relay: DaMempoolRelay<
-            DaPool,
-            DaPoolAdapter,
-            SamplingBackend::BlobId,
-            RuntimeServiceId,
-        >,
-        sampling_relay: SamplingRelay<DaPool::Key>,
+        mempool_relay: MempoolRelay<ClPool, TxItem, DaItem, SdpItem>,
+        sampling_relay: SamplingRelay<ClPool::Key>,
         storage_relay: StorageRelay<Storage>,
         time_relay: TimeRelay,
     ) -> Self {
         let storage_adapter =
-            StorageAdapter::<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>::new(storage_relay)
-                .await;
+            StorageAdapter::<Storage, TxItem, DaItem, RuntimeServiceId>::new(storage_relay).await;
         Self {
             network_relay,
             blend_relay,
-            cl_mempool_relay,
-            da_mempool_relay,
+            mempool_relay,
             sampling_relay,
             storage_adapter,
             time_relay,
@@ -209,8 +197,6 @@ where
                 BlendAdapter,
                 ClPool,
                 ClPoolAdapter,
-                DaPool,
-                DaPoolAdapter,
                 TxS,
                 BS,
                 Storage,
@@ -224,13 +210,15 @@ where
                 TimeBackend,
                 ApiAdapter,
                 RuntimeServiceId,
+                TxItem,
+                DaItem,
+                SdpItem,
             >,
             RuntimeServiceId,
         >,
     ) -> Self
     where
         ClPool::Key: Send,
-        DaPool::Key: Send,
         TxS::Settings: Sync,
         BS::Settings: Sync,
         NetworkAdapter::Settings: Sync + Send,
@@ -256,21 +244,8 @@ where
             + AsServiceId<
                 BlendService<BlendAdapter::Backend, BlendAdapter::Network, RuntimeServiceId>,
             >
-            + AsServiceId<TxMempoolService<ClPoolAdapter, ClPool, RuntimeServiceId>>
             + AsServiceId<
-                DaMempoolService<
-                    DaPoolAdapter,
-                    DaPool,
-                    SamplingBackend,
-                    SamplingNetworkAdapter,
-                    SamplingRng,
-                    SamplingStorage,
-                    DaVerifierBackend,
-                    DaVerifierNetwork,
-                    DaVerifierStorage,
-                    ApiAdapter,
-                    RuntimeServiceId,
-                >,
+                MempoolService<ClPoolAdapter, ClPool, RuntimeServiceId, TxItem, DaItem, SdpItem>,
             >
             + AsServiceId<
                 DaSamplingService<
@@ -305,15 +280,9 @@ where
 
         let cl_mempool_relay = state_handle
             .overwatch_handle
-            .relay::<TxMempoolService<_, _, _>>()
+            .relay::<MempoolService<_, _, _, _, _, _>>()
             .await
             .expect("Relay connection with CL MemPoolService should succeed");
-
-        let da_mempool_relay = state_handle
-            .overwatch_handle
-            .relay::<DaMempoolService<_, _, _, _, _, _, _, _, _, _, _>>()
-            .await
-            .expect("Relay connection with DA MemPoolService should succeed");
 
         let sampling_relay = state_handle
             .overwatch_handle
@@ -337,7 +306,6 @@ where
             network_relay,
             blend_relay,
             cl_mempool_relay,
-            da_mempool_relay,
             sampling_relay,
             storage_relay,
             time_relay,
@@ -362,25 +330,17 @@ where
         &self.blend_relay
     }
 
-    pub const fn cl_mempool_relay(
-        &self,
-    ) -> &ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> {
-        &self.cl_mempool_relay
+    pub const fn cl_mempool_relay(&self) -> &MempoolRelay<ClPool, TxItem, DaItem, SdpItem> {
+        &self.mempool_relay
     }
 
-    pub const fn da_mempool_relay(
-        &self,
-    ) -> &DaMempoolRelay<DaPool, DaPoolAdapter, SamplingBackend::BlobId, RuntimeServiceId> {
-        &self.da_mempool_relay
-    }
-
-    pub const fn sampling_relay(&self) -> &SamplingRelay<DaPool::Key> {
+    pub const fn sampling_relay(&self) -> &SamplingRelay<ClPool::Key> {
         &self.sampling_relay
     }
 
     pub const fn storage_adapter(
         &self,
-    ) -> &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId> {
+    ) -> &StorageAdapter<Storage, TxItem, DaItem, RuntimeServiceId> {
         &self.storage_adapter
     }
 

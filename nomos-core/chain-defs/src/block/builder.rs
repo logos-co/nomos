@@ -5,12 +5,7 @@ use indexmap::IndexSet;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
-    block::Block,
-    crypto::Blake2b,
-    da::blob::{info::DispersedBlobInfo, BlobSelect},
-    header::Builder,
-    tx::{Transaction, TxSelect},
-    wire,
+    block::Block, crypto::Blake2b, da::blob::BlobSelect, header::Builder, tx::TxSelect, wire,
 };
 
 /// Wrapper over a block building `new` method than holds intermediary state and
@@ -39,8 +34,8 @@ pub struct BlockBuilder<Tx, Blob, TxSelector, BlobSelector> {
 
 impl<Tx, B, TxSelector, BlobSelector> BlockBuilder<Tx, B, TxSelector, BlobSelector>
 where
-    Tx: Transaction + Clone + Eq + Hash + Serialize + DeserializeOwned,
-    B: DispersedBlobInfo + Clone + Eq + Hash + Serialize + DeserializeOwned,
+    Tx: Clone + Eq + Hash + Serialize + DeserializeOwned,
+    B: Clone + Eq + Hash + Serialize + DeserializeOwned,
     TxSelector: TxSelect<Tx = Tx>,
     BlobSelector: BlobSelect<BlobId = B>,
 {

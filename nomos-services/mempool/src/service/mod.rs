@@ -1,3 +1,6 @@
+pub mod settings;
+pub mod state;
+
 /// Re-export for `OpenAPI`
 #[cfg(feature = "openapi")]
 pub mod openapi {
@@ -21,37 +24,50 @@ use services_utils::overwatch::{
     lifecycle, recovery::operators::RecoveryBackend as RecoveryBackendTrait, JsonFileBackend,
     RecoveryOperator,
 };
+use settings::TxMempoolSettings;
+use state::TxMempoolState;
+use tokio::sync::broadcast;
 
 use crate::{
     backend::{MemPool, RecoverableMempool},
     network::NetworkAdapter as NetworkAdapterTrait,
-    tx::{settings::TxMempoolSettings, state::TxMempoolState},
-    MempoolMetrics, MempoolMsg,
+    ItemKind, MempoolItem, MempoolMetrics, MempoolMsg,
 };
 
 /// A tx mempool service that uses a [`JsonFileBackend`] as a recovery
 /// mechanism.
-pub type TxMempoolService<NetworkAdapter, Pool, RuntimeServiceId> = GenericTxMempoolService<
-    Pool,
-    NetworkAdapter,
-    JsonFileBackend<
-        TxMempoolState<
-            <Pool as RecoverableMempool>::RecoveryState,
-            <Pool as MemPool>::Settings,
-            <NetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Settings,
+pub type MempoolService<NetworkAdapter, Pool, RuntimeServiceId, TxItem, DaItem, SdpItem> =
+    GenericMempoolService<
+        Pool,
+        NetworkAdapter,
+        JsonFileBackend<
+            TxMempoolState<
+                <Pool as RecoverableMempool>::RecoveryState,
+                <Pool as MemPool>::Settings,
+                <NetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Settings,
+            >,
+            TxMempoolSettings<
+                <Pool as MemPool>::Settings,
+                <NetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Settings,
+            >,
         >,
-        TxMempoolSettings<
-            <Pool as MemPool>::Settings,
-            <NetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Settings,
-        >,
-    >,
-    RuntimeServiceId,
->;
+        RuntimeServiceId,
+        TxItem,
+        DaItem,
+        SdpItem,
+    >;
 
 /// A generic tx mempool service which wraps around a mempool, a network
 /// adapter, and a recovery backend.
-pub struct GenericTxMempoolService<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId>
-where
+pub struct GenericMempoolService<
+    Pool,
+    NetworkAdapter,
+    RecoveryBackend,
+    RuntimeServiceId,
+    TxItem,
+    DaItem,
+    SdpItem,
+> where
     Pool: RecoverableMempool,
     Pool::Settings: Clone,
     NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId>,
@@ -60,32 +76,55 @@ where
 {
     pool: Pool,
     service_state_handle: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+    items_broadcast_channel: broadcast::Sender<MempoolItem<TxItem, DaItem, SdpItem>>,
     _phantom: PhantomData<(NetworkAdapter, RecoveryBackend)>,
 }
 
-impl<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId>
-    GenericTxMempoolService<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId>
+impl<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId, TxItem, DaItem, SdpItem>
+    GenericMempoolService<
+        Pool,
+        NetworkAdapter,
+        RecoveryBackend,
+        RuntimeServiceId,
+        TxItem,
+        DaItem,
+        SdpItem,
+    >
 where
     Pool: RecoverableMempool,
     Pool::Settings: Clone,
     NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId>,
     NetworkAdapter::Settings: Clone,
     RecoveryBackend: RecoveryBackendTrait,
+    TxItem: Clone,
+    DaItem: Clone,
+    SdpItem: Clone,
 {
-    pub const fn new(
+    pub fn new(
         pool: Pool,
         service_state_handle: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
     ) -> Self {
+        let (items_channel, _) = broadcast::channel(16);
+
         Self {
             pool,
             service_state_handle,
+            items_broadcast_channel: items_channel,
             _phantom: PhantomData,
         }
     }
 }
 
-impl<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId> ServiceData
-    for GenericTxMempoolService<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId>
+impl<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId, TxItem, DaItem, SdpItem> ServiceData
+    for GenericMempoolService<
+        Pool,
+        NetworkAdapter,
+        RecoveryBackend,
+        RuntimeServiceId,
+        TxItem,
+        DaItem,
+        SdpItem,
+    >
 where
     Pool: RecoverableMempool,
     Pool::Settings: Clone,
@@ -96,17 +135,25 @@ where
     type Settings = TxMempoolSettings<Pool::Settings, NetworkAdapter::Settings>;
     type State = TxMempoolState<Pool::RecoveryState, Pool::Settings, NetworkAdapter::Settings>;
     type StateOperator = RecoveryOperator<RecoveryBackend>;
-    type Message = MempoolMsg<Pool::BlockId, Pool::Item, Pool::Item, Pool::Key>;
+    type Message = MempoolMsg<Pool::BlockId, Pool::Key, TxItem, DaItem, SdpItem>;
 }
 
 #[async_trait::async_trait]
-impl<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for GenericTxMempoolService<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId>
+impl<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId, TxItem, DaItem, SdpItem>
+    ServiceCore<RuntimeServiceId>
+    for GenericMempoolService<
+        Pool,
+        NetworkAdapter,
+        RecoveryBackend,
+        RuntimeServiceId,
+        TxItem,
+        DaItem,
+        SdpItem,
+    >
 where
-    Pool: RecoverableMempool + Send,
+    Pool: RecoverableMempool<Item = MempoolItem<TxItem, DaItem, SdpItem>> + Send,
     Pool::RecoveryState: Debug + Send + Sync,
     Pool::Key: Send,
-    Pool::Item: Clone + Send + 'static,
     Pool::BlockId: Send,
     Pool::Settings: Clone + Sync + Send,
     NetworkAdapter:
@@ -120,6 +167,9 @@ where
         + 'static
         + AsServiceId<Self>
         + AsServiceId<NetworkService<NetworkAdapter::Backend, RuntimeServiceId>>,
+    TxItem: Clone + Send + 'static,
+    DaItem: Clone + Send + 'static,
+    SdpItem: Clone + Send + 'static,
 {
     fn init(
         service_state: ServiceStateHandle<
@@ -172,10 +222,18 @@ where
                     self.handle_mempool_message(relay_msg, network_service_relay.clone());
                 }
                 Some((key, item )) = network_items.next() => {
-                    self.pool.add_item(key, item).unwrap_or_else(|e| {
-                        tracing::debug!("could not add item to the pool due to: {e}");
-                    });
-                    tracing::info!(counter.tx_mempool_pending_items = self.pool.pending_item_count());
+                    match self.pool.add_item(key, item.clone()) {
+                        Ok(()) => {
+                            if let Err(e) = self.items_broadcast_channel.send(item) {
+                                tracing::error!("Could not notify item to services {e}");
+                            }
+                            tracing::info!(counter.tx_mempool_pending_items = self.pool.pending_item_count());
+                        }
+                        Err(e) => {
+                            tracing::debug!("could not add item to the pool due to: {e}");
+                        }
+                    }
+
                     self.service_state_handle.state_updater.update(self.pool.save().into());
                 }
                 Some(lifecycle_msg) = lifecycle_stream.next() =>  {
@@ -189,16 +247,26 @@ where
     }
 }
 
-impl<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId>
-    GenericTxMempoolService<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId>
+impl<Pool, NetworkAdapter, RecoveryBackend, RuntimeServiceId, TxItem, DaItem, SdpItem>
+    GenericMempoolService<
+        Pool,
+        NetworkAdapter,
+        RecoveryBackend,
+        RuntimeServiceId,
+        TxItem,
+        DaItem,
+        SdpItem,
+    >
 where
-    Pool: RecoverableMempool,
-    Pool::Item: Clone + Send + 'static,
+    Pool: RecoverableMempool<Item = MempoolItem<TxItem, DaItem, SdpItem>>,
     Pool::Settings: Clone,
     NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId, Payload = Pool::Item> + Send,
     NetworkAdapter::Settings: Clone + Send + 'static,
     RecoveryBackend: RecoveryBackendTrait,
     RuntimeServiceId: 'static,
+    TxItem: Clone + Send + 'static,
+    DaItem: Clone + Send + 'static,
+    SdpItem: Clone + Send + 'static,
 {
     #[expect(
         clippy::cognitive_complexity,
@@ -206,17 +274,17 @@ where
     )]
     fn handle_mempool_message(
         &mut self,
-        message: MempoolMsg<Pool::BlockId, Pool::Item, Pool::Item, Pool::Key>,
+        message: MempoolMsg<Pool::BlockId, Pool::Key, TxItem, DaItem, SdpItem>,
         network_relay: OutboundRelay<NetworkMsg<NetworkAdapter::Backend, RuntimeServiceId>>,
     ) {
         match message {
             MempoolMsg::Add {
-                payload: item,
                 key,
+                item,
                 reply_channel,
             } => {
                 match self.pool.add_item(key, item.clone()) {
-                    Ok(_id) => {
+                    Ok(()) => {
                         // Broadcast the item to the network
                         let settings = self
                             .service_state_handle
@@ -228,10 +296,14 @@ where
                             .update(self.pool.save().into());
                         // move sending to a new task so local operations can complete in the
                         // meantime
+                        let payload = item.clone();
                         tokio::spawn(async {
                             let adapter = NetworkAdapter::new(settings, network_relay).await;
-                            adapter.send(item).await;
+                            adapter.send(payload).await;
                         });
+                        if let Err(e) = self.items_broadcast_channel.send(item) {
+                            tracing::error!("Could not notify item to services {e}");
+                        }
                         if let Err(e) = reply_channel.send(Ok(())) {
                             tracing::debug!("Failed to send reply to AddTx: {e:?}");
                         }
@@ -244,12 +316,28 @@ where
                     }
                 }
             }
-            MempoolMsg::View {
+            MempoolMsg::ViewTxItems {
                 ancestor_hint,
                 reply_channel,
             } => {
                 reply_channel
-                    .send(self.pool.view(ancestor_hint))
+                    .send(self.pool.view(ancestor_hint, ItemKind::Tx))
+                    .unwrap_or_else(|_| tracing::debug!("could not send back pool view"));
+            }
+            MempoolMsg::ViewDaItems {
+                ancestor_hint,
+                reply_channel,
+            } => {
+                reply_channel
+                    .send(self.pool.view(ancestor_hint, ItemKind::Da))
+                    .unwrap_or_else(|_| tracing::debug!("could not send back pool view"));
+            }
+            MempoolMsg::ViewSdpItems {
+                ancestor_hint,
+                reply_channel,
+            } => {
+                reply_channel
+                    .send(self.pool.view(ancestor_hint, ItemKind::Sdp))
                     .unwrap_or_else(|_| tracing::debug!("could not send back pool view"));
             }
             MempoolMsg::MarkInBlock { ids, block } => {
@@ -285,7 +373,11 @@ where
                     .unwrap_or_else(|_| tracing::debug!("could not send back mempool status"));
             }
             MempoolMsg::Subscribe { sender } => {
-                unimplemented!()
+                sender
+                    .send(self.items_broadcast_channel.subscribe())
+                    .unwrap_or_else(|_| {
+                        tracing::error!("Could not subscribe to block subscription channel");
+                    });
             }
         }
     }
