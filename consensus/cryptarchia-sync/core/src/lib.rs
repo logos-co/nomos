@@ -5,7 +5,7 @@ use std::{
     marker::{PhantomData, Unpin},
 };
 
-use adapter::{CryptarchiaAdapter, CryptarchiaAdapterError, NetworkAdapter};
+use adapter::{BlockFetcher, CryptarchiaAdapter, CryptarchiaAdapterError};
 use futures::{Stream, StreamExt};
 use itertools::Itertools;
 use nomos_core::{block::AbstractBlock, header::HeaderId};
@@ -19,7 +19,7 @@ impl<Cryptarchia, Network, Block> Synchronization<Cryptarchia, Network, Block>
 where
     Block: AbstractBlock + Send,
     Cryptarchia: CryptarchiaAdapter<Block = Block> + Sync + Send,
-    Network: NetworkAdapter<Block = Block> + Sync,
+    Network: BlockFetcher<Block = Block> + Sync,
 {
     /// Syncs the local block tree with the peers, starting from the local tip.
     /// This covers the case where the local tip is not on the latest honest
@@ -44,7 +44,7 @@ where
                 .fetch_blocks_from_slot(cryptarchia.tip_slot() + 1)
                 .await?;
 
-            while let Some(block) = stream.next().await {
+            while let Some((block, provider_id)) = stream.next().await {
                 // Reject blocks that have been rejected in the past
                 // or whose parent has been rejected.
                 let id = block.id();
@@ -61,7 +61,7 @@ where
                         orphan_blocks.remove(&id);
                     }
                     Err(CryptarchiaAdapterError::ParentNotFound) => {
-                        orphan_blocks.insert(id, slot);
+                        orphan_blocks.insert(id, (slot, provider_id));
                     }
                     Err(CryptarchiaAdapterError::InvalidBlock(_)) => {
                         rejected_blocks.insert(id);
@@ -81,10 +81,10 @@ where
             // Backfill the orphan forks starting from the orphan blocks with applying fork
             // choice rule. Sort the orphan blocks by slot in descending order
             // to minimize the number of backfillings.
-            for orphan_block in orphan_blocks
+            for (orphan_block, provider_id) in orphan_blocks
                 .iter()
-                .sorted_by_key(|&(_, slot)| std::cmp::Reverse(slot))
-                .map(|(id, _)| *id)
+                .sorted_by_key(|&(_, (slot, _))| std::cmp::Reverse(slot))
+                .map(|(id, (_, provider_id))| (*id, provider_id.clone()))
             {
                 // Skip the orphan block if it has been processed during the previous
                 // backfillings (i.e. if it has been already added to the local
@@ -95,7 +95,7 @@ where
                 }
 
                 if let Err((_, invalid_suffix)) =
-                    Self::backfill_fork(&mut cryptarchia, orphan_block, network).await
+                    Self::backfill_fork(&mut cryptarchia, orphan_block, provider_id, network).await
                 {
                     rejected_blocks.extend(invalid_suffix);
                 }
@@ -111,11 +111,15 @@ where
     async fn backfill_fork(
         cryptarchia: &mut Cryptarchia,
         tip: HeaderId,
+        provider_id: Network::ProviderId,
         network: &Network,
     ) -> Result<(), (CryptarchiaAdapterError, Vec<HeaderId>)> {
         let suffix = Self::find_missing_part(
             // TODO: handle network error
-            network.fetch_chain_backward(tip).await.unwrap(),
+            network
+                .fetch_chain_backward(tip, provider_id)
+                .await
+                .unwrap(),
             cryptarchia,
         )
         .await;
@@ -188,9 +192,10 @@ mod tests {
         // Start a sync from genesis.
         // Result: The same block tree as the peer's
         let local = MockCryptarchia::new();
-        let local = Synchronization::run(local, &MockNetworkAdapter::new(vec![&peer]))
-            .await
-            .unwrap();
+        let local =
+            Synchronization::run(local, &MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+                .await
+                .unwrap();
         assert_eq!(local, peer);
     }
 
@@ -219,9 +224,10 @@ mod tests {
         local
             .process_block(peer.blocks.get(&HeaderId::from(1)).unwrap().clone())
             .unwrap();
-        let local = Synchronization::run(local, &MockNetworkAdapter::new(vec![&peer]))
-            .await
-            .unwrap();
+        let local =
+            Synchronization::run(local, &MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+                .await
+                .unwrap();
         assert_eq!(local, peer);
     }
 
@@ -273,9 +279,10 @@ mod tests {
         // Start a sync from genesis.
         // Result: The same block tree as the peer's.
         let local = MockCryptarchia::new();
-        let local = Synchronization::run(local, &MockNetworkAdapter::new(vec![&peer]))
-            .await
-            .unwrap();
+        let local =
+            Synchronization::run(local, &MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+                .await
+                .unwrap();
         assert_eq!(local, peer);
     }
 
@@ -336,9 +343,10 @@ mod tests {
         local
             .process_block(peer.blocks.get(&HeaderId::from(3)).unwrap().clone())
             .unwrap();
-        let local = Synchronization::run(local, &MockNetworkAdapter::new(vec![&peer]))
-            .await
-            .unwrap();
+        let local =
+            Synchronization::run(local, &MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+                .await
+                .unwrap();
         assert_eq!(local, peer);
     }
 
@@ -395,9 +403,10 @@ mod tests {
         local
             .process_block(peer.blocks.get(&HeaderId::from(1)).unwrap().clone())
             .unwrap();
-        let local = Synchronization::run(local, &MockNetworkAdapter::new(vec![&peer]))
-            .await
-            .unwrap();
+        let local =
+            Synchronization::run(local, &MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+                .await
+                .unwrap();
         assert_eq!(local, peer);
     }
 
@@ -440,7 +449,7 @@ mod tests {
         let local = MockCryptarchia::new();
         let local = Synchronization::run(
             local,
-            &MockNetworkAdapter::new(vec![&peer0, &peer1, &peer2]),
+            &MockNetworkAdapter::new(HashMap::from([(0, &peer0), (1, &peer1), (2, &peer2)])),
         )
         .await
         .unwrap();
@@ -480,9 +489,10 @@ mod tests {
         // Result: The same honest chain, but without invalid blocks.
         // G - b1 - b2 - b3 == tip
         let local = MockCryptarchia::new();
-        let local = Synchronization::run(local, &MockNetworkAdapter::new(vec![&peer]))
-            .await
-            .unwrap();
+        let local =
+            Synchronization::run(local, &MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+                .await
+                .unwrap();
         assert_eq!(local.honest_chain, HeaderId::from(3));
         assert_eq!(local.blocks.len(), 4);
         assert_eq!(local.blocks_by_slot.len(), 4);
@@ -562,9 +572,10 @@ mod tests {
         //        \
         //          b4
         let local = MockCryptarchia::new();
-        let local = Synchronization::run(local, &MockNetworkAdapter::new(vec![&peer]))
-            .await
-            .unwrap();
+        let local =
+            Synchronization::run(local, &MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+                .await
+                .unwrap();
         assert_eq!(local.honest_chain, HeaderId::from(8));
         assert_eq!(local.forks, HashSet::from([HeaderId::from(4)]));
         assert_eq!(local.blocks.len(), 7);
@@ -720,32 +731,40 @@ mod tests {
         }
     }
 
+    type PeerId = usize;
+
     struct MockNetworkAdapter<'a> {
-        peers: Vec<&'a MockCryptarchia>,
+        peers: HashMap<PeerId, &'a MockCryptarchia>,
     }
 
     impl<'a> MockNetworkAdapter<'a> {
-        const fn new(peers: Vec<&'a MockCryptarchia>) -> Self {
+        const fn new(peers: HashMap<PeerId, &'a MockCryptarchia>) -> Self {
             Self { peers }
         }
     }
 
     #[async_trait::async_trait]
-    impl NetworkAdapter for MockNetworkAdapter<'_> {
+    impl BlockFetcher for MockNetworkAdapter<'_> {
         type Block = MockBlock;
+        type ProviderId = PeerId;
 
         async fn fetch_blocks_from_slot(
             &self,
             start_slot: Slot,
-        ) -> Result<BoxedStream<Self::Block>, Box<dyn std::error::Error + Send + Sync>> {
+        ) -> Result<
+            BoxedStream<(Self::Block, Self::ProviderId)>,
+            Box<dyn std::error::Error + Send + Sync>,
+        > {
             let mut blocks = Vec::new();
-            for peer in &self.peers {
+            for (peer_id, cryptarchia) in &self.peers {
                 blocks.extend(
-                    peer.blocks_by_slot
+                    cryptarchia
+                        .blocks_by_slot
                         .range(start_slot..)
                         .flat_map(|(_, ids)| ids)
-                        .map(|id| peer.blocks.get(id).unwrap())
-                        .cloned(),
+                        .map(|id| cryptarchia.blocks.get(id).unwrap())
+                        .cloned()
+                        .map(|block| (block, *peer_id)),
                 );
             }
             Ok(Box::new(futures::stream::iter(blocks)))
@@ -754,17 +773,17 @@ mod tests {
         async fn fetch_chain_backward(
             &self,
             tip: HeaderId,
+            provider_id: Self::ProviderId,
         ) -> Result<BoxedStream<Self::Block>, Box<dyn std::error::Error + Send + Sync>> {
             let mut blocks = Vec::new();
             let mut id = tip;
-            for peer in &self.peers {
-                while let Some(block) = peer.blocks.get(&id) {
-                    blocks.push(block.clone());
-                    if block.is_genesis() {
-                        return Ok(Box::new(futures::stream::iter(blocks)));
-                    }
-                    id = block.parent;
+            let cryptarchia = self.peers.get(&provider_id).unwrap();
+            while let Some(block) = cryptarchia.blocks.get(&id) {
+                blocks.push(block.clone());
+                if block.is_genesis() {
+                    return Ok(Box::new(futures::stream::iter(blocks)));
                 }
+                id = block.parent;
             }
             Ok(Box::new(futures::stream::iter(blocks)))
         }

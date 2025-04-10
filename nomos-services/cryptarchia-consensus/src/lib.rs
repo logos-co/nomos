@@ -388,7 +388,7 @@ impl<
     >
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId, Block = Block<ClPool::Item, DaPool::Item>>
-        + cryptarchia_sync::adapter::NetworkAdapter<Block = Block<ClPool::Item, DaPool::Item>>
+        + cryptarchia_sync::adapter::BlockFetcher<Block = Block<ClPool::Item, DaPool::Item>>
         + Clone
         + Send
         + Sync
