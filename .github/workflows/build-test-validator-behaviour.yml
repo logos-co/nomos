@@ -1,0 +1,164 @@
+# copy of https://github.com/actions-rs/meta/blob/master/recipes/quickstart.md
+# Steps for checking PRs.
+on:
+  push:
+    branches: [ chore-da-behavior-membership-tests ]
+
+name: Test Validator Behaviour
+
+jobs:
+  check:
+    name: Check
+    runs-on: [ 'self-hosted' ]
+    strategy:
+      fail-fast: true
+      matrix:
+        feature: [ libp2p ]
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - uses: cargo-bins/cargo-binstall@main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install risc0
+        run: cargo binstall -y cargo-risczero && cargo risczero install
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --all --no-default-features --features ${{ matrix.feature }}
+
+  test:
+    name: Test Suite
+    if: ${{ !startsWith(github.event.pull_request.title, '[WIP]') && !contains(github.event.label.name,  'DO NOT MERGE') }}
+    strategy:
+      fail-fast: false # all OSes should be tested even if one fails (default: true)
+      matrix:
+        feature: [ libp2p ]
+        os: [ self-hosted, macos-latest ] # drop windows for now as risc0 does not support it
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+      - name: Remove unwanted software
+        if: matrix.os == 'ubuntu-latest'
+        uses: ./.github/actions/prune-vm
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      # Setup Rust toolchain with GNU for Windows
+      - name: Setup Rust with GNU toolchain (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable-msvc
+          target: x86_64-pc-windows-msvc
+          override: true
+      # Setup Rust toolchain for other OSes
+      - name: Setup Rust toolchain (Other OSes)
+        if: matrix.os != 'windows-latest'
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      # Setup build environment (Windows)
+      - name: Setup build environment (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: ./.github/actions/mingw-env
+      - uses: cargo-bins/cargo-binstall@main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install risc0
+        run: cargo binstall -y cargo-risczero && cargo risczero install
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Cargo build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --all --no-default-features --features ${{ matrix.feature }}
+      - name: Cargo test (Other OSes)
+        if: matrix.os != 'windows-latest'
+        uses: actions-rs/cargo@v1
+        env:
+          RUST_LOG: debug
+          RISC0_DEV_MODE: true
+          CONSENSUS_SLOT_TIME: 5
+        with:
+          command: test
+          args: --all --no-default-features --features ${{ matrix.feature }} -p nomos-da-network-core test_validation_behaviour -- --nocapture
+      - name: Cargo test (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions-rs/cargo@v1
+        env:
+          # Because Windows runners in Github Actions tend to be slow.
+          SLOW_TEST_ENV: true
+          RISC0_DEV_MODE: true
+          CONSENSUS_SLOT_TIME: 5
+        with:
+          command: test
+          args: --no-default-features --features ${{ matrix.feature }}
+      - name: Cargo bench (no-run)
+        if: matrix.os != 'windows-latest'
+        uses: actions-rs/cargo@v1
+        env:
+          RISC0_DEV_MODE: true
+          CONSENSUS_SLOT_TIME: 5
+        with:
+          command: bench
+          args: --no-run
+      - uses: actions/upload-artifact@v3
+        if: failure()
+        with:
+          name: integration-test-artifacts
+          path: tests/.tmp*
+
+  lints:
+    name: Rust lints
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        feature: [ libp2p ]
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+      - uses: cargo-bins/cargo-binstall@main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install risc0
+        run: cargo binstall -y cargo-risczero && cargo risczero install
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run cargo fmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+
+      - name: Run cargo clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --all --no-default-features --features ${{ matrix.feature }} -- --deny warnings
