@@ -2,6 +2,7 @@
 exclude = ["nomos-core/risc0_proofs"]
 members = [
   "consensus/cryptarchia-engine",
+  "consensus/cryptarchia-sync/core",
   "ledger/nomos-ledger",
   "nodes/api-common",
   "nodes/nomos-executor/executor",
