@@ -2,8 +2,8 @@ use bincode::Options;
 use serde::Serialize;
 
 use crate::wire::{
-    bincode::{BincodeSerializer, OPTIONS},
     Error, Result,
+    bincode::{BincodeSerializer, OPTIONS},
 };
 
 pub struct Serializer<T> {
