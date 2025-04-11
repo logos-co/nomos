@@ -12,4 +12,3 @@ overwatch      = { workspace = true }
 services-utils = { workspace = true }
 thiserror      = "1"
 tokio          = { version = "1", features = ["macros", "sync"] }
-tracing        = { version = "0.1", features = ["attributes"] }
