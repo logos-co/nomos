@@ -82,13 +82,6 @@ impl AsyncNTPClient {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        net::{IpAddr, Ipv4Addr},
-        time::Duration,
-    };
-
-    use super::*;
-
     // This test is disabled macOS because NTP v4 requests fail on Github's
     // non-self-hosted runners, and our test runners are `self-hosted` (where it
     // works) and `macos-latest`. The request seems to be sent successfully, but
@@ -98,6 +91,13 @@ mod tests {
     #[cfg(not(target_os = "macos"))]
     #[tokio::test]
     async fn real_ntp_request() -> Result<(), Error> {
+        use std::{
+            net::{IpAddr, Ipv4Addr},
+            time::Duration,
+        };
+
+        // import spuper to use only for macos
+        use super::*;
         let ntp_server_ip = "pool.ntp.org";
         let ntp_server_address = format!("{ntp_server_ip}:123");
 
