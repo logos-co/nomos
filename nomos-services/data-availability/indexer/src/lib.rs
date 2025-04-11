@@ -7,6 +7,8 @@ use std::{
     ops::Range,
 };
 
+use nomos_mempool::TransactionId;
+
 use consensus::ConsensusAdapter;
 use cryptarchia_consensus::{network::NetworkAdapter, CryptarchiaConsensus};
 use futures::StreamExt;
@@ -14,12 +16,13 @@ use nomos_core::{
     block::Block,
     da::blob::{info::DispersedBlobInfo, metadata::Metadata, BlobSelect},
     header::HeaderId,
-    tx::{Transaction, TxSelect},
+    tx::TxSelect,
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_mempool::{
-    backend::{MemPool, RecoverableMempool},
+    backend::{RecoverableMempool},
     network::NetworkAdapter as MempoolAdapter,
+    MempoolItem,
 };
 use nomos_storage::{backends::StorageBackend, StorageService};
 use nomos_tracing::info_with_id;
@@ -31,7 +34,7 @@ use overwatch::{
     DynError, OpaqueServiceStateHandle,
 };
 use rand::{RngCore, SeedableRng};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use services_utils::overwatch::lifecycle;
 use storage::DaStorageAdapter;
 use tokio::sync::oneshot::Sender;
@@ -45,8 +48,6 @@ pub struct DataIndexerService<
     BlendAdapter,
     ClPool,
     ClPoolAdapter,
-    DaPool,
-    DaPoolAdapter,
     TxS,
     BS,
     ConsensusStorage,
@@ -60,6 +61,9 @@ pub struct DataIndexerService<
     TimeBackend,
     ApiAdapter,
     RuntimeServiceId,
+    TxItem,
+    DaItem,
+    SdpItem,
 > where
     Share: 'static,
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
@@ -67,27 +71,20 @@ pub struct DataIndexerService<
     BlendAdapter: cryptarchia_consensus::blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
-    ClPool: RecoverableMempool<BlockId = HeaderId>,
+    ClPool: RecoverableMempool<BlockId = HeaderId, Item = MempoolItem<TxItem, DaItem, SdpItem>>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPool: RecoverableMempool<BlockId = HeaderId>,
-    DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
-    DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     ClPool::Item: Clone + Eq + Hash + Debug + 'static,
     ClPool::Key: Debug + 'static,
     ClPool::Settings: Clone,
-    DaPool::Item: Metadata + Clone + Eq + Hash + Debug + 'static,
-    DaPool::Key: Debug + 'static,
-    DaPool::Settings: Clone,
     NetAdapter::Backend: 'static,
-    TxS: TxSelect<Tx = ClPool::Item>,
+    TxS: TxSelect<Tx = TxItem>,
     TxS::Settings: Send,
-    BS: BlobSelect<BlobId = DaPool::Item>,
+    BS: BlobSelect<BlobId = DaItem>,
     BS::Settings: Send,
-    DaStorage: DaStorageAdapter<RuntimeServiceId, Info = DaPool::Item, Share = Share>,
+    DaStorage: DaStorageAdapter<RuntimeServiceId, Info = DaItem, Share = Share>,
     ConsensusStorage: StorageBackend + Send + Sync + 'static,
     SamplingRng: SeedableRng + RngCore,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
+    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = ClPool::Key> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
@@ -101,6 +98,9 @@ pub struct DataIndexerService<
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
+    TxItem: 'static,
+    DaItem: Metadata + Debug + 'static,
+    SdpItem: 'static,
 {
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
 }
@@ -137,8 +137,6 @@ impl<
         BlendAdapter,
         ClPool,
         ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
         TxS,
         BS,
         ConsensusStorage,
@@ -152,6 +150,9 @@ impl<
         TimeBackend,
         ApiAdapter,
         RuntimeServiceId,
+        TxItem,
+        DaItem,
+        SdpItem,
     > ServiceData
     for DataIndexerService<
         Share,
@@ -161,8 +162,6 @@ impl<
         BlendAdapter,
         ClPool,
         ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
         TxS,
         BS,
         ConsensusStorage,
@@ -176,6 +175,9 @@ impl<
         TimeBackend,
         ApiAdapter,
         RuntimeServiceId,
+        TxItem,
+        DaItem,
+        SdpItem,
     >
 where
     Share: 'static,
@@ -184,27 +186,20 @@ where
     BlendAdapter: cryptarchia_consensus::blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
-    ClPool: RecoverableMempool<BlockId = HeaderId>,
+    ClPool: RecoverableMempool<BlockId = HeaderId, Item = MempoolItem<TxItem, DaItem, SdpItem>>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPool: RecoverableMempool<BlockId = HeaderId>,
-    DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
-    DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     ClPool::Item: Clone + Eq + Hash + Debug + 'static,
     ClPool::Key: Debug + 'static,
     ClPool::Settings: Clone,
-    DaPool::Item: Metadata + Clone + Eq + Hash + Debug + 'static,
-    DaPool::Key: Debug + 'static,
-    DaPool::Settings: Clone,
     NetAdapter::Backend: 'static,
-    TxS: TxSelect<Tx = ClPool::Item>,
+    TxS: TxSelect<Tx = TxItem>,
     TxS::Settings: Send,
-    BS: BlobSelect<BlobId = DaPool::Item>,
+    BS: BlobSelect<BlobId = DaItem>,
     BS::Settings: Send,
-    DaStorage: DaStorageAdapter<RuntimeServiceId, Info = DaPool::Item, Share = Share>,
+    DaStorage: DaStorageAdapter<RuntimeServiceId, Info = DaItem, Share = Share>,
     ConsensusStorage: StorageBackend + Send + Sync + 'static,
     SamplingRng: SeedableRng + RngCore,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
+    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = ClPool::Key> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
@@ -218,11 +213,12 @@ where
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
+    DaItem: Metadata + Debug,
 {
     type Settings = IndexerSettings<DaStorage::Settings>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
-    type Message = DaMsg<Share, DaPool::Item>;
+    type Message = DaMsg<Share, DaItem>;
 }
 
 impl<
@@ -233,8 +229,6 @@ impl<
         BlendAdapter,
         ClPool,
         ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
         TxS,
         BS,
         ConsensusStorage,
@@ -248,6 +242,9 @@ impl<
         TimeBackend,
         ApiAdapter,
         RuntimeServiceId,
+        TxItem,
+        DaItem,
+        SdpItem,
     >
     DataIndexerService<
         Share,
@@ -257,8 +254,6 @@ impl<
         BlendAdapter,
         ClPool,
         ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
         TxS,
         BS,
         ConsensusStorage,
@@ -272,6 +267,9 @@ impl<
         TimeBackend,
         ApiAdapter,
         RuntimeServiceId,
+        TxItem,
+        DaItem,
+        SdpItem,
     >
 where
     Share: Send + Sync + 'static,
@@ -280,29 +278,20 @@ where
     BlendAdapter: cryptarchia_consensus::blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
-    ClPool: RecoverableMempool<BlockId = HeaderId>,
+    ClPool: RecoverableMempool<BlockId = HeaderId, Item = MempoolItem<TxItem, DaItem, SdpItem>>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPool: RecoverableMempool<BlockId = HeaderId>,
-    DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
-    DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     ClPool::Item: Clone + Eq + Hash + Debug + 'static,
     ClPool::Key: Debug + 'static,
     ClPool::Settings: Clone,
-    DaPool::Item: DispersedBlobInfo + Metadata + Clone + Eq + Hash + Debug + Sync + 'static,
-    <DaPool::Item as DispersedBlobInfo>::BlobId: AsRef<[u8]>,
-    DaPool::Key: Debug + 'static,
-    DaPool::Settings: Clone,
-    <DaPool::Item as Metadata>::Index: Send + Sync,
     NetAdapter::Backend: 'static,
-    TxS: TxSelect<Tx = ClPool::Item>,
+    TxS: TxSelect<Tx = TxItem>,
     TxS::Settings: Send,
-    BS: BlobSelect<BlobId = DaPool::Item>,
+    BS: BlobSelect<BlobId = DaItem>,
     BS::Settings: Send,
-    DaStorage: DaStorageAdapter<RuntimeServiceId, Info = DaPool::Item, Share = Share> + Sync,
+    DaStorage: DaStorageAdapter<RuntimeServiceId, Info = DaItem, Share = Share> + Sync,
     ConsensusStorage: StorageBackend + Send + Sync + 'static,
     SamplingRng: SeedableRng + RngCore,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
+    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = ClPool::Key> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
@@ -316,11 +305,15 @@ where
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
+    TxItem: Eq + Clone + Hash,
+    DaItem: DispersedBlobInfo + Metadata + Clone + Eq + Hash + Debug + 'static,
+    <DaItem as DispersedBlobInfo>::BlobId: AsRef<[u8]>,
+    SdpItem: Eq + Clone + Hash,
 {
     #[instrument(skip_all)]
     async fn handle_new_block(
         storage_adapter: &DaStorage,
-        block: Block<ClPool::Item, DaPool::Item>,
+        block: Block<TxItem, DaItem>,
     ) -> Result<(), DynError> {
         for info in block.blobs() {
             info_with_id!(info.blob_id().as_ref(), "HandleNewBlock");
@@ -332,7 +325,7 @@ where
     #[instrument(skip_all)]
     async fn handle_da_msg(
         storage_adapter: &DaStorage,
-        msg: DaMsg<Share, DaPool::Item>,
+        msg: DaMsg<Share, DaItem>,
     ) -> Result<(), DynError> {
         match msg {
             DaMsg::AddIndex { info } => {
@@ -364,8 +357,6 @@ impl<
         BlendAdapter,
         ClPool,
         ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
         TxS,
         BS,
         ConsensusStorage,
@@ -379,6 +370,9 @@ impl<
         TimeBackend,
         ApiAdapter,
         RuntimeServiceId,
+        TxItem,
+        DaItem,
+        SdpItem,
     > ServiceCore<RuntimeServiceId>
     for DataIndexerService<
         Share,
@@ -388,8 +382,6 @@ impl<
         BlendAdapter,
         ClPool,
         ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
         TxS,
         BS,
         ConsensusStorage,
@@ -403,6 +395,9 @@ impl<
         TimeBackend,
         ApiAdapter,
         RuntimeServiceId,
+        TxItem,
+        DaItem,
+        SdpItem,
     >
 where
     Share: Debug + Send + Sync,
@@ -411,54 +406,24 @@ where
     BlendAdapter: cryptarchia_consensus::blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
-    ClPool: RecoverableMempool<BlockId = HeaderId>,
+    ClPool: RecoverableMempool<BlockId = HeaderId, Item = MempoolItem<TxItem, DaItem, SdpItem>>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPool: RecoverableMempool<BlockId = HeaderId>,
-    DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
-    DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     ClPool::Key: Debug + 'static,
     ClPool::Settings: Clone,
-    DaPool::Key: Debug + 'static,
-    DaPool::Settings: Clone,
-    ClPool::Item: Transaction<Hash = ClPool::Key>
-        + Debug
-        + Clone
-        + Eq
-        + Hash
-        + Serialize
-        + serde::de::DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
-    DaPool::Item: DispersedBlobInfo<BlobId = DaPool::Key>
-        + Metadata
-        + Debug
-        + Clone
-        + Eq
-        + Hash
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
-    <DaPool::Item as Metadata>::AppId: Send + Sync,
-    <DaPool::Item as Metadata>::Index: Send + Sync,
-    <<DaPool as MemPool>::Item as DispersedBlobInfo>::BlobId: AsRef<[u8]>,
+    ClPool::Item:
+        Debug + Clone + Eq + Hash + Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
     NetAdapter::Backend: 'static,
-    TxS: TxSelect<Tx = ClPool::Item>,
+    TxS: TxSelect<Tx = TxItem>,
     TxS::Settings: Send,
-    BS: BlobSelect<BlobId = DaPool::Item>,
+    BS: BlobSelect<BlobId = DaItem>,
     BS::Settings: Send,
-    DaStorage: DaStorageAdapter<RuntimeServiceId, Info = DaPool::Item, Share = Share>
-        + Send
-        + Sync
-        + 'static,
+    DaStorage:
+        DaStorageAdapter<RuntimeServiceId, Info = DaItem, Share = Share> + Send + Sync + 'static,
     DaStorage::Settings: Clone + Send + Sync + 'static,
     ConsensusStorage: StorageBackend + Send + Sync + 'static,
-    Consensus: ConsensusAdapter<Tx = ClPool::Item, Cert = DaPool::Item> + Send + Sync,
+    Consensus: ConsensusAdapter<Tx = TxItem, Cert = DaItem> + Send + Sync,
     SamplingRng: SeedableRng + RngCore,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
+    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = ClPool::Key> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
@@ -483,8 +448,6 @@ where
                 BlendAdapter,
                 ClPool,
                 ClPoolAdapter,
-                DaPool,
-                DaPoolAdapter,
                 TxS,
                 BS,
                 ConsensusStorage,
@@ -498,8 +461,26 @@ where
                 TimeBackend,
                 ApiAdapter,
                 RuntimeServiceId,
+                TxItem,
+                DaItem,
+                SdpItem,
             >,
         > + AsServiceId<StorageService<DaStorage::Backend, RuntimeServiceId>>,
+    TxItem: TransactionId<ClPool::Key> + Eq + Clone + Hash + Send,
+    DaItem: TransactionId<ClPool::Key>
+        + DispersedBlobInfo
+        + Metadata
+        + Clone
+        + Eq
+        + Hash
+        + Debug
+        + Send
+        + Sync
+        + 'static,
+    <DaItem as DispersedBlobInfo>::BlobId: AsRef<[u8]>,
+    <DaItem as Metadata>::Index: Send,
+    <DaItem as Metadata>::AppId: Send,
+    SdpItem: TransactionId<ClPool::Key> + Eq + Clone + Hash,
 {
     fn init(
         service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
@@ -513,7 +494,7 @@ where
 
         let consensus_relay = service_state
             .overwatch_handle
-            .relay::<CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _>>(
+            .relay::<CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _>>(
             )
             .await
             .expect("Relay connection with ConsensusService should succeed");
