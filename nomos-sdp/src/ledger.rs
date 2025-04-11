@@ -23,7 +23,7 @@ pub enum DeclarationsRepositoryError {
     #[error("Duplicate nonce")]
     DuplicateNonce,
     #[error(transparent)]
-    Other(Box<dyn Error + Send>),
+    Other(Box<dyn Error + Send + Sync>),
 }
 
 #[async_trait]
@@ -56,7 +56,7 @@ pub enum ServicesRepositoryError {
     #[error("Service not found: {0:?}")]
     NotFound(ServiceType),
     #[error(transparent)]
-    Other(Box<dyn Error + Send>),
+    Other(Box<dyn Error + Send + Sync>),
 }
 
 #[async_trait]
@@ -74,7 +74,7 @@ pub enum RewardsSenderError<ContractAddress> {
     #[error("Reward contract not found: {0:?}")]
     NotFound(ContractAddress),
     #[error(transparent)]
-    Other(Box<dyn Error + Send>),
+    Other(Box<dyn Error + Send + Sync>),
 }
 
 #[async_trait]
@@ -98,7 +98,7 @@ pub enum StakesVerifierError {
     #[error("Proof could not be verified")]
     InvalidProof,
     #[error(transparent)]
-    Other(Box<dyn Error + Send>),
+    Other(Box<dyn Error + Send + Sync>),
 }
 
 #[async_trait]
@@ -133,7 +133,7 @@ pub enum SdpLedgerError<ContractAddress: Debug> {
     #[error("Provider declaration id and message declaration id does not match")]
     WrongDeclarationId,
     #[error(transparent)]
-    Other(Box<dyn Error>),
+    Other(Box<dyn Error + Send + Sync>),
 }
 
 pub struct SdpLedger<Declarations, Rewards, Services, Stakes, Proof, Metadata, ContractAddress>
@@ -161,6 +161,24 @@ where
     Stakes: StakesVerifier<Proof = Proof> + Send + Sync,
     ContractAddress: Debug,
 {
+    pub fn new(
+        declaration_repo: Declarations,
+        reward_request_sender: Rewards,
+        services_repo: Services,
+        stake_verifier: Stakes,
+    ) -> Self {
+        Self {
+            declaration_repo,
+            reward_request_sender,
+            services_repo,
+            stake_verifier,
+            pending_providers: HashMap::new(),
+            pending_declarations: HashMap::new(),
+            pending_rewards: HashMap::new(),
+            _phantom: PhantomData,
+        }
+    }
+
     async fn process_declare(
         &mut self,
         block_number: BlockNumber,

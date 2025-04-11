@@ -1,13 +1,13 @@
 [package]
-name = "nomos-sdp-core"
-version = "0.1.0"
-edition = "2024"
+edition           = "2024"
 license.workspace = true
+name              = "nomos-sdp-core"
+version           = "0.1.0"
 
 [dependencies]
 async-trait = "0.1"
 blake2      = "0.10"
-multiaddr   = "0.18" 
+multiaddr   = "0.18"
 thiserror   = "1"
 tracing     = "0.1"
 

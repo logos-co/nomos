@@ -40,8 +40,9 @@ digraph {
     38 [ label = "full-replication" shape = box]
     39 [ label = "nomos-sdp-core" shape = box]
     40 [ label = "key-management-system" shape = box]
-    41 [ label = "cfgsync" shape = box]
-    42 [ label = "tests" shape = box]
+    41 [ label = "nomos-sdp" shape = box]
+    42 [ label = "cfgsync" shape = box]
+    43 [ label = "tests" shape = box]
     0 -> 7 [ ]
     1 -> 5 [ ]
     3 -> 4 [ style = dotted]
@@ -94,7 +95,9 @@ digraph {
     37 -> 10 [ ]
     38 -> 1 [ ]
     40 -> 20 [ ]
-    41 -> 42 [ ]
-    42 -> 10 [ ]
+    41 -> 39 [ ]
+    41 -> 20 [ ]
+    42 -> 43 [ ]
+    43 -> 10 [ ]
 }
 
