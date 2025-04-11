@@ -1,16 +1,22 @@
+pub mod adapters;
 pub mod backends;
 
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
+use adapters::{
+    declaration::SdpDeclarationAdapter, rewards::SdpRewardsAdapter, services::SdpServicesAdapter,
+    stakes::SdpStakesVerifierAdapter,
+};
 use async_trait::async_trait;
 use backends::SdpBackend;
 use futures::StreamExt;
+use nomos_sdp_core::ledger;
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
     },
-    OpaqueServiceStateHandle,
+    DynError, OpaqueServiceStateHandle,
 };
 use services_utils::overwatch::lifecycle;
 use tokio::sync::oneshot;
@@ -24,37 +30,135 @@ pub enum SdpMessage<B: SdpBackend> {
 
     MarkInBlock {
         block_number: B::BlockNumber,
-        result_sender: oneshot::Sender<Result<(), B::Error>>,
+        result_sender: oneshot::Sender<Result<(), DynError>>,
     },
     DiscardBlock(B::BlockNumber),
 }
 
-impl<B: SdpBackend + 'static + Send + Sync, RuntimeServiceId> ServiceData
-    for SdpService<B, RuntimeServiceId>
+pub struct SdpService<
+    B: SdpBackend + Send + Sync + 'static,
+    DeclarationAdapter,
+    RewardsAdapter,
+    StakesVerifierAdapter,
+    ServicesAdapter,
+    Metadata,
+    ContractAddress,
+    Proof,
+    RuntimeServiceId,
+> where
+    DeclarationAdapter: SdpDeclarationAdapter + Send + Sync,
+    RewardsAdapter: SdpRewardsAdapter + Send + Sync,
+    ServicesAdapter: SdpServicesAdapter + Send + Sync,
+    StakesVerifierAdapter: SdpStakesVerifierAdapter + Send + Sync,
+    Metadata: Send + Sync + 'static,
+    Proof: Send + Sync + 'static,
+    ContractAddress: Debug + Send + Sync + 'static,
 {
-    type Settings = B::Settings;
+    backend: B,
+    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+}
+
+impl<
+        B,
+        DeclarationAdapter,
+        RewardsAdapter,
+        StakesVerifierAdapter,
+        ServicesAdapter,
+        Metadata,
+        ContractAddress,
+        Proof,
+        RuntimeServiceId,
+    > ServiceData
+    for SdpService<
+        B,
+        DeclarationAdapter,
+        RewardsAdapter,
+        StakesVerifierAdapter,
+        ServicesAdapter,
+        Metadata,
+        ContractAddress,
+        Proof,
+        RuntimeServiceId,
+    >
+where
+    B: SdpBackend + Send + Sync + 'static,
+    DeclarationAdapter: SdpDeclarationAdapter + Send + Sync,
+    RewardsAdapter: SdpRewardsAdapter + Send + Sync,
+    ServicesAdapter: SdpServicesAdapter + Send + Sync,
+    StakesVerifierAdapter: SdpStakesVerifierAdapter + Send + Sync,
+    Metadata: Send + Sync + 'static,
+    Proof: Send + Sync + 'static,
+    ContractAddress: Debug + Send + Sync + 'static,
+{
+    type Settings = ();
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = SdpMessage<B>;
 }
 
-pub struct SdpService<B: SdpBackend + Send + Sync + 'static, RuntimeServiceId> {
-    backend: B,
-    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-}
-
 #[async_trait]
-impl<B, RuntimeServiceId> ServiceCore<RuntimeServiceId> for SdpService<B, RuntimeServiceId>
+impl<
+        B: SdpBackend,
+        DeclarationAdapter,
+        RewardsAdapter,
+        StakesVerifierAdapter,
+        ServicesAdapter,
+        Metadata,
+        ContractAddress,
+        Proof,
+        RuntimeServiceId,
+    > ServiceCore<RuntimeServiceId>
+    for SdpService<
+        B,
+        DeclarationAdapter,
+        RewardsAdapter,
+        StakesVerifierAdapter,
+        ServicesAdapter,
+        Metadata,
+        ContractAddress,
+        Proof,
+        RuntimeServiceId,
+    >
 where
-    B: SdpBackend + Send + Sync + 'static,
-    RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send,
+    B: SdpBackend<
+            DeclarationAdapter = DeclarationAdapter,
+            ServicesAdapter = ServicesAdapter,
+            RewardsAdapter = RewardsAdapter,
+            StakesVerifierAdapter = StakesVerifierAdapter,
+        > + Send
+        + Sync
+        + 'static,
+    DeclarationAdapter: ledger::DeclarationsRepository + SdpDeclarationAdapter + Send + Sync,
+    RewardsAdapter: ledger::RewardsRequestSender<ContractAddress = ContractAddress, Metadata = Metadata>
+        + SdpRewardsAdapter
+        + Send
+        + Sync,
+    ServicesAdapter: ledger::ServicesRepository<ContractAddress = ContractAddress>
+        + SdpServicesAdapter
+        + Send
+        + Sync,
+    StakesVerifierAdapter:
+        ledger::StakesVerifier<Proof = Proof> + SdpStakesVerifierAdapter + Send + Sync,
+    Metadata: Send + Sync + 'static,
+    Proof: Send + Sync + 'static,
+    ContractAddress: Debug + Send + Sync + 'static,
+    RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + Sync + 'static,
 {
     fn init(
         service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
         _initstate: Self::State,
     ) -> Result<Self, overwatch::DynError> {
+        let declaration_adapter = DeclarationAdapter::new();
+        let services_adapter = ServicesAdapter::new();
+        let stake_verifier_adapter = StakesVerifierAdapter::new();
+        let rewards_adapter = RewardsAdapter::new();
         Ok(Self {
-            backend: B::new(service_state.settings_reader.get_updated_settings()),
+            backend: B::init(
+                declaration_adapter,
+                rewards_adapter,
+                services_adapter,
+                stake_verifier_adapter,
+            ),
             service_state,
         })
     }
@@ -87,7 +191,29 @@ where
     }
 }
 
-impl<B: SdpBackend + Send + Sync + 'static, RuntimeServiceId> SdpService<B, RuntimeServiceId> {
+impl<
+        B: SdpBackend + Send + Sync + 'static,
+        DeclarationAdapter: SdpDeclarationAdapter + Send + Sync,
+        RewardsAdapter: SdpRewardsAdapter + Send + Sync,
+        StakesVerifierAdapter: SdpStakesVerifierAdapter + Send + Sync,
+        ServicesAdapter: SdpServicesAdapter + Send + Sync,
+        Metadata: Send + Sync + 'static,
+        ContractAddress: Debug + Send + Sync + 'static,
+        Proof: Send + Sync + 'static,
+        RuntimeServiceId: Send + Sync + 'static,
+    >
+    SdpService<
+        B,
+        DeclarationAdapter,
+        RewardsAdapter,
+        StakesVerifierAdapter,
+        ServicesAdapter,
+        Metadata,
+        ContractAddress,
+        Proof,
+        RuntimeServiceId,
+    >
+{
     async fn handle_sdp_message(msg: SdpMessage<B>, backend: &mut B) {
         match msg {
             SdpMessage::Process {
