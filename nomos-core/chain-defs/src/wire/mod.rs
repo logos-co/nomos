@@ -4,7 +4,9 @@
 pub(crate) mod bincode;
 pub mod deserialization;
 pub mod errors;
+pub mod packing;
 pub mod serialization;
+
 // Exports
 pub use deserialization::{deserialize, deserializer};
 pub use errors::Error;
