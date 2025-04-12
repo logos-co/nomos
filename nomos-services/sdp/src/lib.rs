@@ -164,21 +164,13 @@ where
     }
 
     async fn run(mut self) -> Result<(), overwatch::DynError> {
-        let Self {
-            mut backend,
-            service_state:
-                OpaqueServiceStateHandle::<Self, RuntimeServiceId> {
-                    mut inbound_relay,
-                    lifecycle_handle,
-                    ..
-                },
-        } = self;
-        let mut lifecycle_stream = lifecycle_handle.message_stream();
-        let backend = &mut backend;
+        let mut lifecycle_stream = self.service_state.lifecycle_handle.message_stream();
         loop {
             tokio::select! {
-                Some(msg) = inbound_relay.recv() => {
-                    Self::handle_sdp_message(msg, backend).await;
+                Some(msg) = self.service_state.inbound_relay.recv()  => {
+                    {
+                        self.handle_sdp_message(msg).await;
+                    }
                 }
                 Some(msg) = lifecycle_stream.next() => {
                     if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
@@ -214,13 +206,17 @@ impl<
         RuntimeServiceId,
     >
 {
-    async fn handle_sdp_message(msg: SdpMessage<B>, backend: &mut B) {
+    async fn handle_sdp_message(&mut self, msg: SdpMessage<B>) {
         match msg {
             SdpMessage::Process {
                 block_number,
                 message,
             } => {
-                if let Err(e) = backend.process_sdp_message(block_number, message).await {
+                if let Err(e) = self
+                    .backend
+                    .process_sdp_message(block_number, message)
+                    .await
+                {
                     tracing::error!("Error processing SDP message: {}", e);
                 }
             }
@@ -228,14 +224,14 @@ impl<
                 block_number,
                 result_sender,
             } => {
-                let result = backend.mark_in_block(block_number).await;
+                let result = self.backend.mark_in_block(block_number).await;
                 let result = result_sender.send(result);
                 if let Err(e) = result {
                     tracing::error!("Error sending result: {:?}", e);
                 }
             }
             SdpMessage::DiscardBlock(block_number) => {
-                backend.discard_block(block_number);
+                self.backend.discard_block(block_number);
             }
         }
     }
