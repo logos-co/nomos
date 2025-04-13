@@ -1,9 +1,6 @@
-pub mod adapter;
-
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     error::Error,
-    marker::PhantomData,
 };
 
 use cryptarchia_engine::Slot;
@@ -12,35 +9,53 @@ use itertools::Itertools;
 use nomos_core::{block::AbstractBlock, header::HeaderId};
 use tracing::{debug, info};
 
-use crate::adapter::CryptarchiaAdapterError;
+pub mod fetcher;
 
-pub struct Synchronization<Cryptarchia, BlockFetcher, Block> {
-    _marker: PhantomData<(Cryptarchia, BlockFetcher, Block)>,
+/// Defines Cryptarchia operations that are used during a chain sync process.
+#[async_trait::async_trait]
+pub trait CryptarchiaSync: Sized {
+    type Block: AbstractBlock;
+
+    /// Validate and apply a block to the block tree.
+    async fn process_block(&mut self, block: Self::Block) -> Result<(), CryptarchiaAdapterError>;
+
+    /// Get the slot of the tip block of the honest chain.
+    fn tip_slot(&self) -> Slot;
+
+    /// Check if the block is already in the block tree.
+    fn has_block(&self, id: &HeaderId) -> bool;
 }
 
-impl<Cryptarchia, BlockFetcher, Block> Synchronization<Cryptarchia, BlockFetcher, Block>
-where
-    Block: AbstractBlock + Send,
-    Cryptarchia: adapter::CryptarchiaAdapter<Block = Block> + Sync + Send,
-    BlockFetcher: adapter::BlockFetcher<Block = Block> + Sync,
-{
-    /// Syncs the local block tree with the peers, starting from the local tip.
-    pub async fn run(
-        cryptarchia: &mut Cryptarchia,
-        block_fetcher: &BlockFetcher,
-    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-        info!(
-            "Starting sync process from tip {:?}",
-            cryptarchia.tip_slot()
-        );
+impl<T: CryptarchiaSync + Sync + Send> CryptarchiaSyncExt for T {}
 
+/// Errors that should be handled in the sync process.
+#[derive(thiserror::Error, Debug)]
+pub enum CryptarchiaAdapterError {
+    #[error("Parent not found")]
+    ParentNotFound,
+    #[error("Invalid block: {0}")]
+    InvalidBlock(Box<dyn Error + Send + Sync>),
+}
+
+/// Provides the actual chain sync initiation.
+#[async_trait::async_trait]
+pub trait CryptarchiaSyncExt: CryptarchiaSync + Sync + Send + Sized {
+    async fn start_sync<BlockFetcher>(
+        mut self,
+        block_fetcher: &BlockFetcher,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>>
+    where
+        Self::Block: Send,
+        BlockFetcher: fetcher::BlockFetcher<Block = Self::Block> + Sync,
+    {
+        info!("Starting sync process from tip {:?}", self.tip_slot());
         let mut rejected_blocks = HashSet::new();
         // Run a forward sync, and trigger backfillings if orphan blocks are found.
         // Repeat the forward sync if any backfilling was performed,
         // in order to catch up with the updated peers.
         loop {
             let orphan_blocks =
-                Self::sync_forward(cryptarchia, block_fetcher, &mut rejected_blocks).await?;
+                sync_forward(&mut self, block_fetcher, &mut rejected_blocks).await?;
 
             // Finish the sync process if there is no orphan block to be backfilled.
             // If not, perform backfillings and try the forward sync again
@@ -59,13 +74,11 @@ where
             {
                 // Skip the orphan block if it has been processed or rejected
                 // during the previous backfillings.
-                if cryptarchia.has_block(&orphan_block) || rejected_blocks.contains(&orphan_block) {
+                if self.has_block(&orphan_block) || rejected_blocks.contains(&orphan_block) {
                     continue;
                 }
 
-                match Self::backfill_fork(cryptarchia, orphan_block, provider_id, block_fetcher)
-                    .await
-                {
+                match backfill_fork(&mut self, orphan_block, provider_id, block_fetcher).await {
                     Ok(()) => {}
                     Err((e, Some(invalid_suffix))) => {
                         debug!("Invalid blocks found during a backfilling: {e:?}");
@@ -78,112 +91,119 @@ where
             }
         }
 
-        info!(
-            "Finished sync process with tip {:?}",
-            cryptarchia.tip_slot()
-        );
+        info!("Finished sync process with tip {:?}", self.tip_slot());
 
-        Ok(())
+        Ok(self)
     }
+}
 
-    /// Start a forward synchronization:
-    /// - Fetch blocks from the peers, starting from the current local tip slot.
-    /// - Process blocks.
-    /// - Gather orphaned blocks whose parent is not in the local block tree.
-    async fn sync_forward(
-        cryptarchia: &mut Cryptarchia,
-        block_fetcher: &BlockFetcher,
-        rejected_blocks: &mut HashSet<HeaderId>,
-    ) -> Result<HashMap<HeaderId, (Slot, BlockFetcher::ProviderId)>, Box<dyn Error + Send + Sync>>
-    {
-        let mut orphan_blocks = HashMap::new();
+/// Start a forward synchronization:
+/// - Fetch blocks from the peers, starting from the current local tip slot.
+/// - Process blocks.
+/// - Gather orphaned blocks whose parent is not in the local block tree.
+async fn sync_forward<Cryptarchia, BlockFetcher>(
+    cryptarchia: &mut Cryptarchia,
+    block_fetcher: &BlockFetcher,
+    rejected_blocks: &mut HashSet<HeaderId>,
+) -> Result<HashMap<HeaderId, (Slot, BlockFetcher::ProviderId)>, Box<dyn Error + Send + Sync>>
+where
+    Cryptarchia: CryptarchiaSyncExt,
+    BlockFetcher: fetcher::BlockFetcher<Block = Cryptarchia::Block> + Sync,
+{
+    let mut orphan_blocks = HashMap::new();
 
-        let start_slot = cryptarchia.tip_slot() + 1;
-        info!("Fetching blocks from slot {:?}", start_slot);
-        let mut stream = block_fetcher.fetch_blocks_forward(start_slot).await?;
+    let start_slot = cryptarchia.tip_slot() + 1;
+    info!("Fetching blocks from slot {:?}", start_slot);
+    let mut stream = block_fetcher.fetch_blocks_forward(start_slot).await?;
 
-        while let Some((block, provider_id)) = stream.next().await {
-            // Reject blocks that have been rejected in the past
-            // or whose parent has been rejected.
-            let id = block.id();
-            let parent = block.parent();
-            if rejected_blocks.contains(&id) || rejected_blocks.contains(&parent) {
+    while let Some((block, provider_id)) = stream.next().await {
+        // Reject blocks that have been rejected in the past
+        // or whose parent has been rejected.
+        let id = block.id();
+        let parent = block.parent();
+        if rejected_blocks.contains(&id) || rejected_blocks.contains(&parent) {
+            rejected_blocks.insert(id);
+            continue;
+        }
+
+        let slot = block.slot();
+        match cryptarchia.process_block(block).await {
+            Ok(()) => {
+                debug!("Processed block {id:?}");
+                orphan_blocks.remove(&id);
+            }
+            Err(CryptarchiaAdapterError::ParentNotFound) => {
+                debug!("Parent not found for block {id:?}");
+                orphan_blocks.insert(id, (slot, provider_id));
+            }
+            Err(CryptarchiaAdapterError::InvalidBlock(e)) => {
+                debug!("Invalid block {id:?}: {e}");
                 rejected_blocks.insert(id);
-                continue;
             }
-
-            let slot = block.slot();
-            match cryptarchia.process_block(block).await {
-                Ok(()) => {
-                    debug!("Processed block {id:?}");
-                    orphan_blocks.remove(&id);
-                }
-                Err(CryptarchiaAdapterError::ParentNotFound) => {
-                    debug!("Parent not found for block {id:?}");
-                    orphan_blocks.insert(id, (slot, provider_id));
-                }
-                Err(CryptarchiaAdapterError::InvalidBlock(e)) => {
-                    debug!("Invalid block {id:?}: {e}");
-                    rejected_blocks.insert(id);
-                }
-            };
-        }
-
-        info!("Forward sync is done");
-        Ok(orphan_blocks)
+        };
     }
 
-    /// Backfills a fork by fetching blocks from the peers.
-    /// The fork choice rule is continuously applied during backfilling.
-    async fn backfill_fork(
-        cryptarchia: &mut Cryptarchia,
-        tip: HeaderId,
-        provider_id: BlockFetcher::ProviderId,
-        network: &BlockFetcher,
-    ) -> Result<(), (Box<dyn Error + Send + Sync>, Option<Vec<HeaderId>>)> {
-        let suffix = Self::find_missing_part(
-            network
-                .fetch_chain_backward(tip, provider_id)
-                .await
-                .map_err(|e| (e, None))?,
-            cryptarchia,
-        )
-        .await;
+    info!("Forward sync is done");
+    Ok(orphan_blocks)
+}
 
-        // Add blocks in the fork suffix with applying fork choice rule.
-        // If an invalid block is found, return an error with all subsequent blocks.
-        let mut iter = suffix.into_iter();
-        while let Some(block) = iter.next() {
-            let id = block.id();
-            if let Err(e) = cryptarchia.process_block(block).await {
-                return Err((
-                    Box::new(e),
-                    Some(
-                        std::iter::once(id)
-                            .chain(iter.map(|block| block.id()))
-                            .collect(),
-                    ),
-                ));
-            };
-        }
+/// Backfills a fork by fetching blocks from the peers.
+/// The fork choice rule is continuously applied during backfilling.
+async fn backfill_fork<Cryptarchia, BlockFetcher>(
+    cryptarchia: &mut Cryptarchia,
+    tip: HeaderId,
+    provider_id: BlockFetcher::ProviderId,
+    network: &BlockFetcher,
+) -> Result<(), (Box<dyn Error + Send + Sync>, Option<Vec<HeaderId>>)>
+where
+    Cryptarchia: CryptarchiaSyncExt,
+    BlockFetcher: fetcher::BlockFetcher<Block = Cryptarchia::Block> + Sync,
+{
+    let suffix = find_missing_part(
+        cryptarchia,
+        network
+            .fetch_chain_backward(tip, provider_id)
+            .await
+            .map_err(|e| (e, None))?,
+    )
+    .await;
 
-        Ok(())
+    // Add blocks in the fork suffix with applying fork choice rule.
+    // If an invalid block is found, return an error with all subsequent blocks.
+    let mut iter = suffix.into_iter();
+    while let Some(block) = iter.next() {
+        let id = block.id();
+        if let Err(e) = cryptarchia.process_block(block).await {
+            return Err((
+                Box::new(e),
+                Some(
+                    std::iter::once(id)
+                        .chain(iter.map(|block| block.id()))
+                        .collect(),
+                ),
+            ));
+        };
     }
 
-    /// Fetch the fork until it reaches the local block tree.
-    async fn find_missing_part(
-        mut fork: Box<dyn Stream<Item = Block> + Send + Sync + Unpin>,
-        cryptarchia: &Cryptarchia,
-    ) -> VecDeque<Block> {
-        let mut suffix = VecDeque::new();
-        while let Some(block) = fork.next().await {
-            if cryptarchia.has_block(&block.id()) {
-                break;
-            }
-            suffix.push_front(block);
+    Ok(())
+}
+
+/// Fetch the fork until it reaches the local block tree.
+async fn find_missing_part<Cryptarchia>(
+    cryptarchia: &Cryptarchia,
+    mut fork: Box<dyn Stream<Item = Cryptarchia::Block> + Send + Sync + Unpin>,
+) -> VecDeque<Cryptarchia::Block>
+where
+    Cryptarchia: CryptarchiaSyncExt,
+{
+    let mut suffix = VecDeque::new();
+    while let Some(block) = fork.next().await {
+        if cryptarchia.has_block(&block.id()) {
+            break;
         }
-        suffix
+        suffix.push_front(block);
     }
+    suffix
 }
 
 #[cfg(test)]
@@ -194,7 +214,7 @@ mod tests {
     use nomos_core::{block::AbstractBlock, header::HeaderId};
 
     use super::*;
-    use crate::adapter::{BlockFetcher, BoxedStream, CryptarchiaAdapter, CryptarchiaAdapterError};
+    use crate::fetcher::{BlockFetcher, BoxedStream};
 
     #[tokio::test]
     async fn sync_single_chain_from_genesis() {
@@ -205,7 +225,7 @@ mod tests {
             peer.process_block(MockBlock::new(
                 HeaderId::from([i; 32]),
                 HeaderId::from([i - 1; 32]),
-                Slot::from(i as u64),
+                Slot::from(u64::from(i)),
                 true,
             ))
             .unwrap();
@@ -215,13 +235,10 @@ mod tests {
 
         // Start a sync from genesis.
         // Result: The same block tree as the peer's
-        let mut local = MockCryptarchia::new();
-        Synchronization::run(
-            &mut local,
-            &MockNetworkAdapter::new(HashMap::from([(0, &peer)])),
-        )
-        .await
-        .unwrap();
+        let local = MockCryptarchia::new()
+            .start_sync(&MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+            .await
+            .unwrap();
         assert_eq!(local, peer);
     }
 
@@ -234,7 +251,7 @@ mod tests {
             peer.process_block(MockBlock::new(
                 HeaderId::from([i; 32]),
                 HeaderId::from([i - 1; 32]),
-                Slot::from(i as u64),
+                Slot::from(u64::from(i)),
                 true,
             ))
             .unwrap();
@@ -250,12 +267,10 @@ mod tests {
         local
             .process_block(peer.blocks.get(&HeaderId::from([1; 32])).unwrap().clone())
             .unwrap();
-        Synchronization::run(
-            &mut local,
-            &MockNetworkAdapter::new(HashMap::from([(0, &peer)])),
-        )
-        .await
-        .unwrap();
+        let local = local
+            .start_sync(&MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+            .await
+            .unwrap();
         assert_eq!(local, peer);
     }
 
@@ -306,13 +321,10 @@ mod tests {
 
         // Start a sync from genesis.
         // Result: The same block tree as the peer's.
-        let mut local = MockCryptarchia::new();
-        Synchronization::run(
-            &mut local,
-            &MockNetworkAdapter::new(HashMap::from([(0, &peer)])),
-        )
-        .await
-        .unwrap();
+        let local = MockCryptarchia::new()
+            .start_sync(&MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+            .await
+            .unwrap();
         assert_eq!(local, peer);
     }
 
@@ -373,12 +385,10 @@ mod tests {
         local
             .process_block(peer.blocks.get(&HeaderId::from([3; 32])).unwrap().clone())
             .unwrap();
-        Synchronization::run(
-            &mut local,
-            &MockNetworkAdapter::new(HashMap::from([(0, &peer)])),
-        )
-        .await
-        .unwrap();
+        let local = local
+            .start_sync(&MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+            .await
+            .unwrap();
         assert_eq!(local, peer);
     }
 
@@ -435,12 +445,10 @@ mod tests {
         local
             .process_block(peer.blocks.get(&HeaderId::from([1; 32])).unwrap().clone())
             .unwrap();
-        Synchronization::run(
-            &mut local,
-            &MockNetworkAdapter::new(HashMap::from([(0, &peer)])),
-        )
-        .await
-        .unwrap();
+        let local = local
+            .start_sync(&MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+            .await
+            .unwrap();
         assert_eq!(local, peer);
     }
 
@@ -505,13 +513,14 @@ mod tests {
         // G - b1 - b2 - b3
         //        \
         //          b4 - b5
-        let mut local = MockCryptarchia::new();
-        Synchronization::run(
-            &mut local,
-            &MockNetworkAdapter::new(HashMap::from([(0, &peer0), (1, &peer1), (2, &peer2)])),
-        )
-        .await
-        .unwrap();
+        let local = MockCryptarchia::new()
+            .start_sync(&MockNetworkAdapter::new(HashMap::from([
+                (0, &peer0),
+                (1, &peer1),
+                (2, &peer2),
+            ])))
+            .await
+            .unwrap();
         assert_eq!(local.honest_chain, HeaderId::from([6; 32]));
         assert_eq!(local.forks, HashSet::from([HeaderId::from([5; 32])]));
         assert_eq!(local.blocks.len(), 7);
@@ -527,7 +536,7 @@ mod tests {
             peer.process_block(MockBlock::new(
                 HeaderId::from([i; 32]),
                 HeaderId::from([i - 1; 32]),
-                Slot::from(i as u64),
+                Slot::from(u64::from(i)),
                 true,
             ))
             .unwrap();
@@ -536,7 +545,7 @@ mod tests {
             peer.process_block_without_validation(MockBlock::new(
                 HeaderId::from([i; 32]),
                 HeaderId::from([i - 1; 32]),
-                Slot::from(i as u64),
+                Slot::from(u64::from(i)),
                 false,
             ))
             .unwrap();
@@ -547,13 +556,10 @@ mod tests {
         // Start a sync from genesis.
         // Result: The same honest chain, but without invalid blocks.
         // G - b1 - b2 - b3 == tip
-        let mut local = MockCryptarchia::new();
-        Synchronization::run(
-            &mut local,
-            &MockNetworkAdapter::new(HashMap::from([(0, &peer)])),
-        )
-        .await
-        .unwrap();
+        let local = MockCryptarchia::new()
+            .start_sync(&MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+            .await
+            .unwrap();
         assert_eq!(local.honest_chain, HeaderId::from([3; 32]));
         assert_eq!(local.blocks.len(), 4);
         assert_eq!(local.blocks_by_slot.len(), 4);
@@ -632,13 +638,10 @@ mod tests {
         // G - b1 - b2 - b3 - b7 - b8 == tip
         //        \
         //          b4
-        let mut local = MockCryptarchia::new();
-        Synchronization::run(
-            &mut local,
-            &MockNetworkAdapter::new(HashMap::from([(0, &peer)])),
-        )
-        .await
-        .unwrap();
+        let local = MockCryptarchia::new()
+            .start_sync(&MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+            .await
+            .unwrap();
         assert_eq!(local.honest_chain, HeaderId::from([8; 32]));
         assert_eq!(local.forks, HashSet::from([HeaderId::from([4; 32])]));
         assert_eq!(local.blocks.len(), 7);
@@ -773,7 +776,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl CryptarchiaAdapter for MockCryptarchia {
+    impl CryptarchiaSync for MockCryptarchia {
         type Block = MockBlock;
 
         async fn process_block(

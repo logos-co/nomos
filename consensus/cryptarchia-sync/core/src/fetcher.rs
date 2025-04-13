@@ -1,32 +1,6 @@
-use std::error::Error;
-
 use cryptarchia_engine::Slot;
 use futures::Stream;
 use nomos_core::{block::AbstractBlock, header::HeaderId};
-
-/// A trait for accessing a Cryptarchia implementation.
-#[async_trait::async_trait]
-pub trait CryptarchiaAdapter {
-    type Block: AbstractBlock;
-
-    /// Validate and apply a block to the block tree.
-    async fn process_block(&mut self, block: Self::Block) -> Result<(), CryptarchiaAdapterError>;
-
-    /// Get the slot of the tip block of the honest chain.
-    fn tip_slot(&self) -> Slot;
-
-    /// Check if the block is already in the block tree.
-    fn has_block(&self, id: &HeaderId) -> bool;
-}
-
-/// Errors that should be handled in the sync process.
-#[derive(thiserror::Error, Debug)]
-pub enum CryptarchiaAdapterError {
-    #[error("Parent not found")]
-    ParentNotFound,
-    #[error("Invalid block: {0}")]
-    InvalidBlock(Box<dyn Error + Send + Sync>),
-}
 
 pub type BoxedStream<T> = Box<dyn Stream<Item = T> + Send + Sync + Unpin>;
 
