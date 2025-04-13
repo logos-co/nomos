@@ -57,6 +57,7 @@ cl                       = { path = "./nomos-core/cl" }
 common-http-client       = { path = "./nodes/nomos-node/http-client" }
 cryptarchia-consensus    = { path = "./nomos-services/cryptarchia-consensus" }
 cryptarchia-engine       = { path = "./consensus/cryptarchia-engine" }
+cryptarchia-sync         = { path = "./consensus/cryptarchia-sync/core" }
 executor-http-client     = { path = "./nodes/nomos-executor/http-client" }
 full-replication         = { path = "./nomos-da/full-replication" }
 key-management-system    = { path = "./nomos-services/key-management-system" }

@@ -1,8 +1,10 @@
-use std::{hash::Hash, marker::PhantomData};
+use std::{error::Error, hash::Hash, marker::PhantomData};
 
-use nomos_core::{block::Block, wire};
+use cryptarchia_engine::Slot;
+use cryptarchia_sync::fetcher::BlockFetcher;
+use nomos_core::{block::Block, header::HeaderId, wire};
 use nomos_network::{
-    backends::libp2p::{Command, Event, EventKind, Libp2p, PubSubCommand::Subscribe},
+    backends::libp2p::{Command, Event, EventKind, Libp2p, PeerId, PubSubCommand::Subscribe},
     NetworkMsg, NetworkService,
 };
 use overwatch::{
@@ -120,5 +122,36 @@ where
                 }
             }),
         ))
+    }
+}
+
+#[async_trait::async_trait]
+impl<Tx, BlobCert, RuntimeServiceId> BlockFetcher for LibP2pAdapter<Tx, BlobCert, RuntimeServiceId>
+where
+    Tx: Clone + Eq + Hash + Send + Sync + 'static,
+    BlobCert: Clone + Eq + Hash + Send + Sync + 'static,
+{
+    type Block = Block<Tx, BlobCert>;
+    type ProviderId = PeerId;
+
+    async fn fetch_blocks_forward(
+        &self,
+        _start_slot: Slot,
+    ) -> Result<
+        cryptarchia_sync::fetcher::BoxedStream<(Self::Block, Self::ProviderId)>,
+        Box<dyn Error + Send + Sync>,
+    > {
+        // TODO: implement this
+        Ok(Box::new(futures::stream::empty()))
+    }
+
+    async fn fetch_chain_backward(
+        &self,
+        _tip: HeaderId,
+        _provider_id: Self::ProviderId,
+    ) -> Result<cryptarchia_sync::fetcher::BoxedStream<Self::Block>, Box<dyn Error + Send + Sync>>
+    {
+        // TODO: implement this
+        Ok(Box::new(futures::stream::empty()))
     }
 }

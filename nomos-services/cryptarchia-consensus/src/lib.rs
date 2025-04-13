@@ -5,12 +5,14 @@ pub mod network;
 mod relays;
 mod states;
 pub mod storage;
+mod sync;
 
 use core::fmt::Debug;
 use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 
 use bytes::Bytes;
 use cryptarchia_engine::Slot;
+use cryptarchia_sync::CryptarchiaSyncExt;
 use futures::StreamExt;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
@@ -43,6 +45,7 @@ use serde_with::serde_as;
 use services_utils::overwatch::{
     lifecycle, recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator,
 };
+use sync::CryptarchiaSync;
 use thiserror::Error;
 use tokio::sync::{broadcast, oneshot, oneshot::Sender};
 use tracing::{error, info, instrument, span, Level};
@@ -372,8 +375,12 @@ impl<
         RuntimeServiceId,
     >
 where
-    NetAdapter: NetworkAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = DaPool::Item>
-        + Clone
+    NetAdapter: NetworkAdapter<
+            RuntimeServiceId,
+            Tx = ClPool::Item,
+            BlobCertificate = DaPool::Item,
+            Block = Block<ClPool::Item, DaPool::Item>,
+        > + Clone
         + Send
         + Sync
         + 'static,
@@ -529,7 +536,7 @@ where
 
         let genesis_id = HeaderId::from([0; 32]);
 
-        let (mut cryptarchia, mut leader) = Self::build_cryptarchia(
+        let (cryptarchia, leader) = Self::build_cryptarchia(
             self.initial_state,
             genesis_id,
             genesis_state,
@@ -542,6 +549,17 @@ where
 
         let network_adapter =
             NetAdapter::new(network_adapter_settings, relays.network_relay().clone()).await;
+
+        let (mut cryptarchia, mut leader) =
+            CryptarchiaSync::<Storage, ClPool::Item, DaPool::Item, RuntimeServiceId>::new(
+                cryptarchia,
+                leader,
+                relays.storage_adapter().storage_relay.clone(),
+            )
+            .start_sync(&network_adapter)
+            .await? // TODO: Go ahead if no peer is connected.
+            .take();
+
         let tx_selector = TxS::new(transaction_selector_settings);
         let blob_selector = BS::new(blob_selector_settings);
 

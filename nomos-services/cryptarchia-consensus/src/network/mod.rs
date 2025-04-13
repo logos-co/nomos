@@ -2,6 +2,7 @@ pub mod adapters;
 
 use std::hash::Hash;
 
+use cryptarchia_sync::fetcher::BlockFetcher;
 use futures::Stream;
 use nomos_core::block::Block;
 use nomos_network::{backends::NetworkBackend, NetworkService};
@@ -14,7 +15,7 @@ use serde::{de::DeserializeOwned, Serialize};
 type BoxedStream<T> = Box<dyn Stream<Item = T> + Send + Sync + Unpin>;
 
 #[async_trait::async_trait]
-pub trait NetworkAdapter<RuntimeServiceId> {
+pub trait NetworkAdapter<RuntimeServiceId>: BlockFetcher {
     type Backend: NetworkBackend<RuntimeServiceId> + 'static;
     type Settings: Clone + 'static;
     type Tx: Serialize + DeserializeOwned + Clone + Eq + Hash + 'static;

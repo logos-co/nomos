@@ -2,7 +2,10 @@ mod command;
 mod config;
 pub(crate) mod swarm;
 
-pub use nomos_libp2p::libp2p::gossipsub::{Message, TopicHash};
+pub use nomos_libp2p::{
+    libp2p::gossipsub::{Message, TopicHash},
+    PeerId,
+};
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
 use tokio::sync::{broadcast, mpsc};
 
