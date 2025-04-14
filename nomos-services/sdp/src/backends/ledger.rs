@@ -1,12 +1,20 @@
 use std::fmt::Debug;
 
 use nomos_sdp_core::{
-    ledger::{SdpLedger, ServicesRepository},
+    ledger::{
+        SdpLedger,
+        SdpLedgerError::{
+            DeclarationsRepository, DuplicateDeclarationInBlock, DuplicateServiceDeclaration,
+            Other, ProviderState, RewardsSender, ServiceNotProvided,
+            ServicesRepository as LedgerServicesRepository, StakesVerifier, WrongDeclarationId,
+        },
+        ServicesRepository,
+    },
     BlockNumber, SdpMessage,
 };
 use overwatch::DynError;
 
-use super::SdpBackend;
+use super::{SdpBackend, SdpBackendError};
 use crate::adapters::{
     declaration::SdpDeclarationAdapter, rewards::SdpRewardsAdapter, services::SdpServicesAdapter,
     stakes::SdpStakesVerifierAdapter,
@@ -51,19 +59,34 @@ where
         &mut self,
         block_number: Self::BlockNumber,
         message: Self::Message,
-    ) -> Result<(), DynError> {
+    ) -> Result<(), SdpBackendError> {
         self.process_sdp_message(block_number, message)
             .await
-            .map_err(|e| Box::new(e) as DynError)
+            .map_err(map_ledger_error)
     }
 
     async fn mark_in_block(&mut self, block_number: Self::BlockNumber) -> Result<(), DynError> {
-        self.mark_in_block(block_number)
-            .await
-            .map_err(|e| Box::new(e) as DynError)
+        self.mark_in_block(block_number).await..map_err(map_ledger_error)
     }
 
     fn discard_block(&mut self, block_number: Self::BlockNumber) {
         self.discard_block(block_number);
+    }
+}
+
+fn map_ledger_error<ContractAddress: Debug>(e: SdpLedgerError<ContractAddress>) -> SdpBackendError {
+    match e {
+        ProviderState(provider_state_error) => {
+            SdpBackendError::Other(Box::new(provider_state_error))
+        }
+        DeclarationsRepository => SdpBackendError::DeclarationAdapterError(Box::new(e)),
+        RewardsSender => SdpBackendError::RewardsAdapterError(Box::new(e)),
+        LedgerServicesRepository => SdpBackendError::ServicesAdapterError(Box::new(e)),
+        StakesVerifier => SdpBackendError::StakesVerifierAdapterError(Box::new(e)),
+        DuplicateServiceDeclaration => SdpBackendError::Other(Box::new(e)),
+        ServiceNotProvided => SdpBackendError::Other(Box::new(Box::new(e))),
+        DuplicateDeclarationInBlock => SdpBackendError::Other(Box::new(Box::new(e))),
+        WrongDeclarationId => SdpBackendError::Other(Box::new(Box::new(e))),
+        Other(error) => SdpBackendError::Other(error),
     }
 }

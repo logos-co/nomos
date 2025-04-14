@@ -7,6 +7,14 @@ use crate::adapters::{
 
 pub mod ledger;
 
+pub enum SdpBackendError {
+    DeclarationAdapterError(DynError),
+    RewardsAdapterError(DynError),
+    StakesVerifierAdapterError(DynError),
+    ServicesAdapterError(DynError),
+    Other(DynError),
+}
+
 #[async_trait::async_trait]
 pub trait SdpBackend {
     type BlockNumber: Clone + Send + Sync;
@@ -27,8 +35,11 @@ pub trait SdpBackend {
         &mut self,
         block_number: Self::BlockNumber,
         message: Self::Message,
-    ) -> Result<(), DynError>;
+    ) -> Result<(), SdpBackendError>;
 
-    async fn mark_in_block(&mut self, block_number: Self::BlockNumber) -> Result<(), DynError>;
+    async fn mark_in_block(
+        &mut self,
+        block_number: Self::BlockNumber,
+    ) -> Result<(), SdpBackendError>;
     fn discard_block(&mut self, block_number: Self::BlockNumber);
 }

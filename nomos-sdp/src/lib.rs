@@ -31,7 +31,7 @@ pub struct Locator {
     addr: Multiaddr,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Debug)]
 pub enum ServiceType {
     BlendNetwork,
     DataAvailability,
