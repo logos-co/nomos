@@ -12,7 +12,11 @@ concurrency:
 jobs:
   check-dependencies-graph:
     name: Check dependencies graph
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ self-hosted, macos-latest ]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
@@ -45,7 +49,11 @@ jobs:
 
   cargo-deny:
     name: Check cargo-deny rules
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ self-hosted, macos-latest ]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout repository
@@ -59,7 +67,11 @@ jobs:
 
   features:
     name: Check packages feature combinations
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ self-hosted, macos-latest ]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
@@ -85,7 +97,11 @@ jobs:
 
   unused-deps:
     name: Check for unused dependencies
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ self-hosted, macos-latest ]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
@@ -99,7 +115,11 @@ jobs:
   
   lints:
     name: Check Rust lints
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ self-hosted, macos-latest ]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
