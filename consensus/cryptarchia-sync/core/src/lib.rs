@@ -17,7 +17,7 @@ pub trait CryptarchiaSync: Sized {
     type Block: AbstractBlock;
 
     /// Validate and apply a block to the block tree.
-    async fn process_block(&mut self, block: Self::Block) -> Result<(), CryptarchiaAdapterError>;
+    async fn process_block(&mut self, block: Self::Block) -> Result<(), CryptarchiaSyncError>;
 
     /// Get the slot of the tip block of the honest chain.
     fn tip_slot(&self) -> Slot;
@@ -30,7 +30,7 @@ impl<T: CryptarchiaSync + Sync + Send> CryptarchiaSyncExt for T {}
 
 /// Errors that should be handled in the sync process.
 #[derive(thiserror::Error, Debug)]
-pub enum CryptarchiaAdapterError {
+pub enum CryptarchiaSyncError {
     #[error("Parent not found")]
     ParentNotFound,
     #[error("Invalid block: {0}")]
@@ -80,12 +80,15 @@ pub trait CryptarchiaSyncExt: CryptarchiaSync + Sync + Send + Sized {
 
                 match backfill_fork(&mut self, orphan_block, provider_id, block_fetcher).await {
                     Ok(()) => {}
-                    Err((e, Some(invalid_suffix))) => {
-                        debug!("Invalid blocks found during a backfilling: {e:?}");
+                    Err(BackfillError::InvalidBlock {
+                        error,
+                        invalid_suffix,
+                    }) => {
+                        debug!("Invalid blocks found during a backfilling: {error:?}");
                         rejected_blocks.extend(invalid_suffix);
                     }
-                    Err((e, None)) => {
-                        return Err(e);
+                    Err(e) => {
+                        return Err(e.into());
                     }
                 }
             }
@@ -132,11 +135,11 @@ where
                 debug!("Processed block {id:?}");
                 orphan_blocks.remove(&id);
             }
-            Err(CryptarchiaAdapterError::ParentNotFound) => {
+            Err(CryptarchiaSyncError::ParentNotFound) => {
                 debug!("Parent not found for block {id:?}");
                 orphan_blocks.insert(id, (slot, provider_id));
             }
-            Err(CryptarchiaAdapterError::InvalidBlock(e)) => {
+            Err(CryptarchiaSyncError::InvalidBlock(e)) => {
                 debug!("Invalid block {id:?}: {e}");
                 rejected_blocks.insert(id);
             }
@@ -154,7 +157,7 @@ async fn backfill_fork<Cryptarchia, BlockFetcher>(
     tip: HeaderId,
     provider_id: BlockFetcher::ProviderId,
     network: &BlockFetcher,
-) -> Result<(), (Box<dyn Error + Send + Sync>, Option<Vec<HeaderId>>)>
+) -> Result<(), BackfillError>
 where
     Cryptarchia: CryptarchiaSyncExt,
     BlockFetcher: fetcher::BlockFetcher<Block = Cryptarchia::Block> + Sync,
@@ -164,7 +167,7 @@ where
         network
             .fetch_chain_backward(tip, provider_id)
             .await
-            .map_err(|e| (e, None))?,
+            .map_err(BackfillError::BlockFetcherError)?,
     )
     .await;
 
@@ -173,19 +176,28 @@ where
     let mut iter = suffix.into_iter();
     while let Some(block) = iter.next() {
         let id = block.id();
-        if let Err(e) = cryptarchia.process_block(block).await {
-            return Err((
-                Box::new(e),
-                Some(
-                    std::iter::once(id)
-                        .chain(iter.map(|block| block.id()))
-                        .collect(),
-                ),
-            ));
+        if let Err(error) = cryptarchia.process_block(block).await {
+            return Err(BackfillError::InvalidBlock {
+                error,
+                invalid_suffix: std::iter::once(id)
+                    .chain(iter.map(|block| block.id()))
+                    .collect(),
+            });
         };
     }
 
     Ok(())
+}
+
+#[derive(thiserror::Error, Debug)]
+enum BackfillError {
+    #[error("Invalid block found during backfilling: {error:?}")]
+    InvalidBlock {
+        error: CryptarchiaSyncError,
+        invalid_suffix: Vec<HeaderId>,
+    },
+    #[error("Block fetcher error during backfilling: {0}")]
+    BlockFetcherError(Box<dyn Error + Send + Sync>),
 }
 
 /// Fetch the fork until it reaches the local block tree.
@@ -715,9 +727,9 @@ mod tests {
             }
         }
 
-        fn process_block(&mut self, block: MockBlock) -> Result<(), CryptarchiaAdapterError> {
+        fn process_block(&mut self, block: MockBlock) -> Result<(), CryptarchiaSyncError> {
             if !block.is_valid {
-                return Err(CryptarchiaAdapterError::InvalidBlock(
+                return Err(CryptarchiaSyncError::InvalidBlock(
                     format!("Invalid block: {block:?}").into(),
                 ));
             }
@@ -727,14 +739,14 @@ mod tests {
         fn process_block_without_validation(
             &mut self,
             block: MockBlock,
-        ) -> Result<(), CryptarchiaAdapterError> {
+        ) -> Result<(), CryptarchiaSyncError> {
             let id = block.id();
             let parent = block.parent();
 
             if self.blocks.contains_key(&id) {
                 return Ok(());
             } else if !self.blocks.contains_key(&parent) {
-                return Err(CryptarchiaAdapterError::ParentNotFound);
+                return Err(CryptarchiaSyncError::ParentNotFound);
             }
 
             let slot = block.slot();
@@ -779,10 +791,7 @@ mod tests {
     impl CryptarchiaSync for MockCryptarchia {
         type Block = MockBlock;
 
-        async fn process_block(
-            &mut self,
-            block: Self::Block,
-        ) -> Result<(), CryptarchiaAdapterError> {
+        async fn process_block(&mut self, block: Self::Block) -> Result<(), CryptarchiaSyncError> {
             self.process_block(block)
         }
 

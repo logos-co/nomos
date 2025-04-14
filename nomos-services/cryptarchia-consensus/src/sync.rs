@@ -1,7 +1,7 @@
 use std::{hash::Hash, marker::PhantomData};
 
 use cryptarchia_engine::Slot;
-use cryptarchia_sync::CryptarchiaAdapterError;
+use cryptarchia_sync::CryptarchiaSyncError;
 use nomos_core::{block::Block, header::HeaderId};
 use nomos_ledger::leader_proof::LeaderProof;
 use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
@@ -57,7 +57,7 @@ where
 {
     type Block = Block<Tx, BlobCertificate>;
 
-    async fn process_block(&mut self, block: Self::Block) -> Result<(), CryptarchiaAdapterError> {
+    async fn process_block(&mut self, block: Self::Block) -> Result<(), CryptarchiaSyncError> {
         // TODO: DA blob validation
 
         let header = block.header();
@@ -78,8 +78,8 @@ where
             Err(
                 Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(_))
                 | Error::Consensus(cryptarchia_engine::Error::ParentMissing(_)),
-            ) => Err(CryptarchiaAdapterError::ParentNotFound),
-            Err(e) => Err(CryptarchiaAdapterError::InvalidBlock(e.into())),
+            ) => Err(CryptarchiaSyncError::ParentNotFound),
+            Err(e) => Err(CryptarchiaSyncError::InvalidBlock(e.into())),
         }
     }
 
