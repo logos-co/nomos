@@ -49,11 +49,8 @@ jobs:
 
   cargo-deny:
     name: Check cargo-deny rules
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ self-hosted, macos-latest ]
-    runs-on: ${{ matrix.os }}
+    # `cargo-deny` action is only supported on Linux
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
