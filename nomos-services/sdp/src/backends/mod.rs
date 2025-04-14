@@ -7,6 +7,7 @@ use crate::adapters::{
 
 pub mod ledger;
 
+#[derive(Debug)]
 pub enum SdpBackendError {
     DeclarationAdapterError(DynError),
     RewardsAdapterError(DynError),

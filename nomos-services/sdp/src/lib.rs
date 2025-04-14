@@ -8,7 +8,7 @@ use adapters::{
     stakes::SdpStakesVerifierAdapter,
 };
 use async_trait::async_trait;
-use backends::SdpBackend;
+use backends::{SdpBackend, SdpBackendError};
 use futures::StreamExt;
 use nomos_sdp_core::ledger;
 use overwatch::{
@@ -16,7 +16,7 @@ use overwatch::{
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
     },
-    DynError, OpaqueServiceStateHandle,
+    OpaqueServiceStateHandle,
 };
 use services_utils::overwatch::lifecycle;
 use tokio::sync::oneshot;
@@ -30,7 +30,7 @@ pub enum SdpMessage<B: SdpBackend> {
 
     MarkInBlock {
         block_number: B::BlockNumber,
-        result_sender: oneshot::Sender<Result<(), DynError>>,
+        result_sender: oneshot::Sender<Result<(), SdpBackendError>>,
     },
     DiscardBlock(B::BlockNumber),
 }
@@ -217,7 +217,7 @@ impl<
                     .process_sdp_message(block_number, message)
                     .await
                 {
-                    tracing::error!("Error processing SDP message: {}", e);
+                    tracing::error!("Error processing SDP message: {:?}", e);
                 }
             }
             SdpMessage::MarkInBlock {
