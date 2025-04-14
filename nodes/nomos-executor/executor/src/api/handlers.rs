@@ -8,19 +8,12 @@ use nomos_da_dispersal::{
     backend::DispersalBackend,
 };
 use nomos_da_network_core::SubnetworkId;
+use nomos_http_api_common::{paths, types::DispersalRequest};
 use nomos_libp2p::PeerId;
 use nomos_node::make_request_and_return_response;
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::de::DeserializeOwned;
 use subnetworks_assignations::MembershipHandler;
-
-use super::paths;
-
-#[derive(Serialize, Deserialize)]
-pub struct DispersalRequest<Metadata> {
-    pub data: Vec<u8>,
-    pub metadata: Metadata,
-}
 
 #[utoipa::path(
     post,

@@ -1,0 +1,16 @@
+[package]
+edition = "2021"
+license = { workspace = true }
+name    = "common-http-client"
+version = "0.1.0"
+
+[dependencies]
+futures               = "0.3.31"
+nomos-core            = { workspace = true }
+nomos-da-messages     = { workspace = true }
+nomos-http-api-common = { workspace = true }
+reqwest               = { workspace = true }
+serde                 = "1.0"
+serde_json            = "1.0.140"
+thiserror             = "1.0"
+url                   = "2.5.4"

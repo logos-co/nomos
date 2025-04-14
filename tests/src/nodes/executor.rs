@@ -40,15 +40,12 @@ use nomos_da_verifier::{
     DaVerifierServiceSettings,
 };
 use nomos_executor::{api::backend::AxumBackendSettings, config::Config};
-use nomos_network::{backends::libp2p::Libp2pConfig, NetworkConfig};
-use nomos_node::{
-    api::paths::{
-        CL_METRICS, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER, DA_GET_RANGE,
-        DA_MONITOR_STATS, DA_UNBLOCK_PEER,
-    },
-    config::mempool::MempoolConfig,
-    RocksBackendSettings,
+use nomos_http_api_common::paths::{
+    CL_METRICS, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER, DA_GET_RANGE,
+    DA_MONITOR_STATS, DA_UNBLOCK_PEER,
 };
+use nomos_network::{backends::libp2p::Libp2pConfig, NetworkConfig};
+use nomos_node::{config::mempool::MempoolConfig, RocksBackendSettings};
 use nomos_time::{
     backends::{ntp::async_client::NTPClientSettings, NtpTimeBackendSettings},
     TimeServiceSettings,

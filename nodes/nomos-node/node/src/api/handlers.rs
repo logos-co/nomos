@@ -31,6 +31,7 @@ use nomos_da_messages::http::da::{
 use nomos_da_network_service::{backends::NetworkBackend, NetworkService};
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_da_verifier::backend::VerifierBackend;
+use nomos_http_api_common::paths;
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
     backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
@@ -44,8 +45,6 @@ use nomos_storage::{
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-
-use super::paths;
 
 #[macro_export]
 macro_rules! make_request_and_return_response {

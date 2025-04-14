@@ -5,13 +5,9 @@ use nomos_core::da::blob::Share;
 use nomos_da_messages::http::da::{
     DASharesCommitmentsRequest, DaSamplingRequest, GetSharesRequest,
 };
+use nomos_http_api_common::paths::{DA_GET_LIGHT_SHARE, DA_GET_SHARES, DA_GET_SHARES_COMMITMENTS};
 use reqwest::{Client, ClientBuilder, RequestBuilder, StatusCode, Url};
 use serde::{de::DeserializeOwned, Serialize};
-
-// These could be moved into shared location, perhaps to upcoming `nomos-lib`
-const DA_GET_SHARES_COMMITMENTS: &str = "/da/get-commitments";
-const DA_GET_LIGHT_SHARE: &str = "/da/get-share";
-const DA_GET_SHARES: &str = "/da/sampling/shares";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

@@ -6,7 +6,8 @@ use kzgrs_backend::{
 };
 use nomos_core::da::blob::metadata;
 use nomos_da_messages::http::da::GetRangeReq;
-use nomos_node::{api::paths, wire};
+use nomos_http_api_common::paths;
+use nomos_node::wire;
 use reqwest::{Client, Url};
 use serde::{de::DeserializeOwned, Serialize};
 
