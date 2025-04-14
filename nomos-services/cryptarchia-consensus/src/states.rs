@@ -30,7 +30,7 @@ pub struct SecurityRecoveryStrategy {
     pub security_block_id: HeaderId,
     pub security_ledger_state: LedgerState,
     pub security_leader_notes: Vec<NoteWitness>,
-    pub security_block_length: u64,
+    pub security_block_chain_length: u64,
 }
 
 pub enum CryptarchiaInitialisationStrategy {
@@ -145,7 +145,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
                     .security_leader_notes
                     .take()
                     .expect("security leader notes not available"),
-                security_block_length: self
+                security_block_chain_length: self
                     .security_block_length
                     .take()
                     .expect("security block length not available"),
@@ -242,7 +242,7 @@ mod tests {
                 .field("security_block_id", &self.security_block_id)
                 .field("security_ledger_state", &self.security_ledger_state)
                 .field("security_leader_notes", &self.security_leader_notes)
-                .field("security_block_length", &self.security_block_length)
+                .field("security_block_length", &self.security_block_chain_length)
                 .finish()
         }
     }
@@ -326,7 +326,7 @@ mod tests {
                     security_block_id: header_id,
                     security_ledger_state: ledger_state,
                     security_leader_notes: Vec::new(),
-                    security_block_length: 0,
+                    security_block_chain_length: 0,
                 }
             ))
         );

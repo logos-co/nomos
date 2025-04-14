@@ -123,7 +123,7 @@ impl Cryptarchia {
     ///
     /// * `header`: The header to apply.
     /// * `ledger_state`: The ledger state to apply.
-    /// * `block_length`: The position of the block in the chain.
+    /// * `chain_length`: The position of the block in the chain.
     ///
     /// # Returns
     ///
@@ -132,7 +132,7 @@ impl Cryptarchia {
         &self,
         header: &Header,
         ledger_state: LedgerState,
-        block_length: u64,
+        chain_length: u64,
     ) -> Self {
         let header_id = header.id();
         let ledger = self.ledger.apply_state_unchecked(header_id, ledger_state);
@@ -140,7 +140,7 @@ impl Cryptarchia {
             header_id,
             header.parent(),
             header.slot(),
-            block_length,
+            chain_length,
         );
         Self { ledger, consensus }
     }
@@ -1297,7 +1297,7 @@ where
             security_block_id,
             security_ledger_state,
             security_leader_notes,
-            security_block_length,
+            security_block_chain_length,
         }: SecurityRecoveryStrategy,
         genesis_id: HeaderId,
         genesis_state: LedgerState,
@@ -1340,7 +1340,7 @@ where
         cryptarchia = cryptarchia.apply_unchecked(
             security_block.header(),
             security_ledger_state,
-            security_block_length,
+            security_block_chain_length,
         );
 
         // Apply remaining blocks with _unchecked_ to bypass blobs validation
