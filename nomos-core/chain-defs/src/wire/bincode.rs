@@ -1,12 +1,12 @@
 use std::sync::LazyLock;
 
 use bincode::{
-    Error, ErrorKind, Options,
     config::{
         Bounded, FixintEncoding, LittleEndian, RejectTrailing, WithOtherEndian,
         WithOtherIntEncoding, WithOtherLimit, WithOtherTrailing,
     },
     de::read::SliceReader,
+    Error, ErrorKind, Options,
 };
 
 // Type composition is cool but also makes naming types a bit awkward

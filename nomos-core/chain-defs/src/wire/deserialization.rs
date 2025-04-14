@@ -1,8 +1,8 @@
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Deserialize};
 
 use crate::wire::{
-    Error,
     bincode::{BincodeDeserializer, OPTIONS},
+    Error,
 };
 
 pub struct Deserializer<'de> {

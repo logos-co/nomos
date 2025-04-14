@@ -4,7 +4,7 @@ use futures::AsyncWriteExt;
 use libp2p::{PeerId, Stream, StreamProtocol};
 use libp2p_stream::{Control, OpenStreamError};
 use nomos_core::wire::packing::{pack_to_writer, unpack_from_reader};
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Serialize};
 
 pub async fn send_data<T: Serialize + Sync>(stream: &mut Stream, data: &T) -> Result<(), IoError> {
     pack_to_writer(data, stream).await?;

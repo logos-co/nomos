@@ -1,17 +1,17 @@
 use std::future::Future;
 
 use cryptarchia_engine::Slot;
-use futures::{AsyncWriteExt, FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
+use futures::{future::BoxFuture, stream::FuturesUnordered, AsyncWriteExt, FutureExt, StreamExt};
 use libp2p::PeerId;
 use libp2p_stream::Control;
 use tokio::{
     sync::mpsc::Sender,
-    time::{Duration, error::Elapsed, timeout},
+    time::{error::Elapsed, timeout, Duration},
 };
 use tracing::{error, info};
 
 use crate::{
-    behaviour::{SYNC_PROTOCOL, SyncError},
+    behaviour::{SyncError, SYNC_PROTOCOL},
     membership::ConnectedPeers,
     messages::{SyncDirection, SyncRequest, SyncResponse},
     sync_utils,
