@@ -89,10 +89,10 @@ fn map_ledger_error<ContractAddress: Debug + Send + Sync + 'static>(
         RewardsSender(err) => SdpBackendError::RewardsAdapterError(Box::new(err)),
         LedgerServicesRepository(err) => SdpBackendError::ServicesAdapterError(Box::new(err)),
         StakesVerifier(err) => SdpBackendError::StakesVerifierAdapterError(Box::new(err)),
-        DuplicateServiceDeclaration | ServiceNotProvided(_) | DuplicateDeclarationInBlock => {
-            SdpBackendError::Other(Box::new(e))
-        }
-        WrongDeclarationId => SdpBackendError::Other(Box::new(Box::new(e))),
+        DuplicateServiceDeclaration
+        | ServiceNotProvided(_)
+        | DuplicateDeclarationInBlock
+        | WrongDeclarationId => SdpBackendError::Other(Box::new(e)),
         Other(error) => SdpBackendError::Other(error),
     }
 }
