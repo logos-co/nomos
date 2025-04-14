@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Display};
 
+use bytes::Bytes;
 use nomos_core::{block::Block, da::blob::Share, header::HeaderId};
 use nomos_da_storage::rocksdb::{
     create_share_idx, key_bytes, DA_SHARED_COMMITMENTS_PREFIX, DA_SHARE_PREFIX,
@@ -24,7 +25,8 @@ where
         AsServiceId<StorageService<RocksBackend<S>, RuntimeServiceId>> + Debug + Sync + Display,
 {
     let relay = handle.relay().await?;
-    let (msg, receiver) = StorageMsg::new_load_message(id);
+    let key: [u8; 32] = id.into();
+    let (msg, receiver) = StorageMsg::new_load_message(Bytes::copy_from_slice(&key));
     relay.send(msg).await.map_err(|(e, _)| e)?;
 
     wait_with_timeout(
