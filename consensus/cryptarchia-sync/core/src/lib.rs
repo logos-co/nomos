@@ -23,8 +23,6 @@ pub trait CryptarchiaSync: Sized {
     fn has_block(&self, id: &HeaderId) -> bool;
 }
 
-impl<T: CryptarchiaSync + Sync + Send> CryptarchiaSyncExt for T {}
-
 /// Errors that should be handled in the sync process.
 #[derive(thiserror::Error, Debug)]
 pub enum CryptarchiaSyncError {
@@ -48,6 +46,8 @@ pub trait CryptarchiaSyncExt: CryptarchiaSync + Sync + Send + Sized {
         self.run(block_fetcher).await
     }
 }
+
+impl<T: CryptarchiaSync + Sync + Send> CryptarchiaSyncExt for T {}
 
 #[cfg(test)]
 mod tests {
