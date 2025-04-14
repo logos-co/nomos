@@ -1,7 +1,6 @@
 use std::{collections::HashSet, hash::Hash};
 
-pub use common_http_client::BasicAuthCredentials;
-pub use common_http_client::{CommonHttpClient, Error};
+pub use common_http_client::{BasicAuthCredentials, CommonHttpClient, Error};
 use futures::Stream;
 use nomos_core::da::blob::Share;
 use nomos_http_api_common::{paths, types::DispersalRequest};

@@ -3,7 +3,7 @@ exclude = ["nomos-core/risc0_proofs"]
 members = [
   "consensus/cryptarchia-engine",
   "ledger/nomos-ledger",
-  "nodes/api_common",
+  "nodes/api-common",
   "nodes/nomos-executor/executor",
   "nodes/nomos-executor/http-client",
   "nodes/nomos-node/http-client",
@@ -77,7 +77,7 @@ nomos-da-sampling        = { path = "./nomos-services/data-availability/sampling
 nomos-da-storage         = { path = "./nomos-da/storage" }
 nomos-da-verifier        = { path = "./nomos-services/data-availability/verifier" }
 nomos-executor           = { path = "./nodes/nomos-executor/executor", default-features = false }
-nomos-http-api-common    = { path = "./nodes/api_common" }
+nomos-http-api-common    = { path = "./nodes/api-common" }
 nomos-ledger             = { path = "./ledger/nomos-ledger" }
 nomos-libp2p             = { path = "./nomos-libp2p" }
 nomos-mempool            = { path = "./nomos-services/mempool" }
