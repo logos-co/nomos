@@ -5,50 +5,14 @@ use nomos_core::{da::blob::info::DispersedBlobInfo, tx::Transaction};
 use nomos_mempool::{
     network::adapters::libp2p::Settings as AdapterSettings, tx::settings::TxMempoolSettings,
 };
-use nomos_node::{
-    config::BlendArgs, Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs, Nomos,
-    NomosServiceSettings, Tx,
-};
+use nomos_node::{config::CliArgs, Config, Nomos, NomosServiceSettings, Tx};
 use overwatch::overwatch::OverwatchRunner;
 
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    /// Path for a yaml-encoded network config file
-    config: std::path::PathBuf,
-    /// Overrides log config.
-    #[clap(flatten)]
-    log: LogArgs,
-    /// Overrides network config.
-    #[clap(flatten)]
-    network: NetworkArgs,
-    /// Overrides blend config.
-    #[clap(flatten)]
-    blend: BlendArgs,
-    /// Overrides http config.
-    #[clap(flatten)]
-    http: HttpArgs,
-    #[clap(flatten)]
-    cryptarchia: CryptarchiaArgs,
-}
-
 fn main() -> Result<()> {
-    let Args {
-        config,
-        log: log_args,
-        http: http_args,
-        network: network_args,
-        blend: blend_args,
-        cryptarchia: cryptarchia_args,
-    } = Args::parse();
-    let config = serde_yaml::from_reader::<_, Config>(std::fs::File::open(config)?)?
-        .update_from_args(
-            log_args,
-            network_args,
-            blend_args,
-            http_args,
-            cryptarchia_args,
-        )?;
+    let cli_args = CliArgs::parse();
+    let config =
+        serde_yaml::from_reader::<_, Config>(std::fs::File::open(cli_args.config_path())?)?
+            .update_from_args(cli_args)?;
 
     let app = OverwatchRunner::<Nomos>::run(
         NomosServiceSettings {
