@@ -79,7 +79,7 @@ jobs:
       - name: Set up Cargo cache
         uses: ./.github/actions/setup-cargo-cache
         with:
-          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}
+          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Run cargo-hack
         env:
@@ -136,7 +136,7 @@ jobs:
         if: success() || failure()
         uses: ./.github/actions/update-cargo-cache
         with:
-          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}
+          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
  
   tests:
     name: Run test suite
