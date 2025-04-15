@@ -25,13 +25,6 @@ impl From<MessageTooLargeError> for io::Error {
     }
 }
 
-pub fn pack<Message>(message: &Message) -> Result<Vec<u8>>
-where
-    Message: Serialize,
-{
-    wire::serialize(message).map_err(io::Error::from)
-}
-
 fn get_packed_message_size(packed_message: &[u8]) -> Result<usize> {
     let data_length = packed_message.len();
     if data_length > MAX_MSG_LEN {
@@ -40,24 +33,19 @@ fn get_packed_message_size(packed_message: &[u8]) -> Result<usize> {
     Ok(data_length)
 }
 
-fn prepare_message_for_writer(packed_message: &[u8]) -> Result<Vec<u8>> {
-    let data_length = get_packed_message_size(packed_message)?;
-    let mut buffer = Vec::with_capacity(MAX_MSG_LEN_BYTES + data_length);
-    buffer.extend_from_slice(&LenType::try_from(data_length).unwrap().to_be_bytes());
-    buffer.extend_from_slice(packed_message);
-    Ok(buffer)
-}
-
 pub async fn pack_to_writer<Message, Writer>(message: &Message, writer: &mut Writer) -> Result<()>
 where
     Message: Serialize + Sync,
     Writer: AsyncWriteExt + Send + Unpin,
 {
-    let packed_message = pack(message)?;
-    let prepared_packed_message = prepare_message_for_writer(&packed_message)?;
-    writer.write_all(&prepared_packed_message).await
-}
+    let packed_message = wire::serialize(message).map_err(io::Error::from)?;
+    let data_length = get_packed_message_size(&packed_message)?;
+    writer
+        .write_all(&LenType::try_from(data_length).unwrap().to_be_bytes())
+        .await?;
 
+    writer.write_all(&packed_message).await
+}
 async fn read_data_length<R>(reader: &mut R) -> Result<usize>
 where
     R: AsyncReadExt + Unpin,
@@ -109,7 +97,7 @@ mod tests {
             })),
         };
 
-        let packed_message = pack(&message)?;
+        let packed_message = wire::serialize(&message).map_err(io::Error::from)?;
         let unpacked_message: TestStruct = unpack(&packed_message)?;
 
         assert_eq!(message, unpacked_message);
