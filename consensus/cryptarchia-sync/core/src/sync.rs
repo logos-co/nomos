@@ -22,22 +22,33 @@ where
         mut self,
         block_fetcher: &BlockFetcher,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
-        info!("Starting sync process from tip {:?}", self.tip_slot());
+        // Start the sync process from the current local tip slot.
+        let mut start_slot = self.tip_slot() + 1;
+        info!("Starting sync process from slot {start_slot:?}");
+
         let mut rejected_blocks = HashSet::new();
         // Run a forward sync, and trigger backfillings if orphan blocks are found.
         // Repeat the forward sync if any backfilling was performed,
         // in order to catch up with the updated peers.
         loop {
-            let orphan_blocks = self
-                .sync_forward(block_fetcher, &mut rejected_blocks)
+            let ForwardSyncOutput {
+                max_fetched_slot,
+                orphan_blocks,
+            } = self
+                .sync_forward(start_slot, block_fetcher, &mut rejected_blocks)
                 .await?;
 
-            // Finish the sync process if there is no orphan block to be backfilled.
-            // If not, perform backfillings and try the forward sync again
-            // to catch up with the updated peers.
-            if orphan_blocks.is_empty() {
-                info!("No new blocks processed");
-                break;
+            // Finish the sync process if no block ahead of start_slot was fetched.
+            if let Some(max_fetched_slot) = max_fetched_slot {
+                if max_fetched_slot < start_slot {
+                    info!("No useful blocks fetched, finishing sync process");
+                    return Ok(self);
+                }
+                info!("Fetched blocks up to slot {max_fetched_slot:?}");
+                start_slot = max_fetched_slot + 1;
+            } else {
+                info!("No blocks fetched, finishing sync process");
+                return Ok(self);
             }
 
             // Backfill the orphan forks.
@@ -71,10 +82,6 @@ where
                 }
             }
         }
-
-        info!("Finished sync process with tip {:?}", self.tip_slot());
-
-        Ok(self)
     }
 
     /// Start a forward synchronization:
@@ -83,17 +90,21 @@ where
     /// - Gather orphaned blocks whose parent is not in the local block tree.
     async fn sync_forward(
         &mut self,
+        start_slot: Slot,
         block_fetcher: &BlockFetcher,
         rejected_blocks: &mut HashSet<HeaderId>,
-    ) -> Result<HashMap<HeaderId, (Slot, BlockFetcher::ProviderId)>, Box<dyn Error + Send + Sync>>
-    {
+    ) -> Result<ForwardSyncOutput<BlockFetcher>, Box<dyn Error + Send + Sync>> {
+        let mut max_fetched_slot: Option<Slot> = None;
         let mut orphan_blocks = HashMap::new();
 
-        let start_slot = self.tip_slot() + 1;
         info!("Fetching blocks from slot {:?}", start_slot);
         let mut stream = block_fetcher.fetch_blocks_forward(start_slot).await?;
-
         while let Some((block, provider_id)) = stream.next().await {
+            // Update max_fetched_slot if necessary.
+            max_fetched_slot = max_fetched_slot
+                .map(|s| s.max(block.slot()))
+                .or_else(|| Some(block.slot()));
+
             // Reject blocks that have been rejected in the past
             // or whose parent has been rejected.
             let id = block.id();
@@ -121,7 +132,10 @@ where
         }
 
         info!("Forward sync is done");
-        Ok(orphan_blocks)
+        Ok(ForwardSyncOutput {
+            max_fetched_slot,
+            orphan_blocks,
+        })
     }
 
     /// Backfills a fork by fetching blocks from the peers.
@@ -181,6 +195,11 @@ where
     Self::Block: Send,
     BlockFetcher: fetcher::BlockFetcher<Block = Self::Block> + Sync,
 {
+}
+
+pub struct ForwardSyncOutput<BlockFetcher: fetcher::BlockFetcher> {
+    max_fetched_slot: Option<Slot>,
+    orphan_blocks: HashMap<HeaderId, (Slot, BlockFetcher::ProviderId)>,
 }
 
 #[derive(thiserror::Error, Debug)]
