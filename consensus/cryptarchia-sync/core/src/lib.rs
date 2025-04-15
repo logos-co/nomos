@@ -618,11 +618,11 @@ mod tests {
             {
                 Ok(engine) => {
                     self.engine = engine;
-                    self.blocks.insert(block.id(), block.clone());
                     self.blocks_by_slot
                         .entry(block.slot())
                         .or_default()
                         .insert(block.id());
+                    self.blocks.insert(block.id(), block);
                     Ok(())
                 }
                 Err(cryptarchia_engine::Error::ParentMissing(_)) => {
@@ -647,7 +647,7 @@ mod tests {
                 .branches()
                 .branches()
                 .iter()
-                .map(|branch| branch.id())
+                .map(Branch::id)
                 .collect()
         }
     }

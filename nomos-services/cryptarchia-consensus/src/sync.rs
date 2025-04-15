@@ -1,5 +1,6 @@
 use std::{hash::Hash, marker::PhantomData};
 
+use bytes::Bytes;
 use cryptarchia_engine::Slot;
 use cryptarchia_sync::CryptarchiaSyncError;
 use nomos_core::{block::Block, header::HeaderId};
@@ -68,7 +69,9 @@ where
                     header.id(),
                     header.leader_proof().nullifier(),
                 );
-                let msg = <StorageMsg<_>>::new_store_message(header.id(), block);
+
+                let key: [u8; 32] = header.id().into();
+                let msg = <StorageMsg<_>>::new_store_message(Bytes::copy_from_slice(&key), block);
                 if let Err((e, _)) = self.storage_relay.send(msg).await {
                     error!("Could not send block to storage: {e}");
                 }
