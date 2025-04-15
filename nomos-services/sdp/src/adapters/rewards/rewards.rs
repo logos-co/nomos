@@ -31,14 +31,12 @@ impl<Metadata, ContractAddress> LedgerRewardsAdapter<Metadata, ContractAddress> 
 }
 
 #[async_trait]
-impl<
-        Metadata: std::marker::Send + std::marker::Sync,
-        ContractAddress: std::marker::Send + std::fmt::Debug + std::marker::Sync,
-    > RewardsRequestSender for LedgerRewardsAdapter<Metadata, ContractAddress>
+impl<Metadata, ContractAddress> RewardsRequestSender
+    for LedgerRewardsAdapter<Metadata, ContractAddress>
+where
+    Metadata: std::marker::Send + std::marker::Sync,
+    ContractAddress: std::marker::Send + std::fmt::Debug + std::marker::Sync,
 {
-    type ContractAddress = ContractAddress;
-    type Metadata = Metadata;
-
     async fn request_reward(
         &self,
         reward_contract: Self::ContractAddress,

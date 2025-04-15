@@ -168,9 +168,7 @@ where
         loop {
             tokio::select! {
                 Some(msg) = self.service_state.inbound_relay.recv()  => {
-                    {
-                        self.handle_sdp_message(msg).await;
-                    }
+                    self.handle_sdp_message(msg).await;
                 }
                 Some(msg) = lifecycle_stream.next() => {
                     if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {

@@ -7,13 +7,13 @@ use nomos_sdp_core::{
 use super::SdpStakesVerifierAdapter;
 
 pub struct LedgerStakesVerifierAdapter<Proof> {
-    phantom: std::marker::PhantomData<Proof>,
+    _proof: std::marker::PhantomData<Proof>,
 }
 
 impl<Proof: Send + Sync> SdpStakesVerifierAdapter for LedgerStakesVerifierAdapter<Proof> {
     fn new() -> Self {
         Self {
-            phantom: std::marker::PhantomData,
+            _proof: std::marker::PhantomData,
         }
     }
 }
