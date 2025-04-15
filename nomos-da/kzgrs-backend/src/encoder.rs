@@ -65,18 +65,32 @@ impl EncodedData {
     #[must_use]
     pub fn to_da_share(&self, index: usize) -> Option<DaShare> {
         let column = self.extended_data.columns().nth(index)?;
+
+        let share_idx = index
+            .try_into()
+            .map_err(|e| {
+                tracing::error!("Failed to convert index to share_idx: {e}");
+            })
+            .ok()?;
+
+        let mut rows_proofs = Vec::with_capacity(self.rows_proofs.len());
+        for (i, proofs) in self.rows_proofs.iter().enumerate() {
+            if let Some(proof) = proofs.get(index).copied() {
+                rows_proofs.push(proof);
+            } else {
+                tracing::error!("Missing row proof at row {}, column {}", i, index);
+                return None;
+            }
+        }
+
         Some(DaShare {
             column,
-            share_idx: index.try_into().unwrap(),
+            share_idx,
             column_commitment: self.column_commitments[index],
             aggregated_column_commitment: self.aggregated_column_commitment,
             aggregated_column_proof: self.aggregated_column_proofs[index],
             rows_commitments: self.row_commitments.clone(),
-            rows_proofs: self
-                .rows_proofs
-                .iter()
-                .map(|proofs| proofs.get(index).copied().unwrap())
-                .collect(),
+            rows_proofs,
         })
     }
 
