@@ -53,10 +53,11 @@ impl<T: CryptarchiaSync + Sync + Send> CryptarchiaSyncExt for T {}
 mod tests {
     use std::{
         collections::{BTreeMap, HashMap, HashSet},
+        num::NonZero,
         sync::LazyLock,
     };
 
-    use cryptarchia_engine::Slot;
+    use cryptarchia_engine::{Branch, Slot};
     use nomos_core::{block::AbstractBlock, header::HeaderId};
 
     use super::*;
@@ -76,13 +77,13 @@ mod tests {
             ))
             .unwrap();
         }
-        assert_eq!(peer.honest_chain, HeaderId::from([3; 32]));
-        assert!(peer.forks.is_empty());
+        assert_eq!(peer.engine.tip(), HeaderId::from([3; 32]));
+        assert_eq!(peer.branch_tips(), HashSet::from([HeaderId::from([3; 32])]));
 
         // Start a sync from genesis.
         // Result: The same block tree as the peer's
         let local = MockCryptarchia::new()
-            .start_sync(&MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+            .start_sync(&MockBlockFetcher::new(HashMap::from([(0, &peer)])))
             .await
             .unwrap();
         assert_eq!(local, peer);
@@ -102,8 +103,8 @@ mod tests {
             ))
             .unwrap();
         }
-        assert_eq!(peer.honest_chain, HeaderId::from([3; 32]));
-        assert!(peer.forks.is_empty());
+        assert_eq!(peer.engine.tip(), HeaderId::from([3; 32]));
+        assert_eq!(peer.branch_tips(), HashSet::from([HeaderId::from([3; 32])]));
 
         // Start a sync from a tree:
         // G - b1
@@ -114,7 +115,7 @@ mod tests {
             .process_block(peer.blocks.get(&HeaderId::from([1; 32])).unwrap().clone())
             .unwrap();
         let local = local
-            .start_sync(&MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+            .start_sync(&MockBlockFetcher::new(HashMap::from([(0, &peer)])))
             .await
             .unwrap();
         assert_eq!(local, peer);
@@ -162,13 +163,16 @@ mod tests {
             true,
         ))
         .unwrap();
-        assert_eq!(peer.honest_chain, HeaderId::from([5; 32]));
-        assert_eq!(peer.forks, HashSet::from([HeaderId::from([4; 32])]));
+        assert_eq!(peer.engine.tip(), HeaderId::from([5; 32]));
+        assert_eq!(
+            peer.branch_tips(),
+            HashSet::from([HeaderId::from([4; 32]), HeaderId::from([5; 32])])
+        );
 
         // Start a sync from genesis.
         // Result: The same block tree as the peer's.
         let local = MockCryptarchia::new()
-            .start_sync(&MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+            .start_sync(&MockBlockFetcher::new(HashMap::from([(0, &peer)])))
             .await
             .unwrap();
         assert_eq!(local, peer);
@@ -216,8 +220,11 @@ mod tests {
             true,
         ))
         .unwrap();
-        assert_eq!(peer.honest_chain, HeaderId::from([5; 32]));
-        assert_eq!(peer.forks, HashSet::from([HeaderId::from([4; 32])]));
+        assert_eq!(peer.engine.tip(), HeaderId::from([5; 32]));
+        assert_eq!(
+            peer.branch_tips(),
+            HashSet::from([HeaderId::from([4; 32]), HeaderId::from([5; 32])])
+        );
 
         // Start a sync from a tree:
         // G - b1
@@ -232,7 +239,7 @@ mod tests {
             .process_block(peer.blocks.get(&HeaderId::from([3; 32])).unwrap().clone())
             .unwrap();
         let local = local
-            .start_sync(&MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+            .start_sync(&MockBlockFetcher::new(HashMap::from([(0, &peer)])))
             .await
             .unwrap();
         assert_eq!(local, peer);
@@ -280,8 +287,11 @@ mod tests {
             true,
         ))
         .unwrap();
-        assert_eq!(peer.honest_chain, HeaderId::from([5; 32]));
-        assert_eq!(peer.forks, HashSet::from([HeaderId::from([4; 32])]));
+        assert_eq!(peer.engine.tip(), HeaderId::from([5; 32]));
+        assert_eq!(
+            peer.branch_tips(),
+            HashSet::from([HeaderId::from([4; 32]), HeaderId::from([5; 32])])
+        );
 
         // Start a sync from a tree without the fork:
         // G - b1
@@ -292,7 +302,7 @@ mod tests {
             .process_block(peer.blocks.get(&HeaderId::from([1; 32])).unwrap().clone())
             .unwrap();
         let local = local
-            .start_sync(&MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+            .start_sync(&MockBlockFetcher::new(HashMap::from([(0, &peer)])))
             .await
             .unwrap();
         assert_eq!(local, peer);
@@ -360,15 +370,18 @@ mod tests {
         //        \
         //          b4 - b5
         let local = MockCryptarchia::new()
-            .start_sync(&MockNetworkAdapter::new(HashMap::from([
+            .start_sync(&MockBlockFetcher::new(HashMap::from([
                 (0, &peer0),
                 (1, &peer1),
                 (2, &peer2),
             ])))
             .await
             .unwrap();
-        assert_eq!(local.honest_chain, HeaderId::from([6; 32]));
-        assert_eq!(local.forks, HashSet::from([HeaderId::from([5; 32])]));
+        assert_eq!(local.engine.tip(), HeaderId::from([6; 32]));
+        assert_eq!(
+            local.branch_tips(),
+            HashSet::from([HeaderId::from([5; 32]), HeaderId::from([6; 32])])
+        );
         assert_eq!(local.blocks.len(), 7);
         assert_eq!(local.blocks_by_slot.len(), 5);
     }
@@ -396,17 +409,17 @@ mod tests {
             ))
             .unwrap();
         }
-        assert_eq!(peer.honest_chain, HeaderId::from([5; 32]));
-        assert!(peer.forks.is_empty());
+        assert_eq!(peer.engine.tip(), HeaderId::from([5; 32]));
+        assert_eq!(peer.branch_tips(), HashSet::from([HeaderId::from([5; 32])]));
 
         // Start a sync from genesis.
         // Result: The same honest chain, but without invalid blocks.
         // G - b1 - b2 - b3 == tip
         let local = MockCryptarchia::new()
-            .start_sync(&MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+            .start_sync(&MockBlockFetcher::new(HashMap::from([(0, &peer)])))
             .await
             .unwrap();
-        assert_eq!(local.honest_chain, HeaderId::from([3; 32]));
+        assert_eq!(local.engine.tip(), HeaderId::from([3; 32]));
         assert_eq!(local.blocks.len(), 4);
         assert_eq!(local.blocks_by_slot.len(), 4);
     }
@@ -474,8 +487,11 @@ mod tests {
             true,
         ))
         .unwrap();
-        assert_eq!(peer.honest_chain, HeaderId::from([8; 32]));
-        assert_eq!(peer.forks, HashSet::from([HeaderId::from([6; 32])]));
+        assert_eq!(peer.engine.tip(), HeaderId::from([8; 32]));
+        assert_eq!(
+            peer.branch_tips(),
+            HashSet::from([HeaderId::from([6; 32]), HeaderId::from([8; 32])])
+        );
 
         // Start a sync from a tree:
         // G - b1 - b3 - b4
@@ -485,11 +501,14 @@ mod tests {
         //        \
         //          b4
         let local = MockCryptarchia::new()
-            .start_sync(&MockNetworkAdapter::new(HashMap::from([(0, &peer)])))
+            .start_sync(&MockBlockFetcher::new(HashMap::from([(0, &peer)])))
             .await
             .unwrap();
-        assert_eq!(local.honest_chain, HeaderId::from([8; 32]));
-        assert_eq!(local.forks, HashSet::from([HeaderId::from([4; 32])]));
+        assert_eq!(local.engine.tip(), HeaderId::from([8; 32]));
+        assert_eq!(
+            local.branch_tips(),
+            HashSet::from([HeaderId::from([4; 32]), HeaderId::from([8; 32])])
+        );
         assert_eq!(local.blocks.len(), 7);
         assert_eq!(local.blocks_by_slot.len(), 6);
     }
@@ -533,14 +552,24 @@ mod tests {
         }
     }
 
-    /// Mock implementation of the Cryptarchia consensus algorithm,
-    /// similar as the one in the executable specification.
-    #[derive(Debug, PartialEq, Eq)]
+    /// Mock implementation of the Cryptarchia consensus algorithm
+    #[derive(Debug)]
     struct MockCryptarchia {
+        // block storage
         blocks: HashMap<HeaderId, MockBlock>,
         blocks_by_slot: BTreeMap<Slot, HashSet<HeaderId>>,
-        honest_chain: HeaderId,
-        forks: HashSet<HeaderId>,
+        // cryptarchia engine
+        engine: cryptarchia_engine::Cryptarchia<HeaderId>,
+    }
+
+    impl PartialEq for MockCryptarchia {
+        fn eq(&self, other: &Self) -> bool {
+            self.blocks == other.blocks
+                && self.blocks_by_slot == other.blocks_by_slot
+                && self.engine.genesis() == other.engine.genesis()
+                && self.engine.tip() == other.engine.tip()
+                && self.branches() == other.branches()
+        }
     }
 
     impl MockCryptarchia {
@@ -556,8 +585,13 @@ mod tests {
             Self {
                 blocks: HashMap::from([(genesis_id, genesis_block)]),
                 blocks_by_slot: BTreeMap::from([(genesis_slot, HashSet::from([genesis_id]))]),
-                honest_chain: genesis_id,
-                forks: HashSet::new(),
+                engine: cryptarchia_engine::Cryptarchia::new(
+                    genesis_id,
+                    cryptarchia_engine::Config {
+                        security_param: NonZero::new(1000).unwrap(),
+                        active_slot_coeff: 1.0,
+                    },
+                ),
             }
         }
 
@@ -574,50 +608,47 @@ mod tests {
             &mut self,
             block: MockBlock,
         ) -> Result<(), CryptarchiaSyncError> {
-            let id = block.id();
-            let parent = block.parent();
-
-            if self.blocks.contains_key(&id) {
+            if self.blocks.contains_key(&block.id()) {
                 return Ok(());
-            } else if !self.blocks.contains_key(&parent) {
-                return Err(CryptarchiaSyncError::ParentNotFound);
             }
 
-            let slot = block.slot();
-            self.blocks.insert(id, block);
-            self.blocks_by_slot.entry(slot).or_default().insert(id);
-
-            if parent == self.honest_chain {
-                // simply extending the honest chain
-                self.honest_chain = id;
-            } else {
-                // otherwise, this block creates a fork
-                self.forks.insert(id);
-
-                // remove any existing fork that is superceded by this block
-                if self.forks.contains(&parent) {
-                    self.forks.remove(&parent);
+            match self
+                .engine
+                .receive_block(block.id(), block.parent(), block.slot())
+            {
+                Ok(engine) => {
+                    self.engine = engine;
+                    self.blocks.insert(block.id(), block.clone());
+                    self.blocks_by_slot
+                        .entry(block.slot())
+                        .or_default()
+                        .insert(block.id());
+                    Ok(())
                 }
-
-                // We may need to switch forks, let's run the fork choice rule
-                let new_honest_chain = self.fork_choice();
-                self.forks.insert(self.honest_chain);
-                self.forks.remove(&new_honest_chain);
-                self.honest_chain = new_honest_chain;
+                Err(cryptarchia_engine::Error::ParentMissing(_)) => {
+                    Err(CryptarchiaSyncError::ParentNotFound)
+                }
+                Err(e) => Err(CryptarchiaSyncError::InvalidBlock(e.into())),
             }
-
-            Ok(())
         }
 
-        /// Mock implementation of the fork choice rule.
-        /// This always choose the block with the highest Id as the honest
-        /// chain.
-        fn fork_choice(&self) -> HeaderId {
-            let mut honest_chain = self.honest_chain;
-            for fork in &self.forks {
-                honest_chain = honest_chain.max(*fork);
-            }
-            honest_chain
+        fn branches(&self) -> HashMap<HeaderId, Branch<HeaderId>> {
+            self.engine
+                .branches()
+                .branches()
+                .iter()
+                .cloned()
+                .map(|branch| (branch.id(), branch))
+                .collect()
+        }
+
+        fn branch_tips(&self) -> HashSet<HeaderId> {
+            self.engine
+                .branches()
+                .branches()
+                .iter()
+                .map(|branch| branch.id())
+                .collect()
         }
     }
 
@@ -630,7 +661,11 @@ mod tests {
         }
 
         fn tip_slot(&self) -> Slot {
-            self.blocks[&self.honest_chain].slot()
+            self.engine
+                .branches()
+                .get(&self.engine.tip())
+                .unwrap()
+                .slot()
         }
 
         fn has_block(&self, id: &HeaderId) -> bool {
@@ -640,18 +675,18 @@ mod tests {
 
     type PeerId = usize;
 
-    struct MockNetworkAdapter<'a> {
+    struct MockBlockFetcher<'a> {
         peers: HashMap<PeerId, &'a MockCryptarchia>,
     }
 
-    impl<'a> MockNetworkAdapter<'a> {
+    impl<'a> MockBlockFetcher<'a> {
         const fn new(peers: HashMap<PeerId, &'a MockCryptarchia>) -> Self {
             Self { peers }
         }
     }
 
     #[async_trait::async_trait]
-    impl BlockFetcher for MockNetworkAdapter<'_> {
+    impl BlockFetcher for MockBlockFetcher<'_> {
         type Block = MockBlock;
         type ProviderId = PeerId;
 
