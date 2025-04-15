@@ -313,9 +313,9 @@ impl nomos_core::da::DaEncoder for DaEncoder {
         let global_parameters = &self.params.global_parameters;
         let chunked_data = self.chunkify(data);
         let row_domain = PolynomialEvaluationDomain::new(self.params.column_count)
-            .expect("Domain should be able to build");
-        let column_domain = PolynomialEvaluationDomain::new(chunked_data.len())
-            .expect("Domain should be able to build");
+            .ok_or(KzgRsError::RowDomain)?;
+        let column_domain =
+            PolynomialEvaluationDomain::new(chunked_data.len()).ok_or(KzgRsError::ColumnDomain)?;
         let (row_polynomials, row_commitments): (Vec<_>, Vec<_>) =
             Self::compute_kzg_row_commitments(global_parameters, &chunked_data, row_domain)?
                 .into_iter()

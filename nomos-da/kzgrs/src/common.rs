@@ -58,6 +58,10 @@ pub enum KzgRsError {
     BlstError(BlstError),
     #[error("Denominator polynomial cannot be zero")]
     DivisionByZeroPolynomial,
+    #[error("Domain should be able to build for rows")]
+    RowDomain,
+    #[error("Domain should be able to build for columns")]
+    ColumnDomain,
 }
 
 /// Transform chunks of bytes (of size `CHUNK_SIZE`) into `Fr` which are
