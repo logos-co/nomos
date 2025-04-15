@@ -9,6 +9,7 @@ pub mod storage;
 use core::fmt::Debug;
 use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 
+use bytes::Bytes;
 use cryptarchia_engine::Slot;
 use futures::StreamExt;
 pub use leadership::LeaderConfig;
@@ -853,7 +854,9 @@ where
                 .await;
 
                 // store block
-                let msg = <StorageMsg<_>>::new_store_message(header.id(), block.clone());
+                let key: [u8; 32] = header.id().into();
+                let msg =
+                    <StorageMsg<_>>::new_store_message(Bytes::copy_from_slice(&key), block.clone());
                 if let Err((e, _msg)) = relays.storage_adapter().storage_relay.send(msg).await {
                     tracing::error!("Could not send block to storage: {e}");
                 }

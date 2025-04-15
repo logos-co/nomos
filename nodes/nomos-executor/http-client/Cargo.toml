@@ -1,0 +1,13 @@
+[package]
+edition = "2021"
+license = { workspace = true }
+name    = "executor-http-client"
+version = "0.1.0"
+
+[dependencies]
+common-http-client    = { workspace = true }
+futures               = "0.3.31"
+nomos-core            = { workspace = true }
+nomos-http-api-common = { workspace = true }
+reqwest               = { workspace = true }
+serde                 = "1.0"

@@ -90,7 +90,7 @@ jobs:
         if: success() || failure()
         uses: ./.github/actions/update-cargo-cache
         with:
-          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}
+          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
 
   unused-deps:
     name: Check for unused dependencies
@@ -123,7 +123,7 @@ jobs:
       - name: Set up Cargo cache
         uses: ./.github/actions/setup-cargo-cache
         with:
-          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}
+          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
           github-token: ${{ secrets.GITHUB_TOKEN }}        
       - name: Run cargo clippy
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1

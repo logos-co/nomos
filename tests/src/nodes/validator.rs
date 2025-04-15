@@ -33,18 +33,15 @@ use nomos_da_verifier::{
     storage::adapters::rocksdb::RocksAdapterSettings as VerifierStorageAdapterSettings,
     DaVerifierServiceSettings,
 };
+use nomos_http_api_common::paths::{
+    CL_METRICS, CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_RANGE,
+    DA_MONITOR_STATS, STORAGE_BLOCK,
+};
 use nomos_mempool::MempoolMetrics;
 use nomos_network::{backends::libp2p::Libp2pConfig, NetworkConfig};
 use nomos_node::{
-    api::{
-        backend::AxumBackendSettings,
-        paths::{
-            CL_METRICS, CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_RANGE,
-            DA_MONITOR_STATS, STORAGE_BLOCK,
-        },
-    },
-    config::mempool::MempoolConfig,
-    BlobInfo, Config, HeaderId, RocksBackendSettings, Tx,
+    api::backend::AxumBackendSettings, config::mempool::MempoolConfig, BlobInfo, Config, HeaderId,
+    RocksBackendSettings, Tx,
 };
 use nomos_time::{
     backends::{ntp::async_client::NTPClientSettings, NtpTimeBackendSettings},

@@ -1,9 +1,10 @@
 use std::{hash::Hash, marker::PhantomData};
 
+use bytes::Bytes;
 use nomos_core::{block::Block, header::HeaderId};
 use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
 use overwatch::services::{relay::OutboundRelay, ServiceData};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::de::DeserializeOwned;
 
 use crate::storage::StorageAdapter as StorageAdapterTrait;
 
@@ -34,9 +35,8 @@ where
     /// # Returns
     ///
     /// The value for the given key. If no value is found, returns None.
-    pub async fn get_value<Key, Value>(&self, key: &Key) -> Option<Value>
+    pub async fn get_value<Value>(&self, key: Bytes) -> Option<Value>
     where
-        Key: Serialize + Send + Sync,
         Value: DeserializeOwned,
     {
         let (msg, receiver) = <StorageMsg<Storage>>::new_load_message(key);
@@ -69,6 +69,7 @@ where
     }
 
     async fn get_block(&self, key: &HeaderId) -> Option<Self::Block> {
-        self.get_value(key).await
+        let key: [u8; 32] = (*key).into();
+        self.get_value(Bytes::copy_from_slice(&key)).await
     }
 }
