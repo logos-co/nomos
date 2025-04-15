@@ -66,12 +66,10 @@ impl EncodedData {
     pub fn to_da_share(&self, index: usize) -> Option<DaShare> {
         let column = self.extended_data.columns().nth(index)?;
 
-        let share_idx = index
-            .try_into()
-            .map_err(|e| {
-                tracing::error!("Failed to convert index to share_idx: {e}");
-            })
-            .ok()?;
+        let Ok(share_idx) = index.try_into() else {
+            tracing::error!("Failed to convert index to share_idx: {index}");
+            return None;
+        };
 
         let mut rows_proofs = Vec::with_capacity(self.rows_proofs.len());
         for (i, proofs) in self.rows_proofs.iter().enumerate() {
