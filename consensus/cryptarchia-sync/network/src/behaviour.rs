@@ -2,16 +2,16 @@ use std::task::{Context, Poll};
 
 use cryptarchia_engine::Slot;
 use futures::{
+    AsyncWriteExt, FutureExt,
     future::BoxFuture,
     stream::{FuturesUnordered, StreamExt},
-    AsyncWriteExt, FutureExt,
 };
 use libp2p::{
+    Multiaddr, PeerId, Stream, StreamProtocol,
     swarm::{
         ConnectionClosed, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
         THandlerOutEvent, ToSwarm,
     },
-    Multiaddr, PeerId, Stream, StreamProtocol,
 };
 use tokio::sync::mpsc::{self, Sender, UnboundedSender};
 use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
@@ -20,7 +20,7 @@ use tracing::{error, info};
 use crate::{
     incoming_stream::{read_request_from_stream, send_response_to_peer},
     membership::ConnectedPeers,
-    messages::SyncDirection,
+    messages::{SyncDirection, SyncRequest},
     outgoing_stream::sync_after_requesting_tips,
 };
 
@@ -57,17 +57,11 @@ pub enum BehaviourSyncReply {
 }
 
 #[derive(Debug)]
-pub(crate) enum RequestKind {
-    Sync { direction: SyncDirection },
-    TipSlot,
-}
-
-#[derive(Debug)]
 pub struct IncomingSyncRequest {
     /// Incoming stream
     pub(crate) stream: Stream,
     /// Kind of request
-    pub(crate) kind: RequestKind,
+    pub(crate) kind: SyncRequest,
     /// Replies from services
     pub(crate) response_sender: Sender<BehaviourSyncReply>,
     /// Where we wait service responses
@@ -242,13 +236,13 @@ impl SyncBehaviour {
                     let response_sender = req.response_sender.clone();
 
                     let event = match req.kind {
-                        RequestKind::Sync { direction } => {
+                        SyncRequest::Blocks { direction } => {
                             ToSwarm::GenerateEvent(BehaviourSyncEvent::SyncRequest {
                                 direction,
                                 response_sender,
                             })
                         }
-                        RequestKind::TipSlot => {
+                        SyncRequest::TipSlot => {
                             ToSwarm::GenerateEvent(BehaviourSyncEvent::TipRequest {
                                 response_sender,
                             })
@@ -350,10 +344,10 @@ mod test {
     use std::time::Duration;
 
     use libp2p::{
-        core::{transport::MemoryTransport, upgrade::Version, Multiaddr},
+        PeerId, SwarmBuilder, Transport,
+        core::{Multiaddr, transport::MemoryTransport, upgrade::Version},
         identity::Keypair,
         swarm::{Swarm, SwarmEvent},
-        PeerId, SwarmBuilder, Transport,
     };
     use nomos_core::header::HeaderId;
     use rand::Rng;

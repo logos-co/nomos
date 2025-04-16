@@ -1,10 +1,10 @@
-use futures::{future::BoxFuture, AsyncWriteExt, StreamExt};
+use futures::{AsyncWriteExt, StreamExt, future::BoxFuture};
 use libp2p::Stream;
 use tokio::sync::mpsc::channel;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
-    behaviour::{BehaviourSyncReply, IncomingSyncRequest, RequestKind, SyncError},
+    behaviour::{BehaviourSyncReply, IncomingSyncRequest, SyncError},
     messages::{SyncRequest, SyncResponse},
     sync_utils,
 };
@@ -17,8 +17,8 @@ pub fn read_request_from_stream(
         let command: SyncRequest = sync_utils::receive_data(&mut stream).await?;
 
         let kind = match command {
-            SyncRequest::Blocks { direction } => RequestKind::Sync { direction },
-            SyncRequest::TipSlot => RequestKind::TipSlot,
+            SyncRequest::Blocks { direction } => SyncRequest::Blocks { direction },
+            SyncRequest::TipSlot => SyncRequest::TipSlot,
         };
 
         let (response_sender, response_receiver) = channel(10);
