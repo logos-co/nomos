@@ -157,23 +157,20 @@ impl SyncBehaviour {
 
         self.send_data_to_peers(cx);
 
-        // If we rejected any streams above, close them here
+        // If we rejected any streams above(as part of accept_incoming_streams), close
+        // them here.
         while self.closing_streams.poll_next_unpin(cx) == Poll::Ready(Some(())) {}
 
         None
     }
-
     fn process_sync_commands(&mut self, cx: &mut Context<'_>) {
-        while let Poll::Ready(Some(command)) = self.sync_commands_receiver.poll_next_unpin(cx) {
+        if let Poll::Ready(Some(command)) = self.sync_commands_receiver.poll_next_unpin(cx) {
             match command {
                 SyncCommand::StartSync {
                     direction,
                     response_sender,
                 } => {
-                    info!(
-                        direction = ?direction,
-                        "Starting local sync"
-                    );
+                    info!(direction = ?direction, "Starting local sync");
                     let local_sync = sync_after_requesting_tips(
                         self.control.clone(),
                         &self.connected_peers,
@@ -186,12 +183,11 @@ impl SyncBehaviour {
             }
         }
     }
-
     fn receive_data_from_peers(
         &mut self,
         cx: &mut Context<'_>,
     ) -> Option<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
-        while let Poll::Ready(Some(result)) = self.local_sync_progress.poll_next_unpin(cx) {
+        if let Poll::Ready(Some(result)) = self.local_sync_progress.poll_next_unpin(cx) {
             match result {
                 Ok(()) => info!("Local sync completed successfully"),
                 Err(e) => error!(error = %e, "Local sync failed"),
@@ -199,7 +195,6 @@ impl SyncBehaviour {
         }
         None
     }
-
     fn accept_incoming_streams(&mut self, cx: &mut Context<'_>) {
         let incoming_sync_count = self.read_sync_requests.len() + self.sending_data_to_peers.len();
 
@@ -228,13 +223,12 @@ impl SyncBehaviour {
         &mut self,
         cx: &mut Context<'_>,
     ) -> Option<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
-        while let Poll::Ready(Some(result)) = self.read_sync_requests.poll_next_unpin(cx) {
+        if let Poll::Ready(Some(result)) = self.read_sync_requests.poll_next_unpin(cx) {
             match result {
                 Ok(req) => {
                     info!(kind = ?req.kind, "Incoming sync request initialized");
 
                     let response_sender = req.response_sender.clone();
-
                     let event = match req.kind {
                         SyncRequest::Blocks { direction } => {
                             ToSwarm::GenerateEvent(BehaviourSyncEvent::SyncRequest {
@@ -256,9 +250,8 @@ impl SyncBehaviour {
         }
         None
     }
-
     fn send_data_to_peers(&mut self, cx: &mut Context<'_>) {
-        while let Poll::Ready(Some(result)) = self.sending_data_to_peers.poll_next_unpin(cx) {
+        if let Poll::Ready(Some(result)) = self.sending_data_to_peers.poll_next_unpin(cx) {
             match result {
                 Ok(()) => info!("Incoming sync response sending completed"),
                 Err(e) => error!(error = %e, "Incoming sync response sending failed"),
