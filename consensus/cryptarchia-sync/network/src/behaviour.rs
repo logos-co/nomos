@@ -94,7 +94,7 @@ pub struct SyncBehaviour {
     /// Streams waiting to be closed
     closing_streams: FuturesUnordered<BoxFuture<'static, ()>>,
     /// Membership handler
-    membership: ConnectedPeers,
+    connected_peers: ConnectedPeers,
     /// Sender for commands from services
     sync_commands_sender: UnboundedSender<SyncCommand>,
     /// Receiver for commands from services
@@ -124,7 +124,7 @@ impl SyncBehaviour {
             control,
             incoming_streams,
             closing_streams: FuturesUnordered::new(),
-            membership: ConnectedPeers::new(),
+            connected_peers: ConnectedPeers::new(),
             sync_commands_sender,
             sync_commands_receiver,
             local_sync_progress: FuturesUnordered::new(),
@@ -176,7 +176,7 @@ impl SyncBehaviour {
                     );
                     let local_sync = sync_after_requesting_tips(
                         self.control.clone(),
-                        &self.membership,
+                        &self.connected_peers,
                         self.local_peer_id,
                         direction,
                         response_sender,
@@ -281,8 +281,8 @@ impl NetworkBehaviour for SyncBehaviour {
         self.stream_behaviour
             .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)
             .inspect(|_| {
-                self.membership.add_peer(peer);
-                self.membership
+                self.connected_peers.add_peer(peer);
+                self.connected_peers
                     .update_peer_address(peer, remote_addr.clone());
             })
     }
@@ -304,13 +304,13 @@ impl NetworkBehaviour for SyncBehaviour {
                 port_use,
             )
             .inspect(|_| {
-                self.membership.add_peer(peer);
-                self.membership.update_peer_address(peer, addr.clone());
+                self.connected_peers.add_peer(peer);
+                self.connected_peers.update_peer_address(peer, addr.clone());
             })
     }
     fn on_swarm_event(&mut self, event: FromSwarm) {
         if let FromSwarm::ConnectionClosed(ConnectionClosed { peer_id, .. }) = event {
-            self.membership.remove_peer(&peer_id);
+            self.connected_peers.remove_peer(&peer_id);
         }
         self.stream_behaviour.on_swarm_event(event);
     }
