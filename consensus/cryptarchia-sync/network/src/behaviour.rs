@@ -2,16 +2,16 @@ use std::task::{Context, Poll};
 
 use cryptarchia_engine::Slot;
 use futures::{
+    AsyncWriteExt, FutureExt,
     future::BoxFuture,
     stream::{FuturesUnordered, StreamExt},
-    AsyncWriteExt, FutureExt,
 };
 use libp2p::{
+    Multiaddr, PeerId, Stream, StreamProtocol,
     swarm::{
         ConnectionClosed, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
         THandlerOutEvent, ToSwarm,
     },
-    Multiaddr, PeerId, Stream, StreamProtocol,
 };
 use tokio::sync::mpsc::{self, Sender, UnboundedSender};
 use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
@@ -24,7 +24,7 @@ use crate::{
     outgoing_stream::sync_after_requesting_tips,
 };
 
-pub const SYNC_PROTOCOL: StreamProtocol = StreamProtocol::new("/nomos/cryptarchia/0.1.0/sync");
+pub const SYNC_PROTOCOL: StreamProtocol = StreamProtocol::new("/nomos/cryptarchia/sync/0.1.0");
 
 const MAX_INCOMING_SYNCS: usize = 10;
 
@@ -341,10 +341,10 @@ mod test {
     use std::time::Duration;
 
     use libp2p::{
-        core::{transport::MemoryTransport, upgrade::Version, Multiaddr},
+        PeerId, SwarmBuilder, Transport,
+        core::{Multiaddr, transport::MemoryTransport, upgrade::Version},
         identity::Keypair,
         swarm::{Swarm, SwarmEvent},
-        PeerId, SwarmBuilder, Transport,
     };
     use nomos_core::header::HeaderId;
     use rand::Rng;
