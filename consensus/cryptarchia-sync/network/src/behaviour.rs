@@ -137,12 +137,9 @@ impl SyncBehaviour {
         self.sync_commands_channel.clone()
     }
 
-    fn handle_outgoing_syncs(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Option<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
+    fn handle_outgoing_syncs(&mut self, cx: &mut Context<'_>) {
         self.process_sync_commands(cx);
-        self.receive_data_from_peers(cx)
+        self.receive_data_from_peers(cx);
     }
 
     fn handle_incoming_syncs(
@@ -183,17 +180,13 @@ impl SyncBehaviour {
             }
         }
     }
-    fn receive_data_from_peers(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Option<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
+    fn receive_data_from_peers(&mut self, cx: &mut Context<'_>) {
         if let Poll::Ready(Some(result)) = self.local_sync_progress.poll_next_unpin(cx) {
             match result {
                 Ok(()) => info!("Local sync completed successfully"),
                 Err(e) => error!(error = %e, "Local sync failed"),
             }
         }
-        None
     }
     fn accept_incoming_streams(&mut self, cx: &mut Context<'_>) {
         let incoming_sync_count = self.read_sync_requests.len() + self.sending_data_to_peers.len();
@@ -319,9 +312,8 @@ impl NetworkBehaviour for SyncBehaviour {
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
-        if let Some(event) = self.handle_outgoing_syncs(cx) {
-            return Poll::Ready(event);
-        }
+        self.handle_outgoing_syncs(cx);
+
         if let Some(event) = self.handle_incoming_syncs(cx) {
             return Poll::Ready(event);
         }
