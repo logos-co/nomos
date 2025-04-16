@@ -2,16 +2,16 @@ use std::task::{Context, Poll};
 
 use cryptarchia_engine::Slot;
 use futures::{
-    AsyncWriteExt, FutureExt,
     future::BoxFuture,
     stream::{FuturesUnordered, StreamExt},
+    AsyncWriteExt, FutureExt,
 };
 use libp2p::{
-    Multiaddr, PeerId, Stream, StreamProtocol,
     swarm::{
         ConnectionClosed, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
         THandlerOutEvent, ToSwarm,
     },
+    Multiaddr, PeerId, Stream, StreamProtocol,
 };
 use tokio::sync::mpsc::{self, Sender, UnboundedSender};
 use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
@@ -193,7 +193,7 @@ impl SyncBehaviour {
 
         if let Poll::Ready(Some((peer_id, mut stream))) = self.incoming_streams.poll_next_unpin(cx)
         {
-            if self.local_sync_progress.is_empty() || incoming_sync_count < MAX_INCOMING_SYNCS {
+            if self.local_sync_progress.is_empty() && incoming_sync_count < MAX_INCOMING_SYNCS {
                 info!(peer_id = %peer_id, "Processing incoming sync stream");
 
                 self.read_sync_requests
@@ -326,10 +326,10 @@ mod test {
     use std::time::Duration;
 
     use libp2p::{
-        PeerId, SwarmBuilder, Transport,
-        core::{Multiaddr, transport::MemoryTransport, upgrade::Version},
+        core::{transport::MemoryTransport, upgrade::Version, Multiaddr},
         identity::Keypair,
         swarm::{Swarm, SwarmEvent},
+        PeerId, SwarmBuilder, Transport,
     };
     use nomos_core::header::HeaderId;
     use rand::Rng;
