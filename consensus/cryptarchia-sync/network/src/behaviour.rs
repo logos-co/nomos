@@ -96,7 +96,7 @@ pub struct SyncBehaviour {
     /// Membership handler
     connected_peers: ConnectedPeers,
     /// Sender for commands from services
-    sync_commands_sender: UnboundedSender<SyncCommand>,
+    sync_commands_channel: UnboundedSender<SyncCommand>,
     /// Receiver for commands from services
     sync_commands_receiver: UnboundedReceiverStream<SyncCommand>,
     /// Progress of local forward and backward syncs
@@ -125,7 +125,7 @@ impl SyncBehaviour {
             incoming_streams,
             closing_streams: FuturesUnordered::new(),
             connected_peers: ConnectedPeers::new(),
-            sync_commands_sender,
+            sync_commands_channel: sync_commands_sender,
             sync_commands_receiver,
             local_sync_progress: FuturesUnordered::new(),
             read_sync_requests: FuturesUnordered::new(),
@@ -133,8 +133,8 @@ impl SyncBehaviour {
         }
     }
 
-    pub fn sync_request_channel(&self) -> UnboundedSender<SyncCommand> {
-        self.sync_commands_sender.clone()
+    pub fn sync_commands_channel(&self) -> UnboundedSender<SyncCommand> {
+        self.sync_commands_channel.clone()
     }
 
     fn handle_outgoing_syncs(
@@ -461,7 +461,7 @@ mod test {
             .listen_on(all_addresses[index].clone())
             .expect("Failed to listen");
 
-        let sender = swarm.behaviour().sync_request_channel();
+        let sender = swarm.behaviour().sync_commands_channel();
         (swarm, sender)
     }
 
