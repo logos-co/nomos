@@ -2,16 +2,16 @@ use std::task::{Context, Poll};
 
 use cryptarchia_engine::Slot;
 use futures::{
-    AsyncWriteExt, FutureExt,
     future::BoxFuture,
     stream::{FuturesUnordered, StreamExt},
+    AsyncWriteExt, FutureExt,
 };
 use libp2p::{
-    Multiaddr, PeerId, Stream, StreamProtocol,
     swarm::{
         ConnectionClosed, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
         THandlerOutEvent, ToSwarm,
     },
+    Multiaddr, PeerId, Stream, StreamProtocol,
 };
 use tokio::sync::mpsc::{self, Sender, UnboundedSender};
 use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
@@ -281,9 +281,7 @@ impl NetworkBehaviour for SyncBehaviour {
         self.stream_behaviour
             .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)
             .inspect(|_| {
-                self.connected_peers.add_peer(peer);
-                self.connected_peers
-                    .update_peer_address(peer, remote_addr.clone());
+                self.connected_peers.add_peer(peer, remote_addr.clone());
             })
     }
 
@@ -304,8 +302,7 @@ impl NetworkBehaviour for SyncBehaviour {
                 port_use,
             )
             .inspect(|_| {
-                self.connected_peers.add_peer(peer);
-                self.connected_peers.update_peer_address(peer, addr.clone());
+                self.connected_peers.add_peer(peer, addr.clone());
             })
     }
     fn on_swarm_event(&mut self, event: FromSwarm) {
@@ -344,10 +341,10 @@ mod test {
     use std::time::Duration;
 
     use libp2p::{
-        PeerId, SwarmBuilder, Transport,
-        core::{Multiaddr, transport::MemoryTransport, upgrade::Version},
+        core::{transport::MemoryTransport, upgrade::Version, Multiaddr},
         identity::Keypair,
         swarm::{Swarm, SwarmEvent},
+        PeerId, SwarmBuilder, Transport,
     };
     use nomos_core::header::HeaderId;
     use rand::Rng;

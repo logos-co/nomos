@@ -1,7 +1,7 @@
 use std::io;
 
 use futures::{AsyncReadExt, AsyncWriteExt};
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::wire;
 

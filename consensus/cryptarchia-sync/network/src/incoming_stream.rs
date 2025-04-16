@@ -1,4 +1,4 @@
-use futures::{AsyncWriteExt, StreamExt, future::BoxFuture};
+use futures::{future::BoxFuture, AsyncWriteExt, StreamExt};
 use libp2p::Stream;
 use tokio::sync::mpsc::channel;
 use tokio_stream::wrappers::ReceiverStream;
