@@ -1,12 +1,12 @@
-use std::{marker::PhantomData, path::PathBuf, sync::Arc};
-
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures::stream::BoxStream;
 pub use rocksdb::Error;
 use rocksdb::{Options, DB};
 use serde::{Deserialize, Serialize};
+use std::{marker::PhantomData, path::PathBuf, sync::Arc};
 
-use super::{StorageBackend, StorageSerde, StorageTransaction};
+use super::{StorageBackend, StorageIterator, StorageSerde, StorageTransaction};
 
 /// Rocks backend setting
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -68,6 +68,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
     type Settings = RocksBackendSettings;
     type Error = rocksdb::Error;
     type Transaction = Transaction;
+    type Iterator = RocksIterator;
     type SerdeOperator = SerdeOp;
 
     fn new(config: Self::Settings) -> Result<Self, Self::Error> {
@@ -134,6 +135,16 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
         Ok(values)
     }
 
+    async fn scan_range(&self, prefix: &[u8], start: &[u8]) -> Result<Self::Iterator, Self::Error> {
+        // The returned [`RocksIterator`] holds `Arc<DB>` instead of a real iterator
+        // because of the limited design of rocksdb API.
+        Ok(RocksIterator::new(
+            Arc::clone(&self.rocks),
+            prefix.to_vec(),
+            start.to_vec(),
+        ))
+    }
+
     async fn remove(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
         let val = self.load(key).await?;
         if val.is_some() {
@@ -151,8 +162,58 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
     }
 }
 
+pub struct RocksIterator {
+    // [`RocksIterator`] holds `Arc<rocksdb::DB>` because of [`rocksdb::DBIteratorWithThreadMode`]
+    // which contains an immutable reference to the [`rocksdb::DB`].
+    rocks: Arc<DB>,
+    prefix: Vec<u8>,
+    start: Vec<u8>,
+}
+
+impl RocksIterator {
+    #[must_use]
+    const fn new(rocks: Arc<DB>, prefix: Vec<u8>, start: Vec<u8>) -> Self {
+        Self {
+            rocks,
+            prefix,
+            start,
+        }
+    }
+}
+
+impl StorageIterator for RocksIterator {
+    type Error = rocksdb::Error;
+
+    /// Open a stream of values in the range of the iterator.
+    /// The stream operate on a consistent snapshot of the DB
+    /// taken at the moment the stream is created.
+    /// Any updates made after the stream is created won't be visible
+    /// to that stream.
+    #[must_use]
+    fn stream(&self) -> BoxStream<'_, Result<(Bytes, Bytes), Error>> {
+        Box::pin(futures::stream::iter(
+            self.rocks
+                .snapshot()
+                .iterator(rocksdb::IteratorMode::From(
+                    &[self.prefix.as_slice(), self.start.as_slice()].concat(),
+                    rocksdb::Direction::Forward,
+                ))
+                .take_while(
+                    move |result| matches!(result, Ok((key, _)) if key.starts_with(&self.prefix)),
+                )
+                .map(move |result| match result {
+                    Ok((key, value)) => {
+                        Ok((Bytes::from(key.to_vec()), Bytes::from(value.to_vec())))
+                    }
+                    Err(e) => Err(e),
+                }),
+        ))
+    }
+}
+
 #[cfg(test)]
 mod test {
+    use futures::StreamExt;
     use tempfile::TempDir;
 
     use super::{super::testing::NoStorageSerde, *};
@@ -264,5 +325,152 @@ mod test {
             }
         }
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_scan_range() {
+        let db = init_db(vec![
+            (b"prefix1/00/v1".to_vec().into(), b"v1".to_vec().into()),
+            (b"prefix1/01/v2".to_vec().into(), b"v2".to_vec().into()),
+            (b"prefix1/01/v3".to_vec().into(), b"v3".to_vec().into()),
+            (b"prefix1/02/v3".to_vec().into(), b"v3".to_vec().into()),
+            (b"prefix2/00/v4".to_vec().into(), b"v4".to_vec().into()),
+            (b"prefix2/01/v5".to_vec().into(), b"v5".to_vec().into()),
+        ])
+        .await;
+
+        let iterator = db.scan_range(b"prefix1/", b"01").await.unwrap();
+        let mut stream = iterator.stream();
+        assert_eq!(
+            stream.next().await,
+            Some(Ok((
+                b"prefix1/01/v2".to_vec().into(),
+                b"v2".to_vec().into()
+            )))
+        );
+        assert_eq!(
+            stream.next().await,
+            Some(Ok((
+                b"prefix1/01/v3".to_vec().into(),
+                b"v3".to_vec().into()
+            )))
+        );
+        assert_eq!(
+            stream.next().await,
+            Some(Ok((
+                b"prefix1/02/v3".to_vec().into(),
+                b"v3".to_vec().into()
+            )))
+        );
+        assert_eq!(stream.next().await, None);
+    }
+
+    #[tokio::test]
+    async fn test_scan_range_prefix_not_exist() {
+        let db = init_db(vec![
+            (b"prefix1/00/v1".to_vec().into(), b"v1".to_vec().into()),
+            (b"prefix1/01/v2".to_vec().into(), b"v2".to_vec().into()),
+        ])
+        .await;
+        let iterator = db.scan_range(b"prefix3/", b"00").await.unwrap();
+        let mut stream = iterator.stream();
+        assert_eq!(stream.next().await, None);
+    }
+
+    #[tokio::test]
+    async fn test_scan_range_from_middle_prefix() {
+        let db = init_db(vec![
+            (b"prefix1/00/v1".to_vec().into(), b"v1".to_vec().into()),
+            (b"prefix1/01/v2".to_vec().into(), b"v2".to_vec().into()),
+            (b"prefix2/00/v4".to_vec().into(), b"v4".to_vec().into()),
+            (b"prefix2/01/v5".to_vec().into(), b"v5".to_vec().into()),
+        ])
+        .await;
+        let iterator = db.scan_range(b"prefix2/", b"").await.unwrap();
+        let mut stream = iterator.stream();
+        assert_eq!(
+            stream.next().await,
+            Some(Ok((
+                b"prefix2/00/v4".to_vec().into(),
+                b"v4".to_vec().into()
+            )))
+        );
+        assert_eq!(
+            stream.next().await,
+            Some(Ok((
+                b"prefix2/01/v5".to_vec().into(),
+                b"v5".to_vec().into()
+            )))
+        );
+        assert_eq!(stream.next().await, None);
+    }
+    #[tokio::test]
+    async fn test_scan_range_beyond_range_within_prefix() {
+        let db = init_db(vec![
+            (b"prefix1/00/v1".to_vec().into(), b"v1".to_vec().into()),
+            (b"prefix1/01/v2".to_vec().into(), b"v2".to_vec().into()),
+            (b"prefix2/00/v4".to_vec().into(), b"v4".to_vec().into()),
+            (b"prefix2/01/v5".to_vec().into(), b"v5".to_vec().into()),
+        ])
+        .await;
+        let iterator = db.scan_range(b"prefix1/", b"99").await.unwrap();
+        let mut stream = iterator.stream();
+        assert_eq!(stream.next().await, None);
+    }
+
+    #[tokio::test]
+    async fn test_scan_range_snapshot_isolation() {
+        let mut db = init_db(vec![
+            (b"prefix1/00/v1".to_vec().into(), b"v1".to_vec().into()),
+            (b"prefix1/01/v2".to_vec().into(), b"v2".to_vec().into()),
+            (b"prefix1/01/v3".to_vec().into(), b"v3".to_vec().into()),
+            (b"prefix1/02/v3".to_vec().into(), b"v3".to_vec().into()),
+        ])
+        .await;
+        let iterator = db.scan_range(b"prefix1/", b"01").await.unwrap();
+        let mut stream = iterator.stream();
+
+        // Add new data after creating stream. This should not appear in the stream.
+        db.store(b"prefix1/02/v2".to_vec().into(), b"v2".to_vec().into())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            stream.next().await,
+            Some(Ok((
+                b"prefix1/01/v2".to_vec().into(),
+                b"v2".to_vec().into()
+            )))
+        );
+        assert_eq!(
+            stream.next().await,
+            Some(Ok((
+                b"prefix1/01/v3".to_vec().into(),
+                b"v3".to_vec().into()
+            )))
+        );
+        assert_eq!(
+            stream.next().await,
+            Some(Ok((
+                b"prefix1/02/v3".to_vec().into(),
+                b"v3".to_vec().into()
+            )))
+        );
+        assert_eq!(stream.next().await, None);
+    }
+
+    async fn init_db(data: Vec<(Bytes, Bytes)>) -> RocksBackend<NoStorageSerde> {
+        let temp_path = TempDir::new().unwrap();
+        let settings = RocksBackendSettings {
+            db_path: temp_path.path().to_path_buf(),
+            read_only: false,
+            column_family: None,
+        };
+
+        let mut db: RocksBackend<NoStorageSerde> = RocksBackend::new(settings).unwrap();
+        for (key, value) in data {
+            db.store(key, value).await.unwrap();
+        }
+        db
     }
 }
