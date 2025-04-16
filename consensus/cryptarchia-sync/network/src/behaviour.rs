@@ -2,16 +2,16 @@ use std::task::{Context, Poll};
 
 use cryptarchia_engine::Slot;
 use futures::{
-    AsyncWriteExt, FutureExt,
     future::BoxFuture,
     stream::{FuturesUnordered, StreamExt},
+    AsyncWriteExt, FutureExt,
 };
 use libp2p::{
-    Multiaddr, PeerId, Stream, StreamProtocol,
     swarm::{
         ConnectionClosed, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
         THandlerOutEvent, ToSwarm,
     },
+    Multiaddr, PeerId, Stream, StreamProtocol,
 };
 use tokio::sync::mpsc::{self, Sender, UnboundedSender};
 use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
@@ -137,34 +137,31 @@ impl SyncBehaviour {
         self.sync_commands_channel.clone()
     }
 
-    fn handle_outgoing_syncs(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Option<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
-        self.process_sync_commands(cx);
-        self.receive_data_from_peers(cx)
+    async fn handle_outgoing_syncs(&mut self) {
+        self.process_sync_commands().await;
+        self.receive_data_from_peers().await;
     }
 
-    fn handle_incoming_syncs(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Option<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
-        self.accept_incoming_streams(cx);
+    async fn await_close_streams(&mut self) {
+        // TODO: just await when the threshold blocks us from processing further incoming streams
+        self.closing_streams.next().await;
+    }
 
-        if let Some(event) = self.read_sync_requests(cx) {
+    async fn handle_incoming_syncs(
+        &mut self,
+    ) -> Option<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
+        self.await_close_streams().await;
+        self.accept_incoming_streams().await;
+
+        if let Some(event) = self.read_sync_requests().await {
             return Some(event);
         }
-
-        self.send_data_to_peers(cx);
-
-        // If we rejected any streams above, close them here
-        while self.closing_streams.poll_next_unpin(cx) == Poll::Ready(Some(())) {}
-
+        self.send_data_to_peers().await;
         None
     }
 
-    fn process_sync_commands(&mut self, cx: &mut Context<'_>) {
-        while let Poll::Ready(Some(command)) = self.sync_commands_receiver.poll_next_unpin(cx) {
+    async fn process_sync_commands(&mut self) {
+        if let Some(command) = self.sync_commands_receiver.next().await {
             match command {
                 SyncCommand::StartSync {
                     direction,
@@ -187,24 +184,18 @@ impl SyncBehaviour {
         }
     }
 
-    fn receive_data_from_peers(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Option<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
-        while let Poll::Ready(Some(result)) = self.local_sync_progress.poll_next_unpin(cx) {
+    async fn receive_data_from_peers(&mut self) {
+        if let Some(result) = self.local_sync_progress.next().await {
             match result {
                 Ok(()) => info!("Local sync completed successfully"),
                 Err(e) => error!(error = %e, "Local sync failed"),
             }
         }
-        None
     }
 
-    fn accept_incoming_streams(&mut self, cx: &mut Context<'_>) {
+    async fn accept_incoming_streams(&mut self) {
         let incoming_sync_count = self.read_sync_requests.len() + self.sending_data_to_peers.len();
-
-        if let Poll::Ready(Some((peer_id, mut stream))) = self.incoming_streams.poll_next_unpin(cx)
-        {
+        if let Some((peer_id, mut stream)) = self.incoming_streams.next().await {
             if self.local_sync_progress.is_empty() || incoming_sync_count < MAX_INCOMING_SYNCS {
                 info!(peer_id = %peer_id, "Processing incoming sync stream");
 
@@ -224,11 +215,10 @@ impl SyncBehaviour {
         }
     }
 
-    fn read_sync_requests(
+    async fn read_sync_requests(
         &mut self,
-        cx: &mut Context<'_>,
     ) -> Option<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
-        while let Poll::Ready(Some(result)) = self.read_sync_requests.poll_next_unpin(cx) {
+        if let Some(result) = self.read_sync_requests.next().await {
             match result {
                 Ok(req) => {
                     info!(kind = ?req.kind, "Incoming sync request initialized");
@@ -257,8 +247,8 @@ impl SyncBehaviour {
         None
     }
 
-    fn send_data_to_peers(&mut self, cx: &mut Context<'_>) {
-        while let Poll::Ready(Some(result)) = self.sending_data_to_peers.poll_next_unpin(cx) {
+    async fn send_data_to_peers(&mut self) {
+        if let Some(result) = self.sending_data_to_peers.next().await {
             match result {
                 Ok(()) => info!("Incoming sync response sending completed"),
                 Err(e) => error!(error = %e, "Incoming sync response sending failed"),
@@ -326,10 +316,9 @@ impl NetworkBehaviour for SyncBehaviour {
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
-        if let Some(event) = self.handle_outgoing_syncs(cx) {
-            return Poll::Ready(event);
-        }
-        if let Some(event) = self.handle_incoming_syncs(cx) {
+        let _ = self.handle_outgoing_syncs().poll_next_unpin(cx);
+        let _ = self.await_close_streams().poll_next_unpin(cx);
+        if let Some(event) = self.handle_incoming_syncs().poll_next_unpin(cx) {
             return Poll::Ready(event);
         }
         Poll::Pending
@@ -341,10 +330,10 @@ mod test {
     use std::time::Duration;
 
     use libp2p::{
-        PeerId, SwarmBuilder, Transport,
-        core::{Multiaddr, transport::MemoryTransport, upgrade::Version},
+        core::{transport::MemoryTransport, upgrade::Version, Multiaddr},
         identity::Keypair,
         swarm::{Swarm, SwarmEvent},
+        PeerId, SwarmBuilder, Transport,
     };
     use nomos_core::header::HeaderId;
     use rand::Rng;
