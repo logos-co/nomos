@@ -7,7 +7,8 @@ use bundler::utils::{
 use clap::{arg, Parser};
 use log::{error, info};
 use tauri_bundler::{
-    AppImageSettings, DebianSettings, DmgSettings, MacOsSettings, RpmSettings, WindowsSettings,
+    AppImageSettings, DebianSettings, DmgSettings, IosSettings, MacOsSettings, RpmSettings,
+    WindowsSettings,
 };
 use tauri_utils::platform::target_triple;
 
@@ -94,6 +95,7 @@ fn build_package(version: String) {
             macos: MacOsSettings::default(),
             updater: None,
             windows: WindowsSettings::default(),
+            ios: IosSettings::default(),
         })
         .binaries(vec![tauri_bundler::BundleBinary::new(
             String::from(CRATE_NAME),

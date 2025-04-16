@@ -9,7 +9,7 @@ clap          = { version = "4.5.27", features = ["derive"] }
 env_logger    = "0.11.6"
 log           = "0.4.22"
 serde_json    = "1.0.135"
-tauri-bundler = "2.2.1"
+tauri-bundler = "2.4.0"
 tauri-utils   = "2.1.1"
 
 [[bin]]
