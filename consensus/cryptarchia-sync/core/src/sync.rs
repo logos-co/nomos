@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet},
     error::Error,
 };
 
@@ -174,17 +174,9 @@ where
     }
 
     /// Fetch the fork until it reaches the local block tree.
-    async fn find_missing_part<'a>(
-        &self,
-        mut fork: BoxStream<'a, Self::Block>,
-    ) -> VecDeque<Self::Block> {
-        let mut suffix = VecDeque::new();
-        while let Some(block) = fork.next().await {
-            if self.has_block(&block.id()) {
-                break;
-            }
-            suffix.push_front(block);
-        }
+    async fn find_missing_part<'a>(&self, fork: BoxStream<'a, Self::Block>) -> Vec<Self::Block> {
+        let mut suffix = fork.collect::<Vec<_>>().await;
+        suffix.reverse();
         suffix
     }
 }
