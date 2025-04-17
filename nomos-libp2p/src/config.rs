@@ -1,9 +1,9 @@
 use std::{num::NonZeroUsize, time::Duration};
 
 use libp2p::{
-    gossipsub, identify,
+    StreamProtocol, gossipsub, identify,
     identity::{self, ed25519},
-    kad, StreamProtocol,
+    kad,
 };
 use serde::{Deserialize, Serialize};
 
@@ -186,7 +186,7 @@ impl From<GossipsubConfigDef> for gossipsub::Config {
 
 pub mod secret_key_serde {
     use libp2p::identity::ed25519;
-    use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
 
     pub fn serialize<S>(key: &ed25519::SecretKey, serializer: S) -> Result<S::Ok, S::Error>
     where

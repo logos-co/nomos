@@ -1,4 +1,5 @@
 pub mod behaviour;
+pub mod handler;
 mod incoming_stream;
 mod membership;
 mod messages;
