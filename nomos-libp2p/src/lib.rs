@@ -11,25 +11,24 @@ use std::{
 };
 
 use blake2::{
-    digest::{consts::U32, Digest},
     Blake2b,
+    digest::{Digest, consts::U32},
 };
-pub use config::{secret_key_serde, IdentifySettings, KademliaSettings, SwarmConfig};
+pub use config::{IdentifySettings, KademliaSettings, SwarmConfig, secret_key_serde};
 pub use libp2p::{
-    self,
+    self, PeerId, SwarmBuilder, Transport,
     core::upgrade,
     gossipsub::{self, PublishError, SubscriptionError},
     identity::{self, ed25519},
-    swarm::{dial_opts::DialOpts, DialError, NetworkBehaviour, SwarmEvent},
-    PeerId, SwarmBuilder, Transport,
+    swarm::{DialError, NetworkBehaviour, SwarmEvent, dial_opts::DialOpts},
 };
 use libp2p::{
     gossipsub::{Message, MessageId, TopicHash},
     identify,
     kad::{self, QueryId},
-    swarm::{behaviour::toggle::Toggle, ConnectionId},
+    swarm::{ConnectionId, behaviour::toggle::Toggle},
 };
-pub use multiaddr::{multiaddr, Multiaddr, Protocol};
+pub use multiaddr::{Multiaddr, Protocol, multiaddr};
 use protocol_name::ProtocolName;
 
 // TODO: Risc0 proofs are HUGE (220 Kb) and it's the only reason we need to have
@@ -53,6 +52,7 @@ pub struct Behaviour {
     // todo: support persistent store if needed
     kademlia: Toggle<kad::Behaviour<kad::store::MemoryStore>>,
     identify: Toggle<identify::Behaviour>,
+    stream: libp2p_stream::Behaviour,
 }
 
 impl Behaviour {
@@ -97,6 +97,7 @@ impl Behaviour {
             gossipsub,
             kademlia,
             identify,
+            stream: libp2p_stream::Behaviour::new(),
         })
     }
 
@@ -156,6 +157,10 @@ impl Behaviour {
                 tracing::error!("failed to bootstrap kademlia: {e}");
             }
         }
+    }
+
+    pub fn new_control(&mut self) -> libp2p_stream::Control {
+        self.stream.new_control()
     }
 }
 
