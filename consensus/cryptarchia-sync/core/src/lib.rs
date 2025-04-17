@@ -58,10 +58,11 @@ mod tests {
     };
 
     use cryptarchia_engine::{Branch, Slot};
+    use futures::stream::BoxStream;
     use nomos_core::{block::AbstractBlock, header::HeaderId};
 
     use super::*;
-    use crate::fetcher::{BlockFetcher, BoxedStream};
+    use crate::fetcher::BlockFetcher;
 
     #[tokio::test]
     async fn sync_single_chain_from_genesis() {
@@ -694,7 +695,7 @@ mod tests {
             &self,
             start_slot: Slot,
         ) -> Result<
-            BoxedStream<(Self::Block, Self::ProviderId)>,
+            BoxStream<(Self::Block, Self::ProviderId)>,
             Box<dyn std::error::Error + Send + Sync>,
         > {
             let mut blocks = Vec::new();
@@ -709,25 +710,25 @@ mod tests {
                         .map(|block| (block, *peer_id)),
                 );
             }
-            Ok(Box::new(futures::stream::iter(blocks)))
+            Ok(Box::pin(futures::stream::iter(blocks)))
         }
 
         async fn fetch_chain_backward(
             &self,
             tip: HeaderId,
             provider_id: Self::ProviderId,
-        ) -> Result<BoxedStream<Self::Block>, Box<dyn std::error::Error + Send + Sync>> {
+        ) -> Result<BoxStream<Self::Block>, Box<dyn std::error::Error + Send + Sync>> {
             let mut blocks = Vec::new();
             let mut id = tip;
             let cryptarchia = self.peers.get(&provider_id).unwrap();
             while let Some(block) = cryptarchia.blocks.get(&id) {
                 blocks.push(block.clone());
                 if block.is_genesis() {
-                    return Ok(Box::new(futures::stream::iter(blocks)));
+                    return Ok(Box::pin(futures::stream::iter(blocks)));
                 }
                 id = block.parent;
             }
-            Ok(Box::new(futures::stream::iter(blocks)))
+            Ok(Box::pin(futures::stream::iter(blocks)))
         }
     }
 }

@@ -2,6 +2,7 @@ use std::{error::Error, hash::Hash, marker::PhantomData};
 
 use cryptarchia_engine::Slot;
 use cryptarchia_sync::fetcher::BlockFetcher;
+use futures::stream::BoxStream;
 use nomos_core::{block::Block, header::HeaderId, wire};
 use nomos_network::{
     backends::libp2p::{Command, Event, EventKind, Libp2p, PeerId, PubSubCommand::Subscribe},
@@ -137,21 +138,17 @@ where
     async fn fetch_blocks_forward(
         &self,
         _start_slot: Slot,
-    ) -> Result<
-        cryptarchia_sync::fetcher::BoxedStream<(Self::Block, Self::ProviderId)>,
-        Box<dyn Error + Send + Sync>,
-    > {
+    ) -> Result<BoxStream<(Self::Block, Self::ProviderId)>, Box<dyn Error + Send + Sync>> {
         // TODO: implement this
-        Ok(Box::new(futures::stream::empty()))
+        Ok(Box::pin(futures::stream::empty()))
     }
 
     async fn fetch_chain_backward(
         &self,
         _tip: HeaderId,
         _provider_id: Self::ProviderId,
-    ) -> Result<cryptarchia_sync::fetcher::BoxedStream<Self::Block>, Box<dyn Error + Send + Sync>>
-    {
+    ) -> Result<BoxStream<Self::Block>, Box<dyn Error + Send + Sync>> {
         // TODO: implement this
-        Ok(Box::new(futures::stream::empty()))
+        Ok(Box::pin(futures::stream::empty()))
     }
 }

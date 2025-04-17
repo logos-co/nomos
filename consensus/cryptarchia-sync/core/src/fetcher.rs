@@ -1,8 +1,6 @@
 use cryptarchia_engine::Slot;
-use futures::Stream;
+use futures::stream::BoxStream;
 use nomos_core::{block::AbstractBlock, header::HeaderId};
-
-pub type BoxedStream<T> = Box<dyn Stream<Item = T> + Send + Sync + Unpin>;
 
 /// Abstracts over the block fetching operations,
 /// which can be implemented by any network protocol.
@@ -15,15 +13,12 @@ pub trait BlockFetcher {
     async fn fetch_blocks_forward(
         &self,
         start_slot: Slot,
-    ) -> Result<
-        BoxedStream<(Self::Block, Self::ProviderId)>,
-        Box<dyn std::error::Error + Send + Sync>,
-    >;
+    ) -> Result<BoxStream<(Self::Block, Self::ProviderId)>, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Streams a chain of blocks in reverse order from the given tip.
     async fn fetch_chain_backward(
         &self,
         tip: HeaderId,
         provider_id: Self::ProviderId,
-    ) -> Result<BoxedStream<Self::Block>, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> Result<BoxStream<Self::Block>, Box<dyn std::error::Error + Send + Sync>>;
 }

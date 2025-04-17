@@ -4,7 +4,7 @@ use std::{
 };
 
 use cryptarchia_engine::Slot;
-use futures::{Stream, StreamExt};
+use futures::{stream::BoxStream, StreamExt};
 use itertools::Itertools;
 use nomos_core::{block::AbstractBlock, header::HeaderId};
 use tracing::{debug, info};
@@ -18,9 +18,9 @@ where
     BlockFetcher: fetcher::BlockFetcher<Block = Self::Block> + Sync,
 {
     /// Start a sync process.
-    async fn run(
+    async fn run<'a>(
         mut self,
-        block_fetcher: &BlockFetcher,
+        block_fetcher: &'a BlockFetcher,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         // Start the sync process from the current local tip slot.
         let mut start_slot = self.tip_slot() + 1;
@@ -174,9 +174,9 @@ where
     }
 
     /// Fetch the fork until it reaches the local block tree.
-    async fn find_missing_part(
+    async fn find_missing_part<'a>(
         &self,
-        mut fork: Box<dyn Stream<Item = Self::Block> + Send + Sync + Unpin>,
+        mut fork: BoxStream<'a, Self::Block>,
     ) -> VecDeque<Self::Block> {
         let mut suffix = VecDeque::new();
         while let Some(block) = fork.next().await {
