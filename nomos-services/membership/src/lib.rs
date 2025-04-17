@@ -15,20 +15,8 @@ use services_utils::overwatch::lifecycle;
 pub mod backends;
 
 #[derive(Debug, Clone)]
-pub enum UnitKind {
-    Epoch,
-    Slot,
-    Block,
-    // todo: Add other relevant units as needed
-}
-
-#[derive(Debug, Clone)]
 pub enum MembershipMessage {
-    GetPastMembersAtUnit {
-        unit_kind: UnitKind,
-        unit_number: u64,
-    },
-    GetNextMembers(UnitKind),
+    // todo: define API
 }
 
 pub struct MembershipService<B, RuntimeServiceId>
@@ -91,20 +79,6 @@ where
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + Sync + 'static,
 {
     async fn handle_membership_message(&mut self, msg: MembershipMessage) {
-        match msg {
-            MembershipMessage::GetPastMembersAtUnit {
-                unit_kind,
-                unit_number,
-            } => {
-                let members = self.backend.get_members_at(unit_kind, unit_number).await;
-                todo!();
-                // Handle the response
-            }
-            MembershipMessage::GetNextMembers(unit_kind) => {
-                let members = self.backend.get_next_members(unit_kind).await;
-                // Handle the response
-                todo!()
-            }
-        }
+        todo!()
     }
 }
