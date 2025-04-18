@@ -98,12 +98,12 @@ where
     ) -> Self {
         let mut branches = self.branches.clone();
 
-        // Add the new header to the branches. Parent doesn't need to be removed since
-        // it should not be in the tips set.
-        // Maybe we can run the `tips.remove(parent)` nonetheless (since it would be a
-        // no-op). That would allow us to reuse this method in the
-        // [`Self::apply_header`].
         let mut tips = self.tips.clone();
+        // When running this method by itself (not through `Self::apply_header`), the
+        // parent should not in the tips set. That being said, having this call
+        // here allows us to reuse this function in the `Self::apply_header`
+        // method. In the unchecked case it'll be a no-op.
+        tips.remove(&parent);
         tips.insert(header);
 
         branches.insert(
@@ -122,30 +122,19 @@ where
     /// Create a new [`Branches`] instance with the updated state.
     #[must_use = "this returns the result of the operation, without modifying the original"]
     fn apply_header(&self, header: Id, parent: Id, slot: Slot) -> Result<Self, Error<Id>> {
-        let mut branches = self.branches.clone();
-
-        // If the parent was the head of a branch, remove it as it has been superseded
-        // by the new header
-        let mut tips = self.tips.clone();
-        tips.remove(&parent);
-        tips.insert(header);
-
-        let length = branches
+        // Calculating the length here allows us to reuse
+        // `Self::apply_header_unchecked`. Could this lead to length difference
+        // issues? We are calculating length here but the `self.branches` is
+        // cloned in the `Self::apply_header_unchecked` method, which means
+        // there's a risk of length being different due to concurrent operations.
+        let length = self
+            .branches
             .get(&parent)
             .ok_or(Error::ParentMissing(parent))?
             .length
             + 1;
-        branches.insert(
-            header,
-            Branch {
-                id: header,
-                parent,
-                length,
-                slot,
-            },
-        );
 
-        Ok(Self { branches, tips })
+        Ok(self.apply_header_unchecked(header, parent, slot, length))
     }
 
     #[must_use]
