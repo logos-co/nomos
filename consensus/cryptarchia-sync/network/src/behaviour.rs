@@ -20,7 +20,7 @@ use tracing::{error, info};
 use crate::{
     incoming_stream::{read_request_from_stream, send_response_to_peer},
     membership::ConnectedPeers,
-    messages::{SyncDirection, SyncRequest},
+    messages::{BlockBytes, SyncDirection, SyncRequest},
     outgoing_stream::sync_after_requesting_tips,
 };
 
@@ -33,7 +33,7 @@ const MAX_INCOMING_SYNCS: usize = 10;
 pub enum SyncCommand {
     StartSync {
         direction: SyncDirection,
-        response_sender: Sender<(Vec<u8>, PeerId)>,
+        response_sender: Sender<(BlockBytes, PeerId)>,
     },
 }
 

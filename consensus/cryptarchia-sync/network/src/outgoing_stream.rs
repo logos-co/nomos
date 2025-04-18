@@ -1,19 +1,19 @@
 use std::future::Future;
 
 use cryptarchia_engine::Slot;
-use futures::{future::BoxFuture, stream::FuturesUnordered, AsyncWriteExt, FutureExt, StreamExt};
+use futures::{AsyncWriteExt, FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use libp2p::PeerId;
 use libp2p_stream::Control;
 use tokio::{
     sync::mpsc::Sender,
-    time::{error::Elapsed, timeout, Duration},
+    time::{Duration, error::Elapsed, timeout},
 };
 use tracing::{error, info};
 
 use crate::{
-    behaviour::{SyncError, SYNC_PROTOCOL},
+    behaviour::{SYNC_PROTOCOL, SyncError},
     membership::ConnectedPeers,
-    messages::{SyncDirection, SyncRequest, SyncResponse},
+    messages::{BlockBytes, SyncDirection, SyncRequest, SyncResponse},
     sync_utils,
 };
 
@@ -95,7 +95,7 @@ pub async fn stream_blocks_from_peer(
     peer_id: PeerId,
     control: &mut Control,
     direction: SyncDirection,
-    response_sender: Sender<(Vec<u8>, PeerId)>,
+    response_sender: Sender<(BlockBytes, PeerId)>,
 ) -> Result<(), SyncError> {
     info!(peer_id = %peer_id, "Streaming blocks");
 
@@ -161,7 +161,7 @@ pub fn sync_after_requesting_tips(
     connected_peers: &ConnectedPeers,
     local_peer_id: PeerId,
     direction: SyncDirection,
-    response_sender: Sender<(Vec<u8>, PeerId)>,
+    response_sender: Sender<(BlockBytes, PeerId)>,
 ) -> BoxFuture<'static, Result<(), SyncError>> {
     let peers = connected_peers.all_peers();
     async move {
