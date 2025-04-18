@@ -24,7 +24,9 @@ pub enum LedgerError<Id> {
     InvalidSlot { parent: Slot, block: Slot },
     #[error("Parent block not found: {0:?}")]
     ParentNotFound(Id),
-    #[error("Orphan block missing: {0:?}. Importing leader proofs requires the block to be validated first")]
+    #[error(
+        "Orphan block missing: {0:?}. Importing leader proofs requires the block to be validated first"
+    )]
     OrphanMissing(Id),
     #[error("Invalid leader proof")]
     InvalidProof,
@@ -103,7 +105,33 @@ where
         }
     }
 
-    #[must_use = "this returns the result of the operation, without modifying the original"]
+    /// Create a new [`Ledger`] instance with the updated state.
+    /// This method adds a [`LedgerState`] to the new [`Ledger`] without running
+    /// validation.
+    ///
+    /// # Warning
+    ///
+    /// **This method bypasses safety checks** and can corrupt the state if used
+    /// incorrectly.
+    /// Only use for recovery, debugging, or other manipulations where the input
+    /// is known to be valid.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The id of the [`LedgerState`].
+    /// * `state` - The [`LedgerState`] to be added.
+    #[must_use = "Returns a new instance with the updated state, without modifying the original."]
+    pub fn apply_state_unchecked(&self, id: Id, state: LedgerState) -> Self {
+        let mut states = self.states.clone();
+        states.insert(id, state);
+        Self {
+            states,
+            config: self.config,
+        }
+    }
+
+    /// Create a new [`Ledger`] with the updated state.
+    #[must_use = "Returns a new instance with the updated state, without modifying the original."]
     pub fn try_update<LeaderProof>(
         &self,
         id: Id,
@@ -141,14 +169,7 @@ where
                 .clone()
                 .try_update(slot, proof, &orphan_proofs, &self.config)?;
 
-        let mut states = self.states.clone();
-
-        states.insert(id, new_state);
-
-        Ok(Self {
-            states,
-            config: self.config,
-        })
+        Ok(self.apply_state_unchecked(id, new_state))
     }
 
     pub fn state(&self, id: &Id) -> Option<&LedgerState> {
