@@ -25,7 +25,9 @@ async fn test_get_share_data() {
     let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
     let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
 
-    disseminate_with_metadata(executor, &data, metadata).await;
+    disseminate_with_metadata(executor, &data, metadata)
+        .await
+        .unwrap();
 
     let from = 0u64.to_be_bytes();
     let to = 1u64.to_be_bytes();
@@ -134,7 +136,9 @@ async fn test_get_shares() {
     let app_id: [u8; 32] = app_id.try_into().unwrap();
     let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
 
-    disseminate_with_metadata(executor, &data, metadata).await;
+    disseminate_with_metadata(executor, &data, metadata)
+        .await
+        .unwrap();
     let from = 0u64.to_be_bytes();
     let to = 1u64.to_be_bytes();
     wait_for_indexed_blob(executor, app_id, from, to, num_subnets).await;

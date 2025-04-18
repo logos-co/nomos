@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use common_http_client::Error;
 use executor_http_client::ExecutorHttpClient;
 use reqwest::Url;
 
@@ -11,16 +12,13 @@ pub async fn disseminate_with_metadata(
     executor: &Executor,
     data: &[u8],
     metadata: kzgrs_backend::dispersal::Metadata,
-) {
+) -> Result<(), Error> {
     let executor_config = executor.config();
     let backend_address = executor_config.http.backend_settings.address;
     let client = ExecutorHttpClient::new(None);
     let exec_url = Url::parse(&format!("http://{backend_address}")).unwrap();
 
-    client
-        .publish_blob(exec_url, data.to_vec(), metadata)
-        .await
-        .unwrap();
+    client.publish_blob(exec_url, data.to_vec(), metadata).await
 }
 
 pub async fn wait_for_indexed_blob(

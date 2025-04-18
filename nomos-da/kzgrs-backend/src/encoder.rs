@@ -309,6 +309,10 @@ impl nomos_core::da::DaEncoder for DaEncoder {
 
     fn encode(&self, data: &[u8]) -> Result<EncodedData, KzgRsError> {
         let global_parameters = &self.params.global_parameters;
+        if data.len() % DaEncoderParams::MAX_BLS12_381_ENCODING_CHUNK_SIZE != 0 {
+            return Err(KzgRsError::DataSize);
+        }
+
         let chunked_data = self.chunkify(data);
         let row_domain = PolynomialEvaluationDomain::new(self.params.column_count)
             .ok_or(KzgRsError::RowDomain)?;

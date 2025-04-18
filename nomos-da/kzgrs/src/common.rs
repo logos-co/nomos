@@ -45,6 +45,8 @@ pub enum KzgRsError {
     },
     #[error("ChunkSize should be <= 32 (bytes), got {0}")]
     ChunkSizeTooBig(usize),
+    #[error("Data to encode is not multiple of 31 bytes")]
+    DataSize,
     #[error("Not enough attestations, required {required} but received {received}")]
     NotEnoughAttestations { required: usize, received: usize },
     #[error("Mismatch between number of attestations ({attestations_count}) and number of signers ({signers_count})")]
