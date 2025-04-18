@@ -21,6 +21,10 @@ impl ConnectedPeers {
         self.peers.insert(peer_id, address);
     }
 
+    pub(crate) fn get_peer_address(&self, peer_id: &PeerId) -> Option<&Multiaddr> {
+        self.peers.get(peer_id)
+    }
+
     pub(crate) fn remove_peer(&mut self, peer_id: &PeerId) {
         self.peers.remove(peer_id);
     }

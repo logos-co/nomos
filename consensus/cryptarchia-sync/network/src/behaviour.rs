@@ -2,16 +2,16 @@ use std::task::{Context, Poll};
 
 use cryptarchia_engine::Slot;
 use futures::{
+    AsyncWriteExt, FutureExt,
     future::BoxFuture,
     stream::{FuturesUnordered, StreamExt},
-    AsyncWriteExt, FutureExt,
 };
 use libp2p::{
+    Multiaddr, PeerId, Stream, StreamProtocol,
     swarm::{
         ConnectionClosed, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
-        THandlerOutEvent, ToSwarm,
+        THandlerOutEvent, ToSwarm, dial_opts::DialOpts,
     },
-    Multiaddr, PeerId, Stream, StreamProtocol,
 };
 use tokio::sync::mpsc::{self, Sender, UnboundedSender};
 use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
@@ -317,6 +317,21 @@ impl NetworkBehaviour for SyncBehaviour {
         if let Some(event) = self.handle_incoming_syncs(cx) {
             return Poll::Ready(event);
         }
+
+        // Deal with connection as the underlying behaviour would do
+        if let Poll::Ready(ToSwarm::Dial { mut opts }) = self.stream_behaviour.poll(cx) {
+            // attach known peer address if possible
+            if let Some(address) = opts
+                .get_peer_id()
+                .and_then(|peer_id: PeerId| self.connected_peers.get_peer_address(&peer_id))
+            {
+                opts = DialOpts::peer_id(opts.get_peer_id().unwrap())
+                    .addresses(vec![address.clone()])
+                    .build();
+
+                return Poll::Ready(ToSwarm::Dial { opts });
+            }
+        }
         Poll::Pending
     }
 }
@@ -326,10 +341,10 @@ mod test {
     use std::time::Duration;
 
     use libp2p::{
-        core::{transport::MemoryTransport, upgrade::Version, Multiaddr},
+        PeerId, SwarmBuilder, Transport,
+        core::{Multiaddr, transport::MemoryTransport, upgrade::Version},
         identity::Keypair,
         swarm::{Swarm, SwarmEvent},
-        PeerId, SwarmBuilder, Transport,
     };
     use nomos_core::header::HeaderId;
     use rand::Rng;
