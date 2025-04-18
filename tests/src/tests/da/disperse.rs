@@ -22,7 +22,9 @@ async fn disseminate_and_retrieve() {
         kzgrs_backend::dispersal::Metadata::new(app_id.clone().try_into().unwrap(), 0u64.into());
 
     tokio::time::sleep(Duration::from_secs(15)).await;
-    disseminate_with_metadata(executor, &data, metadata).await;
+    disseminate_with_metadata(executor, &data, metadata)
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_secs(20)).await;
 
     let from = 0u64.to_be_bytes();
@@ -69,7 +71,9 @@ async fn disseminate_retrieve_reconstruct() {
         println!("disseminating {data_size} bytes");
         let data = &data[..data_size]; // test increasing size data
         let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(i as u64));
-        disseminate_with_metadata(executor, data, metadata).await;
+        disseminate_with_metadata(executor, data, metadata)
+            .await
+            .unwrap();
 
         let from = i.to_be_bytes();
         let to = (i + 1).to_be_bytes();
@@ -145,7 +149,9 @@ async fn four_subnets_disseminate_retrieve_reconstruct() {
         println!("disseminating {data_size} bytes");
         let data = &data[..data_size]; // test increasing size data
         let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(i as u64));
-        disseminate_with_metadata(executor, data, metadata).await;
+        disseminate_with_metadata(executor, data, metadata)
+            .await
+            .unwrap();
 
         let from = i.to_be_bytes();
         let to = (i + 1).to_be_bytes();
@@ -210,7 +216,9 @@ async fn disseminate_same_data() {
 
     for i in 0..ITERATIONS {
         println!("iteration {i}");
-        disseminate_with_metadata(executor, &data, metadata).await;
+        disseminate_with_metadata(executor, &data, metadata)
+            .await
+            .unwrap();
 
         wait_for_indexed_blob(executor, app_id, from, to, num_subnets).await;
 
@@ -226,6 +234,27 @@ async fn disseminate_same_data() {
     }
 }
 
+#[tokio::test]
+async fn disseminate_too_few_bytes() {
+    let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
+    let executor = &topology.executors()[0];
+
+    let data = [1u8; 9];
+
+    let app_id = hex::decode(APP_ID).unwrap();
+    let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
+    let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(0));
+
+    let err = disseminate_with_metadata(executor, &data, metadata)
+        .await
+        .expect_err("Expected an error, but got Ok");
+
+    assert!(
+        format!("{err:?}").contains("Data to encode is not multiple of 31 bytes"),
+        "Unexpected error: {err:?}"
+    );
+}
+
 #[ignore = "for local debugging"]
 #[tokio::test]
 async fn local_testnet() {
@@ -235,7 +264,7 @@ async fn local_testnet() {
 
     let mut index = 0u64;
     loop {
-        disseminate_with_metadata(
+        let _ = disseminate_with_metadata(
             executor,
             &generate_data(index),
             create_metadata(&app_id, index),

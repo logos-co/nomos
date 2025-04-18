@@ -34,8 +34,10 @@ impl DaVerifier {
         index: usize,
         rows_domain: PolynomialEvaluationDomain,
     ) -> bool {
-        let column_domain =
-            PolynomialEvaluationDomain::new(column.len()).expect("Domain should be able to build");
+        let Some(column_domain) = PolynomialEvaluationDomain::new(column.len()) else {
+            tracing::error!("Could not create column domain");
+            return false;
+        };
         // 1. compute commitment for column
         let Ok((_, polynomial)) = bytes_to_polynomial::<BYTES_PER_FIELD_ELEMENT>(
             column.as_bytes().as_slice(),
@@ -116,8 +118,10 @@ impl DaVerifier {
         light_share: &DaLightShare,
         rows_domain_size: usize,
     ) -> bool {
-        let rows_domain = PolynomialEvaluationDomain::new(rows_domain_size)
-            .expect("Domain should be able to build");
+        let Some(rows_domain) = PolynomialEvaluationDomain::new(rows_domain_size) else {
+            tracing::error!("Could not create rows domain");
+            return false;
+        };
         let share_col_idx = &light_share.share_idx;
         let index = share_col_idx;
 

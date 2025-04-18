@@ -65,18 +65,30 @@ impl EncodedData {
     #[must_use]
     pub fn to_da_share(&self, index: usize) -> Option<DaShare> {
         let column = self.extended_data.columns().nth(index)?;
+
+        let Ok(share_idx) = index.try_into() else {
+            tracing::error!("Failed to convert index to share_idx: {index}");
+            return None;
+        };
+
+        let mut rows_proofs = Vec::with_capacity(self.rows_proofs.len());
+        for (i, proofs) in self.rows_proofs.iter().enumerate() {
+            if let Some(proof) = proofs.get(index).copied() {
+                rows_proofs.push(proof);
+            } else {
+                tracing::error!("Missing row proof at row {}, column {}", i, index);
+                return None;
+            }
+        }
+
         Some(DaShare {
             column,
-            share_idx: index.try_into().unwrap(),
+            share_idx,
             column_commitment: self.column_commitments[index],
             aggregated_column_commitment: self.aggregated_column_commitment,
             aggregated_column_proof: self.aggregated_column_proofs[index],
             rows_commitments: self.row_commitments.clone(),
-            rows_proofs: self
-                .rows_proofs
-                .iter()
-                .map(|proofs| proofs.get(index).copied().unwrap())
-                .collect(),
+            rows_proofs,
         })
     }
 
@@ -297,11 +309,15 @@ impl nomos_core::da::DaEncoder for DaEncoder {
 
     fn encode(&self, data: &[u8]) -> Result<EncodedData, KzgRsError> {
         let global_parameters = &self.params.global_parameters;
+        if data.len() % DaEncoderParams::MAX_BLS12_381_ENCODING_CHUNK_SIZE != 0 {
+            return Err(KzgRsError::DataSize);
+        }
+
         let chunked_data = self.chunkify(data);
         let row_domain = PolynomialEvaluationDomain::new(self.params.column_count)
-            .expect("Domain should be able to build");
-        let column_domain = PolynomialEvaluationDomain::new(chunked_data.len())
-            .expect("Domain should be able to build");
+            .ok_or(KzgRsError::RowDomain)?;
+        let column_domain =
+            PolynomialEvaluationDomain::new(chunked_data.len()).ok_or(KzgRsError::ColumnDomain)?;
         let (row_polynomials, row_commitments): (Vec<_>, Vec<_>) =
             Self::compute_kzg_row_commitments(global_parameters, &chunked_data, row_domain)?
                 .into_iter()

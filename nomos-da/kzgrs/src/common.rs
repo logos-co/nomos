@@ -45,6 +45,8 @@ pub enum KzgRsError {
     },
     #[error("ChunkSize should be <= 32 (bytes), got {0}")]
     ChunkSizeTooBig(usize),
+    #[error("Data to encode is not multiple of 31 bytes")]
+    DataSize,
     #[error("Not enough attestations, required {required} but received {received}")]
     NotEnoughAttestations { required: usize, received: usize },
     #[error("Mismatch between number of attestations ({attestations_count}) and number of signers ({signers_count})")]
@@ -58,6 +60,10 @@ pub enum KzgRsError {
     BlstError(BlstError),
     #[error("Denominator polynomial cannot be zero")]
     DivisionByZeroPolynomial,
+    #[error("Domain should be able to build for rows")]
+    RowDomain,
+    #[error("Domain should be able to build for columns")]
+    ColumnDomain,
 }
 
 /// Transform chunks of bytes (of size `CHUNK_SIZE`) into `Fr` which are
