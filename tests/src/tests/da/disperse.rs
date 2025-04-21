@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use kzgrs_backend::{dispersal::Index, reconstruction::reconstruct_without_missing_data};
 use nomos_core::da::blob::Share;
+use reqwest::Url;
 use subnetworks_assignations::MembershipHandler;
 use tests::{
     common::da::{disseminate_with_metadata, wait_for_indexed_blob, APP_ID},
@@ -256,4 +257,26 @@ fn create_metadata(app_id: &[u8], index: u64) -> kzgrs_backend::dispersal::Metad
         app_id.try_into().expect("Failed to convert APP_ID"),
         index.into(),
     )
+}
+
+#[tokio::test]
+async fn disseminate_http_client() {
+    let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
+    let executor = &topology.executors()[0];
+    let addr = executor.config().http.backend_settings.address.clone();
+
+    let data = [1u8; 837];
+    let app_id = hex::decode(APP_ID).unwrap();
+    let metadata =
+        kzgrs_backend::dispersal::Metadata::new(app_id.clone().try_into().unwrap(), 0u64.into());
+
+    tokio::time::sleep(Duration::from_secs(15)).await;
+    executor_http_client::ExecutorHttpClient::new(None)
+        .publish_blob(
+            Url::parse(&format!("http://{}", addr)).unwrap(),
+            data.to_vec(),
+            metadata,
+        )
+        .await
+        .unwrap();
 }
