@@ -1,17 +1,16 @@
-use std::ops::Div;
-
-use ark_ff::{BigInteger, PrimeField};
-use ark_poly::EvaluationDomain;
+use ark_ff::{BigInteger, Field, PrimeField};
+use ark_poly::{EvaluationDomain, Polynomial as _};
 use kzgrs::{
     bytes_to_polynomial, commit_polynomial,
     common::bytes_to_polynomial_unchecked,
     encode,
     fk20::{fk20_batch_generate_elements_proofs, Toeplitz1Cache},
-    Commitment, Evaluations, GlobalParameters, KzgRsError, Polynomial, PolynomialEvaluationDomain,
-    Proof, BYTES_PER_FIELD_ELEMENT,
+    Commitment, Evaluations, Fr, GlobalParameters, KzgRsError, Polynomial,
+    PolynomialEvaluationDomain, Proof, BYTES_PER_FIELD_ELEMENT,
 };
 #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use std::ops::Div;
 
 use crate::{
     common::{hash_commitment, share::DaShare, Chunk, ChunksMatrix, Row},
@@ -183,16 +182,28 @@ impl DaEncoder {
             // we already make sure to have the chunks of proper elements.
             // Also, after rs encoding, we are sure all `Fr` elements already fits within
             // modulus.
-            let (evals, poly) = bytes_to_polynomial_unchecked::<BYTES_PER_FIELD_ELEMENT>(
+            let (evals, mut poly) = bytes_to_polynomial_unchecked::<BYTES_PER_FIELD_ELEMENT>(
                 r.as_bytes().as_ref(),
                 polynomial_evaluation_domain,
             );
+
+            if !poly.degree().is_power_of_two() {
+                Self::next_power_of_two_poly(&mut poly);
+            }
+
             commit_polynomial(&poly, global_parameters)
                 .map(|commitment| ((evals, poly), commitment))
         })
         .collect()
     }
 
+    fn next_power_of_two_poly(polynomial: &mut Polynomial) {
+        let poly_len = polynomial.len();
+        let next_power = poly_len.next_power_of_two();
+        polynomial
+            .coeffs
+            .extend(std::iter::repeat_n(Fr::ZERO, next_power - poly_len));
+    }
     fn rs_encode_row(
         row: &Polynomial,
         polynomial_evaluation_domain: PolynomialEvaluationDomain,
@@ -252,7 +263,6 @@ impl DaEncoder {
 
     fn compute_aggregated_column_commitment(
         global_parameters: &GlobalParameters,
-
         commitments: &[Commitment],
         polynomial_evaluation_domain: PolynomialEvaluationDomain,
     ) -> Result<((Evaluations, Polynomial), Commitment), KzgRsError> {
@@ -590,5 +600,12 @@ pub mod test {
 
         let shares = encoded_data.iter();
         assert_eq!(shares.count(), 16);
+    }
+
+    #[test]
+    fn test_encode_zeros() {
+        // 837 zeros is not arbitrary, bug discovered on offsite 2025/04/22
+        let data = [0; 837];
+        ENCODER.encode(&data).unwrap();
     }
 }
