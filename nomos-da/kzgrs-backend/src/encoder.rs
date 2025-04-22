@@ -1,3 +1,5 @@
+use std::ops::Div;
+
 use ark_ff::{BigInteger, Field, PrimeField};
 use ark_poly::{EvaluationDomain, Polynomial as _};
 use kzgrs::{
@@ -10,7 +12,6 @@ use kzgrs::{
 };
 #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use std::ops::Div;
 
 use crate::{
     common::{hash_commitment, share::DaShare, Chunk, ChunksMatrix, Row},
