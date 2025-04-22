@@ -235,6 +235,26 @@ async fn local_testnet() {
     let addr = executor.config().http.backend_settings.address;
     println!(">> addr {addr:?}");
 
+    let mut index = 0u64;
+    loop {
+        disseminate_with_metadata(
+            executor,
+            &generate_data(index),
+            create_metadata(&app_id, index),
+        )
+        .await;
+        index += 1;
+        tokio::time::sleep(Duration::from_secs(60)).await;
+    }
+}
+
+#[tokio::test]
+async fn split_2025_death_payload() {
+    let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
+    let executor = &topology.executors()[0];
+    let app_id = hex::decode(APP_ID).expect("Invalid APP_ID");
+    let addr = executor.config().http.backend_settings.address;
+
     let data = vec![
         32, 0, 0, 0, 0, 0, 0, 0, 34, 88, 212, 64, 57, 70, 21, 63, 42, 117, 231, 187, 244, 0, 62,
         221, 185, 0, 148, 28, 70, 179, 1, 201, 225, 20, 77, 79, 243, 241, 218, 162, 32, 0, 0, 0, 0,
@@ -270,15 +290,7 @@ async fn local_testnet() {
         128, 84, 169, 217, 162, 189, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
-    //let data = [1; 837];
-    let mut index = 0u64;
-    loop {
-        disseminate_with_metadata(executor, &data, create_metadata(&app_id, index)).await;
-
-        println!(">>> dispersed");
-        index += 1;
-        tokio::time::sleep(Duration::from_secs(60)).await;
-    }
+    disseminate_with_metadata(executor, &data, create_metadata(&app_id, 0u64)).await;
 }
 
 fn generate_data(index: u64) -> Vec<u8> {

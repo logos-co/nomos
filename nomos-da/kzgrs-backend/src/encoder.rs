@@ -69,14 +69,11 @@ impl EncodedData {
             return None;
         };
 
-        let mut rows_proofs = Vec::with_capacity(self.rows_proofs.len());
-        for proofs in &self.rows_proofs {
-            if let Some(proof) = proofs.get(index).copied() {
-                rows_proofs.push(proof);
-            } else {
-                return None;
-            }
-        }
+        let rows_proofs: Vec<Proof> = self
+            .rows_proofs
+            .iter()
+            .map(|proofs| proofs.get(index).copied().unwrap_or_default())
+            .collect();
 
         Some(DaShare {
             column,
@@ -622,6 +619,8 @@ pub mod test {
     fn test_encode_zeros() {
         // 837 zeros is not arbitrary, bug discovered on offsite 2025/04/22
         let data = [0; 837];
-        ENCODER.encode(&data).unwrap();
+        let encoded = ENCODER.encode(&data).unwrap();
+        let shares: Vec<_> = encoded.into_iter().collect();
+        assert_eq!(shares.len(), 16)
     }
 }
