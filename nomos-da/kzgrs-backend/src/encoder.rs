@@ -65,18 +65,27 @@ impl EncodedData {
     #[must_use]
     pub fn to_da_share(&self, index: usize) -> Option<DaShare> {
         let column = self.extended_data.columns().nth(index)?;
+        let Ok(share_idx) = index.try_into() else {
+            return None;
+        };
+
+        let mut rows_proofs = Vec::with_capacity(self.rows_proofs.len());
+        for proofs in &self.rows_proofs {
+            if let Some(proof) = proofs.get(index).copied() {
+                rows_proofs.push(proof);
+            } else {
+                return None;
+            }
+        }
+
         Some(DaShare {
             column,
-            share_idx: index.try_into().unwrap(),
+            share_idx,
             column_commitment: self.column_commitments[index],
             aggregated_column_commitment: self.aggregated_column_commitment,
             aggregated_column_proof: self.aggregated_column_proofs[index],
             rows_commitments: self.row_commitments.clone(),
-            rows_proofs: self
-                .rows_proofs
-                .iter()
-                .map(|proofs| proofs.get(index).copied().unwrap())
-                .collect(),
+            rows_proofs,
         })
     }
 
@@ -335,11 +344,17 @@ impl nomos_core::da::DaEncoder for DaEncoder {
                 &column_commitments,
                 row_domain,
             )?;
-        let aggregated_column_proofs = Self::compute_aggregated_column_proofs(
+        let mut aggregated_column_proofs = Self::compute_aggregated_column_proofs(
             global_parameters,
             &aggregated_polynomial,
             self.params.toeplitz1cache.as_ref(),
         );
+        // Agregated polynomial can be compacted and aggregated column proofs in that
+        // case won't produce the matching number of proofs per column - in this
+        // case we just add empty proofs for consistency.
+        if aggregated_column_proofs.len() < self.params.column_count {
+            aggregated_column_proofs.resize(self.params.column_count, Proof::default());
+        }
         Ok(EncodedData {
             data: data.to_vec(),
             chunked_data,
