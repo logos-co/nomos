@@ -620,7 +620,6 @@ pub mod test {
         // 837 zeros is not arbitrary, bug discovered on offsite 2025/04/22
         let data = [0; 837];
         let encoded = ENCODER.encode(&data).unwrap();
-        let shares: Vec<_> = encoded.into_iter().collect();
-        assert_eq!(shares.len(), 16)
+        assert_eq!(encoded.into_iter().count(), 16);
     }
 }

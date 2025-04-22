@@ -248,12 +248,12 @@ async fn local_testnet() {
     }
 }
 
+#[ignore = "for local debugging"]
 #[tokio::test]
 async fn split_2025_death_payload() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
     let app_id = hex::decode(APP_ID).expect("Invalid APP_ID");
-    let addr = executor.config().http.backend_settings.address;
 
     let data = vec![
         32, 0, 0, 0, 0, 0, 0, 0, 34, 88, 212, 64, 57, 70, 21, 63, 42, 117, 231, 187, 244, 0, 62,
