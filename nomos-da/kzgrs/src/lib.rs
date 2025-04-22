@@ -2,6 +2,8 @@ pub mod common;
 pub mod fk20;
 pub mod global_parameters;
 pub mod kzg;
+
+pub mod bdfg_proving;
 pub mod rs;
 
 use std::mem;
