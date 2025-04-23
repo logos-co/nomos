@@ -3,7 +3,7 @@ use std::ops::Div;
 use ark_ff::{BigInteger, PrimeField};
 use ark_poly::EvaluationDomain;
 use kzgrs::{
-    bytes_to_polynomial, commit_polynomial,
+    bdfg_proving, bytes_to_polynomial, commit_polynomial,
     common::bytes_to_polynomial_unchecked,
     encode,
     fk20::{fk20_batch_generate_elements_proofs, Toeplitz1Cache},
@@ -291,6 +291,16 @@ impl DaEncoder {
     }
 }
 
+pub struct DaEncoder2(pub DaEncoder);
+
+pub struct EncodedData2 {
+    pub data: Vec<u8>,
+    pub chunked_data: ChunksMatrix,
+    pub extended_data: ChunksMatrix,
+    pub row_commitments: Vec<Commitment>,
+    pub aggregated_column_proofs: Vec<Proof>,
+}
+
 impl nomos_core::da::DaEncoder for DaEncoder {
     type EncodedData = EncodedData;
     type Error = KzgRsError;
@@ -337,6 +347,41 @@ impl nomos_core::da::DaEncoder for DaEncoder {
             rows_proofs,
             column_commitments,
             aggregated_column_commitment,
+            aggregated_column_proofs,
+        })
+    }
+}
+
+impl nomos_core::da::DaEncoder for DaEncoder2 {
+    type EncodedData = EncodedData2;
+    type Error = KzgRsError;
+
+    fn encode(&self, data: &[u8]) -> Result<Self::EncodedData, Self::Error> {
+        let Self(_self) = self;
+        let global_parameters = &_self.params.global_parameters;
+        let chunked_data = _self.chunkify(data);
+        let row_domain = PolynomialEvaluationDomain::new(_self.params.column_count)
+            .expect("Domain should be able to build");
+        let (row_polynomials, row_commitments): (Vec<_>, Vec<_>) =
+            DaEncoder::compute_kzg_row_commitments(global_parameters, &chunked_data, row_domain)?
+                .into_iter()
+                .unzip();
+        let (_, row_polynomials): (Vec<_>, Vec<_>) = row_polynomials.into_iter().unzip();
+        let encoded_evaluations = DaEncoder::rs_encode_rows(&row_polynomials, row_domain);
+        let extended_data = DaEncoder::evals_to_chunk_matrix(&encoded_evaluations);
+        let aggregated_column_proofs = bdfg_proving::generate_aggregated_proof(
+            &encoded_evaluations,
+            &row_commitments,
+            row_domain,
+            &GLOBAL_PARAMETERS,
+            _self.params.toeplitz1cache.as_ref(),
+        );
+
+        Ok(EncodedData2 {
+            data: data.to_vec(),
+            chunked_data,
+            extended_data,
+            row_commitments,
             aggregated_column_proofs,
         })
     }

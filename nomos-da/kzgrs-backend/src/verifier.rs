@@ -1,9 +1,10 @@
+use ark_ff::PrimeField;
 use ark_poly::EvaluationDomain;
 use itertools::{izip, Itertools};
 use kzgrs::{
     bytes_to_polynomial, commit_polynomial, common::field_element_from_bytes_le,
-    verify_element_proof, Commitment, GlobalParameters, PolynomialEvaluationDomain, Proof,
-    BYTES_PER_FIELD_ELEMENT,
+    verify_element_proof, Commitment, FieldElement, GlobalParameters, PolynomialEvaluationDomain,
+    Proof, BYTES_PER_FIELD_ELEMENT,
 };
 
 use crate::{
@@ -146,6 +147,37 @@ impl DaVerifier {
             return false;
         }
         true
+    }
+}
+
+pub struct DaVerifier2 {
+    pub global_parameters: GlobalParameters,
+}
+
+pub struct DaShare2 {
+    pub column: Column,
+    pub column_idx: usize,
+    pub row_commitments: Vec<Commitment>,
+    pub column_proof: Proof,
+}
+
+impl DaVerifier2 {
+    pub fn verify(&self, share: &DaShare2, rows_domain_size: usize) -> bool {
+        let column: Vec<FieldElement> = share
+            .column
+            .iter()
+            .map(|Chunk(b)| FieldElement::from_le_bytes_mod_order(b))
+            .collect();
+        let rows_domain = PolynomialEvaluationDomain::new(rows_domain_size)
+            .expect("Domain should be able to build");
+        kzgrs::bdfg_proving::verify_column(
+            share.column_idx,
+            &column,
+            &share.row_commitments,
+            &share.column_proof,
+            rows_domain,
+            &self.global_parameters,
+        )
     }
 }
 

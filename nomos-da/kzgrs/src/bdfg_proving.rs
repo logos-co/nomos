@@ -1,14 +1,17 @@
-use super::{Commitment, Evaluations, GlobalParameters, PolynomialEvaluationDomain, Proof};
+use super::{kzg, Commitment, Evaluations, GlobalParameters, PolynomialEvaluationDomain, Proof};
 use crate::fk20::{fk20_batch_generate_elements_proofs, Toeplitz1Cache};
-use ark_bls12_381::Fr;
+use ark_bls12_381::{Fr, G1Projective};
+use ark_ec::CurveGroup;
 use ark_ff::{Field, PrimeField};
 use ark_poly::EvaluationDomain;
+use ark_poly_commit::kzg10::Commitment as KzgCommitment;
 use ark_serialize::CanonicalSerialize;
 use blake2::{
-    digest::{Digest as _, Update, VariableOutput},
+    digest::{Update, VariableOutput},
     Blake2bVar,
 };
 use std::io::Cursor;
+use std::ops::Mul;
 
 /// Module with implementation of [Efficient polynomial commitment schemes for multiple points and polynomials](https://eprint.iacr.org/2020/081.pdf)
 pub fn generate_row_commitments_hash(commitments: &[Commitment]) -> Vec<u8> {
@@ -58,5 +61,28 @@ pub fn generate_aggregated_proof(
         &aggregated_commitments_polynomial,
         global_parameters,
         toeplitz1cache,
+    )
+}
+
+pub fn verify_column(
+    column_idx: usize,
+    column: &[Fr],
+    row_commitments: &[Commitment],
+    column_proof: &Proof,
+    domain: PolynomialEvaluationDomain,
+    global_parameters: &GlobalParameters,
+) -> bool {
+    let h = Fr::from_le_bytes_mod_order(generate_row_commitments_hash(row_commitments).as_ref());
+    let h_pow = h.pow([column_idx as u64 - 1]);
+    let aggregated_elements: Fr = column.iter().map(|x| x.mul(&h_pow)).sum();
+    let aggregated_commitments: G1Projective = row_commitments.iter().map(|c| c.0.mul(h_pow)).sum();
+    let commitment = KzgCommitment(aggregated_commitments.into_affine());
+    kzg::verify_element_proof(
+        column_idx,
+        &aggregated_elements,
+        &commitment,
+        column_proof,
+        domain,
+        global_parameters,
     )
 }
