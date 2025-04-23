@@ -535,7 +535,7 @@ mod tests {
     // Block Operation, short for better formatting.
     enum BOp {
         Dec(ProviderId, ServiceType, Vec<Locator>),
-        Rew(ProviderId, DeclarationId, ServiceType),
+        Act(ProviderId, DeclarationId, ServiceType),
         Wit(ProviderId, DeclarationId, ServiceType),
     }
 
@@ -552,7 +552,7 @@ mod tests {
                         BOp::Dec(pid, service, locators) => {
                             block.add_declaration(pid, service, locators, should_pass);
                         }
-                        BOp::Rew(pid, did, service) => {
+                        BOp::Act(pid, did, service) => {
                             block.add_activity(pid, did, service, should_pass);
                         }
                         BOp::Wit(pid, did, service) => {
@@ -839,9 +839,9 @@ mod tests {
         assert_eq!(ledger.pending_providers.len(), 1);
         assert!(ledger.pending_providers.contains_key(&100));
 
+        // Withdrawing doesn't make the provider active.
         let activity_records = activity_contract.activity_records.lock().unwrap();
-        assert_eq!(activity_records.len(), 1);
-        assert_eq!(activity_records[0].provider_id, provider_id);
+        assert_eq!(activity_records.len(), 0);
         drop(activity_records);
     }
 
@@ -884,10 +884,10 @@ mod tests {
                     (BOp::Dec(pid, St::DataAvailability, locators.clone()), false),
                 ],
             ),
-            (10, vec![(BOp::Rew(pid, did, St::BlendNetwork), true)]),
+            (10, vec![(BOp::Act(pid, did, St::BlendNetwork), true)]),
             // This provider is registered with the BlendNetwork service, should fail to records
             // activity for DataAvailability service.
-            (20, vec![(BOp::Rew(pid, did, St::DataAvailability), false)]),
+            (20, vec![(BOp::Act(pid, did, St::DataAvailability), false)]),
             (
                 30,
                 vec![
@@ -923,7 +923,7 @@ mod tests {
                 provider_id: pid,
                 declaration_id: did,
                 created: 0,
-                active: Some(30),
+                active: Some(10),
                 withdrawn: Some(30)
             }
         );
@@ -961,8 +961,8 @@ mod tests {
                     (BOp::Dec(pid2, St::BlendNetwork, locators.clone()), true),
                 ],
             ),
-            (10, vec![(BOp::Rew(pid1, did, St::DataAvailability), true)]),
-            (20, vec![(BOp::Rew(pid2, did, St::BlendNetwork), true)]),
+            (10, vec![(BOp::Act(pid1, did, St::DataAvailability), true)]),
+            (20, vec![(BOp::Act(pid2, did, St::BlendNetwork), true)]),
             (
                 30,
                 vec![
