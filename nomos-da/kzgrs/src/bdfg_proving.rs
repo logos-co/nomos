@@ -97,10 +97,11 @@ pub fn compute_aggregated_polynomial(
                 (0..domain.size()).into_par_iter()
             }
         }
-        .map(|i| {
+        .map(|column| {
             polynomials
                 .iter()
-                .map(|poly| poly.evals[i] * h.pow([i as u64 - 1]))
+                .enumerate()
+                .map(|(i, poly)| poly.evals[column].mul(h.pow([i as u64])))
                 .sum()
         })
         .collect()
@@ -144,14 +145,10 @@ pub fn generate_aggregated_proof(
     toeplitz1cache: Option<&Toeplitz1Cache>,
 ) -> Vec<Proof> {
     let rows_commitments_hash = generate_row_commitments_hash(commitments);
-    let aggregated_commitments_evals =
+    let aggregated_poly_evals =
         compute_aggregated_polynomial(polynomials, &rows_commitments_hash, domain);
-    let aggregated_commitments_polynomial = aggregated_commitments_evals.interpolate_by_ref();
-    fk20_batch_generate_elements_proofs(
-        &aggregated_commitments_polynomial,
-        global_parameters,
-        toeplitz1cache,
-    )
+    let aggregated_polynomial = aggregated_poly_evals.interpolate();
+    fk20_batch_generate_elements_proofs(&aggregated_polynomial, global_parameters, toeplitz1cache)
 }
 
 /// Verifies a single column against its aggregated proof and row commitments.
@@ -185,10 +182,18 @@ pub fn verify_column(
     domain: PolynomialEvaluationDomain,
     global_parameters: &GlobalParameters,
 ) -> bool {
-    let h = Fr::from_le_bytes_mod_order(generate_row_commitments_hash(row_commitments).as_ref());
-    let h_pow = h.pow([column_idx as u64 - 1]);
-    let aggregated_elements: Fr = column.iter().map(|x| x.mul(&h_pow)).sum();
-    let aggregated_commitments: G1Projective = row_commitments.iter().map(|c| c.0.mul(h_pow)).sum();
+    let row_commitments_hash = generate_row_commitments_hash(row_commitments);
+    let h = Fr::from_le_bytes_mod_order(&row_commitments_hash);
+    let aggregated_elements: Fr = column
+        .iter()
+        .enumerate()
+        .map(|(i, x)| x.mul(&h.pow([i as u64])))
+        .sum();
+    let aggregated_commitments: G1Projective = row_commitments
+        .iter()
+        .enumerate()
+        .map(|(i, c)| c.0.mul(&h.pow([i as u64])))
+        .sum();
     let commitment = KzgCommitment(aggregated_commitments.into_affine());
     kzg::verify_element_proof(
         column_idx,
