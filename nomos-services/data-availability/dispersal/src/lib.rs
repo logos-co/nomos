@@ -3,7 +3,7 @@ use std::{
     marker::PhantomData,
 };
 
-use nomos_core::da::{blob::metadata, BlobId};
+use nomos_core::da::blob::metadata;
 use nomos_da_network_core::{PeerId, SubnetworkId};
 use overwatch::{
     services::{

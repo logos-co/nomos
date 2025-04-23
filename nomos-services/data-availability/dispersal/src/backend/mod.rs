@@ -1,6 +1,6 @@
 use std::{fmt::Debug, time::Duration};
 
-use nomos_core::da::{blob::metadata, BlobId, DaDispersal, DaEncoder};
+use nomos_core::da::{blob::metadata, DaDispersal, DaEncoder};
 use nomos_tracing::info_with_id;
 use overwatch::DynError;
 use serde::Serialize;
