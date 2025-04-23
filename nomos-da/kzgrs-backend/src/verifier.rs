@@ -10,9 +10,12 @@ pub struct DaVerifier {
 }
 
 impl DaVerifier {
-    pub fn new(global_parameters: GlobalParameters) -> Self {
+    #[must_use]
+    pub const fn new(global_parameters: GlobalParameters) -> Self {
         Self { global_parameters }
     }
+
+    #[must_use]
     pub fn verify(
         &self,
         share: &DaLightShare,
