@@ -22,7 +22,7 @@ pub struct ServiceParameters<ContractAddress> {
     pub lock_period: u64,
     pub inactivity_period: u64,
     pub retention_period: u64,
-    pub reward_contract: ContractAddress,
+    pub activity_contract: ContractAddress,
     pub timestamp: BlockNumber,
 }
 
@@ -48,14 +48,14 @@ pub struct ProviderId(pub [u8; 32]);
 pub struct DeclarationId(pub [u8; 32]);
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
-pub struct RewardId(pub [u8; 32]);
+pub struct ActivityId(pub [u8; 32]);
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
 pub struct ProviderInfo {
     pub provider_id: ProviderId,
     pub declaration_id: DeclarationId,
     pub created: BlockNumber,
-    pub rewarded: Option<BlockNumber>,
+    pub active: Option<BlockNumber>,
     pub withdrawn: Option<BlockNumber>,
 }
 
@@ -70,7 +70,7 @@ impl ProviderInfo {
             provider_id,
             declaration_id,
             created: block_number,
-            rewarded: None,
+            active: None,
             withdrawn: None,
         }
     }
@@ -137,16 +137,15 @@ impl<Proof> DeclarationMessage<Proof> {
 }
 
 #[derive(Clone)]
-pub struct WithdrawMessage<Metadata> {
+pub struct WithdrawMessage {
     pub declaration_id: DeclarationId,
     pub service_type: ServiceType,
     pub provider_id: ProviderId,
     pub nonce: Nonce,
-    pub metadata: Option<Metadata>,
 }
 
 #[derive(Clone)]
-pub struct RewardMessage<Metadata> {
+pub struct ActiveMessage<Metadata> {
     pub declaration_id: DeclarationId,
     pub service_type: ServiceType,
     pub provider_id: ProviderId,
@@ -154,44 +153,20 @@ pub struct RewardMessage<Metadata> {
     pub metadata: Option<Metadata>,
 }
 
-impl<Metadata> RewardMessage<Metadata> {
-    pub fn reward_id(&self) -> RewardId {
+impl<Metadata> ActiveMessage<Metadata> {
+    pub fn activity_id(&self) -> ActivityId {
         let mut hasher = Blake2b::new();
         hasher.update(self.declaration_id.0);
         hasher.update(self.provider_id.0);
         hasher.update(self.nonce);
-        RewardId(hasher.finalize().into())
-    }
-}
-
-/// Withdrawal to Reward message conversion error
-///
-/// If withdrawal has no metadata, then it can't be converted to reward message
-/// and passed to the reward handling logic.
-pub struct NoMetadata;
-
-impl<Metadata> TryFrom<WithdrawMessage<Metadata>> for RewardMessage<Metadata> {
-    type Error = NoMetadata;
-
-    fn try_from(withdraw: WithdrawMessage<Metadata>) -> Result<Self, Self::Error> {
-        if withdraw.metadata.is_none() {
-            return Err(NoMetadata);
-        }
-
-        Ok(Self {
-            declaration_id: withdraw.declaration_id,
-            service_type: withdraw.service_type,
-            provider_id: withdraw.provider_id,
-            nonce: withdraw.nonce,
-            metadata: withdraw.metadata,
-        })
+        ActivityId(hasher.finalize().into())
     }
 }
 
 #[derive(Copy, Clone, Debug)]
 pub enum EventType {
     Declaration,
-    Reward,
+    Activity,
     Withdrawal,
 }
 
@@ -204,8 +179,8 @@ pub struct Event {
 
 pub enum SdpMessage<Metadata, Proof> {
     Declare(DeclarationMessage<Proof>),
-    Reward(RewardMessage<Metadata>),
-    Withdraw(WithdrawMessage<Metadata>),
+    Activity(ActiveMessage<Metadata>),
+    Withdraw(WithdrawMessage),
 }
 
 impl<Metadata, Proof> SdpMessage<Metadata, Proof> {
@@ -213,7 +188,7 @@ impl<Metadata, Proof> SdpMessage<Metadata, Proof> {
     pub const fn provider_id(&self) -> ProviderId {
         match self {
             Self::Declare(message) => message.provider_id,
-            Self::Reward(message) => message.provider_id,
+            Self::Activity(message) => message.provider_id,
             Self::Withdraw(message) => message.provider_id,
         }
     }
@@ -222,7 +197,7 @@ impl<Metadata, Proof> SdpMessage<Metadata, Proof> {
     pub fn declaration_id(&self) -> DeclarationId {
         match self {
             Self::Declare(message) => message.declaration_id(),
-            Self::Reward(message) => message.declaration_id,
+            Self::Activity(message) => message.declaration_id,
             Self::Withdraw(message) => message.declaration_id,
         }
     }
@@ -231,7 +206,7 @@ impl<Metadata, Proof> SdpMessage<Metadata, Proof> {
     pub const fn service_type(&self) -> ServiceType {
         match self {
             Self::Declare(message) => message.service_type,
-            Self::Reward(message) => message.service_type,
+            Self::Activity(message) => message.service_type,
             Self::Withdraw(message) => message.service_type,
         }
     }

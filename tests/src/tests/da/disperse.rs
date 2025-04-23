@@ -138,10 +138,10 @@ async fn four_subnets_disseminate_retrieve_reconstruct() {
     let app_id = hex::decode(APP_ID).unwrap();
     let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
 
-    let data = [1u8; 31 * ITERATIONS];
+    let data = [1u8; 837];
 
     for i in 0..ITERATIONS {
-        let data_size = 31 * (i + 1);
+        // let data_size = 31 * (i + 1);
         println!("disseminating {data_size} bytes");
         let data = &data[..data_size]; // test increasing size data
         let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(i as u64));

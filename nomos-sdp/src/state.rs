@@ -31,8 +31,8 @@ impl ActiveState {
                     Err(ActiveStateError::ToActiveNotOnCreated)
                 }
             }
-            EventType::Reward => {
-                self.0.rewarded = Some(block_number);
+            EventType::Activity => {
+                self.0.active = Some(block_number);
                 Ok(self)
             }
             EventType::Withdrawal => Err(ActiveStateError::ToActiveDuringWithdrawal),
@@ -53,7 +53,7 @@ impl ActiveState {
                 self.0.withdrawn = Some(block_number);
                 Ok(WithdrawnState(self.0))
             }
-            EventType::Declaration | EventType::Reward => {
+            EventType::Declaration | EventType::Activity => {
                 Err(ActiveStateError::ToWithdrawalInvalidEvent(event_type))
             }
         }
@@ -80,8 +80,8 @@ impl InactiveState {
         event_type: EventType,
     ) -> Result<ActiveState, InactiveStateError> {
         match event_type {
-            EventType::Reward => {
-                self.0.rewarded = Some(block_number);
+            EventType::Activity => {
+                self.0.active = Some(block_number);
                 Ok(ActiveState(self.0))
             }
             EventType::Declaration | EventType::Withdrawal => {
@@ -104,7 +104,7 @@ impl InactiveState {
                 self.0.withdrawn = Some(block_number);
                 Ok(WithdrawnState(self.0))
             }
-            EventType::Declaration | EventType::Reward => {
+            EventType::Declaration | EventType::Activity => {
                 Err(InactiveStateError::ToWithdrawalInvalidEvent(event_type))
             }
         }
@@ -113,31 +113,31 @@ impl InactiveState {
 
 #[derive(Error, Debug)]
 pub enum WithdrawnStateError {
-    #[error("Withdawn state can be rewarded only during the same block")]
-    ToWithdrawnRewardedNotSameBlock,
-    #[error("Withdrawn can not transition to withdrawn rewarded during {0:?} event")]
-    ToWithdrawnRewardedInvalidEvent(EventType),
+    #[error("Withdawn state can be active only during the same block")]
+    ToWithdrawnActiveNotSameBlock,
+    #[error("Withdrawn can not transition to withdrawn active during {0:?} event")]
+    ToWithdrawnActiveInvalidEvent(EventType),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct WithdrawnState(ProviderInfo);
 
 impl WithdrawnState {
-    fn try_into_withdrawn_rewarded(
+    fn try_into_withdrawn_active(
         mut self,
         block_number: BlockNumber,
         event_type: EventType,
     ) -> Result<Self, WithdrawnStateError> {
-        if matches!(event_type, EventType::Reward) {
-            // Only allow reward for withdrawal in the same block number.
+        if matches!(event_type, EventType::Activity) {
+            // Only allow activity recorded for withdrawal in the same block number.
             if self.0.withdrawn != Some(block_number) {
-                return Err(WithdrawnStateError::ToWithdrawnRewardedNotSameBlock);
+                return Err(WithdrawnStateError::ToWithdrawnActiveNotSameBlock);
             }
 
-            self.0.rewarded = Some(block_number);
+            self.0.active = Some(block_number);
             Ok(self)
         } else {
-            Err(WithdrawnStateError::ToWithdrawnRewardedInvalidEvent(
+            Err(WithdrawnStateError::ToWithdrawnActiveInvalidEvent(
                 event_type,
             ))
         }
@@ -190,7 +190,7 @@ impl ProviderState {
         }
 
         // This section checks if recently created provider is still considered active
-        // even without having requested a reward yet.
+        // even without having activity recorded yet.
         if provider_info
             .created
             .wrapping_add(service_params.inactivity_period)
@@ -199,10 +199,10 @@ impl ProviderState {
             return Ok(ActiveState(*provider_info).into());
         }
 
-        // Check if provider has ever got the reward first and then see if the reward
-        // request was recent.
-        if let Some(rewarded) = provider_info.rewarded {
-            if block_number.wrapping_sub(rewarded) <= service_params.inactivity_period {
+        // Check if provider has ever got the activity recorded first and then see if
+        // the activity record was recent.
+        if let Some(activity) = provider_info.active {
+            if block_number.wrapping_sub(activity) <= service_params.inactivity_period {
                 return Ok(ActiveState(*provider_info).into());
             }
         }
@@ -220,8 +220,8 @@ impl ProviderState {
         if let Some(withdrawn_timestamp) = provider_info.withdrawn {
             return withdrawn_timestamp;
         }
-        if let Some(rewards_timestamp) = provider_info.rewarded {
-            return rewards_timestamp;
+        if let Some(activity_timestamp) = provider_info.active {
+            return activity_timestamp;
         }
         provider_info.created
     }
@@ -274,11 +274,11 @@ impl ProviderState {
                 .try_into_withdrawn(block_number, event_type, service_params)
                 .map(Into::into)
                 .map_err(ProviderStateError::from),
-            // Withdrawn rewarded state can only transition from withdrawn state and it's only
+            // Withdrawn active state can only transition from withdrawn state and it's only
             // allowed to transition if the withdrawn timestamp matches current block, in other
-            // words, withdrawal can only be rewarded in withdrawal block.
+            // words, withdrawal can only be recorded active in withdrawal block.
             Self::Withdrawn(withdrawn_state) => withdrawn_state
-                .try_into_withdrawn_rewarded(block_number, event_type)
+                .try_into_withdrawn_active(block_number, event_type)
                 .map(Into::into)
                 .map_err(ProviderStateError::from),
         }
@@ -315,7 +315,7 @@ mod tests {
             lock_period: 10,
             inactivity_period: 20,
             retention_period: 100,
-            reward_contract: [0; 32],
+            activity_contract: [0; 32],
             timestamp: 0,
         }
     }
@@ -333,20 +333,20 @@ mod tests {
     }
 
     #[test]
-    fn test_info_to_inactive_rewarded_state() {
+    fn test_info_to_inactive_active_state() {
         let provider_id = ProviderId([0; 32]);
         let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
         let mut provider_info = ProviderInfo::new(100, provider_id, declaration_id);
-        provider_info.rewarded = Some(110);
+        provider_info.active = Some(110);
 
-        let inactive_rewarded_state =
+        let inactive_activity_record_state =
             ProviderState::try_from_info(200, &provider_info, &service_params).unwrap();
         assert!(matches!(
-            inactive_rewarded_state,
+            inactive_activity_record_state,
             ProviderState::Inactive(_)
         ));
-        assert_eq!(inactive_rewarded_state.last_block_number(), 110);
+        assert_eq!(inactive_activity_record_state.last_block_number(), 110);
     }
 
     #[test]
@@ -362,17 +362,17 @@ mod tests {
     }
 
     #[test]
-    fn test_info_to_active_rewarded_state() {
+    fn test_info_to_active_recorded_state() {
         let provider_id = ProviderId([0; 32]);
         let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
         let mut provider_info = ProviderInfo::new(100, provider_id, declaration_id);
-        provider_info.rewarded = Some(110);
+        provider_info.active = Some(110);
 
-        let active_rewarded_state =
+        let active_recorded_state =
             ProviderState::try_from_info(111, &provider_info, &service_params).unwrap();
-        assert!(matches!(active_rewarded_state, ProviderState::Active(_)));
-        assert_eq!(active_rewarded_state.last_block_number(), 110);
+        assert!(matches!(active_recorded_state, ProviderState::Active(_)));
+        assert_eq!(active_recorded_state.last_block_number(), 110);
     }
 
     #[test]
@@ -381,7 +381,7 @@ mod tests {
         let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
         let mut provider_info = ProviderInfo::new(100, provider_id, declaration_id);
-        provider_info.rewarded = Some(111);
+        provider_info.active = Some(111);
         provider_info.withdrawn = Some(121);
 
         let withdrawn_state =
@@ -401,11 +401,13 @@ mod tests {
         let res = ProviderState::try_from_info(2, &provider_info, &service_params);
         assert!(matches!(res, Err(ProviderStateError::BlockFromPast)));
 
-        // Provider rewarded in block 5, trying to withdraw in block 4.
+        // Provider activity recorded in block 5, trying to withdraw in block 4.
         let active_state =
             ProviderState::try_from_info(3, &provider_info, &service_params).unwrap();
-        let rewarded_state = active_state.try_into_active(5, EventType::Reward).unwrap();
-        let res = rewarded_state.try_into_withdrawn(4, EventType::Withdrawal, &service_params);
+        let active_recorded = active_state
+            .try_into_active(5, EventType::Activity)
+            .unwrap();
+        let res = active_recorded.try_into_withdrawn(4, EventType::Withdrawal, &service_params);
         assert!(matches!(res, Err(ProviderStateError::BlockFromPast)));
     }
 
@@ -431,7 +433,7 @@ mod tests {
     }
 
     #[test]
-    fn test_active_to_reward_to_withdraw() {
+    fn test_active_to_activity_recorded_to_withdraw() {
         let provider_id = ProviderId([0; 32]);
         let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
@@ -439,8 +441,10 @@ mod tests {
 
         let active_state =
             ProviderState::try_from_info(0, &provider_info, &service_params).unwrap();
-        let rewarded_state = active_state.try_into_active(5, EventType::Reward).unwrap();
-        let withdrawn_state = rewarded_state
+        let active_recorded = active_state
+            .try_into_active(5, EventType::Activity)
+            .unwrap();
+        let withdrawn_state = active_recorded
             .try_into_withdrawn(11, EventType::Withdrawal, &service_params)
             .unwrap();
 
@@ -475,16 +479,16 @@ mod tests {
             .try_into_withdrawn(15, EventType::Withdrawal, &service_params)
             .unwrap();
 
-        // Withdrawn state can only be rewarded in the same block.
-        let rewarded_withdrawal = late_withdrawal
-            .try_into_withdrawn(15, EventType::Reward, &service_params)
+        // Withdrawn state can only be activity recorded in the same block.
+        let active_withdrawal = late_withdrawal
+            .try_into_withdrawn(15, EventType::Activity, &service_params)
             .unwrap();
 
-        // Withdrawal can't be rewarded in future.
-        let reward_withdrawal_different_block =
-            rewarded_withdrawal.try_into_withdrawn(16, EventType::Reward, &service_params);
+        // Withdrawal can't be activity recorded in future.
+        let active_withdrawal_different_block =
+            active_withdrawal.try_into_withdrawn(16, EventType::Activity, &service_params);
 
-        assert!(reward_withdrawal_different_block.is_err());
+        assert!(active_withdrawal_different_block.is_err());
     }
 
     #[test]
@@ -497,7 +501,7 @@ mod tests {
             provider_id,
             declaration_id,
             created: 0,
-            rewarded: None,
+            active: None,
             withdrawn: None,
         };
 
@@ -529,7 +533,7 @@ mod tests {
             provider_id,
             declaration_id,
             created: 0,
-            rewarded: None,
+            active: None,
             withdrawn: None,
         };
 
@@ -538,7 +542,7 @@ mod tests {
             ProviderState::try_from_info(100, &provider_info, &service_params).unwrap();
 
         let active_state = inactive_state
-            .try_into_active(105, EventType::Reward)
+            .try_into_active(105, EventType::Activity)
             .unwrap();
 
         let withdrawn_state =
@@ -576,7 +580,7 @@ mod tests {
             lock_period: 20,
             inactivity_period: 5,
             retention_period: 30,
-            reward_contract: [0; 32],
+            activity_contract: [0; 32],
             timestamp: 0,
         };
         let provider_info = ProviderInfo::new(0, provider_id, declaration_id);
@@ -592,7 +596,7 @@ mod tests {
     }
 
     #[test]
-    fn test_active_cannot_reward_directly_when_withdrawing() {
+    fn test_active_cannot_record_activity_directly_when_withdrawing() {
         let provider_id = ProviderId([0; 32]);
         let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
@@ -603,9 +607,10 @@ mod tests {
             .try_into_active(0, EventType::Declaration)
             .unwrap();
 
-        // Attempt to transition to rewarded state without an intermediate step.
-        let rewarded_state = active_state.try_into_withdrawn(5, EventType::Reward, &service_params);
-        assert!(rewarded_state.is_err());
+        // Attempt to transition to active recorded state without an intermediate step.
+        let active_recorded_state =
+            active_state.try_into_withdrawn(5, EventType::Activity, &service_params);
+        assert!(active_recorded_state.is_err());
     }
 
     #[test]

@@ -129,7 +129,7 @@ where
         + Sync
         + 'static,
     DeclarationAdapter: ledger::DeclarationsRepository + SdpDeclarationAdapter + Send + Sync,
-    RewardsAdapter: ledger::RewardsRequestSender<ContractAddress = ContractAddress, Metadata = Metadata>
+    RewardsAdapter: ledger::ActivityContract<ContractAddress = ContractAddress, Metadata = Metadata>
         + SdpRewardsAdapter
         + Send
         + Sync,
