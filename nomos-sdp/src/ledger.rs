@@ -156,10 +156,13 @@ impl<Declarations, Activity, Services, Stakes, Proof, Metadata, ContractAddress>
     SdpLedger<Declarations, Activity, Services, Stakes, Proof, Metadata, ContractAddress>
 where
     Declarations: DeclarationsRepository + Send + Sync,
-    Activity: ActivityContract<Metadata = Metadata, ContractAddress = ContractAddress> + Send,
-    Services: ServicesRepository<ContractAddress = ContractAddress> + Send,
+    Activity:
+        ActivityContract<Metadata = Metadata, ContractAddress = ContractAddress> + Send + Sync,
+    Services: ServicesRepository<ContractAddress = ContractAddress> + Send + Sync,
     Stakes: StakesVerifier<Proof = Proof> + Send + Sync,
-    ContractAddress: Debug,
+    ContractAddress: Debug + Send + Sync,
+    Proof: Send + Sync,
+    Metadata: Send + Sync,
 {
     pub fn new(
         declaration_repo: Declarations,

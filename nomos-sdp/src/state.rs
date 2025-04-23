@@ -111,38 +111,8 @@ impl InactiveState {
     }
 }
 
-#[derive(Error, Debug)]
-pub enum WithdrawnStateError {
-    #[error("Withdawn state can be active only during the same block")]
-    ToWithdrawnActiveNotSameBlock,
-    #[error("Withdrawn can not transition to withdrawn active during {0:?} event")]
-    ToWithdrawnActiveInvalidEvent(EventType),
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct WithdrawnState(ProviderInfo);
-
-impl WithdrawnState {
-    fn try_into_withdrawn_active(
-        mut self,
-        block_number: BlockNumber,
-        event_type: EventType,
-    ) -> Result<Self, WithdrawnStateError> {
-        if matches!(event_type, EventType::Activity) {
-            // Only allow activity recorded for withdrawal in the same block number.
-            if self.0.withdrawn != Some(block_number) {
-                return Err(WithdrawnStateError::ToWithdrawnActiveNotSameBlock);
-            }
-
-            self.0.active = Some(block_number);
-            Ok(self)
-        } else {
-            Err(WithdrawnStateError::ToWithdrawnActiveInvalidEvent(
-                event_type,
-            ))
-        }
-    }
-}
 
 #[derive(Error, Debug)]
 pub enum ProviderStateError {
@@ -150,10 +120,8 @@ pub enum ProviderStateError {
     Active(#[from] ActiveStateError),
     #[error(transparent)]
     Inactive(#[from] InactiveStateError),
-    #[error(transparent)]
-    Withdrawn(#[from] WithdrawnStateError),
-    #[error("Withdrawn can not transition to active")]
-    WithdrawnToActive,
+    #[error("Withdrawn can not transition to any other state")]
+    WithdrawnToOtherState,
     #[error("Provided block is in past, can not transition to state in previous block")]
     BlockFromPast,
 }
@@ -252,7 +220,7 @@ impl ProviderState {
                 .try_into_active(block_number, event_type)
                 .map(Into::into)
                 .map_err(ProviderStateError::from),
-            Self::Withdrawn(_) => Err(ProviderStateError::WithdrawnToActive),
+            Self::Withdrawn(_) => Err(ProviderStateError::WithdrawnToOtherState),
         }
     }
 
@@ -274,13 +242,7 @@ impl ProviderState {
                 .try_into_withdrawn(block_number, event_type, service_params)
                 .map(Into::into)
                 .map_err(ProviderStateError::from),
-            // Withdrawn active state can only transition from withdrawn state and it's only
-            // allowed to transition if the withdrawn timestamp matches current block, in other
-            // words, withdrawal can only be recorded active in withdrawal block.
-            Self::Withdrawn(withdrawn_state) => withdrawn_state
-                .try_into_withdrawn_active(block_number, event_type)
-                .map(Into::into)
-                .map_err(ProviderStateError::from),
+            Self::Withdrawn(_) => Err(ProviderStateError::WithdrawnToOtherState),
         }
     }
 }
@@ -479,12 +441,19 @@ mod tests {
             .try_into_withdrawn(15, EventType::Withdrawal, &service_params)
             .unwrap();
 
-        // Withdrawn state can only be activity recorded in the same block.
-        let active_withdrawal = late_withdrawal
-            .try_into_withdrawn(15, EventType::Activity, &service_params)
-            .unwrap();
+        // Withdrawn state can not have activity recorded in the same block.
+        let res = late_withdrawal.try_into_withdrawn(15, EventType::Activity, &service_params);
+        assert!(matches!(
+            res,
+            Err(ProviderStateError::WithdrawnToOtherState)
+        ));
 
         // Withdrawal can't be activity recorded in future.
+        let active_withdrawal = ProviderState::try_from_info(0, &provider_info, &service_params)
+            .unwrap()
+            .try_into_withdrawn(11, EventType::Withdrawal, &service_params)
+            .unwrap();
+
         let active_withdrawal_different_block =
             active_withdrawal.try_into_withdrawn(16, EventType::Activity, &service_params);
 
