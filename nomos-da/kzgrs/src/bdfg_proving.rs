@@ -35,14 +35,15 @@ use std::ops::Mul;
 /// - The hasher fails to be constructed.
 /// - Any commitment fails to serialize properly.
 /// - The hash finalization process fails.
+#[must_use]
 pub fn generate_row_commitments_hash(commitments: &[Commitment]) -> Vec<u8> {
     let mut hasher = Blake2bVar::new(32).expect("Hasher should be able to build");
-    commitments.iter().for_each(|c| {
+    for c in commitments {
         let mut buffer = Cursor::new(Vec::new());
         c.serialize_uncompressed(&mut buffer)
             .expect("serialization");
         hasher.update(&buffer.into_inner());
-    });
+    }
     let mut buffer = [0; 32];
     hasher
         .finalize_variable(&mut buffer)
@@ -79,6 +80,7 @@ pub fn generate_row_commitments_hash(commitments: &[Commitment]) -> Vec<u8> {
 ///
 /// If the `parallel` feature is enabled, this function will perform parallel computations
 /// to improve performance during the evaluation process.
+#[must_use]
 pub fn compute_aggregated_polynomial(
     polynomials: &[Evaluations],
     aggregated_commitments_hash: &[u8],
@@ -89,7 +91,7 @@ pub fn compute_aggregated_polynomial(
         {
             #[cfg(not(feature = "parallel"))]
             {
-                (0..domain.size()).into_iter()
+                0..domain.size()
             }
             #[cfg(feature = "parallel")]
             {
@@ -97,14 +99,14 @@ pub fn compute_aggregated_polynomial(
                 (0..domain.size()).into_par_iter()
             }
         }
-        .map(|column| {
-            polynomials
-                .iter()
-                .enumerate()
-                .map(|(i, poly)| poly.evals[column].mul(h.pow([i as u64])))
-                .sum()
-        })
-        .collect()
+            .map(|column| {
+                polynomials
+                    .iter()
+                    .enumerate()
+                    .map(|(i, poly)| poly.evals[column].mul(h.pow([i as u64])))
+                    .sum()
+            })
+            .collect()
     };
     Evaluations::from_vec_and_domain(evals, domain)
 }
@@ -137,6 +139,7 @@ pub fn compute_aggregated_polynomial(
 ///
 /// If the `parallel` feature is enabled, parts of the computation may utilize parallelism
 /// to enhance performance.
+#[must_use]
 pub fn generate_aggregated_proof(
     polynomials: &[Evaluations],
     commitments: &[Commitment],
@@ -174,6 +177,7 @@ pub fn generate_aggregated_proof(
 /// This function will panic if:
 /// - Row commitment hashing fails.
 /// - Arithmetic operations (e.g., field multiplications, aggregations) fail.
+#[must_use]
 pub fn verify_column(
     column_idx: usize,
     column: &[Fr],

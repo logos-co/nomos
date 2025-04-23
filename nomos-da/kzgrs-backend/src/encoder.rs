@@ -164,19 +164,19 @@ impl DaEncoder {
                 matrix.par_rows()
             }
         }
-        .map(|r| {
-            // Using the unchecked version here. Because during the process of chunkifiying
-            // we already make sure to have the chunks of proper elements.
-            // Also, after rs encoding, we are sure all `Fr` elements already fits within
-            // modulus.
-            let (evals, poly) = bytes_to_polynomial_unchecked::<BYTES_PER_FIELD_ELEMENT>(
-                r.as_bytes().as_ref(),
-                polynomial_evaluation_domain,
-            );
-            commit_polynomial(&poly, global_parameters)
-                .map(|commitment| ((evals, poly), commitment))
-        })
-        .collect()
+            .map(|r| {
+                // Using the unchecked version here. Because during the process of chunkifiying
+                // we already make sure to have the chunks of proper elements.
+                // Also, after rs encoding, we are sure all `Fr` elements already fits within
+                // modulus.
+                let (evals, poly) = bytes_to_polynomial_unchecked::<BYTES_PER_FIELD_ELEMENT>(
+                    r.as_bytes().as_ref(),
+                    polynomial_evaluation_domain,
+                );
+                commit_polynomial(&poly, global_parameters)
+                    .map(|commitment| ((evals, poly), commitment))
+            })
+            .collect()
     }
 
     fn rs_encode_row(
@@ -200,8 +200,8 @@ impl DaEncoder {
                 rows.par_iter()
             }
         }
-        .map(|poly| Self::rs_encode_row(poly, polynomial_evaluation_domain))
-        .collect()
+            .map(|poly| Self::rs_encode_row(poly, polynomial_evaluation_domain))
+            .collect()
     }
 
     fn evals_to_chunk_matrix(evals: &[Evaluations]) -> ChunksMatrix {
@@ -230,12 +230,12 @@ impl nomos_core::da::DaEncoder for DaEncoder {
         let row_domain = PolynomialEvaluationDomain::new(self.params.column_count)
             .expect("Domain should be able to build");
         let (row_polynomials, row_commitments): (Vec<_>, Vec<_>) =
-            DaEncoder::compute_kzg_row_commitments(global_parameters, &chunked_data, row_domain)?
+            Self::compute_kzg_row_commitments(global_parameters, &chunked_data, row_domain)?
                 .into_iter()
                 .unzip();
         let (_, row_polynomials): (Vec<_>, Vec<_>) = row_polynomials.into_iter().unzip();
-        let encoded_evaluations = DaEncoder::rs_encode_rows(&row_polynomials, row_domain);
-        let extended_data = DaEncoder::evals_to_chunk_matrix(&encoded_evaluations);
+        let encoded_evaluations = Self::rs_encode_rows(&row_polynomials, row_domain);
+        let extended_data = Self::evals_to_chunk_matrix(&encoded_evaluations);
         let aggregated_column_proofs = bdfg_proving::generate_aggregated_proof(
             &encoded_evaluations,
             &row_commitments,
