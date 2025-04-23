@@ -89,8 +89,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
                 share,
                 subnetwork_id,
             } => {
-                let blob_id =
-                    build_blob_id(&share.aggregated_column_commitment, &share.rows_commitments);
+                let blob_id = build_blob_id(&share.rows_commitments);
 
                 let success_message = DisperseMessage::DispersalSuccess {
                     blob_id,

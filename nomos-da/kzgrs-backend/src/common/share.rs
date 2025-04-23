@@ -17,33 +17,18 @@ pub struct DaShare {
         serialize_with = "serialize_canonical",
         deserialize_with = "deserialize_canonical"
     )]
-    pub column_commitment: Commitment,
-    #[serde(
-        serialize_with = "serialize_canonical",
-        deserialize_with = "deserialize_canonical"
-    )]
-    pub aggregated_column_commitment: Commitment,
-    #[serde(
-        serialize_with = "serialize_canonical",
-        deserialize_with = "deserialize_canonical"
-    )]
     pub aggregated_column_proof: Proof,
     #[serde(
         serialize_with = "serialize_vec_canonical",
         deserialize_with = "deserialize_vec_canonical"
     )]
     pub rows_commitments: Vec<Commitment>,
-    #[serde(
-        serialize_with = "serialize_vec_canonical",
-        deserialize_with = "deserialize_vec_canonical"
-    )]
-    pub rows_proofs: Vec<Proof>,
 }
 
 impl DaShare {
     #[must_use]
     pub fn blob_id(&self) -> Vec<u8> {
-        build_blob_id(&self.aggregated_column_commitment, &self.rows_commitments).into()
+        build_blob_id(&self.rows_commitments).into()
     }
 
     #[must_use]
@@ -66,7 +51,9 @@ impl blob::Share for DaShare {
     type SharesCommitments = DaSharesCommitments;
 
     fn blob_id(&self) -> Self::BlobId {
-        build_blob_id(&self.aggregated_column_commitment, &self.rows_commitments)
+        self.blob_id()
+            .try_into()
+            .expect("Blob ID should be 32 bytes")
     }
 
     fn share_idx(&self) -> Self::ShareIndex {
@@ -78,12 +65,9 @@ impl blob::Share for DaShare {
             DaLightShare {
                 share_idx: self.share_idx,
                 column: self.column,
-                column_commitment: self.column_commitment,
                 aggregated_column_proof: self.aggregated_column_proof,
-                rows_proofs: self.rows_proofs,
             },
             DaSharesCommitments {
-                aggregated_column_commitment: self.aggregated_column_commitment,
                 rows_commitments: self.rows_commitments,
             },
         )
@@ -96,11 +80,8 @@ impl blob::Share for DaShare {
         Self {
             column: light_share.column,
             share_idx: light_share.share_idx,
-            column_commitment: light_share.column_commitment,
-            aggregated_column_commitment: shares_commitments.aggregated_column_commitment,
             aggregated_column_proof: light_share.aggregated_column_proof,
             rows_commitments: shares_commitments.rows_commitments,
-            rows_proofs: light_share.rows_proofs,
         }
     }
 }
@@ -113,17 +94,7 @@ pub struct DaLightShare {
         serialize_with = "serialize_canonical",
         deserialize_with = "deserialize_canonical"
     )]
-    pub column_commitment: Commitment,
-    #[serde(
-        serialize_with = "serialize_canonical",
-        deserialize_with = "deserialize_canonical"
-    )]
     pub aggregated_column_proof: Proof,
-    #[serde(
-        serialize_with = "serialize_vec_canonical",
-        deserialize_with = "deserialize_vec_canonical"
-    )]
-    pub rows_proofs: Vec<Proof>,
 }
 
 impl blob::LightShare for DaLightShare {
@@ -136,11 +107,6 @@ impl blob::LightShare for DaLightShare {
 
 #[derive(Debug, Clone, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DaSharesCommitments {
-    #[serde(
-        serialize_with = "serialize_canonical",
-        deserialize_with = "deserialize_canonical"
-    )]
-    pub aggregated_column_commitment: Commitment,
     #[serde(
         serialize_with = "serialize_vec_canonical",
         deserialize_with = "deserialize_vec_canonical"
