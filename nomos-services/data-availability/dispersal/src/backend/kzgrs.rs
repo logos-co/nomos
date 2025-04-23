@@ -208,7 +208,7 @@ where
         &self,
         data: Vec<u8>,
         metadata: Self::Metadata,
-    ) -> Result<(), DynError> {
+    ) -> Result<Self::BlobId, DynError> {
         let (blob_id, encoded_data) = self.encode(data).await?;
         info_with_id!(blob_id.as_ref(), "ProcessDispersal");
         self.disperse(encoded_data).await?;
@@ -253,6 +253,6 @@ where
                 }
             }
         }
-        Ok(())
+        Ok(blob_id)
     }
 }

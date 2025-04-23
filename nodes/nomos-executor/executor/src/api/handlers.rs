@@ -46,7 +46,8 @@ where
             MempoolAdapter = MempoolAdapter,
             Metadata = Metadata,
         > + Send
-        + Sync,
+        + Sync
+        + 'static,
     Backend::Settings: Clone + Send + Sync,
     NetworkAdapter: DispersalNetworkAdapter<SubnetworkId = Membership::NetworkId> + Send,
     MempoolAdapter: DaMempoolAdapter,
