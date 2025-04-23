@@ -10,10 +10,31 @@ use blake2::{
     digest::{Update, VariableOutput},
     Blake2bVar,
 };
+#[cfg(feature = "parallel")]
+use rayon::iter::ParallelIterator;
 use std::io::Cursor;
 use std::ops::Mul;
 
-/// Module with implementation of [Efficient polynomial commitment schemes for multiple points and polynomials](https://eprint.iacr.org/2020/081.pdf)
+/// Generate a hash of the row commitments using the `Blake2bVar` hashing algorithm.
+///
+/// This function hashes a list of commitments into a constant-size (32 bytes) hash vector.
+/// The hashing process involves serializing each commitment in an uncompressed format and
+/// feeding the serialized data into the `Blake2bVar` hasher.
+///
+/// # Arguments
+///
+/// * `commitments` - A slice of commitments to be hashed.
+///
+/// # Returns
+///
+/// A `Vec<u8>` representing the 32-byte hash of the input commitments.
+///
+/// # Panics
+///
+/// This function will panic if:
+/// - The hasher fails to be constructed.
+/// - Any commitment fails to serialize properly.
+/// - The hash finalization process fails.
 pub fn generate_row_commitments_hash(commitments: &[Commitment]) -> Vec<u8> {
     let mut hasher = Blake2bVar::new(32).expect("Hasher should be able to build");
     commitments.iter().for_each(|c| {
@@ -29,23 +50,92 @@ pub fn generate_row_commitments_hash(commitments: &[Commitment]) -> Vec<u8> {
     buffer.to_vec()
 }
 
+/// Computes an aggregated polynomial from a set of row polynomials (in evaluation form)
+/// and a hash of the aggregated commitments.
+///
+/// This function takes multiple polynomials (in evaluation form) and combines them
+/// into a single polynomial by applying a linear combination based on a scalar `h`,
+/// derived from the provided hash of aggregated commitments. This process allows
+/// combining multiple row polynomials into a single polynomial that commits to the
+/// entire expanded data.
+///
+/// # Arguments
+///
+/// * `polynomials` - A slice of `Evaluations` representing the row polynomials in evaluation form.
+/// * `aggregated_commitments_hash` - A byte slice representing the hash of aggregated commitments (used as the scalar `h`).
+/// * `domain` - The evaluation domain of the row polynomials (column count of the encoded data matrix).
+///
+/// # Returns
+///
+/// An `Evaluations`, polynomial in evaluation aggregated from the linear combination of the row polynomials.
+///
+/// # Panics
+///
+/// This function will panic if:
+/// - The evaluation domain size does not match the size of the polynomials.
+/// - Arithmetic over the field operations fails.
+///
+/// # Parallelism
+///
+/// If the `parallel` feature is enabled, this function will perform parallel computations
+/// to improve performance during the evaluation process.
 pub fn compute_aggregated_polynomial(
     polynomials: &[Evaluations],
     aggregated_commitments_hash: &[u8],
     domain: PolynomialEvaluationDomain,
 ) -> Evaluations {
     let h = Fr::from_le_bytes_mod_order(aggregated_commitments_hash);
-    let evals: Vec<Fr> = (0..domain.size())
+    let evals: Vec<Fr> = {
+        {
+            #[cfg(not(feature = "parallel"))]
+            {
+                (0..domain.size()).into_iter()
+            }
+            #[cfg(feature = "parallel")]
+            {
+                use rayon::iter::IntoParallelIterator;
+                (0..domain.size()).into_par_iter()
+            }
+        }
         .map(|i| {
             polynomials
                 .iter()
                 .map(|poly| poly.evals[i] * h.pow([i as u64 - 1]))
                 .sum()
         })
-        .collect();
+        .collect()
+    };
     Evaluations::from_vec_and_domain(evals, domain)
 }
 
+/// Generates an aggregated proof for a set of row polynomials and their commitments.
+///
+/// This function computes an aggregated polynomial by combining row polynomials
+/// (in evaluation form) using a hash derived from the commitments. Then, it interpolates
+/// the aggregated polynomial and generates proofs for its entries using the FK20 algorithm.
+///
+/// # Arguments
+///
+/// * `polynomials` - A slice of `Evaluations` representing the row polynomials in evaluation form.
+/// * `commitments` - A slice of `Commitment` corresponding to the row polynomials.
+/// * `domain` - The evaluation domain of the polynomials, defining their dimensionality.
+/// * `global_parameters` - Reference to the global KZG parameters used for proof generation.
+/// * `toeplitz1cache` - Optional cache for optimizing the Toeplitz multiplication step.
+///
+/// # Returns
+///
+/// A `Vec<Proof>` containing the aggregated proofs, one for each row.
+///
+/// # Panics
+///
+/// This function will panic if:
+/// - The row polynomial serialization fails during commitment hashing.
+/// - The proof generation routines encounter invalid inputs or fail due to arithmetic operations.
+///
+/// # Parallelism
+///
+/// If the `parallel` feature is enabled, parts of the computation may utilize parallelism
+/// to enhance performance.
 pub fn generate_aggregated_proof(
     polynomials: &[Evaluations],
     commitments: &[Commitment],
@@ -64,6 +154,29 @@ pub fn generate_aggregated_proof(
     )
 }
 
+/// Verifies a single column against its aggregated proof and row commitments.
+///
+/// This function aggregates the column elements using a hash derived from the row commitments,
+/// computes an aggregated commitment, and verifies the correctness of the provided proof for the column.
+///
+/// # Arguments
+///
+/// * `column_idx` - The index of the column being verified.
+/// * `column` - A slice containing the elements of the column being verified.
+/// * `row_commitments` - A slice containing the commitments for all rows.
+/// * `column_proof` - A reference to the proof corresponding to the column.
+/// * `domain` - The evaluation domain of the data matrix (defining the dimensions).
+/// * `global_parameters` - A reference to the global KZG parameters used for the verification process.
+///
+/// # Returns
+///
+/// A boolean indicating whether the proof is valid (`true`) or not (`false`) for the given column.
+///
+/// # Panics
+///
+/// This function will panic if:
+/// - Row commitment hashing fails.
+/// - Arithmetic operations (e.g., field multiplications, aggregations) fail.
 pub fn verify_column(
     column_idx: usize,
     column: &[Fr],
