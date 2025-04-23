@@ -2,7 +2,7 @@ use std::{collections::HashSet, hash::Hash};
 
 pub use common_http_client::{BasicAuthCredentials, CommonHttpClient, Error};
 use futures::Stream;
-use nomos_core::da::blob::Share;
+use nomos_core::da::{blob::Share, BlobId};
 use nomos_http_api_common::{paths, types::DispersalRequest};
 use reqwest::Url;
 use serde::{de::DeserializeOwned, Serialize};
@@ -26,7 +26,7 @@ impl ExecutorHttpClient {
         base_url: Url,
         data: Vec<u8>,
         metadata: Metadata,
-    ) -> Result<(), Error>
+    ) -> Result<BlobId, Error>
     where
         Metadata: Serialize + Send + Sync,
     {
@@ -35,7 +35,7 @@ impl ExecutorHttpClient {
         let request_url = base_url.join(path).map_err(Error::Url)?;
 
         self.client
-            .post::<DispersalRequest<Metadata>, ()>(request_url, &req)
+            .post::<DispersalRequest<Metadata>, BlobId>(request_url, &req)
             .await
     }
 
