@@ -3,7 +3,6 @@ use std::{fmt::Debug, time::Duration};
 use nomos_core::da::{blob::metadata, DaDispersal, DaEncoder};
 use nomos_tracing::info_with_id;
 use overwatch::DynError;
-use serde::Serialize;
 use tracing::instrument;
 
 use crate::adapters::{mempool::DaMempoolAdapter, network::DispersalNetworkAdapter};
@@ -18,7 +17,7 @@ pub trait DispersalBackend {
     type NetworkAdapter: DispersalNetworkAdapter;
     type MempoolAdapter: DaMempoolAdapter;
     type Metadata: Debug + metadata::Metadata + Send;
-    type BlobId: AsRef<[u8]> + Send + Copy + Serialize;
+    type BlobId: AsRef<[u8]> + Send + Copy;
 
     fn init(
         config: Self::Settings,

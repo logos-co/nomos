@@ -12,7 +12,7 @@ use nomos_http_api_common::{paths, types::DispersalRequest};
 use nomos_libp2p::PeerId;
 use nomos_node::make_request_and_return_response;
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
-use serde::de::DeserializeOwned;
+use serde::{de::DeserializeOwned, Serialize};
 use subnetworks_assignations::MembershipHandler;
 
 #[utoipa::path(
@@ -49,6 +49,7 @@ where
         + Sync
         + 'static,
     Backend::Settings: Clone + Send + Sync,
+    Backend::BlobId: Serialize,
     NetworkAdapter: DispersalNetworkAdapter<SubnetworkId = Membership::NetworkId> + Send,
     MempoolAdapter: DaMempoolAdapter,
     Metadata: DeserializeOwned + metadata::Metadata + Debug + Send + 'static,

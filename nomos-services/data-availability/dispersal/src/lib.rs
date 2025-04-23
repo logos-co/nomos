@@ -54,6 +54,7 @@ pub struct DispersalService<
         + Sync
         + 'static,
     Backend: DispersalBackend<NetworkAdapter = NetworkAdapter, Metadata = Metadata>,
+    Backend::BlobId: Serialize,
     Backend::Settings: Clone,
     NetworkAdapter: DispersalNetworkAdapter,
     MempoolAdapter: DaMempoolAdapter,
@@ -80,6 +81,7 @@ where
         + Sync
         + 'static,
     Backend: DispersalBackend<NetworkAdapter = NetworkAdapter, Metadata = Metadata>,
+    Backend::BlobId: Serialize,
     Backend::Settings: Clone,
     NetworkAdapter: DispersalNetworkAdapter,
     MempoolAdapter: DaMempoolAdapter,
@@ -116,6 +118,7 @@ where
         > + Send
         + Sync,
     Backend::Settings: Clone + Send + Sync,
+    Backend::BlobId: Serialize,
     NetworkAdapter: DispersalNetworkAdapter<SubnetworkId = Membership::NetworkId> + Send,
     <NetworkAdapter::NetworkService as ServiceData>::Message: 'static,
     MempoolAdapter: DaMempoolAdapter,

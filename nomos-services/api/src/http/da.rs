@@ -298,6 +298,7 @@ where
         + Sync
         + 'static,
     Backend::Settings: Clone + Send + Sync,
+    Backend::BlobId: Serialize,
     NetworkAdapter: DispersalNetworkAdapter<SubnetworkId = Membership::NetworkId> + Send,
     MempoolAdapter: DaMempoolAdapter,
     Metadata: metadata::Metadata + Debug + Send + 'static,

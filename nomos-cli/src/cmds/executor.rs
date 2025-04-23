@@ -3,6 +3,7 @@ use std::{path::PathBuf, sync::mpsc::Sender};
 use clap::Args;
 use executor_http_client::{BasicAuthCredentials, ExecutorHttpClient};
 use kzgrs_backend::{dispersal::Metadata, encoder::DaEncoderParams};
+use nomos_core::da::BlobId;
 use reqwest::Url;
 
 #[derive(Args, Debug)]
@@ -69,7 +70,7 @@ impl Disseminate {
 
         match res_receiver.recv() {
             Ok(update) => match update {
-                Ok(()) => tracing::info!("Data successfully disseminated."),
+                Ok(_) => tracing::info!("Data successfully disseminated."),
                 Err(e) => {
                     tracing::error!("Error disseminating data: {e}");
                     return Err(e.into());
@@ -88,7 +89,7 @@ impl Disseminate {
 
 #[tokio::main]
 async fn disperse_data(
-    res_sender: &Sender<Result<(), String>>,
+    res_sender: &Sender<Result<BlobId, String>>,
     client: &ExecutorHttpClient,
     base_url: Url,
     bytes: Vec<u8>,

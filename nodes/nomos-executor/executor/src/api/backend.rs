@@ -252,6 +252,7 @@ where
         > + Send
         + Sync
         + 'static,
+    DispersalBackend::BlobId: Serialize,
     DispersalBackend::Settings: Clone + Send + Sync,
     DispersalNetworkAdapter: nomos_da_dispersal::adapters::network::DispersalNetworkAdapter<
             SubnetworkId = Membership::NetworkId,
