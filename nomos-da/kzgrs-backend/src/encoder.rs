@@ -164,19 +164,19 @@ impl DaEncoder {
                 matrix.par_rows()
             }
         }
-            .map(|r| {
-                // Using the unchecked version here. Because during the process of chunkifiying
-                // we already make sure to have the chunks of proper elements.
-                // Also, after rs encoding, we are sure all `Fr` elements already fits within
-                // modulus.
-                let (evals, poly) = bytes_to_polynomial_unchecked::<BYTES_PER_FIELD_ELEMENT>(
-                    r.as_bytes().as_ref(),
-                    polynomial_evaluation_domain,
-                );
-                commit_polynomial(&poly, global_parameters)
-                    .map(|commitment| ((evals, poly), commitment))
-            })
-            .collect()
+        .map(|r| {
+            // Using the unchecked version here. Because during the process of chunkifiying
+            // we already make sure to have the chunks of proper elements.
+            // Also, after rs encoding, we are sure all `Fr` elements already fits within
+            // modulus.
+            let (evals, poly) = bytes_to_polynomial_unchecked::<BYTES_PER_FIELD_ELEMENT>(
+                r.as_bytes().as_ref(),
+                polynomial_evaluation_domain,
+            );
+            commit_polynomial(&poly, global_parameters)
+                .map(|commitment| ((evals, poly), commitment))
+        })
+        .collect()
     }
 
     fn rs_encode_row(
@@ -200,8 +200,8 @@ impl DaEncoder {
                 rows.par_iter()
             }
         }
-            .map(|poly| Self::rs_encode_row(poly, polynomial_evaluation_domain))
-            .collect()
+        .map(|poly| Self::rs_encode_row(poly, polynomial_evaluation_domain))
+        .collect()
     }
 
     fn evals_to_chunk_matrix(evals: &[Evaluations]) -> ChunksMatrix {
@@ -240,7 +240,7 @@ impl nomos_core::da::DaEncoder for DaEncoder {
             &encoded_evaluations,
             &row_commitments,
             row_domain,
-            &GLOBAL_PARAMETERS,
+            &self.params.global_parameters,
             self.params.toeplitz1cache.as_ref(),
         );
 
@@ -268,8 +268,8 @@ pub mod test {
     use nomos_core::da::DaEncoder as _;
     use rand::RngCore;
 
-    use crate::common::Chunk;
     use crate::{
+        common::Chunk,
         encoder::{DaEncoder, DaEncoderParams},
         global::GLOBAL_PARAMETERS,
     };
