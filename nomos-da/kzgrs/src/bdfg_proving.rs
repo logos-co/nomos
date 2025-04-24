@@ -99,14 +99,14 @@ pub fn compute_aggregated_polynomial(
                 (0..domain.size()).into_par_iter()
             }
         }
-            .map(|column| {
-                polynomials
-                    .iter()
-                    .enumerate()
-                    .map(|(i, poly)| poly.evals[column].mul(h.pow([i as u64])))
-                    .sum()
-            })
-            .collect()
+        .map(|column| {
+            polynomials
+                .iter()
+                .enumerate()
+                .map(|(i, poly)| poly.evals[column].mul(h.pow([i as u64])))
+                .sum()
+        })
+        .collect()
     };
     Evaluations::from_vec_and_domain(evals, domain)
 }

@@ -25,7 +25,7 @@ mod test {
         async fn test_sampling_swarm(
             mut swarm: Swarm<
                 SamplingBehaviour<
-                    impl MembershipHandler<Id=PeerId, NetworkId=SubnetworkId> + 'static,
+                    impl MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
                 >,
             >,
         ) -> Vec<[u8; 32]> {
@@ -34,9 +34,9 @@ mod test {
                 match swarm.next().await {
                     None => {}
                     Some(SwarmEvent::Behaviour(SamplingEvent::IncomingSample {
-                                                   request_receiver,
-                                                   response_sender,
-                                               })) => {
+                        request_receiver,
+                        response_sender,
+                    })) => {
                         debug!("Received request");
                         // spawn here because otherwise we block polling
                         tokio::spawn(request_receiver);
@@ -53,8 +53,8 @@ mod test {
                             .unwrap();
                     }
                     Some(SwarmEvent::Behaviour(SamplingEvent::SamplingSuccess {
-                                                   blob_id, ..
-                                               })) => {
+                        blob_id, ..
+                    })) => {
                         debug!("Received response");
                         res.push(blob_id);
                     }

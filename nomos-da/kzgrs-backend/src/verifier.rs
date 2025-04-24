@@ -46,14 +46,12 @@ impl DaVerifier {
 mod test {
     use nomos_core::da::{blob::Share, DaEncoder as _};
 
+    use crate::encoder::test::rand_data;
     use crate::{
-        encoder::{
-            DaEncoder, DaEncoderParams,
-        },
+        encoder::{DaEncoder, DaEncoderParams},
         global::GLOBAL_PARAMETERS,
         verifier::DaVerifier,
     };
-    use crate::encoder::test::rand_data;
 
     #[test]
     fn test_verify() {
