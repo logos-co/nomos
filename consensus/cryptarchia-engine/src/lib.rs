@@ -99,10 +99,6 @@ where
         let mut branches = self.branches.clone();
 
         let mut tips = self.tips.clone();
-        // When running this method by itself (not through `Self::apply_header`), the
-        // parent should not in the tips set. That being said, having this call
-        // here allows us to reuse this function in the `Self::apply_header`
-        // method. In the unchecked case it'll be a no-op.
         tips.remove(&parent);
         tips.insert(header);
 
