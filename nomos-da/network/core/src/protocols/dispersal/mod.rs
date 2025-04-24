@@ -95,11 +95,8 @@ pub mod test {
                     DaShare {
                         share_idx: 0,
                         column: Column(vec![]),
-                        column_commitment: Commitment::default(),
-                        aggregated_column_commitment: Commitment::default(),
                         aggregated_column_proof: Proof::default(),
                         rows_commitments: vec![],
-                        rows_proofs: vec![],
                     },
                 ))
                 .unwrap();
