@@ -18,13 +18,12 @@ pub fn get_da_share(data: Option<Vec<u8>>) -> DaShare {
     let columns: Vec<_> = encoded_data.extended_data.columns().collect();
 
     let index = 0;
-    let da_share = DaShare {
+    DaShare {
         column: columns[index].clone(),
         share_idx: index
             .try_into()
             .expect("Column index shouldn't overflow the target type"),
         aggregated_column_proof: encoded_data.aggregated_column_proofs[index],
         rows_commitments: encoded_data.row_commitments.clone(),
-    };
-    da_share
+    }
 }

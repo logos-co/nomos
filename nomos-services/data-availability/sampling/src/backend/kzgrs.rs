@@ -164,7 +164,7 @@ mod test {
         time::{Duration, Instant},
     };
 
-    use kzgrs::{Commitment, Proof};
+    use kzgrs::Proof;
     use kzgrs_backend::common::{share::DaShare, Column};
     use nomos_core::da::BlobId;
     use rand::{prelude::*, rngs::StdRng};
@@ -219,7 +219,6 @@ mod test {
     }
 
     #[tokio::test]
-    #[expect(clippy::too_many_lines, reason = "TODO: Test function")]
     async fn test_sampler() {
         // fictitious number of subnets
         let subnet_num: usize = 42;

@@ -46,9 +46,8 @@ impl DaVerifier {
 mod test {
     use nomos_core::da::{blob::Share, DaEncoder as _};
 
-    use crate::encoder::test::rand_data;
     use crate::{
-        encoder::{DaEncoder, DaEncoderParams},
+        encoder::{test::rand_data, DaEncoder, DaEncoderParams},
         global::GLOBAL_PARAMETERS,
         verifier::DaVerifier,
     };
@@ -58,7 +57,7 @@ mod test {
         let encoder = DaEncoder::new(DaEncoderParams::default_with(2));
         let data = rand_data(32);
         let domain_size = 2usize;
-        let verifier: DaVerifier = DaVerifier::new(GLOBAL_PARAMETERS.clone());
+        let verifier = DaVerifier::new(GLOBAL_PARAMETERS.clone());
         let encoded_data = encoder.encode(&data).unwrap();
         for share in &encoded_data {
             let (light_share, commitments) = share.into_share_and_commitments();
