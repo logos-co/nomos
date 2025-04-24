@@ -17,7 +17,7 @@ pub trait DispersalBackend {
     type NetworkAdapter: DispersalNetworkAdapter;
     type MempoolAdapter: DaMempoolAdapter;
     type Metadata: Debug + metadata::Metadata + Send;
-    type BlobId: AsRef<[u8]> + Send + Copy;
+    type BlobId: AsRef<[u8]> + Send + Copy + Debug;
 
     fn init(
         config: Self::Settings,

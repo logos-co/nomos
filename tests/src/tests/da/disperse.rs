@@ -226,23 +226,21 @@ async fn disseminate_same_data() {
     }
 }
 
-#[ignore = "for local debugging"]
 #[tokio::test]
 async fn local_testnet() {
     let topology = Topology::spawn(TopologyConfig::validators_and_executor(3, 2, 2)).await;
     let executor = &topology.executors()[0];
-    let app_id = hex::decode(APP_ID).expect("Invalid APP_ID");
+    let validator = &topology.validators()[0];
+    println!(
+        "🏠🏠🏠 Executor address: {}",
+        executor.config().http.backend_settings.address
+    );
+    println!(
+        "🏠🏠🏠 Validator address: {}",
+        validator.config().http.backend_settings.address
+    );
 
-    let mut index = 0u64;
     loop {
-        disseminate_with_metadata(
-            executor,
-            &generate_data(index),
-            create_metadata(&app_id, index),
-        )
-        .await;
-
-        index += 1;
         tokio::time::sleep(Duration::from_secs(30)).await;
     }
 }

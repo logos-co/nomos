@@ -12,7 +12,7 @@ pub mod http;
 
 static HTTP_REQUEST_TIMEOUT: OnceLock<Duration> = OnceLock::new();
 
-const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// A simple abstraction so that we can easily
 /// change the underlying http server

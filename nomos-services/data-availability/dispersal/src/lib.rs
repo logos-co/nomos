@@ -25,13 +25,24 @@ use crate::{
 pub mod adapters;
 pub mod backend;
 
-#[derive(Debug)]
 pub enum DaDispersalMsg<Metadata, B: DispersalBackend> {
     Disperse {
         data: Vec<u8>,
         metadata: Metadata,
         reply_channel: oneshot::Sender<Result<B::BlobId, DynError>>,
     },
+}
+
+impl<Metadata: Debug, B: DispersalBackend> Debug for DaDispersalMsg<Metadata, B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Disperse { data, metadata, .. } => f
+                .debug_struct("DaDispersalMsg::Disperse")
+                .field("data", &data)
+                .field("metadata", metadata)
+                .finish(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -160,6 +171,7 @@ where
         let backend = Backend::init(backend_settings, network_adapter, mempool_adapter);
         let mut inbound_relay = service_state.inbound_relay;
         while let Some(dispersal_msg) = inbound_relay.recv().await {
+            println!(">>> Dispersal message: {dispersal_msg:?}");
             match dispersal_msg {
                 DaDispersalMsg::Disperse {
                     data,
@@ -167,6 +179,7 @@ where
                     reply_channel,
                 } => {
                     let response = backend.process_dispersal(data, metadata).await;
+                    println!("<<< Response: {response:?}");
                     if let Err(Err(e)) = reply_channel.send(response) {
                         error!("Error forwarding dispersal response: {e}");
                     }
