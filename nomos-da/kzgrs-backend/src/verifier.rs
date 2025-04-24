@@ -2,8 +2,10 @@ use ark_ff::PrimeField;
 use ark_poly::EvaluationDomain;
 use kzgrs::{FieldElement, GlobalParameters, PolynomialEvaluationDomain};
 
-use crate::common::share::{DaLightShare, DaSharesCommitments};
-use crate::common::Chunk;
+use crate::common::{
+    share::{DaLightShare, DaSharesCommitments},
+    Chunk,
+};
 
 pub struct DaVerifier {
     pub global_parameters: GlobalParameters,
@@ -42,40 +44,26 @@ impl DaVerifier {
 
 #[cfg(test)]
 mod test {
-    use nomos_core::da::{blob::Share, DaEncoder};
+    use nomos_core::da::{blob::Share, DaEncoder as _};
 
     use crate::{
-        common::share::DaShare,
-        encoder::test::{rand_data, ENCODER},
+        encoder::{
+            DaEncoder, DaEncoderParams,
+        },
         global::GLOBAL_PARAMETERS,
         verifier::DaVerifier,
     };
+    use crate::encoder::test::rand_data;
 
     #[test]
     fn test_verify() {
-        let encoder = &ENCODER;
+        let encoder = DaEncoder::new(DaEncoderParams::default_with(2));
         let data = rand_data(32);
-        let domain_size = 16usize;
-        let verifiers: Vec<DaVerifier> = (0..16)
-            .map(|_| DaVerifier::new(GLOBAL_PARAMETERS.clone()))
-            .collect();
+        let domain_size = 2usize;
+        let verifier: DaVerifier = DaVerifier::new(GLOBAL_PARAMETERS.clone());
         let encoded_data = encoder.encode(&data).unwrap();
-        println!(
-            "encoded data proofs: {}",
-            encoded_data.aggregated_column_proofs.len()
-        );
-        for (i, column) in encoded_data.extended_data.columns().enumerate() {
-            println!("{i}");
-            let verifier = &verifiers[i];
-            let da_share = DaShare {
-                column,
-                share_idx: i
-                    .try_into()
-                    .expect("Column index shouldn't overflow the target type"),
-                aggregated_column_proof: encoded_data.aggregated_column_proofs[i],
-                rows_commitments: encoded_data.row_commitments.clone(),
-            };
-            let (light_share, commitments) = da_share.into_share_and_commitments();
+        for share in &encoded_data {
+            let (light_share, commitments) = share.into_share_and_commitments();
             assert!(verifier.verify(&light_share, &commitments, domain_size));
         }
     }
