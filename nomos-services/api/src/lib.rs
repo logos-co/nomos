@@ -98,7 +98,10 @@ where
     tokio::time::timeout(*request_timeout, future)
         .await
         .map_or_else(
-            |_| Err(timeout_error.into()),
+            |_| {
+                println!("⏰⏰⏰ Timeout!");
+                Err(timeout_error.into()
+            }),
             |result| result.map_err(std::convert::Into::into),
         )
 }
