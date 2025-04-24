@@ -69,21 +69,27 @@ mod test {
             "encoded data proofs: {}",
             encoded_data.aggregated_column_proofs.len()
         );
-        for (i, column) in encoded_data.extended_data.columns().enumerate() {
-            println!("{i}");
+        for da_share in &encoded_data {
             let verifier = &verifiers[i];
-            let da_share = DaShare {
-                column,
-                share_idx: i
-                    .try_into()
-                    .expect("Column index shouldn't overflow the target type"),
-                aggregated_column_proof: encoded_data.aggregated_column_proofs[i],
-                rows_commitments: encoded_data.row_commitments.clone(),
-            };
             let (light_share, commitments) = da_share.into_share_and_commitments();
-            println!("lightshare: {light_share:?}");
-            println!("commitments: {commitments:?}");
             assert!(verifier.verify(&light_share, &commitments, domain_size));
         }
+        // for (i, column) in encoded_data.extended_data.columns().enumerate() {
+        //     println!("{i}");
+        //     let verifier = &verifiers[i];
+        //     let da_share = DaShare {
+        //         column,
+        //         share_idx: i
+        //             .try_into()
+        //             .expect("Column index shouldn't overflow the target
+        // type"),         aggregated_column_proof:
+        // encoded_data.aggregated_column_proofs[i],
+        //         rows_commitments: encoded_data.row_commitments.clone(),
+        //     };
+        //     let (light_share, commitments) =
+        // da_share.into_share_and_commitments();     println!("
+        // lightshare: {light_share:?}");     println!("commitments:
+        // {commitments:?}");     assert!(verifier.verify(&light_share,
+        // &commitments, domain_size)); }
     }
 }
