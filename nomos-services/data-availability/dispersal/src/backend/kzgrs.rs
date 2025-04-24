@@ -3,10 +3,11 @@ use std::{sync::Arc, time::Duration};
 use futures::StreamExt;
 use kzgrs_backend::{
     common::build_blob_id,
-    dispersal, encoder,
-    encoder::{DaEncoderParams, EncodedData},
+    dispersal,
+    encoder::{self, DaEncoderParams, EncodedData},
+    verifier::DaVerifier,
 };
-use nomos_core::da::{BlobId, DaDispersal, DaEncoder};
+use nomos_core::da::{blob::Share, BlobId, DaDispersal, DaEncoder};
 use nomos_mempool::backend::MempoolError;
 use nomos_tracing::info_with_id;
 use nomos_utils::bounded_duration::{MinimalBoundedDuration, NANO};
@@ -70,6 +71,7 @@ pub struct DispersalKZGRSBackend<NetworkAdapter, MempoolAdapter> {
     network_adapter: Arc<NetworkAdapter>,
     mempool_adapter: MempoolAdapter,
     encoder: Arc<encoder::DaEncoder>,
+    da_encoder_params: DaEncoderParams,
 }
 
 pub struct DispersalFromAdapter<Adapter> {
@@ -145,16 +147,18 @@ where
             &encoder_settings.global_params_path,
         )
         .expect("Global encoder params should be available");
-        let encoder = Self::Encoder::new(DaEncoderParams::new(
+        let da_encoder_params = DaEncoderParams::new(
             encoder_settings.num_columns,
             encoder_settings.with_cache,
             global_params,
-        ));
+        );
+        let encoder = Self::Encoder::new(da_encoder_params.clone());
         Self {
             settings,
             network_adapter: Arc::new(network_adapter),
             mempool_adapter,
             encoder: Arc::new(encoder),
+            da_encoder_params,
         }
     }
 
@@ -174,6 +178,15 @@ where
         &self,
         encoded_data: <Self::Encoder as DaEncoder>::EncodedData,
     ) -> Result<(), DynError> {
+        let verifier = DaVerifier::new(self.da_encoder_params.global_parameters.clone());
+        for da_share in &encoded_data {
+            println!(">>> verifying");
+            let (light_share, commitments) = da_share.into_share_and_commitments();
+            println!(">>> {light_share:?}; {commitments:?}");
+            let is_good = verifier.verify(&light_share, &commitments, 2);
+            println!(">>> verified is {is_good}");
+        }
+
         DispersalFromAdapter {
             adapter: Arc::clone(&self.network_adapter),
             timeout: self.settings.dispersal_timeout,

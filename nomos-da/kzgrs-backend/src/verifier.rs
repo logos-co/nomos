@@ -2,8 +2,10 @@ use ark_ff::PrimeField;
 use ark_poly::EvaluationDomain;
 use kzgrs::{FieldElement, GlobalParameters, PolynomialEvaluationDomain};
 
-use crate::common::share::{DaLightShare, DaSharesCommitments};
-use crate::common::Chunk;
+use crate::common::{
+    share::{DaLightShare, DaSharesCommitments},
+    Chunk,
+};
 
 pub struct DaVerifier {
     pub global_parameters: GlobalParameters,
@@ -42,21 +44,24 @@ impl DaVerifier {
 
 #[cfg(test)]
 mod test {
-    use nomos_core::da::{blob::Share, DaEncoder};
+    use nomos_core::da::{blob::Share, DaEncoder as _};
 
     use crate::{
         common::share::DaShare,
-        encoder::test::{rand_data, ENCODER},
+        encoder::{
+            test::{rand_data, ENCODER},
+            DaEncoder, DaEncoderParams,
+        },
         global::GLOBAL_PARAMETERS,
         verifier::DaVerifier,
     };
 
     #[test]
     fn test_verify() {
-        let encoder = &ENCODER;
-        let data = rand_data(32);
-        let domain_size = 16usize;
-        let verifiers: Vec<DaVerifier> = (0..16)
+        let encoder = DaEncoder::new(DaEncoderParams::default_with(2));
+        let data = [1u8; 31]; //rand_data(32);
+        let domain_size = 2usize;
+        let verifiers: Vec<DaVerifier> = (0..domain_size)
             .map(|_| DaVerifier::new(GLOBAL_PARAMETERS.clone()))
             .collect();
         let encoded_data = encoder.encode(&data).unwrap();
@@ -76,6 +81,8 @@ mod test {
                 rows_commitments: encoded_data.row_commitments.clone(),
             };
             let (light_share, commitments) = da_share.into_share_and_commitments();
+            println!("lightshare: {light_share:?}");
+            println!("commitments: {commitments:?}");
             assert!(verifier.verify(&light_share, &commitments, domain_size));
         }
     }

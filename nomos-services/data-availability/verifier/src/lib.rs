@@ -72,7 +72,10 @@ where
     Backend::DaShare: Debug + Send,
     Backend::Error: Error + Send + Sync,
     Backend::Settings: Clone,
-    <Backend::DaShare as Share>::BlobId: AsRef<[u8]>,
+    <Backend::DaShare as Share>::BlobId: AsRef<[u8]> + Debug,
+    <Backend::DaShare as Share>::ShareIndex: Debug,
+    <Backend::DaShare as Share>::LightShare: Debug,
+    <Backend::DaShare as Share>::SharesCommitments: Debug,
     N: NetworkAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + 'static,
     N::Settings: Clone,
     S: DaStorageAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + Sync + 'static,
@@ -92,7 +95,9 @@ where
         } else {
             info_with_id!(share.blob_id().as_ref(), "VerifierAddShare");
             let (blob_id, share_idx) = (share.blob_id(), share.share_idx());
+            println!(">> blob_id: {blob_id:?}, share_id: {share_idx:?}");
             let (light_share, commitments) = share.into_share_and_commitments();
+            println!(">>>> {light_share:?} >> {commitments:?}");
             verifier.verify(&commitments, &light_share)?;
             storage_adapter
                 .add_share(blob_id, share_idx, commitments, light_share)
@@ -134,6 +139,7 @@ where
     <Backend::DaShare as Share>::BlobId: AsRef<[u8]> + Debug + Send + Sync + 'static,
     <Backend::DaShare as Share>::LightShare: Debug + Send + Sync + 'static,
     <Backend::DaShare as Share>::SharesCommitments: Debug + Send + Sync + 'static,
+    <Backend::DaShare as Share>::ShareIndex: Debug + Send,
     N: NetworkAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + Sync + 'static,
     N::Settings: Clone + Send + Sync + 'static,
     S: DaStorageAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + Sync + 'static,
