@@ -7,10 +7,10 @@ security_param: 10
 active_slot_coeff: 0.9
 
 # DaConfig related parameters
-subnetwork_size: 2
+subnetwork_size: 4
 dispersal_factor: 2
 num_samples: 1
-num_subnets: 2
+num_subnets: 4
 old_blobs_check_interval: "5.0"
 blobs_validity_duration: "60.0"
 global_params_path: "/kzgrs_test_params"
@@ -20,8 +20,8 @@ monitor_failure_time_window: "5.0"
 balancer_interval: "5.0"
 # Dispersal mempool publish strategy
 mempool_publish_strategy: !SampleSubnetworks
-  sample_threshold: 2
-  timeout: "2.0"
+  sample_threshold: 1
+  timeout: "5.0"
   cooldown: "0.0001"
 
 replication_settings:
