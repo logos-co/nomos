@@ -233,11 +233,8 @@ mod test {
         let share = DaShare {
             share_idx: 42,
             column: Column(vec![]),
-            column_commitment: Commitment::default(),
-            aggregated_column_commitment: Commitment::default(),
             aggregated_column_proof: Proof::default(),
             rows_commitments: vec![],
-            rows_proofs: vec![],
         };
         let share2 = share.clone();
         let mut share3 = share2.clone();
