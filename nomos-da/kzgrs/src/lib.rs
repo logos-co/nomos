@@ -6,7 +6,7 @@ pub mod rs;
 
 use std::mem;
 
-use ark_bls12_381::{Bls12_381, Fr};
+pub use ark_bls12_381::{Bls12_381, Fr};
 use ark_poly::{univariate::DensePolynomial, GeneralEvaluationDomain};
 use ark_poly_commit::{kzg10, sonic_pc::UniversalParams};
 pub use common::{bytes_to_evaluations, bytes_to_polynomial, KzgRsError};
