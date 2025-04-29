@@ -644,7 +644,7 @@ where
                             ).await;
 
                             if let Some(new_block) = block {
-                                cryptarchia = Self::process_block(
+                                cryptarchia = Self::process_block_unchecked(
                                     cryptarchia,
                                     &mut leader,
                                     new_block.clone(),
