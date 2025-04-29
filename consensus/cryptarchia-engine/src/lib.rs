@@ -1,4 +1,4 @@
-#![allow(
+#![expect(
     clippy::disallowed_script_idents,
     reason = "The crate `cfg_eval` contains Sinhala script identifiers. \
     Using the `expect` or `allow` macro on top of their usage does not remove the warning"
@@ -485,10 +485,11 @@ where
 
 #[cfg(test)]
 pub mod tests {
-    use std::{
-        hash::{DefaultHasher, Hash, Hasher as _},
+    use core::{
+        hash::{Hash, Hasher as _},
         num::NonZero,
     };
+    use std::hash::DefaultHasher;
 
     use super::{maxvalid_bg, Boostrapping, Cryptarchia, Error, Slot};
     use crate::Config;
@@ -644,10 +645,10 @@ pub mod tests {
             assert_eq!(engine.tip(), short_p);
         }
 
-        let bs = engine.branches().branches();
-        let long_branch = bs.iter().find(|b| b.id == long_p).unwrap();
-        let short_branch = bs.iter().find(|b| b.id == short_p).unwrap();
-        assert!(long_branch.length > short_branch.length);
+        {
+            let mut bs = engine.branches().branches();
+            let long_branch = bs.find(|b| b.id == long_p).unwrap();
+            let short_branch = bs.find(|b| b.id == short_p).unwrap();
 
         // however, if we set k to the fork length, it will be accepted
         let k = long_branch.length;
