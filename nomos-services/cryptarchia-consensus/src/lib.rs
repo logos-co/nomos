@@ -643,7 +643,7 @@ where
                         if let Some(proof) = leader.build_proof_for(note_tree, epoch_state, slot, parent).await {
                             debug!("proposing block...");
                             // TODO: spawn as a separate task?
-                            let block = Self::propose_block(
+                            let block = Self::build_new_block(
                                 parent,
                                 slot,
                                 proof,
@@ -1003,7 +1003,7 @@ where
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(tx_selector, blob_selector, relays))]
-    async fn propose_block(
+    async fn build_new_block(
         parent: HeaderId,
         slot: Slot,
         proof: Risc0LeaderProof,
