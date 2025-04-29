@@ -1,4 +1,4 @@
-#![allow(
+#![expect(
     clippy::disallowed_script_idents,
     reason = "The crate `cfg_eval` contains Sinhala script identifiers. \
     Using the `expect` or `allow` macro on top of their usage does not remove the warning"
@@ -21,176 +21,9 @@ pub struct Cryptarchia<Id> {
     genesis: Id,
 }
 
-#[derive(Clone, Debug)]
-pub struct Branches<Id> {
-    branches: HashMap<Id, Branch<Id>>,
-    tips: HashSet<Id>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Branch<Id> {
-    id: Id,
-    parent: Id,
-    slot: Slot,
-    // chain length
-    length: u64,
-}
-
-impl<Id: Copy> Branch<Id> {
-    pub const fn id(&self) -> Id {
-        self.id
-    }
-    pub const fn parent(&self) -> Id {
-        self.parent
-    }
-    pub const fn slot(&self) -> Slot {
-        self.slot
-    }
-    pub const fn length(&self) -> u64 {
-        self.length
-    }
-}
-
-impl<Id> Branches<Id>
-where
-    Id: Eq + std::hash::Hash + Copy,
-{
-    pub fn from_genesis(genesis: Id) -> Self {
-        let mut branches = HashMap::new();
-        branches.insert(
-            genesis,
-            Branch {
-                id: genesis,
-                parent: genesis,
-                slot: 0.into(),
-                length: 0,
-            },
-        );
-        let tips = HashSet::from([genesis]);
-        Self { branches, tips }
-    }
-
-    /// Create a new [`Branches`] instance with the updated state.
-    /// This method adds a [`Branch`] to the new instance without running
-    /// validation.
-    ///
-    /// # Warning
-    ///
-    /// **This method bypasses safety checks** and can corrupt the state if used
-    /// incorrectly.
-    /// Only use for recovery, debugging, or other manipulations where the input
-    /// is known to be valid.
-    ///
-    /// # Arguments
-    ///
-    /// * `header` - The ID of the block to be added.
-    /// * `parent` - The ID of the parent block. Due to the nature of the method
-    ///   (`unchecked`), the existence of the parent block is not verified.
-    /// * `slot` - The slot of the block to be added.
-    /// * `chain_length`: The position of the block in the chain.
-    #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    fn apply_header_unchecked(
-        &self,
-        header: Id,
-        parent: Id,
-        slot: Slot,
-        chain_length: u64,
-    ) -> Self {
-        let mut branches = self.branches.clone();
-
-        let mut tips = self.tips.clone();
-        tips.remove(&parent);
-        tips.insert(header);
-
-        branches.insert(
-            header,
-            Branch {
-                id: header,
-                parent,
-                length: chain_length,
-                slot,
-            },
-        );
-
-        Self { branches, tips }
-    }
-
-    /// Create a new [`Branches`] instance with the updated state.
-    #[must_use = "this returns the result of the operation, without modifying the original"]
-    fn apply_header(&self, header: Id, parent: Id, slot: Slot) -> Result<Self, Error<Id>> {
-        // Calculating the length here allows us to reuse
-        // `Self::apply_header_unchecked`. Could this lead to length difference
-        // issues? We are calculating length here but the `self.branches` is
-        // cloned in the `Self::apply_header_unchecked` method, which means
-        // there's a risk of length being different due to concurrent operations.
-        let length = self
-            .branches
-            .get(&parent)
-            .ok_or(Error::ParentMissing(parent))?
-            .length
-            + 1;
-
-        Ok(self.apply_header_unchecked(header, parent, slot, length))
-    }
-
-    #[must_use]
-    pub fn branches(&self) -> Vec<Branch<Id>> {
-        self.tips
-            .iter()
-            .map(|id| self.branches[id].clone())
-            .collect()
-    }
-
-    // find the lowest common ancestor of two branches
-    pub fn lca<'a>(&'a self, mut b1: &'a Branch<Id>, mut b2: &'a Branch<Id>) -> Branch<Id> {
-        // first reduce branches to the same length
-        while b1.length > b2.length {
-            b1 = &self.branches[&b1.parent];
-        }
-
-        while b2.length > b1.length {
-            b2 = &self.branches[&b2.parent];
-        }
-
-        // then walk up the chain until we find the common ancestor
-        while b1.id != b2.id {
-            b1 = &self.branches[&b1.parent];
-            b2 = &self.branches[&b2.parent];
-        }
-
-        b1.clone()
-    }
-
-    pub fn get(&self, id: &Id) -> Option<&Branch<Id>> {
-        self.branches.get(id)
-    }
-
-    pub fn get_length_for_header(&self, header_id: &Id) -> Option<u64> {
-        self.get(header_id).map(|branch| branch.length)
-    }
-
-    // Walk back the chain until the target slot
-    fn walk_back_before(&self, branch: &Branch<Id>, slot: Slot) -> Branch<Id> {
-        let mut current = branch;
-        while current.slot > slot {
-            current = &self.branches[&current.parent];
-        }
-        current.clone()
-    }
-}
-
-#[derive(Debug, Clone, Error)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
-pub enum Error<Id> {
-    #[error("Parent block: {0:?} is not know to this node")]
-    ParentMissing(Id),
-    #[error("Orphan proof has was not found in the ledger: {0:?}, can't import it")]
-    OrphanMissing(Id),
-}
-
 impl<Id> Cryptarchia<Id>
 where
-    Id: Eq + std::hash::Hash + Copy,
+    Id: Eq + core::hash::Hash + Copy,
 {
     pub fn from_genesis(id: Id, config: Config) -> Self {
         Self {
@@ -273,10 +106,12 @@ where
         &self.branches
     }
 
-    //  Implementation of the fork choice rule as defined in the Ouroboros Genesis
-    // paper  k defines the forking depth of chain we accept without more
-    // analysis  s defines the length of time (unit of slots) after the fork
-    // happened we will inspect for chain density
+    // Implementation of the fork choice rule as defined in the Ouroboros Genesis
+    // paper.
+    //
+    //* `k` defines the forking depth of chain we accept without more analysis
+    // * `s` defines the length of time (unit of slots) after the fork happened we
+    //   will inspect for chain density
     fn maxvalid_bg(local_chain: Branch<Id>, branches: &Branches<Id>, k: u64, s: u64) -> Branch<Id> {
         let mut cmax = local_chain;
         let forks = branches.branches();
@@ -316,12 +151,179 @@ where
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Branch<Id> {
+    id: Id,
+    parent: Id,
+    slot: Slot,
+    // chain length
+    length: u64,
+}
+
+impl<Id: Copy> Branch<Id> {
+    pub const fn id(&self) -> Id {
+        self.id
+    }
+    pub const fn parent(&self) -> Id {
+        self.parent
+    }
+    pub const fn slot(&self) -> Slot {
+        self.slot
+    }
+    pub const fn length(&self) -> u64 {
+        self.length
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Branches<Id> {
+    branches: HashMap<Id, Branch<Id>>,
+    tips: HashSet<Id>,
+}
+
+impl<Id> Branches<Id>
+where
+    Id: Eq + core::hash::Hash + Copy,
+{
+    // Creates a new instance from genesis, and assign the genesis block as the
+    // parent of itself. This is useful for stopping backwards iterations (i.e.,
+    // from most to least recent) without the need for introducing `Option`s.
+    pub fn from_genesis(genesis: Id) -> Self {
+        let mut branches = HashMap::new();
+        branches.insert(
+            genesis,
+            Branch {
+                id: genesis,
+                parent: genesis,
+                slot: 0.into(),
+                length: 0,
+            },
+        );
+        let tips = HashSet::from([genesis]);
+        Self { branches, tips }
+    }
+
+    /// Create a new [`Branches`] instance with the updated state.
+    /// This method adds a [`Branch`] to the new instance without running
+    /// validation.
+    ///
+    /// # Warning
+    ///
+    /// **This method bypasses safety checks** and can corrupt the state if used
+    /// incorrectly.
+    /// Only use for recovery, debugging, or other manipulations where the input
+    /// is known to be valid.
+    ///
+    /// # Arguments
+    ///
+    /// * `header` - The ID of the block to be added.
+    /// * `parent` - The ID of the parent block. Due to the nature of the method
+    ///   (`unchecked`), the existence of the parent block is not verified.
+    /// * `slot` - The slot of the block to be added.
+    /// * `chain_length`: The position of the block in the chain.
+    #[must_use = "Returns a new instance with the updated state, without modifying the original."]
+    fn apply_header_unchecked(
+        &self,
+        header: Id,
+        parent: Id,
+        slot: Slot,
+        chain_length: u64,
+    ) -> Self {
+        let mut branches = self.branches.clone();
+
+        let mut tips = self.tips.clone();
+        tips.remove(&parent);
+        tips.insert(header);
+
+        branches.insert(
+            header,
+            Branch {
+                id: header,
+                parent,
+                length: chain_length,
+                slot,
+            },
+        );
+
+        Self { branches, tips }
+    }
+
+    /// Create a new [`Branches`] instance with the updated state.
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    fn apply_header(&self, header: Id, parent: Id, slot: Slot) -> Result<Self, Error<Id>> {
+        // Calculating the length here allows us to reuse
+        // `Self::apply_header_unchecked`. Could this lead to length difference
+        // issues? We are calculating length here but the `self.branches` is
+        // cloned in the `Self::apply_header_unchecked` method, which means
+        // there's a risk of length being different due to concurrent operations.
+        let length = self
+            .branches
+            .get(&parent)
+            .ok_or(Error::ParentMissing(parent))?
+            .length
+            + 1;
+
+        Ok(self.apply_header_unchecked(header, parent, slot, length))
+    }
+
+    pub fn branches(&self) -> impl Iterator<Item = Branch<Id>> + use<'_, Id> {
+        self.tips.iter().map(|id| self.branches[id].clone())
+    }
+
+    // find the lowest common ancestor of two branches
+    pub fn lca<'a>(&'a self, mut b1: &'a Branch<Id>, mut b2: &'a Branch<Id>) -> Branch<Id> {
+        // first reduce branches to the same length
+        while b1.length > b2.length {
+            b1 = &self.branches[&b1.parent];
+        }
+
+        while b2.length > b1.length {
+            b2 = &self.branches[&b2.parent];
+        }
+
+        // then walk up the chain until we find the common ancestor
+        while b1.id != b2.id {
+            b1 = &self.branches[&b1.parent];
+            b2 = &self.branches[&b2.parent];
+        }
+
+        b1.clone()
+    }
+
+    pub fn get(&self, id: &Id) -> Option<&Branch<Id>> {
+        self.branches.get(id)
+    }
+
+    pub fn get_length_for_header(&self, header_id: &Id) -> Option<u64> {
+        self.get(header_id).map(|branch| branch.length)
+    }
+
+    // Walk back the chain until the target slot
+    fn walk_back_before(&self, branch: &Branch<Id>, slot: Slot) -> Branch<Id> {
+        let mut current = branch;
+        while current.slot > slot {
+            current = &self.branches[&current.parent];
+        }
+        current.clone()
+    }
+}
+
+#[derive(Debug, Clone, Error)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
+pub enum Error<Id> {
+    #[error("Parent block: {0:?} is not know to this node")]
+    ParentMissing(Id),
+    #[error("Orphan proof has was not found in the ledger: {0:?}, can't import it")]
+    OrphanMissing(Id),
+}
+
 #[cfg(test)]
 pub mod tests {
-    use std::{
-        hash::{DefaultHasher, Hash, Hasher as _},
+    use core::{
+        hash::{Hash, Hasher as _},
         num::NonZero,
     };
+    use std::hash::DefaultHasher;
 
     use super::{Cryptarchia, Slot};
     use crate::Config;
@@ -387,23 +389,20 @@ pub mod tests {
             assert_eq!(engine.tip(), short_p);
         }
 
-        let bs = engine.branches().branches();
-        let long_branch = bs.iter().find(|b| b.id == long_p).unwrap();
-        let short_branch = bs.iter().find(|b| b.id == short_p).unwrap();
-        assert!(long_branch.length > short_branch.length);
+        {
+            let mut bs = engine.branches().branches();
+            let long_branch = bs.find(|b| b.id == long_p).unwrap();
+            let short_branch = bs.find(|b| b.id == short_p).unwrap();
 
-        // however, if we set k to the fork length, it will be accepted
-        let k = long_branch.length;
-        assert_eq!(
-            Cryptarchia::maxvalid_bg(
-                short_branch.clone(),
-                engine.branches(),
-                k,
-                engine.config.s()
-            )
-            .id,
-            long_p
-        );
+            assert!(long_branch.length > short_branch.length);
+
+            // however, if we set k to the fork length, it will be accepted
+            let k = long_branch.length;
+            assert_eq!(
+                Cryptarchia::maxvalid_bg(short_branch, engine.branches(), k, engine.config.s()).id,
+                long_p
+            );
+        };
 
         // a longer chain which is equally dense after the fork will be selected as the
         // main tip
