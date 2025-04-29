@@ -26,11 +26,11 @@ pub mod adapters;
 pub mod backend;
 
 #[derive(Debug)]
-pub enum DaDispersalMsg<Metadata> {
+pub enum DaDispersalMsg<Metadata, B: DispersalBackend> {
     Disperse {
         data: Vec<u8>,
         metadata: Metadata,
-        reply_channel: oneshot::Sender<Result<(), DynError>>,
+        reply_channel: oneshot::Sender<Result<B::BlobId, DynError>>,
     },
 }
 
@@ -54,6 +54,7 @@ pub struct DispersalService<
         + Sync
         + 'static,
     Backend: DispersalBackend<NetworkAdapter = NetworkAdapter, Metadata = Metadata>,
+    Backend::BlobId: Serialize,
     Backend::Settings: Clone,
     NetworkAdapter: DispersalNetworkAdapter,
     MempoolAdapter: DaMempoolAdapter,
@@ -80,6 +81,7 @@ where
         + Sync
         + 'static,
     Backend: DispersalBackend<NetworkAdapter = NetworkAdapter, Metadata = Metadata>,
+    Backend::BlobId: Serialize,
     Backend::Settings: Clone,
     NetworkAdapter: DispersalNetworkAdapter,
     MempoolAdapter: DaMempoolAdapter,
@@ -88,7 +90,7 @@ where
     type Settings = DispersalServiceSettings<Backend::Settings>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
-    type Message = DaDispersalMsg<Metadata>;
+    type Message = DaDispersalMsg<Metadata, Backend>;
 }
 
 #[async_trait::async_trait]
@@ -116,6 +118,7 @@ where
         > + Send
         + Sync,
     Backend::Settings: Clone + Send + Sync,
+    Backend::BlobId: Serialize,
     NetworkAdapter: DispersalNetworkAdapter<SubnetworkId = Membership::NetworkId> + Send,
     <NetworkAdapter::NetworkService as ServiceData>::Message: 'static,
     MempoolAdapter: DaMempoolAdapter,
@@ -163,9 +166,8 @@ where
                     metadata,
                     reply_channel,
                 } => {
-                    if let Err(Err(e)) =
-                        reply_channel.send(backend.process_dispersal(data, metadata).await)
-                    {
+                    let response = backend.process_dispersal(data, metadata).await;
+                    if let Err(Err(e)) = reply_channel.send(response) {
                         error!("Error forwarding dispersal response: {e}");
                     }
                 }

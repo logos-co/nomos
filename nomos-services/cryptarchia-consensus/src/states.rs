@@ -30,6 +30,7 @@ pub struct SecurityRecoveryStrategy {
     pub security_block_id: HeaderId,
     pub security_ledger_state: LedgerState,
     pub security_leader_notes: Vec<NoteWitness>,
+    pub security_block_chain_length: u64,
 }
 
 pub enum CryptarchiaInitialisationStrategy {
@@ -52,6 +53,7 @@ pub struct CryptarchiaConsensusState<
     security_block: Option<HeaderId>,
     security_ledger_state: Option<LedgerState>,
     security_leader_notes: Option<Vec<NoteWitness>>,
+    security_block_length: Option<u64>,
     _txs: PhantomData<TxS>,
     _bxs: PhantomData<BxS>,
     _network_adapter_settings: PhantomData<NetworkAdapterSettings>,
@@ -73,12 +75,14 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
         security_block: Option<HeaderId>,
         security_ledger_state: Option<LedgerState>,
         security_leader_notes: Option<Vec<NoteWitness>>,
+        security_block_length: Option<u64>,
     ) -> Self {
         Self {
             tip,
             security_block,
             security_ledger_state,
             security_leader_notes,
+            security_block_length,
             _txs: PhantomData,
             _bxs: PhantomData,
             _network_adapter_settings: PhantomData,
@@ -92,6 +96,12 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
         let security_ledger_state = security_block_header
             .and_then(|header| cryptarchia.ledger.state(&header))
             .cloned();
+        let security_block_length = security_block_header.and_then(|header| {
+            cryptarchia
+                .consensus
+                .branches()
+                .get_length_for_header(&header)
+        });
         let security_leader_notes = security_block_header
             .and_then(|header_id| leader.notes(&header_id))
             .map(Vec::from);
@@ -101,6 +111,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
             security_block_header,
             security_ledger_state,
             security_leader_notes,
+            security_block_length,
         )
     }
 
@@ -115,6 +126,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
             && self.security_block.is_some()
             && self.security_ledger_state.is_some()
             && self.security_leader_notes.is_some()
+            && self.security_block_length.is_some()
     }
 
     pub fn recovery_strategy(&mut self) -> CryptarchiaInitialisationStrategy {
@@ -133,6 +145,10 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
                     .security_leader_notes
                     .take()
                     .expect("security leader notes not available"),
+                security_block_chain_length: self
+                    .security_block_length
+                    .take()
+                    .expect("security block length not available"),
             };
             CryptarchiaInitialisationStrategy::RecoveryFromSecurity(Box::new(strategy))
         } else if self.can_recover() {
@@ -159,7 +175,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
     type Error = Error;
 
     fn from_settings(_settings: &Self::Settings) -> Result<Self, Self::Error> {
-        Ok(Self::new(None, None, None, None))
+        Ok(Self::new(None, None, None, None, None))
     }
 }
 
@@ -226,26 +242,38 @@ mod tests {
                 .field("security_block_id", &self.security_block_id)
                 .field("security_ledger_state", &self.security_ledger_state)
                 .field("security_leader_notes", &self.security_leader_notes)
+                .field("security_block_length", &self.security_block_chain_length)
                 .finish()
         }
     }
 
     #[test]
     fn test_can_recover() {
-        let state = CryptarchiaConsensusState::<(), (), (), (), ()>::new(None, None, None, None);
+        let state =
+            CryptarchiaConsensusState::<(), (), (), (), ()>::new(None, None, None, None, None);
         assert!(!state.can_recover());
 
         let header_id = HeaderId::from([0; 32]);
-        let state =
-            CryptarchiaConsensusState::<(), (), (), (), ()>::new(Some(header_id), None, None, None);
+        let state = CryptarchiaConsensusState::<(), (), (), (), ()>::new(
+            Some(header_id),
+            None,
+            None,
+            None,
+            None,
+        );
         assert!(state.can_recover());
     }
 
     #[test]
     fn test_can_recover_from_security() {
         let header_id = HeaderId::from([0; 32]);
-        let state =
-            CryptarchiaConsensusState::<(), (), (), (), ()>::new(Some(header_id), None, None, None);
+        let state = CryptarchiaConsensusState::<(), (), (), (), ()>::new(
+            Some(header_id),
+            None,
+            None,
+            None,
+            None,
+        );
         assert!(!state.can_recover_from_security());
 
         let state = CryptarchiaConsensusState::<(), (), (), (), ()>::new(
@@ -253,6 +281,7 @@ mod tests {
             Some(header_id),
             Some(LedgerState::from_commitments(vec![], 0)),
             Some(Vec::new()),
+            Some(0),
         );
         assert!(state.can_recover_from_security());
     }
@@ -260,15 +289,20 @@ mod tests {
     #[test]
     fn test_recovery_strategy() {
         let mut state =
-            CryptarchiaConsensusState::<(), (), (), (), ()>::new(None, None, None, None);
+            CryptarchiaConsensusState::<(), (), (), (), ()>::new(None, None, None, None, None);
         assert_eq!(
             state.recovery_strategy(),
             CryptarchiaInitialisationStrategy::Genesis
         );
 
         let header_id = HeaderId::from([0; 32]);
-        let mut state =
-            CryptarchiaConsensusState::<(), (), (), (), ()>::new(Some(header_id), None, None, None);
+        let mut state = CryptarchiaConsensusState::<(), (), (), (), ()>::new(
+            Some(header_id),
+            None,
+            None,
+            None,
+            None,
+        );
         assert_eq!(
             state.recovery_strategy(),
             CryptarchiaInitialisationStrategy::RecoveryFromGenesis(GenesisRecoveryStrategy {
@@ -282,6 +316,7 @@ mod tests {
             Some(header_id),
             Some(ledger_state.clone()),
             Some(Vec::new()),
+            Some(0),
         );
         assert_eq!(
             state.recovery_strategy(),
@@ -291,6 +326,7 @@ mod tests {
                     security_block_id: header_id,
                     security_ledger_state: ledger_state,
                     security_leader_notes: Vec::new(),
+                    security_block_chain_length: 0,
                 }
             ))
         );

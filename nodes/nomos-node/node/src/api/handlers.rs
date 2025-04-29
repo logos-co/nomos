@@ -560,7 +560,7 @@ where
 }
 
 #[utoipa::path(
-    get,
+    post,
     path = paths::STORAGE_BLOCK,
     responses(
         (status = 200, description = "Get the block by block id", body = HeaderId),

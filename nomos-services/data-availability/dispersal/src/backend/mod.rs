@@ -17,7 +17,7 @@ pub trait DispersalBackend {
     type NetworkAdapter: DispersalNetworkAdapter;
     type MempoolAdapter: DaMempoolAdapter;
     type Metadata: Debug + metadata::Metadata + Send;
-    type BlobId: AsRef<[u8]> + Send;
+    type BlobId: AsRef<[u8]> + Send + Copy;
 
     fn init(
         config: Self::Settings,
@@ -44,13 +44,13 @@ pub trait DispersalBackend {
         &self,
         data: Vec<u8>,
         metadata: Self::Metadata,
-    ) -> Result<(), DynError> {
+    ) -> Result<Self::BlobId, DynError> {
         let (blob_id, encoded_data) = self.encode(data).await?;
         info_with_id!(blob_id.as_ref(), "ProcessDispersal");
         self.disperse(encoded_data).await?;
         // let disperse and replication happen before pushing to mempool
         tokio::time::sleep(Duration::from_secs(1)).await;
         self.publish_to_mempool(blob_id, metadata).await?;
-        Ok(())
+        Ok(blob_id)
     }
 }

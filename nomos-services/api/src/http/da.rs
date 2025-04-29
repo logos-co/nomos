@@ -282,7 +282,7 @@ pub async fn disperse_data<
     handle: &OverwatchHandle<RuntimeServiceId>,
     data: Vec<u8>,
     metadata: Metadata,
-) -> Result<(), DynError>
+) -> Result<Backend::BlobId, DynError>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -295,8 +295,10 @@ where
             MempoolAdapter = MempoolAdapter,
             Metadata = Metadata,
         > + Send
-        + Sync,
+        + Sync
+        + 'static,
     Backend::Settings: Clone + Send + Sync,
+    Backend::BlobId: Serialize,
     NetworkAdapter: DispersalNetworkAdapter<SubnetworkId = Membership::NetworkId> + Send,
     MempoolAdapter: DaMempoolAdapter,
     Metadata: metadata::Metadata + Debug + Send + 'static,

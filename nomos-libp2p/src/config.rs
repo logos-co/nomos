@@ -143,6 +143,7 @@ impl From<GossipsubConfigDef> for gossipsub::Config {
     fn from(def: GossipsubConfigDef) -> Self {
         let mut builder = gossipsub::ConfigBuilder::default();
         let mut builder = builder
+            .allow_self_origin(true)
             .history_length(def.history_length)
             .history_gossip(def.history_gossip)
             .mesh_n(def.mesh_n)

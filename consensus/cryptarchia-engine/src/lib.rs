@@ -70,30 +70,67 @@ where
         Self { branches, tips }
     }
 
-    #[must_use = "this returns the result of the operation, without modifying the original"]
-    fn apply_header(&self, header: Id, parent: Id, slot: Slot) -> Result<Self, Error<Id>> {
+    /// Create a new [`Branches`] instance with the updated state.
+    /// This method adds a [`Branch`] to the new instance without running
+    /// validation.
+    ///
+    /// # Warning
+    ///
+    /// **This method bypasses safety checks** and can corrupt the state if used
+    /// incorrectly.
+    /// Only use for recovery, debugging, or other manipulations where the input
+    /// is known to be valid.
+    ///
+    /// # Arguments
+    ///
+    /// * `header` - The ID of the block to be added.
+    /// * `parent` - The ID of the parent block. Due to the nature of the method
+    ///   (`unchecked`), the existence of the parent block is not verified.
+    /// * `slot` - The slot of the block to be added.
+    /// * `chain_length`: The position of the block in the chain.
+    #[must_use = "Returns a new instance with the updated state, without modifying the original."]
+    fn apply_header_unchecked(
+        &self,
+        header: Id,
+        parent: Id,
+        slot: Slot,
+        chain_length: u64,
+    ) -> Self {
         let mut branches = self.branches.clone();
+
         let mut tips = self.tips.clone();
-        // if the parent was the head of a branch, remove it as it has been superseded
-        // by the new header
         tips.remove(&parent);
-        let length = branches
-            .get(&parent)
-            .ok_or(Error::ParentMissing(parent))?
-            .length
-            + 1;
         tips.insert(header);
+
         branches.insert(
             header,
             Branch {
                 id: header,
                 parent,
-                length,
+                length: chain_length,
                 slot,
             },
         );
 
-        Ok(Self { branches, tips })
+        Self { branches, tips }
+    }
+
+    /// Create a new [`Branches`] instance with the updated state.
+    #[must_use = "this returns the result of the operation, without modifying the original"]
+    fn apply_header(&self, header: Id, parent: Id, slot: Slot) -> Result<Self, Error<Id>> {
+        // Calculating the length here allows us to reuse
+        // `Self::apply_header_unchecked`. Could this lead to length difference
+        // issues? We are calculating length here but the `self.branches` is
+        // cloned in the `Self::apply_header_unchecked` method, which means
+        // there's a risk of length being different due to concurrent operations.
+        let length = self
+            .branches
+            .get(&parent)
+            .ok_or(Error::ParentMissing(parent))?
+            .length
+            + 1;
+
+        Ok(self.apply_header_unchecked(header, parent, slot, length))
     }
 
     #[must_use]
@@ -128,6 +165,10 @@ where
         self.branches.get(id)
     }
 
+    pub fn get_length_for_header(&self, header_id: &Id) -> Option<u64> {
+        self.get(header_id).map(|branch| branch.length)
+    }
+
     // Walk back the chain until the target slot
     fn walk_back_before(&self, branch: &Branch<Id>, slot: Slot) -> Branch<Id> {
         let mut current = branch;
@@ -151,7 +192,7 @@ impl<Id> Cryptarchia<Id>
 where
     Id: Eq + std::hash::Hash + Copy,
 {
-    pub fn new(id: Id, config: Config) -> Self {
+    pub fn from_genesis(id: Id, config: Config) -> Self {
         Self {
             branches: Branches::from_genesis(id),
             local_chain: Branch {
@@ -165,12 +206,46 @@ where
         }
     }
 
-    #[must_use = "this returns the result of the operation, without modifying the original"]
+    /// Create a new [`Cryptarchia`] instance with the updated state.
+    /// This method adds a [`Block`] to the new instance without running
+    /// validation.
+    ///
+    /// # Warning
+    ///
+    /// **This method bypasses safety checks** and can corrupt the state if used
+    /// incorrectly.
+    /// Only use for recovery, debugging, or other manipulations where the input
+    /// is known to be valid.
+    ///
+    /// # Arguments
+    ///
+    /// * `header` - The ID of the block to be added.
+    /// * `parent` - The ID of the parent block. Due to the nature of the method
+    ///   (`unchecked`), the existence of the parent block is not verified.
+    /// * `slot` - The slot of the block to be added.
+    /// * `chain_length`: The position of the block in the chain.
+    #[must_use = "Returns a new instance with the updated state, without modifying the original."]
+    pub fn receive_block_unchecked(
+        &self,
+        header: Id,
+        parent: Id,
+        slot: Slot,
+        chain_length: u64,
+    ) -> Self {
+        let mut new = self.clone();
+        new.branches = new
+            .branches
+            .apply_header_unchecked(header, parent, slot, chain_length);
+        new.local_chain = new.fork_choice();
+        new
+    }
+
+    /// Create a new [`Cryptarchia`] instance with the updated state.
+    #[must_use = "Returns a new instance with the updated state, without modifying the original."]
     pub fn receive_block(&self, id: Id, parent: Id, slot: Slot) -> Result<Self, Error<Id>> {
         let mut new: Self = self.clone();
         new.branches = new.branches.apply_header(id, parent, slot)?;
         new.local_chain = new.fork_choice();
-
         Ok(new)
     }
 
@@ -262,7 +337,7 @@ pub mod tests {
     #[test]
     fn test_fork_choice() {
         // TODO: use cryptarchia
-        let mut engine = Cryptarchia::new([0; 32], config());
+        let mut engine = Cryptarchia::from_genesis([0; 32], config());
         // by setting a low k we trigger the density choice rule, and the shorter chain
         // is denser after the fork
         engine.config.security_param = NonZero::new(10).unwrap();
@@ -353,7 +428,7 @@ pub mod tests {
 
     #[test]
     fn test_getters() {
-        let engine = Cryptarchia::new([0; 32], config());
+        let engine = Cryptarchia::from_genesis([0; 32], config());
         let id_0 = engine.genesis();
 
         // Get branch directly from HashMap
@@ -384,7 +459,7 @@ pub mod tests {
 
     #[test]
     fn test_get_security_block() {
-        let mut engine = Cryptarchia::new([0; 32], config());
+        let mut engine = Cryptarchia::from_genesis([0; 32], config());
         let mut parent_header = engine.genesis();
 
         assert!(engine.get_security_block_header_id().is_none());
