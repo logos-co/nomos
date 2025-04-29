@@ -634,7 +634,7 @@ where
                         if let Some(proof) = leader.build_proof_for(note_tree, epoch_state, slot, parent).await {
                             tracing::debug!("proposing block...");
                             // TODO: spawn as a separate task?
-                            let block = Self::propose_block(
+                            let block = Self::build_new_block(
                                 parent,
                                 slot,
                                 proof,
@@ -643,8 +643,18 @@ where
                                 &relays
                             ).await;
 
-                            if let Some(block) = block {
-                                blend_adapter.blend(block).await;
+                            if let Some(new_block) = block {
+                                cryptarchia = Self::process_block(
+                                    cryptarchia,
+                                    &mut leader,
+                                    new_block.clone(),
+                                    &relays,
+                                    &mut self.block_subscription_sender,
+                                )
+                                .await;
+        
+                                self.service_state.state_updater.update(Self::State::from_cryptarchia(&cryptarchia, &leader));
+                                blend_adapter.blend(new_block).await;
                             }
                         }
                     }
@@ -980,7 +990,7 @@ where
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(tx_selector, blob_selector, relays))]
-    async fn propose_block(
+    async fn build_new_block(
         parent: HeaderId,
         slot: Slot,
         proof: Risc0LeaderProof,
