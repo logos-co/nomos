@@ -41,6 +41,8 @@ use crate::fk20::{fk20_batch_generate_elements_proofs, Toeplitz1Cache};
 #[must_use]
 pub fn generate_row_commitments_hash(commitments: &[Commitment]) -> Vec<u8> {
     let mut hasher = Blake2bVar::new(32).expect("Hasher should be able to build");
+    // add dst for hashing
+    hasher.update(b"NOMOS_DA_V1");
     for c in commitments {
         let mut buffer = Cursor::new(Vec::new());
         c.serialize_uncompressed(&mut buffer)
