@@ -11,7 +11,7 @@ use blake2::{
     Blake2bVar,
 };
 #[cfg(feature = "parallel")]
-use rayon::iter::ParallelIterator;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use super::{kzg, Commitment, Evaluations, GlobalParameters, PolynomialEvaluationDomain, Proof};
 use crate::fk20::{fk20_batch_generate_elements_proofs, Toeplitz1Cache};
