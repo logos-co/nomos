@@ -94,6 +94,7 @@ pub fn compute_aggregated_polynomial(
     domain: PolynomialEvaluationDomain,
 ) -> Evaluations {
     let h = Fr::from_le_bytes_mod_order(aggregated_commitments_hash);
+    let h_roots = compute_h_roots(h, polynomials.len());
     let evals: Vec<Fr> = {
         {
             #[cfg(not(feature = "parallel"))]
@@ -110,7 +111,7 @@ pub fn compute_aggregated_polynomial(
             polynomials
                 .iter()
                 .enumerate()
-                .map(|(i, poly)| poly.evals[column].mul(h.pow([i as u64])))
+                .map(|(i, poly)| poly.evals[column].mul(h_roots[i]))
                 .sum()
         })
         .collect()
@@ -207,15 +208,16 @@ pub fn verify_column(
 ) -> bool {
     let row_commitments_hash = generate_row_commitments_hash(row_commitments);
     let h = Fr::from_le_bytes_mod_order(&row_commitments_hash);
+    let h_roots = compute_h_roots(h, column.len());
     let aggregated_elements: Fr = column
         .iter()
         .enumerate()
-        .map(|(i, x)| x.mul(&h.pow([i as u64])))
+        .map(|(i, x)| x.mul(&h_roots[i]))
         .sum();
     let aggregated_commitments: G1Projective = row_commitments
         .iter()
         .enumerate()
-        .map(|(i, c)| c.0.mul(&h.pow([i as u64])))
+        .map(|(i, c)| c.0.mul(&h_roots[i]))
         .sum();
     let commitment = KzgCommitment(aggregated_commitments.into_affine());
     kzg::verify_element_proof(
@@ -226,4 +228,19 @@ pub fn verify_column(
         domain,
         global_parameters,
     )
+}
+
+fn compute_h_roots(h: Fr, size: usize) -> Vec<Fr> {
+    {
+        #[cfg(feature = "parallel")]
+        {
+            (0..size as u64).into_par_iter()
+        }
+        #[cfg(not(feature = "parallel"))]
+        {
+            0..size as u64
+        }
+    }
+    .map(|i| h.pow([i]))
+    .collect()
 }
