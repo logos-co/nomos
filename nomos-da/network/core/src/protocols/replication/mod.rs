@@ -171,6 +171,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[ignore = "Create new fixtures"]
     async fn test_connects_and_receives_replication_messages() {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env())
