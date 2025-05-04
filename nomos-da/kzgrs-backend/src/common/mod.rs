@@ -159,15 +159,8 @@ pub fn hash_commitment<const HASH_SIZE: usize>(commitment: &Commitment) -> [u8; 
 }
 
 #[must_use]
-pub fn build_blob_id(
-    aggregated_column_commitment: &Commitment,
-    rows_commitments: &[Commitment],
-) -> [u8; 32] {
+pub fn build_blob_id(rows_commitments: &[Commitment]) -> [u8; 32] {
     let mut hasher = Sha3_256::new();
-    Digest::update(
-        &mut hasher,
-        commitment_to_bytes(aggregated_column_commitment),
-    );
     for c in rows_commitments {
         Digest::update(&mut hasher, commitment_to_bytes(c));
     }

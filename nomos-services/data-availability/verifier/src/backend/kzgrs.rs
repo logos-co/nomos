@@ -56,7 +56,7 @@ impl DaVerifier for KzgrsDaVerifier {
         // TODO: Prepare the domain depending the size, if fixed, so fixed domain, if
         // not it needs to come with some metadata.
         self.verifier
-            .verify(commitments, light_share, self.domain_size)
+            .verify(light_share, commitments, self.domain_size)
             .then_some(())
             .ok_or(KzgrsDaVerifierError::VerificationError)
     }

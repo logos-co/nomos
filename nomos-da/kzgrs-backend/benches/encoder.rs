@@ -19,7 +19,9 @@ pub fn rand_data(elements_count: usize) -> Vec<u8> {
     rand::thread_rng().fill_bytes(&mut buff);
     buff
 }
-#[divan::bench(consts = [32, 64, 128, 256, 512, 1024], args = [128, 256, 512, 1024, 2048, 4096], sample_count = 1, sample_size = 1)]
+
+#[divan::bench(consts = [32, 64, 128, 256, 512, 1024], args = [128, 256, 512, 1024, 2048, 4096], sample_count = 1, sample_size = 30
+)]
 fn encode<const SIZE: usize>(bencher: Bencher, column_size: usize) {
     bencher
         .with_inputs(|| {
