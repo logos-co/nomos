@@ -86,6 +86,7 @@ nomos-membership         = { path = "./nomos-services/membership" }
 nomos-mempool            = { path = "./nomos-services/mempool" }
 nomos-network            = { path = "./nomos-services/network" }
 nomos-node               = { path = "./nodes/nomos-node/node", default-features = false }
+nomos-sdp                = { path = "./nomos-services/sdp" }
 nomos-sdp-core           = { path = "./nomos-sdp" }
 nomos-storage            = { path = "./nomos-services/storage" }
 nomos-system-sig         = { path = "./nomos-services/system-sig" }

@@ -12,6 +12,7 @@ use overwatch::{
 };
 use services_utils::overwatch::lifecycle;
 
+mod adapters;
 pub mod backends;
 
 #[derive(Debug, Clone)]
