@@ -968,6 +968,8 @@ where
                     tracing::error!("Could not send block to storage: {e}");
                 }
 
+                // TODO: Add block pruning logic for K-1 forks
+
                 if let Err(e) = block_broadcaster.send(block) {
                     tracing::error!("Could not notify block to services {e}");
                 }
