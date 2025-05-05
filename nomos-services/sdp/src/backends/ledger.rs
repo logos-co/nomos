@@ -15,7 +15,7 @@ use nomos_sdp_core::{
 
 use super::{SdpBackend, SdpBackendError};
 use crate::adapters::{
-    declaration::SdpDeclarationAdapter, rewards::SdpRewardsAdapter, services::SdpServicesAdapter,
+    declaration::SdpDeclarationAdapter, activity::SdpActivityAdapter, services::SdpServicesAdapter,
     stakes::SdpStakesVerifierAdapter,
 };
 
@@ -29,7 +29,7 @@ where
     Metadata: Send + Sync + 'static,
     Declarations: SdpDeclarationAdapter + Send + Sync,
     Rewards:
-        SdpRewardsAdapter<Metadata = Metadata, ContractAddress = ContractAddress> + Send + Sync,
+        SdpActivityAdapter<Metadata = Metadata, ContractAddress = ContractAddress> + Send + Sync,
     Stakes: SdpStakesVerifierAdapter<Proof = Proof> + Send + Sync,
     Services: SdpServicesAdapter + Send + Sync,
 {

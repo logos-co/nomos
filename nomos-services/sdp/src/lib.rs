@@ -4,7 +4,7 @@ pub mod backends;
 use std::fmt::{Debug, Display};
 
 use adapters::{
-    declaration::SdpDeclarationAdapter, rewards::SdpRewardsAdapter, services::SdpServicesAdapter,
+    activity::SdpActivityAdapter, declaration::SdpDeclarationAdapter, services::SdpServicesAdapter,
     stakes::SdpStakesVerifierAdapter,
 };
 use async_trait::async_trait;
@@ -47,7 +47,7 @@ pub struct SdpService<
     RuntimeServiceId,
 > where
     DeclarationAdapter: SdpDeclarationAdapter + Send + Sync,
-    RewardsAdapter: SdpRewardsAdapter + Send + Sync,
+    RewardsAdapter: SdpActivityAdapter + Send + Sync,
     ServicesAdapter: SdpServicesAdapter + Send + Sync,
     StakesVerifierAdapter: SdpStakesVerifierAdapter + Send + Sync,
     Metadata: Send + Sync + 'static,
@@ -83,7 +83,7 @@ impl<
 where
     B: SdpBackend + Send + Sync + 'static,
     DeclarationAdapter: SdpDeclarationAdapter + Send + Sync,
-    RewardsAdapter: SdpRewardsAdapter + Send + Sync,
+    RewardsAdapter: SdpActivityAdapter + Send + Sync,
     ServicesAdapter: SdpServicesAdapter + Send + Sync,
     StakesVerifierAdapter: SdpStakesVerifierAdapter + Send + Sync,
     Metadata: Send + Sync + 'static,
@@ -130,7 +130,7 @@ where
         + 'static,
     DeclarationAdapter: ledger::DeclarationsRepository + SdpDeclarationAdapter + Send + Sync,
     RewardsAdapter: ledger::ActivityContract<ContractAddress = ContractAddress, Metadata = Metadata>
-        + SdpRewardsAdapter
+        + SdpActivityAdapter
         + Send
         + Sync,
     ServicesAdapter: ledger::ServicesRepository<ContractAddress = ContractAddress>
@@ -184,7 +184,7 @@ where
 impl<
         B: SdpBackend + Send + Sync + 'static,
         DeclarationAdapter: SdpDeclarationAdapter + Send + Sync,
-        RewardsAdapter: SdpRewardsAdapter + Send + Sync,
+        RewardsAdapter: SdpActivityAdapter + Send + Sync,
         StakesVerifierAdapter: SdpStakesVerifierAdapter + Send + Sync,
         ServicesAdapter: SdpServicesAdapter + Send + Sync,
         Metadata: Send + Sync + 'static,

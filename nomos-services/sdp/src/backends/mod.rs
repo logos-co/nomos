@@ -1,7 +1,7 @@
 use overwatch::DynError;
 
 use crate::adapters::{
-    declaration::SdpDeclarationAdapter, rewards::SdpRewardsAdapter, services::SdpServicesAdapter,
+    activity::SdpActivityAdapter, declaration::SdpDeclarationAdapter, services::SdpServicesAdapter,
     stakes::SdpStakesVerifierAdapter,
 };
 
@@ -21,7 +21,7 @@ pub trait SdpBackend {
     type BlockNumber: Clone + Send + Sync;
     type Message: Send + Sync;
     type DeclarationAdapter: SdpDeclarationAdapter;
-    type RewardsAdapter: SdpRewardsAdapter;
+    type RewardsAdapter: SdpActivityAdapter;
     type StakesVerifierAdapter: SdpStakesVerifierAdapter;
     type ServicesAdapter: SdpServicesAdapter;
 

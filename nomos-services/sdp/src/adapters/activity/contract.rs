@@ -6,13 +6,13 @@ use nomos_sdp_core::{
     ActiveMessage,
 };
 
-use super::SdpRewardsAdapter;
+use super::SdpActivityAdapter;
 
 pub struct LedgerRewardsAdapter<Metadata, ContractAddress> {
     phantom: std::marker::PhantomData<(Metadata, ContractAddress)>,
 }
 
-impl<Metadata: Send + Sync, ContractAddress: Send + Debug + Sync> SdpRewardsAdapter
+impl<Metadata: Send + Sync, ContractAddress: Send + Debug + Sync> SdpActivityAdapter
     for LedgerRewardsAdapter<Metadata, ContractAddress>
 {
     fn new() -> Self {
