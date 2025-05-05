@@ -10,6 +10,7 @@ pub mod time;
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
+    hash::Hash,
 };
 
 pub use config::*;
@@ -135,11 +136,32 @@ pub struct Cryptarchia<Id, State: ?Sized> {
     _state: std::marker::PhantomData<State>,
 }
 
+impl<Id, State> PartialEq for Cryptarchia<Id, State>
+where
+    Id: Eq + Hash,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.local_chain == other.local_chain
+            && self.branches == other.branches
+            && self.config == other.config
+            && self.genesis == other.genesis
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Branches<Id> {
     branches: HashMap<Id, Branch<Id>>,
     tips: HashSet<Id>,
     lib: Id,
+}
+
+impl<Id> PartialEq for Branches<Id>
+where
+    Id: Eq + Hash,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.branches == other.branches && self.tips == other.tips && self.lib == other.lib
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -446,7 +468,7 @@ where
     /// For example, if the tip of the canonical chain is at height 10, calling
     /// `self.prune_forks(10)` will remove any forks stemming from the genesis
     /// block, with height `0`.
-    pub fn prune_forks(&mut self, depth: u64) {
+    pub fn prune_forks(&mut self, depth: u64) -> usize {
         let local_chain = self.local_chain;
         let non_canonical_forks = self.non_canonical_forks();
         let Some(target_height) = local_chain.length.checked_sub(depth) else {
@@ -454,7 +476,7 @@ where
                 target: LOG_TARGET,
                 "No pruning needed, the canonical chain is not longer than the provided depth. Canonical chain length: {}, provided depth: {}", local_chain.length, depth
             );
-            return;
+            return 0;
         };
         // Calculate LCA between fork and canonical chain, and consider it for pruning
         // if the fork started before the specified `depth`.
@@ -465,9 +487,10 @@ where
                     (lca.length <= target_height).then_some((fork, lca))
                 })
                 .collect();
-        for (fork, lca) in non_canonical_forks_older_than_depth {
+        for (fork, lca) in &non_canonical_forks_older_than_depth {
             self.prune_fork(fork.id, lca.id);
         }
+        non_canonical_forks_older_than_depth.len()
     }
 
     fn prune_fork(&mut self, tip: Id, up_to: Id) {
@@ -660,9 +683,7 @@ pub mod tests {
             let new_block = hash(&i);
             engine = engine.receive_block(new_block, parent, i.into()).unwrap();
             parent = new_block;
-            println!("{:?}", engine.tip());
         }
-        println!("{:?}", engine.tip());
         assert_eq!(engine.tip(), parent);
 
         let mut long_p = parent;
@@ -787,5 +808,59 @@ pub mod tests {
             engine.get_security_block_header_id().unwrap(),
             headers[security_header_position]
         );
+    }
+
+    fn create_canonical_chain(length: NonZero<u64>, c: Option<Config>) -> Cryptarchia<[u8; 32]> {
+        let mut engine = Cryptarchia::from_genesis([0; 32], c.unwrap_or_else(config));
+        let mut parent = engine.genesis();
+        for i in 1..length.get() {
+            let new_block = hash(&i);
+            engine = engine
+                .receive_block(new_block, parent, i.into())
+                .expect("test block to be applied successfully.");
+            parent = new_block;
+        }
+        engine
+    }
+
+    #[test]
+    fn pruning_too_back_in_time() {
+        let chain_pre = create_canonical_chain(50.try_into().unwrap(), None);
+        let mut chain = chain_pre.clone();
+        assert_eq!(chain.prune_forks(50), 0);
+        assert_eq!(chain, chain_pre);
+    }
+
+    #[test]
+    fn pruning_with_no_fork_old_enough() {
+        let chain_pre = create_canonical_chain(50.try_into().unwrap(), None);
+        let mut chain = chain_pre.clone();
+        // Add a fork from block 39
+        chain
+            .receive_block([100; 32], hash(&39u64), 39.into())
+            .expect("test block to be applied successfully.");
+        assert_eq!(chain.prune_forks(10), 0);
+        assert_eq!(chain, chain_pre);
+    }
+
+    #[test]
+    fn pruning_with_single_fork_old_enough() {
+        let mut chain_pre = create_canonical_chain(50.try_into().unwrap(), None);
+        // Add a fork from block 39
+        chain_pre = chain_pre
+            .receive_block([100; 32], hash(&39u64), 41.into())
+            .expect("test block to be applied successfully.");
+        // Add a fork from block 40
+        chain_pre = chain_pre
+            .receive_block([101; 32], hash(&40u64), 41.into())
+            .expect("test block to be applied successfully.");
+        let mut chain = chain_pre.clone();
+        assert_eq!(chain.prune_forks(10), 1);
+        // Fork at block 39 was pruned.
+        assert!(chain_pre.branches.tips.contains(&[100; 32]));
+        assert!(!chain.branches.tips.contains(&[100; 32]));
+        // Fork at block 40 was not.
+        assert!(chain_pre.branches.tips.contains(&[101; 32]));
+        assert!(chain.branches.tips.contains(&[101; 32]));
     }
 }
