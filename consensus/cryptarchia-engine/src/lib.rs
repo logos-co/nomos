@@ -435,21 +435,25 @@ where
             .filter(|fork_tip| fork_tip.id != self.tip())
     }
 
-    // prune all states deeper than (and excluding`) 'depth' with regard to the
-    // current local chain except for states belonging to the local chain
-    // TODO: Get all forks older than `depth`, and prune the ones that have already
-    // lost the density check against the canonical chain, while retaining the
-    // others.
+    /// Prune all states deeper than 'depth' with regard to the
+    /// current local chain except for states belonging to the local chain.
+    ///
+    /// For example, if the tip of the canonical chain is at height 10, calling
+    /// `self.prune_forks(10)` will remove any forks stemming from the genesis
+    /// block `0`.
     pub fn prune_forks(&mut self, depth: u64) {
         let local_chain = self.local_chain;
         let non_canonical_forks = self.non_canonical_forks();
+        let Some(target_height) = local_chain.length.checked_sub(depth) else {
+            return;
+        };
         // Calculate LCA between fork and canonical chain, and return it if the fork is
         // strictly older than `depth`.
         let non_canonical_forks_older_than_depth: Vec<(Branch<Id>, Branch<Id>)> =
             non_canonical_forks
                 .filter_map(|fork| {
                     let lca = self.branches.lca(&local_chain, &fork);
-                    (lca.length < depth).then_some((fork, lca))
+                    (lca.length <= target_height).then_some((fork, lca))
                 })
                 .collect();
         for (fork, lca) in non_canonical_forks_older_than_depth {
