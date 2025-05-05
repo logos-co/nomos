@@ -7,11 +7,16 @@
 pub mod config;
 pub mod time;
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+};
 
 pub use config::*;
 use thiserror::Error;
 pub use time::{Epoch, EpochConfig, Slot};
+
+pub(crate) const LOG_TARGET: &str = "cryptarchia-engine";
 
 #[derive(Clone, Debug)]
 pub struct Cryptarchia<Id> {
@@ -23,7 +28,7 @@ pub struct Cryptarchia<Id> {
 
 impl<Id> Cryptarchia<Id>
 where
-    Id: Eq + core::hash::Hash + Copy,
+    Id: Eq + core::hash::Hash + Copy + Debug,
 {
     pub fn from_genesis(id: Id, config: Config) -> Self {
         Self {
@@ -98,20 +103,24 @@ where
             .filter(|fork_tip| fork_tip.id != self.tip())
     }
 
-    /// Prune all states deeper than 'depth' with regard to the
+    /// Prune all states strictly deeper than 'depth' with regard to the
     /// current local chain except for states belonging to the local chain.
     ///
     /// For example, if the tip of the canonical chain is at height 10, calling
     /// `self.prune_forks(10)` will remove any forks stemming from the genesis
-    /// block `0`.
+    /// block, with height `0`.
     pub fn prune_forks(&mut self, depth: u64) {
         let local_chain = self.local_chain;
         let non_canonical_forks = self.non_canonical_forks();
         let Some(target_height) = local_chain.length.checked_sub(depth) else {
+            tracing::info!(
+                target: LOG_TARGET,
+                "No pruning needed, the canonical chain is not longer than the provided depth. Canonical chain length: {}, provided depth: {}", local_chain.length, depth
+            );
             return;
         };
-        // Calculate LCA between fork and canonical chain, and return it if the fork is
-        // strictly older than `depth`.
+        // Calculate LCA between fork and canonical chain, and consider it for pruning
+        // if the fork started before the specified `depth`.
         let non_canonical_forks_older_than_depth: Vec<(Branch<Id>, Branch<Id>)> =
             non_canonical_forks
                 .filter_map(|fork| {
@@ -139,6 +148,10 @@ where
                 .expect("fork block to be in map of local blocks.");
             current_tip = parent;
         }
+        tracing::debug!(
+            target: LOG_TARGET,
+            "Pruned branch from {tip:#?} to {up_to:#?}."
+        );
     }
 
     pub const fn genesis(&self) -> Id {
