@@ -105,6 +105,7 @@ overwatch-derive = { git = "https://github.com/logos-co/Overwatch", rev = "1c751
 reqwest          = "0.12"
 risc0-zkvm       = "2.0.0"
 serde_with       = "3.12.0"
+tracing          = "0.1"
 
 [workspace.package]
 license = "MIT or Apache-2.0"
