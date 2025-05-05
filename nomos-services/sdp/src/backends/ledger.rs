@@ -4,8 +4,8 @@ use nomos_sdp_core::{
     ledger::{
         SdpLedger,
         SdpLedgerError::{
-            self, DeclarationsRepository, DuplicateDeclarationInBlock, DuplicateServiceDeclaration,
-            Other, ProviderState, RewardsSender, ServiceNotProvided,
+            self, ActivityContract, DeclarationsRepository, DuplicateDeclarationInBlock,
+            DuplicateServiceDeclaration, Other, ProviderState, ServiceNotProvided,
             ServicesRepository as LedgerServicesRepository, StakesVerifier, WrongDeclarationId,
         },
         ServicesRepository,
@@ -84,7 +84,7 @@ where
         match e {
             ProviderState(provider_state_error) => Self::Other(Box::new(provider_state_error)),
             DeclarationsRepository(err) => Self::DeclarationAdapterError(Box::new(err)),
-            RewardsSender(err) => Self::RewardsAdapterError(Box::new(err)),
+            ActivityContract(err) => Self::RewardsAdapterError(Box::new(err)),
             LedgerServicesRepository(err) => Self::ServicesAdapterError(Box::new(err)),
             StakesVerifier(err) => Self::StakesVerifierAdapterError(Box::new(err)),
             DuplicateServiceDeclaration

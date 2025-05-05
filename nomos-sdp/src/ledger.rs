@@ -8,8 +8,8 @@ use std::{
 use async_trait::async_trait;
 
 use crate::{
-    BlockNumber, Declaration, DeclarationId, DeclarationMessage, DeclarationUpdate, EventType,
-    Nonce, ProviderId, ProviderInfo, RewardId, RewardMessage, SdpMessage, ServiceParameters,
+    ActiveMessage, ActivityId, BlockNumber, Declaration, DeclarationId, DeclarationMessage,
+    DeclarationUpdate, EventType, Nonce, ProviderId, ProviderInfo, SdpMessage, ServiceParameters,
     ServiceType, WithdrawMessage,
     state::{ProviderState, ProviderStateError},
 };
@@ -70,23 +70,23 @@ pub trait ServicesRepository {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum RewardsSenderError<ContractAddress> {
-    #[error("Reward contract not found: {0:?}")]
+pub enum ActivityContractError<ContractAddress> {
+    #[error("Activity contract not found: {0:?}")]
     NotFound(ContractAddress),
     #[error(transparent)]
     Other(Box<dyn Error + Send + Sync>),
 }
 
 #[async_trait]
-pub trait RewardsRequestSender {
+pub trait ActivityContract {
     type ContractAddress: Debug;
     type Metadata;
 
-    async fn request_reward(
+    async fn mark_active(
         &self,
-        reward_contract: Self::ContractAddress,
-        reward_message: RewardMessage<Self::Metadata>,
-    ) -> Result<(), RewardsSenderError<Self::ContractAddress>>;
+        contract_address: Self::ContractAddress,
+        active_message: ActiveMessage<Self::Metadata>,
+    ) -> Result<(), ActivityContractError<Self::ContractAddress>>;
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -119,7 +119,7 @@ pub enum SdpLedgerError<ContractAddress: Debug> {
     #[error(transparent)]
     DeclarationsRepository(#[from] DeclarationsRepositoryError),
     #[error(transparent)]
-    RewardsSender(#[from] RewardsSenderError<ContractAddress>),
+    ActivityContract(#[from] ActivityContractError<ContractAddress>),
     #[error(transparent)]
     ServicesRepository(#[from] ServicesRepositoryError),
     #[error(transparent)]
@@ -136,45 +136,48 @@ pub enum SdpLedgerError<ContractAddress: Debug> {
     Other(Box<dyn Error + Send + Sync>),
 }
 
-pub struct SdpLedger<Declarations, Rewards, Services, Stakes, Proof, Metadata, ContractAddress>
+pub struct SdpLedger<Declarations, Activity, Services, Stakes, Proof, Metadata, ContractAddress>
 where
     Declarations: DeclarationsRepository,
-    Rewards: RewardsRequestSender,
+    Activity: ActivityContract,
     Services: ServicesRepository,
 {
     declaration_repo: Declarations,
-    reward_request_sender: Rewards,
+    activity_contract: Activity,
     services_repo: Services,
     stake_verifier: Stakes,
     pending_providers: HashMap<BlockNumber, HashMap<ProviderId, ProviderInfo>>,
     pending_declarations: HashMap<BlockNumber, HashMap<ProviderId, DeclarationUpdate>>,
-    pending_rewards: HashMap<ProviderId, RewardId>,
+    pending_activity: HashMap<ProviderId, ActivityId>,
     _phantom: PhantomData<(Proof, Metadata, ContractAddress)>,
 }
 
-impl<Declarations, Rewards, Services, Stakes, Proof, Metadata, ContractAddress>
-    SdpLedger<Declarations, Rewards, Services, Stakes, Proof, Metadata, ContractAddress>
+impl<Declarations, Activity, Services, Stakes, Proof, Metadata, ContractAddress>
+    SdpLedger<Declarations, Activity, Services, Stakes, Proof, Metadata, ContractAddress>
 where
     Declarations: DeclarationsRepository + Send + Sync,
-    Rewards: RewardsRequestSender<Metadata = Metadata, ContractAddress = ContractAddress> + Send,
-    Services: ServicesRepository<ContractAddress = ContractAddress> + Send,
+    Activity:
+        ActivityContract<Metadata = Metadata, ContractAddress = ContractAddress> + Send + Sync,
+    Services: ServicesRepository<ContractAddress = ContractAddress> + Send + Sync,
     Stakes: StakesVerifier<Proof = Proof> + Send + Sync,
-    ContractAddress: Debug,
+    ContractAddress: Debug + Send + Sync,
+    Proof: Send + Sync,
+    Metadata: Send + Sync,
 {
     pub fn new(
         declaration_repo: Declarations,
-        reward_request_sender: Rewards,
+        activity_contract: Activity,
         services_repo: Services,
         stake_verifier: Stakes,
     ) -> Self {
         Self {
             declaration_repo,
-            reward_request_sender,
+            activity_contract,
             services_repo,
             stake_verifier,
             pending_providers: HashMap::new(),
             pending_declarations: HashMap::new(),
-            pending_rewards: HashMap::new(),
+            pending_activity: HashMap::new(),
             _phantom: PhantomData,
         }
     }
@@ -228,25 +231,25 @@ where
         Ok(pending_state)
     }
 
-    async fn process_reward(
+    async fn process_active(
         &mut self,
         block_number: BlockNumber,
         current_state: ProviderState,
-        reward_message: RewardMessage<Metadata>,
+        active_message: ActiveMessage<Metadata>,
         service_params: ServiceParameters<ContractAddress>,
     ) -> Result<ProviderState, SdpLedgerError<ContractAddress>> {
-        // Check if state can transition before requesting a reward.
-        let pending_state = current_state.try_into_active(block_number, EventType::Reward)?;
-        let provider_id = reward_message.provider_id;
-        let declaration_id = reward_message.declaration_id;
-        let service_type = reward_message.service_type;
+        // Check if state can transition before marking as active.
+        let pending_state = current_state.try_into_active(block_number, EventType::Activity)?;
+        let provider_id = active_message.provider_id;
+        let declaration_id = active_message.declaration_id;
+        let service_type = active_message.service_type;
 
         self.declaration_repo
-            .check_nonce(provider_id, reward_message.nonce)
+            .check_nonce(provider_id, active_message.nonce)
             .await?;
 
         // One declaration can be for multiple services, and each service could have
-        // different provider id, allow reward only for the service that
+        // different provider id, allow marking active only for the service that
         // provider is providing.
         if let Ok(declaration) = self.declaration_repo.get_declaration(declaration_id).await {
             if !declaration.has_service_provider(service_type, provider_id) {
@@ -254,28 +257,28 @@ where
             }
         }
 
-        // Reward can be sent, but state never transition, we need to allow state
-        // transition if `provider_info` got rewarded, but didn't transition state for
-        // some reason.
-        if let Entry::Vacant(entry) = self.pending_rewards.entry(provider_id) {
-            let reward_id = reward_message.reward_id();
-            self.reward_request_sender
-                .request_reward(service_params.reward_contract, reward_message)
+        // Activity can be recorded, but state never transition, we need to allow state
+        // transition if `provider_info` got marked active, but didn't transition state
+        // for some reason.
+        if let Entry::Vacant(entry) = self.pending_activity.entry(provider_id) {
+            let activity_id = active_message.activity_id();
+            self.activity_contract
+                .mark_active(service_params.activity_contract, active_message)
                 .await?;
-            entry.insert(reward_id);
+            entry.insert(activity_id);
         }
 
         Ok(pending_state)
     }
 
     async fn process_withdraw(
-        &mut self,
+        &self,
         block_number: BlockNumber,
         current_state: ProviderState,
-        withdraw_message: WithdrawMessage<Metadata>,
+        withdraw_message: WithdrawMessage,
         service_params: ServiceParameters<ContractAddress>,
     ) -> Result<ProviderState, SdpLedgerError<ContractAddress>> {
-        let mut pending_state = current_state.try_into_withdrawn(
+        let pending_state = current_state.try_into_withdrawn(
             block_number,
             EventType::Withdrawal,
             &service_params,
@@ -294,27 +297,6 @@ where
         if let Ok(declaration) = self.declaration_repo.get_declaration(declaration_id).await {
             if !declaration.has_service_provider(service_type, provider_id) {
                 return Err(SdpLedgerError::ServiceNotProvided(service_type));
-            }
-        }
-
-        // Block can contain reward and rewardable withdraw message, only process one
-        // reward for provider service per block.
-        if let Entry::Vacant(entry) = self.pending_rewards.entry(provider_id) {
-            if let Ok(reward_message) = RewardMessage::try_from(withdraw_message) {
-                let reward_id = reward_message.reward_id();
-
-                // If withdrawal to withdrawal with reward state transition fails, reward can't
-                // be sent.
-                pending_state = pending_state.try_into_withdrawn(
-                    block_number,
-                    EventType::Reward,
-                    &service_params,
-                )?;
-
-                self.reward_request_sender
-                    .request_reward(service_params.reward_contract, reward_message)
-                    .await?;
-                entry.insert(reward_id);
             }
         }
 
@@ -364,8 +346,8 @@ where
                 self.process_declare(block_number, current_state, declaration_message)
                     .await?
             }
-            SdpMessage::Reward(reward_message) => {
-                self.process_reward(block_number, current_state, reward_message, service_params)
+            SdpMessage::Activity(active_message) => {
+                self.process_active(block_number, current_state, active_message, service_params)
                     .await?
             }
             SdpMessage::Withdraw(withdraw_message) => {
@@ -434,8 +416,9 @@ where
 
         for info in updates.values() {
             let id = info.provider_id;
-            // Rewards are expected to be marked in block by entity that manages rewards.
-            self.pending_rewards.remove(&id);
+            // Activity contract is expected to be marked in block by entity that manages
+            // activity.
+            self.pending_activity.remove(&id);
 
             if let Err(err) = self.mark_declaration_in_block(block_number, info).await {
                 tracing::error!("Provider information couldn't be updated: {err}");
@@ -449,7 +432,7 @@ where
         self.pending_declarations.remove(&block_number);
         if let Some(updates) = self.pending_providers.remove(&block_number) {
             for ProviderInfo { provider_id, .. } in updates.values() {
-                self.pending_rewards.remove(provider_id);
+                self.pending_activity.remove(provider_id);
             }
         }
     }
@@ -474,7 +457,7 @@ mod tests {
     type MockProof = [u8; 32];
     type MockSdpLedger = SdpLedger<
         MockDeclarationsRepository,
-        MockRewardsRequestSender,
+        MockActivityContract,
         MockServicesRepository,
         MockStakesVerifier,
         MockProof,
@@ -506,7 +489,7 @@ mod tests {
             ));
         }
 
-        pub fn add_reward(
+        pub fn add_activity(
             &mut self,
             provider_id: ProviderId,
             declaration_id: DeclarationId,
@@ -514,7 +497,7 @@ mod tests {
             should_pass: bool,
         ) {
             self.messages.push((
-                SdpMessage::Reward(RewardMessage {
+                SdpMessage::Activity(ActiveMessage {
                     declaration_id,
                     service_type,
                     provider_id,
@@ -530,7 +513,6 @@ mod tests {
             provider_id: ProviderId,
             declaration_id: DeclarationId,
             service_type: ServiceType,
-            with_meta: bool,
             should_pass: bool,
         ) {
             self.messages.push((
@@ -539,7 +521,6 @@ mod tests {
                     service_type,
                     provider_id,
                     nonce: [0u8; 16],
-                    metadata: with_meta.then_some([0u8; 32]),
                 }),
                 should_pass,
             ));
@@ -557,8 +538,8 @@ mod tests {
     // Block Operation, short for better formatting.
     enum BOp {
         Dec(ProviderId, ServiceType, Vec<Locator>),
-        Rew(ProviderId, DeclarationId, ServiceType),
-        Wit(ProviderId, DeclarationId, ServiceType, bool),
+        Act(ProviderId, DeclarationId, ServiceType),
+        Wit(ProviderId, DeclarationId, ServiceType),
     }
 
     // Short alias for better formatting.
@@ -574,11 +555,11 @@ mod tests {
                         BOp::Dec(pid, service, locators) => {
                             block.add_declaration(pid, service, locators, should_pass);
                         }
-                        BOp::Rew(pid, did, service) => {
-                            block.add_reward(pid, did, service, should_pass);
+                        BOp::Act(pid, did, service) => {
+                            block.add_activity(pid, did, service, should_pass);
                         }
-                        BOp::Wit(pid, did, service, with_reward) => {
-                            block.add_withdraw(pid, did, service, with_reward, should_pass);
+                        BOp::Wit(pid, did, service) => {
+                            block.add_withdraw(pid, did, service, should_pass);
                         }
                     }
                 }
@@ -680,21 +661,21 @@ mod tests {
     }
 
     #[derive(Default, Clone)]
-    struct MockRewardsRequestSender {
-        requested_rewards: Arc<Mutex<Vec<RewardMessage<MockContractAddress>>>>,
+    struct MockActivityContract {
+        activity_records: Arc<Mutex<Vec<ActiveMessage<MockContractAddress>>>>,
     }
 
     #[async_trait]
-    impl RewardsRequestSender for MockRewardsRequestSender {
+    impl ActivityContract for MockActivityContract {
         type ContractAddress = MockContractAddress;
         type Metadata = MockMetadata;
 
-        async fn request_reward(
+        async fn mark_active(
             &self,
-            _reward_contract: Self::ContractAddress,
-            reward_message: RewardMessage<Self::ContractAddress>,
-        ) -> Result<(), RewardsSenderError<Self::ContractAddress>> {
-            self.requested_rewards.lock().unwrap().push(reward_message);
+            _activity_contract: Self::ContractAddress,
+            activity_message: ActiveMessage<Self::ContractAddress>,
+        ) -> Result<(), ActivityContractError<Self::ContractAddress>> {
+            self.activity_records.lock().unwrap().push(activity_message);
             Ok(())
         }
     }
@@ -741,7 +722,7 @@ mod tests {
             lock_period: 10,
             inactivity_period: 20,
             retention_period: 30,
-            reward_contract: [0u8; 32],
+            activity_contract: [0u8; 32],
             timestamp: 0,
         }
     }
@@ -749,11 +730,11 @@ mod tests {
     fn setup_ledger() -> (
         MockSdpLedger,
         MockDeclarationsRepository,
-        MockRewardsRequestSender,
+        MockActivityContract,
         MockServicesRepository,
     ) {
         let declaration_repo = MockDeclarationsRepository::default();
-        let rewards_sender = MockRewardsRequestSender::default();
+        let activity_contract = MockActivityContract::default();
         let service_repo = MockServicesRepository::default();
         let stake_verifier = MockStakesVerifier;
 
@@ -765,16 +746,16 @@ mod tests {
 
         let ledger = SdpLedger {
             declaration_repo: declaration_repo.clone(),
-            reward_request_sender: rewards_sender.clone(),
+            activity_contract: activity_contract.clone(),
             services_repo: service_repo.clone(),
             stake_verifier,
             pending_providers: HashMap::new(),
             pending_declarations: HashMap::new(),
-            pending_rewards: HashMap::new(),
+            pending_activity: HashMap::new(),
             _phantom: PhantomData,
         };
 
-        (ledger, declaration_repo, rewards_sender, service_repo)
+        (ledger, declaration_repo, activity_contract, service_repo)
     }
 
     #[tokio::test]
@@ -803,12 +784,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_process_reward_message() {
-        let (mut ledger, _, rewards_sender, _) = setup_ledger();
+    async fn test_process_activity_message() {
+        let (mut ledger, _, activity_contract, _) = setup_ledger();
         let provider_id = ProviderId([0u8; 32]);
         let declaration_id = DeclarationId([1u8; 32]);
 
-        let reward_message = RewardMessage {
+        let active_message = ActiveMessage {
             declaration_id,
             service_type: ServiceType::BlendNetwork,
             provider_id,
@@ -817,7 +798,7 @@ mod tests {
         };
 
         let result = ledger
-            .process_sdp_message(100, SdpMessage::Reward(reward_message.clone()))
+            .process_sdp_message(100, SdpMessage::Activity(active_message.clone()))
             .await;
 
         assert!(result.is_ok());
@@ -825,15 +806,15 @@ mod tests {
         assert_eq!(ledger.pending_providers.len(), 1);
         assert!(ledger.pending_providers.contains_key(&100));
 
-        let requested_rewards = rewards_sender.requested_rewards.lock().unwrap();
-        assert_eq!(requested_rewards.len(), 1);
-        assert_eq!(requested_rewards[0].provider_id, provider_id);
-        drop(requested_rewards); // clippy strict >:)
+        let activity_records = activity_contract.activity_records.lock().unwrap();
+        assert_eq!(activity_records.len(), 1);
+        assert_eq!(activity_records[0].provider_id, provider_id);
+        drop(activity_records); // clippy strict >:)
     }
 
     #[tokio::test]
     async fn test_process_withdraw_message() {
-        let (mut ledger, declaration_repo, rewards_sender, _) = setup_ledger();
+        let (mut ledger, declaration_repo, activity_contract, _) = setup_ledger();
         let provider_id = ProviderId([0u8; 32]);
         let declaration_id = DeclarationId([1u8; 32]);
 
@@ -850,7 +831,6 @@ mod tests {
             service_type: ServiceType::BlendNetwork,
             provider_id,
             nonce: [0; 16],
-            metadata: Some([2u8; 32]),
         };
 
         let result = ledger
@@ -862,10 +842,10 @@ mod tests {
         assert_eq!(ledger.pending_providers.len(), 1);
         assert!(ledger.pending_providers.contains_key(&100));
 
-        let requested_rewards = rewards_sender.requested_rewards.lock().unwrap();
-        assert_eq!(requested_rewards.len(), 1);
-        assert_eq!(requested_rewards[0].provider_id, provider_id);
-        drop(requested_rewards);
+        // Withdrawing doesn't make the provider active.
+        let activity_records = activity_contract.activity_records.lock().unwrap();
+        assert_eq!(activity_records.len(), 0);
+        drop(activity_records);
     }
 
     #[tokio::test]
@@ -907,17 +887,17 @@ mod tests {
                     (BOp::Dec(pid, St::DataAvailability, locators.clone()), false),
                 ],
             ),
-            (10, vec![(BOp::Rew(pid, did, St::BlendNetwork), true)]),
-            // This provider is registered with the BlendNetwork service, should fail to get reward
-            // for DataAvailability service.
-            (20, vec![(BOp::Rew(pid, did, St::DataAvailability), false)]),
+            (10, vec![(BOp::Act(pid, did, St::BlendNetwork), true)]),
+            // This provider is registered with the BlendNetwork service, should fail to records
+            // activity for DataAvailability service.
+            (20, vec![(BOp::Act(pid, did, St::DataAvailability), false)]),
             (
                 30,
                 vec![
-                    (BOp::Wit(pid, did, St::BlendNetwork, true), true),
+                    (BOp::Wit(pid, did, St::BlendNetwork), true),
                     // Provider only registered the BlendNetwork service - withdrawal for DA should
                     // fail.
-                    (BOp::Wit(pid, did, St::DataAvailability, false), false),
+                    (BOp::Wit(pid, did, St::DataAvailability), false),
                 ],
             ),
         ]
@@ -946,7 +926,7 @@ mod tests {
                 provider_id: pid,
                 declaration_id: did,
                 created: 0,
-                rewarded: Some(30),
+                active: Some(10),
                 withdrawn: Some(30)
             }
         );
@@ -984,15 +964,15 @@ mod tests {
                     (BOp::Dec(pid2, St::BlendNetwork, locators.clone()), true),
                 ],
             ),
-            (10, vec![(BOp::Rew(pid1, did, St::DataAvailability), true)]),
-            (20, vec![(BOp::Rew(pid2, did, St::BlendNetwork), true)]),
+            (10, vec![(BOp::Act(pid1, did, St::DataAvailability), true)]),
+            (20, vec![(BOp::Act(pid2, did, St::BlendNetwork), true)]),
             (
                 30,
                 vec![
                     // Withdrawing service that pid2 declared.
-                    (BOp::Wit(pid1, did, St::BlendNetwork, true), false),
+                    (BOp::Wit(pid1, did, St::BlendNetwork), false),
                     // Withdrawing service that pid1 declared.
-                    (BOp::Wit(pid2, did, St::DataAvailability, false), false),
+                    (BOp::Wit(pid2, did, St::DataAvailability), false),
                 ],
             ),
         ]
@@ -1020,7 +1000,7 @@ mod tests {
                 provider_id: pid1,
                 declaration_id: did,
                 created: 0,
-                rewarded: Some(10),
+                active: Some(10),
                 withdrawn: None, // Last transaction failed.
             }
         );
@@ -1032,7 +1012,7 @@ mod tests {
                 provider_id: pid2,
                 declaration_id: did,
                 created: 0,
-                rewarded: Some(20),
+                active: Some(20),
                 withdrawn: None,
             }
         );
