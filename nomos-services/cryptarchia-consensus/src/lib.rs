@@ -981,6 +981,8 @@ where
                     error!("Could not store block {e}");
                 }
 
+                // TODO: Add block pruning logic for K-1 forks
+
                 if let Err(e) = block_broadcaster.send(block) {
                     error!("Could not notify block to services {e}");
                 }

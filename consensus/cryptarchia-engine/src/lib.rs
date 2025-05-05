@@ -264,9 +264,8 @@ where
         Ok(self.apply_header_unchecked(header, parent, slot, length))
     }
 
-    #[must_use]
-    pub fn branches(&self) -> Vec<Branch<Id>> {
-        self.tips.iter().map(|id| self.branches[id]).collect()
+    pub fn branches(&self) -> impl Iterator<Item = Branch<Id>> + use<'_, Id> {
+        self.tips.iter().map(|id| self.branches[id])
     }
 
     // find the lowest common ancestor of two branches
@@ -432,8 +431,39 @@ where
 
     // prune all states deeper than 'depth' with regard to the current
     // local chain except for states belonging to the local chain
-    pub fn prune_forks(&mut self, _depth: u64) {
-        todo!()
+    pub fn prune_forks(&mut self, depth: u64) {
+        let local_chain = self.local_chain;
+        let non_canonical_forks = self
+            .branches
+            .branches()
+            .filter(|fork_tip| fork_tip.id != self.tip());
+        let non_canonical_forks_older_than_depth: Vec<(Branch<Id>, Branch<Id>)> =
+            non_canonical_forks
+                .filter_map(|fork| {
+                    let lca = self.branches.lca(&local_chain, &fork);
+                    (lca.length <= depth).then_some((fork, lca))
+                })
+                .collect();
+        for (fork, lca) in non_canonical_forks_older_than_depth {
+            self.prune_fork(fork.id, lca.id);
+        }
+    }
+
+    fn prune_fork(&mut self, tip: Id, up_to: Id) {
+        let tip_removed = self.branches.tips.remove(&tip);
+        debug_assert!(
+            tip_removed,
+            "Provided fork tip should be in the set of tips"
+        );
+        let mut current_tip = tip;
+        while current_tip != up_to {
+            let Branch { parent, .. } = self
+                .branches
+                .branches
+                .remove(&current_tip)
+                .expect("fork block to be in map of local blocks.");
+            current_tip = parent;
+        }
     }
 
     pub const fn genesis(&self) -> Id {
