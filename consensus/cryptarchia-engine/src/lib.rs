@@ -85,7 +85,7 @@ where
     pub fn fork_choice(&self) -> Branch<Id> {
         let k = self.config.security_param.get().into();
         let s = self.config.s();
-        Self::maxvalid_bg(self.local_chain.clone(), &self.branches, k, s)
+        Self::maxvalid_bg(self.local_chain, &self.branches, k, s)
     }
 
     pub const fn tip(&self) -> Id {
@@ -94,8 +94,39 @@ where
 
     // prune all states deeper than 'depth' with regard to the current
     // local chain except for states belonging to the local chain
-    pub fn prune_forks(&mut self, _depth: u64) {
-        todo!()
+    pub fn prune_forks(&mut self, depth: u64) {
+        let local_chain = self.local_chain;
+        let non_canonical_forks = self
+            .branches
+            .branches()
+            .filter(|fork_tip| fork_tip.id != self.tip());
+        let non_canonical_forks_older_than_depth: Vec<(Branch<Id>, Branch<Id>)> =
+            non_canonical_forks
+                .filter_map(|fork| {
+                    let lca = self.branches.lca(&local_chain, &fork);
+                    (lca.length <= depth).then_some((fork, lca))
+                })
+                .collect();
+        for (fork, lca) in non_canonical_forks_older_than_depth {
+            self.prune_fork(fork.id, lca.id);
+        }
+    }
+
+    fn prune_fork(&mut self, tip: Id, up_to: Id) {
+        let tip_removed = self.branches.tips.remove(&tip);
+        debug_assert!(
+            tip_removed,
+            "Provided fork tip should be in the set of tips"
+        );
+        let mut current_tip = tip;
+        while current_tip != up_to {
+            let Branch { parent, .. } = self
+                .branches
+                .branches
+                .remove(&current_tip)
+                .expect("fork block to be in map of local blocks.");
+            current_tip = parent;
+        }
     }
 
     pub const fn genesis(&self) -> Id {
@@ -151,7 +182,7 @@ where
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Branch<Id> {
     id: Id,
     parent: Id,
@@ -267,7 +298,7 @@ where
     }
 
     pub fn branches(&self) -> impl Iterator<Item = Branch<Id>> + use<'_, Id> {
-        self.tips.iter().map(|id| self.branches[id].clone())
+        self.tips.iter().map(|id| self.branches[id])
     }
 
     // find the lowest common ancestor of two branches
@@ -287,7 +318,7 @@ where
             b2 = &self.branches[&b2.parent];
         }
 
-        b1.clone()
+        *b1
     }
 
     pub fn get(&self, id: &Id) -> Option<&Branch<Id>> {
@@ -304,7 +335,7 @@ where
         while current.slot > slot {
             current = &self.branches[&current.parent];
         }
-        current.clone()
+        *current
     }
 }
 
