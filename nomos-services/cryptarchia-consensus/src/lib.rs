@@ -65,6 +65,8 @@ type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
 const HEADERS_LIMIT: usize = 512;
 const CRYPTARCHIA_ID: &str = "Cryptarchia";
 
+pub(crate) const LOG_TARGET: &str = "cryptarchia-consensus";
+
 #[derive(Debug, Clone, Error)]
 pub enum Error {
     #[error("Ledger error: {0}")]
@@ -183,7 +185,7 @@ impl Cryptarchia {
     }
 
     pub fn prune_old_forks(&mut self) {
-        self.consensus.prune_forks(
+        let old_forks_pruned = self.consensus.prune_forks(
             self.ledger
                 .config()
                 .consensus_config
@@ -191,6 +193,7 @@ impl Cryptarchia {
                 .get()
                 .into(),
         );
+        tracing::debug!(target: LOG_TARGET, "Pruned {old_forks_pruned} old forks");
     }
 }
 
