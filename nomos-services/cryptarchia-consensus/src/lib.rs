@@ -635,7 +635,7 @@ where
                         if let Some(proof) = leader.build_proof_for(note_tree, epoch_state, slot, parent).await {
                             tracing::debug!("proposing block...");
                             // TODO: spawn as a separate task?
-                            let block = Self::build_new_block(
+                            let block = Self::propose_block(
                                 parent,
                                 slot,
                                 proof,
@@ -969,8 +969,6 @@ where
                     error!("Could not store block {e}");
                 }
 
-                // TODO: Add block pruning logic for K-1 forks
-
                 if let Err(e) = block_broadcaster.send(block) {
                     tracing::error!("Could not notify block to services {e}");
                 }
@@ -993,7 +991,7 @@ where
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(tx_selector, blob_selector, relays))]
-    async fn build_new_block(
+    async fn propose_block(
         parent: HeaderId,
         slot: Slot,
         proof: Risc0LeaderProof,
