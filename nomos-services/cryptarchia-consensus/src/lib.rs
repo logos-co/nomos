@@ -74,7 +74,7 @@ pub enum Error {
 }
 
 struct Cryptarchia {
-    ledger: nomos_ledger::Ledger<HeaderId>,
+    ledger: nomos_ledger::Ledger<HeaderId>,  
     consensus: cryptarchia_engine::Cryptarchia<HeaderId>,
 }
 
@@ -180,6 +180,10 @@ impl Cryptarchia {
         } else {
             None
         }
+    }
+
+    pub fn prune_old_forks(&mut self) {
+        self.consensus.prune_forks(self.ledger.config().consensus_config.security_param.get().into());
     }
 }
 
@@ -564,7 +568,7 @@ where
             blob_selector_settings,
             leader_config,
             network_adapter_settings,
-            blend_adapter_settings,
+            blend_adapter_settings, 
             ..
         } = self.service_state.settings_reader.get_updated_settings();
 
@@ -618,6 +622,7 @@ where
                         .await;
 
                         self.service_state.state_updater.update(Self::State::from_cryptarchia(&cryptarchia, &leader));
+                        cryptarchia.prune_old_forks();
 
                         tracing::info!(counter.consensus_processed_blocks = 1);
                     }
