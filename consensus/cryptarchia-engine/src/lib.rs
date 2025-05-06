@@ -563,11 +563,10 @@ where
 
 #[cfg(test)]
 pub mod tests {
-    use core::{
-        hash::{Hash, Hasher as _},
+    use std::{
+        hash::{DefaultHasher, Hash, Hasher as _},
         num::NonZero,
     };
-    use std::hash::DefaultHasher;
 
     use super::{maxvalid_bg, Boostrapping, Cryptarchia, Error, Slot};
     use crate::Config;
@@ -589,6 +588,12 @@ pub mod tests {
         res
     }
 
+    /// Create a canonical chain with the `length` blocks and the provided `c`
+    /// config.
+    ///
+    /// Blocks IDs for blocks other than the genesis are the hash of each block
+    /// index, so for a chain of length 10, the sequence of block IDs will be
+    /// `[0, hash(1), hash(2), ..., hash(9)]`.
     fn create_canonical_chain(length: NonZero<u64>, c: Option<Config>) -> Cryptarchia<[u8; 32]> {
         let mut engine = Cryptarchia::from_genesis([0; 32], c.unwrap_or_else(config));
         let mut parent = engine.genesis();
@@ -705,7 +710,9 @@ pub mod tests {
             let new_block = hash(&i);
             engine = engine.receive_block(new_block, parent, i.into()).unwrap();
             parent = new_block;
+            println!("{:?}", engine.tip());
         }
+        println!("{:?}", engine.tip());
         assert_eq!(engine.tip(), parent);
 
         let mut long_p = parent;
@@ -744,9 +751,9 @@ pub mod tests {
         }
 
         {
-            let mut bs = engine.branches().branches();
-            let long_branch = bs.find(|b| b.id == long_p).unwrap();
-            let short_branch = bs.find(|b| b.id == short_p).unwrap();
+            let bs = engine.branches();
+            let long_branch = bs.branches().find(|b| b.id == long_p).unwrap();
+            let short_branch = bs.branches().find(|b| b.id == short_p).unwrap();
 
         // however, if we set k to the fork length, it will be accepted
         let k = long_branch.length;
@@ -833,12 +840,11 @@ pub mod tests {
 
     #[test]
     fn pruning_with_no_fork_old_enough() {
-        let chain_pre = create_canonical_chain(50.try_into().unwrap(), None);
-        let mut chain = chain_pre.clone();
         // Add a fork from block 39
-        chain
-            .receive_block([100; 32], hash(&39u64), 39.into())
+        let chain_pre = create_canonical_chain(50.try_into().unwrap(), None)
+            .receive_block([100; 32], hash(&40u64), 39.into())
             .expect("test block to be applied successfully.");
+        let mut chain = chain_pre.clone();
         assert_eq!(chain.prune_forks(10), 0);
         assert_eq!(chain, chain_pre);
     }
@@ -855,13 +861,10 @@ pub mod tests {
 
     #[test]
     fn pruning_with_single_fork_old_enough() {
-        let mut chain_pre = create_canonical_chain(50.try_into().unwrap(), None);
-        // Add a fork from block 39
-        chain_pre = chain_pre
+        // Add a fork from block 39 and one from block 40
+        let chain_pre = create_canonical_chain(50.try_into().unwrap(), None)
             .receive_block([100; 32], hash(&39u64), 41.into())
-            .expect("test block to be applied successfully.");
-        // Add a fork from block 40
-        chain_pre = chain_pre
+            .expect("test block to be applied successfully.")
             .receive_block([101; 32], hash(&40u64), 41.into())
             .expect("test block to be applied successfully.");
         let mut chain = chain_pre.clone();
@@ -880,17 +883,13 @@ pub mod tests {
 
     #[test]
     fn pruning_with_multiple_forks_old_enough() {
-        let mut chain_pre = create_canonical_chain(50.try_into().unwrap(), None);
-        // Add a first fork from block 39
-        chain_pre = chain_pre
+        // Add a first fork from block 39, a second fork from block 39, and a fork from
+        // block 40
+        let chain_pre = create_canonical_chain(50.try_into().unwrap(), None)
             .receive_block([100; 32], hash(&39u64), 41.into())
-            .expect("test block to be applied successfully.");
-        // Add a second fork from block 39
-        chain_pre = chain_pre
+            .expect("test block to be applied successfully.")
             .receive_block([200; 32], hash(&39u64), 41.into())
-            .expect("test block to be applied successfully.");
-        // Add a fork from block 40
-        chain_pre = chain_pre
+            .expect("test block to be applied successfully.")
             .receive_block([101; 32], hash(&40u64), 41.into())
             .expect("test block to be applied successfully.");
         let mut chain = chain_pre.clone();
@@ -914,16 +913,12 @@ pub mod tests {
 
     #[test]
     fn pruning_fork_with_multiple_tips() {
-        let mut chain_pre = create_canonical_chain(50.try_into().unwrap(), None);
-        // Add a 2-block fork from block 39
-        chain_pre = chain_pre
+        // Add a 2-block fork from block 39 and a second fork from the first fork block
+        let chain_pre = create_canonical_chain(50.try_into().unwrap(), None)
             .receive_block([100; 32], hash(&39u64), 41.into())
-            .expect("test block to be applied successfully.");
-        chain_pre = chain_pre
+            .expect("test block to be applied successfully.")
             .receive_block([101; 32], [100; 32], 42.into())
-            .expect("test block to be applied successfully.");
-        // Add a second fork from the first fork block
-        chain_pre = chain_pre
+            .expect("test block to be applied successfully.")
             .receive_block([200; 32], [100; 32], 42.into())
             .expect("test block to be applied successfully.");
         let mut chain = chain_pre.clone();
