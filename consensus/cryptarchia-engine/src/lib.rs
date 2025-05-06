@@ -683,7 +683,7 @@ pub mod tests {
             .expect("test block to be applied successfully.")
             .receive_block([101; 32], [100; 32], 41.into())
             .expect("test block to be applied successfully.")
-            // Add a second fork from the first fork block, so that the fork has two tips
+            // Add a second fork from the first divergent fork block, so that the fork has two tips
             .receive_block([200; 32], [100; 32], 42.into())
             .expect("test block to be applied successfully.");
         let mut chain = chain_pre.clone();
