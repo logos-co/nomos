@@ -24,207 +24,18 @@ pub struct Cryptarchia<Id> {
     genesis: Id,
 }
 
-impl<Id> PartialEq for Cryptarchia<Id>
+#[derive(Clone, Debug)]
+pub struct Branches<Id> {
+    branches: HashMap<Id, Branch<Id>>,
+    tips: HashSet<Id>,
+}
+
+impl<Id> PartialEq for Branches<Id>
 where
     Id: Eq + Hash,
 {
     fn eq(&self, other: &Self) -> bool {
-        self.local_chain == other.local_chain
-            && self.branches == other.branches
-            && self.config == other.config
-            && self.genesis == other.genesis
-    }
-}
-
-impl<Id> Cryptarchia<Id>
-where
-    Id: Eq + core::hash::Hash + Copy + Debug,
-{
-    pub fn from_genesis(id: Id, config: Config) -> Self {
-        Self {
-            branches: Branches::from_genesis(id),
-            local_chain: Branch {
-                id,
-                length: 0,
-                parent: id,
-                slot: 0.into(),
-            },
-            config,
-            genesis: id,
-        }
-    }
-
-    /// Create a new [`Cryptarchia`] instance with the updated state.
-    /// This method adds a [`Block`] to the new instance without running
-    /// validation.
-    ///
-    /// # Warning
-    ///
-    /// **This method bypasses safety checks** and can corrupt the state if used
-    /// incorrectly.
-    /// Only use for recovery, debugging, or other manipulations where the input
-    /// is known to be valid.
-    ///
-    /// # Arguments
-    ///
-    /// * `header` - The ID of the block to be added.
-    /// * `parent` - The ID of the parent block. Due to the nature of the method
-    ///   (`unchecked`), the existence of the parent block is not verified.
-    /// * `slot` - The slot of the block to be added.
-    /// * `chain_length`: The position of the block in the chain.
-    #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    pub fn receive_block_unchecked(
-        &self,
-        header: Id,
-        parent: Id,
-        slot: Slot,
-        chain_length: u64,
-    ) -> Self {
-        let mut new = self.clone();
-        new.branches = new
-            .branches
-            .apply_header_unchecked(header, parent, slot, chain_length);
-        new.local_chain = new.fork_choice();
-        new
-    }
-
-    /// Create a new [`Cryptarchia`] instance with the updated state.
-    #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    pub fn receive_block(&self, id: Id, parent: Id, slot: Slot) -> Result<Self, Error<Id>> {
-        let mut new: Self = self.clone();
-        new.branches = new.branches.apply_header(id, parent, slot)?;
-        new.local_chain = new.fork_choice();
-        Ok(new)
-    }
-
-    pub fn fork_choice(&self) -> Branch<Id> {
-        let k = self.config.security_param.get().into();
-        let s = self.config.s();
-        Self::maxvalid_bg(self.local_chain, &self.branches, k, s)
-    }
-
-    pub const fn tip(&self) -> Id {
-        self.local_chain.id
-    }
-
-    pub fn non_canonical_forks(&self) -> impl Iterator<Item = Branch<Id>> + '_ {
-        self.branches
-            .branches()
-            .filter(|fork_tip| fork_tip.id != self.tip())
-    }
-
-    /// Prune all states strictly deeper than 'depth' with regard to the
-    /// current local chain except for states belonging to the local chain.
-    ///
-    /// For example, if the tip of the canonical chain is at height 10, calling
-    /// `self.prune_forks(10)` will remove any forks stemming from the genesis
-    /// block, with height `0`.
-    ///
-    /// It returns the number of fork tips that were removed.
-    pub fn prune_forks(&mut self, depth: u64) -> usize {
-        let local_chain = self.local_chain;
-        let non_canonical_forks = self.non_canonical_forks();
-        let Some(target_height) = local_chain.length.checked_sub(depth) else {
-            tracing::info!(
-                target: LOG_TARGET,
-                "No pruning needed, the canonical chain is not longer than the provided depth. Canonical chain length: {}, provided depth: {}", local_chain.length, depth
-            );
-            return 0;
-        };
-        // Calculate LCA between fork and canonical chain, and consider it for pruning
-        // if the fork started before the specified `depth`.
-        let non_canonical_forks_older_than_depth: Vec<(Branch<Id>, Branch<Id>)> =
-            non_canonical_forks
-                .filter_map(|fork| {
-                    let lca = self.branches.lca(&local_chain, &fork);
-                    (lca.length <= target_height).then_some((fork, lca))
-                })
-                .collect();
-        for (fork, lca) in &non_canonical_forks_older_than_depth {
-            self.prune_fork(fork.id, lca.id);
-        }
-        non_canonical_forks_older_than_depth.len()
-    }
-
-    /// Remove the list of blocks from `tip` to and excluding `up_to`.
-    fn prune_fork(&mut self, tip: Id, up_to: Id) {
-        let tip_removed = self.branches.tips.remove(&tip);
-        assert!(
-            tip_removed,
-            "Provided fork tip should be in the set of tips"
-        );
-        let mut current_tip = tip;
-        while current_tip != up_to {
-            let Some(Branch { parent, .. }) = self.branches.branches.remove(&current_tip) else {
-                // If tip is not in branch set, it means this tip was sharing path with another
-                // fork that was already removed.
-                break;
-            };
-            current_tip = parent;
-        }
-        tracing::debug!(
-            target: LOG_TARGET,
-            "Pruned branch from {tip:#?} to {up_to:#?}."
-        );
-    }
-
-    pub const fn genesis(&self) -> Id {
-        self.genesis
-    }
-
-    pub const fn branches(&self) -> &Branches<Id> {
-        &self.branches
-    }
-
-    // Implementation of the fork choice rule as defined in the Ouroboros Genesis
-    // paper.
-    //
-    //* `k` defines the forking depth of chain we accept without more analysis
-    // * `s` defines the length of time (unit of slots) after the fork happened we
-    //   will inspect for chain density
-    fn maxvalid_bg(local_chain: Branch<Id>, branches: &Branches<Id>, k: u64, s: u64) -> Branch<Id> {
-        let mut cmax = local_chain;
-        let forks = branches.branches();
-        for chain in forks {
-            let lowest_common_ancestor = branches.lca(&cmax, &chain);
-            let m = cmax
-                .length
-                .checked_sub(lowest_common_ancestor.length)
-                .expect("LCA to always be shorter than the local canonical chain.");
-            if m <= k {
-                // Classic longest chain rule with parameter k
-                if cmax.length < chain.length {
-                    cmax = chain;
-                }
-            } else {
-                // The chain is forking too much, we need to pay a bit more attention
-                // In particular, select the chain that is the densest after the fork
-                let density_slot = Slot::from(
-                    u64::from(lowest_common_ancestor.slot)
-                        .checked_add(s)
-                        .expect("Adding LCA slot with the density slot parameter overflows."),
-                );
-                let cmax_density = branches.walk_back_before(&cmax, density_slot).length;
-                let candidate_density = branches.walk_back_before(&chain, density_slot).length;
-                if cmax_density < candidate_density {
-                    cmax = chain;
-                }
-            }
-        }
-        cmax
-    }
-
-    pub fn get_security_block_header_id(&self) -> Option<Id> {
-        (0..self.config.security_param.get()).try_fold(self.tip(), |header, _| {
-            let branch = self.branches.get(&header)?;
-            let parent = branch.parent;
-            if header == parent {
-                // If the header is the genesis block, we arrived at the end of the chain
-                None
-            } else {
-                Some(parent)
-            }
-        })
+        self.branches == other.branches && self.tips == other.tips
     }
 }
 
@@ -252,24 +63,9 @@ impl<Id: Copy> Branch<Id> {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct Branches<Id> {
-    branches: HashMap<Id, Branch<Id>>,
-    tips: HashSet<Id>,
-}
-
-impl<Id> PartialEq for Branches<Id>
-where
-    Id: Eq + Hash,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.branches == other.branches && self.tips == other.tips
-    }
-}
-
 impl<Id> Branches<Id>
 where
-    Id: Eq + core::hash::Hash + Copy + Debug,
+    Id: Eq + std::hash::Hash + Copy + Debug,
 {
     // Creates a new instance from genesis, and assign the genesis block as the
     // parent of itself. This is useful for stopping backwards iterations (i.e.,
@@ -348,7 +144,7 @@ where
             .ok_or(Error::ParentMissing(parent))?
             .length
             .checked_add(1)
-            .expect("New branch length overflows.");
+            .expect("New branch height overflows.");
 
         Ok(self.apply_header_unchecked(header, parent, slot, length))
     }
@@ -404,13 +200,217 @@ pub enum Error<Id> {
     OrphanMissing(Id),
 }
 
+impl<Id> PartialEq for Cryptarchia<Id>
+where
+    Id: Eq + Hash,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.local_chain == other.local_chain
+            && self.branches == other.branches
+            && self.config == other.config
+            && self.genesis == other.genesis
+    }
+}
+
+impl<Id> Cryptarchia<Id>
+where
+    Id: Eq + std::hash::Hash + Copy + Debug,
+{
+    pub fn from_genesis(id: Id, config: Config) -> Self {
+        Self {
+            branches: Branches::from_genesis(id),
+            local_chain: Branch {
+                id,
+                length: 0,
+                parent: id,
+                slot: 0.into(),
+            },
+            config,
+            genesis: id,
+        }
+    }
+
+    /// Create a new [`Cryptarchia`] instance with the updated state.
+    /// This method adds a [`Block`] to the new instance without running
+    /// validation.
+    ///
+    /// # Warning
+    ///
+    /// **This method bypasses safety checks** and can corrupt the state if used
+    /// incorrectly.
+    /// Only use for recovery, debugging, or other manipulations where the input
+    /// is known to be valid.
+    ///
+    /// # Arguments
+    ///
+    /// * `header` - The ID of the block to be added.
+    /// * `parent` - The ID of the parent block. Due to the nature of the method
+    ///   (`unchecked`), the existence of the parent block is not verified.
+    /// * `slot` - The slot of the block to be added.
+    /// * `chain_length`: The position of the block in the chain.
+    #[must_use = "Returns a new instance with the updated state, without modifying the original."]
+    pub fn receive_block_unchecked(
+        &self,
+        header: Id,
+        parent: Id,
+        slot: Slot,
+        chain_length: u64,
+    ) -> Self {
+        let mut new = self.clone();
+        new.branches = new
+            .branches
+            .apply_header_unchecked(header, parent, slot, chain_length);
+        new.local_chain = new.fork_choice();
+        new
+    }
+
+    /// Create a new [`Cryptarchia`] instance with the updated state.
+    #[must_use = "Returns a new instance with the updated state, without modifying the original."]
+    pub fn receive_block(&self, id: Id, parent: Id, slot: Slot) -> Result<Self, Error<Id>> {
+        let mut new: Self = self.clone();
+        new.branches = new.branches.apply_header(id, parent, slot)?;
+        new.local_chain = new.fork_choice();
+        Ok(new)
+    }
+
+    pub fn fork_choice(&self) -> Branch<Id> {
+        let k = self.config.security_param.get().into();
+        let s = self.config.s();
+        Self::maxvalid_bg(self.local_chain, &self.branches, k, s)
+    }
+
+    pub const fn tip(&self) -> Id {
+        self.local_chain.id
+    }
+
+    pub fn non_canonical_forks(&self) -> impl Iterator<Item = Branch<Id>> + '_ {
+        self.branches
+            .branches()
+            .filter(|fork_tip| fork_tip.id != self.tip())
+    }
+
+    /// Prune all states strictly deeper than 'depth' with regard to the
+    /// current local chain except for states belonging to the local chain.
+    ///
+    /// For example, if the tip of the canonical chain is at height 10 (i.e., 11
+    /// blocks long), calling `self.prune_forks(10)` will remove any forks
+    /// stemming from the genesis block, with height `0`, which is the 11th
+    /// block in the past.
+    ///
+    /// It returns the number of fork tips that were removed.
+    pub fn prune_forks(&mut self, depth: u64) -> usize {
+        let local_chain = self.local_chain;
+        let non_canonical_forks = self.non_canonical_forks();
+        let Some(target_height) = local_chain.length.checked_sub(depth) else {
+            tracing::info!(
+                target: LOG_TARGET,
+                "No pruning needed, the canonical chain is not longer than the provided depth. Canonical chain length: {}, provided depth: {}", local_chain.length, depth
+            );
+            return 0;
+        };
+        // Calculate LCA between each fork and canonical chain, and consider for pruning
+        // if the fork started before the specified `depth`.
+        let non_canonical_forks_older_than_depth: Vec<(Branch<Id>, Branch<Id>)> =
+            non_canonical_forks
+                .filter_map(|fork| {
+                    let lca = self.branches.lca(&local_chain, &fork);
+                    (lca.length <= target_height).then_some((fork, lca))
+                })
+                .collect();
+        for (fork, lca) in &non_canonical_forks_older_than_depth {
+            self.prune_fork(fork.id, lca.id);
+        }
+        non_canonical_forks_older_than_depth.len()
+    }
+
+    /// Remove the list of blocks from `tip` to and excluding `up_to`.
+    fn prune_fork(&mut self, tip: Id, up_to: Id) {
+        let tip_removed = self.branches.tips.remove(&tip);
+        assert!(
+            tip_removed,
+            "Provided fork tip should be in the set of tips"
+        );
+        let mut current_tip = tip;
+        while current_tip != up_to {
+            let Some(Branch { parent, .. }) = self.branches.branches.remove(&current_tip) else {
+                // If tip is not in branch set, it means this tip was sharing part of its
+                // history with another fork that has already been removed.
+                break;
+            };
+            current_tip = parent;
+        }
+        tracing::debug!(
+            target: LOG_TARGET,
+            "Pruned branch from {tip:#?} to {up_to:#?}."
+        );
+    }
+
+    pub const fn genesis(&self) -> Id {
+        self.genesis
+    }
+
+    pub const fn branches(&self) -> &Branches<Id> {
+        &self.branches
+    }
+
+    // Implementation of the fork choice rule as defined in the Ouroboros Genesis
+    // paper.
+    //
+    //* `k` defines the forking depth of chain we accept without more analysis
+    // * `s` defines the length of time (unit of slots) after the fork happened we
+    //   will inspect for chain density
+    fn maxvalid_bg(local_chain: Branch<Id>, branches: &Branches<Id>, k: u64, s: u64) -> Branch<Id> {
+        let mut cmax = local_chain;
+        let forks = branches.branches();
+        for chain in forks {
+            let lowest_common_ancestor = branches.lca(&cmax, &chain);
+            let m = cmax
+                .length
+                .checked_sub(lowest_common_ancestor.length)
+                .expect("LCA to always be shorter than the local canonical chain.");
+            if m <= k {
+                // Classic longest chain rule with parameter k
+                if cmax.length < chain.length {
+                    cmax = chain;
+                }
+            } else {
+                // The chain is forking too much, we need to pay a bit more attention
+                // In particular, select the chain that is the densest after the fork
+                let density_slot = Slot::from(
+                    u64::from(lowest_common_ancestor.slot)
+                        .checked_add(s)
+                        .expect("Adding LCA slot with the density slot parameter overflows."),
+                );
+                let cmax_density = branches.walk_back_before(&cmax, density_slot).length;
+                let candidate_density = branches.walk_back_before(&chain, density_slot).length;
+                if cmax_density < candidate_density {
+                    cmax = chain;
+                }
+            }
+        }
+        cmax
+    }
+
+    pub fn get_security_block_header_id(&self) -> Option<Id> {
+        (0..self.config.security_param.get()).try_fold(self.tip(), |header, _| {
+            let branch = self.branches.get(&header)?;
+            let parent = branch.parent;
+            if header == parent {
+                // If the header is the genesis block, we arrived at the end of the chain
+                None
+            } else {
+                Some(parent)
+            }
+        })
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
-    use core::{
-        hash::{Hash, Hasher as _},
+    use std::{
+        hash::{DefaultHasher, Hash, Hasher as _},
         num::NonZero,
     };
-    use std::hash::DefaultHasher;
 
     use super::{Cryptarchia, Slot};
     use crate::Config;
@@ -432,6 +432,12 @@ pub mod tests {
         res
     }
 
+    /// Create a canonical chain with the `length` blocks and the provided `c`
+    /// config.
+    ///
+    /// Blocks IDs for blocks other than the genesis are the hash of each block
+    /// index, so for a chain of length 10, the sequence of block IDs will be
+    /// `[0, hash(1), hash(2), ..., hash(9)]`.
     fn create_canonical_chain(length: NonZero<u64>, c: Option<Config>) -> Cryptarchia<[u8; 32]> {
         let mut engine = Cryptarchia::from_genesis([0; 32], c.unwrap_or_else(config));
         let mut parent = engine.genesis();
@@ -458,7 +464,9 @@ pub mod tests {
             let new_block = hash(&i);
             engine = engine.receive_block(new_block, parent, i.into()).unwrap();
             parent = new_block;
+            println!("{:?}", engine.tip());
         }
+        println!("{:?}", engine.tip());
         assert_eq!(engine.tip(), parent);
 
         let mut long_p = parent;
@@ -497,9 +505,9 @@ pub mod tests {
         }
 
         {
-            let mut bs = engine.branches().branches();
-            let long_branch = bs.find(|b| b.id == long_p).unwrap();
-            let short_branch = bs.find(|b| b.id == short_p).unwrap();
+            let bs = engine.branches();
+            let long_branch = bs.branches().find(|b| b.id == long_p).unwrap();
+            let short_branch = bs.branches().find(|b| b.id == short_p).unwrap();
 
             assert!(long_branch.length > short_branch.length);
 
@@ -589,12 +597,11 @@ pub mod tests {
 
     #[test]
     fn pruning_with_no_fork_old_enough() {
-        let chain_pre = create_canonical_chain(50.try_into().unwrap(), None);
-        let mut chain = chain_pre.clone();
         // Add a fork from block 39
-        chain
-            .receive_block([100; 32], hash(&39u64), 39.into())
+        let chain_pre = create_canonical_chain(50.try_into().unwrap(), None)
+            .receive_block([100; 32], hash(&40u64), 39.into())
             .expect("test block to be applied successfully.");
+        let mut chain = chain_pre.clone();
         assert_eq!(chain.prune_forks(10), 0);
         assert_eq!(chain, chain_pre);
     }
@@ -611,13 +618,10 @@ pub mod tests {
 
     #[test]
     fn pruning_with_single_fork_old_enough() {
-        let mut chain_pre = create_canonical_chain(50.try_into().unwrap(), None);
-        // Add a fork from block 39
-        chain_pre = chain_pre
+        // Add a fork from block 39 and one from block 40
+        let chain_pre = create_canonical_chain(50.try_into().unwrap(), None)
             .receive_block([100; 32], hash(&39u64), 41.into())
-            .expect("test block to be applied successfully.");
-        // Add a fork from block 40
-        chain_pre = chain_pre
+            .expect("test block to be applied successfully.")
             .receive_block([101; 32], hash(&40u64), 41.into())
             .expect("test block to be applied successfully.");
         let mut chain = chain_pre.clone();
@@ -636,17 +640,13 @@ pub mod tests {
 
     #[test]
     fn pruning_with_multiple_forks_old_enough() {
-        let mut chain_pre = create_canonical_chain(50.try_into().unwrap(), None);
-        // Add a first fork from block 39
-        chain_pre = chain_pre
+        // Add a first fork from block 39, a second fork from block 39, and a fork from
+        // block 40
+        let chain_pre = create_canonical_chain(50.try_into().unwrap(), None)
             .receive_block([100; 32], hash(&39u64), 41.into())
-            .expect("test block to be applied successfully.");
-        // Add a second fork from block 39
-        chain_pre = chain_pre
+            .expect("test block to be applied successfully.")
             .receive_block([200; 32], hash(&39u64), 41.into())
-            .expect("test block to be applied successfully.");
-        // Add a fork from block 40
-        chain_pre = chain_pre
+            .expect("test block to be applied successfully.")
             .receive_block([101; 32], hash(&40u64), 41.into())
             .expect("test block to be applied successfully.");
         let mut chain = chain_pre.clone();
@@ -670,16 +670,12 @@ pub mod tests {
 
     #[test]
     fn pruning_fork_with_multiple_tips() {
-        let mut chain_pre = create_canonical_chain(50.try_into().unwrap(), None);
-        // Add a 2-block fork from block 39
-        chain_pre = chain_pre
+        // Add a 2-block fork from block 39 and a second fork from the first fork block
+        let chain_pre = create_canonical_chain(50.try_into().unwrap(), None)
             .receive_block([100; 32], hash(&39u64), 41.into())
-            .expect("test block to be applied successfully.");
-        chain_pre = chain_pre
+            .expect("test block to be applied successfully.")
             .receive_block([101; 32], [100; 32], 42.into())
-            .expect("test block to be applied successfully.");
-        // Add a second fork from the first fork block
-        chain_pre = chain_pre
+            .expect("test block to be applied successfully.")
             .receive_block([200; 32], [100; 32], 42.into())
             .expect("test block to be applied successfully.");
         let mut chain = chain_pre.clone();

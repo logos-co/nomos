@@ -634,7 +634,7 @@ where
                         if let Some(proof) = leader.build_proof_for(note_tree, epoch_state, slot, parent).await {
                             tracing::debug!("proposing block...");
                             // TODO: spawn as a separate task?
-                            let block = Self::build_new_block(
+                            let block = Self::propose_block(
                                 parent,
                                 slot,
                                 proof,
@@ -643,18 +643,8 @@ where
                                 &relays
                             ).await;
 
-                            if let Some(new_block) = block {
-                                cryptarchia = Self::process_block_unchecked(
-                                    cryptarchia,
-                                    &mut leader,
-                                    new_block.clone(),
-                                    &relays,
-                                    &mut self.block_subscription_sender,
-                                )
-                                .await;
-
-                                self.service_state.state_updater.update(Self::State::from_cryptarchia(&cryptarchia, &leader));
-                                blend_adapter.blend(new_block).await;
+                            if let Some(block) = block {
+                                blend_adapter.blend(block).await;
                             }
                         }
                     }
@@ -968,8 +958,6 @@ where
                     tracing::error!("Could not send block to storage: {e}");
                 }
 
-                // TODO: Add block pruning logic for K-1 forks
-
                 if let Err(e) = block_broadcaster.send(block) {
                     tracing::error!("Could not notify block to services {e}");
                 }
@@ -992,7 +980,7 @@ where
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(tx_selector, blob_selector, relays))]
-    async fn build_new_block(
+    async fn propose_block(
         parent: HeaderId,
         slot: Slot,
         proof: Risc0LeaderProof,
