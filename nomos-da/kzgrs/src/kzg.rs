@@ -6,7 +6,8 @@ use std::{
 use ark_bls12_381::{Bls12_381, Fr};
 use ark_ec::pairing::Pairing as _;
 use ark_poly::{
-    univariate::DensePolynomial, DenseUVPolynomial as _, EvaluationDomain as _, GeneralEvaluationDomain,
+    univariate::DensePolynomial, DenseUVPolynomial as _, EvaluationDomain as _,
+    GeneralEvaluationDomain,
 };
 use ark_poly_commit::kzg10::{Commitment, Powers, Proof, UniversalParams, KZG10};
 use num_traits::{One as _, Zero as _};
@@ -80,7 +81,8 @@ mod test {
 
     use ark_bls12_381::{Bls12_381, Fr};
     use ark_poly::{
-        univariate::DensePolynomial, DenseUVPolynomial as _, EvaluationDomain as _, GeneralEvaluationDomain,
+        univariate::DensePolynomial, DenseUVPolynomial as _, EvaluationDomain as _,
+        GeneralEvaluationDomain,
     };
     use ark_poly_commit::kzg10::{UniversalParams, KZG10};
     use rand::{thread_rng, Fill as _};

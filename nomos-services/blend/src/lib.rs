@@ -19,7 +19,8 @@ use nomos_blend::{
         CryptographicProcessorSettings, MessageBlendExt as _, MessageBlendSettings,
     },
     persistent_transmission::{
-        PersistentTransmissionExt as _, PersistentTransmissionSettings, PersistentTransmissionStream,
+        PersistentTransmissionExt as _, PersistentTransmissionSettings,
+        PersistentTransmissionStream,
     },
     BlendOutgoingMessage,
 };

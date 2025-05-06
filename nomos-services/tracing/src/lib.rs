@@ -27,7 +27,9 @@ use overwatch::{
 use serde::{Deserialize, Serialize};
 use tracing::{error, Level};
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{filter::LevelFilter, layer::SubscriberExt as _, util::SubscriberInitExt as _};
+use tracing_subscriber::{
+    filter::LevelFilter, layer::SubscriberExt as _, util::SubscriberInitExt as _,
+};
 
 pub struct Tracing<RuntimeServiceId> {
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
