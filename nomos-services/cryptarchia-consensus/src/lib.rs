@@ -652,7 +652,7 @@ where
                                     &mut self.block_subscription_sender,
                                 )
                                 .await;
-        
+
                                 self.service_state.state_updater.update(Self::State::from_cryptarchia(&cryptarchia, &leader));
                                 blend_adapter.blend(new_block).await;
                             }
