@@ -1,7 +1,7 @@
 use std::{fmt::Display, marker::PhantomData};
 
 use serde::{
-    de::Error as DeError, ser::Error as SerError, Deserialize, Deserializer, Serialize, Serializer,
+    de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer,
 };
 use serde_with::{DeserializeAs, SerializeAs};
 use time::Duration;

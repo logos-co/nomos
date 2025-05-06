@@ -5,7 +5,7 @@ use kzgrs_backend::{
     encoder::{DaEncoder, DaEncoderParams},
     global::GLOBAL_PARAMETERS,
 };
-use rand::RngCore;
+use rand::RngCore as _;
 
 fn main() {
     divan::main();

@@ -135,7 +135,7 @@ impl ConnectionMonitor {
 #[cfg(test)]
 mod tests {
     use futures::task::noop_waker;
-    use tokio_stream::StreamExt;
+    use tokio_stream::StreamExt as _;
 
     use super::*;
 

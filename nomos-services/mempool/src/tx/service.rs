@@ -9,7 +9,7 @@ use std::{
     marker::PhantomData,
 };
 
-use futures::StreamExt;
+use futures::StreamExt as _;
 use nomos_network::{NetworkMsg, NetworkService};
 use overwatch::{
     services::{

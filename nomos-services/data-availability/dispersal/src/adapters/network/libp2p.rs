@@ -1,6 +1,6 @@
 use std::{collections::HashSet, fmt::Debug, marker::PhantomData, pin::Pin, time::Duration};
 
-use futures::{stream::BoxStream, Stream, StreamExt};
+use futures::{stream::BoxStream, Stream, StreamExt as _};
 use kzgrs_backend::common::share::DaShare;
 use nomos_core::da::BlobId;
 use nomos_da_network_core::{

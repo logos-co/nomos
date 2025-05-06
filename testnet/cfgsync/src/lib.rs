@@ -8,7 +8,7 @@ mod tests {
     use std::{
         net::{Ipv4Addr, SocketAddr},
         num::NonZero,
-        str::FromStr,
+        str::FromStr as _,
         time::Duration,
     };
 
@@ -18,7 +18,7 @@ mod tests {
     use nomos_libp2p::{ed25519, libp2p, Multiaddr, PeerId, Protocol};
     use nomos_node::Config as ValidatorConfig;
     use nomos_tracing_service::TracingSettings;
-    use subnetworks_assignations::MembershipHandler;
+    use subnetworks_assignations::MembershipHandler as _;
     use tokio::time::timeout;
 
     use crate::{

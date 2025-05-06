@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 
 use common_http_client::CommonHttpClient;
-use futures_util::stream::StreamExt;
+use futures_util::stream::StreamExt as _;
 use kzgrs_backend::common::share::{DaLightShare, DaShare};
-use nomos_core::da::blob::{LightShare, Share};
+use nomos_core::da::blob::{LightShare as _, Share as _};
 use nomos_libp2p::ed25519;
-use rand::{rngs::OsRng, RngCore};
+use rand::{rngs::OsRng, RngCore as _};
 use reqwest::Url;
-use subnetworks_assignations::MembershipHandler;
+use subnetworks_assignations::MembershipHandler as _;
 use tests::{
     common::da::{disseminate_with_metadata, wait_for_indexed_blob, APP_ID},
     secret_key_to_peer_id,

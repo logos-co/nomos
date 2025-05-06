@@ -6,7 +6,7 @@ use std::{
     hash::Hash,
 };
 
-use blake2::{Blake2b, Digest};
+use blake2::{Blake2b, Digest as _};
 use multiaddr::Multiaddr;
 
 pub type StakeThreshold = u64;

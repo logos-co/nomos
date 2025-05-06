@@ -11,7 +11,7 @@ use std::{
 };
 
 use blake2::{
-    digest::{consts::U32, Digest},
+    digest::{consts::U32, Digest as _},
     Blake2b,
 };
 pub use config::{secret_key_serde, IdentifySettings, KademliaSettings, SwarmConfig};

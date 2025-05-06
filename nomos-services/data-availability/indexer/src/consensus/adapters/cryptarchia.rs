@@ -3,7 +3,7 @@ use futures::Stream;
 use nomos_core::block::Block;
 use overwatch::services::relay::OutboundRelay;
 use tokio::sync::oneshot;
-use tokio_stream::{wrappers::BroadcastStream, StreamExt};
+use tokio_stream::{wrappers::BroadcastStream, StreamExt as _};
 use tracing::debug;
 
 use crate::consensus::ConsensusAdapter;

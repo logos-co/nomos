@@ -56,16 +56,16 @@ impl FillWithOriginalReplication {
         let mut cycle = peers.into_iter().cycle();
         (0..subnetwork_size)
             .map(|subnetwork| {
-                (0..{
-                    // choose factor depending on if it is in the original size of the encoding or
-                    // not
-                    if subnetwork < pivot as usize {
-                        original_replication
-                    } else {
-                        dispersal_factor
-                    }
-                })
-                    .map(|_| cycle.next().unwrap())
+                std::iter::repeat_with(|| cycle.next().unwrap())
+                    .take({
+                        // choose factor depending on if it is in the original size of the encoding
+                        // or not
+                        if subnetwork < pivot as usize {
+                            original_replication
+                        } else {
+                            dispersal_factor
+                        }
+                    })
                     .collect()
             })
             .collect()

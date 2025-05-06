@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use opentelemetry::{global, trace::TracerProvider as _, KeyValue};
-use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_otlp::WithExportConfig as _;
 use opentelemetry_sdk::{
     propagation::TraceContextPropagator,
     trace::{BatchConfig, Sampler, Tracer},

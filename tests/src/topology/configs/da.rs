@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     env,
     path::PathBuf,
-    str::FromStr,
+    str::FromStr as _,
     sync::LazyLock,
     time::Duration,
 };
@@ -13,7 +13,7 @@ use nomos_da_network_core::swarm::{
 };
 use nomos_libp2p::{ed25519, Multiaddr, PeerId};
 use nomos_node::NomosDaMembership;
-use subnetworks_assignations::MembershipHandler;
+use subnetworks_assignations::MembershipHandler as _;
 
 use crate::{get_available_port, secret_key_to_peer_id};
 

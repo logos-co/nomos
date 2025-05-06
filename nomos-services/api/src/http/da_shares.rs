@@ -7,7 +7,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use futures::{stream, Stream, StreamExt};
+use futures::{stream, Stream, StreamExt as _};
 use nomos_core::da::blob::{LightShare, Share};
 use nomos_da_storage::rocksdb::{
     create_share_idx, key_bytes, DA_BLOB_SHARES_INDEX_PREFIX, DA_SHARE_PREFIX,

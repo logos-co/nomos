@@ -187,7 +187,7 @@ impl From<GossipsubConfigDef> for gossipsub::Config {
 
 pub mod secret_key_serde {
     use libp2p::identity::ed25519;
-    use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+    use serde::{de::Error as _, Deserialize as _, Deserializer, Serialize as _, Serializer};
 
     pub fn serialize<S>(key: &ed25519::SecretKey, serializer: S) -> Result<S::Ok, S::Error>
     where

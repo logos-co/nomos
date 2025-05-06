@@ -10,7 +10,7 @@ use nomos_libp2p::{
     BehaviourEvent, Multiaddr, PeerId, Protocol, Swarm, SwarmEvent,
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
-use tokio_stream::StreamExt;
+use tokio_stream::StreamExt as _;
 
 use super::{
     command::{Command, Dial, DiscoveryCommand, NetworkCommand, PubSubCommand, Topic},

@@ -8,7 +8,7 @@ use libp2p::{
     core::{transport::MemoryTransport, upgrade::Version},
     identity::Keypair,
     swarm::NetworkBehaviour,
-    PeerId, Transport,
+    PeerId, Transport as _,
 };
 use subnetworks_assignations::MembershipHandler;
 

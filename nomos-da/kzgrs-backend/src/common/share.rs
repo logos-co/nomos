@@ -1,7 +1,7 @@
 use kzgrs::Proof;
 use nomos_core::da::blob;
 use serde::{Deserialize, Serialize};
-use sha3::{Digest, Sha3_256};
+use sha3::{Digest as _, Sha3_256};
 
 use super::{build_blob_id, ShareIndex};
 use crate::common::{

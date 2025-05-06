@@ -1,6 +1,6 @@
 use std::{io, time::Duration};
 
-use futures::{stream, StreamExt};
+use futures::{stream, StreamExt as _};
 use kzgrs_backend::common::share::DaShare;
 use libp2p::{
     core::transport::ListenerId,

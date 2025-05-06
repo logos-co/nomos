@@ -9,7 +9,7 @@ use std::{
 
 use consensus::ConsensusAdapter;
 use cryptarchia_consensus::{network::NetworkAdapter, CryptarchiaConsensus};
-use futures::StreamExt;
+use futures::StreamExt as _;
 use nomos_core::{
     block::Block,
     da::blob::{info::DispersedBlobInfo, metadata::Metadata, BlobSelect},

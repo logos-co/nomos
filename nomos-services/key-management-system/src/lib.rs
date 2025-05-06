@@ -5,7 +5,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use futures::StreamExt;
+use futures::StreamExt as _;
 use log::error;
 use overwatch::{
     services::{

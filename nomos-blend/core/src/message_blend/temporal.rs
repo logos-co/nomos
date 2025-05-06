@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use futures::{Future, Stream, StreamExt};
+use futures::{Future as _, Stream, StreamExt as _};
 use nomos_utils::bounded_duration::{MinimalBoundedDuration, SECOND};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};

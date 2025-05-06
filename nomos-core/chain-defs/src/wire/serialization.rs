@@ -1,4 +1,4 @@
-use bincode::Options;
+use bincode::Options as _;
 use serde::Serialize;
 
 use crate::wire::{

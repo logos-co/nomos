@@ -1,12 +1,12 @@
-use std::ops::{Mul, Neg};
+use std::ops::{Mul as _, Neg as _};
 
 use ark_bls12_381::Fr;
-use ark_ff::{BigInteger, Field, PrimeField};
+use ark_ff::{BigInteger as _, Field as _, PrimeField as _};
 use ark_poly::{
-    univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, Evaluations,
+    univariate::DensePolynomial, DenseUVPolynomial as _, EvaluationDomain as _, Evaluations,
     GeneralEvaluationDomain,
 };
-use num_traits::Zero;
+use num_traits::Zero as _;
 
 /// Extend a polynomial over some factor `polynomial.len()*factor` and return
 /// the original points plus the extra ones.
@@ -96,8 +96,8 @@ mod test {
     use std::sync::LazyLock;
 
     use ark_bls12_381::Fr;
-    use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
-    use rand::{thread_rng, Fill};
+    use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain};
+    use rand::{thread_rng, Fill as _};
 
     use crate::{
         common::bytes_to_polynomial,

@@ -34,7 +34,7 @@ use serde::{Deserialize, Serialize};
 use services_utils::overwatch::lifecycle;
 use storage::DaStorageAdapter;
 use tokio::sync::oneshot;
-use tokio_stream::StreamExt;
+use tokio_stream::StreamExt as _;
 use tracing::{error, instrument};
 
 use crate::api::ApiAdapter as ApiAdapterTrait;

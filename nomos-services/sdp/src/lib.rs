@@ -9,7 +9,7 @@ use adapters::{
 };
 use async_trait::async_trait;
 use backends::{SdpBackend, SdpBackendError};
-use futures::StreamExt;
+use futures::StreamExt as _;
 use nomos_sdp_core::ledger;
 use overwatch::{
     services::{

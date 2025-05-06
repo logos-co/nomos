@@ -1,5 +1,5 @@
-use ark_poly::EvaluationDomain;
-use itertools::{izip, Itertools};
+use ark_poly::EvaluationDomain as _;
+use itertools::{izip, Itertools as _};
 use kzgrs::{
     bytes_to_polynomial, commit_polynomial, common::field_element_from_bytes_le,
     verify_element_proof, Commitment, GlobalParameters, PolynomialEvaluationDomain, Proof,
@@ -154,13 +154,13 @@ mod test {
     use std::sync::LazyLock;
 
     use ark_bls12_381::Fr;
-    use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
+    use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain};
     use kzgrs::{
         bytes_to_polynomial, commit_polynomial, generate_element_proof,
         global_parameters_from_randomness, Commitment, GlobalParameters,
         PolynomialEvaluationDomain, Proof, BYTES_PER_FIELD_ELEMENT,
     };
-    use nomos_core::da::{blob::Share, DaEncoder};
+    use nomos_core::da::{blob::Share as _, DaEncoder as _};
 
     use crate::{
         common::{hash_commitment, share::DaShare, Chunk, Column},
@@ -371,9 +371,10 @@ mod test {
         let encoder = &ENCODER;
         let data = rand_data(32);
         let domain_size = 16usize;
-        let verifiers: Vec<DaVerifier> = (0..16)
-            .map(|_| DaVerifier::new(GLOBAL_PARAMETERS.clone()))
-            .collect();
+        let verifiers: Vec<DaVerifier> =
+            std::iter::repeat_with(|| DaVerifier::new(GLOBAL_PARAMETERS.clone()))
+                .take(16)
+                .collect();
         let encoded_data = encoder.encode(&data).unwrap();
         for (i, column) in encoded_data.extended_data.columns().enumerate() {
             println!("{i}");

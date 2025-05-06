@@ -1,6 +1,6 @@
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use sha2::{Digest as _, Sha256};
 
 use crate::{balance::Unit, nullifier::NullifierCommitment, NullifierSecret};
 

@@ -6,7 +6,7 @@ use bincode::{
         WithOtherIntEncoding, WithOtherLimit, WithOtherTrailing,
     },
     de::read::SliceReader,
-    Error, ErrorKind, Options,
+    Error, ErrorKind, Options as _,
 };
 
 // Type composition is cool but also makes naming types a bit awkward

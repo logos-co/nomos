@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use services_utils::overwatch::lifecycle;
 use storage::DaStorageAdapter;
 use tokio::sync::oneshot::Sender;
-use tokio_stream::StreamExt;
+use tokio_stream::StreamExt as _;
 use tracing::{error, instrument};
 
 pub enum DaVerifierMsg<Commitments, LightShare, Share, Answer> {

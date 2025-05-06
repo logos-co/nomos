@@ -4,7 +4,7 @@ use cryptarchia_engine::{
     time::{SlotConfig, SlotTimer},
     EpochConfig, Slot,
 };
-use futures::StreamExt;
+use futures::StreamExt as _;
 use time::OffsetDateTime;
 use tokio_stream::wrappers::IntervalStream;
 

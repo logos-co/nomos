@@ -1,7 +1,7 @@
 use ark_bls12_381::{Fr, G1Affine, G1Projective};
-use ark_ec::AffineRepr;
+use ark_ec::AffineRepr as _;
 use ark_ff::BigInt;
-use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
+use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain};
 use divan::{black_box, counter::ItemsCount, Bencher};
 fn main() {
     divan::main();
