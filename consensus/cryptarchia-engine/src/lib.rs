@@ -7,11 +7,8 @@
 pub mod config;
 pub mod time;
 
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Debug,
-    hash::Hash,
-};
+use core::{fmt::Debug, hash::Hash};
+use std::collections::{HashMap, HashSet};
 
 pub use config::*;
 use thiserror::Error;
@@ -468,6 +465,8 @@ where
     /// For example, if the tip of the canonical chain is at height 10, calling
     /// `self.prune_forks(10)` will remove any forks stemming from the genesis
     /// block, with height `0`.
+    ///
+    /// It returns the number of fork tips that were removed.
     pub fn prune_forks(&mut self, depth: u64) -> usize {
         let local_chain = self.local_chain;
         let non_canonical_forks = self.non_canonical_forks();
@@ -493,19 +492,20 @@ where
         non_canonical_forks_older_than_depth.len()
     }
 
+    /// Remove the list of blocks from `tip` to and excluding `up_to`.
     fn prune_fork(&mut self, tip: Id, up_to: Id) {
         let tip_removed = self.branches.tips.remove(&tip);
-        debug_assert!(
+        assert!(
             tip_removed,
             "Provided fork tip should be in the set of tips"
         );
         let mut current_tip = tip;
         while current_tip != up_to {
-            let Branch { parent, .. } = self
-                .branches
-                .branches
-                .remove(&current_tip)
-                .expect("fork block to be in map of local blocks.");
+            let Some(Branch { parent, .. }) = self.branches.branches.remove(&current_tip) else {
+                // If tip is not in branch set, it means this tip was sharing path with another
+                // fork that was already removed.
+                break;
+            };
             current_tip = parent;
         }
         tracing::debug!(
@@ -578,6 +578,28 @@ pub mod tests {
             security_param: NonZero::new(1).unwrap(),
             active_slot_coeff: 1.0,
         }
+    }
+
+    fn hash<T: Hash>(t: &T) -> [u8; 32] {
+        let mut s = DefaultHasher::new();
+        t.hash(&mut s);
+        let hash = s.finish();
+        let mut res = [0; 32];
+        res[..8].copy_from_slice(&hash.to_be_bytes());
+        res
+    }
+
+    fn create_canonical_chain(length: NonZero<u64>, c: Option<Config>) -> Cryptarchia<[u8; 32]> {
+        let mut engine = Cryptarchia::from_genesis([0; 32], c.unwrap_or_else(config));
+        let mut parent = engine.genesis();
+        for i in 1..length.get() {
+            let new_block = hash(&i);
+            engine = engine
+                .receive_block(new_block, parent, i.into())
+                .expect("test block to be applied successfully.");
+            parent = new_block;
+        }
+        engine
     }
 
     #[test]
@@ -745,15 +767,6 @@ pub mod tests {
         assert_eq!(engine.tip(), parent);
     }
 
-    fn hash<T: Hash>(t: &T) -> [u8; 32] {
-        let mut s = DefaultHasher::new();
-        t.hash(&mut s);
-        let hash = s.finish();
-        let mut res = [0; 32];
-        res[..8].copy_from_slice(&hash.to_be_bytes());
-        res
-    }
-
     #[test]
     fn test_getters() {
         let engine = <Cryptarchia<_, Boostrapping>>::from_genesis([0; 32], config());
@@ -810,19 +823,6 @@ pub mod tests {
         );
     }
 
-    fn create_canonical_chain(length: NonZero<u64>, c: Option<Config>) -> Cryptarchia<[u8; 32]> {
-        let mut engine = Cryptarchia::from_genesis([0; 32], c.unwrap_or_else(config));
-        let mut parent = engine.genesis();
-        for i in 1..length.get() {
-            let new_block = hash(&i);
-            engine = engine
-                .receive_block(new_block, parent, i.into())
-                .expect("test block to be applied successfully.");
-            parent = new_block;
-        }
-        engine
-    }
-
     #[test]
     fn pruning_too_back_in_time() {
         let chain_pre = create_canonical_chain(50.try_into().unwrap(), None);
@@ -844,6 +844,16 @@ pub mod tests {
     }
 
     #[test]
+    fn pruning_with_no_forks() {
+        let chain_pre = create_canonical_chain(50.try_into().unwrap(), None);
+        let mut chain = chain_pre.clone();
+        assert_eq!(chain.prune_forks(0), 0);
+        assert_eq!(chain, chain_pre);
+        assert_eq!(chain.prune_forks(1), 0);
+        assert_eq!(chain, chain_pre);
+    }
+
+    #[test]
     fn pruning_with_single_fork_old_enough() {
         let mut chain_pre = create_canonical_chain(50.try_into().unwrap(), None);
         // Add a fork from block 39
@@ -858,9 +868,77 @@ pub mod tests {
         assert_eq!(chain.prune_forks(10), 1);
         // Fork at block 39 was pruned.
         assert!(chain_pre.branches.tips.contains(&[100; 32]));
+        assert!(chain_pre.branches.branches.contains_key(&[100; 32]));
         assert!(!chain.branches.tips.contains(&[100; 32]));
+        assert!(!chain.branches.branches.contains_key(&[100; 32]));
         // Fork at block 40 was not.
         assert!(chain_pre.branches.tips.contains(&[101; 32]));
+        assert!(chain_pre.branches.branches.contains_key(&[101; 32]));
         assert!(chain.branches.tips.contains(&[101; 32]));
+        assert!(chain.branches.branches.contains_key(&[101; 32]));
+    }
+
+    #[test]
+    fn pruning_with_multiple_forks_old_enough() {
+        let mut chain_pre = create_canonical_chain(50.try_into().unwrap(), None);
+        // Add a first fork from block 39
+        chain_pre = chain_pre
+            .receive_block([100; 32], hash(&39u64), 41.into())
+            .expect("test block to be applied successfully.");
+        // Add a second fork from block 39
+        chain_pre = chain_pre
+            .receive_block([200; 32], hash(&39u64), 41.into())
+            .expect("test block to be applied successfully.");
+        // Add a fork from block 40
+        chain_pre = chain_pre
+            .receive_block([101; 32], hash(&40u64), 41.into())
+            .expect("test block to be applied successfully.");
+        let mut chain = chain_pre.clone();
+        assert_eq!(chain.prune_forks(10), 2);
+        // First fork at block 39 was pruned.
+        assert!(chain_pre.branches.tips.contains(&[100; 32]));
+        assert!(chain_pre.branches.branches.contains_key(&[100; 32]));
+        assert!(!chain.branches.tips.contains(&[100; 32]));
+        assert!(!chain.branches.branches.contains_key(&[100; 32]));
+        // Second fork at block 39 was pruned.
+        assert!(chain_pre.branches.tips.contains(&[200; 32]));
+        assert!(chain_pre.branches.branches.contains_key(&[200; 32]));
+        assert!(!chain.branches.tips.contains(&[200; 32]));
+        assert!(!chain.branches.branches.contains_key(&[200; 32]));
+        // Fork at block 40 was not.
+        assert!(chain_pre.branches.tips.contains(&[101; 32]));
+        assert!(chain_pre.branches.branches.contains_key(&[101; 32]));
+        assert!(chain.branches.tips.contains(&[101; 32]));
+        assert!(chain.branches.branches.contains_key(&[101; 32]));
+    }
+
+    #[test]
+    fn pruning_fork_with_multiple_tips() {
+        let mut chain_pre = create_canonical_chain(50.try_into().unwrap(), None);
+        // Add a 2-block fork from block 39
+        chain_pre = chain_pre
+            .receive_block([100; 32], hash(&39u64), 41.into())
+            .expect("test block to be applied successfully.");
+        chain_pre = chain_pre
+            .receive_block([101; 32], [100; 32], 42.into())
+            .expect("test block to be applied successfully.");
+        // Add a second fork from the first fork block
+        chain_pre = chain_pre
+            .receive_block([200; 32], [100; 32], 42.into())
+            .expect("test block to be applied successfully.");
+        let mut chain = chain_pre.clone();
+        assert_eq!(chain.prune_forks(10), 2);
+        // First fork was pruned.
+        assert!(chain_pre.branches.tips.contains(&[101; 32]));
+        assert!(chain_pre.branches.branches.contains_key(&[100; 32]));
+        assert!(chain_pre.branches.branches.contains_key(&[101; 32]));
+        assert!(!chain.branches.tips.contains(&[101; 32]));
+        assert!(!chain.branches.branches.contains_key(&[100; 32]));
+        assert!(!chain.branches.branches.contains_key(&[101; 32]));
+        // Second fork was pruned.
+        assert!(chain_pre.branches.tips.contains(&[200; 32]));
+        assert!(chain_pre.branches.branches.contains_key(&[200; 32]));
+        assert!(!chain.branches.tips.contains(&[200; 32]));
+        assert!(!chain.branches.branches.contains_key(&[200; 32]));
     }
 }
