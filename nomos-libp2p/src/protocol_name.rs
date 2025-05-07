@@ -13,11 +13,12 @@ pub const INTEGRATION_KAD_PROTOCOL_NAME: &str = "/integration/nomos/kad/1.0.0";
 pub const INTEGRATION_IDENTIFY_PROTOCOL_NAME: &str = "/integration/nomos/identify/1.0.0";
 
 /// Network environment type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProtocolName {
     Mainnet,
     Testnet,
+    #[default]
     Unittest,
     Integration,
 }
@@ -41,11 +42,5 @@ impl ProtocolName {
             Self::Unittest => UNITTEST_IDENTIFY_PROTOCOL_NAME,
             Self::Integration => INTEGRATION_IDENTIFY_PROTOCOL_NAME,
         }
-    }
-}
-
-impl Default for ProtocolName {
-    fn default() -> Self {
-        Self::Unittest
     }
 }
