@@ -12,6 +12,7 @@ mod test {
     use tokio::sync::mpsc;
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
+    use crate::test_utils::TamperingReplicationBehaviour;
     use crate::{
         protocols::replication::behaviour::{
             ReplicationBehaviour, ReplicationConfig, ReplicationEvent,
@@ -193,10 +194,10 @@ mod test {
         // Create a custom QUIC transport
         let mut quic_config = quic::Config::new(&k2);
         // Set a very short handshake timeout to simulate connection failure
-        quic_config.handshake_timeout = Duration::from_millis(10);
+        quic_config.handshake_timeout = Duration::from_millis(100);
         // Set a very short idle timeout to simulate connection failure
-        quic_config.max_idle_timeout = 1; // milliseconds as u32
-                                          // Set a very short keep alive interval to simulate connection failure
+        quic_config.max_idle_timeout = 100; // milliseconds as u32
+                                            // Set a very short keep alive interval to simulate connection failure
         quic_config.keep_alive_interval = Duration::from_millis(50);
 
         // Create a new swarm with the tampered transport
@@ -205,14 +206,21 @@ mod test {
             .with_other_transport(|_keypair| quic::tokio::Transport::new(quic_config))
             .unwrap()
             .with_behaviour(|key| {
-                ReplicationBehaviour::new(
+                // Create a replication behavior that injects tampered messages
+                let base = ReplicationBehaviour::new(
                     ReplicationConfig {
                         seen_message_cache_size: 100,
                         seen_message_ttl: Duration::from_secs(60),
                     },
                     PeerId::from_public_key(&key.public()),
                     neighbours,
-                )
+                );
+                let mut behaviour = TamperingReplicationBehaviour::new(base);
+                behaviour.set_tamper_hook(|mut msg| {
+                    msg.share.data.share_idx ^= 0xFF; // Flip the first byte
+                    msg
+                });
+                behaviour
             })
             .unwrap()
             .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(10)))
