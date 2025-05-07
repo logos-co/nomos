@@ -193,7 +193,7 @@ impl Cryptarchia {
                 .get()
                 .into(),
         );
-        tracing::debug!(target: LOG_TARGET, "Pruned {old_forks_pruned} old forks");
+        tracing::debug!(target: LOG_TARGET, "Pruned {} old forks", old_forks_pruned.count());
     }
 }
 
