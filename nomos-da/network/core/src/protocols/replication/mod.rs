@@ -190,16 +190,15 @@ mod test {
         let addr: Multiaddr = "/ip4/127.0.0.1/udp/5053/quic-v1".parse().unwrap();
         let addr2 = addr.clone();
 
-        // Create a custom QUIC transport 
+        // Create a custom QUIC transport
         let mut quic_config = quic::Config::new(&k2);
         // Set a very short handshake timeout to simulate connection failure
         quic_config.handshake_timeout = Duration::from_millis(10);
         // Set a very short idle timeout to simulate connection failure
         quic_config.max_idle_timeout = 1; // milliseconds as u32
-        // Set a very short keep alive interval to simulate connection failure
+                                          // Set a very short keep alive interval to simulate connection failure
         quic_config.keep_alive_interval = Duration::from_millis(50);
 
-        
         // Create a new swarm with the tampered transport
         let mut swarm_2_tampered = libp2p::SwarmBuilder::with_existing_identity(k2.clone())
             .with_tokio()
@@ -297,7 +296,10 @@ mod test {
                     break;
                 }
             }
-            assert!(!connected, "Connection should have failed with tampered transport");
+            assert!(
+                !connected,
+                "Connection should have failed with tampered transport"
+            );
         };
         let task_4 = async move {
             // Attempt to connect with tampered transport
