@@ -171,6 +171,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[allow(clippy::too_many_lines)]
     async fn test_connects_and_receives_replication_messages() {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env())
@@ -182,14 +183,43 @@ mod test {
         let peer_id2 = PeerId::from_public_key(&k2.public());
 
         let neighbours = make_neighbours(&[&k1, &k2]);
-        let mut swarm_1 = get_swarm(k1, neighbours.clone());
-        let mut swarm_2 = get_swarm(k2, neighbours);
+        let mut swarm_1 = get_swarm(k1.clone(), neighbours.clone());
+        let mut swarm_2 = get_swarm(k2.clone(), neighbours.clone());
 
         let msg_count = 10usize;
         let addr: Multiaddr = "/ip4/127.0.0.1/udp/5053/quic-v1".parse().unwrap();
         let addr2 = addr.clone();
-        // future that listens for messages and collects `msg_count` of them, then
-        // returns them
+
+        // Create a custom QUIC transport 
+        let mut quic_config = quic::Config::new(&k2);
+        // Set a very short handshake timeout to simulate connection failure
+        quic_config.handshake_timeout = Duration::from_millis(10);
+        // Set a very short idle timeout to simulate connection failure
+        quic_config.max_idle_timeout = 1; // milliseconds as u32
+        // Set a very short keep alive interval to simulate connection failure
+        quic_config.keep_alive_interval = Duration::from_millis(50);
+
+        
+        // Create a new swarm with the tampered transport
+        let mut swarm_2_tampered = libp2p::SwarmBuilder::with_existing_identity(k2.clone())
+            .with_tokio()
+            .with_other_transport(|_keypair| quic::tokio::Transport::new(quic_config))
+            .unwrap()
+            .with_behaviour(|key| {
+                ReplicationBehaviour::new(
+                    ReplicationConfig {
+                        seen_message_cache_size: 100,
+                        seen_message_ttl: Duration::from_secs(60),
+                    },
+                    PeerId::from_public_key(&key.public()),
+                    neighbours,
+                )
+            })
+            .unwrap()
+            .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(10)))
+            .build();
+
+        // Test 1: Normal communication should work
         let task_1 = async move {
             swarm_1.listen_on(addr.clone()).unwrap();
             wait_for_incoming_connection(&mut swarm_1, peer_id2).await;
@@ -236,7 +266,8 @@ mod test {
             }
         };
         let join2 = tokio::spawn(task_2);
-        // send 10 messages
+
+        // Send messages and verify normal communication
         for _ in 0..10 {
             sender.send(()).await.unwrap();
         }
@@ -250,5 +281,35 @@ mod test {
                 panic!("task two should not finish before 1");
             }
         }
+
+        // Test 2: Tampered transport should fail
+        let addr3: Multiaddr = "/ip4/127.0.0.1/udp/5054/quic-v1".parse().unwrap();
+        let addr4 = addr3.clone();
+        let mut swarm_3 = get_swarm(k1.clone(), make_neighbours(&[&k1, &k2]));
+
+        let task_3 = async move {
+            swarm_3.listen_on(addr3).unwrap();
+            // Wait for connection attempt but expect it to fail
+            let mut connected = false;
+            while let Some(event) = swarm_3.next().await {
+                if let SwarmEvent::ConnectionEstablished { .. } = event {
+                    connected = true;
+                    break;
+                }
+            }
+            assert!(!connected, "Connection should have failed with tampered transport");
+        };
+        let task_4 = async move {
+            // Attempt to connect with tampered transport
+            swarm_2_tampered.dial(addr4).unwrap();
+            // Wait for connection failure
+            while let Some(event) = swarm_2_tampered.next().await {
+                if let SwarmEvent::ConnectionClosed { .. } = event {
+                    break;
+                }
+            }
+        };
+
+        tokio::join!(task_3, task_4);
     }
 }
