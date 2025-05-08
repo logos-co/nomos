@@ -8,7 +8,6 @@ version = "0.1.0"
 
 [dependencies]
 async-trait            = "0.1"
-bytes                  = "1"
 cl                     = { workspace = true }
 cryptarchia-engine     = { workspace = true, features = ["serde"] }
 futures                = "0.3"
