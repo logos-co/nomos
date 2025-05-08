@@ -1,9 +1,9 @@
 use tokio::sync::oneshot;
 
 use crate::{
-    StorageMsg,
-    api::{StorageApiRequest, StorageBackendApi, da::StorageDaApi},
+    api::{da::StorageDaApi, StorageApiRequest, StorageBackendApi},
     backends::StorageBackend,
+    StorageMsg,
 };
 
 pub enum DaApiRequest<BlobId, Share, Commitments, ShareIdx> {

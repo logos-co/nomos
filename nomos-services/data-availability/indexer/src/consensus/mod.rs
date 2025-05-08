@@ -11,7 +11,7 @@ pub trait ConsensusAdapter {
     type Cert: Clone + Eq + std::hash::Hash;
 
     async fn new(consensus_relay: OutboundRelay<ConsensusMsg<Block<Self::Tx, Self::Cert>>>)
-    -> Self;
+        -> Self;
 
     async fn block_stream(
         &self,

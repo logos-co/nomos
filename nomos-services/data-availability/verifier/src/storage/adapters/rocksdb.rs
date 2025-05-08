@@ -3,14 +3,14 @@ use std::{fmt::Debug, hash::Hash, marker::PhantomData, path::PathBuf};
 use futures::try_join;
 use nomos_core::da::blob::Share;
 use nomos_storage::{
+    backends::{rocksdb::RocksBackend, StorageSerde},
     StorageMsg, StorageService,
-    backends::{StorageSerde, rocksdb::RocksBackend},
 };
 use overwatch::{
+    services::{relay::OutboundRelay, ServiceData},
     DynError,
-    services::{ServiceData, relay::OutboundRelay},
 };
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::storage::DaStorageAdapter;
 

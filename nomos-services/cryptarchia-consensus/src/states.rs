@@ -6,7 +6,7 @@ use nomos_ledger::LedgerState;
 use overwatch::services::state::ServiceState;
 use serde::{Deserialize, Serialize};
 
-use crate::{Cryptarchia, CryptarchiaSettings, Error, leadership::Leader};
+use crate::{leadership::Leader, Cryptarchia, CryptarchiaSettings, Error};
 
 /// Indicates that there's stored data so [`Cryptarchia`] should be recovered.
 /// However, the number of stored epochs is fewer than

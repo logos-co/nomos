@@ -3,15 +3,15 @@ use std::{marker::PhantomData, path::PathBuf};
 use kzgrs_backend::common::ShareIndex;
 use nomos_core::da::blob::Share;
 use nomos_storage::{
-    StorageMsg, StorageService,
     api::backend::rocksdb::{da::DA_SHARED_COMMITMENTS_PREFIX, utils::key_bytes},
-    backends::{StorageSerde, rocksdb::RocksBackend},
+    backends::{rocksdb::RocksBackend, StorageSerde},
+    StorageMsg, StorageService,
 };
 use overwatch::{
+    services::{relay::OutboundRelay, ServiceData},
     DynError,
-    services::{ServiceData, relay::OutboundRelay},
 };
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::storage::DaStorageAdapter;
 

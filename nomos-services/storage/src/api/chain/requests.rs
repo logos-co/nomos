@@ -1,7 +1,7 @@
 use crate::{
-    StorageMsg,
-    api::{StorageApiRequest, StorageBackendApi, chain::StorageChainApi},
+    api::{chain::StorageChainApi, StorageApiRequest, StorageBackendApi},
     backends::StorageBackend,
+    StorageMsg,
 };
 
 pub enum ChainApiRequest<HeaderId, Block> {

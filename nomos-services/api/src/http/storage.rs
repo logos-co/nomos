@@ -3,15 +3,15 @@ use std::fmt::{Debug, Display};
 use bytes::Bytes;
 use nomos_core::{block::Block, da::blob::Share, header::HeaderId};
 use nomos_storage::{
-    StorageMsg, StorageService,
     api::backend::rocksdb::{
-        da::{DA_SHARE_PREFIX, DA_SHARED_COMMITMENTS_PREFIX},
+        da::{DA_SHARED_COMMITMENTS_PREFIX, DA_SHARE_PREFIX},
         utils::{create_share_idx, key_bytes},
     },
-    backends::{StorageSerde, rocksdb::RocksBackend},
+    backends::{rocksdb::RocksBackend, StorageSerde},
+    StorageMsg, StorageService,
 };
 use overwatch::services::AsServiceId;
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::wait_with_timeout;
 

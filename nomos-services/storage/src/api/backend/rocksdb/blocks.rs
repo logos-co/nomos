@@ -5,7 +5,7 @@ use overwatch::DynError;
 
 use crate::{
     api::chain::StorageChainApi,
-    backends::{StorageBackend, StorageSerde, rocksdb::RocksBackend},
+    backends::{rocksdb::RocksBackend, StorageBackend as _, StorageSerde},
 };
 
 #[async_trait]

@@ -4,8 +4,8 @@ use nomos_core::header::HeaderId;
 
 use crate::{
     api::{
-        chain::{StorageChainApi, requests::ChainApiRequest},
-        da::{StorageDaApi, requests::DaApiRequest},
+        chain::{requests::ChainApiRequest, StorageChainApi},
+        da::{requests::DaApiRequest, StorageDaApi},
     },
     backends::StorageBackend,
 };
