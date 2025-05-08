@@ -478,8 +478,15 @@ where
     /// `self.prune_forks(10)` will remove any forks stemming from the genesis
     /// block, with height `0`.
     ///
-    /// It returns the number of fork tips that were removed.
-    pub fn prune_forks(&mut self, depth: u64) -> usize {
+    /// This function does not apply any particular logic when evaluating forks
+    /// other than the height at which they started diverging from the local
+    /// canonical chain.
+    ///
+    /// It returns the blocks that were part of the pruned forks. The order of
+    /// the branches is given by the underlying block storage, but branches
+    /// belonging to the same branch will appear from most recent to least
+    /// recent in the same order they were applied.
+    pub fn prune_forks(&mut self, depth: u64) -> impl Iterator<Item = Branch<Id>> {
         let local_chain = self.local_chain;
         let non_canonical_forks = self.non_canonical_forks();
         let Some(target_height) = local_chain.length.checked_sub(depth) else {
@@ -487,7 +494,7 @@ where
                 target: LOG_TARGET,
                 "No pruning needed, the canonical chain is not longer than the provided depth. Canonical chain length: {}, provided depth: {}", local_chain.length, depth
             );
-            return 0;
+            return vec![].into_iter();
         };
         // Calculate LCA between fork and canonical chain, and consider it for pruning
         // if the fork started before the specified `depth`.
@@ -498,32 +505,38 @@ where
                     (lca.length <= target_height).then_some((fork, lca))
                 })
                 .collect();
+        let mut removed_blocks = vec![];
         for (fork, lca) in &non_canonical_forks_older_than_depth {
-            self.prune_fork(fork.id, lca.id);
+            removed_blocks.extend(self.prune_fork(fork.id, lca.id));
         }
-        non_canonical_forks_older_than_depth.len()
+        removed_blocks.into_iter()
     }
 
-    /// Remove the list of blocks from `tip` to and excluding `up_to`.
-    fn prune_fork(&mut self, tip: Id, up_to: Id) {
+    /// Remove the list of blocks from `tip` to and excluding `up_to`, returning
+    /// them in the same order they were encounter while traversing blocks from
+    /// `tip` to `up_to`.
+    fn prune_fork(&mut self, tip: Id, up_to: Id) -> impl Iterator<Item = Branch<Id>> {
         let tip_removed = self.branches.tips.remove(&tip);
         assert!(
             tip_removed,
             "Provided fork tip should be in the set of tips"
         );
         let mut current_tip = tip;
+        let mut removed_blocks = vec![];
         while current_tip != up_to {
-            let Some(Branch { parent, .. }) = self.branches.branches.remove(&current_tip) else {
-                // If tip is not in branch set, it means this tip was sharing path with another
-                // fork that was already removed.
+            let Some(branch) = self.branches.branches.remove(&current_tip) else {
+                // If tip is not in branch set, it means this tip was sharing part of its
+                // history with another fork that has already been removed.
                 break;
             };
-            current_tip = parent;
+            removed_blocks.push(branch);
+            current_tip = branch.parent;
         }
         tracing::debug!(
             target: LOG_TARGET,
             "Pruned branch from {tip:#?} to {up_to:#?}."
         );
+        removed_blocks.into_iter()
     }
 
     pub const fn genesis(&self) -> Id {
@@ -576,6 +589,7 @@ where
 #[cfg(test)]
 pub mod tests {
     use std::{
+        collections::HashSet,
         hash::{DefaultHasher, Hash, Hasher as _},
         num::NonZero,
     };
@@ -849,7 +863,7 @@ pub mod tests {
             .receive_block([100; 32], [0; 32], 1.into())
             .expect("test block to be applied successfully.");
         let mut chain = chain_pre.clone();
-        assert_eq!(chain.prune_forks(50), 0);
+        assert_eq!(chain.prune_forks(50).count(), 0);
         assert_eq!(chain, chain_pre);
     }
 
@@ -860,7 +874,7 @@ pub mod tests {
             .receive_block([100; 32], hash(&40u64), 41.into())
             .expect("test block to be applied successfully.");
         let mut chain = chain_pre.clone();
-        assert_eq!(chain.prune_forks(10), 0);
+        assert_eq!(chain.prune_forks(10).count(), 0);
         assert_eq!(chain, chain_pre);
     }
 
@@ -868,11 +882,11 @@ pub mod tests {
     fn pruning_with_no_forks() {
         let chain_pre = create_canonical_chain(50.try_into().unwrap(), None);
         let mut chain = chain_pre.clone();
-        assert_eq!(chain.prune_forks(50), 0);
+        assert_eq!(chain.prune_forks(50).count(), 0);
         assert_eq!(chain, chain_pre);
-        assert_eq!(chain.prune_forks(49), 0);
+        assert_eq!(chain.prune_forks(49).count(), 0);
         assert_eq!(chain, chain_pre);
-        assert_eq!(chain.prune_forks(51), 0);
+        assert_eq!(chain.prune_forks(51).count(), 0);
         assert_eq!(chain, chain_pre);
     }
 
@@ -886,8 +900,11 @@ pub mod tests {
             .receive_block([101; 32], hash(&40u64), 41.into())
             .expect("test block to be applied successfully.");
         let mut chain = chain_pre.clone();
-        assert_eq!(chain.prune_forks(10), 1);
-        // Fork at block 39 was pruned.
+        let pruned_blocks = chain.prune_forks(10);
+        assert_eq!(
+            pruned_blocks.map(|block| block.id).collect::<HashSet<_>>(),
+            [[100; 32]].into()
+        );
         assert!(chain_pre.branches.tips.contains(&[100; 32]));
         assert!(chain_pre.branches.branches.contains_key(&[100; 32]));
         assert!(!chain.branches.tips.contains(&[100; 32]));
@@ -912,7 +929,11 @@ pub mod tests {
             .receive_block([101; 32], hash(&40u64), 41.into())
             .expect("test block to be applied successfully.");
         let mut chain = chain_pre.clone();
-        assert_eq!(chain.prune_forks(10), 2);
+        let pruned_blocks = chain.prune_forks(10);
+        assert_eq!(
+            pruned_blocks.map(|block| block.id).collect::<HashSet<_>>(),
+            [[100; 32], [200; 32]].into()
+        );
         // First fork at block 39 was pruned.
         assert!(chain_pre.branches.tips.contains(&[100; 32]));
         assert!(chain_pre.branches.branches.contains_key(&[100; 32]));
@@ -942,7 +963,11 @@ pub mod tests {
             .receive_block([200; 32], [100; 32], 42.into())
             .expect("test block to be applied successfully.");
         let mut chain = chain_pre.clone();
-        assert_eq!(chain.prune_forks(10), 2);
+        let pruned_blocks = chain.prune_forks(10);
+        assert_eq!(
+            pruned_blocks.map(|block| block.id).collect::<HashSet<_>>(),
+            [[100; 32], [101; 32], [200; 32]].into()
+        );
         // First fork was pruned entirely (both tips were removed).
         assert!(chain_pre.branches.tips.contains(&[101; 32]));
         assert!(chain_pre.branches.branches.contains_key(&[100; 32]));

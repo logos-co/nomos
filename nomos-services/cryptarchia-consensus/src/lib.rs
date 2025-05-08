@@ -64,6 +64,8 @@ type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
 const HEADERS_LIMIT: usize = 512;
 const CRYPTARCHIA_ID: &str = "Cryptarchia";
 
+pub(crate) const LOG_TARGET: &str = "cryptarchia-consensus";
+
 #[derive(Debug, Clone, Error)]
 pub enum Error {
     #[error("Ledger error: {0}")]
@@ -179,6 +181,18 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
         } else {
             None
         }
+    }
+
+    pub fn prune_old_forks(&mut self) {
+        let old_forks_pruned = self.consensus.prune_forks(
+            self.ledger
+                .config()
+                .consensus_config
+                .security_param
+                .get()
+                .into(),
+        );
+        tracing::debug!(target: LOG_TARGET, "Pruned {} old forks", old_forks_pruned.count());
     }
 }
 
@@ -627,6 +641,7 @@ where
                         .await;
 
                         self.service_resources_handle.state_updater.update(Some(Self::State::from_cryptarchia(&cryptarchia, &leader)));
+                        cryptarchia.prune_old_forks();
 
                         info!(counter.consensus_processed_blocks = 1);
                     }
@@ -661,6 +676,7 @@ where
                                     &relays,
                                     &mut self.block_subscription_sender
                                 ).await;
+                                cryptarchia.prune_old_forks();
                                 blend_adapter.blend(block).await;
                             }
                         }
