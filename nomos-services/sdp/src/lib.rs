@@ -1,7 +1,10 @@
 pub mod adapters;
 pub mod backends;
 
-use std::fmt::{Debug, Display};
+use std::{
+    fmt::{Debug, Display},
+    pin::Pin,
+};
 
 use adapters::{
     activity::SdpActivityAdapter, declaration::SdpDeclarationAdapter, services::SdpServicesAdapter,
@@ -9,8 +12,8 @@ use adapters::{
 };
 use async_trait::async_trait;
 use backends::{SdpBackend, SdpBackendError};
-use futures::StreamExt;
-use nomos_sdp_core::ledger;
+use futures::{Stream, StreamExt};
+use nomos_sdp_core::{ledger, DeclarationUpdate, ProviderInfo};
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -19,9 +22,12 @@ use overwatch::{
     OpaqueServiceStateHandle,
 };
 use services_utils::overwatch::lifecycle;
-use tokio::sync::oneshot;
+use tokio::sync::{broadcast, oneshot};
+use tokio_stream::wrappers::BroadcastStream;
 
-#[derive(Debug)]
+pub type FinalizedBlockUpdateStream =
+    Pin<Box<dyn Stream<Item = Vec<(ProviderInfo, DeclarationUpdate)>> + Send + Sync + Unpin>>;
+
 pub enum SdpMessage<B: SdpBackend> {
     Process {
         block_number: B::BlockNumber,
@@ -33,6 +39,9 @@ pub enum SdpMessage<B: SdpBackend> {
         result_sender: oneshot::Sender<Result<(), SdpBackendError>>,
     },
     DiscardBlock(B::BlockNumber),
+    Subscribe {
+        result_sender: oneshot::Sender<FinalizedBlockUpdateStream>,
+    },
 }
 
 pub struct SdpService<
@@ -56,6 +65,7 @@ pub struct SdpService<
 {
     backend: B,
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+    finalized_update_tx: broadcast::Sender<Vec<(ProviderInfo, DeclarationUpdate)>>,
 }
 
 impl<
@@ -152,6 +162,8 @@ where
         let services_adapter = ServicesAdapter::new();
         let stake_verifier_adapter = StakesVerifierAdapter::new();
         let rewards_adapter = RewardsAdapter::new();
+        let (finalized_update_tx, _) = broadcast::channel(128);
+
         Ok(Self {
             backend: B::init(
                 declaration_adapter,
@@ -160,6 +172,7 @@ where
                 stake_verifier_adapter,
             ),
             service_state,
+            finalized_update_tx,
         })
     }
 
@@ -221,16 +234,51 @@ impl<
             SdpMessage::MarkInBlock {
                 block_number,
                 result_sender,
-            } => {
-                let result = self.backend.mark_in_block(block_number).await;
-                let result = result_sender.send(result);
-                if let Err(e) = result {
-                    tracing::error!("Error sending result: {:?}", e);
+            } => match self.backend.mark_in_block(block_number).await {
+                Ok(update) => {
+                    if let Err(e) = self.finalized_update_tx.send(update) {
+                        tracing::error!("Error sending finalized update: {:?}", e);
+                    }
                 }
-            }
+                Err(err) => {
+                    if let Err(e) = result_sender.send(Err(err)) {
+                        tracing::error!("Error sending result: {:?}", e);
+                    }
+                }
+            },
             SdpMessage::DiscardBlock(block_number) => {
                 self.backend.discard_block(block_number);
             }
+            SdpMessage::Subscribe { result_sender } => {
+                let receiver = self.subscribe_finalized_updates();
+                let stream = make_finalized_stream(receiver);
+
+                if result_sender.send(stream).is_err() {
+                    tracing::error!("Error sending finalized updates receiver");
+                }
+            }
         }
     }
+
+    fn subscribe_finalized_updates(
+        &self,
+    ) -> broadcast::Receiver<Vec<(ProviderInfo, DeclarationUpdate)>> {
+        self.finalized_update_tx.subscribe()
+    }
+}
+
+fn make_finalized_stream(
+    receiver: broadcast::Receiver<Vec<(ProviderInfo, DeclarationUpdate)>>,
+) -> FinalizedBlockUpdateStream {
+    Box::pin(BroadcastStream::new(receiver).filter_map(|res| {
+        Box::pin(async move {
+            match res {
+                Ok(update) => Some(update),
+                Err(e) => {
+                    tracing::warn!("Lagging SDP subscriber: {e:?}");
+                    None
+                }
+            }
+        })
+    }))
 }

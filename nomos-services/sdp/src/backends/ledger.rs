@@ -10,12 +10,12 @@ use nomos_sdp_core::{
         },
         ServicesRepository,
     },
-    BlockNumber, SdpMessage,
+    BlockNumber, DeclarationUpdate, ProviderInfo, SdpMessage,
 };
 
 use super::{SdpBackend, SdpBackendError};
 use crate::adapters::{
-    declaration::SdpDeclarationAdapter, activity::SdpActivityAdapter, services::SdpServicesAdapter,
+    activity::SdpActivityAdapter, declaration::SdpDeclarationAdapter, services::SdpServicesAdapter,
     stakes::SdpStakesVerifierAdapter,
 };
 
@@ -67,7 +67,7 @@ where
     async fn mark_in_block(
         &mut self,
         block_number: Self::BlockNumber,
-    ) -> Result<(), SdpBackendError> {
+    ) -> Result<Vec<(ProviderInfo, DeclarationUpdate)>, SdpBackendError> {
         self.mark_in_block(block_number).await.map_err(Into::into)
     }
 

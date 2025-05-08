@@ -3,6 +3,7 @@ use std::{
     error::Error,
     fmt::Debug,
     marker::PhantomData,
+    result,
 };
 
 use async_trait::async_trait;
@@ -373,8 +374,10 @@ where
         &mut self,
         block_number: BlockNumber,
         provider_info: &ProviderInfo,
-    ) -> Result<(), SdpLedgerError<ContractAddress>> {
+    ) -> Result<Vec<(ProviderInfo, DeclarationUpdate)>, SdpLedgerError<ContractAddress>> {
         let provider_id = provider_info.provider_id;
+
+        let mut result = vec![];
 
         if let Err(err) = self
             .declaration_repo
@@ -396,22 +399,25 @@ where
         {
             if let Err(err) = self
                 .declaration_repo
-                .update_declaration(declaration_update)
+                .update_declaration(declaration_update.clone())
                 .await
             {
                 tracing::error!("Declaration could not be updated: {err}");
+            } else {
+                result.push((*provider_info, declaration_update));
             }
         }
 
-        Ok(())
+        Ok(result)
     }
 
     pub async fn mark_in_block(
         &mut self,
         block_number: BlockNumber,
-    ) -> Result<(), SdpLedgerError<ContractAddress>> {
+    ) -> Result<Vec<(ProviderInfo, DeclarationUpdate)>, SdpLedgerError<ContractAddress>> {
+        let mut result = vec![];
         let Some(updates) = self.pending_providers.remove(&block_number) else {
-            return Ok(());
+            return Ok(result);
         };
 
         for info in updates.values() {
@@ -420,12 +426,17 @@ where
             // activity.
             self.pending_activity.remove(&id);
 
-            if let Err(err) = self.mark_declaration_in_block(block_number, info).await {
-                tracing::error!("Provider information couldn't be updated: {err}");
+            match self.mark_declaration_in_block(block_number, info).await {
+                Ok(providers_declarations) => {
+                    result.extend(providers_declarations);
+                }
+                Err(err) => {
+                    tracing::error!("Provider information couldn't be updated: {err}");
+                }
             }
         }
 
-        Ok(())
+        Ok(result)
     }
 
     pub fn discard_block(&mut self, block_number: BlockNumber) {
