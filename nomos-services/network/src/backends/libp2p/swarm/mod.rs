@@ -1,28 +1,39 @@
+#![allow(
+    clippy::multiple_inherent_impl,
+    reason = "We spilt the impl in different blocks on purpose to ease localizing changes."
+)]
+
+// This macro must be on top if it is accessed by child modules, else if the
+// modules are defined before it, they will fail to see it.
+macro_rules! log_error {
+    ($e:expr) => {
+        if let Err(e) = $e {
+            tracing::error!("error while processing {}: {e:?}", stringify!($e));
+        }
+    };
+}
+
 use std::{collections::HashMap, time::Duration};
 
 use nomos_libp2p::{
-    gossipsub,
-    libp2p::{
-        identify,
-        kad::{self, PeerInfo, ProgressStep, QueryId},
-        swarm::ConnectionId,
-    },
-    BehaviourEvent, Multiaddr, PeerId, Protocol, Swarm, SwarmEvent,
+    libp2p::{kad::QueryId, swarm::ConnectionId},
+    BehaviourEvent, Multiaddr, PeerId, Swarm, SwarmEvent,
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::StreamExt as _;
 
 use super::{
-    command::{Command, Dial, DiscoveryCommand, NetworkCommand, PubSubCommand, Topic},
+    command::{Command, Dial, NetworkCommand},
     Event, Libp2pConfig,
 };
-use crate::backends::libp2p::Libp2pInfo;
+use crate::backends::libp2p::{swarm::kademlia::PendingQueryData, Libp2pInfo};
 
-// Define a struct to hold the data
-struct PendingQueryData {
-    sender: oneshot::Sender<Vec<PeerInfo>>,
-    accumulated_results: Vec<PeerInfo>,
-}
+mod gossipsub;
+mod identify;
+mod kademlia;
+
+pub use gossipsub::PubSubCommand;
+pub use kademlia::DiscoveryCommand;
 
 pub struct SwarmHandler {
     pub swarm: Swarm,
@@ -32,14 +43,6 @@ pub struct SwarmHandler {
     pub events_tx: broadcast::Sender<Event>,
 
     pending_queries: HashMap<QueryId, PendingQueryData>,
-}
-
-macro_rules! log_error {
-    ($e:expr) => {
-        if let Err(e) = $e {
-            tracing::error!("error while processing {}: {e:?}", stringify!($e));
-        }
-    };
 }
 
 // TODO: make this configurable
@@ -102,24 +105,6 @@ impl SwarmHandler {
                 Some(command) = self.commands_rx.recv() => {
                     self.handle_command(command);
                 }
-            }
-        }
-    }
-
-    fn bootstrap_kad_from_peers(&mut self, initial_peers: &Vec<Multiaddr>) {
-        for peer_addr in initial_peers {
-            if let Some(Protocol::P2p(peer_id_bytes)) = peer_addr.iter().last() {
-                if let Ok(peer_id) = PeerId::from_multihash(peer_id_bytes.into()) {
-                    self.swarm
-                        .swarm_mut()
-                        .behaviour_mut()
-                        .kademlia_add_address(peer_id, peer_addr.clone());
-                    tracing::debug!("Added peer to Kademlia: {} at {}", peer_id, peer_addr);
-                } else {
-                    tracing::warn!("Failed to parse peer ID from multiaddr: {}", peer_addr);
-                }
-            } else {
-                tracing::warn!("Multiaddr doesn't contain peer ID: {}", peer_addr);
             }
         }
     }
@@ -201,64 +186,6 @@ impl SwarmHandler {
         }
     }
 
-    fn handle_pubsub_command(&mut self, command: PubSubCommand) {
-        match command {
-            PubSubCommand::Broadcast { topic, message } => {
-                self.broadcast_and_retry(topic, message, 0);
-            }
-            PubSubCommand::Subscribe(topic) => {
-                tracing::debug!("subscribing to topic: {topic}");
-                log_error!(self.swarm.subscribe(&topic));
-            }
-            PubSubCommand::Unsubscribe(topic) => {
-                tracing::debug!("unsubscribing to topic: {topic}");
-                self.swarm.unsubscribe(&topic);
-            }
-            PubSubCommand::RetryBroadcast {
-                topic,
-                message,
-                retry_count,
-            } => {
-                self.broadcast_and_retry(topic, message, retry_count);
-            }
-        }
-    }
-
-    fn handle_discovery_command(&mut self, command: DiscoveryCommand) {
-        match command {
-            DiscoveryCommand::GetClosestPeers { peer_id, reply } => {
-                match self.swarm.get_closest_peers(peer_id) {
-                    Ok(query_id) => {
-                        tracing::debug!("Pending query ID: {query_id}");
-                        self.pending_queries.insert(
-                            query_id,
-                            PendingQueryData {
-                                sender: reply,
-                                accumulated_results: Vec::new(),
-                            },
-                        );
-                    }
-                    Err(err) => {
-                        tracing::warn!(
-                            "Failed to get closest peers for peer ID: {peer_id}: {:?}",
-                            err
-                        );
-                        let _ = reply.send(Vec::new());
-                    }
-                }
-            }
-            DiscoveryCommand::DumpRoutingTable { reply } => {
-                let result = self
-                    .swarm
-                    .swarm_mut()
-                    .behaviour_mut()
-                    .kademlia_routing_table_dump();
-                tracing::debug!("Routing table dump: {result:?}");
-                let _ = reply.send(result);
-            }
-        }
-    }
-
     async fn schedule_connect(dial: Dial, commands_tx: mpsc::Sender<Command>) {
         commands_tx
             .send(Command::Network(NetworkCommand::Connect(dial)))
@@ -310,163 +237,16 @@ impl SwarmHandler {
         }
     }
 
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "TODO: Address this at some point."
-    )]
-    fn broadcast_and_retry(&mut self, topic: Topic, message: Box<[u8]>, retry_count: usize) {
-        tracing::debug!("broadcasting message to topic: {topic}");
-
-        match self.swarm.broadcast(&topic, message.to_vec()) {
-            Ok(id) => {
-                tracing::debug!("broadcasted message with id: {id} tp topic: {topic}");
-                // self-notification because libp2p doesn't do it
-                if self.swarm.is_subscribed(&topic) {
-                    log_error!(self.events_tx.send(Event::Message(gossipsub::Message {
-                        source: None,
-                        data: message.into(),
-                        sequence_number: None,
-                        topic: Swarm::topic_hash(&topic),
-                    })));
-                }
-            }
-            Err(gossipsub::PublishError::InsufficientPeers) if retry_count < MAX_RETRY => {
-                let wait = Self::exp_backoff(retry_count);
-                tracing::error!("failed to broadcast message to topic due to insufficient peers, trying again in {wait:?}");
-
-                let commands_tx = self.commands_tx.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(wait).await;
-                    commands_tx
-                        .send(Command::PubSub(PubSubCommand::RetryBroadcast {
-                            topic,
-                            message,
-                            retry_count: retry_count + 1,
-                        }))
-                        .await
-                        .unwrap_or_else(|_| tracing::error!("could not schedule retry"));
-                });
-            }
-            Err(e) => {
-                tracing::error!("failed to broadcast message to topic: {topic} {e:?}");
-            }
-        }
-    }
-
-    fn handle_gossipsub_event(&self, event: nomos_libp2p::libp2p::gossipsub::Event) {
-        if let nomos_libp2p::libp2p::gossipsub::Event::Message { message, .. } = event {
-            let message = Event::Message(message);
-            if let Err(e) = self.events_tx.send(message) {
-                tracing::error!("Failed to send gossipsub message event: {}", e);
-            }
-        }
-    }
-
-    fn handle_identify_event(&mut self, event: identify::Event) {
-        match event {
-            identify::Event::Received { peer_id, info, .. } => {
-                tracing::debug!(
-                    "Identified peer {} with addresses {:?}",
-                    peer_id,
-                    info.listen_addrs
-                );
-                let kad_protocol_names = self.swarm.get_kademlia_protocol_names();
-                if info
-                    .protocols
-                    .iter()
-                    .any(|p| kad_protocol_names.contains(&p.to_string()))
-                {
-                    // we need to add the peer to the kademlia routing table
-                    // in order to enable peer discovery
-                    for addr in &info.listen_addrs {
-                        self.swarm
-                            .swarm_mut()
-                            .behaviour_mut()
-                            .kademlia_add_address(peer_id, addr.clone());
-                    }
-                }
-            }
-            event => {
-                tracing::debug!("Identify event: {:?}", event);
-            }
-        }
-    }
-
-    pub fn handle_kademlia_event(&mut self, event: kad::Event) {
-        match event {
-            kad::Event::OutboundQueryProgressed {
-                id, result, step, ..
-            } => {
-                self.handle_query_progress(id, result, &step);
-            }
-            kad::Event::RoutingUpdated {
-                peer,
-                addresses,
-                old_peer,
-                is_new_peer,
-                ..
-            } => {
-                log_routing_update(peer, &addresses.into_vec(), old_peer, is_new_peer);
-            }
-            event => {
-                tracing::debug!("Kademlia event: {:?}", event);
-            }
-        }
-    }
-
-    fn handle_query_progress(
-        &mut self,
-        id: QueryId,
-        result: kad::QueryResult,
-        step: &ProgressStep,
-    ) {
-        match result {
-            kad::QueryResult::GetClosestPeers(Ok(result)) => {
-                if let Some(query_data) = self.pending_queries.get_mut(&id) {
-                    query_data.accumulated_results.extend(result.peers);
-
-                    if step.last {
-                        if let Some(query_data) = self.pending_queries.remove(&id) {
-                            let _ = query_data.sender.send(query_data.accumulated_results);
-                        }
-                    }
-                }
-            }
-            kad::QueryResult::GetClosestPeers(Err(err)) => {
-                tracing::warn!("Failed to find closest peers: {:?}", err);
-                // For errors, we should probably just send what we have so far
-                if let Some(query_data) = self.pending_queries.remove(&id) {
-                    let _ = query_data.sender.send(query_data.accumulated_results);
-                }
-            }
-            _ => {
-                tracing::debug!("Handle kademlia query result: {:?}", result);
-            }
-        }
-    }
-
     const fn exp_backoff(retry: usize) -> Duration {
         std::time::Duration::from_secs(BACKOFF.pow(retry as u32))
     }
-}
-
-fn log_routing_update(
-    peer: PeerId,
-    address: &[Multiaddr],
-    old_peer: Option<PeerId>,
-    is_new_peer: bool,
-) {
-    tracing::debug!(
-        "Routing table updated: peer: {peer}, address: {address:?}, \
-         old_peer: {old_peer:?}, is_new_peer: {is_new_peer}"
-    );
 }
 
 #[cfg(test)]
 mod tests {
     use std::{net::Ipv4Addr, sync::Once, time::Instant};
 
-    use nomos_libp2p::protocol_name::ProtocolName;
+    use nomos_libp2p::{protocol_name::ProtocolName, Protocol};
     use tracing_subscriber::EnvFilter;
 
     use super::*;
@@ -486,7 +266,7 @@ mod tests {
             host: Ipv4Addr::new(127, 0, 0, 1),
             port,
             node_key: nomos_libp2p::ed25519::SecretKey::generate(),
-            gossipsub_config: gossipsub::Config::default(),
+            gossipsub_config: nomos_libp2p::gossipsub::Config::default(),
             kademlia_config: Some(nomos_libp2p::KademliaSettings::default()),
             identify_config: Some(nomos_libp2p::IdentifySettings::default()),
             protocol_name_env: ProtocolName::Unittest,
