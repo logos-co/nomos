@@ -22,7 +22,6 @@ nomos-da-indexer         = { workspace = true, features = ["rocksdb-backend"] }
 nomos-da-network-core    = { workspace = true }
 nomos-da-network-service = { workspace = true }
 nomos-da-sampling        = { workspace = true }
-nomos-da-storage         = { workspace = true }
 nomos-da-verifier        = { workspace = true, features = ["libp2p", "rocksdb-backend"] }
 nomos-libp2p             = { workspace = true }
 nomos-mempool            = { workspace = true, features = ["libp2p", "mock", "openapi"] }

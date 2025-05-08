@@ -2,14 +2,14 @@ use std::{hash::Hash, marker::PhantomData};
 
 use nomos_core::{block::Block, wire};
 use nomos_network::{
-    backends::libp2p::{Command, Event, EventKind, Libp2p, PubSubCommand::Subscribe},
     NetworkMsg, NetworkService,
+    backends::libp2p::{Command, Event, EventKind, Libp2p, PubSubCommand::Subscribe},
 };
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio_stream::{
     wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
     StreamExt as _,

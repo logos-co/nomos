@@ -4,12 +4,12 @@ use std::hash::Hash;
 
 use futures::Stream;
 use nomos_core::block::Block;
-use nomos_network::{backends::NetworkBackend, NetworkService};
+use nomos_network::{NetworkService, backends::NetworkBackend};
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 type BoxedStream<T> = Box<dyn Stream<Item = T> + Send + Sync + Unpin>;
 
