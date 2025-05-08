@@ -1,10 +1,2 @@
-use crate::{
-    api::{StorageBackendApi, StorageFunctions},
-    backends::{rocksdb::RocksBackend, StorageSerde},
-};
-
+#[cfg(feature = "rocksdb-backend")]
 pub mod rocksdb;
-
-impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageFunctions for RocksBackend<SerdeOp> {}
-
-impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackendApi for RocksBackend<SerdeOp> {}
