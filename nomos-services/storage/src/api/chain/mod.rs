@@ -7,7 +7,7 @@ use overwatch::DynError;
 use requests::ChainApiRequest;
 use tracing::error;
 
-use crate::{StorageServiceError, api::StorageBackendApi};
+use crate::{api::StorageBackendApi, StorageServiceError};
 
 #[async_trait]
 pub trait StorageChainApi {

@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use cl::{
-    InputWitness,
     note::NoteWitness,
     nullifier::{Nullifier, NullifierSecret},
+    InputWitness,
 };
 use cryptarchia_engine::Slot;
 use nomos_core::{header::HeaderId, proofs::leader_proof::Risc0LeaderProof};

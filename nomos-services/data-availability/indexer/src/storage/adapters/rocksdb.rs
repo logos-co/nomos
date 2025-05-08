@@ -7,7 +7,7 @@ use nomos_core::da::{
     blob::{
         info::DispersedBlobInfo,
         metadata::{Metadata, Next},
-        Share,
+        Share as _,
     },
     BlobId,
 };

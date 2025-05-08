@@ -1,6 +1,6 @@
 use crate::{
     api::{StorageBackendApi, StorageFunctions},
-    backends::{StorageSerde, rocksdb::RocksBackend},
+    backends::{rocksdb::RocksBackend, StorageSerde},
 };
 
 pub mod rocksdb;

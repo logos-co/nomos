@@ -5,28 +5,28 @@ use std::{
 };
 
 use nomos_blend_service::{
-    BlendService, ServiceMessage, network::NetworkAdapter as BlendNetworkAdapter,
+    network::NetworkAdapter as BlendNetworkAdapter, BlendService, ServiceMessage,
 };
 use nomos_core::{
-    da::blob::{BlobSelect, info::DispersedBlobInfo},
+    da::blob::{info::DispersedBlobInfo, BlobSelect},
     header::HeaderId,
     tx::TxSelect,
 };
-use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
+use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
 use nomos_mempool::{
-    DaMempoolService, TxMempoolService,
     backend::{MemPool, RecoverableMempool},
     network::NetworkAdapter as MempoolAdapter,
+    DaMempoolService, TxMempoolService,
 };
 use nomos_network::{NetworkMsg, NetworkService};
-use nomos_storage::{StorageMsg, StorageService, api::StorageBackendApi, backends::StorageBackend};
-use nomos_time::{TimeService, TimeServiceMessage, backends::TimeBackend as TimeBackendTrait};
+use nomos_storage::{api::StorageBackendApi, backends::StorageBackend, StorageMsg, StorageService};
+use nomos_time::{backends::TimeBackend as TimeBackendTrait, TimeService, TimeServiceMessage};
 use overwatch::{
+    services::{relay::OutboundRelay, AsServiceId},
     OpaqueServiceStateHandle,
-    services::{AsServiceId, relay::OutboundRelay},
 };
 use rand::{RngCore, SeedableRng};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{
     blend, network,
@@ -99,20 +99,20 @@ pub struct CryptarchiaConsensusRelays<
 }
 
 impl<
-    BlendAdapter,
-    BS,
-    ClPool,
-    ClPoolAdapter,
-    DaPool,
-    DaPoolAdapter,
-    NetworkAdapter,
-    SamplingBackend,
-    SamplingRng,
-    Storage,
-    TxS,
-    DaVerifierBackend,
-    RuntimeServiceId,
->
+        BlendAdapter,
+        BS,
+        ClPool,
+        ClPoolAdapter,
+        DaPool,
+        DaPoolAdapter,
+        NetworkAdapter,
+        SamplingBackend,
+        SamplingRng,
+        Storage,
+        TxS,
+        DaVerifierBackend,
+        RuntimeServiceId,
+    >
     CryptarchiaConsensusRelays<
         BlendAdapter,
         BS,

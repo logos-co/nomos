@@ -4,10 +4,10 @@ use std::ops::Range;
 
 use futures::Stream;
 use nomos_core::da::blob::{info::DispersedBlobInfo, metadata::Metadata};
-use nomos_storage::{StorageService, api::StorageBackendApi, backends::StorageBackend};
+use nomos_storage::{api::StorageBackendApi, backends::StorageBackend, StorageService};
 use overwatch::{
+    services::{relay::OutboundRelay, ServiceData},
     DynError,
-    services::{ServiceData, relay::OutboundRelay},
 };
 
 #[async_trait::async_trait]

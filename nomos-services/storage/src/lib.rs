@@ -11,13 +11,13 @@ use backends::{StorageBackend, StorageSerde as _, StorageTransaction};
 use bytes::Bytes;
 use futures::StreamExt as _;
 use overwatch::{
-    DynError, OpaqueServiceStateHandle,
     services::{
-        AsServiceId, ServiceCore, ServiceData,
         state::{NoOperator, NoState},
+        AsServiceId, ServiceCore, ServiceData,
     },
+    DynError, OpaqueServiceStateHandle,
 };
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Serialize};
 use services_utils::overwatch::lifecycle;
 use tracing::error;
 

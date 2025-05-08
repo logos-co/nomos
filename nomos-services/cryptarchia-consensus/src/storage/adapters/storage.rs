@@ -2,11 +2,11 @@ use std::{fmt::Debug, hash::Hash, marker::PhantomData};
 
 use nomos_core::{block::Block, header::HeaderId};
 use nomos_storage::{
-    StorageMsg, StorageService,
     api::StorageBackendApi,
-    backends::{StorageBackend, StorageSerde},
+    backends::{StorageBackend, StorageSerde as _},
+    StorageMsg, StorageService,
 };
-use overwatch::services::{ServiceData, relay::OutboundRelay};
+use overwatch::services::{relay::OutboundRelay, ServiceData};
 use serde::de::DeserializeOwned;
 use tokio::sync::oneshot;
 

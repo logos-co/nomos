@@ -12,7 +12,7 @@ use cryptarchia_consensus::{network::NetworkAdapter, CryptarchiaConsensus};
 use futures::StreamExt as _;
 use nomos_core::{
     block::Block,
-    da::blob::{BlobSelect, info::DispersedBlobInfo, metadata::Metadata},
+    da::blob::{info::DispersedBlobInfo, metadata::Metadata, BlobSelect},
     header::HeaderId,
     tx::{Transaction, TxSelect},
 };
@@ -21,17 +21,17 @@ use nomos_mempool::{
     backend::{MemPool, RecoverableMempool},
     network::NetworkAdapter as MempoolAdapter,
 };
-use nomos_storage::{StorageService, api::StorageBackendApi, backends::StorageBackend};
+use nomos_storage::{api::StorageBackendApi, backends::StorageBackend, StorageService};
 use nomos_tracing::info_with_id;
 use overwatch::{
-    DynError, OpaqueServiceStateHandle,
     services::{
-        AsServiceId, ServiceCore, ServiceData,
         state::{NoOperator, NoState},
+        AsServiceId, ServiceCore, ServiceData,
     },
+    DynError, OpaqueServiceStateHandle,
 };
 use rand::{RngCore, SeedableRng};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use services_utils::overwatch::lifecycle;
 use storage::DaStorageAdapter;
 use tokio::sync::oneshot::Sender;
@@ -130,29 +130,29 @@ impl<Blob: 'static, Meta: Metadata + 'static> Debug for DaMsg<Blob, Meta> {
 }
 
 impl<
-    Share,
-    DaStorage,
-    Consensus,
-    NetAdapter,
-    BlendAdapter,
-    ClPool,
-    ClPoolAdapter,
-    DaPool,
-    DaPoolAdapter,
-    TxS,
-    BS,
-    ConsensusStorage,
-    SamplingBackend,
-    SamplingNetworkAdapter,
-    SamplingRng,
-    SamplingStorage,
-    DaVerifierBackend,
-    DaVerifierNetwork,
-    DaVerifierStorage,
-    TimeBackend,
-    ApiAdapter,
-    RuntimeServiceId,
-> ServiceData
+        Share,
+        DaStorage,
+        Consensus,
+        NetAdapter,
+        BlendAdapter,
+        ClPool,
+        ClPoolAdapter,
+        DaPool,
+        DaPoolAdapter,
+        TxS,
+        BS,
+        ConsensusStorage,
+        SamplingBackend,
+        SamplingNetworkAdapter,
+        SamplingRng,
+        SamplingStorage,
+        DaVerifierBackend,
+        DaVerifierNetwork,
+        DaVerifierStorage,
+        TimeBackend,
+        ApiAdapter,
+        RuntimeServiceId,
+    > ServiceData
     for DataIndexerService<
         Share,
         DaStorage,
@@ -226,29 +226,29 @@ where
 }
 
 impl<
-    Share,
-    DaStorage,
-    Consensus,
-    NetAdapter,
-    BlendAdapter,
-    ClPool,
-    ClPoolAdapter,
-    DaPool,
-    DaPoolAdapter,
-    TxS,
-    BS,
-    ConsensusStorage,
-    SamplingBackend,
-    SamplingNetworkAdapter,
-    SamplingRng,
-    SamplingStorage,
-    DaVerifierBackend,
-    DaVerifierNetwork,
-    DaVerifierStorage,
-    TimeBackend,
-    ApiAdapter,
-    RuntimeServiceId,
->
+        Share,
+        DaStorage,
+        Consensus,
+        NetAdapter,
+        BlendAdapter,
+        ClPool,
+        ClPoolAdapter,
+        DaPool,
+        DaPoolAdapter,
+        TxS,
+        BS,
+        ConsensusStorage,
+        SamplingBackend,
+        SamplingNetworkAdapter,
+        SamplingRng,
+        SamplingStorage,
+        DaVerifierBackend,
+        DaVerifierNetwork,
+        DaVerifierStorage,
+        TimeBackend,
+        ApiAdapter,
+        RuntimeServiceId,
+    >
     DataIndexerService<
         Share,
         DaStorage,
@@ -357,29 +357,29 @@ where
 
 #[async_trait::async_trait]
 impl<
-    Share,
-    DaStorage,
-    Consensus,
-    NetAdapter,
-    BlendAdapter,
-    ClPool,
-    ClPoolAdapter,
-    DaPool,
-    DaPoolAdapter,
-    TxS,
-    BS,
-    ConsensusStorage,
-    SamplingBackend,
-    SamplingNetworkAdapter,
-    SamplingRng,
-    SamplingStorage,
-    DaVerifierBackend,
-    DaVerifierNetwork,
-    DaVerifierStorage,
-    TimeBackend,
-    ApiAdapter,
-    RuntimeServiceId,
-> ServiceCore<RuntimeServiceId>
+        Share,
+        DaStorage,
+        Consensus,
+        NetAdapter,
+        BlendAdapter,
+        ClPool,
+        ClPoolAdapter,
+        DaPool,
+        DaPoolAdapter,
+        TxS,
+        BS,
+        ConsensusStorage,
+        SamplingBackend,
+        SamplingNetworkAdapter,
+        SamplingRng,
+        SamplingStorage,
+        DaVerifierBackend,
+        DaVerifierNetwork,
+        DaVerifierStorage,
+        TimeBackend,
+        ApiAdapter,
+        RuntimeServiceId,
+    > ServiceCore<RuntimeServiceId>
     for DataIndexerService<
         Share,
         DaStorage,

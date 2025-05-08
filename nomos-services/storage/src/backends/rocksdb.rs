@@ -3,7 +3,7 @@ use std::{marker::PhantomData, path::PathBuf, sync::Arc};
 use async_trait::async_trait;
 use bytes::Bytes;
 pub use rocksdb::Error;
-use rocksdb::{DB, Options};
+use rocksdb::{Options, DB};
 use serde::{Deserialize, Serialize};
 
 use super::{StorageBackend, StorageSerde, StorageTransaction};
@@ -158,8 +158,8 @@ mod test {
     use super::{super::testing::NoStorageSerde, *};
 
     #[tokio::test]
-    async fn test_store_load_remove()
-    -> Result<(), <RocksBackend<NoStorageSerde> as StorageBackend>::Error> {
+    async fn test_store_load_remove(
+    ) -> Result<(), <RocksBackend<NoStorageSerde> as StorageBackend>::Error> {
         let temp_path = TempDir::new().unwrap();
         let sled_settings = RocksBackendSettings {
             db_path: temp_path.path().to_path_buf(),
@@ -181,8 +181,8 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_transaction()
-    -> Result<(), <RocksBackend<NoStorageSerde> as StorageBackend>::Error> {
+    async fn test_transaction(
+    ) -> Result<(), <RocksBackend<NoStorageSerde> as StorageBackend>::Error> {
         let temp_path = TempDir::new().unwrap();
 
         let sled_settings = RocksBackendSettings {
@@ -207,8 +207,8 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_multi_readers_single_writer()
-    -> Result<(), <RocksBackend<NoStorageSerde> as StorageBackend>::Error> {
+    async fn test_multi_readers_single_writer(
+    ) -> Result<(), <RocksBackend<NoStorageSerde> as StorageBackend>::Error> {
         use tokio::sync::mpsc::channel;
 
         let temp_path = TempDir::new().unwrap();

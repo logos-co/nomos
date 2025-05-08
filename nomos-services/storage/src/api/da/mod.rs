@@ -5,7 +5,7 @@ use overwatch::DynError;
 use requests::DaApiRequest;
 use tracing::error;
 
-use crate::{StorageServiceError, api::StorageBackendApi};
+use crate::{api::StorageBackendApi, StorageServiceError};
 
 pub mod requests;
 

@@ -15,36 +15,36 @@ pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
 use nomos_blend_service::BlendService;
 use nomos_core::{
-    block::{Block, builder::BlockBuilder},
-    da::blob::{BlobSelect, info::DispersedBlobInfo, metadata::Metadata as BlobMetadata},
+    block::{builder::BlockBuilder, Block},
+    da::blob::{info::DispersedBlobInfo, metadata::Metadata as BlobMetadata, BlobSelect},
     header::{Builder, Header, HeaderId},
     proofs::leader_proof::Risc0LeaderProof,
     tx::{Transaction, TxSelect},
 };
 use nomos_da_sampling::{
-    DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
+    backend::DaSamplingServiceBackend, DaSamplingService, DaSamplingServiceMsg,
 };
 use nomos_ledger::{leader_proof::LeaderProof as _, LedgerState};
 use nomos_mempool::{
-    DaMempoolService, MempoolMsg, TxMempoolService, backend::RecoverableMempool,
-    network::NetworkAdapter as MempoolAdapter,
+    backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter, DaMempoolService,
+    MempoolMsg, TxMempoolService,
 };
 use nomos_network::NetworkService;
 use nomos_storage::{
-    StorageMsg, StorageService,
     api::StorageBackendApi,
-    backends::{StorageBackend, StorageSerde},
+    backends::{StorageBackend, StorageSerde as _},
+    StorageMsg, StorageService,
 };
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
+    services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},
     DynError, OpaqueServiceStateHandle,
-    services::{AsServiceId, ServiceCore, ServiceData, relay::OutboundRelay},
 };
 use rand::{RngCore, SeedableRng};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_with::serde_as;
 use services_utils::overwatch::{
-    JsonFileBackend, RecoveryOperator, lifecycle, recovery::backends::FileBackendSettings,
+    lifecycle, recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator,
 };
 use thiserror::Error;
 use tokio::sync::{broadcast, oneshot, oneshot::Sender};
@@ -58,7 +58,7 @@ use crate::{
         CryptarchiaConsensusState, CryptarchiaInitialisationStrategy, GenesisRecoveryStrategy,
         SecurityRecoveryStrategy,
     },
-    storage::{StorageAdapter as _, adapters::StorageAdapter},
+    storage::{adapters::StorageAdapter, StorageAdapter as _},
 };
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
@@ -275,26 +275,26 @@ pub struct CryptarchiaConsensus<
 }
 
 impl<
-    NetAdapter,
-    BlendAdapter,
-    ClPool,
-    ClPoolAdapter,
-    DaPool,
-    DaPoolAdapter,
-    TxS,
-    BS,
-    Storage,
-    SamplingBackend,
-    SamplingNetworkAdapter,
-    SamplingRng,
-    SamplingStorage,
-    DaVerifierBackend,
-    DaVerifierNetwork,
-    DaVerifierStorage,
-    TimeBackend,
-    ApiAdapter,
-    RuntimeServiceId,
-> ServiceData
+        NetAdapter,
+        BlendAdapter,
+        ClPool,
+        ClPoolAdapter,
+        DaPool,
+        DaPoolAdapter,
+        TxS,
+        BS,
+        Storage,
+        SamplingBackend,
+        SamplingNetworkAdapter,
+        SamplingRng,
+        SamplingStorage,
+        DaVerifierBackend,
+        DaVerifierNetwork,
+        DaVerifierStorage,
+        TimeBackend,
+        ApiAdapter,
+        RuntimeServiceId,
+    > ServiceData
     for CryptarchiaConsensus<
         NetAdapter,
         BlendAdapter,
@@ -374,26 +374,26 @@ where
 
 #[async_trait::async_trait]
 impl<
-    NetAdapter,
-    BlendAdapter,
-    ClPool,
-    ClPoolAdapter,
-    DaPool,
-    DaPoolAdapter,
-    TxS,
-    BS,
-    Storage,
-    SamplingBackend,
-    SamplingNetworkAdapter,
-    SamplingRng,
-    SamplingStorage,
-    DaVerifierBackend,
-    DaVerifierNetwork,
-    DaVerifierStorage,
-    TimeBackend,
-    ApiAdapter,
-    RuntimeServiceId,
-> ServiceCore<RuntimeServiceId>
+        NetAdapter,
+        BlendAdapter,
+        ClPool,
+        ClPoolAdapter,
+        DaPool,
+        DaPoolAdapter,
+        TxS,
+        BS,
+        Storage,
+        SamplingBackend,
+        SamplingNetworkAdapter,
+        SamplingRng,
+        SamplingStorage,
+        DaVerifierBackend,
+        DaVerifierNetwork,
+        DaVerifierStorage,
+        TimeBackend,
+        ApiAdapter,
+        RuntimeServiceId,
+    > ServiceCore<RuntimeServiceId>
     for CryptarchiaConsensus<
         NetAdapter,
         BlendAdapter,
@@ -671,26 +671,26 @@ where
 }
 
 impl<
-    NetAdapter,
-    BlendAdapter,
-    ClPool,
-    ClPoolAdapter,
-    DaPool,
-    DaPoolAdapter,
-    TxS,
-    BS,
-    Storage,
-    SamplingBackend,
-    SamplingNetworkAdapter,
-    SamplingRng,
-    SamplingStorage,
-    DaVerifierBackend,
-    DaVerifierNetwork,
-    DaVerifierStorage,
-    TimeBackend,
-    ApiAdapter,
-    RuntimeServiceId,
->
+        NetAdapter,
+        BlendAdapter,
+        ClPool,
+        ClPoolAdapter,
+        DaPool,
+        DaPoolAdapter,
+        TxS,
+        BS,
+        Storage,
+        SamplingBackend,
+        SamplingNetworkAdapter,
+        SamplingRng,
+        SamplingStorage,
+        DaVerifierBackend,
+        DaVerifierNetwork,
+        DaVerifierStorage,
+        TimeBackend,
+        ApiAdapter,
+        RuntimeServiceId,
+    >
     CryptarchiaConsensus<
         NetAdapter,
         BlendAdapter,
