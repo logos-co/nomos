@@ -1,3 +1,4 @@
+pub mod api;
 pub mod backends;
 
 use std::{
@@ -10,18 +11,20 @@ use backends::{StorageBackend, StorageSerde as _, StorageTransaction};
 use bytes::Bytes;
 use futures::StreamExt as _;
 use overwatch::{
+    DynError, OpaqueServiceStateHandle,
     services::{
-        state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, NoState},
     },
-    OpaqueServiceStateHandle,
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use services_utils::overwatch::lifecycle;
 use tracing::error;
 
+use crate::api::{StorageApiRequest, StorageBackendApi};
+
 /// Storage message that maps to [`StorageBackend`] trait
-pub enum StorageMsg<Backend: StorageBackend> {
+pub enum StorageMsg<Backend: StorageBackend + StorageBackendApi> {
     Load {
         key: Bytes,
         reply_channel: tokio::sync::oneshot::Sender<Option<Bytes>>,
@@ -42,6 +45,9 @@ pub enum StorageMsg<Backend: StorageBackend> {
         transaction: Backend::Transaction,
         reply_channel:
             tokio::sync::oneshot::Sender<<Backend::Transaction as StorageTransaction>::Result>,
+    },
+    Api {
+        request: StorageApiRequest<Backend>,
     },
 }
 
@@ -66,7 +72,7 @@ impl<T, Backend> StorageReplyReceiver<T, Backend> {
     }
 }
 
-impl<Backend: StorageBackend> StorageReplyReceiver<Option<Bytes>, Backend> {
+impl<Backend: StorageBackend + StorageBackendApi> StorageReplyReceiver<Option<Bytes>, Backend> {
     /// Receive and transform the reply into the desired type
     /// Target type must implement `From` from the original backend stored type.
     pub async fn recv<Output>(
@@ -88,7 +94,7 @@ impl<Backend: StorageBackend> StorageReplyReceiver<Option<Bytes>, Backend> {
     }
 }
 
-impl<Backend: StorageBackend> StorageMsg<Backend> {
+impl<Backend: StorageBackend + StorageBackendApi> StorageMsg<Backend> {
     pub fn new_load_message(key: Bytes) -> (Self, StorageReplyReceiver<Option<Bytes>, Backend>) {
         let (reply_channel, receiver) = tokio::sync::oneshot::channel();
         (
@@ -128,7 +134,7 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
 }
 
 // Implement `Debug` manually to avoid constraining `Backend` to `Debug`
-impl<Backend: StorageBackend> Debug for StorageMsg<Backend> {
+impl<Backend: StorageBackend + StorageBackendApi> Debug for StorageMsg<Backend> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Load { key, .. } => {
@@ -144,6 +150,9 @@ impl<Backend: StorageBackend> Debug for StorageMsg<Backend> {
                 write!(f, "Remove {{ {key:?} }}")
             }
             Self::Execute { .. } => write!(f, "Execute transaction"),
+            Self::Api { .. } => {
+                write!(f, "Api {{ .. }}")
+            }
         }
     }
 }
@@ -151,7 +160,7 @@ impl<Backend: StorageBackend> Debug for StorageMsg<Backend> {
 /// Storage error
 /// Errors that may happen when performing storage operations
 #[derive(Debug, thiserror::Error)]
-enum StorageServiceError<Backend: StorageBackend> {
+pub enum StorageServiceError<Backend: StorageBackend> {
     #[error("Couldn't send a reply for operation `{operation}` with key [{key:?}]")]
     ReplyError { operation: String, key: Bytes },
     #[error("Storage backend error")]
@@ -159,13 +168,17 @@ enum StorageServiceError<Backend: StorageBackend> {
 }
 
 /// Storage service that wraps a [`StorageBackend`]
-pub struct StorageService<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId> {
+pub struct StorageService<Backend, RuntimeServiceId>
+where
+    Backend: StorageBackend + StorageBackendApi + Send + Sync + 'static,
+{
     backend: Backend,
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
 }
 
-impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
-    StorageService<Backend, RuntimeServiceId>
+impl<Backend, RuntimeServiceId> StorageService<Backend, RuntimeServiceId>
+where
+    Backend: StorageBackend + StorageBackendApi + Send + Sync + 'static,
 {
     async fn handle_storage_message(msg: StorageMsg<Backend>, backend: &mut Backend) {
         if let Err(e) = match msg {
@@ -184,6 +197,7 @@ impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
                 transaction,
                 reply_channel,
             } => Self::handle_execute(backend, transaction, reply_channel).await,
+            StorageMsg::Api { request: api_call } => Self::handle_api_call(api_call, backend).await,
         } {
             // TODO: add proper logging
             println!("{e}");
@@ -274,18 +288,31 @@ impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
                 key: Bytes::new(),
             })
     }
+
+    async fn handle_api_call(
+        api_call: StorageApiRequest<Backend>,
+        api_backend: &mut Backend,
+    ) -> Result<(), StorageServiceError<Backend>> {
+        match api_call {
+            StorageApiRequest::Chain(method) => {
+                api::chain::handle_chain_api_call(method, api_backend).await
+            }
+            StorageApiRequest::Da(method) => api::da::handle_da_api_call(method, api_backend).await,
+        }
+    }
 }
 
 #[async_trait]
-impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
-    ServiceCore<RuntimeServiceId> for StorageService<Backend, RuntimeServiceId>
+impl<Backend, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for StorageService<Backend, RuntimeServiceId>
 where
+    Backend: StorageBackend + StorageBackendApi + Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self> + Display + Send,
 {
     fn init(
         service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
         _init_state: Self::State,
-    ) -> Result<Self, overwatch::DynError> {
+    ) -> Result<Self, DynError> {
         Ok(Self {
             backend: Backend::new(service_state.settings_reader.get_updated_settings())?,
             service_state,
@@ -321,8 +348,9 @@ where
     }
 }
 
-impl<Backend: StorageBackend + Send + Sync, RuntimeServiceId> ServiceData
-    for StorageService<Backend, RuntimeServiceId>
+impl<Backend, RuntimeServiceId> ServiceData for StorageService<Backend, RuntimeServiceId>
+where
+    Backend: StorageBackend + StorageBackendApi + Send + Sync + 'static,
 {
     type Settings = Backend::Settings;
     type State = NoState<Self::Settings>;

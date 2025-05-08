@@ -9,18 +9,19 @@ use std::{
 use bytes::Bytes;
 use futures::{stream, Stream, StreamExt as _};
 use nomos_core::da::blob::{LightShare, Share};
-use nomos_da_storage::rocksdb::{
-    create_share_idx, key_bytes, DA_BLOB_SHARES_INDEX_PREFIX, DA_SHARE_PREFIX,
-};
 use nomos_storage::{
-    backends::{rocksdb::RocksBackend, StorageSerde},
     StorageMsg, StorageService,
+    api::backend::rocksdb::{
+        da::{DA_BLOB_SHARES_INDEX_PREFIX, DA_SHARE_PREFIX},
+        utils::{create_share_idx, key_bytes},
+    },
+    backends::{StorageSerde, rocksdb::RocksBackend},
 };
 use overwatch::{
     overwatch::handle::OverwatchHandle,
-    services::{relay::OutboundRelay, AsServiceId},
+    services::{AsServiceId, relay::OutboundRelay},
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::oneshot;
 
 #[expect(clippy::implicit_hasher, reason = "Don't need custom hasher")]

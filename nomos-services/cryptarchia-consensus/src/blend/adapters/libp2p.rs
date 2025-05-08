@@ -1,11 +1,11 @@
 use std::{hash::Hash, marker::PhantomData};
 
 use nomos_blend_service::{
-    backends::libp2p::Libp2pBlendBackend, network::NetworkAdapter, BlendService, ServiceMessage,
+    BlendService, ServiceMessage, backends::libp2p::Libp2pBlendBackend, network::NetworkAdapter,
 };
 use nomos_core::{block::Block, wire};
-use overwatch::services::{relay::OutboundRelay, ServiceData};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use overwatch::services::{ServiceData, relay::OutboundRelay};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{blend::BlendAdapter, messages::NetworkMessage};
 

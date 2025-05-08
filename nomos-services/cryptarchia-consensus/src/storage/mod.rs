@@ -1,12 +1,12 @@
 pub mod adapters;
 
 use nomos_core::header::HeaderId;
-use nomos_storage::{backends::StorageBackend, StorageService};
-use overwatch::services::{relay::OutboundRelay, ServiceData};
+use nomos_storage::{StorageService, api::StorageBackendApi, backends::StorageBackend};
+use overwatch::services::{ServiceData, relay::OutboundRelay};
 
 #[async_trait::async_trait]
 pub trait StorageAdapter<RuntimeServiceId> {
-    type Backend: StorageBackend + Send + Sync;
+    type Backend: StorageBackend + StorageBackendApi + Send + Sync + 'static;
     type Block;
 
     async fn new(
