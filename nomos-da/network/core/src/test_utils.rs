@@ -24,10 +24,6 @@ use crate::protocols::replication::behaviour::ReplicationBehaviour;
 use crate::SubnetworkId;
 use nomos_da_messages::replication::ReplicationRequest;
 
-pub trait SendReplicationMessage {
-    fn send_message(&mut self, message: &ReplicationRequest);
-}
-
 #[derive(Clone)]
 pub struct AllNeighbours {
     neighbours: Arc<Mutex<HashSet<PeerId>>>,
@@ -118,7 +114,10 @@ pub struct TamperingReplicationBehaviour<M> {
     tamper_hook: Option<Arc<dyn Fn(ReplicationRequest) -> ReplicationRequest + Send + Sync>>,
 }
 
-impl<M> TamperingReplicationBehaviour<M> {
+impl<M> TamperingReplicationBehaviour<M> 
+where
+    M: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>,
+{
     pub fn new(inner: ReplicationBehaviour<M>) -> Self {
         Self {
             inner,
@@ -132,9 +131,7 @@ impl<M> TamperingReplicationBehaviour<M> {
     {
         self.tamper_hook = Some(Arc::new(f));
     }
-}
 
-impl<M> SendReplicationMessage for TamperingReplicationBehaviour<M> {
     fn send_message(&mut self, message: &ReplicationRequest) {
         let mut msg = message.clone();
         if let Some(ref hook) = self.tamper_hook {
@@ -150,7 +147,7 @@ where
 {
     type ConnectionHandler = <ReplicationBehaviour<M> as NetworkBehaviour>::ConnectionHandler;
     type ToSwarm = <ReplicationBehaviour<M> as NetworkBehaviour>::ToSwarm;
-
+    
     fn handle_established_inbound_connection(
         &mut self,
         connection_id: ConnectionId,
