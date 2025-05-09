@@ -1,5 +1,3 @@
-use std::fmt::Debug;
-
 use async_trait::async_trait;
 use overwatch::DynError;
 
@@ -7,10 +5,10 @@ pub mod requests;
 
 #[async_trait]
 pub trait StorageDaApi {
-    type BlobId: Debug + Send + Sync + 'static;
-    type Share: Debug + Send + Sync + 'static;
-    type Commitments: Debug + Send + Sync + 'static;
-    type ShareIndex: Debug + Send + Sync + 'static;
+    type BlobId;
+    type Share;
+    type Commitments;
+    type ShareIndex;
 
     async fn get_light_share(
         &mut self,
