@@ -1,13 +1,16 @@
+use crate::api::Executable;
 use crate::{
     api::{chain::StorageChainApi, StorageApiRequest, StorageBackendApi},
     backends::StorageBackend,
-    StorageMsg,
+    StorageMsg, StorageServiceError,
 };
+use tokio::sync::oneshot::Sender;
+use tracing::error;
 
 pub enum ChainApiRequest<HeaderId, Block> {
     GetBlock {
         header_id: HeaderId,
-        response_tx: tokio::sync::oneshot::Sender<Option<Block>>,
+        response_tx: Sender<Option<Block>>,
     },
     StoreBlock {
         header_id: HeaderId,
@@ -15,11 +18,66 @@ pub enum ChainApiRequest<HeaderId, Block> {
     },
 }
 
+impl<B> Executable<B> for ChainApiRequest<B::HeaderId, B::Block>
+where
+    B: StorageBackend + StorageBackendApi,
+{
+    async fn execute(self, backend: &mut B) -> Result<(), StorageServiceError<B>> {
+        match self {
+            ChainApiRequest::GetBlock {
+                header_id,
+                response_tx,
+            } => handle_get_block(backend, header_id, response_tx).await,
+            ChainApiRequest::StoreBlock { header_id, block } => {
+                handle_store_block(backend, header_id, block).await
+            }
+        }
+    }
+}
+
+async fn handle_get_block<B: StorageBackendApi>(
+    backend: &mut B,
+    header_id: B::HeaderId,
+    response_tx: Sender<Option<B::Block>>,
+) -> Result<(), StorageServiceError<B>> {
+    let result = backend.get_block(header_id).await.map_err(|e| {
+        error!("Failed to get block: {:?}", e);
+
+        let key = "header_id".to_owned().into();
+        StorageServiceError::ReplyError {
+            operation: "get_block".to_owned(),
+            key,
+        }
+    })?;
+
+    if response_tx.send(result).is_err() {
+        error!("Failed to send response in get_block");
+    }
+
+    Ok(())
+}
+
+async fn handle_store_block<B: StorageBackendApi>(
+    backend: &mut B,
+    header_id: B::HeaderId,
+    block: B::Block,
+) -> Result<(), StorageServiceError<B>> {
+    backend.store_block(header_id, block).await.map_err(|e| {
+        error!("Failed to store block: {:?}", e);
+
+        let key = "header_id".to_owned().into();
+        StorageServiceError::ReplyError {
+            operation: "store_block".to_owned(),
+            key,
+        }
+    })
+}
+
 impl<Api: StorageBackend + StorageBackendApi> StorageMsg<Api> {
     #[must_use]
     pub const fn get_block_request(
         header_id: <Api as StorageChainApi>::HeaderId,
-        response_tx: tokio::sync::oneshot::Sender<Option<<Api as StorageChainApi>::Block>>,
+        response_tx: Sender<Option<<Api as StorageChainApi>::Block>>,
     ) -> Self {
         Self::Api {
             request: StorageApiRequest::Chain(ChainApiRequest::GetBlock {
