@@ -322,12 +322,10 @@ mod test {
             let mut i = 0;
             loop {
                 tokio::select! {
-                    // Wait for a short moment before trying to send
                     () = tokio::time::sleep(Duration::from_millis(50)) => {
                         let behaviour = swarm_2_tampered.behaviour_mut();
                         let msg = get_message(i);
                         behaviour.send_message(&msg);
-                        //info!("Sent message {:?}", msg);
                         i += 1;
                     }
                     event = swarm_2_tampered.select_next_some() => {
