@@ -12,12 +12,11 @@ mod test {
     use tokio::sync::mpsc;
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
-    use crate::test_utils::TamperingReplicationBehaviour;
     use crate::{
         protocols::replication::behaviour::{
             ReplicationBehaviour, ReplicationConfig, ReplicationEvent,
         },
-        test_utils::AllNeighbours,
+        test_utils::{AllNeighbours, TamperingReplicationBehaviour},
     };
 
     type TestSwarm = Swarm<ReplicationBehaviour<AllNeighbours>>;

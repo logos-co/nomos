@@ -154,7 +154,12 @@ where
         local_addr: &Multiaddr,
         remote_addr: &Multiaddr,
     ) -> Result<Self::ConnectionHandler, ConnectionDenied> {
-        self.inner.handle_established_inbound_connection(connection_id, peer_id, local_addr, remote_addr)
+        self.inner.handle_established_inbound_connection(
+            connection_id,
+            peer_id,
+            local_addr,
+            remote_addr,
+        )
     }
 
     fn handle_established_outbound_connection(
@@ -165,7 +170,13 @@ where
         role_override: Endpoint,
         port_use: PortUse,
     ) -> Result<Self::ConnectionHandler, ConnectionDenied> {
-        self.inner.handle_established_outbound_connection(connection_id, peer_id, addr, role_override, port_use)
+        self.inner.handle_established_outbound_connection(
+            connection_id,
+            peer_id,
+            addr,
+            role_override,
+            port_use,
+        )
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm<'_>) {
@@ -178,10 +189,14 @@ where
         connection_id: ConnectionId,
         event: THandlerOutEvent<Self>,
     ) {
-        self.inner.on_connection_handler_event(peer_id, connection_id, event);
+        self.inner
+            .on_connection_handler_event(peer_id, connection_id, event);
     }
 
-    fn poll(&mut self, cx: &mut std::task::Context<'_>) -> std::task::Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+    fn poll(
+        &mut self,
+        cx: &mut std::task::Context<'_>
+    ) -> std::task::Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         self.inner.poll(cx)
     }
 }
