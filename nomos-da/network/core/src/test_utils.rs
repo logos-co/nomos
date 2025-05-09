@@ -195,7 +195,7 @@ where
 
     fn poll(
         &mut self,
-        cx: &mut std::task::Context<'_>
+        cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         self.inner.poll(cx)
     }
