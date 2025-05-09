@@ -8,6 +8,7 @@ use crate::{
         da::{requests::DaApiRequest, StorageDaApi},
     },
     backends::StorageBackend,
+    StorageServiceError,
 };
 
 pub mod backend;
@@ -25,6 +26,10 @@ where
 {
 }
 
+pub(crate) trait Executable<B: StorageBackendApi> {
+    async fn execute(self, api: &mut B) -> Result<(), StorageServiceError<B>>;
+}
+
 pub enum StorageApiRequest<Api: StorageBackendApi> {
     Chain(ChainApiRequest<<Api as StorageChainApi>::HeaderId, <Api as StorageChainApi>::Block>),
     Da(
@@ -35,4 +40,16 @@ pub enum StorageApiRequest<Api: StorageBackendApi> {
             <Api as StorageDaApi>::ShareIndex,
         >,
     ),
+}
+
+impl<B: StorageBackendApi> Executable<B> for StorageApiRequest<B>
+where
+    B: StorageBackend + StorageBackendApi,
+{
+    async fn execute(self, backend: &mut B) -> Result<(), StorageServiceError<B>> {
+        match self {
+            StorageApiRequest::Chain(request) => request.execute(backend).await,
+            StorageApiRequest::Da(request) => request.execute(backend).await,
+        }
+    }
 }
