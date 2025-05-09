@@ -108,7 +108,7 @@ where
         .build()
 }
 
-/// A wrapper around ReplicationBehaviour that allows tampering with outbound messages.
+// A wrapper around ReplicationBehaviour that allows tampering with outbound messages.
 pub struct TamperingReplicationBehaviour<M> {
     inner: ReplicationBehaviour<M>,
     tamper_hook: Option<Arc<dyn Fn(ReplicationRequest) -> ReplicationRequest + Send + Sync>>,
