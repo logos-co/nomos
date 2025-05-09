@@ -21,10 +21,10 @@ use serde::{de::DeserializeOwned, Serialize};
 use services_utils::overwatch::lifecycle;
 use tracing::error;
 
-use crate::api::{Executable, StorageApiRequest, StorageBackendApi};
+use crate::api::{Executable, StorageApiRequest};
 
 /// Storage message that maps to [`StorageBackend`] trait
-pub enum StorageMsg<Backend: StorageBackend + StorageBackendApi> {
+pub enum StorageMsg<Backend: StorageBackend> {
     Load {
         key: Bytes,
         reply_channel: tokio::sync::oneshot::Sender<Option<Bytes>>,
@@ -72,7 +72,7 @@ impl<T, Backend> StorageReplyReceiver<T, Backend> {
     }
 }
 
-impl<Backend: StorageBackend + StorageBackendApi> StorageReplyReceiver<Option<Bytes>, Backend> {
+impl<Backend: StorageBackend> StorageReplyReceiver<Option<Bytes>, Backend> {
     /// Receive and transform the reply into the desired type
     /// Target type must implement `From` from the original backend stored type.
     pub async fn recv<Output>(
@@ -94,7 +94,7 @@ impl<Backend: StorageBackend + StorageBackendApi> StorageReplyReceiver<Option<By
     }
 }
 
-impl<Backend: StorageBackend + StorageBackendApi> StorageMsg<Backend> {
+impl<Backend: StorageBackend> StorageMsg<Backend> {
     pub fn new_load_message(key: Bytes) -> (Self, StorageReplyReceiver<Option<Bytes>, Backend>) {
         let (reply_channel, receiver) = tokio::sync::oneshot::channel();
         (
@@ -134,7 +134,7 @@ impl<Backend: StorageBackend + StorageBackendApi> StorageMsg<Backend> {
 }
 
 // Implement `Debug` manually to avoid constraining `Backend` to `Debug`
-impl<Backend: StorageBackend + StorageBackendApi> Debug for StorageMsg<Backend> {
+impl<Backend: StorageBackend> Debug for StorageMsg<Backend> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Load { key, .. } => {
@@ -170,7 +170,7 @@ pub enum StorageServiceError<Backend: StorageBackend> {
 /// Storage service that wraps a [`StorageBackend`]
 pub struct StorageService<Backend, RuntimeServiceId>
 where
-    Backend: StorageBackend + StorageBackendApi + Send + Sync + 'static,
+    Backend: StorageBackend + Send + Sync + 'static,
 {
     backend: Backend,
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
@@ -178,7 +178,7 @@ where
 
 impl<Backend, RuntimeServiceId> StorageService<Backend, RuntimeServiceId>
 where
-    Backend: StorageBackend + StorageBackendApi + Send + Sync + 'static,
+    Backend: StorageBackend + Send + Sync + 'static,
 {
     async fn handle_storage_message(msg: StorageMsg<Backend>, backend: &mut Backend) {
         if let Err(e) = match msg {
@@ -301,7 +301,7 @@ where
 impl<Backend, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for StorageService<Backend, RuntimeServiceId>
 where
-    Backend: StorageBackend + StorageBackendApi + Send + Sync + 'static,
+    Backend: StorageBackend + Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self> + Display + Send,
 {
     fn init(
@@ -345,7 +345,7 @@ where
 
 impl<Backend, RuntimeServiceId> ServiceData for StorageService<Backend, RuntimeServiceId>
 where
-    Backend: StorageBackend + StorageBackendApi + Send + Sync + 'static,
+    Backend: StorageBackend + Send + Sync + 'static,
 {
     type Settings = Backend::Settings;
     type State = NoState<Self::Settings>;

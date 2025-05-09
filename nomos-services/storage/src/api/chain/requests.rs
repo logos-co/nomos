@@ -1,11 +1,11 @@
-use crate::api::Executable;
+use tokio::sync::oneshot::Sender;
+use tracing::error;
+
 use crate::{
-    api::{chain::StorageChainApi, StorageApiRequest, StorageBackendApi},
+    api::{chain::StorageChainApi, Executable, StorageApiRequest, StorageBackendApi},
     backends::StorageBackend,
     StorageMsg, StorageServiceError,
 };
-use tokio::sync::oneshot::Sender;
-use tracing::error;
 
 pub enum ChainApiRequest<HeaderId, Block> {
     GetBlock {
@@ -35,7 +35,7 @@ where
     }
 }
 
-async fn handle_get_block<B: StorageBackendApi>(
+async fn handle_get_block<B: StorageBackend>(
     backend: &mut B,
     header_id: B::HeaderId,
     response_tx: Sender<Option<B::Block>>,
@@ -57,7 +57,7 @@ async fn handle_get_block<B: StorageBackendApi>(
     Ok(())
 }
 
-async fn handle_store_block<B: StorageBackendApi>(
+async fn handle_store_block<B: StorageBackend>(
     backend: &mut B,
     header_id: B::HeaderId,
     block: B::Block,
@@ -73,7 +73,7 @@ async fn handle_store_block<B: StorageBackendApi>(
     })
 }
 
-impl<Api: StorageBackend + StorageBackendApi> StorageMsg<Api> {
+impl<Api: StorageBackend> StorageMsg<Api> {
     #[must_use]
     pub const fn get_block_request(
         header_id: <Api as StorageChainApi>::HeaderId,

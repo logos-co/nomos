@@ -1,8 +1,7 @@
-use std::{fmt::Debug, hash::Hash, marker::PhantomData};
+use std::{hash::Hash, marker::PhantomData};
 
 use nomos_core::{block::Block, header::HeaderId};
 use nomos_storage::{
-    api::StorageBackendApi,
     backends::{StorageBackend, StorageSerde as _},
     StorageMsg, StorageService,
 };
@@ -14,7 +13,7 @@ use crate::storage::StorageAdapter as StorageAdapterTrait;
 
 pub struct StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
 where
-    Storage: StorageBackend + StorageBackendApi + Send + Sync + 'static,
+    Storage: StorageBackend + Send + Sync + 'static,
 {
     pub storage_relay:
         OutboundRelay<<StorageService<Storage, RuntimeServiceId> as ServiceData>::Message>,
@@ -26,9 +25,9 @@ where
 impl<Storage, Tx, BlobCertificate, RuntimeServiceId> StorageAdapterTrait<RuntimeServiceId>
     for StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
 where
-    Storage: StorageBackend + StorageBackendApi + Send + Sync + 'static,
-    Tx: Clone + Debug + Eq + Hash + DeserializeOwned + Send + Sync + 'static,
-    BlobCertificate: Clone + Debug + Eq + Hash + DeserializeOwned + Send + Sync + 'static,
+    Storage: StorageBackend + Send + Sync + 'static,
+    Tx: Clone + Eq + Hash + DeserializeOwned + Send + Sync + 'static,
+    BlobCertificate: Clone + Eq + Hash + DeserializeOwned + Send + Sync + 'static,
 {
     type Backend = Storage;
     type Block = Block<Tx, BlobCertificate>;

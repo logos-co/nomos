@@ -19,18 +19,18 @@ pub mod da;
 pub trait StorageFunctions: StorageChainApi + StorageDaApi {}
 
 #[async_trait]
-pub trait StorageBackendApi: StorageFunctions + StorageBackend
+pub trait StorageBackendApi: StorageFunctions
 where
     Self: StorageChainApi<HeaderId = HeaderId, Block = Bytes>
         + StorageDaApi<BlobId = [u8; 32], Share = Bytes, Commitments = Bytes, ShareIndex = [u8; 2]>,
 {
 }
 
-pub(crate) trait Executable<B: StorageBackendApi> {
+pub(crate) trait Executable<B: StorageBackend> {
     async fn execute(self, api: &mut B) -> Result<(), StorageServiceError<B>>;
 }
 
-pub enum StorageApiRequest<Api: StorageBackendApi> {
+pub enum StorageApiRequest<Api: StorageBackend> {
     Chain(ChainApiRequest<<Api as StorageChainApi>::HeaderId, <Api as StorageChainApi>::Block>),
     Da(
         DaApiRequest<
@@ -42,7 +42,7 @@ pub enum StorageApiRequest<Api: StorageBackendApi> {
     ),
 }
 
-impl<B: StorageBackendApi> Executable<B> for StorageApiRequest<B> {
+impl<B: StorageBackend> Executable<B> for StorageApiRequest<B> {
     async fn execute(self, backend: &mut B) -> Result<(), StorageServiceError<B>> {
         match self {
             Self::Chain(request) => request.execute(backend).await,

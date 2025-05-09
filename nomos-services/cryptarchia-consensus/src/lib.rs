@@ -31,7 +31,6 @@ use nomos_mempool::{
 };
 use nomos_network::NetworkService;
 use nomos_storage::{
-    api::StorageBackendApi,
     backends::{StorageBackend, StorageSerde as _},
     StorageMsg, StorageService,
 };
@@ -252,7 +251,7 @@ pub struct CryptarchiaConsensus<
     TxS::Settings: Send,
     BS: BlobSelect<BlobId = DaPool::Item>,
     BS::Settings: Send,
-    Storage: StorageBackend + StorageBackendApi + Send + Sync + 'static,
+    Storage: StorageBackend + Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -338,7 +337,7 @@ where
     TxS::Settings: Send,
     BS: BlobSelect<BlobId = DaPool::Item>,
     BS::Settings: Send,
-    Storage: StorageBackend + StorageBackendApi + Send + Sync + 'static,
+    Storage: StorageBackend + Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -470,7 +469,7 @@ where
     TxS::Settings: Send + Sync + 'static,
     BS: BlobSelect<BlobId = DaPool::Item> + Clone + Send + Sync + 'static,
     BS::Settings: Send + Sync + 'static,
-    Storage: StorageBackend + StorageBackendApi + Send + Sync + 'static,
+    Storage: StorageBackend + Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + Send + 'static,
@@ -758,7 +757,7 @@ where
     TxS::Settings: Send,
     BS: BlobSelect<BlobId = DaPool::Item> + Clone + Send + Sync + 'static,
     BS::Settings: Send,
-    Storage: StorageBackend + StorageBackendApi + Send + Sync + 'static,
+    Storage: StorageBackend + Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,

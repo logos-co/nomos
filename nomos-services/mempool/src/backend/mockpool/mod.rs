@@ -114,7 +114,7 @@ where
 impl<BlockId, Item, Key> MemPool for MockPool<BlockId, Item, Key>
 where
     Key: Hash + Eq + Ord + Clone + Send,
-    Item: Clone + Send + Sync + 'static,
+    Item: Clone + Send + 'static,
     BlockId: Ord + Copy,
 {
     type Settings = ();
@@ -207,7 +207,7 @@ where
 impl<BlockId, Item, Key> RecoverableMempool for MockPool<BlockId, Item, Key>
 where
     Key: Hash + Eq + Ord + Clone + Send,
-    Item: Clone + Send + Sync + Debug + 'static,
+    Item: Clone + Send + 'static,
     BlockId: Ord + Copy,
 {
     type RecoveryState = Self;
@@ -224,7 +224,7 @@ where
 impl<BlockId, Item, Key> ServiceState for MockPool<BlockId, Item, Key>
 where
     Key: Hash + Eq + Ord + Clone + Send,
-    Item: Clone + Send + Sync + 'static,
+    Item: Clone + Send + 'static,
     BlockId: Ord + Copy,
 {
     type Error = Infallible;
