@@ -1,18 +1,18 @@
 use std::sync::LazyLock;
 
 use ark_bls12_381::{Bls12_381, Fr};
-use ark_poly::{univariate::DensePolynomial, EvaluationDomain, GeneralEvaluationDomain};
+use ark_poly::{univariate::DensePolynomial, EvaluationDomain as _, GeneralEvaluationDomain};
 use ark_poly_commit::kzg10::{UniversalParams, KZG10};
 use divan::{black_box, counter::ItemsCount, Bencher};
 use kzgrs::{
     common::bytes_to_polynomial_unchecked,
     kzg::{commit_polynomial, generate_element_proof, verify_element_proof},
 };
-use rand::RngCore;
+use rand::RngCore as _;
 #[cfg(feature = "parallel")]
-use rayon::iter::IntoParallelIterator;
+use rayon::iter::IntoParallelIterator as _;
 #[cfg(feature = "parallel")]
-use rayon::iter::ParallelIterator;
+use rayon::iter::ParallelIterator as _;
 
 fn main() {
     divan::main();

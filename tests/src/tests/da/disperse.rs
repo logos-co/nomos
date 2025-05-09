@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use kzgrs_backend::{dispersal::Index, reconstruction::reconstruct_without_missing_data};
-use nomos_core::da::blob::Share;
-use subnetworks_assignations::MembershipHandler;
+use nomos_core::da::blob::Share as _;
+use subnetworks_assignations::MembershipHandler as _;
 use tests::{
     common::da::{disseminate_with_metadata, wait_for_indexed_blob, APP_ID},
     secret_key_to_peer_id,

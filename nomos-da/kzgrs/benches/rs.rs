@@ -1,11 +1,11 @@
 use ark_bls12_381::Fr;
-use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
+use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain};
 use divan::{black_box, counter::BytesCount, Bencher};
 use kzgrs::{
     common::bytes_to_polynomial,
     rs::{decode, encode},
 };
-use rand::{thread_rng, RngCore};
+use rand::{thread_rng, RngCore as _};
 
 fn main() {
     divan::main();

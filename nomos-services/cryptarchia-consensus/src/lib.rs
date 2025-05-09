@@ -11,7 +11,7 @@ use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 
 use bytes::Bytes;
 use cryptarchia_engine::Slot;
-use futures::StreamExt;
+use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
 use nomos_blend_service::BlendService;
@@ -25,7 +25,7 @@ use nomos_core::{
 use nomos_da_sampling::{
     backend::DaSamplingServiceBackend, DaSamplingService, DaSamplingServiceMsg,
 };
-use nomos_ledger::{leader_proof::LeaderProof, LedgerState};
+use nomos_ledger::{leader_proof::LeaderProof as _, LedgerState};
 use nomos_mempool::{
     backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter, DaMempoolService,
     MempoolMsg, TxMempoolService,
@@ -46,7 +46,7 @@ use services_utils::overwatch::{
 use thiserror::Error;
 use tokio::sync::{broadcast, oneshot, oneshot::Sender};
 use tracing::{error, info, instrument, span, Level};
-use tracing_futures::Instrument;
+use tracing_futures::Instrument as _;
 
 use crate::{
     leadership::Leader,

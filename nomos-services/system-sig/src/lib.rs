@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 
-use futures::stream::StreamExt;
+use futures::stream::StreamExt as _;
 use overwatch::{
     overwatch::handle::OverwatchHandle,
     services::{

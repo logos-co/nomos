@@ -5,7 +5,7 @@ mod notetree;
 
 use std::{collections::HashMap, hash::Hash};
 
-use blake2::Digest;
+use blake2::Digest as _;
 use cl::{balance::Value, note::NoteCommitment, nullifier::Nullifier};
 pub use config::Config;
 use cryptarchia_engine::{Epoch, Slot};
@@ -456,7 +456,7 @@ impl core::fmt::Debug for LedgerState {
 pub mod tests {
     use std::num::NonZero;
 
-    use blake2::Digest;
+    use blake2::Digest as _;
     use cl::{note::NoteWitness as Note, NullifierSecret};
     use cryptarchia_engine::{EpochConfig, Slot};
     use rand::thread_rng;
@@ -704,7 +704,7 @@ pub mod tests {
 
     #[test]
     fn test_epoch_transition() {
-        let notes = (0..4).map(|_| note()).collect::<Vec<_>>();
+        let notes = std::iter::repeat_with(note).take(4).collect::<Vec<_>>();
         let note_4 = note();
         let note_5 = note();
         let (mut ledger, genesis) = ledger(&notes.iter().copied().map(commit).collect::<Vec<_>>());

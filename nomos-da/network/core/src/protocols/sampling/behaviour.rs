@@ -11,7 +11,7 @@ use futures::{
     },
     future::BoxFuture,
     stream::{BoxStream, FuturesUnordered},
-    AsyncWriteExt, FutureExt, StreamExt,
+    AsyncWriteExt as _, FutureExt as _, StreamExt as _,
 };
 use kzgrs_backend::common::{share::DaLightShare, ShareIndex};
 use libp2p::{

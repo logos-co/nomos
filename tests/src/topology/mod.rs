@@ -9,7 +9,7 @@ use configs::{
     GeneralConfig,
 };
 use nomos_da_network_core::swarm::DAConnectionPolicySettings;
-use rand::{thread_rng, Rng};
+use rand::{thread_rng, Rng as _};
 
 use crate::{
     nodes::{

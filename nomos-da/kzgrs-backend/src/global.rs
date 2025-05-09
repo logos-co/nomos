@@ -14,7 +14,7 @@ pub static GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new(|| {
 mod tests {
     use std::fs::File;
 
-    use ark_serialize::{CanonicalSerialize, Write};
+    use ark_serialize::{CanonicalSerialize as _, Write as _};
     use kzgrs::global_parameters_from_randomness;
 
     #[test]

@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use futures::StreamExt;
+use futures::StreamExt as _;
 use nomos_tracing::{
     filter::envfilter::{create_envfilter_layer, EnvFilterConfig},
     logging::{
@@ -27,7 +27,9 @@ use overwatch::{
 use serde::{Deserialize, Serialize};
 use tracing::{error, Level};
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{
+    filter::LevelFilter, layer::SubscriberExt as _, util::SubscriberInitExt as _,
+};
 
 pub struct Tracing<RuntimeServiceId> {
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
@@ -282,7 +284,7 @@ where
 }
 
 mod serde_level {
-    use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+    use serde::{de::Error as _, Deserialize as _, Deserializer, Serialize as _, Serializer};
 
     use super::Level;
 

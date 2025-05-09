@@ -3,7 +3,7 @@ use std::fmt::{self, Debug, Display};
 
 use async_trait::async_trait;
 use backends::NetworkBackend;
-use futures::StreamExt;
+use futures::StreamExt as _;
 use overwatch::{
     services::{
         state::{NoOperator, ServiceState},

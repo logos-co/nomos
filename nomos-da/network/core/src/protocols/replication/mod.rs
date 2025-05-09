@@ -4,9 +4,9 @@ pub mod behaviour;
 mod test {
     use std::{collections::VecDeque, ops::Range, sync::LazyLock, time::Duration};
 
-    use futures::StreamExt;
+    use futures::StreamExt as _;
     use libp2p::{identity::Keypair, quic, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
-    use libp2p_swarm_test::SwarmExt;
+    use libp2p_swarm_test::SwarmExt as _;
     use log::info;
     use nomos_da_messages::replication::ReplicationRequest;
     use tokio::sync::mpsc;

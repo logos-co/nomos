@@ -9,17 +9,18 @@ use std::{
 
 use async_trait::async_trait;
 use backends::BlendBackend;
-use futures::StreamExt;
+use futures::StreamExt as _;
 use network::NetworkAdapter;
 use nomos_blend::{
     cover_traffic::{CoverTraffic, CoverTrafficSettings},
     membership::{Membership, Node},
     message_blend::{
         crypto::CryptographicProcessor, temporal::TemporalScheduler,
-        CryptographicProcessorSettings, MessageBlendExt, MessageBlendSettings,
+        CryptographicProcessorSettings, MessageBlendExt as _, MessageBlendSettings,
     },
     persistent_transmission::{
-        PersistentTransmissionExt, PersistentTransmissionSettings, PersistentTransmissionStream,
+        PersistentTransmissionExt as _, PersistentTransmissionSettings,
+        PersistentTransmissionStream,
     },
     BlendOutgoingMessage,
 };
@@ -34,7 +35,7 @@ use overwatch::{
     },
     OpaqueServiceStateHandle,
 };
-use rand::SeedableRng;
+use rand::SeedableRng as _;
 use rand_chacha::ChaCha12Rng;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use services_utils::overwatch::lifecycle;

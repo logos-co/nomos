@@ -1,10 +1,10 @@
-use std::{borrow::Cow, ops::Mul};
+use std::{borrow::Cow, ops::Mul as _};
 
 use ark_bls12_381::{Fr, G1Affine, G1Projective};
-use ark_ec::CurveGroup;
-use ark_ff::Field;
-use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
-use num_traits::Zero;
+use ark_ec::CurveGroup as _;
+use ark_ff::Field as _;
+use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain};
+use num_traits::Zero as _;
 
 use crate::{GlobalParameters, Polynomial, Proof};
 
@@ -103,9 +103,9 @@ mod test {
     use std::sync::LazyLock;
 
     use ark_bls12_381::{Bls12_381, Fr};
-    use ark_poly::{univariate::DensePolynomial, EvaluationDomain, GeneralEvaluationDomain};
+    use ark_poly::{univariate::DensePolynomial, EvaluationDomain as _, GeneralEvaluationDomain};
     use ark_poly_commit::kzg10::KZG10;
-    use rand::SeedableRng;
+    use rand::SeedableRng as _;
 
     use crate::{
         common::bytes_to_polynomial,

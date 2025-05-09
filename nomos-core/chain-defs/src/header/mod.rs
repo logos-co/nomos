@@ -1,4 +1,4 @@
-use blake2::Digest;
+use blake2::Digest as _;
 use cryptarchia_engine::Slot;
 use nomos_ledger::leader_proof::LeaderProof;
 use serde::{Deserialize, Serialize};

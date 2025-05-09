@@ -10,7 +10,7 @@ use std::{
 };
 
 use cryptarchia_engine::{Epoch, Slot};
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt as _};
 use log::error;
 use overwatch::{
     services::{

@@ -4,12 +4,12 @@ pub mod behaviour;
 mod test {
     use std::time::Duration;
 
-    use futures::StreamExt;
+    use futures::StreamExt as _;
     use kzgrs::{Commitment, Proof};
     use kzgrs_backend::common::{share::DaLightShare, Column};
     use libp2p::{identity::Keypair, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
     use log::debug;
-    use rand::Rng;
+    use rand::Rng as _;
     use subnetworks_assignations::MembershipHandler;
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 

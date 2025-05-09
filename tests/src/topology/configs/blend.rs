@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::str::FromStr as _;
 
 use nomos_blend::membership::Node;
 use nomos_blend_message::{sphinx::SphinxMessage, BlendMessage};

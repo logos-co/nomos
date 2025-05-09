@@ -4,13 +4,13 @@ use std::{
     time::Duration,
 };
 
-use cached::{Cached, TimedSizedCache};
+use cached::{Cached as _, TimedSizedCache};
 use either::Either;
 use futures::{
     future::BoxFuture,
     io::{ReadHalf, WriteHalf},
     stream::{BoxStream, FuturesUnordered},
-    AsyncReadExt, AsyncWriteExt, FutureExt, StreamExt,
+    AsyncReadExt as _, AsyncWriteExt as _, FutureExt as _, StreamExt as _,
 };
 use indexmap::IndexMap;
 use libp2p::{

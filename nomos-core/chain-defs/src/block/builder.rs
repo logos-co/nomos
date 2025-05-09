@@ -1,6 +1,6 @@
 use std::hash::Hash;
 
-use blake2::digest::Digest;
+use blake2::digest::Digest as _;
 use indexmap::IndexSet;
 use serde::{de::DeserializeOwned, Serialize};
 

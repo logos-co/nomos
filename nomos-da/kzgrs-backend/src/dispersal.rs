@@ -109,7 +109,7 @@ impl AsRef<[u8]> for Index {
 
 #[cfg(test)]
 mod tests {
-    use nomos_core::da::{blob::Share, DaEncoder as _};
+    use nomos_core::da::{blob::Share as _, DaEncoder as _};
 
     use crate::{
         common::share::DaShare,
@@ -151,9 +151,10 @@ mod tests {
     fn test_encoded_data_verification() {
         let encoder = &ENCODER;
         let data = rand_data(8);
-        let verifiers: Vec<DaVerifier> = (0..16)
-            .map(|_| DaVerifier::new(GLOBAL_PARAMETERS.clone()))
-            .collect();
+        let verifiers: Vec<DaVerifier> =
+            std::iter::repeat_with(|| DaVerifier::new(GLOBAL_PARAMETERS.clone()))
+                .take(16)
+                .collect();
 
         let encoded_data = encoder.encode(&data).unwrap();
 

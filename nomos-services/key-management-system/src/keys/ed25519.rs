@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use ed25519_dalek::ed25519::signature::Signer;
+use ed25519_dalek::ed25519::signature::Signer as _;
 use overwatch::DynError;
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;

@@ -9,7 +9,7 @@ use std::{
     marker::PhantomData,
 };
 
-use futures::StreamExt;
+use futures::StreamExt as _;
 use nomos_da_sampling::{
     api::ApiAdapter, backend::DaSamplingServiceBackend, storage::DaStorageAdapter,
     DaSamplingService, DaSamplingServiceMsg,

@@ -1,6 +1,6 @@
 use std::{
     net::{IpAddr, Ipv4Addr},
-    str::FromStr,
+    str::FromStr as _,
     time::Duration,
 };
 

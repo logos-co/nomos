@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use rand_chacha::{
-    rand_core::{RngCore, SeedableRng},
+    rand_core::{RngCore as _, SeedableRng as _},
     ChaCha12Rng,
 };
 use sphinx_packet::{

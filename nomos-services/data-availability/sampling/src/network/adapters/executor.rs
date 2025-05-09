@@ -1,6 +1,6 @@
 use std::{fmt::Debug, pin::Pin};
 
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt as _};
 use libp2p_identity::PeerId;
 use nomos_core::da::BlobId;
 use nomos_da_network_core::SubnetworkId;

@@ -1,4 +1,4 @@
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt as _};
 use nomos_core::tx::mock::{MockTransaction, MockTxId};
 use nomos_network::{
     backends::mock::{

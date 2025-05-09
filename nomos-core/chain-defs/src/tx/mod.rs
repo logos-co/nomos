@@ -1,6 +1,6 @@
 use std::hash::Hash;
 
-use blake2::Digest;
+use blake2::Digest as _;
 use bytes::Bytes;
 use thiserror::Error;
 

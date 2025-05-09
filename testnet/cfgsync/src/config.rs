@@ -1,10 +1,10 @@
-use std::{collections::HashMap, net::Ipv4Addr, str::FromStr};
+use std::{collections::HashMap, net::Ipv4Addr, str::FromStr as _};
 
 use nomos_blend::membership::Node;
 use nomos_blend_message::{sphinx::SphinxMessage, BlendMessage};
 use nomos_libp2p::{Multiaddr, PeerId};
 use nomos_tracing_service::{LoggerLayer, MetricsLayer, TracingLayer, TracingSettings};
-use rand::{thread_rng, Rng};
+use rand::{thread_rng, Rng as _};
 use tests::topology::configs::{
     api::GeneralApiConfig,
     blend::create_blend_configs,
@@ -226,7 +226,7 @@ fn update_tracing_identifier(
 
 #[cfg(test)]
 mod cfgsync_tests {
-    use std::{net::Ipv4Addr, num::NonZero, str::FromStr, time::Duration};
+    use std::{net::Ipv4Addr, num::NonZero, str::FromStr as _, time::Duration};
 
     use nomos_da_dispersal::backend::kzgrs::MempoolPublishStrategy;
     use nomos_da_network_core::swarm::{
@@ -236,7 +236,7 @@ mod cfgsync_tests {
     use nomos_tracing_service::{
         FilterLayer, LoggerLayer, MetricsLayer, TracingLayer, TracingSettings,
     };
-    use subnetworks_assignations::MembershipHandler;
+    use subnetworks_assignations::MembershipHandler as _;
     use tests::topology::configs::{consensus::ConsensusParams, da::DaParams, GeneralConfig};
     use tracing::Level;
 

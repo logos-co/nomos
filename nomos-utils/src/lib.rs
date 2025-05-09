@@ -9,7 +9,7 @@ pub mod serde {
         src: [u8; N],
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
-        use serde::Serialize;
+        use serde::Serialize as _;
         const_hex::const_encode::<N, false>(&src)
             .as_str()
             .serialize(serializer)
@@ -31,7 +31,7 @@ pub mod serde {
     ) -> Result<[u8; N], D::Error> {
         use std::borrow::Cow;
 
-        use serde::Deserialize;
+        use serde::Deserialize as _;
         let s: Cow<str> = Cow::deserialize(deserializer)?;
         let mut output = [0u8; N];
         const_hex::decode_to_slice(s.as_ref(), &mut output)
@@ -46,7 +46,7 @@ pub mod serde {
     >(
         deserializer: D,
     ) -> Result<[u8; N], D::Error> {
-        use serde::Deserialize;
+        use serde::Deserialize as _;
         let bytes = <&[u8]>::deserialize(deserializer)?;
         if bytes.len() == N {
             let mut output = [0u8; N];

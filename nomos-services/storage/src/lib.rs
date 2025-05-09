@@ -6,9 +6,9 @@ use std::{
 };
 
 use async_trait::async_trait;
-use backends::{StorageBackend, StorageSerde, StorageTransaction};
+use backends::{StorageBackend, StorageSerde as _, StorageTransaction};
 use bytes::Bytes;
-use futures::StreamExt;
+use futures::StreamExt as _;
 use overwatch::{
     services::{
         state::{NoOperator, NoState},

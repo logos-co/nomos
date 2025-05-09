@@ -213,8 +213,8 @@ mod tests {
     #[test]
     fn unpack() {
         // Prepare keys of two recipients
-        let recipient_privkeys = (0..3)
-            .map(|_| x25519_dalek::StaticSecret::random())
+        let recipient_privkeys = std::iter::repeat_with(x25519_dalek::StaticSecret::random)
+            .take(3)
             .collect::<Vec<_>>();
         let recipient_pubkeys = recipient_privkeys
             .iter()
@@ -258,9 +258,11 @@ mod tests {
         let max_layers = 5;
         let payload = [10u8; 512];
         let packet = Packet::build(
-            &(0..2)
-                .map(|_| x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::random()))
-                .collect::<Vec<_>>(),
+            &std::iter::repeat_with(|| {
+                x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::random())
+            })
+            .take(2)
+            .collect::<Vec<_>>(),
             max_layers,
             &payload,
             1024,
@@ -275,8 +277,8 @@ mod tests {
     #[test]
     fn consistent_size_after_unpack() {
         // Prepare keys of two recipients
-        let recipient_privkeys = (0..2)
-            .map(|_| x25519_dalek::StaticSecret::random())
+        let recipient_privkeys = std::iter::repeat_with(x25519_dalek::StaticSecret::random)
+            .take(2)
             .collect::<Vec<_>>();
         let recipient_pubkeys = recipient_privkeys
             .iter()
@@ -313,15 +315,19 @@ mod tests {
         let payload = [10u8; 512];
 
         // Build a packet with 2 recipients
-        let recipient_pubkeys = (0..2)
-            .map(|_| x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::random()))
-            .collect::<Vec<_>>();
+        let recipient_pubkeys = std::iter::repeat_with(|| {
+            x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::random())
+        })
+        .take(2)
+        .collect::<Vec<_>>();
         let packet1 = Packet::build(&recipient_pubkeys, max_layers, &payload, 1024).unwrap();
 
         // Build a packet with 3 recipients
-        let recipient_pubkeys = (0..3)
-            .map(|_| x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::random()))
-            .collect::<Vec<_>>();
+        let recipient_pubkeys = std::iter::repeat_with(|| {
+            x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::random())
+        })
+        .take(3)
+        .collect::<Vec<_>>();
         let packet2 = Packet::build(&recipient_pubkeys, max_layers, &payload, 1024).unwrap();
 
         assert_eq!(packet1.to_bytes().len(), packet2.to_bytes().len());
@@ -333,9 +339,11 @@ mod tests {
         let payload = [10u8; 512];
 
         // Build a packet with 2 recipients
-        let recipient_pubkeys = (0..2)
-            .map(|_| x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::random()))
-            .collect::<Vec<_>>();
+        let recipient_pubkeys = std::iter::repeat_with(|| {
+            x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::random())
+        })
+        .take(2)
+        .collect::<Vec<_>>();
         let packet = Packet::build(&recipient_pubkeys, max_layers, &payload, 1024).unwrap();
 
         let bytes = packet.to_bytes();

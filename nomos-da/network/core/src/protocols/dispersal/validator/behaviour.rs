@@ -1,7 +1,9 @@
 use std::task::{Context, Poll};
 
 use either::Either;
-use futures::{future::BoxFuture, stream::FuturesUnordered, AsyncWriteExt, FutureExt, StreamExt};
+use futures::{
+    future::BoxFuture, stream::FuturesUnordered, AsyncWriteExt as _, FutureExt as _, StreamExt as _,
+};
 use libp2p::{
     core::{transport::PortUse, Endpoint},
     swarm::{

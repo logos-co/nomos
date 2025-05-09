@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use cached::{Cached, TimedCache};
+use cached::{Cached as _, TimedCache};
 use libp2p::{
     core::{transport::PortUse, Endpoint},
     swarm::{
@@ -16,7 +16,7 @@ use libp2p::{
 };
 use nomos_blend::conn_maintenance::{ConnectionMonitor, ConnectionMonitorSettings};
 use nomos_blend_message::BlendMessage;
-use sha2::{Digest, Sha256};
+use sha2::{Digest as _, Sha256};
 
 use crate::{
     error::Error,

@@ -10,7 +10,7 @@ use std::{
 };
 
 use cryptarchia_engine::{time::SlotConfig, EpochConfig, Slot};
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt as _};
 #[cfg(feature = "serde")]
 use nomos_utils::bounded_duration::{MinimalBoundedDuration, NANO};
 use sntpc::{fraction_to_nanoseconds, NtpResult};

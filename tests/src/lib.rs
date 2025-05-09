@@ -5,7 +5,7 @@ pub mod topology;
 use std::{
     env,
     net::TcpListener,
-    ops::Mul,
+    ops::Mul as _,
     sync::{
         atomic::{AtomicU16, Ordering},
         LazyLock,
@@ -14,7 +14,7 @@ use std::{
 };
 
 use nomos_libp2p::{Multiaddr, PeerId, Swarm};
-use rand::{thread_rng, Rng};
+use rand::{thread_rng, Rng as _};
 
 static NET_PORT: LazyLock<AtomicU16> =
     LazyLock::new(|| AtomicU16::new(thread_rng().gen_range(8000..10000)));

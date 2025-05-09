@@ -1,4 +1,8 @@
-use std::{num::NonZero, ops::Add, time::Duration};
+use std::{
+    num::{NonZero, NonZeroU64},
+    ops::Add,
+    time::Duration,
+};
 
 #[cfg(feature = "serde")]
 use nomos_utils::bounded_duration::{MinimalBoundedDuration, SECOND};
@@ -115,9 +119,11 @@ pub struct EpochConfig {
 impl EpochConfig {
     pub fn epoch_length(&self, base_period_length: NonZero<u64>) -> u64 {
         [
-            u64::from(self.epoch_stake_distribution_stabilization.get()),
-            u64::from(self.epoch_period_nonce_buffer.get()),
-            u64::from(self.epoch_period_nonce_stabilization.get()),
+            u64::from(NonZeroU64::from(
+                self.epoch_stake_distribution_stabilization,
+            )),
+            u64::from(NonZeroU64::from(self.epoch_period_nonce_buffer)),
+            u64::from(NonZeroU64::from(self.epoch_period_nonce_stabilization)),
         ]
         .into_iter()
         .reduce(u64::saturating_add)

@@ -12,7 +12,7 @@ use adapters::{
 };
 use async_trait::async_trait;
 use backends::{FinalizedBlockEvent, SdpBackend, SdpBackendError};
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt as _};
 use nomos_sdp_core::{ledger, BlockNumber};
 use overwatch::{
     services::{

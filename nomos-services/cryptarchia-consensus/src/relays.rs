@@ -30,7 +30,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{
     blend, network,
-    storage::{adapters::StorageAdapter, StorageAdapter as StorageAdapterTrait},
+    storage::{adapters::StorageAdapter, StorageAdapter as _},
     CryptarchiaConsensus, MempoolRelay, SamplingRelay,
 };
 

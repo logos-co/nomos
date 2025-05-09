@@ -3,14 +3,14 @@ pub mod validator;
 
 #[cfg(test)]
 pub mod test {
-    use futures::StreamExt;
+    use futures::StreamExt as _;
     use kzgrs::{Commitment, Proof};
     use kzgrs_backend::common::{share::DaShare, Column};
     use libp2p::{
         swarm::{dial_opts::DialOpts, SwarmEvent},
         PeerId, Swarm,
     };
-    use libp2p_swarm_test::SwarmExt;
+    use libp2p_swarm_test::SwarmExt as _;
     use log::info;
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 

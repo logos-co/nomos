@@ -3,8 +3,8 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures::{Stream, StreamExt};
-use rand::{distributions::Uniform, prelude::Distribution, Rng, RngCore};
+use futures::{Stream, StreamExt as _};
+use rand::{distributions::Uniform, prelude::Distribution as _, Rng, RngCore};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -149,9 +149,9 @@ enum CoinError {
 mod tests {
     use std::time::Duration;
 
-    use futures::StreamExt;
-    use nomos_blend_message::{mock::MockBlendMessage, BlendMessage};
-    use rand::SeedableRng;
+    use futures::StreamExt as _;
+    use nomos_blend_message::{mock::MockBlendMessage, BlendMessage as _};
+    use rand::SeedableRng as _;
     use rand_chacha::ChaCha8Rng;
     use tokio::{sync::mpsc, time};
     use tokio_stream::wrappers::IntervalStream;
