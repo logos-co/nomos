@@ -42,14 +42,11 @@ pub enum StorageApiRequest<Api: StorageBackendApi> {
     ),
 }
 
-impl<B: StorageBackendApi> Executable<B> for StorageApiRequest<B>
-where
-    B: StorageBackend + StorageBackendApi,
-{
+impl<B: StorageBackendApi> Executable<B> for StorageApiRequest<B> {
     async fn execute(self, backend: &mut B) -> Result<(), StorageServiceError<B>> {
         match self {
-            StorageApiRequest::Chain(request) => request.execute(backend).await,
-            StorageApiRequest::Da(request) => request.execute(backend).await,
+            Self::Chain(request) => request.execute(backend).await,
+            Self::Da(request) => request.execute(backend).await,
         }
     }
 }
