@@ -12,6 +12,8 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use serde::{de::DeserializeOwned, Serialize};
 
+use crate::api::StorageBackendApi;
+
 /// Trait that defines how to translate from user types to the storage buffer
 /// type
 pub trait StorageSerde {
@@ -30,7 +32,7 @@ pub trait StorageTransaction: Send + Sync {
 
 /// Main storage functionality trait
 #[async_trait]
-pub trait StorageBackend: Sized {
+pub trait StorageBackend: StorageBackendApi + Sized {
     /// Backend settings
     type Settings: Clone + Send + Sync + 'static;
     /// Backend operations error type

@@ -19,7 +19,7 @@ use nomos_mempool::{
     DaMempoolService, TxMempoolService,
 };
 use nomos_network::{NetworkMsg, NetworkService};
-use nomos_storage::{api::StorageBackendApi, backends::StorageBackend, StorageMsg, StorageService};
+use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
 use nomos_time::{backends::TimeBackend as TimeBackendTrait, TimeService, TimeServiceMessage};
 use overwatch::{
     services::{relay::OutboundRelay, AsServiceId},
@@ -74,7 +74,7 @@ pub struct CryptarchiaConsensusRelays<
     DaPool: MemPool,
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId>,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
-    Storage: StorageBackend + StorageBackendApi + Send + Sync + 'static,
+    Storage: StorageBackend + Send + Sync + 'static,
     SamplingRng: SeedableRng + RngCore,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng>,
     TxS: TxSelect,
@@ -154,7 +154,7 @@ where
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingRng: SeedableRng + RngCore,
-    Storage: StorageBackend + StorageBackendApi + Send + Sync + 'static,
+    Storage: StorageBackend + Send + Sync + 'static,
     TxS: TxSelect<Tx = ClPool::Item>,
     TxS::Settings: Send,
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + Sync + 'static,

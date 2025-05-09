@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use futures::Stream;
 use nomos_core::da::blob::{info::DispersedBlobInfo, metadata::Metadata};
-use nomos_storage::{api::StorageBackendApi, backends::StorageBackend, StorageService};
+use nomos_storage::{backends::StorageBackend, StorageService};
 use overwatch::{
     services::{relay::OutboundRelay, ServiceData},
     DynError,
@@ -12,7 +12,7 @@ use overwatch::{
 
 #[async_trait::async_trait]
 pub trait DaStorageAdapter<RuntimeServiceId> {
-    type Backend: StorageBackend + StorageBackendApi + Send + Sync + 'static;
+    type Backend: StorageBackend + Send + Sync + 'static;
     type Settings: Clone;
 
     type Share;

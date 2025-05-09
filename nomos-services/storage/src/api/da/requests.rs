@@ -1,12 +1,11 @@
-use crate::api::Executable;
+use tokio::sync::oneshot::Sender;
+use tracing::error;
+
 use crate::{
-    api::{da::StorageDaApi, StorageApiRequest, StorageBackendApi},
+    api::{da::StorageDaApi, Executable, StorageApiRequest, StorageBackendApi},
     backends::StorageBackend,
     StorageMsg, StorageServiceError,
 };
-
-use tokio::sync::oneshot::Sender;
-use tracing::error;
 
 pub enum DaApiRequest<BlobId, Share, Commitments, ShareIdx> {
     GetLightShare {
@@ -49,7 +48,7 @@ where
     }
 }
 
-async fn handle_get_light_share<B: StorageBackendApi>(
+async fn handle_get_light_share<B: StorageBackend>(
     backend: &mut B,
     blob_id: B::BlobId,
     share_idx: B::ShareIndex,
@@ -75,7 +74,7 @@ async fn handle_get_light_share<B: StorageBackendApi>(
     Ok(())
 }
 
-async fn handle_store_light_share<B: StorageBackendApi>(
+async fn handle_store_light_share<B: StorageBackend>(
     backend: &mut B,
     blob_id: B::BlobId,
     share_idx: B::ShareIndex,
@@ -96,7 +95,7 @@ async fn handle_store_light_share<B: StorageBackendApi>(
     Ok(())
 }
 
-async fn handle_store_shared_commitments<B: StorageBackendApi>(
+async fn handle_store_shared_commitments<B: StorageBackend>(
     backend: &mut B,
     blob_id: B::BlobId,
     shared_commitments: B::Commitments,
@@ -117,7 +116,7 @@ async fn handle_store_shared_commitments<B: StorageBackendApi>(
     Ok(())
 }
 
-impl<Api: StorageBackend + StorageBackendApi> StorageMsg<Api> {
+impl<Api: StorageBackend> StorageMsg<Api> {
     #[must_use]
     pub const fn get_light_share_request(
         blob_id: <Api as StorageDaApi>::BlobId,
