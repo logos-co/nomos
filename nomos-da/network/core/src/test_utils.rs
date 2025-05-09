@@ -5,14 +5,22 @@ use std::{
 };
 
 use libp2p::{
-    core::{transport::MemoryTransport, upgrade::Version},
+    core::{
+        transport::{MemoryTransport, PortUse},
+        upgrade::Version,
+        Endpoint, Transport as _,
+    },
     identity::Keypair,
-    swarm::NetworkBehaviour,
-    PeerId, Transport as _,
+    swarm::{
+        ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandlerInEvent,
+        THandlerOutEvent, ToSwarm,
+    },
+    Multiaddr, PeerId,
 };
+use nomos_da_messages::replication::ReplicationRequest;
 use subnetworks_assignations::MembershipHandler;
 
-use crate::SubnetworkId;
+use crate::{protocols::replication::behaviour::ReplicationBehaviour, SubnetworkId};
 
 #[derive(Clone)]
 pub struct AllNeighbours {
@@ -96,4 +104,99 @@ where
         .unwrap()
         .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(20)))
         .build()
+}
+
+// A wrapper around ReplicationBehaviour that allows tampering with outbound
+// messages.
+pub struct TamperingReplicationBehaviour<M> {
+    inner: ReplicationBehaviour<M>,
+    tamper_hook: Option<Arc<dyn Fn(ReplicationRequest) -> ReplicationRequest + Send + Sync>>,
+}
+
+impl<M> TamperingReplicationBehaviour<M>
+where
+    M: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>,
+{
+    pub fn new(inner: ReplicationBehaviour<M>) -> Self {
+        Self {
+            inner,
+            tamper_hook: None,
+        }
+    }
+
+    pub fn set_tamper_hook<F>(&mut self, f: F)
+    where
+        F: Fn(ReplicationRequest) -> ReplicationRequest + Send + Sync + 'static,
+    {
+        self.tamper_hook = Some(Arc::new(f));
+    }
+
+    pub(crate) fn send_message(&mut self, message: &ReplicationRequest) {
+        let mut msg = message.clone();
+        if let Some(ref hook) = self.tamper_hook {
+            msg = hook(msg);
+        }
+        self.inner.send_message(&msg);
+    }
+}
+
+impl<M> NetworkBehaviour for TamperingReplicationBehaviour<M>
+where
+    M: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + 'static,
+{
+    type ConnectionHandler = <ReplicationBehaviour<M> as NetworkBehaviour>::ConnectionHandler;
+    type ToSwarm = <ReplicationBehaviour<M> as NetworkBehaviour>::ToSwarm;
+
+    fn handle_established_inbound_connection(
+        &mut self,
+        connection_id: ConnectionId,
+        peer_id: PeerId,
+        local_addr: &Multiaddr,
+        remote_addr: &Multiaddr,
+    ) -> Result<Self::ConnectionHandler, ConnectionDenied> {
+        self.inner.handle_established_inbound_connection(
+            connection_id,
+            peer_id,
+            local_addr,
+            remote_addr,
+        )
+    }
+
+    fn handle_established_outbound_connection(
+        &mut self,
+        connection_id: ConnectionId,
+        peer_id: PeerId,
+        addr: &Multiaddr,
+        role_override: Endpoint,
+        port_use: PortUse,
+    ) -> Result<Self::ConnectionHandler, ConnectionDenied> {
+        self.inner.handle_established_outbound_connection(
+            connection_id,
+            peer_id,
+            addr,
+            role_override,
+            port_use,
+        )
+    }
+
+    fn on_swarm_event(&mut self, event: FromSwarm<'_>) {
+        self.inner.on_swarm_event(event);
+    }
+
+    fn on_connection_handler_event(
+        &mut self,
+        peer_id: PeerId,
+        connection_id: ConnectionId,
+        event: THandlerOutEvent<Self>,
+    ) {
+        self.inner
+            .on_connection_handler_event(peer_id, connection_id, event);
+    }
+
+    fn poll(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+        self.inner.poll(cx)
+    }
 }
