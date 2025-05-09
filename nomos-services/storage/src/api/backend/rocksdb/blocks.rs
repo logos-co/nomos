@@ -10,12 +10,8 @@ use crate::{
 
 #[async_trait]
 impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for RocksBackend<SerdeOp> {
-    type HeaderId = HeaderId;
     type Block = Bytes;
-    async fn get_block(
-        &mut self,
-        header_id: Self::HeaderId,
-    ) -> Result<Option<Self::Block>, DynError> {
+    async fn get_block(&mut self, header_id: HeaderId) -> Result<Option<Self::Block>, DynError> {
         let header_id: [u8; 32] = header_id.into();
         let key = Bytes::copy_from_slice(&header_id);
         Ok(self.load(&key).await?)
@@ -23,7 +19,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for RocksBac
 
     async fn store_block(
         &mut self,
-        header_id: Self::HeaderId,
+        header_id: HeaderId,
         block: Self::Block,
     ) -> Result<(), DynError> {
         let header_id: [u8; 32] = header_id.into();

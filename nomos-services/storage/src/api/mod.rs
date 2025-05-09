@@ -1,6 +1,4 @@
 use async_trait::async_trait;
-use bytes::Bytes;
-use nomos_core::header::HeaderId;
 
 use crate::{
     api::{
@@ -21,8 +19,7 @@ pub trait StorageFunctions: StorageChainApi + StorageDaApi {}
 #[async_trait]
 pub trait StorageBackendApi: StorageFunctions
 where
-    Self: StorageChainApi<HeaderId = HeaderId, Block = Bytes>
-        + StorageDaApi<BlobId = [u8; 32], Share = Bytes, Commitments = Bytes, ShareIndex = [u8; 2]>,
+    Self: StorageChainApi + StorageDaApi,
 {
 }
 
@@ -30,16 +27,9 @@ pub(crate) trait Executable<B: StorageBackend> {
     async fn execute(self, api: &mut B) -> Result<(), StorageServiceError<B>>;
 }
 
-pub enum StorageApiRequest<Api: StorageBackend> {
-    Chain(ChainApiRequest<<Api as StorageChainApi>::HeaderId, <Api as StorageChainApi>::Block>),
-    Da(
-        DaApiRequest<
-            <Api as StorageDaApi>::BlobId,
-            <Api as StorageDaApi>::Share,
-            <Api as StorageDaApi>::Commitments,
-            <Api as StorageDaApi>::ShareIndex,
-        >,
-    ),
+pub enum StorageApiRequest<B: StorageBackend> {
+    Chain(ChainApiRequest<B>),
+    Da(DaApiRequest<B>),
 }
 
 impl<B: StorageBackend> Executable<B> for StorageApiRequest<B> {

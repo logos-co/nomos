@@ -22,4 +22,10 @@ pub trait StorageAdapter<RuntimeServiceId> {
     ///
     /// The block with the given header id. If no block is found, returns None.
     async fn get_block(&self, key: &HeaderId) -> Option<Self::Block>;
+
+    async fn store_block(
+        &self,
+        header_id: HeaderId,
+        block: Self::Block,
+    ) -> Result<(), overwatch::DynError>;
 }

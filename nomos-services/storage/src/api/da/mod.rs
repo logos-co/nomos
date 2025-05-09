@@ -5,10 +5,10 @@ pub mod requests;
 
 #[async_trait]
 pub trait StorageDaApi {
-    type BlobId;
-    type Share;
-    type Commitments;
-    type ShareIndex;
+    type BlobId: Send + Sync;
+    type Share: Send + Sync;
+    type Commitments: Send + Sync;
+    type ShareIndex: Send + Sync;
 
     async fn get_light_share(
         &mut self,

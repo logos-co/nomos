@@ -2,11 +2,13 @@ use std::{hash::Hash, marker::PhantomData};
 
 use nomos_core::{block::Block, header::HeaderId};
 use nomos_storage::{
+    api::chain::StorageChainApi,
     backends::{StorageBackend, StorageSerde as _},
     StorageMsg, StorageService,
 };
 use overwatch::services::{relay::OutboundRelay, ServiceData};
-use serde::de::DeserializeOwned;
+use risc0_zkvm::Bytes;
+use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::oneshot;
 
 use crate::storage::StorageAdapter as StorageAdapterTrait;
@@ -26,8 +28,9 @@ impl<Storage, Tx, BlobCertificate, RuntimeServiceId> StorageAdapterTrait<Runtime
     for StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync + 'static,
-    Tx: Clone + Eq + Hash + DeserializeOwned + Send + Sync + 'static,
-    BlobCertificate: Clone + Eq + Hash + DeserializeOwned + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Block: From<Bytes> + Into<Bytes>,
+    Tx: Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
+    BlobCertificate: Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     type Backend = Storage;
     type Block = Block<Tx, BlobCertificate>;
@@ -52,12 +55,34 @@ where
             .await
             .unwrap();
 
-        match receiver.await {
-            Ok(Some(storage_block)) => Some(
-                Storage::SerdeOperator::deserialize(storage_block)
-                    .expect("Failed to deserialize block, this should not happen"),
-            ),
-            _ => None,
-        }
+        receiver
+            .await
+            .map(|maybe_block| {
+                maybe_block.map(|storage_block| {
+                    Storage::SerdeOperator::deserialize::<Self::Block>(Bytes::copy_from_slice(
+                        &storage_block.into(),
+                    ))
+                    .expect("Failed to deserialize block")
+                })
+            })
+            .unwrap_or(None);
+
+        None
+    }
+
+    async fn store_block(
+        &self,
+        header_id: HeaderId,
+        block: Self::Block,
+    ) -> Result<(), overwatch::DynError> {
+        self.storage_relay
+            .send(StorageMsg::store_block_request(
+                header_id,
+                block.as_bytes().into(),
+            ))
+            .await
+            .expect("Failed to send store block request");
+
+        Ok(())
     }
 }

@@ -1,3 +1,4 @@
+use nomos_core::header::HeaderId;
 use tokio::sync::oneshot::Sender;
 use tracing::error;
 
@@ -7,18 +8,18 @@ use crate::{
     StorageMsg, StorageServiceError,
 };
 
-pub enum ChainApiRequest<HeaderId, Block> {
+pub enum ChainApiRequest<B: StorageBackend> {
     GetBlock {
         header_id: HeaderId,
-        response_tx: Sender<Option<Block>>,
+        response_tx: Sender<Option<<B as StorageChainApi>::Block>>,
     },
     StoreBlock {
         header_id: HeaderId,
-        block: Block,
+        block: <B as StorageChainApi>::Block,
     },
 }
 
-impl<B> Executable<B> for ChainApiRequest<B::HeaderId, B::Block>
+impl<B> Executable<B> for ChainApiRequest<B>
 where
     B: StorageBackend + StorageBackendApi,
 {
@@ -37,7 +38,7 @@ where
 
 async fn handle_get_block<B: StorageBackend>(
     backend: &mut B,
-    header_id: B::HeaderId,
+    header_id: HeaderId,
     response_tx: Sender<Option<B::Block>>,
 ) -> Result<(), StorageServiceError<B>> {
     let result = backend.get_block(header_id).await.map_err(|e| {
@@ -59,7 +60,7 @@ async fn handle_get_block<B: StorageBackend>(
 
 async fn handle_store_block<B: StorageBackend>(
     backend: &mut B,
-    header_id: B::HeaderId,
+    header_id: HeaderId,
     block: B::Block,
 ) -> Result<(), StorageServiceError<B>> {
     backend.store_block(header_id, block).await.map_err(|e| {
@@ -76,7 +77,7 @@ async fn handle_store_block<B: StorageBackend>(
 impl<Api: StorageBackend> StorageMsg<Api> {
     #[must_use]
     pub const fn get_block_request(
-        header_id: <Api as StorageChainApi>::HeaderId,
+        header_id: HeaderId,
         response_tx: Sender<Option<<Api as StorageChainApi>::Block>>,
     ) -> Self {
         Self::Api {
@@ -88,7 +89,7 @@ impl<Api: StorageBackend> StorageMsg<Api> {
     }
 
     pub const fn store_block_request(
-        header_id: <Api as StorageChainApi>::HeaderId,
+        header_id: HeaderId,
         block: <Api as StorageChainApi>::Block,
     ) -> Self {
         Self::Api {
