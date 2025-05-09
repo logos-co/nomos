@@ -11,10 +11,11 @@ use nomos_core::da::{
     },
     BlobId,
 };
-use nomos_da_storage::rocksdb::{
-    key_bytes, DA_SHARED_COMMITMENTS_PREFIX, DA_SHARE_PREFIX, DA_VID_KEY_PREFIX,
-};
 use nomos_storage::{
+    api::backend::rocksdb::{
+        da::{DA_SHARED_COMMITMENTS_PREFIX, DA_SHARE_PREFIX, DA_VID_KEY_PREFIX},
+        utils::key_bytes,
+    },
     backends::{rocksdb::RocksBackend, StorageSerde},
     StorageMsg, StorageService,
 };

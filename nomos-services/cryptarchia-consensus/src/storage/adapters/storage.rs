@@ -1,16 +1,21 @@
 use std::{hash::Hash, marker::PhantomData};
 
-use bytes::Bytes;
 use nomos_core::{block::Block, header::HeaderId};
-use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
+use nomos_storage::{
+    api::chain::StorageChainApi,
+    backends::{StorageBackend, StorageSerde as _},
+    StorageMsg, StorageService,
+};
 use overwatch::services::{relay::OutboundRelay, ServiceData};
-use serde::de::DeserializeOwned;
+use risc0_zkvm::Bytes;
+use serde::{de::DeserializeOwned, Serialize};
+use tokio::sync::oneshot;
 
 use crate::storage::StorageAdapter as StorageAdapterTrait;
 
 pub struct StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
 where
-    Storage: StorageBackend + Send + Sync,
+    Storage: StorageBackend + Send + Sync + 'static,
 {
     pub storage_relay:
         OutboundRelay<<StorageService<Storage, RuntimeServiceId> as ServiceData>::Message>,
@@ -18,40 +23,14 @@ where
     _blob_certificate: PhantomData<BlobCertificate>,
 }
 
-impl<Storage, Tx, BlobCertificate, RuntimeServiceId>
-    StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
-where
-    Storage: StorageBackend + Send + Sync,
-    Tx: Sync,
-    BlobCertificate: Sync,
-{
-    /// Sends a store message to the storage service to retrieve a value by its
-    /// key
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The key to retrieve the value for
-    ///
-    /// # Returns
-    ///
-    /// The value for the given key. If no value is found, returns None.
-    pub async fn get_value<Value>(&self, key: Bytes) -> Option<Value>
-    where
-        Value: DeserializeOwned,
-    {
-        let (msg, receiver) = <StorageMsg<Storage>>::new_load_message(key);
-        self.storage_relay.send(msg).await.unwrap();
-        receiver.recv().await.unwrap()
-    }
-}
-
 #[async_trait::async_trait]
 impl<Storage, Tx, BlobCertificate, RuntimeServiceId> StorageAdapterTrait<RuntimeServiceId>
     for StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
 where
-    Storage: StorageBackend + Send + Sync,
-    Tx: Clone + Eq + Hash + DeserializeOwned + Send + Sync,
-    BlobCertificate: Clone + Eq + Hash + DeserializeOwned + Send + Sync,
+    Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Block: From<Bytes> + Into<Bytes>,
+    Tx: Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
+    BlobCertificate: Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     type Backend = Storage;
     type Block = Block<Tx, BlobCertificate>;
@@ -68,8 +47,42 @@ where
         }
     }
 
-    async fn get_block(&self, key: &HeaderId) -> Option<Self::Block> {
-        let key: [u8; 32] = (*key).into();
-        self.get_value(Bytes::copy_from_slice(&key)).await
+    async fn get_block(&self, header_id: &HeaderId) -> Option<Self::Block> {
+        let (sender, receiver) = oneshot::channel();
+
+        self.storage_relay
+            .send(StorageMsg::get_block_request(*header_id, sender))
+            .await
+            .unwrap();
+
+        receiver
+            .await
+            .map(|maybe_block| {
+                maybe_block.map(|storage_block| {
+                    Storage::SerdeOperator::deserialize::<Self::Block>(Bytes::copy_from_slice(
+                        &storage_block.into(),
+                    ))
+                    .expect("Failed to deserialize block")
+                })
+            })
+            .unwrap_or(None);
+
+        None
+    }
+
+    async fn store_block(
+        &self,
+        header_id: HeaderId,
+        block: Self::Block,
+    ) -> Result<(), overwatch::DynError> {
+        self.storage_relay
+            .send(StorageMsg::store_block_request(
+                header_id,
+                block.as_bytes().into(),
+            ))
+            .await
+            .expect("Failed to send store block request");
+
+        Ok(())
     }
 }

@@ -2,11 +2,13 @@ use std::{marker::PhantomData, path::PathBuf};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use overwatch::DynError;
 use sled::transaction::{
     ConflictableTransactionResult, TransactionError, TransactionResult, TransactionalTree,
 };
 
 use super::{StorageBackend, StorageSerde, StorageTransaction};
+use crate::api::{chain::StorageChainApi, da::StorageDaApi, StorageBackendApi, StorageFunctions};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -87,6 +89,66 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for SledBacke
         Ok(self.sled.transaction(transaction))
     }
 }
+
+#[async_trait]
+impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for SledBackend<SerdeOp> {
+    type HeaderId = nomos_core::header::HeaderId;
+    type Block = Bytes;
+
+    async fn get_block(
+        &mut self,
+        _header_id: Self::HeaderId,
+    ) -> Result<Option<Self::Block>, DynError> {
+        unimplemented!()
+    }
+
+    async fn store_block(
+        &mut self,
+        _header_id: Self::HeaderId,
+        _block: Self::Block,
+    ) -> Result<(), DynError> {
+        unimplemented!()
+    }
+}
+
+#[async_trait]
+impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for SledBackend<SerdeOp> {
+    type BlobId = [u8; 32];
+    type Share = Bytes;
+    type Commitments = Bytes;
+    type ShareIndex = [u8; 2];
+
+    async fn get_light_share(
+        &mut self,
+        _blob_id: Self::BlobId,
+        _share_idx: Self::ShareIndex,
+    ) -> Result<Option<Self::Share>, DynError> {
+        unimplemented!()
+    }
+
+    async fn store_light_share(
+        &mut self,
+        _blob_id: Self::BlobId,
+        _share_idx: Self::ShareIndex,
+        _light_share: Self::Share,
+    ) -> Result<(), DynError> {
+        unimplemented!()
+    }
+
+    async fn store_shared_commitments(
+        &mut self,
+        _blob_id: Self::BlobId,
+        _shared_commitments: Self::Commitments,
+    ) -> Result<(), DynError> {
+        unimplemented!()
+    }
+}
+
+#[async_trait]
+impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageFunctions for SledBackend<SerdeOp> {}
+
+#[async_trait]
+impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackendApi for SledBackend<SerdeOp> {}
 
 #[cfg(test)]
 mod test {
