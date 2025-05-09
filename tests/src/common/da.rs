@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use executor_http_client::ExecutorHttpClient;
-use nomos_core::da::BlobId;
 use reqwest::Url;
 
 use crate::{adjust_timeout, nodes::executor::Executor};
@@ -12,21 +11,16 @@ pub async fn disseminate_with_metadata(
     executor: &Executor,
     data: &[u8],
     metadata: kzgrs_backend::dispersal::Metadata,
-) -> BlobId {
+) {
     let executor_config = executor.config();
     let backend_address = executor_config.http.backend_settings.address;
     let client = ExecutorHttpClient::new(None);
     let exec_url = Url::parse(&format!("http://{backend_address}")).unwrap();
 
-    let blob_id = client
+    client
         .publish_blob(exec_url, data.to_vec(), metadata)
         .await
         .unwrap();
-
-    // Wait for the data to be dispersed and published to mempool
-    tokio::time::sleep(Duration::from_secs(10)).await;
-
-    blob_id
 }
 
 pub async fn wait_for_indexed_blob(
