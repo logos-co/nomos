@@ -7,24 +7,24 @@ use crate::{
     StorageMsg, StorageServiceError,
 };
 
-pub enum DaApiRequest<BlobId, Share, Commitments, ShareIdx> {
+pub enum DaApiRequest<B: StorageBackend> {
     GetLightShare {
-        blob_id: BlobId,
-        share_idx: ShareIdx,
-        response_tx: Sender<Option<Share>>,
+        blob_id: <B as StorageDaApi>::BlobId,
+        share_idx: <B as StorageDaApi>::ShareIndex,
+        response_tx: Sender<Option<<B as StorageDaApi>::Share>>,
     },
     StoreLightShare {
-        blob_id: BlobId,
-        share_idx: ShareIdx,
-        light_share: Share,
+        blob_id: <B as StorageDaApi>::BlobId,
+        share_idx: <B as StorageDaApi>::ShareIndex,
+        light_share: <B as StorageDaApi>::Share,
     },
     StoreSharedCommitments {
-        blob_id: BlobId,
-        shared_commitments: Commitments,
+        blob_id: <B as StorageDaApi>::BlobId,
+        shared_commitments: <B as StorageDaApi>::Commitments,
     },
 }
 
-impl<B> Executable<B> for DaApiRequest<B::BlobId, B::Share, B::Commitments, B::ShareIndex>
+impl<B> Executable<B> for DaApiRequest<B>
 where
     B: StorageBackend + StorageBackendApi,
 {
