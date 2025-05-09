@@ -290,7 +290,7 @@ mod test {
         }
 
         // Test 2: Tampered transport should fail
-        let addr3: Multiaddr = "/ip4/127.0.0.1/udp/5054/quic-v1".parse().unwrap();
+        let addr3: Multiaddr = "/ip4/127.0.0.1/udp/5056/quic-v1".parse().unwrap();
         let addr4 = addr3.clone();
         let mut swarm_3 = get_swarm(k1.clone(), make_neighbours(&[&k1, &k2]));
 
