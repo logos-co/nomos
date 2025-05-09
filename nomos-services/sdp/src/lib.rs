@@ -11,9 +11,9 @@ use adapters::{
     stakes::SdpStakesVerifierAdapter,
 };
 use async_trait::async_trait;
-use backends::{SdpBackend, SdpBackendError};
+use backends::{FinalizedBlockEvent, SdpBackend, SdpBackendError};
 use futures::{Stream, StreamExt};
-use nomos_sdp_core::{ledger, DeclarationUpdate, ProviderInfo};
+use nomos_sdp_core::{ledger, BlockNumber};
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -26,19 +26,19 @@ use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 
 pub type FinalizedBlockUpdateStream =
-    Pin<Box<dyn Stream<Item = Vec<(ProviderInfo, DeclarationUpdate)>> + Send + Sync + Unpin>>;
+    Pin<Box<dyn Stream<Item = FinalizedBlockEvent> + Send + Sync + Unpin>>;
 
 pub enum SdpMessage<B: SdpBackend> {
     Process {
-        block_number: B::BlockNumber,
+        block_number: BlockNumber,
         message: B::Message,
     },
 
     MarkInBlock {
-        block_number: B::BlockNumber,
+        block_number: BlockNumber,
         result_sender: oneshot::Sender<Result<(), SdpBackendError>>,
     },
-    DiscardBlock(B::BlockNumber),
+    DiscardBlock(BlockNumber),
     Subscribe {
         result_sender: oneshot::Sender<FinalizedBlockUpdateStream>,
     },
@@ -65,7 +65,7 @@ pub struct SdpService<
 {
     backend: B,
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-    finalized_update_tx: broadcast::Sender<Vec<(ProviderInfo, DeclarationUpdate)>>,
+    finalized_update_tx: broadcast::Sender<FinalizedBlockEvent>,
 }
 
 impl<
@@ -236,7 +236,12 @@ impl<
                 result_sender,
             } => match self.backend.mark_in_block(block_number).await {
                 Ok(update) => {
-                    if let Err(e) = self.finalized_update_tx.send(update) {
+                    let finalized_update = FinalizedBlockEvent {
+                        block_number,
+                        updates: update,
+                    };
+
+                    if let Err(e) = self.finalized_update_tx.send(finalized_update) {
                         tracing::error!("Error sending finalized update: {:?}", e);
                     }
                 }
@@ -260,15 +265,13 @@ impl<
         }
     }
 
-    fn subscribe_finalized_updates(
-        &self,
-    ) -> broadcast::Receiver<Vec<(ProviderInfo, DeclarationUpdate)>> {
+    fn subscribe_finalized_updates(&self) -> broadcast::Receiver<FinalizedBlockEvent> {
         self.finalized_update_tx.subscribe()
     }
 }
 
 fn make_finalized_stream(
-    receiver: broadcast::Receiver<Vec<(ProviderInfo, DeclarationUpdate)>>,
+    receiver: broadcast::Receiver<FinalizedBlockEvent>,
 ) -> FinalizedBlockUpdateStream {
     Box::pin(BroadcastStream::new(receiver).filter_map(|res| {
         Box::pin(async move {

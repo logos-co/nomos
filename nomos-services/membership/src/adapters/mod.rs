@@ -1,15 +1,15 @@
-pub mod sdp;
-
 use std::error::Error;
 
-use nomos_sdp::{backends::SdpBackendError, FinalizedBlockUpdateStream};
+pub mod sdp;
+
+use async_trait::async_trait;
+use nomos_sdp::FinalizedBlockUpdateStream;
 use overwatch::{
     services::{relay::OutboundRelay, ServiceData},
     DynError,
 };
 
 pub enum SdpAdapterError {
-    SdpBackend(SdpBackendError),
     Other(DynError),
 }
 
@@ -22,9 +22,10 @@ where
     }
 }
 
+#[async_trait]
 pub trait SdpAdapter {
     type SdpService: ServiceData;
 
     fn new(outbound_relay: OutboundRelay<<Self::SdpService as ServiceData>::Message>) -> Self;
-    async fn subscribe(&self) -> Result<FinalizedBlockUpdateStream, SdpAdapterError>;
+    async fn finalized_blocks_stream(&self) -> Result<FinalizedBlockUpdateStream, SdpAdapterError>;
 }

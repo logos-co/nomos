@@ -3,7 +3,6 @@ use std::{
     error::Error,
     fmt::Debug,
     marker::PhantomData,
-    result,
 };
 
 use async_trait::async_trait;

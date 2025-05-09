@@ -24,11 +24,7 @@ impl<Proof: std::marker::Send + std::marker::Sync> ledger::StakesVerifier
 {
     type Proof = Proof;
 
-    async fn verify(
-        &self,
-        provider_id: ProviderId,
-        proof: Self::Proof,
-    ) -> Result<(), StakesVerifierError> {
+    async fn verify(&self, _: ProviderId, _: Self::Proof) -> Result<(), StakesVerifierError> {
         todo!() // Implementation will go here later
     }
 }

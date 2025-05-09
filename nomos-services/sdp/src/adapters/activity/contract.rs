@@ -24,10 +24,16 @@ impl<Metadata: Send + Sync, ContractAddress: Send + Debug + Sync> SdpActivityAda
 
 impl<Metadata, ContractAddress> LedgerRewardsAdapter<Metadata, ContractAddress> {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             phantom: std::marker::PhantomData,
         }
+    }
+}
+
+impl Default for LedgerRewardsAdapter<(), ()> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -42,8 +48,8 @@ where
 
     async fn mark_active(
         &self,
-        reward_contract: Self::ContractAddress,
-        reward_message: ActiveMessage<Self::Metadata>,
+        _: Self::ContractAddress,
+        _: ActiveMessage<Self::Metadata>,
     ) -> Result<(), ActivityContractError<Self::ContractAddress>> {
         todo!() // Implementation will go here later
     }

@@ -33,7 +33,6 @@ where
     Stakes: SdpStakesVerifierAdapter<Proof = Proof> + Send + Sync,
     Services: SdpServicesAdapter + Send + Sync,
 {
-    type BlockNumber = BlockNumber;
     type Message = SdpMessage<Metadata, Proof>;
     type DeclarationAdapter = Declarations;
     type ServicesAdapter = Services;
@@ -56,7 +55,7 @@ where
 
     async fn process_sdp_message(
         &mut self,
-        block_number: Self::BlockNumber,
+        block_number: BlockNumber,
         message: Self::Message,
     ) -> Result<(), SdpBackendError> {
         self.process_sdp_message(block_number, message)
@@ -66,12 +65,12 @@ where
 
     async fn mark_in_block(
         &mut self,
-        block_number: Self::BlockNumber,
+        block_number: BlockNumber,
     ) -> Result<Vec<(ProviderInfo, DeclarationUpdate)>, SdpBackendError> {
         self.mark_in_block(block_number).await.map_err(Into::into)
     }
 
-    fn discard_block(&mut self, block_number: Self::BlockNumber) {
+    fn discard_block(&mut self, block_number: BlockNumber) {
         self.discard_block(block_number);
     }
 }
