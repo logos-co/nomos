@@ -295,27 +295,50 @@ mod test {
         let mut swarm_3 = get_swarm(k1.clone(), make_neighbours(&[&k1, &k2]));
 
         let task_3 = async move {
-            swarm_3.listen_on(addr3).unwrap();
-            // Wait for connection attempt but expect it to fail
-            let mut connected = false;
-            while let Some(event) = swarm_3.next().await {
-                if let SwarmEvent::ConnectionEstablished { .. } = event {
-                    connected = true;
-                    break;
-                }
-            }
-            assert!(
-                !connected,
-                "Connection should have failed with tampered transport"
-            );
+            swarm_3.listen_on(addr3.clone()).unwrap();
+            wait_for_incoming_connection(&mut swarm_3, peer_id2).await;
+            swarm_3
+                .filter_map(|event| async {
+                    if let SwarmEvent::Behaviour(ReplicationEvent::IncomingMessage {
+                        message,
+                        ..
+                    }) = event
+                    {
+                        assert_ne!(message.share.data.share_idx, 0);
+                        Some(message)
+                    } else {
+                        None
+                    }
+                })
+                .take(msg_count)
+                .collect::<Vec<_>>()
+                .await
         };
+
         let task_4 = async move {
-            // Attempt to connect with tampered transport
             swarm_2_tampered.dial(addr4).unwrap();
-            // Wait for connection failure
-            while let Some(event) = swarm_2_tampered.next().await {
-                if let SwarmEvent::ConnectionClosed { .. } = event {
-                    break;
+
+            // Send a tampered message after attempting connection
+            let mut i = 0;
+            loop {
+                tokio::select! {
+                    // Wait for a short moment before trying to send
+                    _ = tokio::time::sleep(Duration::from_millis(50)) => {
+                        let behaviour = swarm_2_tampered.behaviour_mut();
+                        let msg = get_message(i);
+                        behaviour.send_message(&msg);
+                        //info!("Sent message {:?}", msg);
+                        i += 1;
+                    }
+                    event = swarm_2_tampered.select_next_some() => {
+                        match event {
+                            SwarmEvent::ConnectionClosed { .. } => break,
+                            SwarmEvent::ConnectionEstablished { peer_id,  connection_id, .. } => {
+                                info!("Connected to {peer_id} with connection_id: {connection_id}");
+                            },
+                            _ => {}
+                        }
+                    }
                 }
             }
         };

@@ -16,8 +16,8 @@ use libp2p::{
 use subnetworks_assignations::MembershipHandler;
 
 use libp2p::swarm::{
-    ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandlerInEvent,
-    THandlerOutEvent, ToSwarm,
+    ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandlerInEvent, THandlerOutEvent,
+    ToSwarm,
 };
 
 use crate::protocols::replication::behaviour::ReplicationBehaviour;
@@ -114,7 +114,7 @@ pub struct TamperingReplicationBehaviour<M> {
     tamper_hook: Option<Arc<dyn Fn(ReplicationRequest) -> ReplicationRequest + Send + Sync>>,
 }
 
-impl<M> TamperingReplicationBehaviour<M> 
+impl<M> TamperingReplicationBehaviour<M>
 where
     M: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>,
 {
@@ -132,7 +132,7 @@ where
         self.tamper_hook = Some(Arc::new(f));
     }
 
-    fn send_message(&mut self, message: &ReplicationRequest) {
+    pub(crate) fn send_message(&mut self, message: &ReplicationRequest) {
         let mut msg = message.clone();
         if let Some(ref hook) = self.tamper_hook {
             msg = hook(msg);
@@ -147,7 +147,7 @@ where
 {
     type ConnectionHandler = <ReplicationBehaviour<M> as NetworkBehaviour>::ConnectionHandler;
     type ToSwarm = <ReplicationBehaviour<M> as NetworkBehaviour>::ToSwarm;
-    
+
     fn handle_established_inbound_connection(
         &mut self,
         connection_id: ConnectionId,
