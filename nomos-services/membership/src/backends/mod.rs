@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use nomos_sdp::backends::FinalizedBlockEvent;
-use nomos_sdp_core::ServiceType;
+use nomos_sdp_core::{BlockNumber, DeclarationUpdate, ProviderInfo, ServiceType};
 use overwatch::DynError;
 
-pub mod deque;
+pub mod sdp;
 
 pub struct MembershipBackendSettings {
     pub settings_per_service: HashMap<ServiceType, SnapshotSettings>,
@@ -13,6 +13,12 @@ pub struct MembershipBackendSettings {
 
 pub enum SnapshotSettings {
     Block(usize),
+}
+
+#[derive(Debug, Clone)]
+pub struct MembershipEntry {
+    pub block_number: BlockNumber,
+    pub data: HashMap<ServiceType, HashMap<ProviderInfo, DeclarationUpdate>>,
 }
 
 #[async_trait]
@@ -25,6 +31,10 @@ pub trait MembershipBackend {
     // snapshots. index = 0 is the latest snapshot
     // index > 0 is the index of the snapshot in the past
     // index < 0 is the index of the snapshot relative to the latest snapshot
-    async fn get_snapshot_at(&self, service_type: ServiceType, index: i32) -> Result<(), DynError>;
-    async fn update(&self, update: FinalizedBlockEvent) -> Result<(), DynError>;
+    async fn get_snapshot_at(
+        &self,
+        service_type: ServiceType,
+        index: i32,
+    ) -> Result<Option<MembershipEntry>, DynError>;
+    async fn update(&mut self, update: FinalizedBlockEvent) -> Result<(), DynError>;
 }
