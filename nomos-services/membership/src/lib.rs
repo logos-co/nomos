@@ -5,8 +5,9 @@ use std::{
 
 use adapters::SdpAdapter;
 use async_trait::async_trait;
-use backends::{MembershipBackend, MembershipBackendSettings, MembershipEntry};
+use backends::{MembershipBackend, MembershipBackendSettings};
 use futures::StreamExt as _;
+use nomos_sdp_core::{DeclarationUpdate, ProviderInfo};
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -22,7 +23,9 @@ pub mod backends;
 #[derive(Debug)]
 pub enum MembershipMessage {
     GetSnapshotAt {
-        reply_channel: tokio::sync::oneshot::Sender<Result<Option<MembershipEntry>, DynError>>,
+        reply_channel: tokio::sync::oneshot::Sender<
+            Result<HashMap<ProviderInfo, DeclarationUpdate>, DynError>,
+        >,
         index: i32,
         service_type: nomos_sdp_core::ServiceType,
     },

@@ -35,6 +35,6 @@ pub trait MembershipBackend {
         &self,
         service_type: ServiceType,
         index: i32,
-    ) -> Result<Option<MembershipEntry>, DynError>;
+    ) -> Result<HashMap<ProviderInfo, DeclarationUpdate>, DynError>;
     async fn update(&mut self, update: FinalizedBlockEvent) -> Result<(), DynError>;
 }
