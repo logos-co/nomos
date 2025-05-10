@@ -29,21 +29,19 @@ impl MembershipBackend for SdpMembershipBackend {
     ) -> Result<HashMap<ProviderInfo, DeclarationUpdate>, overwatch::DynError> {
         let len = self.membership.len();
 
-        let result = HashMap::new();
-
         if len == 0 {
-            return Ok(result);
+            return Ok(HashMap::default());
         }
 
         let actual_index = if index >= 0 {
             if index as usize >= len {
-                return Ok(result);
+                return Ok(HashMap::default());
             }
             len - 1 - (index as usize)
         } else {
             let positive_index = (-index) as usize;
             if positive_index > len {
-                return Ok(result);
+                return Ok(HashMap::default());
             }
             len - positive_index
         };
