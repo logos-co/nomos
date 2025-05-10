@@ -255,7 +255,7 @@ impl<
                 self.backend.discard_block(block_number);
             }
             SdpMessage::Subscribe { result_sender } => {
-                let receiver = self.subscribe_finalized_updates();
+                let receiver = self.finalized_update_tx.subscribe();
                 let stream = make_finalized_stream(receiver);
 
                 if result_sender.send(stream).is_err() {
@@ -263,10 +263,6 @@ impl<
                 }
             }
         }
-    }
-
-    fn subscribe_finalized_updates(&self) -> broadcast::Receiver<FinalizedBlockEvent> {
-        self.finalized_update_tx.subscribe()
     }
 }
 
