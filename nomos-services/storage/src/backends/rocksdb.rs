@@ -70,6 +70,19 @@ impl<SerdeOp> RocksBackend<SerdeOp> {
             executor: Box::new(executor),
         }
     }
+
+    async fn with_timeout<F, T, E>(&self, operation: F) -> Result<T, StorageError>
+    where
+        F: FnOnce() -> Result<T, E> + Send + 'static,
+        T: Send + 'static,
+        E: Into<StorageError> + Send + 'static,
+        SerdeOp: Sync,
+    {
+        timeout(TIMEOUT, tokio::task::spawn_blocking(operation))
+            .await
+            .map_err(|_| StorageError::Timeout)??
+            .map_err(Into::into)
+    }
 }
 
 impl<SerdeOp> core::fmt::Debug for RocksBackend<SerdeOp> {
@@ -125,50 +138,39 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
 
     async fn store(&mut self, key: Bytes, value: Bytes) -> Result<(), Self::Error> {
         let rocks = Arc::clone(&self.rocks);
-        let _ = timeout(
-            TIMEOUT,
-            tokio::task::spawn_blocking(move || rocks.put(key, value)),
-        )
-        .await
-        .map_err(|_| StorageError::Timeout)??;
-        Ok(())
+
+        self.with_timeout(move || rocks.put(key, value).map_err(StorageError::RocksDb))
+            .await
     }
 
     async fn load(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
         let rocks = Arc::clone(&self.rocks);
         let key = key.to_vec();
 
-        let result = timeout(
-            TIMEOUT,
-            tokio::task::spawn_blocking(move || rocks.get(&key).map(|opt| opt.map(Bytes::from))),
-        )
+        self.with_timeout(move || {
+            rocks
+                .get(&key)
+                .map(|opt| opt.map(Bytes::from))
+                .map_err(StorageError::RocksDb)
+        })
         .await
-        .map_err(|_| StorageError::Timeout)??;
-
-        Ok(result?)
     }
 
     async fn load_prefix(&mut self, prefix: &[u8]) -> Result<Vec<Bytes>, Self::Error> {
         let rocks = Arc::clone(&self.rocks);
         let prefix = prefix.to_vec();
 
-        let values = timeout(
-            TIMEOUT,
-            tokio::task::spawn_blocking(move || {
-                let mut values = Vec::new();
-                for item in rocks.prefix_iterator(&prefix) {
-                    match item {
-                        Ok((_key, value)) => values.push(Bytes::from(value.to_vec())),
-                        Err(e) => return Err(e),
-                    }
+        self.with_timeout(move || {
+            let mut values = Vec::new();
+            for item in rocks.prefix_iterator(&prefix) {
+                match item {
+                    Ok((_key, value)) => values.push(Bytes::from(value.to_vec())),
+                    Err(e) => return Err(StorageError::RocksDb(e)),
                 }
-                Ok(values)
-            }),
-        )
+            }
+            Ok(values)
+        })
         .await
-        .map_err(|_| StorageError::Timeout)??;
-
-        Ok(values?)
     }
 
     async fn remove(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
@@ -178,12 +180,8 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
             let rocks = Arc::clone(&self.rocks);
             let key = key.to_vec();
 
-            let _ = timeout(
-                TIMEOUT,
-                tokio::task::spawn_blocking(move || rocks.delete(&key)),
-            )
-            .await
-            .map_err(|_| StorageError::Timeout)??;
+            self.with_timeout(move || rocks.delete(&key).map_err(StorageError::RocksDb))
+                .await?;
 
             Ok(val)
         } else {
@@ -201,6 +199,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
         )
         .await
         .map_err(|_| StorageError::Timeout)??;
+
         Ok(result)
     }
 }
