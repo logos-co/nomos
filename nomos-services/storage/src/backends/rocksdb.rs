@@ -5,8 +5,18 @@ use bytes::Bytes;
 pub use rocksdb::Error;
 use rocksdb::{Options, DB};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use super::{StorageBackend, StorageSerde, StorageTransaction};
+
+#[derive(Error, Debug)]
+pub enum StorageError {
+    #[error("RocksDB error: {0}")]
+    RocksDb(#[from] rocksdb::Error),
+
+    #[error("Background task failed: {0}")]
+    TaskJoin(#[from] tokio::task::JoinError),
+}
 
 /// Rocks backend setting
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -66,7 +76,7 @@ impl<SerdeOp> core::fmt::Debug for RocksBackend<SerdeOp> {
 #[async_trait]
 impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBackend<SerdeOp> {
     type Settings = RocksBackendSettings;
-    type Error = rocksdb::Error;
+    type Error = StorageError;
     type Transaction = Transaction;
     type SerdeOperator = SerdeOp;
 
@@ -109,35 +119,51 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
     }
 
     async fn store(&mut self, key: Bytes, value: Bytes) -> Result<(), Self::Error> {
-        self.rocks.put(key, value)
+        let rocks = Arc::clone(&self.rocks);
+        tokio::task::spawn_blocking(move || rocks.put(key, value)).await??;
+        Ok(())
     }
 
     async fn load(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
-        self.rocks
-            .get(key)
-            .map(|opt| opt.map(std::convert::Into::into))
+        let rocks = Arc::clone(&self.rocks);
+        let key = key.to_vec();
+
+        Ok(
+            tokio::task::spawn_blocking(move || rocks.get(&key).map(|opt| opt.map(Into::into)))
+                .await??,
+        )
     }
 
     async fn load_prefix(&mut self, prefix: &[u8]) -> Result<Vec<Bytes>, Self::Error> {
-        let mut values = Vec::new();
-        let iter = self.rocks.prefix_iterator(prefix);
+        let rocks = Arc::clone(&self.rocks);
+        let prefix = prefix.to_vec();
 
-        for item in iter {
-            match item {
-                Ok((_key, value)) => {
-                    values.push(Bytes::from(value.to_vec()));
+        Ok(tokio::task::spawn_blocking(move || {
+            let mut values = Vec::new();
+            let iter = rocks.prefix_iterator(&prefix);
+
+            for item in iter {
+                match item {
+                    Ok((_key, value)) => {
+                        values.push(Bytes::from(value.to_vec()));
+                    }
+                    Err(e) => return Err(e),
                 }
-                Err(e) => return Err(e), // Return the error if one occurs
             }
-        }
-
-        Ok(values)
+            Ok(values)
+        })
+        .await??)
     }
 
     async fn remove(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
         let val = self.load(key).await?;
+
         if val.is_some() {
-            self.rocks.delete(key).map(|()| val)
+            let rocks = Arc::clone(&self.rocks);
+            let key = key.to_vec();
+
+            tokio::task::spawn_blocking(move || rocks.delete(&key)).await??;
+            Ok(val)
         } else {
             Ok(None)
         }
@@ -147,7 +173,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
         &mut self,
         transaction: Self::Transaction,
     ) -> Result<<Self::Transaction as StorageTransaction>::Result, Self::Error> {
-        Ok(transaction.execute())
+        Ok(tokio::task::spawn_blocking(move || transaction.execute()).await?)
     }
 }
 
