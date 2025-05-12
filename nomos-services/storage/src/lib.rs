@@ -21,7 +21,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use services_utils::overwatch::lifecycle;
 use tracing::error;
 
-use crate::api::{Executable, StorageApiRequest};
+use crate::api::{StorageApiRequest, StorageOperation};
 
 /// Storage message that maps to [`StorageBackend`] trait
 pub enum StorageMsg<Backend: StorageBackend> {
@@ -293,7 +293,8 @@ where
         api_call: StorageApiRequest<Backend>,
         api_backend: &mut Backend,
     ) -> Result<(), StorageServiceError<Backend>> {
-        <StorageApiRequest<Backend> as Executable<Backend>>::execute(api_call, api_backend).await
+        <StorageApiRequest<Backend> as StorageOperation<Backend>>::execute(api_call, api_backend)
+            .await
     }
 }
 

@@ -2,7 +2,7 @@ use tokio::sync::oneshot::Sender;
 use tracing::error;
 
 use crate::{
-    api::{da::StorageDaApi, Executable, StorageApiRequest, StorageBackendApi},
+    api::{da::StorageDaApi, StorageApiRequest, StorageBackendApi, StorageOperation},
     backends::StorageBackend,
     StorageMsg, StorageServiceError,
 };
@@ -24,7 +24,7 @@ pub enum DaApiRequest<B: StorageBackend> {
     },
 }
 
-impl<B> Executable<B> for DaApiRequest<B>
+impl<B> StorageOperation<B> for DaApiRequest<B>
 where
     B: StorageBackend + StorageBackendApi,
 {

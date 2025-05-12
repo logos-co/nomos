@@ -3,7 +3,7 @@ use tokio::sync::oneshot::Sender;
 use tracing::error;
 
 use crate::{
-    api::{chain::StorageChainApi, Executable, StorageApiRequest, StorageBackendApi},
+    api::{chain::StorageChainApi, StorageApiRequest, StorageBackendApi, StorageOperation},
     backends::StorageBackend,
     StorageMsg, StorageServiceError,
 };
@@ -19,7 +19,7 @@ pub enum ChainApiRequest<B: StorageBackend> {
     },
 }
 
-impl<B> Executable<B> for ChainApiRequest<B>
+impl<B> StorageOperation<B> for ChainApiRequest<B>
 where
     B: StorageBackend + StorageBackendApi,
 {
