@@ -26,7 +26,7 @@ impl<Storage, Tx, BlobCertificate, RuntimeServiceId> StorageAdapterTrait<Runtime
 where
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block:
-        From<Block<Tx, BlobCertificate>> + Into<Block<Tx, BlobCertificate>>,
+        TryFrom<Block<Tx, BlobCertificate>> + TryInto<Block<Tx, BlobCertificate>>,
     Tx: Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
     BlobCertificate: Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
@@ -53,12 +53,13 @@ where
             .await
             .unwrap();
 
-        receiver
-            .await
-            .map(|maybe_block| maybe_block.map(|storage_block| storage_block.into()))
-            .unwrap_or(None);
-
-        None
+        receiver.await.map_or_else(
+            |_| {
+                tracing::error!("Failed to receive block from storage relay");
+                None
+            },
+            |maybe_block| maybe_block.and_then(|block| block.try_into().ok()),
+        )
     }
 
     async fn store_block(
@@ -66,10 +67,14 @@ where
         header_id: HeaderId,
         block: Self::Block,
     ) -> Result<(), overwatch::DynError> {
+        let block = block
+            .try_into()
+            .map_err(|_| "Failed to convert block to storage format")?;
+
         self.storage_relay
-            .send(StorageMsg::store_block_request(header_id, block.into()))
+            .send(StorageMsg::store_block_request(header_id, block))
             .await
-            .expect("Failed to send store block request");
+            .map_err(|_| "Failed to send store block request to storage relay")?;
 
         Ok(())
     }

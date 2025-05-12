@@ -159,7 +159,7 @@ where
     SamplingRng: SeedableRng + RngCore,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block:
-        From<Block<ClPool::Item, DaPool::Item>> + Into<Block<ClPool::Item, DaPool::Item>>,
+        TryFrom<Block<ClPool::Item, DaPool::Item>> + TryInto<Block<ClPool::Item, DaPool::Item>>,
     TxS: TxSelect<Tx = ClPool::Item>,
     TxS::Settings: Send,
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + Sync + 'static,

@@ -63,19 +63,24 @@ impl<
 impl<
         Tx: Clone + Eq + Hash + Serialize + DeserializeOwned,
         BlobCertificate: Clone + Eq + Hash + Serialize + DeserializeOwned,
-    > From<Bytes> for Block<Tx, BlobCertificate>
+    > TryFrom<Bytes> for Block<Tx, BlobCertificate>
 {
-    fn from(bytes: Bytes) -> Self {
-        wire::deserialize(&bytes).unwrap()
+    type Error = wire::Error;
+
+    fn try_from(bytes: Bytes) -> Result<Self, Self::Error> {
+        wire::deserialize(&bytes)
     }
 }
 
 impl<
         Tx: Clone + Eq + Hash + Serialize + DeserializeOwned,
         BlobCertificate: Clone + Eq + Hash + Serialize + DeserializeOwned,
-    > From<Block<Tx, BlobCertificate>> for Bytes
+    > TryFrom<Block<Tx, BlobCertificate>> for Bytes
 {
-    fn from(block: Block<Tx, BlobCertificate>) -> Self {
-        wire::serialize(&block).unwrap().into()
+    type Error = wire::Error;
+
+    fn try_from(block: Block<Tx, BlobCertificate>) -> Result<Self, Self::Error> {
+        let serialized = wire::serialize(&block)?;
+        Ok(serialized.into())
     }
 }
