@@ -79,7 +79,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for MockStor
 
     async fn store_block(
         &mut self,
-        _header_id: Self::HeaderId,
+        _header_id: HeaderId,
         _block: Self::Block,
     ) -> Result<(), DynError> {
         unimplemented!()
