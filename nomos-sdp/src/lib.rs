@@ -18,11 +18,10 @@ pub struct MinStake {
 }
 
 #[derive(Clone, Debug)]
-pub struct ServiceParameters<ContractAddress> {
+pub struct ServiceParameters {
     pub lock_period: u64,
     pub inactivity_period: u64,
     pub retention_period: u64,
-    pub activity_contract: ContractAddress,
     pub timestamp: BlockNumber,
 }
 

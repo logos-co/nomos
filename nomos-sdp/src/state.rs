@@ -39,11 +39,11 @@ impl ActiveState {
         }
     }
 
-    const fn try_into_withdrawn<ContractAddress>(
+    const fn try_into_withdrawn(
         mut self,
         block_number: BlockNumber,
         event_type: EventType,
-        service_params: &ServiceParameters<ContractAddress>,
+        service_params: &ServiceParameters,
     ) -> Result<WithdrawnState, ActiveStateError> {
         match event_type {
             EventType::Withdrawal => {
@@ -90,11 +90,11 @@ impl InactiveState {
         }
     }
 
-    const fn try_into_withdrawn<ContractAddress>(
+    const fn try_into_withdrawn(
         mut self,
         block_number: BlockNumber,
         event_type: EventType,
-        service_params: &ServiceParameters<ContractAddress>,
+        service_params: &ServiceParameters,
     ) -> Result<WithdrawnState, InactiveStateError> {
         match event_type {
             EventType::Withdrawal => {
@@ -144,10 +144,10 @@ impl From<ProviderState> for ProviderInfo {
 }
 
 impl ProviderState {
-    pub fn try_from_info<ConstractAddress>(
+    pub fn try_from_info(
         block_number: BlockNumber,
         provider_info: &ProviderInfo,
-        service_params: &ServiceParameters<ConstractAddress>,
+        service_params: &ServiceParameters,
     ) -> Result<Self, ProviderStateError> {
         if provider_info.created > block_number {
             return Err(ProviderStateError::BlockFromPast);
@@ -224,11 +224,11 @@ impl ProviderState {
         }
     }
 
-    pub fn try_into_withdrawn<ContractAddress>(
+    pub fn try_into_withdrawn(
         self,
         block_number: BlockNumber,
         event_type: EventType,
-        service_params: &ServiceParameters<ContractAddress>,
+        service_params: &ServiceParameters,
     ) -> Result<Self, ProviderStateError> {
         if self.last_block_number() > block_number {
             return Err(ProviderStateError::BlockFromPast);
@@ -270,14 +270,11 @@ mod tests {
     use super::*;
     use crate::ProviderId;
 
-    type MockContractAddress = [u8; 32];
-
-    const fn default_service_params() -> ServiceParameters<MockContractAddress> {
+    const fn default_service_params() -> ServiceParameters {
         ServiceParameters {
             lock_period: 10,
             inactivity_period: 20,
             retention_period: 100,
-            activity_contract: [0; 32],
             timestamp: 0,
         }
     }
@@ -549,7 +546,6 @@ mod tests {
             lock_period: 20,
             inactivity_period: 5,
             retention_period: 30,
-            activity_contract: [0; 32],
             timestamp: 0,
         };
         let provider_info = ProviderInfo::new(0, provider_id, declaration_id);
