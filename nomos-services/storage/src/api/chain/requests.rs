@@ -25,11 +25,11 @@ where
 {
     async fn execute(self, backend: &mut B) -> Result<(), StorageServiceError<B>> {
         match self {
-            ChainApiRequest::GetBlock {
+            Self::GetBlock {
                 header_id,
                 response_tx,
             } => handle_get_block(backend, header_id, response_tx).await,
-            ChainApiRequest::StoreBlock { header_id, block } => {
+            Self::StoreBlock { header_id, block } => {
                 handle_store_block(backend, header_id, block).await
             }
         }

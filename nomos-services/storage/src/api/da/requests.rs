@@ -30,17 +30,17 @@ where
 {
     async fn execute(self, backend: &mut B) -> Result<(), StorageServiceError<B>> {
         match self {
-            DaApiRequest::GetLightShare {
+            Self::GetLightShare {
                 blob_id,
                 share_idx,
                 response_tx,
             } => handle_get_light_share(backend, blob_id, share_idx, response_tx).await,
-            DaApiRequest::StoreLightShare {
+            Self::StoreLightShare {
                 blob_id,
                 share_idx,
                 light_share,
             } => handle_store_light_share(backend, blob_id, share_idx, light_share).await,
-            DaApiRequest::StoreSharedCommitments {
+            Self::StoreSharedCommitments {
                 blob_id,
                 shared_commitments,
             } => handle_store_shared_commitments(backend, blob_id, shared_commitments).await,
