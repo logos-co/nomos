@@ -2,6 +2,7 @@ use std::{collections::HashMap, marker::PhantomData};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use nomos_core::header::HeaderId;
 use overwatch::DynError;
 use thiserror::Error;
 
@@ -70,13 +71,9 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for MockStora
 
 #[async_trait]
 impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for MockStorage<SerdeOp> {
-    type HeaderId = nomos_core::header::HeaderId;
     type Block = Bytes;
 
-    async fn get_block(
-        &mut self,
-        _header_id: Self::HeaderId,
-    ) -> Result<Option<Self::Block>, DynError> {
+    async fn get_block(&mut self, _header_id: HeaderId) -> Result<Option<Self::Block>, DynError> {
         unimplemented!()
     }
 

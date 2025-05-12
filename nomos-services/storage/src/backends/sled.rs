@@ -2,6 +2,7 @@ use std::{marker::PhantomData, path::PathBuf};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use nomos_core::header::HeaderId;
 use overwatch::DynError;
 use sled::transaction::{
     ConflictableTransactionResult, TransactionError, TransactionResult, TransactionalTree,
@@ -92,19 +93,15 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for SledBacke
 
 #[async_trait]
 impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for SledBackend<SerdeOp> {
-    type HeaderId = nomos_core::header::HeaderId;
     type Block = Bytes;
 
-    async fn get_block(
-        &mut self,
-        _header_id: Self::HeaderId,
-    ) -> Result<Option<Self::Block>, DynError> {
+    async fn get_block(&mut self, _header_id: HeaderId) -> Result<Option<Self::Block>, DynError> {
         unimplemented!()
     }
 
     async fn store_block(
         &mut self,
-        _header_id: Self::HeaderId,
+        _header_id: HeaderId,
         _block: Self::Block,
     ) -> Result<(), DynError> {
         unimplemented!()
