@@ -19,6 +19,6 @@ tokio = "1"
 [package.metadata.cargo-machete]
 # False positives.
 ignored = [
-    # Required by Overwatch's `#[derive(Services)]` macro.
-    "tokio",
+  # Required by Overwatch's `#[derive(Services)]` macro.
+  "tokio",
 ]

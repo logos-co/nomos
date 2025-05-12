@@ -25,6 +25,6 @@ url                                = { version = "2", features = ["serde"] }
 [package.metadata.cargo-machete]
 # False positives.
 ignored = [
-    # Required by `opentelemetry_otlp::new_exporter().with_http_client()`.
-    "opentelemetry-http",
+  # Required by `opentelemetry_otlp::new_exporter().with_http_client()`.
+  "opentelemetry-http",
 ]
