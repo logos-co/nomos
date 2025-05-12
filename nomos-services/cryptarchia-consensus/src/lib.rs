@@ -467,7 +467,8 @@ where
     BS: BlobSelect<BlobId = DaPool::Item> + Clone + Send + Sync + 'static,
     BS::Settings: Send + Sync + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Block: From<bytes::Bytes> + Into<bytes::Bytes>,
+    <Storage as StorageChainApi>::Block:
+        From<Block<ClPool::Item, DaPool::Item>> + Into<Block<ClPool::Item, DaPool::Item>>,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + Send + 'static,
@@ -756,7 +757,8 @@ where
     BS: BlobSelect<BlobId = DaPool::Item> + Clone + Send + Sync + 'static,
     BS::Settings: Send,
     Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Block: From<bytes::Bytes> + Into<bytes::Bytes>,
+    <Storage as StorageChainApi>::Block:
+        From<Block<ClPool::Item, DaPool::Item>> + Into<Block<ClPool::Item, DaPool::Item>>,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,

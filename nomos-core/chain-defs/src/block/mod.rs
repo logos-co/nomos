@@ -59,3 +59,23 @@ impl<
         self.bl_blobs.len()
     }
 }
+
+impl<
+        Tx: Clone + Eq + Hash + Serialize + DeserializeOwned,
+        BlobCertificate: Clone + Eq + Hash + Serialize + DeserializeOwned,
+    > From<Bytes> for Block<Tx, BlobCertificate>
+{
+    fn from(bytes: Bytes) -> Self {
+        wire::deserialize(&bytes).unwrap()
+    }
+}
+
+impl<
+        Tx: Clone + Eq + Hash + Serialize + DeserializeOwned,
+        BlobCertificate: Clone + Eq + Hash + Serialize + DeserializeOwned,
+    > From<Block<Tx, BlobCertificate>> for Bytes
+{
+    fn from(block: Block<Tx, BlobCertificate>) -> Self {
+        wire::serialize(&block).unwrap().into()
+    }
+}

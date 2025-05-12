@@ -2,12 +2,9 @@ use std::{hash::Hash, marker::PhantomData};
 
 use nomos_core::{block::Block, header::HeaderId};
 use nomos_storage::{
-    api::chain::StorageChainApi,
-    backends::{StorageBackend, StorageSerde as _},
-    StorageMsg, StorageService,
+    api::chain::StorageChainApi, backends::StorageBackend, StorageMsg, StorageService,
 };
 use overwatch::services::{relay::OutboundRelay, ServiceData};
-use risc0_zkvm::Bytes;
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::oneshot;
 
@@ -28,7 +25,8 @@ impl<Storage, Tx, BlobCertificate, RuntimeServiceId> StorageAdapterTrait<Runtime
     for StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Block: From<Bytes> + Into<Bytes>,
+    <Storage as StorageChainApi>::Block:
+        From<Block<Tx, BlobCertificate>> + Into<Block<Tx, BlobCertificate>>,
     Tx: Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
     BlobCertificate: Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
@@ -57,14 +55,7 @@ where
 
         receiver
             .await
-            .map(|maybe_block| {
-                maybe_block.map(|storage_block| {
-                    Storage::SerdeOperator::deserialize::<Self::Block>(Bytes::copy_from_slice(
-                        &storage_block.into(),
-                    ))
-                    .expect("Failed to deserialize block")
-                })
-            })
+            .map(|maybe_block| maybe_block.map(|storage_block| storage_block.into()))
             .unwrap_or(None);
 
         None
@@ -76,10 +67,7 @@ where
         block: Self::Block,
     ) -> Result<(), overwatch::DynError> {
         self.storage_relay
-            .send(StorageMsg::store_block_request(
-                header_id,
-                block.as_bytes().into(),
-            ))
+            .send(StorageMsg::store_block_request(header_id, block.into()))
             .await
             .expect("Failed to send store block request");
 

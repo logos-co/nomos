@@ -8,6 +8,7 @@ use nomos_blend_service::{
     network::NetworkAdapter as BlendNetworkAdapter, BlendService, ServiceMessage,
 };
 use nomos_core::{
+    block::Block,
     da::blob::{info::DispersedBlobInfo, BlobSelect},
     header::HeaderId,
     tx::TxSelect,
@@ -157,7 +158,8 @@ where
     SamplingBackend::Share: Debug + 'static,
     SamplingRng: SeedableRng + RngCore,
     Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Block: From<bytes::Bytes> + Into<bytes::Bytes>,
+    <Storage as StorageChainApi>::Block:
+        From<Block<ClPool::Item, DaPool::Item>> + Into<Block<ClPool::Item, DaPool::Item>>,
     TxS: TxSelect<Tx = ClPool::Item>,
     TxS::Settings: Send,
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + Sync + 'static,
