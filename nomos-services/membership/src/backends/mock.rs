@@ -1,23 +1,28 @@
 use std::collections::HashMap;
 
-use nomos_sdp::backends::FinalizedBlockEvent;
-use nomos_sdp_core::{DeclarationUpdate, ProviderInfo, ServiceType};
+use nomos_sdp_core::{DeclarationUpdate, FinalizedBlockEvent, ProviderInfo, ServiceType};
 
-use super::{MembershipBackend, MembershipBackendSettings, MembershipEntry, SnapshotSettings};
+use super::{MembershipBackend, MembershipEntry, SnapshotSettings};
 
-pub struct SdpMembershipBackend {
-    settings: MembershipBackendSettings,
+pub struct MockMembershipBackendSettings {
+    pub settings_per_service: HashMap<ServiceType, SnapshotSettings>,
+    pub initial_membership: Vec<MembershipEntry>,
+}
+
+pub struct MockMembershipBackend {
+    settings: MockMembershipBackendSettings,
     // todo: storage trait instead of deque in memory
     membership: Vec<MembershipEntry>,
     current_data: HashMap<ServiceType, HashMap<ProviderInfo, DeclarationUpdate>>,
 }
 
 #[async_trait::async_trait]
-impl MembershipBackend for SdpMembershipBackend {
-    fn init(settings: MembershipBackendSettings) -> Self {
+impl MembershipBackend for MockMembershipBackend {
+    type Settings = MockMembershipBackendSettings;
+    fn init(settings: MockMembershipBackendSettings) -> Self {
         Self {
+            membership: settings.initial_membership.clone(),
             settings,
-            membership: Vec::new(),
             current_data: HashMap::new(),
         }
     }

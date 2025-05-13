@@ -11,9 +11,9 @@ use adapters::{
     stakes::SdpStakesVerifierAdapter,
 };
 use async_trait::async_trait;
-use backends::{FinalizedBlockEvent, SdpBackend, SdpBackendError};
+use backends::{SdpBackend, SdpBackendError};
 use futures::{Stream, StreamExt as _};
-use nomos_sdp_core::{ledger, BlockNumber};
+use nomos_sdp_core::{ledger, BlockNumber, FinalizedBlockEvent};
 use overwatch::{
     services::{
         state::{NoOperator, NoState},

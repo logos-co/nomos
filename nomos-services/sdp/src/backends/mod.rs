@@ -16,12 +16,6 @@ pub struct ServiceParams {
     pub timestamp: BlockNumber,
 }
 
-#[derive(Debug, Clone)]
-pub struct FinalizedBlockEvent {
-    pub block_number: BlockNumber,
-    pub updates: Vec<(ProviderInfo, DeclarationUpdate)>,
-}
-
 #[derive(Debug)]
 pub enum SdpBackendError {
     DeclarationAdapterError(DynError),

@@ -5,7 +5,7 @@ use std::{
 
 use adapters::SdpAdapter;
 use async_trait::async_trait;
-use backends::{MembershipBackend, MembershipBackendSettings};
+use backends::MembershipBackend;
 use futures::StreamExt as _;
 use nomos_sdp_core::{DeclarationUpdate, ProviderInfo};
 use overwatch::{
@@ -15,10 +15,16 @@ use overwatch::{
     },
     DynError, OpaqueServiceStateHandle,
 };
+use serde::{Deserialize, Serialize};
 use services_utils::overwatch::lifecycle;
 
 mod adapters;
 pub mod backends;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BackendSettings<S> {
+    pub backend: S,
+}
 
 #[derive(Debug)]
 pub enum MembershipMessage {
@@ -35,6 +41,7 @@ pub struct MembershipService<B, S, RuntimeServiceId>
 where
     B: MembershipBackend,
     S: SdpAdapter,
+    B::Settings: Clone,
 {
     backend: B,
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
@@ -44,8 +51,9 @@ impl<B, S, RuntimeServiceId> ServiceData for MembershipService<B, S, RuntimeServ
 where
     B: MembershipBackend,
     S: SdpAdapter,
+    B::Settings: Clone,
 {
-    type Settings = ();
+    type Settings = BackendSettings<B::Settings>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = MembershipMessage;
@@ -56,6 +64,8 @@ impl<B, S, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for MembershipService<B, S, RuntimeServiceId>
 where
     B: MembershipBackend + Send + Sync + 'static,
+    B::Settings: Clone,
+
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<S::SdpService>
         + Clone
@@ -71,15 +81,12 @@ where
         service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
         _initstate: Self::State,
     ) -> Result<Self, overwatch::DynError> {
-        //todo: load settings from config
-        let settings = MembershipBackendSettings {
-            settings_per_service: HashMap::from([(
-                nomos_sdp_core::ServiceType::DataAvailability,
-                backends::SnapshotSettings::Block(10),
-            )]),
-        };
+        let BackendSettings {
+            backend: backend_settings,
+        } = service_state.settings_reader.get_updated_settings();
+
         Ok(Self {
-            backend: B::init(settings),
+            backend: B::init(backend_settings),
             service_state,
         })
     }

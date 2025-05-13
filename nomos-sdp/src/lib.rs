@@ -211,3 +211,9 @@ impl<Metadata, Proof> SdpMessage<Metadata, Proof> {
         }
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct FinalizedBlockEvent {
+    pub block_number: BlockNumber,
+    pub updates: Vec<(ProviderInfo, DeclarationUpdate)>,
+}
