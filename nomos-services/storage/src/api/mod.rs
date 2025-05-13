@@ -14,10 +14,7 @@ pub mod chain;
 pub mod da;
 
 #[async_trait]
-pub trait StorageFunctions: StorageChainApi + StorageDaApi {}
-
-#[async_trait]
-pub trait StorageBackendApi: StorageFunctions {}
+pub trait StorageBackendApi: StorageChainApi + StorageDaApi {}
 
 pub(crate) trait StorageOperation<B: StorageBackend> {
     async fn execute(self, api: &mut B) -> Result<(), StorageServiceError>;

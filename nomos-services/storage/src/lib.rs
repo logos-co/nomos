@@ -161,8 +161,8 @@ impl<Backend: StorageBackend> Debug for StorageMsg<Backend> {
 /// Errors that may happen when performing storage operations
 #[derive(Debug, thiserror::Error)]
 pub enum StorageServiceError {
-    #[error("Couldn't send a reply for operation `{operation}` with key [{key:?}]")]
-    ReplyError { operation: String, key: Bytes },
+    #[error("Couldn't send a reply [{message:?}]")]
+    ReplyError { message: String },
     #[error("Storage backend error")]
     BackendError(Box<dyn std::error::Error + Send + Sync>),
 }
@@ -216,8 +216,7 @@ where
         reply_channel
             .send(result)
             .map_err(|_| StorageServiceError::ReplyError {
-                operation: "Load".to_owned(),
-                key,
+                message: format!("Load {key:?}"),
             })
     }
 
@@ -234,8 +233,7 @@ where
         reply_channel
             .send(result)
             .map_err(|_| StorageServiceError::ReplyError {
-                operation: "LoadPrefix".to_owned(),
-                key: prefix,
+                message: format!("LoadPrefix {prefix:?}"),
             })
     }
 
@@ -252,8 +250,7 @@ where
         reply_channel
             .send(result)
             .map_err(|_| StorageServiceError::ReplyError {
-                operation: "Remove".to_owned(),
-                key,
+                message: format!("Remove {key:?}"),
             })
     }
 
@@ -284,8 +281,7 @@ where
         reply_channel
             .send(result)
             .map_err(|_| StorageServiceError::ReplyError {
-                operation: "Execute".to_owned(),
-                key: Bytes::new(),
+                message: "Execute transaction".to_owned(),
             })
     }
 

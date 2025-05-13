@@ -53,13 +53,15 @@ where
             .await
             .unwrap();
 
-        receiver.await.map_or_else(
-            |_| {
+        receiver
+            .await
+            .map(|maybe_block| maybe_block.map(|block| block.try_into()))
+            .unwrap_or_else(|_| {
                 tracing::error!("Failed to receive block from storage relay");
                 None
-            },
-            |maybe_block| maybe_block.and_then(|block| block.try_into().ok()),
-        )
+            });
+
+        None
     }
 
     async fn store_block(

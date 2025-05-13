@@ -6,7 +6,7 @@ use nomos_core::header::HeaderId;
 use thiserror::Error;
 
 use super::{StorageBackend, StorageSerde, StorageTransaction};
-use crate::api::{chain::StorageChainApi, da::StorageDaApi, StorageBackendApi, StorageFunctions};
+use crate::api::{chain::StorageChainApi, da::StorageDaApi, StorageBackendApi};
 
 #[derive(Debug, Error)]
 #[error("Errors in MockStorage should not happen")]
@@ -135,9 +135,6 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
         unimplemented!()
     }
 }
-
-#[async_trait]
-impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageFunctions for MockStorage<SerdeOp> {}
 
 #[async_trait]
 impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackendApi for MockStorage<SerdeOp> {}
