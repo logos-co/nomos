@@ -1,6 +1,5 @@
 use nomos_core::header::HeaderId;
 use tokio::sync::oneshot::Sender;
-use tracing::error;
 
 use crate::{
     api::{chain::StorageChainApi, StorageApiRequest, StorageBackendApi, StorageOperation},
@@ -47,10 +46,11 @@ async fn handle_get_block<B: StorageBackend>(
         .map_err(|e| StorageServiceError::BackendError(e.into()))?;
 
     if response_tx.send(result).is_err() {
-        error!(
-            "Failed to send response in get_block for header_id: {}",
-            header_id
-        );
+        return Err(StorageServiceError::ReplyError {
+            message: format!(
+                "Failed to send reply for get block request by header_id: {header_id}"
+            ),
+        });
     }
 
     Ok(())

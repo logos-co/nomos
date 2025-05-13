@@ -1,5 +1,4 @@
 use tokio::sync::oneshot::Sender;
-use tracing::error;
 
 use crate::{
     api::{da::StorageDaApi, StorageApiRequest, StorageBackendApi, StorageOperation},
@@ -60,7 +59,9 @@ async fn handle_get_light_share<B: StorageBackend>(
         .map_err(|e| StorageServiceError::BackendError(e.into()))?;
 
     if response_tx.send(result).is_err() {
-        error!("Failed to get light share");
+        return Err(StorageServiceError::ReplyError {
+            message: "Failed to send reply for get light share reques".to_owned(),
+        });
     }
 
     Ok(())
