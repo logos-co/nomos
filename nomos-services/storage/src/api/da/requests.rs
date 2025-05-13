@@ -60,7 +60,7 @@ async fn handle_get_light_share<B: StorageBackend>(
 
     if response_tx.send(result).is_err() {
         return Err(StorageServiceError::ReplyError {
-            message: "Failed to send reply for get light share reques".to_owned(),
+            message: "Failed to send reply for get light share request".to_owned(),
         });
     }
 
