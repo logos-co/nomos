@@ -47,11 +47,10 @@ async fn handle_get_block<B: StorageBackend>(
         .map_err(|e| StorageServiceError::BackendError(e.into()))?;
 
     if response_tx.send(result).is_err() {
-        error!("Failed to send response in get_block");
-        return Err(StorageServiceError::ReplyError {
-            operation: "get_block".to_owned(),
-            key: "header_id".to_owned().into(),
-        });
+        error!(
+            "Failed to send response in get_block for header_id: {}",
+            header_id
+        );
     }
 
     Ok(())

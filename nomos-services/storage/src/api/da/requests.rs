@@ -60,11 +60,7 @@ async fn handle_get_light_share<B: StorageBackend>(
         .map_err(|e| StorageServiceError::BackendError(e.into()))?;
 
     if response_tx.send(result).is_err() {
-        error!("Failed to send response in get_light_share");
-        return Err(StorageServiceError::ReplyError {
-            operation: "get_light_share".to_owned(),
-            key: "blob_id".to_owned().into(),
-        });
+        error!("Failed to get light share");
     }
 
     Ok(())
