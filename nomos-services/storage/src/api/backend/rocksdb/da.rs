@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use overwatch::DynError;
+use rocksdb::Error;
 use tracing::{debug, error};
 
 use crate::{
@@ -20,6 +20,7 @@ pub const DA_SHARE_PREFIX: &str = concat!("da/verified/", "bl");
 
 #[async_trait]
 impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBackend<SerdeOp> {
+    type Error = Error;
     type BlobId = [u8; 32];
     type Share = Bytes;
     type Commitments = Bytes;
@@ -29,11 +30,10 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
         &mut self,
         blob_id: Self::BlobId,
         share_idx: Self::ShareIndex,
-    ) -> Result<Option<Self::Share>, DynError> {
+    ) -> Result<Option<Self::Share>, Self::Error> {
         let share_idx_bytes = create_share_idx(blob_id.as_ref(), share_idx.as_ref());
         let share_key = key_bytes(DA_SHARE_PREFIX, share_idx_bytes);
         let share_bytes = self.load(&share_key).await?;
-
         Ok(share_bytes)
     }
 
@@ -42,13 +42,13 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
         blob_id: Self::BlobId,
         share_idx: Self::ShareIndex,
         light_share: Self::Share,
-    ) -> Result<(), DynError> {
+    ) -> Result<(), Self::Error> {
         let share_idx_bytes = create_share_idx(blob_id.as_ref(), share_idx.as_ref());
         let share_key = key_bytes(DA_SHARE_PREFIX, share_idx_bytes);
-        let index_key = key_bytes(DA_BLOB_SHARES_INDEX_PREFIX, blob_id);
+        let index_key = key_bytes(DA_BLOB_SHARES_INDEX_PREFIX, blob_id.as_ref());
 
         let txn = self.txn(move |db| {
-            if let Err(e) = db.put(&share_key, light_share) {
+            if let Err(e) = db.put(&share_key, &light_share) {
                 error!("Failed to store share data: {:?}", e);
                 return Err(e);
             }
@@ -79,7 +79,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
             }
             Err(e) => {
                 error!("Failed to execute transaction: {:?}", e);
-                Err(e.into())
+                Err(e)
             }
         }
     }
@@ -88,11 +88,8 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
         &mut self,
         blob_id: Self::BlobId,
         shared_commitments: Self::Commitments,
-    ) -> Result<(), DynError> {
-        let shared_commitments_key = key_bytes(DA_SHARED_COMMITMENTS_PREFIX, blob_id);
-        self.store(shared_commitments_key, shared_commitments)
-            .await?;
-
-        Ok(())
+    ) -> Result<(), Self::Error> {
+        let commitments_key = key_bytes(DA_SHARED_COMMITMENTS_PREFIX, blob_id.as_ref());
+        self.store(commitments_key, shared_commitments).await
     }
 }

@@ -28,7 +28,7 @@ impl<B> StorageOperation<B> for DaApiRequest<B>
 where
     B: StorageBackend + StorageBackendApi,
 {
-    async fn execute(self, backend: &mut B) -> Result<(), StorageServiceError<B>> {
+    async fn execute(self, backend: &mut B) -> Result<(), StorageServiceError> {
         match self {
             Self::GetLightShare {
                 blob_id,
@@ -53,22 +53,18 @@ async fn handle_get_light_share<B: StorageBackend>(
     blob_id: B::BlobId,
     share_idx: B::ShareIndex,
     response_tx: Sender<Option<B::Share>>,
-) -> Result<(), StorageServiceError<B>> {
+) -> Result<(), StorageServiceError> {
     let result = backend
         .get_light_share(blob_id, share_idx)
         .await
-        .map_err(|e| {
-            error!("Failed to get light share: {:?}", e);
-
-            let key = "blob_id".to_owned().into();
-            StorageServiceError::ReplyError {
-                operation: "get_light_share".to_owned(),
-                key,
-            }
-        })?;
+        .map_err(|e| StorageServiceError::BackendError(e.into()))?;
 
     if response_tx.send(result).is_err() {
         error!("Failed to send response in get_light_share");
+        return Err(StorageServiceError::ReplyError {
+            operation: "get_light_share".to_owned(),
+            key: "blob_id".to_owned().into(),
+        });
     }
 
     Ok(())
@@ -79,41 +75,22 @@ async fn handle_store_light_share<B: StorageBackend>(
     blob_id: B::BlobId,
     share_idx: B::ShareIndex,
     light_share: B::Share,
-) -> Result<(), StorageServiceError<B>> {
+) -> Result<(), StorageServiceError> {
     backend
         .store_light_share(blob_id, share_idx, light_share)
         .await
-        .map_err(|e| {
-            error!("Failed to store light share: {:?}", e);
-
-            let key = "blob_id".to_owned().into();
-            StorageServiceError::ReplyError {
-                operation: "store_light_share".to_owned(),
-                key,
-            }
-        })?;
-    Ok(())
+        .map_err(|e| StorageServiceError::BackendError(e.into()))
 }
 
 async fn handle_store_shared_commitments<B: StorageBackend>(
     backend: &mut B,
     blob_id: B::BlobId,
     shared_commitments: B::Commitments,
-) -> Result<(), StorageServiceError<B>> {
+) -> Result<(), StorageServiceError> {
     backend
         .store_shared_commitments(blob_id, shared_commitments)
         .await
-        .map_err(|e| {
-            error!("Failed to store shared commitments: {:?}", e);
-
-            let key = "blob_id".to_owned().into();
-            StorageServiceError::ReplyError {
-                operation: "store_shared_commitments".to_owned(),
-                key,
-            }
-        })?;
-
-    Ok(())
+        .map_err(|e| StorageServiceError::BackendError(e.into()))
 }
 
 impl<Api: StorageBackend> StorageMsg<Api> {

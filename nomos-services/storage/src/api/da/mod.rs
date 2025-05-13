@@ -1,10 +1,12 @@
+use std::error::Error;
+
 use async_trait::async_trait;
-use overwatch::DynError;
 
 pub mod requests;
 
 #[async_trait]
 pub trait StorageDaApi {
+    type Error: Error + Send + Sync + 'static;
     type BlobId: Send + Sync;
     type Share: Send + Sync;
     type Commitments: Send + Sync;
@@ -14,18 +16,18 @@ pub trait StorageDaApi {
         &mut self,
         blob_id: Self::BlobId,
         share_idx: Self::ShareIndex,
-    ) -> Result<Option<Self::Share>, DynError>;
+    ) -> Result<Option<Self::Share>, Self::Error>;
 
     async fn store_light_share(
         &mut self,
         blob_id: Self::BlobId,
         share_idx: Self::ShareIndex,
         light_share: Self::Share,
-    ) -> Result<(), DynError>;
+    ) -> Result<(), Self::Error>;
 
     async fn store_shared_commitments(
         &mut self,
         blob_id: Self::BlobId,
         shared_commitments: Self::Commitments,
-    ) -> Result<(), DynError>;
+    ) -> Result<(), Self::Error>;
 }

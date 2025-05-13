@@ -23,7 +23,7 @@ impl<B> StorageOperation<B> for ChainApiRequest<B>
 where
     B: StorageBackend + StorageBackendApi,
 {
-    async fn execute(self, backend: &mut B) -> Result<(), StorageServiceError<B>> {
+    async fn execute(self, backend: &mut B) -> Result<(), StorageServiceError> {
         match self {
             Self::GetBlock {
                 header_id,
@@ -40,19 +40,18 @@ async fn handle_get_block<B: StorageBackend>(
     backend: &mut B,
     header_id: HeaderId,
     response_tx: Sender<Option<B::Block>>,
-) -> Result<(), StorageServiceError<B>> {
-    let result = backend.get_block(header_id).await.map_err(|e| {
-        error!("Failed to get block: {:?}", e);
-
-        let key = "header_id".to_owned().into();
-        StorageServiceError::ReplyError {
-            operation: "get_block".to_owned(),
-            key,
-        }
-    })?;
+) -> Result<(), StorageServiceError> {
+    let result = backend
+        .get_block(header_id)
+        .await
+        .map_err(|e| StorageServiceError::BackendError(e.into()))?;
 
     if response_tx.send(result).is_err() {
         error!("Failed to send response in get_block");
+        return Err(StorageServiceError::ReplyError {
+            operation: "get_block".to_owned(),
+            key: "header_id".to_owned().into(),
+        });
     }
 
     Ok(())
@@ -62,16 +61,11 @@ async fn handle_store_block<B: StorageBackend>(
     backend: &mut B,
     header_id: HeaderId,
     block: B::Block,
-) -> Result<(), StorageServiceError<B>> {
-    backend.store_block(header_id, block).await.map_err(|e| {
-        error!("Failed to store block: {:?}", e);
-
-        let key = "header_id".to_owned().into();
-        StorageServiceError::ReplyError {
-            operation: "store_block".to_owned(),
-            key,
-        }
-    })
+) -> Result<(), StorageServiceError> {
+    backend
+        .store_block(header_id, block)
+        .await
+        .map_err(|e| StorageServiceError::BackendError(e.into()))
 }
 
 impl<Api: StorageBackend> StorageMsg<Api> {

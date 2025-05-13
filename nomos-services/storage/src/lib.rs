@@ -160,11 +160,11 @@ impl<Backend: StorageBackend> Debug for StorageMsg<Backend> {
 /// Storage error
 /// Errors that may happen when performing storage operations
 #[derive(Debug, thiserror::Error)]
-pub enum StorageServiceError<Backend: StorageBackend> {
+pub enum StorageServiceError {
     #[error("Couldn't send a reply for operation `{operation}` with key [{key:?}]")]
     ReplyError { operation: String, key: Bytes },
     #[error("Storage backend error")]
-    BackendError(#[source] Backend::Error),
+    BackendError(Box<dyn std::error::Error + Send + Sync>),
 }
 
 /// Storage service that wraps a [`StorageBackend`]
@@ -208,11 +208,11 @@ where
         backend: &mut Backend,
         key: Bytes,
         reply_channel: tokio::sync::oneshot::Sender<Option<Bytes>>,
-    ) -> Result<(), StorageServiceError<Backend>> {
+    ) -> Result<(), StorageServiceError> {
         let result: Option<Bytes> = backend
             .load(&key)
             .await
-            .map_err(StorageServiceError::BackendError)?;
+            .map_err(|e| StorageServiceError::BackendError(e.into()))?;
         reply_channel
             .send(result)
             .map_err(|_| StorageServiceError::ReplyError {
@@ -226,11 +226,11 @@ where
         backend: &mut Backend,
         prefix: Bytes,
         reply_channel: tokio::sync::oneshot::Sender<Vec<Bytes>>,
-    ) -> Result<(), StorageServiceError<Backend>> {
+    ) -> Result<(), StorageServiceError> {
         let result: Vec<Bytes> = backend
             .load_prefix(&prefix)
             .await
-            .map_err(StorageServiceError::BackendError)?;
+            .map_err(|e| StorageServiceError::BackendError(e.into()))?;
         reply_channel
             .send(result)
             .map_err(|_| StorageServiceError::ReplyError {
@@ -244,11 +244,11 @@ where
         backend: &mut Backend,
         key: Bytes,
         reply_channel: tokio::sync::oneshot::Sender<Option<Bytes>>,
-    ) -> Result<(), StorageServiceError<Backend>> {
+    ) -> Result<(), StorageServiceError> {
         let result: Option<Bytes> = backend
             .remove(&key)
             .await
-            .map_err(StorageServiceError::BackendError)?;
+            .map_err(|e| StorageServiceError::BackendError(e.into()))?;
         reply_channel
             .send(result)
             .map_err(|_| StorageServiceError::ReplyError {
@@ -262,11 +262,11 @@ where
         backend: &mut Backend,
         key: Bytes,
         value: Bytes,
-    ) -> Result<(), StorageServiceError<Backend>> {
+    ) -> Result<(), StorageServiceError> {
         backend
             .store(key, value)
             .await
-            .map_err(StorageServiceError::BackendError)
+            .map_err(|e| StorageServiceError::BackendError(e.into()))
     }
 
     /// Handle execute message
@@ -276,11 +276,11 @@ where
         reply_channel: tokio::sync::oneshot::Sender<
             <Backend::Transaction as StorageTransaction>::Result,
         >,
-    ) -> Result<(), StorageServiceError<Backend>> {
+    ) -> Result<(), StorageServiceError> {
         let result = backend
             .execute(transaction)
             .await
-            .map_err(StorageServiceError::BackendError)?;
+            .map_err(|e| StorageServiceError::BackendError(e.into()))?;
         reply_channel
             .send(result)
             .map_err(|_| StorageServiceError::ReplyError {
@@ -292,9 +292,10 @@ where
     async fn handle_api_call(
         api_call: StorageApiRequest<Backend>,
         api_backend: &mut Backend,
-    ) -> Result<(), StorageServiceError<Backend>> {
+    ) -> Result<(), StorageServiceError> {
         <StorageApiRequest<Backend> as StorageOperation<Backend>>::execute(api_call, api_backend)
             .await
+            .map_err(|e| StorageServiceError::BackendError(e.into()))
     }
 }
 

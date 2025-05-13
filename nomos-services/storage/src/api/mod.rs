@@ -24,7 +24,7 @@ where
 }
 
 pub(crate) trait StorageOperation<B: StorageBackend> {
-    async fn execute(self, api: &mut B) -> Result<(), StorageServiceError<B>>;
+    async fn execute(self, api: &mut B) -> Result<(), StorageServiceError>;
 }
 
 pub enum StorageApiRequest<B: StorageBackend> {
@@ -33,7 +33,7 @@ pub enum StorageApiRequest<B: StorageBackend> {
 }
 
 impl<B: StorageBackend> StorageOperation<B> for StorageApiRequest<B> {
-    async fn execute(self, backend: &mut B) -> Result<(), StorageServiceError<B>> {
+    async fn execute(self, backend: &mut B) -> Result<(), StorageServiceError> {
         match self {
             Self::Chain(request) => request.execute(backend).await,
             Self::Da(request) => request.execute(backend).await,

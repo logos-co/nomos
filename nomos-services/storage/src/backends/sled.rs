@@ -3,7 +3,6 @@ use std::{marker::PhantomData, path::PathBuf};
 use async_trait::async_trait;
 use bytes::Bytes;
 use nomos_core::header::HeaderId;
-use overwatch::DynError;
 use sled::transaction::{
     ConflictableTransactionResult, TransactionError, TransactionResult, TransactionalTree,
 };
@@ -59,43 +58,58 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for SledBacke
     type Transaction = SledTransaction;
     type SerdeOperator = SerdeOp;
 
-    fn new(config: Self::Settings) -> Result<Self, Self::Error> {
+    fn new(config: Self::Settings) -> Result<Self, <Self as StorageBackend>::Error> {
         Ok(Self {
             sled: sled::open(config.db_path)?,
             _serde_op: PhantomData,
         })
     }
 
-    async fn store(&mut self, key: Bytes, value: Bytes) -> Result<(), Self::Error> {
+    async fn store(
+        &mut self,
+        key: Bytes,
+        value: Bytes,
+    ) -> Result<(), <Self as StorageBackend>::Error> {
         let _ = self.sled.insert(key, value.to_vec())?;
         Ok(())
     }
 
-    async fn load(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
+    async fn load(&mut self, key: &[u8]) -> Result<Option<Bytes>, <Self as StorageBackend>::Error> {
         Ok(self.sled.get(key)?.map(|ivec| ivec.to_vec().into()))
     }
 
-    async fn load_prefix(&mut self, _key: &[u8]) -> Result<Vec<Bytes>, Self::Error> {
+    async fn load_prefix(
+        &mut self,
+        _key: &[u8],
+    ) -> Result<Vec<Bytes>, <Self as StorageBackend>::Error> {
         unimplemented!()
     }
 
-    async fn remove(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
+    async fn remove(
+        &mut self,
+        key: &[u8],
+    ) -> Result<Option<Bytes>, <Self as StorageBackend>::Error> {
         Ok(self.sled.remove(key)?.map(|ivec| ivec.to_vec().into()))
     }
 
     async fn execute(
         &mut self,
         transaction: Self::Transaction,
-    ) -> Result<<Self::Transaction as StorageTransaction>::Result, Self::Error> {
+    ) -> Result<<Self::Transaction as StorageTransaction>::Result, <Self as StorageBackend>::Error>
+    {
         Ok(self.sled.transaction(transaction))
     }
 }
 
 #[async_trait]
 impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for SledBackend<SerdeOp> {
+    type Error = Error;
     type Block = Bytes;
 
-    async fn get_block(&mut self, _header_id: HeaderId) -> Result<Option<Self::Block>, DynError> {
+    async fn get_block(
+        &mut self,
+        _header_id: HeaderId,
+    ) -> Result<Option<Self::Block>, <Self as StorageBackend>::Error> {
         unimplemented!()
     }
 
@@ -103,13 +117,14 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for SledBack
         &mut self,
         _header_id: HeaderId,
         _block: Self::Block,
-    ) -> Result<(), DynError> {
+    ) -> Result<(), <Self as StorageBackend>::Error> {
         unimplemented!()
     }
 }
 
 #[async_trait]
 impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for SledBackend<SerdeOp> {
+    type Error = Error;
     type BlobId = [u8; 32];
     type Share = Bytes;
     type Commitments = Bytes;
@@ -119,7 +134,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for SledBackend
         &mut self,
         _blob_id: Self::BlobId,
         _share_idx: Self::ShareIndex,
-    ) -> Result<Option<Self::Share>, DynError> {
+    ) -> Result<Option<Self::Share>, <Self as StorageBackend>::Error> {
         unimplemented!()
     }
 
@@ -128,7 +143,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for SledBackend
         _blob_id: Self::BlobId,
         _share_idx: Self::ShareIndex,
         _light_share: Self::Share,
-    ) -> Result<(), DynError> {
+    ) -> Result<(), <Self as StorageBackend>::Error> {
         unimplemented!()
     }
 
@@ -136,7 +151,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for SledBackend
         &mut self,
         _blob_id: Self::BlobId,
         _shared_commitments: Self::Commitments,
-    ) -> Result<(), DynError> {
+    ) -> Result<(), <Self as StorageBackend>::Error> {
         unimplemented!()
     }
 }
