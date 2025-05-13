@@ -53,13 +53,13 @@ where
             .await
             .unwrap();
 
-        receiver
-            .await
-            .map(|maybe_block| maybe_block.map(|block| block.try_into()))
-            .unwrap_or_else(|_| {
-                tracing::error!("Failed to receive block from storage relay");
-                None
-            });
+        if let Ok(maybe_block) = receiver.await {
+            let block = maybe_block?;
+            block.try_into().ok()
+        } else {
+            tracing::error!("Failed to receive block from storage relay");
+            return None;
+        };
 
         None
     }
