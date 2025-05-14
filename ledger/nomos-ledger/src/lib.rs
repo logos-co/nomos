@@ -180,6 +180,10 @@ where
     pub const fn config(&self) -> &Config {
         &self.config
     }
+
+    pub fn prune_state_at(&mut self, block: &Id) -> bool {
+        self.states.remove(block).is_some()
+    }
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
