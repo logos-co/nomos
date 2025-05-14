@@ -1,3 +1,4 @@
+pub mod api;
 pub mod backends;
 
 use std::{
@@ -14,11 +15,13 @@ use overwatch::{
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
     },
-    OpaqueServiceStateHandle,
+    DynError, OpaqueServiceStateHandle,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use services_utils::overwatch::lifecycle;
 use tracing::error;
+
+use crate::api::{StorageApiRequest, StorageOperation};
 
 /// Storage message that maps to [`StorageBackend`] trait
 pub enum StorageMsg<Backend: StorageBackend> {
@@ -42,6 +45,9 @@ pub enum StorageMsg<Backend: StorageBackend> {
         transaction: Backend::Transaction,
         reply_channel:
             tokio::sync::oneshot::Sender<<Backend::Transaction as StorageTransaction>::Result>,
+    },
+    Api {
+        request: StorageApiRequest<Backend>,
     },
 }
 
@@ -144,6 +150,9 @@ impl<Backend: StorageBackend> Debug for StorageMsg<Backend> {
                 write!(f, "Remove {{ {key:?} }}")
             }
             Self::Execute { .. } => write!(f, "Execute transaction"),
+            Self::Api { .. } => {
+                write!(f, "Api {{ .. }}")
+            }
         }
     }
 }
@@ -151,21 +160,25 @@ impl<Backend: StorageBackend> Debug for StorageMsg<Backend> {
 /// Storage error
 /// Errors that may happen when performing storage operations
 #[derive(Debug, thiserror::Error)]
-enum StorageServiceError<Backend: StorageBackend> {
-    #[error("Couldn't send a reply for operation `{operation}` with key [{key:?}]")]
-    ReplyError { operation: String, key: Bytes },
+pub enum StorageServiceError {
+    #[error("Couldn't send a reply [{message:?}]")]
+    ReplyError { message: String },
     #[error("Storage backend error")]
-    BackendError(#[source] Backend::Error),
+    BackendError(Box<dyn std::error::Error + Send + Sync>),
 }
 
 /// Storage service that wraps a [`StorageBackend`]
-pub struct StorageService<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId> {
+pub struct StorageService<Backend, RuntimeServiceId>
+where
+    Backend: StorageBackend + Send + Sync + 'static,
+{
     backend: Backend,
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
 }
 
-impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
-    StorageService<Backend, RuntimeServiceId>
+impl<Backend, RuntimeServiceId> StorageService<Backend, RuntimeServiceId>
+where
+    Backend: StorageBackend + Send + Sync + 'static,
 {
     async fn handle_storage_message(msg: StorageMsg<Backend>, backend: &mut Backend) {
         if let Err(e) = match msg {
@@ -184,6 +197,7 @@ impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
                 transaction,
                 reply_channel,
             } => Self::handle_execute(backend, transaction, reply_channel).await,
+            StorageMsg::Api { request: api_call } => Self::handle_api_call(api_call, backend).await,
         } {
             // TODO: add proper logging
             println!("{e}");
@@ -194,16 +208,15 @@ impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
         backend: &mut Backend,
         key: Bytes,
         reply_channel: tokio::sync::oneshot::Sender<Option<Bytes>>,
-    ) -> Result<(), StorageServiceError<Backend>> {
+    ) -> Result<(), StorageServiceError> {
         let result: Option<Bytes> = backend
             .load(&key)
             .await
-            .map_err(StorageServiceError::BackendError)?;
+            .map_err(|e| StorageServiceError::BackendError(e.into()))?;
         reply_channel
             .send(result)
             .map_err(|_| StorageServiceError::ReplyError {
-                operation: "Load".to_owned(),
-                key,
+                message: format!("Load {key:?}"),
             })
     }
 
@@ -212,16 +225,15 @@ impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
         backend: &mut Backend,
         prefix: Bytes,
         reply_channel: tokio::sync::oneshot::Sender<Vec<Bytes>>,
-    ) -> Result<(), StorageServiceError<Backend>> {
+    ) -> Result<(), StorageServiceError> {
         let result: Vec<Bytes> = backend
             .load_prefix(&prefix)
             .await
-            .map_err(StorageServiceError::BackendError)?;
+            .map_err(|e| StorageServiceError::BackendError(e.into()))?;
         reply_channel
             .send(result)
             .map_err(|_| StorageServiceError::ReplyError {
-                operation: "LoadPrefix".to_owned(),
-                key: prefix,
+                message: format!("LoadPrefix {prefix:?}"),
             })
     }
 
@@ -230,16 +242,15 @@ impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
         backend: &mut Backend,
         key: Bytes,
         reply_channel: tokio::sync::oneshot::Sender<Option<Bytes>>,
-    ) -> Result<(), StorageServiceError<Backend>> {
+    ) -> Result<(), StorageServiceError> {
         let result: Option<Bytes> = backend
             .remove(&key)
             .await
-            .map_err(StorageServiceError::BackendError)?;
+            .map_err(|e| StorageServiceError::BackendError(e.into()))?;
         reply_channel
             .send(result)
             .map_err(|_| StorageServiceError::ReplyError {
-                operation: "Remove".to_owned(),
-                key,
+                message: format!("Remove {key:?}"),
             })
     }
 
@@ -248,11 +259,11 @@ impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
         backend: &mut Backend,
         key: Bytes,
         value: Bytes,
-    ) -> Result<(), StorageServiceError<Backend>> {
+    ) -> Result<(), StorageServiceError> {
         backend
             .store(key, value)
             .await
-            .map_err(StorageServiceError::BackendError)
+            .map_err(|e| StorageServiceError::BackendError(e.into()))
     }
 
     /// Handle execute message
@@ -262,30 +273,39 @@ impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
         reply_channel: tokio::sync::oneshot::Sender<
             <Backend::Transaction as StorageTransaction>::Result,
         >,
-    ) -> Result<(), StorageServiceError<Backend>> {
+    ) -> Result<(), StorageServiceError> {
         let result = backend
             .execute(transaction)
             .await
-            .map_err(StorageServiceError::BackendError)?;
+            .map_err(|e| StorageServiceError::BackendError(e.into()))?;
         reply_channel
             .send(result)
             .map_err(|_| StorageServiceError::ReplyError {
-                operation: "Execute".to_owned(),
-                key: Bytes::new(),
+                message: "Execute transaction".to_owned(),
             })
+    }
+
+    async fn handle_api_call(
+        api_call: StorageApiRequest<Backend>,
+        api_backend: &mut Backend,
+    ) -> Result<(), StorageServiceError> {
+        <StorageApiRequest<Backend> as StorageOperation<Backend>>::execute(api_call, api_backend)
+            .await
+            .map_err(|e| StorageServiceError::BackendError(e.into()))
     }
 }
 
 #[async_trait]
-impl<Backend: StorageBackend + Send + Sync + 'static, RuntimeServiceId>
-    ServiceCore<RuntimeServiceId> for StorageService<Backend, RuntimeServiceId>
+impl<Backend, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for StorageService<Backend, RuntimeServiceId>
 where
+    Backend: StorageBackend + Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self> + Display + Send,
 {
     fn init(
         service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
         _init_state: Self::State,
-    ) -> Result<Self, overwatch::DynError> {
+    ) -> Result<Self, DynError> {
         Ok(Self {
             backend: Backend::new(service_state.settings_reader.get_updated_settings())?,
             service_state,
@@ -321,8 +341,9 @@ where
     }
 }
 
-impl<Backend: StorageBackend + Send + Sync, RuntimeServiceId> ServiceData
-    for StorageService<Backend, RuntimeServiceId>
+impl<Backend, RuntimeServiceId> ServiceData for StorageService<Backend, RuntimeServiceId>
+where
+    Backend: StorageBackend + Send + Sync + 'static,
 {
     type Settings = Backend::Settings;
     type State = NoState<Self::Settings>;

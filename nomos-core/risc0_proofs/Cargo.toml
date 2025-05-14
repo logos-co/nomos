@@ -13,6 +13,6 @@ methods = ["bundle_balance", "covenant_nop", "proof_of_leadership", "ptx"]
 [package.metadata.cargo-machete]
 # False positives.
 ignored = [
-    # cargo-machete does not yet handle build-time dependencies -> https://github.com/bnjbvr/cargo-machete/issues/100
-    "risc0-build",
+  # cargo-machete does not yet handle build-time dependencies -> https://github.com/bnjbvr/cargo-machete/issues/100
+  "risc0-build",
 ]

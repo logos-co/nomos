@@ -22,7 +22,6 @@ members = [
   "nomos-da/network/core",
   "nomos-da/network/messages",
   "nomos-da/network/subnetworks-assignations",
-  "nomos-da/storage",
   "nomos-libp2p",
   "nomos-sdp",
   "nomos-services/api",
@@ -75,7 +74,6 @@ nomos-da-messages        = { path = "./nomos-da/network/messages" }
 nomos-da-network-core    = { path = "./nomos-da/network/core" }
 nomos-da-network-service = { path = "./nomos-services/data-availability/network" }
 nomos-da-sampling        = { path = "./nomos-services/data-availability/sampling" }
-nomos-da-storage         = { path = "./nomos-da/storage" }
 nomos-da-verifier        = { path = "./nomos-services/data-availability/verifier" }
 nomos-executor           = { path = "./nodes/nomos-executor/executor", default-features = false }
 nomos-http-api-common    = { path = "./nodes/api-common" }

@@ -25,8 +25,7 @@ fn persist_tempdir(tempdir: &mut TempDir, label: &str) -> std::io::Result<()> {
     );
     // we need ownership of the dir to persist it
     let dir = std::mem::replace(tempdir, tempfile::tempdir()?);
-    // a bit confusing but `into_path` persists the directory
-    let _ = dir.into_path();
+    let _ = dir.keep();
     Ok(())
 }
 

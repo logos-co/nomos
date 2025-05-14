@@ -59,3 +59,28 @@ impl<
         self.bl_blobs.len()
     }
 }
+
+impl<
+        Tx: Clone + Eq + Hash + Serialize + DeserializeOwned,
+        BlobCertificate: Clone + Eq + Hash + Serialize + DeserializeOwned,
+    > TryFrom<Bytes> for Block<Tx, BlobCertificate>
+{
+    type Error = wire::Error;
+
+    fn try_from(bytes: Bytes) -> Result<Self, Self::Error> {
+        wire::deserialize(&bytes)
+    }
+}
+
+impl<
+        Tx: Clone + Eq + Hash + Serialize + DeserializeOwned,
+        BlobCertificate: Clone + Eq + Hash + Serialize + DeserializeOwned,
+    > TryFrom<Block<Tx, BlobCertificate>> for Bytes
+{
+    type Error = wire::Error;
+
+    fn try_from(block: Block<Tx, BlobCertificate>) -> Result<Self, Self::Error> {
+        let serialized = wire::serialize(&block)?;
+        Ok(serialized.into())
+    }
+}

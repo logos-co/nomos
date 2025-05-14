@@ -2,8 +2,7 @@ use std::{marker::PhantomData, path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-pub use rocksdb::Error;
-use rocksdb::{Options, DB};
+use rocksdb::{Error, Options, DB};
 use serde::{Deserialize, Serialize};
 
 use super::{StorageBackend, StorageSerde, StorageTransaction};
@@ -64,13 +63,16 @@ impl<SerdeOp> core::fmt::Debug for RocksBackend<SerdeOp> {
 }
 
 #[async_trait]
-impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBackend<SerdeOp> {
+impl<SerdeOp> StorageBackend for RocksBackend<SerdeOp>
+where
+    SerdeOp: StorageSerde + Send + Sync + 'static,
+{
     type Settings = RocksBackendSettings;
     type Error = rocksdb::Error;
     type Transaction = Transaction;
     type SerdeOperator = SerdeOp;
 
-    fn new(config: Self::Settings) -> Result<Self, Self::Error> {
+    fn new(config: Self::Settings) -> Result<Self, <Self as StorageBackend>::Error> {
         let RocksBackendSettings {
             db_path,
             read_only,
@@ -108,17 +110,24 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
         })
     }
 
-    async fn store(&mut self, key: Bytes, value: Bytes) -> Result<(), Self::Error> {
+    async fn store(
+        &mut self,
+        key: Bytes,
+        value: Bytes,
+    ) -> Result<(), <Self as StorageBackend>::Error> {
         self.rocks.put(key, value)
     }
 
-    async fn load(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
+    async fn load(&mut self, key: &[u8]) -> Result<Option<Bytes>, <Self as StorageBackend>::Error> {
         self.rocks
             .get(key)
             .map(|opt| opt.map(std::convert::Into::into))
     }
 
-    async fn load_prefix(&mut self, prefix: &[u8]) -> Result<Vec<Bytes>, Self::Error> {
+    async fn load_prefix(
+        &mut self,
+        prefix: &[u8],
+    ) -> Result<Vec<Bytes>, <Self as StorageBackend>::Error> {
         let mut values = Vec::new();
         let iter = self.rocks.prefix_iterator(prefix);
 
@@ -134,7 +143,10 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
         Ok(values)
     }
 
-    async fn remove(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error> {
+    async fn remove(
+        &mut self,
+        key: &[u8],
+    ) -> Result<Option<Bytes>, <Self as StorageBackend>::Error> {
         let val = self.load(key).await?;
         if val.is_some() {
             self.rocks.delete(key).map(|()| val)
@@ -146,7 +158,8 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for RocksBack
     async fn execute(
         &mut self,
         transaction: Self::Transaction,
-    ) -> Result<<Self::Transaction as StorageTransaction>::Result, Self::Error> {
+    ) -> Result<<Self::Transaction as StorageTransaction>::Result, <Self as StorageBackend>::Error>
+    {
         Ok(transaction.execute())
     }
 }

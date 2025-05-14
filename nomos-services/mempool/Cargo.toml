@@ -44,6 +44,6 @@ openapi = ["dep:serde_json", "dep:utoipa"]
 [package.metadata.cargo-machete]
 # False positives.
 ignored = [
-    # Required by `utoipa`.
-    "serde_json",
+  # Required by `utoipa`.
+  "serde_json",
 ]
