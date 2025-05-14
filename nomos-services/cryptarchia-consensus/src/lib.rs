@@ -192,7 +192,16 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
                 .get()
                 .into(),
         );
-        tracing::debug!(target: LOG_TARGET, "Pruned {} old forks", old_forks_pruned.count());
+        let mut pruned_blocks_count = 0usize;
+        old_forks_pruned.for_each(|pruned_block| {
+            assert!(
+                self.ledger.prune_state_at(&pruned_block.id()),
+                "Failed to prune ledger state for block {:?} which should exist.",
+                pruned_block.id()
+            );
+            pruned_blocks_count = pruned_blocks_count.saturating_add(1);
+        });
+        tracing::debug!(target: LOG_TARGET, "Pruned {pruned_blocks_count} old forks and their ledger states.");
     }
 }
 
