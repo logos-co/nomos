@@ -3,12 +3,17 @@ pub mod behaviour;
 #[cfg(test)]
 mod test {
     use std::{collections::VecDeque, ops::Range, sync::LazyLock, time::Duration};
-
+    use std::net::SocketAddr;
+    use std::sync::Arc;
     use futures::StreamExt as _;
+    use libp2p::multiaddr::Protocol;
     use libp2p::{identity::Keypair, quic, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
+    use libp2p::bytes::BytesMut;
     use libp2p_swarm_test::SwarmExt as _;
     use log::info;
+    use tokio::io;
     use nomos_da_messages::replication::ReplicationRequest;
+    use tokio::net::UdpSocket;
     use tokio::sync::mpsc;
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
@@ -90,6 +95,123 @@ mod test {
         // Ad-hoc generation of those takes about 12 seconds on a Ryzen3700x
         bincode::deserialize(include_bytes!("./fixtures/messages.bincode")).unwrap()
     });
+
+    // Function to modify packets (customizable)
+    fn modify_packet(data: &mut BytesMut) {
+        // Example modification: append a marker byte
+        data.extend_from_slice(b"[MOD]");
+    }
+
+    // Convert Multiaddr to SocketAddr for UDP
+    fn multiaddr_to_socket_addr(multiaddr: &Multiaddr) -> io::Result<SocketAddr> {
+        let iter = multiaddr.iter();
+        let mut ip = None;
+        let mut port = None;
+
+        for component in iter {
+            match component {
+                Protocol::Ip4(addr) => ip = Some(std::net::IpAddr::V4(addr)),
+                Protocol::Ip6(addr) => ip = Some(std::net::IpAddr::V6(addr)),
+                Protocol::Udp(p) => port = Some(p),
+                _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, "Unsupported protocol")),
+            }
+        }
+
+        match (ip, port) {
+            (Some(ip), Some(port)) => Ok(SocketAddr::new(ip, port)),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Multiaddr must include IP and UDP port",
+            )),
+        }
+    }
+
+    // Start the two-way UDP mutation proxy
+    pub async fn start_udp_mutation_proxy(
+        proxy_addr: Multiaddr,
+        target_addr: Multiaddr,
+    ) -> io::Result<()> {
+        // Convert Multiaddrs to SocketAddrs
+        let proxy_socket_addr = multiaddr_to_socket_addr(&proxy_addr)?;
+        let target_socket_addr = multiaddr_to_socket_addr(&target_addr)?;
+        println!(
+            "Proxy listening on {} forwarding to {}",
+            proxy_socket_addr, target_socket_addr
+        );
+
+        // Create UDP sockets
+        let proxy_socket = Arc::new(UdpSocket::bind(proxy_socket_addr).await?);
+        let target_socket = Arc::new(UdpSocket::bind("0.0.0.0:0").await?); // Ephemeral port
+
+        // Create channels for two-way communication
+        let (tx_proxy_to_target, mut rx_proxy_to_target) = mpsc::channel(100);
+        let (tx_target_to_proxy, mut rx_target_to_proxy) = mpsc::channel(100);
+
+        // Spawn tasks for handling and forwarding packets
+        let tasks = vec![
+            // Handle packets from proxy_addr -> target_addr
+            {
+                let proxy_socket = Arc::clone(&proxy_socket);
+                let tx_proxy_to_target = tx_proxy_to_target.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 65535];
+                    loop {
+                        let (len, src_addr) = proxy_socket.recv_from(&mut buf).await?;
+                        let data = BytesMut::from(&buf[..len]);
+                        tx_proxy_to_target
+                            .send((data, src_addr))
+                            .await
+                            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                    }
+                })
+            },
+            {
+                let target_socket = Arc::clone(&target_socket);
+                tokio::spawn(async move {
+                    while let Some((mut data, _src_addr)) = rx_proxy_to_target.recv().await {
+                        modify_packet(&mut data);
+                        target_socket
+                            .send_to(&data, target_socket_addr)
+                            .await?;
+                    }
+                    Ok::<(), io::Error>(())
+                })
+            },
+            // Handle packets from target_addr -> proxy_addr
+            {
+                let target_socket = Arc::clone(&target_socket);
+                let tx_target_to_proxy = tx_target_to_proxy.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 65535];
+                    loop {
+                        let (len, src_addr) = target_socket.recv_from(&mut buf).await?;
+                        let data = BytesMut::from(&buf[..len]);
+                        tx_target_to_proxy
+                            .send((data, src_addr))
+                            .await
+                            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                    }
+                })
+            },
+            {
+                let proxy_socket = Arc::clone(&proxy_socket);
+                tokio::spawn(async move {
+                    while let Some((mut data, src_addr)) = rx_target_to_proxy.recv().await {
+                        modify_packet(&mut data);
+                        proxy_socket.send_to(&data, src_addr).await?;
+                    }
+                    Ok(())
+                })
+            },
+        ];
+
+        // Wait for any task to fail
+        for task in tasks {
+            task.await??;
+        }
+
+        Ok(())
+    }
 
     #[tokio::test]
     async fn test_replication_chain_in_both_directions() {
@@ -289,8 +411,21 @@ mod test {
         }
 
         // Test 2: Tampered transport should fail
-        let addr3: Multiaddr = "/ip4/127.0.0.1/udp/5056/quic-v1".parse().unwrap();
-        let addr4 = addr3.clone();
+        // let addr3: Multiaddr = "/ip4/127.0.0.1/udp/5056/quic-v1".parse().unwrap();
+        // let addr4 = addr3.clone();
+
+        let proxy_addr: Multiaddr = "/ip4/127.0.0.1/udp/5058".parse().unwrap();
+        let server_addr: Multiaddr = "/ip4/127.0.0.1/udp/5059".parse().unwrap();
+
+        // Start the proxy in the background
+        tokio::spawn(start_udp_mutation_proxy(proxy_addr.clone(), server_addr.clone()));
+
+        // Allow proxy to start
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let addr3: Multiaddr = format!("{}/quic-v1", server_addr).parse().unwrap();
+        let addr4: Multiaddr = format!("{}/quic-v1", proxy_addr).parse().unwrap();
+
         let mut swarm_3 = get_swarm(k1.clone(), make_neighbours(&[&k1, &k2]));
 
         let task_3 = async move {
@@ -302,7 +437,7 @@ mod test {
                         message,
                         ..
                     }) = event
-                    {
+                    {   info!("Received message {:?}", message);
                         assert_ne!(message.share.data.share_idx, 0);
                         Some(message)
                     } else {
@@ -325,12 +460,140 @@ mod test {
                         let behaviour = swarm_2_tampered.behaviour_mut();
                         let msg = get_message(i);
                         behaviour.send_message(&msg);
-                        i += 1;
+                        if i < 20 {
+                            i += 1;
+                        } else {
+                            break;
+                        }
                     }
                     event = swarm_2_tampered.select_next_some() => {
                         match event {
                             SwarmEvent::ConnectionClosed { .. } => break,
                             SwarmEvent::ConnectionEstablished { peer_id,  connection_id, .. } => {
+                                info!("Connected to {peer_id} with connection_id: {connection_id}");
+                            },
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        };
+
+        tokio::join!(task_3, task_4);
+    }
+
+    #[tokio::test]
+    async fn test_connects_and_receives_with_udp_proxy() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .compact()
+            .with_writer(TestWriter::default())
+            .try_init();
+
+        let proxy_addr: Multiaddr = "/ip4/127.0.0.1/udp/5058".parse().unwrap();
+        let server_addr: Multiaddr = "/ip4/127.0.0.1/udp/5059".parse().unwrap();
+        start_udp_mutation_proxy(proxy_addr.clone(), server_addr.clone())
+            .await
+            .expect("Failed to start UDP proxy");
+
+        let k1 = Keypair::generate_ed25519();
+        let k2 = Keypair::generate_ed25519();
+        let peer_id2 = PeerId::from_public_key(&k2.public());
+
+        let neighbours = make_neighbours(&[&k1, &k2]);
+        let mut swarm_3 = get_swarm(k1.clone(), make_neighbours(&[&k1, &k2]));
+
+        let mut quic_config = quic::Config::new(&k2);
+        quic_config.handshake_timeout = Duration::from_millis(100);
+        quic_config.max_idle_timeout = 100;
+        quic_config.keep_alive_interval = Duration::from_millis(50);
+
+        let mut swarm_2_tampered = libp2p::SwarmBuilder::with_existing_identity(k2.clone())
+            .with_tokio()
+            .with_other_transport(|_keypair| quic::tokio::Transport::new(quic_config))
+            .unwrap()
+            .with_behaviour(|key| {
+                let base = ReplicationBehaviour::new(
+                    ReplicationConfig {
+                        seen_message_cache_size: 100,
+                        seen_message_ttl: Duration::from_secs(60),
+                    },
+                    PeerId::from_public_key(&key.public()),
+                    neighbours,
+                );
+                let mut behaviour = TamperingReplicationBehaviour::new(base);
+                behaviour.set_tamper_hook(|mut msg| {
+                    msg.share.data.share_idx ^= 0xFF;
+                    msg
+                });
+                behaviour
+            })
+            .unwrap()
+            .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(10)))
+            .build();
+
+        let addr3: Multiaddr = format!("{}/quic-v1", server_addr).parse().unwrap();
+        let addr4: Multiaddr = format!("{}/quic-v1", proxy_addr).parse().unwrap();
+
+        let task_3 = async move {
+            swarm_3.listen_on(addr3).unwrap();
+            wait_for_incoming_connection(&mut swarm_3, peer_id2).await;
+
+            let all_messages: Vec<_> = swarm_3
+                .filter_map(|event| async {
+                    match event {
+                        SwarmEvent::Behaviour(ReplicationEvent::IncomingMessage {
+                            message,
+                            ..
+                        }) => {
+                            info!("Received message {:?}", message);
+                            Some(message)
+                        },
+                        _ => None,
+                    }
+                })
+                .take(10)
+                .collect()
+                .await;
+
+            let malformed_count = all_messages
+                .iter()
+                .filter(|m| m.share.data.share_idx == 0)
+                .count();
+            let valid_count = all_messages.len() - malformed_count;
+
+            assert!(
+                malformed_count > 0,
+                "Expected at least one malformed message due to proxy tampering"
+            );
+            assert_eq!(
+                valid_count + malformed_count,
+                10,
+                "All messages should have been processed"
+            );
+
+        };
+
+        let task_4 = async move {
+            swarm_2_tampered.dial(addr4).unwrap();
+            let mut i = 0;
+            loop {
+                tokio::select! {
+                    () = tokio::time::sleep(Duration::from_millis(50)) => {
+                        let behaviour = swarm_2_tampered.behaviour_mut();
+                        let msg = get_message(i);
+                        behaviour.send_message(&msg);
+                        info!("Sent message {:?}", msg);
+                        if i < 10 {
+                            i += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    event = swarm_2_tampered.select_next_some() => {
+                        match event {
+                            SwarmEvent::ConnectionClosed { .. } => break,
+                            SwarmEvent::ConnectionEstablished { peer_id, connection_id, .. } => {
                                 info!("Connected to {peer_id} with connection_id: {connection_id}");
                             },
                             _ => {}
