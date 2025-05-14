@@ -9,16 +9,14 @@ use adapters::{
 };
 use async_trait::async_trait;
 use backends::{SdpBackend, SdpBackendError};
-use futures::StreamExt as _;
 use nomos_sdp_core::ledger;
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
     },
-    OpaqueServiceStateHandle,
+    OpaqueServiceResourcesHandle,
 };
-use services_utils::overwatch::lifecycle;
 use tokio::sync::oneshot;
 
 #[derive(Debug)]
@@ -55,7 +53,7 @@ pub struct SdpService<
     ContractAddress: Debug + Send + Sync + 'static,
 {
     backend: B,
-    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
 }
 
 impl<
@@ -145,8 +143,8 @@ where
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + Sync + 'static,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-        _initstate: Self::State,
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+        _initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
         let declaration_adapter = DeclarationAdapter::new();
         let services_adapter = ServicesAdapter::new();
@@ -159,25 +157,16 @@ where
                 services_adapter,
                 stake_verifier_adapter,
             ),
-            service_state,
+            service_resources_handle,
         })
     }
 
     async fn run(mut self) -> Result<(), overwatch::DynError> {
-        let mut lifecycle_stream = self.service_state.lifecycle_handle.message_stream();
         loop {
-            tokio::select! {
-                Some(msg) = self.service_state.inbound_relay.recv()  => {
-                    self.handle_sdp_message(msg).await;
-                }
-                Some(msg) = lifecycle_stream.next() => {
-                    if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
-                        break;
-                    }
-                }
+            if let Some(msg) = self.service_resources_handle.inbound_relay.recv().await {
+                self.handle_sdp_message(msg).await;
             }
         }
-        Ok(())
     }
 }
 
