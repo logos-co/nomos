@@ -40,10 +40,13 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for RocksBac
             .ok_or_else(|| Error::Other("Block {encoded_header_id} not found".to_owned()))
     }
 
-    async fn remove_blocks(
+    async fn remove_blocks<Headers>(
         &mut self,
-        header_ids: HashSet<HeaderId>,
-    ) -> Result<impl Iterator<Item = Self::Block>, Self::Error> {
+        header_ids: Headers,
+    ) -> Result<impl Iterator<Item = Self::Block>, Self::Error>
+    where
+        Headers: Iterator<Item = HeaderId>,
+    {
         let mut blocks = Vec::with_capacity(header_ids.len());
         for header_id in header_ids {
             // We cannot process multiple blocks in parallel since we cannot mutably borrow
