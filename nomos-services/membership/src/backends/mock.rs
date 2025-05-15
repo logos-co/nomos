@@ -39,23 +39,31 @@ impl MembershipBackend for MockMembershipBackend {
         service_type: ServiceType,
         index: i32,
     ) -> Result<MembershipSnapshot, MembershipBackendError> {
-        let len = self.membership.len();
+        // index 0 gets latest snapshot
+        if index == 0 {
+            let snapshot = self.get_latest_snapshots().get(&service_type).cloned();
+            return Ok(snapshot.unwrap_or_default());
+        }
 
+        let len = self.membership.len();
         if len == 0 {
             return Ok(HashMap::default());
         }
 
-        let actual_index = if index >= 0 {
-            if index as usize >= len {
+        let actual_index = if index > 0 {
+            // Positive index: absolute position in the past
+            let idx = index as usize;
+            if idx >= len {
                 return Ok(HashMap::default());
             }
-            len - 1 - (index as usize)
+            idx - 1
         } else {
-            let positive_index = (-index) as usize;
-            if positive_index > len {
+            // Negative index: relative to latest
+            let back_from_latest = (-index) as usize;
+            if back_from_latest >= len {
                 return Ok(HashMap::default());
             }
-            len - positive_index
+            len - 1 - back_from_latest
         };
 
         let snapshot = self.get_snapshot_at(actual_index, service_type);
