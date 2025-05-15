@@ -1,6 +1,6 @@
-use crypto_bigint::{CheckedMul, CheckedSub, Encoding, U256};
+use crypto_bigint::{CheckedMul as _, CheckedSub as _, Encoding as _, U256};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use sha2::{Digest as _, Sha256};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LeaderPublic {

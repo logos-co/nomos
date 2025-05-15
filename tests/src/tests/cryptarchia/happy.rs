@@ -1,6 +1,6 @@
 use std::{collections::HashSet, time::Duration};
 
-use futures::stream::{self, StreamExt};
+use futures::stream::{self, StreamExt as _};
 use tests::{
     adjust_timeout,
     topology::{Topology, TopologyConfig},

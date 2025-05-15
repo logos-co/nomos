@@ -1,4 +1,4 @@
-use rand::{Rng, SeedableRng};
+use rand::{Rng as _, SeedableRng as _};
 use rand_chacha::ChaCha20Rng;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

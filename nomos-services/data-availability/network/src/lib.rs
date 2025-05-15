@@ -7,7 +7,7 @@ use std::{
 
 use async_trait::async_trait;
 use backends::NetworkBackend;
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt as _};
 use overwatch::{
     services::{
         state::{NoOperator, ServiceState},

@@ -5,7 +5,7 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-use futures::{future::BoxFuture, AsyncReadExt, AsyncWriteExt, FutureExt};
+use futures::{future::BoxFuture, AsyncReadExt as _, AsyncWriteExt as _, FutureExt as _};
 use libp2p::{
     core::upgrade::ReadyUpgrade,
     swarm::{

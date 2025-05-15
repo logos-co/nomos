@@ -8,7 +8,7 @@ use tokio::sync::{broadcast, mpsc};
 
 use self::swarm::SwarmHandler;
 pub use self::{
-    command::{Command, Dial, DiscoveryCommand, Libp2pInfo, NetworkCommand, PubSubCommand, Topic},
+    command::{Command, Dial, DiscoveryCommand, Libp2pInfo, NetworkCommand, PubSubCommand},
     config::Libp2pConfig,
 };
 use super::NetworkBackend;

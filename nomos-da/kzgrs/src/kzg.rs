@@ -1,15 +1,16 @@
 use std::{
     borrow::Cow,
-    ops::{Mul, Neg},
+    ops::{Mul as _, Neg as _},
 };
 
 use ark_bls12_381::{Bls12_381, Fr};
-use ark_ec::pairing::Pairing;
+use ark_ec::pairing::Pairing as _;
 use ark_poly::{
-    univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, GeneralEvaluationDomain,
+    univariate::DensePolynomial, DenseUVPolynomial as _, EvaluationDomain as _,
+    GeneralEvaluationDomain,
 };
 use ark_poly_commit::kzg10::{Commitment, Powers, Proof, UniversalParams, KZG10};
-use num_traits::{One, Zero};
+use num_traits::{One as _, Zero as _};
 
 use crate::{common::KzgRsError, Evaluations};
 
@@ -80,13 +81,14 @@ mod test {
 
     use ark_bls12_381::{Bls12_381, Fr};
     use ark_poly::{
-        univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, GeneralEvaluationDomain,
+        univariate::DensePolynomial, DenseUVPolynomial as _, EvaluationDomain as _,
+        GeneralEvaluationDomain,
     };
     use ark_poly_commit::kzg10::{UniversalParams, KZG10};
-    use rand::{thread_rng, Fill};
+    use rand::{thread_rng, Fill as _};
     use rayon::{
-        iter::{IndexedParallelIterator, ParallelIterator},
-        prelude::IntoParallelRefIterator,
+        iter::{IndexedParallelIterator as _, ParallelIterator as _},
+        prelude::IntoParallelRefIterator as _,
     };
 
     use crate::{

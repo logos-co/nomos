@@ -2,13 +2,13 @@ use std::{
     collections::HashSet,
     hash::Hash,
     marker::PhantomData,
-    ops::Div,
+    ops::Div as _,
     pin::Pin,
     task::{Context, Poll},
 };
 
-use blake2::{digest::consts::U4, Digest};
-use futures::{Stream, StreamExt};
+use blake2::{digest::consts::U4, Digest as _};
+use futures::{Stream, StreamExt as _};
 use nomos_blend_message::BlendMessage;
 use serde::Deserialize;
 

@@ -46,6 +46,12 @@ jobs:
         with:
           command: fmt
           args: --all --check
+      - name: Install taplo CLI
+        run: cargo install taplo-cli --locked --version 0.9.3
+      - name: Run taplo lint
+        run: taplo lint
+      - name: Run taplo fmt
+        run: taplo fmt --check
 
   cargo-deny:
     name: Check cargo-deny rules

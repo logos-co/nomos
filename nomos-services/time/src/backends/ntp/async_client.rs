@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
+use futures::{stream::FuturesUnordered, StreamExt as _, TryStreamExt as _};
 #[cfg(feature = "serde")]
 use nomos_utils::bounded_duration::{MinimalBoundedDuration, NANO};
 use sntpc::{get_time, Error as SntpError, NtpContext, NtpResult, StdTimestampGen};

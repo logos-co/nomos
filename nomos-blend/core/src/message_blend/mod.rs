@@ -10,7 +10,7 @@ use std::{
 };
 
 pub use crypto::CryptographicProcessorSettings;
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt as _};
 use nomos_blend_message::BlendMessage;
 use rand::RngCore;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -20,7 +20,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use crate::{
     membership::Membership,
-    message_blend::{crypto::CryptographicProcessor, temporal::TemporalProcessorExt},
+    message_blend::{crypto::CryptographicProcessor, temporal::TemporalProcessorExt as _},
     BlendOutgoingMessage,
 };
 

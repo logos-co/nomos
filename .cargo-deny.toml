@@ -10,7 +10,6 @@ ignore = [
   { id = "RUSTSEC-2020-0095", reason = "`difference` is unmaintained; consider using an alternative. Use `cargo tree -p difference -i > tmp.txt` to check the dependency tree." },
   { id = "RUSTSEC-2023-0071", reason = "Marvin Attack: potential key recovery through timing sidechannels" },
   { id = "RUSTSEC-2024-0370", reason = "`proc-macro-error` is unmaintained; consider using an alternative. Use `cargo tree -p proc-macro-error -i > tmp.txt` to check the dependency tree." },
-  { id = "RUSTSEC-2024-0384", reason = "`instant` is unmaintained; consider using an alternative. Use `cargo tree -p instant -i > tmp.txt` to check the dependency tree." },
   { id = "RUSTSEC-2024-0388", reason = "`derivative` is unmaintained; consider using an alternative. Use `cargo tree -p derivative -i > tmp.txt` to check the dependency tree." },
   { id = "RUSTSEC-2024-0436", reason = "`paste` has a security vulnerability; consider using an alternative. Use `cargo tree -p paste -i > tmp.txt` to check the dependency tree." },
 ]

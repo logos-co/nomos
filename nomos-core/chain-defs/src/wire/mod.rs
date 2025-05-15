@@ -13,7 +13,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]
 mod tests {
-    use serde::{Deserialize, Serialize};
+    use serde::{Deserialize as _, Serialize as _};
 
     use super::*;
 

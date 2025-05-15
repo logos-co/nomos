@@ -300,10 +300,10 @@ mod tests {
     use std::{collections::HashMap, task::Context, time::Duration};
 
     use libp2p::{
-        swarm::{dial_opts::DialOpts, DialError, ListenError, NetworkBehaviour, SwarmEvent},
+        swarm::{dial_opts::DialOpts, DialError, ListenError, NetworkBehaviour as _, SwarmEvent},
         PeerId, Swarm,
     };
-    use libp2p_swarm_test::SwarmExt;
+    use libp2p_swarm_test::SwarmExt as _;
     use tokio::sync::oneshot;
 
     use crate::maintenance::monitor::{

@@ -55,13 +55,13 @@ impl FillFromNodeList {
         peers.sort_unstable();
         // take n peers and fill a subnetwork until all subnetworks are filled
         let mut cycle = peers.into_iter().cycle();
-        (0..subnetwork_size)
-            .map(|_| {
-                (0..replication_factor)
-                    .map(|_| cycle.next().unwrap())
-                    .collect()
-            })
-            .collect()
+        std::iter::repeat_with(|| {
+            std::iter::repeat_with(|| cycle.next().unwrap())
+                .take(replication_factor)
+                .collect()
+        })
+        .take(subnetwork_size)
+        .collect()
     }
 }
 

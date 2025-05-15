@@ -192,7 +192,7 @@ mod tests {
         swarm::{Swarm, SwarmEvent},
         PeerId,
     };
-    use libp2p_swarm_test::SwarmExt;
+    use libp2p_swarm_test::SwarmExt as _;
     use tokio::time::timeout;
 
     use super::*;

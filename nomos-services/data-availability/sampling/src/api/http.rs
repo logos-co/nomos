@@ -8,7 +8,7 @@ use multiaddr::Multiaddr;
 use nomos_core::da::BlobId;
 use nomos_da_network_core::SubnetworkId;
 use overwatch::DynError;
-use rand::prelude::IteratorRandom;
+use rand::prelude::IteratorRandom as _;
 use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;

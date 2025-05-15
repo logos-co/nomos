@@ -1,4 +1,4 @@
-use std::num::NonZero;
+use std::num::{NonZero, NonZeroU64};
 
 use cryptarchia_engine::{Epoch, Slot};
 
@@ -24,11 +24,12 @@ impl Config {
     #[must_use]
     pub fn nonce_snapshot(&self, epoch: Epoch) -> Slot {
         let offset = self.base_period_length().get().saturating_mul(
-            u64::from(self.epoch_config.epoch_period_nonce_buffer.get()).saturating_add(u64::from(
-                self.epoch_config
-                    .epoch_stake_distribution_stabilization
-                    .get(),
-            )),
+            u64::from(NonZeroU64::from(
+                self.epoch_config.epoch_period_nonce_buffer,
+            ))
+            .saturating_add(u64::from(NonZeroU64::from(
+                self.epoch_config.epoch_stake_distribution_stabilization,
+            ))),
         );
         let base =
             u64::from(u32::from(epoch).saturating_sub(1)).saturating_mul(self.epoch_length());

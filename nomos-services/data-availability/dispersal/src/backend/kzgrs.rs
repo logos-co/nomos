@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use futures::StreamExt;
+use futures::StreamExt as _;
 use kzgrs_backend::{
     common::build_blob_id,
     dispersal, encoder,
@@ -11,7 +11,7 @@ use nomos_mempool::backend::MempoolError;
 use nomos_tracing::info_with_id;
 use nomos_utils::bounded_duration::{MinimalBoundedDuration, NANO};
 use overwatch::DynError;
-use rand::{seq::IteratorRandom, thread_rng};
+use rand::{seq::IteratorRandom as _, thread_rng};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use tokio::time::error::Elapsed;

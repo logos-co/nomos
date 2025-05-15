@@ -1,7 +1,7 @@
 use std::{collections::HashSet, hint::black_box};
 
 use ark_bls12_381::Fr;
-use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
+use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain};
 use divan::{counter::BytesCount, Bencher};
 use kzgrs::{common::field_element_from_bytes_le, decode, rs::points_to_bytes};
 use kzgrs_backend::{
@@ -9,7 +9,7 @@ use kzgrs_backend::{
     global::GLOBAL_PARAMETERS,
 };
 use nomos_core::da::DaEncoder as _;
-use rand::{prelude::IteratorRandom, thread_rng, RngCore};
+use rand::{prelude::IteratorRandom as _, thread_rng, RngCore as _};
 
 fn main() {
     divan::main();

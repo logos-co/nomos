@@ -1,7 +1,7 @@
 use std::convert::Infallible;
 
 use blake2::{
-    digest::{Update, VariableOutput},
+    digest::{Update as _, VariableOutput as _},
     Blake2bVar,
 };
 use bytes::{Bytes, BytesMut};

@@ -45,12 +45,12 @@ mod test {
     use std::{num::NonZero, time::Duration};
 
     use cryptarchia_engine::{time::SlotConfig, EpochConfig, Slot};
-    use futures::StreamExt;
+    use futures::StreamExt as _;
     use time::OffsetDateTime;
 
     use crate::backends::{
         system_time::{SystemTimeBackend, SystemTimeBackendSettings},
-        TimeBackend,
+        TimeBackend as _,
     };
 
     #[tokio::test]

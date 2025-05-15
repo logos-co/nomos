@@ -9,9 +9,8 @@ pub mod storage;
 use core::fmt::Debug;
 use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 
-use bytes::Bytes;
 use cryptarchia_engine::Slot;
-use futures::StreamExt;
+use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
 use nomos_blend_service::BlendService;
@@ -25,13 +24,13 @@ use nomos_core::{
 use nomos_da_sampling::{
     backend::DaSamplingServiceBackend, DaSamplingService, DaSamplingServiceMsg,
 };
-use nomos_ledger::{leader_proof::LeaderProof, LedgerState};
+use nomos_ledger::{leader_proof::LeaderProof as _, LedgerState};
 use nomos_mempool::{
     backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter, DaMempoolService,
     MempoolMsg, TxMempoolService,
 };
 use nomos_network::NetworkService;
-use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
+use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageService};
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
     services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},
@@ -46,7 +45,7 @@ use services_utils::overwatch::{
 use thiserror::Error;
 use tokio::sync::{broadcast, oneshot, oneshot::Sender};
 use tracing::{error, info, instrument, span, Level};
-use tracing_futures::Instrument;
+use tracing_futures::Instrument as _;
 
 use crate::{
     leadership::Leader,
@@ -468,6 +467,8 @@ where
     BS: BlobSelect<BlobId = DaPool::Item> + Clone + Send + Sync + 'static,
     BS::Settings: Send + Sync + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Block:
+        TryFrom<Block<ClPool::Item, DaPool::Item>> + TryInto<Block<ClPool::Item, DaPool::Item>>,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + Send + 'static,
@@ -764,6 +765,8 @@ where
     BS: BlobSelect<BlobId = DaPool::Item> + Clone + Send + Sync + 'static,
     BS::Settings: Send,
     Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Block:
+        TryFrom<Block<ClPool::Item, DaPool::Item>> + TryInto<Block<ClPool::Item, DaPool::Item>>,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -958,12 +961,12 @@ where
                 )
                 .await;
 
-                // store block
-                let key: [u8; 32] = header.id().into();
-                let msg =
-                    <StorageMsg<_>>::new_store_message(Bytes::copy_from_slice(&key), block.clone());
-                if let Err((e, _msg)) = relays.storage_adapter().storage_relay.send(msg).await {
-                    tracing::error!("Could not send block to storage: {e}");
+                if let Err(e) = relays
+                    .storage_adapter()
+                    .store_block(header.id(), block.clone())
+                    .await
+                {
+                    error!("Could not store block {e}");
                 }
 
                 if let Err(e) = block_broadcaster.send(block) {

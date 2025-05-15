@@ -170,7 +170,7 @@ mod test {
     use rand::{prelude::*, rngs::StdRng};
 
     use crate::backend::kzgrs::{
-        DaSamplingServiceBackend, KzgrsSamplingBackend, KzgrsSamplingBackendSettings,
+        DaSamplingServiceBackend as _, KzgrsSamplingBackend, KzgrsSamplingBackendSettings,
         SamplingContext, SamplingState,
     };
 

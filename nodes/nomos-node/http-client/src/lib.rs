@@ -1,6 +1,6 @@
 use std::{collections::HashSet, fmt::Debug, hash::Hash, sync::Arc};
 
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt as _};
 use nomos_core::da::blob::Share;
 use nomos_da_messages::http::da::{
     DASharesCommitmentsRequest, DaSamplingRequest, GetSharesRequest,

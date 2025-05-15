@@ -2,7 +2,7 @@ use std::{fmt::Debug, marker::PhantomData, pin::Pin, sync::Arc};
 
 use futures::{
     future::{AbortHandle, Abortable, Aborted},
-    Stream, StreamExt,
+    Stream, StreamExt as _,
 };
 use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;

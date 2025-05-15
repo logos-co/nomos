@@ -21,10 +21,10 @@ use nomos_network::{
 use nomos_tracing_service::{Tracing, TracingSettings};
 use overwatch::overwatch::OverwatchRunner;
 use overwatch_derive::*;
-use rand::distributions::{Alphanumeric, DistString};
+use rand::distributions::{Alphanumeric, DistString as _};
 use services_utils::{
-    overwatch::{recovery::operators::RecoveryBackend, JsonFileBackend},
-    traits::FromSettings,
+    overwatch::{recovery::operators::RecoveryBackend as _, JsonFileBackend},
+    traits::FromSettings as _,
 };
 
 type MockRecoveryBackend = JsonFileBackend<

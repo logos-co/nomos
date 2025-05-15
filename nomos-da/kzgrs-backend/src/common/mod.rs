@@ -3,11 +3,11 @@ pub mod share;
 use std::io::Cursor;
 
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use blake2::digest::{Update, VariableOutput};
+use blake2::digest::{Update as _, VariableOutput as _};
 use kzgrs::Commitment;
 #[cfg(feature = "parallel")]
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
+use rayon::iter::{IntoParallelRefIterator as _, ParallelIterator};
+use serde::{ser::SerializeSeq as _, Deserialize, Deserializer, Serialize, Serializer};
 use sha3::{Digest, Sha3_256};
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]

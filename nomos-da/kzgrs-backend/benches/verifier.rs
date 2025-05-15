@@ -6,8 +6,8 @@ use kzgrs_backend::{
     encoder::{DaEncoder, DaEncoderParams},
     global::GLOBAL_PARAMETERS,
 };
-use nomos_core::da::{blob::Share, DaEncoder as _};
-use rand::{thread_rng, RngCore};
+use nomos_core::da::{blob::Share as _, DaEncoder as _};
+use rand::{thread_rng, RngCore as _};
 
 fn main() {
     divan::main();

@@ -1,4 +1,4 @@
-use nomos_core::da::DaEncoder;
+use nomos_core::da::DaEncoder as _;
 
 use crate::{common::share::DaShare, testutils::encoder::get_encoder};
 

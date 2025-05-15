@@ -3,7 +3,7 @@ use std::{collections::HashSet, hash::Hash};
 use multiaddr::Multiaddr;
 use nomos_blend_message::BlendMessage;
 use rand::{
-    seq::{IteratorRandom, SliceRandom},
+    seq::{IteratorRandom as _, SliceRandom as _},
     Rng,
 };
 use serde::{Deserialize, Serialize};
