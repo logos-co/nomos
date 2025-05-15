@@ -3,7 +3,6 @@ use std::{marker::PhantomData, path::PathBuf};
 use kzgrs_backend::common::ShareIndex;
 use nomos_core::da::blob::Share;
 use nomos_storage::{
-    api::backend::rocksdb::{da::DA_SHARED_COMMITMENTS_PREFIX, utils::key_bytes},
     backends::{rocksdb::RocksBackend, StorageSerde},
     StorageMsg, StorageService,
 };
@@ -51,13 +50,15 @@ where
         &self,
         blob_id: <Self::Share as Share>::BlobId,
     ) -> Result<Option<<Self::Share as Share>::SharesCommitments>, DynError> {
-        let shared_commitments_key = key_bytes(DA_SHARED_COMMITMENTS_PREFIX, blob_id);
         let (sc_reply_tx, sc_reply_rx) = tokio::sync::oneshot::channel();
         self.storage_relay
-            .send(StorageMsg::Load {
-                key: shared_commitments_key,
-                reply_channel: sc_reply_tx,
-            })
+            .send(StorageMsg::get_shared_commitments_request(
+                blob_id
+                    .as_ref()
+                    .try_into()
+                    .expect("BlobId conversion should not fail"),
+                sc_reply_tx,
+            ))
             .await
             .expect("Failed to send load request to storage relay");
 

@@ -3,17 +3,14 @@ use std::fmt::{Debug, Display};
 use bytes::Bytes;
 use nomos_core::{block::Block, da::blob::Share, header::HeaderId};
 use nomos_storage::{
-    api::backend::rocksdb::{
-        da::{DA_SHARED_COMMITMENTS_PREFIX, DA_SHARE_PREFIX},
-        utils::{create_share_idx, key_bytes},
-    },
+    api::da::StorageDaApi,
     backends::{rocksdb::RocksBackend, StorageSerde},
     StorageMsg, StorageService,
 };
 use overwatch::services::AsServiceId;
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::wait_with_timeout;
+use crate::{http::da_shares::DaStorageBackend, wait_with_timeout};
 
 pub async fn block_req<S, Tx, RuntimeServiceId>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
@@ -53,16 +50,17 @@ where
         + Debug
         + Sync
         + Display,
+    // Service and storage layer types conversions
+    <DaStorageBackend<StorageOp> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
 {
     let relay = handle.relay().await?;
 
-    let commitments_id = key_bytes(DA_SHARED_COMMITMENTS_PREFIX, blob_id.as_ref());
     let (reply_tx, reply_rcv) = tokio::sync::oneshot::channel();
     relay
-        .send(StorageMsg::Load {
-            key: commitments_id,
-            reply_channel: reply_tx,
-        })
+        .send(StorageMsg::get_shared_commitments_request(
+            blob_id.into(),
+            reply_tx,
+        ))
         .await
         .map_err(|(e, _)| e)?;
 
@@ -94,17 +92,19 @@ where
         + Debug
         + Sync
         + Display,
+    // Service and storage layer types conversions
+    <DaStorageBackend<StorageOp> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
+    <DaStorageBackend<StorageOp> as StorageDaApi>::ShareIndex: From<DaShare::ShareIndex>,
 {
     let relay = handle.relay().await?;
 
-    let share_idx = create_share_idx(blob_id.as_ref(), share_idx.as_ref());
-    let share_key = key_bytes(DA_SHARE_PREFIX, share_idx);
     let (reply_tx, reply_rcv) = tokio::sync::oneshot::channel();
     relay
-        .send(StorageMsg::Load {
-            key: share_key,
-            reply_channel: reply_tx,
-        })
+        .send(StorageMsg::get_light_share_request(
+            blob_id.into(),
+            share_idx.into(),
+            reply_tx,
+        ))
         .await
         .map_err(|(e, _)| e)?;
 

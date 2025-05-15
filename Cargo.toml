@@ -95,6 +95,7 @@ subnetworks-assignations = { path = "./nomos-da/network/subnetworks-assignations
 tests                    = { path = "./tests" }
 
 # External
+bytes            = "1.3"
 cached           = { version = "0.55.1", default-features = false }
 libp2p           = "0.55"
 overwatch        = { git = "https://github.com/logos-co/Overwatch", rev = "f0895b8" }
