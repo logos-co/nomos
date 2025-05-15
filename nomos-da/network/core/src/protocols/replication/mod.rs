@@ -2,6 +2,13 @@ pub mod behaviour;
 
 #[cfg(test)]
 mod test {
+    use std::{
+        collections::VecDeque,
+        net::SocketAddr,
+        ops::Range,
+        sync::{Arc, LazyLock},
+        time::Duration,
+    };
     use futures::StreamExt as _;
     use libp2p::{
         bytes::BytesMut, identity::Keypair, multiaddr::Protocol, quic, swarm::SwarmEvent,
@@ -10,13 +17,6 @@ mod test {
     use libp2p_swarm_test::SwarmExt as _;
     use log::info;
     use nomos_da_messages::replication::ReplicationRequest;
-    use std::{
-        collections::VecDeque,
-        net::SocketAddr,
-        ops::Range,
-        sync::{Arc, LazyLock},
-        time::Duration,
-    };
     use tokio::{
         io,
         net::UdpSocket,
