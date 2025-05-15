@@ -496,7 +496,7 @@ mod tests {
             updates,
         };
 
-        let result = backend.update(event).await;
-        assert!(result.is_err());
+        let result = backend.update(event).await.unwrap();
+        assert_eq!(result.len(), 0);
     }
 }
