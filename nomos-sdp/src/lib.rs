@@ -28,7 +28,7 @@ pub struct ServiceParameters<ContractAddress> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Locator {
-    addr: Multiaddr,
+    pub addr: Multiaddr,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
