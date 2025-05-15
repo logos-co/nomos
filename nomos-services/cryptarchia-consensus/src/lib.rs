@@ -644,6 +644,7 @@ where
                         .await;
 
                         self.service_state.state_updater.update(Self::State::from_cryptarchia(&cryptarchia, &leader));
+                        // TODO: Replace with Self::prune_old_forks()
                         cryptarchia.prune_old_forks();
 
                         tracing::info!(counter.consensus_processed_blocks = 1);
@@ -679,6 +680,7 @@ where
                                     &relays,
                                     &mut self.block_subscription_sender
                                 ).await;
+                                // TODO: Replace with Self::prune_old_forks()
                                 cryptarchia.prune_old_forks();
                                 blend_adapter.blend(block).await;
                             }
