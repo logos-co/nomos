@@ -688,7 +688,7 @@ where
     <DaStorageBackend<StorageOp> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
     <DaStorageBackend<StorageOp> as StorageDaApi>::ShareIndex:
         Into<DaShare::ShareIndex> + From<DaShare::ShareIndex>,
-    <DaStorageBackend<StorageOp> as StorageDaApi>::Share: Into<DaShare::LightShare>,
+    <DaStorageBackend<StorageOp> as StorageDaApi>::Share: TryInto<DaShare::LightShare>,
 {
     match da_shares::get_shares::<StorageOp, DaShare, RuntimeServiceId>(
         &handle,

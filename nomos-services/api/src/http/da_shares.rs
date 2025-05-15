@@ -53,7 +53,7 @@ where
     <DaStorageBackend<StorageOp> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
     <DaStorageBackend<StorageOp> as StorageDaApi>::ShareIndex:
         Into<DaShare::ShareIndex> + From<DaShare::ShareIndex>,
-    <DaStorageBackend<StorageOp> as StorageDaApi>::Share: Into<DaShare::LightShare>,
+    <DaStorageBackend<StorageOp> as StorageDaApi>::Share: TryInto<DaShare::LightShare>,
 {
     let storage_relay = handle.relay().await?;
 
@@ -124,7 +124,7 @@ where
     <DaStorageBackend<StorageOp> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
     <DaStorageBackend<StorageOp> as StorageDaApi>::ShareIndex:
         From<DaShare::ShareIndex> + Into<DaShare::ShareIndex>,
-    <DaStorageBackend<StorageOp> as StorageDaApi>::Share: Into<DaShare::LightShare>,
+    <DaStorageBackend<StorageOp> as StorageDaApi>::Share: TryInto<DaShare::LightShare>,
 {
     let (reply_tx, reply_rx) = oneshot::channel();
     storage_relay
@@ -136,14 +136,20 @@ where
         .await
         .map_err(|(e, _)| Box::new(e) as crate::http::DynError)?;
 
-    let share: DaShare::LightShare = reply_rx
+    let share = reply_rx
         .await
         .map_err(|e| Box::new(e) as crate::http::DynError)?
         .ok_or_else(|| {
             Box::new(std::io::Error::new(ErrorKind::NotFound, "Share not found"))
                 as crate::http::DynError
-        })
-        .map(Into::into)?;
+        })?
+        .try_into()
+        .map_err(|_| {
+            Box::new(std::io::Error::new(
+                ErrorKind::InvalidData,
+                "Failed to deserialize share",
+            )) as crate::http::DynError
+        })?;
 
     let mut json = serde_json::to_vec(&share).map_err(|e| Box::new(e) as crate::http::DynError)?;
     json.push(b'\n');

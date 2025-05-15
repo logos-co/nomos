@@ -149,8 +149,9 @@ pub struct DaSharesCommitments {
     pub rows_commitments: Vec<Commitment>,
 }
 
-impl From<Bytes> for DaLightShare {
-    fn from(value: Bytes) -> Self {
-        wire::deserialize::<Self>(&value).expect("Failed to deserialize DaLightShare")
+impl TryFrom<Bytes> for DaLightShare {
+    type Error = wire::Error;
+    fn try_from(value: Bytes) -> Result<Self, Self::Error> {
+        wire::deserialize(&value)
     }
 }

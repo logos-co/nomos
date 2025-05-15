@@ -344,7 +344,7 @@ where
     <DaStorageBackend<DaStorageSerializer> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
     <DaStorageBackend<DaStorageSerializer> as StorageDaApi>::ShareIndex:
         Into<DaShare::ShareIndex> + From<DaShare::ShareIndex>,
-    <DaStorageBackend<DaStorageSerializer> as StorageDaApi>::Share: Into<DaShare::LightShare>,
+    <DaStorageBackend<DaStorageSerializer> as StorageDaApi>::Share: TryInto<DaShare::LightShare>,
 {
     type Error = hyper::Error;
     type Settings = AxumBackendSettings;
