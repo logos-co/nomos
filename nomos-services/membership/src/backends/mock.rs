@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use nomos_sdp_core::{DeclarationUpdate, FinalizedBlockEvent, ProviderInfo, ServiceType};
+use nomos_sdp_core::{
+    DeclarationUpdate, FinalizedBlockEvent, Locator, ProviderId, ProviderInfo, ServiceType,
+};
 
 use super::{MembershipBackend, MembershipBackendError, SnapshotSettings};
 use crate::MembershipSnapshot;
@@ -56,20 +58,7 @@ impl MembershipBackend for MockMembershipBackend {
             len - positive_index
         };
 
-        let snapshot = self.membership[actual_index]
-            .data
-            .get(&service_type)
-            .cloned()
-            .unwrap_or_default()
-            .iter()
-            .map(|(provider_info, declaration_update)| {
-                (
-                    provider_info.provider_id,
-                    declaration_update.locators.clone(),
-                )
-            })
-            .collect();
-
+        let snapshot = self.get_snapshot_at(actual_index, service_type);
         Ok(snapshot)
     }
 
@@ -103,8 +92,34 @@ impl MembershipBackend for MockMembershipBackend {
             }
         }
 
-        let snapshots = self
-            .current_data
+        let snapshots = self.get_latest_snapshots();
+        Ok(snapshots)
+    }
+}
+
+impl MockMembershipBackend {
+    fn get_snapshot_at(
+        &self,
+        index: usize,
+        service_type: ServiceType,
+    ) -> HashMap<ProviderId, Vec<Locator>> {
+        self.membership[index]
+            .data
+            .get(&service_type)
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .map(|(provider_info, declaration_update)| {
+                (
+                    provider_info.provider_id,
+                    declaration_update.locators.clone(),
+                )
+            })
+            .collect()
+    }
+
+    fn get_latest_snapshots(&self) -> HashMap<ServiceType, MembershipSnapshot> {
+        self.current_data
             .iter()
             .map(|(service_type, data)| {
                 (
@@ -119,8 +134,6 @@ impl MembershipBackend for MockMembershipBackend {
                         .collect(),
                 )
             })
-            .collect();
-
-        Ok(snapshots)
+            .collect()
     }
 }
