@@ -98,10 +98,22 @@ mod test {
         bincode::deserialize(include_bytes!("./fixtures/messages.bincode")).unwrap()
     });
 
-    // Function to modify packets (customizable)
-    fn modify_packet(data: &mut BytesMut) {
-        // Example modification: append a marker byte
-        data.extend_from_slice(b"[MOD]");
+
+    // Tamper the original data
+    fn modify_packet(packet: &mut BytesMut) {
+        if !packet.is_empty() {
+            packet[0] ^= 0b10101010; // Flip first byte
+        }
+    }
+    
+    // Heuristically determine if the packet is likely QUIC application data.
+    fn is_probable_application_data(packet: &[u8]) -> bool {
+        if packet.is_empty() {
+            return false;
+        }
+        let first = packet[0];
+        // Short header (0x40–0x7F) is typically post-handshake encrypted data
+        (first & 0b1100_0000) == 0b0100_0000
     }
 
     // Convert Multiaddr to SocketAddr for UDP
@@ -151,7 +163,7 @@ mod test {
                 }
             };
 
-            let data = BytesMut::from(&buf[..len]);
+            let mut data = BytesMut::from(&buf[..len]);
 
             let dest_addr = if src_addr == target_socket_addr {
                 // From target → send to client
@@ -168,6 +180,10 @@ mod test {
                 target_socket_addr
             };
 
+            if is_probable_application_data(&data) {
+                modify_packet(&mut data);
+            }
+            
             if let Err(e) = socket.send_to(&data, dest_addr).await {
                 error!("send_to error: {e}");
             }
