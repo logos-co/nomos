@@ -1,11 +1,15 @@
+use std::collections::HashSet;
+
 use async_trait::async_trait;
 use bytes::Bytes;
 use nomos_core::header::HeaderId;
-use rocksdb::Error;
 
 use crate::{
     api::chain::StorageChainApi,
-    backends::{rocksdb::RocksBackend, StorageBackend as _, StorageSerde},
+    backends::{
+        rocksdb::{Error, RocksBackend},
+        StorageBackend as _, StorageSerde,
+    },
 };
 
 #[async_trait]
@@ -26,5 +30,28 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for RocksBac
         let header_id: [u8; 32] = header_id.into();
         let key = Bytes::copy_from_slice(&header_id);
         self.store(key, block).await
+    }
+
+    async fn remove_block(&mut self, header_id: HeaderId) -> Result<Self::Block, Self::Error> {
+        let encoded_header_id: [u8; 32] = header_id.into();
+        let key = Bytes::copy_from_slice(&encoded_header_id);
+        self.remove(&key)
+            .await?
+            .ok_or_else(|| Error::Other("Block {encoded_header_id} not found".to_owned()))
+    }
+
+    async fn remove_blocks(
+        &mut self,
+        header_ids: HashSet<HeaderId>,
+    ) -> Result<impl Iterator<Item = Self::Block>, Self::Error> {
+        let mut blocks = Vec::with_capacity(header_ids.len());
+        for header_id in header_ids {
+            // We cannot process multiple blocks in parallel since we cannot mutably borrow
+            // more than once. This should be replaced with a RocksDB batch
+            // operation in the future.
+            blocks.push(self.remove_block(header_id).await?);
+        }
+
+        Ok(blocks.into_iter())
     }
 }
