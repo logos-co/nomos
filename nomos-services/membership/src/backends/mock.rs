@@ -17,7 +17,6 @@ struct MockMembershipEntry {
 
 pub struct MockMembershipBackend {
     settings: MockMembershipBackendSettings,
-    // todo: storage trait instead of deque in memory
     membership: Vec<MockMembershipEntry>,
     current_data: HashMap<ServiceType, HashMap<ProviderInfo, DeclarationUpdate>>,
 }
