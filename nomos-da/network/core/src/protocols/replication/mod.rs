@@ -3,18 +3,25 @@ pub mod behaviour;
 #[cfg(test)]
 mod test {
     use futures::StreamExt as _;
-    use libp2p::bytes::BytesMut;
-    use libp2p::multiaddr::Protocol;
-    use libp2p::{identity::Keypair, quic, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
+    use libp2p::{
+        bytes::BytesMut, identity::Keypair, multiaddr::Protocol, quic, swarm::SwarmEvent,
+        Multiaddr, PeerId, Swarm,
+    };
     use libp2p_swarm_test::SwarmExt as _;
     use log::info;
     use nomos_da_messages::replication::ReplicationRequest;
-    use std::net::SocketAddr;
-    use std::sync::Arc;
-    use std::{collections::VecDeque, ops::Range, sync::LazyLock, time::Duration};
-    use tokio::io;
-    use tokio::net::UdpSocket;
-    use tokio::sync::{mpsc, Mutex};
+    use std::{
+        collections::VecDeque,
+        net::SocketAddr,
+        ops::Range,
+        sync::{Arc, LazyLock},
+        time::Duration,
+    };
+    use tokio::{
+        io,
+        net::UdpSocket,
+        sync::{mpsc, Mutex},
+    };
     use tracing::error;
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
