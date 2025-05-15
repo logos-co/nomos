@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use nomos_sdp_core::{
-    BlockNumber, DeclarationUpdate, FinalizedBlockEvent, ProviderInfo, ServiceType,
-};
+use nomos_sdp::backends::SdpBackendError;
+use nomos_sdp_core::{FinalizedBlockEvent, ServiceType};
 use overwatch::DynError;
+
+use crate::MembershipSnapshot;
 
 pub mod mock;
 
@@ -16,10 +17,10 @@ pub enum SnapshotSettings {
     Block(usize),
 }
 
-#[derive(Debug, Clone)]
-pub struct MembershipEntry {
-    pub block_number: BlockNumber,
-    pub data: HashMap<ServiceType, HashMap<ProviderInfo, DeclarationUpdate>>,
+#[derive(Debug)]
+pub enum MembershipBackendError {
+    Other(DynError),
+    Sdp(SdpBackendError),
 }
 
 #[async_trait]
@@ -36,6 +37,9 @@ pub trait MembershipBackend {
         &self,
         service_type: ServiceType,
         index: i32,
-    ) -> Result<HashMap<ProviderInfo, DeclarationUpdate>, DynError>;
-    async fn update(&mut self, update: FinalizedBlockEvent) -> Result<(), DynError>;
+    ) -> Result<MembershipSnapshot, MembershipBackendError>;
+    async fn update(
+        &mut self,
+        update: FinalizedBlockEvent,
+    ) -> Result<HashMap<ServiceType, MembershipSnapshot>, MembershipBackendError>;
 }

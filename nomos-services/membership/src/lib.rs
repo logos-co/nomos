@@ -1,39 +1,49 @@
 use std::{
     collections::HashMap,
     fmt::{Debug, Display},
+    pin::Pin,
 };
 
 use adapters::SdpAdapter;
 use async_trait::async_trait;
-use backends::MembershipBackend;
-use futures::StreamExt as _;
-use nomos_sdp_core::{DeclarationUpdate, ProviderInfo};
+use backends::{MembershipBackend, MembershipBackendError};
+use futures::{Stream, StreamExt as _};
+use nomos_sdp_core::{Locator, ProviderId, ServiceType};
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
     },
-    DynError, OpaqueServiceStateHandle,
+    OpaqueServiceStateHandle,
 };
 use serde::{Deserialize, Serialize};
 use services_utils::overwatch::lifecycle;
+use tokio::sync::{broadcast, oneshot};
+use tokio_stream::wrappers::BroadcastStream;
 
 mod adapters;
 pub mod backends;
+
+type MembershipSnapshot = HashMap<ProviderId, Vec<Locator>>;
+
+pub type MembershipSnapshotStream =
+    Pin<Box<dyn Stream<Item = MembershipSnapshot> + Send + Sync + Unpin>>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BackendSettings<S> {
     pub backend: S,
 }
 
-#[derive(Debug)]
 pub enum MembershipMessage {
     GetSnapshotAt {
-        reply_channel: tokio::sync::oneshot::Sender<
-            Result<HashMap<ProviderInfo, DeclarationUpdate>, DynError>,
-        >,
+        reply_channel:
+            tokio::sync::oneshot::Sender<Result<MembershipSnapshot, MembershipBackendError>>,
         index: i32,
         service_type: nomos_sdp_core::ServiceType,
+    },
+    Subscribe {
+        service_type: nomos_sdp_core::ServiceType,
+        result_sender: oneshot::Sender<MembershipSnapshotStream>,
     },
 }
 
@@ -45,6 +55,7 @@ where
 {
     backend: B,
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+    subscribe_txs: HashMap<ServiceType, broadcast::Sender<MembershipSnapshot>>,
 }
 
 impl<B, S, RuntimeServiceId> ServiceData for MembershipService<B, S, RuntimeServiceId>
@@ -88,6 +99,7 @@ where
         Ok(Self {
             backend: B::init(backend_settings),
             service_state,
+            subscribe_txs: HashMap::new(),
         })
     }
 
@@ -117,8 +129,22 @@ where
                             if let Err(e) = reply_channel.send(result) {
                                 tracing::error!("Failed to send response: {:?}", e);
                             }
-                        }
-                    }
+                        },
+                        MembershipMessage::Subscribe { service_type, result_sender } => {
+                            let tx = if let Some(tx) = self.subscribe_txs.get(&service_type) {
+                                tx.clone()
+                            } else {
+                                let (tx, _) = broadcast::channel(128);
+                                self.subscribe_txs.insert(service_type, tx.clone());
+                                tx
+                            };
+
+                            let stream = make_pin_broadcast_stream(tx.subscribe());
+                            if result_sender.send(stream).is_err() {
+                                tracing::error!("Error sending finalized updates receiver");
+                            }
+                        },
+                                            }
                 }
                 Some(msg) = lifecycle_stream.next() => {
                     if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
@@ -126,14 +152,41 @@ where
                     }
                 }
                 Some(sdp_msg) = sdp_stream.next() => {
-                     if let Err(e) = self.backend.update(sdp_msg).await.map_err(|e| {
+                     match self.backend.update(sdp_msg).await.map_err(|e| {
                         tracing::error!("Failed to update backend: {:?}", e);
                      }) {
-                        tracing::error!("Failed to process SDP message: {:?}", e);
-                    }
+                        Ok(snapshot) => {
+                            for (service_type, snapshot) in snapshot {
+                                if let Some(tx) = self.subscribe_txs.get(&service_type) {
+                                    if tx.send(snapshot).is_err() {
+                                        tracing::error!("Error sending membership update");
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to update backend: {:?}", e);
+                        }
+                     }
                 },
             }
         }
         Ok(())
     }
+}
+
+fn make_pin_broadcast_stream(
+    receiver: broadcast::Receiver<MembershipSnapshot>,
+) -> MembershipSnapshotStream {
+    Box::pin(BroadcastStream::new(receiver).filter_map(|res| {
+        Box::pin(async move {
+            match res {
+                Ok(update) => Some(update),
+                Err(e) => {
+                    tracing::warn!("Lagging Membership subscriber: {e:?}");
+                    None
+                }
+            }
+        })
+    }))
 }

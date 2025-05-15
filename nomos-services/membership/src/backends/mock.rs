@@ -2,17 +2,23 @@ use std::collections::HashMap;
 
 use nomos_sdp_core::{DeclarationUpdate, FinalizedBlockEvent, ProviderInfo, ServiceType};
 
-use super::{MembershipBackend, MembershipEntry, SnapshotSettings};
+use super::{MembershipBackend, MembershipBackendError, SnapshotSettings};
+use crate::MembershipSnapshot;
 
 pub struct MockMembershipBackendSettings {
-    pub settings_per_service: HashMap<ServiceType, SnapshotSettings>,
-    pub initial_membership: Vec<MembershipEntry>,
+    settings_per_service: HashMap<ServiceType, SnapshotSettings>,
+    initial_membership: Vec<MockMembershipEntry>,
+}
+
+#[derive(Debug, Clone)]
+struct MockMembershipEntry {
+    pub data: HashMap<ServiceType, HashMap<ProviderInfo, DeclarationUpdate>>,
 }
 
 pub struct MockMembershipBackend {
     settings: MockMembershipBackendSettings,
     // todo: storage trait instead of deque in memory
-    membership: Vec<MembershipEntry>,
+    membership: Vec<MockMembershipEntry>,
     current_data: HashMap<ServiceType, HashMap<ProviderInfo, DeclarationUpdate>>,
 }
 
@@ -31,7 +37,7 @@ impl MembershipBackend for MockMembershipBackend {
         &self,
         service_type: ServiceType,
         index: i32,
-    ) -> Result<HashMap<ProviderInfo, DeclarationUpdate>, overwatch::DynError> {
+    ) -> Result<MembershipSnapshot, MembershipBackendError> {
         let len = self.membership.len();
 
         if len == 0 {
@@ -51,12 +57,27 @@ impl MembershipBackend for MockMembershipBackend {
             len - positive_index
         };
 
-        let entry = &self.membership[actual_index];
+        let snapshot = self.membership[actual_index]
+            .data
+            .get(&service_type)
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .map(|(provider_info, declaration_update)| {
+                (
+                    provider_info.provider_id,
+                    declaration_update.locators.clone(),
+                )
+            })
+            .collect();
 
-        Ok(entry.data.get(&service_type).cloned().unwrap_or_default())
+        Ok(snapshot)
     }
 
-    async fn update(&mut self, update: FinalizedBlockEvent) -> Result<(), overwatch::DynError> {
+    async fn update(
+        &mut self,
+        update: FinalizedBlockEvent,
+    ) -> Result<HashMap<ServiceType, MembershipSnapshot>, MembershipBackendError> {
         for (provider_info, declaration_update) in update.updates {
             let service_type = declaration_update.service_type;
             let service_map = self.current_data.entry(service_type).or_default();
@@ -69,8 +90,7 @@ impl MembershipBackend for MockMembershipBackend {
                 match snapshot_settings {
                     SnapshotSettings::Block(snapshot_period) => {
                         if update.block_number % *snapshot_period as u64 == 0 {
-                            let entry = MembershipEntry {
-                                block_number: update.block_number,
+                            let entry = MockMembershipEntry {
                                 data: self.current_data.clone(),
                             };
                             self.membership.push(entry);
@@ -78,11 +98,30 @@ impl MembershipBackend for MockMembershipBackend {
                     }
                 }
             } else {
-                return Err(overwatch::DynError::from(format!(
-                    "Service type {service_type:?} not found in settings"
+                return Err(MembershipBackendError::Other(overwatch::DynError::from(
+                    format!("Service type {service_type:?} not found in settings"),
                 )));
             }
         }
-        Ok(())
+
+        let snapshots = self
+            .current_data
+            .iter()
+            .map(|(service_type, data)| {
+                (
+                    *service_type,
+                    data.iter()
+                        .map(|(provider_info, declaration_update)| {
+                            (
+                                provider_info.provider_id,
+                                declaration_update.locators.clone(),
+                            )
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
+
+        Ok(snapshots)
     }
 }
