@@ -152,9 +152,7 @@ where
                     }
                 }
                 Some(sdp_msg) = sdp_stream.next() => {
-                     match self.backend.update(sdp_msg).await.map_err(|e| {
-                        tracing::error!("Failed to update backend: {:?}", e);
-                     }) {
+                     match self.backend.update(sdp_msg).await {
                         Ok(snapshot) => {
                             for (service_type, snapshot) in snapshot {
                                 if let Some(tx) = self.subscribe_txs.get(&service_type) {
