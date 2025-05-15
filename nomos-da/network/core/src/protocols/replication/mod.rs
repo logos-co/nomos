@@ -5,6 +5,7 @@ mod test {
     use std::{collections::VecDeque, ops::Range, sync::LazyLock, time::Duration};
     use std::net::SocketAddr;
     use std::sync::Arc;
+    use futures::future::try_join_all;
     use futures::StreamExt as _;
     use libp2p::multiaddr::Protocol;
     use libp2p::{identity::Keypair, quic, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
@@ -14,7 +15,8 @@ mod test {
     use tokio::io;
     use nomos_da_messages::replication::ReplicationRequest;
     use tokio::net::UdpSocket;
-    use tokio::sync::mpsc;
+    use tokio::sync::{mpsc, Mutex};
+    use tracing::error;
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
     use crate::{
@@ -131,87 +133,47 @@ mod test {
         proxy_addr: Multiaddr,
         target_addr: Multiaddr,
     ) -> io::Result<()> {
-        // Convert Multiaddrs to SocketAddrs
         let proxy_socket_addr = multiaddr_to_socket_addr(&proxy_addr)?;
         let target_socket_addr = multiaddr_to_socket_addr(&target_addr)?;
-        println!(
-            "Proxy listening on {} forwarding to {}",
-            proxy_socket_addr, target_socket_addr
-        );
 
-        // Create UDP sockets
-        let proxy_socket = Arc::new(UdpSocket::bind(proxy_socket_addr).await?);
-        let target_socket = Arc::new(UdpSocket::bind("0.0.0.0:0").await?); // Ephemeral port
+        info!("UDP proxy listening on {proxy_socket_addr}, forwarding to {target_socket_addr}");
 
-        // Create channels for two-way communication
-        let (tx_proxy_to_target, mut rx_proxy_to_target) = mpsc::channel(100);
-        let (tx_target_to_proxy, mut rx_target_to_proxy) = mpsc::channel(100);
+        let socket = Arc::new(UdpSocket::bind(proxy_socket_addr).await?);
+        let client_addr = Arc::new(Mutex::new(None::<SocketAddr>));
+        let mut buf = vec![0u8; 65535];
 
-        // Spawn tasks for handling and forwarding packets
-        let tasks = vec![
-            // Handle packets from proxy_addr -> target_addr
-            {
-                let proxy_socket = Arc::clone(&proxy_socket);
-                let tx_proxy_to_target = tx_proxy_to_target.clone();
-                tokio::spawn(async move {
-                    let mut buf = vec![0u8; 65535];
-                    loop {
-                        let (len, src_addr) = proxy_socket.recv_from(&mut buf).await?;
-                        let data = BytesMut::from(&buf[..len]);
-                        tx_proxy_to_target
-                            .send((data, src_addr))
-                            .await
-                            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                    }
-                })
-            },
-            {
-                let target_socket = Arc::clone(&target_socket);
-                tokio::spawn(async move {
-                    while let Some((mut data, _src_addr)) = rx_proxy_to_target.recv().await {
-                        modify_packet(&mut data);
-                        target_socket
-                            .send_to(&data, target_socket_addr)
-                            .await?;
-                    }
-                    Ok::<(), io::Error>(())
-                })
-            },
-            // Handle packets from target_addr -> proxy_addr
-            {
-                let target_socket = Arc::clone(&target_socket);
-                let tx_target_to_proxy = tx_target_to_proxy.clone();
-                tokio::spawn(async move {
-                    let mut buf = vec![0u8; 65535];
-                    loop {
-                        let (len, src_addr) = target_socket.recv_from(&mut buf).await?;
-                        let data = BytesMut::from(&buf[..len]);
-                        tx_target_to_proxy
-                            .send((data, src_addr))
-                            .await
-                            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                    }
-                })
-            },
-            {
-                let proxy_socket = Arc::clone(&proxy_socket);
-                tokio::spawn(async move {
-                    while let Some((mut data, src_addr)) = rx_target_to_proxy.recv().await {
-                        modify_packet(&mut data);
-                        proxy_socket.send_to(&data, src_addr).await?;
-                    }
-                    Ok(())
-                })
-            },
-        ];
+        loop {
+            let (len, src_addr) = match socket.recv_from(&mut buf).await {
+                Ok((len, addr)) => (len, addr),
+                Err(e) => {
+                    error!("recv_from error: {e}");
+                    continue;
+                }
+            };
 
-        // Wait for any task to fail
-        for task in tasks {
-            task.await??;
+            let data = BytesMut::from(&buf[..len]);
+
+            let dest_addr = if src_addr == target_socket_addr {
+                // From target → send to client
+                match *client_addr.lock().await {
+                    Some(addr) => addr,
+                    None => {
+                        error!("No client address recorded yet");
+                        continue;
+                    }
+                }
+            } else {
+                // From client → save and send to target
+                *client_addr.lock().await = Some(src_addr);
+                target_socket_addr
+            };
+
+            if let Err(e) = socket.send_to(&data, dest_addr).await {
+                error!("send_to error: {e}");
+            }
         }
-
-        Ok(())
     }
+
 
     #[tokio::test]
     async fn test_replication_chain_in_both_directions() {
@@ -416,13 +378,13 @@ mod test {
 
         let proxy_addr: Multiaddr = "/ip4/127.0.0.1/udp/5058".parse().unwrap();
         let server_addr: Multiaddr = "/ip4/127.0.0.1/udp/5059".parse().unwrap();
-
+        
         // Start the proxy in the background
         tokio::spawn(start_udp_mutation_proxy(proxy_addr.clone(), server_addr.clone()));
-
+        
         // Allow proxy to start
         tokio::time::sleep(Duration::from_millis(100)).await;
-
+        
         let addr3: Multiaddr = format!("{}/quic-v1", server_addr).parse().unwrap();
         let addr4: Multiaddr = format!("{}/quic-v1", proxy_addr).parse().unwrap();
 
@@ -460,7 +422,8 @@ mod test {
                         let behaviour = swarm_2_tampered.behaviour_mut();
                         let msg = get_message(i);
                         behaviour.send_message(&msg);
-                        if i < 20 {
+                        info!("Sent message {i}# ");
+                        if i < 19 {
                             i += 1;
                         } else {
                             break;
@@ -483,7 +446,8 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_connects_and_receives_with_udp_proxy() {
+    #[expect(clippy::too_many_lines, reason = "Test to be split later on.")]
+    async fn test_connects_and_receives_messages_with_udp_proxy() {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env())
             .compact()
