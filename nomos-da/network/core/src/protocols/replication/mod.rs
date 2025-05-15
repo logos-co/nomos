@@ -2,18 +2,17 @@ pub mod behaviour;
 
 #[cfg(test)]
 mod test {
-    use std::{collections::VecDeque, ops::Range, sync::LazyLock, time::Duration};
-    use std::net::SocketAddr;
-    use std::sync::Arc;
-    use futures::future::try_join_all;
     use futures::StreamExt as _;
+    use libp2p::bytes::BytesMut;
     use libp2p::multiaddr::Protocol;
     use libp2p::{identity::Keypair, quic, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
-    use libp2p::bytes::BytesMut;
     use libp2p_swarm_test::SwarmExt as _;
     use log::info;
-    use tokio::io;
     use nomos_da_messages::replication::ReplicationRequest;
+    use std::net::SocketAddr;
+    use std::sync::Arc;
+    use std::{collections::VecDeque, ops::Range, sync::LazyLock, time::Duration};
+    use tokio::io;
     use tokio::net::UdpSocket;
     use tokio::sync::{mpsc, Mutex};
     use tracing::error;
@@ -98,14 +97,13 @@ mod test {
         bincode::deserialize(include_bytes!("./fixtures/messages.bincode")).unwrap()
     });
 
-
     // Tamper the original data
     fn modify_packet(packet: &mut BytesMut) {
         if !packet.is_empty() {
             packet[0] ^= 0b10101010; // Flip first byte
         }
     }
-    
+
     // Heuristically determine if the packet is likely QUIC application data.
     fn is_probable_application_data(packet: &[u8]) -> bool {
         if packet.is_empty() {
@@ -127,7 +125,12 @@ mod test {
                 Protocol::Ip4(addr) => ip = Some(std::net::IpAddr::V4(addr)),
                 Protocol::Ip6(addr) => ip = Some(std::net::IpAddr::V6(addr)),
                 Protocol::Udp(p) => port = Some(p),
-                _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, "Unsupported protocol")),
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Unsupported protocol",
+                    ))
+                }
             }
         }
 
@@ -167,12 +170,12 @@ mod test {
 
             let dest_addr = if src_addr == target_socket_addr {
                 // From target → send to client
-                match *client_addr.lock().await {
-                    Some(addr) => addr,
-                    None => {
-                        error!("No client address recorded yet");
-                        continue;
-                    }
+                let value = *client_addr.lock().await;
+                if let Some(addr) = value {
+                    addr
+                } else {
+                    error!("No client address recorded yet");
+                    continue;
                 }
             } else {
                 // From client → save and send to target
@@ -183,13 +186,12 @@ mod test {
             if is_probable_application_data(&data) {
                 modify_packet(&mut data);
             }
-            
+
             if let Err(e) = socket.send_to(&data, dest_addr).await {
                 error!("send_to error: {e}");
             }
         }
     }
-
 
     #[tokio::test]
     async fn test_replication_chain_in_both_directions() {
@@ -394,13 +396,16 @@ mod test {
 
         let proxy_addr: Multiaddr = "/ip4/127.0.0.1/udp/5058".parse().unwrap();
         let server_addr: Multiaddr = "/ip4/127.0.0.1/udp/5059".parse().unwrap();
-        
+
         // Start the proxy in the background
-        tokio::spawn(start_udp_mutation_proxy(proxy_addr.clone(), server_addr.clone()));
-        
+        tokio::spawn(start_udp_mutation_proxy(
+            proxy_addr.clone(),
+            server_addr.clone(),
+        ));
+
         // Allow proxy to start
         tokio::time::sleep(Duration::from_millis(100)).await;
-        
+
         let addr3: Multiaddr = format!("{}/quic-v1", server_addr).parse().unwrap();
         let addr4: Multiaddr = format!("{}/quic-v1", proxy_addr).parse().unwrap();
 
@@ -415,7 +420,8 @@ mod test {
                         message,
                         ..
                     }) = event
-                    {   info!("Received message {:?}", message);
+                    {
+                        info!("Received message {:?}", message);
                         assert_ne!(message.share.data.share_idx, 0);
                         Some(message)
                     } else {
@@ -528,7 +534,7 @@ mod test {
                         }) => {
                             info!("Received message {:?}", message);
                             Some(message)
-                        },
+                        }
                         _ => None,
                     }
                 })
@@ -551,7 +557,6 @@ mod test {
                 10,
                 "All messages should have been processed"
             );
-
         };
 
         let task_4 = async move {
