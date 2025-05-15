@@ -86,9 +86,11 @@ impl MembershipBackend for MockMembershipBackend {
                     }
                 }
             } else {
-                return Err(MembershipBackendError::Other(overwatch::DynError::from(
-                    format!("Service type {service_type:?} not found in settings"),
-                )));
+                return Err(MembershipBackendError::MockBackendError(
+                    overwatch::DynError::from(format!(
+                        "Service type {service_type:?} not found in settings"
+                    )),
+                ));
             }
         }
 

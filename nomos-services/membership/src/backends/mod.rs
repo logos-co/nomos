@@ -21,6 +21,7 @@ pub enum SnapshotSettings {
 pub enum MembershipBackendError {
     Other(DynError),
     Sdp(SdpBackendError),
+    MockBackendError(DynError),
 }
 
 #[async_trait]
