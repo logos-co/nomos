@@ -9,7 +9,7 @@ pub mod storage;
 use core::fmt::Debug;
 use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 
-use cryptarchia_engine::{CryptarchiaState, Online, Slot};
+use cryptarchia_engine::{Branch, CryptarchiaState, Online, Slot};
 use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
@@ -183,7 +183,7 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
         }
     }
 
-    pub fn prune_old_forks(&mut self) {
+    pub fn prune_old_forks(&mut self) -> impl Iterator<Item = Branch<HeaderId>> {
         let old_forks_pruned = self.consensus.prune_forks(
             self.ledger
                 .config()
@@ -202,6 +202,8 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
             pruned_blocks_count = pruned_blocks_count.saturating_add(1);
         });
         tracing::debug!(target: LOG_TARGET, "Pruned {pruned_blocks_count} old forks and their ledger states.");
+
+        old_forks_pruned
     }
 }
 
@@ -1409,6 +1411,14 @@ where
         }
 
         (cryptarchia, leader)
+    }
+
+    async fn prune_old_forks(
+        cryptarchia: &mut Cryptarchia,
+        storage_adapter: &mut &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
+    ) {
+        let old_forks_pruned = cryptarchia.prune_old_forks();
+        // TODO: Send remove command to storage adapter
     }
 }
 

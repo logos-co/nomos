@@ -1,4 +1,4 @@
-use std::{hash::Hash, marker::PhantomData};
+use std::{collections::HashSet, hash::Hash, marker::PhantomData};
 
 use nomos_core::{block::Block, header::HeaderId};
 use nomos_storage::{
@@ -79,5 +79,47 @@ where
             .map_err(|_| "Failed to send store block request to storage relay")?;
 
         Ok(())
+    }
+
+    async fn remove_block(&self, header_id: HeaderId) -> Result<Self::Block, overwatch::DynError> {
+        let (sender, receiver) = oneshot::channel();
+
+        self.storage_relay
+            .send(StorageMsg::remove_block_request(header_id, sender))
+            .await?;
+
+        let Ok(maybe_removed_block) = receiver.await else {
+            return Err("Failed to receive removed block from storage relay".into());
+        };
+
+        let removed_block = maybe_removed_block?;
+        removed_block.try_into().ok()
+    }
+
+    async fn remove_blocks<Headers>(
+        &self,
+        header_ids: Headers,
+    ) -> Result<impl Iterator<Item = Self::Block>, overwatch::DynError>
+    where
+        Headers: Iterator<Item = HeaderId>,
+    {
+        let (sender, receiver) = oneshot::channel();
+
+        self.storage_relay
+            .send(StorageMsg::remove_blocks_request(
+                HashSet::from_iter(header_ids),
+                sender,
+            ))
+            .await?;
+
+        let Ok(maybe_removed_blocks) = receiver.await else {
+            return Err("Failed to receive removed blocks from storage relay".into());
+        };
+
+        let removed_blocks = maybe_removed_blocks?;
+        removed_blocks
+            .into_iter()
+            .map(|b| b.try_into())
+            .collect::<Result<_, _>>()
     }
 }
