@@ -48,7 +48,7 @@ where
             Self::RemoveBlocks {
                 header_ids,
                 response_tx,
-            } => handle_remove_blocks(backend, header_ids.into_iter(), response_tx).await,
+            } => handle_remove_blocks(backend, header_ids, response_tx).await,
         }
     }
 }
@@ -106,17 +106,16 @@ where
     Ok(())
 }
 
-async fn handle_remove_blocks<B, Headers>(
+async fn handle_remove_blocks<B>(
     backend: &mut B,
-    header_ids: Headers,
+    header_ids: HashSet<HeaderId>,
     response_tx: Sender<Result<Vec<B::Block>, StorageServiceError>>,
 ) -> Result<(), StorageServiceError>
 where
     B: StorageBackend<Error: Display>,
-    Headers: Iterator<Item = HeaderId>,
 {
     let result = backend
-        .remove_blocks(header_ids)
+        .remove_blocks(header_ids.into_iter())
         .await
         .map(|blocks| blocks.into_iter().collect())
         .map_err(|e| StorageServiceError::BackendError(e.into()));
@@ -166,7 +165,7 @@ impl<Api: StorageBackend> StorageMsg<Api> {
     }
 
     #[must_use]
-    pub const fn remove_blocks_request(
+    pub const fn remove_blocks_request<Headers>(
         header_ids: HashSet<HeaderId>,
         response_tx: Sender<Result<Vec<Api::Block>, StorageServiceError>>,
     ) -> Self {
