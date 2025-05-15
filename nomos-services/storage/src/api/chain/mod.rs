@@ -1,6 +1,6 @@
 pub mod requests;
 
-use std::error::Error;
+use std::{collections::HashSet, error::Error};
 
 use async_trait::async_trait;
 use nomos_core::header::HeaderId;
@@ -17,4 +17,11 @@ pub trait StorageChainApi {
         header_id: HeaderId,
         block: Self::Block,
     ) -> Result<(), Self::Error>;
+
+    async fn remove_block(&mut self, header_id: HeaderId) -> Result<Self::Block, Self::Error>;
+
+    async fn remove_blocks(
+        &mut self,
+        header_ids: HashSet<HeaderId>,
+    ) -> Result<impl Iterator<Item = Self::Block>, Self::Error>;
 }
