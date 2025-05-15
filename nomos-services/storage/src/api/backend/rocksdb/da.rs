@@ -11,7 +11,10 @@ use crate::{
         backend::rocksdb::utils::{create_share_idx, key_bytes},
         da::StorageDaApi,
     },
-    backends::{rocksdb::RocksBackend, StorageBackend as _, StorageSerde},
+    backends::{
+        rocksdb::{Error, RocksBackend},
+        StorageBackend as _, StorageSerde,
+    },
 };
 
 pub const DA_VID_KEY_PREFIX: &str = "da/vid/";
@@ -79,7 +82,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
         let txn = self.txn(move |db| {
             if let Err(e) = db.put(&share_key, &light_share) {
                 error!("Failed to store share data: {:?}", e);
-                return Err(e);
+                return Err(e.into());
             }
 
             let mut indices = db.get(&index_key)?.map_or_else(HashSet::new, |bytes| {
@@ -95,7 +98,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
 
             if let Err(e) = db.put(&index_key, &serialized_indices) {
                 error!("Failed to store indices: {:?}", e);
-                return Err(e);
+                return Err(e.into());
             }
 
             Ok(None)
