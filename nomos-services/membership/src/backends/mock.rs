@@ -106,16 +106,16 @@ impl MockMembershipBackend {
         self.membership[index]
             .data
             .get(&service_type)
-            .cloned()
-            .unwrap_or_default()
-            .iter()
-            .map(|(provider_info, declaration_update)| {
-                (
-                    provider_info.provider_id,
-                    declaration_update.locators.clone(),
-                )
+            .map_or_else(HashMap::new, |data| {
+                data.iter()
+                    .map(|(provider_info, declaration_update)| {
+                        (
+                            provider_info.provider_id,
+                            declaration_update.locators.clone(),
+                        )
+                    })
+                    .collect()
             })
-            .collect()
     }
 
     fn get_latest_snapshots(&self) -> HashMap<ServiceType, MembershipSnapshot> {
