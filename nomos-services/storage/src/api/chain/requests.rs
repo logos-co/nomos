@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use nomos_core::header::HeaderId;
 use tokio::sync::oneshot::Sender;
 
@@ -16,6 +18,12 @@ pub enum ChainApiRequest<Backend: StorageBackend> {
         header_id: HeaderId,
         block: <Backend as StorageChainApi>::Block,
     },
+    RemoveBlock {
+        header_id: HeaderId,
+    },
+    RemoveBlocks {
+        header_ids: HashSet<HeaderId>,
+    },
 }
 
 impl<Backend> StorageOperation<Backend> for ChainApiRequest<Backend>
@@ -30,6 +38,20 @@ where
             } => handle_get_block(backend, header_id, response_tx).await,
             Self::StoreBlock { header_id, block } => {
                 handle_store_block(backend, header_id, block).await
+            }
+            Self::RemoveBlock { header_id } => {
+                let _ = backend
+                    .remove_block(header_id)
+                    .await
+                    .map_err(|e| StorageServiceError::BackendError(e.into()))?;
+                Ok(())
+            }
+            Self::RemoveBlocks { header_ids } => {
+                let _ = backend
+                    .remove_blocks(header_ids)
+                    .await
+                    .map_err(|e| StorageServiceError::BackendError(e.into()))?;
+                Ok(())
             }
         }
     }
