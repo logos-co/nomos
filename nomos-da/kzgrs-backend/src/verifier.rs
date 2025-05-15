@@ -1,5 +1,5 @@
-use ark_ff::PrimeField;
-use ark_poly::EvaluationDomain;
+use ark_ff::PrimeField as _;
+use ark_poly::EvaluationDomain as _;
 use kzgrs::{FieldElement, GlobalParameters, PolynomialEvaluationDomain};
 
 use crate::common::{
@@ -44,7 +44,7 @@ impl DaVerifier {
 
 #[cfg(test)]
 mod test {
-    use nomos_core::da::{blob::Share, DaEncoder as _};
+    use nomos_core::da::{blob::Share as _, DaEncoder as _};
 
     use crate::{
         encoder::{test::rand_data, DaEncoder, DaEncoderParams},

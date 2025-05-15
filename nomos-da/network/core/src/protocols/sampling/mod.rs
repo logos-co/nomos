@@ -5,7 +5,7 @@ mod test {
     use std::time::Duration;
 
     use futures::StreamExt as _;
-    use kzgrs::{Commitment, Proof};
+    use kzgrs::Proof;
     use kzgrs_backend::common::{share::DaLightShare, Column};
     use libp2p::{identity::Keypair, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
     use log::debug;

@@ -1,17 +1,17 @@
-use std::{io::Cursor, ops::Mul};
+use std::{io::Cursor, ops::Mul as _};
 
 use ark_bls12_381::{Fr, G1Projective};
-use ark_ec::CurveGroup;
-use ark_ff::{Field, PrimeField};
-use ark_poly::EvaluationDomain;
+use ark_ec::CurveGroup as _;
+use ark_ff::{Field as _, PrimeField as _};
+use ark_poly::EvaluationDomain as _;
 use ark_poly_commit::kzg10::Commitment as KzgCommitment;
-use ark_serialize::CanonicalSerialize;
+use ark_serialize::CanonicalSerialize as _;
 use blake2::{
-    digest::{Update, VariableOutput},
+    digest::{Update as _, VariableOutput as _},
     Blake2bVar,
 };
 #[cfg(feature = "parallel")]
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 
 use super::{kzg, Commitment, Evaluations, GlobalParameters, PolynomialEvaluationDomain, Proof};
 use crate::fk20::{fk20_batch_generate_elements_proofs, Toeplitz1Cache};
@@ -105,7 +105,7 @@ pub fn compute_combined_polynomial(
             }
             #[cfg(feature = "parallel")]
             {
-                use rayon::iter::IntoParallelIterator;
+                use rayon::iter::IntoParallelIterator as _;
                 (0..domain.size()).into_par_iter()
             }
         }
