@@ -9,6 +9,7 @@ mod test {
         sync::{Arc, LazyLock},
         time::Duration,
     };
+    
     use futures::StreamExt as _;
     use libp2p::{
         bytes::BytesMut, identity::Keypair, multiaddr::Protocol, quic, swarm::SwarmEvent,
@@ -107,7 +108,7 @@ mod test {
     // Tamper the original data
     fn modify_packet(packet: &mut BytesMut) {
         if !packet.is_empty() {
-            packet[0] ^= 0b10101010; // Flip first byte
+            packet[0] ^= 0b1010_1010; // Flip first byte
         }
     }
 
@@ -413,8 +414,8 @@ mod test {
         // Allow proxy to start
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        let addr3: Multiaddr = format!("{}/quic-v1", server_addr).parse().unwrap();
-        let addr4: Multiaddr = format!("{}/quic-v1", proxy_addr).parse().unwrap();
+        let addr3: Multiaddr = format!("{server_addr}/quic-v1").parse().unwrap();
+        let addr4: Multiaddr = format!("{proxy_addr}/quic-v1").parse().unwrap();
 
         let mut swarm_3 = get_swarm(k1.clone(), make_neighbours(&[&k1, &k2]));
 
@@ -428,7 +429,7 @@ mod test {
                         ..
                     }) = event
                     {
-                        info!("Received message {:?}", message);
+                        info!("Received message {message:?}");
                         assert_ne!(message.share.data.share_idx, 0);
                         Some(message)
                     } else {
@@ -525,8 +526,8 @@ mod test {
             .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(10)))
             .build();
 
-        let addr3: Multiaddr = format!("{}/quic-v1", server_addr).parse().unwrap();
-        let addr4: Multiaddr = format!("{}/quic-v1", proxy_addr).parse().unwrap();
+        let addr3: Multiaddr = format!("{server_addr}/quic-v1").parse().unwrap();
+        let addr4: Multiaddr = format!("{proxy_addr}/quic-v1").parse().unwrap();
 
         let task_3 = async move {
             swarm_3.listen_on(addr3).unwrap();
@@ -539,7 +540,7 @@ mod test {
                             message,
                             ..
                         }) => {
-                            info!("Received message {:?}", message);
+                            info!("Received message {message:?}");
                             Some(message)
                         }
                         _ => None,
@@ -575,7 +576,7 @@ mod test {
                         let behaviour = swarm_2_tampered.behaviour_mut();
                         let msg = get_message(i);
                         behaviour.send_message(&msg);
-                        info!("Sent message {:?}", msg);
+                        info!("Sent message {msg:?}");
                         if i < 10 {
                             i += 1;
                         } else {
