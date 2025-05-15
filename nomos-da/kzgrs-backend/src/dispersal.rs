@@ -131,7 +131,7 @@ mod tests {
                 share_idx: i
                     .try_into()
                     .expect("Column index shouldn't overflow the target type"),
-                aggregated_column_proof: encoded_data.aggregated_column_proofs[i],
+                combined_column_proof: encoded_data.combined_column_proofs[i],
                 rows_commitments: encoded_data.row_commitments.clone(),
             };
             let (light_share, commitments) = da_share.into_share_and_commitments();

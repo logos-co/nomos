@@ -35,7 +35,7 @@ impl DaVerifier {
             share.share_idx as usize,
             &column,
             &commitments.rows_commitments,
-            &share.aggregated_column_proof,
+            &share.combined_column_proof,
             rows_domain,
             &self.global_parameters,
         )

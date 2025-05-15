@@ -50,7 +50,7 @@ pub struct EncodedData {
     pub chunked_data: ChunksMatrix,
     pub extended_data: ChunksMatrix,
     pub row_commitments: Vec<Commitment>,
-    pub aggregated_column_proofs: Vec<Proof>,
+    pub combined_column_proofs: Vec<Proof>,
 }
 impl EncodedData {
     /// Returns a `DaShare` for the given index.
@@ -61,7 +61,7 @@ impl EncodedData {
         Some(DaShare {
             column,
             share_idx: index.try_into().unwrap(),
-            aggregated_column_proof: self.aggregated_column_proofs[index],
+            combined_column_proof: self.combined_column_proofs[index],
             rows_commitments: self.row_commitments.clone(),
         })
     }
@@ -236,7 +236,7 @@ impl nomos_core::da::DaEncoder for DaEncoder {
         let (_, row_polynomials): (Vec<_>, Vec<_>) = row_polynomials.into_iter().unzip();
         let encoded_evaluations = Self::rs_encode_rows(&row_polynomials, row_domain);
         let extended_data = Self::evals_to_chunk_matrix(&encoded_evaluations);
-        let aggregated_column_proofs = bdfg_proving::generate_aggregated_proof(
+        let combined_column_proofs = bdfg_proving::generate_combined_proof(
             &encoded_evaluations,
             &row_commitments,
             row_domain,
@@ -249,7 +249,7 @@ impl nomos_core::da::DaEncoder for DaEncoder {
             chunked_data,
             extended_data,
             row_commitments,
-            aggregated_column_proofs,
+            combined_column_proofs,
         })
     }
 }
@@ -371,10 +371,10 @@ pub mod test {
         let encoding_data = ENCODER.encode(&data).unwrap();
         assert_eq!(encoding_data.data, data);
         assert_eq!(encoding_data.row_commitments.len(), 4);
-        assert_eq!(encoding_data.aggregated_column_proofs.len(), 16);
+        assert_eq!(encoding_data.combined_column_proofs.len(), 16);
         for (column, proof, idx) in izip!(
             encoding_data.extended_data.columns(),
-            encoding_data.aggregated_column_proofs,
+            encoding_data.combined_column_proofs,
             0usize..
         ) {
             let column: Vec<FieldElement> = column

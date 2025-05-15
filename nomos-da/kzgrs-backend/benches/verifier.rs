@@ -38,7 +38,7 @@ fn verify<const SIZE: usize>(bencher: Bencher, column_size: usize) {
             let da_share = DaShare {
                 column: encoded_data.extended_data.columns().next().unwrap(),
                 share_idx: 0,
-                aggregated_column_proof: encoded_data.aggregated_column_proofs[0],
+                combined_column_proof: encoded_data.combined_column_proofs[0],
                 rows_commitments: encoded_data.row_commitments,
             };
             let (light_share, commitments) = da_share.into_share_and_commitments();

@@ -92,7 +92,7 @@ where
 
     async fn disperse(&self, encoded_data: Self::EncodedData) -> Result<(), Self::Error> {
         let adapter = self.adapter.as_ref();
-        let num_columns = encoded_data.aggregated_column_proofs.len();
+        let num_columns = encoded_data.combined_column_proofs.len();
         let blob_id = build_blob_id(&encoded_data.row_commitments);
 
         let responses_stream = adapter.dispersal_events_stream().await?;

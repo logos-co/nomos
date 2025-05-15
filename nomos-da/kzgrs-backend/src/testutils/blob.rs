@@ -23,7 +23,7 @@ pub fn get_da_share(data: Option<Vec<u8>>) -> DaShare {
         share_idx: index
             .try_into()
             .expect("Column index shouldn't overflow the target type"),
-        aggregated_column_proof: encoded_data.aggregated_column_proofs[index],
+        combined_column_proof: encoded_data.combined_column_proofs[index],
         rows_commitments: encoded_data.row_commitments.clone(),
     }
 }

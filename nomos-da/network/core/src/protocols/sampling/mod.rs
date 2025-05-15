@@ -47,7 +47,7 @@ mod test {
                                 share: Box::new(DaLightShare {
                                     column: Column(vec![]),
                                     share_idx: 0,
-                                    aggregated_column_proof: Proof::default(),
+                                    combined_column_proof: Proof::default(),
                                 }),
                             })
                             .unwrap();

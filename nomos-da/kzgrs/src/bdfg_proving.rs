@@ -90,7 +90,7 @@ pub fn generate_row_commitments_hash(commitments: &[Commitment]) -> Vec<u8> {
 /// If the `parallel` feature is enabled, this function will perform parallel
 /// computations to improve performance during the evaluation process.
 #[must_use]
-pub fn compute_aggregated_polynomial(
+pub fn compute_combined_polynomial(
     polynomials: &[Evaluations],
     aggregated_commitments_hash: &[u8],
     domain: PolynomialEvaluationDomain,
@@ -158,7 +158,7 @@ pub fn compute_aggregated_polynomial(
 /// If the `parallel` feature is enabled, parts of the computation may utilize
 /// parallelism to enhance performance.
 #[must_use]
-pub fn generate_aggregated_proof(
+pub fn generate_combined_proof(
     polynomials: &[Evaluations],
     commitments: &[Commitment],
     domain: PolynomialEvaluationDomain,
@@ -167,7 +167,7 @@ pub fn generate_aggregated_proof(
 ) -> Vec<Proof> {
     let rows_commitments_hash = generate_row_commitments_hash(commitments);
     let aggregated_poly_evals =
-        compute_aggregated_polynomial(polynomials, &rows_commitments_hash, domain);
+        compute_combined_polynomial(polynomials, &rows_commitments_hash, domain);
     let aggregated_polynomial = aggregated_poly_evals.interpolate();
     fk20_batch_generate_elements_proofs(&aggregated_polynomial, global_parameters, toeplitz1cache)
 }

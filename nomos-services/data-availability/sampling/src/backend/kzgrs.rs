@@ -232,7 +232,7 @@ mod test {
         let share = DaShare {
             share_idx: 42,
             column: Column(vec![]),
-            aggregated_column_proof: Proof::default(),
+            combined_column_proof: Proof::default(),
             rows_commitments: vec![],
         };
         let share2 = share.clone();

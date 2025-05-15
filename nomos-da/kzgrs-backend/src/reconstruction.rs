@@ -54,7 +54,7 @@ mod test {
             .map(|(idx, column)| DaShare {
                 column,
                 share_idx: idx as ShareIndex,
-                aggregated_column_proof: Proof::default(),
+                combined_column_proof: Proof::default(),
                 rows_commitments: vec![],
             })
             .collect();
