@@ -1,25 +1,25 @@
 [package]
 edition = "2021"
 license = { workspace = true }
-name = "kzgrs"
+name    = "kzgrs"
 version = "0.1.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ark-bls12-381 = { version = "0.4.0" }
-ark-ec = "0.4.2"
-ark-ff = { version = "0.4.2" }
-ark-poly = { version = "0.4.2" }
+ark-bls12-381   = { version = "0.4.0" }
+ark-ec          = "0.4.2"
+ark-ff          = { version = "0.4.2" }
+ark-poly        = { version = "0.4.2" }
 ark-poly-commit = { version = "0.4.0" }
-ark-serialize = { version = "0.4" }
-blake2 = "0.10"
-blst = "0.3.11"
-num-bigint = "0.4.4"
-num-traits = "0.2.18"
-rand = "0.8.5"
-rayon = { version = "1.10", optional = true }
-thiserror = "1.0.58"
+ark-serialize   = { version = "0.4" }
+blake2          = "0.10"
+blst            = "0.3.11"
+num-bigint      = "0.4.4"
+num-traits      = "0.2.18"
+rand            = "0.8.5"
+rayon           = { version = "1.10", optional = true }
+thiserror       = "1.0.58"
 
 [dev-dependencies]
 divan = "0.1"
@@ -27,32 +27,32 @@ rayon = "1.10"
 
 [[bench]]
 harness = false
-name = "kzg"
+name    = "kzg"
 
 [[bench]]
 harness = false
-name = "fft"
+name    = "fft"
 
 [[bench]]
 harness = false
-name = "fk20"
+name    = "fk20"
 
 [[bench]]
 harness = false
-name = "rs"
+name    = "rs"
 
 [features]
 default = ["single"]
 parallel = [
-    "ark-ec/parallel",
-    "ark-ec/rayon",
-    "ark-ff/asm",
-    "ark-ff/parallel",
-    "ark-ff/rayon",
-    "ark-poly-commit/parallel",
-    "ark-poly-commit/rayon",
-    "ark-poly/parallel",
-    "ark-poly/rayon",
-    "dep:rayon",
+  "ark-ec/parallel",
+  "ark-ec/rayon",
+  "ark-ff/asm",
+  "ark-ff/parallel",
+  "ark-ff/rayon",
+  "ark-poly-commit/parallel",
+  "ark-poly-commit/rayon",
+  "ark-poly/parallel",
+  "ark-poly/rayon",
+  "dep:rayon",
 ]
 single = []
