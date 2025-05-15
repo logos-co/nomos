@@ -19,9 +19,4 @@ serde                  = { version = "1.0", features = ["derive"], optional = tr
 thiserror              = "1"
 
 [features]
-serde = [
-    "cryptarchia-engine/serde",
-    "dep:nomos-utils",
-    "dep:serde",
-    "rpds/serde",
-]
+serde = ["cryptarchia-engine/serde", "dep:nomos-utils", "dep:serde", "rpds/serde"]

@@ -2,10 +2,11 @@ use std::fmt::{Debug, Display};
 
 use bytes::Bytes;
 use nomos_core::{block::Block, da::blob::Share, header::HeaderId};
-use nomos_da_storage::rocksdb::{
-    create_share_idx, key_bytes, DA_SHARED_COMMITMENTS_PREFIX, DA_SHARE_PREFIX,
-};
 use nomos_storage::{
+    api::backend::rocksdb::{
+        da::{DA_SHARED_COMMITMENTS_PREFIX, DA_SHARE_PREFIX},
+        utils::{create_share_idx, key_bytes},
+    },
     backends::{rocksdb::RocksBackend, StorageSerde},
     StorageMsg, StorageService,
 };

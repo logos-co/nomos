@@ -8,6 +8,7 @@ use nomos_blend_service::{
     network::NetworkAdapter as BlendNetworkAdapter, BlendService, ServiceMessage,
 };
 use nomos_core::{
+    block::Block,
     da::blob::{info::DispersedBlobInfo, BlobSelect},
     header::HeaderId,
     tx::TxSelect,
@@ -19,7 +20,9 @@ use nomos_mempool::{
     DaMempoolService, TxMempoolService,
 };
 use nomos_network::{NetworkMsg, NetworkService};
-use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
+use nomos_storage::{
+    api::chain::StorageChainApi, backends::StorageBackend, StorageMsg, StorageService,
+};
 use nomos_time::{backends::TimeBackend as TimeBackendTrait, TimeService, TimeServiceMessage};
 use overwatch::{
     services::{relay::OutboundRelay, AsServiceId},
@@ -74,7 +77,7 @@ pub struct CryptarchiaConsensusRelays<
     DaPool: MemPool,
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId>,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
-    Storage: StorageBackend + Send + Sync,
+    Storage: StorageBackend + Send + Sync + 'static,
     SamplingRng: SeedableRng + RngCore,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng>,
     TxS: TxSelect,
@@ -136,13 +139,13 @@ where
     BS::Settings: Send,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    ClPool::Item: Debug + DeserializeOwned + Eq + Hash + Clone + Send + Sync + 'static,
+    ClPool::Item: Debug + Serialize + DeserializeOwned + Eq + Hash + Clone + Send + Sync + 'static,
     ClPool::Key: Debug + 'static,
     ClPool::Settings: Clone,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     DaPool: RecoverableMempool<BlockId = HeaderId>,
     DaPool::BlockId: Debug,
-    DaPool::Item: Debug + DeserializeOwned + Eq + Hash + Clone + Send + Sync + 'static,
+    DaPool::Item: Debug + Serialize + DeserializeOwned + Eq + Hash + Clone + Send + Sync + 'static,
     DaPool::Key: Debug + 'static,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     DaPool::Settings: Clone,
@@ -155,6 +158,8 @@ where
     SamplingBackend::Share: Debug + 'static,
     SamplingRng: SeedableRng + RngCore,
     Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Block:
+        TryFrom<Block<ClPool::Item, DaPool::Item>> + TryInto<Block<ClPool::Item, DaPool::Item>>,
     TxS: TxSelect<Tx = ClPool::Item>,
     TxS::Settings: Send,
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + Sync + 'static,

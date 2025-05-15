@@ -1,13 +1,6 @@
 use bytes::{Bytes, BytesMut};
 
-// "DA/VID/" PREFIX
-pub const DA_VID_KEY_PREFIX: &str = "da/vid/";
-
-// "DA/VERIFIED/" PREFIX
-pub const DA_BLOB_SHARES_INDEX_PREFIX: &str = concat!("da/verified/", "si");
-pub const DA_SHARED_COMMITMENTS_PREFIX: &str = concat!("da/verified/", "sc");
-pub const DA_SHARE_PREFIX: &str = concat!("da/verified/", "bl");
-
+#[must_use]
 pub fn key_bytes(prefix: &str, id: impl AsRef<[u8]>) -> Bytes {
     let mut buffer = BytesMut::new();
 

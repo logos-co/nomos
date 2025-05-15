@@ -1,7 +1,5 @@
 #[cfg(feature = "mock")]
 pub mod mock;
-#[cfg(feature = "sled-backend")]
-pub mod sled;
 
 #[cfg(feature = "rocksdb-backend")]
 pub mod rocksdb;
@@ -11,6 +9,8 @@ use std::error::Error;
 use async_trait::async_trait;
 use bytes::Bytes;
 use serde::{de::DeserializeOwned, Serialize};
+
+use crate::api::StorageBackendApi;
 
 /// Trait that defines how to translate from user types to the storage buffer
 /// type
@@ -30,7 +30,7 @@ pub trait StorageTransaction: Send + Sync {
 
 /// Main storage functionality trait
 #[async_trait]
-pub trait StorageBackend: Sized {
+pub trait StorageBackend: StorageBackendApi + Sized {
     /// Backend settings
     type Settings: Clone + Send + Sync + 'static;
     /// Backend operations error type
@@ -42,17 +42,27 @@ pub trait StorageBackend: Sized {
     /// Operator to dump/load custom types into the defined backend store type
     /// [`Bytes`]
     type SerdeOperator: StorageSerde + Send + Sync + 'static;
-    fn new(config: Self::Settings) -> Result<Self, Self::Error>;
-    async fn store(&mut self, key: Bytes, value: Bytes) -> Result<(), Self::Error>;
-    async fn load(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error>;
+    fn new(config: Self::Settings) -> Result<Self, <Self as StorageBackend>::Error>;
+    async fn store(
+        &mut self,
+        key: Bytes,
+        value: Bytes,
+    ) -> Result<(), <Self as StorageBackend>::Error>;
+    async fn load(&mut self, key: &[u8]) -> Result<Option<Bytes>, <Self as StorageBackend>::Error>;
     /// Loads all values whose keys start with the given prefix.
-    async fn load_prefix(&mut self, prefix: &[u8]) -> Result<Vec<Bytes>, Self::Error>;
-    async fn remove(&mut self, key: &[u8]) -> Result<Option<Bytes>, Self::Error>;
+    async fn load_prefix(
+        &mut self,
+        prefix: &[u8],
+    ) -> Result<Vec<Bytes>, <Self as StorageBackend>::Error>;
+    async fn remove(
+        &mut self,
+        key: &[u8],
+    ) -> Result<Option<Bytes>, <Self as StorageBackend>::Error>;
     /// Execute a transaction in the current backend
     async fn execute(
         &mut self,
         transaction: Self::Transaction,
-    ) -> Result<<Self::Transaction as StorageTransaction>::Result, Self::Error>;
+    ) -> Result<<Self::Transaction as StorageTransaction>::Result, <Self as StorageBackend>::Error>;
 }
 
 #[cfg(test)]
