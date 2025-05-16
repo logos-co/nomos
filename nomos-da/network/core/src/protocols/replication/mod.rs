@@ -4,28 +4,25 @@ pub mod behaviour;
 mod test {
     use std::{
         collections::VecDeque,
-        net::SocketAddr,
         ops::Range,
-        sync::{Arc, LazyLock},
+        sync::LazyLock,
         time::Duration,
     };
 
     use futures::StreamExt as _;
     use libp2p::{
-        bytes::BytesMut, identity::Keypair, multiaddr::Protocol, quic, swarm::SwarmEvent,
+        identity::Keypair, quic, swarm::SwarmEvent,
         Multiaddr, PeerId, Swarm,
     };
     use libp2p_swarm_test::SwarmExt as _;
     use log::info;
     use nomos_da_messages::replication::ReplicationRequest;
     use tokio::{
-        io,
-        net::UdpSocket,
-        sync::{mpsc, Mutex},
+        sync::mpsc,
     };
-    use tracing::error;
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
+    use crate::test_utils::start_udp_mutation_proxy;
     use crate::{
         protocols::replication::behaviour::{
             ReplicationBehaviour, ReplicationConfig, ReplicationEvent,
@@ -104,103 +101,6 @@ mod test {
         // Ad-hoc generation of those takes about 12 seconds on a Ryzen3700x
         bincode::deserialize(include_bytes!("./fixtures/messages.bincode")).unwrap()
     });
-
-    // Tamper the original data
-    fn modify_packet(packet: &mut BytesMut) {
-        if !packet.is_empty() {
-            packet[1] ^= 0x80; // Flip 1 bit in the second byte
-        }
-    }
-
-    // Heuristically determine if the packet is likely QUIC application data.
-    fn is_probable_application_data(packet: &[u8]) -> bool {
-        if packet.is_empty() {
-            return false;
-        }
-        let first = packet[0];
-        // Detect post-Handshake (1-RTT) packet
-        (first & 0x80) == 0
-        
-    }
-
-    // Convert Multiaddr to SocketAddr for UDP
-    fn multiaddr_to_socket_addr(multiaddr: &Multiaddr) -> io::Result<SocketAddr> {
-        let iter = multiaddr.iter();
-        let mut ip = None;
-        let mut port = None;
-
-        for component in iter {
-            match component {
-                Protocol::Ip4(addr) => ip = Some(std::net::IpAddr::V4(addr)),
-                Protocol::Ip6(addr) => ip = Some(std::net::IpAddr::V6(addr)),
-                Protocol::Udp(p) => port = Some(p),
-                _ => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        "Unsupported protocol",
-                    ))
-                }
-            }
-        }
-
-        match (ip, port) {
-            (Some(ip), Some(port)) => Ok(SocketAddr::new(ip, port)),
-            _ => Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Multiaddr must include IP and UDP port",
-            )),
-        }
-    }
-
-    // Start the two-way UDP mutation proxy
-    pub async fn start_udp_mutation_proxy(
-        proxy_addr: Multiaddr,
-        target_addr: Multiaddr,
-    ) -> io::Result<()> {
-        let proxy_socket_addr = multiaddr_to_socket_addr(&proxy_addr)?;
-        let target_socket_addr = multiaddr_to_socket_addr(&target_addr)?;
-
-        info!("UDP proxy listening on {proxy_socket_addr}, forwarding to {target_socket_addr}");
-
-        let socket = Arc::new(UdpSocket::bind(proxy_socket_addr).await?);
-        let client_addr = Arc::new(Mutex::new(None::<SocketAddr>));
-        let mut buf = vec![0u8; 65535];
-
-        loop {
-            let (len, src_addr) = match socket.recv_from(&mut buf).await {
-                Ok((len, addr)) => (len, addr),
-                Err(e) => {
-                    error!("recv_from error: {e}");
-                    continue;
-                }
-            };
-
-            let mut data = BytesMut::from(&buf[..len]);
-
-            let dest_addr = if src_addr == target_socket_addr {
-                // From target → send to client
-                let value = *client_addr.lock().await;
-                if let Some(addr) = value {
-                    addr
-                } else {
-                    error!("No client address recorded yet");
-                    continue;
-                }
-            } else {
-                // From client → save and send to target
-                *client_addr.lock().await = Some(src_addr);
-                target_socket_addr
-            };
-
-            if is_probable_application_data(&data) {
-                modify_packet(&mut data);
-            }
-
-            if let Err(e) = socket.send_to(&data, dest_addr).await {
-                error!("send_to error: {e}");
-            }
-        }
-    }
 
     #[tokio::test]
     async fn test_replication_chain_in_both_directions() {
@@ -375,35 +275,35 @@ mod test {
         let peer_id2 = PeerId::from_public_key(&k2.public());
 
         let neighbours = make_neighbours(&[&k1, &k2]);
-        
+
         let proxy_addr: Multiaddr = "/ip4/127.0.0.1/udp/5058".parse().unwrap();
         let server_addr: Multiaddr = "/ip4/127.0.0.1/udp/5059".parse().unwrap();
-        
+
         // Start UDP proxy
         tokio::spawn(start_udp_mutation_proxy(
             proxy_addr.clone(),
             server_addr.clone(),
         ));
-        
+
         // Wait for roxy to start
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let addr: Multiaddr = format!("{server_addr}/quic-v1").parse().unwrap();
         let addr2: Multiaddr = format!("{proxy_addr}/quic-v1").parse().unwrap();
-        
+
         let msg_count = 10usize;
         let mut swarm_1 = get_swarm(k1.clone(), neighbours.clone());
         let mut swarm_2 = get_swarm(k2.clone(), neighbours.clone());
-        
+
         let task_1 = async move {
             swarm_1.listen_on(addr.clone()).unwrap();
             wait_for_incoming_connection(&mut swarm_1, peer_id2).await;
             swarm_1
                 .filter_map(|event| async {
                     if let SwarmEvent::Behaviour(ReplicationEvent::IncomingMessage {
-                                                     message,
-                                                     ..
-                                                 }) = event
+                        message,
+                        ..
+                    }) = event
                     {
                         info!("Received message {message:?}");
                         assert_ne!(message.share.data.share_idx, 0);
@@ -464,7 +364,7 @@ mod test {
 
         let neighbours = make_neighbours(&[&k1, &k2]);
         let mut swarm_1 = get_swarm(k1.clone(), neighbours.clone());
-        
+
         let mut swarm_2_tampered = libp2p::SwarmBuilder::with_existing_identity(k2.clone())
             .with_tokio()
             .with_other_transport(|_keypair| quic::tokio::Transport::new(quic::Config::new(&k2)))
@@ -488,20 +388,20 @@ mod test {
             .unwrap()
             .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(10)))
             .build();
-        
+
         let msg_count = 10usize;
         let addr: Multiaddr = "/ip4/127.0.0.1/udp/5061/quic-v1".parse().unwrap();
         let addr2 = addr.clone();
-        
+
         let task_1 = async move {
             swarm_1.listen_on(addr.clone()).unwrap();
             wait_for_incoming_connection(&mut swarm_1, peer_id2).await;
             swarm_1
                 .filter_map(|event| async {
                     if let SwarmEvent::Behaviour(ReplicationEvent::IncomingMessage {
-                                                     message,
-                                                     ..
-                                                 }) = event
+                        message,
+                        ..
+                    }) = event
                     {
                         info!("Received message {message:?}");
                         assert_ne!(message.share.data.share_idx, 0);

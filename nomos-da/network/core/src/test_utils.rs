@@ -1,9 +1,5 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::{Arc, Mutex},
-    time::Duration,
-};
-
+use libp2p::bytes::BytesMut;
+use libp2p::multiaddr::Protocol;
 use libp2p::{
     core::{
         transport::{MemoryTransport, PortUse},
@@ -17,8 +13,18 @@ use libp2p::{
     },
     Multiaddr, PeerId,
 };
+use log::info;
 use nomos_da_messages::replication::ReplicationRequest;
+use std::net::SocketAddr;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use subnetworks_assignations::MembershipHandler;
+use tokio::io;
+use tokio::net::UdpSocket;
+use tracing::error;
 
 use crate::{protocols::replication::behaviour::ReplicationBehaviour, SubnetworkId};
 
@@ -198,5 +204,99 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         self.inner.poll(cx)
+    }
+}
+
+fn modify_packet(packet: &mut BytesMut) {
+    if !packet.is_empty() {
+        packet[1] ^= 0x80; // Flip 1 bit in the second byte
+    }
+}
+
+// Heuristically determine if the packet is likely QUIC application data.
+fn is_probable_application_data(packet: &[u8]) -> bool {
+    if packet.is_empty() {
+        return false;
+    }
+    let first = packet[0];
+    // Detect post-Handshake (1-RTT) packet
+    (first & 0x80) == 0
+}
+
+fn multiaddr_to_socket_addr(multiaddr: &Multiaddr) -> io::Result<SocketAddr> {
+    let iter = multiaddr.iter();
+    let mut ip = None;
+    let mut port = None;
+
+    for component in iter {
+        match component {
+            Protocol::Ip4(addr) => ip = Some(std::net::IpAddr::V4(addr)),
+            Protocol::Ip6(addr) => ip = Some(std::net::IpAddr::V6(addr)),
+            Protocol::Udp(p) => port = Some(p),
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Unsupported protocol",
+                ))
+            }
+        }
+    }
+
+    match (ip, port) {
+        (Some(ip), Some(port)) => Ok(SocketAddr::new(ip, port)),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Multiaddr must include IP and UDP port",
+        )),
+    }
+}
+
+// Start the two-way UDP mutation proxy
+pub async fn start_udp_mutation_proxy(
+    proxy_addr: Multiaddr,
+    target_addr: Multiaddr,
+) -> io::Result<()> {
+    let proxy_socket_addr = multiaddr_to_socket_addr(&proxy_addr)?;
+    let target_socket_addr = multiaddr_to_socket_addr(&target_addr)?;
+
+    info!("UDP proxy listening on {proxy_socket_addr}, forwarding to {target_socket_addr}");
+
+    let socket = Arc::new(UdpSocket::bind(proxy_socket_addr).await?);
+    let client_addr = Arc::new(tokio::sync::Mutex::new(None::<SocketAddr>));
+    let mut buf = vec![0u8; 65535];
+
+    loop {
+        let (len, src_addr) = match socket.recv_from(&mut buf).await {
+            Ok((len, addr)) => (len, addr),
+            Err(e) => {
+                error!("recv_from error: {e}");
+                continue;
+            }
+        };
+
+        let mut data = BytesMut::from(&buf[..len]);
+
+        let dest_addr = if src_addr == target_socket_addr {
+            // From target → send to client
+            let value = *client_addr.lock().await;
+            if let Some(addr) = value {
+                addr
+            } else {
+                error!("No client address recorded yet");
+                continue;
+            }
+        } else {
+            // From client → save and send to target
+            *client_addr.lock().await = Some(src_addr);
+            target_socket_addr
+        };
+
+        if is_probable_application_data(&data) {
+            modify_packet(&mut data);
+        }
+
+        if let Err(e) = socket.send_to(&data, dest_addr).await {
+            error!("send_to error: {e}");
+        }
     }
 }
