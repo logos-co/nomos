@@ -9,7 +9,7 @@ mod test {
         sync::{Arc, LazyLock},
         time::Duration,
     };
-    
+
     use futures::StreamExt as _;
     use libp2p::{
         bytes::BytesMut, identity::Keypair, multiaddr::Protocol, quic, swarm::SwarmEvent,
@@ -108,7 +108,7 @@ mod test {
     // Tamper the original data
     fn modify_packet(packet: &mut BytesMut) {
         if !packet.is_empty() {
-            packet[0] ^= 0b1010_1010; // Flip first byte
+            packet[1] ^= 0x80; // Flip 1 bit in the second byte
         }
     }
 
@@ -118,8 +118,9 @@ mod test {
             return false;
         }
         let first = packet[0];
-        // Short header (0x40–0x7F) is typically post-handshake encrypted data
-        (first & 0b1100_0000) == 0b0100_0000
+        // Detect post-Handshake (1-RTT) packet
+        (first & 0x80) == 0
+        
     }
 
     // Convert Multiaddr to SocketAddr for UDP
@@ -306,7 +307,7 @@ mod test {
         quic_config.handshake_timeout = Duration::from_millis(100);
         // Set a very short idle timeout to simulate connection failure
         quic_config.max_idle_timeout = 100; // milliseconds as u32
-                                            // Set a very short keep alive interval to simulate connection failure
+        // Set a very short keep alive interval to simulate connection failure
         quic_config.keep_alive_interval = Duration::from_millis(50);
 
         // Create a new swarm with the tampered transport
@@ -476,27 +477,35 @@ mod test {
     }
 
     #[tokio::test]
-    #[expect(clippy::too_many_lines, reason = "Test to be split later on.")]
-    async fn test_connects_and_receives_messages_with_udp_proxy() {
+    async fn test_tampered_quick_packet_detection() {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env())
             .compact()
             .with_writer(TestWriter::default())
             .try_init();
-
-        let proxy_addr: Multiaddr = "/ip4/127.0.0.1/udp/5058".parse().unwrap();
-        let server_addr: Multiaddr = "/ip4/127.0.0.1/udp/5059".parse().unwrap();
-        start_udp_mutation_proxy(proxy_addr.clone(), server_addr.clone())
-            .await
-            .expect("Failed to start UDP proxy");
-
         let k1 = Keypair::generate_ed25519();
         let k2 = Keypair::generate_ed25519();
         let peer_id2 = PeerId::from_public_key(&k2.public());
 
         let neighbours = make_neighbours(&[&k1, &k2]);
-        let mut swarm_3 = get_swarm(k1.clone(), make_neighbours(&[&k1, &k2]));
+        
+        let proxy_addr: Multiaddr = "/ip4/127.0.0.1/udp/5058".parse().unwrap();
+        let server_addr: Multiaddr = "/ip4/127.0.0.1/udp/5059".parse().unwrap();
+        
+        // Start UDP proxy
+        tokio::spawn(start_udp_mutation_proxy(
+            proxy_addr.clone(),
+            server_addr.clone(),
+        ));
+        
+        // Wait for roxy to start
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
+        let addr: Multiaddr = format!("{server_addr}/quic-v1").parse().unwrap();
+        let addr2: Multiaddr = format!("{proxy_addr}/quic-v1").parse().unwrap();
+        
+        let msg_count = 10usize;
+        
         let mut quic_config = quic::Config::new(&k2);
         quic_config.handshake_timeout = Duration::from_millis(100);
         quic_config.max_idle_timeout = 100;
@@ -513,7 +522,7 @@ mod test {
                         seen_message_ttl: Duration::from_secs(60),
                     },
                     PeerId::from_public_key(&key.public()),
-                    neighbours,
+                    neighbours.clone(),
                 );
                 let mut behaviour = TamperingReplicationBehaviour::new(base);
                 behaviour.set_tamper_hook(|mut msg| {
@@ -526,49 +535,34 @@ mod test {
             .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(10)))
             .build();
 
-        let addr3: Multiaddr = format!("{server_addr}/quic-v1").parse().unwrap();
-        let addr4: Multiaddr = format!("{proxy_addr}/quic-v1").parse().unwrap();
+        let mut swarm_1 = get_swarm(k1.clone(), neighbours);
 
-        let task_3 = async move {
-            swarm_3.listen_on(addr3).unwrap();
-            wait_for_incoming_connection(&mut swarm_3, peer_id2).await;
-
-            let all_messages: Vec<_> = swarm_3
+        let task_1 = async move {
+            swarm_1.listen_on(addr.clone()).unwrap();
+            wait_for_incoming_connection(&mut swarm_1, peer_id2).await;
+            swarm_1
                 .filter_map(|event| async {
-                    match event {
-                        SwarmEvent::Behaviour(ReplicationEvent::IncomingMessage {
-                            message,
-                            ..
-                        }) => {
-                            info!("Received message {message:?}");
-                            Some(message)
-                        }
-                        _ => None,
+                    if let SwarmEvent::Behaviour(ReplicationEvent::IncomingMessage {
+                                                     message,
+                                                     ..
+                                                 }) = event
+                    {
+                        info!("Received message {message:?}");
+                        assert_ne!(message.share.data.share_idx, 0);
+                        Some(message)
+                    } else {
+                        None
                     }
                 })
-                .take(10)
-                .collect()
-                .await;
-
-            let malformed_count = all_messages
-                .iter()
-                .filter(|m| m.share.data.share_idx == 0)
-                .count();
-            let valid_count = all_messages.len() - malformed_count;
-
-            assert!(
-                malformed_count > 0,
-                "Expected at least one malformed message due to proxy tampering"
-            );
-            assert_eq!(
-                valid_count + malformed_count,
-                10,
-                "All messages should have been processed"
-            );
+                .take(msg_count)
+                .collect::<Vec<_>>()
+                .await
         };
 
-        let task_4 = async move {
-            swarm_2_tampered.dial(addr4).unwrap();
+        let task_2 = async move {
+            swarm_2_tampered.dial(addr2).unwrap();
+
+            // Send a tampered message after attempting connection
             let mut i = 0;
             loop {
                 tokio::select! {
@@ -576,8 +570,8 @@ mod test {
                         let behaviour = swarm_2_tampered.behaviour_mut();
                         let msg = get_message(i);
                         behaviour.send_message(&msg);
-                        info!("Sent message {msg:?}");
-                        if i < 10 {
+                        info!("Sent message {i}# ");
+                        if i < 19 {
                             i += 1;
                         } else {
                             break;
@@ -586,7 +580,7 @@ mod test {
                     event = swarm_2_tampered.select_next_some() => {
                         match event {
                             SwarmEvent::ConnectionClosed { .. } => break,
-                            SwarmEvent::ConnectionEstablished { peer_id, connection_id, .. } => {
+                            SwarmEvent::ConnectionEstablished { peer_id,  connection_id, .. } => {
                                 info!("Connected to {peer_id} with connection_id: {connection_id}");
                             },
                             _ => {}
@@ -596,6 +590,6 @@ mod test {
             }
         };
 
-        tokio::join!(task_3, task_4);
+        tokio::join!(task_1, task_2);
     }
 }
