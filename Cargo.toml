@@ -1,5 +1,6 @@
 [workspace]
-exclude = ["nomos-core/risc0_proofs"]
+# Make sure any excluded crates are still clipped in our CI.
+exclude = ["nomos-core/cl", "nomos-core/proof_statements", "nomos-core/risc0_proofs"]
 members = [
   "consensus/cryptarchia-engine",
   "ledger/nomos-ledger",
@@ -14,8 +15,6 @@ members = [
   "nomos-bundler",
   "nomos-cli",
   "nomos-core/chain-defs",
-  "nomos-core/cl",
-  "nomos-core/proof_statements",
   "nomos-da/kzgrs",
   "nomos-da/kzgrs-backend",
   "nomos-da/network/core",

@@ -133,7 +133,7 @@ impl BalanceWitness {
     }
 
     #[must_use]
-    pub const fn is_zero(&self) -> bool {
+    pub fn is_zero(&self) -> bool {
         self.balances.is_empty()
     }
 
