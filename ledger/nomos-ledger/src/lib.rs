@@ -181,6 +181,15 @@ where
         &self.config
     }
 
+    /// Removes the state stored for the given block id.
+    ///
+    /// ## Arguments
+    ///
+    /// The block ID to prune the state for.
+    ///
+    /// ## Returns
+    ///
+    /// `true` if the state was successfully removed, `false` otherwise.
     pub fn prune_state_at(&mut self, block: &Id) -> bool {
         self.states.remove(block).is_some()
     }

@@ -36,5 +36,5 @@ pub trait StorageAdapter<RuntimeServiceId> {
         header_ids: Headers,
     ) -> Result<impl Iterator<Item = Self::Block>, overwatch::DynError>
     where
-        Headers: Iterator<Item = HeaderId>;
+        Headers: Iterator<Item = HeaderId> + Send + Sync;
 }

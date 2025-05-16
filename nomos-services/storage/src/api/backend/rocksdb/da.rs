@@ -3,7 +3,6 @@ use std::collections::HashSet;
 use async_trait::async_trait;
 use bytes::Bytes;
 use nomos_core::da::BlobId;
-use rocksdb::Error;
 use tracing::{debug, error};
 
 use crate::{

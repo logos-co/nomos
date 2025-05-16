@@ -165,7 +165,7 @@ impl<Api: StorageBackend> StorageMsg<Api> {
     }
 
     #[must_use]
-    pub const fn remove_blocks_request<Headers>(
+    pub const fn remove_blocks_request(
         header_ids: HashSet<HeaderId>,
         response_tx: Sender<Result<Vec<Api::Block>, StorageServiceError>>,
     ) -> Self {

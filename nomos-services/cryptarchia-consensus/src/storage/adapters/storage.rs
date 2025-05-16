@@ -1,4 +1,4 @@
-use std::{collections::HashSet, hash::Hash, marker::PhantomData};
+use std::{hash::Hash, marker::PhantomData};
 
 use nomos_core::{block::Block, header::HeaderId};
 use nomos_storage::{
@@ -86,14 +86,19 @@ where
 
         self.storage_relay
             .send(StorageMsg::remove_block_request(header_id, sender))
-            .await?;
+            .await
+            .map_err(|_| "Failed to send remove block request to storage relay")?;
 
-        let Ok(maybe_removed_block) = receiver.await else {
-            return Err("Failed to receive removed block from storage relay".into());
-        };
-
+        let maybe_removed_block = receiver
+            .await
+            .map_err(|_| "Failed to receive removed block from storage relay")?;
         let removed_block = maybe_removed_block?;
-        removed_block.try_into().ok()
+
+        let deserialized_block = removed_block
+            .try_into()
+            .map_err(|_| "Failed to convert block to storage format")?;
+
+        Ok(deserialized_block)
     }
 
     async fn remove_blocks<Headers>(
@@ -101,25 +106,33 @@ where
         header_ids: Headers,
     ) -> Result<impl Iterator<Item = Self::Block>, overwatch::DynError>
     where
-        Headers: Iterator<Item = HeaderId>,
+        Headers: Iterator<Item = HeaderId> + Send + Sync,
     {
         let (sender, receiver) = oneshot::channel();
 
         self.storage_relay
             .send(StorageMsg::remove_blocks_request(
-                HashSet::from_iter(header_ids),
+                header_ids.collect(),
                 sender,
             ))
-            .await?;
+            .await
+            .map_err(|_| "Failed to send remove blocks request to storage relay")?;
 
-        let Ok(maybe_removed_blocks) = receiver.await else {
-            return Err("Failed to receive removed blocks from storage relay".into());
-        };
-
+        let maybe_removed_blocks = receiver
+            .await
+            .map_err(|_| "Failed to receive removed blocks from storage relay")?;
         let removed_blocks = maybe_removed_blocks?;
-        removed_blocks
+
+        let deserialized_blocks = removed_blocks
             .into_iter()
-            .map(|b| b.try_into())
-            .collect::<Result<_, _>>()
+            .map(|b| -> Result<_, overwatch::DynError> {
+                let deserialized_block = b
+                    .try_into()
+                    .map_err(|_| "Failed to convert block to storage format")?;
+                Ok(deserialized_block)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(deserialized_blocks.into_iter())
     }
 }

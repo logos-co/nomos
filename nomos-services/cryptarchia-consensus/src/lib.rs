@@ -193,17 +193,22 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
                 .into(),
         );
         let mut pruned_blocks_count = 0usize;
-        old_forks_pruned.for_each(|pruned_block| {
-            assert!(
-                self.ledger.prune_state_at(&pruned_block.id()),
-                "Failed to prune ledger state for block {:?} which should exist.",
-                pruned_block.id()
-            );
-            pruned_blocks_count = pruned_blocks_count.saturating_add(1);
-        });
+        // We need to iterate once, then return the unconsumed iterator, so we need to collect first.
+        let collected_forks = old_forks_pruned.collect::<Vec<_>>();
+        for pruned_block in &collected_forks { 
+            if self.ledger.prune_state_at(&pruned_block.id()) {
+                pruned_blocks_count = pruned_blocks_count.saturating_add(1);
+            } else {
+                error!(
+                    target: LOG_TARGET,
+                     "Failed to prune ledger state for block {:?} which should exist.",
+                     pruned_block.id()
+                 );
+            }
+         }
         tracing::debug!(target: LOG_TARGET, "Pruned {pruned_blocks_count} old forks and their ledger states.");
 
-        old_forks_pruned
+        collected_forks.into_iter()
     }
 }
 
@@ -648,12 +653,11 @@ where
                             block,
                             &relays,
                             &mut self.block_subscription_sender,
-                        )
+                        ) 
                         .await;
 
                         self.service_resources_handle.state_updater.update(Some(Self::State::from_cryptarchia(&cryptarchia, &leader)));
-                        // TODO: Replace with Self::prune_old_forks()
-                        cryptarchia.prune_old_forks();
+                        Self::prune_old_forks(&mut cryptarchia, relays.storage_adapter()).await;
 
                         info!(counter.consensus_processed_blocks = 1);
                     }
@@ -688,8 +692,9 @@ where
                                     &relays,
                                     &mut self.block_subscription_sender
                                 ).await;
-                                // TODO: Replace with Self::prune_old_forks()
-                                cryptarchia.prune_old_forks();
+                                
+                                self.service_state.state_updater.update(Self::State::from_cryptarchia(&cryptarchia, &leader));
+                                Self::prune_old_forks(&mut cryptarchia, relays.storage_adapter()).await;
                                 blend_adapter.blend(block).await;
                             }
                         }
@@ -1417,10 +1422,12 @@ where
 
     async fn prune_old_forks(
         cryptarchia: &mut Cryptarchia,
-        storage_adapter: &mut &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
+        storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>, 
     ) {
-        let old_forks_pruned = cryptarchia.prune_old_forks();
-        // TODO: Send remove command to storage adapter
+        let old_forks_pruned = cryptarchia.prune_old_forks(); 
+        if let Err(e) = storage_adapter.remove_blocks(old_forks_pruned.map(|f| f.id())).await {
+            error!("Could not prune old forks from storage. Failed with error: {e}");
+        }
     }
 }
 
