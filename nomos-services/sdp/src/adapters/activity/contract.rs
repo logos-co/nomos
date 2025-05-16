@@ -2,17 +2,17 @@ use std::fmt::Debug;
 
 use async_trait::async_trait;
 use nomos_sdp_core::{
-    ledger::{RewardsRequestSender, RewardsSenderError},
-    RewardMessage,
+    ledger::{ActivityContract, ActivityContractError},
+    ActiveMessage,
 };
 
-use super::SdpRewardsAdapter;
+use super::SdpActivityAdapter;
 
 pub struct LedgerRewardsAdapter<Metadata, ContractAddress> {
     phantom: std::marker::PhantomData<(Metadata, ContractAddress)>,
 }
 
-impl<Metadata: Send + Sync, ContractAddress: Send + Debug + Sync> SdpRewardsAdapter
+impl<Metadata: Send + Sync, ContractAddress: Send + Debug + Sync> SdpActivityAdapter
     for LedgerRewardsAdapter<Metadata, ContractAddress>
 {
     fn new() -> Self {
@@ -23,25 +23,34 @@ impl<Metadata: Send + Sync, ContractAddress: Send + Debug + Sync> SdpRewardsAdap
 }
 
 impl<Metadata, ContractAddress> LedgerRewardsAdapter<Metadata, ContractAddress> {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             phantom: std::marker::PhantomData,
         }
     }
 }
 
+impl Default for LedgerRewardsAdapter<(), ()> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
-impl<Metadata, ContractAddress> RewardsRequestSender
-    for LedgerRewardsAdapter<Metadata, ContractAddress>
+impl<Metadata, ContractAddress> ActivityContract for LedgerRewardsAdapter<Metadata, ContractAddress>
 where
     Metadata: std::marker::Send + std::marker::Sync,
     ContractAddress: std::marker::Send + std::fmt::Debug + std::marker::Sync,
 {
-    async fn request_reward(
+    type ContractAddress = ContractAddress;
+    type Metadata = Metadata;
+
+    async fn mark_active(
         &self,
-        reward_contract: Self::ContractAddress,
-        reward_message: RewardMessage<Self::Metadata>,
-    ) -> Result<(), RewardsSenderError<Self::ContractAddress>> {
+        _: Self::ContractAddress,
+        _: ActiveMessage<Self::Metadata>,
+    ) -> Result<(), ActivityContractError<Self::ContractAddress>> {
         todo!() // Implementation will go here later
     }
 }

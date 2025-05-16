@@ -28,7 +28,7 @@ pub struct ServiceParameters<ContractAddress> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Locator {
-    addr: Multiaddr,
+    pub addr: Multiaddr,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -210,4 +210,10 @@ impl<Metadata, Proof> SdpMessage<Metadata, Proof> {
             Self::Withdraw(message) => message.service_type,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct FinalizedBlockEvent {
+    pub block_number: BlockNumber,
+    pub updates: Vec<(ProviderInfo, DeclarationUpdate)>,
 }

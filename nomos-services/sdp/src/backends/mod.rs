@@ -1,11 +1,20 @@
+use nomos_sdp_core::{BlockNumber, DeclarationUpdate, ProviderInfo};
 use overwatch::DynError;
 
 use crate::adapters::{
-    declaration::SdpDeclarationAdapter, rewards::SdpRewardsAdapter, services::SdpServicesAdapter,
+    activity::SdpActivityAdapter, declaration::SdpDeclarationAdapter, services::SdpServicesAdapter,
     stakes::SdpStakesVerifierAdapter,
 };
 
 pub mod ledger;
+
+#[derive(Debug, Clone)]
+pub struct ServiceParams {
+    pub lock_period: u64,
+    pub inactivity_period: u64,
+    pub retention_period: u64,
+    pub timestamp: BlockNumber,
+}
 
 #[derive(Debug)]
 pub enum SdpBackendError {
@@ -18,10 +27,9 @@ pub enum SdpBackendError {
 
 #[async_trait::async_trait]
 pub trait SdpBackend {
-    type BlockNumber: Clone + Send + Sync;
     type Message: Send + Sync;
     type DeclarationAdapter: SdpDeclarationAdapter;
-    type RewardsAdapter: SdpRewardsAdapter;
+    type RewardsAdapter: SdpActivityAdapter;
     type StakesVerifierAdapter: SdpStakesVerifierAdapter;
     type ServicesAdapter: SdpServicesAdapter;
 
@@ -34,13 +42,14 @@ pub trait SdpBackend {
 
     async fn process_sdp_message(
         &mut self,
-        block_number: Self::BlockNumber,
+        block_number: BlockNumber,
         message: Self::Message,
     ) -> Result<(), SdpBackendError>;
 
     async fn mark_in_block(
         &mut self,
-        block_number: Self::BlockNumber,
-    ) -> Result<(), SdpBackendError>;
-    fn discard_block(&mut self, block_number: Self::BlockNumber);
+        block_number: BlockNumber,
+    ) -> Result<Vec<(ProviderInfo, DeclarationUpdate)>, SdpBackendError>;
+
+    fn discard_block(&mut self, block_number: BlockNumber);
 }
