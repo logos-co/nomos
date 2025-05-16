@@ -16,7 +16,6 @@ members = [
   "nomos-core/chain-defs",
   "nomos-core/cl",
   "nomos-core/proof_statements",
-  "nomos-da/full-replication",
   "nomos-da/kzgrs",
   "nomos-da/kzgrs-backend",
   "nomos-da/network/core",
@@ -57,7 +56,6 @@ common-http-client       = { path = "./nodes/nomos-node/http-client" }
 cryptarchia-consensus    = { path = "./nomos-services/cryptarchia-consensus" }
 cryptarchia-engine       = { path = "./consensus/cryptarchia-engine" }
 executor-http-client     = { path = "./nodes/nomos-executor/http-client" }
-full-replication         = { path = "./nomos-da/full-replication" }
 key-management-system    = { path = "./nomos-services/key-management-system" }
 kzgrs                    = { path = "./nomos-da/kzgrs" }
 kzgrs-backend            = { path = "./nomos-da/kzgrs-backend" }
