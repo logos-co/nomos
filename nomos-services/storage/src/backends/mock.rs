@@ -113,7 +113,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for MockStor
         _header_ids: Headers,
     ) -> Result<impl Iterator<Item = Self::Block>, Self::Error>
     where
-        Headers: Iterator<Item = HeaderId>,
+        Headers: Iterator<Item = HeaderId> + Send + Sync,
     {
         Ok(vec![].into_iter())
     }

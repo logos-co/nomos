@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use async_trait::async_trait;
 use bytes::Bytes;
 use nomos_core::header::HeaderId;
@@ -45,9 +43,9 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for RocksBac
         header_ids: Headers,
     ) -> Result<impl Iterator<Item = Self::Block>, Self::Error>
     where
-        Headers: Iterator<Item = HeaderId>,
+        Headers: Iterator<Item = HeaderId> + Send + Sync,
     {
-        let mut blocks = Vec::with_capacity(header_ids.len());
+        let mut blocks = Vec::new();
         for header_id in header_ids {
             // We cannot process multiple blocks in parallel since we cannot mutably borrow
             // more than once. This should be replaced with a RocksDB batch
