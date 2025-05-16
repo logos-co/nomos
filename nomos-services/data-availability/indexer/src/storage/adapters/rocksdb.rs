@@ -12,10 +12,7 @@ use nomos_core::da::{
     BlobId,
 };
 use nomos_storage::{
-    api::backend::rocksdb::{
-        da::{DA_SHARED_COMMITMENTS_PREFIX, DA_SHARE_PREFIX, DA_VID_KEY_PREFIX},
-        utils::key_bytes,
-    },
+    api::backend::rocksdb::{da::DA_VID_KEY_PREFIX, utils::key_bytes},
     backends::{rocksdb::RocksBackend, StorageSerde},
     StorageMsg, StorageService,
 };
@@ -40,7 +37,7 @@ where
 impl<S, Meta, RuntimeServiceId> DaStorageAdapter<RuntimeServiceId> for RocksAdapter<S, Meta>
 where
     S: StorageSerde + Send + Sync + 'static,
-    Meta: DispersedBlobInfo<BlobId = BlobId> + Metadata + Send + Sync,
+    Meta: DispersedBlobInfo<BlobId = BlobId> + Send + Sync,
     Meta::Index: AsRef<[u8]> + Next + Clone + PartialOrd + Send + Sync + 'static,
     Meta::AppId: AsRef<[u8]> + Clone + Send + Sync + 'static,
 {
@@ -62,18 +59,18 @@ where
 
     async fn add_index(&self, info: &Self::Info) -> Result<(), DynError> {
         // Check if Info in a block is something that the node've seen before.
-        let share_key = key_bytes(DA_SHARE_PREFIX, info.blob_id().as_ref());
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
         self.storage_relay
-            .send(StorageMsg::LoadPrefix {
-                prefix: share_key,
-                reply_channel: reply_tx,
-            })
+            .send(StorageMsg::get_blob_light_shares_request(
+                info.blob_id(),
+                reply_tx,
+            ))
             .await
             .expect("Failed to send load request to storage relay");
 
         // If node haven't attested this info, return early.
-        if reply_rx.await?.is_empty() {
+        let indexes = reply_rx.await?;
+        if indexes.is_none() || indexes.unwrap().is_empty() {
             return Ok(());
         }
 
@@ -137,28 +134,25 @@ where
 
                 let Ok((shares, shared_commitments)) = try_join!(
                     async {
-                        let shares_prefix_key = key_bytes(DA_SHARE_PREFIX, id.as_ref());
                         let (share_reply_tx, share_reply_rx) = tokio::sync::oneshot::channel();
                         storage_relay
-                            .send(StorageMsg::LoadPrefix {
-                                prefix: shares_prefix_key,
-                                reply_channel: share_reply_tx,
-                            })
+                            .send(StorageMsg::get_blob_light_shares_request(
+                                id.as_ref().try_into().expect("Failed to convert blob id"),
+                                share_reply_tx,
+                            ))
                             .await
                             .expect("Failed to send load request to storage relay");
 
                         share_reply_rx.await.map_err(|e| Box::new(e) as DynError)
                     },
                     async {
-                        let shared_commitments_key =
-                            key_bytes(DA_SHARED_COMMITMENTS_PREFIX, id.as_ref());
                         let (shared_commitments_reply_tx, shared_commitments_reply_rx) =
                             tokio::sync::oneshot::channel();
                         storage_relay
-                            .send(StorageMsg::Load {
-                                key: shared_commitments_key,
-                                reply_channel: shared_commitments_reply_tx,
-                            })
+                            .send(StorageMsg::get_shared_commitments_request(
+                                id.as_ref().try_into().expect("Failed to convert blob id"),
+                                shared_commitments_reply_tx,
+                            ))
                             .await
                             .expect("Failed to send load request to storage relay");
 
@@ -175,6 +169,7 @@ where
                 };
 
                 let deserialized_shares = shares
+                    .unwrap_or_default()
                     .into_iter()
                     .filter_map(|bytes| S::deserialize::<DaLightShare>(bytes).ok());
 

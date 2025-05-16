@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use nomos_core::da::BlobId;
 use rocksdb::Error;
 use tracing::{debug, error};
 
@@ -21,7 +22,7 @@ pub const DA_SHARE_PREFIX: &str = concat!("da/verified/", "bl");
 #[async_trait]
 impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBackend<SerdeOp> {
     type Error = Error;
-    type BlobId = [u8; 32];
+    type BlobId = BlobId;
     type Share = Bytes;
     type Commitments = Bytes;
     type ShareIndex = [u8; 2];
@@ -35,6 +36,34 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
         let share_key = key_bytes(DA_SHARE_PREFIX, share_idx_bytes);
         let share_bytes = self.load(&share_key).await?;
         Ok(share_bytes)
+    }
+
+    async fn get_blob_light_shares(
+        &mut self,
+        blob_id: Self::BlobId,
+    ) -> Result<Option<Vec<Self::Share>>, Self::Error> {
+        let shares_prefix_key = key_bytes(DA_SHARE_PREFIX, blob_id.as_ref());
+        let shares_bytes = self.load_prefix(&shares_prefix_key).await?;
+        if shares_bytes.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(shares_bytes))
+    }
+
+    async fn get_blob_share_indices(
+        &mut self,
+        blob_id: Self::BlobId,
+    ) -> Result<Option<HashSet<Self::ShareIndex>>, Self::Error> {
+        let index_key = key_bytes(DA_BLOB_SHARES_INDEX_PREFIX, blob_id.as_ref());
+        let indices_bytes = self.load(&index_key).await?;
+        let indices = indices_bytes.map(|bytes| {
+            SerdeOp::deserialize::<HashSet<Self::ShareIndex>>(bytes).unwrap_or_else(|e| {
+                error!("Failed to deserialize indices: {:?}", e);
+                HashSet::new()
+            })
+        });
+        Ok(indices)
     }
 
     async fn store_light_share(
@@ -82,6 +111,15 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
                 Err(e)
             }
         }
+    }
+
+    async fn get_shared_commitments(
+        &mut self,
+        blob_id: Self::BlobId,
+    ) -> Result<Option<Self::Commitments>, Self::Error> {
+        let commitments_key = key_bytes(DA_SHARED_COMMITMENTS_PREFIX, blob_id.as_ref());
+        let commitments_bytes = self.load(&commitments_key).await?;
+        Ok(commitments_bytes)
     }
 
     async fn store_shared_commitments(

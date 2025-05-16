@@ -39,12 +39,15 @@ use nomos_mempool::{
 };
 use nomos_network::backends::libp2p::Libp2p as Libp2pNetworkBackend;
 use nomos_storage::{
+    api::da::StorageDaApi,
     backends::{rocksdb::RocksBackend, StorageSerde},
     StorageService,
 };
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
+use crate::api::backend::DaStorageBackend;
 
 #[macro_export]
 macro_rules! make_request_and_return_response {
@@ -600,11 +603,13 @@ where
         serde::Serialize + DeserializeOwned + Send + Sync + 'static,
     StorageOp: StorageSerde + Send + Sync + 'static,
     <StorageOp as StorageSerde>::Error: Send + Sync,
-    RuntimeServiceId: AsServiceId<StorageService<RocksBackend<StorageOp>, RuntimeServiceId>>
+    RuntimeServiceId: AsServiceId<StorageService<DaStorageBackend<StorageOp>, RuntimeServiceId>>
         + Debug
         + Sync
         + Display
         + 'static,
+    // Service and storage layer types conversions
+    <DaStorageBackend<StorageOp> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
 {
     make_request_and_return_response!(storage::get_shared_commitments::<
         StorageOp,
@@ -637,6 +642,9 @@ where
         + Sync
         + Display
         + 'static,
+    // Service and storage layer types conversions
+    <DaStorageBackend<StorageOp> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
+    <DaStorageBackend<StorageOp> as StorageDaApi>::ShareIndex: From<DaShare::ShareIndex>,
 {
     make_request_and_return_response!(storage::get_light_share::<
         StorageOp,
@@ -676,6 +684,11 @@ where
         + Display
         + 'static
         + AsServiceId<StorageService<RocksBackend<StorageOp>, RuntimeServiceId>>,
+    // Service and storage layer types conversions
+    <DaStorageBackend<StorageOp> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
+    <DaStorageBackend<StorageOp> as StorageDaApi>::ShareIndex:
+        Into<DaShare::ShareIndex> + From<DaShare::ShareIndex>,
+    <DaStorageBackend<StorageOp> as StorageDaApi>::Share: TryInto<DaShare::LightShare>,
 {
     match da_shares::get_shares::<StorageOp, DaShare, RuntimeServiceId>(
         &handle,

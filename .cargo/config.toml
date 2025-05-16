@@ -64,6 +64,7 @@ rustflags = [
   "-Aclippy::single_char_lifetime_names",
   "-Aclippy::std_instead_of_alloc",
   "-Aclippy::std_instead_of_core",
+  "-Aclippy::struct_field_names",
   "-Aclippy::unseparated_literal_suffix",
   "-Aclippy::use_debug",
   "-Aclippy::wildcard_enum_match_arm",

@@ -4,7 +4,7 @@ pub mod validator;
 #[cfg(test)]
 pub mod test {
     use futures::StreamExt as _;
-    use kzgrs::{Commitment, Proof};
+    use kzgrs::Proof;
     use kzgrs_backend::common::{share::DaShare, Column};
     use libp2p::{
         swarm::{dial_opts::DialOpts, SwarmEvent},
@@ -95,11 +95,8 @@ pub mod test {
                     DaShare {
                         share_idx: 0,
                         column: Column(vec![]),
-                        column_commitment: Commitment::default(),
-                        aggregated_column_commitment: Commitment::default(),
-                        aggregated_column_proof: Proof::default(),
+                        combined_column_proof: Proof::default(),
                         rows_commitments: vec![],
-                        rows_proofs: vec![],
                     },
                 ))
                 .unwrap();

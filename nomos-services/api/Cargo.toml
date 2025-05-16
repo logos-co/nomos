@@ -11,7 +11,7 @@ instrumentation = []
 
 [dependencies]
 async-trait              = "0.1"
-bytes                    = "1.10.1"
+bytes                    = { workspace = true }
 cryptarchia-consensus    = { workspace = true, features = ["libp2p"] }
 futures                  = "0.3.31"
 kzgrs-backend            = { workspace = true }

@@ -11,6 +11,7 @@ ark-ff        = "0.4"
 ark-poly      = "0.4.2"
 ark-serialize = "0.4.2"
 blake2        = "0.10"
+bytes         = { workspace = true }
 itertools     = "0.12"
 kzgrs         = { workspace = true }
 nomos-core    = { workspace = true }

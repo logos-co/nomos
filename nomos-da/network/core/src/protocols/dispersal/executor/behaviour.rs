@@ -132,10 +132,7 @@ impl Clone for DispersalError {
                     OpenStreamError::Io(error) => {
                         OpenStreamError::Io(std::io::Error::new(error.kind(), error.to_string()))
                     }
-                    err => OpenStreamError::Io(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        err.to_string(),
-                    )),
+                    err => OpenStreamError::Io(std::io::Error::other(err.to_string())),
                 },
             },
         }

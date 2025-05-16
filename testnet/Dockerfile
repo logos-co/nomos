@@ -1,6 +1,6 @@
 # BUILD IMAGE ---------------------------------------------------------
 
-FROM rust:1.86.0-slim-bookworm AS builder
+FROM rust:1.87.0-slim-bookworm AS builder
 
 LABEL maintainer="augustinas@status.im" \
     source="https://github.com/logos-co/nomos-node" \

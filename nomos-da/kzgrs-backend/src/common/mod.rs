@@ -22,11 +22,11 @@ pub const NOMOS_DA_DST: &[u8] = b"NOMOS_DA_AVAIL";
 
 impl Chunk {
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.0.len()
     }
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
     #[must_use]
@@ -50,11 +50,11 @@ impl Row {
         self.0.iter()
     }
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.0.len()
     }
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
     pub fn as_bytes(&self) -> Vec<u8> {
@@ -67,11 +67,11 @@ impl Column {
         self.0.iter()
     }
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.0.len()
     }
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
     pub fn as_bytes(&self) -> Vec<u8> {
@@ -105,11 +105,11 @@ impl AsRef<[Chunk]> for Column {
 
 impl ChunksMatrix {
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.0.len()
     }
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
     pub fn rows(&self) -> impl Iterator<Item = &Row> + '_ {
@@ -159,15 +159,8 @@ pub fn hash_commitment<const HASH_SIZE: usize>(commitment: &Commitment) -> [u8; 
 }
 
 #[must_use]
-pub fn build_blob_id(
-    aggregated_column_commitment: &Commitment,
-    rows_commitments: &[Commitment],
-) -> [u8; 32] {
+pub fn build_blob_id(rows_commitments: &[Commitment]) -> [u8; 32] {
     let mut hasher = Sha3_256::new();
-    Digest::update(
-        &mut hasher,
-        commitment_to_bytes(aggregated_column_commitment),
-    );
     for c in rows_commitments {
         Digest::update(&mut hasher, commitment_to_bytes(c));
     }

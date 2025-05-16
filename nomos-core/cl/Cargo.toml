@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-license = { workspace = true }
+license = "MIT or Apache-2.0"
 name    = "cl"
 version = "0.1.0"
 

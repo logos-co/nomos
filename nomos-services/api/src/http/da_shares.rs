@@ -3,17 +3,13 @@ use std::{
     fmt::{Debug, Display},
     hash::Hash,
     io::ErrorKind,
-    sync::Arc,
 };
 
 use bytes::Bytes;
 use futures::{stream, Stream, StreamExt as _};
 use nomos_core::da::blob::{LightShare, Share};
 use nomos_storage::{
-    api::backend::rocksdb::{
-        da::{DA_BLOB_SHARES_INDEX_PREFIX, DA_SHARE_PREFIX},
-        utils::{create_share_idx, key_bytes},
-    },
+    api::da::StorageDaApi,
     backends::{rocksdb::RocksBackend, StorageSerde},
     StorageMsg, StorageService,
 };
@@ -23,6 +19,8 @@ use overwatch::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::oneshot;
+
+pub(crate) type DaStorageBackend<SerdeOp> = RocksBackend<SerdeOp>;
 
 #[expect(clippy::implicit_hasher, reason = "Don't need custom hasher")]
 pub async fn get_shares<StorageOp, DaShare, RuntimeServiceId>(
@@ -51,65 +49,68 @@ where
         + Sync
         + Display
         + AsServiceId<StorageService<RocksBackend<StorageOp>, RuntimeServiceId>>,
+    // Service and storage layer types conversions
+    <DaStorageBackend<StorageOp> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
+    <DaStorageBackend<StorageOp> as StorageDaApi>::ShareIndex:
+        Into<DaShare::ShareIndex> + From<DaShare::ShareIndex>,
+    <DaStorageBackend<StorageOp> as StorageDaApi>::Share: TryInto<DaShare::LightShare>,
 {
     let storage_relay = handle.relay().await?;
 
-    let blob_shares =
-        load_blob_shares_index::<StorageOp, DaShare>(&storage_relay, &blob_id).await?;
+    let shares_indices =
+        load_blob_shares_indices::<StorageOp, DaShare>(&storage_relay, blob_id.clone()).await?;
 
-    let filtered_shares = blob_shares.into_iter().filter(move |idx| {
+    let filtered_shares = shares_indices.into_iter().filter(move |idx| {
         // If requested_shares contains the index, then ignore the filter_shares
         requested_shares.contains(idx) || (return_available && !filter_shares.contains(idx))
     });
 
-    let blob_id = Arc::new(blob_id);
     let stream = stream::iter(filtered_shares).then(move |share_idx| {
         let storage_relay = storage_relay.clone();
-        let blob_id = Arc::clone(&blob_id);
-        load_and_process_share::<StorageOp, DaShare>(storage_relay, blob_id, share_idx)
+        load_and_process_share::<StorageOp, DaShare>(storage_relay, blob_id.clone(), share_idx)
     });
 
     Ok(stream)
 }
 
-async fn load_blob_shares_index<StorageOp, DaShare>(
+async fn load_blob_shares_indices<StorageOp, DaShare>(
     storage_relay: &OutboundRelay<StorageMsg<RocksBackend<StorageOp>>>,
-    blob_id: &DaShare::BlobId,
+    blob_id: DaShare::BlobId,
 ) -> Result<HashSet<DaShare::ShareIndex>, crate::http::DynError>
 where
     StorageOp: StorageSerde + Send + Sync + 'static,
     DaShare: Share,
     DaShare::BlobId: AsRef<[u8]> + Send + Sync + 'static,
     DaShare::ShareIndex: DeserializeOwned + Hash + Eq,
-    StorageOp::Error: std::error::Error + Send + Sync + 'static,
+    StorageOp::Error: Send + Sync + 'static,
+    // Service and storage layer types conversions
+    <DaStorageBackend<StorageOp> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
+    <DaStorageBackend<StorageOp> as StorageDaApi>::ShareIndex: Into<DaShare::ShareIndex>,
 {
-    let index_key = key_bytes(DA_BLOB_SHARES_INDEX_PREFIX, blob_id);
     let (index_tx, index_rx) = oneshot::channel();
     storage_relay
-        .send(StorageMsg::Load {
-            key: index_key,
-            reply_channel: index_tx,
-        })
+        .send(StorageMsg::get_light_share_indexes_request(
+            blob_id.into(),
+            index_tx,
+        ))
         .await
         .map_err(|(e, _)| Box::new(e) as crate::http::DynError)?;
 
-    let shares_index = index_rx
+    index_rx
         .await
+        .map(|indexes| indexes.map(|data| data.into_iter().map(Into::into).collect::<HashSet<_>>()))
         .map_err(|e| Box::new(e) as crate::http::DynError)?
         .ok_or_else(|| {
             Box::new(std::io::Error::new(
                 ErrorKind::NotFound,
                 "Blob index not found",
             )) as crate::http::DynError
-        })?;
-
-    StorageOp::deserialize::<HashSet<DaShare::ShareIndex>>(shares_index)
-        .map_err(|e| Box::new(e) as crate::http::DynError)
+        })
 }
 
 async fn load_and_process_share<StorageOp, DaShare>(
     storage_relay: OutboundRelay<StorageMsg<RocksBackend<StorageOp>>>,
-    blob_id: Arc<<DaShare as Share>::BlobId>,
+    blob_id: <DaShare as Share>::BlobId,
     share_idx: DaShare::ShareIndex,
 ) -> Result<Bytes, crate::http::DynError>
 where
@@ -119,30 +120,37 @@ where
     DaShare::ShareIndex: AsRef<[u8]>,
     DaShare::LightShare: Serialize + DeserializeOwned,
     StorageOp::Error: std::error::Error + Send + Sync + 'static,
+    // Service and storage layer types conversions
+    <DaStorageBackend<StorageOp> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
+    <DaStorageBackend<StorageOp> as StorageDaApi>::ShareIndex:
+        From<DaShare::ShareIndex> + Into<DaShare::ShareIndex>,
+    <DaStorageBackend<StorageOp> as StorageDaApi>::Share: TryInto<DaShare::LightShare>,
 {
-    let share_key = key_bytes(
-        DA_SHARE_PREFIX,
-        create_share_idx((*blob_id).as_ref(), share_idx.as_ref()),
-    );
     let (reply_tx, reply_rx) = oneshot::channel();
     storage_relay
-        .send(StorageMsg::Load {
-            key: share_key,
-            reply_channel: reply_tx,
-        })
+        .send(StorageMsg::get_light_share_request(
+            blob_id.into(),
+            share_idx.into(),
+            reply_tx,
+        ))
         .await
         .map_err(|(e, _)| Box::new(e) as crate::http::DynError)?;
 
-    let share_data = reply_rx
+    let share = reply_rx
         .await
         .map_err(|e| Box::new(e) as crate::http::DynError)?
         .ok_or_else(|| {
             Box::new(std::io::Error::new(ErrorKind::NotFound, "Share not found"))
                 as crate::http::DynError
+        })?
+        .try_into()
+        .map_err(|_| {
+            Box::new(std::io::Error::new(
+                ErrorKind::InvalidData,
+                "Failed to deserialize share",
+            )) as crate::http::DynError
         })?;
 
-    let share = StorageOp::deserialize::<DaShare::LightShare>(share_data)
-        .map_err(|e| Box::new(e) as crate::http::DynError)?;
     let mut json = serde_json::to_vec(&share).map_err(|e| Box::new(e) as crate::http::DynError)?;
     json.push(b'\n');
 

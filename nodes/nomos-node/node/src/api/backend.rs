@@ -32,6 +32,7 @@ use nomos_mempool::{
     TxMempoolService,
 };
 use nomos_storage::{
+    api::da::StorageDaApi,
     backends::{rocksdb::RocksBackend, StorageSerde},
     StorageService,
 };
@@ -51,6 +52,10 @@ use super::handlers::{
     cl_metrics, cl_status, cryptarchia_headers, cryptarchia_info, da_get_commitments,
     da_get_light_share, da_get_shares, get_range, libp2p_info, monitor_stats, unblock_peer,
 };
+
+pub(crate) type DaStorageBackend<SerdeOp> = RocksBackend<SerdeOp>;
+type DaService<DaStorageSerializer, RuntimeServiceId> =
+    StorageService<DaStorageBackend<DaStorageSerializer>, RuntimeServiceId>;
 
 /// Configuration for the Http Server
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -304,7 +309,7 @@ where
                 RuntimeServiceId,
             >,
         >
-        + AsServiceId<StorageService<RocksBackend<DaStorageSerializer>, RuntimeServiceId>>
+        + AsServiceId<DaService<DaStorageSerializer, RuntimeServiceId>>
         + AsServiceId<
             TxMempoolService<
                 nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
@@ -335,6 +340,11 @@ where
                 RuntimeServiceId,
             >,
         >,
+    // Service and storage layer types conversions
+    <DaStorageBackend<DaStorageSerializer> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
+    <DaStorageBackend<DaStorageSerializer> as StorageDaApi>::ShareIndex:
+        Into<DaShare::ShareIndex> + From<DaShare::ShareIndex>,
+    <DaStorageBackend<DaStorageSerializer> as StorageDaApi>::Share: TryInto<DaShare::LightShare>,
 {
     type Error = hyper::Error;
     type Settings = AxumBackendSettings;

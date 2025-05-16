@@ -1,4 +1,7 @@
-use std::{collections::HashMap, marker::PhantomData};
+use std::{
+    collections::{HashMap, HashSet},
+    marker::PhantomData,
+};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -118,6 +121,13 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
         unimplemented!()
     }
 
+    async fn get_blob_share_indices(
+        &mut self,
+        _blob_id: Self::BlobId,
+    ) -> Result<Option<HashSet<Self::ShareIndex>>, Self::Error> {
+        unimplemented!()
+    }
+
     async fn store_light_share(
         &mut self,
         _blob_id: Self::BlobId,
@@ -127,11 +137,25 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
         unimplemented!()
     }
 
+    async fn get_shared_commitments(
+        &mut self,
+        _blob_id: Self::BlobId,
+    ) -> Result<Option<Self::Commitments>, Self::Error> {
+        unimplemented!()
+    }
+
     async fn store_shared_commitments(
         &mut self,
         _blob_id: Self::BlobId,
         _shared_commitments: Self::Commitments,
     ) -> Result<(), Self::Error> {
+        unimplemented!()
+    }
+
+    async fn get_blob_light_shares(
+        &mut self,
+        _blob_id: Self::BlobId,
+    ) -> Result<Option<Vec<Self::Share>>, Self::Error> {
         unimplemented!()
     }
 }

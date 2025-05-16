@@ -8,7 +8,7 @@ version = "0.1.0"
 
 [dependencies]
 async-trait           = "0.1"
-bytes                 = "1.2"
+bytes                 = { workspace = true }
 cryptarchia-consensus = { workspace = true }
 futures               = "0.3"
 kzgrs-backend         = { workspace = true }

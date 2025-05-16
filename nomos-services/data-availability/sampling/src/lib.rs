@@ -195,6 +195,7 @@ where
                     if let Some(commitments) =
                         Self::request_commitments(storage_adapter, api_adapter, blob_id).await
                     {
+                        info_with_id!(blob_id, "Got commitments");
                         sampler.add_commitments(&blob_id, commitments);
                     } else {
                         error_with_id!(blob_id, "Error getting commitments");

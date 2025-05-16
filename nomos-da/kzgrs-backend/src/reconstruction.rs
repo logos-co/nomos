@@ -32,7 +32,7 @@ pub fn reconstruct_without_missing_data(shares: &[DaShare]) -> Vec<u8> {
 
 #[cfg(test)]
 mod test {
-    use kzgrs::{Commitment, Proof};
+    use kzgrs::Proof;
     use nomos_core::da::DaEncoder as _;
 
     use crate::{
@@ -54,11 +54,8 @@ mod test {
             .map(|(idx, column)| DaShare {
                 column,
                 share_idx: idx as ShareIndex,
-                column_commitment: Commitment::default(),
-                aggregated_column_commitment: Commitment::default(),
-                aggregated_column_proof: Proof::default(),
+                combined_column_proof: Proof::default(),
                 rows_commitments: vec![],
-                rows_proofs: vec![],
             })
             .collect();
         assert_eq!(data, reconstruct_without_missing_data(&shares));

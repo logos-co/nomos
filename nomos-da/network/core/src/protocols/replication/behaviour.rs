@@ -80,10 +80,7 @@ impl Clone for ReplicationError {
                     OpenStreamError::Io(error) => {
                         OpenStreamError::Io(std::io::Error::new(error.kind(), error.to_string()))
                     }
-                    err => OpenStreamError::Io(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        err.to_string(),
-                    )),
+                    err => OpenStreamError::Io(std::io::Error::other(err.to_string())),
                 },
             },
             Self::DequeueOutbound { peer_id } => Self::DequeueOutbound { peer_id: *peer_id },

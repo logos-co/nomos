@@ -25,10 +25,6 @@ impl Bundle {
         &self.bundle
     }
 
-    #[expect(
-        clippy::missing_const_for_fn,
-        reason = "Using `Deref` which is not const."
-    )]
     #[must_use]
     pub fn cm_roots(&self) -> &[[u8; 32]] {
         &self.cm_roots

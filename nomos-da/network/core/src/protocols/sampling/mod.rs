@@ -5,7 +5,7 @@ mod test {
     use std::time::Duration;
 
     use futures::StreamExt as _;
-    use kzgrs::{Commitment, Proof};
+    use kzgrs::Proof;
     use kzgrs_backend::common::{share::DaLightShare, Column};
     use libp2p::{identity::Keypair, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
     use log::debug;
@@ -47,9 +47,7 @@ mod test {
                                 share: Box::new(DaLightShare {
                                     column: Column(vec![]),
                                     share_idx: 0,
-                                    column_commitment: Commitment::default(),
-                                    aggregated_column_proof: Proof::default(),
-                                    rows_proofs: vec![],
+                                    combined_column_proof: Proof::default(),
                                 }),
                             })
                             .unwrap();

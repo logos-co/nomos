@@ -164,7 +164,7 @@ mod test {
         time::{Duration, Instant},
     };
 
-    use kzgrs::{Commitment, Proof};
+    use kzgrs::Proof;
     use kzgrs_backend::common::{share::DaShare, Column};
     use nomos_core::da::BlobId;
     use rand::{prelude::*, rngs::StdRng};
@@ -219,7 +219,6 @@ mod test {
     }
 
     #[tokio::test]
-    #[expect(clippy::too_many_lines, reason = "TODO: Test function")]
     async fn test_sampler() {
         // fictitious number of subnets
         let subnet_num: usize = 42;
@@ -233,11 +232,8 @@ mod test {
         let share = DaShare {
             share_idx: 42,
             column: Column(vec![]),
-            column_commitment: Commitment::default(),
-            aggregated_column_commitment: Commitment::default(),
-            aggregated_column_proof: Proof::default(),
+            combined_column_proof: Proof::default(),
             rows_commitments: vec![],
-            rows_proofs: vec![],
         };
         let share2 = share.clone();
         let mut share3 = share2.clone();

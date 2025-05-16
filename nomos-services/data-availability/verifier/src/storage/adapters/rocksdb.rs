@@ -54,14 +54,23 @@ where
         shared_commitments: <Self::Share as Share>::SharesCommitments,
         light_share: <Self::Share as Share>::LightShare,
     ) -> Result<(), DynError> {
-        let blob_id: [u8; 32] = blob_id.as_ref().try_into().unwrap();
-        let share_idx: [u8; 2] = share_idx.as_ref().try_into().unwrap();
-
-        let store_share_msg =
-            StorageMsg::store_light_share_request(blob_id, share_idx, S::serialize(light_share));
+        let store_share_msg = StorageMsg::store_light_share_request(
+            blob_id
+                .as_ref()
+                .try_into()
+                .expect("BlobId conversion should not fail"),
+            share_idx
+                .as_ref()
+                .try_into()
+                .expect("ShareIndex conversion should not fail"),
+            S::serialize(light_share),
+        );
 
         let store_commitments_msg = StorageMsg::store_shared_commitments_request(
-            blob_id,
+            blob_id
+                .as_ref()
+                .try_into()
+                .expect("BlobId conversion should not fail"),
             S::serialize(shared_commitments.clone()),
         );
 
@@ -79,14 +88,17 @@ where
         blob_id: <Self::Share as Share>::BlobId,
         share_idx: <Self::Share as Share>::ShareIndex,
     ) -> Result<Option<<Self::Share as Share>::LightShare>, DynError> {
-        let blob_id: [u8; 32] = blob_id.as_ref().try_into().unwrap();
-        let share_idx: [u8; 2] = share_idx.as_ref().try_into().unwrap();
-
         let (reply_channel, reply_rx) = tokio::sync::oneshot::channel();
         self.storage_relay
             .send(StorageMsg::get_light_share_request(
-                blob_id,
-                share_idx,
+                blob_id
+                    .as_ref()
+                    .try_into()
+                    .expect("BlobId conversion should not fail"),
+                share_idx
+                    .as_ref()
+                    .try_into()
+                    .expect("ShareIndex conversion should not fail"),
                 reply_channel,
             ))
             .await
