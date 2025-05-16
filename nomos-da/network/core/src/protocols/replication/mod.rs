@@ -400,24 +400,9 @@ mod test {
         }
 
         // Test 2: Tampered transport should fail
-        // let addr3: Multiaddr = "/ip4/127.0.0.1/udp/5056/quic-v1".parse().unwrap();
-        // let addr4 = addr3.clone();
-
-        let proxy_addr: Multiaddr = "/ip4/127.0.0.1/udp/5058".parse().unwrap();
-        let server_addr: Multiaddr = "/ip4/127.0.0.1/udp/5059".parse().unwrap();
-
-        // Start the proxy in the background
-        tokio::spawn(start_udp_mutation_proxy(
-            proxy_addr.clone(),
-            server_addr.clone(),
-        ));
-
-        // Allow proxy to start
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        let addr3: Multiaddr = format!("{server_addr}/quic-v1").parse().unwrap();
-        let addr4: Multiaddr = format!("{proxy_addr}/quic-v1").parse().unwrap();
-
+        let addr3: Multiaddr = "/ip4/127.0.0.1/udp/5056/quic-v1".parse().unwrap();
+        let addr4 = addr3.clone();
+        
         let mut swarm_3 = get_swarm(k1.clone(), make_neighbours(&[&k1, &k2]));
 
         let task_3 = async move {
@@ -477,7 +462,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_tampered_quick_packet_detection() {
+    async fn test_tampered_encrypted_quick_packet_detection() {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env())
             .compact()
@@ -505,15 +490,82 @@ mod test {
         let addr2: Multiaddr = format!("{proxy_addr}/quic-v1").parse().unwrap();
         
         let msg_count = 10usize;
+        let mut swarm_1 = get_swarm(k1.clone(), neighbours.clone());
+        let mut swarm_2 = get_swarm(k2.clone(), neighbours.clone());
         
-        let mut quic_config = quic::Config::new(&k2);
-        quic_config.handshake_timeout = Duration::from_millis(100);
-        quic_config.max_idle_timeout = 100;
-        quic_config.keep_alive_interval = Duration::from_millis(50);
+        let task_1 = async move {
+            swarm_1.listen_on(addr.clone()).unwrap();
+            wait_for_incoming_connection(&mut swarm_1, peer_id2).await;
+            swarm_1
+                .filter_map(|event| async {
+                    if let SwarmEvent::Behaviour(ReplicationEvent::IncomingMessage {
+                                                     message,
+                                                     ..
+                                                 }) = event
+                    {
+                        info!("Received message {message:?}");
+                        assert_ne!(message.share.data.share_idx, 0);
+                        Some(message)
+                    } else {
+                        None
+                    }
+                })
+                .take(msg_count)
+                .collect::<Vec<_>>()
+                .await
+        };
 
+        let task_2 = async move {
+            swarm_2.dial(addr2).unwrap();
+
+            // Send a tampered message after attempting connection
+            let mut i = 0;
+            loop {
+                tokio::select! {
+                    () = tokio::time::sleep(Duration::from_millis(50)) => {
+                        let behaviour = swarm_2.behaviour_mut();
+                        let msg = get_message(i);
+                        behaviour.send_message(&msg);
+                        info!("Sent message {i}# ");
+                        if i < 19 {
+                            i += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    event = swarm_2.select_next_some() => {
+                        match event {
+                            SwarmEvent::ConnectionClosed { .. } => break,
+                            SwarmEvent::ConnectionEstablished { peer_id,  connection_id, .. } => {
+                                info!("Connected to {peer_id} with connection_id: {connection_id}");
+                            },
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        };
+
+        tokio::join!(task_1, task_2);
+    }
+
+    #[tokio::test]
+    async fn test_tampered_message_content_detection() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .compact()
+            .with_writer(TestWriter::default())
+            .try_init();
+        let k1 = Keypair::generate_ed25519();
+        let k2 = Keypair::generate_ed25519();
+        let peer_id2 = PeerId::from_public_key(&k2.public());
+
+        let neighbours = make_neighbours(&[&k1, &k2]);
+        let mut swarm_1 = get_swarm(k1.clone(), neighbours.clone());
+        
         let mut swarm_2_tampered = libp2p::SwarmBuilder::with_existing_identity(k2.clone())
             .with_tokio()
-            .with_other_transport(|_keypair| quic::tokio::Transport::new(quic_config))
+            .with_other_transport(|_keypair| quic::tokio::Transport::new(quic::Config::new(&k2)))
             .unwrap()
             .with_behaviour(|key| {
                 let base = ReplicationBehaviour::new(
@@ -534,9 +586,11 @@ mod test {
             .unwrap()
             .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(10)))
             .build();
-
-        let mut swarm_1 = get_swarm(k1.clone(), neighbours);
-
+        
+        let msg_count = 10usize;
+        let addr: Multiaddr = "/ip4/127.0.0.1/udp/5061/quic-v1".parse().unwrap();
+        let addr2 = addr.clone();
+        
         let task_1 = async move {
             swarm_1.listen_on(addr.clone()).unwrap();
             wait_for_incoming_connection(&mut swarm_1, peer_id2).await;
