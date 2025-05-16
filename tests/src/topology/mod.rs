@@ -160,19 +160,11 @@ impl Topology {
         }
     }
 
-    #[expect(
-        clippy::missing_const_for_fn,
-        reason = "Using `Deref` which is not const."
-    )]
     #[must_use]
     pub fn validators(&self) -> &[Validator] {
         &self.validators
     }
 
-    #[expect(
-        clippy::missing_const_for_fn,
-        reason = "Using `Deref` which is not const."
-    )]
     #[must_use]
     pub fn executors(&self) -> &[Executor] {
         &self.executors

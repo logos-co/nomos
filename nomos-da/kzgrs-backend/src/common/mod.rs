@@ -22,11 +22,11 @@ pub const NOMOS_DA_DST: &[u8] = b"NOMOS_DA_AVAIL";
 
 impl Chunk {
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.0.len()
     }
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
     #[must_use]
@@ -50,11 +50,11 @@ impl Row {
         self.0.iter()
     }
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.0.len()
     }
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
     pub fn as_bytes(&self) -> Vec<u8> {
@@ -67,11 +67,11 @@ impl Column {
         self.0.iter()
     }
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.0.len()
     }
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
     pub fn as_bytes(&self) -> Vec<u8> {
@@ -105,11 +105,11 @@ impl AsRef<[Chunk]> for Column {
 
 impl ChunksMatrix {
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.0.len()
     }
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
     pub fn rows(&self) -> impl Iterator<Item = &Row> + '_ {

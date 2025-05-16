@@ -76,7 +76,7 @@ where
         &self.local_node
     }
 
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         self.remote_nodes.len() + 1
     }
 }

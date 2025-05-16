@@ -78,10 +78,11 @@ where
             client: CommonHttpClient::new(None),
             membership: settings.membership,
             api_port: settings.api_port,
-            protocol: settings
-                .is_secure
-                .then(|| "https".to_owned())
-                .unwrap_or_else(|| "http".to_owned()),
+            protocol: if settings.is_secure {
+                "https".to_owned()
+            } else {
+                "http".to_owned()
+            },
         }
     }
 

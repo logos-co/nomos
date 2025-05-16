@@ -266,7 +266,7 @@ pub struct CoverTrafficExtSettings {
 }
 
 impl CoverTrafficExtSettings {
-    fn cover_traffic_settings<NodeId>(
+    const fn cover_traffic_settings<NodeId>(
         &self,
         membership: &Membership<NodeId, SphinxMessage>,
         cryptographic_processor_settings: &CryptographicProcessorSettings<
