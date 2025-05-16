@@ -103,6 +103,20 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for MockStor
     ) -> Result<(), Self::Error> {
         unimplemented!()
     }
+
+    async fn remove_block(&mut self, _header_id: HeaderId) -> Result<Self::Block, Self::Error> {
+        unimplemented!()
+    }
+
+    async fn remove_blocks<Headers>(
+        &mut self,
+        _header_ids: Headers,
+    ) -> Result<impl Iterator<Item = Self::Block>, Self::Error>
+    where
+        Headers: Iterator<Item = HeaderId> + Send + Sync,
+    {
+        Ok(vec![].into_iter())
+    }
 }
 
 #[async_trait]

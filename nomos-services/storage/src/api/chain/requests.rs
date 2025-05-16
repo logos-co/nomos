@@ -1,3 +1,5 @@
+use std::{collections::HashSet, fmt::Display};
+
 use nomos_core::header::HeaderId;
 use tokio::sync::oneshot::Sender;
 
@@ -16,6 +18,14 @@ pub enum ChainApiRequest<B: StorageBackend> {
         header_id: HeaderId,
         block: <B as StorageChainApi>::Block,
     },
+    RemoveBlock {
+        header_id: HeaderId,
+        response_tx: Sender<Result<B::Block, StorageServiceError>>,
+    },
+    RemoveBlocks {
+        header_ids: HashSet<HeaderId>,
+        response_tx: Sender<Result<Vec<B::Block>, StorageServiceError>>,
+    },
 }
 
 impl<B> StorageOperation<B> for ChainApiRequest<B>
@@ -31,6 +41,14 @@ where
             Self::StoreBlock { header_id, block } => {
                 handle_store_block(backend, header_id, block).await
             }
+            Self::RemoveBlock {
+                header_id,
+                response_tx,
+            } => handle_remove_block(backend, header_id, response_tx).await,
+            Self::RemoveBlocks {
+                header_ids,
+                response_tx,
+            } => handle_remove_blocks(backend, header_ids, response_tx).await,
         }
     }
 }
@@ -67,6 +85,49 @@ async fn handle_store_block<B: StorageBackend>(
         .map_err(|e| StorageServiceError::BackendError(e.into()))
 }
 
+async fn handle_remove_block<B>(
+    backend: &mut B,
+    header_id: HeaderId,
+    response_tx: Sender<Result<B::Block, StorageServiceError>>,
+) -> Result<(), StorageServiceError>
+where
+    B: StorageBackend<Error: Display>,
+{
+    let result = backend
+        .remove_block(header_id)
+        .await
+        .map_err(|e| StorageServiceError::BackendError(e.into()));
+    if let Err(Err(e)) = response_tx.send(result) {
+        return Err(StorageServiceError::ReplyError {
+            message: format!("Backend error: {e}"),
+        });
+    }
+
+    Ok(())
+}
+
+async fn handle_remove_blocks<B>(
+    backend: &mut B,
+    header_ids: HashSet<HeaderId>,
+    response_tx: Sender<Result<Vec<B::Block>, StorageServiceError>>,
+) -> Result<(), StorageServiceError>
+where
+    B: StorageBackend<Error: Display>,
+{
+    let result = backend
+        .remove_blocks(header_ids.into_iter())
+        .await
+        .map(|blocks| blocks.into_iter().collect())
+        .map_err(|e| StorageServiceError::BackendError(e.into()));
+    if let Err(Err(e)) = response_tx.send(result) {
+        return Err(StorageServiceError::ReplyError {
+            message: format!("Backend error: {e}"),
+        });
+    }
+
+    Ok(())
+}
+
 impl<Api: StorageBackend> StorageMsg<Api> {
     #[must_use]
     pub const fn get_block_request(
@@ -87,6 +148,32 @@ impl<Api: StorageBackend> StorageMsg<Api> {
     ) -> Self {
         Self::Api {
             request: StorageApiRequest::Chain(ChainApiRequest::StoreBlock { header_id, block }),
+        }
+    }
+
+    #[must_use]
+    pub const fn remove_block_request(
+        header_id: HeaderId,
+        response_tx: Sender<Result<Api::Block, StorageServiceError>>,
+    ) -> Self {
+        Self::Api {
+            request: StorageApiRequest::Chain(ChainApiRequest::RemoveBlock {
+                header_id,
+                response_tx,
+            }),
+        }
+    }
+
+    #[must_use]
+    pub const fn remove_blocks_request(
+        header_ids: HashSet<HeaderId>,
+        response_tx: Sender<Result<Vec<Api::Block>, StorageServiceError>>,
+    ) -> Self {
+        Self::Api {
+            request: StorageApiRequest::Chain(ChainApiRequest::RemoveBlocks {
+                header_ids,
+                response_tx,
+            }),
         }
     }
 }
