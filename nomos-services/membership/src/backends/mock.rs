@@ -47,12 +47,7 @@ impl MembershipBackend for MockMembershipBackend {
             .settings_per_service
             .get(&service_type)
             .ok_or_else(|| MembershipBackendError::Other("Service type not found".into()))?;
-        let index = if k.historical_block_delta < block_number {
-            block_number - k.historical_block_delta
-        } else {
-            0
-        };
-
+        let index = block_number.saturating_sub(k.historical_block_delta);
         return Ok(self.get_snapshot(index, service_type));
     }
 
