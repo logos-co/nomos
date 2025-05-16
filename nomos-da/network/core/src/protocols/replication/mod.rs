@@ -2,13 +2,14 @@ pub mod behaviour;
 
 #[cfg(test)]
 mod test {
-    use std::{collections::VecDeque, ops::Range, sync::LazyLock, time::Duration};
+    use std::{collections::VecDeque, ops::Range, path::PathBuf, sync::LazyLock, time::Duration};
 
     use futures::StreamExt as _;
+    use kzgrs_backend::testutils;
     use libp2p::{identity::Keypair, quic, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
     use libp2p_swarm_test::SwarmExt as _;
     use log::info;
-    use nomos_da_messages::replication::ReplicationRequest;
+    use nomos_da_messages::{common::Share, replication::ReplicationRequest};
     use tokio::sync::mpsc;
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
@@ -91,6 +92,33 @@ mod test {
         bincode::deserialize(include_bytes!("./fixtures/messages.bincode")).unwrap()
     });
 
+    #[test]
+    #[ignore = "Invoke to generate fixtures"]
+    fn generate_fixtures() {
+        let path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap())
+            .join("src/protocols/replication/fixtures/messages.bincode");
+        let mut blob_id = [0u8; 32];
+
+        let messages = (0..20u8)
+            .map(|i| {
+                blob_id[31] = i;
+                ReplicationRequest {
+                    share: Share {
+                        blob_id,
+                        data: {
+                            let mut data = testutils::get_default_da_blob_data();
+                            *data.last_mut().unwrap() = i;
+                            testutils::get_da_share(Some(data))
+                        },
+                    },
+                    subnetwork_id: 0,
+                }
+            })
+            .collect::<Vec<_>>();
+        let serialized = bincode::serialize(&messages).unwrap();
+        std::fs::write(path, serialized).unwrap();
+    }
+
     #[tokio::test]
     async fn test_replication_chain_in_both_directions() {
         // Scenario:
@@ -171,7 +199,6 @@ mod test {
     }
 
     #[tokio::test]
-    #[ignore = "Create new fixtures"]
     async fn test_connects_and_receives_replication_messages() {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env())
