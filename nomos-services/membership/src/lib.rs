@@ -8,7 +8,7 @@ use adapters::SdpAdapter;
 use async_trait::async_trait;
 use backends::{MembershipBackend, MembershipBackendError};
 use futures::{Stream, StreamExt as _};
-use nomos_sdp_core::{Locator, ProviderId, ServiceType};
+use nomos_sdp_core::{BlockNumber, Locator, ProviderId, ServiceType};
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -24,10 +24,10 @@ use tokio_stream::wrappers::BroadcastStream;
 mod adapters;
 pub mod backends;
 
-type MembershipSnapshot = HashMap<ProviderId, Vec<Locator>>;
+type MembershipProviders = HashMap<ProviderId, Vec<Locator>>;
 
 pub type MembershipSnapshotStream =
-    Pin<Box<dyn Stream<Item = MembershipSnapshot> + Send + Sync + Unpin>>;
+    Pin<Box<dyn Stream<Item = MembershipProviders> + Send + Sync + Unpin>>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BackendSettings<S> {
@@ -37,8 +37,8 @@ pub struct BackendSettings<S> {
 pub enum MembershipMessage {
     GetSnapshotAt {
         reply_channel:
-            tokio::sync::oneshot::Sender<Result<MembershipSnapshot, MembershipBackendError>>,
-        index: i32,
+            tokio::sync::oneshot::Sender<Result<MembershipProviders, MembershipBackendError>>,
+        block_number: BlockNumber,
         service_type: nomos_sdp_core::ServiceType,
     },
     Subscribe {
@@ -55,7 +55,7 @@ where
 {
     backend: B,
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-    subscribe_txs: HashMap<ServiceType, broadcast::Sender<MembershipSnapshot>>,
+    subscribe_txs: HashMap<ServiceType, broadcast::Sender<MembershipProviders>>,
 }
 
 impl<B, S, RuntimeServiceId> ServiceData for MembershipService<B, S, RuntimeServiceId>
@@ -123,8 +123,8 @@ where
             tokio::select! {
                 Some(msg) = self.service_state.inbound_relay.recv()  => {
                     match msg {
-                        MembershipMessage::GetSnapshotAt { reply_channel, index, service_type } =>  {
-                            let result = self.backend.get_snapshot_at(service_type,index).await;
+                        MembershipMessage::GetSnapshotAt { reply_channel, block_number, service_type } =>  {
+                            let result = self.backend.get_providers_at(service_type, block_number).await;
 
                             if let Err(e) = reply_channel.send(result) {
                                 tracing::error!("Failed to send response: {:?}", e);
@@ -174,7 +174,7 @@ where
 }
 
 fn make_pin_broadcast_stream(
-    receiver: broadcast::Receiver<MembershipSnapshot>,
+    receiver: broadcast::Receiver<MembershipProviders>,
 ) -> MembershipSnapshotStream {
     Box::pin(BroadcastStream::new(receiver).filter_map(|res| {
         Box::pin(async move {

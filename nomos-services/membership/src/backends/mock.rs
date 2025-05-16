@@ -1,32 +1,23 @@
 use std::collections::HashMap;
 
 use nomos_sdp_core::{
-    DeclarationUpdate, FinalizedBlockEvent, Locator, ProviderId, ProviderInfo, ServiceType,
+    BlockNumber, DeclarationUpdate, FinalizedBlockEvent, ProviderInfo, ServiceType,
 };
 
-use super::{MembershipBackend, MembershipBackendError, SnapshotSettings};
-use crate::MembershipSnapshot;
+use super::{MembershipBackend, MembershipBackendError, Settings};
+use crate::MembershipProviders;
 
 pub struct MockMembershipBackendSettings {
-    settings_per_service: HashMap<ServiceType, SnapshotSettings>,
-    initial_membership: Vec<MockMembershipEntry>,
+    settings_per_service: HashMap<ServiceType, Settings>,
+    initial_membership: HashMap<BlockNumber, MockMembershipEntry>,
 }
 
-#[derive(Debug, Clone)]
-struct MockMembershipEntry {
-    pub data: HashMap<ServiceType, HashMap<ProviderInfo, DeclarationUpdate>>,
-}
-
-#[derive(Debug, Clone, Default)]
-struct MockCurrentSnapshot {
-    data: HashMap<ServiceType, HashMap<ProviderInfo, DeclarationUpdate>>,
-    block_number: u64,
-}
+type MockMembershipEntry = HashMap<ServiceType, HashMap<ProviderInfo, DeclarationUpdate>>;
 
 pub struct MockMembershipBackend {
     settings: MockMembershipBackendSettings,
-    membership: Vec<MockMembershipEntry>,
-    current_data: MockCurrentSnapshot,
+    membership: HashMap<BlockNumber, MockMembershipEntry>,
+    latest_block_number: BlockNumber,
 }
 
 #[async_trait::async_trait]
@@ -35,107 +26,88 @@ impl MembershipBackend for MockMembershipBackend {
     fn init(settings: MockMembershipBackendSettings) -> Self {
         Self {
             membership: settings.initial_membership.clone(),
+            latest_block_number: settings
+                .initial_membership
+                .keys()
+                .copied()
+                .max()
+                .unwrap_or(0),
+
             settings,
-            current_data: MockCurrentSnapshot::default(),
         }
     }
 
-    async fn get_snapshot_at(
+    async fn get_providers_at(
         &self,
         service_type: ServiceType,
-        index: i32,
-    ) -> Result<MembershipSnapshot, MembershipBackendError> {
-        // index 0 gets latest snapshot
-        if index == 0 {
-            let snapshot = self.get_latest_snapshots().get(&service_type).cloned();
-            return Ok(snapshot.unwrap_or_default());
-        }
-
-        let len = self.membership.len();
-        if len == 0 {
-            return Ok(HashMap::default());
-        }
-
-        let actual_index = if index > 0 {
-            // Positive index: absolute position in the past
-            let idx = index as usize - 1;
-            if idx >= len {
-                return Ok(HashMap::default());
-            }
-
-            idx
+        block_number: BlockNumber,
+    ) -> Result<MembershipProviders, MembershipBackendError> {
+        let k = self
+            .settings
+            .settings_per_service
+            .get(&service_type)
+            .ok_or_else(|| MembershipBackendError::Other("Service type not found".into()))?;
+        let index = if k.historical_block_delta < block_number {
+            block_number - k.historical_block_delta
         } else {
-            // Negative index: relative to latest
-            let index = self.membership.len() as i32 + index;
-            if index < 0 {
-                return Ok(HashMap::default());
-            }
-            index as usize
+            0
         };
 
-        let snapshot = self.get_snapshot(actual_index, service_type);
-        Ok(snapshot)
+        return Ok(self.get_snapshot(index, service_type));
+    }
+
+    async fn get_latest_providers(
+        &self,
+        service_type: ServiceType,
+    ) -> Result<MembershipProviders, MembershipBackendError> {
+        return Ok(self.get_snapshot(self.latest_block_number, service_type));
     }
 
     async fn update(
         &mut self,
         update: FinalizedBlockEvent,
-    ) -> Result<HashMap<ServiceType, MembershipSnapshot>, MembershipBackendError> {
+    ) -> Result<HashMap<ServiceType, MembershipProviders>, MembershipBackendError> {
+        let block_number = update.block_number;
         let mut result = HashMap::new();
-        let mut new_snapshot = MockMembershipEntry {
-            data: HashMap::new(),
-        };
-        let mut should_create_snapshot = false;
 
-        for service_type in self.current_data.data.keys() {
-            if let Some(snapshot_settings) = self.settings.settings_per_service.get(service_type) {
-                match snapshot_settings {
-                    SnapshotSettings::Block(snapshot_period) => {
-                        let current_period =
-                            self.current_data.block_number / *snapshot_period as u64;
-                        let new_period = update.block_number / *snapshot_period as u64;
+        let mut current_entry = self
+            .membership
+            .get(&self.latest_block_number)
+            .cloned()
+            .unwrap_or_default();
 
-                        if (new_period > current_period)
-                            || (update.block_number % *snapshot_period as u64 == 0)
-                        {
-                            should_create_snapshot = true;
-                            new_snapshot.data.insert(
-                                *service_type,
-                                self.current_data
-                                    .data
-                                    .get(service_type)
-                                    .cloned()
-                                    .unwrap_or_default(),
-                            );
-                        }
-                    }
-                }
-            } else {
-                return Err(MembershipBackendError::MockBackendError(
-                    overwatch::DynError::from(format!(
-                        "Service type {service_type:?} not found in settings"
-                    )),
-                ));
-            }
-        }
-
-        // Update current data
-        self.current_data.block_number = update.block_number;
         for (provider_info, declaration_update) in update.updates {
+            if !self
+                .settings
+                .settings_per_service
+                .contains_key(&declaration_update.service_type)
+            {
+                continue;
+            }
+
             let service_type = declaration_update.service_type;
-            let service_map = self.current_data.data.entry(service_type).or_default();
-            service_map.insert(provider_info, declaration_update);
+            let service_data = current_entry.entry(service_type).or_default();
+            service_data.insert(provider_info, declaration_update.clone());
+            result.insert(service_type, HashMap::new());
         }
 
-        // If no snapshot needed, just return
-        if !should_create_snapshot {
-            return Ok(result);
-        }
+        self.latest_block_number = block_number;
+        // todo: figure out pruning the old entries
+        self.membership.insert(block_number, current_entry.clone());
 
-        // Add the new snapshot and populate result
-        self.membership.push(new_snapshot.clone());
-        for service_type in new_snapshot.data.keys() {
-            result.insert(*service_type, self.get_snapshot(0, *service_type));
+        for (service_type, snapshot) in current_entry {
+            result.insert(
+                service_type,
+                snapshot
+                    .iter()
+                    .map(|(provider_info, declaration_update)| {
+                        (
+                            provider_info.provider_id,
+                            declaration_update.locators.clone(),
+                        )
+                    })
+                    .collect(),
+            );
         }
 
         Ok(result)
@@ -145,12 +117,12 @@ impl MembershipBackend for MockMembershipBackend {
 impl MockMembershipBackend {
     fn get_snapshot(
         &self,
-        index: usize,
+        block_number: BlockNumber,
         service_type: ServiceType,
-    ) -> HashMap<ProviderId, Vec<Locator>> {
-        self.membership[index]
-            .data
-            .get(&service_type)
+    ) -> MembershipProviders {
+        self.membership
+            .get(&block_number)
+            .and_then(|entry| entry.get(&service_type))
             .map_or_else(HashMap::new, |data| {
                 data.iter()
                     .map(|(provider_info, declaration_update)| {
@@ -161,26 +133,6 @@ impl MockMembershipBackend {
                     })
                     .collect()
             })
-    }
-
-    fn get_latest_snapshots(&self) -> HashMap<ServiceType, MembershipSnapshot> {
-        self.current_data
-            .data
-            .iter()
-            .map(|(service_type, data)| {
-                (
-                    *service_type,
-                    data.iter()
-                        .map(|(provider_info, declaration_update)| {
-                            (
-                                provider_info.provider_id,
-                                declaration_update.locators.clone(),
-                            )
-                        })
-                        .collect(),
-                )
-            })
-            .collect()
     }
 }
 
@@ -195,8 +147,7 @@ mod tests {
     };
 
     use super::{
-        MembershipBackend as _, MockMembershipBackend, MockMembershipBackendSettings,
-        MockMembershipEntry, SnapshotSettings,
+        MembershipBackend as _, MockMembershipBackend, MockMembershipBackendSettings, Settings,
     };
 
     // Helper function to create ProviderId with specified bytes
@@ -250,23 +201,22 @@ mod tests {
     async fn test_get_snapshot_at_empty() {
         let service_type = ServiceType::BlendNetwork;
         let mut settings_per_service = HashMap::new();
-        settings_per_service.insert(service_type, SnapshotSettings::Block(10));
+        settings_per_service.insert(
+            service_type,
+            Settings {
+                historical_block_delta: 10,
+            },
+        );
 
         let settings = MockMembershipBackendSettings {
             settings_per_service,
-            initial_membership: vec![],
+            initial_membership: HashMap::new(),
         };
 
         let backend = MockMembershipBackend::init(settings);
 
         // Test with empty membership
-        let result = backend.get_snapshot_at(service_type, 0).await.unwrap();
-        assert_eq!(result.len(), 0);
-
-        let result = backend.get_snapshot_at(service_type, 1).await.unwrap();
-        assert_eq!(result.len(), 0);
-
-        let result = backend.get_snapshot_at(service_type, -1).await.unwrap();
+        let result = backend.get_providers_at(service_type, 5).await.unwrap();
         assert_eq!(result.len(), 0);
     }
 
@@ -284,18 +234,14 @@ mod tests {
         service_data.insert(provider_info_1, declaration_update_1.clone());
         service_data.insert(provider_info_2, declaration_update_2.clone());
 
-        let mut initial_data = HashMap::new();
-        initial_data.insert(service_type, service_data);
-
-        let entry1 = MockMembershipEntry { data: initial_data };
+        let mut initial_entry1 = HashMap::new();
+        initial_entry1.insert(service_type, service_data);
 
         let mut service_data_2 = HashMap::new();
         service_data_2.insert(provider_info_2, declaration_update_2.clone());
 
-        let mut entry2_data = HashMap::new();
-        entry2_data.insert(service_type, service_data_2);
-
-        let entry2 = MockMembershipEntry { data: entry2_data };
+        let mut initial_entry2 = HashMap::new();
+        initial_entry2.insert(service_type, service_data_2);
 
         let provider_info_3 = create_provider_info(3, 100);
         let declaration_update_3 = create_declaration_update(3, service_type, 3);
@@ -303,43 +249,31 @@ mod tests {
         let mut service_data_3 = HashMap::new();
         service_data_3.insert(provider_info_3, declaration_update_3.clone());
 
-        let mut entry3_data = HashMap::new();
-        entry3_data.insert(service_type, service_data_3);
-
-        let entry3 = MockMembershipEntry { data: entry3_data };
+        let mut initial_entry3 = HashMap::new();
+        initial_entry3.insert(service_type, service_data_3);
 
         let mut settings_per_service = HashMap::new();
-        settings_per_service.insert(service_type, SnapshotSettings::Block(10));
+        settings_per_service.insert(
+            service_type,
+            Settings {
+                historical_block_delta: 5,
+            },
+        );
 
         let settings = MockMembershipBackendSettings {
             settings_per_service,
-            initial_membership: vec![entry1, entry2, entry3],
+            initial_membership: HashMap::from([
+                (100, initial_entry1),
+                (101, initial_entry2),
+                (102, initial_entry3),
+            ]),
         };
 
-        let mut backend = MockMembershipBackend::init(settings);
+        let backend = MockMembershipBackend::init(settings);
 
-        // Update current data manually to simulate latest state
-        let provider_info_4 = create_provider_info(4, 100);
-        let declaration_update_4 = create_declaration_update(4, service_type, 3);
-
-        let mut current_service_data = HashMap::new();
-        current_service_data.insert(provider_info_4, declaration_update_4.clone());
-        backend
-            .current_data
-            .data
-            .insert(service_type, current_service_data);
-
-        // (latest snapshot)
-        let result = backend.get_snapshot_at(service_type, 0).await.unwrap();
-        assert_eq!(result.len(), 1);
-        assert!(result.contains_key(&provider_info_4.provider_id));
-        assert_eq!(
-            result.get(&provider_info_4.provider_id).unwrap(),
-            &declaration_update_4.locators
-        );
-
-        // (1 = first entry)
-        let result = backend.get_snapshot_at(service_type, 1).await.unwrap();
+        // (1st entry)
+        // blocknumber 100 = 105 - k.historical_block_delta
+        let result = backend.get_providers_at(service_type, 105).await.unwrap();
         assert_eq!(result.len(), 2);
         assert!(result.contains_key(&provider_info_1.provider_id));
         assert!(result.contains_key(&provider_info_2.provider_id));
@@ -352,13 +286,18 @@ mod tests {
             &declaration_update_2.locators
         );
 
-        // (2 = second entry)
-        let result = backend.get_snapshot_at(service_type, 2).await.unwrap();
-        assert!(!result.contains_key(&provider_info_1.provider_id));
+        // (second entry)
+        // should be same as the first one since the same provider was added
+        let result = backend.get_providers_at(service_type, 106).await.unwrap();
+        assert_eq!(result.len(), 1);
         assert!(result.contains_key(&provider_info_2.provider_id));
+        assert_eq!(
+            result.get(&provider_info_2.provider_id).unwrap(),
+            &declaration_update_2.locators
+        );
 
-        // (3 = third entry)
-        let result = backend.get_snapshot_at(service_type, 3).await.unwrap();
+        // (third entry)
+        let result = backend.get_providers_at(service_type, 107).await.unwrap();
         assert_eq!(result.len(), 1);
         assert!(result.contains_key(&provider_info_3.provider_id));
         assert_eq!(
@@ -366,44 +305,31 @@ mod tests {
             &declaration_update_3.locators
         );
 
-        // (4 > entries.len())
-        let result = backend.get_snapshot_at(service_type, 4).await.unwrap();
-        assert_eq!(result.len(), 0);
-
-        // (-1 = latest historical entry)
-        let result = backend.get_snapshot_at(service_type, -1).await.unwrap();
+        // latest one should be same as the one we just added
+        let result = backend.get_latest_providers(service_type).await.unwrap();
         assert_eq!(result.len(), 1);
         assert!(result.contains_key(&provider_info_3.provider_id));
         assert_eq!(
             result.get(&provider_info_3.provider_id).unwrap(),
             &declaration_update_3.locators
         );
-
-        // (-2 = second latest historical entry)
-        let result = backend.get_snapshot_at(service_type, -2).await.unwrap();
-        assert!(!result.contains_key(&provider_info_1.provider_id));
-        assert!(result.contains_key(&provider_info_2.provider_id));
-
-        // (-3 = third latest historical entry)
-        let result = backend.get_snapshot_at(service_type, -3).await.unwrap();
-        assert_eq!(result.len(), 2);
-        assert!(result.contains_key(&provider_info_1.provider_id));
-        assert!(result.contains_key(&provider_info_2.provider_id));
-
-        // negative index out of bounds
-        let result = backend.get_snapshot_at(service_type, -4).await.unwrap();
-        assert_eq!(result.len(), 0);
     }
 
     #[tokio::test]
     async fn test_update() {
         let service_type = ServiceType::BlendNetwork;
         let mut settings_per_service = HashMap::new();
-        settings_per_service.insert(service_type, SnapshotSettings::Block(5));
+        let historical_delta = 5;
+        settings_per_service.insert(
+            service_type,
+            Settings {
+                historical_block_delta: historical_delta,
+            },
+        );
 
         let settings = MockMembershipBackendSettings {
             settings_per_service,
-            initial_membership: vec![],
+            initial_membership: HashMap::new(),
         };
 
         let mut backend = MockMembershipBackend::init(settings);
@@ -421,53 +347,64 @@ mod tests {
         };
 
         let result = backend.update(event).await.unwrap();
-        assert_eq!(result.len(), 0);
-        assert_eq!(backend.membership.len(), 0);
+        assert_eq!(result.len(), 1);
+        assert_eq!(backend.membership.len(), 1);
+        let snapshot = result.get(&service_type).unwrap();
+        assert_eq!(snapshot.len(), 1);
+        assert!(snapshot.contains_key(&provider_info_1.provider_id));
 
-        // Create another update at snapshot block
-        let provider_info_2 = create_provider_info(2, 10);
+        let provider_info_2 = create_provider_info(2, 6);
         let declaration_update_2 = create_declaration_update(2, service_type, 3);
 
         let updates = vec![(provider_info_2, declaration_update_2.clone())];
 
         let event = FinalizedBlockEvent {
-            block_number: 10, // This should trigger a snapshot
+            block_number: 6,
             updates,
         };
 
         let result = backend.update(event).await.unwrap();
-
-        // Verify current data was updated
         assert_eq!(result.len(), 1);
+        assert_eq!(backend.membership.len(), 2);
         let snapshot = result.get(&service_type).unwrap();
-        assert_eq!(snapshot.len(), 1); // should contain only the one saved in the snapshot
+        assert_eq!(snapshot.len(), 2);
+        assert!(snapshot.contains_key(&provider_info_2.provider_id));
         assert!(snapshot.contains_key(&provider_info_1.provider_id));
         assert_eq!(
             snapshot.get(&provider_info_1.provider_id).unwrap(),
             &declaration_update_1.locators
         );
-
-        // Verify snapshot was created
-        assert_eq!(backend.membership.len(), 1);
-
-        // Test current after updates
-        let snapshot_result = backend.get_snapshot_at(service_type, 0).await.unwrap();
-        assert_eq!(snapshot_result.len(), 2);
-        assert!(snapshot_result.contains_key(&provider_info_1.provider_id));
-        assert!(snapshot_result.contains_key(&provider_info_2.provider_id));
-
         assert_eq!(
-            snapshot_result.get(&provider_info_1.provider_id).unwrap(),
-            &declaration_update_1.locators
-        );
-        assert_eq!(
-            snapshot_result.get(&provider_info_2.provider_id).unwrap(),
+            snapshot.get(&provider_info_2.provider_id).unwrap(),
             &declaration_update_2.locators
         );
 
-        // Test get_snapshot_at with index = 1 (should be the snapshot we created)
-        let snapshot = backend.get_snapshot_at(service_type, 1).await.unwrap();
-        assert_eq!(snapshot.len(), 1);
+        // test latest, should be the same as the last one
+        let result = backend.get_latest_providers(service_type).await.unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result.contains_key(&provider_info_2.provider_id));
+        assert!(result.contains_key(&provider_info_1.provider_id));
+        assert_eq!(
+            result.get(&provider_info_1.provider_id).unwrap(),
+            &declaration_update_1.locators
+        );
+        assert_eq!(
+            result.get(&provider_info_2.provider_id).unwrap(),
+            &declaration_update_2.locators
+        );
+
+        // test get_providers_at to get the first entry
+        let result = backend
+            .get_providers_at(service_type, 5 + historical_delta)
+            .await
+            .unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert!(result.contains_key(&provider_info_1.provider_id));
+        assert_eq!(
+            result.get(&provider_info_1.provider_id).unwrap(),
+            &declaration_update_1.locators
+        );
     }
 
     #[tokio::test]
@@ -476,11 +413,16 @@ mod tests {
         let unknown_service_type = ServiceType::DataAvailability;
 
         let mut settings_per_service = HashMap::new();
-        settings_per_service.insert(service_type, SnapshotSettings::Block(10));
+        settings_per_service.insert(
+            service_type,
+            Settings {
+                historical_block_delta: 5,
+            },
+        );
 
         let settings = MockMembershipBackendSettings {
             settings_per_service,
-            initial_membership: vec![],
+            initial_membership: HashMap::new(),
         };
 
         let mut backend = MockMembershipBackend::init(settings);

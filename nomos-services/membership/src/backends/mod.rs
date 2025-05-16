@@ -2,19 +2,19 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use nomos_sdp::backends::SdpBackendError;
-use nomos_sdp_core::{FinalizedBlockEvent, ServiceType};
+use nomos_sdp_core::{BlockNumber, FinalizedBlockEvent, ServiceType};
 use overwatch::DynError;
 
-use crate::MembershipSnapshot;
+use crate::MembershipProviders;
 
 pub mod mock;
 
 pub struct MembershipBackendSettings {
-    pub settings_per_service: HashMap<ServiceType, SnapshotSettings>,
+    pub settings_per_service: HashMap<ServiceType, Settings>,
 }
 
-pub enum SnapshotSettings {
-    Block(usize),
+pub struct Settings {
+    historical_block_delta: u64,
 }
 
 #[derive(Debug)]
@@ -29,18 +29,19 @@ pub trait MembershipBackend {
     type Settings: Send + Sync;
 
     fn init(settings: Self::Settings) -> Self;
-    // Get the snapshot at the given index for the specified service type.
-    // The snapshot index a sequential order of the service type specific time
-    // snapshots. index = 0 is the latest snapshot
-    // index > 0 is the index of the snapshot in the past
-    // index < 0 is the index of the snapshot relative to the latest snapshot
-    async fn get_snapshot_at(
+    async fn get_providers_at(
         &self,
         service_type: ServiceType,
-        index: i32,
-    ) -> Result<MembershipSnapshot, MembershipBackendError>;
+        block_number: BlockNumber,
+    ) -> Result<MembershipProviders, MembershipBackendError>;
+
+    async fn get_latest_providers(
+        &self,
+        service_type: ServiceType,
+    ) -> Result<MembershipProviders, MembershipBackendError>;
+
     async fn update(
         &mut self,
         update: FinalizedBlockEvent,
-    ) -> Result<HashMap<ServiceType, MembershipSnapshot>, MembershipBackendError>;
+    ) -> Result<HashMap<ServiceType, MembershipProviders>, MembershipBackendError>;
 }
