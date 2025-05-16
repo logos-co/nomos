@@ -8,3 +8,5 @@
 # * workflows/code-check.yml (fmt job)
 # * .pre-commit-config.yml (fmt hook)
 channel = "1.87.0"
+# Even if clippy should be included in the default profile, in some cases it is not installed. So we force it with an explicit declaration.
+components = ["clippy"]
