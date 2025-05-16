@@ -25,5 +25,5 @@ pub trait StorageChainApi {
         header_ids: Headers,
     ) -> Result<impl Iterator<Item = Self::Block>, Self::Error>
     where
-        Headers: Iterator<Item = HeaderId>;
+        Headers: Iterator<Item = HeaderId> + Send + Sync;
 }
