@@ -7,16 +7,17 @@ mod test {
     use futures::StreamExt as _;
     use libp2p::{identity::Keypair, quic, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
     use libp2p_swarm_test::SwarmExt as _;
-    use log::info;
+    use log::{error, info};
     use nomos_da_messages::replication::ReplicationRequest;
-    use tokio::sync::mpsc;
+    use tokio::sync::{mpsc, watch};
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
+    use crate::test_utils::start_udp_mutation_proxy;
     use crate::{
         protocols::replication::behaviour::{
             ReplicationBehaviour, ReplicationConfig, ReplicationEvent,
         },
-        test_utils::AllNeighbours,
+        test_utils::{AllNeighbours, TamperingReplicationBehaviour},
     };
 
     type TestSwarm = Swarm<ReplicationBehaviour<AllNeighbours>>;
@@ -251,5 +252,207 @@ mod test {
                 panic!("task two should not finish before 1");
             }
         }
+    }
+
+    #[tokio::test]
+    async fn test_tampered_encrypted_quick_packet_detection() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .compact()
+            .with_writer(TestWriter::default())
+            .try_init();
+        let k1 = Keypair::generate_ed25519();
+        let k2 = Keypair::generate_ed25519();
+        let peer_id2 = PeerId::from_public_key(&k2.public());
+
+        let neighbours = make_neighbours(&[&k1, &k2]);
+
+        let proxy_addr: Multiaddr = "/ip4/127.0.0.1/udp/5058".parse().unwrap();
+        let server_addr: Multiaddr = "/ip4/127.0.0.1/udp/5059".parse().unwrap();
+
+        // Start UDP proxy
+        tokio::spawn(start_udp_mutation_proxy(
+            proxy_addr.clone(),
+            server_addr.clone(),
+        ));
+
+        // Wait for roxy to start
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let addr: Multiaddr = format!("{server_addr}/quic-v1").parse().unwrap();
+        let addr2: Multiaddr = format!("{proxy_addr}/quic-v1").parse().unwrap();
+
+        let msg_count = 10usize;
+        let mut swarm_1 = get_swarm(k1.clone(), neighbours.clone());
+        let mut swarm_2 = get_swarm(k2.clone(), neighbours.clone());
+
+        let (cancel_tx, mut cancel_rx) = watch::channel(false);
+
+        let task_1 = tokio::spawn(async move {
+            swarm_1.listen_on(addr.clone()).unwrap();
+            wait_for_incoming_connection(&mut swarm_1, peer_id2).await;
+
+            let mut received_count = 0;
+
+            loop {
+                tokio::select! {
+                    event = swarm_1.select_next_some() => {
+                        if let SwarmEvent::Behaviour(ReplicationEvent::IncomingMessage {
+                            ..
+                        }) = event {
+                            received_count += 1;
+                        }
+                    }
+                    _ = cancel_rx.changed() => {
+                        if *cancel_rx.borrow() {
+                            break;
+                        }
+                    }
+                }
+
+                if received_count >= msg_count {
+                    break;
+                }
+            }
+            received_count
+        });
+
+        let task_2 = async move {
+            swarm_2.dial(addr2).unwrap();
+            
+            let mut i = 0;
+            let mut swarm_connected = false;
+            loop {
+                tokio::select! {
+                    () = tokio::time::sleep(Duration::from_millis(50)) => {
+                        let behaviour = swarm_2.behaviour_mut();
+                        let msg = get_message(i);
+                        behaviour.send_message(&msg);
+                        i += 1;
+                        if i >= msg_count { break; }
+                    }
+                    event = swarm_2.select_next_some() => {
+                        match event {
+                            SwarmEvent::ConnectionClosed { .. } => break,
+                            SwarmEvent::ConnectionEstablished { .. } => {
+                                swarm_connected = true;
+                            },
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            swarm_connected
+        };
+
+        // Wait for sender to send all 10 messages, check it has connected to the receiving swarm
+        let swarm_connected = task_2.await;
+        assert!(swarm_connected);
+        
+        // Stop receiving task
+        let _ = cancel_tx.send(true);
+
+        match task_1.await {
+            Ok(count) => assert_ne!(count, 9),
+            Err(e) => error!("Task1 failed with {e}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_tampered_message_content_detection() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .compact()
+            .with_writer(TestWriter::default())
+            .try_init();
+        let k1 = Keypair::generate_ed25519();
+        let k2 = Keypair::generate_ed25519();
+        let peer_id2 = PeerId::from_public_key(&k2.public());
+
+        let neighbours = make_neighbours(&[&k1, &k2]);
+        let mut swarm_1 = get_swarm(k1.clone(), neighbours.clone());
+
+        let mut swarm_2_tampered = libp2p::SwarmBuilder::with_existing_identity(k2.clone())
+            .with_tokio()
+            .with_other_transport(|_keypair| quic::tokio::Transport::new(quic::Config::new(&k2)))
+            .unwrap()
+            .with_behaviour(|key| {
+                let base = ReplicationBehaviour::new(
+                    ReplicationConfig {
+                        seen_message_cache_size: 100,
+                        seen_message_ttl: Duration::from_secs(60),
+                    },
+                    PeerId::from_public_key(&key.public()),
+                    neighbours.clone(),
+                );
+                let mut behaviour = TamperingReplicationBehaviour::new(base);
+                behaviour.set_tamper_hook(|mut msg| {
+                    msg.share.data.share_idx ^= 0xFF;
+                    msg
+                });
+                behaviour
+            })
+            .unwrap()
+            .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(10)))
+            .build();
+
+        let msg_count = 10usize;
+        let addr: Multiaddr = "/ip4/127.0.0.1/udp/5061/quic-v1".parse().unwrap();
+        let addr2 = addr.clone();
+
+        let task_1 = async move {
+            swarm_1.listen_on(addr.clone()).unwrap();
+            wait_for_incoming_connection(&mut swarm_1, peer_id2).await;
+            swarm_1
+                .filter_map(|event| async {
+                    if let SwarmEvent::Behaviour(ReplicationEvent::IncomingMessage {
+                        message,
+                        ..
+                    }) = event
+                    {
+                        info!("Received message {message:?}");
+                        assert_ne!(message.share.data.share_idx, 0);
+                        Some(message)
+                    } else {
+                        None
+                    }
+                })
+                .take(msg_count)
+                .collect::<Vec<_>>()
+                .await
+        };
+
+        let task_2 = async move {
+            swarm_2_tampered.dial(addr2).unwrap();
+
+            // Send a tampered message after attempting connection
+            let mut i = 0;
+            loop {
+                tokio::select! {
+                    () = tokio::time::sleep(Duration::from_millis(50)) => {
+                        let behaviour = swarm_2_tampered.behaviour_mut();
+                        let msg = get_message(i);
+                        behaviour.send_message(&msg);
+                        info!("Sent message {i}# ");
+                        if i < 19 {
+                            i += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    event = swarm_2_tampered.select_next_some() => {
+                        match event {
+                            SwarmEvent::ConnectionClosed { .. } => break,
+                            SwarmEvent::ConnectionEstablished { peer_id,  connection_id, .. } => {
+                                info!("Connected to {peer_id} with connection_id: {connection_id}");
+                            },
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        };
+
+        tokio::join!(task_1, task_2);
     }
 }
