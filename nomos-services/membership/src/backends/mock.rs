@@ -52,8 +52,6 @@ impl MembershipBackend for MockMembershipBackend {
         service_type: ServiceType,
         block_number: BlockNumber,
     ) -> Result<MembershipProviders, MembershipBackendError> {
-        // todo: handle skipped blocks
-        // probably we should return latest block before the block number
         let k = self
             .settings
             .get(&service_type)
@@ -513,7 +511,7 @@ mod tests {
         let declaration_update = create_declaration_update(1, unknown_service_type, 3);
 
         let updates = vec![(
-            service_type,
+            declaration_update.service_type,
             provider_info.provider_id,
             ProviderState::Active(ActiveState(provider_info)),
             declaration_update.locators,
