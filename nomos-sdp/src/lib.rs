@@ -216,5 +216,13 @@ impl<Metadata, Proof> SdpMessage<Metadata, Proof> {
 #[derive(Debug, Clone)]
 pub struct FinalizedBlockEvent {
     pub block_number: BlockNumber,
-    pub updates: Vec<(ServiceType, ProviderId, ProviderState, Vec<Locator>)>,
+    pub updates: Vec<FinalizedBlockEventUpdate>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FinalizedBlockEventUpdate {
+    pub service_type: ServiceType,
+    pub provider_id: ProviderId,
+    pub state: ProviderState,
+    pub locators: Vec<Locator>,
 }

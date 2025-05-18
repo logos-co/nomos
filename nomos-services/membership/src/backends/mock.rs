@@ -3,7 +3,9 @@ use std::{
     vec,
 };
 
-use nomos_sdp_core::{BlockNumber, FinalizedBlockEvent, Locator, ProviderId, ServiceType};
+use nomos_sdp_core::{
+    BlockNumber, FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId, ServiceType,
+};
 
 use super::{MembershipBackend, MembershipBackendError, Settings};
 use crate::MembershipProviders;
@@ -81,7 +83,13 @@ impl MembershipBackend for MockMembershipBackend {
 
         let mut updated_service_types = vec![];
 
-        for (service_type, provider_id, state, locators) in update.updates {
+        for FinalizedBlockEventUpdate {
+            service_type,
+            provider_id,
+            state,
+            locators,
+        } in update.updates
+        {
             if !self.settings.contains_key(&service_type) {
                 continue;
             }
@@ -152,8 +160,8 @@ mod tests {
     use multiaddr::multiaddr;
     use nomos_sdp_core::{
         state::{ActiveState, ProviderState, WithdrawnState},
-        BlockNumber, DeclarationId, DeclarationUpdate, FinalizedBlockEvent, Locator, ProviderId,
-        ProviderInfo, ServiceType,
+        BlockNumber, DeclarationId, DeclarationUpdate, FinalizedBlockEvent,
+        FinalizedBlockEventUpdate, Locator, ProviderId, ProviderInfo, ServiceType,
     };
 
     use super::{
@@ -368,12 +376,12 @@ mod tests {
 
         let provider_info_1 = create_provider_info(1, 100);
         let declaration_update_1 = create_declaration_update(1, service_type, 3);
-        let updates = vec![(
+        let updates = vec![FinalizedBlockEventUpdate {
             service_type,
-            provider_info_1.provider_id,
-            ProviderState::Active(ActiveState(provider_info_1)),
-            declaration_update_1.locators.clone(),
-        )];
+            provider_id: provider_info_1.provider_id,
+            state: ProviderState::Active(ActiveState(provider_info_1)),
+            locators: declaration_update_1.locators.clone(),
+        }];
         let event = FinalizedBlockEvent {
             block_number: 100,
             updates,
@@ -388,12 +396,12 @@ mod tests {
 
         let provider_info_2 = create_provider_info(2, 100);
         let declaration_update_2 = create_declaration_update(2, service_type, 3);
-        let updates = vec![(
+        let updates = vec![FinalizedBlockEventUpdate {
             service_type,
-            provider_info_2.provider_id,
-            ProviderState::Active(ActiveState(provider_info_2)),
-            declaration_update_2.locators.clone(),
-        )];
+            provider_id: provider_info_2.provider_id,
+            state: ProviderState::Active(ActiveState(provider_info_2)),
+            locators: declaration_update_2.locators.clone(),
+        }];
         let event = FinalizedBlockEvent {
             block_number: 101,
             updates,
@@ -412,18 +420,18 @@ mod tests {
         let provider_info_3 = create_provider_info(3, 100);
         let declaration_update_3 = create_declaration_update(3, service_type, 3);
         let updates = vec![
-            (
+            FinalizedBlockEventUpdate {
                 service_type,
-                provider_info_2.provider_id,
-                ProviderState::Withdrawn(WithdrawnState(provider_info_2)),
-                Vec::new(),
-            ),
-            (
+                provider_id: provider_info_2.provider_id,
+                state: ProviderState::Withdrawn(WithdrawnState(provider_info_2)),
+                locators: Vec::new(),
+            },
+            FinalizedBlockEventUpdate {
                 service_type,
-                provider_info_3.provider_id,
-                ProviderState::Active(ActiveState(provider_info_3)),
-                declaration_update_3.locators.clone(),
-            ),
+                provider_id: provider_info_3.provider_id,
+                state: ProviderState::Active(ActiveState(provider_info_3)),
+                locators: declaration_update_3.locators.clone(),
+            },
         ];
         let event = FinalizedBlockEvent {
             block_number: 102,
@@ -510,12 +518,12 @@ mod tests {
         let provider_info = create_provider_info(1, 5);
         let declaration_update = create_declaration_update(1, unknown_service_type, 3);
 
-        let updates = vec![(
-            declaration_update.service_type,
-            provider_info.provider_id,
-            ProviderState::Active(ActiveState(provider_info)),
-            declaration_update.locators,
-        )];
+        let updates = vec![FinalizedBlockEventUpdate {
+            service_type: declaration_update.service_type,
+            provider_id: provider_info.provider_id,
+            state: ProviderState::Active(ActiveState(provider_info)),
+            locators: declaration_update.locators,
+        }];
 
         let event = FinalizedBlockEvent {
             block_number: 5,

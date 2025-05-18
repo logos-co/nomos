@@ -9,8 +9,8 @@ use async_trait::async_trait;
 
 use crate::{
     ActiveMessage, ActivityId, BlockNumber, Declaration, DeclarationId, DeclarationMessage,
-    DeclarationUpdate, EventType, FinalizedBlockEvent, Nonce, ProviderId, ProviderInfo, SdpMessage,
-    ServiceParameters, ServiceType, WithdrawMessage,
+    DeclarationUpdate, EventType, FinalizedBlockEvent, FinalizedBlockEventUpdate, Nonce,
+    ProviderId, ProviderInfo, SdpMessage, ServiceParameters, ServiceType, WithdrawMessage,
     state::{ProviderState, ProviderStateError},
 };
 
@@ -450,12 +450,12 @@ where
                         let state =
                             ProviderState::try_from_info(block_number, info, service_params)?;
 
-                        result.updates.push((
+                        result.updates.push(FinalizedBlockEventUpdate {
                             service_type,
                             provider_id,
                             state,
-                            declaration_update.locators,
-                        ));
+                            locators: declaration_update.locators,
+                        });
                     }
                 }
                 Err(err) => {
