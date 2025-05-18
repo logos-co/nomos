@@ -9,8 +9,8 @@ use async_trait::async_trait;
 
 use crate::{
     ActiveMessage, ActivityId, BlockNumber, Declaration, DeclarationId, DeclarationMessage,
-    DeclarationUpdate, EventType, Nonce, ProviderId, ProviderInfo, SdpMessage, ServiceParameters,
-    ServiceType, WithdrawMessage,
+    DeclarationUpdate, EventType, FinalizedBlockEvent, Nonce, ProviderId, ProviderInfo, SdpMessage,
+    ServiceParameters, ServiceType, WithdrawMessage,
     state::{ProviderState, ProviderStateError},
 };
 
@@ -61,7 +61,7 @@ pub enum ServicesRepositoryError {
 
 #[async_trait]
 pub trait ServicesRepository {
-    type ContractAddress;
+    type ContractAddress: Clone;
 
     async fn get_parameters(
         &self,
@@ -160,7 +160,7 @@ where
         ActivityContract<Metadata = Metadata, ContractAddress = ContractAddress> + Send + Sync,
     Services: ServicesRepository<ContractAddress = ContractAddress> + Send + Sync,
     Stakes: StakesVerifier<Proof = Proof> + Send + Sync,
-    ContractAddress: Debug + Send + Sync,
+    ContractAddress: Debug + Send + Sync + Clone,
     Proof: Send + Sync,
     Metadata: Send + Sync,
 {
@@ -413,8 +413,14 @@ where
     pub async fn mark_in_block(
         &mut self,
         block_number: BlockNumber,
-    ) -> Result<Vec<(ProviderInfo, DeclarationUpdate)>, SdpLedgerError<ContractAddress>> {
-        let mut result = vec![];
+    ) -> Result<FinalizedBlockEvent, SdpLedgerError<ContractAddress>> {
+        let mut result = FinalizedBlockEvent {
+            block_number,
+            updates: Vec::default(),
+        };
+
+        let mut service_params_map = HashMap::new();
+
         let Some(updates) = self.pending_providers.remove(&block_number) else {
             return Ok(result);
         };
@@ -427,7 +433,30 @@ where
 
             match self.mark_declaration_in_block(block_number, info).await {
                 Ok(providers_declarations) => {
-                    result.extend(providers_declarations);
+                    for (ProviderInfo { provider_id, .. }, declaration_update) in
+                        providers_declarations
+                    {
+                        let service_type = declaration_update.service_type;
+                        let service_params = if let Some(params) =
+                            service_params_map.get(&service_type)
+                        {
+                            params
+                        } else {
+                            let params = self.services_repo.get_parameters(service_type).await?;
+                            service_params_map.insert(service_type, params.clone());
+                            &params.clone()
+                        };
+
+                        let state =
+                            ProviderState::try_from_info(block_number, info, service_params)?;
+
+                        result.updates.push((
+                            service_type,
+                            provider_id,
+                            state,
+                            declaration_update.locators,
+                        ));
+                    }
                 }
                 Err(err) => {
                     tracing::error!("Provider information couldn't be updated: {err}");

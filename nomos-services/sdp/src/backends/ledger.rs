@@ -10,7 +10,7 @@ use nomos_sdp_core::{
         },
         ServicesRepository,
     },
-    BlockNumber, DeclarationUpdate, ProviderInfo, SdpMessage,
+    BlockNumber, FinalizedBlockEvent, SdpMessage,
 };
 
 use super::{SdpBackend, SdpBackendError};
@@ -24,7 +24,7 @@ impl<Declarations, Rewards, Services, Stakes, Proof, Metadata, ContractAddress> 
     for SdpLedger<Declarations, Rewards, Services, Stakes, Proof, Metadata, ContractAddress>
 where
     Services: ServicesRepository<ContractAddress = ContractAddress> + Send + Sync + Clone + 'static,
-    ContractAddress: Debug + Send + Sync + 'static,
+    ContractAddress: Debug + Send + Sync + Clone + 'static,
     Proof: Send + Sync + 'static,
     Metadata: Send + Sync + 'static,
     Declarations: SdpDeclarationAdapter + Send + Sync,
@@ -66,7 +66,7 @@ where
     async fn mark_in_block(
         &mut self,
         block_number: BlockNumber,
-    ) -> Result<Vec<(ProviderInfo, DeclarationUpdate)>, SdpBackendError> {
+    ) -> Result<FinalizedBlockEvent, SdpBackendError> {
         self.mark_in_block(block_number).await.map_err(Into::into)
     }
 

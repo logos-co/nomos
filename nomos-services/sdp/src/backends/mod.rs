@@ -1,4 +1,4 @@
-use nomos_sdp_core::{BlockNumber, DeclarationUpdate, ProviderInfo};
+use nomos_sdp_core::{BlockNumber, FinalizedBlockEvent};
 use overwatch::DynError;
 
 use crate::adapters::{
@@ -49,7 +49,7 @@ pub trait SdpBackend {
     async fn mark_in_block(
         &mut self,
         block_number: BlockNumber,
-    ) -> Result<Vec<(ProviderInfo, DeclarationUpdate)>, SdpBackendError>;
+    ) -> Result<FinalizedBlockEvent, SdpBackendError>;
 
     fn discard_block(&mut self, block_number: BlockNumber);
 }

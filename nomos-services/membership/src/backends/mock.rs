@@ -1,8 +1,9 @@
-use std::collections::HashMap;
-
-use nomos_sdp_core::{
-    BlockNumber, DeclarationUpdate, FinalizedBlockEvent, ProviderInfo, ServiceType,
+use std::{
+    collections::{HashMap, HashSet},
+    vec,
 };
+
+use nomos_sdp_core::{BlockNumber, FinalizedBlockEvent, Locator, ProviderId, ServiceType};
 
 use super::{MembershipBackend, MembershipBackendError, Settings};
 use crate::MembershipProviders;
@@ -10,13 +11,22 @@ use crate::MembershipProviders;
 pub struct MockMembershipBackendSettings {
     settings_per_service: HashMap<ServiceType, Settings>,
     initial_membership: HashMap<BlockNumber, MockMembershipEntry>,
+    initial_locators_mapping: HashMap<ProviderId, Vec<Locator>>,
 }
 
-type MockMembershipEntry = HashMap<ServiceType, HashMap<ProviderInfo, DeclarationUpdate>>;
+type MockMembershipEntry = HashMap<ServiceType, HashSet<ProviderId>>;
+
+//todo: always use new locators even for old
+// so we will need a mapping providerInfo -> new locators
+// also FinalizedBlockEvent needs state, so we can remnov
 
 pub struct MockMembershipBackend {
-    settings: MockMembershipBackendSettings,
+    settings: HashMap<ServiceType, Settings>,
     membership: HashMap<BlockNumber, MockMembershipEntry>,
+
+    // this is a mapping of providerId -> locators
+    // this is used to get the latest locators for a provider
+    locators_mapping: HashMap<ProviderId, Vec<Locator>>,
     latest_block_number: BlockNumber,
 }
 
@@ -32,8 +42,8 @@ impl MembershipBackend for MockMembershipBackend {
                 .copied()
                 .max()
                 .unwrap_or(0),
-
-            settings,
+            settings: settings.settings_per_service,
+            locators_mapping: settings.initial_locators_mapping,
         }
     }
 
@@ -42,9 +52,10 @@ impl MembershipBackend for MockMembershipBackend {
         service_type: ServiceType,
         block_number: BlockNumber,
     ) -> Result<MembershipProviders, MembershipBackendError> {
+        // todo: handle skipped blocks
+        // probably we should return latest block before the block number
         let k = self
             .settings
-            .settings_per_service
             .get(&service_type)
             .ok_or_else(|| MembershipBackendError::Other("Service type not found".into()))?;
         let index = block_number.saturating_sub(k.historical_block_delta);
@@ -63,47 +74,47 @@ impl MembershipBackend for MockMembershipBackend {
         update: FinalizedBlockEvent,
     ) -> Result<HashMap<ServiceType, MembershipProviders>, MembershipBackendError> {
         let block_number = update.block_number;
-        let mut result = HashMap::new();
 
-        let mut current_entry = self
+        let mut latest_entry = self
             .membership
             .get(&self.latest_block_number)
             .cloned()
             .unwrap_or_default();
 
-        for (provider_info, declaration_update) in update.updates {
-            if !self
-                .settings
-                .settings_per_service
-                .contains_key(&declaration_update.service_type)
-            {
+        let mut updated_service_types = vec![];
+
+        for (service_type, provider_id, state, locators) in update.updates {
+            if !self.settings.contains_key(&service_type) {
                 continue;
             }
 
-            let service_type = declaration_update.service_type;
-            let service_data = current_entry.entry(service_type).or_default();
-            service_data.insert(provider_info, declaration_update.clone());
-            result.insert(service_type, HashMap::new());
+            updated_service_types.push(service_type);
+
+            let service_data = latest_entry.entry(service_type).or_default();
+
+            match state {
+                nomos_sdp_core::state::ProviderState::Active(_initstate) => {
+                    self.locators_mapping.insert(provider_id, locators.clone());
+                    service_data.insert(provider_id);
+                }
+                nomos_sdp_core::state::ProviderState::Inactive(_)
+                | nomos_sdp_core::state::ProviderState::Withdrawn(_) => {
+                    service_data.remove(&provider_id);
+                    self.locators_mapping.remove(&provider_id);
+                }
+            }
         }
 
         self.latest_block_number = block_number;
-        // todo: figure out pruning the old entries
-        self.membership.insert(block_number, current_entry.clone());
+        self.membership.insert(block_number, latest_entry.clone());
 
-        for (service_type, snapshot) in current_entry {
-            result.insert(
-                service_type,
-                snapshot
-                    .iter()
-                    .map(|(provider_info, declaration_update)| {
-                        (
-                            provider_info.provider_id,
-                            declaration_update.locators.clone(),
-                        )
-                    })
-                    .collect(),
-            );
-        }
+        let result = updated_service_types
+            .into_iter()
+            .map(|service_type| {
+                let snapshot = self.get_snapshot(block_number, service_type);
+                (service_type, snapshot)
+            })
+            .collect();
 
         Ok(result)
     }
@@ -118,25 +129,31 @@ impl MockMembershipBackend {
         self.membership
             .get(&block_number)
             .and_then(|entry| entry.get(&service_type))
-            .map_or_else(HashMap::new, |data| {
-                data.iter()
-                    .map(|(provider_info, declaration_update)| {
+            .map(|snapshot| {
+                snapshot
+                    .iter()
+                    .map(|provider_id| {
                         (
-                            provider_info.provider_id,
-                            declaration_update.locators.clone(),
+                            *provider_id,
+                            self.locators_mapping
+                                .get(provider_id)
+                                .cloned()
+                                .unwrap_or_default(),
                         )
                     })
                     .collect()
             })
+            .unwrap_or_default()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     use multiaddr::multiaddr;
     use nomos_sdp_core::{
+        state::{ActiveState, ProviderState, WithdrawnState},
         BlockNumber, DeclarationId, DeclarationUpdate, FinalizedBlockEvent, Locator, ProviderId,
         ProviderInfo, ServiceType,
     };
@@ -144,6 +161,7 @@ mod tests {
     use super::{
         MembershipBackend as _, MockMembershipBackend, MockMembershipBackendSettings, Settings,
     };
+    use crate::MembershipProviders;
 
     // Helper function to create ProviderId with specified bytes
     fn create_provider_id(seed: u8) -> ProviderId {
@@ -206,6 +224,7 @@ mod tests {
         let settings = MockMembershipBackendSettings {
             settings_per_service,
             initial_membership: HashMap::new(),
+            initial_locators_mapping: HashMap::new(),
         };
 
         let backend = MockMembershipBackend::init(settings);
@@ -225,27 +244,8 @@ mod tests {
         let declaration_update_1 = create_declaration_update(1, service_type, 3);
         let declaration_update_2 = create_declaration_update(2, service_type, 3);
 
-        let mut service_data = HashMap::new();
-        service_data.insert(provider_info_1, declaration_update_1.clone());
-        service_data.insert(provider_info_2, declaration_update_2.clone());
-
-        let mut initial_entry1 = HashMap::new();
-        initial_entry1.insert(service_type, service_data);
-
-        let mut service_data_2 = HashMap::new();
-        service_data_2.insert(provider_info_2, declaration_update_2.clone());
-
-        let mut initial_entry2 = HashMap::new();
-        initial_entry2.insert(service_type, service_data_2);
-
         let provider_info_3 = create_provider_info(3, 100);
         let declaration_update_3 = create_declaration_update(3, service_type, 3);
-
-        let mut service_data_3 = HashMap::new();
-        service_data_3.insert(provider_info_3, declaration_update_3.clone());
-
-        let mut initial_entry3 = HashMap::new();
-        initial_entry3.insert(service_type, service_data_3);
 
         let mut settings_per_service = HashMap::new();
         settings_per_service.insert(
@@ -258,9 +258,38 @@ mod tests {
         let settings = MockMembershipBackendSettings {
             settings_per_service,
             initial_membership: HashMap::from([
-                (100, initial_entry1),
-                (101, initial_entry2),
-                (102, initial_entry3),
+                (
+                    100,
+                    HashMap::from([(service_type, HashSet::from([provider_info_1.provider_id]))]),
+                ),
+                (
+                    101,
+                    HashMap::from([(
+                        service_type,
+                        HashSet::from([provider_info_1.provider_id, provider_info_2.provider_id]),
+                    )]),
+                ),
+                (
+                    102,
+                    HashMap::from([(
+                        service_type,
+                        HashSet::from([provider_info_1.provider_id, provider_info_3.provider_id]),
+                    )]),
+                ),
+            ]),
+            initial_locators_mapping: HashMap::from([
+                (
+                    provider_info_1.provider_id,
+                    declaration_update_1.locators.clone(),
+                ),
+                (
+                    provider_info_2.provider_id,
+                    declaration_update_2.locators.clone(),
+                ),
+                (
+                    provider_info_3.provider_id,
+                    declaration_update_3.locators.clone(),
+                ),
             ]),
         };
 
@@ -269,32 +298,39 @@ mod tests {
         // (1st entry)
         // blocknumber 100 = 105 - k.historical_block_delta
         let result = backend.get_providers_at(service_type, 105).await.unwrap();
-        assert_eq!(result.len(), 2);
+        assert_eq!(result.len(), 1);
         assert!(result.contains_key(&provider_info_1.provider_id));
-        assert!(result.contains_key(&provider_info_2.provider_id));
         assert_eq!(
             result.get(&provider_info_1.provider_id).unwrap(),
             &declaration_update_1.locators
         );
+
+        // (second entry)
+        // should have 1st and 2nd
+        let result = backend.get_providers_at(service_type, 106).await.unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result.contains_key(&provider_info_1.provider_id));
+        assert!(result.contains_key(&provider_info_2.provider_id));
+
         assert_eq!(
             result.get(&provider_info_2.provider_id).unwrap(),
             &declaration_update_2.locators
         );
-
-        // (second entry)
-        // should be same as the first one since the same provider was added
-        let result = backend.get_providers_at(service_type, 106).await.unwrap();
-        assert_eq!(result.len(), 1);
-        assert!(result.contains_key(&provider_info_2.provider_id));
         assert_eq!(
-            result.get(&provider_info_2.provider_id).unwrap(),
-            &declaration_update_2.locators
+            result.get(&provider_info_1.provider_id).unwrap(),
+            &declaration_update_1.locators
         );
 
         // (third entry)
+        // should have 1st and 3rd
         let result = backend.get_providers_at(service_type, 107).await.unwrap();
-        assert_eq!(result.len(), 1);
+        assert_eq!(result.len(), 2);
+        assert!(result.contains_key(&provider_info_1.provider_id));
         assert!(result.contains_key(&provider_info_3.provider_id));
+        assert_eq!(
+            result.get(&provider_info_3.provider_id).unwrap(),
+            &declaration_update_3.locators
+        );
         assert_eq!(
             result.get(&provider_info_3.provider_id).unwrap(),
             &declaration_update_3.locators
@@ -302,8 +338,13 @@ mod tests {
 
         // latest one should be same as the one we just added
         let result = backend.get_latest_providers(service_type).await.unwrap();
-        assert_eq!(result.len(), 1);
+        assert_eq!(result.len(), 2);
+        assert!(result.contains_key(&provider_info_1.provider_id));
         assert!(result.contains_key(&provider_info_3.provider_id));
+        assert_eq!(
+            result.get(&provider_info_1.provider_id).unwrap(),
+            &declaration_update_1.locators
+        );
         assert_eq!(
             result.get(&provider_info_3.provider_id).unwrap(),
             &declaration_update_3.locators
@@ -314,92 +355,136 @@ mod tests {
     async fn test_update() {
         let service_type = ServiceType::BlendNetwork;
         let mut settings_per_service = HashMap::new();
-        let historical_delta = 5;
         settings_per_service.insert(
             service_type,
             Settings {
-                historical_block_delta: historical_delta,
+                historical_block_delta: 5,
             },
         );
-
         let settings = MockMembershipBackendSettings {
             settings_per_service,
             initial_membership: HashMap::new(),
+            initial_locators_mapping: HashMap::new(),
         };
-
         let mut backend = MockMembershipBackend::init(settings);
 
-        // Create update data
-        let provider_info_1 = create_provider_info(1, 5);
+        let provider_info_1 = create_provider_info(1, 100);
         let declaration_update_1 = create_declaration_update(1, service_type, 3);
-
-        let updates = vec![(provider_info_1, declaration_update_1.clone())];
-
-        // Test update with non-snapshot block
+        let updates = vec![(
+            service_type,
+            provider_info_1.provider_id,
+            ProviderState::Active(ActiveState(provider_info_1)),
+            declaration_update_1.locators.clone(),
+        )];
         let event = FinalizedBlockEvent {
-            block_number: 5,
+            block_number: 100,
             updates,
         };
 
         let result = backend.update(event).await.unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(backend.membership.len(), 1);
-        let snapshot = result.get(&service_type).unwrap();
-        assert_eq!(snapshot.len(), 1);
-        assert!(snapshot.contains_key(&provider_info_1.provider_id));
+        assert_update_result(
+            &result,
+            service_type,
+            &[(provider_info_1.provider_id, &declaration_update_1.locators)],
+        );
 
-        let provider_info_2 = create_provider_info(2, 6);
+        let provider_info_2 = create_provider_info(2, 100);
         let declaration_update_2 = create_declaration_update(2, service_type, 3);
-
-        let updates = vec![(provider_info_2, declaration_update_2.clone())];
-
+        let updates = vec![(
+            service_type,
+            provider_info_2.provider_id,
+            ProviderState::Active(ActiveState(provider_info_2)),
+            declaration_update_2.locators.clone(),
+        )];
         let event = FinalizedBlockEvent {
-            block_number: 6,
+            block_number: 101,
             updates,
         };
 
         let result = backend.update(event).await.unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(backend.membership.len(), 2);
-        let snapshot = result.get(&service_type).unwrap();
-        assert_eq!(snapshot.len(), 2);
-        assert!(snapshot.contains_key(&provider_info_2.provider_id));
-        assert!(snapshot.contains_key(&provider_info_1.provider_id));
-        assert_eq!(
-            snapshot.get(&provider_info_1.provider_id).unwrap(),
-            &declaration_update_1.locators
-        );
-        assert_eq!(
-            snapshot.get(&provider_info_2.provider_id).unwrap(),
-            &declaration_update_2.locators
+        assert_update_result(
+            &result,
+            service_type,
+            &[
+                (provider_info_1.provider_id, &declaration_update_1.locators),
+                (provider_info_2.provider_id, &declaration_update_2.locators),
+            ],
         );
 
-        // test latest, should be the same as the last one
+        let provider_info_3 = create_provider_info(3, 100);
+        let declaration_update_3 = create_declaration_update(3, service_type, 3);
+        let updates = vec![
+            (
+                service_type,
+                provider_info_2.provider_id,
+                ProviderState::Withdrawn(WithdrawnState(provider_info_2)),
+                Vec::new(),
+            ),
+            (
+                service_type,
+                provider_info_3.provider_id,
+                ProviderState::Active(ActiveState(provider_info_3)),
+                declaration_update_3.locators.clone(),
+            ),
+        ];
+        let event = FinalizedBlockEvent {
+            block_number: 102,
+            updates,
+        };
+
+        let result = backend.update(event).await.unwrap();
+        assert_update_result(
+            &result,
+            service_type,
+            &[
+                (provider_info_1.provider_id, &declaration_update_1.locators),
+                (provider_info_3.provider_id, &declaration_update_3.locators),
+            ],
+        );
+
         let result = backend.get_latest_providers(service_type).await.unwrap();
         assert_eq!(result.len(), 2);
-        assert!(result.contains_key(&provider_info_2.provider_id));
         assert!(result.contains_key(&provider_info_1.provider_id));
+        assert!(result.contains_key(&provider_info_3.provider_id));
         assert_eq!(
             result.get(&provider_info_1.provider_id).unwrap(),
             &declaration_update_1.locators
         );
         assert_eq!(
-            result.get(&provider_info_2.provider_id).unwrap(),
-            &declaration_update_2.locators
+            result.get(&provider_info_3.provider_id).unwrap(),
+            &declaration_update_3.locators
         );
+    }
 
-        // test get_providers_at to get the first entry
-        let result = backend
-            .get_providers_at(service_type, 5 + historical_delta)
-            .await
-            .unwrap();
-
-        assert_eq!(result.len(), 1);
-        assert!(result.contains_key(&provider_info_1.provider_id));
+    fn assert_update_result(
+        result: &HashMap<ServiceType, MembershipProviders>,
+        service_type: ServiceType,
+        expected_providers: &[(ProviderId, &Vec<Locator>)],
+    ) {
         assert_eq!(
-            result.get(&provider_info_1.provider_id).unwrap(),
-            &declaration_update_1.locators
+            result.len(),
+            1,
+            "Result should contain exactly one service type"
         );
+        assert!(
+            result.contains_key(&service_type),
+            "Result should contain the expected service type"
+        );
+
+        let providers = result.get(&service_type).unwrap();
+
+        // Only check providers that were part of this update
+        for (provider_id, expected_locators) in expected_providers {
+            assert!(
+                providers.contains_key(provider_id),
+                "Providers map should contain provider {provider_id:?}"
+            );
+            assert_eq!(
+                providers.get(provider_id).unwrap(),
+                *expected_locators,
+                "Locators for provider {provider_id:?} do not match expected",
+            );
+        }
     }
 
     #[tokio::test]
@@ -418,6 +503,7 @@ mod tests {
         let settings = MockMembershipBackendSettings {
             settings_per_service,
             initial_membership: HashMap::new(),
+            initial_locators_mapping: HashMap::new(),
         };
 
         let mut backend = MockMembershipBackend::init(settings);
@@ -426,7 +512,12 @@ mod tests {
         let provider_info = create_provider_info(1, 5);
         let declaration_update = create_declaration_update(1, unknown_service_type, 3);
 
-        let updates = vec![(provider_info, declaration_update)];
+        let updates = vec![(
+            service_type,
+            provider_info.provider_id,
+            ProviderState::Active(ActiveState(provider_info)),
+            declaration_update.locators,
+        )];
 
         let event = FinalizedBlockEvent {
             block_number: 5,

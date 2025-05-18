@@ -15,7 +15,7 @@ use tokio::sync::oneshot;
 use super::{SdpAdapter, SdpAdapterError};
 
 pub struct LedgerSdpAdapter<
-    B,
+    Backend,
     DeclarationAdapter,
     RewardsAdapter,
     StakesVerifierAdapter,
@@ -25,9 +25,9 @@ pub struct LedgerSdpAdapter<
     Proof,
     RuntimeServiceId,
 > where
-    B: SdpBackend + Send + Sync + 'static,
+    Backend: SdpBackend + Send + Sync + 'static,
 {
-    relay: OutboundRelay<SdpMessage<B>>,
+    relay: OutboundRelay<SdpMessage<Backend>>,
     _phantom_adapters: PhantomData<(
         DeclarationAdapter,
         RewardsAdapter,
@@ -41,7 +41,7 @@ pub struct LedgerSdpAdapter<
 
 #[async_trait]
 impl<
-        B,
+        Backend,
         DeclarationAdapter,
         RewardsAdapter,
         StakesVerifierAdapter,
@@ -52,7 +52,7 @@ impl<
         RuntimeServiceId,
     > SdpAdapter
     for LedgerSdpAdapter<
-        B,
+        Backend,
         DeclarationAdapter,
         RewardsAdapter,
         StakesVerifierAdapter,
@@ -63,7 +63,7 @@ impl<
         RuntimeServiceId,
     >
 where
-    B: SdpBackend<
+    Backend: SdpBackend<
             DeclarationAdapter = DeclarationAdapter,
             ServicesAdapter = ServicesAdapter,
             RewardsAdapter = RewardsAdapter,
@@ -81,7 +81,7 @@ where
     RuntimeServiceId: Send + Sync + 'static,
 {
     type SdpService = SdpService<
-        B,
+        Backend,
         DeclarationAdapter,
         RewardsAdapter,
         StakesVerifierAdapter,
@@ -92,7 +92,7 @@ where
         RuntimeServiceId,
     >;
 
-    fn new(relay: OutboundRelay<SdpMessage<B>>) -> Self {
+    fn new(relay: OutboundRelay<SdpMessage<Backend>>) -> Self {
         Self {
             relay,
             _phantom_adapters: PhantomData,

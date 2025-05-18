@@ -236,12 +236,7 @@ impl<
                 result_sender,
             } => match self.backend.mark_in_block(block_number).await {
                 Ok(update) => {
-                    let finalized_update = FinalizedBlockEvent {
-                        block_number,
-                        updates: update,
-                    };
-
-                    if let Err(e) = self.finalized_update_tx.send(finalized_update) {
+                    if let Err(e) = self.finalized_update_tx.send(update) {
                         tracing::error!("Error sending finalized update: {:?}", e);
                     }
                 }

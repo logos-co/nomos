@@ -8,6 +8,7 @@ use std::{
 
 use blake2::{Blake2b, Digest as _};
 use multiaddr::Multiaddr;
+use state::ProviderState;
 
 pub type StakeThreshold = u64;
 pub type BlockNumber = u64;
@@ -18,7 +19,7 @@ pub struct MinStake {
 }
 
 #[derive(Clone, Debug)]
-pub struct ServiceParameters<ContractAddress> {
+pub struct ServiceParameters<ContractAddress: Clone> {
     pub lock_period: u64,
     pub inactivity_period: u64,
     pub retention_period: u64,
@@ -215,5 +216,5 @@ impl<Metadata, Proof> SdpMessage<Metadata, Proof> {
 #[derive(Debug, Clone)]
 pub struct FinalizedBlockEvent {
     pub block_number: BlockNumber,
-    pub updates: Vec<(ProviderInfo, DeclarationUpdate)>,
+    pub updates: Vec<(ServiceType, ProviderId, ProviderState, Vec<Locator>)>,
 }
