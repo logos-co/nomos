@@ -18,16 +18,9 @@ pub struct MockMembershipBackendSettings {
 
 type MockMembershipEntry = HashMap<ServiceType, HashSet<ProviderId>>;
 
-//todo: always use new locators even for old
-// so we will need a mapping providerInfo -> new locators
-// also FinalizedBlockEvent needs state, so we can remnov
-
 pub struct MockMembershipBackend {
     settings: HashMap<ServiceType, Settings>,
     membership: HashMap<BlockNumber, MockMembershipEntry>,
-
-    // this is a mapping of providerId -> locators
-    // this is used to get the latest locators for a provider
     locators_mapping: HashMap<ProviderId, Vec<Locator>>,
     latest_block_number: BlockNumber,
 }
@@ -54,6 +47,7 @@ impl MembershipBackend for MockMembershipBackend {
         service_type: ServiceType,
         block_number: BlockNumber,
     ) -> Result<MembershipProviders, MembershipBackendError> {
+        // todo: figure out blocks skipped by update if neccessary
         let k = self
             .settings
             .get(&service_type)
