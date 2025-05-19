@@ -18,12 +18,8 @@ pub trait StorageChainApi {
         block: Self::Block,
     ) -> Result<(), Self::Error>;
 
-    async fn remove_block(&mut self, header_id: HeaderId) -> Result<Self::Block, Self::Error>;
-
-    async fn remove_blocks<Headers>(
+    async fn remove_block(
         &mut self,
-        header_ids: Headers,
-    ) -> Result<impl Iterator<Item = Self::Block>, Self::Error>
-    where
-        Headers: Iterator<Item = HeaderId> + Send + Sync;
+        header_id: HeaderId,
+    ) -> Result<Option<Self::Block>, Self::Error>;
 }
