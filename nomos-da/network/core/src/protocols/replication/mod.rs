@@ -12,7 +12,7 @@ mod test {
     use nomos_da_messages::replication::ReplicationRequest;
     use tokio::sync::{mpsc, watch};
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
-
+    use nomos_da_messages::common::Share;
     use crate::test_utils::start_udp_mutation_proxy;
     use crate::{
         protocols::replication::behaviour::{
