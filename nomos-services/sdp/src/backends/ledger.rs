@@ -10,7 +10,7 @@ use nomos_sdp_core::{
         },
         ServicesRepository,
     },
-    BlockNumber, FinalizedBlockEvent, SdpMessage,
+    BlockNumber, SdpMessage,
 };
 
 use super::{SdpBackend, SdpBackendError};
@@ -63,10 +63,7 @@ where
             .map_err(Into::into)
     }
 
-    async fn mark_in_block(
-        &mut self,
-        block_number: BlockNumber,
-    ) -> Result<FinalizedBlockEvent, SdpBackendError> {
+    async fn mark_in_block(&mut self, block_number: BlockNumber) -> Result<(), SdpBackendError> {
         self.mark_in_block(block_number).await.map_err(Into::into)
     }
 

@@ -234,18 +234,13 @@ impl<
             SdpMessage::MarkInBlock {
                 block_number,
                 result_sender,
-            } => match self.backend.mark_in_block(block_number).await {
-                Ok(update) => {
-                    if let Err(e) = self.finalized_update_tx.send(update) {
-                        tracing::error!("Error sending finalized update: {:?}", e);
-                    }
+            } => {
+                let result = self.backend.mark_in_block(block_number).await;
+                let result = result_sender.send(result);
+                if let Err(e) = result {
+                    tracing::error!("Error sending result: {:?}", e);
                 }
-                Err(err) => {
-                    if let Err(e) = result_sender.send(Err(err)) {
-                        tracing::error!("Error sending result: {:?}", e);
-                    }
-                }
-            },
+            }
             SdpMessage::DiscardBlock(block_number) => {
                 self.backend.discard_block(block_number);
             }

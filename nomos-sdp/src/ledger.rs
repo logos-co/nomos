@@ -9,8 +9,8 @@ use async_trait::async_trait;
 
 use crate::{
     ActiveMessage, ActivityId, BlockNumber, Declaration, DeclarationId, DeclarationMessage,
-    DeclarationUpdate, EventType, FinalizedBlockEvent, FinalizedBlockEventUpdate, Nonce,
-    ProviderId, ProviderInfo, SdpMessage, ServiceParameters, ServiceType, WithdrawMessage,
+    DeclarationUpdate, EventType, Nonce, ProviderId, ProviderInfo, SdpMessage, ServiceParameters,
+    ServiceType, WithdrawMessage,
     state::{ProviderState, ProviderStateError},
 };
 
@@ -373,10 +373,8 @@ where
         &mut self,
         block_number: BlockNumber,
         provider_info: &ProviderInfo,
-    ) -> Result<Vec<(ProviderInfo, DeclarationUpdate)>, SdpLedgerError<ContractAddress>> {
+    ) -> Result<(), SdpLedgerError<ContractAddress>> {
         let provider_id = provider_info.provider_id;
-
-        let mut result = vec![];
 
         if let Err(err) = self
             .declaration_repo
@@ -398,31 +396,22 @@ where
         {
             if let Err(err) = self
                 .declaration_repo
-                .update_declaration(declaration_update.clone())
+                .update_declaration(declaration_update)
                 .await
             {
                 tracing::error!("Declaration could not be updated: {err}");
-            } else {
-                result.push((*provider_info, declaration_update));
             }
         }
 
-        Ok(result)
+        Ok(())
     }
 
     pub async fn mark_in_block(
         &mut self,
         block_number: BlockNumber,
-    ) -> Result<FinalizedBlockEvent, SdpLedgerError<ContractAddress>> {
-        let mut result = FinalizedBlockEvent {
-            block_number,
-            updates: Vec::default(),
-        };
-
-        let mut service_params_map = HashMap::new();
-
+    ) -> Result<(), SdpLedgerError<ContractAddress>> {
         let Some(updates) = self.pending_providers.remove(&block_number) else {
-            return Ok(result);
+            return Ok(());
         };
 
         for info in updates.values() {
@@ -431,40 +420,12 @@ where
             // activity.
             self.pending_activity.remove(&id);
 
-            match self.mark_declaration_in_block(block_number, info).await {
-                Ok(providers_declarations) => {
-                    for (ProviderInfo { provider_id, .. }, declaration_update) in
-                        providers_declarations
-                    {
-                        let service_type = declaration_update.service_type;
-                        let service_params = if let Some(params) =
-                            service_params_map.get(&service_type)
-                        {
-                            params
-                        } else {
-                            let params = self.services_repo.get_parameters(service_type).await?;
-                            service_params_map.insert(service_type, params.clone());
-                            &params.clone()
-                        };
-
-                        let state =
-                            ProviderState::try_from_info(block_number, info, service_params)?;
-
-                        result.updates.push(FinalizedBlockEventUpdate {
-                            service_type,
-                            provider_id,
-                            state,
-                            locators: declaration_update.locators,
-                        });
-                    }
-                }
-                Err(err) => {
-                    tracing::error!("Provider information couldn't be updated: {err}");
-                }
+            if let Err(err) = self.mark_declaration_in_block(block_number, info).await {
+                tracing::error!("Provider information couldn't be updated: {err}");
             }
         }
 
-        Ok(result)
+        Ok(())
     }
 
     pub fn discard_block(&mut self, block_number: BlockNumber) {
