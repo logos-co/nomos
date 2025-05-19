@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use async_trait::async_trait;
 use bytes::Bytes;
 use nomos_core::da::BlobId;
+use rocksdb::Error;
 use tracing::{debug, error};
 
 use crate::{
@@ -10,10 +11,7 @@ use crate::{
         backend::rocksdb::utils::{create_share_idx, key_bytes},
         da::StorageDaApi,
     },
-    backends::{
-        rocksdb::{Error, RocksBackend},
-        StorageBackend as _, StorageSerde,
-    },
+    backends::{rocksdb::RocksBackend, StorageBackend as _, StorageSerde},
 };
 
 pub const DA_VID_KEY_PREFIX: &str = "da/vid/";
@@ -81,7 +79,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
         let txn = self.txn(move |db| {
             if let Err(e) = db.put(&share_key, &light_share) {
                 error!("Failed to store share data: {:?}", e);
-                return Err(e.into());
+                return Err(e);
             }
 
             let mut indices = db.get(&index_key)?.map_or_else(HashSet::new, |bytes| {
@@ -97,7 +95,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
 
             if let Err(e) = db.put(&index_key, &serialized_indices) {
                 error!("Failed to store indices: {:?}", e);
-                return Err(e.into());
+                return Err(e);
             }
 
             Ok(None)
