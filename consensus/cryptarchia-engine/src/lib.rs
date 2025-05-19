@@ -517,10 +517,9 @@ where
     /// `tip` to `up_to`.
     fn prune_fork(&mut self, tip: Id, up_to: Id) -> impl Iterator<Item = Branch<Id>> {
         let tip_removed = self.branches.tips.remove(&tip);
-        assert!(
-            tip_removed,
-            "Provided fork tip should be in the set of tips"
-        );
+        if !tip_removed {
+            tracing::error!(target: LOG_TARGET, "Fork tip {tip:#?} not found in the set of tips.");
+        }
         let mut current_tip = tip;
         let mut removed_blocks = vec![];
         while current_tip != up_to {

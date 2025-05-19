@@ -81,7 +81,10 @@ where
         Ok(())
     }
 
-    async fn remove_block(&self, header_id: HeaderId) -> Result<Self::Block, overwatch::DynError> {
+    async fn remove_block(
+        &self,
+        header_id: HeaderId,
+    ) -> Result<Option<Self::Block>, overwatch::DynError> {
         let (sender, receiver) = oneshot::channel();
 
         self.storage_relay
@@ -89,50 +92,17 @@ where
             .await
             .map_err(|_| "Failed to send remove block request to storage relay")?;
 
-        let maybe_removed_block = receiver
+        let Some(removed_block) = receiver
             .await
-            .map_err(|_| "Failed to receive removed block from storage relay")?;
-        let removed_block = maybe_removed_block?;
+            .map_err(|_| "Failed to receive removed block from storage relay")?
+        else {
+            return Ok(None);
+        };
 
         let deserialized_block = removed_block
             .try_into()
             .map_err(|_| "Failed to convert block to storage format")?;
 
-        Ok(deserialized_block)
-    }
-
-    async fn remove_blocks<Headers>(
-        &self,
-        header_ids: Headers,
-    ) -> Result<impl Iterator<Item = Self::Block>, overwatch::DynError>
-    where
-        Headers: Iterator<Item = HeaderId> + Send + Sync,
-    {
-        let (sender, receiver) = oneshot::channel();
-
-        self.storage_relay
-            .send(StorageMsg::remove_blocks_request(
-                header_ids.collect(),
-                sender,
-            ))
-            .await
-            .map_err(|_| "Failed to send remove blocks request to storage relay")?;
-
-        let maybe_removed_blocks = receiver
-            .await
-            .map_err(|_| "Failed to receive removed blocks from storage relay")?;
-        let removed_blocks = maybe_removed_blocks?;
-
-        let deserialized_blocks = removed_blocks
-            .into_iter()
-            .map(|b| -> Result<_, overwatch::DynError> {
-                let deserialized_block = b
-                    .try_into()
-                    .map_err(|_| "Failed to convert block to storage format")?;
-                Ok(deserialized_block)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(deserialized_blocks.into_iter())
+        Ok(Some(deserialized_block))
     }
 }

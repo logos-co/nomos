@@ -10,7 +10,7 @@ use core::fmt::Debug;
 use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 
 use cryptarchia_engine::{Branch, CryptarchiaState, Online, Slot};
-use futures::StreamExt as _;
+use futures::{future::join_all, StreamExt as _};
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
 use nomos_blend_service::BlendService;
@@ -199,7 +199,7 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
             if self.ledger.prune_state_at(&pruned_block.id()) {
                 pruned_blocks_count = pruned_blocks_count.saturating_add(1);
             } else {
-                error!(
+                tracing::error!(
                     target: LOG_TARGET,
                      "Failed to prune ledger state for block {:?} which should exist.",
                      pruned_block.id()
@@ -653,7 +653,7 @@ where
                             block,
                             &relays,
                             &mut self.block_subscription_sender,
-                        ) 
+                        )
                         .await;
 
                         self.service_resources_handle.state_updater.update(Some(Self::State::from_cryptarchia(&cryptarchia, &leader)));
@@ -1424,9 +1424,26 @@ where
         cryptarchia: &mut Cryptarchia,
         storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>, 
     ) {
-        let old_forks_pruned = cryptarchia.prune_old_forks(); 
-        if let Err(e) = storage_adapter.remove_blocks(old_forks_pruned.map(|f| f.id())).await {
-            error!("Could not prune old forks from storage. Failed with error: {e}");
+        // We need to collect since we're zipping the same iterator twice
+        let old_forks_pruned = cryptarchia.prune_old_forks().collect::<Vec<_>>();
+        // Trigger parallel block deletion and keep a reference to each block ID for logging purposes (below).
+        let block_deletion_outcomes = join_all(old_forks_pruned.iter().map(|f| {
+            storage_adapter.remove_block(f.id())
+        })).await.into_iter().zip(old_forks_pruned.iter().map(Branch::id));
+
+        // Log any operation that did not succeed.
+        for (block_deletion_outcome, block_id) in block_deletion_outcomes {
+            match block_deletion_outcome {
+                Err(e) => tracing::error!(
+                    target: LOG_TARGET,
+                    "Could not delete block {block_id} from storage: {e}."
+                ),
+                Ok(None) => tracing::warn!(
+                    target: LOG_TARGET,
+                    "Block {block_id} was not found in storage."
+                ),
+                Ok(Some(_)) => {}
+            }
         }
     }
 }

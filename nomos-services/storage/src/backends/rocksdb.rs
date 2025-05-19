@@ -2,7 +2,7 @@ use std::{marker::PhantomData, path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use rocksdb::{Options, DB};
+use rocksdb::{Error, Options, DB};
 use serde::{Deserialize, Serialize};
 
 use super::{StorageBackend, StorageSerde, StorageTransaction};
@@ -62,36 +62,13 @@ impl<SerdeOp> core::fmt::Debug for RocksBackend<SerdeOp> {
     }
 }
 
-#[derive(Debug)]
-pub enum Error {
-    RocksDb(rocksdb::Error),
-    Other(String),
-}
-
-impl From<rocksdb::Error> for Error {
-    fn from(err: rocksdb::Error) -> Self {
-        Self::RocksDb(err)
-    }
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::RocksDb(err) => err.fmt(f),
-            Self::Other(err) => err.fmt(f),
-        }
-    }
-}
-
-impl core::error::Error for Error {}
-
 #[async_trait]
 impl<SerdeOp> StorageBackend for RocksBackend<SerdeOp>
 where
     SerdeOp: StorageSerde + Send + Sync + 'static,
 {
     type Settings = RocksBackendSettings;
-    type Error = Error;
+    type Error = rocksdb::Error;
     type Transaction = Transaction;
     type SerdeOperator = SerdeOp;
 
@@ -138,14 +115,13 @@ where
         key: Bytes,
         value: Bytes,
     ) -> Result<(), <Self as StorageBackend>::Error> {
-        self.rocks.put(key, value).map_err(Error::from)
+        self.rocks.put(key, value)
     }
 
     async fn load(&mut self, key: &[u8]) -> Result<Option<Bytes>, <Self as StorageBackend>::Error> {
         self.rocks
             .get(key)
             .map(|opt| opt.map(std::convert::Into::into))
-            .map_err(Error::from)
     }
 
     async fn load_prefix(
@@ -160,7 +136,7 @@ where
                 Ok((_key, value)) => {
                     values.push(Bytes::from(value.to_vec()));
                 }
-                Err(e) => return Err(e.into()), // Return the error if one occurs
+                Err(e) => return Err(e), // Return the error if one occurs
             }
         }
 
@@ -173,7 +149,7 @@ where
     ) -> Result<Option<Bytes>, <Self as StorageBackend>::Error> {
         let val = self.load(key).await?;
         if val.is_some() {
-            self.rocks.delete(key).map(|()| val).map_err(Error::from)
+            self.rocks.delete(key).map(|()| val)
         } else {
             Ok(None)
         }
