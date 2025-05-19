@@ -1,5 +1,6 @@
 [workspace]
-exclude = ["nomos-core/risc0_proofs"]
+# Make sure any excluded crates are still clipped in our CI.
+exclude = ["nomos-core/cl", "nomos-core/proof_statements", "nomos-core/risc0_proofs"]
 members = [
   "consensus/cryptarchia-engine",
   "ledger/nomos-ledger",
@@ -14,9 +15,6 @@ members = [
   "nomos-bundler",
   "nomos-cli",
   "nomos-core/chain-defs",
-  "nomos-core/cl",
-  "nomos-core/proof_statements",
-  "nomos-da/full-replication",
   "nomos-da/kzgrs",
   "nomos-da/kzgrs-backend",
   "nomos-da/network/core",
@@ -57,7 +55,6 @@ common-http-client       = { path = "./nodes/nomos-node/http-client" }
 cryptarchia-consensus    = { path = "./nomos-services/cryptarchia-consensus" }
 cryptarchia-engine       = { path = "./consensus/cryptarchia-engine" }
 executor-http-client     = { path = "./nodes/nomos-executor/http-client" }
-full-replication         = { path = "./nomos-da/full-replication" }
 key-management-system    = { path = "./nomos-services/key-management-system" }
 kzgrs                    = { path = "./nomos-da/kzgrs" }
 kzgrs-backend            = { path = "./nomos-da/kzgrs-backend" }
@@ -95,6 +92,7 @@ subnetworks-assignations = { path = "./nomos-da/network/subnetworks-assignations
 tests                    = { path = "./tests" }
 
 # External
+bytes            = "1.3"
 cached           = { version = "0.55.1", default-features = false }
 libp2p           = "0.55"
 overwatch        = { git = "https://github.com/logos-co/Overwatch", rev = "f0895b8" }

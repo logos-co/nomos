@@ -92,11 +92,8 @@ where
 
     async fn disperse(&self, encoded_data: Self::EncodedData) -> Result<(), Self::Error> {
         let adapter = self.adapter.as_ref();
-        let num_columns = encoded_data.column_commitments.len();
-        let blob_id = build_blob_id(
-            &encoded_data.aggregated_column_commitment,
-            &encoded_data.row_commitments,
-        );
+        let num_columns = encoded_data.combined_column_proofs.len();
+        let blob_id = build_blob_id(&encoded_data.row_commitments);
 
         let responses_stream = adapter.dispersal_events_stream().await?;
         for (subnetwork_id, share) in encoded_data.into_iter().enumerate() {
@@ -169,10 +166,7 @@ where
         // this is a REALLY heavy task, so we should try not to block the thread here
         let heavy_task = tokio::task::spawn_blocking(move || encoder.encode(&data));
         let encoded_data = heavy_task.await??;
-        let blob_id = build_blob_id(
-            &encoded_data.aggregated_column_commitment,
-            &encoded_data.row_commitments,
-        );
+        let blob_id = build_blob_id(&encoded_data.row_commitments);
         Ok((blob_id, encoded_data))
     }
 

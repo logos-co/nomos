@@ -3,7 +3,7 @@ repos:
     rev: v1.0
     hooks:
       - id: fmt
-        entry: cargo +nightly-2025-02-16 fmt
+        entry: cargo +nightly-2025-03-29 fmt
       - id: clippy
   - repo: https://github.com/EmbarkStudios/cargo-deny
     rev: 0.18.0

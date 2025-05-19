@@ -40,7 +40,7 @@ use nomos_node::{
     },
     RocksBackend,
 };
-use nomos_storage::{backends::StorageSerde, StorageService};
+use nomos_storage::{api::da::StorageDaApi, backends::StorageSerde, StorageService};
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -53,6 +53,10 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use super::handlers::disperse_data;
+
+type DaStorageBackend<SerdeOp> = RocksBackend<SerdeOp>;
+type DaService<DaStorageSerializer, RuntimeServiceId> =
+    StorageService<DaStorageBackend<DaStorageSerializer>, RuntimeServiceId>;
 
 /// Configuration for the Http Server
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -346,7 +350,7 @@ where
                 RuntimeServiceId,
             >,
         >
-        + AsServiceId<StorageService<RocksBackend<DaStorageSerializer>, RuntimeServiceId>>
+        + AsServiceId<DaService<DaStorageSerializer, RuntimeServiceId>>
         + AsServiceId<
             TxMempoolService<
                 nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
@@ -387,6 +391,11 @@ where
                 RuntimeServiceId,
             >,
         >,
+    // Service and storage layer types conversions
+    <DaStorageBackend<DaStorageSerializer> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
+    <DaStorageBackend<DaStorageSerializer> as StorageDaApi>::ShareIndex:
+        Into<DaShare::ShareIndex> + From<DaShare::ShareIndex>,
+    <DaStorageBackend<DaStorageSerializer> as StorageDaApi>::Share: TryInto<DaShare::LightShare>,
 {
     type Error = hyper::Error;
     type Settings = AxumBackendSettings;

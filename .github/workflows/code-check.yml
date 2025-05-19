@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ self-hosted, macos-latest ]
+        os: [ ubuntu-latest, macos-latest ]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
@@ -37,7 +37,7 @@ jobs:
         uses: actions-rs/toolchain@88dc2356392166efad76775c878094f4e83ff746  # Version 1.0.6
         with:
           # The same version must be used in the `.pre-commit-config.yaml` file
-          toolchain: nightly-2025-02-16
+          toolchain: nightly-2025-03-29
           profile: minimal
           components: rustfmt
           override: true
@@ -73,7 +73,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ self-hosted, macos-latest ]
+        os: [ ubuntu-latest, macos-latest ]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
@@ -103,7 +103,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ self-hosted, macos-latest ]
+        os: [ ubuntu-latest, macos-latest ]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
@@ -121,8 +121,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ self-hosted, macos-latest ]
+        os: [ ubuntu-latest, macos-latest ]
     runs-on: ${{ matrix.os }}
+    env:
+          RISC0_SKIP_BUILD: true
+          RUSTFLAGS: -D warnings
     steps:
       - name: Checkout repository
         uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
@@ -131,18 +134,32 @@ jobs:
         with:
           key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
           github-token: ${{ secrets.GITHUB_TOKEN }}        
-      - name: Run cargo clippy
+      - name: Run cargo clippy on workspace
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
-        env:
-          RISC0_SKIP_BUILD: true
         with:
           command: clippy
-          args: --all --all-targets --all-features -- -D warnings
+          args: --all --all-targets --all-features
       - name: Update Cargo cache
         if: success() || failure()
         uses: ./.github/actions/update-cargo-cache
         with:
-          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
+          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}          
+      - name: Install risc0 Rust toolchain
+        uses: actions-rs/toolchain@88dc2356392166efad76775c878094f4e83ff746  # Version 1.0.6
+        with:
+          toolchain: 1.85.0
+          components: clippy
+          override: true
+      - name: Run cargo clippy on risc0 crates
+        id: risc0-clippy
+        # We need to do this way since we can't use `--all-features` for crates outside of the workspace, so we need to lint each crate separately.
+        run: |
+          cd ./nomos-core/cl
+          cargo clippy --all-targets --all-features
+          cd ../proof_statements
+          cargo clippy --all-targets --all-features
+          cd ../risc0_proofs
+          cargo clippy --all-targets --all-features
  
   tests:
     name: Run test suite

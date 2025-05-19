@@ -645,6 +645,14 @@ where
                             ).await;
 
                             if let Some(block) = block {
+                                // apply our own block
+                                cryptarchia = Self::process_block(
+                                    cryptarchia,
+                                    &mut leader,
+                                    block.clone(),
+                                    &relays,
+                                    &mut self.block_subscription_sender
+                                ).await;
                                 blend_adapter.blend(block).await;
                             }
                         }

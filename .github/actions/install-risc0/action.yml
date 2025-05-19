@@ -24,6 +24,7 @@ runs:
       # * Dockerfile
       # * ci/Dockerfile
       # * testnet/Dockerfile
+      # * .github/workflows/code-check.yml (the `risc0-clippy` within the `lints` job)
       run: |
         cargo install rzup --version 0.4.1 --locked \
           && ~/.cargo/bin/rzup install cargo-risczero 2.0.0 \

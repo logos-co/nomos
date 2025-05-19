@@ -131,18 +131,11 @@ mod tests {
                 share_idx: i
                     .try_into()
                     .expect("Column index shouldn't overflow the target type"),
-                column_commitment: encoded_data.column_commitments[i],
-                aggregated_column_commitment: encoded_data.aggregated_column_commitment,
-                aggregated_column_proof: encoded_data.aggregated_column_proofs[i],
+                combined_column_proof: encoded_data.combined_column_proofs[i],
                 rows_commitments: encoded_data.row_commitments.clone(),
-                rows_proofs: encoded_data
-                    .rows_proofs
-                    .iter()
-                    .map(|proofs| proofs.get(i).copied().unwrap())
-                    .collect(),
             };
             let (light_share, commitments) = da_share.into_share_and_commitments();
-            attestations.push(verifier.verify(&commitments, &light_share, domain_size));
+            attestations.push(verifier.verify(&light_share, &commitments, domain_size));
         }
         attestations
     }
