@@ -4,15 +4,6 @@ pub mod behaviour;
 mod test {
     use std::{collections::VecDeque, ops::Range, path::PathBuf, sync::LazyLock, time::Duration};
 
-    use futures::StreamExt as _;
-    use kzgrs_backend::testutils;
-    use libp2p::{identity::Keypair, quic, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
-    use libp2p_swarm_test::SwarmExt as _;
-    use log::{error, info};
-    use nomos_da_messages::replication::ReplicationRequest;
-    use tokio::sync::{mpsc, watch};
-    use tracing_subscriber::{fmt::TestWriter, EnvFilter};
-    use nomos_da_messages::common::Share;
     use crate::test_utils::start_udp_mutation_proxy;
     use crate::{
         protocols::replication::behaviour::{
@@ -20,6 +11,15 @@ mod test {
         },
         test_utils::{AllNeighbours, TamperingReplicationBehaviour},
     };
+    use futures::StreamExt as _;
+    use kzgrs_backend::testutils;
+    use libp2p::{identity::Keypair, quic, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
+    use libp2p_swarm_test::SwarmExt as _;
+    use log::{error, info};
+    use nomos_da_messages::common::Share;
+    use nomos_da_messages::replication::ReplicationRequest;
+    use tokio::sync::{mpsc, watch};
+    use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
     type TestSwarm = Swarm<ReplicationBehaviour<AllNeighbours>>;
 
