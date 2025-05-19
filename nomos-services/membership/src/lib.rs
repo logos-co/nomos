@@ -144,9 +144,7 @@ where
                             if let Ok(providers) = providers {
                                 if tx.send(providers).is_err() {
                                     tracing::error!("Error sending initial membership snapshot for service type: {}", service_type);
-                                }
-
-                                if result_sender.send(stream).is_err() {
+                                } else if result_sender.send(stream).is_err() {
                                     tracing::error!("Error sending finalized updates receiver for service type: {}", service_type);
                                 }
                             } else {
