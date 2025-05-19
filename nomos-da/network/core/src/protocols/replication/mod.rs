@@ -318,9 +318,9 @@ mod test {
 
         let task_2 = async move {
             swarm_2.dial(addr2).unwrap();
-            
+
             let mut i = 0;
-            let mut swarm_connected = false;
+            let mut swarms_connected = false;
             loop {
                 tokio::select! {
                     () = tokio::time::sleep(Duration::from_millis(50)) => {
@@ -333,27 +333,29 @@ mod test {
                     event = swarm_2.select_next_some() => {
                         match event {
                             SwarmEvent::ConnectionClosed { .. } => break,
-                            SwarmEvent::ConnectionEstablished { .. } => {
-                                swarm_connected = true;
+                            SwarmEvent::ConnectionEstablished { peer_id,  connection_id, .. } => {
+                                info!("Connected to {peer_id} with connection_id: {connection_id}");
+                                swarms_connected = true;
                             },
                             _ => {}
                         }
                     }
                 }
             }
-            swarm_connected
+            swarms_connected
         };
 
         // Wait for sender to send all 10 messages, check it has connected to the receiving swarm
-        let swarm_connected = task_2.await;
-        assert!(swarm_connected);
-        
+        let swarms_connected = task_2.await;
+        assert!(swarms_connected);
+
         // Stop receiving task
         let _ = cancel_tx.send(true);
 
+        // Check swarm 1 has not received any messages -> transport failed
         match task_1.await {
             Ok(count) => assert_ne!(count, 9),
-            Err(e) => error!("Task1 failed with {e}"),
+            Err(e) => error!("Task1 - message receiver failed with {e}"),
         }
     }
 
@@ -399,59 +401,68 @@ mod test {
         let addr: Multiaddr = "/ip4/127.0.0.1/udp/5061/quic-v1".parse().unwrap();
         let addr2 = addr.clone();
 
-        let task_1 = async move {
+        let task_1 = tokio::spawn(async move {
             swarm_1.listen_on(addr.clone()).unwrap();
             wait_for_incoming_connection(&mut swarm_1, peer_id2).await;
-            swarm_1
-                .filter_map(|event| async {
-                    if let SwarmEvent::Behaviour(ReplicationEvent::IncomingMessage {
-                        message,
-                        ..
-                    }) = event
-                    {
-                        info!("Received message {message:?}");
-                        assert_ne!(message.share.data.share_idx, 0);
-                        Some(message)
-                    } else {
-                        None
+
+            let mut received_messages = 0;
+            let mut all_messages_tampered = true;
+            loop {
+                if let SwarmEvent::Behaviour(ReplicationEvent::IncomingMessage {
+                    message, ..
+                }) = swarm_1.select_next_some().await
+                {
+                    received_messages += 1;
+                    // Check all messages were tampered
+                    if message.share.data.share_idx == 0 {
+                        all_messages_tampered = false;
                     }
-                })
-                .take(msg_count)
-                .collect::<Vec<_>>()
-                .await
-        };
+                    if received_messages >= msg_count {
+                        break;
+                    }
+                }
+            }
+            (received_messages, all_messages_tampered)
+        });
 
         let task_2 = async move {
             swarm_2_tampered.dial(addr2).unwrap();
 
-            // Send a tampered message after attempting connection
+            // Send 10 tampered messages after attempting a connection
             let mut i = 0;
+            let mut swarms_connected = false;
             loop {
                 tokio::select! {
                     () = tokio::time::sleep(Duration::from_millis(50)) => {
                         let behaviour = swarm_2_tampered.behaviour_mut();
                         let msg = get_message(i);
                         behaviour.send_message(&msg);
-                        info!("Sent message {i}# ");
-                        if i < 19 {
-                            i += 1;
-                        } else {
-                            break;
-                        }
+                        i += 1;
                     }
                     event = swarm_2_tampered.select_next_some() => {
                         match event {
                             SwarmEvent::ConnectionClosed { .. } => break,
                             SwarmEvent::ConnectionEstablished { peer_id,  connection_id, .. } => {
                                 info!("Connected to {peer_id} with connection_id: {connection_id}");
+                                swarms_connected = true;
                             },
                             _ => {}
                         }
                     }
                 }
             }
+            swarms_connected
         };
 
-        tokio::join!(task_1, task_2);
+        // Wait for sender to send all 10 messages, check it has connected to the receiving swarm
+        let swarms_connected = task_2.await;
+        assert!(swarms_connected);
+
+        // Wait for message receiver
+        let task_1_result = task_1.await;
+
+        let (received_messages, all_messages_tampered) = task_1_result.unwrap();
+        assert_eq!(received_messages, msg_count);
+        assert!(all_messages_tampered);
     }
 }

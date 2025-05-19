@@ -209,7 +209,7 @@ where
 
 fn modify_packet(packet: &mut BytesMut) {
     if !packet.is_empty() {
-        packet[1] ^= 0x80; // Flip 1 bit in the second byte
+        packet[1] ^= 0x80; // Flip 1 bit in the second byte to modify 1-RTT packet data
     }
 }
 
