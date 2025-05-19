@@ -4,6 +4,7 @@
 # * shell.nix
 # * ci/Dockerfile
 # * testnet/Dockerfile
+# * testnet/Dockerfile.debug
 # Also, update the version of the nightly toolchain to the latest nightly of the new version specified in the following places:
 # * workflows/code-check.yml (fmt job)
 # * .pre-commit-config.yml (fmt hook)
