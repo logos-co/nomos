@@ -29,6 +29,8 @@ type MembershipProviders = HashMap<ProviderId, Vec<Locator>>;
 pub type MembershipSnapshotStream =
     Pin<Box<dyn Stream<Item = MembershipProviders> + Send + Sync + Unpin>>;
 
+const BROADCAST_CHANNEL_SIZE: usize = 128;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BackendSettings<S> {
     pub backend: S,
@@ -131,20 +133,28 @@ where
                             }
                         },
                         MembershipMessage::Subscribe { service_type, result_sender } => {
-                            let tx = if let Some(tx) = self.subscribe_txs.get(&service_type) {
-                                tx.clone()
-                            } else {
-                                let (tx, _) = broadcast::channel(128);
-                                self.subscribe_txs.insert(service_type, tx.clone());
+                            let tx = self.subscribe_txs.entry(service_type).or_insert_with(|| {
+                                let (tx, _) = broadcast::channel(BROADCAST_CHANNEL_SIZE);
                                 tx
-                            };
+                            });
 
                             let stream = make_pin_broadcast_stream(tx.subscribe());
-                            if result_sender.send(stream).is_err() {
-                                tracing::error!("Error sending finalized updates receiver");
+                            let providers = self.backend.get_latest_providers(service_type).await;
+
+                            if let Ok(providers) = providers {
+                                if tx.send(providers).is_err() {
+                                    tracing::error!("Error sending initial membership snapshot for service type: {}", service_type);
+                                }
+
+                                if result_sender.send(stream).is_err() {
+                                    tracing::error!("Error sending finalized updates receiver for service type: {}", service_type);
+                                }
+                            } else {
+                                tracing::error!("Failed to get latest providers for service type: {}", service_type);
                             }
                         },
-                                            }
+
+                    }
                 }
                 Some(msg) = lifecycle_stream.next() => {
                     if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
@@ -154,6 +164,7 @@ where
                 Some(sdp_msg) = sdp_stream.next() => {
                      match self.backend.update(sdp_msg).await {
                         Ok(snapshot) => {
+                            // The list of all providers for each updated service type is sent to appropriate subscribers per service type
                             for (service_type, snapshot) in snapshot {
                                 if let Some(tx) = self.subscribe_txs.get(&service_type) {
                                     if tx.send(snapshot).is_err() {

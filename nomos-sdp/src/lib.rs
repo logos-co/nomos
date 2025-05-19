@@ -3,6 +3,7 @@ pub mod state;
 
 use std::{
     collections::{HashMap, HashSet},
+    fmt,
     hash::Hash,
 };
 
@@ -38,6 +39,18 @@ pub enum ServiceType {
     DataAvailability,
     ExecutorNetwork,
     GenericRestaking,
+}
+
+impl fmt::Display for ServiceType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let service_str = match self {
+            Self::BlendNetwork => "BlendNetwork",
+            Self::DataAvailability => "DataAvailability",
+            Self::ExecutorNetwork => "ExecutorNetwork",
+            Self::GenericRestaking => "GenericRestaking",
+        };
+        write!(f, "{service_str}")
+    }
 }
 
 pub type Nonce = [u8; 16];
