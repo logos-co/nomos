@@ -15,7 +15,7 @@ pub enum ActiveStateError {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub struct ActiveState(pub ProviderInfo);
+pub struct ActiveState(ProviderInfo);
 
 impl ActiveState {
     const fn try_into_updated(
@@ -262,6 +262,24 @@ impl From<InactiveState> for ProviderState {
 impl From<WithdrawnState> for ProviderState {
     fn from(state: WithdrawnState) -> Self {
         Self::Withdrawn(state)
+    }
+}
+
+impl From<ProviderInfo> for ActiveState {
+    fn from(info: ProviderInfo) -> Self {
+        Self(info)
+    }
+}
+
+impl From<ProviderInfo> for InactiveState {
+    fn from(info: ProviderInfo) -> Self {
+        Self(info)
+    }
+}
+
+impl From<ProviderInfo> for WithdrawnState {
+    fn from(info: ProviderInfo) -> Self {
+        Self(info)
     }
 }
 

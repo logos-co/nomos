@@ -153,7 +153,7 @@ mod tests {
 
     use multiaddr::multiaddr;
     use nomos_sdp_core::{
-        state::{ActiveState, ProviderState, WithdrawnState},
+        state::{ProviderState, WithdrawnState},
         BlockNumber, DeclarationId, DeclarationUpdate, FinalizedBlockEvent,
         FinalizedBlockEventUpdate, Locator, ProviderId, ProviderInfo, ServiceType,
     };
@@ -373,7 +373,7 @@ mod tests {
         let updates = vec![FinalizedBlockEventUpdate {
             service_type,
             provider_id: provider_info_1.provider_id,
-            state: ProviderState::Active(ActiveState(provider_info_1)),
+            state: ProviderState::Active(provider_info_1.into()),
             locators: declaration_update_1.locators.clone(),
         }];
         let event = FinalizedBlockEvent {
@@ -393,7 +393,7 @@ mod tests {
         let updates = vec![FinalizedBlockEventUpdate {
             service_type,
             provider_id: provider_info_2.provider_id,
-            state: ProviderState::Active(ActiveState(provider_info_2)),
+            state: ProviderState::Active(provider_info_2.into()),
             locators: declaration_update_2.locators.clone(),
         }];
         let event = FinalizedBlockEvent {
@@ -423,7 +423,7 @@ mod tests {
             FinalizedBlockEventUpdate {
                 service_type,
                 provider_id: provider_info_3.provider_id,
-                state: ProviderState::Active(ActiveState(provider_info_3)),
+                state: ProviderState::Active(provider_info_3.into()),
                 locators: declaration_update_3.locators.clone(),
             },
         ];
@@ -515,7 +515,7 @@ mod tests {
         let updates = vec![FinalizedBlockEventUpdate {
             service_type: declaration_update.service_type,
             provider_id: provider_info.provider_id,
-            state: ProviderState::Active(ActiveState(provider_info)),
+            state: ProviderState::Active(provider_info.into()),
             locators: declaration_update.locators,
         }];
 
