@@ -4,22 +4,21 @@ pub mod behaviour;
 mod test {
     use std::{collections::VecDeque, ops::Range, path::PathBuf, sync::LazyLock, time::Duration};
 
-    use crate::test_utils::start_udp_mutation_proxy;
-    use crate::{
-        protocols::replication::behaviour::{
-            ReplicationBehaviour, ReplicationConfig, ReplicationEvent,
-        },
-        test_utils::{AllNeighbours, TamperingReplicationBehaviour},
-    };
     use futures::StreamExt as _;
     use kzgrs_backend::testutils;
     use libp2p::{identity::Keypair, quic, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
     use libp2p_swarm_test::SwarmExt as _;
     use log::{error, info};
-    use nomos_da_messages::common::Share;
-    use nomos_da_messages::replication::ReplicationRequest;
+    use nomos_da_messages::{common::Share, replication::ReplicationRequest};
     use tokio::sync::{mpsc, watch};
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
+
+    use crate::{
+        protocols::replication::behaviour::{
+            ReplicationBehaviour, ReplicationConfig, ReplicationEvent,
+        },
+        test_utils::{start_udp_mutation_proxy, AllNeighbours, TamperingReplicationBehaviour},
+    };
 
     type TestSwarm = Swarm<ReplicationBehaviour<AllNeighbours>>;
 
@@ -373,7 +372,8 @@ mod test {
             swarms_connected
         };
 
-        // Wait for sender to send all 10 messages, check it has connected to the receiving swarm
+        // Wait for sender to send all 10 messages, check it has connected to the
+        // receiving swarm
         let swarms_connected = task_2.await;
         assert!(swarms_connected);
 
@@ -482,7 +482,8 @@ mod test {
             swarms_connected
         };
 
-        // Wait for sender to send all 10 messages, check it has connected to the receiving swarm
+        // Wait for sender to send all 10 messages, check it has connected to the
+        // receiving swarm
         let swarms_connected = task_2.await;
         assert!(swarms_connected);
 

@@ -1,12 +1,19 @@
-use libp2p::bytes::BytesMut;
-use libp2p::multiaddr::Protocol;
+use std::{
+    collections::{HashMap, HashSet},
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+
 use libp2p::{
+    bytes::BytesMut,
     core::{
         transport::{MemoryTransport, PortUse},
         upgrade::Version,
         Endpoint, Transport as _,
     },
     identity::Keypair,
+    multiaddr::Protocol,
     swarm::{
         ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandlerInEvent,
         THandlerOutEvent, ToSwarm,
@@ -15,15 +22,8 @@ use libp2p::{
 };
 use log::info;
 use nomos_da_messages::replication::ReplicationRequest;
-use std::net::SocketAddr;
-use std::{
-    collections::{HashMap, HashSet},
-    sync::{Arc, Mutex},
-    time::Duration,
-};
 use subnetworks_assignations::MembershipHandler;
-use tokio::io;
-use tokio::net::UdpSocket;
+use tokio::{io, net::UdpSocket};
 use tracing::error;
 
 use crate::{protocols::replication::behaviour::ReplicationBehaviour, SubnetworkId};
@@ -209,7 +209,8 @@ where
 
 fn modify_packet(packet: &mut BytesMut) {
     if !packet.is_empty() {
-        packet[1] ^= 0x80; // Flip 1 bit in the second byte to modify 1-RTT packet data
+        packet[1] ^= 0x80; // Flip 1 bit in the second byte to modify 1-RTT
+                           // packet data
     }
 }
 
