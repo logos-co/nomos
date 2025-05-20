@@ -6,7 +6,7 @@ use crate::{
     ActiveMessage, BlockNumber, Declaration, DeclarationId, DeclarationMessage, DeclarationUpdate,
     EventType, Nonce, ProviderId, ProviderInfo, SdpMessage, ServiceParameters, ServiceType,
     WithdrawMessage,
-    state::{ProviderState, ProviderStateError},
+    state::{ProviderStateError, TransientProviderState},
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -147,9 +147,9 @@ where
     async fn process_declare(
         &mut self,
         block_number: BlockNumber,
-        current_state: ProviderState,
+        current_state: TransientProviderState,
         declaration_message: DeclarationMessage<Proof>,
-    ) -> Result<ProviderState, SdpLedgerError> {
+    ) -> Result<TransientProviderState, SdpLedgerError> {
         // Check if state can transition before inserting declaration into pending list.
         let pending_state = current_state.try_into_active(block_number, EventType::Declaration)?;
         let provider_id = declaration_message.provider_id;
@@ -196,9 +196,9 @@ where
     async fn process_active(
         &self,
         block_number: BlockNumber,
-        current_state: ProviderState,
+        current_state: TransientProviderState,
         active_message: ActiveMessage<Metadata>,
-    ) -> Result<ProviderState, SdpLedgerError> {
+    ) -> Result<TransientProviderState, SdpLedgerError> {
         // Check if state can transition before marking as active.
         let pending_state = current_state.try_into_active(block_number, EventType::Activity)?;
         let provider_id = active_message.provider_id;
@@ -224,10 +224,10 @@ where
     async fn process_withdraw(
         &self,
         block_number: BlockNumber,
-        current_state: ProviderState,
+        current_state: TransientProviderState,
         withdraw_message: WithdrawMessage,
         service_params: ServiceParameters,
-    ) -> Result<ProviderState, SdpLedgerError> {
+    ) -> Result<TransientProviderState, SdpLedgerError> {
         let pending_state = current_state.try_into_withdrawn(
             block_number,
             EventType::Withdrawal,
@@ -272,16 +272,22 @@ where
         let maybe_provider_info = self.declaration_repo.get_provider_info(provider_id).await;
 
         let current_state = if let Some(provider_info) = maybe_pending_state {
-            ProviderState::try_from_info(block_number, provider_info, &service_params)?
+            TransientProviderState::try_from_info(block_number, provider_info, &service_params)?
         } else {
             match maybe_provider_info {
-                Ok(provider_info) => {
-                    ProviderState::try_from_info(block_number, &provider_info, &service_params)?
-                }
+                Ok(provider_info) => TransientProviderState::try_from_info(
+                    block_number,
+                    &provider_info,
+                    &service_params,
+                )?,
                 Err(DeclarationsRepositoryError::ProviderNotFound(_)) => {
                     let provider_info =
                         ProviderInfo::new(block_number, provider_id, declaration_id);
-                    ProviderState::try_from_info(block_number, &provider_info, &service_params)?
+                    TransientProviderState::try_from_info(
+                        block_number,
+                        &provider_info,
+                        &service_params,
+                    )?
                 }
                 Err(err) => return Err(SdpLedgerError::DeclarationsRepository(err)),
             }

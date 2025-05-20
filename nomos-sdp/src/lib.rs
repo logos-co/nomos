@@ -8,7 +8,6 @@ use std::{
 
 use blake2::{Blake2b, Digest as _};
 use multiaddr::Multiaddr;
-use state::ProviderState;
 
 pub type StakeThreshold = u64;
 pub type BlockNumber = u64;
@@ -80,6 +79,13 @@ impl ProviderInfo {
             withdrawn: None,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum ProviderState {
+    Active,
+    Inactive,
+    Withdrawn,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
