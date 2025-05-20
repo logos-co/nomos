@@ -44,7 +44,7 @@ pub enum MembershipMessage {
     },
     Subscribe {
         service_type: nomos_sdp_core::ServiceType,
-        result_sender: oneshot::Sender<MembershipSnapshotStream>,
+        result_sender: oneshot::Sender<Result<MembershipSnapshotStream, MembershipBackendError>>,
     },
 }
 
@@ -181,7 +181,7 @@ where
                             "Error sending initial membership snapshot for service type: {:?}",
                             service_type
                         );
-                    } else if result_sender.send(stream).is_err() {
+                    } else if result_sender.send(Ok(stream)).is_err() {
                         tracing::error!(
                             "Error sending finalized updates receiver for service type: {:?}",
                             service_type
@@ -192,6 +192,18 @@ where
                         "Failed to get latest providers for service type: {:?}",
                         service_type
                     );
+
+                    if result_sender
+                        .send(Err(MembershipBackendError::Other(
+                            "Failed to get latest providers".into(),
+                        )))
+                        .is_err()
+                    {
+                        tracing::error!(
+                            "Error sending error response for service type: {:?}",
+                            service_type
+                        );
+                    }
                 }
             }
         }
