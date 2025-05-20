@@ -93,12 +93,12 @@ impl MembershipBackend for MockMembershipBackend {
             let service_data = latest_entry.entry(service_type).or_default();
 
             match state {
-                nomos_sdp_core::state::ProviderState::Active(_initstate) => {
+                nomos_sdp_core::ProviderState::Active => {
                     self.locators_mapping.insert(provider_id, locators.clone());
                     service_data.insert(provider_id);
                 }
-                nomos_sdp_core::state::ProviderState::Inactive(_)
-                | nomos_sdp_core::state::ProviderState::Withdrawn(_) => {
+                nomos_sdp_core::ProviderState::Inactive
+                | nomos_sdp_core::ProviderState::Withdrawn => {
                     service_data.remove(&provider_id);
                     self.locators_mapping.remove(&provider_id);
                 }
@@ -153,10 +153,8 @@ mod tests {
 
     use multiaddr::multiaddr;
     use nomos_sdp_core::{
-        state::{ProviderState, WithdrawnState},
         BlockNumber, DeclarationId, DeclarationUpdate, FinalizedBlockEvent,
-        FinalizedBlockEventUpdate, Locator, ProviderId, ProviderInfo, ServiceParameters,
-        ServiceType,
+        FinalizedBlockEventUpdate, Locator, ProviderId, ProviderInfo, ProviderState, ServiceType,
     };
 
     use super::{
@@ -209,18 +207,6 @@ mod tests {
             provider_id: create_provider_id(seed),
             service_type,
             locators,
-        }
-    }
-
-    type MockContractAddress = [u8; 32];
-
-    const fn default_service_params() -> ServiceParameters<MockContractAddress> {
-        ServiceParameters {
-            lock_period: 10,
-            inactivity_period: 20,
-            retention_period: 100,
-            activity_contract: [0; 32],
-            timestamp: 0,
         }
     }
 
@@ -431,8 +417,7 @@ mod tests {
             vec![create_block_update(
                 service_type,
                 provider_info_1.provider_id,
-                ProviderState::try_from_info(100, &provider_info_1, &default_service_params())
-                    .unwrap(),
+                ProviderState::Active,
                 decl_update_1.locators.clone(),
             )],
             &[(provider_info_1.provider_id, decl_update_1.locators.clone())],
@@ -447,8 +432,7 @@ mod tests {
             vec![create_block_update(
                 service_type,
                 provider_info_2.provider_id,
-                ProviderState::try_from_info(100, &provider_info_2, &default_service_params())
-                    .unwrap(),
+                ProviderState::Active,
                 decl_update_2.locators.clone(),
             )],
             &[
@@ -467,14 +451,13 @@ mod tests {
                 create_block_update(
                     service_type,
                     provider_info_2.provider_id,
-                    ProviderState::Withdrawn(WithdrawnState(provider_info_2)),
+                    ProviderState::Withdrawn,
                     Vec::new(),
                 ),
                 create_block_update(
                     service_type,
                     provider_info_3.provider_id,
-                    ProviderState::try_from_info(100, &provider_info_3, &default_service_params())
-                        .unwrap(),
+                    ProviderState::Active,
                     decl_update_3.locators.clone(),
                 ),
             ],
@@ -546,8 +529,7 @@ mod tests {
         let updates = vec![FinalizedBlockEventUpdate {
             service_type: declaration_update.service_type,
             provider_id: provider_info.provider_id,
-            state: ProviderState::try_from_info(5, &provider_info, &default_service_params())
-                .unwrap(),
+            state: ProviderState::Active,
             locators: BTreeSet::from_iter(declaration_update.locators),
         }];
 

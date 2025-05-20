@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 use async_trait::async_trait;
 use nomos_sdp::{
     adapters::{
-        activity::SdpActivityAdapter, declaration::SdpDeclarationAdapter,
-        services::SdpServicesAdapter, stakes::SdpStakesVerifierAdapter,
+        declaration::SdpDeclarationAdapter, services::SdpServicesAdapter,
+        stakes::SdpStakesVerifierAdapter,
     },
     backends::SdpBackend,
     FinalizedBlockUpdateStream, SdpMessage, SdpService,
@@ -17,25 +17,18 @@ use super::{SdpAdapter, SdpAdapterError};
 pub struct LedgerSdpAdapter<
     Backend,
     DeclarationAdapter,
-    RewardsAdapter,
     StakesVerifierAdapter,
     ServicesAdapter,
     Metadata,
-    ContractAddress,
     Proof,
     RuntimeServiceId,
 > where
     Backend: SdpBackend + Send + Sync + 'static,
 {
     relay: OutboundRelay<SdpMessage<Backend>>,
-    _phantom_adapters: PhantomData<(
-        DeclarationAdapter,
-        RewardsAdapter,
-        StakesVerifierAdapter,
-        ServicesAdapter,
-    )>,
+    _phantom_adapters: PhantomData<(DeclarationAdapter, StakesVerifierAdapter, ServicesAdapter)>,
 
-    _phantom_metadata: PhantomData<(Metadata, ContractAddress, Proof)>,
+    _phantom_metadata: PhantomData<(Metadata, Proof)>,
     _phantom_runtime_service_id: PhantomData<RuntimeServiceId>,
 }
 
@@ -43,22 +36,18 @@ pub struct LedgerSdpAdapter<
 impl<
         Backend,
         DeclarationAdapter,
-        RewardsAdapter,
         StakesVerifierAdapter,
         ServicesAdapter,
         Metadata,
-        ContractAddress,
         Proof,
         RuntimeServiceId,
     > SdpAdapter
     for LedgerSdpAdapter<
         Backend,
         DeclarationAdapter,
-        RewardsAdapter,
         StakesVerifierAdapter,
         ServicesAdapter,
         Metadata,
-        ContractAddress,
         Proof,
         RuntimeServiceId,
     >
@@ -66,28 +55,23 @@ where
     Backend: SdpBackend<
             DeclarationAdapter = DeclarationAdapter,
             ServicesAdapter = ServicesAdapter,
-            RewardsAdapter = RewardsAdapter,
             StakesVerifierAdapter = StakesVerifierAdapter,
         > + Send
         + Sync
         + 'static,
     DeclarationAdapter: SdpDeclarationAdapter + Send + Sync,
-    RewardsAdapter: SdpActivityAdapter + Send + Sync,
     ServicesAdapter: SdpServicesAdapter + Send + Sync,
     StakesVerifierAdapter: SdpStakesVerifierAdapter + Send + Sync,
     Metadata: Send + Sync + 'static,
     Proof: Send + Sync + 'static,
-    ContractAddress: std::fmt::Debug + Send + Sync + 'static,
     RuntimeServiceId: Send + Sync + 'static,
 {
     type SdpService = SdpService<
         Backend,
         DeclarationAdapter,
-        RewardsAdapter,
         StakesVerifierAdapter,
         ServicesAdapter,
         Metadata,
-        ContractAddress,
         Proof,
         RuntimeServiceId,
     >;
