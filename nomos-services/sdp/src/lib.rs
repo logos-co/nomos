@@ -1,16 +1,19 @@
 pub mod adapters;
 pub mod backends;
 
-use std::fmt::{Debug, Display};
+use std::{
+    fmt::{Debug, Display},
+    pin::Pin,
+};
 
 use adapters::{
-    declaration::SdpDeclarationAdapter, rewards::SdpRewardsAdapter, services::SdpServicesAdapter,
+    activity::SdpActivityAdapter, declaration::SdpDeclarationAdapter, services::SdpServicesAdapter,
     stakes::SdpStakesVerifierAdapter,
 };
 use async_trait::async_trait;
 use backends::{SdpBackend, SdpBackendError};
-use futures::StreamExt as _;
-use nomos_sdp_core::ledger;
+use futures::{Stream, StreamExt as _};
+use nomos_sdp_core::{ledger, BlockNumber, FinalizedBlockEvent};
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -19,20 +22,26 @@ use overwatch::{
     OpaqueServiceStateHandle,
 };
 use services_utils::overwatch::lifecycle;
-use tokio::sync::oneshot;
+use tokio::sync::{broadcast, oneshot};
+use tokio_stream::wrappers::BroadcastStream;
 
-#[derive(Debug)]
+pub type FinalizedBlockUpdateStream =
+    Pin<Box<dyn Stream<Item = FinalizedBlockEvent> + Send + Sync + Unpin>>;
+
 pub enum SdpMessage<B: SdpBackend> {
     Process {
-        block_number: B::BlockNumber,
+        block_number: BlockNumber,
         message: B::Message,
     },
 
     MarkInBlock {
-        block_number: B::BlockNumber,
+        block_number: BlockNumber,
         result_sender: oneshot::Sender<Result<(), SdpBackendError>>,
     },
-    DiscardBlock(B::BlockNumber),
+    DiscardBlock(BlockNumber),
+    Subscribe {
+        result_sender: oneshot::Sender<FinalizedBlockUpdateStream>,
+    },
 }
 
 pub struct SdpService<
@@ -47,7 +56,7 @@ pub struct SdpService<
     RuntimeServiceId,
 > where
     DeclarationAdapter: SdpDeclarationAdapter + Send + Sync,
-    RewardsAdapter: SdpRewardsAdapter + Send + Sync,
+    RewardsAdapter: SdpActivityAdapter + Send + Sync,
     ServicesAdapter: SdpServicesAdapter + Send + Sync,
     StakesVerifierAdapter: SdpStakesVerifierAdapter + Send + Sync,
     Metadata: Send + Sync + 'static,
@@ -56,6 +65,7 @@ pub struct SdpService<
 {
     backend: B,
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+    finalized_update_tx: broadcast::Sender<FinalizedBlockEvent>,
 }
 
 impl<
@@ -83,7 +93,7 @@ impl<
 where
     B: SdpBackend + Send + Sync + 'static,
     DeclarationAdapter: SdpDeclarationAdapter + Send + Sync,
-    RewardsAdapter: SdpRewardsAdapter + Send + Sync,
+    RewardsAdapter: SdpActivityAdapter + Send + Sync,
     ServicesAdapter: SdpServicesAdapter + Send + Sync,
     StakesVerifierAdapter: SdpStakesVerifierAdapter + Send + Sync,
     Metadata: Send + Sync + 'static,
@@ -130,7 +140,7 @@ where
         + 'static,
     DeclarationAdapter: ledger::DeclarationsRepository + SdpDeclarationAdapter + Send + Sync,
     RewardsAdapter: ledger::ActivityContract<ContractAddress = ContractAddress, Metadata = Metadata>
-        + SdpRewardsAdapter
+        + SdpActivityAdapter
         + Send
         + Sync,
     ServicesAdapter: ledger::ServicesRepository<ContractAddress = ContractAddress>
@@ -152,6 +162,8 @@ where
         let services_adapter = ServicesAdapter::new();
         let stake_verifier_adapter = StakesVerifierAdapter::new();
         let rewards_adapter = RewardsAdapter::new();
+        let (finalized_update_tx, _) = broadcast::channel(128);
+
         Ok(Self {
             backend: B::init(
                 declaration_adapter,
@@ -160,6 +172,7 @@ where
                 stake_verifier_adapter,
             ),
             service_state,
+            finalized_update_tx,
         })
     }
 
@@ -184,7 +197,7 @@ where
 impl<
         B: SdpBackend + Send + Sync + 'static,
         DeclarationAdapter: SdpDeclarationAdapter + Send + Sync,
-        RewardsAdapter: SdpRewardsAdapter + Send + Sync,
+        RewardsAdapter: SdpActivityAdapter + Send + Sync,
         StakesVerifierAdapter: SdpStakesVerifierAdapter + Send + Sync,
         ServicesAdapter: SdpServicesAdapter + Send + Sync,
         Metadata: Send + Sync + 'static,
@@ -231,6 +244,30 @@ impl<
             SdpMessage::DiscardBlock(block_number) => {
                 self.backend.discard_block(block_number);
             }
+            SdpMessage::Subscribe { result_sender } => {
+                let receiver = self.finalized_update_tx.subscribe();
+                let stream = make_finalized_stream(receiver);
+
+                if result_sender.send(stream).is_err() {
+                    tracing::error!("Error sending finalized updates receiver");
+                }
+            }
         }
     }
+}
+
+fn make_finalized_stream(
+    receiver: broadcast::Receiver<FinalizedBlockEvent>,
+) -> FinalizedBlockUpdateStream {
+    Box::pin(BroadcastStream::new(receiver).filter_map(|res| {
+        Box::pin(async move {
+            match res {
+                Ok(update) => Some(update),
+                Err(e) => {
+                    tracing::warn!("Lagging SDP subscriber: {e:?}");
+                    None
+                }
+            }
+        })
+    }))
 }

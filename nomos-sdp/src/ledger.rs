@@ -61,7 +61,7 @@ pub enum ServicesRepositoryError {
 
 #[async_trait]
 pub trait ServicesRepository {
-    type ContractAddress;
+    type ContractAddress: Clone;
 
     async fn get_parameters(
         &self,
@@ -160,7 +160,7 @@ where
         ActivityContract<Metadata = Metadata, ContractAddress = ContractAddress> + Send + Sync,
     Services: ServicesRepository<ContractAddress = ContractAddress> + Send + Sync,
     Stakes: StakesVerifier<Proof = Proof> + Send + Sync,
-    ContractAddress: Debug + Send + Sync,
+    ContractAddress: Debug + Send + Sync + Clone,
     Proof: Send + Sync,
     Metadata: Send + Sync,
 {

@@ -15,7 +15,7 @@ use nomos_sdp_core::{
 
 use super::{SdpBackend, SdpBackendError};
 use crate::adapters::{
-    declaration::SdpDeclarationAdapter, rewards::SdpRewardsAdapter, services::SdpServicesAdapter,
+    activity::SdpActivityAdapter, declaration::SdpDeclarationAdapter, services::SdpServicesAdapter,
     stakes::SdpStakesVerifierAdapter,
 };
 
@@ -24,16 +24,15 @@ impl<Declarations, Rewards, Services, Stakes, Proof, Metadata, ContractAddress> 
     for SdpLedger<Declarations, Rewards, Services, Stakes, Proof, Metadata, ContractAddress>
 where
     Services: ServicesRepository<ContractAddress = ContractAddress> + Send + Sync + Clone + 'static,
-    ContractAddress: Debug + Send + Sync + 'static,
+    ContractAddress: Debug + Send + Sync + Clone + 'static,
     Proof: Send + Sync + 'static,
     Metadata: Send + Sync + 'static,
     Declarations: SdpDeclarationAdapter + Send + Sync,
     Rewards:
-        SdpRewardsAdapter<Metadata = Metadata, ContractAddress = ContractAddress> + Send + Sync,
+        SdpActivityAdapter<Metadata = Metadata, ContractAddress = ContractAddress> + Send + Sync,
     Stakes: SdpStakesVerifierAdapter<Proof = Proof> + Send + Sync,
     Services: SdpServicesAdapter + Send + Sync,
 {
-    type BlockNumber = BlockNumber;
     type Message = SdpMessage<Metadata, Proof>;
     type DeclarationAdapter = Declarations;
     type ServicesAdapter = Services;
@@ -56,7 +55,7 @@ where
 
     async fn process_sdp_message(
         &mut self,
-        block_number: Self::BlockNumber,
+        block_number: BlockNumber,
         message: Self::Message,
     ) -> Result<(), SdpBackendError> {
         self.process_sdp_message(block_number, message)
@@ -64,14 +63,11 @@ where
             .map_err(Into::into)
     }
 
-    async fn mark_in_block(
-        &mut self,
-        block_number: Self::BlockNumber,
-    ) -> Result<(), SdpBackendError> {
+    async fn mark_in_block(&mut self, block_number: BlockNumber) -> Result<(), SdpBackendError> {
         self.mark_in_block(block_number).await.map_err(Into::into)
     }
 
-    fn discard_block(&mut self, block_number: Self::BlockNumber) {
+    fn discard_block(&mut self, block_number: BlockNumber) {
         self.discard_block(block_number);
     }
 }

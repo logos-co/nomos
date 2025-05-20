@@ -2,12 +2,13 @@ pub mod ledger;
 pub mod state;
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     hash::Hash,
 };
 
 use blake2::{Blake2b, Digest as _};
 use multiaddr::Multiaddr;
+use state::ProviderState;
 
 pub type StakeThreshold = u64;
 pub type BlockNumber = u64;
@@ -18,7 +19,7 @@ pub struct MinStake {
 }
 
 #[derive(Clone, Debug)]
-pub struct ServiceParameters<ContractAddress> {
+pub struct ServiceParameters<ContractAddress: Clone> {
     pub lock_period: u64,
     pub inactivity_period: u64,
     pub retention_period: u64,
@@ -26,9 +27,16 @@ pub struct ServiceParameters<ContractAddress> {
     pub timestamp: BlockNumber,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Locator {
     addr: Multiaddr,
+}
+
+impl Locator {
+    #[must_use]
+    pub const fn new(addr: Multiaddr) -> Self {
+        Self { addr }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -210,4 +218,18 @@ impl<Metadata, Proof> SdpMessage<Metadata, Proof> {
             Self::Withdraw(message) => message.service_type,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct FinalizedBlockEvent {
+    pub block_number: BlockNumber,
+    pub updates: Vec<FinalizedBlockEventUpdate>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FinalizedBlockEventUpdate {
+    pub service_type: ServiceType,
+    pub provider_id: ProviderId,
+    pub state: ProviderState,
+    pub locators: BTreeSet<Locator>,
 }

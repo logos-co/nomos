@@ -39,7 +39,7 @@ impl ActiveState {
         }
     }
 
-    const fn try_into_withdrawn<ContractAddress>(
+    const fn try_into_withdrawn<ContractAddress: Clone>(
         mut self,
         block_number: BlockNumber,
         event_type: EventType,
@@ -90,7 +90,7 @@ impl InactiveState {
         }
     }
 
-    const fn try_into_withdrawn<ContractAddress>(
+    const fn try_into_withdrawn<ContractAddress: Clone>(
         mut self,
         block_number: BlockNumber,
         event_type: EventType,
@@ -112,7 +112,7 @@ impl InactiveState {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub struct WithdrawnState(ProviderInfo);
+pub struct WithdrawnState(pub ProviderInfo);
 
 #[derive(Error, Debug)]
 pub enum ProviderStateError {
@@ -126,7 +126,7 @@ pub enum ProviderStateError {
     BlockFromPast,
 }
 
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub enum ProviderState {
     Active(ActiveState),
     Inactive(InactiveState),
@@ -144,7 +144,7 @@ impl From<ProviderState> for ProviderInfo {
 }
 
 impl ProviderState {
-    pub fn try_from_info<ConstractAddress>(
+    pub fn try_from_info<ConstractAddress: Clone>(
         block_number: BlockNumber,
         provider_info: &ProviderInfo,
         service_params: &ServiceParameters<ConstractAddress>,
@@ -224,7 +224,7 @@ impl ProviderState {
         }
     }
 
-    pub fn try_into_withdrawn<ContractAddress>(
+    pub fn try_into_withdrawn<ContractAddress: Clone>(
         self,
         block_number: BlockNumber,
         event_type: EventType,
