@@ -282,6 +282,24 @@ mod test {
 
     #[tokio::test]
     async fn test_tampered_encrypted_quick_packet_detection() {
+        // Components:
+        //  - Swarm1 - message receiver
+        //  - Swarm2 - message sender
+        //  - UDP proxy which detects encrypted QUICK packets and modifies their payload
+        // Steps:
+        //   - Start UDP proxy
+        //   - Start Swarm1 at proxy_addr and wait for connection
+        //   - Start Swarm2 and connect to server_addr
+        //   - Swarm2 receives connection acknowledgement
+        //   - Connection Swarm1 <-> Proxy <-> Swarm2 is established
+        //   - Swarm2 sends 10 messages to Swarm1
+        //   - UDP proxy alters QUICK packets' payload
+        // Expected result:
+        //   - At first, connection between Swarm1 and Swarm2 is successfully
+        //     established
+        //   - Swarm1 never receives any messages(data) as they get altered
+        //   -> We have confirmed that man-in-the-middle attack at transport level has
+        // failed
         let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env())
             .compact()
@@ -389,6 +407,25 @@ mod test {
 
     #[tokio::test]
     async fn test_tampered_message_content_detection() {
+        // Components:
+        //  - Swarm1 - message receiver
+        //  - Swarm2 - message sender based on ReplicationBehaviour wrapper with a hook
+        //    tampering messages
+        // Steps:
+        //   - Start Swarm1
+        //   - Start Swarm2
+        //   - Swarm2 receives connection acknowledgement
+        //   - Connection Swarm1 <-> Swarm2 is established
+        //   - Swarm2 sends 10 messages to Swarm1
+        //   - Messages sent by Swarm2 are all modified by the tampering hook
+        //   - Swarm1 receives 10 altered messages
+        // Expected result:
+        //   - Connection between Swarm1 and Swarm2 is successfully established
+        //   - Swarm1 never receives messages without modification
+        //   -> We have confirmed that man-in-the-middle attack at behaviour level is
+        // possible
+        //   -> Currently this is expected behavior as Nomos doesn't check message
+        // integrity
         let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env())
             .compact()
