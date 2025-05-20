@@ -4,7 +4,7 @@ use nomos_sdp_core::{
         SdpLedgerError::{
             self, DeclarationsRepository, DuplicateDeclarationInBlock, DuplicateServiceDeclaration,
             Other, ProviderState, ServiceNotProvided,
-            ServicesRepository as LedgerServicesRepository, StakesVerifier, WrongDeclarationId,
+            ServicesRepository as LedgerServicesRepository, WrongDeclarationId,
         },
         ServicesRepository,
     },
@@ -12,37 +12,25 @@ use nomos_sdp_core::{
 };
 
 use super::{SdpBackend, SdpBackendError};
-use crate::adapters::{
-    declaration::SdpDeclarationAdapter, services::SdpServicesAdapter,
-    stakes::SdpStakesVerifierAdapter,
-};
+use crate::adapters::{declaration::SdpDeclarationAdapter, services::SdpServicesAdapter};
 
 #[async_trait::async_trait]
-impl<Declarations, Services, Stakes, Proof, Metadata> SdpBackend
-    for SdpLedger<Declarations, Services, Stakes, Proof, Metadata>
+impl<Declarations, Services, Metadata> SdpBackend for SdpLedger<Declarations, Services, Metadata>
 where
     Services: ServicesRepository + Send + Sync + Clone + 'static,
-    Proof: Send + Sync + 'static,
     Metadata: Send + Sync + 'static,
     Declarations: SdpDeclarationAdapter + Send + Sync,
-    Stakes: SdpStakesVerifierAdapter<Proof = Proof> + Send + Sync,
     Services: SdpServicesAdapter + Send + Sync,
 {
-    type Message = SdpMessage<Metadata, Proof>;
+    type Message = SdpMessage<Metadata>;
     type DeclarationAdapter = Declarations;
     type ServicesAdapter = Services;
-    type StakesVerifierAdapter = Stakes;
 
     fn init(
         declaration_adapter: Self::DeclarationAdapter,
         services_adapter: Self::ServicesAdapter,
-        stake_verifier_adapter: Self::StakesVerifierAdapter,
     ) -> Self {
-        Self::new(
-            declaration_adapter,
-            services_adapter,
-            stake_verifier_adapter,
-        )
+        Self::new(declaration_adapter, services_adapter)
     }
 
     async fn process_sdp_message(
@@ -70,7 +58,6 @@ impl From<SdpLedgerError> for SdpBackendError {
             ProviderState(provider_state_error) => Self::Other(Box::new(provider_state_error)),
             DeclarationsRepository(err) => Self::DeclarationAdapterError(Box::new(err)),
             LedgerServicesRepository(err) => Self::ServicesAdapterError(Box::new(err)),
-            StakesVerifier(err) => Self::StakesVerifierAdapterError(Box::new(err)),
             DuplicateServiceDeclaration
             | ServiceNotProvided(_)
             | DuplicateDeclarationInBlock

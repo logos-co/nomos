@@ -93,8 +93,6 @@ pub enum SdpLedgerError {
     DeclarationsRepository(#[from] DeclarationsRepositoryError),
     #[error(transparent)]
     ServicesRepository(#[from] ServicesRepositoryError),
-    #[error(transparent)]
-    StakesVerifier(#[from] StakesVerifierError),
     #[error("Provider service is already declared in declaration")]
     DuplicateServiceDeclaration,
     #[error("Provider does not provide {0:?} declaration")]
@@ -107,37 +105,28 @@ pub enum SdpLedgerError {
     Other(Box<dyn Error + Send + Sync>),
 }
 
-pub struct SdpLedger<Declarations, Services, Stakes, Proof, Metadata>
+pub struct SdpLedger<Declarations, Services, Metadata>
 where
     Declarations: DeclarationsRepository,
     Services: ServicesRepository,
 {
     declaration_repo: Declarations,
     services_repo: Services,
-    stake_verifier: Stakes,
     pending_providers: HashMap<BlockNumber, HashMap<ProviderId, ProviderInfo>>,
     pending_declarations: HashMap<BlockNumber, HashMap<ProviderId, DeclarationUpdate>>,
-    _phantom: PhantomData<(Proof, Metadata)>,
+    _phantom: PhantomData<Metadata>,
 }
 
-impl<Declarations, Services, Stakes, Proof, Metadata>
-    SdpLedger<Declarations, Services, Stakes, Proof, Metadata>
+impl<Declarations, Services, Metadata> SdpLedger<Declarations, Services, Metadata>
 where
     Declarations: DeclarationsRepository + Send + Sync,
     Services: ServicesRepository + Send + Sync,
-    Stakes: StakesVerifier<Proof = Proof> + Send + Sync,
-    Proof: Send + Sync,
     Metadata: Send + Sync,
 {
-    pub fn new(
-        declaration_repo: Declarations,
-        services_repo: Services,
-        stake_verifier: Stakes,
-    ) -> Self {
+    pub fn new(declaration_repo: Declarations, services_repo: Services) -> Self {
         Self {
             declaration_repo,
             services_repo,
-            stake_verifier,
             pending_providers: HashMap::new(),
             pending_declarations: HashMap::new(),
             _phantom: PhantomData,
@@ -148,7 +137,7 @@ where
         &mut self,
         block_number: BlockNumber,
         current_state: TransientProviderState,
-        declaration_message: DeclarationMessage<Proof>,
+        declaration_message: DeclarationMessage,
     ) -> Result<TransientProviderState, SdpLedgerError> {
         // Check if state can transition before inserting declaration into pending list.
         let pending_state = current_state.try_into_active(block_number, EventType::Declaration)?;
@@ -180,13 +169,6 @@ where
         }
 
         let declaration_update = DeclarationUpdate::from(&declaration_message);
-        let proof_of_funds = declaration_message.proof_of_funds;
-
-        // Provider stake needs to be checked by verifying proof.
-        self.stake_verifier
-            .verify(provider_id, proof_of_funds)
-            .await?;
-
         let entry = self.pending_declarations.entry(block_number).or_default();
         entry.insert(provider_id, declaration_update);
 
@@ -256,7 +238,7 @@ where
     pub async fn process_sdp_message(
         &mut self,
         block_number: BlockNumber,
-        message: SdpMessage<Metadata, Proof>,
+        message: SdpMessage<Metadata>,
     ) -> Result<(), SdpLedgerError> {
         let provider_id = message.provider_id();
         let declaration_id = message.declaration_id();
@@ -397,18 +379,12 @@ mod tests {
     use crate::*;
 
     type MockMetadata = [u8; 32];
-    type MockProof = [u8; 32];
-    type MockSdpLedger = SdpLedger<
-        MockDeclarationsRepository,
-        MockServicesRepository,
-        MockStakesVerifier,
-        MockProof,
-        MockMetadata,
-    >;
+    type MockSdpLedger =
+        SdpLedger<MockDeclarationsRepository, MockServicesRepository, MockMetadata>;
 
     #[derive(Default)]
     pub struct MockBlock {
-        pub messages: Vec<(SdpMessage<MockMetadata, MockProof>, bool)>,
+        pub messages: Vec<(SdpMessage<MockMetadata>, bool)>,
     }
 
     impl MockBlock {
@@ -423,7 +399,6 @@ mod tests {
                 SdpMessage::Declare(DeclarationMessage {
                     service_type,
                     locators,
-                    proof_of_funds: [0u8; 32],
                     provider_id,
                 }),
                 should_pass,
@@ -601,21 +576,6 @@ mod tests {
         }
     }
 
-    struct MockStakesVerifier;
-
-    #[async_trait]
-    impl StakesVerifier for MockStakesVerifier {
-        type Proof = MockProof;
-
-        async fn verify(
-            &self,
-            _provider_id: ProviderId,
-            _proof: Self::Proof,
-        ) -> Result<(), StakesVerifierError> {
-            Ok(())
-        }
-    }
-
     #[derive(Default, Clone)]
     struct MockServicesRepository {
         service_params: Arc<Mutex<HashMap<ServiceType, ServiceParameters>>>,
@@ -652,7 +612,6 @@ mod tests {
     ) {
         let declaration_repo = MockDeclarationsRepository::default();
         let service_repo = MockServicesRepository::default();
-        let stake_verifier = MockStakesVerifier;
 
         {
             let mut params = service_repo.service_params.lock().unwrap();
@@ -663,7 +622,6 @@ mod tests {
         let ledger = SdpLedger {
             declaration_repo: declaration_repo.clone(),
             services_repo: service_repo.clone(),
-            stake_verifier,
             pending_providers: HashMap::new(),
             pending_declarations: HashMap::new(),
             _phantom: PhantomData,
@@ -679,7 +637,6 @@ mod tests {
         let declaration_message = DeclarationMessage {
             service_type: ServiceType::BlendNetwork,
             locators: vec![],
-            proof_of_funds: [0u8; 32],
             provider_id,
         };
 
@@ -759,7 +716,6 @@ mod tests {
         let declaration_message = DeclarationMessage {
             service_type: ServiceType::BlendNetwork,
             locators: vec![],
-            proof_of_funds: [0u8; 32],
             provider_id,
         };
 

@@ -5,13 +5,13 @@ use crate::{BlockNumber, DeclarationId, EventType, ProviderInfo, ServiceParamete
 #[derive(Error, Debug)]
 pub enum ActiveStateError {
     #[error("Active declaration state can happen only when provider is created")]
-    ToActiveNotOnCreated,
+    ActiveNotOnCreated,
     #[error("Active state can not be updated to active state during withdrawal event")]
-    ToActiveDuringWithdrawal,
+    ActiveDuringWithdrawal,
     #[error("Locked period did not pass yet")]
-    ToWithdrawalWhileLocked,
+    WithdrawalWhileLocked,
     #[error("Active can not transition to withdrawn during {0:?} event")]
-    ToWithdrawalInvalidEvent(EventType),
+    WithdrawalInvalidEvent(EventType),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -28,14 +28,14 @@ impl ActiveState {
                 if self.0.created == block_number {
                     Ok(self)
                 } else {
-                    Err(ActiveStateError::ToActiveNotOnCreated)
+                    Err(ActiveStateError::ActiveNotOnCreated)
                 }
             }
             EventType::Activity => {
                 self.0.active = Some(block_number);
                 Ok(self)
             }
-            EventType::Withdrawal => Err(ActiveStateError::ToActiveDuringWithdrawal),
+            EventType::Withdrawal => Err(ActiveStateError::ActiveDuringWithdrawal),
         }
     }
 
@@ -48,13 +48,13 @@ impl ActiveState {
         match event_type {
             EventType::Withdrawal => {
                 if self.0.created.wrapping_add(service_params.lock_period) >= block_number {
-                    return Err(ActiveStateError::ToWithdrawalWhileLocked);
+                    return Err(ActiveStateError::WithdrawalWhileLocked);
                 }
                 self.0.withdrawn = Some(block_number);
                 Ok(WithdrawnState(self.0))
             }
             EventType::Declaration | EventType::Activity => {
-                Err(ActiveStateError::ToWithdrawalInvalidEvent(event_type))
+                Err(ActiveStateError::WithdrawalInvalidEvent(event_type))
             }
         }
     }
@@ -63,11 +63,11 @@ impl ActiveState {
 #[derive(Error, Debug)]
 pub enum InactiveStateError {
     #[error("Inactive can not transition to active during {0:?} event")]
-    ToActiveInvalidEvent(EventType),
+    ActiveInvalidEvent(EventType),
     #[error("Locked period did not pass yet")]
-    ToWithdrawalWhileLocked,
+    WithdrawalWhileLocked,
     #[error("Inactive can not transition to withdrawn during {0:?} event")]
-    ToWithdrawalInvalidEvent(EventType),
+    WithdrawalInvalidEvent(EventType),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -85,7 +85,7 @@ impl InactiveState {
                 Ok(ActiveState(self.0))
             }
             EventType::Declaration | EventType::Withdrawal => {
-                Err(InactiveStateError::ToActiveInvalidEvent(event_type))
+                Err(InactiveStateError::ActiveInvalidEvent(event_type))
             }
         }
     }
@@ -99,13 +99,13 @@ impl InactiveState {
         match event_type {
             EventType::Withdrawal => {
                 if self.0.created.wrapping_add(service_params.lock_period) >= block_number {
-                    return Err(InactiveStateError::ToWithdrawalWhileLocked);
+                    return Err(InactiveStateError::WithdrawalWhileLocked);
                 }
                 self.0.withdrawn = Some(block_number);
                 Ok(WithdrawnState(self.0))
             }
             EventType::Declaration | EventType::Activity => {
-                Err(InactiveStateError::ToWithdrawalInvalidEvent(event_type))
+                Err(InactiveStateError::WithdrawalInvalidEvent(event_type))
             }
         }
     }
