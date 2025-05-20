@@ -265,24 +265,6 @@ impl From<WithdrawnState> for ProviderState {
     }
 }
 
-impl From<ProviderInfo> for ActiveState {
-    fn from(info: ProviderInfo) -> Self {
-        Self(info)
-    }
-}
-
-impl From<ProviderInfo> for InactiveState {
-    fn from(info: ProviderInfo) -> Self {
-        Self(info)
-    }
-}
-
-impl From<ProviderInfo> for WithdrawnState {
-    fn from(info: ProviderInfo) -> Self {
-        Self(info)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -155,7 +155,8 @@ mod tests {
     use nomos_sdp_core::{
         state::{ProviderState, WithdrawnState},
         BlockNumber, DeclarationId, DeclarationUpdate, FinalizedBlockEvent,
-        FinalizedBlockEventUpdate, Locator, ProviderId, ProviderInfo, ServiceType,
+        FinalizedBlockEventUpdate, Locator, ProviderId, ProviderInfo, ServiceParameters,
+        ServiceType,
     };
 
     use super::{
@@ -208,6 +209,18 @@ mod tests {
             provider_id: create_provider_id(seed),
             service_type,
             locators,
+        }
+    }
+
+    type MockContractAddress = [u8; 32];
+
+    const fn default_service_params() -> ServiceParameters<MockContractAddress> {
+        ServiceParameters {
+            lock_period: 10,
+            inactivity_period: 20,
+            retention_period: 100,
+            activity_contract: [0; 32],
+            timestamp: 0,
         }
     }
 
@@ -352,9 +365,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn test_update() {
-        let service_type = ServiceType::BlendNetwork;
+    // Helper functions outside the test
+    fn create_test_backend(service_type: ServiceType) -> MockMembershipBackend {
         let mut settings_per_service = HashMap::new();
         settings_per_service.insert(
             service_type,
@@ -362,98 +374,117 @@ mod tests {
                 historical_block_delta: 5,
             },
         );
-        let settings = MockMembershipBackendSettings {
+        MockMembershipBackend::init(MockMembershipBackendSettings {
             settings_per_service,
             initial_membership: HashMap::new(),
             initial_locators_mapping: HashMap::new(),
-        };
-        let mut backend = MockMembershipBackend::init(settings);
+        })
+    }
 
+    async fn update_and_assert(
+        backend: &mut MockMembershipBackend,
+        block_number: BlockNumber,
+        updates: Vec<FinalizedBlockEventUpdate>,
+        expected_providers: &[(ProviderId, Vec<Locator>)],
+        service_type: ServiceType,
+    ) {
+        let event = FinalizedBlockEvent {
+            block_number,
+            updates,
+        };
+        let result = backend.update(event).await.unwrap();
+        assert_update_result(&result, service_type, expected_providers);
+    }
+
+    fn create_block_update(
+        service_type: ServiceType,
+        provider_id: ProviderId,
+        state: ProviderState,
+        locators: Vec<Locator>,
+    ) -> FinalizedBlockEventUpdate {
+        FinalizedBlockEventUpdate {
+            service_type,
+            provider_id,
+            state,
+            locators: BTreeSet::from_iter(locators),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_update() {
+        let service_type = ServiceType::BlendNetwork;
+        let mut backend = create_test_backend(service_type);
+
+        // Create test data
         let provider_info_1 = create_provider_info(1, 100);
-        let declaration_update_1 = create_declaration_update(1, service_type, 3);
-        let updates = vec![FinalizedBlockEventUpdate {
-            service_type,
-            provider_id: provider_info_1.provider_id,
-            state: ProviderState::Active(provider_info_1.into()),
-            locators: BTreeSet::from_iter(declaration_update_1.locators.clone()),
-        }];
-        let event = FinalizedBlockEvent {
-            block_number: 100,
-            updates,
-        };
-
-        let result = backend.update(event).await.unwrap();
-        assert_update_result(
-            &result,
-            service_type,
-            &[(
-                provider_info_1.provider_id,
-                declaration_update_1.locators.clone(),
-            )],
-        );
-
         let provider_info_2 = create_provider_info(2, 100);
-        let declaration_update_2 = create_declaration_update(2, service_type, 3);
-        let updates = vec![FinalizedBlockEventUpdate {
-            service_type,
-            provider_id: provider_info_2.provider_id,
-            state: ProviderState::Active(provider_info_2.into()),
-            locators: BTreeSet::from_iter(declaration_update_2.locators.clone()),
-        }];
-        let event = FinalizedBlockEvent {
-            block_number: 101,
-            updates,
-        };
-
-        let result = backend.update(event).await.unwrap();
-        assert_update_result(
-            &result,
-            service_type,
-            &[
-                (
-                    provider_info_1.provider_id,
-                    declaration_update_1.locators.clone(),
-                ),
-                (provider_info_2.provider_id, declaration_update_2.locators),
-            ],
-        );
-
         let provider_info_3 = create_provider_info(3, 100);
-        let declaration_update_3 = create_declaration_update(3, service_type, 3);
-        let updates = vec![
-            FinalizedBlockEventUpdate {
-                service_type,
-                provider_id: provider_info_2.provider_id,
-                state: ProviderState::Withdrawn(WithdrawnState(provider_info_2)),
-                locators: BTreeSet::new(),
-            },
-            FinalizedBlockEventUpdate {
-                service_type,
-                provider_id: provider_info_3.provider_id,
-                state: ProviderState::Active(provider_info_3.into()),
-                locators: BTreeSet::from_iter(declaration_update_3.locators.clone()),
-            },
-        ];
-        let event = FinalizedBlockEvent {
-            block_number: 102,
-            updates,
-        };
 
-        let result = backend.update(event).await.unwrap();
-        assert_update_result(
-            &result,
+        let decl_update_1 = create_declaration_update(1, service_type, 3);
+        let decl_update_2 = create_declaration_update(2, service_type, 3);
+        let decl_update_3 = create_declaration_update(3, service_type, 3);
+
+        // Test Phase 1: Add provider 1
+        update_and_assert(
+            &mut backend,
+            100,
+            vec![create_block_update(
+                service_type,
+                provider_info_1.provider_id,
+                ProviderState::try_from_info(100, &provider_info_1, &default_service_params())
+                    .unwrap(),
+                decl_update_1.locators.clone(),
+            )],
+            &[(provider_info_1.provider_id, decl_update_1.locators.clone())],
             service_type,
+        )
+        .await;
+
+        // Test Phase 2: Add provider 2
+        update_and_assert(
+            &mut backend,
+            101,
+            vec![create_block_update(
+                service_type,
+                provider_info_2.provider_id,
+                ProviderState::try_from_info(100, &provider_info_2, &default_service_params())
+                    .unwrap(),
+                decl_update_2.locators.clone(),
+            )],
             &[
-                (
-                    provider_info_1.provider_id,
-                    declaration_update_1.locators.clone(),
+                (provider_info_1.provider_id, decl_update_1.locators.clone()),
+                (provider_info_2.provider_id, decl_update_2.locators.clone()),
+            ],
+            service_type,
+        )
+        .await;
+
+        // Test Phase 3: Remove provider 2, add provider 3
+        update_and_assert(
+            &mut backend,
+            102,
+            vec![
+                create_block_update(
+                    service_type,
+                    provider_info_2.provider_id,
+                    ProviderState::Withdrawn(WithdrawnState(provider_info_2)),
+                    Vec::new(),
                 ),
-                (
+                create_block_update(
+                    service_type,
                     provider_info_3.provider_id,
-                    declaration_update_3.locators.clone(),
+                    ProviderState::try_from_info(100, &provider_info_3, &default_service_params())
+                        .unwrap(),
+                    decl_update_3.locators.clone(),
                 ),
             ],
-        );
+            &[
+                (provider_info_1.provider_id, decl_update_1.locators),
+                (provider_info_3.provider_id, decl_update_3.locators),
+            ],
+            service_type,
+        )
+        .await;
     }
 
     fn assert_update_result(
@@ -515,7 +546,8 @@ mod tests {
         let updates = vec![FinalizedBlockEventUpdate {
             service_type: declaration_update.service_type,
             provider_id: provider_info.provider_id,
-            state: ProviderState::Active(provider_info.into()),
+            state: ProviderState::try_from_info(5, &provider_info, &default_service_params())
+                .unwrap(),
             locators: BTreeSet::from_iter(declaration_update.locators),
         }];
 
