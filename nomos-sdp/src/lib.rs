@@ -1,5 +1,5 @@
 pub mod ledger;
-pub mod state;
+mod state;
 
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
@@ -19,11 +19,10 @@ pub struct MinStake {
 }
 
 #[derive(Clone, Debug)]
-pub struct ServiceParameters<ContractAddress: Clone> {
+pub struct ServiceParameters {
     pub lock_period: u64,
     pub inactivity_period: u64,
     pub retention_period: u64,
-    pub activity_contract: ContractAddress,
     pub timestamp: BlockNumber,
 }
 
@@ -44,7 +43,6 @@ pub enum ServiceType {
     BlendNetwork,
     DataAvailability,
     ExecutorNetwork,
-    GenericRestaking,
 }
 
 pub type Nonce = [u8; 16];
