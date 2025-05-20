@@ -1,11 +1,9 @@
-use std::fmt::Debug;
-
 use nomos_sdp_core::{
     ledger::{
         SdpLedger,
         SdpLedgerError::{
-            self, ActivityContract, DeclarationsRepository, DuplicateDeclarationInBlock,
-            DuplicateServiceDeclaration, Other, ProviderState, ServiceNotProvided,
+            self, DeclarationsRepository, DuplicateDeclarationInBlock, DuplicateServiceDeclaration,
+            Other, ProviderState, ServiceNotProvided,
             ServicesRepository as LedgerServicesRepository, StakesVerifier, WrongDeclarationId,
         },
         ServicesRepository,
@@ -15,39 +13,33 @@ use nomos_sdp_core::{
 
 use super::{SdpBackend, SdpBackendError};
 use crate::adapters::{
-    activity::SdpActivityAdapter, declaration::SdpDeclarationAdapter, services::SdpServicesAdapter,
+    declaration::SdpDeclarationAdapter, services::SdpServicesAdapter,
     stakes::SdpStakesVerifierAdapter,
 };
 
 #[async_trait::async_trait]
-impl<Declarations, Rewards, Services, Stakes, Proof, Metadata, ContractAddress> SdpBackend
-    for SdpLedger<Declarations, Rewards, Services, Stakes, Proof, Metadata, ContractAddress>
+impl<Declarations, Services, Stakes, Proof, Metadata> SdpBackend
+    for SdpLedger<Declarations, Services, Stakes, Proof, Metadata>
 where
-    Services: ServicesRepository<ContractAddress = ContractAddress> + Send + Sync + Clone + 'static,
-    ContractAddress: Debug + Send + Sync + Clone + 'static,
+    Services: ServicesRepository + Send + Sync + Clone + 'static,
     Proof: Send + Sync + 'static,
     Metadata: Send + Sync + 'static,
     Declarations: SdpDeclarationAdapter + Send + Sync,
-    Rewards:
-        SdpActivityAdapter<Metadata = Metadata, ContractAddress = ContractAddress> + Send + Sync,
     Stakes: SdpStakesVerifierAdapter<Proof = Proof> + Send + Sync,
     Services: SdpServicesAdapter + Send + Sync,
 {
     type Message = SdpMessage<Metadata, Proof>;
     type DeclarationAdapter = Declarations;
     type ServicesAdapter = Services;
-    type RewardsAdapter = Rewards;
     type StakesVerifierAdapter = Stakes;
 
     fn init(
         declaration_adapter: Self::DeclarationAdapter,
-        rewards_adapter: Self::RewardsAdapter,
         services_adapter: Self::ServicesAdapter,
         stake_verifier_adapter: Self::StakesVerifierAdapter,
     ) -> Self {
         Self::new(
             declaration_adapter,
-            rewards_adapter,
             services_adapter,
             stake_verifier_adapter,
         )
@@ -72,15 +64,11 @@ where
     }
 }
 
-impl<ContractAddress> From<SdpLedgerError<ContractAddress>> for SdpBackendError
-where
-    ContractAddress: Debug + Send + Sync + 'static,
-{
-    fn from(e: SdpLedgerError<ContractAddress>) -> Self {
+impl From<SdpLedgerError> for SdpBackendError {
+    fn from(e: SdpLedgerError) -> Self {
         match e {
             ProviderState(provider_state_error) => Self::Other(Box::new(provider_state_error)),
             DeclarationsRepository(err) => Self::DeclarationAdapterError(Box::new(err)),
-            ActivityContract(err) => Self::RewardsAdapterError(Box::new(err)),
             LedgerServicesRepository(err) => Self::ServicesAdapterError(Box::new(err)),
             StakesVerifier(err) => Self::StakesVerifierAdapterError(Box::new(err)),
             DuplicateServiceDeclaration

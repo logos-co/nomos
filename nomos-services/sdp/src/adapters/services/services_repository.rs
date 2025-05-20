@@ -14,15 +14,10 @@ impl SdpServicesAdapter for LedgerServicesAdapter {
 
 #[async_trait]
 impl ledger::ServicesRepository for LedgerServicesAdapter {
-    type ContractAddress = String;
-
     async fn get_parameters(
         &self,
         _service_type: nomos_sdp_core::ServiceType,
-    ) -> Result<
-        nomos_sdp_core::ServiceParameters<Self::ContractAddress>,
-        ledger::ServicesRepositoryError,
-    > {
+    ) -> Result<nomos_sdp_core::ServiceParameters, ledger::ServicesRepositoryError> {
         todo!()
     }
 }

@@ -2,7 +2,7 @@ use nomos_sdp_core::BlockNumber;
 use overwatch::DynError;
 
 use crate::adapters::{
-    activity::SdpActivityAdapter, declaration::SdpDeclarationAdapter, services::SdpServicesAdapter,
+    declaration::SdpDeclarationAdapter, services::SdpServicesAdapter,
     stakes::SdpStakesVerifierAdapter,
 };
 
@@ -29,13 +29,11 @@ pub enum SdpBackendError {
 pub trait SdpBackend {
     type Message: Send + Sync;
     type DeclarationAdapter: SdpDeclarationAdapter;
-    type RewardsAdapter: SdpActivityAdapter;
     type StakesVerifierAdapter: SdpStakesVerifierAdapter;
     type ServicesAdapter: SdpServicesAdapter;
 
     fn init(
         declaration_adapter: Self::DeclarationAdapter,
-        rewards_adapter: Self::RewardsAdapter,
         services_adapter: Self::ServicesAdapter,
         stake_verifier_adapter: Self::StakesVerifierAdapter,
     ) -> Self;

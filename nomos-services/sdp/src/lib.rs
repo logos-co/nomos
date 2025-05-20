@@ -1,13 +1,10 @@
 pub mod adapters;
 pub mod backends;
 
-use std::{
-    fmt::{Debug, Display},
-    pin::Pin,
-};
+use std::{fmt::Display, pin::Pin};
 
 use adapters::{
-    activity::SdpActivityAdapter, declaration::SdpDeclarationAdapter, services::SdpServicesAdapter,
+    declaration::SdpDeclarationAdapter, services::SdpServicesAdapter,
     stakes::SdpStakesVerifierAdapter,
 };
 use async_trait::async_trait;
@@ -47,21 +44,17 @@ pub enum SdpMessage<B: SdpBackend> {
 pub struct SdpService<
     B: SdpBackend + Send + Sync + 'static,
     DeclarationAdapter,
-    RewardsAdapter,
     StakesVerifierAdapter,
     ServicesAdapter,
     Metadata,
-    ContractAddress,
     Proof,
     RuntimeServiceId,
 > where
     DeclarationAdapter: SdpDeclarationAdapter + Send + Sync,
-    RewardsAdapter: SdpActivityAdapter + Send + Sync,
     ServicesAdapter: SdpServicesAdapter + Send + Sync,
     StakesVerifierAdapter: SdpStakesVerifierAdapter + Send + Sync,
     Metadata: Send + Sync + 'static,
     Proof: Send + Sync + 'static,
-    ContractAddress: Debug + Send + Sync + 'static,
 {
     backend: B,
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
@@ -71,34 +64,28 @@ pub struct SdpService<
 impl<
         B,
         DeclarationAdapter,
-        RewardsAdapter,
         StakesVerifierAdapter,
         ServicesAdapter,
         Metadata,
-        ContractAddress,
         Proof,
         RuntimeServiceId,
     > ServiceData
     for SdpService<
         B,
         DeclarationAdapter,
-        RewardsAdapter,
         StakesVerifierAdapter,
         ServicesAdapter,
         Metadata,
-        ContractAddress,
         Proof,
         RuntimeServiceId,
     >
 where
     B: SdpBackend + Send + Sync + 'static,
     DeclarationAdapter: SdpDeclarationAdapter + Send + Sync,
-    RewardsAdapter: SdpActivityAdapter + Send + Sync,
     ServicesAdapter: SdpServicesAdapter + Send + Sync,
     StakesVerifierAdapter: SdpStakesVerifierAdapter + Send + Sync,
     Metadata: Send + Sync + 'static,
     Proof: Send + Sync + 'static,
-    ContractAddress: Debug + Send + Sync + 'static,
 {
     type Settings = ();
     type State = NoState<Self::Settings>;
@@ -110,22 +97,18 @@ where
 impl<
         B: SdpBackend,
         DeclarationAdapter,
-        RewardsAdapter,
         StakesVerifierAdapter,
         ServicesAdapter,
         Metadata,
-        ContractAddress,
         Proof,
         RuntimeServiceId,
     > ServiceCore<RuntimeServiceId>
     for SdpService<
         B,
         DeclarationAdapter,
-        RewardsAdapter,
         StakesVerifierAdapter,
         ServicesAdapter,
         Metadata,
-        ContractAddress,
         Proof,
         RuntimeServiceId,
     >
@@ -133,25 +116,16 @@ where
     B: SdpBackend<
             DeclarationAdapter = DeclarationAdapter,
             ServicesAdapter = ServicesAdapter,
-            RewardsAdapter = RewardsAdapter,
             StakesVerifierAdapter = StakesVerifierAdapter,
         > + Send
         + Sync
         + 'static,
     DeclarationAdapter: ledger::DeclarationsRepository + SdpDeclarationAdapter + Send + Sync,
-    RewardsAdapter: ledger::ActivityContract<ContractAddress = ContractAddress, Metadata = Metadata>
-        + SdpActivityAdapter
-        + Send
-        + Sync,
-    ServicesAdapter: ledger::ServicesRepository<ContractAddress = ContractAddress>
-        + SdpServicesAdapter
-        + Send
-        + Sync,
+    ServicesAdapter: ledger::ServicesRepository + SdpServicesAdapter + Send + Sync,
     StakesVerifierAdapter:
         ledger::StakesVerifier<Proof = Proof> + SdpStakesVerifierAdapter + Send + Sync,
     Metadata: Send + Sync + 'static,
     Proof: Send + Sync + 'static,
-    ContractAddress: Debug + Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + Sync + 'static,
 {
     fn init(
@@ -161,13 +135,11 @@ where
         let declaration_adapter = DeclarationAdapter::new();
         let services_adapter = ServicesAdapter::new();
         let stake_verifier_adapter = StakesVerifierAdapter::new();
-        let rewards_adapter = RewardsAdapter::new();
         let (finalized_update_tx, _) = broadcast::channel(128);
 
         Ok(Self {
             backend: B::init(
                 declaration_adapter,
-                rewards_adapter,
                 services_adapter,
                 stake_verifier_adapter,
             ),
@@ -197,22 +169,18 @@ where
 impl<
         B: SdpBackend + Send + Sync + 'static,
         DeclarationAdapter: SdpDeclarationAdapter + Send + Sync,
-        RewardsAdapter: SdpActivityAdapter + Send + Sync,
         StakesVerifierAdapter: SdpStakesVerifierAdapter + Send + Sync,
         ServicesAdapter: SdpServicesAdapter + Send + Sync,
         Metadata: Send + Sync + 'static,
-        ContractAddress: Debug + Send + Sync + 'static,
         Proof: Send + Sync + 'static,
         RuntimeServiceId: Send + Sync + 'static,
     >
     SdpService<
         B,
         DeclarationAdapter,
-        RewardsAdapter,
         StakesVerifierAdapter,
         ServicesAdapter,
         Metadata,
-        ContractAddress,
         Proof,
         RuntimeServiceId,
     >
