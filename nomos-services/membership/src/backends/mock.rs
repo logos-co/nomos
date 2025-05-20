@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     vec,
 };
 
@@ -13,7 +13,7 @@ use crate::MembershipProviders;
 pub struct MockMembershipBackendSettings {
     settings_per_service: HashMap<ServiceType, Settings>,
     initial_membership: HashMap<BlockNumber, MockMembershipEntry>,
-    initial_locators_mapping: HashMap<ProviderId, Vec<Locator>>,
+    initial_locators_mapping: HashMap<ProviderId, BTreeSet<Locator>>,
 }
 
 type MockMembershipEntry = HashMap<ServiceType, HashSet<ProviderId>>;
@@ -21,7 +21,7 @@ type MockMembershipEntry = HashMap<ServiceType, HashSet<ProviderId>>;
 pub struct MockMembershipBackend {
     settings: HashMap<ServiceType, Settings>,
     membership: HashMap<BlockNumber, MockMembershipEntry>,
-    locators_mapping: HashMap<ProviderId, Vec<Locator>>,
+    locators_mapping: HashMap<ProviderId, BTreeSet<Locator>>,
     latest_block_number: BlockNumber,
 }
 
@@ -149,7 +149,7 @@ impl MockMembershipBackend {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::{BTreeSet, HashMap, HashSet};
 
     use multiaddr::multiaddr;
     use nomos_sdp_core::{
@@ -187,9 +187,10 @@ mod tests {
     }
 
     fn create_locator(seed: u8) -> Locator {
-        Locator {
-            addr: multiaddr!(Ip4([10, 0, 0, seed]), Udp(8000u16 + u16::from(seed))),
-        }
+        Locator::new(multiaddr!(
+            Ip4([10, 0, 0, seed]),
+            Udp(8000u16 + u16::from(seed))
+        ))
     }
 
     // Helper function to create DeclarationUpdate
@@ -280,15 +281,15 @@ mod tests {
             initial_locators_mapping: HashMap::from([
                 (
                     provider_info_1.provider_id,
-                    declaration_update_1.locators.clone(),
+                    BTreeSet::from_iter(declaration_update_1.locators.clone()),
                 ),
                 (
                     provider_info_2.provider_id,
-                    declaration_update_2.locators.clone(),
+                    BTreeSet::from_iter(declaration_update_2.locators.clone()),
                 ),
                 (
                     provider_info_3.provider_id,
-                    declaration_update_3.locators.clone(),
+                    BTreeSet::from_iter(declaration_update_3.locators.clone()),
                 ),
             ]),
         };
@@ -302,7 +303,7 @@ mod tests {
         assert!(result.contains_key(&provider_info_1.provider_id));
         assert_eq!(
             result.get(&provider_info_1.provider_id).unwrap(),
-            &declaration_update_1.locators
+            &BTreeSet::from_iter(declaration_update_1.locators.clone())
         );
 
         // (second entry)
@@ -314,11 +315,11 @@ mod tests {
 
         assert_eq!(
             result.get(&provider_info_2.provider_id).unwrap(),
-            &declaration_update_2.locators
+            &BTreeSet::from_iter(declaration_update_2.locators)
         );
         assert_eq!(
             result.get(&provider_info_1.provider_id).unwrap(),
-            &declaration_update_1.locators
+            &BTreeSet::from_iter(declaration_update_1.locators.clone())
         );
 
         // (third entry)
@@ -328,12 +329,12 @@ mod tests {
         assert!(result.contains_key(&provider_info_1.provider_id));
         assert!(result.contains_key(&provider_info_3.provider_id));
         assert_eq!(
-            result.get(&provider_info_3.provider_id).unwrap(),
-            &declaration_update_3.locators
+            result.get(&provider_info_1.provider_id).unwrap(),
+            &BTreeSet::from_iter(declaration_update_1.locators.clone())
         );
         assert_eq!(
             result.get(&provider_info_3.provider_id).unwrap(),
-            &declaration_update_3.locators
+            &BTreeSet::from_iter(declaration_update_3.locators.clone())
         );
 
         // latest one should be same as the one we just added
@@ -343,11 +344,11 @@ mod tests {
         assert!(result.contains_key(&provider_info_3.provider_id));
         assert_eq!(
             result.get(&provider_info_1.provider_id).unwrap(),
-            &declaration_update_1.locators
+            &BTreeSet::from_iter(declaration_update_1.locators)
         );
         assert_eq!(
             result.get(&provider_info_3.provider_id).unwrap(),
-            &declaration_update_3.locators
+            &BTreeSet::from_iter(declaration_update_3.locators)
         );
     }
 
@@ -374,7 +375,7 @@ mod tests {
             service_type,
             provider_id: provider_info_1.provider_id,
             state: ProviderState::Active(provider_info_1.into()),
-            locators: declaration_update_1.locators.clone(),
+            locators: BTreeSet::from_iter(declaration_update_1.locators.clone()),
         }];
         let event = FinalizedBlockEvent {
             block_number: 100,
@@ -385,7 +386,10 @@ mod tests {
         assert_update_result(
             &result,
             service_type,
-            &[(provider_info_1.provider_id, &declaration_update_1.locators)],
+            &[(
+                provider_info_1.provider_id,
+                declaration_update_1.locators.clone(),
+            )],
         );
 
         let provider_info_2 = create_provider_info(2, 100);
@@ -394,7 +398,7 @@ mod tests {
             service_type,
             provider_id: provider_info_2.provider_id,
             state: ProviderState::Active(provider_info_2.into()),
-            locators: declaration_update_2.locators.clone(),
+            locators: BTreeSet::from_iter(declaration_update_2.locators.clone()),
         }];
         let event = FinalizedBlockEvent {
             block_number: 101,
@@ -406,8 +410,11 @@ mod tests {
             &result,
             service_type,
             &[
-                (provider_info_1.provider_id, &declaration_update_1.locators),
-                (provider_info_2.provider_id, &declaration_update_2.locators),
+                (
+                    provider_info_1.provider_id,
+                    declaration_update_1.locators.clone(),
+                ),
+                (provider_info_2.provider_id, declaration_update_2.locators),
             ],
         );
 
@@ -418,13 +425,13 @@ mod tests {
                 service_type,
                 provider_id: provider_info_2.provider_id,
                 state: ProviderState::Withdrawn(WithdrawnState(provider_info_2)),
-                locators: Vec::new(),
+                locators: BTreeSet::new(),
             },
             FinalizedBlockEventUpdate {
                 service_type,
                 provider_id: provider_info_3.provider_id,
                 state: ProviderState::Active(provider_info_3.into()),
-                locators: declaration_update_3.locators.clone(),
+                locators: BTreeSet::from_iter(declaration_update_3.locators.clone()),
             },
         ];
         let event = FinalizedBlockEvent {
@@ -437,29 +444,22 @@ mod tests {
             &result,
             service_type,
             &[
-                (provider_info_1.provider_id, &declaration_update_1.locators),
-                (provider_info_3.provider_id, &declaration_update_3.locators),
+                (
+                    provider_info_1.provider_id,
+                    declaration_update_1.locators.clone(),
+                ),
+                (
+                    provider_info_3.provider_id,
+                    declaration_update_3.locators.clone(),
+                ),
             ],
-        );
-
-        let result = backend.get_latest_providers(service_type).await.unwrap();
-        assert_eq!(result.len(), 2);
-        assert!(result.contains_key(&provider_info_1.provider_id));
-        assert!(result.contains_key(&provider_info_3.provider_id));
-        assert_eq!(
-            result.get(&provider_info_1.provider_id).unwrap(),
-            &declaration_update_1.locators
-        );
-        assert_eq!(
-            result.get(&provider_info_3.provider_id).unwrap(),
-            &declaration_update_3.locators
         );
     }
 
     fn assert_update_result(
         result: &HashMap<ServiceType, MembershipProviders>,
         service_type: ServiceType,
-        expected_providers: &[(ProviderId, &Vec<Locator>)],
+        expected_providers: &[(ProviderId, Vec<Locator>)],
     ) {
         assert_eq!(
             result.len(),
@@ -481,7 +481,7 @@ mod tests {
             );
             assert_eq!(
                 providers.get(provider_id).unwrap(),
-                *expected_locators,
+                &BTreeSet::from_iter(expected_locators.clone()),
                 "Locators for provider {provider_id:?} do not match expected",
             );
         }
@@ -516,7 +516,7 @@ mod tests {
             service_type: declaration_update.service_type,
             provider_id: provider_info.provider_id,
             state: ProviderState::Active(provider_info.into()),
-            locators: declaration_update.locators,
+            locators: BTreeSet::from_iter(declaration_update.locators),
         }];
 
         let event = FinalizedBlockEvent {

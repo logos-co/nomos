@@ -2,7 +2,7 @@ pub mod ledger;
 pub mod state;
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     hash::Hash,
 };
 
@@ -27,9 +27,16 @@ pub struct ServiceParameters<ContractAddress: Clone> {
     pub timestamp: BlockNumber,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Locator {
-    pub addr: Multiaddr,
+    addr: Multiaddr,
+}
+
+impl Locator {
+    #[must_use]
+    pub const fn new(addr: Multiaddr) -> Self {
+        Self { addr }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -224,5 +231,5 @@ pub struct FinalizedBlockEventUpdate {
     pub service_type: ServiceType,
     pub provider_id: ProviderId,
     pub state: ProviderState,
-    pub locators: Vec<Locator>,
+    pub locators: BTreeSet<Locator>,
 }

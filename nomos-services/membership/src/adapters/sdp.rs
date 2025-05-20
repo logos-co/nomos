@@ -102,13 +102,15 @@ where
     }
 
     async fn finalized_blocks_stream(&self) -> Result<FinalizedBlockUpdateStream, SdpAdapterError> {
-        let (tx, rx) = oneshot::channel();
+        let (sender, receiver) = oneshot::channel();
 
         self.relay
-            .send(SdpMessage::Subscribe { result_sender: tx })
+            .send(SdpMessage::Subscribe {
+                result_sender: sender,
+            })
             .await
             .map_err(|(e, _)| SdpAdapterError::Other(Box::new(e)))?;
 
-        Ok(rx.await?)
+        Ok(receiver.await?)
     }
 }
