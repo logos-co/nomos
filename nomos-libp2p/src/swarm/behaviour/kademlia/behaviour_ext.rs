@@ -5,13 +5,13 @@ use libp2p::{Multiaddr, PeerId, kad::QueryId};
 use crate::swarm::behaviour::{BehaviourError, NomosP2pBehaviour};
 
 impl NomosP2pBehaviour {
-    pub(crate) fn kademlia_add_address(&mut self, peer_id: PeerId, addr: Multiaddr) {
+    pub fn kademlia_add_address(&mut self, peer_id: PeerId, addr: Multiaddr) {
         if let Some(kademlia) = self.kademlia.as_mut() {
             kademlia.add_address(&peer_id, addr);
         }
     }
 
-    pub(crate) fn kademlia_routing_table_dump(&mut self) -> HashMap<u32, Vec<PeerId>> {
+    pub fn kademlia_routing_table_dump(&mut self) -> HashMap<u32, Vec<PeerId>> {
         self.kademlia
             .as_mut()
             .map_or_else(HashMap::new, |kademlia| {
@@ -29,7 +29,7 @@ impl NomosP2pBehaviour {
             })
     }
 
-    pub(crate) fn get_kademlia_protocol_names(&self) -> Vec<String> {
+    pub fn get_kademlia_protocol_names(&self) -> Vec<String> {
         self.kademlia
             .as_ref()
             .map_or_else(std::vec::Vec::new, |kademlia| {
@@ -41,7 +41,7 @@ impl NomosP2pBehaviour {
             })
     }
 
-    pub(crate) fn kademlia_get_closest_peers(
+    pub fn kademlia_get_closest_peers(
         &mut self,
         peer_id: PeerId,
     ) -> Result<QueryId, BehaviourError> {

@@ -34,7 +34,6 @@ const BUFFER_SIZE: usize = 64;
 #[async_trait::async_trait]
 impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Libp2p {
     type Settings = Libp2pConfig;
-    type State = NoState<Libp2pConfig>;
     type Message = Command;
     type EventKind = EventKind;
     type NetworkEvent = Event;

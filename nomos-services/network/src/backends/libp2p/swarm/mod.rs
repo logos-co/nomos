@@ -41,8 +41,6 @@ pub struct SwarmHandler {
     pub commands_tx: mpsc::Sender<Command>,
     pub commands_rx: mpsc::Receiver<Command>,
     pub events_tx: broadcast::Sender<Event>,
-
-    pending_queries: HashMap<QueryId, PendingQueryData>,
 }
 
 // TODO: make this configurable
@@ -111,9 +109,7 @@ impl SwarmHandler {
 
     fn handle_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
         match event {
-            SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => {
-                self.handle_gossipsub_event(event);
-            }
+            SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => self.swarm,
             SwarmEvent::Behaviour(BehaviourEvent::Identify(event)) => {
                 self.handle_identify_event(event);
             }
@@ -236,17 +232,13 @@ impl SwarmHandler {
             });
         }
     }
-
-    const fn exp_backoff(retry: usize) -> Duration {
-        std::time::Duration::from_secs(BACKOFF.pow(retry as u32))
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::{net::Ipv4Addr, sync::Once, time::Instant};
 
-    use nomos_libp2p::{Protocol, protocol_name::ProtocolName};
+    use nomos_libp2p::{Protocol, protocol::ProtocolName};
     use tracing_subscriber::EnvFilter;
 
     use super::*;

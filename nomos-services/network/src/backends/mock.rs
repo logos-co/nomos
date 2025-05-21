@@ -233,7 +233,6 @@ impl Mock {
 #[async_trait::async_trait]
 impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Mock {
     type Settings = MockConfig;
-    type State = NoState<MockConfig>;
     type Message = MockBackendMessage;
     type EventKind = EventKind;
     type NetworkEvent = NetworkEvent;

@@ -13,7 +13,7 @@ use libp2p::{
     swarm::{NetworkBehaviour, behaviour::toggle::Toggle},
 };
 
-use crate::protocol_name::ProtocolName;
+use crate::swarm::protocol::ProtocolName;
 
 pub mod gossipsub;
 pub mod identify;

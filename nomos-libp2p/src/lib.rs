@@ -1,4 +1,3 @@
-pub mod protocol_name;
 pub mod swarm;
 
 pub use libp2p::{

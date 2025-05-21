@@ -3,7 +3,7 @@ use std::{num::NonZeroUsize, time::Duration};
 use libp2p::{StreamProtocol, kad};
 use serde::{Deserialize, Serialize};
 
-use crate::protocol_name::ProtocolName;
+use crate::swarm::protocol::ProtocolName;
 
 /// A serializable representation of Kademlia configuration options.
 /// When a value is None, the libp2p defaults are used.

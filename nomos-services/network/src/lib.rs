@@ -4,11 +4,11 @@ use async_trait::async_trait;
 use backends::NetworkBackend;
 use futures::StreamExt as _;
 use overwatch::{
-    OpaqueServiceStateHandle,
     services::{
-        AsServiceId, ServiceCore, ServiceData,
         state::{NoOperator, NoState},
+        AsServiceId, ServiceCore, ServiceData,
     },
+    OpaqueServiceStateHandle,
 };
 use services_utils::overwatch::lifecycle;
 
