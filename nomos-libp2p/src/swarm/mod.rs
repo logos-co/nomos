@@ -18,6 +18,7 @@ use libp2p::{
     swarm::{ConnectionId, DialError, SwarmEvent, dial_opts::DialOpts},
 };
 use multiaddr::{Protocol, multiaddr};
+use tokio::sync::mpsc;
 
 use crate::swarm::{
     behaviour::{NomosP2pBehaviour, NomosP2pBehaviourEvent, kademlia::swarm_ext::PendingQueryData},
@@ -26,16 +27,31 @@ use crate::swarm::{
 
 /// How long to keep a connection alive once it is idling.
 const IDLE_CONN_TIMEOUT: Duration = Duration::from_secs(300);
+// TODO: make this configurable
+const BACKOFF: u64 = 5;
+// TODO: make this configurable
+const MAX_RETRY: usize = 3;
 
 pub mod behaviour;
 pub mod config;
 pub mod protocol;
 
+#[derive(Debug)]
+pub struct DialRequest {
+    addr: Multiaddr,
+    retry_count: usize,
+}
+
 /// Wraps [`libp2p::Swarm`], and config it for use within Nomos.
 pub struct Swarm {
     // A core libp2p swarm
     swarm: libp2p::Swarm<NomosP2pBehaviour>,
+    pending_dials: HashMap<ConnectionId, DialRequest>,
     pending_queries: HashMap<QueryId, PendingQueryData>,
+    dials_channel: (
+        mpsc::UnboundedSender<DialRequest>,
+        mpsc::UnboundedReceiver<DialRequest>,
+    ),
 }
 
 impl Swarm {
@@ -92,17 +108,123 @@ impl Swarm {
         Ok(Self {
             swarm,
             pending_queries: HashMap::new(),
+            dials_channel: mpsc::unbounded_channel(),
+            pending_dials: HashMap::new(),
         })
     }
 
+    pub fn run(&mut self, initial_peers: &[Multiaddr]) {
+        let local_peer_id = *self.swarm.local_peer_id();
+        let local_addr = self.swarm.listeners().next().cloned();
+
+        // add local address to kademlia
+        if let Some(addr) = local_addr {
+            self.kademlia_add_address(local_peer_id, addr);
+        }
+
+        self.bootstrap_kad_from_peers(initial_peers);
+
+        for initial_peer in initial_peers {
+            self.schedule_connect(initial_peer);
+        }
+    }
+
     /// Initiates a connection attempt to a peer
-    pub fn connect(&mut self, peer_addr: &Multiaddr) -> Result<ConnectionId, DialError> {
-        let opt = DialOpts::from(peer_addr.clone());
+    pub fn schedule_connect(&mut self, peer_addr: &Multiaddr) {
+        self.schedule_dial_request(DialRequest {
+            addr: peer_addr.clone(),
+            retry_count: 0,
+        })
+        .unwrap_or_else(|_| tracing::error!("could not schedule connect"));
+    }
+
+    pub fn schedule_dial_request(&mut self, dial: DialRequest) -> Result<(), DialError> {
+        tracing::debug!("Connecting to {}", dial.addr);
+        let opt = DialOpts::from(dial.addr.clone());
         let connection_id = opt.connection_id();
 
-        tracing::debug!("attempting to dial {peer_addr}. connection_id:{connection_id:?}",);
+        tracing::debug!(
+            "attempting to dial {}. connection_id:{connection_id:?}",
+            dial.addr
+        );
         self.swarm.dial(opt)?;
-        Ok(connection_id)
+
+        // Dialing has been scheduled. The result will be notified as a SwarmEvent.
+        self.pending_dials.insert(connection_id, dial);
+        Ok(())
+    }
+
+    fn complete_connect(&mut self, connection_id: ConnectionId) {
+        let Some(_) = self.pending_dials.remove(&connection_id) else {
+            tracing::warn!("No pendinG dial found for connection {connection_id:?}");
+            return;
+        };
+    }
+
+    // TODO: Consider a common retry module for all use cases
+    fn retry_connect(&mut self, connection_id: ConnectionId) {
+        if let Some(mut dial) = self.pending_dials.remove(&connection_id) {
+            dial.retry_count += 1;
+            if dial.retry_count > MAX_RETRY {
+                tracing::debug!("Max retry({MAX_RETRY}) has been reached: {dial:?}");
+                return;
+            }
+
+            let wait = exp_backoff(dial.retry_count);
+            tracing::debug!("Retry dialing in {wait:?}: {dial:?}");
+
+            let commands_tx = self.dials_channel.0.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(wait).await;
+                schedule_connect(dial, &commands_tx);
+            });
+        }
+    }
+
+    pub fn handle_event(&mut self, event: SwarmEvent<NomosP2pBehaviourEvent>) {
+        match event {
+            SwarmEvent::Behaviour(NomosP2pBehaviourEvent::Identify(event)) => {
+                self.handle_identify_event(event);
+            }
+
+            SwarmEvent::Behaviour(NomosP2pBehaviourEvent::Kademlia(event)) => {
+                self.handle_kademlia_event(event);
+            }
+
+            SwarmEvent::ConnectionEstablished {
+                peer_id,
+                connection_id,
+                endpoint,
+                ..
+            } => {
+                tracing::debug!("connected to peer:{peer_id}, connection_id:{connection_id:?}");
+                if endpoint.is_dialer() {
+                    self.complete_connect(connection_id);
+                }
+            }
+            SwarmEvent::ConnectionClosed {
+                peer_id,
+                connection_id,
+                cause,
+                ..
+            } => {
+                tracing::debug!(
+                    "connection closed from peer: {peer_id} {connection_id:?} due to {cause:?}"
+                );
+            }
+            SwarmEvent::OutgoingConnectionError {
+                peer_id,
+                connection_id,
+                error,
+                ..
+            } => {
+                tracing::error!(
+                    "Failed to connect to peer: {peer_id:?} {connection_id:?} due to: {error}"
+                );
+                self.retry_connect(connection_id);
+            }
+            _ => {}
+        }
     }
 
     pub const fn swarm(&self) -> &libp2p::Swarm<NomosP2pBehaviour> {
@@ -118,7 +240,17 @@ impl futures::Stream for Swarm {
     }
 }
 
+fn schedule_connect(dial: DialRequest, commands_tx: &mpsc::UnboundedSender<DialRequest>) {
+    commands_tx
+        .send(dial)
+        .unwrap_or_else(|_| tracing::error!("could not schedule connect"));
+}
+
 #[must_use]
 pub fn multiaddr(ip: std::net::Ipv4Addr, port: u16) -> Multiaddr {
     multiaddr!(Ip4(ip), Udp(port), QuicV1)
+}
+
+const fn exp_backoff(retry: usize) -> Duration {
+    Duration::from_secs(BACKOFF.pow(retry as u32))
 }

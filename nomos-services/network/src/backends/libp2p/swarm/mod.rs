@@ -13,19 +13,15 @@ macro_rules! log_error {
     };
 }
 
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
-use nomos_libp2p::{
-    Multiaddr, PeerId, SwarmEvent,
-    libp2p::swarm::ConnectionId,
-    swarm::{Swarm, behaviour::NomosP2pBehaviourEvent},
-};
-use tokio::sync::{broadcast, mpsc, oneshot};
-use tokio_stream::StreamExt as _;
+use futures::StreamExt as _;
+use nomos_libp2p::{Multiaddr, swarm::Swarm};
+use tokio::sync::{broadcast, mpsc};
 
 use super::{
     Event, Libp2pConfig,
-    command::{Command, Dial, NetworkCommand},
+    command::{Command, NetworkCommand},
 };
 use crate::backends::libp2p::Libp2pInfo;
 
@@ -37,7 +33,6 @@ pub use kademlia::DiscoveryCommand;
 
 pub struct SwarmHandler {
     pub swarm: Swarm,
-    pub pending_dials: HashMap<ConnectionId, Dial>,
     pub commands_tx: mpsc::Sender<Command>,
     pub commands_rx: mpsc::Receiver<Command>,
     pub events_tx: broadcast::Sender<Event>,
@@ -57,13 +52,8 @@ impl SwarmHandler {
     ) -> Self {
         let swarm = Swarm::build(config.inner).unwrap();
 
-        // Keep the dialing history since swarm.connect doesn't return the result
-        // synchronously
-        let pending_dials = HashMap::<ConnectionId, Dial>::new();
-
         Self {
             swarm,
-            pending_dials,
             commands_tx,
             commands_rx,
             events_tx,
@@ -71,81 +61,17 @@ impl SwarmHandler {
     }
 
     pub async fn run(&mut self, initial_peers: Vec<Multiaddr>) {
-        let local_peer_id = *self.swarm.swarm().local_peer_id();
-        let local_addr = self.swarm.swarm().listeners().next().cloned();
-
-        // add local address to kademlia
-        if let Some(addr) = local_addr {
-            self.swarm.kademlia_add_address(local_peer_id, addr);
-        }
-
-        self.bootstrap_kad_from_peers(&initial_peers);
-
-        for initial_peer in &initial_peers {
-            let (tx, _) = oneshot::channel();
-            let dial = Dial {
-                addr: initial_peer.clone(),
-                retry_count: 0,
-                result_sender: tx,
-            };
-            Self::schedule_connect(dial, self.commands_tx.clone()).await;
-        }
+        self.swarm.run(&initial_peers);
 
         loop {
             tokio::select! {
                 Some(event) = self.swarm.next() => {
-                    self.handle_event(event);
+                    self.swarm.handle_event(event);
                 }
                 Some(command) = self.commands_rx.recv() => {
                     self.handle_command(command);
                 }
             }
-        }
-    }
-
-    fn handle_event(&mut self, event: SwarmEvent<NomosP2pBehaviourEvent>) {
-        match event {
-            SwarmEvent::Behaviour(NomosP2pBehaviourEvent::Identify(event)) => {
-                self.swarm.handle_identify_event(event);
-            }
-
-            SwarmEvent::Behaviour(NomosP2pBehaviourEvent::Kademlia(event)) => {
-                self.swarm.handle_kademlia_event(event);
-            }
-
-            SwarmEvent::ConnectionEstablished {
-                peer_id,
-                connection_id,
-                endpoint,
-                ..
-            } => {
-                tracing::debug!("connected to peer:{peer_id}, connection_id:{connection_id:?}");
-                if endpoint.is_dialer() {
-                    self.complete_connect(connection_id, peer_id);
-                }
-            }
-            SwarmEvent::ConnectionClosed {
-                peer_id,
-                connection_id,
-                cause,
-                ..
-            } => {
-                tracing::debug!(
-                    "connection closed from peer: {peer_id} {connection_id:?} due to {cause:?}"
-                );
-            }
-            SwarmEvent::OutgoingConnectionError {
-                peer_id,
-                connection_id,
-                error,
-                ..
-            } => {
-                tracing::error!(
-                    "Failed to connect to peer: {peer_id:?} {connection_id:?} due to: {error}"
-                );
-                self.retry_connect(connection_id);
-            }
-            _ => {}
         }
     }
 
@@ -160,7 +86,7 @@ impl SwarmHandler {
     fn handle_network_command(&mut self, command: NetworkCommand) {
         match command {
             NetworkCommand::Connect(dial) => {
-                self.connect(dial);
+                log_error!(self.swarm.schedule_dial_request(dial));
             }
             NetworkCommand::Info { reply } => {
                 let swarm = self.swarm.swarm();
@@ -174,57 +100,6 @@ impl SwarmHandler {
                 };
                 log_error!(reply.send(info));
             }
-        }
-    }
-
-    async fn schedule_connect(dial: Dial, commands_tx: mpsc::Sender<Command>) {
-        commands_tx
-            .send(Command::Network(NetworkCommand::Connect(dial)))
-            .await
-            .unwrap_or_else(|_| tracing::error!("could not schedule connect"));
-    }
-
-    fn connect(&mut self, dial: Dial) {
-        tracing::debug!("Connecting to {}", dial.addr);
-
-        match self.swarm.connect(&dial.addr) {
-            Ok(connection_id) => {
-                // Dialing has been scheduled. The result will be notified as a SwarmEvent.
-                self.pending_dials.insert(connection_id, dial);
-            }
-            Err(e) => {
-                if let Err(err) = dial.result_sender.send(Err(e)) {
-                    tracing::warn!("failed to send the Err result of dialing: {err:?}");
-                }
-            }
-        }
-    }
-
-    fn complete_connect(&mut self, connection_id: ConnectionId, peer_id: PeerId) {
-        if let Some(dial) = self.pending_dials.remove(&connection_id) {
-            if let Err(e) = dial.result_sender.send(Ok(peer_id)) {
-                tracing::warn!("failed to send the Ok result of dialing: {e:?}");
-            }
-        }
-    }
-
-    // TODO: Consider a common retry module for all use cases
-    fn retry_connect(&mut self, connection_id: ConnectionId) {
-        if let Some(mut dial) = self.pending_dials.remove(&connection_id) {
-            dial.retry_count += 1;
-            if dial.retry_count > MAX_RETRY {
-                tracing::debug!("Max retry({MAX_RETRY}) has been reached: {dial:?}");
-                return;
-            }
-
-            let wait = exp_backoff(dial.retry_count);
-            tracing::debug!("Retry dialing in {wait:?}: {dial:?}");
-
-            let commands_tx = self.commands_tx.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(wait).await;
-                Self::schedule_connect(dial, commands_tx).await;
-            });
         }
     }
 }
@@ -241,6 +116,7 @@ mod tests {
         Protocol,
         swarm::{config::SwarmConfig, protocol::ProtocolName},
     };
+    use tokio::sync::oneshot;
     use tracing_subscriber::EnvFilter;
 
     use super::*;

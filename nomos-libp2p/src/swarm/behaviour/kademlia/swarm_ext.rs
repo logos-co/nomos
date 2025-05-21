@@ -20,7 +20,7 @@ impl Swarm {
         self.swarm.behaviour().get_kademlia_protocol_names()
     }
 
-    pub fn bootstrap_kad_from_peers(&mut self, initial_peers: &Vec<Multiaddr>) {
+    pub fn bootstrap_kad_from_peers(&mut self, initial_peers: &[Multiaddr]) {
         for peer_addr in initial_peers {
             if let Some(Protocol::P2p(peer_id_bytes)) = peer_addr.iter().last() {
                 if let Ok(peer_id) = PeerId::from_multihash(peer_id_bytes.into()) {
@@ -40,10 +40,29 @@ impl Swarm {
     pub fn get_closest_peers(
         &mut self,
         peer_id: libp2p::PeerId,
+        sender: oneshot::Sender<Vec<PeerInfo>>,
     ) -> Result<QueryId, BehaviourError> {
-        self.swarm
+        match self
+            .swarm
             .behaviour_mut()
             .kademlia_get_closest_peers(peer_id)
+        {
+            Err(e) => {
+                tracing::warn!("Failed to get closest peers for peer ID: {peer_id}: {e:?}",);
+                let _ = sender.send(Vec::new());
+                Err(e)
+            }
+            Ok(query_id) => {
+                self.pending_queries.insert(
+                    query_id,
+                    PendingQueryData {
+                        sender,
+                        accumulated_results: Vec::new(),
+                    },
+                );
+                Ok(query_id)
+            }
+        }
     }
 
     pub fn handle_kademlia_event(&mut self, event: kad::Event) {
