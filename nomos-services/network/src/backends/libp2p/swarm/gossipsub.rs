@@ -1,8 +1,8 @@
-use nomos_libp2p::{Swarm, gossipsub};
+use nomos_libp2p::{gossipsub, swarm::behaviour::gossipsub::swarm_ext::topic_hash};
 
 use crate::backends::libp2p::{
     Command, Event,
-    swarm::{MAX_RETRY, SwarmHandler},
+    swarm::{MAX_RETRY, SwarmHandler, exp_backoff},
 };
 
 pub type Topic = String;
@@ -48,10 +48,6 @@ impl SwarmHandler {
         }
     }
 
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "TODO: Address this at some point."
-    )]
     pub(super) fn broadcast_and_retry(
         &mut self,
         topic: Topic,
@@ -69,12 +65,12 @@ impl SwarmHandler {
                         source: None,
                         data: message.into(),
                         sequence_number: None,
-                        topic: Swarm::topic_hash(&topic),
+                        topic: topic_hash(&topic),
                     })));
                 }
             }
             Err(gossipsub::PublishError::InsufficientPeers) if retry_count < MAX_RETRY => {
-                let wait = Self::exp_backoff(retry_count);
+                let wait = exp_backoff(retry_count);
                 tracing::error!(
                     "failed to broadcast message to topic due to insufficient peers, trying again in {wait:?}"
                 );
@@ -94,15 +90,6 @@ impl SwarmHandler {
             }
             Err(e) => {
                 tracing::error!("failed to broadcast message to topic: {topic} {e:?}");
-            }
-        }
-    }
-
-    pub(super) fn handle_gossipsub_event(&self, event: nomos_libp2p::libp2p::gossipsub::Event) {
-        if let nomos_libp2p::libp2p::gossipsub::Event::Message { message, .. } = event {
-            let message = Event::Message(message);
-            if let Err(e) = self.events_tx.send(message) {
-                tracing::error!("Failed to send gossipsub message event: {}", e);
             }
         }
     }

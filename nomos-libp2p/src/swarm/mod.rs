@@ -104,6 +104,10 @@ impl Swarm {
         self.swarm.dial(opt)?;
         Ok(connection_id)
     }
+
+    pub const fn swarm(&self) -> &libp2p::Swarm<NomosP2pBehaviour> {
+        &self.swarm
+    }
 }
 
 impl futures::Stream for Swarm {

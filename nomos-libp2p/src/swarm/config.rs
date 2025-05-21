@@ -1,4 +1,4 @@
-use libp2p::{Multiaddr, identity::ed25519};
+use libp2p::identity::ed25519;
 use serde::{Deserialize, Serialize};
 
 pub use crate::swarm::behaviour::{
@@ -47,10 +47,6 @@ pub struct SwarmConfig {
     /// When a value is None, identify is disabled.
     #[serde(default)]
     pub identify_config: Option<IdentifySettings>,
-
-    /// Initial peers to connect to
-    #[serde(default)]
-    pub initial_peers: Vec<Multiaddr>,
 }
 
 impl Default for SwarmConfig {
@@ -63,7 +59,6 @@ impl Default for SwarmConfig {
             protocol_name_env: ProtocolName::default(),
             kademlia_config: None,
             identify_config: None,
-            initial_peers: Vec::new(),
         }
     }
 }

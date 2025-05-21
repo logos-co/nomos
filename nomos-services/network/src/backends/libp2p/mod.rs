@@ -3,7 +3,7 @@ mod config;
 pub(crate) mod swarm;
 
 pub use nomos_libp2p::libp2p::gossipsub::{Message, TopicHash};
-use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
+use overwatch::overwatch::handle::OverwatchHandle;
 use tokio::sync::{broadcast, mpsc};
 
 use self::swarm::SwarmHandler;

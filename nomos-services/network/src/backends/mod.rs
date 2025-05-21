@@ -1,4 +1,4 @@
-use overwatch::{overwatch::handle::OverwatchHandle, services::state::ServiceState};
+use overwatch::overwatch::handle::OverwatchHandle;
 use tokio::sync::broadcast::Receiver;
 
 use super::Debug;

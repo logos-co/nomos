@@ -13,6 +13,7 @@ pub enum NetworkMsg<Payload, EventKind, NetworkEvent> {
     },
 }
 
+#[expect(dead_code, reason = "")]
 pub type BackendNetworkMsg<Backend, RuntimeServiceId> = NetworkMsg<
     <Backend as NetworkBackend<RuntimeServiceId>>::Message,
     <Backend as NetworkBackend<RuntimeServiceId>>::EventKind,

@@ -16,8 +16,9 @@ macro_rules! log_error {
 use std::{collections::HashMap, time::Duration};
 
 use nomos_libp2p::{
-    BehaviourEvent, Multiaddr, PeerId, Swarm, SwarmEvent,
-    libp2p::{kad::QueryId, swarm::ConnectionId},
+    Multiaddr, PeerId, SwarmEvent,
+    libp2p::swarm::ConnectionId,
+    swarm::{Swarm, behaviour::NomosP2pBehaviourEvent},
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::StreamExt as _;
@@ -26,10 +27,9 @@ use super::{
     Event, Libp2pConfig,
     command::{Command, Dial, NetworkCommand},
 };
-use crate::backends::libp2p::{Libp2pInfo, swarm::kademlia::PendingQueryData};
+use crate::backends::libp2p::Libp2pInfo;
 
 mod gossipsub;
-mod identify;
 mod kademlia;
 
 pub use gossipsub::PubSubCommand;
@@ -67,7 +67,6 @@ impl SwarmHandler {
             commands_tx,
             commands_rx,
             events_tx,
-            pending_queries: HashMap::new(),
         }
     }
 
@@ -77,10 +76,7 @@ impl SwarmHandler {
 
         // add local address to kademlia
         if let Some(addr) = local_addr {
-            self.swarm
-                .swarm_mut()
-                .behaviour_mut()
-                .kademlia_add_address(local_peer_id, addr);
+            self.swarm.kademlia_add_address(local_peer_id, addr);
         }
 
         self.bootstrap_kad_from_peers(&initial_peers);
@@ -107,15 +103,14 @@ impl SwarmHandler {
         }
     }
 
-    fn handle_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
+    fn handle_event(&mut self, event: SwarmEvent<NomosP2pBehaviourEvent>) {
         match event {
-            SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => self.swarm,
-            SwarmEvent::Behaviour(BehaviourEvent::Identify(event)) => {
-                self.handle_identify_event(event);
+            SwarmEvent::Behaviour(NomosP2pBehaviourEvent::Identify(event)) => {
+                self.swarm.handle_identify_event(event);
             }
 
-            SwarmEvent::Behaviour(BehaviourEvent::Kademlia(event)) => {
-                self.handle_kademlia_event(event);
+            SwarmEvent::Behaviour(NomosP2pBehaviourEvent::Kademlia(event)) => {
+                self.swarm.handle_kademlia_event(event);
             }
 
             SwarmEvent::ConnectionEstablished {
@@ -222,7 +217,7 @@ impl SwarmHandler {
                 return;
             }
 
-            let wait = Self::exp_backoff(dial.retry_count);
+            let wait = exp_backoff(dial.retry_count);
             tracing::debug!("Retry dialing in {wait:?}: {dial:?}");
 
             let commands_tx = self.commands_tx.clone();
@@ -234,11 +229,18 @@ impl SwarmHandler {
     }
 }
 
+const fn exp_backoff(retry: usize) -> Duration {
+    Duration::from_secs(BACKOFF.pow(retry as u32))
+}
+
 #[cfg(test)]
 mod tests {
     use std::{net::Ipv4Addr, sync::Once, time::Instant};
 
-    use nomos_libp2p::{Protocol, protocol::ProtocolName};
+    use nomos_libp2p::{
+        Protocol,
+        swarm::{config::SwarmConfig, protocol::ProtocolName},
+    };
     use tracing_subscriber::EnvFilter;
 
     use super::*;
@@ -253,14 +255,18 @@ mod tests {
         });
     }
 
-    fn create_swarm_config(port: u16) -> nomos_libp2p::SwarmConfig {
-        nomos_libp2p::SwarmConfig {
+    fn create_swarm_config(port: u16) -> SwarmConfig {
+        SwarmConfig {
             host: Ipv4Addr::new(127, 0, 0, 1),
             port,
             node_key: nomos_libp2p::ed25519::SecretKey::generate(),
             gossipsub_config: nomos_libp2p::gossipsub::Config::default(),
-            kademlia_config: Some(nomos_libp2p::KademliaSettings::default()),
-            identify_config: Some(nomos_libp2p::IdentifySettings::default()),
+            kademlia_config: Some(
+                nomos_libp2p::swarm::behaviour::kademlia::settings::Settings::default(),
+            ),
+            identify_config: Some(
+                nomos_libp2p::swarm::behaviour::identify::settings::Settings::default(),
+            ),
             protocol_name_env: ProtocolName::Unittest,
         }
     }

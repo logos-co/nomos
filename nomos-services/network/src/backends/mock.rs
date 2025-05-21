@@ -6,7 +6,6 @@ use std::{
 };
 
 use futures::{channel::oneshot, future::BoxFuture};
-use overwatch::services::state::NoState;
 use rand::{
     SeedableRng as _,
     distributions::{Distribution as _, WeightedIndex},

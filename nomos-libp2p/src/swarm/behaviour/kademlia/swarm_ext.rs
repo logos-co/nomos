@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use libp2p::{
     Multiaddr, PeerId,
     kad::{self, PeerInfo, ProgressStep, QueryId},
@@ -95,6 +97,16 @@ impl Swarm {
                 tracing::debug!("Handle kademlia query result: {:?}", result);
             }
         }
+    }
+
+    pub fn kademlia_add_address(&mut self, peer_id: PeerId, addr: Multiaddr) {
+        self.swarm
+            .behaviour_mut()
+            .kademlia_add_address(peer_id, addr);
+    }
+
+    pub fn kademlia_routing_table_dump(&mut self) -> HashMap<u32, Vec<PeerId>> {
+        self.swarm.behaviour_mut().kademlia_routing_table_dump()
     }
 }
 
