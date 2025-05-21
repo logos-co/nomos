@@ -1,13 +1,11 @@
-pub use identify::Settings as IdentifySettings;
-pub use kademlia::Settings as KademliaSettings;
 use libp2p::identity::ed25519;
 use serde::{Deserialize, Serialize};
 
 use crate::protocol_name::ProtocolName;
-
-mod gossipsub;
-mod identify;
-mod kademlia;
+pub use crate::swarm::behaviour::{
+    identify::settings::Settings as IdentifySettings,
+    kademlia::settings::Settings as KademliaSettings,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SwarmConfig {
@@ -20,7 +18,7 @@ pub struct SwarmConfig {
     pub node_key: ed25519::SecretKey,
     // Gossipsub config
     #[serde(
-        with = "gossipsub::ConfigDef",
+        with = "crate::swarm::behaviour::gossipsub::settings::ConfigDef",
         default = "libp2p::gossipsub::Config::default"
     )]
     pub gossipsub_config: libp2p::gossipsub::Config,
@@ -43,12 +41,12 @@ pub struct SwarmConfig {
     /// Note: Kademlia requires identify or another identity protocol to be
     /// enabled.
     #[serde(default)]
-    pub kademlia_config: Option<kademlia::Settings>,
+    pub kademlia_config: Option<KademliaSettings>,
 
     /// Identify config
     /// When a value is None, identify is disabled.
     #[serde(default)]
-    pub identify_config: Option<identify::Settings>,
+    pub identify_config: Option<IdentifySettings>,
 }
 
 impl Default for SwarmConfig {
@@ -67,7 +65,7 @@ impl Default for SwarmConfig {
 
 pub mod secret_key_serde {
     use libp2p::identity::ed25519;
-    use serde::{de::Error as _, Deserialize as _, Deserializer, Serialize as _, Serializer};
+    use serde::{Deserialize as _, Deserializer, Serialize as _, Serializer, de::Error as _};
 
     pub fn serialize<S>(key: &ed25519::SecretKey, serializer: S) -> Result<S::Ok, S::Error>
     where

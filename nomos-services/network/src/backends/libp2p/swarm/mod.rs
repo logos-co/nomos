@@ -16,17 +16,17 @@ macro_rules! log_error {
 use std::{collections::HashMap, time::Duration};
 
 use nomos_libp2p::{
-    libp2p::{kad::QueryId, swarm::ConnectionId},
     BehaviourEvent, Multiaddr, PeerId, Swarm, SwarmEvent,
+    libp2p::{kad::QueryId, swarm::ConnectionId},
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::StreamExt as _;
 
 use super::{
-    command::{Command, Dial, NetworkCommand},
     Event, Libp2pConfig,
+    command::{Command, Dial, NetworkCommand},
 };
-use crate::backends::libp2p::{swarm::kademlia::PendingQueryData, Libp2pInfo};
+use crate::backends::libp2p::{Libp2pInfo, swarm::kademlia::PendingQueryData};
 
 mod gossipsub;
 mod identify;
@@ -246,7 +246,7 @@ impl SwarmHandler {
 mod tests {
     use std::{net::Ipv4Addr, sync::Once, time::Instant};
 
-    use nomos_libp2p::{protocol_name::ProtocolName, Protocol};
+    use nomos_libp2p::{Protocol, protocol_name::ProtocolName};
     use tracing_subscriber::EnvFilter;
 
     use super::*;

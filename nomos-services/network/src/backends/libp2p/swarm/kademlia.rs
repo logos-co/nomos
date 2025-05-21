@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use nomos_libp2p::{
-    libp2p::kad::{self, PeerInfo, ProgressStep, QueryId},
     Multiaddr, PeerId, Protocol,
+    libp2p::kad::{self, PeerInfo, ProgressStep, QueryId},
 };
 use tokio::sync::oneshot;
 

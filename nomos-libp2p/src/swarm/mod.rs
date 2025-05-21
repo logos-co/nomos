@@ -6,32 +6,29 @@ use std::{
 };
 
 use libp2p::{
+    Multiaddr, PeerId,
     gossipsub::{self, MessageId, PublishError, SubscriptionError, TopicHash},
     identity::ed25519,
     kad::QueryId,
-    swarm::{dial_opts::DialOpts, ConnectionId, DialError, SwarmEvent},
-    Multiaddr, PeerId,
+    swarm::{ConnectionId, DialError, SwarmEvent, dial_opts::DialOpts},
 };
-use multiaddr::{multiaddr, Protocol};
+use multiaddr::{Protocol, multiaddr};
 
-use crate::{Behaviour, BehaviourError, BehaviourEvent, SwarmConfig};
-
-#[derive(thiserror::Error, Debug)]
-pub enum SwarmError {
-    #[error("duplicate dialing")]
-    DuplicateDialing,
-
-    #[error("no known peers")]
-    NoKnownPeers,
-}
+use crate::swarm::{
+    behaviour::{BehaviourError, NomosP2pBehaviour, NomosP2pBehaviourEvent},
+    config::SwarmConfig,
+};
 
 /// How long to keep a connection alive once it is idling.
 const IDLE_CONN_TIMEOUT: Duration = Duration::from_secs(300);
 
+pub mod behaviour;
+pub mod config;
+
 /// Wraps [`libp2p::Swarm`], and config it for use within Nomos.
 pub struct Swarm {
     // A core libp2p swarm
-    swarm: libp2p::Swarm<Behaviour>,
+    swarm: libp2p::Swarm<NomosP2pBehaviour>,
 }
 
 impl Swarm {
@@ -57,7 +54,7 @@ impl Swarm {
             .with_quic()
             .with_dns()?
             .with_behaviour(|keypair| {
-                Behaviour::new(
+                NomosP2pBehaviour::new(
                     gossipsub_config,
                     kademlia_config.clone(),
                     identify_config,
@@ -130,15 +127,6 @@ impl Swarm {
             .unsubscribe(&gossipsub::IdentTopic::new(topic))
     }
 
-    /// Returns a reference to the underlying [`libp2p::Swarm`]
-    pub const fn swarm(&self) -> &libp2p::Swarm<Behaviour> {
-        &self.swarm
-    }
-
-    pub const fn swarm_mut(&mut self) -> &mut libp2p::Swarm<Behaviour> {
-        &mut self.swarm
-    }
-
     pub fn is_subscribed(&mut self, topic: &str) -> bool {
         let topic_hash = Self::topic_hash(topic);
 
@@ -175,7 +163,7 @@ impl Swarm {
 }
 
 impl futures::Stream for Swarm {
-    type Item = SwarmEvent<BehaviourEvent>;
+    type Item = SwarmEvent<NomosP2pBehaviourEvent>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Pin::new(&mut self.swarm).poll_next(cx)

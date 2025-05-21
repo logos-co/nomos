@@ -1,8 +1,8 @@
-use nomos_libp2p::{gossipsub, Swarm};
+use nomos_libp2p::{Swarm, gossipsub};
 
 use crate::backends::libp2p::{
-    swarm::{SwarmHandler, MAX_RETRY},
     Command, Event,
+    swarm::{MAX_RETRY, SwarmHandler},
 };
 
 pub type Topic = String;
@@ -75,7 +75,9 @@ impl SwarmHandler {
             }
             Err(gossipsub::PublishError::InsufficientPeers) if retry_count < MAX_RETRY => {
                 let wait = Self::exp_backoff(retry_count);
-                tracing::error!("failed to broadcast message to topic due to insufficient peers, trying again in {wait:?}");
+                tracing::error!(
+                    "failed to broadcast message to topic due to insufficient peers, trying again in {wait:?}"
+                );
 
                 let commands_tx = self.commands_tx.clone();
                 tokio::spawn(async move {
