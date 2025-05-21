@@ -1,11 +1,11 @@
-use libp2p::identify::{self, Event};
+use libp2p::identify::Event;
 
 use crate::swarm::Swarm;
 
 impl Swarm {
-    pub fn handle_identify_event(&mut self, event: Event) {
+    pub(crate) fn handle_identify_event(&mut self, event: Event) {
         match event {
-            identify::Event::Received { peer_id, info, .. } => {
+            Event::Received { peer_id, info, .. } => {
                 tracing::debug!(
                     "Identified peer {} with addresses {:?}",
                     peer_id,

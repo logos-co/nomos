@@ -16,12 +16,15 @@ macro_rules! log_error {
 use std::time::Duration;
 
 use futures::StreamExt as _;
-use nomos_libp2p::{Multiaddr, swarm::Swarm};
+use nomos_libp2p::{
+    swarm::{behaviour::NomosP2pBehaviourEvent, DialRequest, Swarm},
+    Multiaddr, SwarmEvent,
+};
 use tokio::sync::{broadcast, mpsc};
 
 use super::{
-    Event, Libp2pConfig,
     command::{Command, NetworkCommand},
+    Event, Libp2pConfig,
 };
 use crate::backends::libp2p::Libp2pInfo;
 
@@ -61,17 +64,27 @@ impl SwarmHandler {
     }
 
     pub async fn run(&mut self, initial_peers: Vec<Multiaddr>) {
-        self.swarm.run(&initial_peers);
+        self.swarm.start(&initial_peers);
 
         loop {
             tokio::select! {
-                Some(event) = self.swarm.next() => {
-                    self.swarm.handle_event(event);
-                }
                 Some(command) = self.commands_rx.recv() => {
                     self.handle_command(command);
                 }
+                Some(swarm_event) = self.swarm.next() => {
+                    let Some(swarm_event) = self.swarm.handle_event(swarm_event) else {
+                        tracing::debug!("Swarm consumed the swarm event.");
+                        break;
+                    };
+                    self.handle_swarm_event(swarm_event);
+                }
             }
+        }
+    }
+
+    fn handle_swarm_event(&self, event: SwarmEvent<NomosP2pBehaviourEvent>) {
+        if let SwarmEvent::Behaviour(NomosP2pBehaviourEvent::Gossipsub(event)) = event {
+            self.handle_pubsub_event(event);
         }
     }
 
@@ -86,7 +99,10 @@ impl SwarmHandler {
     fn handle_network_command(&mut self, command: NetworkCommand) {
         match command {
             NetworkCommand::Connect(dial) => {
-                log_error!(self.swarm.schedule_dial_request(dial));
+                log_error!(self.swarm.schedule_connect(DialRequest {
+                    addr: dial.addr,
+                    result_sender: dial.result_sender
+                }));
             }
             NetworkCommand::Info { reply } => {
                 let swarm = self.swarm.swarm();
@@ -113,8 +129,8 @@ mod tests {
     use std::{net::Ipv4Addr, sync::Once, time::Instant};
 
     use nomos_libp2p::{
-        Protocol,
         swarm::{config::SwarmConfig, protocol::ProtocolName},
+        Protocol,
     };
     use tokio::sync::oneshot;
     use tracing_subscriber::EnvFilter;

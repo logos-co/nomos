@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
 use libp2p::{
-    Multiaddr, PeerId,
-    kad::{self, PeerInfo, ProgressStep, QueryId},
+    kad::{Event, PeerInfo, ProgressStep, QueryId, QueryResult},
     multiaddr::Protocol,
+    Multiaddr, PeerId,
 };
 use tokio::sync::oneshot;
 
-use crate::swarm::{Swarm, behaviour::BehaviourError};
+use crate::swarm::{behaviour::BehaviourError, Swarm};
 
 // Define a struct to hold the data
 pub struct PendingQueryData {
@@ -65,14 +65,14 @@ impl Swarm {
         }
     }
 
-    pub fn handle_kademlia_event(&mut self, event: kad::Event) {
+    pub(crate) fn handle_kademlia_event(&mut self, event: Event) {
         match event {
-            kad::Event::OutboundQueryProgressed {
+            Event::OutboundQueryProgressed {
                 id, result, step, ..
             } => {
                 self.handle_query_progress(id, result, &step);
             }
-            kad::Event::RoutingUpdated {
+            Event::RoutingUpdated {
                 peer,
                 addresses,
                 old_peer,
@@ -87,14 +87,9 @@ impl Swarm {
         }
     }
 
-    pub fn handle_query_progress(
-        &mut self,
-        id: QueryId,
-        result: kad::QueryResult,
-        step: &ProgressStep,
-    ) {
+    fn handle_query_progress(&mut self, id: QueryId, result: QueryResult, step: &ProgressStep) {
         match result {
-            kad::QueryResult::GetClosestPeers(Ok(result)) => {
+            QueryResult::GetClosestPeers(Ok(result)) => {
                 if let Some(query_data) = self.pending_queries.get_mut(&id) {
                     query_data.accumulated_results.extend(result.peers);
 
@@ -105,7 +100,7 @@ impl Swarm {
                     }
                 }
             }
-            kad::QueryResult::GetClosestPeers(Err(err)) => {
+            QueryResult::GetClosestPeers(Err(err)) => {
                 tracing::warn!("Failed to find closest peers: {:?}", err);
                 // For errors, we should probably just send what we have so far
                 if let Some(query_data) = self.pending_queries.remove(&id) {

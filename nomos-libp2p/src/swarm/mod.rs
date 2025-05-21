@@ -12,16 +12,16 @@ use std::{
 };
 
 use libp2p::{
-    Multiaddr, PeerId,
     identity::ed25519,
     kad::QueryId,
-    swarm::{ConnectionId, DialError, SwarmEvent, dial_opts::DialOpts},
+    swarm::{dial_opts::DialOpts, ConnectionId, DialError, SwarmEvent},
+    Multiaddr, PeerId,
 };
-use multiaddr::{Protocol, multiaddr};
-use tokio::sync::mpsc;
+use multiaddr::{multiaddr, Protocol};
+use tokio::sync::{mpsc, oneshot};
 
 use crate::swarm::{
-    behaviour::{NomosP2pBehaviour, NomosP2pBehaviourEvent, kademlia::swarm_ext::PendingQueryData},
+    behaviour::{kademlia::swarm_ext::PendingQueryData, NomosP2pBehaviour, NomosP2pBehaviourEvent},
     config::SwarmConfig,
 };
 
@@ -38,7 +38,13 @@ pub mod protocol;
 
 #[derive(Debug)]
 pub struct DialRequest {
-    addr: Multiaddr,
+    pub addr: Multiaddr,
+    pub result_sender: oneshot::Sender<Result<PeerId, DialError>>,
+}
+
+#[derive(Debug)]
+struct InternalDialRequest {
+    request: DialRequest,
     retry_count: usize,
 }
 
@@ -46,11 +52,11 @@ pub struct DialRequest {
 pub struct Swarm {
     // A core libp2p swarm
     swarm: libp2p::Swarm<NomosP2pBehaviour>,
-    pending_dials: HashMap<ConnectionId, DialRequest>,
+    pending_dials: HashMap<ConnectionId, InternalDialRequest>,
     pending_queries: HashMap<QueryId, PendingQueryData>,
     dials_channel: (
-        mpsc::UnboundedSender<DialRequest>,
-        mpsc::UnboundedReceiver<DialRequest>,
+        mpsc::UnboundedSender<InternalDialRequest>,
+        mpsc::UnboundedReceiver<InternalDialRequest>,
     ),
 }
 
@@ -113,7 +119,7 @@ impl Swarm {
         })
     }
 
-    pub fn run(&mut self, initial_peers: &[Multiaddr]) {
+    pub fn start(&mut self, initial_peers: &[Multiaddr]) {
         let local_peer_id = *self.swarm.local_peer_id();
         let local_addr = self.swarm.listeners().next().cloned();
 
@@ -124,21 +130,17 @@ impl Swarm {
 
         self.bootstrap_kad_from_peers(initial_peers);
 
+        // We don't wait for the complete dial, but we rely on the Swarm events later on
         for initial_peer in initial_peers {
-            self.schedule_connect(initial_peer);
+            let (tx, _) = oneshot::channel();
+            let _ = self.schedule_connect(DialRequest {
+                addr: initial_peer.clone(),
+                result_sender: tx,
+            });
         }
     }
 
-    /// Initiates a connection attempt to a peer
-    pub fn schedule_connect(&mut self, peer_addr: &Multiaddr) {
-        self.schedule_dial_request(DialRequest {
-            addr: peer_addr.clone(),
-            retry_count: 0,
-        })
-        .unwrap_or_else(|_| tracing::error!("could not schedule connect"));
-    }
-
-    pub fn schedule_dial_request(&mut self, dial: DialRequest) -> Result<(), DialError> {
+    pub fn schedule_connect(&mut self, dial: DialRequest) -> Result<(), DialError> {
         tracing::debug!("Connecting to {}", dial.addr);
         let opt = DialOpts::from(dial.addr.clone());
         let connection_id = opt.connection_id();
@@ -150,45 +152,29 @@ impl Swarm {
         self.swarm.dial(opt)?;
 
         // Dialing has been scheduled. The result will be notified as a SwarmEvent.
-        self.pending_dials.insert(connection_id, dial);
+        self.pending_dials.insert(
+            connection_id,
+            InternalDialRequest {
+                request: dial,
+                retry_count: 0,
+            },
+        );
         Ok(())
     }
 
-    fn complete_connect(&mut self, connection_id: ConnectionId) {
-        let Some(_) = self.pending_dials.remove(&connection_id) else {
-            tracing::warn!("No pendinG dial found for connection {connection_id:?}");
-            return;
-        };
-    }
-
-    // TODO: Consider a common retry module for all use cases
-    fn retry_connect(&mut self, connection_id: ConnectionId) {
-        if let Some(mut dial) = self.pending_dials.remove(&connection_id) {
-            dial.retry_count += 1;
-            if dial.retry_count > MAX_RETRY {
-                tracing::debug!("Max retry({MAX_RETRY}) has been reached: {dial:?}");
-                return;
-            }
-
-            let wait = exp_backoff(dial.retry_count);
-            tracing::debug!("Retry dialing in {wait:?}: {dial:?}");
-
-            let commands_tx = self.dials_channel.0.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(wait).await;
-                schedule_connect(dial, &commands_tx);
-            });
-        }
-    }
-
-    pub fn handle_event(&mut self, event: SwarmEvent<NomosP2pBehaviourEvent>) {
+    pub fn handle_event(
+        &mut self,
+        event: SwarmEvent<NomosP2pBehaviourEvent>,
+    ) -> Option<SwarmEvent<NomosP2pBehaviourEvent>> {
         match event {
-            SwarmEvent::Behaviour(NomosP2pBehaviourEvent::Identify(event)) => {
-                self.handle_identify_event(event);
+            SwarmEvent::Behaviour(NomosP2pBehaviourEvent::Identify(identify_event)) => {
+                self.handle_identify_event(identify_event);
+                None
             }
 
-            SwarmEvent::Behaviour(NomosP2pBehaviourEvent::Kademlia(event)) => {
-                self.handle_kademlia_event(event);
+            SwarmEvent::Behaviour(NomosP2pBehaviourEvent::Kademlia(kademlia_event)) => {
+                self.handle_kademlia_event(kademlia_event);
+                None
             }
 
             SwarmEvent::ConnectionEstablished {
@@ -199,8 +185,9 @@ impl Swarm {
             } => {
                 tracing::debug!("connected to peer:{peer_id}, connection_id:{connection_id:?}");
                 if endpoint.is_dialer() {
-                    self.complete_connect(connection_id);
+                    self.complete_connect(connection_id, peer_id);
                 }
+                None
             }
             SwarmEvent::ConnectionClosed {
                 peer_id,
@@ -211,6 +198,7 @@ impl Swarm {
                 tracing::debug!(
                     "connection closed from peer: {peer_id} {connection_id:?} due to {cause:?}"
                 );
+                None
             }
             SwarmEvent::OutgoingConnectionError {
                 peer_id,
@@ -222,9 +210,41 @@ impl Swarm {
                     "Failed to connect to peer: {peer_id:?} {connection_id:?} due to: {error}"
                 );
                 self.retry_connect(connection_id);
+                None
             }
-            _ => {}
+            event => Some(event),
         }
+    }
+
+    fn complete_connect(&mut self, connection_id: ConnectionId, peer_id: PeerId) {
+        let Some(dial_request) = self.pending_dials.remove(&connection_id) else {
+            tracing::warn!("No pending dial found for connection {connection_id:?}");
+            return;
+        };
+        if let Err(e) = dial_request.request.result_sender.send(Ok(peer_id)) {
+            tracing::warn!("failed to send the Ok result of dialing: {e:?}");
+        }
+    }
+
+    // TODO: Consider a common retry module for all use cases
+    fn retry_connect(&mut self, connection_id: ConnectionId) {
+        let Some(mut dial) = self.pending_dials.remove(&connection_id) else {
+            return;
+        };
+        dial.retry_count += 1;
+        if dial.retry_count > MAX_RETRY {
+            tracing::debug!("Max retry({MAX_RETRY}) has been reached: {dial:?}");
+            return;
+        }
+
+        let wait = exp_backoff(dial.retry_count);
+        tracing::debug!("Retry dialing in {wait:?}: {dial:?}");
+
+        let commands_tx = self.dials_channel.0.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(wait).await;
+            schedule_connect(dial, &commands_tx);
+        });
     }
 
     pub const fn swarm(&self) -> &libp2p::Swarm<NomosP2pBehaviour> {
@@ -240,7 +260,10 @@ impl futures::Stream for Swarm {
     }
 }
 
-fn schedule_connect(dial: DialRequest, commands_tx: &mpsc::UnboundedSender<DialRequest>) {
+fn schedule_connect(
+    dial: InternalDialRequest,
+    commands_tx: &mpsc::UnboundedSender<InternalDialRequest>,
+) {
     commands_tx
         .send(dial)
         .unwrap_or_else(|_| tracing::error!("could not schedule connect"));

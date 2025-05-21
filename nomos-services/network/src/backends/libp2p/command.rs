@@ -1,4 +1,4 @@
-use nomos_libp2p::{Multiaddr, swarm::DialRequest};
+use nomos_libp2p::{DialError, Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
@@ -7,7 +7,7 @@ pub use crate::backends::libp2p::swarm::{DiscoveryCommand, PubSubCommand};
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum NetworkCommand {
-    Connect(DialRequest),
+    Connect(Dial),
     Info { reply: oneshot::Sender<Libp2pInfo> },
 }
 
@@ -17,6 +17,12 @@ pub enum Command {
     PubSub(PubSubCommand),
     Discovery(DiscoveryCommand),
     Network(NetworkCommand),
+}
+
+#[derive(Debug)]
+pub struct Dial {
+    pub addr: Multiaddr,
+    pub result_sender: oneshot::Sender<Result<PeerId, DialError>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

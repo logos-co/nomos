@@ -1,8 +1,11 @@
-use nomos_libp2p::{gossipsub, swarm::behaviour::gossipsub::swarm_ext::topic_hash};
+use nomos_libp2p::{
+    gossipsub::{self, Event as GossipsubEvent},
+    swarm::behaviour::gossipsub::swarm_ext::topic_hash,
+};
 
 use crate::backends::libp2p::{
+    swarm::{exp_backoff, SwarmHandler, MAX_RETRY},
     Command, Event,
-    swarm::{MAX_RETRY, SwarmHandler, exp_backoff},
 };
 
 pub type Topic = String;
@@ -25,6 +28,14 @@ pub enum PubSubCommand {
 }
 
 impl SwarmHandler {
+    pub(super) fn handle_pubsub_event(&self, event: GossipsubEvent) {
+        if let GossipsubEvent::Message { message, .. } = event {
+            let message = Event::Message(message);
+            if let Err(e) = self.events_tx.send(message) {
+                tracing::error!("Failed to send gossipsub message event: {}", e);
+            }
+        }
+    }
     pub(super) fn handle_pubsub_command(&mut self, command: PubSubCommand) {
         match command {
             PubSubCommand::Broadcast { topic, message } => {
