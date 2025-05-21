@@ -28,12 +28,6 @@ where
 {
     type Backend: StorageBackend + Send + Sync + 'static;
 
-    async fn new(
-        storage_relay: OutboundRelay<
-            <StorageService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
-        >,
-    ) -> Self;
-
     async fn get_light_share<DaShare>(
         storage_relay: OutboundRelay<
             <StorageService<RocksBackend<StorageOp>, RuntimeServiceId> as ServiceData>::Message,

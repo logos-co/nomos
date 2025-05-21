@@ -30,12 +30,9 @@ use crate::{http::storage::StorageAdapter, wait_with_timeout};
 pub struct RocksAdapter<StorageOp, RuntimeServiceId>
 where
     StorageOp: StorageSerde + Send + Sync + 'static,
-    RuntimeServiceId: Debug + Sync + Display,
 {
-    pub storage_relay: OutboundRelay<
-        <StorageService<RocksBackend<StorageOp>, RuntimeServiceId> as ServiceData>::Message,
-    >,
     _storage_op: PhantomData<StorageOp>,
+    _runtime_service_id: PhantomData<RuntimeServiceId>,
 }
 
 impl<StorageOp, RuntimeServiceId> RocksAdapter<StorageOp, RuntimeServiceId>
@@ -142,17 +139,6 @@ where
     RuntimeServiceId: Debug + Sync + Display,
 {
     type Backend = RocksBackend<StorageOp>;
-
-    async fn new(
-        storage_relay: OutboundRelay<
-            <StorageService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
-        >,
-    ) -> Self {
-        Self {
-            storage_relay,
-            _storage_op: PhantomData,
-        }
-    }
 
     async fn get_light_share<DaShare>(
         storage_relay: OutboundRelay<
