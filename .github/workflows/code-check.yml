@@ -167,7 +167,9 @@ jobs:
     strategy:
       fail-fast: false # all OSes should be tested even if one fails (default: true)
       matrix:
-        os: [ self-hosted, macos-latest ]
+        os:
+          - [self-hosted, Linux]
+          - [macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
