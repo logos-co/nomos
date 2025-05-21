@@ -129,6 +129,9 @@ pub(crate) type CryptarchiaService = nomos_node::generic_services::CryptarchiaSe
 
 pub(crate) type TimeService = nomos_node::generic_services::TimeService<RuntimeServiceId>;
 
+pub(crate) type ApiStorageAdapter<StorageOp, RuntimeServiceId> =
+    nomos_api::http::storage::adapters::rocksdb::RocksAdapter<StorageOp, RuntimeServiceId>;
+
 pub(crate) type ApiService = nomos_api::ApiService<
     AxumBackend<
         (),
@@ -157,6 +160,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
         SamplingStorageAdapter<DaShare, Wire>,
         NtpTimeBackend,
         HttApiAdapter<NomosDaMembership>,
+        ApiStorageAdapter<Wire, RuntimeServiceId>,
         MB16,
     >,
     RuntimeServiceId,

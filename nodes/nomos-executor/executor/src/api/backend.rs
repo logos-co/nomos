@@ -10,6 +10,7 @@ use nomos_api::{
     http::{
         consensus::Cryptarchia,
         da::{DaDispersal, DaIndexer, DaVerifier},
+        storage,
     },
     Backend,
 };
@@ -88,6 +89,7 @@ pub struct AxumBackend<
     SamplingStorage,
     TimeBackend,
     ApiAdapter,
+    HttpStorageAdapter,
     const SIZE: usize,
 > {
     settings: AxumBackendSettings,
@@ -114,6 +116,7 @@ pub struct AxumBackend<
         SamplingStorage,
         TimeBackend,
         ApiAdapter,
+        HttpStorageAdapter,
     )>,
 }
 
@@ -152,6 +155,7 @@ impl<
         SamplingStorage,
         TimeBackend,
         ApiAdapter,
+        StorageAdapter,
         const SIZE: usize,
         RuntimeServiceId,
     > Backend<RuntimeServiceId>
@@ -176,6 +180,7 @@ impl<
         SamplingStorage,
         TimeBackend,
         ApiAdapter,
+        StorageAdapter,
         SIZE,
     >
 where
@@ -287,6 +292,8 @@ where
     TimeBackend: nomos_time::backends::TimeBackend + Send + 'static,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync + 'static,
+    StorageAdapter:
+        storage::StorageAdapter<DaStorageSerializer, RuntimeServiceId> + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send
@@ -536,7 +543,7 @@ where
             .route(paths::NETWORK_INFO, routing::get(libp2p_info))
             .route(
                 paths::STORAGE_BLOCK,
-                routing::post(block::<DaStorageSerializer, Tx, RuntimeServiceId>),
+                routing::post(block::<DaStorageSerializer, StorageAdapter, Tx, RuntimeServiceId>),
             )
             .route(
                 paths::MEMPOOL_ADD_TX,
@@ -574,15 +581,31 @@ where
             )
             .route(
                 paths::DA_GET_SHARES_COMMITMENTS,
-                routing::get(da_get_commitments::<DaStorageSerializer, DaShare, RuntimeServiceId>),
+                routing::get(
+                    da_get_commitments::<
+                        DaStorageSerializer,
+                        StorageAdapter,
+                        DaShare,
+                        RuntimeServiceId,
+                    >,
+                ),
             )
             .route(
                 paths::DA_GET_LIGHT_SHARE,
-                routing::get(da_get_light_share::<DaStorageSerializer, DaShare, RuntimeServiceId>),
+                routing::get(
+                    da_get_light_share::<
+                        DaStorageSerializer,
+                        StorageAdapter,
+                        DaShare,
+                        RuntimeServiceId,
+                    >,
+                ),
             )
             .route(
                 paths::DA_GET_SHARES,
-                routing::get(da_get_shares::<DaStorageSerializer, DaShare, RuntimeServiceId>),
+                routing::get(
+                    da_get_shares::<DaStorageSerializer, StorageAdapter, DaShare, RuntimeServiceId>,
+                ),
             )
             .route(
                 paths::DA_BALANCER_STATS,

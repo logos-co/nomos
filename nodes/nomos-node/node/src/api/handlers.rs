@@ -15,7 +15,7 @@ use nomos_api::http::{
     cl::{self, ClMempoolService},
     consensus::{self, Cryptarchia},
     da::{self, BalancerMessageFactory, DaIndexer, DaVerifier, MonitorMessageFactory},
-    da_shares, libp2p, mempool, storage,
+    libp2p, mempool, storage,
 };
 use nomos_core::{
     da::{
@@ -237,7 +237,7 @@ pub async fn cryptarchia_headers<
     RuntimeServiceId,
     const SIZE: usize,
 >(
-    State(store): State<OverwatchHandle<RuntimeServiceId>>,
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Query(query): Query<CryptarchiaInfoQuery>,
 ) -> Response
 where
@@ -306,7 +306,7 @@ where
         ApiAdapter,
         RuntimeServiceId,
         SIZE,
-    >(&store, from, to))
+    >(&handle, from, to))
 }
 
 #[utoipa::path(
@@ -570,17 +570,23 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn block<S, Tx, RuntimeServiceId>(
+pub async fn block<S, HttpStorageAdapter, Tx, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(id): Json<HeaderId>,
 ) -> Response
 where
-    Tx: serde::Serialize + serde::de::DeserializeOwned + Clone + Eq + core::hash::Hash,
+    Tx: serde::Serialize + DeserializeOwned + Clone + Eq + Hash,
     S: StorageSerde + Send + Sync + 'static,
+    HttpStorageAdapter: storage::StorageAdapter<S, RuntimeServiceId> + Send + Sync + 'static,
+    <S as StorageSerde>::Error: Send + Sync,
     RuntimeServiceId:
         AsServiceId<StorageService<RocksBackend<S>, RuntimeServiceId>> + Debug + Sync + Display,
 {
-    make_request_and_return_response!(storage::block_req::<S, Tx, RuntimeServiceId>(&handle, id))
+    let relay = match handle.relay().await {
+        Ok(relay) => relay,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+    make_request_and_return_response!(HttpStorageAdapter::get_block::<Tx>(relay, id))
 }
 
 #[utoipa::path(
@@ -591,7 +597,7 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn da_get_commitments<StorageOp, DaShare, RuntimeServiceId>(
+pub async fn da_get_commitments<StorageOp, HttpStorageAdapter, DaShare, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(req): Json<DASharesCommitmentsRequest<DaShare>>,
 ) -> Response
@@ -603,6 +609,7 @@ where
         serde::Serialize + DeserializeOwned + Send + Sync + 'static,
     StorageOp: StorageSerde + Send + Sync + 'static,
     <StorageOp as StorageSerde>::Error: Send + Sync,
+    HttpStorageAdapter: storage::StorageAdapter<StorageOp, RuntimeServiceId>,
     RuntimeServiceId: AsServiceId<StorageService<DaStorageBackend<StorageOp>, RuntimeServiceId>>
         + Debug
         + Sync
@@ -611,11 +618,14 @@ where
     // Service and storage layer types conversions
     <DaStorageBackend<StorageOp> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
 {
-    make_request_and_return_response!(storage::get_shared_commitments::<
-        StorageOp,
-        DaShare,
-        RuntimeServiceId,
-    >(&handle, req.blob_id))
+    let relay = match handle.relay().await {
+        Ok(relay) => relay,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+    make_request_and_return_response!(HttpStorageAdapter::get_shared_commitments::<DaShare>(
+        relay,
+        req.blob_id,
+    ))
 }
 
 #[utoipa::path(
@@ -626,17 +636,18 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn da_get_light_share<StorageOp, DaShare, RuntimeServiceId>(
+pub async fn da_get_light_share<StorageOp, HttpStorageAdapter, DaShare, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(request): Json<DaSamplingRequest<DaShare>>,
 ) -> Response
 where
-    DaShare: Share,
-    <DaShare as Share>::BlobId: AsRef<[u8]> + DeserializeOwned + Clone + Send + Sync + 'static,
+    DaShare: Share + DeserializeOwned + Clone + Send + Sync + 'static,
+    <DaShare as Share>::BlobId: AsRef<[u8]> + DeserializeOwned + Send + Sync + 'static,
     <DaShare as Share>::ShareIndex: AsRef<[u8]> + DeserializeOwned + Send + Sync + 'static,
-    <DaShare as Share>::LightShare: Serialize + DeserializeOwned + Send + Sync + 'static,
+    DaShare::LightShare: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     StorageOp: StorageSerde + Send + Sync + 'static,
     <StorageOp as StorageSerde>::Error: Send + Sync,
+    HttpStorageAdapter: storage::StorageAdapter<StorageOp, RuntimeServiceId>,
     RuntimeServiceId: AsServiceId<StorageService<RocksBackend<StorageOp>, RuntimeServiceId>>
         + Debug
         + Sync
@@ -644,13 +655,19 @@ where
         + 'static,
     // Service and storage layer types conversions
     <DaStorageBackend<StorageOp> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
-    <DaStorageBackend<StorageOp> as StorageDaApi>::ShareIndex: From<DaShare::ShareIndex>,
+    <DaStorageBackend<StorageOp> as StorageDaApi>::ShareIndex:
+        From<DaShare::ShareIndex> + Into<DaShare::ShareIndex>,
+    <DaStorageBackend<StorageOp> as StorageDaApi>::Share: TryInto<DaShare::LightShare>,
 {
-    make_request_and_return_response!(storage::get_light_share::<
-        StorageOp,
-        DaShare,
-        RuntimeServiceId,
-    >(&handle, request.blob_id, request.share_idx))
+    let relay = match handle.relay().await {
+        Ok(relay) => relay,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+    make_request_and_return_response!(HttpStorageAdapter::get_light_share::<DaShare>(
+        relay,
+        request.blob_id,
+        request.share_idx
+    ))
 }
 
 #[utoipa::path(
@@ -661,7 +678,7 @@ where
         (status = 500, description = "Internal server error", body = StreamBody),
     )
 )]
-pub async fn da_get_shares<StorageOp, DaShare, RuntimeServiceId>(
+pub async fn da_get_shares<StorageOp, HttpStorageAdapter, DaShare, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(request): Json<GetSharesRequest<DaShare>>,
 ) -> Response
@@ -677,6 +694,7 @@ where
         + 'static,
     StorageOp: StorageSerde + Send + Sync + 'static,
     <StorageOp as StorageSerde>::Error: Send + Sync,
+    HttpStorageAdapter: storage::StorageAdapter<StorageOp, RuntimeServiceId> + 'static,
     <DaShare as Share>::LightShare: LightShare<ShareIndex = <DaShare as Share>::ShareIndex>,
     <DaShare as Share>::ShareIndex: AsRef<[u8]> + 'static,
     RuntimeServiceId: Debug
@@ -690,8 +708,12 @@ where
         Into<DaShare::ShareIndex> + From<DaShare::ShareIndex>,
     <DaStorageBackend<StorageOp> as StorageDaApi>::Share: TryInto<DaShare::LightShare>,
 {
-    match da_shares::get_shares::<StorageOp, DaShare, RuntimeServiceId>(
-        &handle,
+    let relay = match handle.relay().await {
+        Ok(relay) => relay,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+    match HttpStorageAdapter::get_shares::<DaShare>(
+        relay,
         request.blob_id,
         request.requested_shares,
         request.filter_shares,
@@ -724,7 +746,7 @@ where
     RuntimeServiceId:
         Debug + Sync + Display + 'static + AsServiceId<NetworkService<Backend, RuntimeServiceId>>,
 {
-    make_request_and_return_response!(da::balancer_stats::<Backend, RuntimeServiceId>(&handle))
+    make_request_and_return_response!(da::balancer_stats::<Backend, RuntimeServiceId>(&handle,))
 }
 
 #[utoipa::path(
@@ -744,7 +766,7 @@ where
     RuntimeServiceId:
         Debug + Sync + Display + 'static + AsServiceId<NetworkService<Backend, RuntimeServiceId>>,
 {
-    make_request_and_return_response!(da::monitor_stats::<Backend, RuntimeServiceId>(&handle))
+    make_request_and_return_response!(da::monitor_stats::<Backend, RuntimeServiceId>(&handle,))
 }
 
 #[utoipa::path(
