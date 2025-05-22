@@ -80,13 +80,16 @@ impl SwarmHandler {
                 let commands_tx = self.commands_tx.clone();
                 tokio::spawn(async move {
                     tokio::time::sleep(wait).await;
+                    let Some(new_retry_count) = retry_count.checked_add(1) else {
+                        tracing::error!("retry count overflow.");
+                        return;
+                    };
+
                     commands_tx
                         .send(Command::PubSub(PubSubCommand::RetryBroadcast {
                             topic,
                             message,
-                            retry_count: retry_count
-                                .checked_add(1)
-                                .expect("Reached maximum value for retry count."),
+                            retry_count: new_retry_count,
                         }))
                         .await
                         .unwrap_or_else(|_| tracing::error!("could not schedule retry"));
