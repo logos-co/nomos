@@ -4,7 +4,8 @@ use nomos_network::{
     backends::mock::{
         EventKind, Mock, MockBackendMessage, MockContentTopic, MockMessage, NetworkEvent,
     },
-    NetworkMsg, NetworkService,
+    message::NetworkMsg,
+    NetworkService,
 };
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 use tokio_stream::wrappers::BroadcastStream;

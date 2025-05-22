@@ -14,7 +14,7 @@ use nomos_da_sampling::{
     api::ApiAdapter, backend::DaSamplingServiceBackend, storage::DaStorageAdapter,
     DaSamplingService, DaSamplingServiceMsg,
 };
-use nomos_network::{NetworkMsg, NetworkService};
+use nomos_network::{message::BackendNetworkMsg, NetworkService};
 use overwatch::{
     services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},
     OpaqueServiceStateHandle,
@@ -382,7 +382,7 @@ where
     fn handle_mempool_message(
         &mut self,
         message: MempoolMsg<Pool::BlockId, NetworkAdapter::Payload, Pool::Item, Pool::Key>,
-        network_relay: OutboundRelay<NetworkMsg<NetworkAdapter::Backend, RuntimeServiceId>>,
+        network_relay: OutboundRelay<BackendNetworkMsg<NetworkAdapter::Backend, RuntimeServiceId>>,
     ) {
         match message {
             MempoolMsg::Add {

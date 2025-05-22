@@ -19,7 +19,7 @@ use nomos_da_network_core::{
     },
     SubnetworkId,
 };
-use nomos_libp2p::{ed25519, secret_key_serde, Multiaddr};
+use nomos_libp2p::{ed25519, swarm::config::secret_key_serde, Multiaddr};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{
     broadcast, mpsc,

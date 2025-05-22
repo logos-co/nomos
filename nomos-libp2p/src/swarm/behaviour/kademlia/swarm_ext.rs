@@ -65,12 +65,12 @@ impl Swarm {
         }
     }
 
-    pub(crate) fn handle_kademlia_event(&mut self, event: Event) {
+    pub(crate) fn handle_kademlia_event(&mut self, event: &Event) {
         match event {
             Event::OutboundQueryProgressed {
                 id, result, step, ..
             } => {
-                self.handle_query_progress(id, result, &step);
+                self.handle_query_progress(*id, result.clone(), step);
             }
             Event::RoutingUpdated {
                 peer,
@@ -79,7 +79,12 @@ impl Swarm {
                 is_new_peer,
                 ..
             } => {
-                log_routing_update(peer, &addresses.into_vec(), old_peer, is_new_peer);
+                log_routing_update(
+                    *peer,
+                    &addresses.clone().into_vec(),
+                    *old_peer,
+                    *is_new_peer,
+                );
             }
             event => {
                 tracing::debug!("Kademlia event: {:?}", event);

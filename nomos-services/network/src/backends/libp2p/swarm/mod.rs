@@ -72,10 +72,7 @@ impl SwarmHandler {
                     self.handle_command(command);
                 }
                 Some(swarm_event) = self.swarm.next() => {
-                    let Some(swarm_event) = self.swarm.handle_event(swarm_event) else {
-                        tracing::debug!("Swarm consumed the swarm event.");
-                        break;
-                    };
+                    self.swarm.handle_event(&swarm_event);
                     self.handle_swarm_event(swarm_event);
                 }
             }

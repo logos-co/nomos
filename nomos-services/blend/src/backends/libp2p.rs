@@ -12,7 +12,7 @@ use libp2p::{
 use nomos_blend::{conn_maintenance::ConnectionMonitorSettings, membership::Membership};
 use nomos_blend_message::sphinx::SphinxMessage;
 use nomos_blend_network::TokioIntervalStreamProvider;
-use nomos_libp2p::{secret_key_serde, NetworkBehaviour};
+use nomos_libp2p::{swarm::config::secret_key_serde, NetworkBehaviour};
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};

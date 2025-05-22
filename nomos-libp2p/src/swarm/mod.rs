@@ -162,19 +162,14 @@ impl Swarm {
         Ok(())
     }
 
-    pub fn handle_event(
-        &mut self,
-        event: SwarmEvent<NomosP2pBehaviourEvent>,
-    ) -> Option<SwarmEvent<NomosP2pBehaviourEvent>> {
+    pub fn handle_event(&mut self, event: &SwarmEvent<NomosP2pBehaviourEvent>) {
         match event {
             SwarmEvent::Behaviour(NomosP2pBehaviourEvent::Identify(identify_event)) => {
                 self.handle_identify_event(identify_event);
-                None
             }
 
             SwarmEvent::Behaviour(NomosP2pBehaviourEvent::Kademlia(kademlia_event)) => {
                 self.handle_kademlia_event(kademlia_event);
-                None
             }
 
             SwarmEvent::ConnectionEstablished {
@@ -185,9 +180,8 @@ impl Swarm {
             } => {
                 tracing::debug!("connected to peer:{peer_id}, connection_id:{connection_id:?}");
                 if endpoint.is_dialer() {
-                    self.complete_connect(connection_id, peer_id);
+                    self.complete_connect(*connection_id, *peer_id);
                 }
-                None
             }
             SwarmEvent::ConnectionClosed {
                 peer_id,
@@ -198,7 +192,6 @@ impl Swarm {
                 tracing::debug!(
                     "connection closed from peer: {peer_id} {connection_id:?} due to {cause:?}"
                 );
-                None
             }
             SwarmEvent::OutgoingConnectionError {
                 peer_id,
@@ -209,10 +202,9 @@ impl Swarm {
                 tracing::error!(
                     "Failed to connect to peer: {peer_id:?} {connection_id:?} due to: {error}"
                 );
-                self.retry_connect(connection_id);
-                None
+                self.retry_connect(*connection_id);
             }
-            event => Some(event),
+            _ => {}
         }
     }
 

@@ -3,7 +3,7 @@ use libp2p::identify::Event;
 use crate::swarm::Swarm;
 
 impl Swarm {
-    pub(crate) fn handle_identify_event(&mut self, event: Event) {
+    pub(crate) fn handle_identify_event(&mut self, event: &Event) {
         match event {
             Event::Received { peer_id, info, .. } => {
                 tracing::debug!(
@@ -22,7 +22,7 @@ impl Swarm {
                     for addr in &info.listen_addrs {
                         self.swarm
                             .behaviour_mut()
-                            .kademlia_add_address(peer_id, addr.clone());
+                            .kademlia_add_address(*peer_id, addr.clone());
                     }
                 }
             }

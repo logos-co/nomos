@@ -1,4 +1,4 @@
-use nomos_libp2p::{ed25519, Multiaddr, SwarmConfig};
+use nomos_libp2p::{ed25519, swarm::config::SwarmConfig, Multiaddr};
 
 use crate::{get_available_port, node_address_from_port};
 

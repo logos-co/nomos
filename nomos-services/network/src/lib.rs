@@ -15,8 +15,8 @@ use services_utils::overwatch::lifecycle;
 use crate::{config::NetworkConfig, message::NetworkMsg};
 
 pub mod backends;
-mod config;
-mod message;
+pub mod config;
+pub mod message;
 
 pub struct NetworkService<Backend, RuntimeServiceId>
 where
