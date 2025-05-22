@@ -217,25 +217,26 @@ impl SwarmHandler {
 
     // TODO: Consider a common retry module for all use cases
     fn retry_connect(&mut self, connection_id: ConnectionId) {
-        if let Some(mut dial) = self.pending_dials.remove(&connection_id) {
-            dial.retry_count = dial
-                .retry_count
-                .checked_add(1)
-                .expect("retry count overflow");
-            if dial.retry_count > MAX_RETRY {
-                tracing::debug!("Max retry({MAX_RETRY}) has been reached: {dial:?}");
-                return;
-            }
-
-            let wait = exp_backoff(dial.retry_count);
-            tracing::debug!("Retry dialing in {wait:?}: {dial:?}");
-
-            let commands_tx = self.commands_tx.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(wait).await;
-                Self::schedule_connect(dial, commands_tx).await;
-            });
+        let Some(mut dial) = self.pending_dials.remove(&connection_id) else {
+            return;
+        };
+        let Some(new_retry_count) = dial.retry_count.checked_add(1) else {
+            tracing::debug!("Retry count overflow.");
+            return;
+        };
+        if new_retry_count > MAX_RETRY {
+            tracing::debug!("Max retry({MAX_RETRY}) has been reached: {dial:?}");
+            return;
         }
+
+        let wait = exp_backoff(dial.retry_count);
+        tracing::debug!("Retry dialing in {wait:?}: {dial:?}");
+
+        let commands_tx = self.commands_tx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(wait).await;
+            Self::schedule_connect(dial, commands_tx).await;
+        });
     }
 }
 
