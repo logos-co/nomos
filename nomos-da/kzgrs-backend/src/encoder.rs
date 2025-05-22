@@ -407,4 +407,13 @@ pub mod test {
         let shares = encoded_data.iter();
         assert_eq!(shares.count(), 16);
     }
+
+    #[test]
+    fn test_encode_837() {
+        // 837 is not arbitrary, bug discovered on offsite 2025/04/22 this size
+        // triggered errors when non-padded polynomials of size not power of two were
+        // found
+        let data = [1; 837];
+        ENCODER.encode(&data).unwrap();
+    }
 }
