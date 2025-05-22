@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 
-use nomos_libp2p::{Multiaddr, PeerId, Swarm};
+use nomos_libp2p::{multiaddr, Multiaddr, PeerId};
 use rand::{thread_rng, Rng as _};
 
 static NET_PORT: LazyLock<AtomicU16> =
@@ -59,7 +59,7 @@ pub fn adjust_timeout(d: Duration) -> Duration {
 }
 
 fn node_address_from_port(port: u16) -> Multiaddr {
-    Swarm::multiaddr(std::net::Ipv4Addr::new(127, 0, 0, 1), port)
+    multiaddr(std::net::Ipv4Addr::new(127, 0, 0, 1), port)
 }
 
 #[must_use]

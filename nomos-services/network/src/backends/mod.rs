@@ -1,4 +1,4 @@
-use overwatch::{overwatch::handle::OverwatchHandle, services::state::ServiceState};
+use overwatch::overwatch::handle::OverwatchHandle;
 use tokio::sync::broadcast::Receiver;
 
 use super::Debug;
@@ -12,7 +12,6 @@ pub mod mock;
 #[async_trait::async_trait]
 pub trait NetworkBackend<RuntimeServiceId> {
     type Settings: Clone + Debug + Send + Sync + 'static;
-    type State: ServiceState<Settings = Self::Settings> + Clone + Send + Sync;
     type Message: Debug + Send + Sync + 'static;
     type EventKind: Debug + Send + Sync + 'static;
     type NetworkEvent: Debug + Send + Sync + 'static;

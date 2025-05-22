@@ -38,7 +38,7 @@ use nomos_http_api_common::paths::{
     DA_MONITOR_STATS, STORAGE_BLOCK,
 };
 use nomos_mempool::MempoolMetrics;
-use nomos_network::{backends::libp2p::Libp2pConfig, NetworkConfig};
+use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
     api::backend::AxumBackendSettings, config::mempool::MempoolConfig, BlobInfo, Config, HeaderId,
     RocksBackendSettings, Tx,

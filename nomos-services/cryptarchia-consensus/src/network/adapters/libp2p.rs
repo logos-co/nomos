@@ -3,7 +3,8 @@ use std::{hash::Hash, marker::PhantomData};
 use nomos_core::{block::Block, wire};
 use nomos_network::{
     backends::libp2p::{Command, Event, EventKind, Libp2p, PubSubCommand::Subscribe},
-    NetworkMsg, NetworkService,
+    message::NetworkMsg,
+    NetworkService,
 };
 use overwatch::{
     services::{relay::OutboundRelay, ServiceData},

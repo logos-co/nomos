@@ -3,7 +3,7 @@ mod config;
 pub(crate) mod swarm;
 
 pub use nomos_libp2p::libp2p::gossipsub::{Message, TopicHash};
-use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
+use overwatch::overwatch::handle::OverwatchHandle;
 use tokio::sync::{broadcast, mpsc};
 
 use self::swarm::SwarmHandler;
@@ -34,7 +34,6 @@ const BUFFER_SIZE: usize = 64;
 #[async_trait::async_trait]
 impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Libp2p {
     type Settings = Libp2pConfig;
-    type State = NoState<Libp2pConfig>;
     type Message = Command;
     type EventKind = EventKind;
     type NetworkEvent = Event;

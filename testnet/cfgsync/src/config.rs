@@ -2,7 +2,7 @@ use std::{collections::HashMap, net::Ipv4Addr, str::FromStr as _};
 
 use nomos_blend::membership::Node;
 use nomos_blend_message::{sphinx::SphinxMessage, BlendMessage};
-use nomos_libp2p::{Multiaddr, PeerId};
+use nomos_libp2p::{multiaddr, Multiaddr, PeerId};
 use nomos_tracing_service::{LoggerLayer, MetricsLayer, TracingLayer, TracingSettings};
 use rand::{thread_rng, Rng as _};
 use tests::topology::configs::{
@@ -152,7 +152,7 @@ pub fn create_node_configs(
 fn update_network_init_peers(hosts: &[Host]) -> Vec<Multiaddr> {
     hosts
         .iter()
-        .map(|h| nomos_libp2p::Swarm::multiaddr(h.ip, h.network_port))
+        .map(|h| multiaddr(h.ip, h.network_port))
         .collect()
 }
 
