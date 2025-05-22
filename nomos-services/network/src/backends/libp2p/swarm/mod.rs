@@ -228,6 +228,7 @@ impl SwarmHandler {
             tracing::debug!("Max retry({MAX_RETRY}) has been reached: {dial:?}");
             return;
         }
+        dial.retry_count = new_retry_count;
 
         let wait = exp_backoff(dial.retry_count);
         tracing::debug!("Retry dialing in {wait:?}: {dial:?}");
