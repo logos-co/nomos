@@ -1,4 +1,4 @@
-use nomos_libp2p::{gossipsub, Swarm};
+use nomos_libp2p::{behaviour::gossipsub::swarm_ext::topic_hash, gossipsub};
 
 use crate::backends::libp2p::{
     swarm::{SwarmHandler, MAX_RETRY},
@@ -69,7 +69,7 @@ impl SwarmHandler {
                         source: None,
                         data: message.into(),
                         sequence_number: None,
-                        topic: Swarm::topic_hash(&topic),
+                        topic: topic_hash(&topic),
                     })));
                 }
             }

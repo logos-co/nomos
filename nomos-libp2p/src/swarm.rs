@@ -1,3 +1,8 @@
+#![allow(
+    clippy::multiple_inherent_impl,
+    reason = "We split the `Swarm` impls into different modules for better code modularity."
+)]
+
 use std::{
     error::Error,
     pin::Pin,
@@ -6,15 +11,16 @@ use std::{
 };
 
 use libp2p::{
-    gossipsub::{self, MessageId, PublishError, SubscriptionError, TopicHash},
     identity::ed25519,
-    kad::QueryId,
     swarm::{dial_opts::DialOpts, ConnectionId, DialError, SwarmEvent},
     Multiaddr, PeerId,
 };
 use multiaddr::{multiaddr, Protocol};
 
-use crate::{Behaviour, BehaviourError, BehaviourEvent, SwarmConfig};
+use crate::{
+    behaviour::{Behaviour, BehaviourEvent},
+    SwarmConfig,
+};
 
 #[derive(thiserror::Error, Debug)]
 pub enum SwarmError {
@@ -31,7 +37,7 @@ const IDLE_CONN_TIMEOUT: Duration = Duration::from_secs(300);
 /// Wraps [`libp2p::Swarm`], and config it for use within Nomos.
 pub struct Swarm {
     // A core libp2p swarm
-    swarm: libp2p::Swarm<Behaviour>,
+    pub(crate) swarm: libp2p::Swarm<Behaviour>,
 }
 
 impl Swarm {
@@ -69,7 +75,7 @@ impl Swarm {
             .with_swarm_config(|c| c.with_idle_connection_timeout(IDLE_CONN_TIMEOUT))
             .build();
 
-        let listen_addr = Self::multiaddr(config.host, config.port);
+        let listen_addr = multiaddr(config.host, config.port);
         swarm.listen_on(listen_addr.clone())?;
 
         // if kademlia is enabled and is not in client mode then it is operating in a
@@ -98,75 +104,9 @@ impl Swarm {
         Ok(connection_id)
     }
 
-    /// Subscribes to a topic
-    ///
-    /// Returns true if the topic is newly subscribed or false if already
-    /// subscribed.
-    pub fn subscribe(&mut self, topic: &str) -> Result<bool, SubscriptionError> {
-        self.swarm
-            .behaviour_mut()
-            .gossipsub
-            .subscribe(&gossipsub::IdentTopic::new(topic))
-    }
-
-    pub fn broadcast(
-        &mut self,
-        topic: &str,
-        message: impl Into<Vec<u8>>,
-    ) -> Result<MessageId, PublishError> {
-        self.swarm
-            .behaviour_mut()
-            .gossipsub
-            .publish(gossipsub::IdentTopic::new(topic), message)
-    }
-
-    /// Unsubscribes from a topic
-    ///
-    /// Returns true if previously subscribed
-    pub fn unsubscribe(&mut self, topic: &str) -> bool {
-        self.swarm
-            .behaviour_mut()
-            .gossipsub
-            .unsubscribe(&gossipsub::IdentTopic::new(topic))
-    }
-
     /// Returns a reference to the underlying [`libp2p::Swarm`]
     pub const fn swarm(&self) -> &libp2p::Swarm<Behaviour> {
         &self.swarm
-    }
-
-    pub fn is_subscribed(&mut self, topic: &str) -> bool {
-        let topic_hash = Self::topic_hash(topic);
-
-        //TODO: consider O(1) searching by having our own data structure
-        self.swarm
-            .behaviour_mut()
-            .gossipsub
-            .topics()
-            .any(|h| h == &topic_hash)
-    }
-
-    pub fn get_closest_peers(
-        &mut self,
-        peer_id: libp2p::PeerId,
-    ) -> Result<QueryId, BehaviourError> {
-        self.swarm
-            .behaviour_mut()
-            .kademlia_get_closest_peers(peer_id)
-    }
-
-    pub fn get_kademlia_protocol_names(&self) -> Vec<String> {
-        self.swarm.behaviour().get_kademlia_protocol_names()
-    }
-
-    #[must_use]
-    pub fn topic_hash(topic: &str) -> TopicHash {
-        gossipsub::IdentTopic::new(topic).hash()
-    }
-
-    #[must_use]
-    pub fn multiaddr(ip: std::net::Ipv4Addr, port: u16) -> Multiaddr {
-        multiaddr!(Ip4(ip), Udp(port), QuicV1)
     }
 }
 
@@ -176,4 +116,9 @@ impl futures::Stream for Swarm {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Pin::new(&mut self.swarm).poll_next(cx)
     }
+}
+
+#[must_use]
+pub fn multiaddr(ip: std::net::Ipv4Addr, port: u16) -> Multiaddr {
+    multiaddr!(Ip4(ip), Udp(port), QuicV1)
 }

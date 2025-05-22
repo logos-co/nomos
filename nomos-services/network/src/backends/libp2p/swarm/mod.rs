@@ -16,8 +16,9 @@ macro_rules! log_error {
 use std::{collections::HashMap, time::Duration};
 
 use nomos_libp2p::{
+    behaviour::BehaviourEvent,
     libp2p::{kad::QueryId, swarm::ConnectionId},
-    BehaviourEvent, Multiaddr, PeerId, Swarm, SwarmEvent,
+    Multiaddr, PeerId, Swarm, SwarmEvent,
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::StreamExt as _;
@@ -79,10 +80,7 @@ impl SwarmHandler {
 
         // add local address to kademlia
         if let Some(addr) = local_addr {
-            self.swarm
-                .swarm_mut()
-                .behaviour_mut()
-                .kademlia_add_address(local_peer_id, addr);
+            self.swarm.kademlia_add_address(local_peer_id, addr);
         }
 
         self.bootstrap_kad_from_peers(&initial_peers);
