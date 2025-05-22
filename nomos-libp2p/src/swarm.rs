@@ -18,7 +18,7 @@ use libp2p::{
 };
 use multiaddr::{multiaddr, Protocol};
 
-use crate::{
+pub use crate::{
     behaviour::{Behaviour, BehaviourEvent},
     SwarmConfig,
 };
@@ -56,6 +56,8 @@ impl Swarm {
             gossipsub_config,
             kademlia_config,
             identify_config,
+            autonat_client_config,
+            enable_autonat_server,
             ..
         } = config;
 
@@ -68,6 +70,8 @@ impl Swarm {
                     gossipsub_config,
                     kademlia_config.clone(),
                     identify_config,
+                    autonat_client_config,
+                    enable_autonat_server,
                     config.protocol_name_env,
                     keypair.public(),
                 )
@@ -84,7 +88,7 @@ impl Swarm {
         if let Some(kademlia_config) = &kademlia_config {
             if !kademlia_config.client_mode {
                 // libp2p2-kad server mode is implicitly enabled
-                // by adding external addressess
+                // by adding external addresses
                 // <https://github.com/libp2p/rust-libp2p/blob/master/protocols/kad/CHANGELOG.md#0440>
                 let external_addr = listen_addr.with(Protocol::P2p(peer_id));
                 swarm.add_external_address(external_addr.clone());
