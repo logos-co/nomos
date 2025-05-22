@@ -135,10 +135,6 @@ impl Swarm {
         &self.swarm
     }
 
-    pub const fn swarm_mut(&mut self) -> &mut libp2p::Swarm<Behaviour> {
-        &mut self.swarm
-    }
-
     pub fn is_subscribed(&mut self, topic: &str) -> bool {
         let topic_hash = Self::topic_hash(topic);
 
