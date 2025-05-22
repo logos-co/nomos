@@ -91,8 +91,10 @@ impl Swarm {
                 // by adding external addresses
                 // <https://github.com/libp2p/rust-libp2p/blob/master/protocols/kad/CHANGELOG.md#0440>
                 let external_addr = listen_addr.with(Protocol::P2p(peer_id));
-                swarm.add_external_address(external_addr.clone());
-                tracing::info!("Added external address: {}", external_addr);
+                swarm
+                    .behaviour_mut()
+                    .add_external_address_candidate(external_addr.clone());
+                tracing::info!("Added external address candidate: {}", external_addr);
             }
         }
 
