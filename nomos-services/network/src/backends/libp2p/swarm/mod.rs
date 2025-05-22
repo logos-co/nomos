@@ -208,34 +208,34 @@ impl SwarmHandler {
     }
 
     fn complete_connect(&mut self, connection_id: ConnectionId, peer_id: PeerId) {
-        let Some(dial) = self.pending_dials.remove(&connection_id) else {
-            return;
-        };
-        if let Err(e) = dial.result_sender.send(Ok(peer_id)) {
-            tracing::warn!("failed to send the Ok result of dialing: {e:?}");
+        if let Some(dial) = self.pending_dials.remove(&connection_id) {
+            if let Err(e) = dial.result_sender.send(Ok(peer_id)) {
+                tracing::warn!("failed to send the Ok result of dialing: {e:?}");
+            }
         }
     }
 
     // TODO: Consider a common retry module for all use cases
     fn retry_connect(&mut self, connection_id: ConnectionId) {
-        let Some(mut dial) = self.pending_dials.remove(&connection_id) else {
-            return;
-        };
+        if let Some(mut dial) = self.pending_dials.remove(&connection_id) {
+            dial.retry_count = dial
+                .retry_count
+                .checked_add(1)
+                .expect("retry count overflow");
+            if dial.retry_count > MAX_RETRY {
+                tracing::debug!("Max retry({MAX_RETRY}) has been reached: {dial:?}");
+                return;
+            }
 
-        dial.retry_count += 1;
-        if dial.retry_count > MAX_RETRY {
-            tracing::debug!("Max retry({MAX_RETRY}) has been reached: {dial:?}");
-            return;
+            let wait = exp_backoff(dial.retry_count);
+            tracing::debug!("Retry dialing in {wait:?}: {dial:?}");
+
+            let commands_tx = self.commands_tx.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(wait).await;
+                Self::schedule_connect(dial, commands_tx).await;
+            });
         }
-
-        let wait = exp_backoff(dial.retry_count);
-        tracing::debug!("Retry dialing in {wait:?}: {dial:?}");
-
-        let commands_tx = self.commands_tx.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(wait).await;
-            Self::schedule_connect(dial, commands_tx).await;
-        });
     }
 }
 
