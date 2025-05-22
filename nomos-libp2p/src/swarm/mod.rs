@@ -12,6 +12,7 @@ use std::{
 };
 
 use libp2p::{
+    gossipsub::MessageId,
     identity::ed25519,
     kad::QueryId,
     swarm::{dial_opts::DialOpts, ConnectionId, DialError, SwarmEvent},
@@ -21,7 +22,10 @@ use multiaddr::{multiaddr, Protocol};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::swarm::{
-    behaviour::{kademlia::swarm_ext::PendingQueryData, NomosP2pBehaviour, NomosP2pBehaviourEvent},
+    behaviour::{
+        gossipsub::swarm_ext::InternalBroadcastRequest, kademlia::swarm_ext::PendingQueryData,
+        NomosP2pBehaviour, NomosP2pBehaviourEvent,
+    },
     config::SwarmConfig,
 };
 
@@ -48,6 +52,15 @@ struct InternalDialRequest {
     retry_count: usize,
 }
 
+impl From<DialRequest> for InternalDialRequest {
+    fn from(value: DialRequest) -> Self {
+        Self {
+            request: value,
+            retry_count: 0,
+        }
+    }
+}
+
 /// Wraps [`libp2p::Swarm`], and config it for use within Nomos.
 pub struct Swarm {
     // A core libp2p swarm
@@ -58,6 +71,11 @@ pub struct Swarm {
         mpsc::UnboundedSender<InternalDialRequest>,
         mpsc::UnboundedReceiver<InternalDialRequest>,
     ),
+    broadcasts_channel: (
+        mpsc::UnboundedSender<InternalBroadcastRequest>,
+        mpsc::UnboundedReceiver<InternalBroadcastRequest>,
+    ),
+    pending_broadcasts: HashMap<MessageId, InternalBroadcastRequest>,
 }
 
 impl Swarm {
@@ -116,6 +134,8 @@ impl Swarm {
             pending_queries: HashMap::new(),
             dials_channel: mpsc::unbounded_channel(),
             pending_dials: HashMap::new(),
+            pending_broadcasts: HashMap::new(),
+            broadcasts_channel: mpsc::unbounded_channel(),
         })
     }
 
@@ -141,7 +161,6 @@ impl Swarm {
     }
 
     pub fn schedule_connect(&mut self, dial: DialRequest) -> Result<(), DialError> {
-        tracing::debug!("Connecting to {}", dial.addr);
         let opt = DialOpts::from(dial.addr.clone());
         let connection_id = opt.connection_id();
 
@@ -152,13 +171,7 @@ impl Swarm {
         self.swarm.dial(opt)?;
 
         // Dialing has been scheduled. The result will be notified as a SwarmEvent.
-        self.pending_dials.insert(
-            connection_id,
-            InternalDialRequest {
-                request: dial,
-                retry_count: 0,
-            },
-        );
+        self.pending_dials.insert(connection_id, dial.into());
         Ok(())
     }
 
@@ -221,13 +234,18 @@ impl Swarm {
     // TODO: Consider a common retry module for all use cases
     fn retry_connect(&mut self, connection_id: ConnectionId) {
         let Some(mut dial) = self.pending_dials.remove(&connection_id) else {
+            tracing::warn!("No pending dial found for connection {connection_id:?}");
             return;
         };
-        dial.retry_count += 1;
-        if dial.retry_count > MAX_RETRY {
+        let Some(increased_retry_count) = dial.retry_count.checked_add(1) else {
+            tracing::warn!("Reached limit of retry counts.");
+            return;
+        };
+        if increased_retry_count > MAX_RETRY {
             tracing::debug!("Max retry({MAX_RETRY}) has been reached: {dial:?}");
             return;
         }
+        dial.retry_count = increased_retry_count;
 
         let wait = exp_backoff(dial.retry_count);
         tracing::debug!("Retry dialing in {wait:?}: {dial:?}");

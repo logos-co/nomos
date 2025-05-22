@@ -81,7 +81,7 @@ impl SwarmHandler {
 
     fn handle_swarm_event(&self, event: SwarmEvent<NomosP2pBehaviourEvent>) {
         if let SwarmEvent::Behaviour(NomosP2pBehaviourEvent::Gossipsub(event)) = event {
-            self.handle_pubsub_event(event);
+            self.handle_gossipsub_event(event);
         }
     }
 

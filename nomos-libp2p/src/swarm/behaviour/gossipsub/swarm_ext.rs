@@ -1,19 +1,71 @@
 use libp2p::gossipsub::{IdentTopic, MessageId, PublishError, SubscriptionError, TopicHash};
 
-use crate::swarm::Swarm;
+use crate::swarm::{exp_backoff, Swarm, MAX_RETRY};
 
 pub type Topic = String;
 
+#[derive(Debug)]
+pub struct BroadcastRequest {
+    topic: Topic,
+    message: Vec<u8>,
+}
+
+#[derive(Debug)]
+pub struct InternalBroadcastRequest {
+    request: BroadcastRequest,
+    retry_count: usize,
+}
+
+impl From<BroadcastRequest> for InternalBroadcastRequest {
+    fn from(value: BroadcastRequest) -> Self {
+        Self {
+            request: value,
+            retry_count: 0,
+        }
+    }
+}
+
 impl Swarm {
-    pub fn broadcast(
-        &mut self,
-        topic: &str,
-        message: impl Into<Vec<u8>>,
-    ) -> Result<MessageId, PublishError> {
-        self.swarm
+    pub fn broadcast(&mut self, request: BroadcastRequest) -> Result<(), PublishError> {
+        self._broadcast(request.into())
+    }
+
+    fn _broadcast(&mut self, request: InternalBroadcastRequest) -> Result<(), PublishError> {
+        let InternalBroadcastRequest {
+            retry_count,
+            request: BroadcastRequest { topic, message },
+        } = request;
+
+        match self
+            .swarm
             .behaviour_mut()
             .gossipsub
             .publish(IdentTopic::new(topic), message)
+        {
+            Ok(id) => {
+                tracing::debug!("broadcasted message with id: {id} tp topic: {topic}");
+            }
+            Err(PublishError::InsufficientPeers) if retry_count < MAX_RETRY => {
+                let increased_retry_count = retry_count.saturating_add(1);
+                let wait = exp_backoff(increased_retry_count);
+                tracing::error!(
+                    "failed to broadcast message to topic due to insufficient peers, trying again in {wait:?}"
+                );
+                tokio::spawn(async move {
+                    tokio::time::sleep(wait).await;
+                    commands_tx
+                        .send(Command::PubSub(PubSubCommand::RetryBroadcast {
+                            topic,
+                            message,
+                            retry_count: retry_count + 1,
+                        }))
+                        .await
+                        .unwrap_or_else(|_| tracing::error!("could not schedule retry"));
+                });
+                Ok(())
+            }
+            Err(e) => return e,
+        }
     }
 
     /// Subscribes to a topic

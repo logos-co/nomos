@@ -28,14 +28,6 @@ pub enum PubSubCommand {
 }
 
 impl SwarmHandler {
-    pub(super) fn handle_pubsub_event(&self, event: GossipsubEvent) {
-        if let GossipsubEvent::Message { message, .. } = event {
-            let message = Event::Message(message);
-            if let Err(e) = self.events_tx.send(message) {
-                tracing::error!("Failed to send gossipsub message event: {}", e);
-            }
-        }
-    }
     pub(super) fn handle_pubsub_command(&mut self, command: PubSubCommand) {
         match command {
             PubSubCommand::Broadcast { topic, message } => {
@@ -63,12 +55,7 @@ impl SwarmHandler {
         clippy::cognitive_complexity,
         reason = "TODO: Address this at some point."
     )]
-    pub(super) fn broadcast_and_retry(
-        &mut self,
-        topic: Topic,
-        message: Box<[u8]>,
-        retry_count: usize,
-    ) {
+    fn broadcast_and_retry(&mut self, topic: Topic, message: Box<[u8]>, retry_count: usize) {
         tracing::debug!("broadcasting message to topic: {topic}");
 
         match self.swarm.broadcast(&topic, message.to_vec()) {
@@ -106,6 +93,16 @@ impl SwarmHandler {
             Err(e) => {
                 tracing::error!("failed to broadcast message to topic: {topic} {e:?}");
             }
+        }
+    }
+
+    pub(super) fn handle_gossipsub_event(&self, event: GossipsubEvent) {
+        let GossipsubEvent::Message { message, .. } = event else {
+            return;
+        };
+        let message = Event::Message(message);
+        if let Err(e) = self.events_tx.send(message) {
+            tracing::error!("Failed to send gossipsub message event: {}", e);
         }
     }
 }

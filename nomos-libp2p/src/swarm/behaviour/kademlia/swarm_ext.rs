@@ -22,18 +22,18 @@ impl Swarm {
 
     pub fn bootstrap_kad_from_peers(&mut self, initial_peers: &[Multiaddr]) {
         for peer_addr in initial_peers {
-            if let Some(Protocol::P2p(peer_id_bytes)) = peer_addr.iter().last() {
-                if let Ok(peer_id) = PeerId::from_multihash(peer_id_bytes.into()) {
-                    self.swarm
-                        .behaviour_mut()
-                        .kademlia_add_address(peer_id, peer_addr.clone());
-                    tracing::debug!("Added peer to Kademlia: {} at {}", peer_id, peer_addr);
-                } else {
-                    tracing::warn!("Failed to parse peer ID from multiaddr: {}", peer_addr);
-                }
-            } else {
+            let Some(Protocol::P2p(peer_id_bytes)) = peer_addr.iter().last() else {
                 tracing::warn!("Multiaddr doesn't contain peer ID: {}", peer_addr);
-            }
+                return;
+            };
+            let Ok(peer_id) = PeerId::from_multihash(peer_id_bytes.into()) else {
+                tracing::warn!("Failed to parse peer ID from multiaddr: {}", peer_addr);
+                return;
+            };
+            self.swarm
+                .behaviour_mut()
+                .kademlia_add_address(peer_id, peer_addr.clone());
+            tracing::debug!("Added peer to Kademlia: {} at {}", peer_id, peer_addr);
         }
     }
 
@@ -95,22 +95,25 @@ impl Swarm {
     fn handle_query_progress(&mut self, id: QueryId, result: QueryResult, step: &ProgressStep) {
         match result {
             QueryResult::GetClosestPeers(Ok(result)) => {
-                if let Some(query_data) = self.pending_queries.get_mut(&id) {
-                    query_data.accumulated_results.extend(result.peers);
+                let Some(query_data) = self.pending_queries.get_mut(&id) else {
+                    return;
+                };
+                query_data.accumulated_results.extend(result.peers);
 
-                    if step.last {
-                        if let Some(query_data) = self.pending_queries.remove(&id) {
-                            let _ = query_data.sender.send(query_data.accumulated_results);
-                        }
-                    }
+                if step.last {
+                    let Some(query_data) = self.pending_queries.remove(&id) else {
+                        return;
+                    };
+                    let _ = query_data.sender.send(query_data.accumulated_results);
                 }
             }
             QueryResult::GetClosestPeers(Err(err)) => {
                 tracing::warn!("Failed to find closest peers: {:?}", err);
                 // For errors, we should probably just send what we have so far
-                if let Some(query_data) = self.pending_queries.remove(&id) {
-                    let _ = query_data.sender.send(query_data.accumulated_results);
-                }
+                let Some(query_data) = self.pending_queries.remove(&id) else {
+                    return;
+                };
+                let _ = query_data.sender.send(query_data.accumulated_results);
             }
             _ => {
                 tracing::debug!("Handle kademlia query result: {:?}", result);
