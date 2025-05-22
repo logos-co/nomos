@@ -24,7 +24,8 @@ impl Behaviour {
                     .iter()
                     .map(|entry| *entry.node.key.preimage())
                     .collect::<Vec<_>>();
-                (bucket_idx as u32, peers)
+                let bucket_idx: u32 = bucket_idx.try_into().expect("Bucket index to be u32 MAX.");
+                (bucket_idx, peers)
             })
             .collect()
     }

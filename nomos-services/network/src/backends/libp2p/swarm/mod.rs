@@ -208,36 +208,39 @@ impl SwarmHandler {
     }
 
     fn complete_connect(&mut self, connection_id: ConnectionId, peer_id: PeerId) {
-        if let Some(dial) = self.pending_dials.remove(&connection_id) {
-            if let Err(e) = dial.result_sender.send(Ok(peer_id)) {
-                tracing::warn!("failed to send the Ok result of dialing: {e:?}");
-            }
+        let Some(dial) = self.pending_dials.remove(&connection_id) else {
+            return;
+        };
+        if let Err(e) = dial.result_sender.send(Ok(peer_id)) {
+            tracing::warn!("failed to send the Ok result of dialing: {e:?}");
         }
     }
 
     // TODO: Consider a common retry module for all use cases
     fn retry_connect(&mut self, connection_id: ConnectionId) {
-        if let Some(mut dial) = self.pending_dials.remove(&connection_id) {
-            dial.retry_count += 1;
-            if dial.retry_count > MAX_RETRY {
-                tracing::debug!("Max retry({MAX_RETRY}) has been reached: {dial:?}");
-                return;
-            }
+        let Some(mut dial) = self.pending_dials.remove(&connection_id) else {
+            return;
+        };
 
-            let wait = Self::exp_backoff(dial.retry_count);
-            tracing::debug!("Retry dialing in {wait:?}: {dial:?}");
-
-            let commands_tx = self.commands_tx.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(wait).await;
-                Self::schedule_connect(dial, commands_tx).await;
-            });
+        dial.retry_count += 1;
+        if dial.retry_count > MAX_RETRY {
+            tracing::debug!("Max retry({MAX_RETRY}) has been reached: {dial:?}");
+            return;
         }
-    }
 
-    const fn exp_backoff(retry: usize) -> Duration {
-        std::time::Duration::from_secs(BACKOFF.pow(retry as u32))
+        let wait = exp_backoff(dial.retry_count);
+        tracing::debug!("Retry dialing in {wait:?}: {dial:?}");
+
+        let commands_tx = self.commands_tx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(wait).await;
+            Self::schedule_connect(dial, commands_tx).await;
+        });
     }
+}
+
+const fn exp_backoff(retry: usize) -> Duration {
+    std::time::Duration::from_secs(BACKOFF.pow(retry as u32))
 }
 
 #[cfg(test)]

@@ -14,11 +14,14 @@ impl Swarm {
             .subscribe(&IdentTopic::new(topic))
     }
 
-    pub fn broadcast(
+    pub fn broadcast<Message>(
         &mut self,
         topic: &str,
-        message: impl Into<Vec<u8>>,
-    ) -> Result<MessageId, PublishError> {
+        message: Message,
+    ) -> Result<MessageId, PublishError>
+    where
+        Message: Into<Vec<u8>>,
+    {
         self.swarm
             .behaviour_mut()
             .gossipsub

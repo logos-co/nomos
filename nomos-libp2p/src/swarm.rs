@@ -5,6 +5,7 @@
 
 use std::{
     error::Error,
+    net::Ipv4Addr,
     pin::Pin,
     task::{Context, Poll},
     time::Duration,
@@ -70,7 +71,7 @@ impl Swarm {
                     config.protocol_name_env,
                     keypair.public(),
                 )
-                .unwrap()
+                .expect("Behaviour should not fail to set up.")
             })?
             .with_swarm_config(|c| c.with_idle_connection_timeout(IDLE_CONN_TIMEOUT))
             .build();
@@ -80,15 +81,17 @@ impl Swarm {
 
         // if kademlia is enabled and is not in client mode then it is operating in a
         // server mode
-        if let Some(kademlia_config) = &kademlia_config {
-            if !kademlia_config.client_mode {
-                // libp2p2-kad server mode is implicitly enabled
-                // by adding external addressess
-                // <https://github.com/libp2p/rust-libp2p/blob/master/protocols/kad/CHANGELOG.md#0440>
-                let external_addr = listen_addr.with(Protocol::P2p(peer_id));
-                swarm.add_external_address(external_addr.clone());
-                tracing::info!("Added external address: {}", external_addr);
-            }
+        let Some(kademlia_config) = &kademlia_config else {
+            return Ok(Self { swarm });
+        };
+
+        if !kademlia_config.client_mode {
+            // libp2p2-kad server mode is implicitly enabled
+            // by adding external addressess
+            // <https://github.com/libp2p/rust-libp2p/blob/master/protocols/kad/CHANGELOG.md#0440>
+            let external_addr = listen_addr.with(Protocol::P2p(peer_id));
+            swarm.add_external_address(external_addr.clone());
+            tracing::info!("Added external address: {}", external_addr);
         }
 
         Ok(Self { swarm })
@@ -119,6 +122,6 @@ impl futures::Stream for Swarm {
 }
 
 #[must_use]
-pub fn multiaddr(ip: std::net::Ipv4Addr, port: u16) -> Multiaddr {
+pub fn multiaddr(ip: Ipv4Addr, port: u16) -> Multiaddr {
     multiaddr!(Ip4(ip), Udp(port), QuicV1)
 }
