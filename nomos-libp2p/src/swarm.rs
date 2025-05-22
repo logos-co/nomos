@@ -19,7 +19,7 @@ use libp2p::{
 };
 use multiaddr::multiaddr;
 
-use crate::{
+pub use crate::{
     behaviour::{Behaviour, BehaviourEvent},
     SwarmConfig,
 };
@@ -48,6 +48,8 @@ impl Swarm {
             gossipsub_config,
             kademlia_config,
             identify_config,
+            autonat_client_config,
+            enable_autonat_server,
             ..
         } = config;
 
@@ -60,6 +62,8 @@ impl Swarm {
                     gossipsub_config,
                     kademlia_config.clone(),
                     identify_config,
+                    autonat_client_config,
+                    enable_autonat_server,
                     config.protocol_name_env,
                     keypair.public(),
                 )
