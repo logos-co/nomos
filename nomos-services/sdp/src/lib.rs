@@ -99,11 +99,11 @@ where
     }
 
     async fn run(mut self) -> Result<(), overwatch::DynError> {
-        loop {
-            if let Some(msg) = self.service_resources_handle.inbound_relay.recv().await {
-                self.handle_sdp_message(msg).await;
-            }
+        while let Some(msg) = self.service_resources_handle.inbound_relay.recv().await {
+            self.handle_sdp_message(msg).await;
         }
+
+        Ok(())
     }
 }
 
