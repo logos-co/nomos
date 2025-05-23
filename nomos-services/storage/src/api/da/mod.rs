@@ -25,11 +25,15 @@ pub trait DaConverter<Backend: StorageDaApi> {
     fn share_index_from_storage(
         share_index: Backend::ShareIndex,
     ) -> Result<ServiceShareIndex, Self::Error>;
+
     fn share_to_storage(service_share: ServiceLightShare) -> Result<Backend::Share, Self::Error>;
+
     fn share_from_storage(backend_share: Backend::Share) -> Result<ServiceLightShare, Self::Error>;
+
     fn commitments_to_storage(
         service_commitments: ServiceSharedCommitments,
     ) -> Result<Backend::Commitments, Self::Error>;
+
     fn commitments_from_storage(
         backend_commitments: Backend::Commitments,
     ) -> Result<ServiceSharedCommitments, Self::Error>;

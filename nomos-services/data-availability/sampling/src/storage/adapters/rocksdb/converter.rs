@@ -1,9 +1,8 @@
 use bytes::Bytes;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_core::da::{blob::Share, BlobId};
-use nomos_storage::api::da::StorageDaApi;
 use nomos_storage::{
-    api::da::DaConverter,
+    api::da::{DaConverter, StorageDaApi},
     backends::{rocksdb::RocksBackend, StorageSerde},
 };
 
