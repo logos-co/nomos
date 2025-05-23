@@ -57,10 +57,10 @@ fn get_test_random_path() -> PathBuf {
 }
 
 #[test]
-fn test_mockmempool() {
+fn test_mock_mempool() {
     let recovery_file_path = get_test_random_path();
     run_with_recovery_teardown(&recovery_file_path, || {
-        let exist = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let exist = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let exist2 = Arc::clone(&exist);
 
         let predefined_messages = vec![
@@ -80,30 +80,29 @@ fn test_mockmempool() {
 
         let exp_txns: HashSet<MockMessage> = predefined_messages.iter().cloned().collect();
 
-        let app = OverwatchRunner::<MockPoolNode>::run(
-            MockPoolNodeServiceSettings {
-                network: NetworkConfig {
-                    backend: MockConfig {
-                        predefined_messages,
-                        duration: tokio::time::Duration::from_millis(100),
-                        seed: 0,
-                        version: 1,
-                        weights: None,
-                    },
+        let settings = MockPoolNodeServiceSettings {
+            network: NetworkConfig {
+                backend: MockConfig {
+                    predefined_messages,
+                    duration: tokio::time::Duration::from_millis(100),
+                    seed: 0,
+                    version: 1,
+                    weights: None,
                 },
-                mockpool: TxMempoolSettings {
-                    pool: (),
-                    network_adapter: (),
-                    recovery_path: recovery_file_path.clone(),
-                },
-                logging: TracingSettings::default(),
             },
-            None,
-        )
-        .map_err(|e| eprintln!("Error encountered: {e}"))
-        .unwrap();
-
+            mockpool: TxMempoolSettings {
+                pool: (),
+                network_adapter: (),
+                recovery_path: recovery_file_path.clone(),
+            },
+            logging: TracingSettings::default(),
+        };
+        let app = OverwatchRunner::<MockPoolNode>::run(settings, None)
+            .map_err(|e| eprintln!("Error encountered: {e}"))
+            .unwrap();
         let overwatch_handle = app.handle().clone();
+        app.runtime().block_on(app.handle().start_all_services());
+
         app.spawn(async move {
             let network_outbound = overwatch_handle
                 .relay::<NetworkService<_, _>>()
@@ -163,5 +162,8 @@ fn test_mockmempool() {
         assert_eq!(recovered_state.pool().unwrap().pending_items().len(), 2);
         assert_eq!(recovered_state.pool().unwrap().in_block_items().len(), 0);
         assert!(recovered_state.pool().unwrap().last_item_timestamp() > 0);
+
+        app.runtime().block_on(app.handle().shutdown());
+        app.wait_finished();
     });
 }

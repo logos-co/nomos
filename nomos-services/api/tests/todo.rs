@@ -1,6 +1,7 @@
 use std::{
     net::{Ipv4Addr, SocketAddr},
     sync::Arc,
+    thread::sleep,
     time::Duration,
 };
 
@@ -96,24 +97,16 @@ impl Backend<RuntimeServiceId> for WebServer {
 #[test]
 fn test_todo() {
     let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 8080);
+    let settings = NomosApiServiceSettings {
+        http: ApiServiceSettings {
+            backend_settings: addr,
+            request_timeout: None,
+        },
+    };
+    let app = OverwatchRunner::<NomosApi>::run(settings, None).unwrap();
+    app.runtime().block_on(app.handle().start_all_services());
 
-    // have to spawn the server in a separate thread because the overwatch
-    // limitation
-    std::thread::spawn(move || {
-        let app = OverwatchRunner::<NomosApi>::run(
-            NomosApiServiceSettings {
-                http: ApiServiceSettings {
-                    backend_settings: addr,
-                    request_timeout: None,
-                },
-            },
-            None,
-        )
-        .unwrap();
-        app.wait_finished();
-    });
-
-    std::thread::sleep(Duration::from_secs(1));
+    sleep(Duration::from_secs(1));
     let client = reqwest::blocking::Client::new();
 
     let response = client
@@ -122,6 +115,9 @@ fn test_todo() {
         .unwrap();
 
     assert!(response.status().is_success());
+
+    app.runtime().block_on(app.handle().shutdown());
+    app.wait_finished();
 }
 
 mod todo {

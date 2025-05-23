@@ -2,15 +2,13 @@ use std::fmt::{Debug, Display};
 
 use async_trait::async_trait;
 use backends::NetworkBackend;
-use futures::StreamExt as _;
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
     },
-    OpaqueServiceStateHandle,
+    OpaqueServiceResourcesHandle,
 };
-use services_utils::overwatch::lifecycle;
 
 use crate::{config::NetworkConfig, message::BackendNetworkMsg};
 
@@ -23,7 +21,7 @@ where
     Backend: NetworkBackend<RuntimeServiceId> + 'static,
 {
     backend: Backend,
-    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
 }
 
 impl<Backend, RuntimeServiceId> ServiceData for NetworkService<Backend, RuntimeServiceId>
@@ -44,42 +42,35 @@ where
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-        _init_state: Self::State,
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+        _initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
         Ok(Self {
             backend: Backend::new(
-                service_state.settings_reader.get_updated_settings().backend,
-                service_state.overwatch_handle.clone(),
+                service_resources_handle
+                    .settings_handle
+                    .notifier()
+                    .get_updated_settings()
+                    .backend,
+                service_resources_handle.overwatch_handle.clone(),
             ),
-            service_state,
+            service_resources_handle,
         })
     }
 
     async fn run(mut self) -> Result<(), overwatch::DynError> {
         let Self {
-            service_state:
-                OpaqueServiceStateHandle::<Self, RuntimeServiceId> {
-                    mut inbound_relay,
-                    lifecycle_handle,
-                    ..
+            service_resources_handle:
+                OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
+                    mut inbound_relay, ..
                 },
             mut backend,
         } = self;
-        let mut lifecycle_stream = lifecycle_handle.message_stream();
-        loop {
-            tokio::select! {
-                Some(msg) = inbound_relay.recv() => {
-                    Self::handle_network_service_message(msg, &mut backend).await;
-                }
-                Some(msg) = lifecycle_stream.next() => {
-                    if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
-                        // TODO: Maybe add a call to backend to handle this. Maybe trying to save unprocessed messages?
-                        break;
-                    }
-                }
-            }
+
+        while let Some(msg) = inbound_relay.recv().await {
+            Self::handle_network_service_message(msg, &mut backend).await;
         }
+
         Ok(())
     }
 }

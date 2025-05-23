@@ -6,7 +6,7 @@ use overwatch::{
         state::{NoOperator, NoState},
         ServiceCore, ServiceData,
     },
-    DynError, OpaqueServiceStateHandle,
+    DynError, OpaqueServiceResourcesHandle,
 };
 pub mod http;
 
@@ -37,7 +37,7 @@ pub struct ApiServiceSettings<S> {
 
 pub struct ApiService<B: Backend<RuntimeServiceId>, RuntimeServiceId> {
     settings: ApiServiceSettings<B::Settings>,
-    handle: OverwatchHandle<RuntimeServiceId>,
+    overwatch_handle: OverwatchHandle<RuntimeServiceId>,
 }
 
 impl<B: Backend<RuntimeServiceId>, RuntimeServiceId> ServiceData
@@ -60,10 +60,13 @@ where
 {
     /// Initialize the service with the given state
     fn init(
-        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-        _init_state: Self::State,
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+        _initial_state: Self::State,
     ) -> Result<Self, DynError> {
-        let settings = service_state.settings_reader.get_updated_settings();
+        let settings = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
 
         if let Some(timeout) = &settings.request_timeout {
             let _ = HTTP_REQUEST_TIMEOUT.set(*timeout);
@@ -71,14 +74,14 @@ where
 
         Ok(Self {
             settings,
-            handle: service_state.overwatch_handle,
+            overwatch_handle: service_resources_handle.overwatch_handle,
         })
     }
 
     /// Service main loop
     async fn run(mut self) -> Result<(), DynError> {
         let endpoint = B::new(self.settings.backend_settings).await?;
-        endpoint.serve(self.handle).await?;
+        endpoint.serve(self.overwatch_handle).await?;
         Ok(())
     }
 }

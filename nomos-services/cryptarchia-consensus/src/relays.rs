@@ -26,7 +26,7 @@ use nomos_storage::{
 use nomos_time::{backends::TimeBackend as TimeBackendTrait, TimeService, TimeServiceMessage};
 use overwatch::{
     services::{relay::OutboundRelay, AsServiceId},
-    OpaqueServiceStateHandle,
+    OpaqueServiceResourcesHandle,
 };
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -200,7 +200,7 @@ where
 
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
-    pub async fn from_service_state_handle<
+    pub async fn from_service_resources_handle<
         SamplingNetworkAdapter,
         SamplingStorage,
         DaVerifierNetwork,
@@ -208,7 +208,7 @@ where
         TimeBackend,
         ApiAdapter,
     >(
-        state_handle: &OpaqueServiceStateHandle<
+        service_resources_handle: &OpaqueServiceResourcesHandle<
             CryptarchiaConsensus<
                 NetworkAdapter,
                 BlendAdapter,
@@ -293,13 +293,13 @@ where
             + AsServiceId<StorageService<Storage, RuntimeServiceId>>
             + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>,
     {
-        let network_relay = state_handle
+        let network_relay = service_resources_handle
             .overwatch_handle
             .relay::<NetworkService<_, _>>()
             .await
             .expect("Relay connection with NetworkService should succeed");
 
-        let blend_relay = state_handle
+        let blend_relay = service_resources_handle
             .overwatch_handle
             .relay::<BlendService<_, _, _>>()
             .await
@@ -308,31 +308,31 @@ where
         succeed",
             );
 
-        let cl_mempool_relay = state_handle
+        let cl_mempool_relay = service_resources_handle
             .overwatch_handle
             .relay::<TxMempoolService<_, _, _>>()
             .await
             .expect("Relay connection with CL MemPoolService should succeed");
 
-        let da_mempool_relay = state_handle
+        let da_mempool_relay = service_resources_handle
             .overwatch_handle
             .relay::<DaMempoolService<_, _, _, _, _, _, _, _, _, _, _>>()
             .await
             .expect("Relay connection with DA MemPoolService should succeed");
 
-        let sampling_relay = state_handle
+        let sampling_relay = service_resources_handle
             .overwatch_handle
             .relay::<DaSamplingService<_, _, _, _, _, _, _, _, _>>()
             .await
             .expect("Relay connection with SamplingService should succeed");
 
-        let storage_relay = state_handle
+        let storage_relay = service_resources_handle
             .overwatch_handle
             .relay::<StorageService<_, _>>()
             .await
             .expect("Relay connection with StorageService should succeed");
 
-        let time_relay = state_handle
+        let time_relay = service_resources_handle
             .overwatch_handle
             .relay::<TimeService<_, _>>()
             .await
