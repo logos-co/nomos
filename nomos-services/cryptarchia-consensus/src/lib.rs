@@ -9,8 +9,8 @@ pub mod storage;
 use core::fmt::Debug;
 use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 
-use cryptarchia_engine::Slot;
-use futures::StreamExt as _;
+use cryptarchia_engine::{Branch, Slot};
+use futures::{future::join_all, StreamExt as _};
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
 use nomos_blend_service::BlendService;
@@ -63,6 +63,8 @@ type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
 // Limit the number of blocks returned by GetHeaders
 const HEADERS_LIMIT: usize = 512;
 const CRYPTARCHIA_ID: &str = "Cryptarchia";
+
+pub(crate) const LOG_TARGET: &str = "cryptarchia-consensus";
 
 #[derive(Debug, Clone, Error)]
 pub enum Error {
@@ -179,6 +181,34 @@ impl Cryptarchia {
         } else {
             None
         }
+    }
+
+    pub fn prune_old_forks(&mut self) -> impl Iterator<Item = Branch<HeaderId>> {
+        let old_forks_pruned = self.consensus.prune_forks(
+            self.ledger
+                .config()
+                .consensus_config
+                .security_param
+                .get()
+                .into(),
+        );
+        let mut pruned_blocks_count = 0usize;
+        // We need to iterate once, then return the unconsumed iterator, so we need to collect first.
+        let collected_forks = old_forks_pruned.collect::<Vec<_>>();
+        for pruned_block in &collected_forks { 
+            if self.ledger.prune_state_at(&pruned_block.id()) {
+                pruned_blocks_count = pruned_blocks_count.saturating_add(1);
+            } else {
+                tracing::error!(
+                    target: LOG_TARGET,
+                     "Failed to prune ledger state for block {:?} which should exist.",
+                     pruned_block.id()
+                 );
+            }
+         }
+        tracing::debug!(target: LOG_TARGET, "Pruned {pruned_blocks_count} old forks and their ledger states.");
+
+        collected_forks.into_iter()
     }
 }
 
@@ -619,6 +649,7 @@ where
                         .await;
 
                         self.service_state.state_updater.update(Self::State::from_cryptarchia(&cryptarchia, &leader));
+                        Self::prune_old_forks(&mut cryptarchia, relays.storage_adapter()).await;
 
                         tracing::info!(counter.consensus_processed_blocks = 1);
                     }
@@ -653,6 +684,9 @@ where
                                     &relays,
                                     &mut self.block_subscription_sender
                                 ).await;
+                                
+                                self.service_state.state_updater.update(Self::State::from_cryptarchia(&cryptarchia, &leader));
+                                Self::prune_old_forks(&mut cryptarchia, relays.storage_adapter()).await;
                                 blend_adapter.blend(block).await;
                             }
                         }
@@ -1370,6 +1404,33 @@ where
         }
 
         (cryptarchia, leader)
+    }
+
+    async fn prune_old_forks(
+        cryptarchia: &mut Cryptarchia,
+        storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>, 
+    ) {
+        // We need to collect since we're zipping the same iterator twice
+        let old_forks_pruned = cryptarchia.prune_old_forks().collect::<Vec<_>>();
+        // Trigger parallel block deletion and keep a reference to each block ID for logging purposes (below).
+        let block_deletion_outcomes = join_all(old_forks_pruned.iter().map(|f| {
+            storage_adapter.remove_block(f.id())
+        })).await.into_iter().zip(old_forks_pruned.iter().map(Branch::id));
+
+        // Log any operation that did not succeed.
+        for (block_deletion_outcome, block_id) in block_deletion_outcomes {
+            match block_deletion_outcome {
+                Err(e) => tracing::error!(
+                    target: LOG_TARGET,
+                    "Could not delete block {block_id} from storage: {e}."
+                ),
+                Ok(None) => tracing::warn!(
+                    target: LOG_TARGET,
+                    "Block {block_id} was not found in storage."
+                ),
+                Ok(Some(_)) => {}
+            }
+        }
     }
 }
 
