@@ -3,7 +3,7 @@ use nomos_sdp_core::{
         SdpLedger,
         SdpLedgerError::{
             self, DeclarationsRepository, DuplicateDeclarationInBlock, DuplicateServiceDeclaration,
-            Other, ProviderState, ServiceNotProvided,
+            IncorrectServiceType, Other, ProviderState,
             ServicesRepository as LedgerServicesRepository, WrongDeclarationId,
         },
         ServicesRepository,
@@ -59,7 +59,7 @@ impl From<SdpLedgerError> for SdpBackendError {
             DeclarationsRepository(err) => Self::DeclarationAdapterError(Box::new(err)),
             LedgerServicesRepository(err) => Self::ServicesAdapterError(Box::new(err)),
             DuplicateServiceDeclaration
-            | ServiceNotProvided(_)
+            | IncorrectServiceType(_)
             | DuplicateDeclarationInBlock
             | WrongDeclarationId => Self::Other(Box::new(e)),
             Other(error) => Self::Other(error),

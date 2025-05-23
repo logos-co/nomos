@@ -1,10 +1,7 @@
 pub mod ledger;
 mod state;
 
-use std::{
-    collections::{BTreeSet, HashMap, HashSet},
-    hash::Hash,
-};
+use std::{collections::BTreeSet, hash::Hash};
 
 use blake2::{Blake2b, Digest as _};
 use multiaddr::Multiaddr;
@@ -56,25 +53,30 @@ pub struct DeclarationId(pub [u8; 32]);
 pub struct ActivityId(pub [u8; 32]);
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
-pub struct ProviderInfo {
+pub struct RewardAddress(pub [u8; 32]);
+
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct DeclarationInfo {
+    pub id: DeclarationId,
     pub provider_id: ProviderId,
-    pub declaration_id: DeclarationId,
+    pub service: ServiceType,
+    pub locators: Vec<Locator>,
+    pub reward_address: RewardAddress,
     pub created: BlockNumber,
     pub active: Option<BlockNumber>,
     pub withdrawn: Option<BlockNumber>,
 }
 
-impl ProviderInfo {
+impl DeclarationInfo {
     #[must_use]
-    pub const fn new(
-        block_number: BlockNumber,
-        provider_id: ProviderId,
-        declaration_id: DeclarationId,
-    ) -> Self {
+    pub fn new(created: BlockNumber, msg: DeclarationMessage) -> Self {
         Self {
-            provider_id,
-            declaration_id,
-            created: block_number,
+            id: msg.declaration_id(),
+            provider_id: msg.provider_id,
+            service: msg.service_type,
+            locators: msg.locators,
+            reward_address: msg.reward_address,
+            created,
             active: None,
             withdrawn: None,
         }
@@ -82,52 +84,10 @@ impl ProviderInfo {
 }
 
 #[derive(Debug, Clone)]
-pub enum ProviderState {
+pub enum DeclarationState {
     Active,
     Inactive,
     Withdrawn,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Declaration {
-    pub declaration_id: DeclarationId,
-    pub locators: Vec<Locator>,
-    pub services: HashMap<ServiceType, HashSet<ProviderId>>,
-}
-
-impl Declaration {
-    #[must_use]
-    pub fn has_service_provider(&self, service_type: ServiceType, provider_id: ProviderId) -> bool {
-        self.services
-            .get(&service_type)
-            .is_some_and(|service| service.contains(&provider_id))
-    }
-
-    pub fn insert_service_provider(&mut self, provider_id: ProviderId, service_type: ServiceType) {
-        self.services
-            .entry(service_type)
-            .or_default()
-            .insert(provider_id);
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct DeclarationUpdate {
-    pub declaration_id: DeclarationId,
-    pub provider_id: ProviderId,
-    pub service_type: ServiceType,
-    pub locators: Vec<Locator>,
-}
-
-impl From<&DeclarationMessage> for DeclarationUpdate {
-    fn from(message: &DeclarationMessage) -> Self {
-        Self {
-            declaration_id: message.declaration_id(),
-            provider_id: message.provider_id,
-            service_type: message.service_type,
-            locators: message.locators.clone(),
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -135,14 +95,25 @@ pub struct DeclarationMessage {
     pub service_type: ServiceType,
     pub locators: Vec<Locator>,
     pub provider_id: ProviderId,
+    pub reward_address: RewardAddress,
 }
 
 impl DeclarationMessage {
     fn declaration_id(&self) -> DeclarationId {
         let mut hasher = Blake2b::new();
+        let service = match self.service_type {
+            ServiceType::BlendNetwork => "BN",
+            ServiceType::DataAvailability => "DA",
+            ServiceType::ExecutorNetwork => "EX",
+        };
+
+        hasher.update(service.as_bytes());
+        hasher.update(self.provider_id.0);
         for locator in &self.locators {
             hasher.update(locator.addr.as_ref());
         }
+        hasher.update(self.reward_address.0);
+
         DeclarationId(hasher.finalize().into())
     }
 }
@@ -233,6 +204,6 @@ pub struct FinalizedBlockEvent {
 pub struct FinalizedBlockEventUpdate {
     pub service_type: ServiceType,
     pub provider_id: ProviderId,
-    pub state: ProviderState,
+    pub state: DeclarationState,
     pub locators: BTreeSet<Locator>,
 }

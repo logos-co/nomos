@@ -3,16 +3,13 @@ use std::{collections::HashMap, error::Error, fmt::Debug, marker::PhantomData};
 use async_trait::async_trait;
 
 use crate::{
-    ActiveMessage, BlockNumber, Declaration, DeclarationId, DeclarationMessage, DeclarationUpdate,
-    EventType, Nonce, ProviderId, ProviderInfo, SdpMessage, ServiceParameters, ServiceType,
-    WithdrawMessage,
-    state::{ProviderStateError, TransientProviderState},
+    ActiveMessage, BlockNumber, DeclarationId, DeclarationInfo, DeclarationMessage, EventType,
+    Nonce, ProviderId, SdpMessage, ServiceParameters, ServiceType, WithdrawMessage,
+    state::{ProviderStateError, TransientDeclarationState},
 };
 
 #[derive(thiserror::Error, Debug)]
 pub enum DeclarationsRepositoryError {
-    #[error("Provider not found: {0:?}")]
-    ProviderNotFound(ProviderId),
     #[error("Declaration not found: {0:?}")]
     DeclarationNotFound(DeclarationId),
     #[error("Duplicate nonce")]
@@ -23,22 +20,9 @@ pub enum DeclarationsRepositoryError {
 
 #[async_trait]
 pub trait DeclarationsRepository {
-    async fn get_provider_info(
-        &self,
-        provider_id: ProviderId,
-    ) -> Result<ProviderInfo, DeclarationsRepositoryError>;
-    async fn get_declaration(
-        &self,
-        declaration_id: DeclarationId,
-    ) -> Result<Declaration, DeclarationsRepositoryError>;
-    async fn update_provider_info(
-        &self,
-        provider_info: ProviderInfo,
-    ) -> Result<(), DeclarationsRepositoryError>;
-    async fn update_declaration(
-        &self,
-        declaration_update: DeclarationUpdate,
-    ) -> Result<(), DeclarationsRepositoryError>;
+    async fn get(&self, id: DeclarationId) -> Result<DeclarationInfo, DeclarationsRepositoryError>;
+    async fn update(&self, declaration: DeclarationInfo)
+    -> Result<(), DeclarationsRepositoryError>;
     async fn check_nonce(
         &self,
         provider_id: ProviderId,
@@ -63,29 +47,6 @@ pub trait ServicesRepository {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum StakesVerifierError {
-    #[error("No stake")]
-    NoStake,
-    #[error("Stake too low")]
-    StakeTooLow,
-    #[error("Proof could not be verified")]
-    InvalidProof,
-    #[error(transparent)]
-    Other(Box<dyn Error + Send + Sync>),
-}
-
-#[async_trait]
-pub trait StakesVerifier {
-    type Proof;
-
-    async fn verify(
-        &self,
-        provider_id: ProviderId,
-        proof: Self::Proof,
-    ) -> Result<(), StakesVerifierError>;
-}
-
-#[derive(thiserror::Error, Debug)]
 pub enum SdpLedgerError {
     #[error(transparent)]
     ProviderState(#[from] ProviderStateError),
@@ -95,8 +56,8 @@ pub enum SdpLedgerError {
     ServicesRepository(#[from] ServicesRepositoryError),
     #[error("Provider service is already declared in declaration")]
     DuplicateServiceDeclaration,
-    #[error("Provider does not provide {0:?} declaration")]
-    ServiceNotProvided(ServiceType),
+    #[error("Declaration is not for {0:?} service")]
+    IncorrectServiceType(ServiceType),
     #[error("Duplicate declaration for provider it in block")]
     DuplicateDeclarationInBlock,
     #[error("Provider declaration id and message declaration id does not match")]
@@ -112,8 +73,7 @@ where
 {
     declaration_repo: Declarations,
     services_repo: Services,
-    pending_providers: HashMap<BlockNumber, HashMap<ProviderId, ProviderInfo>>,
-    pending_declarations: HashMap<BlockNumber, HashMap<ProviderId, DeclarationUpdate>>,
+    pending_declarations: HashMap<BlockNumber, HashMap<DeclarationId, DeclarationInfo>>,
     _phantom: PhantomData<Metadata>,
 }
 
@@ -127,50 +87,34 @@ where
         Self {
             declaration_repo,
             services_repo,
-            pending_providers: HashMap::new(),
             pending_declarations: HashMap::new(),
             _phantom: PhantomData,
         }
     }
 
-    async fn process_declare(
+    fn process_declare(
         &mut self,
         block_number: BlockNumber,
-        current_state: TransientProviderState,
+        current_state: TransientDeclarationState,
         declaration_message: DeclarationMessage,
-    ) -> Result<TransientProviderState, SdpLedgerError> {
+    ) -> Result<TransientDeclarationState, SdpLedgerError> {
         // Check if state can transition before inserting declaration into pending list.
         let pending_state = current_state.try_into_active(block_number, EventType::Declaration)?;
-        let provider_id = declaration_message.provider_id;
         let declaration_id = declaration_message.declaration_id();
-        let service_type = declaration_message.service_type;
 
-        // One declaration (id derived from the locators set) is allowed to have
-        // multiple providers. For this reason providers with a new state can declare a
-        // service with an already existing declaration id.
-        if let Ok(declaration) = self.declaration_repo.get_declaration(declaration_id).await {
-            if declaration.has_service_provider(service_type, provider_id) {
-                return Err(SdpLedgerError::DuplicateServiceDeclaration);
-            }
-        }
-
-        // Multiple declarations can be included in the block, pending declarations need
-        // to be checked also.
-        //
-        // ProviderId needs to be unique per service in declaration, the provider is
-        // expected to derive the ProviderId (pubkey) using one of the service types,
-        // but in ledger we just check for uniquenes of ProviderId in the declaration.
+        // Block could contain multiple transactions for the same declaration, SDP
+        // considers this as a malformed block because of duplicate information.
         if self
             .pending_declarations
             .get(&block_number)
-            .is_some_and(|pending| pending.contains_key(&provider_id))
+            .is_some_and(|pending| pending.contains_key(&declaration_id))
         {
             return Err(SdpLedgerError::DuplicateDeclarationInBlock);
         }
 
-        let declaration_update = DeclarationUpdate::from(&declaration_message);
+        let declaration_info = DeclarationInfo::new(block_number, declaration_message);
         let entry = self.pending_declarations.entry(block_number).or_default();
-        entry.insert(provider_id, declaration_update);
+        entry.insert(declaration_id, declaration_info);
 
         Ok(pending_state)
     }
@@ -178,9 +122,9 @@ where
     async fn process_active(
         &self,
         block_number: BlockNumber,
-        current_state: TransientProviderState,
+        current_state: TransientDeclarationState,
         active_message: ActiveMessage<Metadata>,
-    ) -> Result<TransientProviderState, SdpLedgerError> {
+    ) -> Result<TransientDeclarationState, SdpLedgerError> {
         // Check if state can transition before marking as active.
         let pending_state = current_state.try_into_active(block_number, EventType::Activity)?;
         let provider_id = active_message.provider_id;
@@ -191,12 +135,11 @@ where
             .check_nonce(provider_id, active_message.nonce)
             .await?;
 
-        // One declaration can be for multiple services, and each service could have
-        // different provider id, allow marking active only for the service that
-        // provider is providing.
-        if let Ok(declaration) = self.declaration_repo.get_declaration(declaration_id).await {
-            if !declaration.has_service_provider(service_type, provider_id) {
-                return Err(SdpLedgerError::ServiceNotProvided(service_type));
+        // One declaration is for one service only, allow marking active only for the
+        // service that provider is providing.
+        if let Ok(declaration) = self.declaration_repo.get(declaration_id).await {
+            if declaration.service != service_type {
+                return Err(SdpLedgerError::IncorrectServiceType(service_type));
             }
         }
 
@@ -206,10 +149,10 @@ where
     async fn process_withdraw(
         &self,
         block_number: BlockNumber,
-        current_state: TransientProviderState,
+        current_state: TransientDeclarationState,
         withdraw_message: WithdrawMessage,
         service_params: ServiceParameters,
-    ) -> Result<TransientProviderState, SdpLedgerError> {
+    ) -> Result<TransientDeclarationState, SdpLedgerError> {
         let pending_state = current_state.try_into_withdrawn(
             block_number,
             EventType::Withdrawal,
@@ -223,12 +166,11 @@ where
             .check_nonce(provider_id, withdraw_message.nonce)
             .await?;
 
-        // One declaration can be for multiple services, and each service could have
-        // different provider id, allow withdrawals only for the service that
-        // provider is providing.
-        if let Ok(declaration) = self.declaration_repo.get_declaration(declaration_id).await {
-            if !declaration.has_service_provider(service_type, provider_id) {
-                return Err(SdpLedgerError::ServiceNotProvided(service_type));
+        // One declaration is for one service only, allow marking withdrawn only for the
+        // service that provider is providing.
+        if let Ok(declaration) = self.declaration_repo.get(declaration_id).await {
+            if declaration.service != service_type {
+                return Err(SdpLedgerError::IncorrectServiceType(service_type));
             }
         }
 
@@ -240,38 +182,41 @@ where
         block_number: BlockNumber,
         message: SdpMessage<Metadata>,
     ) -> Result<(), SdpLedgerError> {
-        let provider_id = message.provider_id();
         let declaration_id = message.declaration_id();
         let service_type = message.service_type();
 
+        let maybe_pending_state = self
+            .pending_declarations
+            .get(&block_number)
+            .and_then(|states| states.get(&declaration_id));
+        let maybe_declaration_info = self.declaration_repo.get(declaration_id).await;
         let service_params = self.services_repo.get_parameters(service_type).await?;
 
-        let maybe_pending_state = self
-            .pending_providers
-            .get(&block_number)
-            .and_then(|states| states.get(&provider_id));
-
-        let maybe_provider_info = self.declaration_repo.get_provider_info(provider_id).await;
-
-        let current_state = if let Some(provider_info) = maybe_pending_state {
-            TransientProviderState::try_from_info(block_number, provider_info, &service_params)?
+        let current_state = if let Some(declaration_info) = maybe_pending_state {
+            TransientDeclarationState::try_from_info(
+                block_number,
+                declaration_info.clone(),
+                &service_params,
+            )?
         } else {
-            match maybe_provider_info {
-                Ok(provider_info) => TransientProviderState::try_from_info(
+            match (maybe_declaration_info, &message) {
+                (Ok(declaration_info), _) => TransientDeclarationState::try_from_info(
                     block_number,
-                    &provider_info,
+                    declaration_info,
                     &service_params,
                 )?,
-                Err(DeclarationsRepositoryError::ProviderNotFound(_)) => {
-                    let provider_info =
-                        ProviderInfo::new(block_number, provider_id, declaration_id);
-                    TransientProviderState::try_from_info(
+                (
+                    Err(DeclarationsRepositoryError::DeclarationNotFound(_)),
+                    SdpMessage::Declare(message),
+                ) => {
+                    let declaration_info = DeclarationInfo::new(block_number, message.clone());
+                    TransientDeclarationState::try_from_info(
                         block_number,
-                        &provider_info,
+                        declaration_info,
                         &service_params,
                     )?
                 }
-                Err(err) => return Err(SdpLedgerError::DeclarationsRepository(err)),
+                (Err(err), _) => return Err(SdpLedgerError::DeclarationsRepository(err)),
             }
         };
 
@@ -281,8 +226,7 @@ where
 
         let pending_state = match message {
             SdpMessage::Declare(declaration_message) => {
-                self.process_declare(block_number, current_state, declaration_message)
-                    .await?
+                self.process_declare(block_number, current_state, declaration_message)?
             }
             SdpMessage::Activity(active_message) => {
                 self.process_active(block_number, current_state, active_message)
@@ -299,10 +243,10 @@ where
             }
         };
 
-        self.pending_providers
+        self.pending_declarations
             .entry(block_number)
             .or_default()
-            .insert(provider_id, pending_state.into());
+            .insert(declaration_id, pending_state.into());
 
         Ok(())
     }
@@ -310,33 +254,25 @@ where
     async fn mark_declaration_in_block(
         &mut self,
         block_number: BlockNumber,
-        provider_info: &ProviderInfo,
+        declaration_info: &DeclarationInfo,
     ) -> Result<(), SdpLedgerError> {
-        let provider_id = provider_info.provider_id;
+        let declaration_id = declaration_info.id;
 
-        if let Err(err) = self
-            .declaration_repo
-            .update_provider_info(*provider_info)
-            .await
-        {
-            // If provider update failed, discard declaration.
+        if let Err(err) = self.declaration_repo.update(declaration_info.clone()).await {
+            // If declaration update failed - discard.
             self.pending_declarations
                 .get_mut(&block_number)
-                .and_then(|updates| updates.remove(&provider_id));
+                .and_then(|updates| updates.remove(&declaration_id));
             return Err(err.into());
         }
 
         // One provider id can declare only one service in one declaration.
-        if let Some(declaration_update) = self
+        if let Some(declaration_info) = self
             .pending_declarations
             .get_mut(&block_number)
-            .and_then(|updates| updates.remove(&provider_id))
+            .and_then(|updates| updates.remove(&declaration_id))
         {
-            if let Err(err) = self
-                .declaration_repo
-                .update_declaration(declaration_update)
-                .await
-            {
+            if let Err(err) = self.declaration_repo.update(declaration_info).await {
                 tracing::error!("Declaration could not be updated: {err}");
             }
         }
@@ -345,7 +281,7 @@ where
     }
 
     pub async fn mark_in_block(&mut self, block_number: BlockNumber) -> Result<(), SdpLedgerError> {
-        let Some(updates) = self.pending_providers.remove(&block_number) else {
+        let Some(updates) = self.pending_declarations.remove(&block_number) else {
             return Ok(());
         };
 
@@ -360,7 +296,6 @@ where
 
     pub fn discard_block(&mut self, block_number: BlockNumber) {
         self.pending_declarations.remove(&block_number);
-        self.pending_providers.remove(&block_number);
     }
 }
 
@@ -391,6 +326,7 @@ mod tests {
         pub fn add_declaration(
             &mut self,
             provider_id: ProviderId,
+            reward_address: RewardAddress,
             service_type: ServiceType,
             locators: Vec<Locator>,
             should_pass: bool,
@@ -400,6 +336,7 @@ mod tests {
                     service_type,
                     locators,
                     provider_id,
+                    reward_address,
                 }),
                 should_pass,
             ));
@@ -443,19 +380,29 @@ mod tests {
         }
     }
 
-    fn declaration_id(locators: &[Locator]) -> DeclarationId {
-        let mut hasher = Blake2b::new();
-        for locator in locators {
-            hasher.update(locator.addr.as_ref());
-        }
-        DeclarationId(hasher.finalize().into())
-    }
-
     // Block Operation, short for better formatting.
     enum BOp {
-        Dec(ProviderId, ServiceType, Vec<Locator>),
+        Dec(ProviderId, RewardAddress, ServiceType, Vec<Locator>),
         Act(ProviderId, DeclarationId, ServiceType),
         Wit(ProviderId, DeclarationId, ServiceType),
+    }
+
+    impl BOp {
+        fn declaration_id(&self) -> DeclarationId {
+            match self {
+                Self::Dec(provider_id, reward_address, service_type, locators) => {
+                    DeclarationMessage {
+                        service_type: *service_type,
+                        locators: locators.clone(),
+                        provider_id: *provider_id,
+                        reward_address: *reward_address,
+                    }
+                    .declaration_id()
+                }
+                Self::Act(_, _, _) => panic!(),
+                Self::Wit(_, _, _) => panic!(),
+            }
+        }
     }
 
     // Short alias for better formatting.
@@ -468,8 +415,8 @@ mod tests {
                 let mut block = MockBlock::default();
                 for (op, should_pass) in ops {
                     match op {
-                        BOp::Dec(pid, service, locators) => {
-                            block.add_declaration(pid, service, locators, should_pass);
+                        BOp::Dec(pid, reward_addr, service, locators) => {
+                            block.add_declaration(pid, reward_addr, service, locators, should_pass);
                         }
                         BOp::Act(pid, did, service) => {
                             block.add_activity(pid, did, service, should_pass);
@@ -486,16 +433,11 @@ mod tests {
 
     #[derive(Default, Clone)]
     struct MockDeclarationsRepository {
-        providers: Arc<Mutex<HashMap<ProviderId, ProviderInfo>>>,
-        declarations: Arc<Mutex<HashMap<DeclarationId, Declaration>>>,
+        declarations: Arc<Mutex<HashMap<DeclarationId, DeclarationInfo>>>,
     }
 
     impl MockDeclarationsRepository {
-        fn dump_providers(&self) -> HashMap<ProviderId, ProviderInfo> {
-            let p = self.providers.lock().unwrap();
-            p.clone()
-        }
-        fn dump_declarations(&self) -> HashMap<DeclarationId, Declaration> {
+        fn dump_declarations(&self) -> HashMap<DeclarationId, DeclarationInfo> {
             let d = self.declarations.lock().unwrap();
             d.clone()
         }
@@ -503,22 +445,10 @@ mod tests {
 
     #[async_trait]
     impl DeclarationsRepository for MockDeclarationsRepository {
-        async fn get_provider_info(
-            &self,
-            id: ProviderId,
-        ) -> Result<ProviderInfo, DeclarationsRepositoryError> {
-            self.providers
-                .lock()
-                .unwrap()
-                .get(&id)
-                .copied()
-                .ok_or(DeclarationsRepositoryError::ProviderNotFound(id))
-        }
-
-        async fn get_declaration(
+        async fn get(
             &self,
             id: DeclarationId,
-        ) -> Result<Declaration, DeclarationsRepositoryError> {
+        ) -> Result<DeclarationInfo, DeclarationsRepositoryError> {
             self.declarations
                 .lock()
                 .unwrap()
@@ -527,43 +457,14 @@ mod tests {
                 .ok_or(DeclarationsRepositoryError::DeclarationNotFound(id))
         }
 
-        async fn update_provider_info(
+        async fn update(
             &self,
-            provider_info: ProviderInfo,
+            declaration_info: DeclarationInfo,
         ) -> Result<(), DeclarationsRepositoryError> {
-            self.providers
+            self.declarations
                 .lock()
                 .unwrap()
-                .insert(provider_info.provider_id, provider_info);
-            Ok(())
-        }
-
-        async fn update_declaration(
-            &self,
-            declaration_update: DeclarationUpdate,
-        ) -> Result<(), DeclarationsRepositoryError> {
-            let mut declarations = self.declarations.lock().unwrap();
-            if let Some(declaration) = declarations.get_mut(&declaration_update.declaration_id) {
-                declaration.insert_service_provider(
-                    declaration_update.provider_id,
-                    declaration_update.service_type,
-                );
-            } else {
-                let mut services = HashMap::new();
-                services.insert(
-                    declaration_update.service_type,
-                    [declaration_update.provider_id].into(),
-                );
-                declarations.insert(
-                    declaration_update.declaration_id,
-                    Declaration {
-                        declaration_id: declaration_update.declaration_id,
-                        locators: declaration_update.locators,
-                        services,
-                    },
-                );
-                drop(declarations);
-            }
+                .insert(declaration_info.id, declaration_info);
             Ok(())
         }
 
@@ -622,7 +523,6 @@ mod tests {
         let ledger = SdpLedger {
             declaration_repo: declaration_repo.clone(),
             services_repo: service_repo.clone(),
-            pending_providers: HashMap::new(),
             pending_declarations: HashMap::new(),
             _phantom: PhantomData,
         };
@@ -634,10 +534,12 @@ mod tests {
     async fn test_process_declare_message() {
         let (mut ledger, _, _) = setup_ledger();
         let provider_id = ProviderId([0u8; 32]);
+        let reward_address = RewardAddress([0u8; 32]);
         let declaration_message = DeclarationMessage {
             service_type: ServiceType::BlendNetwork,
             locators: vec![],
             provider_id,
+            reward_address,
         };
 
         let result = ledger
@@ -646,9 +548,6 @@ mod tests {
 
         assert!(result.is_ok());
 
-        assert_eq!(ledger.pending_providers.len(), 1);
-        assert!(ledger.pending_providers.contains_key(&100));
-
         assert_eq!(ledger.pending_declarations.len(), 1);
         let pending_declarations = ledger.pending_declarations.get(&100).unwrap();
         assert_eq!(pending_declarations.len(), 1);
@@ -656,9 +555,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_activity_message() {
-        let (mut ledger, _, _) = setup_ledger();
+        let (mut ledger, declaration_repo, _) = setup_ledger();
         let provider_id = ProviderId([0u8; 32]);
-        let declaration_id = DeclarationId([1u8; 32]);
+        let reward_address = RewardAddress([0u8; 32]);
+        let declaration_message = DeclarationMessage {
+            service_type: ServiceType::BlendNetwork,
+            locators: vec![],
+            provider_id,
+            reward_address,
+        };
+        let declaration_id = declaration_message.declaration_id();
+
+        {
+            let mut declarations = declaration_repo.declarations.lock().unwrap();
+            declarations.insert(
+                declaration_id,
+                DeclarationInfo::new(50, declaration_message),
+            );
+        };
 
         let active_message = ActiveMessage {
             declaration_id,
@@ -674,21 +588,29 @@ mod tests {
 
         assert!(result.is_ok());
 
-        assert_eq!(ledger.pending_providers.len(), 1);
-        assert!(ledger.pending_providers.contains_key(&100));
+        assert_eq!(ledger.pending_declarations.len(), 1);
+        assert!(ledger.pending_declarations.contains_key(&100));
     }
 
     #[tokio::test]
     async fn test_process_withdraw_message() {
         let (mut ledger, declaration_repo, _) = setup_ledger();
         let provider_id = ProviderId([0u8; 32]);
-        let declaration_id = DeclarationId([1u8; 32]);
+        let reward_address = RewardAddress([0u8; 32]);
+
+        let declaration_message = DeclarationMessage {
+            service_type: ServiceType::BlendNetwork,
+            locators: vec![],
+            provider_id,
+            reward_address,
+        };
+        let declaration_id = declaration_message.declaration_id();
 
         {
-            let mut providers = declaration_repo.providers.lock().unwrap();
-            providers.insert(
-                provider_id,
-                ProviderInfo::new(50, provider_id, declaration_id),
+            let mut declarations = declaration_repo.declarations.lock().unwrap();
+            declarations.insert(
+                declaration_id,
+                DeclarationInfo::new(50, declaration_message),
             );
         };
 
@@ -705,18 +627,20 @@ mod tests {
 
         assert!(result.is_ok());
 
-        assert_eq!(ledger.pending_providers.len(), 1);
-        assert!(ledger.pending_providers.contains_key(&100));
+        assert_eq!(ledger.pending_declarations.len(), 1);
+        assert!(ledger.pending_declarations.contains_key(&100));
     }
 
     #[tokio::test]
     async fn test_duplicate_declaration() {
         let (mut ledger, _, _) = setup_ledger();
         let provider_id = ProviderId([0u8; 32]);
+        let reward_address = RewardAddress([0u8; 32]);
         let declaration_message = DeclarationMessage {
             service_type: ServiceType::BlendNetwork,
             locators: vec![],
             provider_id,
+            reward_address,
         };
 
         let result1 = ledger
@@ -737,27 +661,22 @@ mod tests {
         let locators = vec![Locator {
             addr: multiaddr!(Ip4([1, 2, 3, 4]), Udp(5678u16)),
         }];
-        let did = declaration_id(&locators);
+        let reward_addr = RewardAddress([1; 32]);
+
+        let declaration_a = BOp::Dec(pid, reward_addr, St::BlendNetwork, locators.clone());
+        let declaration_b = BOp::Dec(pid, reward_addr, St::DataAvailability, locators.clone());
+        let d1 = declaration_a.declaration_id();
+        let d2 = declaration_b.declaration_id();
+
         let blocks = [
-            (
-                0,
-                vec![
-                    (BOp::Dec(pid, St::BlendNetwork, locators.clone()), true),
-                    // One provider id can not be used for mutliple services in one declaration
-                    (BOp::Dec(pid, St::DataAvailability, locators.clone()), false),
-                ],
-            ),
-            (10, vec![(BOp::Act(pid, did, St::BlendNetwork), true)]),
-            // This provider is registered with the BlendNetwork service, should fail to records
-            // activity for DataAvailability service.
-            (20, vec![(BOp::Act(pid, did, St::DataAvailability), false)]),
+            (0, vec![(declaration_a, true), (declaration_b, true)]),
+            (10, vec![(BOp::Act(pid, d1, St::BlendNetwork), true)]),
+            (20, vec![(BOp::Act(pid, d2, St::DataAvailability), true)]),
             (
                 30,
                 vec![
-                    (BOp::Wit(pid, did, St::BlendNetwork), true),
-                    // Provider only registered the BlendNetwork service - withdrawal for DA should
-                    // fail.
-                    (BOp::Wit(pid, did, St::DataAvailability), false),
+                    (BOp::Wit(pid, d1, St::BlendNetwork), true),
+                    (BOp::Wit(pid, d2, St::DataAvailability), true),
                 ],
             ),
         ]
@@ -776,33 +695,36 @@ mod tests {
             ledger.mark_in_block(block_number).await.unwrap();
         }
 
-        let providers = declarations_repo.dump_providers();
-        assert_eq!(providers.len(), 1);
+        let providers = declarations_repo.dump_declarations();
+        assert_eq!(providers.len(), 2);
 
-        let provider = providers.get(&pid).unwrap();
+        let provider = providers.get(&d1).unwrap();
         assert_eq!(
             provider,
-            &ProviderInfo {
+            &DeclarationInfo {
                 provider_id: pid,
-                declaration_id: did,
+                id: d1,
                 created: 0,
                 active: Some(10),
-                withdrawn: Some(30)
+                withdrawn: Some(30),
+                service: ServiceType::BlendNetwork,
+                locators: locators.clone(),
+                reward_address: reward_addr,
             }
         );
 
-        let declarations = declarations_repo.dump_declarations();
-        assert_eq!(declarations.len(), 1);
-
-        let declaration = declarations.get(&did).unwrap();
-        let mut expected_services = HashMap::new();
-        expected_services.insert(ServiceType::BlendNetwork, [pid].into());
+        let provider = providers.get(&d2).unwrap();
         assert_eq!(
-            declaration,
-            &Declaration {
-                declaration_id: did,
+            provider,
+            &DeclarationInfo {
+                provider_id: pid,
+                id: d2,
+                created: 0,
+                active: Some(20),
+                withdrawn: Some(30),
+                service: ServiceType::DataAvailability,
                 locators,
-                services: expected_services,
+                reward_address: reward_addr,
             }
         );
     }
@@ -810,29 +732,29 @@ mod tests {
     #[tokio::test]
     async fn test_multiple_providers_blocks() {
         let (mut ledger, declarations_repo, _) = setup_ledger();
-        let pid1 = ProviderId([0; 32]);
-        let pid2 = ProviderId([1; 32]);
+        let p1 = ProviderId([0; 32]);
+        let p2 = ProviderId([1; 32]);
         let locators = vec![Locator {
             addr: multiaddr!(Ip4([1, 2, 3, 4]), Udp(5678u16)),
         }];
-        let did = declaration_id(&locators);
+        let reward_addr = RewardAddress([1; 32]);
+
+        let declaration_a = BOp::Dec(p1, reward_addr, St::BlendNetwork, locators.clone());
+        let declaration_b = BOp::Dec(p2, reward_addr, St::DataAvailability, locators.clone());
+        let d1 = declaration_a.declaration_id();
+        let d2 = declaration_b.declaration_id();
+
         let blocks = [
-            (
-                0,
-                vec![
-                    (BOp::Dec(pid1, St::DataAvailability, locators.clone()), true),
-                    (BOp::Dec(pid2, St::BlendNetwork, locators.clone()), true),
-                ],
-            ),
-            (10, vec![(BOp::Act(pid1, did, St::DataAvailability), true)]),
-            (20, vec![(BOp::Act(pid2, did, St::BlendNetwork), true)]),
+            (0, vec![(declaration_a, true), (declaration_b, true)]),
+            (10, vec![(BOp::Act(p1, d1, St::BlendNetwork), true)]),
+            (20, vec![(BOp::Act(p2, d2, St::DataAvailability), true)]),
             (
                 30,
                 vec![
                     // Withdrawing service that pid2 declared.
-                    (BOp::Wit(pid1, did, St::BlendNetwork), false),
+                    (BOp::Wit(p1, d2, St::BlendNetwork), false),
                     // Withdrawing service that pid1 declared.
-                    (BOp::Wit(pid2, did, St::DataAvailability), false),
+                    (BOp::Wit(p2, d1, St::DataAvailability), false),
                 ],
             ),
         ]
@@ -850,46 +772,36 @@ mod tests {
             ledger.mark_in_block(block_number).await.unwrap();
         }
 
-        let providers = declarations_repo.dump_providers();
+        let providers = declarations_repo.dump_declarations();
         assert_eq!(providers.len(), 2);
 
-        let info1 = providers.get(&pid1).unwrap();
+        let info1 = providers.get(&d1).unwrap();
         assert_eq!(
             info1,
-            &ProviderInfo {
-                provider_id: pid1,
-                declaration_id: did,
+            &DeclarationInfo {
+                provider_id: p1,
+                id: d1,
                 created: 0,
                 active: Some(10),
-                withdrawn: None, // Last transaction failed.
+                withdrawn: None,
+                service: ServiceType::BlendNetwork,
+                locators: locators.clone(),
+                reward_address: reward_addr,
             }
         );
 
-        let info2 = providers.get(&pid2).unwrap();
+        let info2 = providers.get(&d2).unwrap();
         assert_eq!(
             info2,
-            &ProviderInfo {
-                provider_id: pid2,
-                declaration_id: did,
+            &DeclarationInfo {
+                provider_id: p2,
+                id: d2,
                 created: 0,
                 active: Some(20),
                 withdrawn: None,
-            }
-        );
-
-        let declarations = declarations_repo.dump_declarations();
-        assert_eq!(declarations.len(), 1);
-
-        let declaration = declarations.get(&did).unwrap();
-        let mut expected_services = HashMap::new();
-        expected_services.insert(ServiceType::DataAvailability, [pid1].into());
-        expected_services.insert(ServiceType::BlendNetwork, [pid2].into());
-        assert_eq!(
-            declaration,
-            &Declaration {
-                declaration_id: did,
+                service: ServiceType::DataAvailability,
                 locators,
-                services: expected_services,
+                reward_address: reward_addr,
             }
         );
     }

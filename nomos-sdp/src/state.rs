@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::{BlockNumber, DeclarationId, EventType, ProviderInfo, ServiceParameters};
+use crate::{BlockNumber, DeclarationId, DeclarationInfo, EventType, ServiceParameters};
 
 #[derive(Error, Debug)]
 pub enum ActiveStateError {
@@ -14,11 +14,11 @@ pub enum ActiveStateError {
     WithdrawalInvalidEvent(EventType),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub struct ActiveState(ProviderInfo);
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct ActiveState(DeclarationInfo);
 
 impl ActiveState {
-    const fn try_into_updated(
+    fn try_into_updated(
         mut self,
         block_number: BlockNumber,
         event_type: EventType,
@@ -39,7 +39,7 @@ impl ActiveState {
         }
     }
 
-    const fn try_into_withdrawn(
+    fn try_into_withdrawn(
         mut self,
         block_number: BlockNumber,
         event_type: EventType,
@@ -70,11 +70,11 @@ pub enum InactiveStateError {
     WithdrawalInvalidEvent(EventType),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub struct InactiveState(ProviderInfo);
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct InactiveState(DeclarationInfo);
 
 impl InactiveState {
-    const fn try_into_active(
+    fn try_into_active(
         mut self,
         block_number: BlockNumber,
         event_type: EventType,
@@ -90,7 +90,7 @@ impl InactiveState {
         }
     }
 
-    const fn try_into_withdrawn(
+    fn try_into_withdrawn(
         mut self,
         block_number: BlockNumber,
         event_type: EventType,
@@ -111,8 +111,8 @@ impl InactiveState {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub struct WithdrawnState(pub ProviderInfo);
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct WithdrawnState(pub DeclarationInfo);
 
 #[derive(Error, Debug)]
 pub enum ProviderStateError {
@@ -127,79 +127,79 @@ pub enum ProviderStateError {
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
-pub enum TransientProviderState {
+pub enum TransientDeclarationState {
     Active(ActiveState),
     Inactive(InactiveState),
     Withdrawn(WithdrawnState),
 }
 
-impl From<TransientProviderState> for ProviderInfo {
-    fn from(state: TransientProviderState) -> Self {
+impl From<TransientDeclarationState> for DeclarationInfo {
+    fn from(state: TransientDeclarationState) -> Self {
         match state {
-            TransientProviderState::Active(active_state) => active_state.0,
-            TransientProviderState::Inactive(inactive_state) => inactive_state.0,
-            TransientProviderState::Withdrawn(withdrawn_state) => withdrawn_state.0,
+            TransientDeclarationState::Active(active_state) => active_state.0,
+            TransientDeclarationState::Inactive(inactive_state) => inactive_state.0,
+            TransientDeclarationState::Withdrawn(withdrawn_state) => withdrawn_state.0,
         }
     }
 }
 
-impl TransientProviderState {
+impl TransientDeclarationState {
     pub fn try_from_info(
         block_number: BlockNumber,
-        provider_info: &ProviderInfo,
+        declaration_info: DeclarationInfo,
         service_params: &ServiceParameters,
     ) -> Result<Self, ProviderStateError> {
-        if provider_info.created > block_number {
+        if declaration_info.created > block_number {
             return Err(ProviderStateError::BlockFromPast);
         }
 
-        if provider_info.withdrawn.is_some() {
-            return Ok(WithdrawnState(*provider_info).into());
+        if declaration_info.withdrawn.is_some() {
+            return Ok(WithdrawnState(declaration_info).into());
         }
 
         // This section checks if recently created provider is still considered active
         // even without having activity recorded yet.
-        if provider_info
+        if declaration_info
             .created
             .wrapping_add(service_params.inactivity_period)
             > block_number
         {
-            return Ok(ActiveState(*provider_info).into());
+            return Ok(ActiveState(declaration_info).into());
         }
 
         // Check if provider has ever got the activity recorded first and then see if
         // the activity record was recent.
-        if let Some(activity) = provider_info.active {
+        if let Some(activity) = declaration_info.active {
             if block_number.wrapping_sub(activity) <= service_params.inactivity_period {
-                return Ok(ActiveState(*provider_info).into());
+                return Ok(ActiveState(declaration_info).into());
             }
         }
 
-        Ok(InactiveState(*provider_info).into())
+        Ok(InactiveState(declaration_info).into())
     }
 
     #[must_use]
     const fn last_block_number(&self) -> BlockNumber {
-        let provider_info: ProviderInfo = match self {
-            Self::Active(active_state) => active_state.0,
-            Self::Inactive(inactive_state) => inactive_state.0,
-            Self::Withdrawn(withdrawn_state) => withdrawn_state.0,
+        let declaration_info: &DeclarationInfo = match self {
+            Self::Active(active_state) => &active_state.0,
+            Self::Inactive(inactive_state) => &inactive_state.0,
+            Self::Withdrawn(withdrawn_state) => &withdrawn_state.0,
         };
-        if let Some(withdrawn_timestamp) = provider_info.withdrawn {
+        if let Some(withdrawn_timestamp) = declaration_info.withdrawn {
             return withdrawn_timestamp;
         }
-        if let Some(activity_timestamp) = provider_info.active {
+        if let Some(activity_timestamp) = declaration_info.active {
             return activity_timestamp;
         }
-        provider_info.created
+        declaration_info.created
     }
 
     #[must_use]
     pub const fn declaration_id(&self) -> DeclarationId {
         match self {
-            Self::Active(active_state) => active_state.0.declaration_id,
-            Self::Inactive(inactive_state) => inactive_state.0.declaration_id,
-            Self::Withdrawn(withdrawn_state) => withdrawn_state.0.declaration_id,
+            Self::Active(active_state) => active_state.0.id,
+            Self::Inactive(inactive_state) => inactive_state.0.id,
+            Self::Withdrawn(withdrawn_state) => withdrawn_state.0.id,
         }
     }
 
@@ -247,19 +247,19 @@ impl TransientProviderState {
     }
 }
 
-impl From<ActiveState> for TransientProviderState {
+impl From<ActiveState> for TransientDeclarationState {
     fn from(state: ActiveState) -> Self {
         Self::Active(state)
     }
 }
 
-impl From<InactiveState> for TransientProviderState {
+impl From<InactiveState> for TransientDeclarationState {
     fn from(state: InactiveState) -> Self {
         Self::Inactive(state)
     }
 }
 
-impl From<WithdrawnState> for TransientProviderState {
+impl From<WithdrawnState> for TransientDeclarationState {
     fn from(state: WithdrawnState) -> Self {
         Self::Withdrawn(state)
     }
@@ -268,7 +268,7 @@ impl From<WithdrawnState> for TransientProviderState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ProviderId;
+    use crate::{DeclarationMessage, ProviderId, RewardAddress, ServiceType};
 
     const fn default_service_params() -> ServiceParameters {
         ServiceParameters {
@@ -279,99 +279,111 @@ mod tests {
         }
     }
 
+    const fn default_declaration_message() -> DeclarationMessage {
+        let provider_id = ProviderId([0; 32]);
+        let reward_address = RewardAddress([0; 32]);
+
+        DeclarationMessage {
+            service_type: ServiceType::BlendNetwork,
+            locators: vec![],
+            provider_id,
+            reward_address,
+        }
+    }
+
     #[test]
     fn test_info_to_inactive_state() {
-        let provider_id = ProviderId([0; 32]);
-        let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
-        let provider_info = ProviderInfo::new(0, provider_id, declaration_id);
+        let declaration_message = default_declaration_message();
+        let declaration_info = DeclarationInfo::new(0, declaration_message);
 
         let inactive_state =
-            TransientProviderState::try_from_info(21, &provider_info, &service_params).unwrap();
+            TransientDeclarationState::try_from_info(21, declaration_info, &service_params)
+                .unwrap();
         assert!(matches!(
             inactive_state,
-            TransientProviderState::Inactive(_)
+            TransientDeclarationState::Inactive(_)
         ));
     }
 
     #[test]
     fn test_info_to_inactive_active_state() {
-        let provider_id = ProviderId([0; 32]);
-        let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
-        let mut provider_info = ProviderInfo::new(100, provider_id, declaration_id);
-        provider_info.active = Some(110);
+        let declaration_message = default_declaration_message();
+        let mut declaration_info = DeclarationInfo::new(100, declaration_message);
+        declaration_info.active = Some(110);
 
         let inactive_activity_record_state =
-            TransientProviderState::try_from_info(200, &provider_info, &service_params).unwrap();
+            TransientDeclarationState::try_from_info(200, declaration_info, &service_params)
+                .unwrap();
         assert!(matches!(
             inactive_activity_record_state,
-            TransientProviderState::Inactive(_)
+            TransientDeclarationState::Inactive(_)
         ));
         assert_eq!(inactive_activity_record_state.last_block_number(), 110);
     }
 
     #[test]
     fn test_info_to_active_state() {
-        let provider_id = ProviderId([0; 32]);
-        let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
-        let provider_info = ProviderInfo::new(100, provider_id, declaration_id);
+        let declaration_message = default_declaration_message();
+        let declaration_info = DeclarationInfo::new(100, declaration_message);
 
         let active_state =
-            TransientProviderState::try_from_info(111, &provider_info, &service_params).unwrap();
-        assert!(matches!(active_state, TransientProviderState::Active(_)));
+            TransientDeclarationState::try_from_info(111, declaration_info, &service_params)
+                .unwrap();
+        assert!(matches!(active_state, TransientDeclarationState::Active(_)));
     }
 
     #[test]
     fn test_info_to_active_recorded_state() {
-        let provider_id = ProviderId([0; 32]);
-        let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
-        let mut provider_info = ProviderInfo::new(100, provider_id, declaration_id);
-        provider_info.active = Some(110);
+        let declaration_message = default_declaration_message();
+        let mut declaration_info = DeclarationInfo::new(100, declaration_message);
+        declaration_info.active = Some(110);
 
         let active_recorded_state =
-            TransientProviderState::try_from_info(111, &provider_info, &service_params).unwrap();
+            TransientDeclarationState::try_from_info(111, declaration_info, &service_params)
+                .unwrap();
         assert!(matches!(
             active_recorded_state,
-            TransientProviderState::Active(_)
+            TransientDeclarationState::Active(_)
         ));
         assert_eq!(active_recorded_state.last_block_number(), 110);
     }
 
     #[test]
     fn test_info_to_withdrawn_state() {
-        let provider_id = ProviderId([0; 32]);
-        let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
-        let mut provider_info = ProviderInfo::new(100, provider_id, declaration_id);
-        provider_info.active = Some(111);
-        provider_info.withdrawn = Some(121);
+        let declaration_message = default_declaration_message();
+        let mut declaration_info = DeclarationInfo::new(100, declaration_message);
+        declaration_info.active = Some(111);
+        declaration_info.withdrawn = Some(121);
 
         let withdrawn_state =
-            TransientProviderState::try_from_info(131, &provider_info, &service_params).unwrap();
+            TransientDeclarationState::try_from_info(131, declaration_info, &service_params)
+                .unwrap();
         assert!(matches!(
             withdrawn_state,
-            TransientProviderState::Withdrawn(_)
+            TransientDeclarationState::Withdrawn(_)
         ));
         assert_eq!(withdrawn_state.last_block_number(), 121);
     }
 
     #[test]
     fn test_previous_block() {
-        let provider_id = ProviderId([0; 32]);
-        let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
-        let provider_info = ProviderInfo::new(3, provider_id, declaration_id);
+        let declaration_message = default_declaration_message();
+        let declaration_info = DeclarationInfo::new(3, declaration_message);
 
         // Provider created in block 3, trying to convert to state in block 2.
-        let res = TransientProviderState::try_from_info(2, &provider_info, &service_params);
+        let res =
+            TransientDeclarationState::try_from_info(2, declaration_info.clone(), &service_params);
         assert!(matches!(res, Err(ProviderStateError::BlockFromPast)));
 
         // Provider activity recorded in block 5, trying to withdraw in block 4.
         let active_state =
-            TransientProviderState::try_from_info(3, &provider_info, &service_params).unwrap();
+            TransientDeclarationState::try_from_info(3, declaration_info, &service_params).unwrap();
         let active_recorded = active_state
             .try_into_active(5, EventType::Activity)
             .unwrap();
@@ -381,19 +393,19 @@ mod tests {
 
     #[test]
     fn test_active_to_active_declaration() {
-        let provider_id = ProviderId([0; 32]);
-        let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
-        let provider_info = ProviderInfo::new(0, provider_id, declaration_id);
+        let declaration_message = default_declaration_message();
+        let declaration_id = declaration_message.declaration_id();
+        let declaration_info = DeclarationInfo::new(0, declaration_message);
 
         let active_state =
-            TransientProviderState::try_from_info(0, &provider_info, &service_params).unwrap();
+            TransientDeclarationState::try_from_info(0, declaration_info, &service_params).unwrap();
         let active_state = active_state
             .try_into_active(0, EventType::Declaration)
             .unwrap();
 
-        if let TransientProviderState::Active(active_state) = active_state {
-            assert_eq!(active_state.0.declaration_id, declaration_id);
+        if let TransientDeclarationState::Active(active_state) = active_state {
+            assert_eq!(active_state.0.id, declaration_id);
             assert_eq!(active_state.0.created, 0);
         } else {
             panic!("Failed to transition to active state");
@@ -402,13 +414,12 @@ mod tests {
 
     #[test]
     fn test_active_to_activity_recorded_to_withdraw() {
-        let provider_id = ProviderId([0; 32]);
-        let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
-        let provider_info = ProviderInfo::new(0, provider_id, declaration_id);
+        let declaration_message = default_declaration_message();
+        let declaration_info = DeclarationInfo::new(0, declaration_message);
 
         let active_state =
-            TransientProviderState::try_from_info(0, &provider_info, &service_params).unwrap();
+            TransientDeclarationState::try_from_info(0, declaration_info, &service_params).unwrap();
         let active_recorded = active_state
             .try_into_active(5, EventType::Activity)
             .unwrap();
@@ -423,13 +434,13 @@ mod tests {
 
     #[test]
     fn test_withdrawal_constraints() {
-        let provider_id = ProviderId([0; 32]);
-        let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
-        let provider_info = ProviderInfo::new(0, provider_id, declaration_id);
+        let declaration_message = default_declaration_message();
+        let declaration_info = DeclarationInfo::new(0, declaration_message);
 
         let active_state =
-            TransientProviderState::try_from_info(0, &provider_info, &service_params).unwrap();
+            TransientDeclarationState::try_from_info(0, declaration_info.clone(), &service_params)
+                .unwrap();
 
         // Withdrawal before lock period should fail.
         let early_withdrawal =
@@ -438,7 +449,7 @@ mod tests {
 
         // States are consumed, to continue the test we need to create a new state.
         let active_state =
-            TransientProviderState::try_from_info(0, &provider_info, &service_params)
+            TransientDeclarationState::try_from_info(0, declaration_info.clone(), &service_params)
                 .unwrap()
                 .try_into_active(0, EventType::Declaration)
                 .unwrap();
@@ -457,7 +468,7 @@ mod tests {
 
         // Withdrawal can't be activity recorded in future.
         let active_withdrawal =
-            TransientProviderState::try_from_info(0, &provider_info, &service_params)
+            TransientDeclarationState::try_from_info(0, declaration_info, &service_params)
                 .unwrap()
                 .try_into_withdrawn(11, EventType::Withdrawal, &service_params)
                 .unwrap();
@@ -470,23 +481,19 @@ mod tests {
 
     #[test]
     fn test_inactive_to_withdraw() {
-        let provider_id = ProviderId([0; 32]);
-        let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
+        let declaration_message = default_declaration_message();
+        let declaration_info = DeclarationInfo::new(0, declaration_message);
 
-        let provider_info = ProviderInfo {
-            provider_id,
-            declaration_id,
-            created: 0,
-            active: None,
-            withdrawn: None,
-        };
-
-        let inactive_state =
-            TransientProviderState::try_from_info(100, &provider_info, &service_params).unwrap();
+        let inactive_state = TransientDeclarationState::try_from_info(
+            100,
+            declaration_info.clone(),
+            &service_params,
+        )
+        .unwrap();
         assert!(matches!(
             inactive_state,
-            TransientProviderState::Inactive(_)
+            TransientDeclarationState::Inactive(_)
         ));
 
         // Inactive state can't declare a service.
@@ -495,7 +502,8 @@ mod tests {
 
         // Try to make inactive state then withdraw.
         let inactive_state =
-            TransientProviderState::try_from_info(100, &provider_info, &service_params).unwrap();
+            TransientDeclarationState::try_from_info(100, declaration_info, &service_params)
+                .unwrap();
 
         let withdrawn_state =
             inactive_state.try_into_withdrawn(115, EventType::Withdrawal, &service_params);
@@ -505,21 +513,14 @@ mod tests {
 
     #[test]
     fn test_inactive_to_active_to_withdraw() {
-        let provider_id = ProviderId([0; 32]);
-        let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
-
-        let provider_info = ProviderInfo {
-            provider_id,
-            declaration_id,
-            created: 0,
-            active: None,
-            withdrawn: None,
-        };
+        let declaration_message = default_declaration_message();
+        let declaration_info = DeclarationInfo::new(0, declaration_message);
 
         // Try to make inactive state active again and then withdraw.
         let inactive_state =
-            TransientProviderState::try_from_info(100, &provider_info, &service_params).unwrap();
+            TransientDeclarationState::try_from_info(100, declaration_info, &service_params)
+                .unwrap();
 
         let active_state = inactive_state
             .try_into_active(105, EventType::Activity)
@@ -533,13 +534,12 @@ mod tests {
 
     #[test]
     fn test_withdrawn_cannot_transition_to_inactive() {
-        let provider_id = ProviderId([0; 32]);
-        let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
-        let provider_info = ProviderInfo::new(0, provider_id, declaration_id);
+        let declaration_message = default_declaration_message();
+        let declaration_info = DeclarationInfo::new(0, declaration_message);
 
         let active_state =
-            TransientProviderState::try_from_info(0, &provider_info, &service_params)
+            TransientDeclarationState::try_from_info(0, declaration_info, &service_params)
                 .unwrap()
                 .try_into_active(0, EventType::Declaration)
                 .unwrap();
@@ -555,21 +555,21 @@ mod tests {
 
     #[test]
     fn test_inactive_cannot_withdraw_before_lock_period() {
-        let provider_id = ProviderId([0; 32]);
-        let declaration_id = DeclarationId([1; 32]);
         let service_params = ServiceParameters {
             lock_period: 20,
             inactivity_period: 5,
             retention_period: 30,
             timestamp: 0,
         };
-        let provider_info = ProviderInfo::new(0, provider_id, declaration_id);
+        let declaration_message = default_declaration_message();
+        let declaration_info = DeclarationInfo::new(0, declaration_message);
 
         let inactive_state =
-            TransientProviderState::try_from_info(10, &provider_info, &service_params).unwrap();
+            TransientDeclarationState::try_from_info(10, declaration_info, &service_params)
+                .unwrap();
         assert!(matches!(
             inactive_state,
-            TransientProviderState::Inactive(_)
+            TransientDeclarationState::Inactive(_)
         ));
 
         // Withdrawal should fail before the lock period is over.
@@ -580,13 +580,12 @@ mod tests {
 
     #[test]
     fn test_active_cannot_record_activity_directly_when_withdrawing() {
-        let provider_id = ProviderId([0; 32]);
-        let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
-        let provider_info = ProviderInfo::new(0, provider_id, declaration_id);
+        let declaration_message = default_declaration_message();
+        let declaration_info = DeclarationInfo::new(0, declaration_message);
 
         let active_state =
-            TransientProviderState::try_from_info(0, &provider_info, &service_params)
+            TransientDeclarationState::try_from_info(0, declaration_info, &service_params)
                 .unwrap()
                 .try_into_active(0, EventType::Declaration)
                 .unwrap();
@@ -599,13 +598,12 @@ mod tests {
 
     #[test]
     fn test_invalid_event_transitions() {
-        let provider_id = ProviderId([0; 32]);
-        let declaration_id = DeclarationId([1; 32]);
         let service_params = default_service_params();
-        let provider_info = ProviderInfo::new(0, provider_id, declaration_id);
+        let declaration_message = default_declaration_message();
+        let declaration_info = DeclarationInfo::new(0, declaration_message);
 
         let active_state =
-            TransientProviderState::try_from_info(0, &provider_info, &service_params)
+            TransientDeclarationState::try_from_info(0, declaration_info.clone(), &service_params)
                 .unwrap()
                 .try_into_active(0, EventType::Declaration)
                 .unwrap();
@@ -616,10 +614,11 @@ mod tests {
         assert!(invalid_transition.is_err());
 
         let inactive_state =
-            TransientProviderState::try_from_info(100, &provider_info, &service_params).unwrap();
+            TransientDeclarationState::try_from_info(100, declaration_info, &service_params)
+                .unwrap();
         assert!(matches!(
             inactive_state,
-            TransientProviderState::Inactive(_)
+            TransientDeclarationState::Inactive(_)
         ));
 
         // Invalid event: Inactive cannot transition to Active with a withdrawal event.

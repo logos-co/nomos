@@ -93,12 +93,12 @@ impl MembershipBackend for MockMembershipBackend {
             let service_data = latest_entry.entry(service_type).or_default();
 
             match state {
-                nomos_sdp_core::ProviderState::Active => {
+                nomos_sdp_core::DeclarationState::Active => {
                     self.locators_mapping.insert(provider_id, locators.clone());
                     service_data.insert(provider_id);
                 }
-                nomos_sdp_core::ProviderState::Inactive
-                | nomos_sdp_core::ProviderState::Withdrawn => {
+                nomos_sdp_core::DeclarationState::Inactive
+                | nomos_sdp_core::DeclarationState::Withdrawn => {
                     service_data.remove(&provider_id);
                     self.locators_mapping.remove(&provider_id);
                 }
@@ -153,8 +153,9 @@ mod tests {
 
     use multiaddr::multiaddr;
     use nomos_sdp_core::{
-        BlockNumber, DeclarationId, DeclarationUpdate, FinalizedBlockEvent,
-        FinalizedBlockEventUpdate, Locator, ProviderId, ProviderInfo, ProviderState, ServiceType,
+        BlockNumber, DeclarationId, DeclarationInfo, DeclarationMessage, DeclarationState,
+        FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId, RewardAddress,
+        ServiceType,
     };
 
     use super::{
@@ -177,11 +178,15 @@ mod tests {
     }
 
     // Helper function to create ProviderInfo
-    fn create_provider_info(seed: u8, block_number: BlockNumber) -> ProviderInfo {
-        ProviderInfo::new(
+    fn create_provider_info(seed: u8, block_number: BlockNumber) -> DeclarationInfo {
+        DeclarationInfo::new(
             block_number,
-            create_provider_id(seed),
-            create_declaration_id(seed),
+            DeclarationMessage {
+                service_type: ServiceType::DataAvailability,
+                locators: Vec::new(),
+                provider_id: create_provider_id(seed),
+                reward_address: RewardAddress([0; 32]),
+            },
         )
     }
 
@@ -197,16 +202,21 @@ mod tests {
         seed: u8,
         service_type: ServiceType,
         num_locators: usize,
-    ) -> DeclarationUpdate {
+    ) -> DeclarationInfo {
         let locators = (0..num_locators)
             .map(|i| create_locator(seed + i as u8))
             .collect();
+        let reward_address = RewardAddress([0; 32]);
 
-        DeclarationUpdate {
-            declaration_id: create_declaration_id(seed),
+        DeclarationInfo {
+            id: create_declaration_id(seed),
             provider_id: create_provider_id(seed),
-            service_type,
+            service: service_type,
             locators,
+            reward_address,
+            created: 0,
+            active: Some(1),
+            withdrawn: None,
         }
     }
 
@@ -385,7 +395,7 @@ mod tests {
     fn create_block_update(
         service_type: ServiceType,
         provider_id: ProviderId,
-        state: ProviderState,
+        state: DeclarationState,
         locators: Vec<Locator>,
     ) -> FinalizedBlockEventUpdate {
         FinalizedBlockEventUpdate {
@@ -417,7 +427,7 @@ mod tests {
             vec![create_block_update(
                 service_type,
                 provider_info_1.provider_id,
-                ProviderState::Active,
+                DeclarationState::Active,
                 decl_update_1.locators.clone(),
             )],
             &[(provider_info_1.provider_id, decl_update_1.locators.clone())],
@@ -432,7 +442,7 @@ mod tests {
             vec![create_block_update(
                 service_type,
                 provider_info_2.provider_id,
-                ProviderState::Active,
+                DeclarationState::Active,
                 decl_update_2.locators.clone(),
             )],
             &[
@@ -451,13 +461,13 @@ mod tests {
                 create_block_update(
                     service_type,
                     provider_info_2.provider_id,
-                    ProviderState::Withdrawn,
+                    DeclarationState::Withdrawn,
                     Vec::new(),
                 ),
                 create_block_update(
                     service_type,
                     provider_info_3.provider_id,
-                    ProviderState::Active,
+                    DeclarationState::Active,
                     decl_update_3.locators.clone(),
                 ),
             ],
@@ -527,9 +537,9 @@ mod tests {
         let declaration_update = create_declaration_update(1, unknown_service_type, 3);
 
         let updates = vec![FinalizedBlockEventUpdate {
-            service_type: declaration_update.service_type,
+            service_type: declaration_update.service,
             provider_id: provider_info.provider_id,
-            state: ProviderState::Active,
+            state: DeclarationState::Active,
             locators: BTreeSet::from_iter(declaration_update.locators),
         }];
 
