@@ -17,12 +17,11 @@ use nomos_da_sampling::{
 use nomos_network::{message::BackendNetworkMsg, NetworkService};
 use overwatch::{
     services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},
-    OpaqueServiceStateHandle,
+    OpaqueServiceResourcesHandle,
 };
 use rand::Rng;
 use services_utils::overwatch::{
-    lifecycle, recovery::operators::RecoveryBackend as RecoveryBackendTrait, JsonFileBackend,
-    RecoveryOperator,
+    recovery::operators::RecoveryBackend as RecoveryBackendTrait, JsonFileBackend, RecoveryOperator,
 };
 
 use crate::{
@@ -92,7 +91,7 @@ pub struct GenericDaMempoolService<
     RecoveryBackend: RecoveryBackendTrait,
 {
     pool: Pool,
-    service_state_handle: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     #[expect(
         clippy::type_complexity,
         reason = "There is nothing we can do about this, at the moment."
@@ -147,11 +146,11 @@ where
 {
     pub const fn new(
         pool: Pool,
-        service_state_handle: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     ) -> Self {
         Self {
             pool,
-            service_state_handle,
+            service_resources_handle,
             _phantom: PhantomData,
         }
     }
@@ -268,32 +267,35 @@ where
         >,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-        init_state: Self::State,
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+        initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
         tracing::trace!(
             "Initializing DaMempoolService with initial state {:#?}",
-            init_state.pool
+            initial_state.pool
         );
-        let settings = service_state.settings_reader.get_updated_settings();
-        let recovered_pool = init_state.pool.map_or_else(
+        let settings = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
+        let recovered_pool = initial_state.pool.map_or_else(
             || Pool::new(settings.pool.clone()),
             |recovered_pool| Pool::recover(settings.pool.clone(), recovered_pool),
         );
 
-        Ok(Self::new(recovered_pool, service_state))
+        Ok(Self::new(recovered_pool, service_resources_handle))
     }
 
     async fn run(mut self) -> Result<(), overwatch::DynError> {
         let network_service_relay = self
-            .service_state_handle
+            .service_resources_handle
             .overwatch_handle
             .relay::<NetworkService<_, _>>()
             .await
             .expect("Relay connection with NetworkService should succeed");
 
         let sampling_relay = self
-            .service_state_handle
+            .service_resources_handle
             .overwatch_handle
             .relay::<DaSamplingService<_, _, _, _, _, _, _, _, _>>()
             .await
@@ -301,8 +303,9 @@ where
 
         // Queue for network messages
         let mut network_items = NetworkAdapter::new(
-            self.service_state_handle
-                .settings_reader
+            self.service_resources_handle
+                .settings_handle
+                .notifier()
                 .get_updated_settings()
                 .network_adapter,
             network_service_relay.clone(),
@@ -310,13 +313,11 @@ where
         .await
         .payload_stream()
         .await;
-        // Queue for lifecycle messages
-        let mut lifecycle_stream = self.service_state_handle.lifecycle_handle.message_stream();
 
         loop {
             tokio::select! {
                 // Queue for relay messages
-                Some(relay_msg) = self.service_state_handle.inbound_relay.recv() => {
+                Some(relay_msg) = self.service_resources_handle.inbound_relay.recv() => {
                     self.handle_mempool_message(relay_msg, network_service_relay.clone());
                 }
                 Some((key, item )) = network_items.next() => {
@@ -325,16 +326,10 @@ where
                         tracing::debug!("could not add item to the pool due to: {e}");
                     });
                     tracing::info!(counter.da_mempool_pending_items = self.pool.pending_item_count());
-                    self.service_state_handle.state_updater.update(self.pool.save().into());
-                }
-                Some(lifecycle_msg) = lifecycle_stream.next() =>  {
-                    if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&lifecycle_msg) {
-                        break;
-                    }
+                    self.service_resources_handle.state_updater.update(Some(self.pool.save().into()));
                 }
             }
         }
-        Ok(())
     }
 }
 
@@ -394,13 +389,14 @@ where
                     Ok(_id) => {
                         // Broadcast the item to the network
                         let settings = self
-                            .service_state_handle
-                            .settings_reader
+                            .service_resources_handle
+                            .settings_handle
+                            .notifier()
                             .get_updated_settings()
                             .network_adapter;
-                        self.service_state_handle
+                        self.service_resources_handle
                             .state_updater
-                            .update(self.pool.save().into());
+                            .update(Some(self.pool.save().into()));
                         // move sending to a new task so local operations can complete in the
                         // meantime
                         tokio::spawn(async {
