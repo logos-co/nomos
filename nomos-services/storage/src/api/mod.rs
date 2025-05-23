@@ -16,17 +16,17 @@ pub mod da;
 #[async_trait]
 pub trait StorageBackendApi: StorageChainApi + StorageDaApi {}
 
-pub(crate) trait StorageOperation<B: StorageBackend> {
-    async fn execute(self, api: &mut B) -> Result<(), StorageServiceError>;
+pub(crate) trait StorageOperation<Backend: StorageBackend> {
+    async fn execute(self, api: &mut Backend) -> Result<(), StorageServiceError>;
 }
 
-pub enum StorageApiRequest<B: StorageBackend> {
-    Chain(ChainApiRequest<B>),
-    Da(DaApiRequest<B>),
+pub enum StorageApiRequest<Backend: StorageBackend> {
+    Chain(ChainApiRequest<Backend>),
+    Da(DaApiRequest<Backend>),
 }
 
-impl<B: StorageBackend> StorageOperation<B> for StorageApiRequest<B> {
-    async fn execute(self, backend: &mut B) -> Result<(), StorageServiceError> {
+impl<Backend: StorageBackend> StorageOperation<Backend> for StorageApiRequest<Backend> {
+    async fn execute(self, backend: &mut Backend) -> Result<(), StorageServiceError> {
         match self {
             Self::Chain(request) => request.execute(backend).await,
             Self::Da(request) => request.execute(backend).await,

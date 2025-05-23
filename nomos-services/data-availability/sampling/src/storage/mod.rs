@@ -1,6 +1,5 @@
 pub mod adapters;
 
-use kzgrs_backend::common::ShareIndex;
 use nomos_core::da::blob::Share;
 use nomos_storage::{backends::StorageBackend, StorageService};
 use overwatch::{
@@ -27,6 +26,6 @@ pub trait DaStorageAdapter<RuntimeServiceId> {
     async fn get_light_share(
         &self,
         blob_id: <Self::Share as Share>::BlobId,
-        share_idx: ShareIndex,
+        share_idx: <Self::Share as Share>::ShareIndex,
     ) -> Result<Option<<Self::Share as Share>::LightShare>, DynError>;
 }

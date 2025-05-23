@@ -19,9 +19,12 @@ pub use nomos_core::{
 };
 pub use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBackend;
 use nomos_da_sampling::{
-    api::http::HttApiAdapter, backend::kzgrs::KzgrsSamplingBackend,
+    api::http::HttApiAdapter,
+    backend::kzgrs::KzgrsSamplingBackend,
     network::adapters::validator::Libp2pAdapter as SamplingLibp2pAdapter,
-    storage::adapters::rocksdb::RocksAdapter as SamplingStorageAdapter,
+    storage::adapters::rocksdb::{
+        converter::DaStorageConverter, RocksAdapter as SamplingStorageAdapter,
+    },
 };
 use nomos_da_verifier::{
     backend::kzgrs::KzgrsDaVerifier,
@@ -146,16 +149,17 @@ pub(crate) type ApiService = nomos_api::ApiService<
         BlobInfo,
         KzgrsDaVerifier,
         VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
-        VerifierStorageAdapter<DaShare, Wire>,
+        VerifierStorageAdapter<DaShare, Wire, DaStorageConverter>,
         Tx,
         Wire,
+        DaStorageConverter,
         KzgrsSamplingBackend<ChaCha20Rng>,
         nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
             NomosDaMembership,
             RuntimeServiceId,
         >,
         ChaCha20Rng,
-        SamplingStorageAdapter<DaShare, Wire>,
+        SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
         NtpTimeBackend,
         HttApiAdapter<NomosDaMembership>,
         ApiStorageAdapter<Wire, RuntimeServiceId>,

@@ -2,7 +2,7 @@ use std::{marker::PhantomData, ops::Range, path::PathBuf};
 
 use bytes::Bytes;
 use futures::{stream::FuturesUnordered, try_join, Stream};
-use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
+use kzgrs_backend::common::share::DaShare;
 use nomos_core::da::{
     blob::{
         info::DispersedBlobInfo,
@@ -12,7 +12,10 @@ use nomos_core::da::{
     BlobId,
 };
 use nomos_storage::{
-    api::backend::rocksdb::{da::DA_VID_KEY_PREFIX, utils::key_bytes},
+    api::{
+        backend::rocksdb::{da::DA_VID_KEY_PREFIX, utils::key_bytes},
+        da::DaConverter,
+    },
     backends::{rocksdb::RocksBackend, StorageSerde},
     StorageMsg, StorageService,
 };
@@ -24,19 +27,22 @@ use serde::{Deserialize, Serialize};
 
 use crate::storage::DaStorageAdapter;
 
-pub struct RocksAdapter<S, B>
+pub struct RocksAdapter<S, B, Converter>
 where
     S: StorageSerde + Send + Sync + 'static,
     B: DispersedBlobInfo + Metadata + Send + Sync,
 {
     storage_relay: OutboundRelay<StorageMsg<RocksBackend<S>>>,
     _vid: PhantomData<B>,
+    _converter: PhantomData<Converter>,
 }
 
 #[async_trait::async_trait]
-impl<S, Meta, RuntimeServiceId> DaStorageAdapter<RuntimeServiceId> for RocksAdapter<S, Meta>
+impl<S, Meta, Converter, RuntimeServiceId> DaStorageAdapter<RuntimeServiceId>
+    for RocksAdapter<S, Meta, Converter>
 where
     S: StorageSerde + Send + Sync + 'static,
+    Converter: DaConverter<RocksBackend<S>, Share = DaShare> + Send + Sync + 'static,
     Meta: DispersedBlobInfo<BlobId = BlobId> + Send + Sync,
     Meta::Index: AsRef<[u8]> + Next + Clone + PartialOrd + Send + Sync + 'static,
     Meta::AppId: AsRef<[u8]> + Clone + Send + Sync + 'static,
@@ -54,6 +60,7 @@ where
         Self {
             storage_relay,
             _vid: PhantomData,
+            _converter: PhantomData,
         }
     }
 
@@ -61,10 +68,10 @@ where
         // Check if Info in a block is something that the node've seen before.
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
         self.storage_relay
-            .send(StorageMsg::get_blob_light_shares_request(
+            .send(StorageMsg::get_blob_light_shares_request::<Converter>(
                 info.blob_id(),
                 reply_tx,
-            ))
+            )?)
             .await
             .expect("Failed to send load request to storage relay");
 
@@ -136,10 +143,10 @@ where
                     async {
                         let (share_reply_tx, share_reply_rx) = tokio::sync::oneshot::channel();
                         storage_relay
-                            .send(StorageMsg::get_blob_light_shares_request(
+                            .send(StorageMsg::get_blob_light_shares_request::<Converter>(
                                 id.as_ref().try_into().expect("Failed to convert blob id"),
                                 share_reply_tx,
-                            ))
+                            )?)
                             .await
                             .expect("Failed to send load request to storage relay");
 
@@ -149,10 +156,10 @@ where
                         let (shared_commitments_reply_tx, shared_commitments_reply_rx) =
                             tokio::sync::oneshot::channel();
                         storage_relay
-                            .send(StorageMsg::get_shared_commitments_request(
+                            .send(StorageMsg::get_shared_commitments_request::<Converter>(
                                 id.as_ref().try_into().expect("Failed to convert blob id"),
                                 shared_commitments_reply_tx,
-                            ))
+                            )?)
                             .await
                             .expect("Failed to send load request to storage relay");
 
@@ -171,11 +178,12 @@ where
                 let deserialized_shares = shares
                     .unwrap_or_default()
                     .into_iter()
-                    .filter_map(|bytes| S::deserialize::<DaLightShare>(bytes).ok());
+                    .filter_map(|bytes| Converter::share_from_storage(bytes).ok());
 
                 let deserialized_shared_commitments =
-                    S::deserialize::<DaSharesCommitments>(shared_commitments)
-                        .expect("Failed to deserialize shared commitments");
+                    Converter::commitments_from_storage(shared_commitments)
+                        .ok()
+                        .unwrap_or_default();
 
                 let da_shares: Vec<_> = deserialized_shares
                     .map(|share| {

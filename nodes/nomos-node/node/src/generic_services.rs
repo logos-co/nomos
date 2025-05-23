@@ -2,7 +2,10 @@ use cryptarchia_consensus::CryptarchiaConsensus;
 use kzgrs_backend::{common::share::DaShare, dispersal::BlobInfo};
 use nomos_core::{da::blob::info::DispersedBlobInfo, header::HeaderId, tx::Transaction};
 use nomos_da_indexer::consensus::adapters::cryptarchia::CryptarchiaConsensusAdapter;
-use nomos_da_sampling::{api::http::HttApiAdapter, backend::kzgrs::KzgrsSamplingBackend};
+use nomos_da_sampling::{
+    api::http::HttApiAdapter, backend::kzgrs::KzgrsSamplingBackend,
+    storage::adapters::rocksdb::converter::DaStorageConverter,
+};
 use nomos_da_verifier::backend::kzgrs::KzgrsDaVerifier;
 use nomos_mempool::backend::mockpool::MockPool;
 use nomos_storage::backends::rocksdb::RocksBackend;
@@ -27,7 +30,11 @@ pub type DaIndexerService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> =
     nomos_da_indexer::DataIndexerService<
         // Indexer specific.
         DaShare,
-        nomos_da_indexer::storage::adapters::rocksdb::RocksAdapter<Wire, BlobInfo>,
+        nomos_da_indexer::storage::adapters::rocksdb::RocksAdapter<
+            Wire,
+            BlobInfo,
+            DaStorageConverter,
+        >,
         CryptarchiaConsensusAdapter<Tx, BlobInfo>,
         // Cryptarchia specific, should be the same as in `Cryptarchia` type above.
         cryptarchia_consensus::network::adapters::libp2p::LibP2pAdapter<
@@ -59,10 +66,18 @@ pub type DaIndexerService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> =
         KzgrsSamplingBackend<ChaCha20Rng>,
         SamplingAdapter,
         ChaCha20Rng,
-        nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, Wire>,
+        nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<
+            DaShare,
+            Wire,
+            DaStorageConverter,
+        >,
         KzgrsDaVerifier,
         VerifierNetwork,
-        nomos_da_verifier::storage::adapters::rocksdb::RocksAdapter<DaShare, Wire>,
+        nomos_da_verifier::storage::adapters::rocksdb::RocksAdapter<
+            DaShare,
+            Wire,
+            DaStorageConverter,
+        >,
         NtpTimeBackend,
         HttApiAdapter<NomosDaMembership>,
         RuntimeServiceId,
@@ -72,7 +87,11 @@ pub type DaVerifierService<VerifierAdapter, RuntimeServiceId> =
     nomos_da_verifier::DaVerifierService<
         KzgrsDaVerifier,
         VerifierAdapter,
-        nomos_da_verifier::storage::adapters::rocksdb::RocksAdapter<DaShare, Wire>,
+        nomos_da_verifier::storage::adapters::rocksdb::RocksAdapter<
+            DaShare,
+            Wire,
+            DaStorageConverter,
+        >,
         RuntimeServiceId,
     >;
 
@@ -81,10 +100,18 @@ pub type DaSamplingService<SamplingAdapter, VerifierNetworkAdapter, RuntimeServi
         KzgrsSamplingBackend<ChaCha20Rng>,
         SamplingAdapter,
         ChaCha20Rng,
-        nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, Wire>,
+        nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<
+            DaShare,
+            Wire,
+            DaStorageConverter,
+        >,
         KzgrsDaVerifier,
         VerifierNetworkAdapter,
-        nomos_da_verifier::storage::adapters::rocksdb::RocksAdapter<DaShare, Wire>,
+        nomos_da_verifier::storage::adapters::rocksdb::RocksAdapter<
+            DaShare,
+            Wire,
+            DaStorageConverter,
+        >,
         HttApiAdapter<NomosDaMembership>,
         RuntimeServiceId,
     >;
@@ -100,10 +127,18 @@ pub type DaMempoolService<DaSamplingNetwork, VerifierNetwork, RuntimeServiceId> 
         KzgrsSamplingBackend<ChaCha20Rng>,
         DaSamplingNetwork,
         ChaCha20Rng,
-        nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, Wire>,
+        nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<
+            DaShare,
+            Wire,
+            DaStorageConverter,
+        >,
         KzgrsDaVerifier,
         VerifierNetwork,
-        nomos_da_verifier::storage::adapters::rocksdb::RocksAdapter<DaShare, Wire>,
+        nomos_da_verifier::storage::adapters::rocksdb::RocksAdapter<
+            DaShare,
+            Wire,
+            DaStorageConverter,
+        >,
         HttApiAdapter<NomosDaMembership>,
         RuntimeServiceId,
     >;
@@ -139,10 +174,18 @@ pub type CryptarchiaService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> 
         KzgrsSamplingBackend<ChaCha20Rng>,
         SamplingAdapter,
         ChaCha20Rng,
-        nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, Wire>,
+        nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<
+            DaShare,
+            Wire,
+            DaStorageConverter,
+        >,
         KzgrsDaVerifier,
         VerifierNetwork,
-        nomos_da_verifier::storage::adapters::rocksdb::RocksAdapter<DaShare, Wire>,
+        nomos_da_verifier::storage::adapters::rocksdb::RocksAdapter<
+            DaShare,
+            Wire,
+            DaStorageConverter,
+        >,
         NtpTimeBackend,
         HttApiAdapter<NomosDaMembership>,
         RuntimeServiceId,

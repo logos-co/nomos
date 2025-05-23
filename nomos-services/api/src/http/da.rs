@@ -32,7 +32,9 @@ use nomos_da_network_service::{
     },
     DaNetworkMsg, NetworkService,
 };
-use nomos_da_sampling::backend::DaSamplingServiceBackend;
+use nomos_da_sampling::{
+    backend::DaSamplingServiceBackend, storage::adapters::rocksdb::converter::DaStorageConverter,
+};
 use nomos_da_verifier::{
     backend::VerifierBackend, storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
     DaVerifierMsg, DaVerifierService,
@@ -41,7 +43,10 @@ use nomos_libp2p::PeerId;
 use nomos_mempool::{
     backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
 };
-use nomos_storage::backends::{rocksdb::RocksBackend, StorageSerde};
+use nomos_storage::{
+    api::da::DaConverter,
+    backends::{rocksdb::RocksBackend, StorageSerde},
+};
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -69,7 +74,7 @@ pub type DaIndexer<
 > = DataIndexerService<
     // Indexer specific.
     DaShare,
-    IndexerStorageAdapter<SS, V>,
+    IndexerStorageAdapter<SS, V, DaStorageConverter>,
     CryptarchiaConsensusAdapter<Tx, V>,
     // Cryptarchia specific, should be the same as in `Cryptarchia` type above.
     cryptarchia_consensus::network::adapters::libp2p::LibP2pAdapter<Tx, V, RuntimeServiceId>,
@@ -98,13 +103,19 @@ pub type DaIndexer<
     RuntimeServiceId,
 >;
 
-pub type DaVerifier<Blob, NetworkAdapter, VerifierBackend, StorageSerializer, RuntimeServiceId> =
-    DaVerifierService<
-        VerifierBackend,
-        NetworkAdapter,
-        VerifierStorageAdapter<Blob, StorageSerializer>,
-        RuntimeServiceId,
-    >;
+pub type DaVerifier<
+    Blob,
+    NetworkAdapter,
+    VerifierBackend,
+    StorageSerializer,
+    DaStorageConverter,
+    RuntimeServiceId,
+> = DaVerifierService<
+    VerifierBackend,
+    NetworkAdapter,
+    VerifierStorageAdapter<Blob, StorageSerializer, DaStorageConverter>,
+    RuntimeServiceId,
+>;
 
 pub type DaDispersal<
     Backend,
@@ -124,16 +135,15 @@ pub type DaDispersal<
 
 pub type DaNetwork<Backend, RuntimeServiceId> = NetworkService<Backend, RuntimeServiceId>;
 
-pub async fn add_share<A, S, N, VB, SS, RuntimeServiceId>(
+pub async fn add_share<A, S, N, VB, SS, DaStorageConverter, RuntimeServiceId>(
     handle: &OverwatchHandle<RuntimeServiceId>,
     share: S,
 ) -> Result<Option<()>, DynError>
 where
     A: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     S: Share + Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
-    <S as Share>::BlobId: AsRef<[u8]> + Send + Sync + 'static,
-    <S as Share>::ShareIndex:
-        AsRef<[u8]> + Serialize + DeserializeOwned + Eq + Hash + Send + Sync + 'static,
+    <S as Share>::BlobId: Clone + Send + Sync + 'static,
+    <S as Share>::ShareIndex: Clone + Eq + Hash + Send + Sync + 'static,
     <S as Share>::LightShare: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     <S as Share>::SharesCommitments: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     N: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
@@ -142,8 +152,11 @@ where
     <VB as VerifierBackend>::Settings: Clone,
     <VB as CoreDaVerifier>::Error: Error,
     SS: StorageSerde + Send + Sync + 'static,
-    RuntimeServiceId:
-        Debug + Sync + Display + AsServiceId<DaVerifier<S, N, VB, SS, RuntimeServiceId>>,
+    DaStorageConverter: DaConverter<RocksBackend<SS>, Share = S> + Send + Sync + 'static,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + AsServiceId<DaVerifier<S, N, VB, SS, DaStorageConverter, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
@@ -218,6 +231,7 @@ where
     <V as metadata::Metadata>::Index:
         AsRef<[u8]> + Serialize + DeserializeOwned + Clone + PartialOrd + Send + Sync,
     SS: StorageSerde + Send + Sync + 'static,
+    <SS as StorageSerde>::Error: Error + Send + Sync,
     SamplingRng: SeedableRng + RngCore,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = BlobId> + Send,
     SamplingBackend::Settings: Clone,

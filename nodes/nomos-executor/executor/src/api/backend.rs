@@ -41,7 +41,7 @@ use nomos_node::{
     },
     RocksBackend,
 };
-use nomos_storage::{api::da::StorageDaApi, backends::StorageSerde, StorageService};
+use nomos_storage::{api::da, backends::StorageSerde, StorageService};
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -79,6 +79,7 @@ pub struct AxumBackend<
     DaVerifierStorage,
     Tx,
     DaStorageSerializer,
+    DaStorageConverter,
     DispersalBackend,
     DispersalNetworkAdapter,
     DispersalMempoolAdapter,
@@ -106,6 +107,7 @@ pub struct AxumBackend<
         DaVerifierStorage,
         Tx,
         DaStorageSerializer,
+        DaStorageConverter,
         DispersalBackend,
         DispersalNetworkAdapter,
         DispersalMempoolAdapter,
@@ -145,6 +147,7 @@ impl<
         DaVerifierStorage,
         Tx,
         DaStorageSerializer,
+        DaStorageConverter,
         DispersalBackend,
         DispersalNetworkAdapter,
         DispersalMempoolAdapter,
@@ -170,6 +173,7 @@ impl<
         DaVerifierStorage,
         Tx,
         DaStorageSerializer,
+        DaStorageConverter,
         DispersalBackend,
         DispersalNetworkAdapter,
         DispersalMempoolAdapter,
@@ -186,10 +190,9 @@ impl<
 where
     DaAttestation: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     DaShare: Share + Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
-    <DaShare as Share>::BlobId:
-        AsRef<[u8]> + Clone + Serialize + DeserializeOwned + Send + Sync + 'static,
+    <DaShare as Share>::BlobId: Clone + Serialize + DeserializeOwned + Send + Sync + 'static,
     <DaShare as Share>::ShareIndex:
-        AsRef<[u8]> + Serialize + DeserializeOwned + Hash + Eq + Send + Sync + 'static,
+        Clone + Serialize + DeserializeOwned + Hash + Eq + Send + Sync + 'static,
     <DaShare as Share>::SharesCommitments:
         Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     <DaShare as Share>::LightShare: LightShare<ShareIndex = <DaShare as Share>::ShareIndex>
@@ -254,6 +257,10 @@ where
         Serialize + for<'de> Deserialize<'de> + std::cmp::Ord + Debug + Send + Sync + 'static,
     DaStorageSerializer: StorageSerde + Send + Sync + 'static,
     <DaStorageSerializer as StorageSerde>::Error: Send + Sync,
+    DaStorageConverter: da::DaConverter<DaStorageBackend<DaStorageSerializer>, Share = DaShare>
+        + Send
+        + Sync
+        + 'static,
     DispersalBackend: nomos_da_dispersal::backend::DispersalBackend<
             NetworkAdapter = DispersalNetworkAdapter,
             MempoolAdapter = DispersalMempoolAdapter,
@@ -323,6 +330,7 @@ where
                 DaVerifierNetwork,
                 DaVerifierBackend,
                 DaStorageSerializer,
+                DaStorageConverter,
                 RuntimeServiceId,
             >,
         >
@@ -398,11 +406,6 @@ where
                 RuntimeServiceId,
             >,
         >,
-    // Service and storage layer types conversions
-    <DaStorageBackend<DaStorageSerializer> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
-    <DaStorageBackend<DaStorageSerializer> as StorageDaApi>::ShareIndex:
-        Into<DaShare::ShareIndex> + From<DaShare::ShareIndex>,
-    <DaStorageBackend<DaStorageSerializer> as StorageDaApi>::Share: TryInto<DaShare::LightShare>,
 {
     type Error = hyper::Error;
     type Settings = AxumBackendSettings;
@@ -498,6 +501,7 @@ where
                         DaVerifierNetwork,
                         DaVerifierBackend,
                         DaStorageSerializer,
+                        DaStorageConverter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -584,6 +588,7 @@ where
                 routing::get(
                     da_get_commitments::<
                         DaStorageSerializer,
+                        DaStorageConverter,
                         StorageAdapter,
                         DaShare,
                         RuntimeServiceId,
@@ -595,6 +600,7 @@ where
                 routing::get(
                     da_get_light_share::<
                         DaStorageSerializer,
+                        DaStorageConverter,
                         StorageAdapter,
                         DaShare,
                         RuntimeServiceId,
@@ -604,7 +610,13 @@ where
             .route(
                 paths::DA_GET_SHARES,
                 routing::get(
-                    da_get_shares::<DaStorageSerializer, StorageAdapter, DaShare, RuntimeServiceId>,
+                    da_get_shares::<
+                        DaStorageSerializer,
+                        DaStorageConverter,
+                        StorageAdapter,
+                        DaShare,
+                        RuntimeServiceId,
+                    >,
                 ),
             )
             .route(

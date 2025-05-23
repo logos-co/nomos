@@ -273,7 +273,7 @@ where
             } => {
                 info_with_id!(blob_id, "SamplingRequest");
                 let maybe_share = storage_adapter
-                    .get_light_share(blob_id, share_idx)
+                    .get_light_share(blob_id, share_idx.to_be_bytes())
                     .await
                     .map_err(|error| {
                         error!("Failed to get share from storage adapter: {error}");

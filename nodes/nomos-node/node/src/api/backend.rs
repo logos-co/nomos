@@ -33,7 +33,7 @@ use nomos_mempool::{
     TxMempoolService,
 };
 use nomos_storage::{
-    api::da::StorageDaApi,
+    api::da::DaConverter,
     backends::{rocksdb::RocksBackend, StorageSerde},
     StorageService,
 };
@@ -78,6 +78,7 @@ pub struct AxumBackend<
     DaVerifierStorage,
     Tx,
     DaStorageSerializer,
+    DaStorageConverter,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingRng,
@@ -98,6 +99,7 @@ pub struct AxumBackend<
     _verifier_storage: core::marker::PhantomData<DaVerifierStorage>,
     _tx: core::marker::PhantomData<Tx>,
     _storage_serde: core::marker::PhantomData<DaStorageSerializer>,
+    _storage_converter: core::marker::PhantomData<DaStorageConverter>,
     _sampling_backend: core::marker::PhantomData<SamplingBackend>,
     _sampling_network_adapter: core::marker::PhantomData<SamplingNetworkAdapter>,
     _sampling_rng: core::marker::PhantomData<SamplingRng>,
@@ -132,6 +134,7 @@ impl<
         DaVerifierStorage,
         Tx,
         DaStorageSerializer,
+        DaStorageConverter,
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingRng,
@@ -153,6 +156,7 @@ impl<
         DaVerifierStorage,
         Tx,
         DaStorageSerializer,
+        DaStorageConverter,
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingRng,
@@ -165,9 +169,8 @@ impl<
 where
     DaAttestation: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     DaShare: Share + Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
-    <DaShare as Share>::BlobId:
-        AsRef<[u8]> + Clone + Serialize + DeserializeOwned + Send + Sync + 'static,
-    <DaShare as Share>::ShareIndex: AsRef<[u8]> + DeserializeOwned + Send + Sync + 'static,
+    <DaShare as Share>::BlobId: Clone + Serialize + DeserializeOwned + Send + Sync + 'static,
+    <DaShare as Share>::ShareIndex: Serialize + DeserializeOwned + Send + Sync + 'static,
     DaShare::LightShare: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     DaShare::SharesCommitments: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     DaBlobInfo: DispersedBlobInfo<BlobId = [u8; 32]>
@@ -239,8 +242,7 @@ where
         + Send
         + Sync
         + 'static,
-    <DaShare as Share>::ShareIndex:
-        AsRef<[u8]> + Serialize + DeserializeOwned + Hash + Eq + Send + Sync + 'static,
+    <DaShare as Share>::ShareIndex: Clone + Hash + Eq + Send + Sync + 'static,
     DaShare::LightShare: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     DaShare::SharesCommitments: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     SamplingNetworkAdapter:
@@ -251,6 +253,8 @@ where
     TimeBackend: nomos_time::backends::TimeBackend + Send + 'static,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync + 'static,
+    DaStorageConverter:
+        DaConverter<DaStorageBackend<DaStorageSerializer>, Share = DaShare> + Send + Sync + 'static,
     StorageAdapter:
         storage::StorageAdapter<DaStorageSerializer, RuntimeServiceId> + Send + Sync + 'static,
     RuntimeServiceId: Debug
@@ -282,6 +286,7 @@ where
                 DaVerifierNetwork,
                 DaVerifierBackend,
                 DaStorageSerializer,
+                DaStorageConverter,
                 RuntimeServiceId,
             >,
         >
@@ -347,11 +352,6 @@ where
                 RuntimeServiceId,
             >,
         >,
-    // Service and storage layer types conversions
-    <DaStorageBackend<DaStorageSerializer> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
-    <DaStorageBackend<DaStorageSerializer> as StorageDaApi>::ShareIndex:
-        Into<DaShare::ShareIndex> + From<DaShare::ShareIndex>,
-    <DaStorageBackend<DaStorageSerializer> as StorageDaApi>::Share: TryInto<DaShare::LightShare>,
 {
     type Error = hyper::Error;
     type Settings = AxumBackendSettings;
@@ -372,6 +372,7 @@ where
             _verifier_storage: core::marker::PhantomData,
             _tx: core::marker::PhantomData,
             _storage_serde: core::marker::PhantomData,
+            _storage_converter: core::marker::PhantomData,
             _sampling_backend: core::marker::PhantomData,
             _sampling_network_adapter: core::marker::PhantomData,
             _sampling_rng: core::marker::PhantomData,
@@ -463,6 +464,7 @@ where
                         DaVerifierNetwork,
                         DaVerifierBackend,
                         DaStorageSerializer,
+                        DaStorageConverter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -541,6 +543,7 @@ where
                 routing::get(
                     da_get_commitments::<
                         DaStorageSerializer,
+                        DaStorageConverter,
                         StorageAdapter,
                         DaShare,
                         RuntimeServiceId,
@@ -552,6 +555,7 @@ where
                 routing::get(
                     da_get_light_share::<
                         DaStorageSerializer,
+                        DaStorageConverter,
                         StorageAdapter,
                         DaShare,
                         RuntimeServiceId,
@@ -561,7 +565,13 @@ where
             .route(
                 paths::DA_GET_SHARES,
                 routing::get(
-                    da_get_shares::<DaStorageSerializer, StorageAdapter, DaShare, RuntimeServiceId>,
+                    da_get_shares::<
+                        DaStorageSerializer,
+                        DaStorageConverter,
+                        StorageAdapter,
+                        DaShare,
+                        RuntimeServiceId,
+                    >,
                 ),
             )
             .route(

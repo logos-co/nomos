@@ -7,22 +7,22 @@ use crate::{
     StorageMsg, StorageServiceError,
 };
 
-pub enum ChainApiRequest<B: StorageBackend> {
+pub enum ChainApiRequest<Backend: StorageBackend> {
     GetBlock {
         header_id: HeaderId,
-        response_tx: Sender<Option<<B as StorageChainApi>::Block>>,
+        response_tx: Sender<Option<<Backend as StorageChainApi>::Block>>,
     },
     StoreBlock {
         header_id: HeaderId,
-        block: <B as StorageChainApi>::Block,
+        block: <Backend as StorageChainApi>::Block,
     },
 }
 
-impl<B> StorageOperation<B> for ChainApiRequest<B>
+impl<Backend> StorageOperation<Backend> for ChainApiRequest<Backend>
 where
-    B: StorageBackend + StorageBackendApi,
+    Backend: StorageBackend + StorageBackendApi,
 {
-    async fn execute(self, backend: &mut B) -> Result<(), StorageServiceError> {
+    async fn execute(self, backend: &mut Backend) -> Result<(), StorageServiceError> {
         match self {
             Self::GetBlock {
                 header_id,
@@ -35,10 +35,10 @@ where
     }
 }
 
-async fn handle_get_block<B: StorageBackend>(
-    backend: &mut B,
+async fn handle_get_block<Backend: StorageBackend>(
+    backend: &mut Backend,
     header_id: HeaderId,
-    response_tx: Sender<Option<B::Block>>,
+    response_tx: Sender<Option<Backend::Block>>,
 ) -> Result<(), StorageServiceError> {
     let result = backend
         .get_block(header_id)
@@ -56,10 +56,10 @@ async fn handle_get_block<B: StorageBackend>(
     Ok(())
 }
 
-async fn handle_store_block<B: StorageBackend>(
-    backend: &mut B,
+async fn handle_store_block<Backend: StorageBackend>(
+    backend: &mut Backend,
     header_id: HeaderId,
-    block: B::Block,
+    block: Backend::Block,
 ) -> Result<(), StorageServiceError> {
     backend
         .store_block(header_id, block)
