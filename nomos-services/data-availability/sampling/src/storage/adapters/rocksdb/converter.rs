@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_core::da::{blob::Share, BlobId};
+use nomos_storage::api::da::StorageDaApi;
 use nomos_storage::{
     api::da::DaConverter,
     backends::{rocksdb::RocksBackend, StorageSerde},
@@ -26,12 +27,12 @@ where
 
     fn share_index_to_storage(
         share_index: <DaShare as Share>::ShareIndex,
-    ) -> Result<ShareIndex, Self::Error> {
+    ) -> Result<<RocksBackend<SerdeOP> as StorageDaApi>::ShareIndex, Self::Error> {
         Ok(share_index)
     }
 
     fn share_index_from_storage(
-        share_index: ShareIndex,
+        share_index: <RocksBackend<SerdeOP> as StorageDaApi>::ShareIndex,
     ) -> Result<<DaShare as Share>::ShareIndex, Self::Error> {
         Ok(share_index)
     }
