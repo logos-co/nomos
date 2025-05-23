@@ -10,7 +10,7 @@ use overwatch::{
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
     },
-    DynError, OpaqueServiceStateHandle,
+    DynError, OpaqueServiceResourcesHandle,
 };
 use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
@@ -60,7 +60,7 @@ pub struct DispersalService<
     MempoolAdapter: DaMempoolAdapter,
     Metadata: metadata::Metadata + Debug + 'static,
 {
-    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     _backend: PhantomData<Backend>,
 }
 
@@ -132,33 +132,39 @@ where
         + AsServiceId<MempoolAdapter::MempoolService>,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-        _init_state: Self::State,
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+        _initial_state: Self::State,
     ) -> Result<Self, DynError> {
         Ok(Self {
-            service_state,
+            service_resources_handle,
             _backend: PhantomData,
         })
     }
 
     async fn run(self) -> Result<(), DynError> {
-        let Self { service_state, .. } = self;
+        let Self {
+            service_resources_handle,
+            ..
+        } = self;
 
         let DispersalServiceSettings {
             backend: backend_settings,
-        } = service_state.settings_reader.get_updated_settings();
-        let network_relay = service_state
+        } = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
+        let network_relay = service_resources_handle
             .overwatch_handle
             .relay::<NetworkAdapter::NetworkService>()
             .await?;
         let network_adapter = NetworkAdapter::new(network_relay);
-        let mempool_relay = service_state
+        let mempool_relay = service_resources_handle
             .overwatch_handle
             .relay::<MempoolAdapter::MempoolService>()
             .await?;
         let mempool_adapter = MempoolAdapter::new(mempool_relay);
         let backend = Backend::init(backend_settings, network_adapter, mempool_adapter);
-        let mut inbound_relay = service_state.inbound_relay;
+        let mut inbound_relay = service_resources_handle.inbound_relay;
         while let Some(dispersal_msg) = inbound_relay.recv().await {
             match dispersal_msg {
                 DaDispersalMsg::Disperse {

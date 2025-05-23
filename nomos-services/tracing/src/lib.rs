@@ -1,11 +1,11 @@
 use std::{
     fmt::{Debug, Display, Formatter},
     io::Write,
+    marker::PhantomData,
     panic,
     sync::{Arc, Mutex},
 };
 
-use futures::StreamExt as _;
 use nomos_tracing::{
     filter::envfilter::{create_envfilter_layer, EnvFilterConfig},
     logging::{
@@ -18,22 +18,21 @@ use nomos_tracing::{
 };
 use overwatch::{
     services::{
-        life_cycle::LifecycleMessage,
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
     },
-    OpaqueServiceStateHandle,
+    OpaqueServiceResourcesHandle,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{error, Level};
+use tracing::Level;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
     filter::LevelFilter, layer::SubscriberExt as _, util::SubscriberInitExt as _,
 };
 
 pub struct Tracing<RuntimeServiceId> {
-    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
     logger_guard: Option<WorkerGuard>,
+    _runtime_service_id: PhantomData<RuntimeServiceId>,
 }
 
 /// This is a wrapper around a writer to allow cloning which is
@@ -61,7 +60,7 @@ impl SharedWriter {
     }
 
     #[must_use]
-    pub fn into_inner(&self) -> Arc<Mutex<dyn Write + Send + Sync>> {
+    pub fn to_inner(&self) -> Arc<Mutex<dyn Write + Send + Sync>> {
         Arc::clone(&self.inner)
     }
 
@@ -162,15 +161,18 @@ where
     RuntimeServiceId: AsServiceId<Self> + Display + Send,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-        _init_state: Self::State,
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+        _initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
         #[cfg(test)]
         use std::sync::Once;
         #[cfg(test)]
         static ONCE_INIT: Once = Once::new();
 
-        let config = service_state.settings_reader.get_updated_settings();
+        let config = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
         let mut layers: Vec<Box<dyn tracing_subscriber::Layer<_> + Send + Sync>> = vec![];
 
         let (logger_layer, logger_guard): (
@@ -178,8 +180,10 @@ where
             Option<WorkerGuard>,
         ) = match config.logger {
             LoggerLayer::Gelf(config) => {
-                let gelf_layer =
-                    create_gelf_layer(&config, service_state.overwatch_handle.runtime())?;
+                let gelf_layer = create_gelf_layer(
+                    &config,
+                    service_resources_handle.overwatch_handle.runtime(),
+                )?;
                 (Box::new(gelf_layer), None)
             }
             LoggerLayer::File(config) => {
@@ -188,7 +192,7 @@ where
             }
             LoggerLayer::Loki(config) => {
                 let loki_layer =
-                    create_loki_layer(config, service_state.overwatch_handle.runtime())?;
+                    create_loki_layer(config, service_resources_handle.overwatch_handle.runtime())?;
                 (Box::new(loki_layer), None)
             }
             LoggerLayer::Stdout => {
@@ -223,11 +227,11 @@ where
             layers.push(Box::new(metrics_layer));
         }
 
-        // If no layers are created, tracing subscriber is not required.
+        // If no layers are created, the tracing subscriber is not required.
         if layers.is_empty() {
             return Ok(Self {
-                service_state,
                 logger_guard: None,
+                _runtime_service_id: PhantomData,
             });
         }
 
@@ -247,38 +251,20 @@ where
         panic::set_hook(Box::new(nomos_tracing::panic::panic_hook));
 
         Ok(Self {
-            service_state,
             logger_guard,
+            _runtime_service_id: PhantomData,
         })
     }
 
     async fn run(self) -> Result<(), overwatch::DynError> {
         let Self {
-            service_state,
-            logger_guard,
+            logger_guard: _logger_guard,
+            ..
         } = self;
-        // keep the handle alive without stressing the runtime
-        let mut lifecycle_stream = service_state.lifecycle_handle.message_stream();
-        loop {
-            if let Some(msg) = lifecycle_stream.next().await {
-                match msg {
-                    LifecycleMessage::Shutdown(sender) => {
-                        // flush pending logs before signaling message processing
-                        drop(logger_guard);
-                        if sender.send(()).is_err() {
-                            error!(
-                                "Error sending successful shutdown signal from service {}",
-                                RuntimeServiceId::SERVICE_ID
-                            );
-                        }
-                        break;
-                    }
-                    LifecycleMessage::Kill => {
-                        break;
-                    }
-                }
-            }
-        }
+        // Wait indefinitely until the service is stopped.
+        // When it's stopped, the logger guard will be dropped. That will flush all
+        // pending logs.
+        std::future::pending::<()>().await;
         Ok(())
     }
 }

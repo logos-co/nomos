@@ -27,11 +27,10 @@ use overwatch::{
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
     },
-    DynError, OpaqueServiceStateHandle,
+    DynError, OpaqueServiceResourcesHandle,
 };
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
-use services_utils::overwatch::lifecycle;
 use storage::DaStorageAdapter;
 use tokio::sync::oneshot;
 use tokio_stream::StreamExt as _;
@@ -86,7 +85,7 @@ pub struct DaSamplingService<
     SamplingStorage: DaStorageAdapter<RuntimeServiceId>,
     ApiAdapter: ApiAdapterTrait,
 {
-    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     #[expect(clippy::type_complexity, reason = "No other way around this for now.")]
     _phantom: PhantomData<(
         SamplingBackend,
@@ -130,9 +129,11 @@ where
     ApiAdapter: ApiAdapterTrait,
 {
     #[must_use]
-    pub const fn new(service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>) -> Self {
+    pub const fn new(
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+    ) -> Self {
         Self {
-            service_state,
+            service_resources_handle,
             _phantom: PhantomData,
         }
     }
@@ -207,7 +208,7 @@ where
                         .start_sampling(blob_id, &sampling_subnets)
                         .await
                     {
-                        // we can short circuit the failure from beginning
+                        // we can short circuit the failure from the beginning
                         sampler.handle_sampling_error(blob_id).await;
                         error_with_id!(blob_id, "Error sampling for BlobId: {blob_id:?}: {e}");
                     }
@@ -424,35 +425,39 @@ where
         + 'static,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-        _init_state: Self::State,
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+        _initial_state: Self::State,
     ) -> Result<Self, DynError> {
-        Ok(Self::new(service_state))
+        Ok(Self::new(service_resources_handle))
     }
 
     async fn run(mut self) -> Result<(), DynError> {
         let Self {
-            mut service_state, ..
+            mut service_resources_handle,
+            ..
         } = self;
         let DaSamplingServiceSettings {
             sampling_settings,
             api_adapter_settings,
-        } = service_state.settings_reader.get_updated_settings();
+        } = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
 
-        let network_relay = service_state
+        let network_relay = service_resources_handle
             .overwatch_handle
             .relay::<NetworkService<_, _>>()
             .await?;
         let mut network_adapter = SamplingNetwork::new(network_relay).await;
         let mut sampling_message_stream = network_adapter.listen_to_sampling_messages().await?;
 
-        let storage_relay = service_state
+        let storage_relay = service_resources_handle
             .overwatch_handle
             .relay::<StorageService<_, _>>()
             .await?;
         let storage_adapter = SamplingStorage::new(storage_relay).await;
 
-        let verifier_relay = service_state
+        let verifier_relay = service_resources_handle
             .overwatch_handle
             .relay::<DaVerifierService<_, _, _, _>>()
             .await?;
@@ -463,19 +468,13 @@ where
         let mut sampler = SamplingBackend::new(sampling_settings, rng);
         let mut next_prune_tick = sampler.prune_interval();
 
-        let mut lifecycle_stream = service_state.lifecycle_handle.message_stream();
         loop {
             tokio::select! {
-                Some(service_message) = service_state.inbound_relay.recv() => {
+                Some(service_message) = service_resources_handle.inbound_relay.recv() => {
                     Self::handle_service_message(service_message, &mut network_adapter,  &storage_adapter, &api_adapter, &mut sampler).await;
                 }
                 Some(sampling_message) = sampling_message_stream.next() => {
                     Self::handle_sampling_message(sampling_message, &mut sampler, &storage_adapter, &verifier_relay).await;
-                }
-                Some(msg) = lifecycle_stream.next() => {
-                    if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
-                        break;
-                    }
                 }
                 // cleanup not on time samples
                 _ = next_prune_tick.tick() => {
@@ -484,7 +483,5 @@ where
 
             }
         }
-
-        Ok(())
     }
 }

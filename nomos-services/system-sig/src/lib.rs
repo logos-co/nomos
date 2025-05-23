@@ -1,26 +1,25 @@
 use std::fmt::{Debug, Display};
 
-use futures::stream::StreamExt as _;
 use overwatch::{
     overwatch::handle::OverwatchHandle,
     services::{
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
     },
-    DynError, OpaqueServiceStateHandle,
+    DynError, OpaqueServiceResourcesHandle,
 };
-use services_utils::overwatch::lifecycle;
 
 pub struct SystemSig<RuntimeServiceId> {
-    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
 }
 
 impl<RuntimeServiceId> SystemSig<RuntimeServiceId>
 where
     RuntimeServiceId: Debug + Display + Sync,
 {
-    async fn ctrlc_signal_received(overwatch_handle: &OverwatchHandle<RuntimeServiceId>) {
-        overwatch_handle.kill().await;
+    async fn ctrl_c_signal_received(overwatch_handle: &OverwatchHandle<RuntimeServiceId>) {
+        overwatch_handle.stop_all_services().await;
+        overwatch_handle.shutdown().await;
     }
 }
 
@@ -38,28 +37,24 @@ where
     RuntimeServiceId: Debug + Display + Sync + Send + AsServiceId<Self>,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-        _init_state: Self::State,
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+        _initial_state: Self::State,
     ) -> Result<Self, DynError> {
-        Ok(Self { service_state })
+        Ok(Self {
+            service_resources_handle,
+        })
     }
 
     async fn run(self) -> Result<(), DynError> {
-        let Self { service_state } = self;
-        let mut ctrlc = async_ctrlc::CtrlC::new()?;
-        let mut lifecycle_stream = service_state.lifecycle_handle.message_stream();
-        loop {
-            tokio::select! {
-                () = &mut ctrlc => {
-                    Self::ctrlc_signal_received(&service_state.overwatch_handle).await;
-                }
-                Some(msg) = lifecycle_stream.next() => {
-                    if  lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
-                        break;
-                    }
-                }
-            }
-        }
+        let Self {
+            service_resources_handle,
+        } = self;
+        let ctrl_c = async_ctrlc::CtrlC::new()?;
+
+        // Wait for the Ctrl-C signal
+        ctrl_c.await;
+        Self::ctrl_c_signal_received(&service_resources_handle.overwatch_handle).await;
+
         Ok(())
     }
 }

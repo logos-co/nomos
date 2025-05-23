@@ -33,12 +33,11 @@ use overwatch::{
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
     },
-    OpaqueServiceStateHandle,
+    OpaqueServiceResourcesHandle,
 };
 use rand::SeedableRng as _;
 use rand_chacha::ChaCha12Rng;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use services_utils::overwatch::lifecycle;
 use tokio::{sync::mpsc, time};
 use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
 
@@ -46,7 +45,7 @@ use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
 /// and broadcasts fully unwrapped messages through the [`NetworkService`].
 ///
 /// The blend backend and the network adapter are generic types that are
-/// independent with each other. For example, the blend backend can use the
+/// independent of each other. For example, the blend backend can use the
 /// libp2p network stack, while the network adapter can use the other network
 /// backend.
 pub struct BlendService<Backend, Network, RuntimeServiceId>
@@ -55,7 +54,7 @@ where
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     backend: Backend,
-    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     membership: Membership<Backend::NodeId, SphinxMessage>,
 }
 
@@ -88,35 +87,39 @@ where
         + 'static,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-        _init_state: Self::State,
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+        _initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
-        let blend_config = service_state.settings_reader.get_updated_settings();
+        let settings_reader = service_resources_handle.settings_handle.notifier();
+        let blend_config = settings_reader.get_updated_settings();
         Ok(Self {
             backend: <Backend as BlendBackend<RuntimeServiceId>>::new(
-                service_state.settings_reader.get_updated_settings().backend,
-                service_state.overwatch_handle.clone(),
+                settings_reader.get_updated_settings().backend,
+                service_resources_handle.overwatch_handle.clone(),
                 blend_config.membership(),
                 ChaCha12Rng::from_entropy(),
             ),
-            service_state,
+            service_resources_handle,
             membership: blend_config.membership(),
         })
     }
 
     async fn run(mut self) -> Result<(), overwatch::DynError> {
         let Self {
-            service_state,
+            service_resources_handle,
             mut backend,
             membership,
         } = self;
-        let blend_config = service_state.settings_reader.get_updated_settings();
+        let blend_config = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
         let mut cryptographic_processor = CryptographicProcessor::new(
             blend_config.message_blend.cryptographic_processor.clone(),
             membership.clone(),
             ChaCha12Rng::from_entropy(),
         );
-        let network_relay = service_state
+        let network_relay = service_resources_handle
             .overwatch_handle
             .relay::<NetworkService<_, _>>()
             .await?;
@@ -157,16 +160,15 @@ where
             blend_config.cover_traffic.slot_stream(),
         );
 
-        // local messages, are bypassed and send immediately
+        // local messages are bypassed and sent immediately
         let mut local_messages =
-            service_state
+            service_resources_handle
                 .inbound_relay
                 .map(|ServiceMessage::Blend(message)| {
                     wire::serialize(&message)
                         .expect("Message from internal services should not fail to serialize")
                 });
 
-        let mut lifecycle_stream = service_state.lifecycle_handle.message_stream();
         loop {
             tokio::select! {
                 Some(msg) = persistent_transmission_messages.next() => {
@@ -201,16 +203,8 @@ where
                 Some(msg) = local_messages.next() => {
                     Self::wrap_and_send_to_persistent_transmission(&msg, &mut cryptographic_processor, &persistent_sender);
                 }
-                Some(msg) = lifecycle_stream.next() => {
-                    if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
-                        // TODO: Maybe add a call to backend to handle this. Maybe trying to save unprocessed messages?
-                        break;
-                    }
-                }
             }
         }
-
-        Ok(())
     }
 }
 

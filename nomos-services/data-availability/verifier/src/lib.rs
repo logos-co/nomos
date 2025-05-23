@@ -19,10 +19,9 @@ use overwatch::{
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
     },
-    DynError, OpaqueServiceStateHandle,
+    DynError, OpaqueServiceResourcesHandle,
 };
 use serde::{Deserialize, Serialize};
-use services_utils::overwatch::lifecycle;
 use storage::DaStorageAdapter;
 use tokio::sync::oneshot::Sender;
 use tokio_stream::StreamExt as _;
@@ -62,7 +61,7 @@ where
     N::Settings: Clone,
     S: DaStorageAdapter<RuntimeServiceId>,
 {
-    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     verifier: Backend,
 }
 
@@ -148,14 +147,17 @@ where
         + AsServiceId<StorageService<S::Backend, RuntimeServiceId>>,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-        _init_state: Self::State,
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+        _initial_state: Self::State,
     ) -> Result<Self, DynError> {
         let DaVerifierServiceSettings {
             verifier_settings, ..
-        } = service_state.settings_reader.get_updated_settings();
+        } = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
         Ok(Self {
-            service_state,
+            service_resources_handle,
             verifier: Backend::new(verifier_settings),
         })
     }
@@ -167,29 +169,31 @@ where
         // his own index coming from the position of his bls public key landing
         // in the above-mentioned list.
         let Self {
-            mut service_state,
+            mut service_resources_handle,
             verifier,
         } = self;
 
         let DaVerifierServiceSettings {
             network_adapter_settings,
             ..
-        } = service_state.settings_reader.get_updated_settings();
+        } = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
 
-        let network_relay = service_state
+        let network_relay = service_resources_handle
             .overwatch_handle
             .relay::<NetworkService<_, _>>()
             .await?;
         let network_adapter = N::new(network_adapter_settings, network_relay).await;
         let mut share_stream = network_adapter.share_stream().await;
 
-        let storage_relay = service_state
+        let storage_relay = service_resources_handle
             .overwatch_handle
             .relay::<StorageService<_, _>>()
             .await?;
         let storage_adapter = S::new(storage_relay).await;
 
-        let mut lifecycle_stream = service_state.lifecycle_handle.message_stream();
         loop {
             tokio::select! {
                 Some(share) = share_stream.next() => {
@@ -198,7 +202,7 @@ where
                         error!("Error handling blob {blob_id:?} due to {err:?}");
                     }
                 }
-                Some(msg) = service_state.inbound_relay.recv() => {
+                Some(msg) = service_resources_handle.inbound_relay.recv() => {
                     match msg {
                         DaVerifierMsg::AddShare { share, reply_channel } => {
                             let blob_id = share.blob_id();
@@ -234,15 +238,8 @@ where
 
                     }
                 }
-                Some(msg) = lifecycle_stream.next() => {
-                    if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
-                        break;
-                    }
-                }
             }
         }
-
-        Ok(())
     }
 }
 
