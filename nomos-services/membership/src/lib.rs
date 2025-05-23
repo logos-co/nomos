@@ -8,16 +8,15 @@ use adapters::SdpAdapter;
 use async_trait::async_trait;
 use backends::{MembershipBackend, MembershipBackendError};
 use futures::{Stream, StreamExt as _};
-use nomos_sdp_core::{BlockNumber, Locator, ProviderId, ServiceType};
+use nomos_sdp_core::{BlockNumber, Locator, ProviderId};
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
     },
-    OpaqueServiceStateHandle,
+    OpaqueServiceResourcesHandle,
 };
 use serde::{Deserialize, Serialize};
-use services_utils::overwatch::lifecycle;
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 
@@ -55,8 +54,9 @@ where
     B::Settings: Clone,
 {
     backend: B,
-    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-    subscribe_channels: HashMap<ServiceType, broadcast::Sender<MembershipProviders>>,
+    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+    subscribe_channels:
+        HashMap<nomos_sdp_core::ServiceType, broadcast::Sender<MembershipProviders>>,
 }
 
 impl<B, S, RuntimeServiceId> ServiceData for MembershipService<B, S, RuntimeServiceId>
@@ -87,26 +87,29 @@ where
         + 'static
         + Debug,
     S: SdpAdapter + Send + Sync + 'static,
-    <<S as adapters::SdpAdapter>::SdpService as overwatch::services::ServiceData>::Message: 'static,
+    <<S as SdpAdapter>::SdpService as ServiceData>::Message: 'static,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initstate: Self::State,
     ) -> Result<Self, overwatch::DynError> {
         let BackendSettings {
             backend: backend_settings,
-        } = service_state.settings_reader.get_updated_settings();
+        } = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
 
         Ok(Self {
             backend: B::init(backend_settings),
-            service_state,
+            service_resources_handle,
             subscribe_channels: HashMap::new(),
         })
     }
 
     async fn run(mut self) -> Result<(), overwatch::DynError> {
         let sdp_relay = self
-            .service_state
+            .service_resources_handle
             .overwatch_handle
             .relay::<S::SdpService>()
             .await?;
@@ -119,23 +122,16 @@ where
                 adapters::SdpAdapterError::Other(error) => error,
             })?;
 
-        let mut lifecycle_stream = self.service_state.lifecycle_handle.message_stream();
         loop {
             tokio::select! {
-                Some(msg) = self.service_state.inbound_relay.recv()  => {
+                Some(msg) = self.service_resources_handle.inbound_relay.recv()  => {
                     self.handle_message(msg).await;
-                }
-                Some(msg) = lifecycle_stream.next() => {
-                    if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
-                        break;
-                    }
                 }
                 Some(sdp_msg) = sdp_stream.next() => {
                      self.handle_sdp_update(sdp_msg).await;
                 },
             }
         }
-        Ok(())
     }
 }
 
