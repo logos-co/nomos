@@ -1,3 +1,4 @@
+pub use autonat_client::Settings as AutonatClientSettings;
 pub use identify::Settings as IdentifySettings;
 pub use kademlia::Settings as KademliaSettings;
 use libp2p::identity::ed25519;
@@ -5,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::protocol_name::ProtocolName;
 
+mod autonat_client;
 mod gossipsub;
 mod identify;
 mod kademlia;
@@ -39,16 +41,25 @@ pub struct SwarmConfig {
     pub protocol_name_env: ProtocolName,
 
     /// Kademlia config
-    /// When a value is None, kademlia is disabled.
+    /// When the value is None, kademlia is disabled.
     /// Note: Kademlia requires identify or another identity protocol to be
     /// enabled.
     #[serde(default)]
     pub kademlia_config: Option<kademlia::Settings>,
 
     /// Identify config
-    /// When a value is None, identify is disabled.
+    /// When the value is None, identify is disabled.
     #[serde(default)]
     pub identify_config: Option<identify::Settings>,
+
+    /// AutoNAT client config
+    /// When the value is None, the client is disabled.
+    #[serde(default)]
+    pub autonat_client_config: Option<autonat_client::Settings>,
+
+    /// Enable AutoNAT server, disabled by default.
+    #[serde(default)]
+    pub enable_autonat_server: bool,
 }
 
 impl Default for SwarmConfig {
@@ -61,6 +72,8 @@ impl Default for SwarmConfig {
             protocol_name_env: ProtocolName::default(),
             kademlia_config: None,
             identify_config: None,
+            autonat_client_config: None,
+            enable_autonat_server: false,
         }
     }
 }
