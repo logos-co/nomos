@@ -5,38 +5,53 @@ use nomos_core::da::blob::Share;
 
 pub mod requests;
 
-type ServiceBlobId = <DaConverter::Share as Share>::BlobId;
-type ServiceShareIndex = <DaConverter::Share as Share>::ShareIndex;
-type ServiceLightShare = <DaConverter::Share as Share>::LightShare;
-type ServiceSharedCommitments = <DaConverter::Share as Share>::SharesCommitments;
+type ServiceBlobId<Converter, Backend> =
+    <<Converter as DaConverter<Backend>>::Share as Share>::BlobId;
+
+type ServiceShareIndex<Converter, Backend> =
+    <<Converter as DaConverter<Backend>>::Share as Share>::ShareIndex;
+
+type ServiceLightShare<Converter, Backend> =
+    <<Converter as DaConverter<Backend>>::Share as Share>::LightShare;
+
+type ServiceSharedCommitments<Converter, Backend> =
+    <<Converter as DaConverter<Backend>>::Share as Share>::SharesCommitments;
 
 pub trait DaConverter<Backend: StorageDaApi> {
     type Share: Share;
     type Error: Error + Send + Sync + 'static;
 
-    fn blob_id_to_storage(blob_id: ServiceBlobId) -> Result<Backend::BlobId, Self::Error>;
+    fn blob_id_to_storage(
+        blob_id: ServiceBlobId<Self, Backend>,
+    ) -> Result<Backend::BlobId, Self::Error>;
 
-    fn blob_id_from_storage(blob_id: Backend::BlobId) -> Result<ServiceBlobId, Self::Error>;
+    fn blob_id_from_storage(
+        blob_id: Backend::BlobId,
+    ) -> Result<ServiceBlobId<Self, Backend>, Self::Error>;
 
     fn share_index_to_storage(
-        share_index: ServiceShareIndex,
+        share_index: ServiceShareIndex<Self, Backend>,
     ) -> Result<Backend::ShareIndex, Self::Error>;
 
     fn share_index_from_storage(
         share_index: Backend::ShareIndex,
-    ) -> Result<ServiceShareIndex, Self::Error>;
+    ) -> Result<ServiceShareIndex<Self, Backend>, Self::Error>;
 
-    fn share_to_storage(service_share: ServiceLightShare) -> Result<Backend::Share, Self::Error>;
+    fn share_to_storage(
+        service_share: ServiceLightShare<Self, Backend>,
+    ) -> Result<Backend::Share, Self::Error>;
 
-    fn share_from_storage(backend_share: Backend::Share) -> Result<ServiceLightShare, Self::Error>;
+    fn share_from_storage(
+        backend_share: Backend::Share,
+    ) -> Result<ServiceLightShare<Self, Backend>, Self::Error>;
 
     fn commitments_to_storage(
-        service_commitments: ServiceSharedCommitments,
+        service_commitments: ServiceSharedCommitments<Self, Backend>,
     ) -> Result<Backend::Commitments, Self::Error>;
 
     fn commitments_from_storage(
         backend_commitments: Backend::Commitments,
-    ) -> Result<ServiceSharedCommitments, Self::Error>;
+    ) -> Result<ServiceSharedCommitments<Self, Backend>, Self::Error>;
 }
 
 #[async_trait]
