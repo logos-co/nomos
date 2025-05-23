@@ -20,8 +20,8 @@ use nomos_da_network_service::backends::libp2p::executor::DaNetworkExecutorBacke
 use nomos_da_sampling::{
     api::http::HttApiAdapter,
     backend::kzgrs::KzgrsSamplingBackend,
-    storage::adapters::{
-        converter::DaStorageConverter, rocksdb::RocksAdapter as SamplingStorageAdapter,
+    storage::adapters::rocksdb::{
+        converter::DaStorageConverter, RocksAdapter as SamplingStorageAdapter,
     },
 };
 use nomos_da_verifier::{

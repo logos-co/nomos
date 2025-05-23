@@ -14,6 +14,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::storage::DaStorageAdapter;
 
+pub mod converter;
+
 pub struct RocksAdapter<B, S, Converter>
 where
     S: StorageSerde + Send + Sync + 'static,

@@ -4,7 +4,7 @@ use nomos_core::{da::blob::info::DispersedBlobInfo, header::HeaderId, tx::Transa
 use nomos_da_indexer::consensus::adapters::cryptarchia::CryptarchiaConsensusAdapter;
 use nomos_da_sampling::{
     api::http::HttApiAdapter, backend::kzgrs::KzgrsSamplingBackend,
-    storage::adapters::converter::DaStorageConverter,
+    storage::adapters::rocksdb::converter::DaStorageConverter,
 };
 use nomos_da_verifier::backend::kzgrs::KzgrsDaVerifier;
 use nomos_mempool::backend::mockpool::MockPool;

@@ -22,8 +22,8 @@ use nomos_da_sampling::{
     api::http::HttApiAdapter,
     backend::kzgrs::KzgrsSamplingBackend,
     network::adapters::validator::Libp2pAdapter as SamplingLibp2pAdapter,
-    storage::adapters::{
-        converter::DaStorageConverter, rocksdb::RocksAdapter as SamplingStorageAdapter,
+    storage::adapters::rocksdb::{
+        converter::DaStorageConverter, RocksAdapter as SamplingStorageAdapter,
     },
 };
 use nomos_da_verifier::{

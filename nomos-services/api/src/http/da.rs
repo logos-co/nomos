@@ -33,7 +33,7 @@ use nomos_da_network_service::{
     DaNetworkMsg, NetworkService,
 };
 use nomos_da_sampling::{
-    backend::DaSamplingServiceBackend, storage::adapters::converter::DaStorageConverter,
+    backend::DaSamplingServiceBackend, storage::adapters::rocksdb::converter::DaStorageConverter,
 };
 use nomos_da_verifier::{
     backend::VerifierBackend, storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
