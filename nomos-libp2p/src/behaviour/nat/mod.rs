@@ -44,6 +44,7 @@ impl NatBehaviour {
     }
 
     pub fn add_external_address_candidate(&mut self, address: Multiaddr) {
+        eprintln!("NatBehaviour::add_external_address_candidate {address}");
         self.pending_external_address_candidates.push_back(address);
         self.try_wake();
     }
@@ -111,6 +112,7 @@ impl NetworkBehaviour for NatBehaviour {
         }
 
         if let Some(address) = self.pending_external_address_candidates.pop_front() {
+            eprintln!("NatBehaviour::poll pop {address}");
             return Poll::Ready(ToSwarm::NewExternalAddrCandidate(address));
         }
 
@@ -118,5 +120,116 @@ impl NetworkBehaviour for NatBehaviour {
         self.waker = Some(cx.waker().clone());
 
         Poll::Pending
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use libp2p::{
+        autonat::{self},
+        identify, identity,
+        swarm::SwarmEvent,
+        Swarm,
+    };
+    use libp2p_swarm_test::SwarmExt;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha20Rng;
+    use tokio::time::timeout;
+
+    use super::*;
+
+    #[derive(NetworkBehaviour)]
+    pub struct Client {
+        nat: NatBehaviour,
+        identify: identify::Behaviour,
+    }
+
+    impl Client {
+        pub fn new(public_key: identity::PublicKey) -> Self {
+            let nat = NatBehaviour::new(
+                Config::default().with_probe_interval(Duration::from_millis(100)),
+            );
+            let identify =
+                identify::Behaviour::new(identify::Config::new("/unittest".into(), public_key));
+            Self { nat, identify }
+        }
+    }
+
+    #[derive(NetworkBehaviour)]
+    pub struct Server {
+        autonat_server: autonat::v2::server::Behaviour<ChaCha20Rng>,
+        identify: identify::Behaviour,
+    }
+
+    impl Server {
+        pub fn new(public_key: identity::PublicKey) -> Self {
+            let autonat_server = autonat::v2::server::Behaviour::new(ChaCha20Rng::from_entropy());
+            let identify =
+                identify::Behaviour::new(identify::Config::new("/unittest".into(), public_key));
+            Self {
+                autonat_server,
+                identify,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_external_address_is_confirmed_by_autonat_server() {
+        const _500MS: Duration = Duration::from_millis(500);
+        let mut client = Swarm::new_ephemeral_tokio(|keypair| Client::new(keypair.public()));
+        let mut server = Swarm::new_ephemeral_tokio(|keypair| Server::new(keypair.public()));
+
+        let (_, client_addr) = client.listen().await;
+        let _ = server.listen().with_tcp_addr_external().await;
+
+        let client_addr_clone = client_addr.clone();
+
+        client.connect(&mut server).await;
+
+        let client_task = timeout(_500MS, async move {
+            // No need to call `Nat::add_external_address_candidate` here, as the address
+            // candidate is automatically taken by Identify from the address observed by the
+            // server.
+            let confirmed = client
+                .wait(|e| match e {
+                    SwarmEvent::ExternalAddrConfirmed { address } => Some(address),
+                    _ => None,
+                })
+                .await;
+            assert_eq!(confirmed, client_addr);
+            let autonat::v2::client::Event {
+                tested_addr,
+                result,
+                ..
+            } = client
+                .wait(|e| match e {
+                    SwarmEvent::Behaviour(ClientEvent::Nat(event)) => Some(event),
+                    _ => None,
+                })
+                .await;
+            assert_eq!(tested_addr, client_addr);
+            assert!(result.is_ok(), "Result: {result:?}");
+        });
+
+        let server_task = timeout(_500MS, async move {
+            let autonat::v2::server::Event {
+                tested_addr,
+                result,
+                ..
+            } = server
+                .wait(|e| match e {
+                    SwarmEvent::Behaviour(ServerEvent::AutonatServer(event)) => Some(event),
+                    _ => None,
+                })
+                .await;
+            assert_eq!(tested_addr, client_addr_clone);
+            assert!(result.is_ok(), "Result: {result:?}");
+        });
+
+        let (client_result, server_result) = tokio::join!(client_task, server_task);
+        client_result.expect("No timeout");
+        server_result.expect("No timeout");
     }
 }
