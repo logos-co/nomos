@@ -6,8 +6,6 @@ use nomos_storage::{
     backends::{rocksdb::RocksBackend, StorageSerde},
 };
 
-type ShareIndex = [u8; 2];
-
 pub struct DaStorageConverter;
 
 impl<SerdeOP> DaConverter<RocksBackend<SerdeOP>> for DaStorageConverter
