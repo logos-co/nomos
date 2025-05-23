@@ -137,16 +137,21 @@ where
         })
     }
 
-    async fn run(self) -> Result<(), DynError> {
+    async fn run(mut self) -> Result<(), DynError> {
         let Self {
-            mut service_resources_handle,
+            service_resources_handle:
+                OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
+                    ref mut inbound_relay,
+                    ..
+                },
             mut backend,
         } = self;
-        loop {
-            if let Some(msg) = service_resources_handle.inbound_relay.recv().await {
-                Self::handle_kms_message(msg, &mut backend).await;
-            }
+
+        while let Some(msg) = inbound_relay.recv().await {
+            Self::handle_kms_message(msg, &mut backend).await;
         }
+
+        Ok(())
     }
 }
 

@@ -324,14 +324,17 @@ where
                 },
         } = self;
         let backend = &mut backend;
-        loop {
-            if let Some(msg) = inbound_relay.recv().await {
-                Self::handle_storage_message(msg, backend).await;
-            }
+
+        while let Some(msg) = inbound_relay.recv().await {
+            Self::handle_storage_message(msg, backend).await;
         }
 
+        Ok(())
         // TODO: Implement `Drop` to finish pending transactions and close
-        // connections gracefully.
+        //  connections gracefully.
+        // Note: Using `Drop` here would only cover the graceful shutdown case.
+        // If the `Stop` is triggered by a user-sent signal, a different
+        // yet-not-implemented-mechanism  is required.
     }
 }
 

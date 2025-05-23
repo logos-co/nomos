@@ -104,11 +104,11 @@ where
             ref mut backend,
         } = self;
 
-        loop {
-            if let Some(msg) = inbound_relay.recv().await {
-                Self::handle_network_service_message(msg, backend).await;
-            }
+        while let Some(msg) = inbound_relay.recv().await {
+            Self::handle_network_service_message(msg, backend).await;
         }
+
+        Ok(())
     }
 }
 
