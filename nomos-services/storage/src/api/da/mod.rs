@@ -1,8 +1,42 @@
 use std::{collections::HashSet, error::Error};
 
 use async_trait::async_trait;
+use nomos_core::da::blob::Share;
 
 pub mod requests;
+
+pub trait DaConverter<B: StorageDaApi> {
+    type Share: Share;
+    type Error: Error + Send + Sync + 'static;
+
+    fn blob_id_to_storage(
+        blob_id: <Self::Share as Share>::BlobId,
+    ) -> Result<B::BlobId, Self::Error>;
+
+    fn blob_id_from_storage(
+        blob_id: B::BlobId,
+    ) -> Result<<Self::Share as Share>::BlobId, Self::Error>;
+
+    fn share_index_to_storage(
+        share_index: <Self::Share as Share>::ShareIndex,
+    ) -> Result<B::ShareIndex, Self::Error>;
+
+    fn share_index_from_storage(
+        share_index: B::ShareIndex,
+    ) -> Result<<Self::Share as Share>::ShareIndex, Self::Error>;
+    fn share_to_storage(
+        service_share: <Self::Share as Share>::LightShare,
+    ) -> Result<B::Share, Self::Error>;
+    fn share_from_storage(
+        backend_share: B::Share,
+    ) -> Result<<Self::Share as Share>::LightShare, Self::Error>;
+    fn commitments_to_storage(
+        service_commitments: <Self::Share as Share>::SharesCommitments,
+    ) -> Result<B::Commitments, Self::Error>;
+    fn commitments_from_storage(
+        backend_commitments: B::Commitments,
+    ) -> Result<<Self::Share as Share>::SharesCommitments, Self::Error>;
+}
 
 #[async_trait]
 pub trait StorageDaApi {

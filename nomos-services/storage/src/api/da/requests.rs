@@ -1,9 +1,14 @@
 use std::collections::HashSet;
 
+use nomos_core::da::blob::Share;
+use overwatch::DynError;
 use tokio::sync::oneshot::Sender;
 
 use crate::{
-    api::{da::StorageDaApi, StorageApiRequest, StorageBackendApi, StorageOperation},
+    api::{
+        da::{DaConverter, StorageDaApi},
+        StorageApiRequest, StorageBackendApi, StorageOperation,
+    },
     backends::StorageBackend,
     StorageMsg, StorageServiceError,
 };
@@ -171,85 +176,93 @@ async fn handle_store_shared_commitments<B: StorageBackend>(
 }
 
 impl<Api: StorageBackend> StorageMsg<Api> {
-    #[must_use]
-    pub const fn get_light_share_request(
-        blob_id: <Api as StorageDaApi>::BlobId,
-        share_idx: <Api as StorageDaApi>::ShareIndex,
+    pub fn get_light_share_request<Converter: DaConverter<Api>>(
+        blob_id: <<Converter as DaConverter<Api>>::Share as Share>::BlobId,
+        share_idx: <<Converter as DaConverter<Api>>::Share as Share>::ShareIndex,
         response_tx: Sender<Option<<Api as StorageDaApi>::Share>>,
-    ) -> Self {
-        Self::Api {
+    ) -> Result<Self, DynError> {
+        let blob_id = Converter::blob_id_to_storage(blob_id).map_err(Into::<DynError>::into)?;
+        let share_idx =
+            Converter::share_index_to_storage(share_idx).map_err(Into::<DynError>::into)?;
+        Ok(Self::Api {
             request: StorageApiRequest::Da(DaApiRequest::GetLightShare {
                 blob_id,
                 share_idx,
                 response_tx,
             }),
-        }
+        })
     }
 
-    #[must_use]
-    pub const fn get_blob_light_shares_request(
-        blob_id: <Api as StorageDaApi>::BlobId,
+    pub fn get_blob_light_shares_request<Converter: DaConverter<Api>>(
+        blob_id: <<Converter as DaConverter<Api>>::Share as Share>::BlobId,
         response_tx: Sender<Option<Vec<<Api as StorageDaApi>::Share>>>,
-    ) -> Self {
-        Self::Api {
+    ) -> Result<Self, DynError> {
+        let blob_id = Converter::blob_id_to_storage(blob_id).map_err(Into::<DynError>::into)?;
+        Ok(Self::Api {
             request: StorageApiRequest::Da(DaApiRequest::GetBlobLightShares {
                 blob_id,
                 response_tx,
             }),
-        }
+        })
     }
 
-    #[must_use]
-    pub const fn get_light_share_indexes_request(
-        blob_id: <Api as StorageDaApi>::BlobId,
+    pub fn get_light_share_indexes_request<Converter: DaConverter<Api>>(
+        blob_id: <<Converter as DaConverter<Api>>::Share as Share>::BlobId,
         response_tx: Sender<Option<HashSet<<Api as StorageDaApi>::ShareIndex>>>,
-    ) -> Self {
-        Self::Api {
+    ) -> Result<Self, DynError> {
+        let blob_id = Converter::blob_id_to_storage(blob_id).map_err(Into::<DynError>::into)?;
+        Ok(Self::Api {
             request: StorageApiRequest::Da(DaApiRequest::GetLightShareIndexes {
                 blob_id,
                 response_tx,
             }),
-        }
+        })
     }
 
-    #[must_use]
-    pub const fn store_light_share_request(
-        blob_id: <Api as StorageDaApi>::BlobId,
-        share_idx: <Api as StorageDaApi>::ShareIndex,
-        light_share: <Api as StorageDaApi>::Share,
-    ) -> Self {
-        Self::Api {
+    pub fn store_light_share_request<Converter: DaConverter<Api>>(
+        blob_id: <<Converter as DaConverter<Api>>::Share as Share>::BlobId,
+        share_idx: <<Converter as DaConverter<Api>>::Share as Share>::ShareIndex,
+        light_share: <<Converter as DaConverter<Api>>::Share as Share>::LightShare,
+    ) -> Result<Self, DynError> {
+        let blob_id = Converter::blob_id_to_storage(blob_id).map_err(Into::<DynError>::into)?;
+        let share_idx =
+            Converter::share_index_to_storage(share_idx).map_err(Into::<DynError>::into)?;
+        let light_share =
+            Converter::share_to_storage(light_share).map_err(Into::<DynError>::into)?;
+
+        Ok(Self::Api {
             request: StorageApiRequest::Da(DaApiRequest::StoreLightShare {
                 blob_id,
                 share_idx,
                 light_share,
             }),
-        }
+        })
     }
 
-    #[must_use]
-    pub const fn get_shared_commitments_request(
-        blob_id: <Api as StorageDaApi>::BlobId,
+    pub fn get_shared_commitments_request<C: DaConverter<Api>>(
+        blob_id: <<C as DaConverter<Api>>::Share as Share>::BlobId,
         response_tx: Sender<Option<<Api as StorageDaApi>::Commitments>>,
-    ) -> Self {
-        Self::Api {
+    ) -> Result<Self, DynError> {
+        let blob_id = C::blob_id_to_storage(blob_id).map_err(Into::<DynError>::into)?;
+        Ok(Self::Api {
             request: StorageApiRequest::Da(DaApiRequest::GetSharedCommitments {
                 blob_id,
                 response_tx,
             }),
-        }
+        })
     }
 
-    #[must_use]
-    pub const fn store_shared_commitments_request(
-        blob_id: <Api as StorageDaApi>::BlobId,
-        shared_commitments: <Api as StorageDaApi>::Commitments,
-    ) -> Self {
-        Self::Api {
+    pub fn store_shared_commitments_request<C: DaConverter<Api>>(
+        blob_id: <<C as DaConverter<Api>>::Share as Share>::BlobId,
+        shared_commitments: <C::Share as Share>::SharesCommitments,
+    ) -> Result<Self, DynError> {
+        let blob_id = C::blob_id_to_storage(blob_id).map_err(Into::<DynError>::into)?;
+        let commitments = C::commitments_to_storage(shared_commitments)?;
+        Ok(Self::Api {
             request: StorageApiRequest::Da(DaApiRequest::StoreSharedCommitments {
                 blob_id,
-                shared_commitments,
+                shared_commitments: commitments,
             }),
-        }
+        })
     }
 }
