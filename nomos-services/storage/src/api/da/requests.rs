@@ -1,12 +1,14 @@
 use std::collections::HashSet;
 
-use nomos_core::da::blob::Share;
 use overwatch::DynError;
 use tokio::sync::oneshot::Sender;
 
 use crate::{
     api::{
-        da::{DaConverter, StorageDaApi},
+        da::{
+            DaConverter, ServiceBlobId, ServiceLightShare, ServiceShareIndex,
+            ServiceSharedCommitments, StorageDaApi,
+        },
         StorageApiRequest, StorageBackendApi, StorageOperation,
     },
     backends::StorageBackend,
@@ -177,8 +179,8 @@ async fn handle_store_shared_commitments<Backend: StorageBackend>(
 
 impl<Backend: StorageBackend> StorageMsg<Backend> {
     pub fn get_light_share_request<Converter: DaConverter<Backend>>(
-        blob_id: <<Converter as DaConverter<Backend>>::Share as Share>::BlobId,
-        share_idx: <<Converter as DaConverter<Backend>>::Share as Share>::ShareIndex,
+        blob_id: ServiceBlobId<Converter, Backend>,
+        share_idx: ServiceShareIndex<Converter, Backend>,
         response_tx: Sender<Option<<Backend as StorageDaApi>::Share>>,
     ) -> Result<Self, DynError> {
         let blob_id = Converter::blob_id_to_storage(blob_id).map_err(Into::<DynError>::into)?;
@@ -194,7 +196,7 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
     }
 
     pub fn get_blob_light_shares_request<Converter: DaConverter<Backend>>(
-        blob_id: <<Converter as DaConverter<Backend>>::Share as Share>::BlobId,
+        blob_id: ServiceBlobId<Converter, Backend>,
         response_tx: Sender<Option<Vec<<Backend as StorageDaApi>::Share>>>,
     ) -> Result<Self, DynError> {
         let blob_id = Converter::blob_id_to_storage(blob_id).map_err(Into::<DynError>::into)?;
@@ -207,7 +209,7 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
     }
 
     pub fn get_light_share_indexes_request<Converter: DaConverter<Backend>>(
-        blob_id: <<Converter as DaConverter<Backend>>::Share as Share>::BlobId,
+        blob_id: ServiceBlobId<Converter, Backend>,
         response_tx: Sender<Option<HashSet<<Backend as StorageDaApi>::ShareIndex>>>,
     ) -> Result<Self, DynError> {
         let blob_id = Converter::blob_id_to_storage(blob_id).map_err(Into::<DynError>::into)?;
@@ -220,9 +222,9 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
     }
 
     pub fn store_light_share_request<Converter: DaConverter<Backend>>(
-        blob_id: <<Converter as DaConverter<Backend>>::Share as Share>::BlobId,
-        share_idx: <<Converter as DaConverter<Backend>>::Share as Share>::ShareIndex,
-        light_share: <<Converter as DaConverter<Backend>>::Share as Share>::LightShare,
+        blob_id: ServiceBlobId<Converter, Backend>,
+        share_idx: ServiceShareIndex<Converter, Backend>,
+        light_share: ServiceLightShare<Converter, Backend>,
     ) -> Result<Self, DynError> {
         let blob_id = Converter::blob_id_to_storage(blob_id).map_err(Into::<DynError>::into)?;
         let share_idx =
@@ -240,7 +242,7 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
     }
 
     pub fn get_shared_commitments_request<Converter: DaConverter<Backend>>(
-        blob_id: <<Converter as DaConverter<Backend>>::Share as Share>::BlobId,
+        blob_id: ServiceBlobId<Converter, Backend>,
         response_tx: Sender<Option<<Backend as StorageDaApi>::Commitments>>,
     ) -> Result<Self, DynError> {
         let blob_id = Converter::blob_id_to_storage(blob_id).map_err(Into::<DynError>::into)?;
@@ -253,15 +255,15 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
     }
 
     pub fn store_shared_commitments_request<Converter: DaConverter<Backend>>(
-        blob_id: <<Converter as DaConverter<Backend>>::Share as Share>::BlobId,
-        shared_commitments: <Converter::Share as Share>::SharesCommitments,
+        blob_id: ServiceBlobId<Converter, Backend>,
+        shared_commitments: ServiceSharedCommitments<Converter, Backend>,
     ) -> Result<Self, DynError> {
         let blob_id = Converter::blob_id_to_storage(blob_id).map_err(Into::<DynError>::into)?;
-        let commitments = Converter::commitments_to_storage(shared_commitments)?;
+        let shared_commitments = Converter::commitments_to_storage(shared_commitments)?;
         Ok(Self::Api {
             request: StorageApiRequest::Da(DaApiRequest::StoreSharedCommitments {
                 blob_id,
-                shared_commitments: commitments,
+                shared_commitments,
             }),
         })
     }
