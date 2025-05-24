@@ -137,6 +137,7 @@ mod tests {
     use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
     use tokio::time::timeout;
+    use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
     use super::*;
 
@@ -177,6 +178,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_external_address_is_confirmed_by_autonat_server() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .compact()
+            .with_writer(TestWriter::default())
+            .try_init();
         const _500MS: Duration = Duration::from_millis(500);
         let mut client = Swarm::new_ephemeral_tokio(|keypair| Client::new(keypair.public()));
         let mut server = Swarm::new_ephemeral_tokio(|keypair| Server::new(keypair.public()));
