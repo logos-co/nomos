@@ -5,8 +5,12 @@ use std::{
 
 use libp2p::{
     autonat::v2::client::{Behaviour, Config},
-    swarm::{NetworkBehaviour, THandlerInEvent, ToSwarm},
-    Multiaddr,
+    core::{transport::PortUse, Endpoint},
+    swarm::{
+        ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
+        THandlerOutEvent, ToSwarm,
+    },
+    Multiaddr, PeerId,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
@@ -62,23 +66,23 @@ impl NetworkBehaviour for NatBehaviour {
 
     fn handle_established_inbound_connection(
         &mut self,
-        connection_id: libp2p::swarm::ConnectionId,
-        peer: libp2p::PeerId,
-        local_addr: &libp2p::Multiaddr,
-        remote_addr: &libp2p::Multiaddr,
-    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        connection_id: ConnectionId,
+        peer: PeerId,
+        local_addr: &Multiaddr,
+        remote_addr: &Multiaddr,
+    ) -> Result<THandler<Self>, ConnectionDenied> {
         self.autonat_client_behaviour
             .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)
     }
 
     fn handle_established_outbound_connection(
         &mut self,
-        connection_id: libp2p::swarm::ConnectionId,
-        peer: libp2p::PeerId,
-        addr: &libp2p::Multiaddr,
-        role_override: libp2p::core::Endpoint,
-        port_use: libp2p::core::transport::PortUse,
-    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        connection_id: ConnectionId,
+        peer: PeerId,
+        addr: &Multiaddr,
+        role_override: Endpoint,
+        port_use: PortUse,
+    ) -> Result<THandler<Self>, ConnectionDenied> {
         self.autonat_client_behaviour
             .handle_established_outbound_connection(
                 connection_id,
@@ -89,15 +93,15 @@ impl NetworkBehaviour for NatBehaviour {
             )
     }
 
-    fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm) {
+    fn on_swarm_event(&mut self, event: FromSwarm) {
         self.autonat_client_behaviour.on_swarm_event(event);
     }
 
     fn on_connection_handler_event(
         &mut self,
-        peer_id: libp2p::PeerId,
-        connection_id: libp2p::swarm::ConnectionId,
-        event: libp2p::swarm::THandlerOutEvent<Self>,
+        peer_id: PeerId,
+        connection_id: ConnectionId,
+        event: THandlerOutEvent<Self>,
     ) {
         self.autonat_client_behaviour
             .on_connection_handler_event(peer_id, connection_id, event);
