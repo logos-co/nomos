@@ -71,7 +71,7 @@ impl Swarm {
         let nomos_swarm = {
             let listen_addr = multiaddr(config.host, config.port);
             let mut s = Self { swarm };
-            // We start listening on the provided address, which triggers the Identify flow, which in turn triggers are AutoNAT behaviour.
+            // We start listening on the provided address, which triggers the Identify flow, which in turn triggers our NAT traversal state machine.
             s.start_listening_on(listen_addr.clone())
                 .map_err(|e| format!("Failed to listen on {listen_addr}: {e}"))?;
             Ok::<_, Box<dyn Error>>(s)
