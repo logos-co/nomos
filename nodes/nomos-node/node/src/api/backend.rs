@@ -23,7 +23,9 @@ use nomos_core::{
     tx::Transaction,
 };
 use nomos_da_network_core::SubnetworkId;
-use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBackend;
+use nomos_da_network_service::{
+    adapters::membership::MembershipAdapter, backends::libp2p::validator::DaNetworkValidatorBackend,
+};
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_da_verifier::backend::VerifierBackend;
 use nomos_http_api_common::paths;
@@ -72,6 +74,7 @@ pub struct AxumBackend<
     DaShare,
     DaBlobInfo,
     Membership,
+    MembershipService,
     DaVerifiedBlobInfo,
     DaVerifierBackend,
     DaVerifierNetwork,
@@ -92,6 +95,7 @@ pub struct AxumBackend<
     _share: core::marker::PhantomData<DaShare>,
     _certificate: core::marker::PhantomData<DaBlobInfo>,
     _membership: core::marker::PhantomData<Membership>,
+    _membership_service: core::marker::PhantomData<MembershipService>,
     _vid: core::marker::PhantomData<DaVerifiedBlobInfo>,
     _verifier_backend: core::marker::PhantomData<DaVerifierBackend>,
     _verifier_network: core::marker::PhantomData<DaVerifierNetwork>,
@@ -126,6 +130,7 @@ impl<
         DaShare,
         DaBlobInfo,
         Membership,
+        MembershipService,
         DaVerifiedBlobInfo,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -147,6 +152,7 @@ impl<
         DaShare,
         DaBlobInfo,
         Membership,
+        MembershipService,
         DaVerifiedBlobInfo,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -185,6 +191,7 @@ where
         + Send
         + Sync
         + 'static,
+    MembershipService: MembershipAdapter + Send + Sync + 'static,
     DaVerifiedBlobInfo: DispersedBlobInfo<BlobId = [u8; 32]>
         + From<DaBlobInfo>
         + Eq
@@ -307,6 +314,7 @@ where
         + AsServiceId<
             nomos_da_network_service::NetworkService<
                 DaNetworkValidatorBackend<Membership>,
+                MembershipService,
                 RuntimeServiceId,
             >,
         >
@@ -366,6 +374,7 @@ where
             _share: core::marker::PhantomData,
             _certificate: core::marker::PhantomData,
             _membership: core::marker::PhantomData,
+            _membership_service: core::marker::PhantomData,
             _vid: core::marker::PhantomData,
             _verifier_backend: core::marker::PhantomData,
             _verifier_network: core::marker::PhantomData,
@@ -492,19 +501,31 @@ where
             .route(
                 paths::DA_BLOCK_PEER,
                 routing::post(
-                    block_peer::<DaNetworkValidatorBackend<Membership>, RuntimeServiceId>,
+                    block_peer::<
+                        DaNetworkValidatorBackend<Membership>,
+                        MembershipService,
+                        RuntimeServiceId,
+                    >,
                 ),
             )
             .route(
                 paths::DA_UNBLOCK_PEER,
                 routing::post(
-                    unblock_peer::<DaNetworkValidatorBackend<Membership>, RuntimeServiceId>,
+                    unblock_peer::<
+                        DaNetworkValidatorBackend<Membership>,
+                        MembershipService,
+                        RuntimeServiceId,
+                    >,
                 ),
             )
             .route(
                 paths::DA_BLACKLISTED_PEERS,
                 routing::get(
-                    blacklisted_peers::<DaNetworkValidatorBackend<Membership>, RuntimeServiceId>,
+                    blacklisted_peers::<
+                        DaNetworkValidatorBackend<Membership>,
+                        MembershipService,
+                        RuntimeServiceId,
+                    >,
                 ),
             )
             .route(
@@ -567,13 +588,21 @@ where
             .route(
                 paths::DA_BALANCER_STATS,
                 routing::get(
-                    balancer_stats::<DaNetworkValidatorBackend<Membership>, RuntimeServiceId>,
+                    balancer_stats::<
+                        DaNetworkValidatorBackend<Membership>,
+                        MembershipService,
+                        RuntimeServiceId,
+                    >,
                 ),
             )
             .route(
                 paths::DA_MONITOR_STATS,
                 routing::get(
-                    monitor_stats::<DaNetworkValidatorBackend<Membership>, RuntimeServiceId>,
+                    monitor_stats::<
+                        DaNetworkValidatorBackend<Membership>,
+                        MembershipService,
+                        RuntimeServiceId,
+                    >,
                 ),
             )
             .with_state(handle);

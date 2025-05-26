@@ -1,7 +1,10 @@
 use nomos_sdp_core::BlockNumber;
 use overwatch::DynError;
 
-use crate::adapters::{declaration::SdpDeclarationAdapter, services::SdpServicesAdapter};
+use crate::adapters::{
+    declaration::repository::SdpDeclarationAdapter,
+    services::services_repository::SdpServicesAdapter,
+};
 
 pub mod ledger;
 

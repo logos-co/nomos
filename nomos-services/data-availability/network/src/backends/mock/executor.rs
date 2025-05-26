@@ -112,4 +112,12 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
             ),
         }
     }
+
+    fn update_membership(
+        &mut self,
+        _members: Vec<libp2p::PeerId>,
+        _addressbook: std::collections::HashMap<libp2p::PeerId, libp2p::Multiaddr>,
+    ) {
+        // No-op for mock backend
+    }
 }

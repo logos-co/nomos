@@ -5,6 +5,7 @@ use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
+    adapters::membership::MembershipAdapter,
     backends::libp2p::executor::{DaNetworkEvent, DaNetworkEventKind, DaNetworkExecutorBackend},
     NetworkService,
 };
@@ -14,4 +15,9 @@ use tokio_stream::StreamExt as _;
 
 use crate::network::{adapters::common::adapter_for, NetworkAdapter};
 
-adapter_for!(DaNetworkExecutorBackend, DaNetworkEventKind, DaNetworkEvent);
+adapter_for!(
+    DaNetworkExecutorBackend,
+    MembershipAdapter,
+    DaNetworkEventKind,
+    DaNetworkEvent
+);

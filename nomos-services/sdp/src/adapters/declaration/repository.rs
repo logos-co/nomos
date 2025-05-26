@@ -4,6 +4,10 @@ use nomos_sdp_core::{
     Declaration, ProviderInfo,
 };
 
+pub trait SdpDeclarationAdapter: ledger::DeclarationsRepository {
+    fn new() -> Self;
+}
+
 pub struct LedgerDeclarationAdapter;
 
 impl SdpDeclarationAdapter for LedgerDeclarationAdapter {
@@ -49,8 +53,4 @@ impl ledger::DeclarationsRepository for LedgerDeclarationAdapter {
     ) -> Result<(), DeclarationsRepositoryError> {
         todo!()
     }
-}
-
-pub trait SdpDeclarationAdapter: ledger::DeclarationsRepository {
-    fn new() -> Self;
 }

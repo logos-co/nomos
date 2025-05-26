@@ -18,8 +18,8 @@ use tracing::Level;
 
 use crate::{
     config::mempool::MempoolConfig, ApiService, BlendService, CryptarchiaService, DaIndexerService,
-    DaNetworkService, DaSamplingService, DaVerifierService, NetworkService, RuntimeServiceId,
-    StorageService, TimeService,
+    DaNetworkService, DaSamplingService, DaVerifierService, MembershipService, NetworkService,
+    RuntimeServiceId, SdpService, StorageService, TimeService,
 };
 
 pub mod mempool;
@@ -135,6 +135,8 @@ pub struct Config {
     pub da_indexer: <DaIndexerService as ServiceData>::Settings,
     pub da_verifier: <DaVerifierService as ServiceData>::Settings,
     pub da_sampling: <DaSamplingService as ServiceData>::Settings,
+    pub membership: <MembershipService as ServiceData>::Settings,
+    pub sdp: <SdpService as ServiceData>::Settings,
     pub http: <ApiService as ServiceData>::Settings,
     pub cryptarchia: <CryptarchiaService as ServiceData>::Settings,
     pub time: <TimeService as ServiceData>::Settings,

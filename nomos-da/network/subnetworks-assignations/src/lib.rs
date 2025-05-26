@@ -1,6 +1,9 @@
 pub mod versions;
 
-use std::{collections::HashSet, hash::Hash};
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+};
 
 use libp2p::Multiaddr;
 use libp2p_identity::PeerId;
@@ -31,6 +34,9 @@ pub trait MembershipHandler {
     fn last_subnetwork_id(&self) -> Self::NetworkId;
 
     fn get_address(&self, peer_id: &PeerId) -> Option<Multiaddr>;
+
+    #[must_use]
+    fn rebuild_with(&self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) -> Self;
 }
 
 use std::sync::Arc;
@@ -64,5 +70,9 @@ where
 
     fn get_address(&self, peer_id: &PeerId) -> Option<Multiaddr> {
         self.as_ref().get_address(peer_id)
+    }
+
+    fn rebuild_with(&self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) -> Self {
+        Self::new(self.as_ref().rebuild_with(members, addressbook))
     }
 }

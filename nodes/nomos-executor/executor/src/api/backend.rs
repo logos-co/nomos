@@ -24,7 +24,9 @@ use nomos_core::{
 };
 use nomos_da_dispersal::adapters::mempool::DaMempoolAdapter;
 use nomos_da_network_core::SubnetworkId;
-use nomos_da_network_service::backends::libp2p::executor::DaNetworkExecutorBackend;
+use nomos_da_network_service::{
+    adapters::membership::MembershipAdapter, backends::libp2p::executor::DaNetworkExecutorBackend,
+};
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_da_verifier::backend::VerifierBackend;
 use nomos_http_api_common::paths;
@@ -73,6 +75,7 @@ pub struct AxumBackend<
     DaShare,
     DaBlobInfo,
     Memebership,
+    MembershipService,
     DaVerifiedBlobInfo,
     DaVerifierBackend,
     DaVerifierNetwork,
@@ -100,6 +103,7 @@ pub struct AxumBackend<
         DaShare,
         DaBlobInfo,
         Memebership,
+        MembershipService,
         DaVerifiedBlobInfo,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -139,6 +143,7 @@ impl<
         DaShare,
         DaBlobInfo,
         Membership,
+        MembershipService,
         DaVerifiedBlobInfo,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -164,6 +169,7 @@ impl<
         DaShare,
         DaBlobInfo,
         Membership,
+        MembershipService,
         DaVerifiedBlobInfo,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -214,6 +220,7 @@ where
         + Send
         + Sync
         + 'static,
+    MembershipService: MembershipAdapter + Send + Sync + 'static,
     DaVerifiedBlobInfo: DispersedBlobInfo<BlobId = [u8; 32]>
         + From<DaBlobInfo>
         + Eq
@@ -348,6 +355,7 @@ where
         + AsServiceId<
             nomos_da_network_service::NetworkService<
                 DaNetworkExecutorBackend<Membership>,
+                MembershipService,
                 RuntimeServiceId,
             >,
         >
@@ -526,18 +534,32 @@ where
             )
             .route(
                 paths::DA_BLOCK_PEER,
-                routing::post(block_peer::<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>),
+                routing::post(
+                    block_peer::<
+                        DaNetworkExecutorBackend<Membership>,
+                        MembershipService,
+                        RuntimeServiceId,
+                    >,
+                ),
             )
             .route(
                 paths::DA_UNBLOCK_PEER,
                 routing::post(
-                    unblock_peer::<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>,
+                    unblock_peer::<
+                        DaNetworkExecutorBackend<Membership>,
+                        MembershipService,
+                        RuntimeServiceId,
+                    >,
                 ),
             )
             .route(
                 paths::DA_BLACKLISTED_PEERS,
                 routing::get(
-                    blacklisted_peers::<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>,
+                    blacklisted_peers::<
+                        DaNetworkExecutorBackend<Membership>,
+                        MembershipService,
+                        RuntimeServiceId,
+                    >,
                 ),
             )
             .route(paths::NETWORK_INFO, routing::get(libp2p_info))
@@ -610,13 +632,21 @@ where
             .route(
                 paths::DA_BALANCER_STATS,
                 routing::get(
-                    balancer_stats::<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>,
+                    balancer_stats::<
+                        DaNetworkExecutorBackend<Membership>,
+                        MembershipService,
+                        RuntimeServiceId,
+                    >,
                 ),
             )
             .route(
                 paths::DA_MONITOR_STATS,
                 routing::get(
-                    monitor_stats::<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>,
+                    monitor_stats::<
+                        DaNetworkExecutorBackend<Membership>,
+                        MembershipService,
+                        RuntimeServiceId,
+                    >,
                 ),
             )
             .with_state(handle);

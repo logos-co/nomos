@@ -5,6 +5,7 @@ use libp2p_identity::PeerId;
 use nomos_core::da::BlobId;
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
+    adapters::membership::MembershipAdapter,
     backends::libp2p::{
         common::SamplingEvent,
         executor::{
@@ -24,6 +25,7 @@ use crate::network::{adapters::common::adapter_for, NetworkAdapter};
 
 adapter_for!(
     DaNetworkExecutorBackend,
+    MembershipAdapter,
     ExecutorDaNetworkMessage,
     DaNetworkEventKind,
     DaNetworkEvent

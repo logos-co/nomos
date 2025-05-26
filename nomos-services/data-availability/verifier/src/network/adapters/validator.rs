@@ -5,6 +5,7 @@ use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
+    adapters::membership::MembershipAdapter,
     backends::libp2p::validator::{DaNetworkEvent, DaNetworkEventKind, DaNetworkValidatorBackend},
     NetworkService,
 };
@@ -16,6 +17,7 @@ use crate::network::{adapters::common::adapter_for, NetworkAdapter};
 
 adapter_for!(
     DaNetworkValidatorBackend,
+    MembershipAdapter,
     DaNetworkEventKind,
     DaNetworkEvent
 );

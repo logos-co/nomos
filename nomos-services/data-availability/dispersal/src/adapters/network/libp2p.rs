@@ -10,6 +10,7 @@ use nomos_da_network_core::{
     PeerId, SubnetworkId,
 };
 use nomos_da_network_service::{
+    adapters::membership::MembershipAdapter,
     backends::libp2p::{
         common::SamplingEvent,
         executor::{
@@ -27,7 +28,7 @@ use tokio::sync::oneshot;
 
 use crate::adapters::network::DispersalNetworkAdapter;
 
-pub struct Libp2pNetworkAdapter<Membership, RuntimeServiceId>
+pub struct Libp2pNetworkAdapter<Membership, MembershipService, RuntimeServiceId>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -38,10 +39,11 @@ where
 {
     outbound_relay:
         OutboundRelay<DaNetworkMsg<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>>,
-    _phantom: PhantomData<RuntimeServiceId>,
+    _phantom: PhantomData<(RuntimeServiceId, MembershipService)>,
 }
 
-impl<Membership, RuntimeServiceId> Libp2pNetworkAdapter<Membership, RuntimeServiceId>
+impl<Membership, MembershipService, RuntimeServiceId>
+    Libp2pNetworkAdapter<Membership, MembershipService, RuntimeServiceId>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -50,6 +52,7 @@ where
         + Sync
         + 'static,
     RuntimeServiceId: Sync,
+    MembershipService: Send + Sync + 'static,
 {
     async fn start_sampling(
         &self,
@@ -73,8 +76,8 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Membership, RuntimeServiceId> DispersalNetworkAdapter
-    for Libp2pNetworkAdapter<Membership, RuntimeServiceId>
+impl<Membership, MembershipService, RuntimeServiceId> DispersalNetworkAdapter
+    for Libp2pNetworkAdapter<Membership, MembershipService, RuntimeServiceId>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -82,9 +85,11 @@ where
         + Send
         + Sync
         + 'static,
+    MembershipService: MembershipAdapter + Send + Sync + 'static,
     RuntimeServiceId: Sync,
 {
-    type NetworkService = NetworkService<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>;
+    type NetworkService =
+        NetworkService<DaNetworkExecutorBackend<Membership>, MembershipService, RuntimeServiceId>;
 
     type SubnetworkId = Membership::NetworkId;
 

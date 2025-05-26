@@ -2,7 +2,10 @@ use std::marker::PhantomData;
 
 use async_trait::async_trait;
 use nomos_sdp::{
-    adapters::{declaration::SdpDeclarationAdapter, services::SdpServicesAdapter},
+    adapters::{
+        declaration::repository::SdpDeclarationAdapter,
+        services::services_repository::SdpServicesAdapter,
+    },
     backends::SdpBackend,
     FinalizedBlockUpdateStream, SdpMessage, SdpService,
 };
@@ -18,7 +21,14 @@ pub struct LedgerSdpAdapter<
     Metadata,
     RuntimeServiceId,
 > where
-    Backend: SdpBackend + Send + Sync + 'static,
+    Backend: SdpBackend<DeclarationAdapter = DeclarationAdapter, ServicesAdapter = ServicesAdapter>
+        + Send
+        + Sync
+        + 'static,
+    DeclarationAdapter: SdpDeclarationAdapter + Send + Sync,
+    ServicesAdapter: SdpServicesAdapter + Send + Sync,
+    Metadata: Send + Sync + 'static,
+    RuntimeServiceId: Send + Sync + 'static,
 {
     relay: OutboundRelay<SdpMessage<Backend>>,
     _phantom_adapters: PhantomData<(DeclarationAdapter, ServicesAdapter)>,

@@ -248,6 +248,18 @@ mod tests {
         fn get_address(&self, _peer_id: &PeerId) -> Option<libp2p::Multiaddr> {
             unimplemented!()
         }
+
+        fn rebuild_with(
+            &self,
+            members: Vec<PeerId>,
+            _addressbook: HashMap<PeerId, libp2p::Multiaddr>,
+        ) -> Self {
+            Self {
+                subnetwork: self.subnetwork,
+                members: members.into_iter().collect(),
+                last_subnet_id: self.last_subnet_id,
+            }
+        }
     }
 
     #[tokio::test]

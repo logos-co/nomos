@@ -8,6 +8,7 @@ use std::{
 
 use blake2::{Blake2b, Digest as _};
 use multiaddr::Multiaddr;
+use serde::{Deserialize, Serialize};
 
 pub type StakeThreshold = u64;
 pub type BlockNumber = u64;
@@ -25,7 +26,7 @@ pub struct ServiceParameters {
     pub timestamp: BlockNumber,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Locator {
     addr: Multiaddr,
 }
@@ -35,9 +36,14 @@ impl Locator {
     pub const fn new(addr: Multiaddr) -> Self {
         Self { addr }
     }
+
+    #[must_use]
+    pub const fn addr(&self) -> &Multiaddr {
+        &self.addr
+    }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum ServiceType {
     BlendNetwork,
     DataAvailability,
@@ -46,7 +52,7 @@ pub enum ServiceType {
 
 pub type Nonce = [u8; 16];
 
-#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug, Serialize, Deserialize)]
 pub struct ProviderId(pub [u8; 32]);
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]

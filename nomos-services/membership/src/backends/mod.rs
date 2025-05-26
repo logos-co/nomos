@@ -4,15 +4,18 @@ use async_trait::async_trait;
 use nomos_sdp::backends::SdpBackendError;
 use nomos_sdp_core::{BlockNumber, FinalizedBlockEvent, ServiceType};
 use overwatch::DynError;
+use serde::{Deserialize, Serialize};
 
 use crate::MembershipProviders;
 
 pub mod mock;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MembershipBackendSettings {
     pub settings_per_service: HashMap<ServiceType, Settings>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     historical_block_delta: u64,
 }

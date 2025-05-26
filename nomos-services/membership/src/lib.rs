@@ -21,10 +21,10 @@ use services_utils::overwatch::lifecycle;
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 
-mod adapters;
+pub mod adapters;
 pub mod backends;
 
-type MembershipProviders = HashMap<ProviderId, BTreeSet<Locator>>;
+pub type MembershipProviders = HashMap<ProviderId, BTreeSet<Locator>>;
 
 pub type MembershipSnapshotStream =
     Pin<Box<dyn Stream<Item = MembershipProviders> + Send + Sync + Unpin>>;
@@ -32,8 +32,8 @@ pub type MembershipSnapshotStream =
 const BROADCAST_CHANNEL_SIZE: usize = 128;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BackendSettings<S> {
-    pub backend: S,
+pub struct MembershipSettings<Settings> {
+    pub backend: Settings,
 }
 
 pub enum MembershipMessage {
@@ -48,13 +48,13 @@ pub enum MembershipMessage {
     },
 }
 
-pub struct MembershipService<B, S, RuntimeServiceId>
+pub struct MembershipService<Backend, Sdp, RuntimeServiceId>
 where
-    B: MembershipBackend,
-    S: SdpAdapter,
-    B::Settings: Clone,
+    Backend: MembershipBackend,
+    Sdp: SdpAdapter,
+    Backend::Settings: Clone,
 {
-    backend: B,
+    backend: Backend,
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
     subscribe_channels: HashMap<ServiceType, broadcast::Sender<MembershipProviders>>,
 }
@@ -65,7 +65,7 @@ where
     S: SdpAdapter,
     B::Settings: Clone,
 {
-    type Settings = BackendSettings<B::Settings>;
+    type Settings = MembershipSettings<B::Settings>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = MembershipMessage;
@@ -93,7 +93,7 @@ where
         service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
         _initstate: Self::State,
     ) -> Result<Self, overwatch::DynError> {
-        let BackendSettings {
+        let MembershipSettings {
             backend: backend_settings,
         } = service_state.settings_reader.get_updated_settings();
 
@@ -144,6 +144,7 @@ where
     B: MembershipBackend,
     S: SdpAdapter,
     B::Settings: Clone,
+    RuntimeServiceId: Send + Sync + 'static,
 {
     async fn handle_message(&mut self, msg: MembershipMessage) {
         match msg {

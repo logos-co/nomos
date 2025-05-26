@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     net::SocketAddr,
     ops::Range,
     path::PathBuf,
@@ -37,6 +38,7 @@ use nomos_http_api_common::paths::{
     CL_METRICS, CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_RANGE,
     DA_MONITOR_STATS, STORAGE_BLOCK,
 };
+use nomos_membership::{backends::mock::MockMembershipBackendSettings, MembershipSettings};
 use nomos_mempool::MempoolMetrics;
 use nomos_network::{backends::libp2p::Libp2pConfig, NetworkConfig};
 use nomos_node::{
@@ -398,5 +400,13 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
             cl_pool_recovery_path: "./recovery/cl_mempool.json".into(),
             da_pool_recovery_path: "./recovery/da_mempool.json".into(),
         },
+        membership: MembershipSettings {
+            backend: MockMembershipBackendSettings {
+                settings_per_service: HashMap::default(),
+                initial_membership: HashMap::default(),
+                initial_locators_mapping: HashMap::default(),
+            },
+        },
+        sdp: (),
     }
 }

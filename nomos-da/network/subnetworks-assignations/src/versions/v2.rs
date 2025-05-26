@@ -112,6 +112,23 @@ impl MembershipHandler for FillWithOriginalReplication {
     fn get_address(&self, peer_id: &PeerId) -> Option<Multiaddr> {
         self.addressbook.get(peer_id).cloned()
     }
+
+    fn rebuild_with(&self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) -> Self {
+        Self {
+            assignations: Self::fill(
+                &members,
+                self.subnetwork_size,
+                self.dispersal_factor,
+                self.original_replication,
+                self.pivot,
+            ),
+            subnetwork_size: self.subnetwork_size,
+            dispersal_factor: self.dispersal_factor,
+            original_replication: self.original_replication,
+            pivot: self.pivot,
+            addressbook,
+        }
+    }
 }
 
 #[cfg(test)]

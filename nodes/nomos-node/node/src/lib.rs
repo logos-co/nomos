@@ -5,8 +5,8 @@ mod tx;
 
 use bytes::Bytes;
 use color_eyre::eyre::Result;
-use kzgrs_backend::common::share::DaShare;
 pub use kzgrs_backend::dispersal::BlobInfo;
+use kzgrs_backend::{common::share::DaShare, dispersal::Metadata};
 pub use nomos_blend_service::{
     backends::libp2p::Libp2pBlendBackend as BlendBackend,
     network::libp2p::Libp2pAdapter as BlendNetworkAdapter,
@@ -17,6 +17,7 @@ pub use nomos_core::{
     tx::{select::FillSize as FillSizeWithTx, Transaction},
     wire,
 };
+use nomos_da_network_service::adapters::membership::membership_service::MembershipServiceAdapter;
 pub use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBackend;
 use nomos_da_sampling::{
     api::http::HttApiAdapter, backend::kzgrs::KzgrsSamplingBackend,
@@ -28,6 +29,7 @@ use nomos_da_verifier::{
     network::adapters::validator::Libp2pAdapter as VerifierNetworkAdapter,
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
+use nomos_membership::{adapters::sdp::LedgerSdpAdapter, backends::mock::MockMembershipBackend};
 pub use nomos_mempool::{
     da::settings::DaMempoolSettings,
     network::adapters::libp2p::{
@@ -35,6 +37,11 @@ pub use nomos_mempool::{
     },
 };
 pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
+use nomos_sdp::adapters::{
+    declaration::repository::LedgerDeclarationAdapter,
+    services::services_repository::LedgerServicesAdapter,
+};
+use nomos_sdp_core::ledger::SdpLedger;
 pub use nomos_storage::backends::{
     rocksdb::{RocksBackend, RocksBackendSettings},
     StorageSerde,
@@ -76,6 +83,38 @@ impl StorageSerde for Wire {
 /// Membership used by the DA Network service.
 pub type NomosDaMembership = FillFromNodeList;
 
+pub(crate) type MembershipService = nomos_membership::MembershipService<
+    MockMembershipBackend,
+    LedgerSdpAdapter<
+        SdpLedger<LedgerDeclarationAdapter, LedgerServicesAdapter, Metadata>,
+        LedgerDeclarationAdapter,
+        LedgerServicesAdapter,
+        Metadata,
+        RuntimeServiceId,
+    >,
+    RuntimeServiceId,
+>;
+
+pub(crate) type MembershipLedgerAdapter = MembershipServiceAdapter<
+    MockMembershipBackend,
+    LedgerSdpAdapter<
+        SdpLedger<LedgerDeclarationAdapter, LedgerServicesAdapter, Metadata>,
+        LedgerDeclarationAdapter,
+        LedgerServicesAdapter,
+        Metadata,
+        RuntimeServiceId,
+    >,
+    RuntimeServiceId,
+>;
+
+pub(crate) type SdpService = nomos_sdp::SdpService<
+    SdpLedger<LedgerDeclarationAdapter, LedgerServicesAdapter, Metadata>,
+    LedgerDeclarationAdapter,
+    LedgerServicesAdapter,
+    Metadata,
+    RuntimeServiceId,
+>;
+
 #[cfg(feature = "tracing")]
 pub(crate) type TracingService = Tracing<RuntimeServiceId>;
 
@@ -88,27 +127,25 @@ pub(crate) type BlendService = nomos_blend_service::BlendService<
 >;
 
 pub(crate) type DaIndexerService = generic_services::DaIndexerService<
-    nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
-        NomosDaMembership,
-        RuntimeServiceId,
-    >,
-    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    SamplingLibp2pAdapter<NomosDaMembership, MembershipLedgerAdapter, RuntimeServiceId>,
+    VerifierNetworkAdapter<NomosDaMembership, MembershipLedgerAdapter, RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
 pub(crate) type DaVerifierService = generic_services::DaVerifierService<
-    VerifierNetworkAdapter<FillFromNodeList, RuntimeServiceId>,
+    VerifierNetworkAdapter<FillFromNodeList, MembershipLedgerAdapter, RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
 pub(crate) type DaSamplingService = generic_services::DaSamplingService<
-    SamplingLibp2pAdapter<NomosDaMembership, RuntimeServiceId>,
-    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    SamplingLibp2pAdapter<NomosDaMembership, MembershipLedgerAdapter, RuntimeServiceId>,
+    VerifierNetworkAdapter<NomosDaMembership, MembershipLedgerAdapter, RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
 pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
     DaNetworkValidatorBackend<NomosDaMembership>,
+    MembershipLedgerAdapter,
     RuntimeServiceId,
 >;
 
@@ -117,18 +154,20 @@ pub(crate) type ClMempoolService = generic_services::TxMempoolService<RuntimeSer
 pub(crate) type DaMempoolService = generic_services::DaMempoolService<
     nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
         NomosDaMembership,
+        MembershipLedgerAdapter,
         RuntimeServiceId,
     >,
-    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    VerifierNetworkAdapter<NomosDaMembership, MembershipLedgerAdapter, RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
 pub(crate) type CryptarchiaService = generic_services::CryptarchiaService<
     nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
         NomosDaMembership,
+        MembershipLedgerAdapter,
         RuntimeServiceId,
     >,
-    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    VerifierNetworkAdapter<NomosDaMembership, MembershipLedgerAdapter, RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
@@ -143,15 +182,17 @@ pub(crate) type ApiService = nomos_api::ApiService<
         DaShare,
         BlobInfo,
         NomosDaMembership,
+        MembershipLedgerAdapter,
         BlobInfo,
         KzgrsDaVerifier,
-        VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+        VerifierNetworkAdapter<NomosDaMembership, MembershipLedgerAdapter, RuntimeServiceId>,
         VerifierStorageAdapter<DaShare, Wire>,
         Tx,
         Wire,
         KzgrsSamplingBackend<ChaCha20Rng>,
         nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
             NomosDaMembership,
+            MembershipLedgerAdapter,
             RuntimeServiceId,
         >,
         ChaCha20Rng,
@@ -182,6 +223,8 @@ pub struct Nomos {
     da_mempool: DaMempoolService,
     cryptarchia: CryptarchiaService,
     time: TimeService,
+    membership: MembershipService,
+    sdp: SdpService,
     http: ApiService,
     storage: StorageService,
     system_sig: SystemSigService,

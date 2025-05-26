@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     net::SocketAddr,
     ops::Range,
     path::PathBuf,
@@ -44,6 +45,7 @@ use nomos_http_api_common::paths::{
     CL_METRICS, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER, DA_GET_RANGE,
     DA_MONITOR_STATS, DA_UNBLOCK_PEER,
 };
+use nomos_membership::{backends::mock::MockMembershipBackendSettings, MembershipSettings};
 use nomos_network::{backends::libp2p::Libp2pConfig, NetworkConfig};
 use nomos_node::{config::mempool::MempoolConfig, RocksBackendSettings};
 use nomos_time::{
@@ -172,14 +174,17 @@ impl Executor {
     }
 
     pub async fn blacklisted_peers(&self) -> Vec<String> {
-        CLIENT
+        let res = CLIENT
             .get(format!("http://{}{}", self.addr, DA_BLACKLISTED_PEERS))
             .send()
             .await
-            .unwrap()
-            .json::<Vec<String>>()
-            .await
-            .unwrap()
+            .expect("Failed to send HTTP request to blacklisted peers endpoint");
+
+        let response_text = res.text().await.expect("Failed to get response text");
+        println!("🔍 Raw response body: '{}'", response_text);
+        println!("🔍 Response length: {} bytes", response_text.len());
+
+        panic!("Response: {response_text}");
     }
 
     async fn wait_online(&self) {
@@ -357,5 +362,13 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             cl_pool_recovery_path: "./recovery/cl_mempool.json".into(),
             da_pool_recovery_path: "./recovery/da_mempool.json".into(),
         },
+        membership: MembershipSettings {
+            backend: MockMembershipBackendSettings {
+                settings_per_service: HashMap::default(),
+                initial_membership: HashMap::default(),
+                initial_locators_mapping: HashMap::default(),
+            },
+        },
+        sdp: (),
     }
 }

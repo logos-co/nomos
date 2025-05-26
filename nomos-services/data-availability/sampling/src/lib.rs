@@ -404,6 +404,7 @@ where
     VerifierBackend::Settings: Clone,
     VerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send,
     VerifierNetwork::Settings: Clone,
+    VerifierNetwork::Membership: Send + Sync,
     VerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send,
     ApiAdapter: ApiAdapterTrait<
             Share = SamplingBackend::Share,
@@ -413,8 +414,9 @@ where
         + Sync,
     ApiAdapter::Settings: Clone + Send + Sync,
     RuntimeServiceId: AsServiceId<Self>
-        + AsServiceId<NetworkService<SamplingNetwork::Backend, RuntimeServiceId>>
-        + AsServiceId<StorageService<SamplingStorage::Backend, RuntimeServiceId>>
+        + AsServiceId<
+            NetworkService<SamplingNetwork::Backend, VerifierNetwork::Membership, RuntimeServiceId>,
+        > + AsServiceId<StorageService<SamplingStorage::Backend, RuntimeServiceId>>
         + AsServiceId<
             DaVerifierService<VerifierBackend, VerifierNetwork, VerifierStorage, RuntimeServiceId>,
         > + Debug
@@ -441,7 +443,7 @@ where
 
         let network_relay = service_state
             .overwatch_handle
-            .relay::<NetworkService<_, _>>()
+            .relay::<NetworkService<_, _, _>>()
             .await?;
         let mut network_adapter = SamplingNetwork::new(network_relay).await;
         let mut sampling_message_stream = network_adapter.listen_to_sampling_messages().await?;

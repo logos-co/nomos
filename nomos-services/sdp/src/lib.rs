@@ -3,7 +3,10 @@ pub mod backends;
 
 use std::{fmt::Display, pin::Pin};
 
-use adapters::{declaration::SdpDeclarationAdapter, services::SdpServicesAdapter};
+use adapters::{
+    declaration::repository::SdpDeclarationAdapter,
+    services::services_repository::SdpServicesAdapter,
+};
 use async_trait::async_trait;
 use backends::{SdpBackend, SdpBackendError};
 use futures::{Stream, StreamExt as _};

@@ -6,6 +6,7 @@ use futures::Stream;
 use nomos_core::da::BlobId;
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
+    adapters::membership::MembershipAdapter,
     backends::{libp2p::common::SamplingEvent, NetworkBackend},
     NetworkService,
 };
@@ -17,11 +18,12 @@ use overwatch::{
 #[async_trait::async_trait]
 pub trait NetworkAdapter<RuntimeServiceId> {
     type Backend: NetworkBackend<RuntimeServiceId> + Send + 'static;
+    type Membership: MembershipAdapter + Send + 'static;
     type Settings: Clone;
 
     async fn new(
         network_relay: OutboundRelay<
-            <NetworkService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
+            <NetworkService<Self::Backend, Self::Membership, RuntimeServiceId> as ServiceData>::Message,
         >,
     ) -> Self;
 

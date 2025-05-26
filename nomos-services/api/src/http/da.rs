@@ -26,6 +26,7 @@ use nomos_da_indexer::{
 };
 use nomos_da_network_core::{maintenance::monitor::ConnectionMonitorCommand, SubnetworkId};
 use nomos_da_network_service::{
+    adapters::membership::MembershipAdapter,
     backends::{
         libp2p::{executor::ExecutorDaNetworkMessage, validator::DaNetworkMessage},
         NetworkBackend,
@@ -122,7 +123,8 @@ pub type DaDispersal<
     RuntimeServiceId,
 >;
 
-pub type DaNetwork<Backend, RuntimeServiceId> = NetworkService<Backend, RuntimeServiceId>;
+pub type DaNetwork<Backend, MembershipService, RuntimeServiceId> =
+    NetworkService<Backend, MembershipService, RuntimeServiceId>;
 
 pub async fn add_share<A, S, N, VB, SS, RuntimeServiceId>(
     handle: &OverwatchHandle<RuntimeServiceId>,
@@ -334,19 +336,23 @@ where
     .await?
 }
 
-pub async fn block_peer<B, RuntimeServiceId>(
+pub async fn block_peer<Backend, MembershipService, RuntimeServiceId>(
     handle: &OverwatchHandle<RuntimeServiceId>,
     peer_id: PeerId,
 ) -> Result<bool, DynError>
 where
-    B: NetworkBackend<RuntimeServiceId> + 'static + Send,
-    B::Message: MonitorMessageFactory,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
+    Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
+    MembershipService: MembershipAdapter + Send + 'static,
+    Backend::Message: MonitorMessageFactory,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<NetworkService<Backend, MembershipService, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
-    let message = B::Message::create_block_message(peer_id, sender);
+    let message = Backend::Message::create_block_message(peer_id, sender);
     relay
         .send(DaNetworkMsg::Process(message))
         .await
@@ -355,19 +361,23 @@ where
     wait_with_timeout(receiver, "Timeout while waiting for block peer".to_owned()).await
 }
 
-pub async fn unblock_peer<B, RuntimeServiceId>(
+pub async fn unblock_peer<Backend, MembershipService, RuntimeServiceId>(
     handle: &OverwatchHandle<RuntimeServiceId>,
     peer_id: PeerId,
 ) -> Result<bool, DynError>
 where
-    B: NetworkBackend<RuntimeServiceId> + 'static + Send,
-    B::Message: MonitorMessageFactory,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
+    Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
+    Backend::Message: MonitorMessageFactory,
+    MembershipService: MembershipAdapter + Send + 'static,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<NetworkService<Backend, MembershipService, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
-    let message = B::Message::create_unblock_message(peer_id, sender);
+    let message = Backend::Message::create_unblock_message(peer_id, sender);
     relay
         .send(DaNetworkMsg::Process(message))
         .await
@@ -380,18 +390,22 @@ where
     .await
 }
 
-pub async fn blacklisted_peers<B, RuntimeServiceId>(
+pub async fn blacklisted_peers<Backend, MembershipService, RuntimeServiceId>(
     handle: &OverwatchHandle<RuntimeServiceId>,
 ) -> Result<Vec<PeerId>, DynError>
 where
-    B: NetworkBackend<RuntimeServiceId> + 'static + Send,
-    B::Message: MonitorMessageFactory,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
+    Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
+    Backend::Message: MonitorMessageFactory,
+    MembershipService: MembershipAdapter + Send + 'static,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<NetworkService<Backend, MembershipService, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
-    let message = B::Message::create_blacklisted_message(sender);
+    let message = Backend::Message::create_blacklisted_message(sender);
     relay
         .send(DaNetworkMsg::Process(message))
         .await
@@ -404,18 +418,22 @@ where
     .await
 }
 
-pub async fn balancer_stats<B, RuntimeServiceId>(
+pub async fn balancer_stats<Backend, MembershipService, RuntimeServiceId>(
     handle: &OverwatchHandle<RuntimeServiceId>,
-) -> Result<<B::Message as BalancerMessageFactory>::BalancerStats, DynError>
+) -> Result<<Backend::Message as BalancerMessageFactory>::BalancerStats, DynError>
 where
-    B: NetworkBackend<RuntimeServiceId> + 'static + Send,
-    B::Message: BalancerMessageFactory,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
+    Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
+    Backend::Message: BalancerMessageFactory,
+    MembershipService: MembershipAdapter + Send + 'static,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<NetworkService<Backend, MembershipService, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
-    let message = B::Message::create_stats_message(sender);
+    let message = Backend::Message::create_stats_message(sender);
     relay
         .send(DaNetworkMsg::Process(message))
         .await
@@ -428,14 +446,18 @@ where
     .await
 }
 
-pub async fn monitor_stats<B, RuntimeServiceId>(
+pub async fn monitor_stats<B, MembershipService, RuntimeServiceId>(
     handle: &OverwatchHandle<RuntimeServiceId>,
 ) -> Result<<B::Message as MonitorMessageFactory>::MonitorStats, DynError>
 where
     B: NetworkBackend<RuntimeServiceId> + 'static + Send,
     B::Message: MonitorMessageFactory,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
+    MembershipService: MembershipAdapter + Send + 'static,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<NetworkService<B, MembershipService, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();

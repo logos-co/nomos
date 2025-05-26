@@ -6,14 +6,16 @@ use std::{
 use nomos_sdp_core::{
     BlockNumber, FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId, ServiceType,
 };
+use serde::{Deserialize, Serialize};
 
 use super::{MembershipBackend, MembershipBackendError, Settings};
 use crate::MembershipProviders;
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MockMembershipBackendSettings {
-    settings_per_service: HashMap<ServiceType, Settings>,
-    initial_membership: HashMap<BlockNumber, MockMembershipEntry>,
-    initial_locators_mapping: HashMap<ProviderId, BTreeSet<Locator>>,
+    pub settings_per_service: HashMap<ServiceType, Settings>,
+    pub initial_membership: HashMap<BlockNumber, MockMembershipEntry>,
+    pub initial_locators_mapping: HashMap<ProviderId, BTreeSet<Locator>>,
 }
 
 type MockMembershipEntry = HashMap<ServiceType, HashSet<ProviderId>>;

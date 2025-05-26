@@ -71,6 +71,17 @@ impl MembershipHandler for AllNeighbours {
     fn get_address(&self, peer_id: &PeerId) -> Option<libp2p::Multiaddr> {
         self.addresses.lock().unwrap().get(peer_id).cloned()
     }
+
+    fn rebuild_with(
+        &self,
+        members: Vec<PeerId>,
+        addressbook: HashMap<PeerId, libp2p::Multiaddr>,
+    ) -> Self {
+        Self {
+            neighbours: Arc::new(Mutex::new(members.into_iter().collect())),
+            addresses: Arc::new(Mutex::new(addressbook)),
+        }
+    }
 }
 
 pub fn new_swarm_in_memory<TBehavior>(

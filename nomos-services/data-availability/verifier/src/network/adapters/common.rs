@@ -1,39 +1,43 @@
 macro_rules! adapter_for {
-    ($DaNetworkBackend:ident, $DaNetworksEventKind:ident, $DaNetworkEvent:ident) => {
-        pub struct Libp2pAdapter<M, RuntimeServiceId>
+    ($DaNetworkBackend:ident,$MembershipService:ident, $DaNetworksEventKind:ident, $DaNetworkEvent:ident) => {
+        pub struct Libp2pAdapter<Membership, MembershipService, RuntimeServiceId>
         where
-            M: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
+        Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
                 + Clone
                 + Debug
                 + Send
                 + Sync
                 + 'static,
+        MembershipService: $MembershipService + Send + Sync + 'static,
+
         {
             network_relay: OutboundRelay<
-                <NetworkService<$DaNetworkBackend<M>, RuntimeServiceId> as ServiceData>::Message,
+                <NetworkService<$DaNetworkBackend<Membership>, MembershipService, RuntimeServiceId> as ServiceData>::Message,
             >,
-            _membership: PhantomData<M>,
+            _membership: PhantomData<Membership>,
         }
 
         #[async_trait::async_trait]
-        impl<M, RuntimeServiceId> NetworkAdapter<RuntimeServiceId>
-            for Libp2pAdapter<M, RuntimeServiceId>
+        impl<Membership, MembershipService, RuntimeServiceId> NetworkAdapter<RuntimeServiceId>
+            for Libp2pAdapter<Membership, MembershipService,  RuntimeServiceId>
         where
-            M: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
-                + Clone
-                + Debug
-                + Send
-                + Sync
-                + 'static,
+            Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
+                    + Clone
+                    + Debug
+                     + Send
+                     + Sync
+                     + 'static,
+            MembershipService: $MembershipService + Send + Sync + 'static,
         {
-            type Backend = $DaNetworkBackend<M>;
+            type Backend = $DaNetworkBackend<Membership>;
             type Settings = ();
             type Share = DaShare;
+            type Membership = MembershipService;
 
             async fn new(
                 _settings: Self::Settings,
                 network_relay: OutboundRelay<
-                    <NetworkService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
+                    <NetworkService<Self::Backend,Self::Membership, RuntimeServiceId> as ServiceData>::Message,
                 >,
             ) -> Self {
                 Self {

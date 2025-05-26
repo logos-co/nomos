@@ -63,13 +63,6 @@ where
         }
     }
 
-    pub fn update_membership(&mut self, membership: Membership) {
-        // TODO: share membership
-        self.sampling.update_membership(membership.clone());
-        self.dispersal.update_membership(membership.clone());
-        self.replication.update_membership(membership);
-    }
-
     pub const fn sampling_behaviour(&self) -> &SamplingBehaviour<Membership> {
         &self.sampling
     }

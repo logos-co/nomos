@@ -6,18 +6,19 @@ use nomos_sdp_core::{
             Other, ProviderState, ServiceNotProvided,
             ServicesRepository as LedgerServicesRepository, WrongDeclarationId,
         },
-        ServicesRepository,
     },
     BlockNumber, SdpMessage,
 };
 
 use super::{SdpBackend, SdpBackendError};
-use crate::adapters::{declaration::SdpDeclarationAdapter, services::SdpServicesAdapter};
+use crate::adapters::{
+    declaration::repository::SdpDeclarationAdapter,
+    services::services_repository::SdpServicesAdapter,
+};
 
 #[async_trait::async_trait]
 impl<Declarations, Services, Metadata> SdpBackend for SdpLedger<Declarations, Services, Metadata>
 where
-    Services: ServicesRepository + Send + Sync + Clone + 'static,
     Metadata: Send + Sync + 'static,
     Declarations: SdpDeclarationAdapter + Send + Sync,
     Services: SdpServicesAdapter + Send + Sync,
