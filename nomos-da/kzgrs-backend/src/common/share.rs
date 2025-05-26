@@ -1,12 +1,12 @@
-use blake2::{Blake2s256, Digest as _};
+use blake2::{Blake2b, Digest as _, digest::consts::U32};
 use kzgrs::Proof;
 use nomos_core::da::blob;
 use serde::{Deserialize, Serialize};
 
-use super::{build_blob_id, ShareIndex};
+use super::{ShareIndex, build_blob_id};
 use crate::common::{
-    deserialize_canonical, deserialize_vec_canonical, serialize_canonical, serialize_vec_canonical,
-    Column, Commitment,
+    Column, Commitment, deserialize_canonical, deserialize_vec_canonical, serialize_canonical,
+    serialize_vec_canonical,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -33,7 +33,7 @@ impl DaShare {
 
     #[must_use]
     pub fn column_id(&self) -> Vec<u8> {
-        let mut hasher = Blake2s256::new();
+        let mut hasher = Blake2b::<U32>::new();
         hasher.update(self.column.as_bytes());
         hasher.finalize().as_slice().to_vec()
     }
