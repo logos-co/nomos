@@ -4,13 +4,13 @@ use std::io::Cursor;
 
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use blake2::{
+    digest::{consts::U32, Update as _, VariableOutput as _},
     Blake2b, Digest,
-    digest::{Update as _, VariableOutput as _, consts::U32},
 };
 use kzgrs::Commitment;
 #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelRefIterator as _, ParallelIterator};
-use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeSeq as _};
+use serde::{ser::SerializeSeq as _, Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Chunk(pub Vec<u8>);
