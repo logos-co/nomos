@@ -3,10 +3,10 @@ use kzgrs::Proof;
 use nomos_core::da::blob;
 use serde::{Deserialize, Serialize};
 
-use super::{ShareIndex, build_blob_id};
+use super::{build_blob_id, ShareIndex};
 use crate::common::{
-    Column, Commitment, deserialize_canonical, deserialize_vec_canonical, serialize_canonical,
-    serialize_vec_canonical,
+    deserialize_canonical, deserialize_vec_canonical, serialize_canonical, serialize_vec_canonical,
+    Column, Commitment,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
