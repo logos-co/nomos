@@ -7,6 +7,7 @@ use thiserror::Error;
 use crate::crypto::Blake2b;
 
 pub mod bundle;
+pub mod mantle;
 #[cfg(feature = "mock")]
 pub mod mock;
 pub mod select;
