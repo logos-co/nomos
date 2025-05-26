@@ -5,6 +5,7 @@
 
 use std::{
     error::Error,
+    io,
     net::Ipv4Addr,
     pin::Pin,
     task::{Context, Poll},
@@ -14,23 +15,14 @@ use std::{
 use libp2p::{
     identity::ed25519,
     swarm::{dial_opts::DialOpts, ConnectionId, DialError, SwarmEvent},
-    Multiaddr, PeerId,
+    Multiaddr, PeerId, TransportError,
 };
-use multiaddr::{multiaddr, Protocol};
+use multiaddr::multiaddr;
 
 use crate::{
     behaviour::{Behaviour, BehaviourEvent},
     SwarmConfig,
 };
-
-#[derive(thiserror::Error, Debug)]
-pub enum SwarmError {
-    #[error("duplicate dialing")]
-    DuplicateDialing,
-
-    #[error("no known peers")]
-    NoKnownPeers,
-}
 
 /// How long to keep a connection alive once it is idling.
 const IDLE_CONN_TIMEOUT: Duration = Duration::from_secs(300);
@@ -57,10 +49,13 @@ impl Swarm {
             kademlia_config,
             identify_config,
             chain_sync_config,
+            protocol_name_env,
+            host,
+            port,
             ..
         } = config;
 
-        let mut swarm = libp2p::SwarmBuilder::with_existing_identity(keypair)
+        let swarm = libp2p::SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()
             .with_dns()?
@@ -70,29 +65,26 @@ impl Swarm {
                     &kademlia_config,
                     &identify_config,
                     chain_sync_config,
-                    config.protocol_name_env,
+                    protocol_name_env,
                     keypair.public(),
                 )
-                .expect("Behaviour should not fail to set up.")
+                    .expect("Behaviour should not fail to set up.")
             })?
             .with_swarm_config(|c| c.with_idle_connection_timeout(IDLE_CONN_TIMEOUT))
             .build();
 
-        let listen_addr = multiaddr(config.host, config.port);
-        swarm.listen_on(listen_addr.clone())?;
+        let nomos_swarm = {
+            let listen_addr = multiaddr(host, port);
+            let mut s = Self { swarm };
+            // We start listening on the provided address, which triggers the Identify flow,
+            // which in turn triggers our NAT traversal state machine.
+            s.start_listening_on(listen_addr.clone())
+                .map_err(|e| format!("Failed to listen on {listen_addr}: {e}"))?;
+            Ok::<_, Box<dyn Error>>(s)
+        }?;
 
-        // if kademlia is not in client mode then it is operating in a
-        // server mode
-        if !kademlia_config.client_mode {
-            // libp2p2-kad server mode is implicitly enabled
-            // by adding external addressess
-            // <https://github.com/libp2p/rust-libp2p/blob/master/protocols/kad/CHANGELOG.md#0440>
-            let external_addr = listen_addr.with(Protocol::P2p(peer_id));
-            swarm.add_external_address(external_addr.clone());
-            tracing::info!("Added external address: {}", external_addr);
-        }
-
-        Ok(Self { swarm })
+        // Keep the newer behavior: do NOT add external address to Kademlia automatically.
+        Ok(nomos_swarm)
     }
 
     /// Initiates a connection attempt to a peer
@@ -100,9 +92,16 @@ impl Swarm {
         let opt = DialOpts::from(peer_addr.clone());
         let connection_id = opt.connection_id();
 
-        tracing::debug!("attempting to dial {peer_addr}. connection_id:{connection_id:?}",);
+        tracing::debug!(
+            "attempting to dial {peer_addr}. connection_id:{connection_id:?}",
+        );
         self.swarm.dial(opt)?;
         Ok(connection_id)
+    }
+
+    pub fn start_listening_on(&mut self, addr: Multiaddr) -> Result<(), TransportError<io::Error>> {
+        self.swarm.listen_on(addr)?;
+        Ok(())
     }
 
     /// Returns a reference to the underlying [`libp2p::Swarm`]
