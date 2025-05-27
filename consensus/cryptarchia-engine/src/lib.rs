@@ -496,31 +496,32 @@ where
         let non_canonical_forks = self.non_canonical_forks();
         // Calculate LCA between each fork and canonical chain, and consider for pruning
         // if the fork started before the specified `depth`.
-        let non_canonical_forks_older_than_depth: Vec<(Branch<Id>, Branch<Id>)> =
-            non_canonical_forks
-                .filter_map(|fork| {
-                    let lca = self.branches.lca(&local_chain, &fork);
-                    (lca.length <= target_height).then_some((fork, lca))
-                })
-                .collect();
+        let non_canonical_forks_older_than_depth: Vec<(Branch<Id>, u64)> = non_canonical_forks
+            .filter_map(|fork| {
+                let lca = self.branches.lca(&local_chain, &fork);
+                (lca.length <= target_height)
+                    // The length of the diverging part of the fork is the difference between its
+                    // length and the length of the LCA.
+                    .then_some((fork, fork.length.saturating_sub(lca.length)))
+            })
+            .collect();
         let mut removed_blocks = vec![];
-        for (fork, lca) in &non_canonical_forks_older_than_depth {
-            removed_blocks.extend(self.prune_fork(fork.id, lca.id));
+        for (fork, fork_length) in &non_canonical_forks_older_than_depth {
+            removed_blocks.extend(self.prune_fork(fork.id, *fork_length));
         }
         removed_blocks.into_iter()
     }
 
-    /// Remove the list of blocks from `tip` to and excluding `up_to`, returning
-    /// them in the same order they were encountered while traversing blocks
-    /// from `tip` to `up_to`.
-    fn prune_fork(&mut self, tip: Id, up_to: Id) -> impl Iterator<Item = Branch<Id>> {
+    /// Remove `depth` blocks from `tip` going backwards.
+    fn prune_fork(&mut self, tip: Id, mut length: u64) -> impl Iterator<Item = Branch<Id>> {
         let tip_removed = self.branches.tips.remove(&tip);
         if !tip_removed {
             tracing::error!(target: LOG_TARGET, "Fork tip {tip:#?} not found in the set of tips.");
         }
+
         let mut current_tip = tip;
         let mut removed_blocks = vec![];
-        while current_tip != up_to {
+        while length > 0 {
             let Some(branch) = self.branches.branches.remove(&current_tip) else {
                 // If tip is not in branch set, it means this tip was sharing part of its
                 // history with another fork that has already been removed.
@@ -528,10 +529,11 @@ where
             };
             removed_blocks.push(branch);
             current_tip = branch.parent;
+            length = length.saturating_sub(1);
         }
         tracing::debug!(
             target: LOG_TARGET,
-            "Pruned branch from {tip:#?} to {current_tip:#?}."
+            "Pruned {length} branches from {tip:#?} to {current_tip:#?}."
         );
         removed_blocks.into_iter()
     }
@@ -853,6 +855,8 @@ pub mod tests {
         );
     }
 
+    // It tests that nothing is pruned when the pruning depth is greater than the
+    // canonical chain length.
     #[test]
     fn pruning_too_back_in_time() {
         let chain_pre = create_canonical_chain(50.try_into().unwrap(), None)
