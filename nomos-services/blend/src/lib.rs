@@ -63,9 +63,7 @@ impl<Backend, Network, RuntimeServiceId> ServiceData
     for BlendService<Backend, Network, RuntimeServiceId>
 where
     Backend: BlendBackend<RuntimeServiceId> + 'static,
-    Backend::Settings: Clone,
     Network: NetworkAdapter<RuntimeServiceId>,
-    Network::BroadcastSettings: Clone + Debug + Serialize + DeserializeOwned,
 {
     type Settings = BlendConfig<Backend::Settings, Backend::NodeId>;
     type State = NoState<Self::Settings>;
@@ -78,11 +76,8 @@ impl<Backend, Network, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for BlendService<Backend, Network, RuntimeServiceId>
 where
     Backend: BlendBackend<RuntimeServiceId> + Send + 'static,
-    Backend::Settings: Clone,
     Backend::NodeId: Hash + Eq + Unpin,
     Network: NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
-    Network::BroadcastSettings:
-        Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
         + AsServiceId<Self>
         + Clone
@@ -180,11 +175,13 @@ where
                 // Already processed blend messages
                 Some(msg) = blend_messages.next() => {
                     match msg {
+                        // If message is not fully unwrapped, forward the remaining layers to the next hop.
                         BlendOutgoingMessage::Outbound(msg) => {
                             if let Err(e) = persistent_sender.send(msg) {
                                 tracing::error!("Error sending message to persistent stream: {e}");
                             }
                         }
+                        // If the message is fully unwrapped, broadcast it (unencrypted) to the rest of the network.
                         BlendOutgoingMessage::FullyUnwrapped(msg) => {
                             tracing::debug!("Broadcasting fully unwrapped message");
                             match wire::deserialize::<NetworkMessage<Network::BroadcastSettings>>(&msg) {

@@ -18,7 +18,7 @@ pub trait BlendMessage {
     /// has layers to be unwrapped, true otherwise)
     ///
     /// If the input message was already fully unwrapped, or if its format is
-    /// invalid, this function returns `[Error::InvalidBlendMessage]`.
+    /// invalid, this function must return an error.
     fn unwrap_message(
         message: &[u8],
         private_key: &Self::PrivateKey,

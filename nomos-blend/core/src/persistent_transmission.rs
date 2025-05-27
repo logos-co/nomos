@@ -31,7 +31,7 @@ where
     Rng: RngCore,
 {
     coin: Coin<Rng>,
-    stream: S,
+    message_stream: S,
     scheduler: Scheduler,
     drop_message: S::Item,
 }
@@ -44,7 +44,7 @@ where
 {
     pub fn new(
         settings: PersistentTransmissionSettings,
-        stream: S,
+        message_stream: S,
         scheduler: Scheduler,
         drop_message: S::Item,
         rng: Rng,
@@ -52,7 +52,7 @@ where
         let coin = Coin::<Rng>::new(rng, settings.drop_message_probability).unwrap();
         Self {
             coin,
-            stream,
+            message_stream,
             scheduler,
             drop_message,
         }
@@ -71,7 +71,7 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Self {
             ref mut scheduler,
-            ref mut stream,
+            ref mut message_stream,
             ref mut coin,
             ref drop_message,
             ..
@@ -79,7 +79,7 @@ where
         if pin!(scheduler).poll_next_unpin(cx).is_pending() {
             return Poll::Pending;
         }
-        if let Poll::Ready(Some(item)) = pin!(stream).poll_next(cx) {
+        if let Poll::Ready(Some(item)) = pin!(message_stream).poll_next(cx) {
             Poll::Ready(Some(item))
         } else if coin.flip() {
             Poll::Ready(Some(drop_message.clone()))
