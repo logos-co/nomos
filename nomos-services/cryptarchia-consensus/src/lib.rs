@@ -9,42 +9,42 @@ pub mod storage;
 use core::fmt::Debug;
 use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 
-use cryptarchia_engine::Slot;
+use cryptarchia_engine::{Online, Slot};
 use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
 use nomos_blend_service::BlendService;
 use nomos_core::{
-    block::{builder::BlockBuilder, Block},
-    da::blob::{info::DispersedBlobInfo, metadata::Metadata as BlobMetadata, BlobSelect},
+    block::{Block, builder::BlockBuilder},
+    da::blob::{BlobSelect, info::DispersedBlobInfo, metadata::Metadata as BlobMetadata},
     header::{Builder, Header, HeaderId},
     proofs::leader_proof::Risc0LeaderProof,
     tx::{Transaction, TxSelect},
 };
 use nomos_da_sampling::{
-    backend::DaSamplingServiceBackend, DaSamplingService, DaSamplingServiceMsg,
+    DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
 };
-use nomos_ledger::{leader_proof::LeaderProof as _, LedgerState};
+use nomos_ledger::{LedgerState, leader_proof::LeaderProof as _};
 use nomos_mempool::{
-    backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter, DaMempoolService,
-    MempoolMsg, TxMempoolService,
+    DaMempoolService, MempoolMsg, TxMempoolService, backend::RecoverableMempool,
+    network::NetworkAdapter as MempoolAdapter,
 };
 use nomos_network::NetworkService;
-use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageService};
+use nomos_storage::{StorageService, api::chain::StorageChainApi, backends::StorageBackend};
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
-    services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},
     DynError, OpaqueServiceStateHandle,
+    services::{AsServiceId, ServiceCore, ServiceData, relay::OutboundRelay},
 };
 use rand::{RngCore, SeedableRng};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_with::serde_as;
 use services_utils::overwatch::{
-    lifecycle, recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator,
+    JsonFileBackend, RecoveryOperator, lifecycle, recovery::backends::FileBackendSettings,
 };
 use thiserror::Error;
 use tokio::sync::{broadcast, oneshot, oneshot::Sender};
-use tracing::{error, info, instrument, span, Level};
+use tracing::{Level, error, info, instrument, span};
 use tracing_futures::Instrument as _;
 
 use crate::{
@@ -54,7 +54,7 @@ use crate::{
         CryptarchiaConsensusState, CryptarchiaInitialisationStrategy, GenesisRecoveryStrategy,
         SecurityRecoveryStrategy,
     },
-    storage::{adapters::StorageAdapter, StorageAdapter as _},
+    storage::{StorageAdapter as _, adapters::StorageAdapter},
 };
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
@@ -72,12 +72,12 @@ pub enum Error {
     Consensus(#[from] cryptarchia_engine::Error<HeaderId>),
 }
 
-struct Cryptarchia {
+struct Cryptarchia<State> {
     ledger: nomos_ledger::Ledger<HeaderId>,
-    consensus: cryptarchia_engine::Cryptarchia<HeaderId>,
+    consensus: cryptarchia_engine::Cryptarchia<HeaderId, State>,
 }
 
-impl Cryptarchia {
+impl<State: cryptarchia_engine::State> Cryptarchia<State> {
     /// Initialize a new [`Cryptarchia`] instance.
     /// [`Cryptarchia`] must always be initialized from genesis.
     pub fn from_genesis(
@@ -86,7 +86,7 @@ impl Cryptarchia {
         ledger_config: nomos_ledger::Config,
     ) -> Self {
         Self {
-            consensus: <cryptarchia_engine::Cryptarchia<_>>::from_genesis(
+            consensus: <cryptarchia_engine::Cryptarchia<_, _>>::from_genesis(
                 genesis_id,
                 ledger_config.consensus_config,
             ),
@@ -271,26 +271,26 @@ pub struct CryptarchiaConsensus<
 }
 
 impl<
-        NetAdapter,
-        BlendAdapter,
-        ClPool,
-        ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
-        TxS,
-        BS,
-        Storage,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingRng,
-        SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
-        TimeBackend,
-        ApiAdapter,
-        RuntimeServiceId,
-    > ServiceData
+    NetAdapter,
+    BlendAdapter,
+    ClPool,
+    ClPoolAdapter,
+    DaPool,
+    DaPoolAdapter,
+    TxS,
+    BS,
+    Storage,
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingRng,
+    SamplingStorage,
+    DaVerifierBackend,
+    DaVerifierNetwork,
+    DaVerifierStorage,
+    TimeBackend,
+    ApiAdapter,
+    RuntimeServiceId,
+> ServiceData
     for CryptarchiaConsensus<
         NetAdapter,
         BlendAdapter,
@@ -370,26 +370,26 @@ where
 
 #[async_trait::async_trait]
 impl<
-        NetAdapter,
-        BlendAdapter,
-        ClPool,
-        ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
-        TxS,
-        BS,
-        Storage,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingRng,
-        SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
-        TimeBackend,
-        ApiAdapter,
-        RuntimeServiceId,
-    > ServiceCore<RuntimeServiceId>
+    NetAdapter,
+    BlendAdapter,
+    ClPool,
+    ClPoolAdapter,
+    DaPool,
+    DaPoolAdapter,
+    TxS,
+    BS,
+    Storage,
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingRng,
+    SamplingStorage,
+    DaVerifierBackend,
+    DaVerifierNetwork,
+    DaVerifierStorage,
+    TimeBackend,
+    ApiAdapter,
+    RuntimeServiceId,
+> ServiceCore<RuntimeServiceId>
     for CryptarchiaConsensus<
         NetAdapter,
         BlendAdapter,
@@ -677,26 +677,26 @@ where
 }
 
 impl<
-        NetAdapter,
-        BlendAdapter,
-        ClPool,
-        ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
-        TxS,
-        BS,
-        Storage,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingRng,
-        SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
-        TimeBackend,
-        ApiAdapter,
-        RuntimeServiceId,
-    >
+    NetAdapter,
+    BlendAdapter,
+    ClPool,
+    ClPoolAdapter,
+    DaPool,
+    DaPoolAdapter,
+    TxS,
+    BS,
+    Storage,
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingRng,
+    SamplingStorage,
+    DaVerifierBackend,
+    DaVerifierNetwork,
+    DaVerifierStorage,
+    TimeBackend,
+    ApiAdapter,
+    RuntimeServiceId,
+>
     CryptarchiaConsensus<
         NetAdapter,
         BlendAdapter,
@@ -783,8 +783,8 @@ where
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
-    fn process_message(
-        cryptarchia: &Cryptarchia,
+    fn process_message<State: cryptarchia_engine::State>(
+        cryptarchia: &Cryptarchia<State>,
         block_channel: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
         msg: ConsensusMsg<Block<ClPool::Item, DaPool::Item>>,
     ) {
@@ -878,8 +878,8 @@ where
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(cryptarchia, leader, relays))]
-    async fn process_block(
-        cryptarchia: Cryptarchia,
+    async fn process_block<State: cryptarchia_engine::State>(
+        cryptarchia: Cryptarchia<State>,
         leader: &mut leadership::Leader,
         block: Block<ClPool::Item, DaPool::Item>,
         relays: &CryptarchiaConsensusRelays<
@@ -898,7 +898,7 @@ where
             RuntimeServiceId,
         >,
         block_broadcaster: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> Cryptarchia {
+    ) -> Cryptarchia<State> {
         tracing::debug!("received proposal {:?}", block);
         if !Self::validate_received_block(&block, relays).await {
             return cryptarchia;
@@ -911,8 +911,8 @@ where
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(cryptarchia, leader, relays))]
-    async fn process_block_unchecked(
-        mut cryptarchia: Cryptarchia,
+    async fn process_block_unchecked<State: cryptarchia_engine::State>(
+        mut cryptarchia: Cryptarchia<State>,
         leader: &mut leadership::Leader,
         block: Block<ClPool::Item, DaPool::Item>,
         relays: &CryptarchiaConsensusRelays<
@@ -931,7 +931,7 @@ where
             RuntimeServiceId,
         >,
         block_broadcaster: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> Cryptarchia {
+    ) -> Cryptarchia<State> {
         // TODO: filter on time?
         let header = block.header();
         let id = header.id();
@@ -1175,7 +1175,7 @@ where
             RuntimeServiceId,
         >,
         block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> (Cryptarchia, Leader) {
+    ) -> (Cryptarchia<Online>, Leader) {
         match initial_state.recovery_strategy() {
             CryptarchiaInitialisationStrategy::Genesis => {
                 info!("Building Cryptarchia from genesis.");
@@ -1215,7 +1215,7 @@ where
         genesis_state: LedgerState,
         leader_config: LeaderConfig,
         ledger_config: nomos_ledger::Config,
-    ) -> (Cryptarchia, Leader) {
+    ) -> (Cryptarchia<Online>, Leader) {
         let leader = Leader::from_genesis(genesis_id, leader_config, ledger_config);
         let cryptarchia = Cryptarchia::from_genesis(genesis_id, genesis_state, ledger_config);
 
@@ -1262,8 +1262,9 @@ where
             RuntimeServiceId,
         >,
         block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> (Cryptarchia, Leader) {
-        let mut cryptarchia = Cryptarchia::from_genesis(genesis_id, genesis_state, ledger_config);
+    ) -> (Cryptarchia<Online>, Leader) {
+        let mut cryptarchia =
+            <Cryptarchia<Online>>::from_genesis(genesis_id, genesis_state, ledger_config);
 
         let mut leader = Leader::from_genesis(genesis_id, leader_config, ledger_config);
 
@@ -1333,8 +1334,9 @@ where
             RuntimeServiceId,
         >,
         block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> (Cryptarchia, Leader) {
-        let mut cryptarchia = Cryptarchia::from_genesis(genesis_id, genesis_state, ledger_config);
+    ) -> (Cryptarchia<Online>, Leader) {
+        let mut cryptarchia =
+            <Cryptarchia<Online>>::from_genesis(genesis_id, genesis_state, ledger_config);
         let mut leader = Leader::new(
             security_block_id,
             security_leader_notes,
