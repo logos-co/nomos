@@ -20,7 +20,7 @@ pub enum ChainApiRequest<Backend: StorageBackend> {
     },
     RemoveBlock {
         header_id: HeaderId,
-        response_tx: Sender<Option<B::Block>>,
+        response_tx: Sender<Option<Backend::Block>>,
     },
 }
 

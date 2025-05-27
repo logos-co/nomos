@@ -23,7 +23,7 @@ serde_with          = { workspace = true }
 services-utils      = { workspace = true }
 tokio               = { version = "1", features = ["macros", "sync"] }
 tokio-stream        = "0.1"
-tracing             = "0.1"
+tracing             = { workspace = true }
 x25519-dalek        = { version = "2", features = ["getrandom", "static_secrets"] }
 
 [features]

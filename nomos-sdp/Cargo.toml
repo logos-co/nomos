@@ -9,7 +9,7 @@ async-trait = "0.1"
 blake2      = "0.10"
 multiaddr   = "0.18"
 thiserror   = "1"
-tracing     = "0.1"
+tracing     = { workspace = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
