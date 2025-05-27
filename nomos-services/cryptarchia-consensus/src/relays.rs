@@ -19,7 +19,7 @@ use nomos_mempool::{
     network::NetworkAdapter as MempoolAdapter,
     DaMempoolService, TxMempoolService,
 };
-use nomos_network::{NetworkMsg, NetworkService};
+use nomos_network::{message::BackendNetworkMsg, NetworkService};
 use nomos_storage::{
     api::chain::StorageChainApi, backends::StorageBackend, StorageMsg, StorageService,
 };
@@ -38,7 +38,7 @@ use crate::{
 };
 
 type NetworkRelay<NetworkBackend, RuntimeServiceId> =
-    OutboundRelay<NetworkMsg<NetworkBackend, RuntimeServiceId>>;
+    OutboundRelay<BackendNetworkMsg<NetworkBackend, RuntimeServiceId>>;
 type BlendRelay<BlendAdapterNetworkBroadcastSettings> =
     OutboundRelay<ServiceMessage<BlendAdapterNetworkBroadcastSettings>>;
 type ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> = MempoolRelay<

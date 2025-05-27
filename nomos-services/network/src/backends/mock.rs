@@ -6,7 +6,6 @@ use std::{
 };
 
 use futures::{channel::oneshot, future::BoxFuture};
-use overwatch::services::state::NoState;
 use rand::{
     distributions::{Distribution as _, WeightedIndex},
     rngs::StdRng,
@@ -233,7 +232,6 @@ impl Mock {
 #[async_trait::async_trait]
 impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Mock {
     type Settings = MockConfig;
-    type State = NoState<MockConfig>;
     type Message = MockBackendMessage;
     type EventKind = EventKind;
     type NetworkEvent = NetworkEvent;

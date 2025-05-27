@@ -2,7 +2,8 @@ use futures::Stream;
 use nomos_core::wire;
 use nomos_network::{
     backends::libp2p::{Command, Event, EventKind, Libp2p, Message, PubSubCommand, TopicHash},
-    NetworkMsg, NetworkService,
+    message::NetworkMsg,
+    NetworkService,
 };
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 use serde::{de::DeserializeOwned, Serialize};

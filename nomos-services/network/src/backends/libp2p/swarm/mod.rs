@@ -16,8 +16,9 @@ macro_rules! log_error {
 use std::{collections::HashMap, time::Duration};
 
 use nomos_libp2p::{
+    behaviour::BehaviourEvent,
     libp2p::{kad::QueryId, swarm::ConnectionId},
-    BehaviourEvent, Multiaddr, PeerId, Swarm, SwarmEvent,
+    Multiaddr, PeerId, Swarm, SwarmEvent,
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::StreamExt as _;
@@ -79,10 +80,7 @@ impl SwarmHandler {
 
         // add local address to kademlia
         if let Some(addr) = local_addr {
-            self.swarm
-                .swarm_mut()
-                .behaviour_mut()
-                .kademlia_add_address(local_peer_id, addr);
+            self.swarm.kademlia_add_address(local_peer_id, addr);
         }
 
         self.bootstrap_kad_from_peers(&initial_peers);
@@ -219,27 +217,32 @@ impl SwarmHandler {
 
     // TODO: Consider a common retry module for all use cases
     fn retry_connect(&mut self, connection_id: ConnectionId) {
-        if let Some(mut dial) = self.pending_dials.remove(&connection_id) {
-            dial.retry_count += 1;
-            if dial.retry_count > MAX_RETRY {
-                tracing::debug!("Max retry({MAX_RETRY}) has been reached: {dial:?}");
-                return;
-            }
-
-            let wait = Self::exp_backoff(dial.retry_count);
-            tracing::debug!("Retry dialing in {wait:?}: {dial:?}");
-
-            let commands_tx = self.commands_tx.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(wait).await;
-                Self::schedule_connect(dial, commands_tx).await;
-            });
+        let Some(mut dial) = self.pending_dials.remove(&connection_id) else {
+            return;
+        };
+        let Some(new_retry_count) = dial.retry_count.checked_add(1) else {
+            tracing::debug!("Retry count overflow.");
+            return;
+        };
+        if new_retry_count > MAX_RETRY {
+            tracing::debug!("Max retry({MAX_RETRY}) has been reached: {dial:?}");
+            return;
         }
-    }
+        dial.retry_count = new_retry_count;
 
-    const fn exp_backoff(retry: usize) -> Duration {
-        std::time::Duration::from_secs(BACKOFF.pow(retry as u32))
+        let wait = exp_backoff(dial.retry_count);
+        tracing::debug!("Retry dialing in {wait:?}: {dial:?}");
+
+        let commands_tx = self.commands_tx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(wait).await;
+            Self::schedule_connect(dial, commands_tx).await;
+        });
     }
+}
+
+const fn exp_backoff(retry: usize) -> Duration {
+    std::time::Duration::from_secs(BACKOFF.pow(retry as u32))
 }
 
 #[cfg(test)]

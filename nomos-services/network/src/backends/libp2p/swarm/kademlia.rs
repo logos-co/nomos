@@ -31,10 +31,7 @@ impl SwarmHandler {
         for peer_addr in initial_peers {
             if let Some(Protocol::P2p(peer_id_bytes)) = peer_addr.iter().last() {
                 if let Ok(peer_id) = PeerId::from_multihash(peer_id_bytes.into()) {
-                    self.swarm
-                        .swarm_mut()
-                        .behaviour_mut()
-                        .kademlia_add_address(peer_id, peer_addr.clone());
+                    self.swarm.kademlia_add_address(peer_id, peer_addr.clone());
                     tracing::debug!("Added peer to Kademlia: {} at {}", peer_id, peer_addr);
                 } else {
                     tracing::warn!("Failed to parse peer ID from multiaddr: {}", peer_addr);
@@ -69,11 +66,7 @@ impl SwarmHandler {
                 }
             }
             DiscoveryCommand::DumpRoutingTable { reply } => {
-                let result = self
-                    .swarm
-                    .swarm_mut()
-                    .behaviour_mut()
-                    .kademlia_routing_table_dump();
+                let result = self.swarm.kademlia_routing_table_dump();
                 tracing::debug!("Routing table dump: {result:?}");
                 let _ = reply.send(result);
             }

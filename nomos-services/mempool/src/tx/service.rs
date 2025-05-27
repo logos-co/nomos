@@ -10,7 +10,7 @@ use std::{
 };
 
 use futures::StreamExt as _;
-use nomos_network::{NetworkMsg, NetworkService};
+use nomos_network::{message::BackendNetworkMsg, NetworkService};
 use overwatch::{
     services::{
         handle::ServiceStateHandle, relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData,
@@ -207,7 +207,7 @@ where
     fn handle_mempool_message(
         &mut self,
         message: MempoolMsg<Pool::BlockId, Pool::Item, Pool::Item, Pool::Key>,
-        network_relay: OutboundRelay<NetworkMsg<NetworkAdapter::Backend, RuntimeServiceId>>,
+        network_relay: OutboundRelay<BackendNetworkMsg<NetworkAdapter::Backend, RuntimeServiceId>>,
     ) {
         match message {
             MempoolMsg::Add {

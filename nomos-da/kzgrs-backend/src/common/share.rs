@@ -1,6 +1,5 @@
-use bytes::Bytes;
 use kzgrs::Proof;
-use nomos_core::{da::blob, wire};
+use nomos_core::da::blob;
 use serde::{Deserialize, Serialize};
 use sha3::{Digest as _, Sha3_256};
 
@@ -113,11 +112,4 @@ pub struct DaSharesCommitments {
         deserialize_with = "deserialize_vec_canonical"
     )]
     pub rows_commitments: Vec<Commitment>,
-}
-
-impl TryFrom<Bytes> for DaLightShare {
-    type Error = wire::Error;
-    fn try_from(value: Bytes) -> Result<Self, Self::Error> {
-        wire::deserialize(&value)
-    }
 }

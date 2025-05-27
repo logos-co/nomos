@@ -1,7 +1,7 @@
-use nomos_libp2p::{gossipsub, Swarm};
+use nomos_libp2p::{behaviour::gossipsub::swarm_ext::topic_hash, gossipsub};
 
 use crate::backends::libp2p::{
-    swarm::{SwarmHandler, MAX_RETRY},
+    swarm::{exp_backoff, SwarmHandler, MAX_RETRY},
     Command, Event,
 };
 
@@ -69,22 +69,27 @@ impl SwarmHandler {
                         source: None,
                         data: message.into(),
                         sequence_number: None,
-                        topic: Swarm::topic_hash(&topic),
+                        topic: topic_hash(&topic),
                     })));
                 }
             }
             Err(gossipsub::PublishError::InsufficientPeers) if retry_count < MAX_RETRY => {
-                let wait = Self::exp_backoff(retry_count);
+                let wait = exp_backoff(retry_count);
                 tracing::error!("failed to broadcast message to topic due to insufficient peers, trying again in {wait:?}");
 
                 let commands_tx = self.commands_tx.clone();
                 tokio::spawn(async move {
                     tokio::time::sleep(wait).await;
+                    let Some(new_retry_count) = retry_count.checked_add(1) else {
+                        tracing::error!("retry count overflow.");
+                        return;
+                    };
+
                     commands_tx
                         .send(Command::PubSub(PubSubCommand::RetryBroadcast {
                             topic,
                             message,
-                            retry_count: retry_count + 1,
+                            retry_count: new_retry_count,
                         }))
                         .await
                         .unwrap_or_else(|_| tracing::error!("could not schedule retry"));

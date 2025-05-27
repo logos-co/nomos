@@ -16,7 +16,9 @@ use nomos_mempool::{
 };
 use nomos_network::{
     backends::mock::{Mock, MockBackendMessage, MockConfig, MockMessage},
-    NetworkConfig, NetworkMsg, NetworkService,
+    config::NetworkConfig,
+    message::NetworkMsg,
+    NetworkService,
 };
 use nomos_tracing_service::{Tracing, TracingSettings};
 use overwatch::overwatch::OverwatchRunner;

@@ -46,7 +46,7 @@ use nomos_http_api_common::paths::{
     DA_MONITOR_STATS, DA_UNBLOCK_PEER,
 };
 use nomos_membership::{backends::mock::MockMembershipBackendSettings, MembershipSettings};
-use nomos_network::{backends::libp2p::Libp2pConfig, NetworkConfig};
+use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{config::mempool::MempoolConfig, RocksBackendSettings};
 use nomos_time::{
     backends::{ntp::async_client::NTPClientSettings, NtpTimeBackendSettings},

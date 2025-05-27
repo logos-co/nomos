@@ -14,7 +14,7 @@ use nomos_core::{
     header::HeaderId,
 };
 use nomos_storage::{
-    api::da::StorageDaApi,
+    api::da::DaConverter,
     backends::{rocksdb::RocksBackend, StorageSerde},
     StorageMsg, StorageService,
 };
@@ -41,34 +41,34 @@ where
     <StorageOp as StorageSerde>::Error: Send + Sync,
     RuntimeServiceId: Debug + Sync + Display,
 {
-    async fn load_blob_shares_indices<DaShare>(
+    async fn load_blob_shares_indices<Converter, DaShare>(
         storage_relay: &OutboundRelay<
             <StorageService<RocksBackend<StorageOp>, RuntimeServiceId> as ServiceData>::Message,
         >,
         blob_id: DaShare::BlobId,
     ) -> Result<HashSet<DaShare::ShareIndex>, crate::http::DynError>
     where
-        StorageOp: StorageSerde + Send + Sync + 'static,
+        Converter: DaConverter<RocksBackend<StorageOp>, Share = DaShare> + Send + Sync + 'static,
         DaShare: Share,
         DaShare::BlobId: Send + Sync + 'static,
         DaShare::ShareIndex: DeserializeOwned + Hash + Eq,
-        StorageOp::Error: Send + Sync + 'static,
-        <RocksBackend<StorageOp> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
-        <RocksBackend<StorageOp> as StorageDaApi>::ShareIndex: Into<DaShare::ShareIndex>,
     {
         let (index_tx, index_rx) = oneshot::channel();
         storage_relay
-            .send(StorageMsg::get_light_share_indexes_request(
-                blob_id.into(),
-                index_tx,
-            ))
+            .send(StorageMsg::get_light_share_indexes_request::<Converter>(
+                blob_id, index_tx,
+            )?)
             .await
             .map_err(|(e, _)| Box::new(e) as crate::http::DynError)?;
 
         index_rx
             .await
             .map(|indexes| {
-                indexes.map(|data| data.into_iter().map(Into::into).collect::<HashSet<_>>())
+                indexes.map(|data| {
+                    data.into_iter()
+                        .map(|idx| Converter::share_index_from_storage(idx).unwrap())
+                        .collect::<HashSet<_>>()
+                })
             })
             .map_err(|e| Box::new(e) as crate::http::DynError)?
             .ok_or_else(|| {
@@ -79,7 +79,7 @@ where
             })
     }
 
-    async fn load_and_process_share<DaShare>(
+    async fn load_and_process_share<Converter, DaShare>(
         storage_relay: OutboundRelay<
             <StorageService<RocksBackend<StorageOp>, RuntimeServiceId> as ServiceData>::Message,
         >,
@@ -87,23 +87,16 @@ where
         share_idx: DaShare::ShareIndex,
     ) -> Result<Bytes, crate::http::DynError>
     where
-        StorageOp: StorageSerde + Send + Sync + 'static,
+        Converter: DaConverter<RocksBackend<StorageOp>, Share = DaShare> + Send + Sync + 'static,
         DaShare: Share,
         DaShare::BlobId: Send + Sync + 'static,
         DaShare::LightShare: Serialize + DeserializeOwned,
-        StorageOp::Error: std::error::Error + Send + Sync + 'static,
-        <RocksBackend<StorageOp> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
-        <RocksBackend<StorageOp> as StorageDaApi>::ShareIndex:
-            From<DaShare::ShareIndex> + Into<DaShare::ShareIndex>,
-        <RocksBackend<StorageOp> as StorageDaApi>::Share: TryInto<DaShare::LightShare>,
     {
         let (reply_tx, reply_rx) = oneshot::channel();
         storage_relay
-            .send(StorageMsg::get_light_share_request(
-                blob_id.into(),
-                share_idx.into(),
-                reply_tx,
-            ))
+            .send(StorageMsg::get_light_share_request::<Converter>(
+                blob_id, share_idx, reply_tx,
+            )?)
             .await
             .map_err(|(e, _)| Box::new(e) as crate::http::DynError)?;
 
@@ -113,14 +106,10 @@ where
             .ok_or_else(|| {
                 Box::new(std::io::Error::new(ErrorKind::NotFound, "Share not found"))
                     as crate::http::DynError
-            })?
-            .try_into()
-            .map_err(|_| {
-                Box::new(std::io::Error::new(
-                    ErrorKind::InvalidData,
-                    "Failed to deserialize share",
-                )) as crate::http::DynError
             })?;
+
+        let share = Converter::share_from_storage(share)
+            .map_err(|e| Box::new(e) as crate::http::DynError)?;
 
         let mut json =
             serde_json::to_vec(&share).map_err(|e| Box::new(e) as crate::http::DynError)?;
@@ -140,7 +129,7 @@ where
 {
     type Backend = RocksBackend<StorageOp>;
 
-    async fn get_light_share<DaShare>(
+    async fn get_light_share<Converter, DaShare>(
         storage_relay: OutboundRelay<
             <StorageService<RocksBackend<StorageOp>, RuntimeServiceId> as ServiceData>::Message,
         >,
@@ -152,18 +141,13 @@ where
         <DaShare as Share>::BlobId: Send + Sync + 'static,
         <DaShare as Share>::ShareIndex: Send + Sync + 'static,
         <DaShare as Share>::LightShare: DeserializeOwned + Send + Sync + 'static,
-        <RocksBackend<StorageOp> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
-        <RocksBackend<StorageOp> as StorageDaApi>::ShareIndex:
-            Into<DaShare::ShareIndex> + From<DaShare::ShareIndex>,
-        <RocksBackend<StorageOp> as StorageDaApi>::Share: TryInto<DaShare::LightShare>,
+        Converter: DaConverter<RocksBackend<StorageOp>, Share = DaShare> + Send + Sync + 'static,
     {
         let (reply_tx, reply_rcv) = oneshot::channel();
         storage_relay
-            .send(StorageMsg::get_light_share_request(
-                blob_id.into(),
-                share_idx.into(),
-                reply_tx,
-            ))
+            .send(StorageMsg::get_light_share_request::<Converter>(
+                blob_id, share_idx, reply_tx,
+            )?)
             .await
             .map_err(|(e, _)| e)?;
 
@@ -174,12 +158,12 @@ where
         .await?;
 
         result
-            .map(|data| StorageOp::deserialize(data))
+            .map(|data| Converter::share_from_storage(data))
             .transpose()
             .map_err(DynError::from)
     }
 
-    async fn get_shares<DaShare>(
+    async fn get_shares<Converter, DaShare>(
         storage_relay: OutboundRelay<
             <StorageService<RocksBackend<StorageOp>, RuntimeServiceId> as ServiceData>::Message,
         >,
@@ -193,7 +177,7 @@ where
     >
     where
         DaShare: Share + 'static,
-        DaShare::BlobId: Clone + DeserializeOwned + Send + Sync + 'static,
+        DaShare::BlobId: Clone + Send + Sync + 'static,
         DaShare::ShareIndex: DeserializeOwned + Hash + Eq + Send + Sync + 'static,
         DaShare::LightShare: LightShare<ShareIndex = DaShare::ShareIndex>
             + Serialize
@@ -201,17 +185,15 @@ where
             + Send
             + Sync
             + 'static,
+        Converter: DaConverter<RocksBackend<StorageOp>, Share = DaShare> + Send + Sync + 'static,
         RuntimeServiceId: Debug
             + Sync
             + Display
             + AsServiceId<StorageService<RocksBackend<StorageOp>, RuntimeServiceId>>,
-        <RocksBackend<StorageOp> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
-        <RocksBackend<StorageOp> as StorageDaApi>::ShareIndex:
-            Into<DaShare::ShareIndex> + From<DaShare::ShareIndex>,
-        <RocksBackend<StorageOp> as StorageDaApi>::Share: TryInto<DaShare::LightShare>,
     {
         let shares_indices =
-            Self::load_blob_shares_indices::<DaShare>(&storage_relay, blob_id.clone()).await?;
+            Self::load_blob_shares_indices::<Converter, DaShare>(&storage_relay, blob_id.clone())
+                .await?;
 
         let filtered_shares = shares_indices.into_iter().filter(move |idx| {
             // If requested_shares contains the index, then ignore the filter_shares
@@ -219,7 +201,7 @@ where
         });
 
         let stream = stream::iter(filtered_shares).then(move |share_idx| {
-            Self::load_and_process_share::<DaShare>(
+            Self::load_and_process_share::<Converter, DaShare>(
                 storage_relay.clone(),
                 blob_id.clone(),
                 share_idx,
@@ -228,7 +210,7 @@ where
 
         Ok(stream)
     }
-    async fn get_shared_commitments<DaShare>(
+    async fn get_shared_commitments<Converter, DaShare>(
         storage_relay: OutboundRelay<
             <StorageService<RocksBackend<StorageOp>, RuntimeServiceId> as ServiceData>::Message,
         >,
@@ -238,14 +220,13 @@ where
         DaShare: Share,
         <DaShare as Share>::BlobId: Send + Sync + 'static,
         <DaShare as Share>::SharesCommitments: DeserializeOwned + Send + Sync + 'static,
-        <RocksBackend<StorageOp> as StorageDaApi>::BlobId: From<DaShare::BlobId>,
+        Converter: DaConverter<RocksBackend<StorageOp>, Share = DaShare> + Send + Sync + 'static,
     {
         let (reply_tx, reply_rcv) = oneshot::channel();
         storage_relay
-            .send(StorageMsg::get_shared_commitments_request(
-                blob_id.into(),
-                reply_tx,
-            ))
+            .send(StorageMsg::get_shared_commitments_request::<Converter>(
+                blob_id, reply_tx,
+            )?)
             .await
             .map_err(|(e, _)| e)?;
 
@@ -256,9 +237,11 @@ where
         .await?;
 
         result
-            .map(|data| StorageOp::deserialize(data))
+            .map(|data| {
+                Converter::commitments_from_storage(data)
+                    .map_err(|e| Box::new(e) as crate::http::DynError)
+            })
             .transpose()
-            .map_err(DynError::from)
     }
 
     async fn get_block<Tx>(

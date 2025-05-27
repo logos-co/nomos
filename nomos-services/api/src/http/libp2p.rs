@@ -2,7 +2,8 @@ use std::fmt::{Debug, Display};
 
 use nomos_network::{
     backends::libp2p::{Command, Libp2p, Libp2pInfo, NetworkCommand::Info},
-    NetworkMsg, NetworkService,
+    message::NetworkMsg,
+    NetworkService,
 };
 use overwatch::services::AsServiceId;
 use tokio::sync::oneshot;

@@ -21,8 +21,11 @@ use nomos_da_network_service::{
     backends::libp2p::executor::DaNetworkExecutorBackend,
 };
 use nomos_da_sampling::{
-    api::http::HttApiAdapter, backend::kzgrs::KzgrsSamplingBackend,
-    storage::adapters::rocksdb::RocksAdapter as SamplingStorageAdapter,
+    api::http::HttApiAdapter,
+    backend::kzgrs::KzgrsSamplingBackend,
+    storage::adapters::rocksdb::{
+        converter::DaStorageConverter, RocksAdapter as SamplingStorageAdapter,
+    },
 };
 use nomos_da_verifier::{
     backend::kzgrs::KzgrsDaVerifier,
@@ -105,10 +108,15 @@ type DispersalMempoolAdapter = KzgrsMempoolAdapter<
         RuntimeServiceId,
     >,
     ChaCha20Rng,
-    SamplingStorageAdapter<DaShare, Wire>,
+    SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
     KzgrsDaVerifier,
+<<<<<<< HEAD
     VerifierNetworkAdapter<NomosDaMembership, MembershipLedgerAdapter, RuntimeServiceId>,
     VerifierStorageAdapter<DaShare, Wire>,
+=======
+    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    VerifierStorageAdapter<DaShare, Wire, DaStorageConverter>,
+>>>>>>> master
     HttApiAdapter<NomosDaMembership>,
     RuntimeServiceId,
 >;
@@ -189,10 +197,16 @@ pub(crate) type ApiService = nomos_api::ApiService<
         MembershipLedgerAdapter,
         BlobInfo,
         KzgrsDaVerifier,
+<<<<<<< HEAD
         VerifierNetworkAdapter<NomosDaMembership, MembershipLedgerAdapter, RuntimeServiceId>,
         VerifierStorageAdapter<DaShare, Wire>,
+=======
+        VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+        VerifierStorageAdapter<DaShare, Wire, DaStorageConverter>,
+>>>>>>> master
         Tx,
         Wire,
+        DaStorageConverter,
         DispersalKZGRSBackend<
             DispersalNetworkAdapter<NomosDaMembership, MembershipLedgerAdapter, RuntimeServiceId>,
             DispersalMempoolAdapter,
@@ -207,7 +221,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
             RuntimeServiceId,
         >,
         ChaCha20Rng,
-        SamplingStorageAdapter<DaShare, Wire>,
+        SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
         NtpTimeBackend,
         HttApiAdapter<NomosDaMembership>,
         ApiStorageAdapter<Wire, RuntimeServiceId>,

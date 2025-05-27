@@ -1,8 +1,8 @@
 use std::{marker::PhantomData, path::PathBuf};
 
-use kzgrs_backend::common::ShareIndex;
 use nomos_core::da::blob::Share;
 use nomos_storage::{
+    api::da::DaConverter,
     backends::{rocksdb::RocksBackend, StorageSerde},
     StorageMsg, StorageService,
 };
@@ -14,24 +14,31 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::storage::DaStorageAdapter;
 
-pub struct RocksAdapter<B, S>
+pub mod converter;
+
+pub struct RocksAdapter<B, S, Converter>
 where
     S: StorageSerde + Send + Sync + 'static,
 {
     storage_relay: OutboundRelay<StorageMsg<RocksBackend<S>>>,
     share: PhantomData<B>,
+    converter: PhantomData<Converter>,
 }
 
 #[async_trait::async_trait]
-impl<B, S, RuntimeServiceId> DaStorageAdapter<RuntimeServiceId> for RocksAdapter<B, S>
+impl<B, S, Converter, RuntimeServiceId> DaStorageAdapter<RuntimeServiceId>
+    for RocksAdapter<B, S, Converter>
 where
     S: StorageSerde + Send + Sync + 'static,
+    Converter: DaConverter<RocksBackend<S>, Share = B> + Send + Sync + 'static,
     B: Share + DeserializeOwned + Clone + Send + Sync + 'static,
+    B::BlobId: Send + Sync + 'static,
+    B::ShareIndex: Send + Sync + 'static,
     B::LightShare: DeserializeOwned + Clone + Send + Sync + 'static,
     B::SharesCommitments: DeserializeOwned + Clone + Send + Sync + 'static,
-    B::BlobId: AsRef<[u8]> + Send,
 {
     type Backend = RocksBackend<S>;
+
     type Share = B;
     type Settings = RocksAdapterSettings;
 
@@ -43,6 +50,7 @@ where
         Self {
             storage_relay,
             share: PhantomData,
+            converter: PhantomData,
         }
     }
 
@@ -52,19 +60,18 @@ where
     ) -> Result<Option<<Self::Share as Share>::SharesCommitments>, DynError> {
         let (sc_reply_tx, sc_reply_rx) = tokio::sync::oneshot::channel();
         self.storage_relay
-            .send(StorageMsg::get_shared_commitments_request(
-                blob_id
-                    .as_ref()
-                    .try_into()
-                    .expect("BlobId conversion should not fail"),
+            .send(StorageMsg::get_shared_commitments_request::<Converter>(
+                blob_id,
                 sc_reply_tx,
-            ))
+            )?)
             .await
             .expect("Failed to send load request to storage relay");
 
         let shared_commitments = sc_reply_rx.await?;
         let shared_commitments = shared_commitments
-            .map(|sc| S::deserialize(sc).expect("Failed to deserialize shared commitments"));
+            .map(|sc| Converter::commitments_from_storage(sc))
+            .transpose()
+            .map_err(DynError::from)?;
 
         Ok(shared_commitments)
     }
@@ -72,28 +79,23 @@ where
     async fn get_light_share(
         &self,
         blob_id: <Self::Share as Share>::BlobId,
-        share_idx: ShareIndex,
+        share_idx: <Self::Share as Share>::ShareIndex,
     ) -> Result<Option<<Self::Share as Share>::LightShare>, DynError> {
-        let blob_id = blob_id.as_ref().try_into().unwrap();
-        let share_idx = share_idx.to_be_bytes();
-
         let (reply_channel, reply_rx) = tokio::sync::oneshot::channel();
         self.storage_relay
-            .send(StorageMsg::get_light_share_request(
+            .send(StorageMsg::get_light_share_request::<Converter>(
                 blob_id,
                 share_idx,
                 reply_channel,
-            ))
+            )?)
             .await
             .expect("Failed to send request to storage relay");
 
-        reply_rx
-            .await
-            .map(|maybe_share| {
-                maybe_share
-                    .map(|share| S::deserialize(share).expect("Failed to deserialize light share"))
-            })
-            .map_err(|_| "Failed to receive response from storage".into())
+        let result = reply_rx.await.map_err(DynError::from)?;
+        result
+            .map(|data| Converter::share_from_storage(data))
+            .transpose()
+            .map_err(DynError::from)
     }
 }
 
