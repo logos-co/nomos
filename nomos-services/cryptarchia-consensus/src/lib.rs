@@ -9,7 +9,7 @@ pub mod storage;
 use core::fmt::Debug;
 use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 
-use cryptarchia_engine::Slot;
+use cryptarchia_engine::{Online, Slot};
 use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
@@ -72,12 +72,12 @@ pub enum Error {
     Consensus(#[from] cryptarchia_engine::Error<HeaderId>),
 }
 
-struct Cryptarchia {
+struct Cryptarchia<State> {
     ledger: nomos_ledger::Ledger<HeaderId>,
-    consensus: cryptarchia_engine::Cryptarchia<HeaderId>,
+    consensus: cryptarchia_engine::Cryptarchia<HeaderId, State>,
 }
 
-impl Cryptarchia {
+impl<State: cryptarchia_engine::State> Cryptarchia<State> {
     /// Initialize a new [`Cryptarchia`] instance.
     /// [`Cryptarchia`] must always be initialized from genesis.
     pub fn from_genesis(
@@ -86,7 +86,7 @@ impl Cryptarchia {
         ledger_config: nomos_ledger::Config,
     ) -> Self {
         Self {
-            consensus: <cryptarchia_engine::Cryptarchia<_>>::from_genesis(
+            consensus: <cryptarchia_engine::Cryptarchia<_, _>>::from_genesis(
                 genesis_id,
                 ledger_config.consensus_config,
             ),
@@ -780,8 +780,8 @@ where
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
-    fn process_message(
-        cryptarchia: &Cryptarchia,
+    fn process_message<State: cryptarchia_engine::State>(
+        cryptarchia: &Cryptarchia<State>,
         block_channel: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
         msg: ConsensusMsg<Block<ClPool::Item, DaPool::Item>>,
     ) {
@@ -875,8 +875,8 @@ where
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(cryptarchia, leader, relays))]
-    async fn process_block(
-        cryptarchia: Cryptarchia,
+    async fn process_block<State: cryptarchia_engine::State>(
+        cryptarchia: Cryptarchia<State>,
         leader: &mut leadership::Leader,
         block: Block<ClPool::Item, DaPool::Item>,
         relays: &CryptarchiaConsensusRelays<
@@ -895,7 +895,7 @@ where
             RuntimeServiceId,
         >,
         block_broadcaster: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> Cryptarchia {
+    ) -> Cryptarchia<State> {
         tracing::debug!("received proposal {:?}", block);
         if !Self::validate_received_block(&block, relays).await {
             return cryptarchia;
@@ -908,8 +908,8 @@ where
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(cryptarchia, leader, relays))]
-    async fn process_block_unchecked(
-        mut cryptarchia: Cryptarchia,
+    async fn process_block_unchecked<State: cryptarchia_engine::State>(
+        mut cryptarchia: Cryptarchia<State>,
         leader: &mut leadership::Leader,
         block: Block<ClPool::Item, DaPool::Item>,
         relays: &CryptarchiaConsensusRelays<
@@ -928,7 +928,7 @@ where
             RuntimeServiceId,
         >,
         block_broadcaster: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> Cryptarchia {
+    ) -> Cryptarchia<State> {
         // TODO: filter on time?
         let header = block.header();
         let id = header.id();
@@ -1172,7 +1172,7 @@ where
             RuntimeServiceId,
         >,
         block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> (Cryptarchia, Leader) {
+    ) -> (Cryptarchia<Online>, Leader) {
         match initial_state.recovery_strategy() {
             CryptarchiaInitialisationStrategy::Genesis => {
                 info!("Building Cryptarchia from genesis.");
@@ -1212,7 +1212,7 @@ where
         genesis_state: LedgerState,
         leader_config: LeaderConfig,
         ledger_config: nomos_ledger::Config,
-    ) -> (Cryptarchia, Leader) {
+    ) -> (Cryptarchia<Online>, Leader) {
         let leader = Leader::from_genesis(genesis_id, leader_config, ledger_config);
         let cryptarchia = Cryptarchia::from_genesis(genesis_id, genesis_state, ledger_config);
 
@@ -1259,8 +1259,9 @@ where
             RuntimeServiceId,
         >,
         block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> (Cryptarchia, Leader) {
-        let mut cryptarchia = Cryptarchia::from_genesis(genesis_id, genesis_state, ledger_config);
+    ) -> (Cryptarchia<Online>, Leader) {
+        let mut cryptarchia =
+            <Cryptarchia<Online>>::from_genesis(genesis_id, genesis_state, ledger_config);
 
         let mut leader = Leader::from_genesis(genesis_id, leader_config, ledger_config);
 
@@ -1330,8 +1331,9 @@ where
             RuntimeServiceId,
         >,
         block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> (Cryptarchia, Leader) {
-        let mut cryptarchia = Cryptarchia::from_genesis(genesis_id, genesis_state, ledger_config);
+    ) -> (Cryptarchia<Online>, Leader) {
+        let mut cryptarchia =
+            <Cryptarchia<Online>>::from_genesis(genesis_id, genesis_state, ledger_config);
         let mut leader = Leader::new(
             security_block_id,
             security_leader_notes,

@@ -13,21 +13,131 @@ pub use config::*;
 use thiserror::Error;
 pub use time::{Epoch, EpochConfig, Slot};
 
+#[derive(Clone, Debug, Copy)]
+pub struct Boostrapping;
+#[derive(Clone, Debug, Copy)]
+pub struct Online;
+
+pub trait State: Copy + std::fmt::Debug {
+    fn fork_choice<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Branch<Id>
+    where
+        Id: Eq + std::hash::Hash + Copy;
+    fn lib<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Id
+    where
+        Id: Eq + std::hash::Hash + Copy;
+}
+
+impl State for Boostrapping {
+    fn fork_choice<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Branch<Id>
+    where
+        Id: Eq + std::hash::Hash + Copy,
+    {
+        let k = cryptarchia.config.security_param.get().into();
+        let s = cryptarchia.config.s();
+        maxvalid_bg(cryptarchia.local_chain, &cryptarchia.branches, k, s)
+    }
+
+    fn lib<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Id
+    where
+        Id: Eq + std::hash::Hash + Copy,
+    {
+        cryptarchia.branches.lib
+    }
+}
+
+impl State for Online {
+    fn fork_choice<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Branch<Id>
+    where
+        Id: Eq + std::hash::Hash + Copy,
+    {
+        let k = cryptarchia.config.security_param.get().into();
+        maxvalid_mc(cryptarchia.local_chain, &cryptarchia.branches, k)
+    }
+
+    fn lib<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Id
+    where
+        Id: Eq + std::hash::Hash + Copy,
+    {
+        cryptarchia
+            .branches
+            .nth_ancestor(
+                &cryptarchia.local_chain,
+                cryptarchia.config.security_param.get().into(),
+            )
+            .id()
+    }
+}
+
+// Implementation of the fork choice rule as defined in the Ouroboros Genesis
+// paper k defines the forking depth of chain we accept without more
+// analysis s defines the length of time (unit of slots) after the fork
+// happened we will inspect for chain density
+fn maxvalid_bg<Id>(local_chain: Branch<Id>, branches: &Branches<Id>, k: u64, s: u64) -> Branch<Id>
+where
+    Id: Eq + std::hash::Hash + Copy,
+{
+    let mut cmax = local_chain;
+    let forks = branches.branches();
+    for chain in forks {
+        let lowest_common_ancestor = branches.lca(&cmax, &chain);
+        let m = cmax.length - lowest_common_ancestor.length;
+        if m <= k {
+            // Classic longest chain rule with parameter k
+            if cmax.length < chain.length {
+                cmax = chain;
+            }
+        } else {
+            // The chain is forking too much, we need to pay a bit more attention
+            // In particular, select the chain that is the densest after the fork
+            let density_slot = Slot::from(u64::from(lowest_common_ancestor.slot) + s);
+            let cmax_density = branches.walk_back_before(&cmax, density_slot).length;
+            let candidate_density = branches.walk_back_before(&chain, density_slot).length;
+            if cmax_density < candidate_density {
+                cmax = chain;
+            }
+        }
+    }
+    cmax
+}
+
+// Implementation of the fork choice rule as defined in the Ouroboros Praos
+// paper k defines the forking depth of chain we can accept
+fn maxvalid_mc<Id>(local_chain: Branch<Id>, branches: &Branches<Id>, k: u64) -> Branch<Id>
+where
+    Id: Eq + std::hash::Hash + Copy,
+{
+    let mut cmax = local_chain;
+    let forks = branches.branches();
+    for chain in forks {
+        let lowest_common_ancestor = branches.lca(&cmax, &chain);
+        let m = cmax.length - lowest_common_ancestor.length;
+        if m <= k && cmax.length < chain.length {
+            // Classic longest chain rule with parameter k
+            cmax = chain;
+        }
+    }
+    cmax
+}
+
 #[derive(Clone, Debug)]
-pub struct Cryptarchia<Id> {
+pub struct Cryptarchia<Id, State: ?Sized> {
     local_chain: Branch<Id>,
     branches: Branches<Id>,
     config: Config,
     genesis: Id,
+    // Just a marker to indicate whether the node is bootstrapping or online.
+    // Does not actually end up in memory.
+    _state: std::marker::PhantomData<State>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Branches<Id> {
     branches: HashMap<Id, Branch<Id>>,
     tips: HashSet<Id>,
+    lib: Id,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Branch<Id> {
     id: Id,
     parent: Id,
@@ -67,7 +177,12 @@ where
             },
         );
         let tips = HashSet::from([genesis]);
-        Self { branches, tips }
+        let lib = genesis;
+        Self {
+            branches,
+            tips,
+            lib,
+        }
     }
 
     /// Create a new [`Branches`] instance with the updated state.
@@ -112,7 +227,11 @@ where
             },
         );
 
-        Self { branches, tips }
+        Self {
+            branches,
+            tips,
+            lib: self.lib,
+        }
     }
 
     /// Create a new [`Branches`] instance with the updated state.
@@ -123,12 +242,24 @@ where
         // issues? We are calculating length here but the `self.branches` is
         // cloned in the `Self::apply_header_unchecked` method, which means
         // there's a risk of length being different due to concurrent operations.
-        let length = self
+        let parent_branch = self
             .branches
             .get(&parent)
-            .ok_or(Error::ParentMissing(parent))?
-            .length
-            + 1;
+            .ok_or(Error::ParentMissing(parent))?;
+
+        if parent_branch.slot > slot {
+            return Err(Error::InvalidSlot(parent));
+        }
+
+        // TODO: we do not automatically prune forks here at the moment, so it's not sufficient
+        // to check the header height.
+        // We might relax this check in the future and get closer to the
+        // Cryptarchia spec once we stabilize the pruning logic.
+        if !self.is_ancestor(self.lib(), parent_branch) {
+            return Err(Error::ImmutableFork(parent));
+        }
+
+        let length = parent_branch.length + 1;
 
         Ok(self.apply_header_unchecked(header, parent, slot, length))
     }
@@ -137,7 +268,7 @@ where
     pub fn branches(&self) -> Vec<Branch<Id>> {
         self.tips
             .iter()
-            .map(|id| self.branches[id].clone())
+            .map(|id| self.branches[id])
             .collect()
     }
 
@@ -158,7 +289,7 @@ where
             b2 = &self.branches[&b2.parent];
         }
 
-        b1.clone()
+        *b1
     }
 
     pub fn get(&self, id: &Id) -> Option<&Branch<Id>> {
@@ -175,7 +306,41 @@ where
         while current.slot > slot {
             current = &self.branches[&current.parent];
         }
-        current.clone()
+        *current
+    }
+
+    fn is_ancestor(&self, a: &Branch<Id>, b: &Branch<Id>) -> bool {
+        let mut current = b;
+        if a.id == b.id {
+            return true; // `a` is the same as `b`
+        }
+        // Walk up the chain from `b` until we find `a` or reach the root
+        while current.parent != current.id {
+            if current.parent == a.id {
+                return true; // Found `a` in the chain
+            }
+            current = &self.branches[&current.parent];
+        }
+        false // `a` is not an ancestor of `b`
+    }
+
+    // Returns the min(n, A)-th ancestor of the provided block, where A is the
+    // number of ancestors of this block.
+    fn nth_ancestor(&self, branch: &Branch<Id>, mut n: u64) -> Branch<Id> {
+        let mut current = branch;
+        while n > 0 {
+            n -= 1;
+            if let Some(parent) = self.branches.get(&current.parent) {
+                current = parent;
+            } else {
+                return *current;
+            }
+        }
+        *current
+    }
+
+    fn lib(&self) -> &Branch<Id> {
+        &self.branches[&self.lib]
     }
 }
 
@@ -186,11 +351,16 @@ pub enum Error<Id> {
     ParentMissing(Id),
     #[error("Orphan proof has was not found in the ledger: {0:?}, can't import it")]
     OrphanMissing(Id),
+    #[error("Attempting to fork immutable history at {0:?}")]
+    ImmutableFork(Id),
+    #[error("Invalid slot for block {0:?}, parent slot is greater than child slot")]
+    InvalidSlot(Id),
 }
 
-impl<Id> Cryptarchia<Id>
+impl<Id, St> Cryptarchia<Id, St>
 where
     Id: Eq + std::hash::Hash + Copy,
+    St: State + Copy,
 {
     pub fn from_genesis(id: Id, config: Config) -> Self {
         Self {
@@ -203,6 +373,7 @@ where
             },
             config,
             genesis: id,
+            _state: std::marker::PhantomData,
         }
     }
 
@@ -236,7 +407,7 @@ where
         new.branches = new
             .branches
             .apply_header_unchecked(header, parent, slot, chain_length);
-        new.local_chain = new.fork_choice();
+        new.local_chain = <St as State>::fork_choice(&new);
         new
     }
 
@@ -246,13 +417,16 @@ where
         let mut new: Self = self.clone();
         new.branches = new.branches.apply_header(id, parent, slot)?;
         new.local_chain = new.fork_choice();
+        new.update_lib();
         Ok(new)
     }
 
+    pub fn update_lib(&mut self) {
+        self.branches.lib = <St as State>::lib(&*self);
+    }
+
     pub fn fork_choice(&self) -> Branch<Id> {
-        let k = self.config.security_param.get().into();
-        let s = self.config.s();
-        Self::maxvalid_bg(self.local_chain.clone(), &self.branches, k, s)
+        <St as State>::fork_choice(self)
     }
 
     pub const fn tip(&self) -> Id {
@@ -273,33 +447,10 @@ where
         &self.branches
     }
 
-    //  Implementation of the fork choice rule as defined in the Ouroboros Genesis
-    // paper  k defines the forking depth of chain we accept without more
-    // analysis  s defines the length of time (unit of slots) after the fork
-    // happened we will inspect for chain density
-    fn maxvalid_bg(local_chain: Branch<Id>, branches: &Branches<Id>, k: u64, s: u64) -> Branch<Id> {
-        let mut cmax = local_chain;
-        let forks = branches.branches();
-        for chain in forks {
-            let lowest_common_ancestor = branches.lca(&cmax, &chain);
-            let m = cmax.length - lowest_common_ancestor.length;
-            if m <= k {
-                // Classic longest chain rule with parameter k
-                if cmax.length < chain.length {
-                    cmax = chain;
-                }
-            } else {
-                // The chain is forking too much, we need to pay a bit more attention
-                // In particular, select the chain that is the densest after the fork
-                let density_slot = Slot::from(u64::from(lowest_common_ancestor.slot) + s);
-                let cmax_density = branches.walk_back_before(&cmax, density_slot).length;
-                let candidate_density = branches.walk_back_before(&chain, density_slot).length;
-                if cmax_density < candidate_density {
-                    cmax = chain;
-                }
-            }
-        }
-        cmax
+    /// Get the latest immutable block (LIB) in the chain. No re-orgs past this
+    /// point are allowed.
+    pub const fn lib(&self) -> Id {
+        self.branches.lib
     }
 
     pub fn get_security_block_header_id(&self) -> Option<Id> {
@@ -316,6 +467,25 @@ where
     }
 }
 
+impl<Id> Cryptarchia<Id, Boostrapping>
+where
+    Id: Eq + std::hash::Hash + Copy,
+{
+    /// Signal transitioning to the online state.
+    pub fn online(self) -> Cryptarchia<Id, Online> {
+        let mut res = Cryptarchia {
+            local_chain: self.local_chain,
+            branches: self.branches.clone(),
+            config: self.config,
+            genesis: self.genesis,
+            _state: std::marker::PhantomData,
+        };
+        // Update the LIB to the current local chain's tip
+        res.update_lib();
+        res
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     use std::{
@@ -323,7 +493,7 @@ pub mod tests {
         num::NonZero,
     };
 
-    use super::{Cryptarchia, Slot};
+    use super::{maxvalid_bg, Boostrapping, Cryptarchia, Error, Slot};
     use crate::Config;
 
     #[must_use]
@@ -335,9 +505,99 @@ pub mod tests {
     }
 
     #[test]
+    fn test_is_ancestor() {
+        // parent
+        // ├── child
+        // │   ├── grandchild
+        // │   └── granchild_2
+
+        let mut branches = super::Branches::from_genesis([0; 32]);
+        let parent = [1; 32];
+        let child = [2; 32];
+        let grandchild = [3; 32];
+        let granchild_2: [u8; 32] = [4; 32];
+
+        branches = branches.apply_header(parent, [0; 32], 1.into()).unwrap();
+        branches = branches.apply_header(child, parent, 2.into()).unwrap();
+        branches = branches.apply_header(grandchild, child, 3.into()).unwrap();
+        branches = branches.apply_header(granchild_2, child, 4.into()).unwrap();
+
+        assert!(branches.is_ancestor(
+            &branches.get(&parent).unwrap(),
+            &branches.get(&child).unwrap()
+        ));
+        assert!(!branches.is_ancestor(
+            &branches.get(&child).unwrap(),
+            &branches.get(&parent).unwrap()
+        ));
+        assert!(branches.is_ancestor(
+            &branches.get(&parent).unwrap(),
+            &branches.get(&grandchild).unwrap()
+        ));
+        assert!(!branches.is_ancestor(
+            &branches.get(&grandchild).unwrap(),
+            &branches.get(&parent).unwrap()
+        ));
+        assert!(branches.is_ancestor(
+            &branches.get(&child).unwrap(),
+            &branches.get(&grandchild).unwrap()
+        ));
+        assert!(!branches.is_ancestor(
+            &branches.get(&grandchild).unwrap(),
+            &branches.get(&child).unwrap()
+        ));
+        assert!(branches.is_ancestor(
+            &branches.get(&child).unwrap(),
+            &branches.get(&granchild_2).unwrap()
+        ));
+        assert!(!branches.is_ancestor(
+            &branches.get(&granchild_2).unwrap(),
+            &branches.get(&child).unwrap()
+        ));
+    }
+
+    #[test]
+    fn test_slot_increasing() {
+        // parent
+        // └── child
+
+        let mut branches = super::Branches::from_genesis([0; 32]);
+        let parent = [1; 32];
+        let child = [2; 32];
+
+        branches = branches.apply_header(parent, [0; 32], 2.into()).unwrap();
+        assert!(matches!(
+            branches.apply_header(child, parent, 1.into()),
+            Err(Error::InvalidSlot(_))
+        ));
+    }
+
+    #[test]
+    fn test_immutable_fork() {
+        // b1
+        // └── LIB
+        // |    └── b2
+        // └── b3
+
+        let mut branches = super::Branches::from_genesis([0; 32]);
+        let b1 = [1; 32];
+        let lib = [2; 32];
+        let b2 = [3; 32];
+        let b3 = [4; 32];
+        branches = branches.apply_header(b1, [0; 32], 1.into()).unwrap();
+        branches = branches.apply_header(lib, b1, 2.into()).unwrap();
+        branches.lib = lib; // Set the LIB to b2
+        branches = branches.apply_header(b2, lib, 3.into()).unwrap();
+        assert!(matches!(
+            branches.apply_header(b3, b1, 4.into()),
+            Err(Error::ImmutableFork(_))
+        ));
+    }
+
+    #[test]
     fn test_fork_choice() {
         // TODO: use cryptarchia
-        let mut engine = Cryptarchia::from_genesis([0; 32], config());
+        let mut engine = <Cryptarchia<_, Boostrapping>>::from_genesis([0; 32], config());
         // by setting a low k we trigger the density choice rule, and the shorter chain
         // is denser after the fork
         engine.config.security_param = NonZero::new(10).unwrap();
@@ -395,7 +655,7 @@ pub mod tests {
         // however, if we set k to the fork length, it will be accepted
         let k = long_branch.length;
         assert_eq!(
-            Cryptarchia::maxvalid_bg(
+            maxvalid_bg(
                 short_branch.clone(),
                 engine.branches(),
                 k,
@@ -428,7 +688,7 @@ pub mod tests {
 
     #[test]
     fn test_getters() {
-        let engine = Cryptarchia::from_genesis([0; 32], config());
+        let engine = <Cryptarchia<_, Boostrapping>>::from_genesis([0; 32], config());
         let id_0 = engine.genesis();
 
         // Get branch directly from HashMap
@@ -459,7 +719,7 @@ pub mod tests {
 
     #[test]
     fn test_get_security_block() {
-        let mut engine = Cryptarchia::from_genesis([0; 32], config());
+        let mut engine = <Cryptarchia<_, Boostrapping>>::from_genesis([0; 32], config());
         let mut parent_header = engine.genesis();
 
         assert!(engine.get_security_block_header_id().is_none());
