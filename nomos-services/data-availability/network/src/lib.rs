@@ -154,7 +154,7 @@ where
                     }
                 }
                 Some(update) = stream.next() => {
-                    Self::handle_membership_message(&mut backend, &update);
+                    Self::handle_membership_update_message(&mut backend, &update);
                 }
             }
         }
@@ -191,7 +191,12 @@ where
         }
     }
 
-    fn handle_membership_message(backend: &mut Backend, update: &MembershipProviders) {
+    fn handle_membership_update_message(backend: &mut Backend, update: &MembershipProviders) {
+        if update.is_empty() {
+            tracing::debug!("Received empty membership update, skipping.");
+            return;
+        }
+
         let mut members = Vec::new();
         let mut addressbook: HashMap<PeerId, Multiaddr> = HashMap::new();
         let mut rng = rand::thread_rng();

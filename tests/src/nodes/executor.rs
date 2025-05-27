@@ -178,13 +178,11 @@ impl Executor {
             .get(format!("http://{}{}", self.addr, DA_BLACKLISTED_PEERS))
             .send()
             .await
-            .expect("Failed to send HTTP request to blacklisted peers endpoint");
-
-        let response_text = res.text().await.expect("Failed to get response text");
-        println!("🔍 Raw response body: '{}'", response_text);
-        println!("🔍 Response length: {} bytes", response_text.len());
-
-        panic!("Response: {response_text}");
+            .expect("Failed to send HTTP request to blacklisted peers endpoint")
+            .json::<Vec<String>>()
+            .await
+            .expect("Failed to parse response from blacklisted peers endpoint");
+        res
     }
 
     async fn wait_online(&self) {
