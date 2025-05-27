@@ -110,13 +110,8 @@ type DispersalMempoolAdapter = KzgrsMempoolAdapter<
     ChaCha20Rng,
     SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
     KzgrsDaVerifier,
-<<<<<<< HEAD
     VerifierNetworkAdapter<NomosDaMembership, MembershipLedgerAdapter, RuntimeServiceId>,
-    VerifierStorageAdapter<DaShare, Wire>,
-=======
-    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
     VerifierStorageAdapter<DaShare, Wire, DaStorageConverter>,
->>>>>>> master
     HttApiAdapter<NomosDaMembership>,
     RuntimeServiceId,
 >;
@@ -197,13 +192,8 @@ pub(crate) type ApiService = nomos_api::ApiService<
         MembershipLedgerAdapter,
         BlobInfo,
         KzgrsDaVerifier,
-<<<<<<< HEAD
         VerifierNetworkAdapter<NomosDaMembership, MembershipLedgerAdapter, RuntimeServiceId>,
-        VerifierStorageAdapter<DaShare, Wire>,
-=======
-        VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
         VerifierStorageAdapter<DaShare, Wire, DaStorageConverter>,
->>>>>>> master
         Tx,
         Wire,
         DaStorageConverter,

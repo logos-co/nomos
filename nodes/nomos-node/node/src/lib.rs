@@ -188,13 +188,8 @@ pub(crate) type ApiService = nomos_api::ApiService<
         MembershipLedgerAdapter,
         BlobInfo,
         KzgrsDaVerifier,
-<<<<<<< HEAD
         VerifierNetworkAdapter<NomosDaMembership, MembershipLedgerAdapter, RuntimeServiceId>,
-        VerifierStorageAdapter<DaShare, Wire>,
-=======
-        VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
         VerifierStorageAdapter<DaShare, Wire, DaStorageConverter>,
->>>>>>> master
         Tx,
         Wire,
         DaStorageConverter,
