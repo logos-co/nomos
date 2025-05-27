@@ -14,7 +14,7 @@ pub use config::*;
 use thiserror::Error;
 pub use time::{Epoch, EpochConfig, Slot};
 
-pub(crate) const LOG_TARGET: &str = "cryptarchia-engine";
+pub(crate) const LOG_TARGET: &str = "cryptarchia::engine";
 
 #[derive(Clone, Debug, Copy)]
 pub struct Boostrapping;
@@ -465,30 +465,27 @@ where
         self.local_chain.id
     }
 
+    /// Returns all the forks that are not part of the local canonical chain.
     pub fn non_canonical_forks(&self) -> impl Iterator<Item = Branch<Id>> + '_ {
         self.branches
             .branches()
             .filter(|fork_tip| fork_tip.id != self.tip())
     }
 
-    /// Prune all states strictly deeper than 'depth' with regard to the
-    /// current local chain except for states belonging to the local chain.
+    /// Prune all blocks that are included in forks strictly older than 'depth'
+    /// blocks from the current local chain.
     ///
     /// For example, if the tip of the canonical chain is at height 10, calling
     /// `self.prune_forks(10)` will remove any forks stemming from the genesis
     /// block, with height `0`.
     ///
     /// This function does not apply any particular logic when evaluating forks
-    /// other than the height at which they started diverging from the local
+    /// other than the height at which they diverged from the local
     /// canonical chain.
     ///
-    /// It returns the blocks that were part of the pruned forks. The order of
-    /// the branches is given by the underlying block storage, but branches
-    /// belonging to the same branch will appear from most recent to least
-    /// recent in the same order they were applied.
+    /// It returns the blocks that were part of the pruned forks.
     pub fn prune_forks(&mut self, depth: u64) -> impl Iterator<Item = Branch<Id>> {
         let local_chain = self.local_chain;
-        let non_canonical_forks = self.non_canonical_forks();
         let Some(target_height) = local_chain.length.checked_sub(depth) else {
             tracing::info!(
                 target: LOG_TARGET,
@@ -496,7 +493,8 @@ where
             );
             return vec![].into_iter();
         };
-        // Calculate LCA between fork and canonical chain, and consider it for pruning
+        let non_canonical_forks = self.non_canonical_forks();
+        // Calculate LCA between each fork and canonical chain, and consider for pruning
         // if the fork started before the specified `depth`.
         let non_canonical_forks_older_than_depth: Vec<(Branch<Id>, Branch<Id>)> =
             non_canonical_forks
@@ -513,8 +511,8 @@ where
     }
 
     /// Remove the list of blocks from `tip` to and excluding `up_to`, returning
-    /// them in the same order they were encounter while traversing blocks from
-    /// `tip` to `up_to`.
+    /// them in the same order they were encountered while traversing blocks
+    /// from `tip` to `up_to`.
     fn prune_fork(&mut self, tip: Id, up_to: Id) -> impl Iterator<Item = Branch<Id>> {
         let tip_removed = self.branches.tips.remove(&tip);
         if !tip_removed {
@@ -533,7 +531,7 @@ where
         }
         tracing::debug!(
             target: LOG_TARGET,
-            "Pruned branch from {tip:#?} to {up_to:#?}."
+            "Pruned branch from {tip:#?} to {current_tip:#?}."
         );
         removed_blocks.into_iter()
     }

@@ -23,7 +23,7 @@ nomos_risc0_proofs     = { path = "../risc0_proofs" }
 risc0-zkvm             = { workspace = true }
 serde                  = { version = "1.0", features = ["derive"] }
 thiserror              = "1.0"
-tracing                = "0.1"
+tracing                = { workspace = true }
 
 [dev-dependencies]
 rand       = "0.8"

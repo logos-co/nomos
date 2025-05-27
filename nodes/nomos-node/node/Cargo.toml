@@ -40,7 +40,7 @@ serde                    = "1"
 serde_yaml               = "0.9"
 subnetworks-assignations = { workspace = true }
 tokio                    = "1"
-tracing                  = "0.1"
+tracing                  = { workspace = true }
 
 # openapi related dependencies
 utoipa            = "4.0"
