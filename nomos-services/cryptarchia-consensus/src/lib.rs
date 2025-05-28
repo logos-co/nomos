@@ -657,7 +657,7 @@ where
                         .await;
 
                         Self::prune_old_forks(&mut cryptarchia, &mut leader, relays.storage_adapter()).await;
-                        self.service_state.state_updater.update(Self::State::from_cryptarchia(&cryptarchia, &leader)); 
+                        self.service_state.state_updater.update(Self::State::from_cryptarchia(&cryptarchia, &leader));
 
                         tracing::info!(counter.consensus_processed_blocks = 1);
                     }
@@ -1353,6 +1353,7 @@ where
             security_ledger_state,
             security_leader_notes,
             security_block_chain_length,
+            prunable_blocks,
         }: SecurityRecoveryStrategy,
         genesis_id: HeaderId,
         genesis_state: LedgerState,
@@ -1408,6 +1409,17 @@ where
                 block_subscription_sender,
             )
             .await;
+        }
+
+        // Add prunable blocks, to account for potential DB errors before the node was
+        // shutdown and avoid inconsistent state later on.
+        for block in prunable_blocks {
+            cryptarchia.consensus = cryptarchia.consensus.receive_block_unchecked(
+                block.id(),
+                block.parent(),
+                block.slot(),
+                block.length(),
+            );
         }
 
         (cryptarchia, leader)
