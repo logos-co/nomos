@@ -23,10 +23,7 @@ impl BlendMessage for SphinxMessage {
 
     const DROP_MESSAGE: &'static [u8] = &[0; Packet::size(MAX_LAYERS, MAX_PAYLOAD_SIZE)];
 
-    fn build_message(
-        payload: &[u8],
-        public_keys: &[Self::PublicKey],
-    ) -> Result<Vec<u8>, Self::Error> {
+    fn build(payload: &[u8], public_keys: &[Self::PublicKey]) -> Result<Vec<u8>, Self::Error> {
         let packet = Packet::build(
             &public_keys
                 .iter()
@@ -39,7 +36,7 @@ impl BlendMessage for SphinxMessage {
         Ok(packet.to_bytes())
     }
 
-    fn unwrap_message(
+    fn unwrap(
         message: &[u8],
         private_key: &Self::PrivateKey,
     ) -> Result<(Vec<u8>, bool), Self::Error> {

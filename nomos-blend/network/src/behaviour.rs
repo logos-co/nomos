@@ -89,7 +89,7 @@ where
 
     /// Publish a message (data or drop) to all connected peers
     pub fn publish(&mut self, message: &[u8]) -> Result<(), Error> {
-        if M::is_drop_message(message) {
+        if M::is_drop(message) {
             // Bypass deduplication for the drop message
             return self.forward_message(message, None);
         }

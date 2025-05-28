@@ -227,12 +227,12 @@ mod tests {
         );
         assert_interval!(&mut last_time, lower_bound, upper_bound);
 
-        assert!(MockBlendMessage::is_drop_message(
+        assert!(MockBlendMessage::is_drop(
             &persistent_transmission_stream.next().await.unwrap()
         ));
         assert_interval!(&mut last_time, lower_bound, upper_bound);
 
-        assert!(MockBlendMessage::is_drop_message(
+        assert!(MockBlendMessage::is_drop(
             &persistent_transmission_stream.next().await.unwrap()
         ));
         assert_interval!(&mut last_time, lower_bound, upper_bound);

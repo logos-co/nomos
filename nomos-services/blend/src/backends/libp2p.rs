@@ -210,6 +210,7 @@ where
         }
     }
 
+    #[expect(clippy::cognitive_complexity, reason = "Cannot get simpler than this.")]
     fn handle_publish_swarm_message(&mut self, msg: &[u8]) {
         let msg_size = msg.len();
         if let Err(e) = self.swarm.behaviour_mut().blend.publish(msg) {
@@ -264,6 +265,7 @@ where
         }
     }
 
+    #[expect(clippy::cognitive_complexity, reason = "Cannot get simpler than this.")]
     fn handle_blend_message(&self, msg: Vec<u8>) {
         tracing::debug!("Received message from a peer: {msg:?}");
 

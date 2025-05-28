@@ -51,10 +51,10 @@ where
             .map(|node| node.public_key.clone())
             .collect::<Vec<_>>();
 
-        M::build_message(message, &public_keys)
+        M::build(message, &public_keys)
     }
 
     pub fn unwrap_message(&self, message: &[u8]) -> Result<(Vec<u8>, bool), M::Error> {
-        M::unwrap_message(message, &self.settings.private_key)
+        M::unwrap(message, &self.settings.private_key)
     }
 }
