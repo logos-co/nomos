@@ -33,6 +33,16 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
     type ConnectionHandler = <Behaviour as NetworkBehaviour>::ConnectionHandler;
     type ToSwarm = <Behaviour as NetworkBehaviour>::ToSwarm;
 
+    fn handle_pending_inbound_connection(
+        &mut self,
+        connection_id: ConnectionId,
+        local_addr: &Multiaddr,
+        remote_addr: &Multiaddr,
+    ) -> Result<(), ConnectionDenied> {
+        self.autonat_client_behaviour
+            .handle_pending_inbound_connection(connection_id, local_addr, remote_addr)
+    }
+
     fn handle_established_inbound_connection(
         &mut self,
         connection_id: ConnectionId,
@@ -42,6 +52,22 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
     ) -> Result<THandler<Self>, ConnectionDenied> {
         self.autonat_client_behaviour
             .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)
+    }
+
+    fn handle_pending_outbound_connection(
+        &mut self,
+        connection_id: ConnectionId,
+        maybe_peer: Option<PeerId>,
+        addresses: &[Multiaddr],
+        effective_role: Endpoint,
+    ) -> Result<Vec<Multiaddr>, ConnectionDenied> {
+        self.autonat_client_behaviour
+            .handle_pending_outbound_connection(
+                connection_id,
+                maybe_peer,
+                addresses,
+                effective_role,
+            )
     }
 
     fn handle_established_outbound_connection(
