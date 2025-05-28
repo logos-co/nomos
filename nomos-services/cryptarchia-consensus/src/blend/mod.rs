@@ -20,5 +20,5 @@ pub trait BlendAdapter<RuntimeServiceId> {
             <BlendService<Self::Backend, Self::Network, RuntimeServiceId> as ServiceData>::Message,
         >,
     ) -> Self;
-    async fn blend(&self, block: Block<Self::Tx, Self::BlobCertificate>);
+    async fn blend(&self, block: Block<Self::Tx>);
 }

@@ -16,7 +16,10 @@ use network::NetworkAdapter;
 use nomos_blend_service::BlendService;
 use nomos_core::{
     block::{builder::BlockBuilder, Block},
-    da::blob::{info::DispersedBlobInfo, metadata::Metadata as BlobMetadata, BlobSelect},
+    da::{
+        blob::{info::DispersedBlobInfo, metadata::Metadata as BlobMetadata, BlobSelect},
+        BlobId,
+    },
     header::{Builder, Header, HeaderId},
     proofs::leader_proof::Risc0LeaderProof,
     tx::{Transaction, TxSelect},
@@ -183,11 +186,9 @@ impl Cryptarchia {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings> {
+pub struct CryptarchiaSettings<Ts, NetworkAdapterSettings, BlendAdapterSettings> {
     #[serde(default)]
     pub transaction_selector_settings: Ts,
-    #[serde(default)]
-    pub blob_selector_settings: Bs,
     pub config: nomos_ledger::Config,
     pub genesis_state: LedgerState,
     pub leader_config: LeaderConfig,
@@ -196,8 +197,8 @@ pub struct CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendAdapterSetti
     pub recovery_file: PathBuf,
 }
 
-impl<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings> FileBackendSettings
-    for CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings>
+impl<Ts, NetworkAdapterSettings, BlendAdapterSettings> FileBackendSettings
+    for CryptarchiaSettings<Ts, NetworkAdapterSettings, BlendAdapterSettings>
 {
     fn recovery_file(&self) -> &PathBuf {
         &self.recovery_file
@@ -210,10 +211,7 @@ pub struct CryptarchiaConsensus<
     BlendAdapter,
     ClPool,
     ClPoolAdapter,
-    DaPool,
-    DaPoolAdapter,
     TxS,
-    BS,
     Storage,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -237,19 +235,10 @@ pub struct CryptarchiaConsensus<
     ClPool::Item: Clone + Eq + Hash + Debug + 'static,
     ClPool::Key: Debug + 'static,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
-    DaPool: RecoverableMempool<BlockId = HeaderId>,
-    DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPool::Item: Clone + Eq + Hash + Debug + 'static,
-    DaPool::Key: Debug + 'static,
-    DaPool::Settings: Clone,
-    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
-    DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     TxS: TxSelect<Tx = ClPool::Item>,
     TxS::Settings: Send,
-    BS: BlobSelect<BlobId = DaPool::Item>,
-    BS::Settings: Send,
     Storage: StorageBackend + Send + Sync + 'static,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
+    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
@@ -266,7 +255,7 @@ pub struct CryptarchiaConsensus<
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-    block_subscription_sender: broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
+    block_subscription_sender: broadcast::Sender<Block<ClPool::Item>>,
     initial_state: <Self as ServiceData>::State,
 }
 
@@ -275,10 +264,7 @@ impl<
         BlendAdapter,
         ClPool,
         ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
         TxS,
-        BS,
         Storage,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -296,10 +282,7 @@ impl<
         BlendAdapter,
         ClPool,
         ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
         TxS,
-        BS,
         Storage,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -323,19 +306,10 @@ where
     ClPool::Item: Clone + Eq + Hash + Debug,
     ClPool::Key: Debug,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
-    DaPool: RecoverableMempool<BlockId = HeaderId>,
-    DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPool::Item: Clone + Eq + Hash + Debug,
-    DaPool::Key: Debug,
-    DaPool::Settings: Clone,
-    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
-    DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     TxS: TxSelect<Tx = ClPool::Item>,
     TxS::Settings: Send,
-    BS: BlobSelect<BlobId = DaPool::Item>,
-    BS::Settings: Send,
     Storage: StorageBackend + Send + Sync + 'static,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
+    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
@@ -351,21 +325,16 @@ where
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
-    type Settings = CryptarchiaSettings<
-        TxS::Settings,
-        BS::Settings,
-        NetAdapter::Settings,
-        BlendAdapter::Settings,
-    >;
+    type Settings =
+        CryptarchiaSettings<TxS::Settings, NetAdapter::Settings, BlendAdapter::Settings>;
     type State = CryptarchiaConsensusState<
         TxS::Settings,
-        BS::Settings,
         NetAdapter::Settings,
         BlendAdapter::Settings,
         TimeBackend::Settings,
     >;
     type StateOperator = RecoveryOperator<JsonFileBackend<Self::State, Self::Settings>>;
-    type Message = ConsensusMsg<Block<ClPool::Item, DaPool::Item>>;
+    type Message = ConsensusMsg<Block<ClPool::Item>>;
 }
 
 #[async_trait::async_trait]
@@ -374,10 +343,7 @@ impl<
         BlendAdapter,
         ClPool,
         ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
         TxS,
-        BS,
         Storage,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -395,10 +361,7 @@ impl<
         BlendAdapter,
         ClPool,
         ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
         TxS,
-        BS,
         Storage,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -412,13 +375,13 @@ impl<
         RuntimeServiceId,
     >
 where
-    NetAdapter: NetworkAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = DaPool::Item>
+    NetAdapter: NetworkAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = ()>
         + Clone
         + Send
         + Sync
         + 'static,
     NetAdapter::Settings: Send + Sync + 'static,
-    BlendAdapter: blend::BlendAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = DaPool::Item>
+    BlendAdapter: blend::BlendAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = ()>
         + Clone
         + Send
         + Sync
@@ -442,39 +405,17 @@ where
         + Send
         + Sync
         + 'static,
-    DaPool: RecoverableMempool<BlockId = HeaderId, Key = SamplingBackend::BlobId>
-        + Send
-        + Sync
-        + 'static,
-    DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPool::Settings: Clone + Send + Sync + 'static,
-    // TODO: Change to specific certificate bounds here
-    DaPool::Item: DispersedBlobInfo<BlobId = DaPool::Key>
-        + BlobMetadata
-        + Debug
-        + Clone
-        + Eq
-        + Hash
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
-    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key> + Send + Sync + 'static,
-    DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     TxS: TxSelect<Tx = ClPool::Item> + Clone + Send + Sync + 'static,
     TxS::Settings: Send + Sync + 'static,
-    BS: BlobSelect<BlobId = DaPool::Item> + Clone + Send + Sync + 'static,
-    BS::Settings: Send + Sync + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block:
-        TryFrom<Block<ClPool::Item, DaPool::Item>> + TryInto<Block<ClPool::Item, DaPool::Item>>,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng> + Send,
+        TryFrom<Block<ClPool::Item>> + TryInto<Block<ClPool::Item>>,
+    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = BlobId> + Send + Sync,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + Send + 'static,
     SamplingBackend::BlobId: Debug + Ord + Send + Sync + 'static,
     SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
-    SamplingRng: SeedableRng + RngCore,
+    SamplingRng: SeedableRng + RngCore + Send + Sync,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + Sync + 'static,
@@ -493,21 +434,6 @@ where
         + AsServiceId<NetworkService<NetAdapter::Backend, RuntimeServiceId>>
         + AsServiceId<BlendService<BlendAdapter::Backend, BlendAdapter::Network, RuntimeServiceId>>
         + AsServiceId<TxMempoolService<ClPoolAdapter, ClPool, RuntimeServiceId>>
-        + AsServiceId<
-            DaMempoolService<
-                DaPoolAdapter,
-                DaPool,
-                SamplingBackend,
-                SamplingNetworkAdapter,
-                SamplingRng,
-                SamplingStorage,
-                DaVerifierBackend,
-                DaVerifierNetwork,
-                DaVerifierStorage,
-                ApiAdapter,
-                RuntimeServiceId,
-            >,
-        >
         + AsServiceId<
             DaSamplingService<
                 SamplingBackend,
@@ -541,11 +467,8 @@ where
     async fn run(mut self) -> Result<(), overwatch::DynError> {
         let relays: CryptarchiaConsensusRelays<
             BlendAdapter,
-            BS,
             ClPool,
             ClPoolAdapter,
-            DaPool,
-            DaPoolAdapter,
             NetAdapter,
             SamplingBackend,
             SamplingRng,
@@ -562,7 +485,6 @@ where
             config: ledger_config,
             genesis_state,
             transaction_selector_settings,
-            blob_selector_settings,
             leader_config,
             network_adapter_settings,
             blend_adapter_settings,
@@ -585,7 +507,6 @@ where
         let network_adapter =
             NetAdapter::new(network_adapter_settings, relays.network_relay().clone()).await;
         let tx_selector = TxS::new(transaction_selector_settings);
-        let blob_selector = BS::new(blob_selector_settings);
 
         let mut incoming_blocks = network_adapter.blocks_stream().await?;
 
@@ -640,7 +561,6 @@ where
                                 slot,
                                 proof,
                                 tx_selector.clone(),
-                                blob_selector.clone(),
                                 &relays
                             ).await;
 
@@ -681,10 +601,7 @@ impl<
         BlendAdapter,
         ClPool,
         ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
         TxS,
-        BS,
         Storage,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -702,10 +619,7 @@ impl<
         BlendAdapter,
         ClPool,
         ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
         TxS,
-        BS,
         Storage,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -741,33 +655,12 @@ where
         + Send
         + Sync
         + 'static,
-    DaPool::Item: DispersedBlobInfo<BlobId = DaPool::Key>
-        + BlobMetadata
-        + Debug
-        + Clone
-        + Eq
-        + Hash
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
-    DaPool: RecoverableMempool<BlockId = HeaderId, Key = SamplingBackend::BlobId>
-        + Send
-        + Sync
-        + 'static,
-    DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPool::Settings: Clone + Send + Sync + 'static,
-    DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key> + Send + Sync + 'static,
-    DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     TxS: TxSelect<Tx = ClPool::Item> + Clone + Send + Sync + 'static,
     TxS::Settings: Send,
-    BS: BlobSelect<BlobId = DaPool::Item> + Clone + Send + Sync + 'static,
-    BS::Settings: Send,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block:
-        TryFrom<Block<ClPool::Item, DaPool::Item>> + TryInto<Block<ClPool::Item, DaPool::Item>>,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng> + Send,
+        TryFrom<Block<ClPool::Item>> + TryInto<Block<ClPool::Item>>,
+    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + Ord + Send + Sync + 'static,
@@ -785,8 +678,8 @@ where
 {
     fn process_message(
         cryptarchia: &Cryptarchia,
-        block_channel: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-        msg: ConsensusMsg<Block<ClPool::Item, DaPool::Item>>,
+        block_channel: &broadcast::Sender<Block<ClPool::Item>>,
+        msg: ConsensusMsg<Block<ClPool::Item>>,
     ) {
         match msg {
             ConsensusMsg::Info { tx } => {
@@ -841,14 +734,11 @@ where
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     async fn validate_received_block(
-        block: &Block<ClPool::Item, DaPool::Item>,
+        block: &Block<ClPool::Item>,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
-            BS,
             ClPool,
             ClPoolAdapter,
-            DaPool,
-            DaPoolAdapter,
             NetAdapter,
             SamplingBackend,
             SamplingRng,
@@ -881,14 +771,11 @@ where
     async fn process_block(
         cryptarchia: Cryptarchia,
         leader: &mut leadership::Leader,
-        block: Block<ClPool::Item, DaPool::Item>,
+        block: Block<ClPool::Item>,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
-            BS,
             ClPool,
             ClPoolAdapter,
-            DaPool,
-            DaPoolAdapter,
             NetAdapter,
             SamplingBackend,
             SamplingRng,
@@ -897,7 +784,7 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-        block_broadcaster: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
+        block_broadcaster: &mut broadcast::Sender<Block<ClPool::Item>>,
     ) -> Cryptarchia {
         tracing::debug!("received proposal {:?}", block);
         if !Self::validate_received_block(&block, relays).await {
@@ -914,14 +801,11 @@ where
     async fn process_block_unchecked(
         mut cryptarchia: Cryptarchia,
         leader: &mut leadership::Leader,
-        block: Block<ClPool::Item, DaPool::Item>,
+        block: Block<ClPool::Item>,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
-            BS,
             ClPool,
             ClPoolAdapter,
-            DaPool,
-            DaPoolAdapter,
             NetAdapter,
             SamplingBackend,
             SamplingRng,
@@ -930,7 +814,7 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-        block_broadcaster: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
+        block_broadcaster: &mut broadcast::Sender<Block<ClPool::Item>>,
     ) -> Cryptarchia {
         // TODO: filter on time?
         let header = block.header();
@@ -946,18 +830,6 @@ where
                     relays.cl_mempool_relay().clone(),
                     block.transactions().map(Transaction::hash),
                     id,
-                )
-                .await;
-                mark_in_block(
-                    relays.da_mempool_relay().clone(),
-                    block.blobs().map(DispersedBlobInfo::blob_id),
-                    id,
-                )
-                .await;
-
-                mark_blob_in_block(
-                    relays.sampling_relay().clone(),
-                    block.blobs().map(DispersedBlobInfo::blob_id).collect(),
                 )
                 .await;
 
@@ -990,20 +862,16 @@ where
 
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
-    #[instrument(level = "debug", skip(tx_selector, blob_selector, relays))]
+    #[instrument(level = "debug", skip(tx_selector, relays))]
     async fn propose_block(
         parent: HeaderId,
         slot: Slot,
         proof: Risc0LeaderProof,
         tx_selector: TxS,
-        blob_selector: BS,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
-            BS,
             ClPool,
             ClPoolAdapter,
-            DaPool,
-            DaPoolAdapter,
             NetAdapter,
             SamplingBackend,
             SamplingRng,
@@ -1012,33 +880,22 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-    ) -> Option<Block<ClPool::Item, DaPool::Item>> {
+    ) -> Option<Block<ClPool::Item>> {
         let mut output = None;
         let cl_txs = get_mempool_contents(relays.cl_mempool_relay().clone());
-        let da_certs = get_mempool_contents(relays.da_mempool_relay().clone());
         let blobs_ids = get_sampled_blobs(relays.sampling_relay().clone());
-        match futures::join!(cl_txs, da_certs, blobs_ids) {
-            (Ok(cl_txs), Ok(da_blobs_info), Ok(blobs_ids)) => {
-                let block = BlockBuilder::new(
-                    tx_selector,
-                    blob_selector,
-                    Builder::new(parent, slot, proof),
-                )
-                .with_transactions(cl_txs)
-                .with_blobs_info(
-                    da_blobs_info.filter(move |info| blobs_ids.contains(&info.blob_id())),
-                )
-                .build()
-                .expect("Proposal block should always succeed to be built");
+        match futures::join!(cl_txs, blobs_ids) {
+            (Ok(cl_txs), Ok(blobs_ids)) => {
+                let block = BlockBuilder::new(tx_selector, Builder::new(parent, slot, proof))
+                    .with_transactions(cl_txs)
+                    .build()
+                    .expect("Proposal block should always succeed to be built");
                 tracing::debug!("proposed block with id {:?}", block.header().id());
                 output = Some(block);
             }
-            (tx_error, da_certificate_error, blobs_error) => {
+            (tx_error, blobs_error) => {
                 if let Err(_tx_error) = tx_error {
                     tracing::error!("Could not fetch block cl transactions");
-                }
-                if let Err(_da_certificate_error) = da_certificate_error {
-                    tracing::error!("Could not fetch block da certificates");
                 }
                 if let Err(_blobs_error) = blobs_error {
                     tracing::error!("Could not fetch block da blobs");
@@ -1049,30 +906,28 @@ where
     }
 
     fn validate_blocks_blobs(
-        block: &Block<ClPool::Item, DaPool::Item>,
-        sampled_blobs_ids: &BTreeSet<DaPool::Key>,
+        block: &Block<ClPool::Item>,
+        sampled_blobs_ids: &BTreeSet<BlobId>,
     ) -> bool {
-        let validated_blobs = block
-            .blobs()
-            .all(|blob| sampled_blobs_ids.contains(&blob.blob_id()));
-        validated_blobs
+        // let validated_blobs = block
+        //     .blobs()
+        //     .all(|blob| sampled_blobs_ids.contains(&blob.blob_id()));
+        // validated_blobs
+        true
     }
 
-    fn log_received_block(block: &Block<ClPool::Item, DaPool::Item>) {
+    fn log_received_block(block: &Block<ClPool::Item>) {
         let content_size = block.header().content_size();
         let transactions = block.cl_transactions_len();
-        let blobs = block.bl_blobs_len();
 
         tracing::info!(
             counter.received_blocks = 1,
             transactions = transactions,
-            blobs = blobs,
             bytes = content_size
         );
         tracing::info!(
             histogram.received_blocks_data = content_size,
             transactions = transactions,
-            blobs = blobs
         );
     }
 
@@ -1101,8 +956,8 @@ where
     async fn get_blocks_in_range(
         from: HeaderId,
         to: HeaderId,
-        storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
-    ) -> Vec<Block<ClPool::Item, DaPool::Item>> {
+        storage_adapter: &StorageAdapter<Storage, TxS::Tx, BlobId, RuntimeServiceId>,
+    ) -> Vec<Block<ClPool::Item>> {
         // Due to the blocks traversal order, this yields `to..from` order
         let blocks = futures::stream::unfold(to, |header_id| async move {
             if header_id == from {
@@ -1150,7 +1005,6 @@ where
     async fn build_cryptarchia(
         mut initial_state: CryptarchiaConsensusState<
             TxS::Settings,
-            BS::Settings,
             NetAdapter::Settings,
             BlendAdapter::Settings,
             TimeBackend::Settings,
@@ -1161,11 +1015,8 @@ where
         leader_config: LeaderConfig,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
-            BS,
             ClPool,
             ClPoolAdapter,
-            DaPool,
-            DaPoolAdapter,
             NetAdapter,
             SamplingBackend,
             SamplingRng,
@@ -1174,7 +1025,7 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-        block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
+        block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item>>,
     ) -> (Cryptarchia, Leader) {
         match initial_state.recovery_strategy() {
             CryptarchiaInitialisationStrategy::Genesis => {
@@ -1248,11 +1099,8 @@ where
         ledger_config: nomos_ledger::Config,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
-            BS,
             ClPool,
             ClPoolAdapter,
-            DaPool,
-            DaPoolAdapter,
             NetAdapter,
             SamplingBackend,
             SamplingRng,
@@ -1261,7 +1109,7 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-        block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
+        block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item>>,
     ) -> (Cryptarchia, Leader) {
         let mut cryptarchia = Cryptarchia::from_genesis(genesis_id, genesis_state, ledger_config);
 
@@ -1319,11 +1167,8 @@ where
         ledger_config: nomos_ledger::Config,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
-            BS,
             ClPool,
             ClPoolAdapter,
-            DaPool,
-            DaPoolAdapter,
             NetAdapter,
             SamplingBackend,
             SamplingRng,
@@ -1332,7 +1177,7 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-        block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
+        block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item>>,
     ) -> (Cryptarchia, Leader) {
         let mut cryptarchia = Cryptarchia::from_genesis(genesis_id, genesis_state, ledger_config);
         let mut leader = Leader::new(

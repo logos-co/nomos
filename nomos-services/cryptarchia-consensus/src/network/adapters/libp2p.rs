@@ -25,10 +25,9 @@ type Relay<T, RuntimeServiceId> =
     OutboundRelay<<NetworkService<T, RuntimeServiceId> as ServiceData>::Message>;
 
 #[derive(Clone)]
-pub struct LibP2pAdapter<Tx, BlobCert, RuntimeServiceId>
+pub struct LibP2pAdapter<Tx, RuntimeServiceId>
 where
     Tx: Clone + Eq + Hash,
-    BlobCert: Clone + Eq + Hash,
 {
     network_relay:
         OutboundRelay<<NetworkService<Libp2p, RuntimeServiceId> as ServiceData>::Message>,
@@ -41,10 +40,9 @@ pub struct LibP2pAdapterSettings {
     pub topic: String,
 }
 
-impl<Tx, BlobCert, RuntimeServiceId> LibP2pAdapter<Tx, BlobCert, RuntimeServiceId>
+impl<Tx, RuntimeServiceId> LibP2pAdapter<Tx, RuntimeServiceId>
 where
     Tx: Clone + Eq + Hash + Serialize,
-    BlobCert: Clone + Eq + Hash + Serialize,
 {
     async fn subscribe(relay: &Relay<Libp2p, RuntimeServiceId>, topic: &str) {
         if let Err((e, _)) = relay
@@ -59,16 +57,14 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Tx, BlobCert, RuntimeServiceId> NetworkAdapter<RuntimeServiceId>
-    for LibP2pAdapter<Tx, BlobCert, RuntimeServiceId>
+impl<Tx, RuntimeServiceId> NetworkAdapter<RuntimeServiceId>
+    for LibP2pAdapter<Tx, RuntimeServiceId>
 where
     Tx: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
-    BlobCert: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
 {
     type Backend = Libp2p;
     type Settings = LibP2pAdapterSettings;
     type Tx = Tx;
-    type BlobCertificate = BlobCert;
 
     async fn new(settings: Self::Settings, network_relay: Relay<Libp2p, RuntimeServiceId>) -> Self {
         let relay = network_relay.clone();
@@ -81,13 +77,12 @@ where
         Self {
             network_relay,
             _phantom_tx: PhantomData,
-            _blob_cert: PhantomData,
         }
     }
 
     async fn blocks_stream(
         &self,
-    ) -> Result<BoxedStream<Block<Self::Tx, Self::BlobCertificate>>, DynError> {
+    ) -> Result<BoxedStream<Block<Self::Tx>>, DynError> {
         let (sender, receiver) = tokio::sync::oneshot::channel();
         if let Err((e, _)) = self
             .network_relay

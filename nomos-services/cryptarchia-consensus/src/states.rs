@@ -44,7 +44,6 @@ pub enum CryptarchiaInitialisationStrategy {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CryptarchiaConsensusState<
     TxS,
-    BxS,
     NetworkAdapterSettings,
     BlendAdapterSettings,
     TimeBackendSettings,
@@ -55,16 +54,14 @@ pub struct CryptarchiaConsensusState<
     security_leader_notes: Option<Vec<NoteWitness>>,
     security_block_length: Option<u64>,
     _txs: PhantomData<TxS>,
-    _bxs: PhantomData<BxS>,
     _network_adapter_settings: PhantomData<NetworkAdapterSettings>,
     _blend_adapter_settings: PhantomData<BlendAdapterSettings>,
     _time_backend_settings: PhantomData<TimeBackendSettings>,
 }
 
-impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings>
+impl<TxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings>
     CryptarchiaConsensusState<
         TxS,
-        BxS,
         NetworkAdapterSettings,
         BlendAdapterSettings,
         TimeBackendSettings,
@@ -84,7 +81,6 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
             security_leader_notes,
             security_block_length,
             _txs: PhantomData,
-            _bxs: PhantomData,
             _network_adapter_settings: PhantomData,
             _blend_adapter_settings: PhantomData,
             _time_backend_settings: PhantomData,
@@ -162,16 +158,15 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
     }
 }
 
-impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings> ServiceState
+impl<TxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings> ServiceState
     for CryptarchiaConsensusState<
         TxS,
-        BxS,
         NetworkAdapterSettings,
         BlendAdapterSettings,
         TimeBackendSettings,
     >
 {
-    type Settings = CryptarchiaSettings<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>;
+    type Settings = CryptarchiaSettings<TxS, NetworkAdapterSettings, BlendAdapterSettings>;
     type Error = Error;
 
     fn from_settings(_settings: &Self::Settings) -> Result<Self, Self::Error> {
@@ -250,11 +245,11 @@ mod tests {
     #[test]
     fn test_can_recover() {
         let state =
-            CryptarchiaConsensusState::<(), (), (), (), ()>::new(None, None, None, None, None);
+            CryptarchiaConsensusState::<(), (), (), ()>::new(None, None, None, None, None);
         assert!(!state.can_recover());
 
         let header_id = HeaderId::from([0; 32]);
-        let state = CryptarchiaConsensusState::<(), (), (), (), ()>::new(
+        let state = CryptarchiaConsensusState::<(), (), (), ()>::new(
             Some(header_id),
             None,
             None,
@@ -267,7 +262,7 @@ mod tests {
     #[test]
     fn test_can_recover_from_security() {
         let header_id = HeaderId::from([0; 32]);
-        let state = CryptarchiaConsensusState::<(), (), (), (), ()>::new(
+        let state = CryptarchiaConsensusState::<(), (), (), ()>::new(
             Some(header_id),
             None,
             None,
@@ -276,7 +271,7 @@ mod tests {
         );
         assert!(!state.can_recover_from_security());
 
-        let state = CryptarchiaConsensusState::<(), (), (), (), ()>::new(
+        let state = CryptarchiaConsensusState::<(), (), (), ()>::new(
             Some(header_id),
             Some(header_id),
             Some(LedgerState::from_commitments(vec![], 0)),
@@ -289,14 +284,14 @@ mod tests {
     #[test]
     fn test_recovery_strategy() {
         let mut state =
-            CryptarchiaConsensusState::<(), (), (), (), ()>::new(None, None, None, None, None);
+            CryptarchiaConsensusState::<(), (), (), ()>::new(None, None, None, None, None);
         assert_eq!(
             state.recovery_strategy(),
             CryptarchiaInitialisationStrategy::Genesis
         );
 
         let header_id = HeaderId::from([0; 32]);
-        let mut state = CryptarchiaConsensusState::<(), (), (), (), ()>::new(
+        let mut state = CryptarchiaConsensusState::<(), (), (), ()>::new(
             Some(header_id),
             None,
             None,
@@ -311,7 +306,7 @@ mod tests {
         );
 
         let ledger_state = LedgerState::from_commitments(vec![], 0);
-        let mut state = CryptarchiaConsensusState::<(), (), (), (), ()>::new(
+        let mut state = CryptarchiaConsensusState::<(), (), (), ()>::new(
             Some(header_id),
             Some(header_id),
             Some(ledger_state.clone()),

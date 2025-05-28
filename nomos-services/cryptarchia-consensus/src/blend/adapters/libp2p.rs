@@ -10,35 +10,31 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use crate::{blend::BlendAdapter, messages::NetworkMessage};
 
 #[derive(Clone)]
-pub struct LibP2pAdapter<Network, Tx, BlobCert, RuntimeServiceId>
+pub struct LibP2pAdapter<Network, Tx, RuntimeServiceId>
 where
     Network: NetworkAdapter<RuntimeServiceId>,
     Network::BroadcastSettings: Clone,
     Tx: Clone + Eq + Hash,
-    BlobCert: Clone + Eq + Hash,
 {
     settings: LibP2pAdapterSettings<Network::BroadcastSettings>,
     blend_relay: OutboundRelay<
         <BlendService<Libp2pBlendBackend, Network, RuntimeServiceId> as ServiceData>::Message,
     >,
     _tx: PhantomData<Tx>,
-    _blob_cert: PhantomData<BlobCert>,
 }
 
 #[async_trait::async_trait]
-impl<Network, Tx, BlobCert, RuntimeServiceId> BlendAdapter<RuntimeServiceId>
-    for LibP2pAdapter<Network, Tx, BlobCert, RuntimeServiceId>
+impl<Network, Tx, RuntimeServiceId> BlendAdapter<RuntimeServiceId>
+    for LibP2pAdapter<Network, Tx, RuntimeServiceId>
 where
     Network: NetworkAdapter<RuntimeServiceId> + 'static,
     Network::BroadcastSettings: Clone,
     Tx: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
-    BlobCert: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
 {
     type Settings = LibP2pAdapterSettings<Network::BroadcastSettings>;
     type Backend = Libp2pBlendBackend;
     type Network = Network;
     type Tx = Tx;
-    type BlobCertificate = BlobCert;
 
     async fn new(
         settings: Self::Settings,
@@ -56,11 +52,10 @@ where
             settings,
             blend_relay,
             _tx: PhantomData,
-            _blob_cert: PhantomData,
         }
     }
 
-    async fn blend(&self, block: Block<Self::Tx, Self::BlobCertificate>) {
+    async fn blend(&self, block: Block<Self::Tx>) {
         if let Err((e, msg)) = self
             .blend_relay
             .send(ServiceMessage::Blend(nomos_blend_service::NetworkMessage {

@@ -7,7 +7,6 @@ use serde::{de::DeserializeOwned, Serialize};
 use crate::{
     block::Block,
     crypto::Blake2b,
-    da::blob::{info::DispersedBlobInfo, BlobSelect},
     header::Builder,
     tx::{Transaction, TxSelect},
     wire,
@@ -29,32 +28,22 @@ use crate::{
 /// };
 /// builder.build().expect("All block attributes should have been set")
 /// ```
-pub struct BlockBuilder<Tx, Blob, TxSelector, BlobSelector> {
+pub struct BlockBuilder<Tx, TxSelector> {
     tx_selector: TxSelector,
-    blob_selector: BlobSelector,
     header_builder: Builder,
     txs: Option<Box<dyn Iterator<Item = Tx>>>,
-    blobs: Option<Box<dyn Iterator<Item = Blob>>>,
 }
 
-impl<Tx, B, TxSelector, BlobSelector> BlockBuilder<Tx, B, TxSelector, BlobSelector>
+impl<Tx, TxSelector> BlockBuilder<Tx, TxSelector>
 where
     Tx: Transaction + Clone + Eq + Hash + Serialize + DeserializeOwned,
-    B: DispersedBlobInfo + Clone + Eq + Hash + Serialize + DeserializeOwned,
     TxSelector: TxSelect<Tx = Tx>,
-    BlobSelector: BlobSelect<BlobId = B>,
 {
-    pub fn new(
-        tx_selector: TxSelector,
-        blob_selector: BlobSelector,
-        header_builder: Builder,
-    ) -> Self {
+    pub fn new(tx_selector: TxSelector, header_builder: Builder) -> Self {
         Self {
             tx_selector,
-            blob_selector,
             header_builder,
             txs: None,
-            blobs: None,
         }
     }
 
@@ -64,30 +53,16 @@ where
         self
     }
 
-    #[must_use]
-    pub fn with_blobs_info(
-        mut self,
-        blobs_certificates: impl Iterator<Item = B> + 'static,
-    ) -> Self {
-        self.blobs = Some(Box::new(blobs_certificates));
-        self
-    }
-
-    pub fn build(self) -> Result<Block<Tx, B>, String> {
+    pub fn build(self) -> Result<Block<Tx>, String> {
         if let Self {
             tx_selector,
-            blob_selector,
             header_builder,
             txs: Some(txs),
-            blobs: Some(blobs),
         } = self
         {
             let txs = tx_selector.select_tx_from(txs).collect::<IndexSet<_>>();
-            let blobs = blob_selector
-                .select_blob_from(blobs)
-                .collect::<IndexSet<_>>();
 
-            let serialized_content = wire::serialize(&(&txs, &blobs)).unwrap();
+            let serialized_content = wire::serialize(&txs).unwrap();
             let content_size = u32::try_from(serialized_content.len()).map_err(|_| {
                 format!(
                     "Content is too big: {} out of {} max",
@@ -102,7 +77,6 @@ where
             Ok(Block {
                 header,
                 cl_transactions: txs,
-                bl_blobs: blobs,
             })
         } else {
             Err("incomplete block".to_owned())
