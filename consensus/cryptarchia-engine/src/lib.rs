@@ -466,10 +466,8 @@ where
         self.local_chain.id
     }
 
-    pub fn tip_branch(&self) -> &Branch<Id> {
-        self.branches
-            .get(&self.tip())
-            .expect("Tip should always be present in branches.")
+    pub const fn tip_branch(&self) -> &Branch<Id> {
+        &self.local_chain
     }
 
     /// Returns all the forks that are not part of the local canonical chain.
