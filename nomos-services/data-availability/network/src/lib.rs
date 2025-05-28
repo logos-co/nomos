@@ -193,11 +193,6 @@ where
     }
 
     fn handle_membership_update_message(backend: &mut Backend, update: &MembershipProviders) {
-        if update.is_empty() {
-            tracing::debug!("Received empty membership update, skipping.");
-            return;
-        }
-
         let mut members = Vec::new();
         let mut addressbook: HashMap<PeerId, Multiaddr> = HashMap::new();
         let mut rng = rand::thread_rng();
@@ -210,6 +205,7 @@ where
                     continue;
                 }
             };
+
             let peer_id = PeerId::from_public_key(&public_key.into());
             members.push(peer_id);
 

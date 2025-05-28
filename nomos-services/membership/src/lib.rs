@@ -177,6 +177,14 @@ where
                 let providers = self.backend.get_latest_providers(service_type).await;
 
                 if let Ok(providers) = providers {
+                    if providers.is_empty() {
+                        tracing::warn!(
+                            "No initial membership snapshot for service type: {:?}",
+                            service_type
+                        );
+
+                        return;
+                    }
                     if tx.send(providers).is_err() {
                         tracing::error!(
                             "Error sending initial membership snapshot for service type: {:?}",
