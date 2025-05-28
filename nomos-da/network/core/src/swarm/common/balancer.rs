@@ -249,7 +249,7 @@ mod tests {
             unimplemented!()
         }
 
-        fn rebuild_with(
+        fn new_with(
             &self,
             members: Vec<PeerId>,
             _addressbook: HashMap<PeerId, libp2p::Multiaddr>,

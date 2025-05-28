@@ -223,7 +223,6 @@ where
     }
 
     fn update_membership(&mut self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) {
-        let new_membership = (*self.membership.rebuild_with(members, addressbook).inner()).clone();
-        self.membership.update(new_membership);
+        self.membership.update(members, addressbook);
     }
 }

@@ -106,7 +106,7 @@ impl MembershipHandler for FillFromNodeList {
         self.addressbook.get(peer_id).cloned()
     }
 
-    fn rebuild_with(&self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) -> Self {
+    fn new_with(&self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) -> Self {
         Self {
             assignations: Self::fill(&members, self.subnetwork_size, self.dispersal_factor),
             subnetwork_size: self.subnetwork_size,

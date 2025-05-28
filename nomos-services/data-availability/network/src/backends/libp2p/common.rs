@@ -195,8 +195,14 @@ impl<T: MembershipHandler> SwappableMembershipHandler<T> {
         }
     }
 
-    pub fn update(&self, new_handler: T) {
-        self.inner.store(Arc::new(new_handler));
+    pub fn update(
+        &self,
+        members: Vec<PeerId>,
+        addressbook: std::collections::HashMap<PeerId, Multiaddr>,
+    ) {
+        let old_inner = self.inner.load_full();
+        let inner = old_inner.new_with(members, addressbook);
+        self.inner.store(inner);
     }
 
     pub fn inner(&self) -> Arc<T> {
@@ -233,15 +239,11 @@ impl<T: MembershipHandler> MembershipHandler for SwappableMembershipHandler<T> {
         self.inner.load().get_address(peer_id)
     }
 
-    fn rebuild_with(
+    fn new_with(
         &self,
-        members: Vec<PeerId>,
-        addressbook: std::collections::HashMap<PeerId, Multiaddr>,
+        _members: Vec<PeerId>,
+        _addressbook: std::collections::HashMap<PeerId, Multiaddr>,
     ) -> Self {
-        let inner = self.inner.load_full();
-        let inner = inner.rebuild_with(members, addressbook);
-        Self {
-            inner: ArcSwap::new(inner),
-        }
+        unreachable!("SwappableMembershipHandler does not support rebuild_with, use update instead")
     }
 }

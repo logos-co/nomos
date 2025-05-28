@@ -72,7 +72,7 @@ impl MembershipHandler for AllNeighbours {
         self.addresses.lock().unwrap().get(peer_id).cloned()
     }
 
-    fn rebuild_with(
+    fn new_with(
         &self,
         members: Vec<PeerId>,
         addressbook: HashMap<PeerId, libp2p::Multiaddr>,

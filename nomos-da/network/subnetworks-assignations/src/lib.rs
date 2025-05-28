@@ -14,6 +14,11 @@ pub trait MembershipHandler {
     /// Members Id type
     type Id;
 
+    /// Creates a new instance of the membership handler with the given members
+    /// and address book
+    #[must_use]
+    fn new_with(&self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) -> Self;
+
     /// Returns the set of `NetworksIds` an id is a member of
     fn membership(&self, id: &Self::Id) -> HashSet<Self::NetworkId>;
 
@@ -34,9 +39,6 @@ pub trait MembershipHandler {
     fn last_subnetwork_id(&self) -> Self::NetworkId;
 
     fn get_address(&self, peer_id: &PeerId) -> Option<Multiaddr>;
-
-    #[must_use]
-    fn rebuild_with(&self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) -> Self;
 }
 
 use std::sync::Arc;
@@ -72,7 +74,7 @@ where
         self.as_ref().get_address(peer_id)
     }
 
-    fn rebuild_with(&self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) -> Self {
-        Self::new(self.as_ref().rebuild_with(members, addressbook))
+    fn new_with(&self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) -> Self {
+        Self::new(self.as_ref().new_with(members, addressbook))
     }
 }

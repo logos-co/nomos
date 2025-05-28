@@ -113,7 +113,7 @@ impl MembershipHandler for FillWithOriginalReplication {
         self.addressbook.get(peer_id).cloned()
     }
 
-    fn rebuild_with(&self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) -> Self {
+    fn new_with(&self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) -> Self {
         Self {
             assignations: Self::fill(
                 &members,
