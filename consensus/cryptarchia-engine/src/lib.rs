@@ -174,6 +174,7 @@ where
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Branch<Id> {
     id: Id,
     parent: Id,
@@ -465,11 +466,36 @@ where
         self.local_chain.id
     }
 
+    pub fn tip_branch(&self) -> &Branch<Id> {
+        self.branches
+            .get(&self.tip())
+            .expect("Tip should always be present in branches.")
+    }
+
     /// Returns all the forks that are not part of the local canonical chain.
     pub fn non_canonical_forks(&self) -> impl Iterator<Item = Branch<Id>> + '_ {
         self.branches
             .branches()
             .filter(|fork_tip| fork_tip.id != self.tip())
+    }
+
+    pub fn prunable_forks(&self, depth: u64) -> impl Iterator<Item = Branch<Id>> {
+        let local_chain = self.local_chain;
+        let Some(target_height) = local_chain.length.checked_sub(depth) else {
+            tracing::info!(
+                target: LOG_TARGET,
+                "No prunable fork, the canonical chain is not longer than the provided depth. Canonical chain length: {}, provided depth: {}", local_chain.length, depth
+            );
+            return vec![].into_iter();
+        };
+        let non_canonical_forks = self.non_canonical_forks();
+        non_canonical_forks
+            .filter(|fork| {
+                let lca = self.branches.lca(&local_chain, fork);
+                lca.length <= target_height
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     /// Prune all blocks that are included in forks strictly older than 'depth'
@@ -486,28 +512,16 @@ where
     /// It returns the blocks that were part of the pruned forks.
     pub fn prune_forks(&mut self, depth: u64) -> impl Iterator<Item = Branch<Id>> {
         let local_chain = self.local_chain;
-        let Some(target_height) = local_chain.length.checked_sub(depth) else {
-            tracing::info!(
-                target: LOG_TARGET,
-                "No pruning needed, the canonical chain is not longer than the provided depth. Canonical chain length: {}, provided depth: {}", local_chain.length, depth
-            );
-            return vec![].into_iter();
-        };
-        let non_canonical_forks = self.non_canonical_forks();
-        // Calculate LCA between each fork and canonical chain, and consider for pruning
-        // if the fork started before the specified `depth`.
-        let non_canonical_forks_older_than_depth: Vec<(Branch<Id>, u64)> = non_canonical_forks
-            .filter_map(|fork| {
+        let prunable_forks = self
+            .prunable_forks(depth)
+            .map(|fork| {
                 let lca = self.branches.lca(&local_chain, &fork);
-                (lca.length <= target_height)
-                    // The length of the diverging part of the fork is the difference between its
-                    // length and the length of the LCA.
-                    .then_some((fork, fork.length.saturating_sub(lca.length)))
+                (fork, fork.length.saturating_sub(lca.length))
             })
-            .collect();
+            .collect::<Vec<_>>();
         let mut removed_blocks = vec![];
-        for (fork, fork_length) in &non_canonical_forks_older_than_depth {
-            removed_blocks.extend(self.prune_fork(fork.id, *fork_length));
+        for (fork, fork_length) in prunable_forks {
+            removed_blocks.extend(self.prune_fork(fork.id, fork_length));
         }
         removed_blocks.into_iter()
     }

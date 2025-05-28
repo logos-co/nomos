@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use cl::NoteWitness;
-use cryptarchia_engine::CryptarchiaState;
+use cryptarchia_engine::{Branch, CryptarchiaState};
 use nomos_core::header::HeaderId;
 use nomos_ledger::LedgerState;
 use overwatch::services::state::ServiceState;
@@ -32,6 +32,7 @@ pub struct SecurityRecoveryStrategy {
     pub security_ledger_state: LedgerState,
     pub security_leader_notes: Vec<NoteWitness>,
     pub security_block_chain_length: u64,
+    pub prunable_blocks: Vec<Branch<HeaderId>>,
 }
 
 pub enum CryptarchiaInitialisationStrategy {
@@ -55,6 +56,7 @@ pub struct CryptarchiaConsensusState<
     security_ledger_state: Option<LedgerState>,
     security_leader_notes: Option<Vec<NoteWitness>>,
     security_block_length: Option<u64>,
+    prunable_blocks: Vec<Branch<HeaderId>>,
     _txs: PhantomData<TxS>,
     _bxs: PhantomData<BxS>,
     _network_adapter_settings: PhantomData<NetworkAdapterSettings>,
@@ -77,6 +79,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
         security_ledger_state: Option<LedgerState>,
         security_leader_notes: Option<Vec<NoteWitness>>,
         security_block_length: Option<u64>,
+        prunable_blocks: Vec<Branch<HeaderId>>,
     ) -> Self {
         Self {
             tip,
@@ -84,6 +87,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
             security_ledger_state,
             security_leader_notes,
             security_block_length,
+            prunable_blocks,
             _txs: PhantomData,
             _bxs: PhantomData,
             _network_adapter_settings: PhantomData,
@@ -110,12 +114,49 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
             .and_then(|header_id| leader.notes(&header_id))
             .map(Vec::from);
 
+        // Retrieve the prunable forks from the cryptarchia engine.
+        let prunable_forks = security_block_length.map_or_else(Vec::new, |security_block_length| {
+            cryptarchia
+                .consensus
+                .prunable_forks(security_block_length)
+                .collect()
+        });
+
+        // Calculate LCA for each of the returned forks.
+        // TODO: Maybe we can return the LCA directly from `prunable_forks`?
+        let lcas = prunable_forks
+            .iter()
+            .map(|fork| {
+                cryptarchia
+                    .consensus
+                    .branches()
+                    .lca(fork, cryptarchia.consensus.tip_branch())
+            })
+            .collect::<Vec<_>>();
+
+        // Merge all blocks from each fork's tip up until (but excluding) the fork's LCA
+        // with the canonical chain.
+        let mut prunable_blocks = Vec::new();
+        for (prunable_fork, lca) in prunable_forks.into_iter().zip(lcas.into_iter()) {
+            let mut cursor = prunable_fork;
+            while cursor != lca {
+                prunable_blocks.push(cursor);
+                cursor = cryptarchia
+                    .consensus
+                    .branches()
+                    .get(&cursor.parent())
+                    .copied()
+                    .expect("Fork block should have a parent.");
+            }
+        }
+
         Self::new(
             Some(cryptarchia.tip()),
             security_block_header,
             security_ledger_state,
             security_leader_notes,
             security_block_length,
+            prunable_blocks,
         )
     }
 
@@ -153,6 +194,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
                     .security_block_length
                     .take()
                     .expect("security block length not available"),
+                prunable_blocks: self.prunable_blocks.clone(),
             };
             CryptarchiaInitialisationStrategy::RecoveryFromSecurity(Box::new(strategy))
         } else if self.can_recover() {
@@ -179,7 +221,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
     type Error = Error;
 
     fn from_settings(_settings: &Self::Settings) -> Result<Self, Self::Error> {
-        Ok(Self::new(None, None, None, None, None))
+        Ok(Self::new(None, None, None, None, None, Vec::new()))
     }
 }
 
@@ -247,14 +289,21 @@ mod tests {
                 .field("security_ledger_state", &self.security_ledger_state)
                 .field("security_leader_notes", &self.security_leader_notes)
                 .field("security_block_length", &self.security_block_chain_length)
+                .field("prunable_blocks", &self.prunable_blocks)
                 .finish()
         }
     }
 
     #[test]
     fn test_can_recover() {
-        let state =
-            CryptarchiaConsensusState::<(), (), (), (), ()>::new(None, None, None, None, None);
+        let state = CryptarchiaConsensusState::<(), (), (), (), ()>::new(
+            None,
+            None,
+            None,
+            None,
+            None,
+            Vec::new(),
+        );
         assert!(!state.can_recover());
 
         let header_id = HeaderId::from([0; 32]);
@@ -264,6 +313,7 @@ mod tests {
             None,
             None,
             None,
+            Vec::new(),
         );
         assert!(state.can_recover());
     }
@@ -277,6 +327,7 @@ mod tests {
             None,
             None,
             None,
+            Vec::new(),
         );
         assert!(!state.can_recover_from_security());
 
@@ -286,14 +337,21 @@ mod tests {
             Some(LedgerState::from_commitments(vec![], 0)),
             Some(Vec::new()),
             Some(0),
+            Vec::new(),
         );
         assert!(state.can_recover_from_security());
     }
 
     #[test]
     fn test_recovery_strategy() {
-        let mut state =
-            CryptarchiaConsensusState::<(), (), (), (), ()>::new(None, None, None, None, None);
+        let mut state = CryptarchiaConsensusState::<(), (), (), (), ()>::new(
+            None,
+            None,
+            None,
+            None,
+            None,
+            Vec::new(),
+        );
         assert_eq!(
             state.recovery_strategy(),
             CryptarchiaInitialisationStrategy::Genesis
@@ -306,6 +364,7 @@ mod tests {
             None,
             None,
             None,
+            Vec::new(),
         );
         assert_eq!(
             state.recovery_strategy(),
@@ -321,6 +380,7 @@ mod tests {
             Some(ledger_state.clone()),
             Some(Vec::new()),
             Some(0),
+            Vec::new(),
         );
         assert_eq!(
             state.recovery_strategy(),
@@ -331,6 +391,7 @@ mod tests {
                     security_ledger_state: ledger_state,
                     security_leader_notes: Vec::new(),
                     security_block_chain_length: 0,
+                    prunable_blocks: Vec::new()
                 }
             ))
         );
