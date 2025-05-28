@@ -188,19 +188,21 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
     /// The old blocks are removed from the consensus engine and their state
     /// removed from the ledger state.
     pub fn prune_old_forks(&mut self) -> impl Iterator<Item = Branch<HeaderId>> {
-        let old_forks_pruned = self.consensus.prune_forks(
-            self.ledger
-                .config()
-                .consensus_config
-                .security_param
-                .get()
-                .into(),
-        );
-        let mut pruned_states_count = 0usize;
         // We need to iterate once, then return the unconsumed iterator, so we need to
         // collect first.
-        let collected_forks = old_forks_pruned.collect::<Vec<_>>();
-        for pruned_block in &collected_forks {
+        let old_forks_pruned = self
+            .consensus
+            .prune_forks(
+                self.ledger
+                    .config()
+                    .consensus_config
+                    .security_param
+                    .get()
+                    .into(),
+            )
+            .collect::<Vec<_>>();
+        let mut pruned_states_count = 0usize;
+        for pruned_block in &old_forks_pruned {
             if self.ledger.prune_state_at(&pruned_block.id()) {
                 pruned_states_count = pruned_states_count.saturating_add(1);
             } else {
@@ -213,7 +215,7 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
         }
         tracing::debug!(target: LOG_TARGET, "Pruned {pruned_states_count} old forks and their ledger states.");
 
-        collected_forks.into_iter()
+        old_forks_pruned.into_iter()
     }
 }
 
