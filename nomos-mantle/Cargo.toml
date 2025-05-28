@@ -1,0 +1,9 @@
+[package]
+name = "nomos-mantle"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+kzgrs-backend  = { workspace = true }
+nomos-sdp-core = { workspace = true }

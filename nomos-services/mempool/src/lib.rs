@@ -2,7 +2,6 @@ pub mod backend;
 pub mod da;
 pub mod network;
 pub mod tx;
-pub mod verify;
 
 use std::fmt::{Debug, Error, Formatter};
 

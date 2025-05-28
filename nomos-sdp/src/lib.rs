@@ -130,7 +130,7 @@ impl From<&DeclarationMessage> for DeclarationUpdate {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct DeclarationMessage {
     pub service_type: ServiceType,
     pub locators: Vec<Locator>,
@@ -147,7 +147,7 @@ impl DeclarationMessage {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct WithdrawMessage {
     pub declaration_id: DeclarationId,
     pub service_type: ServiceType,
@@ -155,7 +155,7 @@ pub struct WithdrawMessage {
     pub nonce: Nonce,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ActiveMessage<Metadata> {
     pub declaration_id: DeclarationId,
     pub service_type: ServiceType,
@@ -188,6 +188,7 @@ pub struct Event {
     pub timestamp: BlockNumber,
 }
 
+#[derive(Debug, Clone)]
 pub enum SdpMessage<Metadata> {
     Declare(DeclarationMessage),
     Activity(ActiveMessage<Metadata>),
