@@ -177,12 +177,13 @@ where
                 let providers = self.backend.get_latest_providers(service_type).await;
 
                 if let Ok(providers) = providers {
-                    if !providers.is_empty() && tx.send(providers).is_err() {
-                        tracing::error!(
-                            "Error sending initial membership snapshot for service type: {:?}",
-                            service_type
-                        );
-                    } else if result_sender.send(Ok(stream)).is_err() {
+                    if !providers.is_empty() {
+                        if tx.send(providers).is_err() {
+                            tracing::error!("Error sending initial membership snapshot");
+                        }
+                    }
+
+                    if result_sender.send(Ok(stream)).is_err() {
                         tracing::error!(
                             "Error sending finalized updates receiver for service type: {:?}",
                             service_type
