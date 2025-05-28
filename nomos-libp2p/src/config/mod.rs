@@ -56,10 +56,6 @@ pub struct SwarmConfig {
     /// When the value is None, the client is disabled.
     #[serde(default)]
     pub autonat_client_config: Option<autonat_client::Settings>,
-
-    /// Enable `AutoNAT` server, disabled by default.
-    #[serde(default)]
-    pub enable_autonat_server: bool,
 }
 
 impl Default for SwarmConfig {
@@ -73,7 +69,6 @@ impl Default for SwarmConfig {
             kademlia_config: None,
             identify_config: None,
             autonat_client_config: None,
-            enable_autonat_server: false,
         }
     }
 }

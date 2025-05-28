@@ -51,7 +51,6 @@ impl<R: Clone + Send + RngCore + 'static> Swarm<R> {
             kademlia_config,
             identify_config,
             autonat_client_config,
-            enable_autonat_server,
             ..
         } = config;
 
@@ -66,7 +65,6 @@ impl<R: Clone + Send + RngCore + 'static> Swarm<R> {
                         kademlia_config: kademlia_config.clone(),
                         identify_config,
                         autonat_client_config,
-                        enable_autonat_server,
                         protocol_name: config.protocol_name_env,
                         public_key: keypair.public(),
                     },

@@ -276,7 +276,6 @@ mod tests {
             kademlia_config: Some(nomos_libp2p::KademliaSettings::default()),
             identify_config: Some(nomos_libp2p::IdentifySettings::default()),
             autonat_client_config: None, // Assume that the node is public
-            enable_autonat_server: false,
             protocol_name_env: ProtocolName::Unittest,
         }
     }

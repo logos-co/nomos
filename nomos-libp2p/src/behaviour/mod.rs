@@ -30,7 +30,6 @@ pub(crate) struct BehaviourConfig {
     pub kademlia_config: Option<KademliaSettings>,
     pub identify_config: Option<IdentifySettings>,
     pub autonat_client_config: Option<AutonatClientSettings>,
-    pub enable_autonat_server: bool,
     pub protocol_name: ProtocolName,
     pub public_key: identity::PublicKey,
 }
@@ -51,7 +50,7 @@ pub struct Behaviour<R: Clone + Send + RngCore + 'static> {
     // other peers will eventually not attempt to send dialback request to it.
     // The `Toggle` wrapper is used to disable the autonat server in special circumstances, for
     // example in specific tests.
-    pub(crate) autonat_server: Toggle<autonat::v2::server::Behaviour<R>>,
+    pub(crate) autonat_server: autonat::v2::server::Behaviour<R>,
     pub(crate) nat: Toggle<nat::NatBehaviour<R>>,
 }
 
@@ -62,7 +61,6 @@ impl<R: Clone + Send + RngCore + 'static> Behaviour<R> {
             kademlia_config: kad_config,
             identify_config,
             autonat_client_config,
-            enable_autonat_server,
             protocol_name,
             public_key,
         } = config;
@@ -89,9 +87,7 @@ impl<R: Clone + Send + RngCore + 'static> Behaviour<R> {
             )
         }));
 
-        let autonat_server = Toggle::from(
-            enable_autonat_server.then_some(autonat::v2::server::Behaviour::new(rng.clone())),
-        );
+        let autonat_server = autonat::v2::server::Behaviour::new(rng.clone());
 
         let nat = Toggle::from(autonat_client_config.map(|autonat_client_config| {
             nat::NatBehaviour::new(rng, autonat_client_config.to_libp2p_config())
