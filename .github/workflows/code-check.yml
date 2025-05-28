@@ -169,7 +169,7 @@ jobs:
       matrix:
         os:
           - [self-hosted, Linux]
-          - [macos-latest]
+          - [self-hosted, macOS]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
