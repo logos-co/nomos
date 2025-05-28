@@ -66,7 +66,8 @@ where
     verifier: Backend,
 }
 
-impl<Backend, Network, Storage, RuntimeServiceId> DaVerifierService<Backend, Network, Storage, RuntimeServiceId>
+impl<Backend, Network, Storage, RuntimeServiceId>
+    DaVerifierService<Backend, Network, Storage, RuntimeServiceId>
 where
     Backend: VerifierBackend + Send + Sync + 'static,
     Backend::DaShare: Debug + Send,
@@ -112,7 +113,8 @@ where
     Storage: DaStorageAdapter<RuntimeServiceId>,
     Storage::Settings: Clone,
 {
-    type Settings = DaVerifierServiceSettings<Backend::Settings, Network::Settings, Storage::Settings>;
+    type Settings =
+        DaVerifierServiceSettings<Backend::Settings, Network::Settings, Storage::Settings>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = DaVerifierMsg<
