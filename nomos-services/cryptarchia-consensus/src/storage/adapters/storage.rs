@@ -1,5 +1,6 @@
 use std::{hash::Hash, marker::PhantomData};
 
+use futures::future::join_all;
 use nomos_core::{block::Block, header::HeaderId};
 use nomos_storage::{
     api::chain::StorageChainApi, backends::StorageBackend, StorageMsg, StorageService,
@@ -104,5 +105,17 @@ where
             .map_err(|_| "Failed to convert block to storage format.")?;
 
         Ok(Some(deserialized_block))
+    }
+
+    async fn remove_blocks<Headers>(
+        &self,
+        header_ids: Headers,
+    ) -> impl Iterator<Item = Result<Option<Self::Block>, overwatch::DynError>>
+    where
+        Headers: Iterator<Item = HeaderId> + Send,
+    {
+        join_all(header_ids.map(|header_id| async move { self.remove_block(header_id).await }))
+            .await
+            .into_iter()
     }
 }

@@ -10,7 +10,7 @@ use core::fmt::Debug;
 use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 
 use cryptarchia_engine::{Branch, CryptarchiaState, Online, Slot};
-use futures::{future::join_all, StreamExt as _};
+use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
 use nomos_blend_service::BlendService;
@@ -1440,16 +1440,31 @@ where
         leader: &mut Leader,
         storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
     ) {
-        let old_forks_pruned = cryptarchia.prune_old_forks().collect::<Vec<_>>();
-        // Trigger parallel block deletion and keep a reference to each block ID for
-        // logging purposes (below).
-        let block_deletion_outcomes = join_all(
-            old_forks_pruned
-                .iter()
-                .map(|f| async move { (f.id(), storage_adapter.remove_block(f.id()).await) }),
-        )
-        .await;
+        // We make a copy of the original state so we don't change the input state
+        // directly.
+        let mut local_cryptarchia_changes = cryptarchia.clone();
 
+        // Apply changes to the local copy.
+        let old_forks_pruned = local_cryptarchia_changes
+            .prune_old_forks()
+            .collect::<Vec<_>>();
+
+        let Ok(()) = Self::delete_pruned_blocks_from_storage(
+            old_forks_pruned.iter().map(Branch::id),
+            storage_adapter,
+        )
+        .await
+        else {
+            // Bail out early (not changing the input `cryptarchia` value if the storage
+            // returned an error).
+            return;
+        };
+
+        // If storage deletion succeeded, update the input version with the modified
+        // local copy.
+        *cryptarchia = local_cryptarchia_changes;
+
+        // And remove the notes of the pruned blocks from the leader state.
         for old_fork_pruned in old_forks_pruned {
             let block_id = old_fork_pruned.id();
             if leader.prune_notes_at(&block_id) {
@@ -1459,20 +1474,59 @@ where
                 );
             }
         }
+    }
 
-        // Log any operation that did not succeed
+    /// Send a bulk deletion request to the storage adapter.
+    ///
+    /// It returns an flag indicating an error if the request itself fails,
+    /// while returned `None`s (indicating the block did not exist) are not
+    /// treated as errors.
+    /// Since multiple requests can fail for different reason, this function
+    /// does not try to collect the returned errors, but simply logs them and
+    /// returns a flag indicating that at least an error was returned by the
+    /// storage backend.
+    async fn delete_pruned_blocks_from_storage<Headers>(
+        pruned_block_headers: Headers,
+        storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
+    ) -> Result<(), ()>
+    where
+        Headers: Iterator<Item = HeaderId> + Send,
+    {
+        let blocks_to_delete = pruned_block_headers.collect::<Vec<_>>();
+        let block_deletion_outcomes = blocks_to_delete.iter().copied().zip(
+            storage_adapter
+                .remove_blocks(blocks_to_delete.iter().copied())
+                .await,
+        );
+
+        let mut error_found = false;
         for (block_id, block_deletion_outcome) in block_deletion_outcomes {
             match block_deletion_outcome {
-                Err(e) => tracing::error!(
-                    target: LOG_TARGET,
-                    "Could not delete block {block_id} from storage: {e}."
-                ),
-                Ok(None) => tracing::warn!(
-                    target: LOG_TARGET,
-                    "Block {block_id} was not found in storage."
-                ),
-                Ok(Some(_)) => {}
+                Ok(Some(_)) => {
+                    tracing::debug!(
+                        target: LOG_TARGET,
+                        "Block {block_id:#?} successfully deleted from storage."
+                    );
+                }
+                Ok(None) => {
+                    tracing::trace!(
+                        target: LOG_TARGET,
+                        "Block {block_id:#?} was not found in storage."
+                    );
+                }
+                Err(block_deletion_error) => {
+                    tracing::error!(
+                        target: LOG_TARGET,
+                        "Error deleting block {block_id:#?} from storage: {block_deletion_error}."
+                    );
+                    error_found = true;
+                }
             }
+        }
+        if error_found {
+            Err(())
+        } else {
+            Ok(())
         }
     }
 }
