@@ -1450,10 +1450,10 @@ where
 
         for old_fork_pruned in old_forks_pruned {
             let block_id = old_fork_pruned.id();
-            if !leader.prune_notes_at(&block_id) {
-                tracing::warn!(
+            if leader.prune_notes_at(&block_id) {
+                tracing::debug!(
                     target: LOG_TARGET,
-                    "Leader proof for block {block_id} was not found in storage."
+                    "Leader proof for block {block_id} removed from in-memory storage."
                 );
             }
         }
