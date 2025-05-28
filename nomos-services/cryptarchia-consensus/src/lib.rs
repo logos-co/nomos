@@ -656,8 +656,8 @@ where
                         )
                         .await;
 
-                        self.service_state.state_updater.update(Self::State::from_cryptarchia(&cryptarchia, &leader));
                         Self::prune_old_forks(&mut cryptarchia, &mut leader, relays.storage_adapter()).await;
+                        self.service_state.state_updater.update(Self::State::from_cryptarchia(&cryptarchia, &leader)); 
 
                         tracing::info!(counter.consensus_processed_blocks = 1);
                     }
@@ -692,8 +692,8 @@ where
                                     &relays,
                                     &mut self.block_subscription_sender
                                 ).await;
-                                self.service_state.state_updater.update(Self::State::from_cryptarchia(&cryptarchia, &leader));
                                 Self::prune_old_forks(&mut cryptarchia, &mut leader, relays.storage_adapter()).await;
+                                self.service_state.state_updater.update(Self::State::from_cryptarchia(&cryptarchia, &leader));
                                 blend_adapter.blend(block).await;
                             }
                         }
@@ -1324,9 +1324,6 @@ where
             .await;
         }
 
-        // Once the state has been recovered, we get rid of the unnecessary forks.
-        Self::prune_old_forks(&mut cryptarchia, &mut leader, relays.storage_adapter()).await;
-
         (cryptarchia, leader)
     }
 
@@ -1412,9 +1409,6 @@ where
             )
             .await;
         }
-
-        // Once the state has been recovered, we get rid of the unnecessary forks.
-        Self::prune_old_forks(&mut cryptarchia, &mut leader, relays.storage_adapter()).await;
 
         (cryptarchia, leader)
     }
