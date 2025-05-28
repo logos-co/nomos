@@ -33,4 +33,11 @@ pub trait StorageAdapter<RuntimeServiceId> {
         &self,
         header_id: HeaderId,
     ) -> Result<Option<Self::Block>, overwatch::DynError>;
+
+    async fn remove_blocks<Headers>(
+        &self,
+        header_ids: Headers,
+    ) -> impl Iterator<Item = Result<Option<Self::Block>, overwatch::DynError>>
+    where
+        Headers: Iterator<Item = HeaderId> + Send;
 }
