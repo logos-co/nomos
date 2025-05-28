@@ -3,7 +3,7 @@ use std::time::Duration;
 use libp2p::autonat::v2::client::Config;
 use serde::{Deserialize, Serialize};
 
-/// A serializable representation of AutoNAT configuration options.
+/// A serializable representation of `AutoNAT` configuration options.
 /// When a value is None, the libp2p defaults are used.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {

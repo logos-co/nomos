@@ -25,6 +25,16 @@ pub mod nat;
 // this limit so large. Remove this once we transition to smaller proofs.
 const DATA_LIMIT: usize = 1 << 18; // Do not serialize/deserialize more than 256 KiB
 
+pub(crate) struct BehaviourConfig {
+    pub gossipsub_config: libp2p::gossipsub::Config,
+    pub kademlia_config: Option<KademliaSettings>,
+    pub identify_config: Option<IdentifySettings>,
+    pub autonat_client_config: Option<AutonatClientSettings>,
+    pub enable_autonat_server: bool,
+    pub protocol_name: ProtocolName,
+    pub public_key: identity::PublicKey,
+}
+
 #[derive(Debug, Clone)]
 pub enum BehaviourError {
     OperationNotSupported,
@@ -46,16 +56,17 @@ pub struct Behaviour<R: Clone + Send + RngCore + 'static> {
 }
 
 impl<R: Clone + Send + RngCore + 'static> Behaviour<R> {
-    pub(crate) fn new(
-        gossipsub_config: libp2p::gossipsub::Config,
-        kad_config: Option<KademliaSettings>,
-        identify_config: Option<IdentifySettings>,
-        autonat_client_config: Option<AutonatClientSettings>,
-        enable_autonat_server: bool,
-        protocol_name: ProtocolName,
-        public_key: identity::PublicKey,
-        rng: R,
-    ) -> Result<Self, Box<dyn Error>> {
+    pub(crate) fn new(config: BehaviourConfig, rng: R) -> Result<Self, Box<dyn Error>> {
+        let BehaviourConfig {
+            gossipsub_config,
+            kademlia_config: kad_config,
+            identify_config,
+            autonat_client_config,
+            enable_autonat_server,
+            protocol_name,
+            public_key,
+        } = config;
+
         let peer_id = PeerId::from(public_key.clone());
         let gossipsub = libp2p::gossipsub::Behaviour::new(
             libp2p::gossipsub::MessageAuthenticity::Author(peer_id),

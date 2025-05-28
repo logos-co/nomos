@@ -10,7 +10,7 @@ use overwatch::{
     },
     OpaqueServiceStateHandle,
 };
-use rand::SeedableRng;
+use rand::SeedableRng as _;
 use rand_chacha::ChaCha20Rng;
 use services_utils::overwatch::lifecycle;
 

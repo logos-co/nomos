@@ -52,12 +52,12 @@ pub struct SwarmConfig {
     #[serde(default)]
     pub identify_config: Option<identify::Settings>,
 
-    /// AutoNAT client config
+    /// `AutoNAT` client config
     /// When the value is None, the client is disabled.
     #[serde(default)]
     pub autonat_client_config: Option<autonat_client::Settings>,
 
-    /// Enable AutoNAT server, disabled by default.
+    /// Enable `AutoNAT` server, disabled by default.
     #[serde(default)]
     pub enable_autonat_server: bool,
 }

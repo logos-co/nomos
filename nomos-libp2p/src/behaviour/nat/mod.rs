@@ -14,7 +14,7 @@ use rand::RngCore;
 /// This behaviour is responsible for confirming that the addresses of the node
 /// are publicly reachable.
 pub struct NatBehaviour<R: RngCore + 'static> {
-    /// AutoNAT client behaviour which is used to confirm if addresses of our
+    /// `AutoNAT` client behaviour which is used to confirm if addresses of our
     /// node are indeed publicly reachable.
     autonat_client_behaviour: Behaviour<R>,
 }
@@ -124,7 +124,7 @@ mod tests {
         swarm::SwarmEvent,
         Swarm,
     };
-    use libp2p_swarm_test::SwarmExt;
+    use libp2p_swarm_test::SwarmExt as _;
     use rand::rngs::OsRng;
     use tokio::time::timeout;
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
@@ -169,12 +169,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_external_address_is_confirmed_by_autonat_server() {
+        const _500MS: Duration = Duration::from_millis(500);
         let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env())
             .compact()
             .with_writer(TestWriter::default())
             .try_init();
-        const _500MS: Duration = Duration::from_millis(500);
         let mut client = Swarm::new_ephemeral_tokio(|keypair| Client::new(keypair.public()));
         let mut server = Swarm::new_ephemeral_tokio(|keypair| Server::new(keypair.public()));
 

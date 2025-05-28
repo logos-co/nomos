@@ -20,6 +20,7 @@ use libp2p::{
 use multiaddr::multiaddr;
 use rand::RngCore;
 
+use crate::behaviour::BehaviourConfig;
 pub use crate::{
     behaviour::{Behaviour, BehaviourEvent},
     SwarmConfig,
@@ -60,13 +61,15 @@ impl<R: Clone + Send + RngCore + 'static> Swarm<R> {
             .with_dns()?
             .with_behaviour(|keypair| {
                 Behaviour::new(
-                    gossipsub_config,
-                    kademlia_config.clone(),
-                    identify_config,
-                    autonat_client_config,
-                    enable_autonat_server,
-                    config.protocol_name_env,
-                    keypair.public(),
+                    BehaviourConfig {
+                        gossipsub_config,
+                        kademlia_config: kademlia_config.clone(),
+                        identify_config,
+                        autonat_client_config,
+                        enable_autonat_server,
+                        protocol_name: config.protocol_name_env,
+                        public_key: keypair.public(),
+                    },
                     rng,
                 )
                 .expect("Behaviour should not fail to set up.")
