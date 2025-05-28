@@ -10,8 +10,7 @@ use libp2p::{
     swarm::{behaviour::toggle::Toggle, NetworkBehaviour},
     PeerId,
 };
-use rand::SeedableRng;
-use rand_chacha::ChaCha20Rng;
+use rand::RngCore;
 
 use crate::{
     behaviour::gossipsub::compute_message_id, protocol_name::ProtocolName, AutonatClientSettings,
@@ -32,7 +31,7 @@ pub enum BehaviourError {
 }
 
 #[derive(NetworkBehaviour)]
-pub struct Behaviour {
+pub struct Behaviour<R: Clone + Send + RngCore + 'static> {
     pub(crate) gossipsub: libp2p::gossipsub::Behaviour,
     // todo: support persistent store if needed
     pub(crate) kademlia: Toggle<kad::Behaviour<kad::store::MemoryStore>>,
@@ -42,11 +41,11 @@ pub struct Behaviour {
     // other peers will eventually not attempt to send dialback request to it.
     // The `Toggle` wrapper is used to disable the autonat server in special circumstances, for
     // example in specific tests.
-    pub(crate) autonat_server: Toggle<autonat::v2::server::Behaviour<ChaCha20Rng>>,
-    pub(crate) nat: Toggle<nat::NatBehaviour>,
+    pub(crate) autonat_server: Toggle<autonat::v2::server::Behaviour<R>>,
+    pub(crate) nat: Toggle<nat::NatBehaviour<R>>,
 }
 
-impl Behaviour {
+impl<R: Clone + Send + RngCore + 'static> Behaviour<R> {
     pub(crate) fn new(
         gossipsub_config: libp2p::gossipsub::Config,
         kad_config: Option<KademliaSettings>,
@@ -55,6 +54,7 @@ impl Behaviour {
         enable_autonat_server: bool,
         protocol_name: ProtocolName,
         public_key: identity::PublicKey,
+        rng: R,
     ) -> Result<Self, Box<dyn Error>> {
         let peer_id = PeerId::from(public_key.clone());
         let gossipsub = libp2p::gossipsub::Behaviour::new(
@@ -78,12 +78,12 @@ impl Behaviour {
             )
         }));
 
-        let autonat_server = Toggle::from(enable_autonat_server.then_some(
-            autonat::v2::server::Behaviour::new(ChaCha20Rng::from_entropy()),
-        ));
+        let autonat_server = Toggle::from(
+            enable_autonat_server.then_some(autonat::v2::server::Behaviour::new(rng.clone())),
+        );
 
         let nat = Toggle::from(autonat_client_config.map(|autonat_client_config| {
-            nat::NatBehaviour::new(autonat_client_config.to_libp2p_config())
+            nat::NatBehaviour::new(rng, autonat_client_config.to_libp2p_config())
         }));
 
         Ok(Self {

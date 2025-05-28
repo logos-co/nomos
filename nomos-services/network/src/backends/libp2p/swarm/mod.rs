@@ -20,6 +20,7 @@ use nomos_libp2p::{
     libp2p::{kad::QueryId, swarm::ConnectionId},
     Multiaddr, PeerId, Swarm, SwarmEvent,
 };
+use rand::RngCore;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::StreamExt as _;
 
@@ -36,8 +37,8 @@ mod kademlia;
 pub use gossipsub::PubSubCommand;
 pub use kademlia::DiscoveryCommand;
 
-pub struct SwarmHandler {
-    pub swarm: Swarm,
+pub struct SwarmHandler<R: Clone + Send + RngCore + 'static> {
+    pub swarm: Swarm<R>,
     pub pending_dials: HashMap<ConnectionId, Dial>,
     pub commands_tx: mpsc::Sender<Command>,
     pub commands_rx: mpsc::Receiver<Command>,
@@ -51,14 +52,15 @@ const BACKOFF: u64 = 5;
 // TODO: make this configurable
 const MAX_RETRY: usize = 3;
 
-impl SwarmHandler {
+impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
     pub fn new(
         config: Libp2pConfig,
         commands_tx: mpsc::Sender<Command>,
         commands_rx: mpsc::Receiver<Command>,
         events_tx: broadcast::Sender<Event>,
+        rng: R,
     ) -> Self {
-        let swarm = Swarm::build(config.inner).unwrap();
+        let swarm = Swarm::build(config.inner, rng).unwrap();
 
         // Keep the dialing history since swarm.connect doesn't return the result
         // synchronously
@@ -107,7 +109,7 @@ impl SwarmHandler {
         }
     }
 
-    fn handle_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
+    fn handle_event(&mut self, event: SwarmEvent<BehaviourEvent<R>>) {
         match event {
             SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => {
                 self.handle_gossipsub_event(event);
@@ -250,6 +252,7 @@ mod tests {
     use std::{net::Ipv4Addr, sync::Once, time::Instant};
 
     use nomos_libp2p::{protocol_name::ProtocolName, Protocol};
+    use rand::rngs::OsRng;
     use tracing_subscriber::EnvFilter;
 
     use super::*;
@@ -301,7 +304,8 @@ mod tests {
 
         let (events_tx1, _) = broadcast::channel(10);
         let config = create_libp2p_config(vec![], 8000);
-        let mut bootstrap_node = SwarmHandler::new(config, tx1.clone(), rx1, events_tx1.clone());
+        let mut bootstrap_node =
+            SwarmHandler::new(config, tx1.clone(), rx1, events_tx1.clone(), OsRng);
 
         let bootstrap_node_peer_id = *bootstrap_node.swarm.swarm().local_peer_id();
 
@@ -346,7 +350,7 @@ mod tests {
 
             // Each node connects to the bootstrap node
             let config = create_libp2p_config(vec![bootstrap_addr.clone()], 8000 + i as u16);
-            let mut handler = SwarmHandler::new(config, tx.clone(), rx, events_tx);
+            let mut handler = SwarmHandler::new(config, tx.clone(), rx, events_tx, OsRng);
 
             let peer_id = *handler.swarm.swarm().local_peer_id();
             tracing::info!("Starting node {} with peer ID: {}", i, peer_id);

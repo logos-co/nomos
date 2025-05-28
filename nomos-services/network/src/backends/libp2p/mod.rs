@@ -4,6 +4,7 @@ pub(crate) mod swarm;
 
 pub use nomos_libp2p::libp2p::gossipsub::{Message, TopicHash};
 use overwatch::overwatch::handle::OverwatchHandle;
+use rand_chacha::ChaCha20Rng;
 use tokio::sync::{broadcast, mpsc};
 
 use self::swarm::SwarmHandler;
@@ -37,14 +38,24 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Libp2p {
     type Message = Command;
     type EventKind = EventKind;
     type NetworkEvent = Event;
+    type Rng = ChaCha20Rng;
 
-    fn new(config: Self::Settings, overwatch_handle: OverwatchHandle<RuntimeServiceId>) -> Self {
+    fn new(
+        config: Self::Settings,
+        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+        rng: Self::Rng,
+    ) -> Self {
         let (commands_tx, commands_rx) = tokio::sync::mpsc::channel(BUFFER_SIZE);
         let (events_tx, _) = tokio::sync::broadcast::channel(BUFFER_SIZE);
         let initial_peers = config.initial_peers.clone();
 
-        let mut swarm_handler =
-            SwarmHandler::new(config, commands_tx.clone(), commands_rx, events_tx.clone());
+        let mut swarm_handler = SwarmHandler::new(
+            config,
+            commands_tx.clone(),
+            commands_rx,
+            events_tx.clone(),
+            rng,
+        );
 
         overwatch_handle.runtime().spawn(async move {
             swarm_handler.run(initial_peers).await;

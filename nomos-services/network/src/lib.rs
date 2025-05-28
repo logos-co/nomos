@@ -10,6 +10,8 @@ use overwatch::{
     },
     OpaqueServiceStateHandle,
 };
+use rand::SeedableRng;
+use rand_chacha::ChaCha20Rng;
 use services_utils::overwatch::lifecycle;
 
 use crate::{config::NetworkConfig, message::BackendNetworkMsg};
@@ -40,7 +42,7 @@ where
 impl<Backend, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for NetworkService<Backend, RuntimeServiceId>
 where
-    Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
+    Backend: NetworkBackend<RuntimeServiceId, Rng = ChaCha20Rng> + Send + 'static,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send,
 {
     fn init(
@@ -51,6 +53,7 @@ where
             backend: Backend::new(
                 service_state.settings_reader.get_updated_settings().backend,
                 service_state.overwatch_handle.clone(),
+                ChaCha20Rng::from_entropy(),
             ),
             service_state,
         })

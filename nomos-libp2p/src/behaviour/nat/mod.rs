@@ -1,7 +1,4 @@
-use std::{
-    collections::VecDeque,
-    task::{Context, Poll, Waker},
-};
+use std::task::{Context, Poll};
 
 use libp2p::{
     autonat::v2::client::{Behaviour, Config},
@@ -12,57 +9,29 @@ use libp2p::{
     },
     Multiaddr, PeerId,
 };
-use rand::SeedableRng;
-use rand_chacha::ChaCha20Rng;
-
-pub(crate) mod behaviour_ext;
-pub mod swarm_ext;
-
-type AutonatClientBehaviour = Behaviour<ChaCha20Rng>;
+use rand::RngCore;
 
 /// This behaviour is responsible for confirming that the addresses of the node
 /// are publicly reachable.
-pub struct NatBehaviour {
+pub struct NatBehaviour<R: RngCore + 'static> {
     /// AutoNAT client behaviour which is used to confirm if addresses of our
     /// node are indeed publicly reachable.
-    autonat_client_behaviour: AutonatClientBehaviour,
-    /// A queue of addresses which the caller has requested to be confirmed as
-    /// publicly reachable.
-    pending_external_address_candidates: VecDeque<Multiaddr>,
-    /// This waker is only used when the public API of the behaviour is called.
-    /// In all other cases we wake via reference in [`Self::poll`].
-    waker: Option<Waker>,
+    autonat_client_behaviour: Behaviour<R>,
 }
 
-impl NatBehaviour {
-    pub fn new(config: Config) -> Self {
-        let autonat_client_behaviour =
-            AutonatClientBehaviour::new(ChaCha20Rng::from_entropy(), config);
-        let pending_external_address_candidates = VecDeque::new();
+impl<R: RngCore + 'static> NatBehaviour<R> {
+    pub fn new(rng: R, config: Config) -> Self {
+        let autonat_client_behaviour = Behaviour::new(rng, config);
 
         Self {
             autonat_client_behaviour,
-            pending_external_address_candidates,
-            waker: None,
-        }
-    }
-
-    pub fn add_external_address_candidate(&mut self, address: Multiaddr) {
-        eprintln!("NatBehaviour::add_external_address_candidate {address}");
-        self.pending_external_address_candidates.push_back(address);
-        self.try_wake();
-    }
-
-    fn try_wake(&mut self) {
-        if let Some(waker) = self.waker.take() {
-            waker.wake();
         }
     }
 }
 
-impl NetworkBehaviour for NatBehaviour {
-    type ConnectionHandler = <AutonatClientBehaviour as NetworkBehaviour>::ConnectionHandler;
-    type ToSwarm = <AutonatClientBehaviour as NetworkBehaviour>::ToSwarm;
+impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
+    type ConnectionHandler = <Behaviour as NetworkBehaviour>::ConnectionHandler;
+    type ToSwarm = <Behaviour as NetworkBehaviour>::ToSwarm;
 
     fn handle_established_inbound_connection(
         &mut self,
@@ -115,14 +84,6 @@ impl NetworkBehaviour for NatBehaviour {
             return Poll::Ready(autonat_event);
         }
 
-        if let Some(address) = self.pending_external_address_candidates.pop_front() {
-            eprintln!("NatBehaviour::poll pop {address}");
-            return Poll::Ready(ToSwarm::NewExternalAddrCandidate(address));
-        }
-
-        // Keep the most recent waker for `try_wake` to use.
-        self.waker = Some(cx.waker().clone());
-
         Poll::Pending
     }
 }
@@ -138,8 +99,7 @@ mod tests {
         Swarm,
     };
     use libp2p_swarm_test::SwarmExt;
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha20Rng;
+    use rand::rngs::OsRng;
     use tokio::time::timeout;
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
@@ -147,13 +107,14 @@ mod tests {
 
     #[derive(NetworkBehaviour)]
     pub struct Client {
-        nat: NatBehaviour,
+        nat: NatBehaviour<OsRng>,
         identify: identify::Behaviour,
     }
 
     impl Client {
         pub fn new(public_key: identity::PublicKey) -> Self {
             let nat = NatBehaviour::new(
+                OsRng,
                 Config::default().with_probe_interval(Duration::from_millis(100)),
             );
             let identify =
@@ -164,13 +125,13 @@ mod tests {
 
     #[derive(NetworkBehaviour)]
     pub struct Server {
-        autonat_server: autonat::v2::server::Behaviour<ChaCha20Rng>,
+        autonat_server: autonat::v2::server::Behaviour<OsRng>,
         identify: identify::Behaviour,
     }
 
     impl Server {
         pub fn new(public_key: identity::PublicKey) -> Self {
-            let autonat_server = autonat::v2::server::Behaviour::new(ChaCha20Rng::from_entropy());
+            let autonat_server = autonat::v2::server::Behaviour::new(OsRng);
             let identify =
                 identify::Behaviour::new(identify::Config::new("/unittest".into(), public_key));
             Self {
@@ -199,9 +160,8 @@ mod tests {
         client.connect(&mut server).await;
 
         let client_task = timeout(_500MS, async move {
-            // No need to call `Nat::add_external_address_candidate` here, as the address
-            // candidate is automatically taken by Identify from the address observed by the
-            // server.
+            // The address candidate is automatically taken by Identify from the address
+            // observed by the server.
             let confirmed = client
                 .wait(|e| match e {
                     SwarmEvent::ExternalAddrConfirmed { address } => Some(address),
