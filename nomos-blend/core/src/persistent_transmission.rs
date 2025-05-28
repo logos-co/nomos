@@ -25,53 +25,54 @@ impl Default for PersistentTransmissionSettings {
 }
 
 /// Transmit scheduled messages with a persistent rate as a stream.
-pub struct PersistentTransmissionStream<S, Rng, Scheduler>
+pub struct PersistentTransmissionStream<MsgStream, Rng, Scheduler>
 where
-    S: Stream,
+    MsgStream: Stream,
     Rng: RngCore,
 {
     coin: Coin<Rng>,
-    message_stream: S,
+    stream: MsgStream,
     scheduler: Scheduler,
-    drop_message: S::Item,
+    drop_message: MsgStream::Item,
 }
 
-impl<S, Rng, Scheduler> PersistentTransmissionStream<S, Rng, Scheduler>
+impl<MsgStream, Rng, Scheduler> PersistentTransmissionStream<MsgStream, Rng, Scheduler>
 where
-    S: Stream,
+    MsgStream: Stream,
     Rng: RngCore,
     Scheduler: Stream<Item = ()>,
 {
     pub fn new(
         settings: PersistentTransmissionSettings,
-        message_stream: S,
+        stream: MsgStream,
         scheduler: Scheduler,
-        drop_message: S::Item,
+        drop_message: MsgStream::Item,
         rng: Rng,
     ) -> Self {
         let coin = Coin::<Rng>::new(rng, settings.drop_message_probability).unwrap();
         Self {
             coin,
-            message_stream,
+            stream,
             scheduler,
             drop_message,
         }
     }
 }
 
-impl<S, Rng, Scheduler> Stream for PersistentTransmissionStream<S, Rng, Scheduler>
+impl<MessageStream, Rng, Scheduler> Stream
+    for PersistentTransmissionStream<MessageStream, Rng, Scheduler>
 where
-    S: Stream + Unpin,
-    S::Item: Clone + Unpin,
+    MessageStream: Stream + Unpin,
+    MessageStream::Item: Clone + Unpin,
     Rng: RngCore + Unpin,
     Scheduler: Stream<Item = ()> + Unpin,
 {
-    type Item = S::Item;
+    type Item = MessageStream::Item;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Self {
             ref mut scheduler,
-            ref mut message_stream,
+            ref mut stream,
             ref mut coin,
             ref drop_message,
             ..
@@ -79,7 +80,7 @@ where
         if pin!(scheduler).poll_next_unpin(cx).is_pending() {
             return Poll::Pending;
         }
-        if let Poll::Ready(Some(item)) = pin!(message_stream).poll_next(cx) {
+        if let Poll::Ready(Some(item)) = pin!(stream).poll_next(cx) {
             Poll::Ready(Some(item))
         } else if coin.flip() {
             Poll::Ready(Some(drop_message.clone()))
@@ -108,9 +109,9 @@ where
     }
 }
 
-impl<S, Rng, Scheduler> PersistentTransmissionExt<Rng, Scheduler> for S
+impl<MessageStream, Rng, Scheduler> PersistentTransmissionExt<Rng, Scheduler> for MessageStream
 where
-    S: Stream,
+    MessageStream: Stream,
     Rng: RngCore,
     Scheduler: Stream<Item = ()>,
 {

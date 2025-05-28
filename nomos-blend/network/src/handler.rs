@@ -212,6 +212,7 @@ where
                     self.inbound_substream =
                         Some(InboundSubstreamState::PendingRecv(recv_msg(stream).boxed()));
 
+                    // Notify behaviour only on non-drop messages.
                     if !Msg::is_drop(&msg) {
                         return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                             ToBehaviour::Message(msg),
