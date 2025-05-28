@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use backends::NetworkBackend;
 use futures::{Stream, StreamExt as _};
 use libp2p::{Multiaddr, PeerId};
+use nomos_libp2p::ed25519::PublicKey;
 use nomos_membership::MembershipProviders;
 use nomos_sdp_core::ServiceType;
 use overwatch::{
@@ -202,7 +203,14 @@ where
         let mut rng = rand::thread_rng();
 
         for (provider_id, locators) in update {
-            let peer_id = PeerId::from_bytes(&provider_id.0).expect("Invalid ProviderId");
+            let public_key = match PublicKey::try_from_bytes(&provider_id.0) {
+                Ok(key) => key,
+                Err(e) => {
+                    tracing::error!("Failed to convert provider ID to public key: {e}");
+                    continue;
+                }
+            };
+            let peer_id = PeerId::from_public_key(&public_key.into());
             members.push(peer_id);
 
             // Pick a random locator from the BTreeSet
