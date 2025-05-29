@@ -26,7 +26,10 @@ repos:
     hooks:
       - id: taplo-format
       - id: taplo-lint
-
+  - repo: https://github.com/bnjbvr/cargo-machete
+    rev: ba1bcd4 # No tag yet with .pre-commit-hooks.yml
+    hooks:
+      - id: cargo-machete
   - repo: local
     hooks:
       - id: dependency-graph
