@@ -320,7 +320,7 @@ where
     #[instrument(skip_all)]
     async fn handle_new_block(
         storage_adapter: &DaStorage,
-        block: Block<ClPool::Item, DaPool::Item>,
+        block: Block<ClPool::Item>,
     ) -> Result<(), DynError> {
         for info in block.blobs() {
             info_with_id!(info.blob_id().as_ref(), "HandleNewBlock");

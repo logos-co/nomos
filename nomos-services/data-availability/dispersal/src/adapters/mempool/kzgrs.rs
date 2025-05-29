@@ -9,7 +9,7 @@ use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_mempool::{
     backend::{MemPool, RecoverableMempool},
     network::NetworkAdapter as MempoolAdapter,
-    DaMempoolService, MempoolMsg,
+    MempoolMsg,
 };
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 use rand::{RngCore, SeedableRng};
