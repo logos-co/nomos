@@ -16,10 +16,7 @@ use network::NetworkAdapter;
 use nomos_blend_service::BlendService;
 use nomos_core::{
     block::{builder::BlockBuilder, Block},
-    da::{
-        blob::{info::DispersedBlobInfo, metadata::Metadata as BlobMetadata, BlobSelect},
-        BlobId,
-    },
+    da::BlobId,
     header::{Builder, Header, HeaderId},
     proofs::leader_proof::Risc0LeaderProof,
     tx::{Transaction, TxSelect},
@@ -29,8 +26,8 @@ use nomos_da_sampling::{
 };
 use nomos_ledger::{leader_proof::LeaderProof as _, LedgerState};
 use nomos_mempool::{
-    backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter, DaMempoolService,
-    MempoolMsg, TxMempoolService,
+    backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter, MempoolMsg,
+    TxMempoolService,
 };
 use nomos_network::NetworkService;
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageService};
@@ -885,7 +882,7 @@ where
         let cl_txs = get_mempool_contents(relays.cl_mempool_relay().clone());
         let blobs_ids = get_sampled_blobs(relays.sampling_relay().clone());
         match futures::join!(cl_txs, blobs_ids) {
-            (Ok(cl_txs), Ok(blobs_ids)) => {
+            (Ok(cl_txs), Ok(_blobs_ids)) => {
                 let block = BlockBuilder::new(tx_selector, Builder::new(parent, slot, proof))
                     .with_transactions(cl_txs)
                     .build()
@@ -906,8 +903,8 @@ where
     }
 
     fn validate_blocks_blobs(
-        block: &Block<ClPool::Item>,
-        sampled_blobs_ids: &BTreeSet<BlobId>,
+        _block: &Block<ClPool::Item>,
+        _sampled_blobs_ids: &BTreeSet<BlobId>,
     ) -> bool {
         // let validated_blobs = block
         //     .blobs()
@@ -1279,17 +1276,17 @@ async fn mark_in_block<Payload, Item, Key>(
         .unwrap_or_else(|(e, _)| tracing::error!("Could not mark items in block: {e}"));
 }
 
-async fn mark_blob_in_block<BlobId: Debug + Send>(
-    sampling_relay: SamplingRelay<BlobId>,
-    blobs_id: Vec<BlobId>,
-) {
-    if let Err((_e, DaSamplingServiceMsg::MarkInBlock { blobs_id })) = sampling_relay
-        .send(DaSamplingServiceMsg::MarkInBlock { blobs_id })
-        .await
-    {
-        error!("Error marking in block for blobs ids: {blobs_id:?}");
-    }
-}
+// async fn mark_blob_in_block<BlobId: Debug + Send>(
+//     sampling_relay: SamplingRelay<BlobId>,
+//     blobs_id: Vec<BlobId>,
+// ) {
+//     if let Err((_e, DaSamplingServiceMsg::MarkInBlock { blobs_id })) =
+// sampling_relay         .send(DaSamplingServiceMsg::MarkInBlock { blobs_id })
+//         .await
+//     {
+//         error!("Error marking in block for blobs ids: {blobs_id:?}");
+//     }
+// }
 
 async fn get_sampled_blobs<BlobId>(
     sampling_relay: SamplingRelay<BlobId>,

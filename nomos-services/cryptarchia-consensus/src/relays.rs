@@ -7,17 +7,12 @@ use std::{
 use nomos_blend_service::{
     network::NetworkAdapter as BlendNetworkAdapter, BlendService, ServiceMessage,
 };
-use nomos_core::{
-    block::Block,
-    da::blob::{info::DispersedBlobInfo, BlobSelect},
-    header::HeaderId,
-    tx::TxSelect,
-};
+use nomos_core::{block::Block, da::BlobId, header::HeaderId, tx::TxSelect};
 use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
 use nomos_mempool::{
     backend::{MemPool, RecoverableMempool},
     network::NetworkAdapter as MempoolAdapter,
-    DaMempoolService, TxMempoolService,
+    TxMempoolService,
 };
 use nomos_network::{message::BackendNetworkMsg, NetworkService};
 use nomos_storage::{
@@ -30,7 +25,7 @@ use overwatch::{
 };
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use nomos_core::da::BlobId;
+
 use crate::{
     blend, network,
     storage::{adapters::StorageAdapter, StorageAdapter as _},
