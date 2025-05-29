@@ -18,8 +18,10 @@ use libp2p::{
     Multiaddr, PeerId, TransportError,
 };
 use multiaddr::multiaddr;
+use rand::RngCore;
 
-use crate::{
+use crate::behaviour::BehaviourConfig;
+pub use crate::{
     behaviour::{Behaviour, BehaviourEvent},
     SwarmConfig,
 };
@@ -28,17 +30,17 @@ use crate::{
 const IDLE_CONN_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Wraps [`libp2p::Swarm`], and config it for use within Nomos.
-pub struct Swarm {
+pub struct Swarm<R: Clone + Send + RngCore + 'static> {
     // A core libp2p swarm
-    pub(crate) swarm: libp2p::Swarm<Behaviour>,
+    pub(crate) swarm: libp2p::Swarm<Behaviour<R>>,
 }
 
-impl Swarm {
+impl<R: Clone + Send + RngCore + 'static> Swarm<R> {
     /// Builds a [`Swarm`] configured for use with Nomos on top of a tokio
     /// executor.
     //
     // TODO: define error types
-    pub fn build(config: SwarmConfig) -> Result<Self, Box<dyn Error>> {
+    pub fn build(config: SwarmConfig, rng: R) -> Result<Self, Box<dyn Error>> {
         let keypair =
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
         let peer_id = PeerId::from(keypair.public());
@@ -48,6 +50,7 @@ impl Swarm {
             gossipsub_config,
             kademlia_config,
             identify_config,
+            autonat_client_config,
             ..
         } = config;
 
@@ -57,11 +60,15 @@ impl Swarm {
             .with_dns()?
             .with_behaviour(|keypair| {
                 Behaviour::new(
-                    gossipsub_config,
-                    kademlia_config.clone(),
-                    identify_config,
-                    config.protocol_name_env,
-                    keypair.public(),
+                    BehaviourConfig {
+                        gossipsub_config,
+                        kademlia_config: kademlia_config.clone(),
+                        identify_config,
+                        autonat_client_config,
+                        protocol_name: config.protocol_name_env,
+                        public_key: keypair.public(),
+                    },
+                    rng,
                 )
                 .expect("Behaviour should not fail to set up.")
             })?
@@ -97,13 +104,13 @@ impl Swarm {
     }
 
     /// Returns a reference to the underlying [`libp2p::Swarm`]
-    pub const fn swarm(&self) -> &libp2p::Swarm<Behaviour> {
+    pub const fn swarm(&self) -> &libp2p::Swarm<Behaviour<R>> {
         &self.swarm
     }
 }
 
-impl futures::Stream for Swarm {
-    type Item = SwarmEvent<BehaviourEvent>;
+impl<R: Clone + Send + RngCore + 'static> futures::Stream for Swarm<R> {
+    type Item = SwarmEvent<BehaviourEvent<R>>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Pin::new(&mut self.swarm).poll_next(cx)

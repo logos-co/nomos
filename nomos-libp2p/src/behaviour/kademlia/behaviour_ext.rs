@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
 use libp2p::{kad::QueryId, Multiaddr, PeerId, StreamProtocol};
+use rand::RngCore;
 
 use crate::behaviour::{Behaviour, BehaviourError};
 
-impl Behaviour {
+impl<R: Clone + Send + RngCore + 'static> Behaviour<R> {
     pub(crate) fn kademlia_add_address(&mut self, peer_id: PeerId, addr: Multiaddr) {
         let Some(kademlia) = self.kademlia.as_mut() else {
             return;
