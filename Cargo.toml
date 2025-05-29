@@ -2,107 +2,108 @@
 # Make sure any excluded crates are still clipped in our CI.
 exclude = ["nomos-core/cl", "nomos-core/proof_statements", "nomos-core/risc0_proofs"]
 members = [
-  "consensus/cryptarchia-engine",
-  "ledger/nomos-ledger",
-  "nodes/api-common",
-  "nodes/nomos-executor/executor",
-  "nodes/nomos-executor/http-client",
-  "nodes/nomos-node/http-client",
-  "nodes/nomos-node/node",
-  "nomos-blend/core",
-  "nomos-blend/message",
-  "nomos-blend/network",
-  "nomos-bundler",
-  "nomos-cli",
-  "nomos-core/chain-defs",
-  "nomos-da/kzgrs",
-  "nomos-da/kzgrs-backend",
-  "nomos-da/network/core",
-  "nomos-da/network/messages",
-  "nomos-da/network/subnetworks-assignations",
-  "nomos-libp2p",
-  "nomos-sdp",
-  "nomos-services/api",
-  "nomos-services/blend",
-  "nomos-services/cryptarchia-consensus",
-  "nomos-services/data-availability/dispersal",
-  "nomos-services/data-availability/indexer",
-  "nomos-services/data-availability/network",
-  "nomos-services/data-availability/sampling",
-  "nomos-services/data-availability/verifier",
-  "nomos-services/key-management-system",
-  "nomos-services/membership",
-  "nomos-services/mempool",
-  "nomos-services/network",
-  "nomos-services/sdp",
-  "nomos-services/storage",
-  "nomos-services/system-sig",
-  "nomos-services/time",
-  "nomos-services/tracing",
-  "nomos-services/utils",
-  "nomos-tracing",
-  "nomos-utils",
-  "testnet/cfgsync",
-  "tests",
+    "consensus/cryptarchia-engine",
+    "ledger/nomos-ledger",
+    "nodes/api-common",
+    "nodes/nomos-executor/executor",
+    "nodes/nomos-executor/http-client",
+    "nodes/nomos-node/http-client",
+    "nodes/nomos-node/node",
+    "nomos-mantle",
+    "nomos-blend/core",
+    "nomos-blend/message",
+    "nomos-blend/network",
+    "nomos-bundler",
+    "nomos-cli",
+    "nomos-core/chain-defs",
+    "nomos-da/kzgrs",
+    "nomos-da/kzgrs-backend",
+    "nomos-da/network/core",
+    "nomos-da/network/messages",
+    "nomos-da/network/subnetworks-assignations",
+    "nomos-libp2p", "nomos-mantle",
+    "nomos-sdp",
+    "nomos-services/api",
+    "nomos-services/blend",
+    "nomos-services/cryptarchia-consensus",
+    "nomos-services/data-availability/dispersal",
+    "nomos-services/data-availability/indexer",
+    "nomos-services/data-availability/network",
+    "nomos-services/data-availability/sampling",
+    "nomos-services/data-availability/verifier",
+    "nomos-services/key-management-system",
+    "nomos-services/membership",
+    "nomos-services/mempool",
+    "nomos-services/network",
+    "nomos-services/sdp",
+    "nomos-services/storage",
+    "nomos-services/system-sig",
+    "nomos-services/time",
+    "nomos-services/tracing",
+    "nomos-services/utils",
+    "nomos-tracing",
+    "nomos-utils",
+    "testnet/cfgsync",
+    "tests",
 ]
 resolver = "2"
 
 [workspace.dependencies]
 # Internal
-bundler                  = { path = "./nomos-bundler" }
-cfgsync                  = { path = "./testnet/cfgsync" }
-cl                       = { path = "./nomos-core/cl" }
-common-http-client       = { path = "./nodes/nomos-node/http-client" }
-cryptarchia-consensus    = { path = "./nomos-services/cryptarchia-consensus" }
-cryptarchia-engine       = { path = "./consensus/cryptarchia-engine" }
-executor-http-client     = { path = "./nodes/nomos-executor/http-client" }
-key-management-system    = { path = "./nomos-services/key-management-system" }
-kzgrs                    = { path = "./nomos-da/kzgrs" }
-kzgrs-backend            = { path = "./nomos-da/kzgrs-backend" }
-nomos-api                = { path = "./nomos-services/api" }
-nomos-blend              = { path = "./nomos-blend/core" }
-nomos-blend-message      = { path = "./nomos-blend/message" }
-nomos-blend-network      = { path = "./nomos-blend/network" }
-nomos-blend-service      = { path = "./nomos-services/blend" }
-nomos-cli                = { path = "./nomos-cli" }
-nomos-core               = { path = "./nomos-core/chain-defs" }
-nomos-da-dispersal       = { path = "./nomos-services/data-availability/dispersal" }
-nomos-da-indexer         = { path = "./nomos-services/data-availability/indexer" }
-nomos-da-messages        = { path = "./nomos-da/network/messages" }
-nomos-da-network-core    = { path = "./nomos-da/network/core" }
+bundler = { path = "./nomos-bundler" }
+cfgsync = { path = "./testnet/cfgsync" }
+cl = { path = "./nomos-core/cl" }
+common-http-client = { path = "./nodes/nomos-node/http-client" }
+cryptarchia-consensus = { path = "./nomos-services/cryptarchia-consensus" }
+cryptarchia-engine = { path = "./consensus/cryptarchia-engine" }
+executor-http-client = { path = "./nodes/nomos-executor/http-client" }
+key-management-system = { path = "./nomos-services/key-management-system" }
+kzgrs = { path = "./nomos-da/kzgrs" }
+kzgrs-backend = { path = "./nomos-da/kzgrs-backend" }
+nomos-api = { path = "./nomos-services/api" }
+nomos-blend = { path = "./nomos-blend/core" }
+nomos-blend-message = { path = "./nomos-blend/message" }
+nomos-blend-network = { path = "./nomos-blend/network" }
+nomos-blend-service = { path = "./nomos-services/blend" }
+nomos-cli = { path = "./nomos-cli" }
+nomos-core = { path = "./nomos-core/chain-defs" }
+nomos-da-dispersal = { path = "./nomos-services/data-availability/dispersal" }
+nomos-da-indexer = { path = "./nomos-services/data-availability/indexer" }
+nomos-da-messages = { path = "./nomos-da/network/messages" }
+nomos-da-network-core = { path = "./nomos-da/network/core" }
 nomos-da-network-service = { path = "./nomos-services/data-availability/network" }
-nomos-da-sampling        = { path = "./nomos-services/data-availability/sampling" }
-nomos-da-verifier        = { path = "./nomos-services/data-availability/verifier" }
-nomos-executor           = { path = "./nodes/nomos-executor/executor", default-features = false }
-nomos-http-api-common    = { path = "./nodes/api-common" }
-nomos-ledger             = { path = "./ledger/nomos-ledger" }
-nomos-libp2p             = { path = "./nomos-libp2p" }
-nomos-membership         = { path = "./nomos-services/membership" }
-nomos-mempool            = { path = "./nomos-services/mempool" }
-nomos-network            = { path = "./nomos-services/network" }
-nomos-node               = { path = "./nodes/nomos-node/node", default-features = false }
-nomos-sdp                = { path = "./nomos-services/sdp" }
-nomos-sdp-core           = { path = "./nomos-sdp" }
-nomos-storage            = { path = "./nomos-services/storage" }
-nomos-system-sig         = { path = "./nomos-services/system-sig" }
-nomos-time               = { path = "./nomos-services/time" }
-nomos-tracing            = { path = "./nomos-tracing" }
-nomos-tracing-service    = { path = "./nomos-services/tracing" }
-nomos-utils              = { path = "./nomos-utils" }
-nomos_proof_statements   = { path = "./nomos-core/proof_statements" }
-services-utils           = { path = "./nomos-services/utils" }
+nomos-da-sampling = { path = "./nomos-services/data-availability/sampling" }
+nomos-da-verifier = { path = "./nomos-services/data-availability/verifier" }
+nomos-executor = { path = "./nodes/nomos-executor/executor", default-features = false }
+nomos-http-api-common = { path = "./nodes/api-common" }
+nomos-ledger = { path = "./ledger/nomos-ledger" }
+nomos-libp2p = { path = "./nomos-libp2p" }
+nomos-membership = { path = "./nomos-services/membership" }
+nomos-mempool = { path = "./nomos-services/mempool" }
+nomos-network = { path = "./nomos-services/network" }
+nomos-node = { path = "./nodes/nomos-node/node", default-features = false }
+nomos-sdp = { path = "./nomos-services/sdp" }
+nomos-sdp-core = { path = "./nomos-sdp" }
+nomos-storage = { path = "./nomos-services/storage" }
+nomos-system-sig = { path = "./nomos-services/system-sig" }
+nomos-time = { path = "./nomos-services/time" }
+nomos-tracing = { path = "./nomos-tracing" }
+nomos-tracing-service = { path = "./nomos-services/tracing" }
+nomos-utils = { path = "./nomos-utils" }
+nomos_proof_statements = { path = "./nomos-core/proof_statements" }
+services-utils = { path = "./nomos-services/utils" }
 subnetworks-assignations = { path = "./nomos-da/network/subnetworks-assignations" }
-tests                    = { path = "./tests" }
+tests = { path = "./tests" }
 
 # External
-bytes            = "1.3"
-cached           = { version = "0.55.1", default-features = false }
-libp2p           = "0.55"
-overwatch        = { git = "https://github.com/logos-co/Overwatch", rev = "f0895b8" }
+bytes = "1.3"
+cached = { version = "0.55.1", default-features = false }
+libp2p = "0.55"
+overwatch = { git = "https://github.com/logos-co/Overwatch", rev = "f0895b8" }
 overwatch-derive = { git = "https://github.com/logos-co/Overwatch", rev = "f0895b8" }
-reqwest          = "0.12"
-risc0-zkvm       = "2.0.0"
-serde_with       = "3.12.0"
+reqwest = "0.12"
+risc0-zkvm = "2.0.0"
+serde_with = "3.12.0"
 
 [workspace.package]
 license = "MIT or Apache-2.0"
