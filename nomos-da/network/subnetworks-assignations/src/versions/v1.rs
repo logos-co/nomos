@@ -49,7 +49,10 @@ impl FillFromNodeList {
         subnetwork_size: usize,
         replication_factor: usize,
     ) -> Vec<HashSet<PeerId>> {
-        assert!(!peers.is_empty());
+        if peers.is_empty() {
+            return vec![HashSet::new(); subnetwork_size];
+        }
+
         // sort list to make it deterministic
         let mut peers = peers.to_vec();
         peers.sort_unstable();
@@ -70,15 +73,19 @@ impl MembershipHandler for FillFromNodeList {
     type Id = PeerId;
 
     fn membership(&self, id: &Self::Id) -> HashSet<Self::NetworkId> {
-        self.assignations
+        let res: std::collections::HashSet<Self::NetworkId> = self
+            .assignations
             .iter()
             .enumerate()
-            .filter_map(|(netowrk_id, subnetwork)| {
+            .filter_map(|(network_id, subnetwork)| {
                 subnetwork
                     .contains(id)
-                    .then_some(netowrk_id as Self::NetworkId)
+                    .then_some(network_id as Self::NetworkId)
             })
-            .collect()
+            .collect();
+
+        tracing::debug!("Membership for {id}: {res:?}");
+        res
     }
 
     fn is_allowed(&self, id: &Self::Id) -> bool {

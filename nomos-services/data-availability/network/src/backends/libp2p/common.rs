@@ -202,6 +202,7 @@ impl<T: MembershipHandler> SwappableMembershipHandler<T> {
     ) {
         let old_inner = self.inner.load_full();
         let inner = old_inner.new_with(members, addressbook);
+
         self.inner.store(inner);
     }
 

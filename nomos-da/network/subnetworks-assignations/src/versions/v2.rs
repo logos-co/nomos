@@ -48,7 +48,10 @@ impl FillWithOriginalReplication {
         original_replication: usize,
         pivot: u16,
     ) -> Vec<HashSet<PeerId>> {
-        assert!(!peers.is_empty());
+        if peers.is_empty() {
+            return vec![HashSet::new(); subnetwork_size];
+        }
+
         // sort list to make it deterministic
         let mut peers = peers.to_vec();
         peers.sort_unstable();

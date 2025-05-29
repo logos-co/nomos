@@ -8,6 +8,6 @@ version = "0.1.0"
 libp2p          = { version = "0.55", default-features = false }
 libp2p-identity = { version = "0.2", features = ["peerid", "serde"] }
 serde           = "1"
-
+tracing         = "0.1"
 [dev-dependencies]
 libp2p-identity = { version = "0.2", features = ["rand"] }

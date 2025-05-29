@@ -1,19 +1,32 @@
-use std::{collections::HashMap, net::Ipv4Addr, str::FromStr as _};
+use std::{
+    collections::{BTreeSet, HashMap, HashSet},
+    net::Ipv4Addr,
+    str::FromStr as _,
+};
 
 use nomos_blend::membership::Node;
 use nomos_blend_message::{sphinx::SphinxMessage, BlendMessage};
-use nomos_libp2p::{multiaddr, Multiaddr, PeerId};
+use nomos_libp2p::{ed25519, multiaddr, Multiaddr, PeerId};
+use nomos_membership::{
+    backends::{mock::MockMembershipBackendSettings, MembershipBackendServiceSettings},
+    MembershipServiceSettings,
+};
+use nomos_sdp_core::{Locator, ServiceType};
 use nomos_tracing_service::{LoggerLayer, MetricsLayer, TracingLayer, TracingSettings};
 use rand::{thread_rng, Rng as _};
-use tests::topology::configs::{
-    api::GeneralApiConfig,
-    blend::create_blend_configs,
-    consensus::{create_consensus_configs, ConsensusParams},
-    da::{create_da_configs, DaParams, GeneralDaConfig},
-    network::{create_network_configs, NetworkParams},
-    time::default_time_config,
-    tracing::GeneralTracingConfig,
-    GeneralConfig,
+use tests::{
+    get_available_port, secret_key_to_provider_id,
+    topology::configs::{
+        api::GeneralApiConfig,
+        blend::create_blend_configs,
+        consensus::{create_consensus_configs, ConsensusParams},
+        da::{create_da_configs, DaParams, GeneralDaConfig},
+        membership::GeneralMembershipConfig,
+        network::{create_network_configs, NetworkParams},
+        time::default_time_config,
+        tracing::GeneralTracingConfig,
+        GeneralConfig,
+    },
 };
 
 const DEFAULT_LIBP2P_NETWORK_PORT: u16 = 3000;
@@ -71,14 +84,17 @@ pub fn create_node_configs(
     hosts: Vec<Host>,
 ) -> HashMap<Host, GeneralConfig> {
     let mut ids = vec![[0; 32]; consensus_params.n_participants];
+    let mut ports = vec![];
     for id in &mut ids {
         thread_rng().fill(id);
+        ports.push(get_available_port());
     }
 
     let consensus_configs = create_consensus_configs(&ids, consensus_params);
-    let da_configs = create_da_configs(&ids, da_params);
+    let da_configs = create_da_configs(&ids, da_params, &ports);
     let network_configs = create_network_configs(&ids, &NetworkParams::default());
     let blend_configs = create_blend_configs(&ids);
+    let membership_configs = create_membership_configs(&ids, &hosts);
     let api_configs = ids
         .iter()
         .map(|_| GeneralApiConfig {
@@ -142,6 +158,7 @@ pub fn create_node_configs(
                 api_config,
                 tracing_config,
                 time_config,
+                membership_config: membership_configs[i].clone(),
             },
         );
     }
@@ -224,6 +241,70 @@ fn update_tracing_identifier(
     }
 }
 
+#[must_use]
+pub fn create_membership_configs(ids: &[[u8; 32]], hosts: &[Host]) -> Vec<GeneralMembershipConfig> {
+    let settings_per_service = HashMap::from([(
+        ServiceType::DataAvailability,
+        MembershipBackendServiceSettings {
+            historical_block_delta: 8,
+        },
+    )]);
+
+    let mut provider_ids = vec![];
+    let mut locators = HashMap::new();
+
+    for (i, id) in ids.iter().enumerate() {
+        let mut node_key_bytes = *id;
+        let node_key = ed25519::SecretKey::try_from_bytes(&mut node_key_bytes)
+            .expect("Failed to generate secret key from bytes");
+
+        let provider_id = secret_key_to_provider_id(node_key.clone());
+        provider_ids.push(provider_id);
+
+        let listening_address = Multiaddr::from_str(&format!(
+            "/ip4/{}/udp/{}/quic-v1",
+            hosts[i].ip, hosts[i].da_network_port,
+        ))
+        .expect("Failed to create multiaddr");
+
+        locators.insert(provider_id, Locator::new(listening_address));
+    }
+
+    let mut initial_membership = HashMap::new();
+    let mut initial_locators_mapping = HashMap::new();
+    let mut membership_entry = HashMap::new();
+    let mut providers = HashSet::new();
+
+    for provider_id in provider_ids {
+        providers.insert(provider_id);
+    }
+
+    membership_entry.insert(ServiceType::DataAvailability, providers.clone());
+    initial_membership.insert(0u64, membership_entry);
+
+    for provider_id in providers {
+        let mut locs = BTreeSet::new();
+        if let Some(locator) = locators.get(&provider_id) {
+            locs.insert(locator.clone());
+        }
+        initial_locators_mapping.insert(provider_id, locs);
+    }
+
+    let mock_backend_settings = MockMembershipBackendSettings {
+        settings_per_service,
+        initial_membership,
+        initial_locators_mapping,
+    };
+
+    let config = GeneralMembershipConfig {
+        service_settings: MembershipServiceSettings {
+            backend: mock_backend_settings,
+        },
+    };
+
+    ids.iter().map(|_| config.clone()).collect()
+}
+
 #[cfg(test)]
 mod cfgsync_tests {
     use std::{net::Ipv4Addr, num::NonZero, str::FromStr as _, time::Duration};
@@ -232,11 +313,11 @@ mod cfgsync_tests {
     use nomos_da_network_core::swarm::{
         DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
     };
-    use nomos_libp2p::{ed25519, libp2p, Multiaddr, PeerId, Protocol};
+    use nomos_libp2p::{ed25519, Multiaddr, Protocol};
+    use nomos_sdp_core::ProviderId;
     use nomos_tracing_service::{
         FilterLayer, LoggerLayer, MetricsLayer, TracingLayer, TracingSettings,
     };
-    use subnetworks_assignations::MembershipHandler as _;
     use tests::topology::configs::{consensus::ConsensusParams, da::DaParams, GeneralConfig};
     use tracing::Level;
 
@@ -299,21 +380,31 @@ mod cfgsync_tests {
             assert_eq!(da_network_port, host.da_network_port);
             assert_eq!(blend_port, host.blend_port);
 
-            check_da_membership(host.ip, config);
+            check_membership(host.ip, config);
         }
     }
 
-    pub fn check_da_membership(my_ip: Ipv4Addr, config: &GeneralConfig) {
-        let key = libp2p::identity::Keypair::from(ed25519::Keypair::from(
-            config.da_config.node_key.clone(),
-        ));
-        let my_peer_id = PeerId::from_public_key(&key.public());
+    pub fn check_membership(my_ip: Ipv4Addr, config: &GeneralConfig) {
+        let my_provider_id = ProviderId(
+            ed25519::Keypair::from(config.da_config.node_key.clone())
+                .public()
+                .to_bytes(),
+        );
+
         let my_multiaddr = config
-            .da_config
-            .membership
-            .get_address(&my_peer_id)
-            .unwrap();
-        let my_multiaddr_ip = extract_ip(&my_multiaddr).unwrap();
+            .membership_config
+            .service_settings
+            .backend
+            .initial_locators_mapping
+            .get(&my_provider_id)
+            .expect("My peer ID should be in the initial locators mapping")
+            .first()
+            .expect("My peer ID should have at least one locator")
+            .addr();
+
+        let my_multiaddr_ip =
+            extract_ip(my_multiaddr).expect("My multiaddr should contain an IP address");
+
         assert_eq!(
             my_ip, my_multiaddr_ip,
             "DA membership ip doesn't match host ip"

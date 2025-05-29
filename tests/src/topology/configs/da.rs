@@ -1,10 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
-    env,
-    path::PathBuf,
-    str::FromStr as _,
-    sync::LazyLock,
-    time::Duration,
+    collections::HashMap, env, path::PathBuf, str::FromStr as _, sync::LazyLock, time::Duration,
 };
 
 use nomos_da_dispersal::backend::kzgrs::{MempoolPublishStrategy, SampleSubnetworks};
@@ -13,9 +8,8 @@ use nomos_da_network_core::swarm::{
 };
 use nomos_libp2p::{ed25519, Multiaddr, PeerId};
 use nomos_node::NomosDaMembership;
-use subnetworks_assignations::MembershipHandler as _;
 
-use crate::{get_available_port, secret_key_to_peer_id};
+use crate::secret_key_to_peer_id;
 
 pub static GLOBAL_PARAMS_PATH: LazyLock<String> = LazyLock::new(|| {
     let relative_path = "./kzgrs/kzgrs_test_params";
@@ -91,7 +85,6 @@ pub struct GeneralDaConfig {
     pub blob_storage_directory: PathBuf,
     pub global_params_path: String,
     pub verifier_sk: String,
-    pub verifier_index: HashSet<u16>,
     pub num_samples: u16,
     pub num_subnets: u16,
     pub mempool_strategy: MempoolPublishStrategy,
@@ -105,12 +98,16 @@ pub struct GeneralDaConfig {
 }
 
 #[must_use]
-pub fn create_da_configs(ids: &[[u8; 32]], da_params: &DaParams) -> Vec<GeneralDaConfig> {
+pub fn create_da_configs(
+    ids: &[[u8; 32]],
+    da_params: &DaParams,
+    ports: &[u16],
+) -> Vec<GeneralDaConfig> {
     let mut node_keys = vec![];
     let mut peer_ids = vec![];
     let mut listening_addresses = vec![];
 
-    for id in ids {
+    for (i, id) in ids.iter().enumerate() {
         let mut node_key_bytes = *id;
         let node_key = ed25519::SecretKey::try_from_bytes(&mut node_key_bytes)
             .expect("Failed to generate secret key from bytes");
@@ -119,19 +116,15 @@ pub fn create_da_configs(ids: &[[u8; 32]], da_params: &DaParams) -> Vec<GeneralD
         let peer_id = secret_key_to_peer_id(node_key);
         peer_ids.push(peer_id);
 
-        let listening_address = Multiaddr::from_str(&format!(
-            "/ip4/127.0.0.1/udp/{}/quic-v1",
-            get_available_port(),
-        ))
-        .expect("Failed to create multiaddr");
+        let listening_address =
+            Multiaddr::from_str(&format!("/ip4/127.0.0.1/udp/{}/quic-v1", ports[i]))
+                .expect("Failed to create multiaddr");
         listening_addresses.push(listening_address);
     }
 
-    let addresses = build_da_peer_list(&peer_ids, &listening_addresses);
-
     let membership = NomosDaMembership::new(
-        &peer_ids,
-        addresses,
+        &Vec::default(),
+        HashMap::default(),
         da_params.subnetwork_size,
         da_params.dispersal_factor,
     );
@@ -145,8 +138,6 @@ pub fn create_da_configs(ids: &[[u8; 32]], da_params: &DaParams) -> Vec<GeneralD
             let verifier_sk_bytes = verifier_sk.to_bytes();
             let peer_id = peer_ids[i];
 
-            let subnetwork_ids = membership.membership(&peer_id);
-
             GeneralDaConfig {
                 node_key,
                 peer_id,
@@ -155,7 +146,6 @@ pub fn create_da_configs(ids: &[[u8; 32]], da_params: &DaParams) -> Vec<GeneralD
                 blob_storage_directory,
                 global_params_path: da_params.global_params_path.clone(),
                 verifier_sk: hex::encode(verifier_sk_bytes),
-                verifier_index: subnetwork_ids,
                 num_samples: da_params.num_samples,
                 num_subnets: da_params.num_subnets,
                 old_blobs_check_interval: da_params.old_blobs_check_interval,

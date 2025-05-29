@@ -121,11 +121,6 @@ where
 
         let network_settings = service_state.settings_reader.get_updated_settings();
 
-        let mut backend = NetworkBackend::new(
-            network_settings.backend,
-            service_state.overwatch_handle.clone(),
-        );
-
         let membership_relay = service_state
             .overwatch_handle
             .relay::<Membership::MembershipService>()
@@ -141,6 +136,11 @@ where
                 e
             })?;
 
+        let mut backend = NetworkBackend::new(
+            network_settings.backend,
+            service_state.overwatch_handle.clone(),
+        );
+
         let mut lifecycle_stream = service_state.lifecycle_handle.message_stream();
         loop {
             tokio::select! {
@@ -151,7 +151,7 @@ where
                     if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
                         // TODO: Maybe add a call to backend to handle this. Maybe trying to save unprocessed messages?
                         backend.shutdown();
-                        break;
+                         break;
                     }
                 }
                 Some(update) = stream.next() => {
@@ -193,6 +193,7 @@ where
     }
 
     fn handle_membership_update_message(backend: &mut Backend, update: &MembershipProviders) {
+        tracing::debug!("Received membership update: {update:?}");
         let mut members = Vec::new();
         let mut addressbook: HashMap<PeerId, Multiaddr> = HashMap::new();
         let mut rng = rand::thread_rng();

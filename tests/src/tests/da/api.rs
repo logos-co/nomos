@@ -4,10 +4,12 @@ use common_http_client::CommonHttpClient;
 use futures_util::stream::StreamExt as _;
 use kzgrs_backend::common::share::{DaLightShare, DaShare};
 use nomos_core::da::blob::{LightShare as _, Share as _};
-use nomos_libp2p::ed25519;
+use nomos_libp2p::{
+    ed25519::{self, PublicKey},
+    PeerId,
+};
 use rand::{rngs::OsRng, RngCore as _};
 use reqwest::Url;
-use subnetworks_assignations::MembershipHandler as _;
 use tests::{
     common::da::{disseminate_with_metadata, wait_for_indexed_blob, APP_ID},
     secret_key_to_peer_id,
@@ -24,6 +26,9 @@ async fn test_get_share_data() {
     let app_id = hex::decode(APP_ID).unwrap();
     let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
     let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
+
+    // wait for the bootstrap for 5 seconds
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
     disseminate_with_metadata(executor, &data, metadata).await;
 
@@ -69,22 +74,30 @@ async fn test_block_peer() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
 
+    // wait for the bootstrap for 5 seconds
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
     let blacklisted_peers = executor.blacklisted_peers().await;
     assert!(blacklisted_peers.is_empty());
 
-    let membership = executor
+    let mut provider_ids = executor
         .config()
-        .da_network
-        .backend
-        .validator_settings
         .membership
-        .members();
+        .backend
+        .initial_locators_mapping
+        .keys()
+        .copied();
 
-    // take second peer ID from the membership set
-    let existing_peer_id = membership
-        .iter()
+    let existing_provider_id = provider_ids
         .nth(1)
-        .expect("Expected at least 2 members in the set");
+        .expect("No provider IDs found in the initial locators mapping");
+
+    let ed25519_public_key =
+        PublicKey::try_from_bytes(&existing_provider_id.0).expect("Invalid Ed25519 public key");
+
+    let public_key = nomos_libp2p::identity::PublicKey::from(ed25519_public_key);
+
+    let existing_peer_id = PeerId::from_public_key(&public_key);
 
     // try block/unblock peer id combinations
     let blocked = executor.block_peer(existing_peer_id.to_string()).await;
@@ -133,6 +146,9 @@ async fn test_get_shares() {
     let app_id = hex::decode(APP_ID).unwrap();
     let app_id: [u8; 32] = app_id.try_into().unwrap();
     let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
+
+    // wait for the bootstrap for 5 seconds
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
     disseminate_with_metadata(executor, &data, metadata).await;
     let from = 0u64.to_be_bytes();

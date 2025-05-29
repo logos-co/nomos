@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     net::SocketAddr,
     ops::Range,
     path::PathBuf,
@@ -45,7 +44,6 @@ use nomos_http_api_common::paths::{
     CL_METRICS, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER, DA_GET_RANGE,
     DA_MONITOR_STATS, DA_UNBLOCK_PEER,
 };
-use nomos_membership::{backends::mock::MockMembershipBackendSettings, MembershipSettings};
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{config::mempool::MempoolConfig, RocksBackendSettings};
 use nomos_time::{
@@ -360,13 +358,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             cl_pool_recovery_path: "./recovery/cl_mempool.json".into(),
             da_pool_recovery_path: "./recovery/da_mempool.json".into(),
         },
-        membership: MembershipSettings {
-            backend: MockMembershipBackendSettings {
-                settings_per_service: HashMap::default(),
-                initial_membership: HashMap::default(),
-                initial_locators_mapping: HashMap::default(),
-            },
-        },
+        membership: config.membership_config.service_settings,
         sdp: (),
     }
 }

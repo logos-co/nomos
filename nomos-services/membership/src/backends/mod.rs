@@ -12,12 +12,12 @@ pub mod mock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MembershipBackendSettings {
-    pub settings_per_service: HashMap<ServiceType, Settings>,
+    pub settings_per_service: HashMap<ServiceType, MembershipBackendServiceSettings>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Settings {
-    historical_block_delta: u64,
+pub struct MembershipBackendServiceSettings {
+    pub historical_block_delta: u64,
 }
 
 #[derive(Debug)]

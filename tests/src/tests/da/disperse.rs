@@ -64,6 +64,9 @@ async fn disseminate_retrieve_reconstruct() {
 
     let data = [1u8; 31 * ITERATIONS];
 
+    // wait for the bootstrap for 5 seconds
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
     for i in 0..ITERATIONS {
         let data_size = 31 * (i + 1);
         println!("disseminating {data_size} bytes");
@@ -207,6 +210,9 @@ async fn disseminate_same_data() {
 
     let from = 0u64.to_be_bytes();
     let to = 1u64.to_be_bytes();
+
+    // wait for the bootstrap for 5 seconds
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
     for i in 0..ITERATIONS {
         println!("iteration {i}");

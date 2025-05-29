@@ -32,7 +32,7 @@ pub type MembershipSnapshotStream =
 const BROADCAST_CHANNEL_SIZE: usize = 128;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MembershipSettings<Settings> {
+pub struct MembershipServiceSettings<Settings> {
     pub backend: Settings,
 }
 
@@ -65,7 +65,7 @@ where
     S: SdpAdapter,
     B::Settings: Clone,
 {
-    type Settings = MembershipSettings<B::Settings>;
+    type Settings = MembershipServiceSettings<B::Settings>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = MembershipMessage;
@@ -93,7 +93,7 @@ where
         service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
         _initstate: Self::State,
     ) -> Result<Self, overwatch::DynError> {
-        let MembershipSettings {
+        let MembershipServiceSettings {
             backend: backend_settings,
         } = service_state.settings_reader.get_updated_settings();
 
