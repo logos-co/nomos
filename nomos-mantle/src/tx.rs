@@ -2,18 +2,12 @@ use std::marker::PhantomData;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ops::OpCode;
+use crate::ops::Op;
 
 // PLACEHOLDERS
 pub type LedgerTx = ();
 pub type OpProof = ();
 pub type LedgerTxProof = ();
-
-#[derive(Serialize, Deserialize)]
-pub struct Op {
-    pub opcode: OpCode,
-    pub payload: Vec<u8>,
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct MantleTx {
