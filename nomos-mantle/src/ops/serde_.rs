@@ -45,3 +45,33 @@ impl<'de, const CODE: u8, Inner: Deserialize<'de>> Deserialize<'de> for WireOp<C
         Ok(WireOp { op })
     }
 }
+
+pub(crate) fn serialize_op_variant<const CODE: u8, Op: Serialize, S: Serializer>(
+    op: &Op,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    WireOpSer {
+        opcode: CODE,
+        payload: op,
+    }
+    .serialize(serializer)
+}
+
+pub(crate) fn deserialize_op_variant<
+    'de,
+    const CODE: u8,
+    Op: Deserialize<'de>,
+    D: Deserializer<'de>,
+>(
+    deserializer: D,
+) -> Result<Op, D::Error> {
+    let op = WireOpDes::<Op>::deserialize(deserializer)?;
+    if op.opcode != CODE {
+        return Err(serde::de::Error::custom(format!(
+            "Invalid opcode {} for type {}",
+            op.opcode,
+            std::any::type_name::<Op>()
+        )));
+    }
+    Ok(op.payload)
+}
