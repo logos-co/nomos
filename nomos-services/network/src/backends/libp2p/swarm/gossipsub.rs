@@ -65,12 +65,14 @@ impl SwarmHandler {
                 tracing::debug!("broadcasted message with id: {id} tp topic: {topic}");
                 // self-notification because libp2p doesn't do it
                 if self.swarm.is_subscribed(&topic) {
-                    log_error!(self.events_tx.send(Event::Message(gossipsub::Message {
-                        source: None,
-                        data: message.into(),
-                        sequence_number: None,
-                        topic: topic_hash(&topic),
-                    })));
+                    self.event_channels.send_gossipsub_message(Event::Message(
+                        gossipsub::Message {
+                            source: None,
+                            data: message.into(),
+                            sequence_number: None,
+                            topic: topic_hash(&topic),
+                        },
+                    ));
                 }
             }
             Err(gossipsub::PublishError::InsufficientPeers) if retry_count < MAX_RETRY => {
@@ -101,12 +103,10 @@ impl SwarmHandler {
         }
     }
 
-    pub(super) fn handle_gossipsub_event(&self, event: nomos_libp2p::libp2p::gossipsub::Event) {
-        if let nomos_libp2p::libp2p::gossipsub::Event::Message { message, .. } = event {
+    pub(super) fn handle_gossipsub_event(&self, event: gossipsub::Event) {
+        if let gossipsub::Event::Message { message, .. } = event {
             let message = Event::Message(message);
-            if let Err(e) = self.events_tx.send(message) {
-                tracing::error!("Failed to send gossipsub message event: {}", e);
-            }
+            self.event_channels.send_chainsync_event(message);
         }
     }
 }
