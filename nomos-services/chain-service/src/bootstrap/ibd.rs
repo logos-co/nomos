@@ -312,6 +312,7 @@ mod tests {
         overwatch::OverwatchHandle,
         services::{relay::OutboundRelay, ServiceData},
     };
+    use rand_chacha::ChaCha20Rng;
     use tokio_stream::wrappers::BroadcastStream;
 
     use super::*;
@@ -793,10 +794,12 @@ mod tests {
         type Message = ();
         type PubSubEvent = ();
         type ChainSyncEvent = ();
+        type Rng = ChaCha20Rng;
 
         fn new(
             _config: Self::Settings,
             _overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+            rng: Self::Rng,
         ) -> Self {
             unimplemented!()
         }

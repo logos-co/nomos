@@ -4,10 +4,11 @@ use libp2p::{
     kad::{PeerInfo, QueryId},
     Multiaddr, PeerId, StreamProtocol,
 };
+use rand::RngCore;
 
 use crate::Swarm;
 
-impl Swarm {
+impl<R: Clone + Send + RngCore + 'static> Swarm<R> {
     pub fn get_closest_peers(&mut self, peer_id: PeerId) -> QueryId {
         self.swarm
             .behaviour_mut()
