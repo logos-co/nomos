@@ -20,6 +20,7 @@ use nomos_libp2p::{
     libp2p::{kad::QueryId, swarm::ConnectionId},
     Multiaddr, PeerId, Swarm, SwarmEvent,
 };
+use rand::RngCore;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::StreamExt as _;
 
@@ -40,8 +41,8 @@ pub use kademlia::DiscoveryCommand;
 
 use crate::message::ChainSyncEvent;
 
-pub struct SwarmHandler {
-    pub swarm: Swarm,
+pub struct SwarmHandler<R: Clone + Send + RngCore + 'static> {
+    pub swarm: Swarm<R>,
     pub pending_dials: HashMap<ConnectionId, Dial>,
     pub commands_tx: mpsc::Sender<Command>,
     pub commands_rx: mpsc::Receiver<Command>,
@@ -56,15 +57,16 @@ const BACKOFF: u64 = 5;
 // TODO: make this configurable
 const MAX_RETRY: usize = 3;
 
-impl SwarmHandler {
+impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
     pub fn new(
         config: Libp2pConfig,
         commands_tx: mpsc::Sender<Command>,
         commands_rx: mpsc::Receiver<Command>,
         pubsub_events_tx: broadcast::Sender<Message>,
         chainsync_events_tx: broadcast::Sender<ChainSyncEvent>,
+        rng: R,
     ) -> Self {
-        let swarm = Swarm::build(config.inner).unwrap();
+        let swarm = Swarm::build(config.inner, rng).unwrap();
 
         // Keep the dialing history since swarm.connect doesn't return the result
         // synchronously
@@ -114,7 +116,7 @@ impl SwarmHandler {
         }
     }
 
-    fn handle_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
+    fn handle_event(&mut self, event: SwarmEvent<BehaviourEvent<R>>) {
         match event {
             SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => {
                 self.handle_gossipsub_event(event);
@@ -259,6 +261,7 @@ mod tests {
     use std::{net::Ipv4Addr, sync::Once, time::Instant};
 
     use nomos_libp2p::{protocol_name::ProtocolName, Protocol};
+    use rand::rngs::OsRng;
     use tracing_subscriber::EnvFilter;
 
     use super::*;
@@ -281,6 +284,7 @@ mod tests {
             gossipsub_config: nomos_libp2p::gossipsub::Config::default(),
             kademlia_config: Some(nomos_libp2p::KademliaSettings::default()),
             identify_config: Some(nomos_libp2p::IdentifySettings::default()),
+            autonat_client_config: None, // Assume that the node is public
             protocol_name_env: ProtocolName::Unittest,
         }
     }
@@ -316,6 +320,7 @@ mod tests {
             rx1,
             pubsub_events_tx,
             chainsync_events_tx,
+            OsRng,
         );
 
         let bootstrap_node_peer_id = *bootstrap_node.swarm.swarm().local_peer_id();
@@ -369,6 +374,7 @@ mod tests {
                 rx,
                 pubsub_events_tx,
                 chainsync_events_tx,
+                OsRng,
             );
 
             let peer_id = *handler.swarm.swarm().local_peer_id();

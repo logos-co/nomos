@@ -13,6 +13,7 @@ cryptarchia-sync = { workspace = true }
 futures = "0.3"
 hex = "0.4.3"
 libp2p = { workspace = true, features = [
+  "autonat",
   "dns",
   "gossipsub",
   "identify",
@@ -23,10 +24,14 @@ libp2p = { workspace = true, features = [
   "tokio",
 ] }
 multiaddr = "0.18"
+rand = "0.8"
 serde = { version = "1.0.166", features = ["derive"] }
 thiserror = "1.0.40"
 tokio = "1"
 tracing = { workspace = true }
 
 [dev-dependencies]
-serde_json = "1.0.99"
+libp2p-swarm-test  = { version = "0.5.0", features = ["tokio"] }
+serde_json         = "1.0.99"
+tokio              = { version = "1", features = ["macros", "time"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

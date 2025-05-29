@@ -1,4 +1,5 @@
 use nomos_libp2p::{behaviour::gossipsub::swarm_ext::topic_hash, gossipsub};
+use rand::RngCore;
 
 use crate::backends::libp2p::{
     swarm::{exp_backoff, SwarmHandler, MAX_RETRY},
@@ -24,7 +25,7 @@ pub enum PubSubCommand {
     },
 }
 
-impl SwarmHandler {
+impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
     pub(super) fn handle_pubsub_command(&mut self, command: PubSubCommand) {
         match command {
             PubSubCommand::Broadcast { topic, message } => {
