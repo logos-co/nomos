@@ -121,7 +121,7 @@ fn test_mock_mempool() {
                 .await
                 .unwrap();
 
-            // try to wait all txs to be stored in mempool
+            // try to wait all ops to be stored in mempool
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                 let (mtx, mrx) = tokio::sync::oneshot::channel();
