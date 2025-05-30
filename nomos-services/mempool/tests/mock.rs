@@ -11,8 +11,8 @@ use nomos_core::{
 use nomos_mempool::{
     backend::mockpool::MockPool,
     network::adapters::mock::{MockAdapter, MOCK_TX_CONTENT_TOPIC},
-    GenericTxMempoolService, state::TxMempoolState,
-    MempoolMsg, TxMempoolSettings,
+    state::TxMempoolState,
+    GenericTxMempoolService, MempoolMsg, TxMempoolSettings,
 };
 use nomos_network::{
     backends::mock::{Mock, MockBackendMessage, MockConfig, MockMessage},

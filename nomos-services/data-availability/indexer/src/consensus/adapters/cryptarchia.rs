@@ -8,32 +8,25 @@ use tracing::debug;
 
 use crate::consensus::ConsensusAdapter;
 
-pub struct CryptarchiaConsensusAdapter<Tx, C>
+pub struct CryptarchiaConsensusAdapter<Tx>
 where
     Tx: Clone + Eq + std::hash::Hash,
-    C: Clone + Eq + std::hash::Hash,
 {
-    consensus_relay: OutboundRelay<ConsensusMsg<Block<Tx, C>>>,
+    consensus_relay: OutboundRelay<ConsensusMsg<Block<Tx>>>,
 }
 
 #[async_trait::async_trait]
-impl<Tx, C> ConsensusAdapter for CryptarchiaConsensusAdapter<Tx, C>
+impl<Tx> ConsensusAdapter for CryptarchiaConsensusAdapter<Tx>
 where
     Tx: Clone + Eq + std::hash::Hash + Send + Sync + 'static + std::fmt::Debug,
-    C: Clone + Eq + std::hash::Hash + Send + Sync + 'static + std::fmt::Debug,
 {
     type Tx = Tx;
-    type Cert = C;
 
-    async fn new(
-        consensus_relay: OutboundRelay<ConsensusMsg<Block<Self::Tx, Self::Cert>>>,
-    ) -> Self {
+    async fn new(consensus_relay: OutboundRelay<ConsensusMsg<Block<Self::Tx>>>) -> Self {
         Self { consensus_relay }
     }
 
-    async fn block_stream(
-        &self,
-    ) -> Box<dyn Stream<Item = Block<Self::Tx, Self::Cert>> + Unpin + Send> {
+    async fn block_stream(&self) -> Box<dyn Stream<Item = Block<Self::Tx>> + Unpin + Send> {
         let (sender, receiver) = oneshot::channel();
 
         self.consensus_relay

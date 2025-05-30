@@ -372,17 +372,10 @@ impl<
         RuntimeServiceId,
     >
 where
-    NetAdapter: NetworkAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = ()>
-        + Clone
-        + Send
-        + Sync
-        + 'static,
+    NetAdapter: NetworkAdapter<RuntimeServiceId, Tx = ClPool::Item> + Clone + Send + Sync + 'static,
     NetAdapter::Settings: Send + Sync + 'static,
-    BlendAdapter: blend::BlendAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = ()>
-        + Clone
-        + Send
-        + Sync
-        + 'static,
+    BlendAdapter:
+        blend::BlendAdapter<RuntimeServiceId, Tx = ClPool::Item> + Clone + Send + Sync + 'static,
     BlendAdapter::Settings: Send + Sync + 'static,
     ClPool: RecoverableMempool<BlockId = HeaderId> + Send + Sync + 'static,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,

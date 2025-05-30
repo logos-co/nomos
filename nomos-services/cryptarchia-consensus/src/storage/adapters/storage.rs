@@ -25,8 +25,7 @@ impl<Storage, Tx, BlobCertificate, RuntimeServiceId> StorageAdapterTrait<Runtime
     for StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Block:
-        TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
+    <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
     Tx: Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
     BlobCertificate: Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
 {

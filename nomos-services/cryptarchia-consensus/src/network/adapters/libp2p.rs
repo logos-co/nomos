@@ -32,7 +32,6 @@ where
     network_relay:
         OutboundRelay<<NetworkService<Libp2p, RuntimeServiceId> as ServiceData>::Message>,
     _phantom_tx: PhantomData<Tx>,
-    _blob_cert: PhantomData<BlobCert>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,8 +56,7 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Tx, RuntimeServiceId> NetworkAdapter<RuntimeServiceId>
-    for LibP2pAdapter<Tx, RuntimeServiceId>
+impl<Tx, RuntimeServiceId> NetworkAdapter<RuntimeServiceId> for LibP2pAdapter<Tx, RuntimeServiceId>
 where
     Tx: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
 {
@@ -80,9 +78,7 @@ where
         }
     }
 
-    async fn blocks_stream(
-        &self,
-    ) -> Result<BoxedStream<Block<Self::Tx>>, DynError> {
+    async fn blocks_stream(&self) -> Result<BoxedStream<Block<Self::Tx>>, DynError> {
         let (sender, receiver) = tokio::sync::oneshot::channel();
         if let Err((e, _)) = self
             .network_relay

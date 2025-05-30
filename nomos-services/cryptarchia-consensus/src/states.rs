@@ -244,8 +244,7 @@ mod tests {
 
     #[test]
     fn test_can_recover() {
-        let state =
-            CryptarchiaConsensusState::<(), (), (), ()>::new(None, None, None, None, None);
+        let state = CryptarchiaConsensusState::<(), (), (), ()>::new(None, None, None, None, None);
         assert!(!state.can_recover());
 
         let header_id = HeaderId::from([0; 32]);
