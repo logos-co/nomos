@@ -178,16 +178,16 @@ jobs:
         uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
       - name: Debug info 1
         run: |
-          cargo version
-          rustup show || true
+          cargo version || echo "Cargo not found"
+          rustup show || echo "Rustup not found"
       - name: Install risc0 dependencies
         uses: ./.github/actions/install-risc0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Debug info 2
         run: |
-          cargo version
-          rustup show || true
+          cargo version || echo "Cargo not found"
+          rustup show || echo "Rustup not found"
       - name: Set up Cargo cache
         uses: ./.github/actions/setup-cargo-cache
         with:
@@ -195,8 +195,8 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Debug info 3
         run: |
-          cargo version
-          rustup show || true
+          cargo version || echo "Cargo not found"
+          rustup show || echo "Rustup not found"
       - name: Build required binaries
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         with:
