@@ -35,17 +35,12 @@ pub type DaIndexerService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> =
             BlobInfo,
             DaStorageConverter,
         >,
-        CryptarchiaConsensusAdapter<Tx, BlobInfo>,
+        CryptarchiaConsensusAdapter<Tx>,
         // Cryptarchia specific, should be the same as in `Cryptarchia` type above.
-        cryptarchia_consensus::network::adapters::libp2p::LibP2pAdapter<
-            Tx,
-            BlobInfo,
-            RuntimeServiceId,
-        >,
+        cryptarchia_consensus::network::adapters::libp2p::LibP2pAdapter<Tx, RuntimeServiceId>,
         cryptarchia_consensus::blend::adapters::libp2p::LibP2pAdapter<
             nomos_blend_service::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
             Tx,
-            BlobInfo,
             RuntimeServiceId,
         >,
         MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
@@ -54,14 +49,8 @@ pub type DaIndexerService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> =
             <Tx as Transaction>::Hash,
             RuntimeServiceId,
         >,
-        MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
-        nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-            BlobInfo,
-            <BlobInfo as DispersedBlobInfo>::BlobId,
-            RuntimeServiceId,
-        >,
         nomos_core::tx::select::FillSize<MB16, Tx>,
-        nomos_core::da::blob::select::FillSize<MB16, BlobInfo>,
+        BlobInfo,
         RocksBackend<Wire>,
         KzgrsSamplingBackend<ChaCha20Rng>,
         SamplingAdapter,
@@ -116,44 +105,12 @@ pub type DaSamplingService<SamplingAdapter, VerifierNetworkAdapter, RuntimeServi
         RuntimeServiceId,
     >;
 
-pub type DaMempoolService<DaSamplingNetwork, VerifierNetwork, RuntimeServiceId> =
-    nomos_mempool::DaMempoolService<
-        nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-            BlobInfo,
-            <BlobInfo as DispersedBlobInfo>::BlobId,
-            RuntimeServiceId,
-        >,
-        MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
-        KzgrsSamplingBackend<ChaCha20Rng>,
-        DaSamplingNetwork,
-        ChaCha20Rng,
-        nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<
-            DaShare,
-            Wire,
-            DaStorageConverter,
-        >,
-        KzgrsDaVerifier,
-        VerifierNetwork,
-        nomos_da_verifier::storage::adapters::rocksdb::RocksAdapter<
-            DaShare,
-            Wire,
-            DaStorageConverter,
-        >,
-        HttApiAdapter<NomosDaMembership>,
-        RuntimeServiceId,
-    >;
-
 pub type CryptarchiaService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> =
     CryptarchiaConsensus<
-        cryptarchia_consensus::network::adapters::libp2p::LibP2pAdapter<
-            Tx,
-            BlobInfo,
-            RuntimeServiceId,
-        >,
+        cryptarchia_consensus::network::adapters::libp2p::LibP2pAdapter<Tx, RuntimeServiceId>,
         cryptarchia_consensus::blend::adapters::libp2p::LibP2pAdapter<
             nomos_blend_service::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
             Tx,
-            BlobInfo,
             RuntimeServiceId,
         >,
         MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
@@ -162,14 +119,7 @@ pub type CryptarchiaService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> 
             <Tx as Transaction>::Hash,
             RuntimeServiceId,
         >,
-        MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
-        nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-            BlobInfo,
-            <BlobInfo as DispersedBlobInfo>::BlobId,
-            RuntimeServiceId,
-        >,
         nomos_core::tx::select::FillSize<MB16, Tx>,
-        nomos_core::da::blob::select::FillSize<MB16, BlobInfo>,
         RocksBackend<Wire>,
         KzgrsSamplingBackend<ChaCha20Rng>,
         SamplingAdapter,

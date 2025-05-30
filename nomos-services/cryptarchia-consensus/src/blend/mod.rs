@@ -13,12 +13,11 @@ pub trait BlendAdapter<RuntimeServiceId> {
     type Backend: BlendBackend<RuntimeServiceId> + 'static;
     type Network: NetworkAdapter<RuntimeServiceId> + 'static;
     type Tx: Serialize + DeserializeOwned + Clone + Eq + Hash + 'static;
-    type BlobCertificate: Serialize + DeserializeOwned + Clone + Eq + Hash + 'static;
     async fn new(
         settings: Self::Settings,
         blend_relay: OutboundRelay<
             <BlendService<Self::Backend, Self::Network, RuntimeServiceId> as ServiceData>::Message,
         >,
     ) -> Self;
-    async fn blend(&self, block: Block<Self::Tx, Self::BlobCertificate>);
+    async fn blend(&self, block: Block<Self::Tx>);
 }

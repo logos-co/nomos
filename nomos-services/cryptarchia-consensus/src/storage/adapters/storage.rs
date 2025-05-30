@@ -25,13 +25,12 @@ impl<Storage, Tx, BlobCertificate, RuntimeServiceId> StorageAdapterTrait<Runtime
     for StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Block:
-        TryFrom<Block<Tx, BlobCertificate>> + TryInto<Block<Tx, BlobCertificate>>,
+    <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
     Tx: Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
     BlobCertificate: Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     type Backend = Storage;
-    type Block = Block<Tx, BlobCertificate>;
+    type Block = Block<Tx>;
 
     async fn new(
         storage_relay: OutboundRelay<

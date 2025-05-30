@@ -4,7 +4,7 @@ use std::fmt::Display;
 use nomos_core::{header::HeaderId, tx::Transaction};
 use nomos_mempool::{
     backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
-    tx::service::openapi::Status, MempoolMetrics, MempoolMsg, TxMempoolService,
+    openapi::Status, MempoolMetrics, MempoolMsg, TxMempoolService,
 };
 use overwatch::services::AsServiceId;
 use serde::{Deserialize, Serialize};

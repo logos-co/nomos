@@ -12,13 +12,12 @@ pub type TxHash = [u8; 32];
 
 /// A block
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Block<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> {
+pub struct Block<Tx: Clone + Eq + Hash> {
     header: Header,
     cl_transactions: IndexSet<Tx>,
-    bl_blobs: IndexSet<BlobCertificate>,
 }
 
-impl<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> Block<Tx, BlobCertificate> {
+impl<Tx: Clone + Eq + Hash> Block<Tx> {
     #[must_use]
     pub const fn header(&self) -> &Header {
         &self.header
@@ -27,17 +26,9 @@ impl<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> Block<Tx, BlobCe
     pub fn transactions(&self) -> impl Iterator<Item = &Tx> + '_ {
         self.cl_transactions.iter()
     }
-
-    pub fn blobs(&self) -> impl Iterator<Item = &BlobCertificate> + '_ {
-        self.bl_blobs.iter()
-    }
 }
 
-impl<
-        Tx: Clone + Eq + Hash + Serialize + DeserializeOwned,
-        BlobCertificate: Clone + Eq + Hash + Serialize + DeserializeOwned,
-    > Block<Tx, BlobCertificate>
-{
+impl<Tx: Clone + Eq + Hash + Serialize + DeserializeOwned> Block<Tx> {
     /// Encode block into bytes
     #[must_use]
     pub fn as_bytes(&self) -> Bytes {
@@ -53,18 +44,9 @@ impl<
     pub fn cl_transactions_len(&self) -> usize {
         self.cl_transactions.len()
     }
-
-    #[must_use]
-    pub fn bl_blobs_len(&self) -> usize {
-        self.bl_blobs.len()
-    }
 }
 
-impl<
-        Tx: Clone + Eq + Hash + Serialize + DeserializeOwned,
-        BlobCertificate: Clone + Eq + Hash + Serialize + DeserializeOwned,
-    > TryFrom<Bytes> for Block<Tx, BlobCertificate>
-{
+impl<Tx: Clone + Eq + Hash + Serialize + DeserializeOwned> TryFrom<Bytes> for Block<Tx> {
     type Error = wire::Error;
 
     fn try_from(bytes: Bytes) -> Result<Self, Self::Error> {
@@ -72,14 +54,10 @@ impl<
     }
 }
 
-impl<
-        Tx: Clone + Eq + Hash + Serialize + DeserializeOwned,
-        BlobCertificate: Clone + Eq + Hash + Serialize + DeserializeOwned,
-    > TryFrom<Block<Tx, BlobCertificate>> for Bytes
-{
+impl<Tx: Clone + Eq + Hash + Serialize + DeserializeOwned> TryFrom<Block<Tx>> for Bytes {
     type Error = wire::Error;
 
-    fn try_from(block: Block<Tx, BlobCertificate>) -> Result<Self, Self::Error> {
+    fn try_from(block: Block<Tx>) -> Result<Self, Self::Error> {
         let serialized = wire::serialize(&block)?;
         Ok(serialized.into())
     }

@@ -1,18 +1,12 @@
 use core::{fmt::Debug, hash::Hash};
 use std::fmt::Display;
 
-use nomos_core::{da::blob::info::DispersedBlobInfo, header::HeaderId};
-use nomos_da_sampling::{
-    backend::DaSamplingServiceBackend, network::NetworkAdapter as DaSamplingNetworkAdapter,
-};
-use nomos_da_verifier::backend::VerifierBackend;
+use nomos_core::header::HeaderId;
 use nomos_mempool::{
-    backend::mockpool::MockPool, network::NetworkAdapter, DaMempoolService, MempoolMsg,
-    TxMempoolService,
+    backend::mockpool::MockPool, network::NetworkAdapter, MempoolMsg, TxMempoolService,
 };
 use nomos_network::backends::NetworkBackend;
 use overwatch::{services::AsServiceId, DynError};
-use rand::{RngCore, SeedableRng};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
@@ -54,7 +48,7 @@ where
         .map_err(DynError::from)
 }
 
-pub async fn add_blob_info<
+/*pub async fn add_blob_info<
     N,
     A,
     Item,
@@ -131,3 +125,5 @@ where
     .await?
     .map_err(DynError::from)
 }
+*/
+

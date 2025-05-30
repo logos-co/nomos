@@ -13,7 +13,7 @@ use overwatch::services::state::ServiceState;
 use super::Status;
 use crate::{
     backend::{MemPool, MempoolError, RecoverableMempool},
-    tx::settings::TxMempoolSettings,
+    settings::TxMempoolSettings,
 };
 
 mod serde;

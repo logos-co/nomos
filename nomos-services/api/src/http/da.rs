@@ -9,7 +9,7 @@ use kzgrs_backend::common::share::DaShare;
 use nomos_blend_service::network::libp2p::Libp2pAdapter as BlendNetworkAdapter;
 use nomos_core::{
     da::{
-        blob::{info::DispersedBlobInfo, metadata, select::FillSize as FillSizeWithBlobs, Share},
+        blob::{info::DispersedBlobInfo, metadata, Share},
         BlobId, DaVerifier as CoreDaVerifier,
     },
     header::HeaderId,
@@ -57,7 +57,6 @@ use crate::wait_with_timeout;
 
 pub type DaIndexer<
     Tx,
-    C,
     V,
     SS,
     SamplingBackend,
@@ -75,21 +74,18 @@ pub type DaIndexer<
     // Indexer specific.
     DaShare,
     IndexerStorageAdapter<SS, V, DaStorageConverter>,
-    CryptarchiaConsensusAdapter<Tx, V>,
+    CryptarchiaConsensusAdapter<Tx>,
     // Cryptarchia specific, should be the same as in `Cryptarchia` type above.
-    cryptarchia_consensus::network::adapters::libp2p::LibP2pAdapter<Tx, V, RuntimeServiceId>,
+    cryptarchia_consensus::network::adapters::libp2p::LibP2pAdapter<Tx, RuntimeServiceId>,
     cryptarchia_consensus::blend::adapters::libp2p::LibP2pAdapter<
         BlendNetworkAdapter<RuntimeServiceId>,
         Tx,
-        V,
         RuntimeServiceId,
     >,
     MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
     MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
-    MockPool<HeaderId, V, [u8; 32]>,
-    MempoolNetworkAdapter<C, <C as DispersedBlobInfo>::BlobId, RuntimeServiceId>,
     FillSizeWithTx<SIZE, Tx>,
-    FillSizeWithBlobs<SIZE, V>,
+    V,
     RocksBackend<SS>,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -173,7 +169,6 @@ where
 
 pub async fn get_range<
     Tx,
-    C,
     V,
     SS,
     SamplingBackend,
@@ -205,17 +200,7 @@ where
         + 'static,
     <Tx as Transaction>::Hash:
         std::cmp::Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    C: DispersedBlobInfo<BlobId = [u8; 32]>
-        + Clone
-        + Debug
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
-    <C as DispersedBlobInfo>::BlobId: Clone + Send + Sync,
     V: DispersedBlobInfo<BlobId = [u8; 32]>
-        + From<C>
         + Eq
         + Debug
         + metadata::Metadata
@@ -254,7 +239,6 @@ where
         + AsServiceId<
             DaIndexer<
                 Tx,
-                C,
                 V,
                 SS,
                 SamplingBackend,
