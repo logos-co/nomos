@@ -1,7 +1,7 @@
 pub type Gas = u64;
 
 pub trait GasPrice {
-    fn gas_price<GasConstants: GasConstants>(&self) -> Gas;
+    fn gas_price<Constants: GasConstants>(&self) -> Gas;
 }
 
 pub trait GasConstants {
