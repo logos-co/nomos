@@ -13,7 +13,8 @@ use crate::ops::{
     channel_keys::SetChannelKeysOp,
     inscribe::InscriptionOp,
     native::NativeOp,
-    opcode::{BLOB, INSCRIBE, NATIVE, SET_CHANNEL_KEYS},
+    opcode::{BLOB, INSCRIBE, NATIVE, SDP_DECLARE, SET_CHANNEL_KEYS},
+    sdp::declare::SDPDeclareOp,
 };
 
 pub type TxHash = [u8; 32];
@@ -48,6 +49,13 @@ pub enum Op {
         #[serde(serialize_with = "serde_::serialize_op_variant::<{NATIVE}, NativeOp, _>")]
         #[serde(deserialize_with = "serde_::deserialize_op_variant::<{NATIVE}, NativeOp, _>")]
         NativeOp,
+    ),
+    SDPDeclare(
+        #[serde(serialize_with = "serde_::serialize_op_variant::<{SDP_DECLARE}, SDPDeclareOp, _>")]
+        #[serde(
+            deserialize_with = "serde_::deserialize_op_variant::<{SDP_DECLARE}, SDPDeclareOp, _>"
+        )]
+        SDPDeclareOp,
     ),
 }
 
