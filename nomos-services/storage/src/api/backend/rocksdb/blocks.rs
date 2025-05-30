@@ -27,4 +27,13 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for RocksBac
         let key = Bytes::copy_from_slice(&header_id);
         self.store(key, block).await
     }
+
+    async fn remove_block(
+        &mut self,
+        header_id: HeaderId,
+    ) -> Result<Option<Self::Block>, Self::Error> {
+        let encoded_header_id: [u8; 32] = header_id.into();
+        let key = Bytes::copy_from_slice(&encoded_header_id);
+        self.remove(&key).await
+    }
 }

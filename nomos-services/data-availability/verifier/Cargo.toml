@@ -20,7 +20,7 @@ services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
 tokio                    = { version = "1", features = ["macros", "sync"] }
 tokio-stream             = "0.1.15"
-tracing                  = { version = "0.1", features = ["attributes"] }
+tracing                  = { workspace = true, features = ["attributes"] }
 
 [features]
 libp2p          = []

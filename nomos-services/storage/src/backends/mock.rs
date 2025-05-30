@@ -103,6 +103,13 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for MockStor
     ) -> Result<(), Self::Error> {
         unimplemented!()
     }
+
+    async fn remove_block(
+        &mut self,
+        _header_id: HeaderId,
+    ) -> Result<Option<Self::Block>, Self::Error> {
+        unimplemented!()
+    }
 }
 
 #[async_trait]

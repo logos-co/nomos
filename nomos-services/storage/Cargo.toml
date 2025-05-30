@@ -17,7 +17,7 @@ serde          = { version = "1.0", features = ["derive"] }
 services-utils = { workspace = true }
 thiserror      = "1.0"
 tokio          = { version = "1", features = ["macros", "sync"] }
-tracing        = "0.1"
+tracing        = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
