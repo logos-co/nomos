@@ -23,14 +23,18 @@ pub struct ServiceParameters {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Locator {
-    addr: Multiaddr,
-}
+pub struct Locator(pub Multiaddr);
 
 impl Locator {
     #[must_use]
     pub const fn new(addr: Multiaddr) -> Self {
-        Self { addr }
+        Self(addr)
+    }
+}
+
+impl AsRef<Multiaddr> for Locator {
+    fn as_ref(&self) -> &Multiaddr {
+        &self.0
     }
 }
 
@@ -110,7 +114,7 @@ impl DeclarationMessage {
         hasher.update(service.as_bytes());
         hasher.update(self.provider_id.0);
         for locator in &self.locators {
-            hasher.update(locator.addr.as_ref());
+            hasher.update(locator.0.as_ref());
         }
         hasher.update(self.reward_address.0);
 
