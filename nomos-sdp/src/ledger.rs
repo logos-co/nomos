@@ -659,9 +659,7 @@ mod tests {
     async fn test_valid_blocks() {
         let (mut ledger, declarations_repo, _) = setup_ledger();
         let pid = ProviderId([0; 32]);
-        let locators = vec![Locator {
-            addr: multiaddr!(Ip4([1, 2, 3, 4]), Udp(5678u16)),
-        }];
+        let locators = vec![Locator(multiaddr!(Ip4([1, 2, 3, 4]), Udp(5678u16)))];
         let reward_addr = RewardAddress([1; 32]);
 
         let declaration_a = BOp::Dec(pid, reward_addr, St::BlendNetwork, locators.clone());
@@ -735,9 +733,7 @@ mod tests {
         let (mut ledger, declarations_repo, _) = setup_ledger();
         let p1 = ProviderId([0; 32]);
         let p2 = ProviderId([1; 32]);
-        let locators = vec![Locator {
-            addr: multiaddr!(Ip4([1, 2, 3, 4]), Udp(5678u16)),
-        }];
+        let locators = vec![Locator(multiaddr!(Ip4([1, 2, 3, 4]), Udp(5678u16)))];
         let reward_addr = RewardAddress([1; 32]);
 
         let declaration_a = BOp::Dec(p1, reward_addr, St::BlendNetwork, locators.clone());
