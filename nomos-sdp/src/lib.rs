@@ -131,7 +131,7 @@ impl DeclarationMessage {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct WithdrawMessage {
     pub declaration_id: DeclarationId,
     pub service_type: ServiceType,
@@ -139,7 +139,7 @@ pub struct WithdrawMessage {
     pub nonce: Nonce,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct ActiveMessage<Metadata> {
     pub declaration_id: DeclarationId,
     pub service_type: ServiceType,
