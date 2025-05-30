@@ -5,10 +5,12 @@ use std::{collections::BTreeSet, hash::Hash};
 
 use blake2::{Blake2b, Digest as _};
 use multiaddr::Multiaddr;
+use serde::{Deserialize, Serialize};
 use nomos_core::block::BlockNumber;
 
 pub type StakeThreshold = u64;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct MinStake {
     pub threshold: StakeThreshold,
     pub timestamp: BlockNumber,
@@ -22,8 +24,9 @@ pub struct ServiceParameters {
     pub timestamp: BlockNumber,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Locator(pub Multiaddr);
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Locator(Multiaddr);
 
 impl Locator {
     #[must_use]
@@ -38,25 +41,31 @@ impl AsRef<Multiaddr> for Locator {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum ServiceType {
+    #[serde(rename = "BN")]
     BlendNetwork,
+    #[serde(rename = "DA")]
     DataAvailability,
+    #[serde(rename = "EX")]
     ExecutorNetwork,
 }
 
 pub type Nonce = [u8; 16];
 
-#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct ProviderId(pub [u8; 32]);
 
-#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct DeclarationId(pub [u8; 32]);
 
-#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct ActivityId(pub [u8; 32]);
 
-#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct RewardAddress(pub [u8; 32]);
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
@@ -94,7 +103,7 @@ pub enum DeclarationState {
     Withdrawn,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct DeclarationMessage {
     pub service_type: ServiceType,
     pub locators: Vec<Locator>,
