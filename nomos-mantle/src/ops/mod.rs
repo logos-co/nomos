@@ -3,6 +3,7 @@ mod channel_keys;
 mod inscribe;
 mod native;
 pub mod opcode;
+mod sdp;
 pub(crate) mod serde_;
 
 use serde::{Deserialize, Serialize};
