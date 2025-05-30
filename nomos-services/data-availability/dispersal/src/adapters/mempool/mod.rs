@@ -1,4 +1,4 @@
-// pub mod kzgrs;
+pub mod kzgrs;
 
 use std::error::Error;
 

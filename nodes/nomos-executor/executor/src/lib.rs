@@ -112,15 +112,6 @@ pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
 
 pub(crate) type ClMempoolService = nomos_node::generic_services::TxMempoolService<RuntimeServiceId>;
 
-pub(crate) type DaMempoolService = nomos_node::generic_services::DaMempoolService<
-    nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
-        NomosDaMembership,
-        RuntimeServiceId,
-    >,
-    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
-    RuntimeServiceId,
->;
-
 pub(crate) type CryptarchiaService = nomos_node::generic_services::CryptarchiaService<
     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
         NomosDaMembership,
@@ -181,13 +172,12 @@ pub struct NomosExecutor {
     tracing: TracingService,
     network: NetworkService,
     blend: BlendService,
-    da_dispersal: DaDispersalService,
+    // da_dispersal: DaDispersalService,
     da_indexer: DaIndexerService,
     da_verifier: DaVerifierService,
     da_sampling: DaSamplingService,
     da_network: DaNetworkService,
     cl_mempool: ClMempoolService,
-    da_mempool: DaMempoolService,
     cryptarchia: CryptarchiaService,
     time: TimeService,
     http: ApiService,

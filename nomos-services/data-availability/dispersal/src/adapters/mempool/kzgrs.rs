@@ -9,7 +9,7 @@ use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_mempool::{
     backend::{MemPool, RecoverableMempool},
     network::NetworkAdapter as MempoolAdapter,
-    MempoolMsg,
+    MempoolMsg, TxMempoolService,
 };
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 use rand::{RngCore, SeedableRng};
@@ -39,7 +39,7 @@ pub struct KzgrsMempoolAdapter<
     DaPool::Item: Clone + Eq + Hash + Debug + 'static,
     DaPool::Key: Debug + 'static,
 {
-    pub mempool_relay: MempoolRelay<DaPoolAdapter::Payload, DaPool::Item, DaPool::Key>,
+    pub mempool_relay: MempoolRelay<DaPoolAdapter::Payload, DaPoolAdapter::Payload, DaPool::Key>,
     _phantom: PhantomData<(
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -100,29 +100,12 @@ where
     DaVerifierNetwork::Settings: Clone,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
-    type MempoolService = DaMempoolService<
-        DaPoolAdapter,
-        DaPool,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingRng,
-        SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
-        ApiAdapter,
-        RuntimeServiceId,
-    >;
+    type MempoolService = TxMempoolService<DaPoolAdapter, DaPool, RuntimeServiceId>;
     type BlobId = BlobId;
     type Metadata = dispersal::Metadata;
 
     fn new(mempool_relay: OutboundRelay<<Self::MempoolService as ServiceData>::Message>) -> Self {
-        Self {
-            mempool_relay,
-            _phantom: PhantomData,
-            _phantom2: PhantomData,
-            _phantom3: PhantomData,
-        }
+        todo!();
     }
 
     async fn post_blob_id(
@@ -130,6 +113,7 @@ where
         blob_id: Self::BlobId,
         metadata: Self::Metadata,
     ) -> Result<(), DaMempoolAdapterError> {
+        todo!();
         let (reply_channel, receiver) = oneshot::channel();
         self.mempool_relay
             .send(MempoolMsg::Add {
