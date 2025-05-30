@@ -13,8 +13,8 @@ use crate::ops::{
     channel_keys::SetChannelKeysOp,
     inscribe::InscriptionOp,
     native::NativeOp,
-    opcode::{BLOB, INSCRIBE, NATIVE, SDP_DECLARE, SDP_WITHDRAW, SET_CHANNEL_KEYS},
-    sdp::{SDPDeclareOp, SDPWithdrawOp},
+    opcode::{BLOB, INSCRIBE, NATIVE, SDP_ACTIVE, SDP_DECLARE, SDP_WITHDRAW, SET_CHANNEL_KEYS},
+    sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
 };
 
 pub type TxHash = [u8; 32];
@@ -65,6 +65,13 @@ pub enum Op {
             deserialize_with = "serde_::deserialize_op_variant::<{SDP_WITHDRAW}, SDPWithdrawOp, _>"
         )]
         SDPWithdrawOp,
+    ),
+    SDPActive(
+        #[serde(serialize_with = "serde_::serialize_op_variant::<{SDP_ACTIVE}, SDPActiveOp, _>")]
+        #[serde(
+            deserialize_with = "serde_::deserialize_op_variant::<{SDP_ACTIVE}, SDPActiveOp, _>"
+        )]
+        SDPActiveOp,
     ),
 }
 
