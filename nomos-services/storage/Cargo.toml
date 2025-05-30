@@ -7,17 +7,15 @@ version = "0.1.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-trait    = "0.1"
-bytes          = { workspace = true }
-futures        = "0.3"
-nomos-core     = { workspace = true }
-overwatch      = { workspace = true }
-rocksdb        = { version = "0.22", optional = true }
-serde          = { version = "1.0", features = ["derive"] }
-services-utils = { workspace = true }
-thiserror      = "1.0"
-tokio          = { version = "1", features = ["macros", "sync"] }
-tracing        = "0.1"
+async-trait = "0.1"
+bytes       = { workspace = true }
+nomos-core  = { workspace = true }
+overwatch   = { workspace = true }
+rocksdb     = { version = "0.22", optional = true }
+serde       = { version = "1.0", features = ["derive"] }
+thiserror   = "1.0"
+tokio       = { version = "1", features = ["macros", "sync"] }
+tracing     = "0.1"
 
 [dev-dependencies]
 tempfile = "3"
