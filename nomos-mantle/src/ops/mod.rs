@@ -1,10 +1,11 @@
 pub mod blob;
 pub mod channel_keys;
 pub mod inscribe;
+mod leader_claim;
 pub mod native;
 pub mod opcode;
 pub mod sdp;
-pub(crate) mod serde_;
+mod serde_;
 
 use serde::{Deserialize, Serialize};
 
@@ -12,8 +13,12 @@ use crate::ops::{
     blob::BlobOp,
     channel_keys::SetChannelKeysOp,
     inscribe::InscriptionOp,
+    leader_claim::LeaderClaimOp,
     native::NativeOp,
-    opcode::{BLOB, INSCRIBE, NATIVE, SDP_ACTIVE, SDP_DECLARE, SDP_WITHDRAW, SET_CHANNEL_KEYS},
+    opcode::{
+        BLOB, INSCRIBE, LEADER_CLAIM, NATIVE, SDP_ACTIVE, SDP_DECLARE, SDP_WITHDRAW,
+        SET_CHANNEL_KEYS,
+    },
     sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
 };
 
@@ -73,15 +78,25 @@ pub enum Op {
         )]
         SDPActiveOp,
     ),
+    LeaderClaim(
+        #[serde(
+            serialize_with = "serde_::serialize_op_variant::<{LEADER_CLAIM}, LeaderClaimOp, _>"
+        )]
+        #[serde(
+            deserialize_with = "serde_::deserialize_op_variant::<{LEADER_CLAIM}, LeaderClaimOp, _>"
+        )]
+        LeaderClaimOp,
+    ),
 }
 
+#[cfg(test)]
 mod tests {
     use serde_json::{Value, json};
 
     use crate::ops::{Op, blob::BlobOp};
 
     #[test]
-    fn test_serialize_deserialize_op() {
+    fn test_serialize_deserialize_blob_op() {
         let zeros = json!([
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0
