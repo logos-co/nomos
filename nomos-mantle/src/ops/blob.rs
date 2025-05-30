@@ -4,7 +4,7 @@ use crate::ops::{ChannelId, Ed25519PublicKey, TxHash};
 
 pub type BlobId = [u8; 32];
 
-#[derive(Debug, Eq, PartialEq, Serialize, Deserialize, Clone)]
+#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct BlobOp {
     pub channel: ChannelId,
     pub blob: BlobId,
