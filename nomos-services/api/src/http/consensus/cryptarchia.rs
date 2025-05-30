@@ -8,13 +8,9 @@ use cryptarchia_consensus::{
     network::adapters::libp2p::LibP2pAdapter as ConsensusNetworkAdapter, ConsensusMsg,
     CryptarchiaConsensus, CryptarchiaInfo,
 };
-use kzgrs_backend::dispersal::BlobInfo;
 use nomos_blend_service::network::libp2p::Libp2pAdapter as BlendNetworkAdapter;
 use nomos_core::{
-    da::{
-        blob::{self, select::FillSize as FillSizeWithBlobs},
-        BlobId,
-    },
+    da::BlobId,
     header::HeaderId,
     tx::{select::FillSize as FillSizeWithTx, Transaction},
 };
@@ -45,18 +41,11 @@ pub type Cryptarchia<
     RuntimeServiceId,
     const SIZE: usize,
 > = CryptarchiaConsensus<
-    ConsensusNetworkAdapter<Tx, BlobInfo, RuntimeServiceId>,
-    BlendAdapter<BlendNetworkAdapter<RuntimeServiceId>, Tx, BlobInfo, RuntimeServiceId>,
+    ConsensusNetworkAdapter<Tx, RuntimeServiceId>,
+    BlendAdapter<BlendNetworkAdapter<RuntimeServiceId>, Tx, RuntimeServiceId>,
     MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
     MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
-    MockPool<HeaderId, BlobInfo, <BlobInfo as blob::info::DispersedBlobInfo>::BlobId>,
-    MempoolNetworkAdapter<
-        BlobInfo,
-        <BlobInfo as blob::info::DispersedBlobInfo>::BlobId,
-        RuntimeServiceId,
-    >,
     FillSizeWithTx<SIZE, Tx>,
-    FillSizeWithBlobs<SIZE, BlobInfo>,
     RocksBackend<SS>,
     SamplingBackend,
     SamplingNetworkAdapter,
