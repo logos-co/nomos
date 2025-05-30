@@ -1,22 +1,34 @@
 pub mod blob;
-mod opcode;
+mod inscribe;
+pub mod opcode;
 pub(crate) mod serde_;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ops::{blob::BlobOp, opcode::BLOB};
+use crate::ops::{
+    blob::BlobOp,
+    inscribe::InscriptionOp,
+    opcode::{BLOB, INSCRIBE},
+};
+
+pub type TxHash = [u8; 32];
+
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Op {
+    Inscribe(
+        #[serde(serialize_with = "serde_::serialize_op_variant::<{INSCRIBE}, InscribeOp, _>")]
+        #[serde(deserialize_with = "serde_::deserialize_op_variant::<{INSCRIBE}, InscribeOp, _>")]
+        InscriptionOp,
+    ),
     Blob(
         #[serde(serialize_with = "serde_::serialize_op_variant::<{BLOB}, BlobOp, _>")]
         #[serde(deserialize_with = "serde_::deserialize_op_variant::<{BLOB}, BlobOp, _>")]
-        blob::BlobOp,
+        BlobOp,
     ),
 }
 
 mod tests {
-    use serde::Deserialize;
     use serde_json::{Value, json};
 
     use crate::ops::{Op, blob::BlobOp};

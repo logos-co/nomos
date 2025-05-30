@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+use crate::ops::TxHash;
+
 pub type ChannelId = u64;
 pub type BlobId = [u8; 32];
-pub type TxHash = [u8; 32];
 
 pub type Ed25519PublicKey = [u8; 32];
 
