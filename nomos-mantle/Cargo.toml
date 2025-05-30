@@ -1,13 +1,13 @@
 [package]
-name = "nomos-mantle"
-version = "0.1.0"
-edition = "2024"
+edition           = "2024"
 license.workspace = true
+name              = "nomos-mantle"
+version           = "0.1.0"
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
+multiaddr      = "0.18"
 nomos-sdp-core = { workspace = true }
-multiaddr = "0.18"
+serde          = { version = "1.0", features = ["derive"] }
 
 #[dev-dependencies]
 serde_json = "1.0"

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-pub(crate) struct WireOp<const CODE: u8, Op> {
+pub struct WireOp<const CODE: u8, Op> {
     pub op: Op,
 }
 
@@ -15,12 +15,12 @@ where
 
 #[derive(Deserialize)]
 struct WireOpDes<Inner> {
-    #[allow(dead_code)]
+    // #[expect(dead_code, reason = "Op codes are just used for deserialization")]
     pub opcode: u8,
     pub payload: Inner,
 }
 
-impl<const CODE: u8, Inner: Serialize> Serialize for WireOp<CODE, Inner>
+impl<const CODE: u8, Inner> Serialize for WireOp<CODE, Inner>
 where
     Inner: Serialize,
 {
@@ -42,11 +42,11 @@ impl<'de, const CODE: u8, Inner: Deserialize<'de>> Deserialize<'de> for WireOp<C
         D: Deserializer<'de>,
     {
         let op = WireOpDes::<Inner>::deserialize(deserializer)?.payload;
-        Ok(WireOp { op })
+        Ok(Self { op })
     }
 }
 
-pub(crate) fn serialize_op_variant<const CODE: u8, Op: Serialize, S: Serializer>(
+pub fn serialize_op_variant<const CODE: u8, Op: Serialize, S: Serializer>(
     op: &Op,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
@@ -57,12 +57,7 @@ pub(crate) fn serialize_op_variant<const CODE: u8, Op: Serialize, S: Serializer>
     .serialize(serializer)
 }
 
-pub(crate) fn deserialize_op_variant<
-    'de,
-    const CODE: u8,
-    Op: Deserialize<'de>,
-    D: Deserializer<'de>,
->(
+pub fn deserialize_op_variant<'de, const CODE: u8, Op: Deserialize<'de>, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Op, D::Error> {
     let op = WireOpDes::<Op>::deserialize(deserializer)?;
