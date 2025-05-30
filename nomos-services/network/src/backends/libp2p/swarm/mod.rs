@@ -20,29 +20,32 @@ use nomos_libp2p::{
     libp2p::{kad::QueryId, swarm::ConnectionId},
     Multiaddr, PeerId, Swarm, SwarmEvent,
 };
-use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot};
 use tokio_stream::StreamExt as _;
 
 use super::{
     command::{Command, Dial, NetworkCommand},
-    Event, Libp2pConfig,
+    Libp2pConfig,
 };
 use crate::backends::libp2p::{swarm::kademlia::PendingQueryData, Libp2pInfo};
 
+mod chainsync;
 mod gossipsub;
 mod identify;
 mod kademlia;
 
+pub use chainsync::{ChainSyncCommand, ChainSyncEvent};
 pub use gossipsub::PubSubCommand;
 pub use kademlia::DiscoveryCommand;
+
+use crate::backends::libp2p::events::EventChannels;
 
 pub struct SwarmHandler {
     pub swarm: Swarm,
     pub pending_dials: HashMap<ConnectionId, Dial>,
     pub commands_tx: mpsc::Sender<Command>,
     pub commands_rx: mpsc::Receiver<Command>,
-    pub events_tx: broadcast::Sender<Event>,
-
+    pub event_channels: EventChannels,
     pending_queries: HashMap<QueryId, PendingQueryData>,
 }
 
@@ -56,7 +59,7 @@ impl SwarmHandler {
         config: Libp2pConfig,
         commands_tx: mpsc::Sender<Command>,
         commands_rx: mpsc::Receiver<Command>,
-        events_tx: broadcast::Sender<Event>,
+        event_channels: EventChannels,
     ) -> Self {
         let swarm = Swarm::build(config.inner).unwrap();
 
@@ -69,7 +72,7 @@ impl SwarmHandler {
             pending_dials,
             commands_tx,
             commands_rx,
-            events_tx,
+            event_channels,
             pending_queries: HashMap::new(),
         }
     }
@@ -115,11 +118,12 @@ impl SwarmHandler {
             SwarmEvent::Behaviour(BehaviourEvent::Identify(event)) => {
                 self.handle_identify_event(event);
             }
-
             SwarmEvent::Behaviour(BehaviourEvent::Kademlia(event)) => {
                 self.handle_kademlia_event(event);
             }
-
+            SwarmEvent::Behaviour(BehaviourEvent::ChainSync(event)) => {
+                self.handle_chainsync_event(event);
+            }
             SwarmEvent::ConnectionEstablished {
                 peer_id,
                 connection_id,
@@ -161,6 +165,7 @@ impl SwarmHandler {
             Command::Network(network_cmd) => self.handle_network_command(network_cmd),
             Command::PubSub(pubsub_cmd) => self.handle_pubsub_command(pubsub_cmd),
             Command::Discovery(discovery_cmd) => self.handle_discovery_command(discovery_cmd),
+            Command::ChainSync(chainsync_cmd) => self.handle_chainsync_command(chainsync_cmd),
         }
     }
 
@@ -272,6 +277,7 @@ mod tests {
             gossipsub_config: nomos_libp2p::gossipsub::Config::default(),
             kademlia_config: Some(nomos_libp2p::KademliaSettings::default()),
             identify_config: Some(nomos_libp2p::IdentifySettings::default()),
+            chainsync_config: None,
             protocol_name_env: ProtocolName::Unittest,
         }
     }
@@ -296,9 +302,10 @@ mod tests {
         let (tx1, rx1) = mpsc::channel(10);
         txs.push(tx1.clone());
 
-        let (events_tx1, _) = broadcast::channel(10);
+        let events_channel = EventChannels::new();
         let config = create_libp2p_config(vec![], 8000);
-        let mut bootstrap_node = SwarmHandler::new(config, tx1.clone(), rx1, events_tx1.clone());
+        let mut bootstrap_node =
+            SwarmHandler::new(config, tx1.clone(), rx1, events_channel.clone());
 
         let bootstrap_node_peer_id = *bootstrap_node.swarm.swarm().local_peer_id();
 
@@ -339,11 +346,10 @@ mod tests {
         for i in 1..NODE_COUNT {
             let (tx, rx) = mpsc::channel(10);
             txs.push(tx.clone());
-            let (events_tx, _) = broadcast::channel(10);
 
             // Each node connects to the bootstrap node
             let config = create_libp2p_config(vec![bootstrap_addr.clone()], 8000 + i as u16);
-            let mut handler = SwarmHandler::new(config, tx.clone(), rx, events_tx);
+            let mut handler = SwarmHandler::new(config, tx.clone(), rx, EventChannels::new());
 
             let peer_id = *handler.swarm.swarm().local_peer_id();
             tracing::info!("Starting node {} with peer ID: {}", i, peer_id);

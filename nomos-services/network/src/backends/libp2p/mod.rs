@@ -1,5 +1,6 @@
 mod command;
 mod config;
+mod events;
 pub(crate) mod swarm;
 
 pub use nomos_libp2p::libp2p::gossipsub::{Message, TopicHash};
@@ -12,21 +13,24 @@ pub use self::{
     config::Libp2pConfig,
 };
 use super::NetworkBackend;
+use crate::backends::libp2p::{events::EventChannels, swarm::ChainSyncEvent};
 
 pub struct Libp2p {
-    events_tx: broadcast::Sender<Event>,
+    event_channels: EventChannels,
     commands_tx: mpsc::Sender<Command>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum EventKind {
     Message,
+    ChainSync,
 }
 
 /// Events emitted from [`NomosLibp2p`], which users can subscribe
 #[derive(Debug, Clone)]
 pub enum Event {
     Message(Message),
+    ChainSync(ChainSyncEvent),
 }
 
 const BUFFER_SIZE: usize = 64;
@@ -40,18 +44,24 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Libp2p {
 
     fn new(config: Self::Settings, overwatch_handle: OverwatchHandle<RuntimeServiceId>) -> Self {
         let (commands_tx, commands_rx) = tokio::sync::mpsc::channel(BUFFER_SIZE);
-        let (events_tx, _) = tokio::sync::broadcast::channel(BUFFER_SIZE);
+
+        let event_channels = EventChannels::new();
+
         let initial_peers = config.initial_peers.clone();
 
-        let mut swarm_handler =
-            SwarmHandler::new(config, commands_tx.clone(), commands_rx, events_tx.clone());
+        let mut swarm_handler = SwarmHandler::new(
+            config,
+            commands_tx.clone(),
+            commands_rx,
+            event_channels.clone(),
+        );
 
         overwatch_handle.runtime().spawn(async move {
             swarm_handler.run(initial_peers).await;
         });
 
         Self {
-            events_tx,
+            event_channels,
             commands_tx,
         }
     }
@@ -67,10 +77,8 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Libp2p {
         kind: Self::EventKind,
     ) -> broadcast::Receiver<Self::NetworkEvent> {
         match kind {
-            EventKind::Message => {
-                tracing::debug!("processed subscription to incoming messages");
-                self.events_tx.subscribe()
-            }
+            EventKind::Message => self.event_channels.subscribe_to_gossipsub(),
+            EventKind::ChainSync => self.event_channels.subscribe_to_chainsync(),
         }
     }
 }
