@@ -29,8 +29,7 @@ use nomos_da_verifier::backend::VerifierBackend;
 use nomos_http_api_common::paths;
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
-    backend::mockpool::MockPool, tx::service::openapi::Status, DaMempoolService, MempoolMetrics,
-    TxMempoolService,
+    backend::mockpool::MockPool, openapi::Status, MempoolMetrics, TxMempoolService,
 };
 use nomos_storage::{
     api::da::DaConverter,
@@ -293,7 +292,6 @@ where
         + AsServiceId<
             DaIndexer<
                 Tx,
-                DaBlobInfo,
                 DaVerifiedBlobInfo,
                 DaStorageSerializer,
                 SamplingBackend,
@@ -330,25 +328,6 @@ where
                     RuntimeServiceId,
                 >,
                 MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
-                RuntimeServiceId,
-            >,
-        >
-        + AsServiceId<
-            DaMempoolService<
-                nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-                    DaVerifiedBlobInfo,
-                    DaVerifiedBlobInfo::BlobId,
-                    RuntimeServiceId,
-                >,
-                MockPool<HeaderId, DaVerifiedBlobInfo, DaVerifiedBlobInfo::BlobId>,
-                SamplingBackend,
-                SamplingNetworkAdapter,
-                SamplingRng,
-                SamplingStorage,
-                DaVerifierBackend,
-                DaVerifierNetwork,
-                DaVerifierStorage,
-                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -474,7 +453,6 @@ where
                 routing::post(
                     get_range::<
                         Tx,
-                        DaBlobInfo,
                         DaVerifiedBlobInfo,
                         DaStorageSerializer,
                         SamplingBackend,

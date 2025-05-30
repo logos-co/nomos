@@ -35,7 +35,7 @@ use nomos_http_api_common::paths;
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
     backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
-    DaMempoolService, TxMempoolService,
+    TxMempoolService,
 };
 use nomos_network::backends::libp2p::Libp2p as Libp2pNetworkBackend;
 use nomos_storage::{
@@ -362,7 +362,6 @@ where
 )]
 pub async fn get_range<
     Tx,
-    C,
     V,
     SS,
     SamplingBackend,
@@ -393,17 +392,7 @@ where
         + 'static,
     <Tx as Transaction>::Hash:
         std::cmp::Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    C: DispersedBlobInfo<BlobId = [u8; 32]>
-        + Clone
-        + Debug
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
-    <C as DispersedBlobInfo>::BlobId: Clone + Send + Sync,
     V: DispersedBlobInfo<BlobId = [u8; 32]>
-        + From<C>
         + Eq
         + Debug
         + Metadata
@@ -443,7 +432,6 @@ where
         + AsServiceId<
             DaIndexer<
                 Tx,
-                C,
                 V,
                 SS,
                 SamplingBackend,
@@ -462,7 +450,6 @@ where
 {
     make_request_and_return_response!(da::get_range::<
         Tx,
-        C,
         V,
         SS,
         SamplingBackend,
@@ -883,27 +870,9 @@ where
     DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
-    RuntimeServiceId: Debug
-        + Sync
-        + Display
-        + 'static
-        + AsServiceId<
-            DaMempoolService<
-                MempoolNetworkAdapter<B, <B as DispersedBlobInfo>::BlobId, RuntimeServiceId>,
-                MockPool<HeaderId, B, <B as DispersedBlobInfo>::BlobId>,
-                SamplingBackend,
-                SamplingAdapter,
-                SamplingRng,
-                SamplingStorage,
-                DaVerifierBackend,
-                DaVerifierNetwork,
-                DaVerifierStorage,
-                ApiAdapter,
-                RuntimeServiceId,
-            >,
-        >,
 {
-    make_request_and_return_response!(mempool::add_blob_info::<
+    todo!()
+    /*make_request_and_return_response!(mempool::add_blob_info::<
         Libp2pNetworkBackend,
         MempoolNetworkAdapter<B, <B as DispersedBlobInfo>::BlobId, RuntimeServiceId>,
         B,
@@ -917,5 +886,5 @@ where
         DaVerifierStorage,
         ApiAdapter,
         RuntimeServiceId,
-    >(&handle, blob_info, DispersedBlobInfo::blob_id))
+    >(&handle, blob_info, DispersedBlobInfo::blob_id))*/
 }

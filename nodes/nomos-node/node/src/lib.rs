@@ -32,7 +32,6 @@ use nomos_da_verifier::{
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
 pub use nomos_mempool::{
-    da::settings::DaMempoolSettings,
     network::adapters::libp2p::{
         Libp2pAdapter as MempoolNetworkAdapter, Settings as MempoolAdapterSettings,
     },
@@ -117,15 +116,6 @@ pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
 
 pub(crate) type ClMempoolService = generic_services::TxMempoolService<RuntimeServiceId>;
 
-pub(crate) type DaMempoolService = generic_services::DaMempoolService<
-    nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
-        NomosDaMembership,
-        RuntimeServiceId,
-    >,
-    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
-    RuntimeServiceId,
->;
-
 pub(crate) type CryptarchiaService = generic_services::CryptarchiaService<
     nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
         NomosDaMembership,
@@ -183,7 +173,6 @@ pub struct Nomos {
     da_sampling: DaSamplingService,
     da_network: DaNetworkService,
     cl_mempool: ClMempoolService,
-    da_mempool: DaMempoolService,
     cryptarchia: CryptarchiaService,
     time: TimeService,
     http: ApiService,

@@ -169,7 +169,6 @@ where
 
 pub async fn get_range<
     Tx,
-    C,
     V,
     SS,
     SamplingBackend,
@@ -201,17 +200,7 @@ where
         + 'static,
     <Tx as Transaction>::Hash:
         std::cmp::Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    C: DispersedBlobInfo<BlobId = [u8; 32]>
-        + Clone
-        + Debug
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
-    <C as DispersedBlobInfo>::BlobId: Clone + Send + Sync,
     V: DispersedBlobInfo<BlobId = [u8; 32]>
-        + From<C>
         + Eq
         + Debug
         + metadata::Metadata
