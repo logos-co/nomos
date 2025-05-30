@@ -5,10 +5,12 @@ use std::{collections::BTreeSet, hash::Hash};
 
 use blake2::{Blake2b, Digest as _};
 use multiaddr::Multiaddr;
+use serde::{Deserialize, Serialize};
 
 pub type StakeThreshold = u64;
 pub type BlockNumber = u64;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct MinStake {
     pub threshold: StakeThreshold,
     pub timestamp: BlockNumber,
@@ -22,37 +24,48 @@ pub struct ServiceParameters {
     pub timestamp: BlockNumber,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Locator {
-    addr: Multiaddr,
-}
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Locator(Multiaddr);
 
 impl Locator {
     #[must_use]
     pub const fn new(addr: Multiaddr) -> Self {
-        Self { addr }
+        Self(addr)
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+impl AsRef<Multiaddr> for Locator {
+    fn as_ref(&self) -> &Multiaddr {
+        &self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum ServiceType {
+    #[serde(rename = "BN")]
     BlendNetwork,
+    #[serde(rename = "DA")]
     DataAvailability,
+    #[serde(rename = "EX")]
     ExecutorNetwork,
 }
 
 pub type Nonce = [u8; 16];
 
-#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct ProviderId(pub [u8; 32]);
 
-#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct DeclarationId(pub [u8; 32]);
 
-#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct ActivityId(pub [u8; 32]);
 
-#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct RewardAddress(pub [u8; 32]);
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
@@ -90,7 +103,7 @@ pub enum DeclarationState {
     Withdrawn,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct DeclarationMessage {
     pub service_type: ServiceType,
     pub locators: Vec<Locator>,
@@ -110,7 +123,7 @@ impl DeclarationMessage {
         hasher.update(service.as_bytes());
         hasher.update(self.provider_id.0);
         for locator in &self.locators {
-            hasher.update(locator.addr.as_ref());
+            hasher.update(locator.0.as_ref());
         }
         hasher.update(self.reward_address.0);
 
@@ -118,7 +131,7 @@ impl DeclarationMessage {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct WithdrawMessage {
     pub declaration_id: DeclarationId,
     pub service_type: ServiceType,
@@ -126,7 +139,7 @@ pub struct WithdrawMessage {
     pub nonce: Nonce,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct ActiveMessage<Metadata> {
     pub declaration_id: DeclarationId,
     pub service_type: ServiceType,
