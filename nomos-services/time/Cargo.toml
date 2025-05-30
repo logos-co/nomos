@@ -14,7 +14,6 @@ nomos-utils        = { workspace = true, features = ["time"], optional = true }
 overwatch          = { workspace = true }
 serde              = { version = "1.0", optional = true, features = ["derive"] }
 serde_with         = { workspace = true, optional = true }
-services-utils     = { workspace = true }
 sntpc              = { version = "0.5", optional = true, features = ["tokio-socket"] }
 thiserror          = { version = "2.0", optional = true }
 time               = "0.3"
@@ -25,7 +24,3 @@ tokio-stream       = "0.1"
 ntp       = ["dep:sntpc", "dep:thiserror"]
 serde     = ["dep:cfg_eval", "dep:nomos-utils", "dep:serde", "dep:serde_with"]
 testutils = []
-
-[package.metadata.cargo-machete]
-# False positives.
-ignored = ["nomos-utils"]
