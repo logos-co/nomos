@@ -6,7 +6,7 @@ use nomos_ledger::LedgerState;
 use overwatch::services::state::ServiceState;
 use serde::{Deserialize, Serialize};
 
-use crate::{leadership::Leader, Cryptarchia, CryptarchiaSettings, Error};
+use crate::{Cryptarchia, CryptarchiaSettings, Error, leadership::Leader};
 
 /// Indicates that there's stored data so [`Cryptarchia`] should be recovered.
 /// However, the number of stored epochs is fewer than
@@ -91,7 +91,10 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
         }
     }
 
-    pub(crate) fn from_cryptarchia(cryptarchia: &Cryptarchia, leader: &Leader) -> Self {
+    pub(crate) fn from_cryptarchia<State: cryptarchia_engine::State>(
+        cryptarchia: &Cryptarchia<State>,
+        leader: &Leader,
+    ) -> Self {
         let security_block_header = cryptarchia.consensus.get_security_block_header_id();
         let security_ledger_state = security_block_header
             .and_then(|header| cryptarchia.ledger.state(&header))
