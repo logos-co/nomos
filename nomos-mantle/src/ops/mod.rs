@@ -1,4 +1,5 @@
 pub mod blob;
+mod channel_keys;
 mod inscribe;
 pub mod opcode;
 pub(crate) mod serde_;
@@ -7,24 +8,38 @@ use serde::{Deserialize, Serialize};
 
 use crate::ops::{
     blob::BlobOp,
+    channel_keys::SetChannelKeysOp,
     inscribe::InscriptionOp,
-    opcode::{BLOB, INSCRIBE},
+    opcode::{BLOB, INSCRIBE, SET_CHANNEL_KEYS},
 };
 
 pub type TxHash = [u8; 32];
+pub type Ed25519PublicKey = [u8; 32];
+pub type ChannelId = u64;
 
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Op {
     Inscribe(
-        #[serde(serialize_with = "serde_::serialize_op_variant::<{INSCRIBE}, InscribeOp, _>")]
-        #[serde(deserialize_with = "serde_::deserialize_op_variant::<{INSCRIBE}, InscribeOp, _>")]
+        #[serde(serialize_with = "serde_::serialize_op_variant::<{INSCRIBE}, InscriptionOp, _>")]
+        #[serde(
+            deserialize_with = "serde_::deserialize_op_variant::<{INSCRIBE}, InscriptionOp, _>"
+        )]
         InscriptionOp,
     ),
     Blob(
         #[serde(serialize_with = "serde_::serialize_op_variant::<{BLOB}, BlobOp, _>")]
         #[serde(deserialize_with = "serde_::deserialize_op_variant::<{BLOB}, BlobOp, _>")]
         BlobOp,
+    ),
+    SetChannelKeys(
+        #[serde(
+            serialize_with = "serde_::serialize_op_variant::<{SET_CHANNEL_KEYS}, SetChannelKeysOp, _>"
+        )]
+        #[serde(
+            deserialize_with = "serde_::deserialize_op_variant::<{SET_CHANNEL_KEYS}, SetChannelKeysOp, _>"
+        )]
+        SetChannelKeysOp,
     ),
 }
 
