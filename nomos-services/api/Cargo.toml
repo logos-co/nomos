@@ -55,6 +55,6 @@ utoipa-swagger-ui = { version = "4.0", features = ["axum"] }
 [package.metadata.cargo-machete]
 # False positives.
 ignored = [
-  # Required by Overwatch's `#[derive(Services)]` macro.
+  # Required by Overwatch's `#[derive_services]` macro.
   "tracing",
 ]

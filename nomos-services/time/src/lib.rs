@@ -17,9 +17,8 @@ use overwatch::{
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
     },
-    DynError, OpaqueServiceStateHandle,
+    DynError, OpaqueServiceResourcesHandle,
 };
-use services_utils::overwatch::lifecycle::should_stop_service;
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 
@@ -60,7 +59,7 @@ where
     Backend: TimeBackend,
     Backend::Settings: Clone,
 {
-    state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     backend: Backend,
 }
 
@@ -84,23 +83,28 @@ where
     RuntimeServiceId: AsServiceId<Self> + Display + Send,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, DynError> {
         let Self::Settings {
             backend_settings, ..
-        } = service_state.settings_reader.get_updated_settings();
+        } = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
         let backend = Backend::init(backend_settings);
         Ok(Self {
-            state: service_state,
+            service_resources_handle,
             backend,
         })
     }
 
     async fn run(self) -> Result<(), DynError> {
-        let Self { state, backend } = self;
-        let mut inbound_relay = state.inbound_relay;
-        let mut lifecycle_relay = state.lifecycle_handle.message_stream();
+        let Self {
+            service_resources_handle,
+            backend,
+        } = self;
+        let mut inbound_relay = service_resources_handle.inbound_relay;
         let mut tick_stream = backend.tick_stream();
 
         // 3 slots buffer should be enough
@@ -131,15 +135,8 @@ where
                     if let Err(e) = broadcast_sender.send(slot_tick) {
                         error!("Error updating slot tick: {e}");
                     }
-
-                }
-                Some(lifecycle_msg) = lifecycle_relay.next() => {
-                    if should_stop_service::<Self, RuntimeServiceId>(&lifecycle_msg) {
-                        break;
-                    }
                 }
             }
         }
-        Ok(())
     }
 }

@@ -46,8 +46,8 @@ tracing         = ["nomos-node/tracing"]
 [package.metadata.cargo-machete]
 # False positives.
 ignored = [
-  # Required by Overwatch's `#[derive(Services)]` macro.
+  # Required by Overwatch's `#[derive_services]` macro.
   "tracing",
-  # Required by Overwatch's `#[derive(Services)]` macro.
+  # Required by Overwatch's `#[derive_services]` macro.
   "tokio",
 ]

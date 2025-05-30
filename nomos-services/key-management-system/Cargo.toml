@@ -5,17 +5,15 @@ name    = "key-management-system"
 version = "0.1.0"
 
 [dependencies]
-async-trait    = "0.1"
-bytes          = { workspace = true }
-ed25519-dalek  = { version = "2", features = ["serde", "zeroize"] }
-futures        = "0.3"
-log            = "0.4.22"
-overwatch      = { workspace = true }
-serde          = { version = "1", features = ["derive"] }
-services-utils = { workspace = true }
-thiserror      = "2"
-tokio          = { version = "1", features = ["macros"] }
-zeroize        = { version = "1", features = ["zeroize_derive"] }
+async-trait   = "0.1"
+bytes         = { workspace = true }
+ed25519-dalek = { version = "2", features = ["serde", "zeroize"] }
+log           = "0.4.22"
+overwatch     = { workspace = true }
+serde         = { version = "1", features = ["derive"] }
+thiserror     = "2"
+tokio         = { version = "1", features = ["macros"] }
+zeroize       = { version = "1", features = ["zeroize_derive"] }
 
 [dev-dependencies]
 ed25519-dalek = { version = "2", features = ["rand_core"] }

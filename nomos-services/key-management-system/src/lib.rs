@@ -5,16 +5,14 @@ use std::{
 };
 
 use bytes::Bytes;
-use futures::StreamExt as _;
 use log::error;
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
     },
-    DynError, OpaqueServiceStateHandle,
+    DynError, OpaqueServiceResourcesHandle,
 };
-use services_utils::overwatch::lifecycle;
 use tokio::sync::oneshot;
 
 use crate::{backend::KMSBackend, secure_key::SecuredKey};
@@ -98,7 +96,7 @@ where
     Backend::Settings: Clone,
 {
     backend: Backend,
-    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
 }
 
 impl<Backend, RuntimeServiceId> ServiceData for KMSService<Backend, RuntimeServiceId>
@@ -125,36 +123,35 @@ where
     RuntimeServiceId: AsServiceId<Self> + Display + Send,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, DynError> {
-        let KMSServiceSettings { backend_settings } =
-            service_state.settings_reader.get_updated_settings();
+        let KMSServiceSettings { backend_settings } = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
         let backend = Backend::new(backend_settings);
         Ok(Self {
             backend,
-            service_state,
+            service_resources_handle,
         })
     }
 
-    async fn run(self) -> Result<(), DynError> {
+    async fn run(mut self) -> Result<(), DynError> {
         let Self {
-            mut service_state,
+            service_resources_handle:
+                OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
+                    ref mut inbound_relay,
+                    ..
+                },
             mut backend,
         } = self;
-        let mut lifecycle_stream = service_state.lifecycle_handle.message_stream();
-        loop {
-            tokio::select! {
-                Some(msg) = service_state.inbound_relay.recv() => {
-                    Self::handle_kms_message(msg, &mut backend).await;
-                }
-                Some(msg) = lifecycle_stream.next() => {
-                    if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
-                        return Ok(());
-                    }
-                }
-            }
+
+        while let Some(msg) = inbound_relay.recv().await {
+            Self::handle_kms_message(msg, &mut backend).await;
         }
+
+        Ok(())
     }
 }
 
