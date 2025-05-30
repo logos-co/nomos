@@ -185,7 +185,7 @@ jobs:
       - name: Set up Cargo cache
         uses: ./.github/actions/setup-cargo-cache
         with:
-          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
+          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ join(matrix.os, '_') }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Build required binaries
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
@@ -205,7 +205,7 @@ jobs:
         if: success() || failure()
         uses: ./.github/actions/update-cargo-cache
         with:
-          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
+          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ join(matrix.os, '_') }}
       - name: Upload integration tests results
         uses: actions/upload-artifact@6027e3dd177782cd8ab9af838c04fd81a07f1d47 # Version 4.6.2
         if: failure()
