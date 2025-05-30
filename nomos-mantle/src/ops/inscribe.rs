@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ops::TxHash;
 
-#[derive(Debug, Eq, PartialEq, Serialize, Deserialize, Clone)]
+#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct InscriptionOp {
     /// Message to be written in the blockchain
     inscription: Vec<u8>,

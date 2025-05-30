@@ -1,6 +1,7 @@
 pub mod blob;
 mod channel_keys;
 mod inscribe;
+mod native;
 pub mod opcode;
 pub(crate) mod serde_;
 
@@ -10,7 +11,8 @@ use crate::ops::{
     blob::BlobOp,
     channel_keys::SetChannelKeysOp,
     inscribe::InscriptionOp,
-    opcode::{BLOB, INSCRIBE, SET_CHANNEL_KEYS},
+    native::NativeOp,
+    opcode::{BLOB, INSCRIBE, NATIVE, SET_CHANNEL_KEYS},
 };
 
 pub type TxHash = [u8; 32];
@@ -40,6 +42,11 @@ pub enum Op {
             deserialize_with = "serde_::deserialize_op_variant::<{SET_CHANNEL_KEYS}, SetChannelKeysOp, _>"
         )]
         SetChannelKeysOp,
+    ),
+    Native(
+        #[serde(serialize_with = "serde_::serialize_op_variant::<{NATIVE}, NativeOp, _>")]
+        #[serde(deserialize_with = "serde_::deserialize_op_variant::<{NATIVE}, NativeOp, _>")]
+        NativeOp,
     ),
 }
 
