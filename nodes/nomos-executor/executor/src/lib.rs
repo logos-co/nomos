@@ -78,7 +78,7 @@ pub(crate) type MembershipService = nomos_membership::MembershipService<
     RuntimeServiceId,
 >;
 
-pub type MembershipLedgerAdapter = MembershipServiceAdapter<
+pub(crate) type MembershipLedgerAdapter = MembershipServiceAdapter<
     MockMembershipBackend,
     LedgerSdpAdapter<
         SdpLedger<LedgerDeclarationAdapter, LedgerServicesAdapter, Metadata>,

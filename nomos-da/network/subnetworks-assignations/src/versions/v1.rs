@@ -73,8 +73,7 @@ impl MembershipHandler for FillFromNodeList {
     type Id = PeerId;
 
     fn membership(&self, id: &Self::Id) -> HashSet<Self::NetworkId> {
-        let res: std::collections::HashSet<Self::NetworkId> = self
-            .assignations
+        self.assignations
             .iter()
             .enumerate()
             .filter_map(|(network_id, subnetwork)| {
@@ -82,10 +81,7 @@ impl MembershipHandler for FillFromNodeList {
                     .contains(id)
                     .then_some(network_id as Self::NetworkId)
             })
-            .collect();
-
-        tracing::debug!("Membership for {id}: {res:?}");
-        res
+            .collect()
     }
 
     fn is_allowed(&self, id: &Self::Id) -> bool {

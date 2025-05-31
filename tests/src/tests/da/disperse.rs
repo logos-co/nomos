@@ -64,7 +64,6 @@ async fn disseminate_retrieve_reconstruct() {
 
     let data = [1u8; 31 * ITERATIONS];
 
-    // wait for the bootstrap for 5 seconds
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
     for i in 0..ITERATIONS {

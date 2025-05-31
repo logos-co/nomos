@@ -25,7 +25,8 @@ use nomos_core::{
 use nomos_da_dispersal::adapters::mempool::DaMempoolAdapter;
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
-    adapters::membership::MembershipAdapter, backends::libp2p::executor::DaNetworkExecutorBackend,
+    adapters::membership::MembershipAdapter as MembershipServiceAdapter,
+    backends::libp2p::executor::DaNetworkExecutorBackend,
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_da_verifier::backend::VerifierBackend;
@@ -74,8 +75,8 @@ pub struct AxumBackend<
     DaAttestation,
     DaShare,
     DaBlobInfo,
-    Memebership,
-    MembershipService,
+    DaMembership,
+    MembershipAdapter,
     DaVerifiedBlobInfo,
     DaVerifierBackend,
     DaVerifierNetwork,
@@ -103,8 +104,8 @@ pub struct AxumBackend<
         DaAttestation,
         DaShare,
         DaBlobInfo,
-        Memebership,
-        MembershipService,
+        DaMembership,
+        MembershipAdapter,
         DaVerifiedBlobInfo,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -144,8 +145,8 @@ impl<
         DaAttestation,
         DaShare,
         DaBlobInfo,
-        Membership,
-        MembershipService,
+        DaMembership,
+        MembershipAdapter,
         DaVerifiedBlobInfo,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -171,8 +172,8 @@ impl<
         DaAttestation,
         DaShare,
         DaBlobInfo,
-        Membership,
-        MembershipService,
+        DaMembership,
+        MembershipAdapter,
         DaVerifiedBlobInfo,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -217,13 +218,13 @@ where
         + Sync
         + 'static,
     <DaBlobInfo as DispersedBlobInfo>::BlobId: Clone + Send + Sync,
-    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
+    DaMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
         + Debug
         + Send
         + Sync
         + 'static,
-    MembershipService: MembershipAdapter + Send + Sync + 'static,
+    MembershipAdapter: MembershipServiceAdapter + Send + Sync + 'static,
     DaVerifiedBlobInfo: DispersedBlobInfo<BlobId = [u8; 32]>
         + From<DaBlobInfo>
         + Eq
@@ -278,7 +279,7 @@ where
     DispersalBackend::BlobId: Serialize,
     DispersalBackend::Settings: Clone + Send + Sync,
     DispersalNetworkAdapter: nomos_da_dispersal::adapters::network::DispersalNetworkAdapter<
-            SubnetworkId = Membership::NetworkId,
+            SubnetworkId = DaMembership::NetworkId,
         > + Send
         + 'static,
     DispersalMempoolAdapter: DaMempoolAdapter + Send + 'static,
@@ -362,8 +363,8 @@ where
         >
         + AsServiceId<
             nomos_da_network_service::NetworkService<
-                DaNetworkExecutorBackend<Membership>,
-                MembershipService,
+                DaNetworkExecutorBackend<DaMembership>,
+                MembershipAdapter,
                 RuntimeServiceId,
             >,
         >
@@ -409,7 +410,7 @@ where
                 DispersalBackend,
                 DispersalNetworkAdapter,
                 DispersalMempoolAdapter,
-                Membership,
+                DaMembership,
                 Metadata,
                 RuntimeServiceId,
             >,
@@ -540,8 +541,8 @@ where
                 paths::DA_BLOCK_PEER,
                 routing::post(
                     block_peer::<
-                        DaNetworkExecutorBackend<Membership>,
-                        MembershipService,
+                        DaNetworkExecutorBackend<DaMembership>,
+                        MembershipAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -550,8 +551,8 @@ where
                 paths::DA_UNBLOCK_PEER,
                 routing::post(
                     unblock_peer::<
-                        DaNetworkExecutorBackend<Membership>,
-                        MembershipService,
+                        DaNetworkExecutorBackend<DaMembership>,
+                        MembershipAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -560,8 +561,8 @@ where
                 paths::DA_BLACKLISTED_PEERS,
                 routing::get(
                     blacklisted_peers::<
-                        DaNetworkExecutorBackend<Membership>,
-                        MembershipService,
+                        DaNetworkExecutorBackend<DaMembership>,
+                        MembershipAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -599,7 +600,7 @@ where
                         DispersalBackend,
                         DispersalNetworkAdapter,
                         DispersalMempoolAdapter,
-                        Membership,
+                        DaMembership,
                         Metadata,
                         RuntimeServiceId,
                     >,
@@ -645,8 +646,8 @@ where
                 paths::DA_BALANCER_STATS,
                 routing::get(
                     balancer_stats::<
-                        DaNetworkExecutorBackend<Membership>,
-                        MembershipService,
+                        DaNetworkExecutorBackend<DaMembership>,
+                        MembershipAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -655,8 +656,8 @@ where
                 paths::DA_MONITOR_STATS,
                 routing::get(
                     monitor_stats::<
-                        DaNetworkExecutorBackend<Membership>,
-                        MembershipService,
+                        DaNetworkExecutorBackend<DaMembership>,
+                        MembershipAdapter,
                         RuntimeServiceId,
                     >,
                 ),

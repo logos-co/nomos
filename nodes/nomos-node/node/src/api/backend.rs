@@ -24,7 +24,8 @@ use nomos_core::{
 };
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
-    adapters::membership::MembershipAdapter, backends::libp2p::validator::DaNetworkValidatorBackend,
+    adapters::membership::MembershipAdapter as MembershipServiceAdapter,
+    backends::libp2p::validator::DaNetworkValidatorBackend,
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_da_verifier::backend::VerifierBackend;
@@ -73,8 +74,8 @@ pub struct AxumBackend<
     DaAttestation,
     DaShare,
     DaBlobInfo,
-    Membership,
-    MembershipService,
+    DaMembership,
+    MembershipAdapter,
     DaVerifiedBlobInfo,
     DaVerifierBackend,
     DaVerifierNetwork,
@@ -95,8 +96,8 @@ pub struct AxumBackend<
     _attestation: core::marker::PhantomData<DaAttestation>,
     _share: core::marker::PhantomData<DaShare>,
     _certificate: core::marker::PhantomData<DaBlobInfo>,
-    _membership: core::marker::PhantomData<Membership>,
-    _membership_service: core::marker::PhantomData<MembershipService>,
+    _membership: core::marker::PhantomData<DaMembership>,
+    _membership_service: core::marker::PhantomData<MembershipAdapter>,
     _vid: core::marker::PhantomData<DaVerifiedBlobInfo>,
     _verifier_backend: core::marker::PhantomData<DaVerifierBackend>,
     _verifier_network: core::marker::PhantomData<DaVerifierNetwork>,
@@ -131,8 +132,8 @@ impl<
         DaAttestation,
         DaShare,
         DaBlobInfo,
-        Membership,
-        MembershipService,
+        DaMembership,
+        MembershipAdapter,
         DaVerifiedBlobInfo,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -154,8 +155,8 @@ impl<
         DaAttestation,
         DaShare,
         DaBlobInfo,
-        Membership,
-        MembershipService,
+        DaMembership,
+        MembershipAdapter,
         DaVerifiedBlobInfo,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -188,13 +189,13 @@ where
         + Sync
         + 'static,
     <DaBlobInfo as DispersedBlobInfo>::BlobId: Clone + Send + Sync,
-    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
+    DaMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
         + Debug
         + Send
         + Sync
         + 'static,
-    MembershipService: MembershipAdapter + Send + Sync + 'static,
+    MembershipAdapter: MembershipServiceAdapter + Send + Sync + 'static,
     DaVerifiedBlobInfo: DispersedBlobInfo<BlobId = [u8; 32]>
         + From<DaBlobInfo>
         + Eq
@@ -318,8 +319,8 @@ where
         >
         + AsServiceId<
             nomos_da_network_service::NetworkService<
-                DaNetworkValidatorBackend<Membership>,
-                MembershipService,
+                DaNetworkValidatorBackend<DaMembership>,
+                MembershipAdapter,
                 RuntimeServiceId,
             >,
         >
@@ -504,8 +505,8 @@ where
                 paths::DA_BLOCK_PEER,
                 routing::post(
                     block_peer::<
-                        DaNetworkValidatorBackend<Membership>,
-                        MembershipService,
+                        DaNetworkValidatorBackend<DaMembership>,
+                        MembershipAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -514,8 +515,8 @@ where
                 paths::DA_UNBLOCK_PEER,
                 routing::post(
                     unblock_peer::<
-                        DaNetworkValidatorBackend<Membership>,
-                        MembershipService,
+                        DaNetworkValidatorBackend<DaMembership>,
+                        MembershipAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -524,8 +525,8 @@ where
                 paths::DA_BLACKLISTED_PEERS,
                 routing::get(
                     blacklisted_peers::<
-                        DaNetworkValidatorBackend<Membership>,
-                        MembershipService,
+                        DaNetworkValidatorBackend<DaMembership>,
+                        MembershipAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -599,8 +600,8 @@ where
                 paths::DA_BALANCER_STATS,
                 routing::get(
                     balancer_stats::<
-                        DaNetworkValidatorBackend<Membership>,
-                        MembershipService,
+                        DaNetworkValidatorBackend<DaMembership>,
+                        MembershipAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -609,8 +610,8 @@ where
                 paths::DA_MONITOR_STATS,
                 routing::get(
                     monitor_stats::<
-                        DaNetworkValidatorBackend<Membership>,
-                        MembershipService,
+                        DaNetworkValidatorBackend<DaMembership>,
+                        MembershipAdapter,
                         RuntimeServiceId,
                     >,
                 ),

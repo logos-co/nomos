@@ -27,9 +27,6 @@ async fn test_get_share_data() {
     let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
     let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
 
-    // wait for the bootstrap for 5 seconds
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-
     disseminate_with_metadata(executor, &data, metadata).await;
 
     let from = 0u64.to_be_bytes();
@@ -73,9 +70,6 @@ async fn test_get_share_data() {
 async fn test_block_peer() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
-
-    // wait for the bootstrap for 5 seconds
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
     let blacklisted_peers = executor.blacklisted_peers().await;
     assert!(blacklisted_peers.is_empty());
@@ -147,7 +141,6 @@ async fn test_get_shares() {
     let app_id: [u8; 32] = app_id.try_into().unwrap();
     let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
 
-    // wait for the bootstrap for 5 seconds
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
     disseminate_with_metadata(executor, &data, metadata).await;

@@ -185,13 +185,13 @@ pub(crate) async fn handle_balancer_command<Stats: Debug>(
 use arc_swap::ArcSwap;
 
 pub struct SwappableMembershipHandler<T: MembershipHandler> {
-    inner: ArcSwap<T>,
+    inner: Arc<ArcSwap<T>>,
 }
 
 impl<T: MembershipHandler> SwappableMembershipHandler<T> {
     pub fn new(handler: T) -> Self {
         Self {
-            inner: ArcSwap::new(Arc::new(handler)),
+            inner: Arc::new(ArcSwap::new(Arc::new(handler))),
         }
     }
 
@@ -206,8 +206,17 @@ impl<T: MembershipHandler> SwappableMembershipHandler<T> {
         self.inner.store(inner);
     }
 
+    #[must_use]
     pub fn inner(&self) -> Arc<T> {
         self.inner.load_full()
+    }
+}
+
+impl<T: MembershipHandler> Clone for SwappableMembershipHandler<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
     }
 }
 
@@ -245,6 +254,6 @@ impl<T: MembershipHandler> MembershipHandler for SwappableMembershipHandler<T> {
         _members: Vec<PeerId>,
         _addressbook: std::collections::HashMap<PeerId, Multiaddr>,
     ) -> Self {
-        unreachable!("SwappableMembershipHandler does not support rebuild_with, use update instead")
+        unreachable!("SwappableMembershipHandler does not support rebuild_with")
     }
 }

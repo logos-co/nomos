@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Debug, pin::Pin, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, pin::Pin};
 
 use futures::{
     future::Aborted,
@@ -95,7 +95,7 @@ where
     dispersal_shares_sender: UnboundedSender<(Membership::NetworkId, DaShare)>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
-    membership: Arc<SwappableMembershipHandler<Membership>>,
+    membership: SwappableMembershipHandler<Membership>,
 }
 
 #[async_trait::async_trait]
@@ -122,11 +122,11 @@ where
         ));
 
         let membership = config.validator_settings.membership.clone();
-        let membership = Arc::new(SwappableMembershipHandler::new(membership));
+        let membership = SwappableMembershipHandler::new(membership);
 
         let (mut executor_swarm, executor_events_stream) = ExecutorSwarm::new(
             keypair,
-            Arc::clone(&membership),
+            membership.clone(),
             config.validator_settings.policy_settings.clone(),
             config.validator_settings.monitor_settings.clone(),
             config.validator_settings.balancer_interval,

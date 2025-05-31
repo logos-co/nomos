@@ -193,7 +193,6 @@ where
     }
 
     fn handle_membership_update_message(backend: &mut Backend, update: &MembershipProviders) {
-        tracing::debug!("Received membership update: {update:?}");
         let mut members = Vec::new();
         let mut addressbook: HashMap<PeerId, Multiaddr> = HashMap::new();
         let mut rng = rand::thread_rng();

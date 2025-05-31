@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Debug, pin::Pin, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, pin::Pin};
 
 use futures::{
     future::{AbortHandle, Abortable, Aborted},
@@ -80,7 +80,7 @@ where
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
     verifying_broadcast_receiver: broadcast::Receiver<DaShare>,
-    membership: Arc<SwappableMembershipHandler<Membership>>,
+    membership: SwappableMembershipHandler<Membership>,
 }
 
 #[async_trait::async_trait]
@@ -106,11 +106,11 @@ where
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
 
         let membership = config.membership.clone();
-        let membership = Arc::new(SwappableMembershipHandler::new(membership));
+        let membership = SwappableMembershipHandler::new(membership);
 
         let (mut validator_swarm, validator_events_stream) = ValidatorSwarm::new(
             keypair,
-            Arc::clone(&membership),
+            membership.clone(),
             config.policy_settings,
             config.monitor_settings,
             config.balancer_interval,
