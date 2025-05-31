@@ -313,11 +313,12 @@ mod cfgsync_tests {
     use nomos_da_network_core::swarm::{
         DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
     };
-    use nomos_libp2p::{ed25519, Multiaddr, Protocol};
+    use nomos_libp2p::{ed25519, libp2p, Multiaddr, PeerId, Protocol};
     use nomos_sdp_core::ProviderId;
     use nomos_tracing_service::{
         FilterLayer, LoggerLayer, MetricsLayer, TracingLayer, TracingSettings,
     };
+    use subnetworks_assignations::MembershipHandler as _;
     use tests::topology::configs::{consensus::ConsensusParams, da::DaParams, GeneralConfig};
     use tracing::Level;
 
@@ -380,8 +381,28 @@ mod cfgsync_tests {
             assert_eq!(da_network_port, host.da_network_port);
             assert_eq!(blend_port, host.blend_port);
 
+            check_da_membership(host.ip, config);
             check_membership(host.ip, config);
         }
+    }
+
+    pub fn check_da_membership(my_ip: Ipv4Addr, config: &GeneralConfig) {
+        let key = libp2p::identity::Keypair::from(ed25519::Keypair::from(
+            config.da_config.node_key.clone(),
+        ));
+        let my_peer_id = PeerId::from_public_key(&key.public());
+
+        let my_multiaddr = config
+            .da_config
+            .membership
+            .get_address(&my_peer_id)
+            .unwrap();
+        let my_multiaddr_ip = extract_ip(&my_multiaddr).unwrap();
+
+        assert_eq!(
+            my_ip, my_multiaddr_ip,
+            "DA membership ip doesn't match host ip"
+        );
     }
 
     pub fn check_membership(my_ip: Ipv4Addr, config: &GeneralConfig) {
