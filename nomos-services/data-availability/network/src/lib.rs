@@ -1,13 +1,20 @@
 pub mod backends;
 
 use std::{
+    collections::HashMap,
     fmt::{self, Debug, Display},
+    marker::PhantomData,
     pin::Pin,
 };
 
+use adapters::membership::MembershipAdapter;
 use async_trait::async_trait;
 use backends::NetworkBackend;
 use futures::{Stream, StreamExt as _};
+use libp2p::{Multiaddr, PeerId};
+use nomos_libp2p::ed25519::PublicKey;
+use nomos_membership::MembershipProviders;
+use nomos_sdp_core::ServiceType;
 use overwatch::{
     services::{
         state::{NoOperator, ServiceState},
@@ -15,9 +22,12 @@ use overwatch::{
     },
     OpaqueServiceStateHandle,
 };
+use rand::seq::IteratorRandom as _;
 use serde::{Deserialize, Serialize};
 use services_utils::overwatch::lifecycle;
 use tokio::sync::oneshot;
+
+pub mod adapters;
 
 pub enum DaNetworkMsg<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> {
     Process(B::Message),
@@ -53,67 +63,99 @@ impl<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> Debug
     }
 }
 
-pub struct NetworkService<B: NetworkBackend<RuntimeServiceId> + Send + 'static, RuntimeServiceId> {
-    backend: B,
+pub struct NetworkService<
+    Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
+    Membership: MembershipAdapter + Send + 'static,
+    RuntimeServiceId,
+> {
+    _phantom: PhantomData<(Backend, Membership)>,
     service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
 }
 
-pub struct NetworkState<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> {
-    backend: B::State,
+pub struct NetworkState<Backend: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> {
+    backend: Backend::State,
 }
 
-impl<B: NetworkBackend<RuntimeServiceId> + 'static + Send, RuntimeServiceId> ServiceData
-    for NetworkService<B, RuntimeServiceId>
+impl<Backend, Membership, RuntimeServiceId> ServiceData
+    for NetworkService<Backend, Membership, RuntimeServiceId>
+where
+    Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
+    Membership: MembershipAdapter + Send + 'static,
 {
-    type Settings = NetworkConfig<B, RuntimeServiceId>;
-    type State = NetworkState<B, RuntimeServiceId>;
+    type Settings = NetworkConfig<Backend, RuntimeServiceId>;
+    type State = NetworkState<Backend, RuntimeServiceId>;
     type StateOperator = NoOperator<Self::State>;
-    type Message = DaNetworkMsg<B, RuntimeServiceId>;
+    type Message = DaNetworkMsg<Backend, RuntimeServiceId>;
 }
 
 #[async_trait]
-impl<B, RuntimeServiceId> ServiceCore<RuntimeServiceId> for NetworkService<B, RuntimeServiceId>
+impl<Backend, Membership, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for NetworkService<Backend, Membership, RuntimeServiceId>
 where
-    B: NetworkBackend<RuntimeServiceId> + Send + 'static,
-    B::State: Send + Sync,
-    RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send,
+    Backend: NetworkBackend<RuntimeServiceId> + Send + Sync + 'static,
+    Membership: MembershipAdapter + Send + Sync + 'static,
+    <Membership::MembershipService as ServiceData>::Message: 'static,
+    RuntimeServiceId: AsServiceId<Self>
+        + AsServiceId<Membership::MembershipService>
+        + Clone
+        + Display
+        + Send
+        + Sync
+        + Debug
+        + 'static,
 {
     fn init(
         service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
         _init_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
         Ok(Self {
-            backend: <B as NetworkBackend<RuntimeServiceId>>::new(
-                service_state.settings_reader.get_updated_settings().backend,
-                service_state.overwatch_handle.clone(),
-            ),
             service_state,
+            _phantom: PhantomData,
         })
     }
 
     async fn run(mut self) -> Result<(), overwatch::DynError> {
         let Self {
-            service_state:
-                OpaqueServiceStateHandle::<Self, RuntimeServiceId> {
-                    mut inbound_relay,
-                    lifecycle_handle,
-                    ..
-                },
-            mut backend,
+            mut service_state, ..
         } = self;
 
-        let mut lifecycle_stream = lifecycle_handle.message_stream();
+        let network_settings = service_state.settings_reader.get_updated_settings();
+
+        let membership_relay = service_state
+            .overwatch_handle
+            .relay::<Membership::MembershipService>()
+            .await?;
+
+        let membership_adapter = Membership::new(membership_relay);
+
+        let mut stream = membership_adapter
+            .subscribe(ServiceType::DataAvailability)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to subscribe to membership service: {:?}", e);
+                e
+            })?;
+
+        let mut backend = NetworkBackend::new(
+            network_settings.backend,
+            service_state.overwatch_handle.clone(),
+        );
+
+        let mut lifecycle_stream = service_state.lifecycle_handle.message_stream();
         loop {
             tokio::select! {
-                Some(msg) = inbound_relay.recv() => {
+                Some(msg) = service_state.inbound_relay.recv() => {
                     Self::handle_network_service_message(msg, &mut backend).await;
                 }
                 Some(msg) = lifecycle_stream.next() => {
                     if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
                         // TODO: Maybe add a call to backend to handle this. Maybe trying to save unprocessed messages?
                         backend.shutdown();
-                        break;
+                         break;
                     }
+                }
+                Some(update) = stream.next() => {
+                    Self::handle_membership_update_message(&mut backend, &update);
                 }
             }
         }
@@ -122,14 +164,16 @@ where
     }
 }
 
-impl<B, RuntimeServiceId> NetworkService<B, RuntimeServiceId>
+impl<Backend, Membership, RuntimeServiceId> NetworkService<Backend, Membership, RuntimeServiceId>
 where
-    B: NetworkBackend<RuntimeServiceId> + Send + 'static,
-    B::State: Send + Sync,
+    Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
+    Backend::State: Send + Sync,
+    Membership: MembershipAdapter + Send + 'static,
+    RuntimeServiceId: Send + Sync + 'static,
 {
     async fn handle_network_service_message(
-        msg: DaNetworkMsg<B, RuntimeServiceId>,
-        backend: &mut B,
+        msg: DaNetworkMsg<Backend, RuntimeServiceId>,
+        backend: &mut Backend,
     ) {
         match msg {
             DaNetworkMsg::Process(msg) => {
@@ -146,6 +190,33 @@ where
                     );
                 }),
         }
+    }
+
+    fn handle_membership_update_message(backend: &mut Backend, update: &MembershipProviders) {
+        let mut members = Vec::new();
+        let mut addressbook: HashMap<PeerId, Multiaddr> = HashMap::new();
+        let mut rng = rand::thread_rng();
+
+        for (provider_id, locators) in update {
+            let public_key = match PublicKey::try_from_bytes(&provider_id.0) {
+                Ok(key) => key,
+                Err(e) => {
+                    tracing::error!("Failed to convert provider ID to public key: {e}");
+                    continue;
+                }
+            };
+
+            let peer_id = PeerId::from_public_key(&public_key.into());
+            members.push(peer_id);
+
+            // Pick a random locator from the BTreeSet
+            if let Some(random_locator) = locators.iter().choose(&mut rng) {
+                let multi_addr = random_locator.addr();
+                addressbook.insert(peer_id, multi_addr.clone());
+            }
+        }
+
+        backend.update_membership(members, addressbook);
     }
 }
 

@@ -81,6 +81,8 @@ fn main() -> Result<()> {
             time: config.time,
             storage: config.storage,
             system_sig: (),
+            membership: config.membership,
+            sdp: (),
         },
         None,
     )

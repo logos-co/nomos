@@ -14,7 +14,7 @@ async fn deserialize_response<Config: DeserializeOwned>(
         .map_err(|error| format!("Failed to read response body: {error}"))?;
     let mut json_deserializer = serde_json::Deserializer::from_str(&body);
     serde_path_to_error::deserialize(&mut json_deserializer)
-        .map_err(|error| format!("Failed to deserialize body: {error}"))
+        .map_err(|error| format!("Failed to deserialize body: {error}, raw body: {body}"))
 }
 
 pub async fn get_config<Config: DeserializeOwned>(

@@ -1,11 +1,13 @@
 use async_trait::async_trait;
-use nomos_sdp_core::ledger;
+use nomos_sdp_core::ledger::{self, ServicesRepository};
 
-pub struct LedgerServicesAdapter;
-
-pub trait SdpServicesAdapter {
+pub trait SdpServicesAdapter: ServicesRepository {
     fn new() -> Self;
 }
+
+#[derive(Debug, Clone)]
+pub struct LedgerServicesAdapter;
+
 impl SdpServicesAdapter for LedgerServicesAdapter {
     fn new() -> Self {
         Self {}

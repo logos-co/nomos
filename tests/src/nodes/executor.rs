@@ -172,14 +172,15 @@ impl Executor {
     }
 
     pub async fn blacklisted_peers(&self) -> Vec<String> {
-        CLIENT
+        let res = CLIENT
             .get(format!("http://{}{}", self.addr, DA_BLACKLISTED_PEERS))
             .send()
             .await
-            .unwrap()
+            .expect("Failed to send HTTP request to blacklisted peers endpoint")
             .json::<Vec<String>>()
             .await
-            .unwrap()
+            .expect("Failed to parse response from blacklisted peers endpoint");
+        res
     }
 
     async fn wait_online(&self) {
@@ -357,5 +358,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             cl_pool_recovery_path: "./recovery/cl_mempool.json".into(),
             da_pool_recovery_path: "./recovery/da_mempool.json".into(),
         },
+        membership: config.membership_config.service_settings,
+        sdp: (),
     }
 }

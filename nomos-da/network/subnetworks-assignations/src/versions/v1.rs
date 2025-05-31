@@ -49,7 +49,10 @@ impl FillFromNodeList {
         subnetwork_size: usize,
         replication_factor: usize,
     ) -> Vec<HashSet<PeerId>> {
-        assert!(!peers.is_empty());
+        if peers.is_empty() {
+            return vec![HashSet::new(); subnetwork_size];
+        }
+
         // sort list to make it deterministic
         let mut peers = peers.to_vec();
         peers.sort_unstable();
@@ -73,10 +76,10 @@ impl MembershipHandler for FillFromNodeList {
         self.assignations
             .iter()
             .enumerate()
-            .filter_map(|(netowrk_id, subnetwork)| {
+            .filter_map(|(network_id, subnetwork)| {
                 subnetwork
                     .contains(id)
-                    .then_some(netowrk_id as Self::NetworkId)
+                    .then_some(network_id as Self::NetworkId)
             })
             .collect()
     }
@@ -104,6 +107,15 @@ impl MembershipHandler for FillFromNodeList {
 
     fn get_address(&self, peer_id: &PeerId) -> Option<Multiaddr> {
         self.addressbook.get(peer_id).cloned()
+    }
+
+    fn new_with(&self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) -> Self {
+        Self {
+            assignations: Self::fill(&members, self.subnetwork_size, self.dispersal_factor),
+            subnetwork_size: self.subnetwork_size,
+            dispersal_factor: self.dispersal_factor,
+            addressbook,
+        }
     }
 }
 

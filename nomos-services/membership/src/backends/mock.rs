@@ -6,20 +6,22 @@ use std::{
 use nomos_sdp_core::{
     BlockNumber, FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId, ServiceType,
 };
+use serde::{Deserialize, Serialize};
 
-use super::{MembershipBackend, MembershipBackendError, Settings};
+use super::{MembershipBackend, MembershipBackendError, MembershipBackendServiceSettings};
 use crate::MembershipProviders;
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MockMembershipBackendSettings {
-    settings_per_service: HashMap<ServiceType, Settings>,
-    initial_membership: HashMap<BlockNumber, MockMembershipEntry>,
-    initial_locators_mapping: HashMap<ProviderId, BTreeSet<Locator>>,
+    pub settings_per_service: HashMap<ServiceType, MembershipBackendServiceSettings>,
+    pub initial_membership: HashMap<BlockNumber, MockMembershipEntry>,
+    pub initial_locators_mapping: HashMap<ProviderId, BTreeSet<Locator>>,
 }
 
 type MockMembershipEntry = HashMap<ServiceType, HashSet<ProviderId>>;
 
 pub struct MockMembershipBackend {
-    settings: HashMap<ServiceType, Settings>,
+    settings: HashMap<ServiceType, MembershipBackendServiceSettings>,
     membership: HashMap<BlockNumber, MockMembershipEntry>,
     locators_mapping: HashMap<ProviderId, BTreeSet<Locator>>,
     latest_block_number: BlockNumber,
@@ -159,7 +161,8 @@ mod tests {
     };
 
     use super::{
-        MembershipBackend as _, MockMembershipBackend, MockMembershipBackendSettings, Settings,
+        MembershipBackend as _, MembershipBackendServiceSettings, MockMembershipBackend,
+        MockMembershipBackendSettings,
     };
     use crate::MembershipProviders;
 
@@ -226,7 +229,7 @@ mod tests {
         let mut settings_per_service = HashMap::new();
         settings_per_service.insert(
             service_type,
-            Settings {
+            MembershipBackendServiceSettings {
                 historical_block_delta: 10,
             },
         );
@@ -260,7 +263,7 @@ mod tests {
         let mut settings_per_service = HashMap::new();
         settings_per_service.insert(
             service_type,
-            Settings {
+            MembershipBackendServiceSettings {
                 historical_block_delta: 5,
             },
         );
@@ -366,7 +369,7 @@ mod tests {
         let mut settings_per_service = HashMap::new();
         settings_per_service.insert(
             service_type,
-            Settings {
+            MembershipBackendServiceSettings {
                 historical_block_delta: 5,
             },
         );
@@ -519,7 +522,7 @@ mod tests {
         let mut settings_per_service = HashMap::new();
         settings_per_service.insert(
             service_type,
-            Settings {
+            MembershipBackendServiceSettings {
                 historical_block_delta: 5,
             },
         );

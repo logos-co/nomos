@@ -16,6 +16,7 @@ use nomos_core::{
     header::HeaderId,
     tx::{Transaction, TxSelect},
 };
+use nomos_da_network_service::adapters::membership::MembershipAdapter;
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_mempool::{
     backend::{MemPool, RecoverableMempool},
@@ -98,6 +99,7 @@ pub struct DataIndexerService<
     DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
     DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
+    DaVerifierNetwork::Membership: MembershipAdapter,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
@@ -213,6 +215,7 @@ where
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send,
     DaVerifierBackend::Settings: Clone,
     DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
+    DaVerifierNetwork::Membership: MembershipAdapter,
     DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
@@ -313,6 +316,7 @@ where
     DaVerifierBackend::Settings: Clone,
     DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
+    DaVerifierNetwork::Membership: MembershipAdapter,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
@@ -469,6 +473,7 @@ where
     DaVerifierBackend::Settings: Clone,
     DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
+    DaVerifierNetwork::Membership: MembershipAdapter,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,

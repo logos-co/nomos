@@ -24,7 +24,10 @@ use nomos_core::{
 };
 use nomos_da_dispersal::adapters::mempool::DaMempoolAdapter;
 use nomos_da_network_core::SubnetworkId;
-use nomos_da_network_service::backends::libp2p::executor::DaNetworkExecutorBackend;
+use nomos_da_network_service::{
+    adapters::membership::MembershipAdapter as MembershipServiceAdapter,
+    backends::libp2p::executor::DaNetworkExecutorBackend,
+};
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_da_verifier::backend::VerifierBackend;
 use nomos_http_api_common::paths;
@@ -72,7 +75,8 @@ pub struct AxumBackend<
     DaAttestation,
     DaShare,
     DaBlobInfo,
-    Memebership,
+    DaMembership,
+    MembershipAdapter,
     DaVerifiedBlobInfo,
     DaVerifierBackend,
     DaVerifierNetwork,
@@ -100,7 +104,8 @@ pub struct AxumBackend<
         DaAttestation,
         DaShare,
         DaBlobInfo,
-        Memebership,
+        DaMembership,
+        MembershipAdapter,
         DaVerifiedBlobInfo,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -140,7 +145,8 @@ impl<
         DaAttestation,
         DaShare,
         DaBlobInfo,
-        Membership,
+        DaMembership,
+        MembershipAdapter,
         DaVerifiedBlobInfo,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -166,7 +172,8 @@ impl<
         DaAttestation,
         DaShare,
         DaBlobInfo,
-        Membership,
+        DaMembership,
+        MembershipAdapter,
         DaVerifiedBlobInfo,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -211,12 +218,13 @@ where
         + Sync
         + 'static,
     <DaBlobInfo as DispersedBlobInfo>::BlobId: Clone + Send + Sync,
-    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
+    DaMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
         + Debug
         + Send
         + Sync
         + 'static,
+    MembershipAdapter: MembershipServiceAdapter + Send + Sync + 'static,
     DaVerifiedBlobInfo: DispersedBlobInfo<BlobId = [u8; 32]>
         + From<DaBlobInfo>
         + Eq
@@ -271,7 +279,7 @@ where
     DispersalBackend::BlobId: Serialize,
     DispersalBackend::Settings: Clone + Send + Sync,
     DispersalNetworkAdapter: nomos_da_dispersal::adapters::network::DispersalNetworkAdapter<
-            SubnetworkId = Membership::NetworkId,
+            SubnetworkId = DaMembership::NetworkId,
         > + Send
         + 'static,
     DispersalMempoolAdapter: DaMempoolAdapter + Send + 'static,
@@ -355,7 +363,8 @@ where
         >
         + AsServiceId<
             nomos_da_network_service::NetworkService<
-                DaNetworkExecutorBackend<Membership>,
+                DaNetworkExecutorBackend<DaMembership>,
+                MembershipAdapter,
                 RuntimeServiceId,
             >,
         >
@@ -401,7 +410,7 @@ where
                 DispersalBackend,
                 DispersalNetworkAdapter,
                 DispersalMempoolAdapter,
-                Membership,
+                DaMembership,
                 Metadata,
                 RuntimeServiceId,
             >,
@@ -530,18 +539,32 @@ where
             )
             .route(
                 paths::DA_BLOCK_PEER,
-                routing::post(block_peer::<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>),
+                routing::post(
+                    block_peer::<
+                        DaNetworkExecutorBackend<DaMembership>,
+                        MembershipAdapter,
+                        RuntimeServiceId,
+                    >,
+                ),
             )
             .route(
                 paths::DA_UNBLOCK_PEER,
                 routing::post(
-                    unblock_peer::<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>,
+                    unblock_peer::<
+                        DaNetworkExecutorBackend<DaMembership>,
+                        MembershipAdapter,
+                        RuntimeServiceId,
+                    >,
                 ),
             )
             .route(
                 paths::DA_BLACKLISTED_PEERS,
                 routing::get(
-                    blacklisted_peers::<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>,
+                    blacklisted_peers::<
+                        DaNetworkExecutorBackend<DaMembership>,
+                        MembershipAdapter,
+                        RuntimeServiceId,
+                    >,
                 ),
             )
             .route(paths::NETWORK_INFO, routing::get(libp2p_info))
@@ -577,7 +600,7 @@ where
                         DispersalBackend,
                         DispersalNetworkAdapter,
                         DispersalMempoolAdapter,
-                        Membership,
+                        DaMembership,
                         Metadata,
                         RuntimeServiceId,
                     >,
@@ -622,13 +645,21 @@ where
             .route(
                 paths::DA_BALANCER_STATS,
                 routing::get(
-                    balancer_stats::<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>,
+                    balancer_stats::<
+                        DaNetworkExecutorBackend<DaMembership>,
+                        MembershipAdapter,
+                        RuntimeServiceId,
+                    >,
                 ),
             )
             .route(
                 paths::DA_MONITOR_STATS,
                 routing::get(
-                    monitor_stats::<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>,
+                    monitor_stats::<
+                        DaNetworkExecutorBackend<DaMembership>,
+                        MembershipAdapter,
+                        RuntimeServiceId,
+                    >,
                 ),
             )
             .with_state(handle);

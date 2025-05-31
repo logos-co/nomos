@@ -2,6 +2,7 @@ pub mod api;
 pub mod blend;
 pub mod consensus;
 pub mod da;
+pub mod membership;
 pub mod network;
 pub mod tracing;
 
@@ -11,6 +12,7 @@ use api::GeneralApiConfig;
 use blend::GeneralBlendConfig;
 use consensus::GeneralConsensusConfig;
 use da::GeneralDaConfig;
+use membership::GeneralMembershipConfig;
 use network::GeneralNetworkConfig;
 use tracing::GeneralTracingConfig;
 
@@ -25,4 +27,5 @@ pub struct GeneralConfig {
     pub blend_config: GeneralBlendConfig,
     pub tracing_config: GeneralTracingConfig,
     pub time_config: GeneralTimeConfig,
+    pub membership_config: GeneralMembershipConfig,
 }

@@ -10,6 +10,7 @@ use nomos_da_network_core::{
     PeerId, SubnetworkId,
 };
 use nomos_da_network_service::{
+    adapters::membership::MembershipAdapter as MembershipServiceAdapter,
     backends::libp2p::{
         common::SamplingEvent,
         executor::{
@@ -27,28 +28,31 @@ use tokio::sync::oneshot;
 
 use crate::adapters::network::DispersalNetworkAdapter;
 
-pub struct Libp2pNetworkAdapter<Membership, RuntimeServiceId>
+pub struct Libp2pNetworkAdapter<DaMembership, MembershipAdapter, RuntimeServiceId>
 where
-    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
+    DaMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
         + Debug
         + Send
         + Sync
         + 'static,
+    MembershipAdapter: MembershipServiceAdapter + Send + 'static,
 {
     outbound_relay:
-        OutboundRelay<DaNetworkMsg<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>>,
-    _phantom: PhantomData<RuntimeServiceId>,
+        OutboundRelay<DaNetworkMsg<DaNetworkExecutorBackend<DaMembership>, RuntimeServiceId>>,
+    _phantom: PhantomData<(RuntimeServiceId, MembershipAdapter)>,
 }
 
-impl<Membership, RuntimeServiceId> Libp2pNetworkAdapter<Membership, RuntimeServiceId>
+impl<DaMembership, MembershipAdapter, RuntimeServiceId>
+    Libp2pNetworkAdapter<DaMembership, MembershipAdapter, RuntimeServiceId>
 where
-    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
+    DaMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
         + Debug
         + Send
         + Sync
         + 'static,
+    MembershipAdapter: MembershipServiceAdapter + Send + Sync + 'static,
     RuntimeServiceId: Sync,
 {
     async fn start_sampling(
@@ -73,20 +77,22 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Membership, RuntimeServiceId> DispersalNetworkAdapter
-    for Libp2pNetworkAdapter<Membership, RuntimeServiceId>
+impl<DaMembership, MembershipAdapter, RuntimeServiceId> DispersalNetworkAdapter
+    for Libp2pNetworkAdapter<DaMembership, MembershipAdapter, RuntimeServiceId>
 where
-    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
+    DaMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
         + Debug
         + Send
         + Sync
         + 'static,
+    MembershipAdapter: MembershipServiceAdapter + Send + Sync + 'static,
     RuntimeServiceId: Sync,
 {
-    type NetworkService = NetworkService<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>;
+    type NetworkService =
+        NetworkService<DaNetworkExecutorBackend<DaMembership>, MembershipAdapter, RuntimeServiceId>;
 
-    type SubnetworkId = Membership::NetworkId;
+    type SubnetworkId = DaMembership::NetworkId;
 
     fn new(outbound_relay: OutboundRelay<<Self::NetworkService as ServiceData>::Message>) -> Self {
         Self {

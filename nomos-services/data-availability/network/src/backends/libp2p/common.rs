@@ -1,10 +1,11 @@
-use std::{fmt::Debug, time::Duration};
+use std::{collections::HashSet, fmt::Debug, sync::Arc, time::Duration};
 
 use futures::StreamExt;
 use kzgrs_backend::common::{
     share::{DaLightShare, DaShare},
     ShareIndex,
 };
+use libp2p::PeerId;
 use log::error;
 use nomos_core::da::BlobId;
 use nomos_da_network_core::{
@@ -21,6 +22,7 @@ use nomos_da_network_core::{
 };
 use nomos_libp2p::{ed25519, secret_key_serde, Multiaddr};
 use serde::{Deserialize, Serialize};
+use subnetworks_assignations::MembershipHandler;
 use tokio::sync::{
     broadcast, mpsc,
     mpsc::{error::SendError, UnboundedSender},
@@ -177,5 +179,81 @@ pub(crate) async fn handle_balancer_command<Stats: Debug>(
         balancer_request_channel.send(ConnectionBalancerCommand::Stats(response_sender))
     {
         error!("Error stats request: {cmd:?}");
+    }
+}
+
+use arc_swap::ArcSwap;
+
+pub struct SwappableMembershipHandler<T: MembershipHandler> {
+    inner: Arc<ArcSwap<T>>,
+}
+
+impl<T: MembershipHandler> SwappableMembershipHandler<T> {
+    pub fn new(handler: T) -> Self {
+        Self {
+            inner: Arc::new(ArcSwap::new(Arc::new(handler))),
+        }
+    }
+
+    pub fn update(
+        &self,
+        members: Vec<PeerId>,
+        addressbook: std::collections::HashMap<PeerId, Multiaddr>,
+    ) {
+        let old_inner = self.inner.load_full();
+        let inner = old_inner.new_with(members, addressbook);
+
+        self.inner.store(inner);
+    }
+
+    #[must_use]
+    pub fn inner(&self) -> Arc<T> {
+        self.inner.load_full()
+    }
+}
+
+impl<T: MembershipHandler> Clone for SwappableMembershipHandler<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
+}
+
+// Implement MembershipHandler for SwappableMembershipHandler
+impl<T: MembershipHandler> MembershipHandler for SwappableMembershipHandler<T> {
+    type NetworkId = T::NetworkId;
+    type Id = T::Id;
+
+    fn membership(&self, id: &Self::Id) -> HashSet<Self::NetworkId> {
+        self.inner.load().membership(id)
+    }
+
+    fn is_allowed(&self, id: &Self::Id) -> bool {
+        self.inner.load().is_allowed(id)
+    }
+
+    fn members_of(&self, network_id: &Self::NetworkId) -> HashSet<Self::Id> {
+        self.inner.load().members_of(network_id)
+    }
+
+    fn members(&self) -> HashSet<Self::Id> {
+        self.inner.load().members()
+    }
+
+    fn last_subnetwork_id(&self) -> Self::NetworkId {
+        self.inner.load().last_subnetwork_id()
+    }
+
+    fn get_address(&self, peer_id: &PeerId) -> Option<Multiaddr> {
+        self.inner.load().get_address(peer_id)
+    }
+
+    fn new_with(
+        &self,
+        _members: Vec<PeerId>,
+        _addressbook: std::collections::HashMap<PeerId, Multiaddr>,
+    ) -> Self {
+        unreachable!("SwappableMembershipHandler does not support rebuild_with")
     }
 }

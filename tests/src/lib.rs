@@ -70,3 +70,14 @@ pub fn secret_key_to_peer_id(node_key: nomos_libp2p::ed25519::SecretKey) -> Peer
             .into(),
     )
 }
+
+#[must_use]
+pub fn secret_key_to_provider_id(
+    node_key: nomos_libp2p::ed25519::SecretKey,
+) -> nomos_sdp_core::ProviderId {
+    nomos_sdp_core::ProviderId(
+        nomos_libp2p::ed25519::Keypair::from(node_key)
+            .public()
+            .to_bytes(),
+    )
+}

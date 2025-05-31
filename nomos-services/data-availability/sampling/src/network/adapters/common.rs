@@ -1,6 +1,6 @@
 macro_rules! adapter_for {
-    ($DaNetworkBackend:ident, $DaNetworkMessage:ident, $DaEventKind:ident, $DaNetworkEvent:ident) => {
-        pub struct Libp2pAdapter<Membership, RuntimeServiceId>
+    ($DaNetworkBackend:ident, $MembershipAdapter:ident, $DaNetworkMessage:ident, $DaEventKind:ident, $DaNetworkEvent:ident) => {
+        pub struct Libp2pAdapter<Membership,MembershipServiceAdapter, RuntimeServiceId>
         where
             Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
                 + Debug
@@ -8,14 +8,15 @@ macro_rules! adapter_for {
                 + Send
                 + Sync
                 + 'static,
+            MembershipServiceAdapter: $MembershipAdapter + Send + Sync + 'static,
         {
             network_relay: OutboundRelay<
-                <NetworkService<$DaNetworkBackend<Membership>, RuntimeServiceId> as ServiceData>::Message,
+                <NetworkService<$DaNetworkBackend<Membership>, MembershipServiceAdapter, RuntimeServiceId> as ServiceData>::Message,
             >,
         }
 
         #[async_trait::async_trait]
-        impl<Membership, RuntimeServiceId> NetworkAdapter<RuntimeServiceId> for Libp2pAdapter<Membership, RuntimeServiceId>
+        impl<Membership, MembershipServiceAdapter,RuntimeServiceId> NetworkAdapter<RuntimeServiceId> for Libp2pAdapter<Membership, MembershipServiceAdapter ,RuntimeServiceId>
         where
             Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
                 + Debug
@@ -23,12 +24,15 @@ macro_rules! adapter_for {
                 + Send
                 + Sync
                 + 'static,
+            MembershipServiceAdapter: $MembershipAdapter + Send + Sync + 'static,
+
         {
             type Backend = $DaNetworkBackend<Membership>;
             type Settings = ();
+            type Membership = MembershipServiceAdapter;
 
             async fn new(
-                network_relay: OutboundRelay<<NetworkService<Self::Backend, RuntimeServiceId> as ServiceData>::Message>,
+                network_relay: OutboundRelay<<NetworkService<Self::Backend,Self::Membership, RuntimeServiceId> as ServiceData>::Message>,
             ) -> Self {
                 Self { network_relay }
             }

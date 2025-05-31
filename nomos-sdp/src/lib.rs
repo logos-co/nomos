@@ -3,8 +3,10 @@ mod state;
 
 use std::{collections::BTreeSet, hash::Hash};
 
+use base64::prelude::*;
 use blake2::{Blake2b, Digest as _};
 use multiaddr::Multiaddr;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub type StakeThreshold = u64;
 pub type BlockNumber = u64;
@@ -22,7 +24,7 @@ pub struct ServiceParameters {
     pub timestamp: BlockNumber,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Locator {
     addr: Multiaddr,
 }
@@ -32,9 +34,15 @@ impl Locator {
     pub const fn new(addr: Multiaddr) -> Self {
         Self { addr }
     }
+
+    #[must_use]
+    pub const fn addr(&self) -> &Multiaddr {
+        &self.addr
+    }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[repr(u8)]
 pub enum ServiceType {
     BlendNetwork,
     DataAvailability,
@@ -45,6 +53,43 @@ pub type Nonce = [u8; 16];
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
 pub struct ProviderId(pub [u8; 32]);
+
+impl Serialize for ProviderId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if serializer.is_human_readable() {
+            // For JSON: serialize as base64 string
+            BASE64_STANDARD.encode(self.0).serialize(serializer)
+        } else {
+            // For binary: serialize as bytes
+            self.0.serialize(serializer)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ProviderId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            // For JSON: deserialize from base64 string
+            let s = String::deserialize(deserializer)?;
+            let bytes = BASE64_STANDARD
+                .decode(&s)
+                .map_err(serde::de::Error::custom)?;
+            if bytes.len() != 32 {
+                return Err(serde::de::Error::custom("Invalid byte length"));
+            }
+            Ok(Self(bytes.try_into().unwrap()))
+        } else {
+            // For binary: deserialize from bytes
+            Ok(Self(<[u8; 32]>::deserialize(deserializer)?))
+        }
+    }
+}
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
 pub struct DeclarationId(pub [u8; 32]);
