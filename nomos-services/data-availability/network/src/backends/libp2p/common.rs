@@ -184,6 +184,7 @@ pub(crate) async fn handle_balancer_command<Stats: Debug>(
 
 use arc_swap::ArcSwap;
 
+#[derive(Clone)]
 pub struct SwappableMembershipHandler<T: MembershipHandler> {
     inner: Arc<ArcSwap<T>>,
 }
@@ -209,14 +210,6 @@ impl<T: MembershipHandler> SwappableMembershipHandler<T> {
     #[must_use]
     pub fn inner(&self) -> Arc<T> {
         self.inner.load_full()
-    }
-}
-
-impl<T: MembershipHandler> Clone for SwappableMembershipHandler<T> {
-    fn clone(&self) -> Self {
-        Self {
-            inner: Arc::clone(&self.inner),
-        }
     }
 }
 
