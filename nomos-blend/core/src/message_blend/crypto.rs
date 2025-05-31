@@ -8,13 +8,13 @@ use crate::membership::Membership;
 
 /// [`CryptographicProcessor`] is responsible for wrapping and unwrapping
 /// messages for the message indistinguishability.
-pub struct CryptographicProcessor<NodeId, R, M>
+pub struct CryptographicProcessor<NodeId, Rng, Message>
 where
-    M: BlendMessage,
+    Message: BlendMessage,
 {
-    settings: CryptographicProcessorSettings<M::PrivateKey>,
-    membership: Membership<NodeId, M>,
-    rng: R,
+    settings: CryptographicProcessorSettings<Message::PrivateKey>,
+    membership: Membership<NodeId, Message>,
+    rng: Rng,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -23,17 +23,17 @@ pub struct CryptographicProcessorSettings<K> {
     pub num_blend_layers: usize,
 }
 
-impl<NodeId, R, M> CryptographicProcessor<NodeId, R, M>
+impl<NodeId, Rng, Message> CryptographicProcessor<NodeId, Rng, Message>
 where
     NodeId: Hash + Eq,
-    R: RngCore,
-    M: BlendMessage,
-    M::PublicKey: Clone + PartialEq,
+    Rng: RngCore,
+    Message: BlendMessage,
+    Message::PublicKey: Clone + PartialEq,
 {
     pub const fn new(
-        settings: CryptographicProcessorSettings<M::PrivateKey>,
-        membership: Membership<NodeId, M>,
-        rng: R,
+        settings: CryptographicProcessorSettings<Message::PrivateKey>,
+        membership: Membership<NodeId, Message>,
+        rng: Rng,
     ) -> Self {
         Self {
             settings,
@@ -42,7 +42,7 @@ where
         }
     }
 
-    pub fn wrap_message(&mut self, message: &[u8]) -> Result<Vec<u8>, M::Error> {
+    pub fn wrap_message(&mut self, message: &[u8]) -> Result<Vec<u8>, Message::Error> {
         // TODO: Use the actual Sphinx encoding instead of mock.
         let public_keys = self
             .membership
@@ -51,10 +51,10 @@ where
             .map(|node| node.public_key.clone())
             .collect::<Vec<_>>();
 
-        M::build_message(message, &public_keys)
+        Message::build(message, &public_keys)
     }
 
-    pub fn unwrap_message(&self, message: &[u8]) -> Result<(Vec<u8>, bool), M::Error> {
-        M::unwrap_message(message, &self.settings.private_key)
+    pub fn unwrap_message(&self, message: &[u8]) -> Result<(Vec<u8>, bool), Message::Error> {
+        Message::unwrap(message, &self.settings.private_key)
     }
 }

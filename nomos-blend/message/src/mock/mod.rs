@@ -28,10 +28,7 @@ impl BlendMessage for MockBlendMessage {
     /// The length of the encoded message is fixed to [`MESSAGE_SIZE`] bytes.
     /// The [`MAX_LAYERS`] number of [`NodeId`]s are concatenated in front of
     /// the payload. The payload is zero-padded to the end.
-    fn build_message(
-        payload: &[u8],
-        public_keys: &[Self::PublicKey],
-    ) -> Result<Vec<u8>, Self::Error> {
+    fn build(payload: &[u8], public_keys: &[Self::PublicKey]) -> Result<Vec<u8>, Self::Error> {
         // In this mock, we don't encrypt anything. So, we use public key as just a node
         // ID.
         let node_ids = public_keys;
@@ -60,7 +57,7 @@ impl BlendMessage for MockBlendMessage {
         Ok(message)
     }
 
-    fn unwrap_message(
+    fn unwrap(
         message: &[u8],
         private_key: &Self::PrivateKey,
     ) -> Result<(Vec<u8>, bool), Self::Error> {
@@ -109,24 +106,24 @@ mod tests {
     fn message() {
         let node_ids = (0..3).map(|i| [i; NODE_ID_SIZE]).collect::<Vec<_>>();
         let payload = [7; 10];
-        let message = MockBlendMessage::build_message(&payload, &node_ids).unwrap();
+        let message = MockBlendMessage::build(&payload, &node_ids).unwrap();
         assert_eq!(message.len(), MESSAGE_SIZE);
         assert_eq!(MockBlendMessage::payload(&message).unwrap(), payload);
 
         let (message, is_fully_unwrapped) =
-            MockBlendMessage::unwrap_message(&message, &node_ids[0]).unwrap();
+            MockBlendMessage::unwrap(&message, &node_ids[0]).unwrap();
         assert!(!is_fully_unwrapped);
         assert_eq!(message.len(), MESSAGE_SIZE);
         assert_eq!(MockBlendMessage::payload(&message).unwrap(), payload);
 
         let (message, is_fully_unwrapped) =
-            MockBlendMessage::unwrap_message(&message, &node_ids[1]).unwrap();
+            MockBlendMessage::unwrap(&message, &node_ids[1]).unwrap();
         assert!(!is_fully_unwrapped);
         assert_eq!(message.len(), MESSAGE_SIZE);
         assert_eq!(MockBlendMessage::payload(&message).unwrap(), payload);
 
         let (unwrapped_payload, is_fully_unwrapped) =
-            MockBlendMessage::unwrap_message(&message, &node_ids[2]).unwrap();
+            MockBlendMessage::unwrap(&message, &node_ids[2]).unwrap();
         assert!(is_fully_unwrapped);
         assert_eq!(unwrapped_payload, payload);
     }
@@ -137,7 +134,7 @@ mod tests {
         node_ids.push(DUMMY_NODE_ID);
         let payload = [7; 10];
         assert_eq!(
-            MockBlendMessage::build_message(&payload, &node_ids),
+            MockBlendMessage::build(&payload, &node_ids),
             Err(Error::InvalidPublicKey)
         );
     }

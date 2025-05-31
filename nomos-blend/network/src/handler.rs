@@ -191,17 +191,18 @@ where
         match self.inbound_substream.take() {
             None => {
                 tracing::debug!("Inbound substream is not initialized yet. Doing nothing.");
-                self.inbound_substream = None;
             }
             Some(InboundSubstreamState::PendingRecv(mut msg_recv_fut)) => match msg_recv_fut
                 .poll_unpin(cx)
             {
                 Poll::Ready(Ok((stream, msg))) => {
-                    tracing::debug!("Received message from inbound stream. Notifying behaviour...");
+                    tracing::debug!(
+                        "Received message from inbound stream. Notifying behaviour if necessary..."
+                    );
 
                     // Record the message to the monitor.
                     if let Some(monitor) = &mut self.monitor {
-                        if Msg::is_drop_message(&msg) {
+                        if Msg::is_drop(&msg) {
                             monitor.record_drop_message();
                         } else {
                             monitor.record_effective_message();
@@ -210,9 +211,13 @@ where
 
                     self.inbound_substream =
                         Some(InboundSubstreamState::PendingRecv(recv_msg(stream).boxed()));
-                    return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                        ToBehaviour::Message(msg),
-                    ));
+
+                    // Notify behaviour only on non-drop messages.
+                    if !Msg::is_drop(&msg) {
+                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                            ToBehaviour::Message(msg),
+                        ));
+                    }
                 }
                 Poll::Ready(Err(e)) => {
                     tracing::error!(

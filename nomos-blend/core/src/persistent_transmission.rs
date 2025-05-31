@@ -25,28 +25,28 @@ impl Default for PersistentTransmissionSettings {
 }
 
 /// Transmit scheduled messages with a persistent rate as a stream.
-pub struct PersistentTransmissionStream<S, Rng, Scheduler>
+pub struct PersistentTransmissionStream<MsgStream, Rng, Scheduler>
 where
-    S: Stream,
+    MsgStream: Stream,
     Rng: RngCore,
 {
     coin: Coin<Rng>,
-    stream: S,
+    stream: MsgStream,
     scheduler: Scheduler,
-    drop_message: S::Item,
+    drop_message: MsgStream::Item,
 }
 
-impl<S, Rng, Scheduler> PersistentTransmissionStream<S, Rng, Scheduler>
+impl<MsgStream, Rng, Scheduler> PersistentTransmissionStream<MsgStream, Rng, Scheduler>
 where
-    S: Stream,
+    MsgStream: Stream,
     Rng: RngCore,
     Scheduler: Stream<Item = ()>,
 {
     pub fn new(
         settings: PersistentTransmissionSettings,
-        stream: S,
+        stream: MsgStream,
         scheduler: Scheduler,
-        drop_message: S::Item,
+        drop_message: MsgStream::Item,
         rng: Rng,
     ) -> Self {
         let coin = Coin::<Rng>::new(rng, settings.drop_message_probability).unwrap();
@@ -59,14 +59,15 @@ where
     }
 }
 
-impl<S, Rng, Scheduler> Stream for PersistentTransmissionStream<S, Rng, Scheduler>
+impl<MessageStream, Rng, Scheduler> Stream
+    for PersistentTransmissionStream<MessageStream, Rng, Scheduler>
 where
-    S: Stream + Unpin,
-    S::Item: Clone + Unpin,
+    MessageStream: Stream + Unpin,
+    MessageStream::Item: Clone + Unpin,
     Rng: RngCore + Unpin,
     Scheduler: Stream<Item = ()> + Unpin,
 {
-    type Item = S::Item;
+    type Item = MessageStream::Item;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Self {
@@ -108,9 +109,9 @@ where
     }
 }
 
-impl<S, Rng, Scheduler> PersistentTransmissionExt<Rng, Scheduler> for S
+impl<MessageStream, Rng, Scheduler> PersistentTransmissionExt<Rng, Scheduler> for MessageStream
 where
-    S: Stream,
+    MessageStream: Stream,
     Rng: RngCore,
     Scheduler: Stream<Item = ()>,
 {
@@ -227,12 +228,12 @@ mod tests {
         );
         assert_interval!(&mut last_time, lower_bound, upper_bound);
 
-        assert!(MockBlendMessage::is_drop_message(
+        assert!(MockBlendMessage::is_drop(
             &persistent_transmission_stream.next().await.unwrap()
         ));
         assert_interval!(&mut last_time, lower_bound, upper_bound);
 
-        assert!(MockBlendMessage::is_drop_message(
+        assert!(MockBlendMessage::is_drop(
             &persistent_transmission_stream.next().await.unwrap()
         ));
         assert_interval!(&mut last_time, lower_bound, upper_bound);

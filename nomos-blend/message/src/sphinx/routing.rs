@@ -57,7 +57,7 @@ pub struct EncryptedRoutingInformation {
 type LayeredCipher = ConsistentLengthLayeredCipher<RoutingInformation>;
 
 impl EncryptedRoutingInformation {
-    /// Build all [`RoutingInformation`]s for the provides keys,
+    /// Build all [`RoutingInformation`]s for the provided keys,
     /// and encrypt them using [`ConsistentLengthLayeredCipher`].
     pub fn new(routing_keys: &[RoutingKeys], max_layers: usize) -> Result<Self, Error> {
         let cipher = LayeredCipher::new(max_layers);

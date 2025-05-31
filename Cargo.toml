@@ -100,7 +100,7 @@ cached           = { version = "0.55.1", default-features = false }
 libp2p           = "0.55"
 overwatch        = { git = "https://github.com/logos-co/Overwatch", rev = "f0895b8" }
 overwatch-derive = { git = "https://github.com/logos-co/Overwatch", rev = "f0895b8" }
-reqwest          = "=0.12.15"                                                         # there is a bug in 0.12.16 that breaks compilation https://github.com/seanmonstar/reqwest/issues/2695
+reqwest          = "0.12"
 risc0-zkvm       = "2.0.0"
 serde_with       = "3.12.0"
 

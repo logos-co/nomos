@@ -3,12 +3,14 @@ pub mod share;
 use std::io::Cursor;
 
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use blake2::digest::{Update as _, VariableOutput as _};
+use blake2::{
+    digest::{consts::U32, Update as _, VariableOutput as _},
+    Blake2b, Digest,
+};
 use kzgrs::Commitment;
 #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelRefIterator as _, ParallelIterator};
 use serde::{ser::SerializeSeq as _, Deserialize, Deserializer, Serialize, Serializer};
-use sha3::{Digest, Sha3_256};
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Chunk(pub Vec<u8>);
@@ -160,7 +162,7 @@ pub fn hash_commitment<const HASH_SIZE: usize>(commitment: &Commitment) -> [u8; 
 
 #[must_use]
 pub fn build_blob_id(rows_commitments: &[Commitment]) -> [u8; 32] {
-    let mut hasher = Sha3_256::new();
+    let mut hasher = Blake2b::<U32>::new();
     for c in rows_commitments {
         Digest::update(&mut hasher, commitment_to_bytes(c));
     }

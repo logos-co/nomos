@@ -89,7 +89,7 @@ where
 
     /// Publish a message (data or drop) to all connected peers
     pub fn publish(&mut self, message: &[u8]) -> Result<(), Error> {
-        if M::is_drop_message(message) {
+        if M::is_drop(message) {
             // Bypass deduplication for the drop message
             return self.forward_message(message, None);
         }
@@ -232,15 +232,8 @@ where
         event: THandlerOutEvent<Self>,
     ) {
         match event {
-            // A message was forwarded from the peer.
+            // A non-drop message was forwarded from the peer.
             ToBehaviour::Message(message) => {
-                // Ignore drop message
-                // TODO: move this check into ConnectionHandler since it now has access to the
-                // message type
-                if M::is_drop_message(&message) {
-                    return;
-                }
-
                 // Add the message to the cache. If it was already seen, ignore it.
                 if self
                     .duplicate_cache

@@ -202,21 +202,10 @@ where
         }
     }
 
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "TODO: Address this at some point."
-    )]
     fn handle_swarm_message(&mut self, msg: BlendSwarmMessage) {
         match msg {
             BlendSwarmMessage::Publish(msg) => {
-                let msg_size = msg.len();
-                if let Err(e) = self.swarm.behaviour_mut().blend.publish(&msg) {
-                    tracing::error!("Failed to publish message to blend network: {e:?}");
-                    tracing::info!(counter.failed_outbound_messages = 1);
-                } else {
-                    tracing::info!(counter.successful_outbound_messages = 1);
-                    tracing::info!(histogram.sent_data = msg_size as u64);
-                }
+                self.handle_publish_swarm_message(&msg);
             }
         }
     }
@@ -225,41 +214,21 @@ where
         clippy::cognitive_complexity,
         reason = "TODO: Address this at some point."
     )]
+    fn handle_publish_swarm_message(&mut self, msg: &[u8]) {
+        let msg_size = msg.len();
+        if let Err(e) = self.swarm.behaviour_mut().blend.publish(msg) {
+            tracing::error!("Failed to publish message to blend network: {e:?}");
+            tracing::info!(counter.failed_outbound_messages = 1);
+        } else {
+            tracing::info!(counter.successful_outbound_messages = 1);
+            tracing::info!(histogram.sent_data = msg_size as u64);
+        }
+    }
+
     fn handle_event(&mut self, event: SwarmEvent<BlendBehaviourEvent>) {
         match event {
-            SwarmEvent::Behaviour(BlendBehaviourEvent::Blend(
-                nomos_blend_network::Event::Message(msg),
-            )) => {
-                tracing::debug!("Received message from a peer: {msg:?}");
-
-                let msg_size = msg.len();
-                if let Err(e) = self.incoming_message_sender.send(msg) {
-                    tracing::error!("Failed to send incoming message to channel: {e}");
-                    tracing::info!(counter.failed_inbound_messages = 1);
-                } else {
-                    tracing::info!(counter.successful_inbound_messages = 1);
-                    tracing::info!(histogram.received_data = msg_size as u64);
-                }
-            }
-            SwarmEvent::Behaviour(BlendBehaviourEvent::Blend(
-                nomos_blend_network::Event::MaliciousPeer(peer_id),
-            )) => {
-                tracing::debug!("Peer {} is malicious", peer_id);
-                self.swarm.behaviour_mut().blocked_peers.block_peer(peer_id);
-                self.check_and_dial_new_peers();
-            }
-            SwarmEvent::Behaviour(BlendBehaviourEvent::Blend(
-                nomos_blend_network::Event::UnhealthyPeer(peer_id),
-            )) => {
-                tracing::debug!("Peer {} is unhealthy", peer_id);
-                self.check_and_dial_new_peers();
-            }
-            SwarmEvent::Behaviour(BlendBehaviourEvent::Blend(
-                nomos_blend_network::Event::Error(e),
-            )) => {
-                tracing::error!("Received error from blend network: {e:?}");
-                self.check_and_dial_new_peers();
-                tracing::info!(counter.error = 1);
+            SwarmEvent::Behaviour(BlendBehaviourEvent::Blend(e)) => {
+                self.handle_blend_behaviour_event(e);
             }
             SwarmEvent::ConnectionClosed {
                 peer_id,
@@ -278,6 +247,53 @@ where
                 tracing::info!(counter.ignored_event = 1);
             }
         }
+    }
+
+    fn handle_blend_behaviour_event(&mut self, blend_event: nomos_blend_network::Event) {
+        match blend_event {
+            nomos_blend_network::Event::Message(msg) => {
+                self.handle_blend_message(msg);
+            }
+            nomos_blend_network::Event::MaliciousPeer(peer_id) => {
+                self.handle_malicious_peer(peer_id);
+            }
+            nomos_blend_network::Event::UnhealthyPeer(peer_id) => {
+                self.handle_unhealthy_peer(peer_id);
+            }
+            nomos_blend_network::Event::Error(e) => {
+                tracing::error!("Received error from blend network: {e:?}");
+                self.check_and_dial_new_peers();
+                tracing::info!(counter.error = 1);
+            }
+        }
+    }
+
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "TODO: Address this at some point."
+    )]
+    fn handle_blend_message(&self, msg: Vec<u8>) {
+        tracing::debug!("Received message from a peer: {msg:?}");
+
+        let msg_size = msg.len();
+        if let Err(e) = self.incoming_message_sender.send(msg) {
+            tracing::error!("Failed to send incoming message to channel: {e}");
+            tracing::info!(counter.failed_inbound_messages = 1);
+        } else {
+            tracing::info!(counter.successful_inbound_messages = 1);
+            tracing::info!(histogram.received_data = msg_size as u64);
+        }
+    }
+
+    fn handle_malicious_peer(&mut self, peer_id: PeerId) {
+        tracing::debug!("Peer {} is malicious", peer_id);
+        self.swarm.behaviour_mut().blocked_peers.block_peer(peer_id);
+        self.check_and_dial_new_peers();
+    }
+
+    fn handle_unhealthy_peer(&mut self, peer_id: PeerId) {
+        tracing::debug!("Peer {} is unhealthy", peer_id);
+        self.check_and_dial_new_peers();
     }
 
     /// Dial new peers, if necessary, to maintain the peering degree.
