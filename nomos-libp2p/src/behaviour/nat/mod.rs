@@ -24,8 +24,6 @@ enum State {
 /// This behaviour is responsible for confirming that the addresses of the node
 /// are publicly reachable.
 pub struct NatBehaviour<R: RngCore + 'static> {
-    /// True if the node is configured with a static public IP address.
-    is_static_public: bool,
     /// The static public listen address is passed through this variable to
     /// the `poll()` method. Unused if the node is not configured with a static
     /// public IP address.
@@ -38,13 +36,10 @@ pub struct NatBehaviour<R: RngCore + 'static> {
 
 impl<R: RngCore + 'static> NatBehaviour<R> {
     pub fn new(rng: R, autonat_client_config: Option<Config>) -> Self {
-        let is_static_public = autonat_client_config.is_none();
-
         let autonat_client_behaviour =
             Toggle::from(autonat_client_config.map(|config| Behaviour::new(rng, config)));
 
         Self {
-            is_static_public,
             static_listen_addr: None,
             autonat_client_behaviour,
         }
@@ -113,7 +108,9 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm) {
-        if self.is_static_public {
+        if self.autonat_client_behaviour.is_enabled() {
+            self.autonat_client_behaviour.on_swarm_event(event);
+        } else {
             match event {
                 FromSwarm::NewListenAddr(NewListenAddr {
                     listener_id: _,
@@ -121,8 +118,6 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
                 }) => self.static_listen_addr = Some(addr.clone()),
                 _ => {}
             }
-        } else {
-            self.autonat_client_behaviour.on_swarm_event(event);
         }
     }
 
