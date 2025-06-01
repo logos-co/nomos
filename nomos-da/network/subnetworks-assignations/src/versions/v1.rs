@@ -49,9 +49,7 @@ impl FillFromNodeList {
         subnetwork_size: usize,
         replication_factor: usize,
     ) -> Vec<HashSet<PeerId>> {
-        if peers.is_empty() {
-            return vec![HashSet::new(); subnetwork_size];
-        }
+        assert!(!peers.is_empty());
 
         // sort list to make it deterministic
         let mut peers = peers.to_vec();
