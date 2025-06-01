@@ -584,7 +584,7 @@ mod tests {
         };
 
         let result = ledger
-            .process_sdp_message(100, SdpMessage::Activity(active_message.clone()))
+            .process_sdp_message(100, SdpMessage::Activity(active_message))
             .await;
 
         assert!(result.is_ok());
@@ -623,7 +623,7 @@ mod tests {
         };
 
         let result = ledger
-            .process_sdp_message(100, SdpMessage::Withdraw(withdraw_message.clone()))
+            .process_sdp_message(100, SdpMessage::Withdraw(withdraw_message))
             .await;
 
         assert!(result.is_ok());
