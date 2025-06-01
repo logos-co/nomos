@@ -4,33 +4,57 @@ use libp2p::{
     autonat::v2::client::{Behaviour, Config},
     core::{transport::PortUse, Endpoint},
     swarm::{
-        ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
-        THandlerOutEvent, ToSwarm,
+        behaviour::toggle::{Toggle, ToggleConnectionHandler},
+        ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, NewListenAddr, THandler,
+        THandlerInEvent, THandlerOutEvent, ToSwarm,
     },
     Multiaddr, PeerId,
 };
 use rand::RngCore;
 
+enum State {
+    TestIfPublic,
+    TryPortMapping,
+    TestIfMappedPublic,
+    Public,
+    MappedPublic,
+    Private,
+}
+
 /// This behaviour is responsible for confirming that the addresses of the node
 /// are publicly reachable.
 pub struct NatBehaviour<R: RngCore + 'static> {
+    /// True if the node is configured with a static public IP address.
+    is_static_public: bool,
+    /// The static public listen address is passed through this variable to
+    /// the `poll()` method. Unused if the node is not configured with a static
+    /// public IP address.
+    static_listen_addr: Option<Multiaddr>,
     /// `AutoNAT` client behaviour which is used to confirm if addresses of our
-    /// node are indeed publicly reachable.
-    autonat_client_behaviour: Behaviour<R>,
+    /// node are indeed publicly reachable. This behaviour is **disabled** if
+    /// the node is configured with a static public IP address.
+    autonat_client_behaviour: Toggle<Behaviour<R>>,
 }
 
 impl<R: RngCore + 'static> NatBehaviour<R> {
-    pub fn new(rng: R, config: Config) -> Self {
-        let autonat_client_behaviour = Behaviour::new(rng, config);
+    pub fn new(rng: R, autonat_client_config: Option<Config>) -> Self {
+        let is_static_public = autonat_client_config.is_none();
+
+        let autonat_client_behaviour =
+            Toggle::from(autonat_client_config.map(|config| Behaviour::new(rng, config)));
 
         Self {
+            is_static_public,
+            static_listen_addr: None,
             autonat_client_behaviour,
         }
     }
 }
 
 impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
-    type ConnectionHandler = <Behaviour as NetworkBehaviour>::ConnectionHandler;
+    type ConnectionHandler =
+        ToggleConnectionHandler<<Behaviour as NetworkBehaviour>::ConnectionHandler>;
+
     type ToSwarm = <Behaviour as NetworkBehaviour>::ToSwarm;
 
     fn handle_pending_inbound_connection(
@@ -89,7 +113,17 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm) {
-        self.autonat_client_behaviour.on_swarm_event(event);
+        if self.is_static_public {
+            match event {
+                FromSwarm::NewListenAddr(NewListenAddr {
+                    listener_id: _,
+                    addr,
+                }) => self.static_listen_addr = Some(addr.clone()),
+                _ => {}
+            }
+        } else {
+            self.autonat_client_behaviour.on_swarm_event(event);
+        }
     }
 
     fn on_connection_handler_event(
@@ -106,6 +140,10 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+        if let Some(addr) = self.static_listen_addr.take() {
+            return Poll::Ready(ToSwarm::ExternalAddrConfirmed(addr));
+        }
+
         if let Poll::Ready(autonat_event) = self.autonat_client_behaviour.poll(cx) {
             return Poll::Ready(autonat_event);
         }
@@ -141,7 +179,7 @@ mod tests {
         pub fn new(public_key: identity::PublicKey) -> Self {
             let nat = NatBehaviour::new(
                 OsRng,
-                Config::default().with_probe_interval(Duration::from_millis(100)),
+                Some(Config::default().with_probe_interval(Duration::from_millis(100))),
             );
             let identify =
                 identify::Behaviour::new(identify::Config::new("/unittest".into(), public_key));

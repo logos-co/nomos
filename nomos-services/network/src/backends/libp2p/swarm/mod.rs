@@ -267,7 +267,7 @@ mod tests {
         });
     }
 
-    fn create_swarm_config(port: u16) -> nomos_libp2p::SwarmConfig {
+    fn create_swarm_config(port: u16, is_boot: bool) -> nomos_libp2p::SwarmConfig {
         nomos_libp2p::SwarmConfig {
             host: Ipv4Addr::new(127, 0, 0, 1),
             port,
@@ -275,14 +275,15 @@ mod tests {
             gossipsub_config: nomos_libp2p::gossipsub::Config::default(),
             kademlia_config: Some(nomos_libp2p::KademliaSettings::default()),
             identify_config: Some(nomos_libp2p::IdentifySettings::default()),
-            autonat_client_config: None, // Assume that the node is public
+            autonat_client_config: is_boot
+                .then_some(nomos_libp2p::AutonatClientSettings::default()),
             protocol_name_env: ProtocolName::Unittest,
         }
     }
 
     fn create_libp2p_config(initial_peers: Vec<Multiaddr>, port: u16) -> Libp2pConfig {
         Libp2pConfig {
-            inner: create_swarm_config(port),
+            inner: create_swarm_config(port, !initial_peers.is_empty()),
             initial_peers,
         }
     }
@@ -290,7 +291,9 @@ mod tests {
     const NODE_COUNT: usize = 10;
 
     #[tokio::test]
-    #[ignore = "We are changing the way confirmed external addresses are added to the Kademlia DHT, hence this test will fail until we complete the integration of the NAT traversal machine."]
+    // #[ignore = "We are changing the way confirmed external addresses are added to the Kademlia
+    // DHT, hence this test will fail until we complete the integration of the NAT traversal
+    // machine."]
     #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
     async fn test_kademlia_bootstrap() {
         init_tracing();
