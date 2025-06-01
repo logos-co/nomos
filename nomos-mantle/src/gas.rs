@@ -54,6 +54,8 @@ pub trait GasConstants {
     /// Store the active message.
     const ACTIVE_BASE_GAS: Gas;
 
+    const ACTIVE_BYTE_GAS: Gas;
+
     /// Consume a reward ticket.
     const CLAIM_BASE_GAS: Gas;
 }

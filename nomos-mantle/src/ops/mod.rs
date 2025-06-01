@@ -9,24 +9,27 @@ mod serde_;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ops::{
-    blob::BlobOp,
-    channel_keys::SetChannelKeysOp,
-    inscribe::InscriptionOp,
-    leader_claim::LeaderClaimOp,
-    native::NativeOp,
-    opcode::{
-        BLOB, INSCRIBE, LEADER_CLAIM, NATIVE, SDP_ACTIVE, SDP_DECLARE, SDP_WITHDRAW,
-        SET_CHANNEL_KEYS,
+use crate::{
+    gas::{Gas, GasConstants, GasPrice},
+    ops::{
+        blob::BlobOp,
+        channel_keys::SetChannelKeysOp,
+        inscribe::InscriptionOp,
+        leader_claim::LeaderClaimOp,
+        native::NativeOp,
+        opcode::{
+            BLOB, INSCRIBE, LEADER_CLAIM, NATIVE, SDP_ACTIVE, SDP_DECLARE, SDP_WITHDRAW,
+            SET_CHANNEL_KEYS,
+        },
+        sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
     },
-    sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
 };
 
 pub type TxHash = [u8; 32];
 pub type Ed25519PublicKey = [u8; 32];
 pub type ChannelId = u64;
 
-#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Op {
     Inscribe(
@@ -87,6 +90,21 @@ pub enum Op {
         )]
         LeaderClaimOp,
     ),
+}
+
+impl GasPrice for Op {
+    fn gas_price<Constants: GasConstants>(&self) -> Gas {
+        match self {
+            Self::Inscribe(op) => op.gas_price::<Constants>(),
+            Self::Blob(op) => op.gas_price::<Constants>(),
+            Self::SetChannelKeys(op) => op.gas_price::<Constants>(),
+            Self::Native(op) => op.gas_price::<Constants>(),
+            Self::SDPDeclare(op) => op.gas_price::<Constants>(),
+            Self::SDPWithdraw(op) => op.gas_price::<Constants>(),
+            Self::SDPActive(op) => op.gas_price::<Constants>(),
+            Self::LeaderClaim(op) => op.gas_price::<Constants>(),
+        }
+    }
 }
 
 #[cfg(test)]
