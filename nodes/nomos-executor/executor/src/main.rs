@@ -86,6 +86,7 @@ fn main() -> Result<()> {
         None,
     )
     .map_err(|e| eyre!("Error encountered: {}", e))?;
+    app.runtime().block_on(app.handle().start_all_services());
     app.wait_finished();
     Ok(())
 }
