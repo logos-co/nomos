@@ -332,9 +332,6 @@ where
         Ok(())
         // TODO: Implement `Drop` to finish pending transactions and close
         //  connections gracefully.
-        // Note: Using `Drop` here would only cover the graceful shutdown case.
-        // If the `Stop` is triggered by a user-sent signal, a different
-        // yet-not-implemented-mechanism  is required.
     }
 }
 
