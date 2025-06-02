@@ -291,9 +291,6 @@ mod tests {
     const NODE_COUNT: usize = 10;
 
     #[tokio::test]
-    // #[ignore = "We are changing the way confirmed external addresses are added to the Kademlia
-    // DHT, hence this test will fail until we complete the integration of the NAT traversal
-    // machine."]
     #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
     async fn test_kademlia_bootstrap() {
         init_tracing();
