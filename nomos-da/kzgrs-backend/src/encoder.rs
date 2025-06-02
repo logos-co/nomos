@@ -409,8 +409,11 @@ pub mod test {
     }
 
     #[test]
+    #[should_panic]
     fn test_encode_zeros() {
         // 837 zeros is not arbitrary, bug discovered on offsite 2025/04/22
+        // Encoding only zeroes is not allowed in Nomos DA network.
+
         let data = [0; 837];
         ENCODER.encode(&data).unwrap();
     }
