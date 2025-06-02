@@ -247,6 +247,6 @@ impl<T: MembershipHandler> MembershipHandler for SwappableMembershipHandler<T> {
         _members: Vec<PeerId>,
         _addressbook: std::collections::HashMap<PeerId, Multiaddr>,
     ) -> Self {
-        unreachable!("SwappableMembershipHandler does not support rebuild_with")
+        unreachable!("SwappableMembershipHandler does not support new_with")
     }
 }
