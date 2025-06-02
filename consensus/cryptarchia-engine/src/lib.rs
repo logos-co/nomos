@@ -251,8 +251,8 @@ where
             return Err(Error::InvalidSlot(parent));
         }
 
-        // TODO: we do not automatically prune forks here at the moment, so it's not sufficient
-        // to check the header height.
+        // TODO: we do not automatically prune forks here at the moment, so it's not
+        // sufficient to check the header height.
         // We might relax this check in the future and get closer to the
         // Cryptarchia spec once we stabilize the pruning logic.
         if !self.is_ancestor(self.lib(), parent_branch) {
@@ -266,10 +266,7 @@ where
 
     #[must_use]
     pub fn branches(&self) -> Vec<Branch<Id>> {
-        self.tips
-            .iter()
-            .map(|id| self.branches[id])
-            .collect()
+        self.tips.iter().map(|id| self.branches[id]).collect()
     }
 
     // find the lowest common ancestor of two branches
@@ -523,36 +520,36 @@ pub mod tests {
         branches = branches.apply_header(granchild_2, child, 4.into()).unwrap();
 
         assert!(branches.is_ancestor(
-            &branches.get(&parent).unwrap(),
-            &branches.get(&child).unwrap()
+            branches.get(&parent).unwrap(),
+            branches.get(&child).unwrap()
         ));
         assert!(!branches.is_ancestor(
-            &branches.get(&child).unwrap(),
-            &branches.get(&parent).unwrap()
+            branches.get(&child).unwrap(),
+            branches.get(&parent).unwrap()
         ));
         assert!(branches.is_ancestor(
-            &branches.get(&parent).unwrap(),
-            &branches.get(&grandchild).unwrap()
+            branches.get(&parent).unwrap(),
+            branches.get(&grandchild).unwrap()
         ));
         assert!(!branches.is_ancestor(
-            &branches.get(&grandchild).unwrap(),
-            &branches.get(&parent).unwrap()
+            branches.get(&grandchild).unwrap(),
+            branches.get(&parent).unwrap()
         ));
         assert!(branches.is_ancestor(
-            &branches.get(&child).unwrap(),
-            &branches.get(&grandchild).unwrap()
+            branches.get(&child).unwrap(),
+            branches.get(&grandchild).unwrap()
         ));
         assert!(!branches.is_ancestor(
-            &branches.get(&grandchild).unwrap(),
-            &branches.get(&child).unwrap()
+            branches.get(&grandchild).unwrap(),
+            branches.get(&child).unwrap()
         ));
         assert!(branches.is_ancestor(
-            &branches.get(&child).unwrap(),
-            &branches.get(&granchild_2).unwrap()
+            branches.get(&child).unwrap(),
+            branches.get(&granchild_2).unwrap()
         ));
         assert!(!branches.is_ancestor(
-            &branches.get(&granchild_2).unwrap(),
-            &branches.get(&child).unwrap()
+            branches.get(&granchild_2).unwrap(),
+            branches.get(&child).unwrap()
         ));
     }
 
@@ -655,13 +652,7 @@ pub mod tests {
         // however, if we set k to the fork length, it will be accepted
         let k = long_branch.length;
         assert_eq!(
-            maxvalid_bg(
-                short_branch.clone(),
-                engine.branches(),
-                k,
-                engine.config.s()
-            )
-            .id,
+            maxvalid_bg(*short_branch, engine.branches(), k, engine.config.s()).id,
             long_p
         );
 
