@@ -407,4 +407,23 @@ pub mod test {
         let shares = encoded_data.iter();
         assert_eq!(shares.count(), 16);
     }
+
+    #[test]
+    fn test_encode_zeros() {
+        // 837 zeros is not arbitrary, bug discovered on offsite 2025/04/22
+        let data = [0; 837];
+        ENCODER.encode(&data).unwrap();
+    }
+
+    #[test]
+    fn test_encode_mostly_zeros() {
+        // 837 zeros is not arbitrary, bug discovered on offsite 2025/04/22
+        let mut data = [0; 837];
+        data[0] = 1;
+        ENCODER.encode(&data).unwrap();
+
+        let mut data = [0; 837];
+        data[836] = 1;
+        ENCODER.encode(&data).unwrap();
+    }
 }
