@@ -390,6 +390,16 @@ pub enum Error<Id> {
     InvalidSlot(Id),
 }
 
+/// Information about a fork's divergence from the canonical branch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForkInfo<Id> {
+    /// The tip of the diverging fork.
+    tip: Branch<Id>,
+    /// The LCA (lowest common ancestor) of the fork and the local canonical
+    /// chain.
+    lca: Branch<Id>,
+}
+
 impl<Id, State> Cryptarchia<Id, State>
 where
     Id: Eq + std::hash::Hash + Copy,
@@ -470,32 +480,6 @@ where
         &self.local_chain
     }
 
-    /// Returns all the forks that are not part of the local canonical chain.
-    pub fn non_canonical_forks(&self) -> impl Iterator<Item = Branch<Id>> + '_ {
-        self.branches
-            .branches()
-            .filter(|fork_tip| fork_tip.id != self.tip())
-    }
-
-    pub fn prunable_forks(&self, depth: u64) -> impl Iterator<Item = Branch<Id>> {
-        let local_chain = self.local_chain;
-        let Some(target_height) = local_chain.length.checked_sub(depth) else {
-            tracing::info!(
-                target: LOG_TARGET,
-                "No prunable fork, the canonical chain is not longer than the provided depth. Canonical chain length: {}, provided depth: {}", local_chain.length, depth
-            );
-            return vec![].into_iter();
-        };
-        let non_canonical_forks = self.non_canonical_forks();
-        non_canonical_forks
-            .filter(|fork| {
-                let lca = self.branches.lca(&local_chain, fork);
-                lca.length <= target_height
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
-    }
-
     /// Prune all blocks that are included in forks strictly older than 'depth'
     /// blocks from the current local chain.
     ///
@@ -507,45 +491,72 @@ where
     /// other than the height at which they diverged from the local
     /// canonical chain.
     ///
-    /// It returns the blocks that were part of the pruned forks.
-    pub fn prune_forks(&mut self, depth: u64) -> impl Iterator<Item = Branch<Id>> {
-        let local_chain = self.local_chain;
-        let prunable_forks = self
-            .prunable_forks(depth)
-            .map(|fork| {
-                let lca = self.branches.lca(&local_chain, &fork);
-                (fork, fork.length.saturating_sub(lca.length))
-            })
-            .collect::<Vec<_>>();
+    /// It returns the block IDs that were part of the pruned forks.
+    pub fn prune_forks(&mut self, depth: u64) -> impl Iterator<Item = Id> {
+        let prunable_forks = self.prunable_forks(depth);
         let mut removed_blocks = vec![];
-        for (fork, fork_length) in prunable_forks {
-            removed_blocks.extend(self.prune_fork(fork.id, fork_length));
+        for prunable_fork_info in prunable_forks {
+            removed_blocks.extend(self.prune_fork(&prunable_fork_info));
         }
         removed_blocks.into_iter()
     }
 
-    /// Remove `depth` blocks from `tip` going backwards.
-    fn prune_fork(&mut self, tip: Id, mut length: u64) -> impl Iterator<Item = Branch<Id>> {
-        let tip_removed = self.branches.tips.remove(&tip);
+    /// Get an iterator over the forks that can be pruned given the provided
+    /// depth.
+    ///
+    /// This means that all forks that diverged from the canonical chain before
+    /// the provided `depth` height are returned.
+    pub fn prunable_forks(&self, depth: u64) -> impl Iterator<Item = ForkInfo<Id>> {
+        let local_chain = self.local_chain;
+        let Some(target_height) = local_chain.length.checked_sub(depth) else {
+            tracing::info!(
+                target: LOG_TARGET,
+                "No prunable fork, the canonical chain is not longer than the provided depth. Canonical chain length: {}, provided depth: {}", local_chain.length, depth
+            );
+            return vec![].into_iter();
+        };
+        self.non_canonical_forks()
+            .filter_map(|fork| {
+                // We calculate LCA once and store it in `ForkInfo` so it can be consumed
+                // elsewhere without the need to re-calculate it.
+                let lca = self.branches.lca(&local_chain, &fork);
+                (lca.length <= target_height).then_some(ForkInfo { tip: fork, lca })
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+
+    /// Returns all the forks that are not part of the local canonical chain.
+    ///
+    /// The result contains both prunable and non prunable forks.
+    pub fn non_canonical_forks(&self) -> impl Iterator<Item = Branch<Id>> + '_ {
+        self.branches
+            .branches()
+            .filter(|fork_tip| fork_tip.id != self.tip())
+    }
+
+    /// Remove all blocks from `tip` to `lca`, excluding `lca` which belongs to
+    /// the canonical chain.
+    fn prune_fork(&mut self, &ForkInfo { lca, tip }: &ForkInfo<Id>) -> impl Iterator<Item = Id> {
+        let tip_removed = self.branches.tips.remove(&tip.id);
         if !tip_removed {
             tracing::error!(target: LOG_TARGET, "Fork tip {tip:#?} not found in the set of tips.");
         }
 
-        let mut current_tip = tip;
+        let mut current_tip = tip.id;
         let mut removed_blocks = vec![];
-        while length > 0 {
+        while current_tip != lca.id {
             let Some(branch) = self.branches.branches.remove(&current_tip) else {
                 // If tip is not in branch set, it means this tip was sharing part of its
                 // history with another fork that has already been removed.
                 break;
             };
-            removed_blocks.push(branch);
+            removed_blocks.push(branch.id);
             current_tip = branch.parent;
-            length = length.saturating_sub(1);
         }
         tracing::debug!(
             target: LOG_TARGET,
-            "Pruned {length} branches from {tip:#?} to {current_tip:#?}."
+            "Pruned {} branches from {tip:#?} to {current_tip:#?}.", removed_blocks.len()
         );
         removed_blocks.into_iter()
     }
@@ -914,10 +925,7 @@ pub mod tests {
             .expect("test block to be applied successfully.");
         let mut chain = chain_pre.clone();
         let pruned_blocks = chain.prune_forks(10);
-        assert_eq!(
-            pruned_blocks.map(|block| block.id).collect::<HashSet<_>>(),
-            [[100; 32]].into()
-        );
+        assert_eq!(pruned_blocks.collect::<HashSet<_>>(), [[100; 32]].into());
         assert!(chain_pre.branches.tips.contains(&[100; 32]));
         assert!(chain_pre.branches.branches.contains_key(&[100; 32]));
         assert!(!chain.branches.tips.contains(&[100; 32]));
@@ -944,7 +952,7 @@ pub mod tests {
         let mut chain = chain_pre.clone();
         let pruned_blocks = chain.prune_forks(10);
         assert_eq!(
-            pruned_blocks.map(|block| block.id).collect::<HashSet<_>>(),
+            pruned_blocks.collect::<HashSet<_>>(),
             [[100; 32], [200; 32]].into()
         );
         // First fork at block 39 was pruned.
@@ -978,7 +986,7 @@ pub mod tests {
         let mut chain = chain_pre.clone();
         let pruned_blocks = chain.prune_forks(10);
         assert_eq!(
-            pruned_blocks.map(|block| block.id).collect::<HashSet<_>>(),
+            pruned_blocks.collect::<HashSet<_>>(),
             [[100; 32], [101; 32], [200; 32]].into()
         );
         // First fork was pruned entirely (both tips were removed).
