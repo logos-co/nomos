@@ -22,7 +22,7 @@ use overwatch::{
     services::{relay::OutboundRelay, ServiceData},
     DynError,
 };
-use subnetworks_assignations::MembershipHandler;
+use subnetworks_assignations::{MembershipHandler, UpdateableMembershipHandler};
 use tokio::sync::oneshot;
 
 use crate::adapters::network::DispersalNetworkAdapter;
@@ -30,6 +30,7 @@ use crate::adapters::network::DispersalNetworkAdapter;
 pub struct Libp2pNetworkAdapter<Membership, RuntimeServiceId>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
+        + UpdateableMembershipHandler
         + Clone
         + Debug
         + Send
@@ -44,6 +45,7 @@ where
 impl<Membership, RuntimeServiceId> Libp2pNetworkAdapter<Membership, RuntimeServiceId>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
+        + UpdateableMembershipHandler
         + Clone
         + Debug
         + Send
@@ -77,6 +79,7 @@ impl<Membership, RuntimeServiceId> DispersalNetworkAdapter
     for Libp2pNetworkAdapter<Membership, RuntimeServiceId>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
+        + UpdateableMembershipHandler
         + Clone
         + Debug
         + Send

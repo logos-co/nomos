@@ -5,6 +5,7 @@ name    = "subnetworks-assignations"
 version = "0.1.0"
 
 [dependencies]
+arc-swap        = "1.7"
 libp2p          = { version = "0.55", default-features = false }
 libp2p-identity = { version = "0.2", features = ["peerid", "serde"] }
 serde           = "1"

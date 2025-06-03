@@ -3,6 +3,7 @@ macro_rules! adapter_for {
         pub struct Libp2pAdapter<M, RuntimeServiceId>
         where
             M: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
+                + UpdateableMembershipHandler
                 + Clone
                 + Debug
                 + Send
@@ -20,6 +21,7 @@ macro_rules! adapter_for {
             for Libp2pAdapter<M, RuntimeServiceId>
         where
             M: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
+                + UpdateableMembershipHandler
                 + Clone
                 + Debug
                 + Send

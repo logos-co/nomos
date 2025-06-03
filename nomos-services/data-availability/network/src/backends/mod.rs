@@ -19,7 +19,7 @@ pub trait NetworkBackend<RuntimeServiceId> {
 
     fn new(config: Self::Settings, overwatch_handle: OverwatchHandle<RuntimeServiceId>) -> Self;
     fn shutdown(&mut self);
-    fn update_membership(&mut self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>);
+    fn update_membership(&mut self, addressbook: HashMap<PeerId, Multiaddr>);
 
     async fn process(&self, msg: Self::Message);
     async fn subscribe(

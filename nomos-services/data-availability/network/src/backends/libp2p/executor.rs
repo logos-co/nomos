@@ -19,7 +19,7 @@ use nomos_libp2p::ed25519;
 use nomos_tracing::info_with_id;
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
 use serde::{Deserialize, Serialize};
-use subnetworks_assignations::MembershipHandler;
+use subnetworks_assignations::{MembershipHandler, UpdateableMembershipHandler};
 use tokio::{
     sync::{broadcast, mpsc::UnboundedSender, oneshot},
     task::JoinHandle,
@@ -27,7 +27,6 @@ use tokio::{
 use tokio_stream::wrappers::{BroadcastStream, UnboundedReceiverStream};
 use tracing::instrument;
 
-use super::membership::DaMembershipHandler;
 use crate::backends::{
     libp2p::common::{
         handle_balancer_command, handle_monitor_command, handle_sample_request,
@@ -83,7 +82,7 @@ pub struct DaNetworkExecutorBackendSettings<Membership> {
 /// channels/streams
 pub struct DaNetworkExecutorBackend<Membership>
 where
-    Membership: MembershipHandler,
+    Membership: UpdateableMembershipHandler,
 {
     task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     verifier_replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
@@ -95,7 +94,7 @@ where
     dispersal_shares_sender: UnboundedSender<(Membership::NetworkId, DaShare)>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
-    membership: DaMembershipHandler<Membership>,
+    membership: Membership,
 }
 
 #[async_trait::async_trait]
@@ -103,6 +102,7 @@ impl<Membership, RuntimeServiceId> NetworkBackend<RuntimeServiceId>
     for DaNetworkExecutorBackend<Membership>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
+        + UpdateableMembershipHandler
         + Clone
         + Debug
         + Send
@@ -120,7 +120,7 @@ where
         let keypair = libp2p::identity::Keypair::from(ed25519::Keypair::from(
             config.validator_settings.node_key.clone(),
         ));
-        let membership = DaMembershipHandler::new(config.validator_settings.membership);
+        let membership = config.validator_settings.membership;
         let (mut executor_swarm, executor_events_stream) = ExecutorSwarm::new(
             keypair,
             membership.clone(),
@@ -275,8 +275,8 @@ where
         }
     }
 
-    fn update_membership(&mut self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) {
-        self.membership.update(members, addressbook);
+    fn update_membership(&mut self, addressbook: HashMap<PeerId, Multiaddr>) {
+        self.membership.update(addressbook);
     }
 }
 

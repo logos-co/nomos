@@ -17,7 +17,7 @@ use overwatch::{
     services::{relay::OutboundRelay, ServiceData},
     DynError,
 };
-use subnetworks_assignations::MembershipHandler;
+use subnetworks_assignations::{MembershipHandler, UpdateableMembershipHandler};
 use tokio::sync::oneshot;
 
 use crate::network::{adapters::common::adapter_for, NetworkAdapter};

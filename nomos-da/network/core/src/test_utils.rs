@@ -71,14 +71,6 @@ impl MembershipHandler for AllNeighbours {
     fn get_address(&self, peer_id: &PeerId) -> Option<libp2p::Multiaddr> {
         self.addresses.lock().unwrap().get(peer_id).cloned()
     }
-
-    fn new_with(
-        &self,
-        _members: Vec<PeerId>,
-        _addressbook: HashMap<PeerId, libp2p::Multiaddr>,
-    ) -> Self {
-        todo!()
-    }
 }
 
 pub fn new_swarm_in_memory<TBehavior>(

@@ -9,7 +9,7 @@ use nomos_da_network_service::{
     NetworkService,
 };
 use overwatch::services::{relay::OutboundRelay, ServiceData};
-use subnetworks_assignations::MembershipHandler;
+use subnetworks_assignations::{MembershipHandler, UpdateableMembershipHandler};
 use tokio_stream::StreamExt as _;
 
 use crate::network::{adapters::common::adapter_for, NetworkAdapter};

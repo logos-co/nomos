@@ -114,11 +114,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
         }
     }
 
-    fn update_membership(
-        &mut self,
-        _members: Vec<PeerId>,
-        _addressbook: HashMap<PeerId, Multiaddr>,
-    ) {
+    fn update_membership(&mut self, _addressbook: HashMap<PeerId, Multiaddr>) {
         todo!()
     }
 }

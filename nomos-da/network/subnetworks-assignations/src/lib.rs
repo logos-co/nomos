@@ -14,11 +14,6 @@ pub trait MembershipHandler {
     /// Members Id type
     type Id;
 
-    /// Creates a new instance of the membership handler with the given members
-    /// and address book
-    #[must_use]
-    fn new_with(&self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) -> Self;
-
     /// Returns the set of `NetworksIds` an id is a member of
     fn membership(&self, id: &Self::Id) -> HashSet<Self::NetworkId>;
 
@@ -41,6 +36,10 @@ pub trait MembershipHandler {
     fn get_address(&self, peer_id: &PeerId) -> Option<Multiaddr>;
 }
 
+pub trait UpdateableMembershipHandler: MembershipHandler {
+    fn update(&mut self, addressbook: HashMap<PeerId, Multiaddr>);
+}
+
 use std::sync::Arc;
 
 impl<T> MembershipHandler for Arc<T>
@@ -49,10 +48,6 @@ where
 {
     type NetworkId = T::NetworkId;
     type Id = T::Id;
-
-    fn new_with(&self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) -> Self {
-        Self::new(self.as_ref().new_with(members, addressbook))
-    }
 
     fn membership(&self, id: &Self::Id) -> HashSet<Self::NetworkId> {
         self.as_ref().membership(id)

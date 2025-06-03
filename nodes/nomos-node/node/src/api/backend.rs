@@ -40,7 +40,7 @@ use nomos_storage::{
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use subnetworks_assignations::MembershipHandler;
+use subnetworks_assignations::{MembershipHandler, UpdateableMembershipHandler};
 use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
@@ -183,6 +183,7 @@ where
         + 'static,
     <DaBlobInfo as DispersedBlobInfo>::BlobId: Clone + Send + Sync,
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
+        + UpdateableMembershipHandler
         + Clone
         + Debug
         + Send
