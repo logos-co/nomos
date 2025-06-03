@@ -5,6 +5,7 @@ name    = "nomos-da-network-service"
 version = "0.1.0"
 
 [dependencies]
+arc-swap                 = "1"
 async-trait              = "0.1"
 futures                  = "0.3"
 kzgrs-backend            = { workspace = true }

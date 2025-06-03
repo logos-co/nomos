@@ -1,11 +1,11 @@
-use std::{fmt::Debug, marker::PhantomData, pin::Pin, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, marker::PhantomData, pin::Pin};
 
 use futures::{
     future::{AbortHandle, Abortable, Aborted},
     Stream, StreamExt as _,
 };
 use kzgrs_backend::common::share::DaShare;
-use libp2p::PeerId;
+use libp2p::{Multiaddr, PeerId};
 use nomos_core::da::BlobId;
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
@@ -24,6 +24,7 @@ use tokio::{
 use tokio_stream::wrappers::BroadcastStream;
 use tracing::instrument;
 
+use super::membership::DaMembershipHandler;
 use crate::backends::{
     libp2p::common::{
         handle_balancer_command, handle_monitor_command, handle_sample_request,
@@ -76,7 +77,7 @@ pub struct DaNetworkValidatorBackend<Membership> {
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
     verifying_broadcast_receiver: broadcast::Receiver<DaShare>,
-    _membership: PhantomData<Membership>,
+    membership: DaMembershipHandler<Membership>,
 }
 
 #[async_trait::async_trait]
@@ -100,9 +101,12 @@ where
     fn new(config: Self::Settings, overwatch_handle: OverwatchHandle<RuntimeServiceId>) -> Self {
         let keypair =
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
+
+        let membership = DaMembershipHandler::new(config.membership);
+
         let (mut validator_swarm, validator_events_stream) = ValidatorSwarm::new(
             keypair,
-            Arc::new(config.membership.clone()),
+            membership.clone(),
             config.policy_settings,
             config.monitor_settings,
             config.balancer_interval,
@@ -154,7 +158,7 @@ where
             monitor_command_sender,
             sampling_broadcast_receiver,
             verifying_broadcast_receiver,
-            _membership: PhantomData,
+            membership,
         }
     }
 
@@ -212,5 +216,9 @@ where
                     .map(|share| Self::NetworkEvent::Verifying(Box::new(share))),
             ),
         }
+    }
+
+    fn update_membership(&mut self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) {
+        self.membership.update(members, addressbook);
     }
 }

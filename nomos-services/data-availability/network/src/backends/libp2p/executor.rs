@@ -1,4 +1,4 @@
-use std::{fmt::Debug, marker::PhantomData, pin::Pin, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, marker::PhantomData, pin::Pin, sync::Arc};
 
 use futures::{
     future::Aborted,
@@ -6,7 +6,7 @@ use futures::{
     Stream, StreamExt as _,
 };
 use kzgrs_backend::common::share::DaShare;
-use libp2p::PeerId;
+use libp2p::{Multiaddr, PeerId};
 use log::error;
 use nomos_core::da::BlobId;
 use nomos_da_network_core::{
@@ -27,6 +27,7 @@ use tokio::{
 use tokio_stream::wrappers::{BroadcastStream, UnboundedReceiverStream};
 use tracing::instrument;
 
+use super::membership::DaMembershipHandler;
 use crate::backends::{
     libp2p::common::{
         handle_balancer_command, handle_monitor_command, handle_sample_request,
@@ -94,7 +95,7 @@ where
     dispersal_shares_sender: UnboundedSender<(Membership::NetworkId, DaShare)>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
-    _membership: PhantomData<Membership>,
+    membership: DaMembershipHandler<Membership>,
 }
 
 #[async_trait::async_trait]
@@ -119,9 +120,10 @@ where
         let keypair = libp2p::identity::Keypair::from(ed25519::Keypair::from(
             config.validator_settings.node_key.clone(),
         ));
+        let membership = DaMembershipHandler::new(config.validator_settings.membership);
         let (mut executor_swarm, executor_events_stream) = ExecutorSwarm::new(
             keypair,
-            Arc::new(config.validator_settings.membership.clone()),
+            membership.clone(),
             config.validator_settings.policy_settings.clone(),
             config.validator_settings.monitor_settings.clone(),
             config.validator_settings.balancer_interval,
@@ -194,7 +196,7 @@ where
             dispersal_shares_sender,
             balancer_command_sender,
             monitor_command_sender,
-            _membership: PhantomData,
+            membership,
         }
     }
 
@@ -271,6 +273,10 @@ where
                     .map(Self::NetworkEvent::Dispersal),
             ),
         }
+    }
+
+    fn update_membership(&mut self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) {
+        self.membership.update(members, addressbook);
     }
 }
 

@@ -1,7 +1,8 @@
-use std::pin::Pin;
+use std::{collections::HashMap, pin::Pin};
 
 use futures::{Stream, StreamExt as _};
 use kzgrs_backend::common::{build_blob_id, share::DaShare};
+use libp2p::{Multiaddr, PeerId};
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{
@@ -111,5 +112,9 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
                     .filter_map(|event| async { event.ok() }),
             ),
         }
+    }
+
+    fn update_membership(&mut self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) {
+        todo!()
     }
 }
