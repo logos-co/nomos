@@ -409,7 +409,7 @@ pub mod test {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "polynomial_degree.is_power_of_two()")]
     fn test_encode_zeros() {
         // 837 zeros is not arbitrary, bug discovered on offsite 2025/04/22
         // Encoding only zeroes is not allowed in Nomos DA network.
