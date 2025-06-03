@@ -1,6 +1,9 @@
 pub mod versions;
 
-use std::{collections::HashSet, hash::Hash};
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+};
 
 use libp2p::Multiaddr;
 use libp2p_identity::PeerId;
@@ -10,6 +13,11 @@ pub trait MembershipHandler {
     type NetworkId: Eq + Hash;
     /// Members Id type
     type Id;
+
+    /// Creates a new instance of the membership handler with the given members
+    /// and address book
+    #[must_use]
+    fn new_with(&self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) -> Self;
 
     /// Returns the set of `NetworksIds` an id is a member of
     fn membership(&self, id: &Self::Id) -> HashSet<Self::NetworkId>;
@@ -41,6 +49,10 @@ where
 {
     type NetworkId = T::NetworkId;
     type Id = T::Id;
+
+    fn new_with(&self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) -> Self {
+        Self::new(self.as_ref().new_with(members, addressbook))
+    }
 
     fn membership(&self, id: &Self::Id) -> HashSet<Self::NetworkId> {
         self.as_ref().membership(id)

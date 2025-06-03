@@ -76,6 +76,23 @@ impl MembershipHandler for FillWithOriginalReplication {
     type NetworkId = u16;
     type Id = PeerId;
 
+    fn new_with(&self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) -> Self {
+        Self {
+            assignations: Self::fill(
+                &members,
+                self.subnetwork_size,
+                self.dispersal_factor,
+                self.original_replication,
+                self.pivot,
+            ),
+            subnetwork_size: self.subnetwork_size,
+            dispersal_factor: self.dispersal_factor,
+            original_replication: self.original_replication,
+            pivot: self.pivot,
+            addressbook,
+        }
+    }
+
     fn membership(&self, id: &Self::Id) -> HashSet<Self::NetworkId> {
         self.assignations
             .iter()
