@@ -9,7 +9,7 @@ pub mod storage;
 use core::fmt::Debug;
 use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 
-use cryptarchia_engine::{Online, Slot};
+use cryptarchia_engine::{CryptarchiaState, Online, Slot};
 use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
@@ -77,7 +77,7 @@ struct Cryptarchia<State> {
     consensus: cryptarchia_engine::Cryptarchia<HeaderId, State>,
 }
 
-impl<State: cryptarchia_engine::State> Cryptarchia<State> {
+impl<State: CryptarchiaState> Cryptarchia<State> {
     /// Initialize a new [`Cryptarchia`] instance.
     /// [`Cryptarchia`] must always be initialized from genesis.
     pub fn from_genesis(
@@ -780,7 +780,7 @@ where
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
-    fn process_message<State: cryptarchia_engine::State>(
+    fn process_message<State: CryptarchiaState>(
         cryptarchia: &Cryptarchia<State>,
         block_channel: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
         msg: ConsensusMsg<Block<ClPool::Item, DaPool::Item>>,
@@ -875,7 +875,7 @@ where
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(cryptarchia, leader, relays))]
-    async fn process_block<State: cryptarchia_engine::State>(
+    async fn process_block<State: CryptarchiaState>(
         cryptarchia: Cryptarchia<State>,
         leader: &mut leadership::Leader,
         block: Block<ClPool::Item, DaPool::Item>,
@@ -908,7 +908,7 @@ where
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(cryptarchia, leader, relays))]
-    async fn process_block_unchecked<State: cryptarchia_engine::State>(
+    async fn process_block_unchecked<State: CryptarchiaState>(
         mut cryptarchia: Cryptarchia<State>,
         leader: &mut leadership::Leader,
         block: Block<ClPool::Item, DaPool::Item>,

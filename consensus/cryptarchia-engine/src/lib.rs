@@ -18,7 +18,7 @@ pub struct Boostrapping;
 #[derive(Clone, Debug, Copy)]
 pub struct Online;
 
-pub trait State: Copy + std::fmt::Debug {
+pub trait CryptarchiaState: Copy + std::fmt::Debug {
     fn fork_choice<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Branch<Id>
     where
         Id: Eq + std::hash::Hash + Copy;
@@ -27,7 +27,7 @@ pub trait State: Copy + std::fmt::Debug {
         Id: Eq + std::hash::Hash + Copy;
 }
 
-impl State for Boostrapping {
+impl CryptarchiaState for Boostrapping {
     fn fork_choice<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Branch<Id>
     where
         Id: Eq + std::hash::Hash + Copy,
@@ -45,7 +45,7 @@ impl State for Boostrapping {
     }
 }
 
-impl State for Online {
+impl CryptarchiaState for Online {
     fn fork_choice<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Branch<Id>
     where
         Id: Eq + std::hash::Hash + Copy,
@@ -354,10 +354,10 @@ pub enum Error<Id> {
     InvalidSlot(Id),
 }
 
-impl<Id, St> Cryptarchia<Id, St>
+impl<Id, State> Cryptarchia<Id, State>
 where
     Id: Eq + std::hash::Hash + Copy,
-    St: State + Copy,
+    State: CryptarchiaState + Copy,
 {
     pub fn from_genesis(id: Id, config: Config) -> Self {
         Self {
@@ -404,7 +404,7 @@ where
         new.branches = new
             .branches
             .apply_header_unchecked(header, parent, slot, chain_length);
-        new.local_chain = <St as State>::fork_choice(&new);
+        new.local_chain = new.fork_choice();
         new
     }
 
@@ -419,11 +419,11 @@ where
     }
 
     pub fn update_lib(&mut self) {
-        self.branches.lib = <St as State>::lib(&*self);
+        self.branches.lib = <State as CryptarchiaState>::lib(&*self);
     }
 
     pub fn fork_choice(&self) -> Branch<Id> {
-        <St as State>::fork_choice(self)
+        <State as CryptarchiaState>::fork_choice(self)
     }
 
     pub const fn tip(&self) -> Id {
