@@ -2,7 +2,7 @@ pub mod error;
 
 use error::Error;
 
-use crate::BlendMessage;
+use crate::{BlendMessage, MessageUnwrapError};
 
 const NODE_ID_SIZE: usize = 32;
 // TODO: Move MAX_PAYLOAD_SIZE and MAX_LAYERS to the upper layer (service
@@ -60,21 +60,24 @@ impl BlendMessage for MockBlendMessage {
     fn unwrap(
         message: &[u8],
         private_key: &Self::PrivateKey,
-    ) -> Result<(Vec<u8>, bool), Self::Error> {
+    ) -> Result<(Vec<u8>, bool), MessageUnwrapError<Self::Error>> {
         if message.len() != MESSAGE_SIZE {
-            return Err(Error::InvalidBlendMessage);
+            return Err(MessageUnwrapError::Other(Error::InvalidBlendMessage));
         }
 
         // In this mock, we don't decrypt anything. So, we use private key as just a
         // node ID.
         let node_id = private_key;
         if &message[0..NODE_ID_SIZE] != node_id {
-            return Err(Error::MsgUnwrapNotAllowed);
+            return Err(MessageUnwrapError::NotAllowed);
         }
 
         // If this is the last layer
         if message[NODE_ID_SIZE..NODE_ID_SIZE * 2] == DUMMY_NODE_ID {
-            return Ok((Self::payload(message)?, true));
+            return Ok((
+                Self::payload(message).map_err(MessageUnwrapError::Other)?,
+                true,
+            ));
         }
 
         let mut new_message: Vec<u8> = Vec::with_capacity(MESSAGE_SIZE);

@@ -11,7 +11,7 @@ use std::{
 
 pub use crypto::CryptographicProcessorSettings;
 use futures::{Stream, StreamExt as _};
-use nomos_blend_message::BlendMessage;
+use nomos_blend_message::{BlendMessage, MessageUnwrapError};
 use rand::RngCore;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 pub use temporal::TemporalSchedulerSettings;
@@ -98,8 +98,11 @@ where
                     tracing::error!("Failed to send message to the outbound channel: {e:?}");
                 }
             }
+            Err(e @ MessageUnwrapError::NotAllowed) => {
+                tracing::debug!("{e}");
+            }
             Err(e) => {
-                tracing::error!("Failed to unwrap message: {:?}", e);
+                tracing::error!("Failed to unwrap message: {e}");
             }
         }
     }

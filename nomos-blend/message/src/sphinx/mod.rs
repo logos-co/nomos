@@ -1,7 +1,7 @@
 use error::Error;
 use packet::{Packet, UnpackedPacket};
 
-use crate::BlendMessage;
+use crate::{BlendMessage, MessageUnwrapError};
 
 pub mod error;
 mod layered_cipher;
@@ -39,7 +39,7 @@ impl BlendMessage for SphinxMessage {
     fn unwrap(
         message: &[u8],
         private_key: &Self::PrivateKey,
-    ) -> Result<(Vec<u8>, bool), Self::Error> {
+    ) -> Result<(Vec<u8>, bool), MessageUnwrapError<Self::Error>> {
         let packet = Packet::from_bytes(message, MAX_LAYERS)?;
         let unpacked_packet =
             packet.unpack(&x25519_dalek::StaticSecret::from(*private_key), MAX_LAYERS)?;

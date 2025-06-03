@@ -1,6 +1,6 @@
 use std::hash::Hash;
 
-use nomos_blend_message::BlendMessage;
+use nomos_blend_message::{BlendMessage, MessageUnwrapError};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
@@ -54,7 +54,10 @@ where
         Message::build(message, &public_keys)
     }
 
-    pub fn unwrap_message(&self, message: &[u8]) -> Result<(Vec<u8>, bool), Message::Error> {
+    pub fn unwrap_message(
+        &self,
+        message: &[u8],
+    ) -> Result<(Vec<u8>, bool), MessageUnwrapError<Message::Error>> {
         Message::unwrap(message, &self.settings.private_key)
     }
 }
