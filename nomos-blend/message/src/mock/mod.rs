@@ -62,7 +62,7 @@ impl BlendMessage for MockBlendMessage {
         private_key: &Self::PrivateKey,
     ) -> Result<(Vec<u8>, bool), MessageUnwrapError<Self::Error>> {
         if message.len() != MESSAGE_SIZE {
-            return Err(MessageUnwrapError::Other(Error::InvalidBlendMessage));
+            return Err(Error::InvalidBlendMessage.into());
         }
 
         // In this mock, we don't decrypt anything. So, we use private key as just a
@@ -74,10 +74,7 @@ impl BlendMessage for MockBlendMessage {
 
         // If this is the last layer
         if message[NODE_ID_SIZE..NODE_ID_SIZE * 2] == DUMMY_NODE_ID {
-            return Ok((
-                Self::payload(message).map_err(MessageUnwrapError::Other)?,
-                true,
-            ));
+            return Ok((Self::payload(message)?, true));
         }
 
         let mut new_message: Vec<u8> = Vec::with_capacity(MESSAGE_SIZE);
