@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use cl::NoteWitness;
-use cryptarchia_engine::{Branch, CryptarchiaState};
+use cryptarchia_engine::{Branch, CryptarchiaState, ForkDivergenceInfo};
 use nomos_core::header::HeaderId;
 use nomos_ledger::LedgerState;
 use overwatch::services::state::ServiceState;
@@ -122,23 +122,11 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
                 .collect()
         });
 
-        // Calculate LCA for each of the returned forks.
-        // TODO: Maybe we can return the LCA directly from `prunable_forks`?
-        let lcas = prunable_forks
-            .iter()
-            .map(|fork| {
-                cryptarchia
-                    .consensus
-                    .branches()
-                    .lca(fork, cryptarchia.consensus.tip_branch())
-            })
-            .collect::<Vec<_>>();
-
         // Merge all blocks from each fork's tip up until (but excluding) the fork's LCA
         // with the canonical chain.
         let mut prunable_blocks = Vec::new();
-        for (prunable_fork, lca) in prunable_forks.into_iter().zip(lcas.into_iter()) {
-            let mut cursor = prunable_fork;
+        for ForkDivergenceInfo { lca, tip } in prunable_forks {
+            let mut cursor = tip;
             while cursor != lca {
                 prunable_blocks.push(cursor);
                 cursor = cryptarchia

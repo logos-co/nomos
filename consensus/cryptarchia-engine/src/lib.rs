@@ -392,12 +392,12 @@ pub enum Error<Id> {
 
 /// Information about a fork's divergence from the canonical branch.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ForkInfo<Id> {
+pub struct ForkDivergenceInfo<Id> {
     /// The tip of the diverging fork.
-    tip: Branch<Id>,
+    pub tip: Branch<Id>,
     /// The LCA (lowest common ancestor) of the fork and the local canonical
     /// chain.
-    lca: Branch<Id>,
+    pub lca: Branch<Id>,
 }
 
 impl<Id, State> Cryptarchia<Id, State>
@@ -506,7 +506,7 @@ where
     ///
     /// This means that all forks that diverged from the canonical chain before
     /// the provided `depth` height are returned.
-    pub fn prunable_forks(&self, depth: u64) -> impl Iterator<Item = ForkInfo<Id>> {
+    pub fn prunable_forks(&self, depth: u64) -> impl Iterator<Item = ForkDivergenceInfo<Id>> {
         let local_chain = self.local_chain;
         let Some(target_height) = local_chain.length.checked_sub(depth) else {
             tracing::info!(
@@ -520,7 +520,7 @@ where
                 // We calculate LCA once and store it in `ForkInfo` so it can be consumed
                 // elsewhere without the need to re-calculate it.
                 let lca = self.branches.lca(&local_chain, &fork);
-                (lca.length <= target_height).then_some(ForkInfo { tip: fork, lca })
+                (lca.length <= target_height).then_some(ForkDivergenceInfo { tip: fork, lca })
             })
             .collect::<Vec<_>>()
             .into_iter()
@@ -537,7 +537,10 @@ where
 
     /// Remove all blocks from `tip` to `lca`, excluding `lca` which belongs to
     /// the canonical chain.
-    fn prune_fork(&mut self, &ForkInfo { lca, tip }: &ForkInfo<Id>) -> impl Iterator<Item = Id> {
+    fn prune_fork(
+        &mut self,
+        &ForkDivergenceInfo { lca, tip }: &ForkDivergenceInfo<Id>,
+    ) -> impl Iterator<Item = Id> {
         let tip_removed = self.branches.tips.remove(&tip.id);
         if !tip_removed {
             tracing::error!(target: LOG_TARGET, "Fork tip {tip:#?} not found in the set of tips.");

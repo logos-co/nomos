@@ -30,11 +30,22 @@ pub trait StorageAdapter<RuntimeServiceId> {
         block: Self::Block,
     ) -> Result<(), overwatch::DynError>;
 
+    /// Remove a block from the storage layer.
+    ///
+    /// * If the block exists, this function returns `Ok(Self::Block).`
+    /// * If the block does not exist, this function returns `Ok(None)`.
+    /// * If an error occurs, this function returns `Err(overwatch::DynError)`.
     async fn remove_block(
         &self,
         header_id: HeaderId,
     ) -> Result<Option<Self::Block>, overwatch::DynError>;
 
+    /// Remove a batch of blocks from the storage layer.
+    ///
+    /// For each block being deleted:
+    /// * If the block exists, this function returns `Ok(Self::Block).`
+    /// * If the block does not exist, this function returns `Ok(None)`.
+    /// * If an error occurs, this function returns `Err(overwatch::DynError)`.
     async fn remove_blocks<Headers>(
         &self,
         header_ids: Headers,

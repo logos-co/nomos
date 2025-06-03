@@ -11,6 +11,7 @@ use nomos_ledger::{EpochState, NoteTree};
 use nomos_proof_statements::leadership::{LeaderPrivate, LeaderPublic};
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone)]
 pub struct Leader {
     // for each block, the indexes in the note tree of the notes we control
     notes: HashMap<HeaderId, Vec<NoteWitness>>,

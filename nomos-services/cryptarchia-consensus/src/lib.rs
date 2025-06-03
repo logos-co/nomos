@@ -187,7 +187,7 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
     ///
     /// The old blocks are removed from the consensus engine and their state
     /// removed from the ledger state.
-    pub fn prune_old_forks(&mut self) -> impl Iterator<Item = Branch<HeaderId>> {
+    pub fn prune_old_forks(&mut self) -> impl Iterator<Item = HeaderId> {
         // We need to iterate once, then return the unconsumed iterator, so we need to
         // collect first.
         let old_forks_pruned = self
@@ -203,13 +203,13 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
             .collect::<Vec<_>>();
         let mut pruned_states_count = 0usize;
         for pruned_block in &old_forks_pruned {
-            if self.ledger.prune_state_at(&pruned_block.id()) {
+            if self.ledger.prune_state_at(pruned_block) {
                 pruned_states_count = pruned_states_count.saturating_add(1);
             } else {
                 tracing::error!(
                    target: LOG_TARGET,
                     "Failed to prune ledger state for block {:?} which should exist.",
-                    pruned_block.id()
+                    pruned_block
                 );
             }
         }
@@ -664,6 +664,7 @@ where
                         .await;
 
                         Self::prune_old_forks(&mut cryptarchia, &mut leader, relays.storage_adapter()).await;
+                        // We update cryptarchia state only after attempting to prune blocks, to avoid saving blocks that have been already successfully pruned.
                         self.service_resources_handle.state_updater.update(Some(Self::State::from_cryptarchia(&cryptarchia, &leader)));
 
                         info!(counter.consensus_processed_blocks = 1);
@@ -700,6 +701,7 @@ where
                                     &mut self.block_subscription_sender
                                 ).await;
                                 Self::prune_old_forks(&mut cryptarchia, &mut leader, relays.storage_adapter()).await;
+                                // We update cryptarchia state only after attempting to prune blocks, to avoid saving blocks that have been already successfully pruned.
                                 self.service_resources_handle.state_updater.update(Some(Self::State::from_cryptarchia(&cryptarchia, &leader)));
                                 blend_adapter.blend(block).await;
                             }
@@ -1426,6 +1428,10 @@ where
 
         // Add prunable blocks, to account for potential DB errors before the node was
         // shutdown and avoid inconsistent state later on.
+        // We only store the information about the block itself, without any associated
+        // ledger nor leadership-related information.
+        // Each node that has already been deleted by the storage adapter will result in
+        // a no-op, so it's not a big deal.
         for block in prunable_blocks {
             cryptarchia.consensus = cryptarchia.consensus.receive_block_unchecked(
                 block.id(),
@@ -1447,8 +1453,10 @@ where
         storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
     ) {
         // We make a copy of the original state so we don't change the input state
-        // directly.
+        // directly. This allows us to rollback in case the storage yields inconsistent
+        // results.
         let mut local_cryptarchia_changes = cryptarchia.clone();
+        let mut local_leader_changes = leader.clone();
 
         // Apply changes to the local copy.
         let old_forks_pruned = local_cryptarchia_changes
@@ -1456,7 +1464,7 @@ where
             .collect::<Vec<_>>();
 
         let Ok(()) = Self::delete_pruned_blocks_from_storage(
-            old_forks_pruned.iter().map(Branch::id),
+            old_forks_pruned.iter().copied(),
             storage_adapter,
         )
         .await
@@ -1466,35 +1474,31 @@ where
             return;
         };
 
-        // If storage deletion succeeded, update the input version with the modified
-        // local copy.
-        *cryptarchia = local_cryptarchia_changes;
-
         // And remove the notes of the pruned blocks from the leader state.
-        for old_fork_pruned in old_forks_pruned {
-            let block_id = old_fork_pruned.id();
-            if leader.prune_notes_at(&block_id) {
+        for old_fork_pruned in &old_forks_pruned {
+            if local_leader_changes.prune_notes_at(old_fork_pruned) {
                 tracing::debug!(
                     target: LOG_TARGET,
-                    "Leader proof for block {block_id} removed from in-memory storage."
+                    "Leader proof for block {old_fork_pruned} removed from in-memory storage."
                 );
             }
         }
+
+        // If all operations succeed, update the input values to point to the updated
+        // state.
+        *cryptarchia = local_cryptarchia_changes;
+        *leader = local_leader_changes;
     }
 
     /// Send a bulk deletion request to the storage adapter.
     ///
-    /// It returns an flag indicating an error if the request itself fails,
-    /// while returned `None`s (indicating the block did not exist) are not
-    /// treated as errors.
-    /// Since multiple requests can fail for different reason, this function
-    /// does not try to collect the returned errors, but simply logs them and
-    /// returns a flag indicating that at least an error was returned by the
-    /// storage backend.
+    /// If no request fails, the method returns `Ok()`.
+    /// If any request fails, the header ID and the generated error are
+    /// collected and returns as part of the `Err` result.
     async fn delete_pruned_blocks_from_storage<Headers>(
         pruned_block_headers: Headers,
         storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
-    ) -> Result<(), ()>
+    ) -> Result<(), Vec<(HeaderId, DynError)>>
     where
         Headers: Iterator<Item = HeaderId> + Send,
     {
@@ -1505,34 +1509,38 @@ where
                 .await,
         );
 
-        let mut error_found = false;
-        for (block_id, block_deletion_outcome) in block_deletion_outcomes {
-            match block_deletion_outcome {
-                Ok(Some(_)) => {
-                    tracing::debug!(
-                        target: LOG_TARGET,
-                        "Block {block_id:#?} successfully deleted from storage."
-                    );
+        let errors = block_deletion_outcomes.fold(
+            Vec::with_capacity(blocks_to_delete.len()),
+            |mut errors, (block_id, outcome)| {
+                match outcome {
+                    Ok(Some(_)) => {
+                        tracing::debug!(
+                            target: LOG_TARGET,
+                            "Block {block_id:#?} successfully deleted from storage."
+                        );
+                    }
+                    Ok(None) => {
+                        tracing::trace!(
+                            target: LOG_TARGET,
+                            "Block {block_id:#?} was not found in storage."
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            target: LOG_TARGET,
+                            "Error deleting block {block_id:#?} from storage: {e}."
+                        );
+                        errors.push((block_id, e));
+                    }
                 }
-                Ok(None) => {
-                    tracing::trace!(
-                        target: LOG_TARGET,
-                        "Block {block_id:#?} was not found in storage."
-                    );
-                }
-                Err(block_deletion_error) => {
-                    tracing::error!(
-                        target: LOG_TARGET,
-                        "Error deleting block {block_id:#?} from storage: {block_deletion_error}."
-                    );
-                    error_found = true;
-                }
-            }
-        }
-        if error_found {
-            Err(())
-        } else {
+                errors
+            },
+        );
+
+        if errors.is_empty() {
             Ok(())
+        } else {
+            Err(errors)
         }
     }
 }
