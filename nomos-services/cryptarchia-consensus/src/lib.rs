@@ -612,7 +612,7 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        async {
+        let async_loop = async {
             loop {
                 tokio::select! {
                     Some(block) = incoming_blocks.next() => {
@@ -671,10 +671,19 @@ where
                     }
                 }
             }
-            // It sucks to use `CRYPTARCHIA_ID` when we have `<RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID`.
-            // Somehow it just does not let us use it. Probably related to too many generics.
-            // It seems `span` requires a `const` string literal.
-        }.instrument(span!(Level::TRACE, CRYPTARCHIA_ID)).await;
+        };
+
+        // It sucks to use `CRYPTARCHIA_ID` when we have `<RuntimeServiceId as
+        // AsServiceId<Self>>::SERVICE_ID`.
+        // Somehow it just does not let us use it.
+        //
+        // Hypothesis:
+        // 1. Probably related to too many generics.
+        // 2. It seems `span` requires a `const` string literal.
+        async_loop
+            .instrument(span!(Level::TRACE, CRYPTARCHIA_ID))
+            .await;
+
         Ok(())
     }
 }
