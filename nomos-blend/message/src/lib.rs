@@ -27,9 +27,9 @@ pub trait BlendMessage {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum MessageUnwrapError<E> {
+pub enum MessageUnwrapError<MessageError> {
     #[error("Unwrapping the message is not allowed for this node")]
     NotAllowed,
     #[error(transparent)]
-    Other(E),
+    Other(MessageError),
 }
