@@ -170,6 +170,7 @@ jobs:
       fail-fast: false # all OSes should be tested even if one fails (default: true)
       matrix:
         os:
+          # Using self-hosted runners because we were running out of memory on GitHub-hosted runners
           - [self-hosted, Linux]
           - [self-hosted, macOS]
     runs-on: ${{ matrix.os }}
