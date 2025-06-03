@@ -18,7 +18,7 @@ mod tests {
     use overwatch::{
         derive_services,
         overwatch::OverwatchRunner,
-        services::{state::ServiceState, ServiceCore, ServiceData},
+        services::{state::ServiceState, AsServiceId, ServiceCore, ServiceData},
         DynError, OpaqueServiceResourcesHandle,
     };
     use serde::{Deserialize, Serialize};
