@@ -44,7 +44,7 @@ where
     type Id = PeerId;
     type NetworkId = u16;
 
-    fn new_with(&self, members: Vec<PeerId>, addressbook: HashMap<PeerId, Multiaddr>) -> Self {
+    fn new_with(&self, _members: Vec<PeerId>, _addressbook: HashMap<PeerId, Multiaddr>) -> Self {
         unreachable!("DaMembershipHandler does not support new_with")
     }
 

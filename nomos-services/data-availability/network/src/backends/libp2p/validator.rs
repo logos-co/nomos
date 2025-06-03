@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Debug, marker::PhantomData, pin::Pin};
+use std::{collections::HashMap, fmt::Debug, pin::Pin};
 
 use futures::{
     future::{AbortHandle, Abortable, Aborted},
