@@ -1,5 +1,6 @@
 use std::task::{Context, Poll};
 
+use futures::future::OptionFuture;
 use libp2p::{
     autonat::v2::client::{Behaviour, Config},
     core::{transport::PortUse, Endpoint},
@@ -12,14 +13,10 @@ use libp2p::{
 };
 use rand::RngCore;
 
-enum State {
-    TestIfPublic,
-    TryPortMapping,
-    TestIfMappedPublic,
-    Public,
-    MappedPublic,
-    Private,
-}
+mod state_machine;
+
+use state_machine::{Command, StateMachine};
+use tokio::sync::mpsc::UnboundedReceiver;
 
 /// This behaviour is responsible for confirming that the addresses of the node
 /// are publicly reachable.
@@ -32,6 +29,12 @@ pub struct NatBehaviour<R: RngCore + 'static> {
     /// node are indeed publicly reachable. This behaviour is **disabled** if
     /// the node is configured with a static public IP address.
     autonat_client_behaviour: Toggle<Behaviour<R>>,
+    /// TODO
+    next_autonat_client_tick: OptionFuture<tokio::time::Sleep>,
+    /// TODO
+    state_machine: StateMachine,
+    /// TODO
+    command_rx: UnboundedReceiver<Command>,
 }
 
 impl<R: RngCore + 'static> NatBehaviour<R> {
@@ -39,9 +42,19 @@ impl<R: RngCore + 'static> NatBehaviour<R> {
         let autonat_client_behaviour =
             Toggle::from(autonat_client_config.map(|config| Behaviour::new(rng, config)));
 
+        let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        let state_machine = StateMachine::new(command_tx);
+
         Self {
             static_listen_addr: None,
             autonat_client_behaviour,
+            next_autonat_client_tick: Some(tokio::time::sleep(tokio::time::Duration::from_secs(
+                60, // TODO config
+            )))
+            .into(),
+            state_machine,
+            command_rx,
         }
     }
 }
@@ -109,6 +122,7 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
 
     fn on_swarm_event(&mut self, event: FromSwarm) {
         if self.autonat_client_behaviour.is_enabled() {
+            self.state_machine.on_event(&event);
             self.autonat_client_behaviour.on_swarm_event(event);
         } else {
             match event {
@@ -139,8 +153,12 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
             return Poll::Ready(ToSwarm::ExternalAddrConfirmed(addr));
         }
 
-        if let Poll::Ready(autonat_event) = self.autonat_client_behaviour.poll(cx) {
-            return Poll::Ready(autonat_event);
+        if let Poll::Ready(command) = self.autonat_client_behaviour.poll(cx) {
+            if let ToSwarm::GenerateEvent(event) = &command {
+                self.state_machine.on_event(event);
+            }
+
+            return Poll::Ready(command);
         }
 
         Poll::Pending
