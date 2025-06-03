@@ -165,6 +165,9 @@ where
         let mempool_adapter = MempoolAdapter::new(mempool_relay);
         let backend = Backend::init(backend_settings, network_adapter, mempool_adapter);
         let mut inbound_relay = service_resources_handle.inbound_relay;
+
+        service_resources_handle.status_updater.notify_ready();
+
         while let Some(dispersal_msg) = inbound_relay.recv().await {
             match dispersal_msg {
                 DaDispersalMsg::Disperse {

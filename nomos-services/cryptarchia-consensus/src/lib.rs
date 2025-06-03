@@ -606,6 +606,8 @@ where
         let blend_adapter =
             BlendAdapter::new(blend_adapter_settings, relays.blend_relay().clone()).await;
 
+        self.service_resources_handle.status_updater.notify_ready();
+
         async {
             loop {
                 tokio::select! {

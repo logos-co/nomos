@@ -320,10 +320,14 @@ where
             mut backend,
             service_resources_handle:
                 OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
-                    mut inbound_relay, ..
+                    mut inbound_relay,
+                    status_updater,
+                    ..
                 },
         } = self;
         let backend = &mut backend;
+
+        status_updater.notify_ready();
 
         while let Some(msg) = inbound_relay.recv().await {
             Self::handle_storage_message(msg, backend).await;

@@ -81,6 +81,8 @@ mod tests {
                 service_resources_handle,
             } = self;
 
+            service_resources_handle.status_updater.notify_ready();
+
             service_resources_handle
                 .state_updater
                 .update(Some(Self::State {

@@ -166,6 +166,7 @@ where
                 .expect("Message from internal services should not fail to serialize")
         });
 
+        service_resources_handle.status_updater.notify_ready();
         loop {
             tokio::select! {
                 Some(msg) = persistent_transmission_messages.next() => {

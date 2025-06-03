@@ -36,19 +36,16 @@ pub struct ApiServiceSettings<S> {
 }
 
 pub struct ApiService<B: Backend<RuntimeServiceId>, RuntimeServiceId> {
+    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     settings: ApiServiceSettings<B::Settings>,
-    overwatch_handle: OverwatchHandle<RuntimeServiceId>,
 }
 
 impl<B: Backend<RuntimeServiceId>, RuntimeServiceId> ServiceData
     for ApiService<B, RuntimeServiceId>
 {
     type Settings = ApiServiceSettings<B::Settings>;
-
     type State = NoState<Self::Settings>;
-
     type StateOperator = NoOperator<Self::State>;
-
     type Message = ();
 }
 
@@ -73,15 +70,20 @@ where
         }
 
         Ok(Self {
+            service_resources_handle,
             settings,
-            overwatch_handle: service_resources_handle.overwatch_handle,
         })
     }
 
     /// Service main loop
     async fn run(mut self) -> Result<(), DynError> {
         let endpoint = B::new(self.settings.backend_settings).await?;
-        endpoint.serve(self.overwatch_handle).await?;
+
+        self.service_resources_handle.status_updater.notify_ready();
+
+        endpoint
+            .serve(self.service_resources_handle.overwatch_handle)
+            .await?;
         Ok(())
     }
 }
@@ -102,6 +104,6 @@ where
         .await
         .map_or_else(
             |_| Err(timeout_error.into()),
-            |result| result.map_err(std::convert::Into::into),
+            |result| result.map_err(Into::into),
         )
 }

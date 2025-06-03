@@ -468,6 +468,8 @@ where
         let mut sampler = SamplingBackend::new(sampling_settings, rng);
         let mut next_prune_tick = sampler.prune_interval();
 
+        service_resources_handle.status_updater.notify_ready();
+
         loop {
             tokio::select! {
                 Some(service_message) = service_resources_handle.inbound_relay.recv() => {

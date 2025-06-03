@@ -51,6 +51,8 @@ where
         } = self;
         let ctrl_c = async_ctrlc::CtrlC::new()?;
 
+        service_resources_handle.status_updater.notify_ready();
+
         // Wait for the Ctrl-C signal
         ctrl_c.await;
         Self::ctrl_c_signal_received(&service_resources_handle.overwatch_handle).await;

@@ -122,6 +122,8 @@ where
                 adapters::SdpAdapterError::Other(error) => error,
             })?;
 
+        self.service_resources_handle.status_updater.notify_ready();
+
         loop {
             tokio::select! {
                 Some(msg) = self.service_resources_handle.inbound_relay.recv()  => {

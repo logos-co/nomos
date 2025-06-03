@@ -314,6 +314,8 @@ where
         .payload_stream()
         .await;
 
+        self.service_resources_handle.status_updater.notify_ready();
+
         loop {
             tokio::select! {
                 // Queue for relay messages

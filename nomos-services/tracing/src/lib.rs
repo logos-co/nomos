@@ -31,6 +31,7 @@ use tracing_subscriber::{
 };
 
 pub struct Tracing<RuntimeServiceId> {
+    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     logger_guard: Option<WorkerGuard>,
     _runtime_service_id: PhantomData<RuntimeServiceId>,
 }
@@ -230,6 +231,7 @@ where
         // If no layers are created, the tracing subscriber is not required.
         if layers.is_empty() {
             return Ok(Self {
+                service_resources_handle,
                 logger_guard: None,
                 _runtime_service_id: PhantomData,
             });
@@ -251,6 +253,7 @@ where
         panic::set_hook(Box::new(nomos_tracing::panic::panic_hook));
 
         Ok(Self {
+            service_resources_handle,
             logger_guard,
             _runtime_service_id: PhantomData,
         })
@@ -259,8 +262,12 @@ where
     async fn run(self) -> Result<(), overwatch::DynError> {
         let Self {
             logger_guard: _logger_guard,
+            service_resources_handle,
             ..
         } = self;
+
+        service_resources_handle.status_updater.notify_ready();
+
         // Wait indefinitely until the service is stopped.
         // When it's stopped, the logger guard will be dropped. That will flush all
         // pending logs.

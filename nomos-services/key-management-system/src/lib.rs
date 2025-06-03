@@ -142,10 +142,13 @@ where
             service_resources_handle:
                 OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
                     ref mut inbound_relay,
+                    status_updater,
                     ..
                 },
             mut backend,
         } = self;
+
+        status_updater.notify_ready();
 
         while let Some(msg) = inbound_relay.recv().await {
             Self::handle_kms_message(msg, &mut backend).await;

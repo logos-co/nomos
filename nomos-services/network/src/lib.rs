@@ -67,6 +67,8 @@ where
             mut backend,
         } = self;
 
+        self.service_resources_handle.status_updater.notify_ready();
+
         while let Some(msg) = inbound_relay.recv().await {
             Self::handle_network_service_message(msg, &mut backend).await;
         }
