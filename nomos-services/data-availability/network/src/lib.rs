@@ -20,11 +20,10 @@ use overwatch::{
         state::{NoOperator, ServiceState},
         AsServiceId, ServiceCore, ServiceData,
     },
-    OpaqueServiceStateHandle,
+    OpaqueServiceResourcesHandle,
 };
 use rand::seq::IteratorRandom as _;
 use serde::{Deserialize, Serialize};
-use services_utils::overwatch::lifecycle;
 use tokio::sync::oneshot;
 
 pub mod adapters;
@@ -69,7 +68,7 @@ pub struct NetworkService<
     RuntimeServiceId,
 > {
     _phantom: PhantomData<(Backend, Membership)>,
-    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
 }
 
 pub struct NetworkState<Backend: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> {
@@ -105,23 +104,27 @@ where
         + 'static,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-        _init_state: Self::State,
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+        _initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
         Ok(Self {
-            service_state,
             _phantom: PhantomData,
+            service_resources_handle,
         })
     }
 
     async fn run(mut self) -> Result<(), overwatch::DynError> {
         let Self {
-            mut service_state, ..
+            ref mut service_resources_handle,
+            ..
         } = self;
 
-        let network_settings = service_state.settings_reader.get_updated_settings();
+        let network_settings = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
 
-        let membership_relay = service_state
+        let membership_relay = service_resources_handle
             .overwatch_handle
             .relay::<Membership::MembershipService>()
             .await?;
@@ -138,29 +141,19 @@ where
 
         let mut backend = NetworkBackend::new(
             network_settings.backend,
-            service_state.overwatch_handle.clone(),
+            service_resources_handle.overwatch_handle.clone(),
         );
 
-        let mut lifecycle_stream = service_state.lifecycle_handle.message_stream();
         loop {
             tokio::select! {
-                Some(msg) = service_state.inbound_relay.recv() => {
+                Some(msg) = service_resources_handle.inbound_relay.recv() => {
                     Self::handle_network_service_message(msg, &mut backend).await;
-                }
-                Some(msg) = lifecycle_stream.next() => {
-                    if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
-                        // TODO: Maybe add a call to backend to handle this. Maybe trying to save unprocessed messages?
-                        backend.shutdown();
-                         break;
-                    }
                 }
                 Some(update) = stream.next() => {
                     Self::handle_membership_update_message(&mut backend, &update);
                 }
             }
         }
-
-        Ok(())
     }
 }
 
@@ -178,7 +171,7 @@ where
         match msg {
             DaNetworkMsg::Process(msg) => {
                 // split sending in two steps to help the compiler understand we do not
-                // need to hold an instance of &I (which is not send) across an await point
+                // need to hold an instance of &I (which is not Send) across an await point
                 let send = backend.process(msg);
                 send.await;
             }

@@ -34,13 +34,13 @@ use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, Stora
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
     services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},
-    DynError, OpaqueServiceStateHandle,
+    DynError, OpaqueServiceResourcesHandle,
 };
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_with::serde_as;
 use services_utils::overwatch::{
-    lifecycle, recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator,
+    recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator,
 };
 use thiserror::Error;
 use tokio::sync::{broadcast, oneshot, oneshot::Sender};
@@ -265,7 +265,7 @@ pub struct CryptarchiaConsensus<
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
-    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     block_subscription_sender: broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     initial_state: <Self as ServiceData>::State,
 }
@@ -525,20 +525,20 @@ where
         + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         initial_state: Self::State,
     ) -> Result<Self, DynError> {
         let (block_subscription_sender, _) = broadcast::channel(16);
 
         Ok(Self {
-            service_state,
+            service_resources_handle,
             block_subscription_sender,
             initial_state,
         })
     }
 
     #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
-    async fn run(mut self) -> Result<(), overwatch::DynError> {
+    async fn run(mut self) -> Result<(), DynError> {
         let relays: CryptarchiaConsensusRelays<
             BlendAdapter,
             BS,
@@ -553,8 +553,8 @@ where
             TxS,
             DaVerifierBackend,
             RuntimeServiceId,
-        > = CryptarchiaConsensusRelays::from_service_state_handle::<_, _, _, _, _, _>(
-            &self.service_state,
+        > = CryptarchiaConsensusRelays::from_service_resources_handle::<_, _, _, _, _, _>(
+            &self.service_resources_handle,
         )
         .await;
 
@@ -567,7 +567,11 @@ where
             network_adapter_settings,
             blend_adapter_settings,
             ..
-        } = self.service_state.settings_reader.get_updated_settings();
+        } = self
+            .service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
 
         let genesis_id = HeaderId::from([0; 32]);
 
@@ -602,8 +606,6 @@ where
         let blend_adapter =
             BlendAdapter::new(blend_adapter_settings, relays.blend_relay().clone()).await;
 
-        let mut lifecycle_stream = self.service_state.lifecycle_handle.message_stream();
-
         async {
             loop {
                 tokio::select! {
@@ -618,7 +620,7 @@ where
                         )
                         .await;
 
-                        self.service_state.state_updater.update(Self::State::from_cryptarchia(&cryptarchia, &leader));
+                        self.service_resources_handle.state_updater.update(Some(Self::State::from_cryptarchia(&cryptarchia, &leader)));
 
                         tracing::info!(counter.consensus_processed_blocks = 1);
                     }
@@ -658,13 +660,8 @@ where
                         }
                     }
 
-                    Some(msg) = self.service_state.inbound_relay.next() => {
+                    Some(msg) = self.service_resources_handle.inbound_relay.next() => {
                         Self::process_message(&cryptarchia, &self.block_subscription_sender, msg);
-                    }
-                    Some(msg) = lifecycle_stream.next() => {
-                        if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
-                            break;
-                        }
                     }
                 }
             }
@@ -732,7 +729,7 @@ where
         + Eq
         + Hash
         + Serialize
-        + serde::de::DeserializeOwned
+        + DeserializeOwned
         + Send
         + Sync
         + 'static,

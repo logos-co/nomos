@@ -29,11 +29,10 @@ use overwatch::{
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
     },
-    DynError, OpaqueServiceStateHandle,
+    DynError, OpaqueServiceResourcesHandle,
 };
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use services_utils::overwatch::lifecycle;
 use storage::DaStorageAdapter;
 use tokio::sync::oneshot::Sender;
 use tracing::instrument;
@@ -104,7 +103,7 @@ pub struct DataIndexerService<
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
-    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
 }
 
 pub enum DaMsg<Blob, Meta: Metadata> {
@@ -431,7 +430,7 @@ where
         + Eq
         + Hash
         + Serialize
-        + serde::de::DeserializeOwned
+        + DeserializeOwned
         + Send
         + Sync
         + 'static,
@@ -507,22 +506,26 @@ where
         > + AsServiceId<StorageService<DaStorage::Backend, RuntimeServiceId>>,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-        _init_state: Self::State,
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+        _initial_state: Self::State,
     ) -> Result<Self, DynError> {
-        Ok(Self { service_state })
+        Ok(Self {
+            service_resources_handle,
+        })
     }
 
     async fn run(self) -> Result<(), DynError> {
-        let Self { mut service_state } = self;
+        let Self {
+            mut service_resources_handle,
+        } = self;
 
-        let consensus_relay = service_state
+        let consensus_relay = service_resources_handle
             .overwatch_handle
             .relay::<CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _>>(
             )
             .await
             .expect("Relay connection with ConsensusService should succeed");
-        let storage_relay = service_state
+        let storage_relay = service_resources_handle
             .overwatch_handle
             .relay::<StorageService<_, _>>()
             .await
@@ -532,7 +535,6 @@ where
         let mut consensus_blocks = consensus_adapter.block_stream().await;
         let storage_adapter = DaStorage::new(storage_relay).await;
 
-        let mut lifecycle_stream = service_state.lifecycle_handle.message_stream();
         loop {
             tokio::select! {
                 Some(block) = consensus_blocks.next() => {
@@ -540,20 +542,13 @@ where
                         tracing::debug!("Failed to add  a new received block: {e:?}");
                     }
                 }
-                Some(msg) = service_state.inbound_relay.recv() => {
+                Some(msg) = service_resources_handle.inbound_relay.recv() => {
                     if let Err(e) = Self::handle_da_msg(&storage_adapter, msg).await {
                         tracing::debug!("Failed to handle da msg: {e:?}");
                     }
                 }
-                Some(msg) = lifecycle_stream.next() => {
-                    if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
-                        break;
-                    }
-                }
             }
         }
-
-        Ok(())
     }
 }
 

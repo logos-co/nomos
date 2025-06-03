@@ -125,7 +125,7 @@ impl<StorageOp, RuntimeServiceId> StorageAdapter<StorageOp, RuntimeServiceId>
 where
     StorageOp: StorageSerde + Send + Sync + 'static,
     <StorageOp as StorageSerde>::Error: Send + Sync,
-    RuntimeServiceId: Debug + Sync + Display,
+    RuntimeServiceId: Debug + Sync + Display + 'static,
 {
     type Backend = RocksBackend<StorageOp>;
 

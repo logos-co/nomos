@@ -19,7 +19,7 @@ mod tests {
         derive_services,
         overwatch::OverwatchRunner,
         services::{state::ServiceState, ServiceCore, ServiceData},
-        DynError, OpaqueServiceStateHandle,
+        DynError, OpaqueServiceResourcesHandle,
     };
     use serde::{Deserialize, Serialize};
 
@@ -54,7 +54,7 @@ mod tests {
     }
 
     struct Recovery {
-        service_state_handle: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     }
 
     impl ServiceData for Recovery {
@@ -67,25 +67,27 @@ mod tests {
     #[async_trait]
     impl ServiceCore<RuntimeServiceId> for Recovery {
         fn init(
-            service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+            service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
             initial_state: Self::State,
         ) -> Result<Self, DynError> {
             assert_eq!(initial_state.value, "");
             Ok(Self {
-                service_state_handle: service_state,
+                service_resources_handle,
             })
         }
 
         async fn run(self) -> Result<(), DynError> {
             let Self {
-                service_state_handle,
+                service_resources_handle,
             } = self;
 
-            service_state_handle.state_updater.update(Self::State {
-                value: "Hello".to_owned(),
-            });
+            service_resources_handle
+                .state_updater
+                .update(Some(Self::State {
+                    value: "Hello".to_owned(),
+                }));
 
-            service_state_handle.overwatch_handle.shutdown().await;
+            service_resources_handle.overwatch_handle.shutdown().await;
             Ok(())
         }
     }
@@ -108,12 +110,13 @@ mod tests {
             recovery: recovery_settings,
         };
         let app = OverwatchRunner::<RecoveryTest>::run(service_settings, None).unwrap();
+        app.runtime().block_on(app.handle().start_all_services());
         app.wait_finished();
 
-        // Read contents of the recovery file
+        // Read the content of the recovery file
         let serialized_state = std::fs::read_to_string(file_backend.recovery_file());
 
-        // Early clean up (to avoid left over due to test failure)
+        // Early cleanup (to avoid left over due to test failure)
         std::fs::remove_file(file_backend.recovery_file()).unwrap();
 
         // Verify the recovery file was created and contains the correct state

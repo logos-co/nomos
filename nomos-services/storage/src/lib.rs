@@ -9,16 +9,14 @@ use std::{
 use async_trait::async_trait;
 use backends::{StorageBackend, StorageSerde as _, StorageTransaction};
 use bytes::Bytes;
-use futures::StreamExt as _;
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
     },
-    DynError, OpaqueServiceStateHandle,
+    DynError, OpaqueServiceResourcesHandle,
 };
 use serde::{de::DeserializeOwned, Serialize};
-use services_utils::overwatch::lifecycle;
 use tracing::error;
 
 use crate::api::{StorageApiRequest, StorageOperation};
@@ -173,7 +171,7 @@ where
     Backend: StorageBackend + Send + Sync + 'static,
 {
     backend: Backend,
-    service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
+    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
 }
 
 impl<Backend, RuntimeServiceId> StorageService<Backend, RuntimeServiceId>
@@ -303,41 +301,37 @@ where
     RuntimeServiceId: AsServiceId<Self> + Display + Send,
 {
     fn init(
-        service_state: OpaqueServiceStateHandle<Self, RuntimeServiceId>,
-        _init_state: Self::State,
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+        _initial_state: Self::State,
     ) -> Result<Self, DynError> {
         Ok(Self {
-            backend: Backend::new(service_state.settings_reader.get_updated_settings())?,
-            service_state,
+            backend: Backend::new(
+                service_resources_handle
+                    .settings_handle
+                    .notifier()
+                    .get_updated_settings(),
+            )?,
+            service_resources_handle,
         })
     }
 
-    async fn run(mut self) -> Result<(), overwatch::DynError> {
+    async fn run(mut self) -> Result<(), DynError> {
         let Self {
             mut backend,
-            service_state:
-                OpaqueServiceStateHandle::<Self, RuntimeServiceId> {
-                    mut inbound_relay,
-                    lifecycle_handle,
-                    ..
+            service_resources_handle:
+                OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
+                    mut inbound_relay, ..
                 },
         } = self;
-        let mut lifecycle_stream = lifecycle_handle.message_stream();
         let backend = &mut backend;
-        loop {
-            tokio::select! {
-                Some(msg) = inbound_relay.recv() => {
-                    Self::handle_storage_message(msg, backend).await;
-                }
-                Some(msg) = lifecycle_stream.next() => {
-                    if lifecycle::should_stop_service::<Self, RuntimeServiceId>(&msg) {
-                        // TODO: Try to finish pending transactions if any and close connections properly
-                        break;
-                    }
-                }
-            }
+
+        while let Some(msg) = inbound_relay.recv().await {
+            Self::handle_storage_message(msg, backend).await;
         }
+
         Ok(())
+        // TODO: Implement `Drop` to finish pending transactions and close
+        //  connections gracefully.
     }
 }
 
