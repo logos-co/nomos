@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     gas::{Gas, GasConstants, GasPrice},
-    ops::{ChannelId, Ed25519PublicKey, TxHash},
+    ops::{ChannelId, Ed25519PublicKey},
+    tx::TxHash,
 };
 
 pub type BlobId = [u8; 32];

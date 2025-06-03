@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     gas::{Gas, GasConstants, GasPrice},
-    ops::TxHash,
+    tx::TxHash,
 };
 
 #[derive(Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]

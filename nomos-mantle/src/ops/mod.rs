@@ -24,8 +24,6 @@ use crate::{
         sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
     },
 };
-
-pub type TxHash = [u8; 32];
 pub type Ed25519PublicKey = [u8; 32];
 pub type ChannelId = u64;
 
