@@ -52,6 +52,10 @@ where
         let ctrl_c = async_ctrlc::CtrlC::new()?;
 
         service_resources_handle.status_updater.notify_ready();
+        tracing::info!(
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
 
         // Wait for the Ctrl-C signal
         ctrl_c.await;

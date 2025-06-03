@@ -607,6 +607,10 @@ where
             BlendAdapter::new(blend_adapter_settings, relays.blend_relay().clone()).await;
 
         self.service_resources_handle.status_updater.notify_ready();
+        tracing::info!(
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
 
         async {
             loop {
@@ -667,9 +671,9 @@ where
                     }
                 }
             }
-            // it sucks to use "Cryptarchia" when we have the Self::SERVICE_ID.
-            // Somehow it just do not let refer to the type to reference it.
-            // Probably related to too many generics.
+            // It sucks to use `CRYPTARCHIA_ID` when we have `<RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID`.
+            // Somehow it just does not let us use it. Probably related to too many generics.
+            // It seems `span` requires a `const` string literal.
         }.instrument(span!(Level::TRACE, CRYPTARCHIA_ID)).await;
         Ok(())
     }

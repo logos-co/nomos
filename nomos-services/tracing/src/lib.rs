@@ -267,6 +267,10 @@ where
         } = self;
 
         service_resources_handle.status_updater.notify_ready();
+        tracing::info!(
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
 
         // Wait indefinitely until the service is stopped.
         // When it's stopped, the logger guard will be dropped. That will flush all

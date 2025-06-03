@@ -1,13 +1,14 @@
-use std::{future::Future, sync::OnceLock, time::Duration};
+use std::{fmt::Display, future::Future, sync::OnceLock, time::Duration};
 
 use overwatch::{
     overwatch::handle::OverwatchHandle,
     services::{
         state::{NoOperator, NoState},
-        ServiceCore, ServiceData,
+        AsServiceId, ServiceCore, ServiceData,
     },
     DynError, OpaqueServiceResourcesHandle,
 };
+
 pub mod http;
 
 static HTTP_REQUEST_TIMEOUT: OnceLock<Duration> = OnceLock::new();
@@ -53,7 +54,7 @@ impl<B: Backend<RuntimeServiceId>, RuntimeServiceId> ServiceData
 impl<B, RuntimeServiceId> ServiceCore<RuntimeServiceId> for ApiService<B, RuntimeServiceId>
 where
     B: Backend<RuntimeServiceId> + Send + Sync + 'static,
-    RuntimeServiceId: Send,
+    RuntimeServiceId: AsServiceId<Self> + Display + Send,
 {
     /// Initialize the service with the given state
     fn init(
@@ -80,6 +81,10 @@ where
         let endpoint = B::new(self.settings.backend_settings).await?;
 
         self.service_resources_handle.status_updater.notify_ready();
+        tracing::info!(
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
 
         endpoint
             .serve(self.service_resources_handle.overwatch_handle)

@@ -469,6 +469,10 @@ where
         let mut next_prune_tick = sampler.prune_interval();
 
         service_resources_handle.status_updater.notify_ready();
+        tracing::info!(
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
 
         loop {
             tokio::select! {

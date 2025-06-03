@@ -112,6 +112,10 @@ where
         let (broadcast_sender, broadcast_receiver) = broadcast::channel(SLOTS_BUFFER);
 
         service_resources_handle.status_updater.notify_ready();
+        tracing::info!(
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
 
         loop {
             tokio::select! {

@@ -100,6 +100,10 @@ where
 
     async fn run(mut self) -> Result<(), overwatch::DynError> {
         self.service_resources_handle.status_updater.notify_ready();
+        tracing::info!(
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
 
         while let Some(msg) = self.service_resources_handle.inbound_relay.recv().await {
             self.handle_sdp_message(msg).await;

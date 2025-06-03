@@ -34,6 +34,7 @@ serde                    = { version = "1", features = ["derive"] }
 serde_json               = "1.0.140"
 subnetworks-assignations = { workspace = true }
 tokio                    = { version = "1", default-features = false, features = ["sync"] }
+tracing                  = "0.1"
 
 # axum related dependencies
 axum  = { version = "0.6", optional = true }
@@ -49,12 +50,11 @@ hyper             = { version = "0.14", features = ["full"] }
 reqwest           = { workspace = true, features = ["blocking", "json"] }
 serde             = { version = "1", features = ["derive"] }
 serde_json        = "1"
-tracing           = "0.1"
 utoipa-swagger-ui = { version = "4.0", features = ["axum"] }
 
-[package.metadata.cargo-machete]
-# False positives.
-ignored = [
-  # Required by Overwatch's `#[derive_services]` macro.
-  "tracing",
-]
+#[package.metadata.cargo-machete]
+## False positives.
+#ignored = [
+#  # Required by Overwatch's `#[derive_services]` macro.
+#  "tracing",
+#]

@@ -82,6 +82,10 @@ mod tests {
             } = self;
 
             service_resources_handle.status_updater.notify_ready();
+            tracing::info!(
+                "Service '{}' is ready.",
+                <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+            );
 
             service_resources_handle
                 .state_updater

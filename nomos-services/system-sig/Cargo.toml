@@ -10,3 +10,4 @@ version = "0.1.0"
 async-ctrlc = "1.2"
 async-trait = "0.1"
 overwatch   = { workspace = true }
+tracing     = "0.1"
