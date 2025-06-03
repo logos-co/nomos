@@ -237,11 +237,6 @@ where
     /// Create a new [`Branches`] instance with the updated state.
     #[must_use = "this returns the result of the operation, without modifying the original"]
     fn apply_header(&self, header: Id, parent: Id, slot: Slot) -> Result<Self, Error<Id>> {
-        // Calculating the length here allows us to reuse
-        // `Self::apply_header_unchecked`. Could this lead to length difference
-        // issues? We are calculating length here but the `self.branches` is
-        // cloned in the `Self::apply_header_unchecked` method, which means
-        // there's a risk of length being different due to concurrent operations.
         let parent_branch = self
             .branches
             .get(&parent)
@@ -259,6 +254,11 @@ where
             return Err(Error::ImmutableFork(parent));
         }
 
+        // Calculating the length here allows us to reuse
+        // `Self::apply_header_unchecked`. Could this lead to length difference
+        // issues? We are calculating length here but the `self.branches` is
+        // cloned in the `Self::apply_header_unchecked` method, which means
+        // there's a risk of length being different due to concurrent operations.
         let length = parent_branch.length + 1;
 
         Ok(self.apply_header_unchecked(header, parent, slot, length))
@@ -312,7 +312,7 @@ where
             return true; // `a` is the same as `b`
         }
         // Walk up the chain from `b` until we find `a` or reach the root
-        while current.parent != current.id {
+        while current.parent != current.id && current.length > a.length {
             if current.parent == a.id {
                 return true; // Found `a` in the chain
             }
