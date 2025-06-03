@@ -20,7 +20,6 @@ impl GasPrice for SDPWithdrawOp {
 impl GasPrice for SDPActiveOp {
     fn gas_price<Constants: GasConstants>(&self) -> Gas {
         Constants::ACTIVE_BASE_GAS
-            + Constants::ACTIVE_BYTE_GAS
-            + self.metadata.as_ref().map_or(0, |m| m.len() as u64)
+            + Constants::ACTIVE_BYTE_GAS * self.metadata.as_ref().map_or(0, |m| m.len() as u64)
     }
 }
