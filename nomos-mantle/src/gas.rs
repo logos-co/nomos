@@ -48,12 +48,10 @@ pub trait GasConstants {
     /// Verify the proof of ownership.
     const WITHDRAW_BASE_GAS: Gas;
 
-    /// Store the message on the ledger and process it.
-    const WITHDRAW_BYTE_GAS: Gas;
-
     /// Store the active message.
     const ACTIVE_BASE_GAS: Gas;
 
+    /// Store the message on the ledger and process it.
     const ACTIVE_BYTE_GAS: Gas;
 
     /// Consume a reward ticket.
