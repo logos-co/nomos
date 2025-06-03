@@ -43,8 +43,8 @@ use services_utils::overwatch::{
     recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator,
 };
 use thiserror::Error;
-use tokio::sync::{broadcast, oneshot, oneshot::Sender};
-use tracing::{error, info, instrument, span, Level};
+use tokio::sync::{broadcast, oneshot};
+use tracing::{debug, error, info, instrument, span, Level};
 use tracing_futures::Instrument as _;
 
 use crate::{
@@ -607,7 +607,7 @@ where
             BlendAdapter::new(blend_adapter_settings, relays.blend_relay().clone()).await;
 
         self.service_resources_handle.status_updater.notify_ready();
-        tracing::info!(
+        info!(
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
@@ -628,20 +628,20 @@ where
 
                         self.service_resources_handle.state_updater.update(Some(Self::State::from_cryptarchia(&cryptarchia, &leader)));
 
-                        tracing::info!(counter.consensus_processed_blocks = 1);
+                        info!(counter.consensus_processed_blocks = 1);
                     }
 
                     Some(SlotTick { slot, .. }) = slot_timer.next() => {
                         let parent = cryptarchia.tip();
                         let note_tree = cryptarchia.tip_state().lead_commitments();
-                        tracing::debug!("ticking for slot {}", u64::from(slot));
+                        debug!("ticking for slot {}", u64::from(slot));
 
                         let Some(epoch_state) = cryptarchia.epoch_state_for_slot(slot) else {
-                            tracing::error!("trying to propose a block for slot {} but epoch state is not available", u64::from(slot));
+                            error!("trying to propose a block for slot {} but epoch state is not available", u64::from(slot));
                             continue;
                         };
                         if let Some(proof) = leader.build_proof_for(note_tree, epoch_state, slot, parent).await {
-                            tracing::debug!("proposing block...");
+                            debug!("proposing block...");
                             // TODO: spawn as a separate task?
                             let block = Self::propose_block(
                                 parent,
@@ -808,12 +808,12 @@ where
                         .length(),
                 };
                 tx.send(info).unwrap_or_else(|e| {
-                    tracing::error!("Could not send consensus info through channel: {:?}", e);
+                    error!("Could not send consensus info through channel: {:?}", e);
                 });
             }
             ConsensusMsg::BlockSubscribe { sender } => {
                 sender.send(block_channel.subscribe()).unwrap_or_else(|_| {
-                    tracing::error!("Could not subscribe to block subscription channel");
+                    error!("Could not subscribe to block subscription channel");
                 });
             }
             ConsensusMsg::GetHeaders { from, to, tx } => {
@@ -836,7 +836,7 @@ where
                 }
 
                 tx.send(res)
-                    .unwrap_or_else(|_| tracing::error!("could not send blocks through channel"));
+                    .unwrap_or_else(|_| error!("could not send blocks through channel"));
             }
         }
     }
@@ -902,7 +902,7 @@ where
         >,
         block_broadcaster: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> Cryptarchia<State> {
-        tracing::debug!("received proposal {:?}", block);
+        debug!("received proposal {:?}", block);
         if !Self::validate_received_block(&block, relays).await {
             return cryptarchia;
         }
@@ -916,7 +916,7 @@ where
     #[instrument(level = "debug", skip(cryptarchia, leader, relays))]
     async fn process_block_unchecked<State: CryptarchiaState>(
         mut cryptarchia: Cryptarchia<State>,
-        leader: &mut leadership::Leader,
+        leader: &mut Leader,
         block: Block<ClPool::Item, DaPool::Item>,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
@@ -973,7 +973,7 @@ where
                 }
 
                 if let Err(e) = block_broadcaster.send(block) {
-                    tracing::error!("Could not notify block to services {e}");
+                    error!("Could not notify block to services {e}");
                 }
 
                 cryptarchia = new_state;
@@ -982,10 +982,10 @@ where
                 Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(parent))
                 | Error::Consensus(cryptarchia_engine::Error::ParentMissing(parent)),
             ) => {
-                tracing::debug!("missing parent {:?}", parent);
+                debug!("missing parent {:?}", parent);
                 // TODO: request parent block
             }
-            Err(e) => tracing::debug!("invalid block {:?}: {e:?}", block),
+            Err(e) => debug!("invalid block {:?}: {e:?}", block),
         }
 
         cryptarchia
@@ -1033,18 +1033,18 @@ where
                 )
                 .build()
                 .expect("Proposal block should always succeed to be built");
-                tracing::debug!("proposed block with id {:?}", block.header().id());
+                debug!("proposed block with id {:?}", block.header().id());
                 output = Some(block);
             }
             (tx_error, da_certificate_error, blobs_error) => {
                 if let Err(_tx_error) = tx_error {
-                    tracing::error!("Could not fetch block cl transactions");
+                    error!("Could not fetch block cl transactions");
                 }
                 if let Err(_da_certificate_error) = da_certificate_error {
-                    tracing::error!("Could not fetch block da certificates");
+                    error!("Could not fetch block da certificates");
                 }
                 if let Err(_blobs_error) = blobs_error {
-                    tracing::error!("Could not fetch block da blobs");
+                    error!("Could not fetch block da blobs");
                 }
             }
         }
@@ -1066,13 +1066,13 @@ where
         let transactions = block.cl_transactions_len();
         let blobs = block.bl_blobs_len();
 
-        tracing::info!(
+        info!(
             counter.received_blocks = 1,
             transactions = transactions,
             blobs = blobs,
             bytes = content_size
         );
-        tracing::info!(
+        info!(
             histogram.received_blocks_data = content_size,
             transactions = transactions,
             blobs = blobs
@@ -1381,7 +1381,7 @@ where
 #[derive(Debug)]
 pub enum ConsensusMsg<Block> {
     Info {
-        tx: Sender<CryptarchiaInfo>,
+        tx: oneshot::Sender<CryptarchiaInfo>,
     },
     BlockSubscribe {
         sender: oneshot::Sender<broadcast::Receiver<Block>>,
@@ -1389,7 +1389,7 @@ pub enum ConsensusMsg<Block> {
     GetHeaders {
         from: Option<HeaderId>,
         to: Option<HeaderId>,
-        tx: Sender<Vec<HeaderId>>,
+        tx: oneshot::Sender<Vec<HeaderId>>,
     },
 }
 
@@ -1404,12 +1404,12 @@ pub struct CryptarchiaInfo {
 
 async fn get_mempool_contents<Payload, Item, Key>(
     mempool: OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>,
-) -> Result<Box<dyn Iterator<Item = Item> + Send>, tokio::sync::oneshot::error::RecvError>
+) -> Result<Box<dyn Iterator<Item = Item> + Send>, oneshot::error::RecvError>
 where
     Key: Send,
     Payload: Send,
 {
-    let (reply_channel, rx) = tokio::sync::oneshot::channel();
+    let (reply_channel, rx) = oneshot::channel();
 
     mempool
         .send(MempoolMsg::View {
@@ -1436,7 +1436,7 @@ async fn mark_in_block<Payload, Item, Key>(
             block,
         })
         .await
-        .unwrap_or_else(|(e, _)| tracing::error!("Could not mark items in block: {e}"));
+        .unwrap_or_else(|(e, _)| error!("Could not mark items in block: {e}"));
 }
 
 async fn mark_blob_in_block<BlobId: Debug + Send>(
