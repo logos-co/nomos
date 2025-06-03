@@ -700,7 +700,7 @@ where
                                     &mut self.block_subscription_sender
                                 ).await;
                                 Self::prune_old_forks(&mut cryptarchia, &mut leader, relays.storage_adapter()).await;
-                                self.service_state.state_updater.update(Self::State::from_cryptarchia(&cryptarchia, &leader));
+                                self.service_resources_handle.state_updater.update(Some(Self::State::from_cryptarchia(&cryptarchia, &leader)));
                                 blend_adapter.blend(block).await;
                             }
                         }
