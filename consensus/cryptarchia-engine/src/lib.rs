@@ -882,7 +882,8 @@ pub mod tests {
         let chain_pre = create_canonical_chain(50.try_into().unwrap(), None)
             // Add a fork from genesis block
             .receive_block([100; 32], [0; 32], 1.into())
-            .expect("test block to be applied successfully.");
+            .expect("test block to be applied successfully.")
+            .online();
         let mut chain = chain_pre.clone();
         assert_eq!(chain.prune_forks(50).count(), 0);
         assert_eq!(chain, chain_pre);
@@ -893,7 +894,8 @@ pub mod tests {
         let chain_pre = create_canonical_chain(50.try_into().unwrap(), None)
             // Add a fork from block 40
             .receive_block([100; 32], hash(&40u64), 41.into())
-            .expect("test block to be applied successfully.");
+            .expect("test block to be applied successfully.")
+            .online();
         let mut chain = chain_pre.clone();
         assert_eq!(chain.prune_forks(10).count(), 0);
         assert_eq!(chain, chain_pre);
@@ -901,7 +903,7 @@ pub mod tests {
 
     #[test]
     fn pruning_with_no_forks() {
-        let chain_pre = create_canonical_chain(50.try_into().unwrap(), None);
+        let chain_pre = create_canonical_chain(50.try_into().unwrap(), None).online();
         let mut chain = chain_pre.clone();
         assert_eq!(chain.prune_forks(50).count(), 0);
         assert_eq!(chain, chain_pre);
@@ -919,7 +921,8 @@ pub mod tests {
             .expect("test block to be applied successfully.")
             // Add a fork from block 40
             .receive_block([101; 32], hash(&40u64), 41.into())
-            .expect("test block to be applied successfully.");
+            .expect("test block to be applied successfully.")
+            .online();
         let mut chain = chain_pre.clone();
         let pruned_blocks = chain.prune_forks(10);
         assert_eq!(pruned_blocks.collect::<HashSet<_>>(), [[100; 32]].into());
@@ -945,7 +948,8 @@ pub mod tests {
             .expect("test block to be applied successfully.")
             // Add a fork from block 40
             .receive_block([101; 32], hash(&40u64), 41.into())
-            .expect("test block to be applied successfully.");
+            .expect("test block to be applied successfully.")
+            .online();
         let mut chain = chain_pre.clone();
         let pruned_blocks = chain.prune_forks(10);
         assert_eq!(
@@ -980,7 +984,8 @@ pub mod tests {
             // Add a second fork from the first divergent fork block, so that the fork has two
             // tips
             .receive_block([200; 32], [100; 32], 42.into())
-            .expect("test block to be applied successfully.");
+            .expect("test block to be applied successfully.")
+            .online();
         let mut chain = chain_pre.clone();
         let pruned_blocks = chain.prune_forks(10);
         assert_eq!(
