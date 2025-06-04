@@ -39,7 +39,8 @@ where
     waker: Option<Waker>,
     /// An LRU cache for storing seen messages (based on their ID). This
     /// cache prevents duplicates from being propagated on the network.
-    // TODO: Store the key and the nullifier of the public header of the message.
+    // TODO: Once having the new message encapsulation mechanism,
+    //       this cache should be <(key, nullifier), HashSet<PeerId>>.
     // TODO: This cache should be cleared after the session transition period has passed,
     //       because keys and nullifiers are valid during a single session.
     seen_message_cache: SizedCache<Vec<u8>, ()>,
