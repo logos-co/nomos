@@ -106,23 +106,23 @@ where
 
     async fn run(mut self) -> Result<(), overwatch::DynError> {
         let Self {
-            service_resources_handle,
-            mut backend,
-            membership,
+            service_resources_handle:
+                OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
+                    ref mut inbound_relay,
+                    ref overwatch_handle,
+                    ref settings_handle,
+                    ..
+                },
+            ref mut backend,
+            ref membership,
         } = self;
-        let blend_config = service_resources_handle
-            .settings_handle
-            .notifier()
-            .get_updated_settings();
+        let blend_config = settings_handle.notifier().get_updated_settings();
         let mut cryptographic_processor = CryptographicProcessor::new(
             blend_config.message_blend.cryptographic_processor.clone(),
             membership.clone(),
             ChaCha12Rng::from_entropy(),
         );
-        let network_relay = service_resources_handle
-            .overwatch_handle
-            .relay::<NetworkService<_, _>>()
-            .await?;
+        let network_relay = overwatch_handle.relay::<NetworkService<_, _>>().await?;
         let network_adapter = Network::new(network_relay);
 
         // tier 1 persistent transmission
@@ -153,7 +153,7 @@ where
         // tier 3 cover traffic
         let mut cover_traffic: CoverTraffic<_, _, SphinxMessage> = CoverTraffic::new(
             blend_config.cover_traffic.cover_traffic_settings(
-                &membership,
+                membership,
                 &blend_config.message_blend.cryptographic_processor,
             ),
             blend_config.cover_traffic.epoch_stream(),
@@ -161,13 +161,10 @@ where
         );
 
         // local messages are bypassed and sent immediately
-        let mut local_messages =
-            service_resources_handle
-                .inbound_relay
-                .map(|ServiceMessage::Blend(message)| {
-                    wire::serialize(&message)
-                        .expect("Message from internal services should not fail to serialize")
-                });
+        let mut local_messages = inbound_relay.map(|ServiceMessage::Blend(message)| {
+            wire::serialize(&message)
+                .expect("Message from internal services should not fail to serialize")
+        });
 
         loop {
             tokio::select! {
@@ -205,6 +202,16 @@ where
                 }
             }
         }
+    }
+}
+
+impl<Backend, Network, RuntimeServiceId> Drop for BlendService<Backend, Network, RuntimeServiceId>
+where
+    Backend: BlendBackend<RuntimeServiceId> + 'static,
+    Network: NetworkAdapter<RuntimeServiceId>,
+{
+    fn drop(&mut self) {
+        self.backend.shutdown();
     }
 }
 

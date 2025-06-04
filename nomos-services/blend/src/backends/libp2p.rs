@@ -1,7 +1,10 @@
 use std::{collections::HashSet, pin::Pin, time::Duration};
 
 use async_trait::async_trait;
-use futures::{Stream, StreamExt as _};
+use futures::{
+    future::{AbortHandle, Abortable, Aborted},
+    Stream, StreamExt as _,
+};
 use libp2p::{
     allow_block_list::BlockedPeers,
     connection_limits::ConnectionLimits,
@@ -16,13 +19,17 @@ use nomos_libp2p::{secret_key_serde, NetworkBehaviour};
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, mpsc};
+use tokio::{
+    sync::{broadcast, mpsc},
+    task::JoinHandle,
+};
 use tokio_stream::wrappers::BroadcastStream;
 
 use super::BlendBackend;
 
 /// A blend backend that uses the libp2p network stack.
 pub struct Libp2pBlendBackend {
+    swarm_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     swarm_message_sender: mpsc::Sender<BlendSwarmMessage>,
     incoming_message_sender: broadcast::Sender<Vec<u8>>,
 }
@@ -57,7 +64,7 @@ impl<RuntimeServiceId> BlendBackend<RuntimeServiceId> for Libp2pBlendBackend {
         let (swarm_message_sender, swarm_message_receiver) = mpsc::channel(CHANNEL_SIZE);
         let (incoming_message_sender, _) = broadcast::channel(CHANNEL_SIZE);
 
-        let mut swarm = BlendSwarm::new(
+        let swarm = BlendSwarm::new(
             config,
             membership,
             rng,
@@ -65,14 +72,27 @@ impl<RuntimeServiceId> BlendBackend<RuntimeServiceId> for Libp2pBlendBackend {
             incoming_message_sender.clone(),
         );
 
-        overwatch_handle.runtime().spawn(async move {
-            swarm.run().await;
-        });
+        let (task_abort_handle, abort_registration) = AbortHandle::new_pair();
+        let swarm_task = (
+            task_abort_handle,
+            overwatch_handle
+                .runtime()
+                .spawn(Abortable::new(swarm.run(), abort_registration)),
+        );
 
         Self {
+            swarm_task,
             swarm_message_sender,
             incoming_message_sender,
         }
+    }
+
+    fn shutdown(&mut self) {
+        let Self {
+            swarm_task: (swarm_task_abort_handle, _),
+            ..
+        } = self;
+        swarm_task_abort_handle.abort();
     }
 
     async fn publish(&self, msg: Vec<u8>) {
@@ -189,7 +209,7 @@ where
         }
     }
 
-    async fn run(&mut self) {
+    async fn run(mut self) {
         loop {
             tokio::select! {
                 Some(msg) = self.swarm_messages_receiver.recv() => {

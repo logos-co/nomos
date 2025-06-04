@@ -23,6 +23,7 @@ pub trait BlendBackend<RuntimeServiceId> {
     ) -> Self
     where
         R: RngCore + Send + 'static;
+    fn shutdown(&mut self);
     /// Publish a message to the blend network.
     async fn publish(&self, msg: Vec<u8>);
     /// Listen to messages received from the blend network.
