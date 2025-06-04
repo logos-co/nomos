@@ -127,8 +127,8 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
                 .collect()
         });
 
-        // Merge all blocks from each fork's tip up until (but excluding) the fork's LCA
-        // with the canonical chain.
+        // Merge all blocks from each prunable fork's tip up until (but excluding) the
+        // fork's LCA with the canonical chain.
         let mut prunable_blocks = Vec::new();
         for ForkDivergenceInfo { lca, tip } in prunable_forks {
             let mut cursor = tip;
@@ -397,8 +397,9 @@ mod tests {
     }
 
     #[test]
-    fn restore_prunable_forks() {
+    fn save_prunable_forks() {
         let genesis_header_id: HeaderId = [0; 32].into();
+        // We don't prune fork stemming from the block before the current tip.
         let security_param: NonZero<u32> = 2.try_into().unwrap();
         let cryptarchia_engine_config = cryptarchia_engine::Config {
             security_param,

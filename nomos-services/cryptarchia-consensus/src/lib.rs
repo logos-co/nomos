@@ -1428,10 +1428,13 @@ where
 
         // Add prunable blocks, to account for potential DB errors before the node was
         // shutdown and avoid inconsistent state later on.
-        // We only store the information about the block itself, without any associated
-        // ledger nor leadership-related information.
-        // Each node that has already been deleted by the storage adapter will result in
-        // a no-op, so it's not a big deal.
+        // We only store the information about the blocks themselves, without any
+        // associated ledger nor leadership-related information.
+        // Each block that has already been deleted by the storage adapter in a previous
+        // iteration will result in a no-op, so it's not a big deal.
+        // Given the right fork choice rules, these forks will fail to extend as they
+        // are past the Last Immutable Block (LIB), hence they will be pruned the next
+        // time the fork choice rule is triggered.
         for block in prunable_blocks {
             cryptarchia.consensus = cryptarchia.consensus.receive_block_unchecked(
                 block.id(),
@@ -1446,7 +1449,12 @@ where
 
     /// Remove the in-memory storage of stale blocks from the cryptarchia engine
     /// and of stale `PoL` notes from the `PoL` machinery.
-    /// Furthermore, it removes the deleted block data from storage as well.
+    /// Furthermore, it attempts to remove the deleted block data from storage
+    /// as well.
+    ///
+    /// If the interaction with the DB fails, the changes are rolled back, and
+    /// the to-be-pruned forks kept inside the in-memory engine, and a new
+    /// deletion will be performed at the next pruning attempt.
     async fn prune_old_forks(
         cryptarchia: &mut Cryptarchia,
         leader: &mut Leader,

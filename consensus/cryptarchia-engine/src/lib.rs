@@ -480,12 +480,13 @@ where
         &self.local_chain
     }
 
-    /// Prune all blocks that are included in forks strictly older than 'depth'
-    /// blocks from the current local chain.
+    /// Prune all blocks that are included in forks that diverged at or before
+    /// the `depth`th block from the current local chain.
     ///
-    /// For example, if the tip of the canonical chain is at height 10, calling
-    /// `self.prune_forks(10)` will remove any forks stemming from the genesis
-    /// block, with height `0`.
+    /// For example, if the tip of the canonical chain is at height 10 (i.e., 11
+    /// blocks long), calling `self.prune_forks(10)` will remove any forks
+    /// stemming from the genesis block, with height `0`, which is the 10th
+    /// block in the past.
     ///
     /// This function does not apply any particular logic when evaluating forks
     /// other than the height at which they diverged from the local
@@ -495,7 +496,7 @@ where
     pub fn prune_forks(&mut self, depth: u64) -> impl Iterator<Item = Id> + '_ {
         #[expect(
             clippy::needless_collect,
-            reason = "We need to collect since we cannot borro both immutably (in `self.prunable_forks`) and mutably (in `self.prune_fork`) at the same time."
+            reason = "We need to collect since we cannot borrow both immutably (in `self.prunable_forks`) and mutably (in `self.prune_fork`) at the same time."
         )]
         // Collect prunable forks first to avoid borrowing issues
         let forks: Vec<_> = self.prunable_forks(depth).collect();
@@ -507,8 +508,8 @@ where
     /// Get an iterator over the forks that can be pruned given the provided
     /// depth.
     ///
-    /// This means that all forks that diverged from the canonical chain before
-    /// the provided `depth` height are returned.
+    /// This means that all forks that diverged from the canonical chain at or
+    /// before the provided `depth` height are returned.
     pub fn prunable_forks(&self, depth: u64) -> impl Iterator<Item = ForkDivergenceInfo<Id>> + '_ {
         let local_chain = self.local_chain;
         let Some(target_height) = local_chain.length.checked_sub(depth) else {
@@ -536,7 +537,7 @@ where
             .filter(|fork_tip| fork_tip.id != self.tip())
     }
 
-    /// Remove all blocks from `tip` to `lca`, excluding `lca` which belongs to
+    /// Remove all blocks from `tip` to `lca`, excluding `lca`, which belong to
     /// the canonical chain.
     fn prune_fork(
         &mut self,
