@@ -235,6 +235,7 @@ mod tests {
     };
 
     use cl::NullifierSecret;
+    use cryptarchia_engine::Online;
 
     use super::*;
 
@@ -423,7 +424,7 @@ mod tests {
         };
 
         let cryptarchia_engine = {
-            let mut cryptarchia = cryptarchia_engine::Cryptarchia::from_genesis(
+            let mut cryptarchia = cryptarchia_engine::Cryptarchia::<_, Online>::from_genesis(
                 genesis_header_id,
                 cryptarchia_engine_config,
             );

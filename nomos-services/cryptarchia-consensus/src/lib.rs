@@ -9,7 +9,7 @@ pub mod storage;
 use core::fmt::Debug;
 use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 
-use cryptarchia_engine::{Branch, CryptarchiaState, Online, Slot};
+use cryptarchia_engine::{CryptarchiaState, Online, Slot};
 use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
@@ -74,6 +74,7 @@ pub enum Error {
     Consensus(#[from] cryptarchia_engine::Error<HeaderId>),
 }
 
+#[derive(Clone)]
 struct Cryptarchia<State> {
     ledger: nomos_ledger::Ledger<HeaderId>,
     consensus: cryptarchia_engine::Cryptarchia<HeaderId, State>,
@@ -1457,7 +1458,7 @@ where
     /// the to-be-pruned forks kept inside the in-memory engine, and a new
     /// deletion will be performed at the next pruning attempt.
     async fn prune_old_forks(
-        cryptarchia: &mut Cryptarchia,
+        cryptarchia: &mut Cryptarchia<Online>,
         leader: &mut Leader,
         storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
     ) {

@@ -145,18 +145,6 @@ where
     }
 }
 
-impl<Id> PartialEq for Cryptarchia<Id>
-where
-    Id: Eq + Hash,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.local_chain == other.local_chain
-            && self.branches == other.branches
-            && self.config == other.config
-            && self.genesis == other.genesis
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct Branches<Id> {
     branches: HashMap<Id, Branch<Id>>,
@@ -296,12 +284,15 @@ where
         // issues? We are calculating length here but the `self.branches` is
         // cloned in the `Self::apply_header_unchecked` method, which means
         // there's a risk of length being different due to concurrent operations.
-        let length = parent_branch.length + 1;
+        let length = parent_branch
+            .length
+            .checked_add(1)
+            .expect("New branch height overflows.");
 
         Ok(self.apply_header_unchecked(header, parent, slot, length))
     }
 
-    pub fn branches(&self) -> impl Iterator<Item = Branch<Id>> + use<'_, Id> {
+    pub fn branches(&self) -> impl Iterator<Item = Branch<Id>> + '_ {
         self.tips.iter().map(|id| self.branches[id])
     }
 
@@ -402,7 +393,7 @@ pub struct ForkDivergenceInfo<Id> {
 
 impl<Id, State> Cryptarchia<Id, State>
 where
-    Id: Eq + std::hash::Hash + Copy,
+    Id: Eq + std::hash::Hash + Copy + Debug,
     State: CryptarchiaState + Copy,
 {
     pub fn from_genesis(id: Id, config: Config) -> Self {
@@ -595,7 +586,7 @@ where
 
 impl<Id> Cryptarchia<Id, Boostrapping>
 where
-    Id: Eq + std::hash::Hash + Copy,
+    Id: Eq + std::hash::Hash + Copy + Debug,
 {
     /// Signal transitioning to the online state.
     pub fn online(self) -> Cryptarchia<Id, Online> {
@@ -646,7 +637,10 @@ pub mod tests {
     /// Blocks IDs for blocks other than the genesis are the hash of each block
     /// index, so for a chain of length 10, the sequence of block IDs will be
     /// `[0, hash(1), hash(2), ..., hash(9)]`.
-    fn create_canonical_chain(length: NonZero<u64>, c: Option<Config>) -> Cryptarchia<[u8; 32]> {
+    fn create_canonical_chain(
+        length: NonZero<u64>,
+        c: Option<Config>,
+    ) -> Cryptarchia<[u8; 32], Boostrapping> {
         let mut engine = Cryptarchia::from_genesis([0; 32], c.unwrap_or_else(config));
         let mut parent = engine.genesis();
         for i in 1..length.get() {
@@ -805,23 +799,24 @@ pub mod tests {
             let long_branch = bs.branches().find(|b| b.id == long_p).unwrap();
             let short_branch = bs.branches().find(|b| b.id == short_p).unwrap();
 
-        // however, if we set k to the fork length, it will be accepted
-        let k = long_branch.length;
-        assert_eq!(
-            maxvalid_bg(*short_branch, engine.branches(), k, engine.config.s()).id,
-            long_p
-        );
+            // however, if we set k to the fork length, it will be accepted
+            let k = long_branch.length;
+            assert_eq!(
+                maxvalid_bg(short_branch, engine.branches(), k, engine.config.s()).id,
+                long_p
+            );
 
-        // a longer chain which is equally dense after the fork will be selected as the
-        // main tip
-        for slot in 50..71 {
-            let new_block = hash(&format!("long-dense-{slot}"));
-            engine = engine
-                .receive_block(new_block, parent, slot.into())
-                .unwrap();
-            parent = new_block;
+            // a longer chain which is equally dense after the fork will be selected as the
+            // main tip
+            for slot in 50..71 {
+                let new_block = hash(&format!("long-dense-{slot}"));
+                engine = engine
+                    .receive_block(new_block, parent, slot.into())
+                    .unwrap();
+                parent = new_block;
+            }
+            assert_eq!(engine.tip(), parent);
         }
-        assert_eq!(engine.tip(), parent);
     }
 
     #[test]
@@ -982,7 +977,8 @@ pub mod tests {
             .expect("test block to be applied successfully.")
             .receive_block([101; 32], [100; 32], 41.into())
             .expect("test block to be applied successfully.")
-            // Add a second fork from the first divergent fork block, so that the fork has two tips
+            // Add a second fork from the first divergent fork block, so that the fork has two
+            // tips
             .receive_block([200; 32], [100; 32], 42.into())
             .expect("test block to be applied successfully.");
         let mut chain = chain_pre.clone();
