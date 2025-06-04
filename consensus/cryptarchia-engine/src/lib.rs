@@ -493,8 +493,15 @@ where
     ///
     /// It returns the block IDs that were part of the pruned forks.
     pub fn prune_forks(&mut self, depth: u64) -> impl Iterator<Item = Id> + '_ {
-        self.prunable_forks(depth)
-            .flat_map(|prunable_fork_info| self.prune_fork(&prunable_fork_info))
+        #[expect(
+            clippy::needless_collect,
+            reason = "We need to collect since we cannot borro both immutably (in `self.prunable_forks`) and mutably (in `self.prune_fork`) at the same time."
+        )]
+        // Collect prunable forks first to avoid borrowing issues
+        let forks: Vec<_> = self.prunable_forks(depth).collect();
+        forks
+            .into_iter()
+            .flat_map(move |prunable_fork_info| self.prune_fork(&prunable_fork_info))
     }
 
     /// Get an iterator over the forks that can be pruned given the provided
@@ -502,24 +509,24 @@ where
     ///
     /// This means that all forks that diverged from the canonical chain before
     /// the provided `depth` height are returned.
-    pub fn prunable_forks(&self, depth: u64) -> impl Iterator<Item = ForkDivergenceInfo<Id>> {
+    pub fn prunable_forks(
+        &self,
+        depth: u64,
+    ) -> Box<dyn Iterator<Item = ForkDivergenceInfo<Id>> + '_> {
         let local_chain = self.local_chain;
         let Some(target_height) = local_chain.length.checked_sub(depth) else {
             tracing::info!(
                 target: LOG_TARGET,
                 "No prunable fork, the canonical chain is not longer than the provided depth. Canonical chain length: {}, provided depth: {}", local_chain.length, depth
             );
-            return vec![].into_iter();
+            return Box::new(std::iter::empty());
         };
-        self.non_canonical_forks()
-            .filter_map(|fork| {
-                // We calculate LCA once and store it in `ForkInfo` so it can be consumed
-                // elsewhere without the need to re-calculate it.
-                let lca = self.branches.lca(&local_chain, &fork);
-                (lca.length <= target_height).then_some(ForkDivergenceInfo { tip: fork, lca })
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
+        Box::new(self.non_canonical_forks().filter_map(move |fork| {
+            // We calculate LCA once and store it in `ForkInfo` so it can be consumed
+            // elsewhere without the need to re-calculate it.
+            let lca = self.branches.lca(&local_chain, &fork);
+            (lca.length <= target_height).then_some(ForkDivergenceInfo { tip: fork, lca })
+        }))
     }
 
     /// Returns all the forks that are not part of the local canonical chain.
