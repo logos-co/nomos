@@ -106,7 +106,7 @@ impl MembershipHandler for FillFromNodeList {
         self.addressbook.get(peer_id).cloned()
     }
 
-    fn subnetworks(&self) -> HashMap<u16, std::collections::HashSet<libp2p::PeerId>> {
+    fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
         self.assignations
             .iter()
             .enumerate()
