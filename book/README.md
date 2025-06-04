@@ -4,7 +4,7 @@
 
 ```bash
 cargo install mdbook
-cargo install mdbook-mermaid # Required for visualising diagrams
+cargo install mdbook-mermaid # `mermaid` Preprocessor
 ```
 
 # Building
