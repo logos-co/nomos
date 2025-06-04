@@ -1,7 +1,8 @@
-use std::str::FromStr as _;
+use std::{str::FromStr as _, time::Duration};
 
 use nomos_blend::membership::Node;
 use nomos_blend_message::{sphinx::SphinxMessage, BlendMessage};
+use nomos_blend_network::DuplicateCacheSettings;
 use nomos_blend_service::backends::libp2p::Libp2pBlendBackendSettings;
 use nomos_libp2p::{
     ed25519::{self, Keypair as Ed25519Keypair},
@@ -37,6 +38,10 @@ pub fn create_blend_configs(ids: &[[u8; 32]]) -> Vec<GeneralBlendConfig> {
                     node_key,
                     peering_degree: 1,
                     max_peering_degree: 3,
+                    duplicate_cache: DuplicateCacheSettings {
+                        size: 1000, // approx. 32 KiB (32-byte msg ID)
+                        lifespan: Duration::from_secs(60),
+                    },
                     conn_monitor: None,
                 },
                 private_key: x25519_dalek::StaticSecret::random(),

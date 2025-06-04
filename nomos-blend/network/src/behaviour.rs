@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use cached::{Cached as _, TimedCache};
+use cached::{Cached as _, TimedSizedCache};
 use libp2p::{
     core::{transport::PortUse, Endpoint},
     swarm::{
@@ -16,6 +16,7 @@ use libp2p::{
 };
 use nomos_blend::conn_maintenance::{ConnectionMonitor, ConnectionMonitorSettings};
 use nomos_blend_message::BlendMessage;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
 use crate::{
@@ -39,7 +40,7 @@ where
     waker: Option<Waker>,
     /// An LRU time cache for storing seen messages (based on their ID). This
     /// cache prevents duplicates from being propagated on the network.
-    duplicate_cache: TimedCache<Vec<u8>, ()>,
+    duplicate_cache: TimedSizedCache<Vec<u8>, ()>,
     _blend_message: PhantomData<M>,
     _interval_provider: PhantomData<IntervalProvider>,
 }
@@ -52,8 +53,14 @@ enum NegotiatedPeerState {
 
 #[derive(Debug)]
 pub struct Config {
-    pub duplicate_cache_lifespan: u64,
-    pub conn_monitor_settings: Option<ConnectionMonitorSettings>,
+    pub duplicate_cache: DuplicateCacheSettings,
+    pub conn_monitor: Option<ConnectionMonitorSettings>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DuplicateCacheSettings {
+    pub size: usize,
+    pub lifespan: Duration,
 }
 
 #[derive(Debug)]
@@ -75,7 +82,10 @@ where
 {
     #[must_use]
     pub fn new(config: Config) -> Self {
-        let duplicate_cache = TimedCache::with_lifespan(config.duplicate_cache_lifespan);
+        let duplicate_cache = TimedSizedCache::with_size_and_lifespan(
+            config.duplicate_cache.size,
+            config.duplicate_cache.lifespan.as_secs(),
+        );
         Self {
             config,
             negotiated_peers: HashMap::new(),
@@ -155,7 +165,7 @@ where
     }
 
     fn create_connection_handler(&self) -> BlendConnectionHandler<M> {
-        let monitor = self.config.conn_monitor_settings.as_ref().map(|settings| {
+        let monitor = self.config.conn_monitor.as_ref().map(|settings| {
             ConnectionMonitor::new(
                 *settings,
                 IntervalProvider::interval_stream(settings.interval),

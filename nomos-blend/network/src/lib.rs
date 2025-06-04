@@ -5,7 +5,7 @@ mod handler;
 #[cfg(feature = "tokio")]
 use std::time::Duration;
 
-pub use behaviour::{Behaviour, Config, Event, IntervalStreamProvider};
+pub use behaviour::{Behaviour, Config, DuplicateCacheSettings, Event, IntervalStreamProvider};
 #[cfg(feature = "tokio")]
 use tokio_stream::StreamExt as _;
 
@@ -41,7 +41,11 @@ mod test {
     use nomos_blend_message::{mock::MockBlendMessage, BlendMessage};
     use tokio::select;
 
-    use crate::{behaviour::Config, error::Error, Behaviour, Event, TokioIntervalStreamProvider};
+    use crate::{
+        behaviour::{Config, DuplicateCacheSettings},
+        error::Error,
+        Behaviour, Event, TokioIntervalStreamProvider,
+    };
 
     /// Check that a published messsage arrives in the peers successfully.
     #[tokio::test]
@@ -275,8 +279,11 @@ mod test {
             keypair,
             addr,
             Behaviour::<MockBlendMessage, TokioIntervalStreamProvider>::new(Config {
-                duplicate_cache_lifespan: 60,
-                conn_monitor_settings,
+                duplicate_cache: DuplicateCacheSettings {
+                    size: 1000,
+                    lifespan: Duration::from_secs(60),
+                },
+                conn_monitor: conn_monitor_settings,
             }),
         )
     }

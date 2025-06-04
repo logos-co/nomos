@@ -11,7 +11,7 @@ use libp2p::{
 };
 use nomos_blend::{conn_maintenance::ConnectionMonitorSettings, membership::Membership};
 use nomos_blend_message::sphinx::SphinxMessage;
-use nomos_blend_network::TokioIntervalStreamProvider;
+use nomos_blend_network::{DuplicateCacheSettings, TokioIntervalStreamProvider};
 use nomos_libp2p::{secret_key_serde, NetworkBehaviour};
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
@@ -35,6 +35,7 @@ pub struct Libp2pBlendBackendSettings {
     pub node_key: ed25519::SecretKey,
     pub peering_degree: u16,
     pub max_peering_degree: u16,
+    pub duplicate_cache: DuplicateCacheSettings,
     pub conn_monitor: Option<ConnectionMonitorSettings>,
 }
 
@@ -116,8 +117,8 @@ impl BlendBehaviour {
             blend:
                 nomos_blend_network::Behaviour::<SphinxMessage, TokioIntervalStreamProvider>::new(
                     nomos_blend_network::Config {
-                        duplicate_cache_lifespan: 60,
-                        conn_monitor_settings: config.conn_monitor,
+                        duplicate_cache: config.duplicate_cache.clone(),
+                        conn_monitor: config.conn_monitor,
                     },
                 ),
             limits: libp2p::connection_limits::Behaviour::new(
