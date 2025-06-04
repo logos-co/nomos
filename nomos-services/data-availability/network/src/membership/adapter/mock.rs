@@ -27,7 +27,7 @@ where
         Self { handler, storage }
     }
 
-    fn update(&mut self, block_number: u64, new_members: HashMap<PeerId, Multiaddr>) {
+    fn update(&self, block_number: u64, new_members: HashMap<PeerId, Multiaddr>) {
         let updated_membership = self.handler.membership().update(new_members);
         let assignations = updated_membership.subnetworks();
 
@@ -43,7 +43,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
+    use std::{
+        cell::RefCell,
+        collections::{HashMap, HashSet},
+    };
 
     use libp2p::{Multiaddr, PeerId};
     use nomos_da_network_core::SubnetworkId;
@@ -117,16 +120,17 @@ mod tests {
 
     #[derive(Default)]
     struct MockStorage {
-        storage: HashMap<u64, Assignations>,
+        storage: RefCell<HashMap<u64, Assignations>>,
     }
 
     impl MembershipStorage for MockStorage {
-        fn store(&mut self, block_number: u64, assignations: Assignations) {
-            self.storage.insert(block_number, assignations);
+        fn store(&self, block_number: u64, assignations: Assignations) {
+            let mut storage = self.storage.borrow_mut();
+            storage.insert(block_number, assignations);
         }
 
         fn get(&self, block_number: u64) -> Option<Assignations> {
-            self.storage.get(&block_number).cloned()
+            self.storage.borrow().get(&block_number).cloned()
         }
     }
 
@@ -154,7 +158,7 @@ mod tests {
         fn run(&self) {
             // Here real adapter would subscribe to the membership service for declaration
             // info updates.
-            let mut adapter = MockMembershipAdapter::new(
+            let adapter = MockMembershipAdapter::new(
                 self.membership.clone(),
                 MockStorage::default(), // Here a handle to real storage would be passed.
             );

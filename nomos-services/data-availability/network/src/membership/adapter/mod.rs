@@ -9,6 +9,6 @@ use crate::membership::handler::DaMembershipHandler;
 pub trait MembershipAdapter<Membership, Storage> {
     fn new(handler: DaMembershipHandler<Membership>, storage: Storage) -> Self;
 
-    fn update(&mut self, block_number: u64, new_members: HashMap<PeerId, Multiaddr>);
+    fn update(&self, block_number: u64, new_members: HashMap<PeerId, Multiaddr>);
     fn get_historic_membership(&self, block_number: u64) -> Option<Membership>;
 }
