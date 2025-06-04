@@ -37,8 +37,9 @@ where
         let updated_membership = self.membership.update(new_members);
         let assignations = updated_membership.subnetworks();
 
-        self.handler.update(updated_membership);
+        self.handler.update(updated_membership.clone());
         self.storage.store(block_number, assignations);
+        self.membership = updated_membership;
     }
 
     pub fn get_historic_membership(&self, block_number: u64) -> Option<Membership> {
