@@ -248,6 +248,10 @@ mod tests {
         fn get_address(&self, _peer_id: &PeerId) -> Option<libp2p::Multiaddr> {
             unimplemented!()
         }
+
+        fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
+            unimplemented!()
+        }
     }
 
     #[tokio::test]

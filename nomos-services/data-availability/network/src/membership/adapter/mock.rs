@@ -47,3 +47,142 @@ where
         Some(self.membership.init(assignations))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{HashMap, HashSet};
+
+    use libp2p::{Multiaddr, PeerId};
+    use nomos_da_network_core::SubnetworkId;
+    use subnetworks_assignations::{MembershipCreator, MembershipHandler};
+
+    use super::MockMembershipAdapter;
+    use crate::membership::{handler::DaMembershipHandler, MembershipStorage};
+
+    #[derive(Default, Clone)]
+    struct MockMembership {
+        assignations: HashMap<SubnetworkId, HashSet<PeerId>>,
+    }
+
+    impl MembershipHandler for MockMembership {
+        type NetworkId = SubnetworkId;
+        type Id = PeerId;
+
+        fn membership(&self, _id: &Self::Id) -> HashSet<Self::NetworkId> {
+            unimplemented!()
+        }
+
+        fn is_allowed(&self, _id: &Self::Id) -> bool {
+            unimplemented!()
+        }
+
+        fn members_of(&self, _network_id: &Self::NetworkId) -> HashSet<Self::Id> {
+            unimplemented!()
+        }
+
+        fn members(&self) -> HashSet<Self::Id> {
+            unimplemented!()
+        }
+
+        fn last_subnetwork_id(&self) -> Self::NetworkId {
+            unimplemented!()
+        }
+
+        fn get_address(&self, _peer_id: &Self::Id) -> Option<Multiaddr> {
+            unimplemented!()
+        }
+
+        fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
+            self.assignations.clone()
+        }
+    }
+
+    impl MembershipCreator for MockMembership {
+        fn init(&self, peer_assignments: HashMap<Self::NetworkId, HashSet<PeerId>>) -> Self {
+            MockMembership {
+                assignations: peer_assignments,
+            }
+        }
+
+        fn update(&self, new_peer_addresses: HashMap<Self::Id, Multiaddr>) -> Self {
+            let mut assignations = HashMap::new();
+            assignations.insert(99, new_peer_addresses.keys().cloned().collect());
+
+            MockMembership { assignations }
+        }
+    }
+
+    struct MockBackend {
+        membership: DaMembershipHandler<MockMembership>,
+    }
+
+    #[derive(Default)]
+    struct MockStorage {
+        storage: HashMap<u64, HashMap<SubnetworkId, HashSet<PeerId>>>,
+    }
+
+    impl MembershipStorage for MockStorage {
+        fn store(
+            &mut self,
+            block_number: u64,
+            assignations: HashMap<SubnetworkId, HashSet<PeerId>>,
+        ) {
+            self.storage.insert(block_number, assignations);
+        }
+
+        fn get(&self, block_number: u64) -> Option<HashMap<SubnetworkId, HashSet<PeerId>>> {
+            self.storage.get(&block_number).cloned()
+        }
+    }
+
+    struct MockService {
+        backend: MockBackend,
+        membership: DaMembershipHandler<MockMembership>,
+    }
+
+    impl MockService {
+        fn init() -> Self {
+            // DaMembershipHandler is passed to the backend as MembershipHandler.
+            // In Adapter, DaMembershipHandler exposes the `update` method, which allows to
+            // backend to get the updates, but only Adapter to initiate the
+            // changes.
+            let membership = DaMembershipHandler::new(MockMembership::default());
+            let backend = MockBackend {
+                membership: membership.clone(),
+            };
+
+            Self {
+                backend,
+                membership,
+            }
+        }
+
+        fn run(&self) {
+            // Here real adapter would subscribe to the membership service for declaration
+            // info updates.
+            let mut adapter = MockMembershipAdapter::new(
+                MockMembership::default(),
+                self.membership.clone(),
+                MockStorage::default(), // probably get a handle to real storage.
+            );
+
+            // Instead of loop we imitate one iteration by changing updating
+            // members via the membership, the changes should also
+            // appear in the backend, where clone of DaMembershipHandler
+            // was passed in the init method.
+            let mut update = HashMap::new();
+            update.insert(PeerId::random(), Multiaddr::empty());
+
+            adapter.update(1, update);
+        }
+    }
+
+    #[test]
+    fn test_adapter_usage() {
+        let service = MockService::init();
+        service.run();
+
+        let backend_assignations = service.backend.membership.subnetworks();
+        assert_eq!(backend_assignations.len(), 1);
+    }
+}
