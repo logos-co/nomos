@@ -424,6 +424,8 @@ mod tests {
         };
 
         let cryptarchia_engine = {
+            // Boostrapping mode since we are pursposefully adding old forks to test the
+            // recovery mechanism.
             let mut cryptarchia = cryptarchia_engine::Cryptarchia::<_, Boostrapping>::from_genesis(
                 genesis_header_id,
                 cryptarchia_engine_config,

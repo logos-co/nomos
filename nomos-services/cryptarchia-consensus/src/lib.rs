@@ -9,7 +9,7 @@ pub mod storage;
 use core::fmt::Debug;
 use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
 
-use cryptarchia_engine::{CryptarchiaState, Online, Slot};
+use cryptarchia_engine::{Boostrapping, CryptarchiaState, Online, Slot};
 use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
@@ -1392,8 +1392,12 @@ where
         >,
         block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> (Cryptarchia<Online>, Leader) {
+        // We need to initialize cryptarchia in bootstrapping mode to allow to add old,
+        // undeleted forks to the engine (down below). Once those forks are added, we
+        // migrate to `Online` state and let the service call `prune_forks`
+        // later on.
         let mut cryptarchia =
-            <Cryptarchia<Online>>::from_genesis(genesis_id, genesis_state, ledger_config);
+            <Cryptarchia<Boostrapping>>::from_genesis(genesis_id, genesis_state, ledger_config);
         let mut leader = Leader::new(
             security_block_id,
             security_leader_notes,
@@ -1446,7 +1450,13 @@ where
             );
         }
 
-        (cryptarchia, leader)
+        (
+            Cryptarchia {
+                consensus: cryptarchia.consensus.online(),
+                ledger: cryptarchia.ledger,
+            },
+            leader,
+        )
     }
 
     /// Remove the in-memory storage of stale blocks from the cryptarchia engine
