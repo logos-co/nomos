@@ -116,9 +116,14 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
 
         // Retrieve the prunable forks from the cryptarchia engine.
         let prunable_forks = security_block_length.map_or_else(Vec::new, |security_block_length| {
+            let pruning_depth = cryptarchia
+                .consensus
+                .tip_branch()
+                .length()
+                .saturating_sub(security_block_length);
             cryptarchia
                 .consensus
-                .prunable_forks(security_block_length)
+                .prunable_forks(pruning_depth)
                 .collect()
         });
 
@@ -215,7 +220,13 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::{Debug, Formatter};
+    use std::{
+        collections::HashSet,
+        fmt::{Debug, Formatter},
+        num::NonZero,
+    };
+
+    use cl::NullifierSecret;
 
     use super::*;
 
@@ -382,6 +393,106 @@ mod tests {
                     prunable_blocks: Vec::new()
                 }
             ))
+        );
+    }
+
+    #[test]
+    fn restore_prunable_forks() {
+        let genesis_header_id: HeaderId = [0; 32].into();
+        let security_param: NonZero<u32> = 2.try_into().unwrap();
+        let cryptarchia_engine_config = cryptarchia_engine::Config {
+            security_param,
+            active_slot_coeff: 0f64,
+        };
+        let ledger_config = nomos_ledger::Config {
+            epoch_config: cryptarchia_engine::EpochConfig {
+                epoch_stake_distribution_stabilization: 1.try_into().unwrap(),
+                epoch_period_nonce_buffer: 1.try_into().unwrap(),
+                epoch_period_nonce_stabilization: 1.try_into().unwrap(),
+            },
+            consensus_config: cryptarchia_engine_config,
+        };
+
+        let cryptarchia_engine = {
+            let mut cryptarchia = cryptarchia_engine::Cryptarchia::from_genesis(
+                genesis_header_id,
+                cryptarchia_engine_config,
+            );
+
+            // Add 3 more blocks to canonical chain. Blocks `0`, `1`, `2` and `3` represent
+            // the canonical chain now.
+            cryptarchia = cryptarchia
+                .receive_block([1; 32].into(), genesis_header_id, 1.into())
+                .expect("Block 1 to be added successfully on top of block 0.")
+                .receive_block([2; 32].into(), [1; 32].into(), 2.into())
+                .expect("Block 2 to be added successfully on top of block 1.")
+                .receive_block([3; 32].into(), [2; 32].into(), 3.into())
+                .expect("Block 3 to be added successfully on top of block 2.");
+            // Add a 2-block fork from genesis
+            cryptarchia = cryptarchia
+                .receive_block([4; 32].into(), genesis_header_id, 1.into())
+                .expect("Block 4 to be added successfully on top of block 0.")
+                .receive_block([5; 32].into(), [4; 32].into(), 2.into())
+                .expect("Block 5 to be added successfully on top of block 4.");
+            // Add a second single-block fork from genesis
+            cryptarchia = cryptarchia
+                .receive_block([6; 32].into(), genesis_header_id, 1.into())
+                .expect("Block 6 to be added successfully on top of block 0.");
+            // Add a single-block fork from the block after genesis (block `1`)
+            cryptarchia = cryptarchia
+                .receive_block([7; 32].into(), [1; 32].into(), 2.into())
+                .expect("Block 7 to be added successfully on top of block 1.");
+            // Add a single-block fork from the second block after genesis (block `2`)
+            cryptarchia = cryptarchia
+                .receive_block([8; 32].into(), [2; 32].into(), 3.into())
+                .expect("Block 8 to be added successfully on top of block 2.");
+
+            cryptarchia
+        };
+        // Empty ledger state.
+        let ledger_state = nomos_ledger::Ledger::new(
+            [0; 32].into(),
+            nomos_ledger::LedgerState::from_commitments([], 0),
+            ledger_config,
+        );
+
+        // Empty leader notes.
+        let leader = Leader::new(
+            genesis_header_id,
+            vec![],
+            NullifierSecret::zero(),
+            ledger_config,
+        );
+
+        let recovery_state = CryptarchiaConsensusState::<(), (), (), (), ()>::from_cryptarchia(
+            &Cryptarchia {
+                ledger: ledger_state,
+                consensus: cryptarchia_engine,
+            },
+            &leader,
+        );
+
+        // We configured `k = 2`, and since the canonical chain is 4-block long (blocks
+        // `0` to `4`), it means that all forks diverging from and before 2
+        // blocks in the past are considered prunable, which are blocks `4` and
+        // `5` belonging to the first fork from genesis, block `6` belonging to the
+        // second fork from genesis, and block `7` belonging to the fork from block
+        // `1`. Block `8` is excluded since it diverged from block `2` which is
+        // not yet finalized, as it is only 1 block past, which is less than the
+        // configured `k = 2`.
+        assert_eq!(
+            recovery_state
+                .prunable_blocks
+                .into_iter()
+                .map(|b| b.id())
+                .collect::<HashSet<_>>(),
+            [
+                [4; 32].into(),
+                [5; 32].into(),
+                [6; 32].into(),
+                [7; 32].into()
+            ]
+            .into()
         );
     }
 }

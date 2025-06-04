@@ -762,9 +762,7 @@ pub mod tests {
             let new_block = hash(&i);
             engine = engine.receive_block(new_block, parent, i.into()).unwrap();
             parent = new_block;
-            println!("{:?}", engine.tip());
         }
-        println!("{:?}", engine.tip());
         assert_eq!(engine.tip(), parent);
 
         let mut long_p = parent;
