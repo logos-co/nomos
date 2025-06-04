@@ -102,7 +102,7 @@ impl MembershipHandler for FillFromNodeList {
         self.subnetwork_size.saturating_sub(1) as u16
     }
 
-    fn get_address(&self, peer_id: &PeerId) -> Option<Multiaddr> {
+    fn get_address(&self, peer_id: &Self::Id) -> Option<Multiaddr> {
         self.addressbook.get(peer_id).cloned()
     }
 

@@ -13,7 +13,6 @@ where
     Membership: MembershipCreator + Clone,
     Storage: MembershipStorage,
 {
-    membership: Membership,
     handler: DaMembershipHandler<Membership>,
     storage: Storage,
 }
@@ -24,30 +23,21 @@ where
     Membership: MembershipCreator<NetworkId = SubnetworkId, Id = PeerId> + Clone,
     Storage: MembershipStorage,
 {
-    fn new(
-        membership: Membership,
-        handler: DaMembershipHandler<Membership>,
-        storage: Storage,
-    ) -> Self {
-        Self {
-            membership,
-            handler,
-            storage,
-        }
+    fn new(handler: DaMembershipHandler<Membership>, storage: Storage) -> Self {
+        Self { handler, storage }
     }
 
     fn update(&mut self, block_number: u64, new_members: HashMap<PeerId, Multiaddr>) {
-        let updated_membership = self.membership.update(new_members);
+        let updated_membership = self.handler.membership().update(new_members);
         let assignations = updated_membership.subnetworks();
 
-        self.handler.update(updated_membership.clone());
+        self.handler.update(updated_membership);
         self.storage.store(block_number, assignations);
-        self.membership = updated_membership;
     }
 
     fn get_historic_membership(&self, block_number: u64) -> Option<Membership> {
         let assignations = self.storage.get(block_number)?;
-        Some(self.membership.init(assignations))
+        Some(self.handler.membership().init(assignations))
     }
 }
 
@@ -61,13 +51,13 @@ mod tests {
 
     use super::MockMembershipAdapter;
     use crate::membership::{
-        adapter::MembershipAdapter as _, handler::DaMembershipHandler, Asssignations,
+        adapter::MembershipAdapter as _, handler::DaMembershipHandler, Assignations,
         MembershipStorage,
     };
 
     #[derive(Default, Clone)]
     struct MockMembership {
-        assignations: Asssignations,
+        assignations: Assignations,
     }
 
     impl MembershipHandler for MockMembership {
@@ -118,36 +108,38 @@ mod tests {
         }
     }
 
-    struct MockBackend {
-        membership: DaMembershipHandler<MockMembership>,
+    struct MockBackend<Membership>
+    where
+        Membership: MembershipHandler,
+    {
+        membership: Membership,
     }
 
     #[derive(Default)]
     struct MockStorage {
-        storage: HashMap<u64, Asssignations>,
+        storage: HashMap<u64, Assignations>,
     }
 
     impl MembershipStorage for MockStorage {
-        fn store(&mut self, block_number: u64, assignations: Asssignations) {
+        fn store(&mut self, block_number: u64, assignations: Assignations) {
             self.storage.insert(block_number, assignations);
         }
 
-        fn get(&self, block_number: u64) -> Option<Asssignations> {
+        fn get(&self, block_number: u64) -> Option<Assignations> {
             self.storage.get(&block_number).cloned()
         }
     }
 
     struct MockService {
-        backend: MockBackend,
+        backend: MockBackend<DaMembershipHandler<MockMembership>>,
         membership: DaMembershipHandler<MockMembership>,
     }
 
     impl MockService {
         fn init() -> Self {
             // DaMembershipHandler is passed to the backend as MembershipHandler.
-            // In Adapter, DaMembershipHandler exposes the `update` method, which allows to
-            // backend to get the updates, but only Adapter to initiate the
-            // changes.
+            // In Adapter, DaMembershipHandler exposes the `update` method, which allows
+            // backend to get the updates, but only Adapter to initiate changes.
             let membership = DaMembershipHandler::new(MockMembership::default());
             let backend = MockBackend {
                 membership: membership.clone(),
@@ -163,9 +155,8 @@ mod tests {
             // Here real adapter would subscribe to the membership service for declaration
             // info updates.
             let mut adapter = MockMembershipAdapter::new(
-                MockMembership::default(),
                 self.membership.clone(),
-                MockStorage::default(), // probably get a handle to real storage.
+                MockStorage::default(), // Here a handle to real storage would be passed.
             );
 
             // Instead of loop we imitate one iteration by changing updating

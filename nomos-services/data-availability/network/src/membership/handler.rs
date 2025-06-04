@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use arc_swap::ArcSwap;
+use arc_swap::{ArcSwap, Guard};
 use subnetworks_assignations::MembershipHandler;
 
 pub struct DaMembershipHandler<Membership> {
@@ -12,6 +12,8 @@ pub struct DaMembershipHandler<Membership> {
 
 impl<Membership> DaMembershipHandler<Membership> {
     pub fn new(membership: Membership) -> Self {
+        // ArcSwap wraps the inner type into Arc when calling `from_pointee`, `load` and
+        // `store` methods instead of T needs to take manually wrapped Arc<T>.
         Self {
             membership: Arc::new(ArcSwap::from_pointee(membership)),
         }
@@ -21,6 +23,12 @@ impl<Membership> DaMembershipHandler<Membership> {
         // `ArcSwap::store` uses `ArcSwap::swap` internally and in addition drops the
         // previously stored value.
         self.membership.store(Arc::new(membership));
+    }
+
+    #[must_use]
+    pub fn membership(&self) -> Guard<Arc<Membership>> {
+        // Inner type held by ArcSwap is wrapped in Arc.
+        self.membership.load()
     }
 }
 
