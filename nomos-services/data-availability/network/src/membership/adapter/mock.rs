@@ -34,10 +34,15 @@ where
     }
 
     pub fn update(&mut self, block_number: u64, new_members: HashMap<PeerId, Multiaddr>) {
-        todo!()
+        let updated_membership = self.membership.update(new_members);
+        let assignations = updated_membership.subnetworks();
+
+        self.handler.update(updated_membership);
+        self.storage.store(block_number, assignations);
     }
 
     pub fn get_historic_membership(&self, block_number: u64) -> Option<Membership> {
-        todo!()
+        let assignations = self.storage.get(block_number)?;
+        Some(self.membership.init(assignations))
     }
 }

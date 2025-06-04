@@ -112,6 +112,17 @@ impl MembershipHandler for FillWithOriginalReplication {
     fn get_address(&self, peer_id: &PeerId) -> Option<Multiaddr> {
         self.addressbook.get(peer_id).cloned()
     }
+
+    fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
+        self.assignations
+            .iter()
+            .enumerate()
+            .map(|(index, member_set)| {
+                let network_id = index as Self::NetworkId;
+                (network_id, member_set.clone())
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]

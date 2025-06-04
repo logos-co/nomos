@@ -12,12 +12,12 @@ use libp2p_identity::PeerId;
 pub trait MembershipCreator: MembershipHandler {
     /// Initializes the underlying implementor with the provided members list.
     #[must_use]
-    fn init(&self, peer_addresses: HashMap<Self::Id, Multiaddr>) -> impl MembershipHandler;
+    fn init(&self, peer_addresses: HashMap<Self::NetworkId, HashSet<PeerId>>) -> Self;
 
     /// Creates a new instance of membership handler that combines previous
     /// members and new members.
     #[must_use]
-    fn update(&self, new_peer_addresses: HashMap<Self::Id, Multiaddr>) -> impl MembershipHandler;
+    fn update(&self, new_peer_addresses: HashMap<Self::Id, Multiaddr>) -> Self;
 }
 
 pub trait MembershipHandler {
@@ -46,6 +46,9 @@ pub trait MembershipHandler {
     fn last_subnetwork_id(&self) -> Self::NetworkId;
 
     fn get_address(&self, peer_id: &PeerId) -> Option<Multiaddr>;
+
+    /// Returns all subnetworks with assigned members.
+    fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>>;
 }
 
 impl<T> MembershipHandler for Arc<T>
@@ -77,5 +80,9 @@ where
 
     fn get_address(&self, peer_id: &PeerId) -> Option<Multiaddr> {
         self.as_ref().get_address(peer_id)
+    }
+
+    fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
+        self.as_ref().subnetworks()
     }
 }

@@ -1,4 +1,7 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use arc_swap::ArcSwap;
 use subnetworks_assignations::MembershipHandler;
@@ -51,6 +54,10 @@ where
 
     fn get_address(&self, peer_id: &libp2p::PeerId) -> Option<libp2p::Multiaddr> {
         self.membership.load().get_address(peer_id)
+    }
+
+    fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
+        self.membership.load().subnetworks()
     }
 }
 
