@@ -509,17 +509,15 @@ where
     ///
     /// This means that all forks that diverged from the canonical chain before
     /// the provided `depth` height are returned.
-    pub fn prunable_forks(
-        &self,
-        depth: u64,
-    ) -> Box<dyn Iterator<Item = ForkDivergenceInfo<Id>> + '_> {
+    pub fn prunable_forks(&self, depth: u64) -> impl Iterator<Item = ForkDivergenceInfo<Id>> + '_ {
         let local_chain = self.local_chain;
         let Some(target_height) = local_chain.length.checked_sub(depth) else {
             tracing::info!(
                 target: LOG_TARGET,
                 "No prunable fork, the canonical chain is not longer than the provided depth. Canonical chain length: {}, provided depth: {}", local_chain.length, depth
             );
-            return Box::new(std::iter::empty());
+            return Box::new(core::iter::empty())
+                as Box<dyn Iterator<Item = ForkDivergenceInfo<Id>>>;
         };
         Box::new(self.non_canonical_forks().filter_map(move |fork| {
             // We calculate LCA once and store it in `ForkInfo` so it can be consumed
