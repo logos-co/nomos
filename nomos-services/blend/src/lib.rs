@@ -211,6 +211,7 @@ where
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     fn drop(&mut self) {
+        tracing::info!("Shutting down Blend backend");
         self.backend.shutdown();
     }
 }
