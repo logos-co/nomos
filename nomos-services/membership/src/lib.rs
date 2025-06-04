@@ -11,11 +11,13 @@ use futures::{Stream, StreamExt as _};
 use nomos_core::block::BlockNumber;
 use nomos_sdp_core::{Locator, ProviderId};
 use overwatch::{
+    overwatch::OverwatchHandle,
     services::{
         state::{NoOperator, NoState},
+        status::ServiceStatus,
         AsServiceId, ServiceCore, ServiceData,
     },
-    OpaqueServiceResourcesHandle,
+    DynError, OpaqueServiceResourcesHandle,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, oneshot};
@@ -58,6 +60,44 @@ where
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     subscribe_channels:
         HashMap<nomos_sdp_core::ServiceType, broadcast::Sender<MembershipProviders>>,
+}
+
+impl<Backend, Adapter, RuntimeServiceId> MembershipService<Backend, Adapter, RuntimeServiceId>
+where
+    Backend: MembershipBackend,
+    Backend::Settings: Clone,
+    Adapter: SdpAdapter,
+    RuntimeServiceId: Display + Debug + Sync + AsServiceId<Adapter::SdpService>,
+{
+    async fn wait_until_dependencies_are_ready(
+        overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+    ) -> Result<(), DynError> {
+        let mut non_ready_services: Vec<(String, ServiceStatus)> = Vec::new();
+
+        if let Err(service_status) = overwatch_handle
+            .status_watcher::<Adapter::SdpService>()
+            .await
+            .wait_for(ServiceStatus::Ready, None) // TODO: Add proper timeout
+            .await
+        {
+            let service_id = <RuntimeServiceId as AsServiceId<Adapter::SdpService>>::SERVICE_ID;
+            non_ready_services.push((service_id.to_string(), service_status));
+        }
+
+        if !non_ready_services.is_empty() {
+            let error_message = format!(
+                "The following services are not ready: {}",
+                non_ready_services
+                    .into_iter()
+                    .map(|(id, status)| format!("{id}: {status:?}")) // TODO: Use display
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            return Err(DynError::from(error_message));
+        }
+
+        Ok(())
+    }
 }
 
 impl<B, S, RuntimeServiceId> ServiceData for MembershipService<B, S, RuntimeServiceId>
@@ -128,6 +168,9 @@ where
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
+
+        Self::wait_until_dependencies_are_ready(&self.service_resources_handle.overwatch_handle)
+            .await?;
 
         loop {
             tokio::select! {
