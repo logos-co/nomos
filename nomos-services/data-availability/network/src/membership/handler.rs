@@ -61,10 +61,7 @@ where
     }
 }
 
-impl<Membership> Clone for DaMembershipHandler<Membership>
-where
-    Membership: MembershipHandler,
-{
+impl<Membership> Clone for DaMembershipHandler<Membership> {
     fn clone(&self) -> Self {
         Self {
             membership: Arc::clone(&self.membership),
