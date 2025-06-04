@@ -57,6 +57,7 @@ pub struct Config {
     pub conn_monitor: Option<ConnectionMonitorSettings>,
 }
 
+/// The cache settings for not processing duplicate messages received from peers.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DuplicateCacheSettings {
     pub size: usize,
