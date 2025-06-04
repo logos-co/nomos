@@ -4,7 +4,9 @@ use libp2p::{Multiaddr, PeerId};
 use nomos_da_network_core::SubnetworkId;
 use subnetworks_assignations::MembershipCreator;
 
-use crate::membership::{handler::DaMembershipHandler, MembershipStorage};
+use crate::membership::{
+    adapter::MembershipAdapter, handler::DaMembershipHandler, MembershipStorage,
+};
 
 pub struct MockMembershipAdapter<Membership, Storage>
 where
@@ -16,12 +18,13 @@ where
     storage: Storage,
 }
 
-impl<Membership, Storage> MockMembershipAdapter<Membership, Storage>
+impl<Membership, Storage> MembershipAdapter<Membership, Storage>
+    for MockMembershipAdapter<Membership, Storage>
 where
     Membership: MembershipCreator<NetworkId = SubnetworkId, Id = PeerId> + Clone,
     Storage: MembershipStorage,
 {
-    pub fn new(
+    fn new(
         membership: Membership,
         handler: DaMembershipHandler<Membership>,
         storage: Storage,
@@ -33,7 +36,7 @@ where
         }
     }
 
-    pub fn update(&mut self, block_number: u64, new_members: HashMap<PeerId, Multiaddr>) {
+    fn update(&mut self, block_number: u64, new_members: HashMap<PeerId, Multiaddr>) {
         let updated_membership = self.membership.update(new_members);
         let assignations = updated_membership.subnetworks();
 
@@ -42,7 +45,7 @@ where
         self.membership = updated_membership;
     }
 
-    pub fn get_historic_membership(&self, block_number: u64) -> Option<Membership> {
+    fn get_historic_membership(&self, block_number: u64) -> Option<Membership> {
         let assignations = self.storage.get(block_number)?;
         Some(self.membership.init(assignations))
     }
@@ -57,7 +60,9 @@ mod tests {
     use subnetworks_assignations::{MembershipCreator, MembershipHandler};
 
     use super::MockMembershipAdapter;
-    use crate::membership::{handler::DaMembershipHandler, MembershipStorage};
+    use crate::membership::{
+        adapter::MembershipAdapter as _, handler::DaMembershipHandler, MembershipStorage,
+    };
 
     #[derive(Default, Clone)]
     struct MockMembership {
@@ -99,16 +104,16 @@ mod tests {
 
     impl MembershipCreator for MockMembership {
         fn init(&self, peer_assignments: HashMap<Self::NetworkId, HashSet<PeerId>>) -> Self {
-            MockMembership {
+            Self {
                 assignations: peer_assignments,
             }
         }
 
         fn update(&self, new_peer_addresses: HashMap<Self::Id, Multiaddr>) -> Self {
             let mut assignations = HashMap::new();
-            assignations.insert(99, new_peer_addresses.keys().cloned().collect());
+            assignations.insert(99, new_peer_addresses.keys().copied().collect());
 
-            MockMembership { assignations }
+            Self { assignations }
         }
     }
 

@@ -48,7 +48,7 @@ pub trait MembershipHandler {
     fn get_address(&self, peer_id: &PeerId) -> Option<Multiaddr>;
 
     /// Returns all subnetworks with assigned members.
-    fn subnetworks(&self) -> &HashMap<Self::NetworkId, HashSet<Self::Id>>;
+    fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>>;
 }
 
 impl<T> MembershipHandler for Arc<T>
