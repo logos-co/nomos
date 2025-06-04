@@ -492,13 +492,9 @@ where
     /// canonical chain.
     ///
     /// It returns the block IDs that were part of the pruned forks.
-    pub fn prune_forks(&mut self, depth: u64) -> impl Iterator<Item = Id> {
-        let prunable_forks = self.prunable_forks(depth);
-        let mut removed_blocks = vec![];
-        for prunable_fork_info in prunable_forks {
-            removed_blocks.extend(self.prune_fork(&prunable_fork_info));
-        }
-        removed_blocks.into_iter()
+    pub fn prune_forks(&mut self, depth: u64) -> impl Iterator<Item = Id> + '_ {
+        self.prunable_forks(depth)
+            .flat_map(|prunable_fork_info| self.prune_fork(&prunable_fork_info))
     }
 
     /// Get an iterator over the forks that can be pruned given the provided
