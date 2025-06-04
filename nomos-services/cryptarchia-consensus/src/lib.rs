@@ -1513,33 +1513,31 @@ where
                 .await,
         );
 
-        let errors = block_deletion_outcomes.fold(
-            Vec::with_capacity(blocks_to_delete.len()),
-            |mut errors, (block_id, outcome)| {
-                match outcome {
-                    Ok(Some(_)) => {
-                        tracing::debug!(
-                            target: LOG_TARGET,
-                            "Block {block_id:#?} successfully deleted from storage."
-                        );
-                    }
-                    Ok(None) => {
-                        tracing::trace!(
-                            target: LOG_TARGET,
-                            "Block {block_id:#?} was not found in storage."
-                        );
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            target: LOG_TARGET,
-                            "Error deleting block {block_id:#?} from storage: {e}."
-                        );
-                        errors.push((block_id, e));
-                    }
+        let errors: Vec<_> = block_deletion_outcomes
+            .filter_map(|(block_id, outcome)| match outcome {
+                Ok(Some(_)) => {
+                    tracing::debug!(
+                        target: LOG_TARGET,
+                        "Block {block_id:#?} successfully deleted from storage."
+                    );
+                    None
                 }
-                errors
-            },
-        );
+                Ok(None) => {
+                    tracing::trace!(
+                        target: LOG_TARGET,
+                        "Block {block_id:#?} was not found in storage."
+                    );
+                    None
+                }
+                Err(e) => {
+                    tracing::error!(
+                        target: LOG_TARGET,
+                        "Error deleting block {block_id:#?} from storage: {e}."
+                    );
+                    Some((block_id, e))
+                }
+            })
+            .collect();
 
         if errors.is_empty() {
             Ok(())
