@@ -1471,6 +1471,10 @@ where
         else {
             // Bail out early (not changing the input `cryptarchia` value if the storage
             // returned an error).
+            tracing::error!(
+                target: LOG_TARGET,
+                "Underlying storage failed to delete some blocks. We rollback cryptarchia to avoid inconsistencies."
+            );
             return;
         };
 
