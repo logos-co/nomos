@@ -1,19 +1,30 @@
 pub mod versions;
 
-use std::{collections::{HashSet, HashMap}, hash::Hash};
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+    sync::Arc,
+};
 
 use libp2p::Multiaddr;
 use libp2p_identity::PeerId;
+
+pub trait MembershipCreator: MembershipHandler {
+    /// Initializes the underlying implementor with the provided members list.
+    #[must_use]
+    fn init(&self, peer_addresses: HashMap<Self::Id, Multiaddr>) -> impl MembershipHandler;
+
+    /// Creates a new instance of membership handler that combines previous
+    /// members and new members.
+    #[must_use]
+    fn update(&self, new_peer_addresses: HashMap<Self::Id, Multiaddr>) -> impl MembershipHandler;
+}
 
 pub trait MembershipHandler {
     /// Subnetworks Id type
     type NetworkId: Eq + Hash;
     /// Members Id type
     type Id;
-
-    fn new(HashMap<Self::Id, Self::NetworkId>) -> Self;
-
-    fn update(&self, HashMap<Self::Id, Self::NetworkId>) -> Self;
 
     /// Returns the set of `NetworksIds` an id is a member of
     fn membership(&self, id: &Self::Id) -> HashSet<Self::NetworkId>;
@@ -36,8 +47,6 @@ pub trait MembershipHandler {
 
     fn get_address(&self, peer_id: &PeerId) -> Option<Multiaddr>;
 }
-
-use std::sync::Arc;
 
 impl<T> MembershipHandler for Arc<T>
 where
