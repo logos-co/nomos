@@ -61,12 +61,13 @@ mod tests {
 
     use super::MockMembershipAdapter;
     use crate::membership::{
-        adapter::MembershipAdapter as _, handler::DaMembershipHandler, MembershipStorage,
+        adapter::MembershipAdapter as _, handler::DaMembershipHandler, Asssignations,
+        MembershipStorage,
     };
 
     #[derive(Default, Clone)]
     struct MockMembership {
-        assignations: HashMap<SubnetworkId, HashSet<PeerId>>,
+        assignations: Asssignations,
     }
 
     impl MembershipHandler for MockMembership {
@@ -123,19 +124,15 @@ mod tests {
 
     #[derive(Default)]
     struct MockStorage {
-        storage: HashMap<u64, HashMap<SubnetworkId, HashSet<PeerId>>>,
+        storage: HashMap<u64, Asssignations>,
     }
 
     impl MembershipStorage for MockStorage {
-        fn store(
-            &mut self,
-            block_number: u64,
-            assignations: HashMap<SubnetworkId, HashSet<PeerId>>,
-        ) {
+        fn store(&mut self, block_number: u64, assignations: Asssignations) {
             self.storage.insert(block_number, assignations);
         }
 
-        fn get(&self, block_number: u64) -> Option<HashMap<SubnetworkId, HashSet<PeerId>>> {
+        fn get(&self, block_number: u64) -> Option<Asssignations> {
             self.storage.get(&block_number).cloned()
         }
     }
