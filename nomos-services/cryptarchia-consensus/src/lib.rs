@@ -183,7 +183,8 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
         }
     }
 
-    /// Prune the in-memory storage of forks older than the security block `k`.
+    /// Prune the in-memory storage of forks older than or equal to the security
+    /// block `k`.
     ///
     /// The old blocks are removed from the consensus engine and their state
     /// removed from the ledger state.
@@ -1505,8 +1506,9 @@ where
     /// Send a bulk deletion request to the storage adapter.
     ///
     /// If no request fails, the method returns `Ok()`.
-    /// If any request fails, the header ID and the generated error are
-    /// collected and returns as part of the `Err` result.
+    /// If any request fails, the header ID and the generated error for each
+    /// failing request are collected and returned as part of the `Err`
+    /// result.
     async fn delete_pruned_blocks_from_storage<Headers>(
         pruned_block_headers: Headers,
         storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,

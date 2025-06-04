@@ -537,8 +537,7 @@ where
             .filter(|fork_tip| fork_tip.id != self.tip())
     }
 
-    /// Remove all blocks from `tip` to `lca`, excluding `lca`, which belong to
-    /// the canonical chain.
+    /// Remove all blocks of a fork from `tip` to `lca`, excluding `lca`.
     fn prune_fork(
         &mut self,
         &ForkDivergenceInfo { lca, tip }: &ForkDivergenceInfo<Id>,

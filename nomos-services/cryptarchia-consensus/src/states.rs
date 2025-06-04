@@ -32,6 +32,12 @@ pub struct SecurityRecoveryStrategy {
     pub security_ledger_state: LedgerState,
     pub security_leader_notes: Vec<NoteWitness>,
     pub security_block_chain_length: u64,
+    /// The list of blocks that should have been deleted from the persistence
+    /// layer but failed to do so.
+    ///
+    /// We keep track of them in the recovery state so we can re-trigger their
+    /// deletion from the persistence storage after the cryptarchia instance is
+    /// re-created.
     pub prunable_blocks: Vec<Branch<HeaderId>>,
 }
 
@@ -116,11 +122,13 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
 
         // Retrieve the prunable forks from the cryptarchia engine.
         let prunable_forks = security_block_length.map_or_else(Vec::new, |security_block_length| {
-            let pruning_depth = cryptarchia
+            let Some(pruning_depth) = cryptarchia
                 .consensus
                 .tip_branch()
                 .length()
-                .saturating_sub(security_block_length);
+                .checked_sub(security_block_length) else {
+                    panic!("The provided security block has a length greater than the tip of the canonical chain, which indicates something is corrupted.");
+                };
             cryptarchia
                 .consensus
                 .prunable_forks(pruning_depth)

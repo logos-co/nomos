@@ -150,7 +150,8 @@ impl Leader {
     ///
     /// ## Returns
     ///
-    /// `true` if the state was successfully removed, `false` otherwise.
+    /// `true` if the state was successfully removed, `false` otherwise (e.g.,
+    /// if no state was associated to the provided block ID).
     pub(crate) fn prune_notes_at(&mut self, header_id: &HeaderId) -> bool {
         self.notes.remove(header_id).is_some()
     }
