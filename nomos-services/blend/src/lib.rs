@@ -111,6 +111,7 @@ where
                     ref mut inbound_relay,
                     ref overwatch_handle,
                     ref settings_handle,
+                    ref status_updater,
                     ..
                 },
             ref mut backend,
@@ -166,7 +167,7 @@ where
                 .expect("Message from internal services should not fail to serialize")
         });
 
-        service_resources_handle.status_updater.notify_ready();
+        status_updater.notify_ready();
         tracing::info!(
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
