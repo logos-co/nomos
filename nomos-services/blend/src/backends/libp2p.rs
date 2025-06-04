@@ -116,7 +116,8 @@ impl BlendBehaviour {
             blend:
                 nomos_blend_network::Behaviour::<SphinxMessage, TokioIntervalStreamProvider>::new(
                     nomos_blend_network::Config {
-                        duplicate_cache_lifespan: 60,
+                        // This size must be ROUNDS_IN_SESSION * BLEND_HOPS
+                        seen_message_cache_size: 1_944_000,
                         conn_monitor_settings: config.conn_monitor,
                     },
                 ),

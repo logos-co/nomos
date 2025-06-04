@@ -275,7 +275,7 @@ mod test {
             keypair,
             addr,
             Behaviour::<MockBlendMessage, TokioIntervalStreamProvider>::new(Config {
-                duplicate_cache_lifespan: 60,
+                seen_message_cache_size: 1000,
                 conn_monitor_settings,
             }),
         )

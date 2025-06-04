@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use cached::{Cached as _, TimedCache};
+use cached::{Cached as _, SizedCache};
 use libp2p::{
     core::{transport::PortUse, Endpoint},
     swarm::{
@@ -37,9 +37,12 @@ where
     events: VecDeque<ToSwarm<Event, FromBehaviour>>,
     /// Waker that handles polling
     waker: Option<Waker>,
-    /// An LRU time cache for storing seen messages (based on their ID). This
+    /// An LRU cache for storing seen messages (based on their ID). This
     /// cache prevents duplicates from being propagated on the network.
-    duplicate_cache: TimedCache<Vec<u8>, ()>,
+    // TODO: Store the key and the nullifier of the public header of the message.
+    // TODO: This cache should be cleared after the session transition period has passed,
+    //       because keys and nullifiers are valid during a single session.
+    seen_message_cache: SizedCache<Vec<u8>, ()>,
     _blend_message: PhantomData<M>,
     _interval_provider: PhantomData<IntervalProvider>,
 }
@@ -52,7 +55,7 @@ enum NegotiatedPeerState {
 
 #[derive(Debug)]
 pub struct Config {
-    pub duplicate_cache_lifespan: u64,
+    pub seen_message_cache_size: usize,
     pub conn_monitor_settings: Option<ConnectionMonitorSettings>,
 }
 
@@ -75,13 +78,13 @@ where
 {
     #[must_use]
     pub fn new(config: Config) -> Self {
-        let duplicate_cache = TimedCache::with_lifespan(config.duplicate_cache_lifespan);
+        let duplicate_cache = SizedCache::with_size(config.seen_message_cache_size);
         Self {
             config,
             negotiated_peers: HashMap::new(),
             events: VecDeque::new(),
             waker: None,
-            duplicate_cache,
+            seen_message_cache: duplicate_cache,
             _blend_message: PhantomData,
             _interval_provider: PhantomData,
         }
@@ -96,7 +99,7 @@ where
 
         let msg_id = Self::message_id(message);
         // If the message was already seen, don't forward it again
-        if self.duplicate_cache.cache_get(&msg_id).is_some() {
+        if self.seen_message_cache.cache_get(&msg_id).is_some() {
             return Ok(());
         }
 
@@ -104,7 +107,7 @@ where
         // Add the message to the cache only if the forwarding was successfully
         // triggered
         if result.is_ok() {
-            self.duplicate_cache.cache_set(msg_id, ());
+            self.seen_message_cache.cache_set(msg_id, ());
         }
         result
     }
@@ -236,7 +239,7 @@ where
             ToBehaviour::Message(message) => {
                 // Add the message to the cache. If it was already seen, ignore it.
                 if self
-                    .duplicate_cache
+                    .seen_message_cache
                     .cache_set(Self::message_id(&message), ())
                     .is_some()
                 {
