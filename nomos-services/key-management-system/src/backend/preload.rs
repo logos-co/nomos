@@ -119,8 +119,6 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use rand::rngs::OsRng;
 
     use super::*;

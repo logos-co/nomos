@@ -106,28 +106,13 @@ rustflags = [
   "-Aclippy::unwrap_in_result",
   "-Aclippy::unwrap_used",
 
-  # Rustc lints
+  # Explicitly allowed Rustc lints
 
-  # Warn-by-default for all rustc lint groups, so new lints generate a warning and need explicit handling
-  "-Wdeprecated-safe",
-  "-Wfuture-incompatible",
-  "-Wkeyword-idents",
-  "-Wlet-underscore",
-  "-Wnonstandard-style",
-  "-Wrefining-impl-trait",
-  "-Wrust-2018-compatibility",
-  "-Wrust-2018-idioms",
-  "-Wrust-2021-compatibility",
-  "-Wrust-2024-compatibility",
-  "-Wunused",
-
-  # Explicitly allowed lints
-
-  # Allow-by-default to warning lints
+  # Rustc lints which are allow-by-default but have been changed to "warn"
   "-Wredundant_imports",
   "-Wredundant_lifetimes",
 
-  # TODO: Address these allow-by-default Rustc lints at some point by either allowing them permanently and move them to the relative section, or enforce them, and move them to the relative section.
+  # TODO: Address these allow-by-default Rustc lints at some point by either allowing them permanently or enforce them, and move them to the relative section according to the decision.
   "-Aabsolute_paths_not_starting_with_crate",
   "-Aambiguous_negative_literals",
   "-Aclosure_returning_async_block",

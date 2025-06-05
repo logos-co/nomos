@@ -302,11 +302,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashMap,
-        marker::PhantomData,
-        sync::{Arc, Mutex},
-    };
+    use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
     use multiaddr::multiaddr;
@@ -671,13 +667,10 @@ mod tests {
             (0, vec![(declaration_a, true), (declaration_b, true)]),
             (10, vec![(BOp::Act(pid, d1, St::BlendNetwork), true)]),
             (20, vec![(BOp::Act(pid, d2, St::DataAvailability), true)]),
-            (
-                30,
-                vec![
-                    (BOp::Wit(pid, d1, St::BlendNetwork), true),
-                    (BOp::Wit(pid, d2, St::DataAvailability), true),
-                ],
-            ),
+            (30, vec![
+                (BOp::Wit(pid, d1, St::BlendNetwork), true),
+                (BOp::Wit(pid, d2, St::DataAvailability), true),
+            ]),
         ]
         .into();
 
@@ -698,34 +691,28 @@ mod tests {
         assert_eq!(providers.len(), 2);
 
         let provider = providers.get(&d1).unwrap();
-        assert_eq!(
-            provider,
-            &DeclarationInfo {
-                provider_id: pid,
-                id: d1,
-                created: 0,
-                active: Some(10),
-                withdrawn: Some(30),
-                service: ServiceType::BlendNetwork,
-                locators: locators.clone(),
-                reward_address: reward_addr,
-            }
-        );
+        assert_eq!(provider, &DeclarationInfo {
+            provider_id: pid,
+            id: d1,
+            created: 0,
+            active: Some(10),
+            withdrawn: Some(30),
+            service: ServiceType::BlendNetwork,
+            locators: locators.clone(),
+            reward_address: reward_addr,
+        });
 
         let provider = providers.get(&d2).unwrap();
-        assert_eq!(
-            provider,
-            &DeclarationInfo {
-                provider_id: pid,
-                id: d2,
-                created: 0,
-                active: Some(20),
-                withdrawn: Some(30),
-                service: ServiceType::DataAvailability,
-                locators,
-                reward_address: reward_addr,
-            }
-        );
+        assert_eq!(provider, &DeclarationInfo {
+            provider_id: pid,
+            id: d2,
+            created: 0,
+            active: Some(20),
+            withdrawn: Some(30),
+            service: ServiceType::DataAvailability,
+            locators,
+            reward_address: reward_addr,
+        });
     }
 
     #[tokio::test]
@@ -745,15 +732,12 @@ mod tests {
             (0, vec![(declaration_a, true), (declaration_b, true)]),
             (10, vec![(BOp::Act(p1, d1, St::BlendNetwork), true)]),
             (20, vec![(BOp::Act(p2, d2, St::DataAvailability), true)]),
-            (
-                30,
-                vec![
-                    // Withdrawing service that pid2 declared.
-                    (BOp::Wit(p1, d2, St::BlendNetwork), false),
-                    // Withdrawing service that pid1 declared.
-                    (BOp::Wit(p2, d1, St::DataAvailability), false),
-                ],
-            ),
+            (30, vec![
+                // Withdrawing service that pid2 declared.
+                (BOp::Wit(p1, d2, St::BlendNetwork), false),
+                // Withdrawing service that pid1 declared.
+                (BOp::Wit(p2, d1, St::DataAvailability), false),
+            ]),
         ]
         .into();
         let blocks = gen_blocks(blocks);
@@ -773,33 +757,27 @@ mod tests {
         assert_eq!(providers.len(), 2);
 
         let info1 = providers.get(&d1).unwrap();
-        assert_eq!(
-            info1,
-            &DeclarationInfo {
-                provider_id: p1,
-                id: d1,
-                created: 0,
-                active: Some(10),
-                withdrawn: None,
-                service: ServiceType::BlendNetwork,
-                locators: locators.clone(),
-                reward_address: reward_addr,
-            }
-        );
+        assert_eq!(info1, &DeclarationInfo {
+            provider_id: p1,
+            id: d1,
+            created: 0,
+            active: Some(10),
+            withdrawn: None,
+            service: ServiceType::BlendNetwork,
+            locators: locators.clone(),
+            reward_address: reward_addr,
+        });
 
         let info2 = providers.get(&d2).unwrap();
-        assert_eq!(
-            info2,
-            &DeclarationInfo {
-                provider_id: p2,
-                id: d2,
-                created: 0,
-                active: Some(20),
-                withdrawn: None,
-                service: ServiceType::DataAvailability,
-                locators,
-                reward_address: reward_addr,
-            }
-        );
+        assert_eq!(info2, &DeclarationInfo {
+            provider_id: p2,
+            id: d2,
+            created: 0,
+            active: Some(20),
+            withdrawn: None,
+            service: ServiceType::DataAvailability,
+            locators,
+            reward_address: reward_addr,
+        });
     }
 }

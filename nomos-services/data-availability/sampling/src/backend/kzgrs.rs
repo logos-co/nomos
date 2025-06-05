@@ -5,7 +5,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use hex;
 use kzgrs_backend::common::{
     share::{DaShare, DaSharesCommitments},
     ShareIndex,
@@ -167,7 +166,7 @@ mod test {
     use kzgrs::Proof;
     use kzgrs_backend::common::{share::DaShare, Column};
     use nomos_core::da::BlobId;
-    use rand::{prelude::*, rngs::StdRng};
+    use rand::prelude::*;
 
     use crate::backend::kzgrs::{
         DaSamplingServiceBackend as _, KzgrsSamplingBackend, KzgrsSamplingBackendSettings,

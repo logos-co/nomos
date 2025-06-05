@@ -180,13 +180,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashSet,
-        task::{Context, Poll},
-    };
-
     use futures::stream;
-    use libp2p::PeerId;
     use tokio_stream::StreamExt as _;
 
     use super::*;

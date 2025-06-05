@@ -458,12 +458,11 @@ pub mod tests {
 
     use blake2::Digest as _;
     use cl::{note::NoteWitness as Note, NullifierSecret};
-    use cryptarchia_engine::{EpochConfig, Slot};
+    use cryptarchia_engine::EpochConfig;
     use rand::thread_rng;
-    use rpds::HashTrieSet;
 
     use super::*;
-    use crate::{crypto::Blake2b, leader_proof::LeaderProof, Config, LedgerError};
+    use crate::leader_proof::LeaderProof;
 
     type HeaderId = [u8; 32];
 
