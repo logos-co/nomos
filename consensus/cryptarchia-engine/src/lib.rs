@@ -529,10 +529,7 @@ where
     }
 
     /// Remove all blocks of a fork from `tip` to `lca`, excluding `lca`.
-    fn prune_fork(
-        &mut self,
-        &ForkDivergenceInfo { lca, tip }: &ForkDivergenceInfo<Id>,
-    ) -> impl Iterator<Item = Id> {
+    fn prune_fork(&mut self, &ForkDivergenceInfo { lca, tip }: &ForkDivergenceInfo<Id>) -> Vec<Id> {
         let tip_removed = self.branches.tips.remove(&tip.id);
         if !tip_removed {
             tracing::error!(target: LOG_TARGET, "Fork tip {tip:#?} not found in the set of tips.");
