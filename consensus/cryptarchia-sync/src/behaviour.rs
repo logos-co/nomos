@@ -18,8 +18,10 @@ use tokio::sync::mpsc;
 use tracing::error;
 
 use crate::{
-    blocks_downloader::DownloadBlocksTask, blocks_provider::ProvideBlocksTask,
-    messages::DownloadBlocksRequest, Block,
+    blocks_downloader::DownloadBlocksTask,
+    blocks_provider::{ProvideBlocksTask, BUFFER_SIZE},
+    messages::DownloadBlocksRequest,
+    Block,
 };
 
 /// Cryptarchia networking protocol for synchronizing blocks.
@@ -44,9 +46,9 @@ pub enum ChainSyncError {
     #[error("Stream error: {0}")]
     OpenStreamError(#[from] libp2p_stream::OpenStreamError),
     #[error("Failed to unpack data from reader: {0}")]
-    UnpackError(#[from] nomos_core::wire::packing::PackingError),
+    PackingError(#[from] nomos_core::wire::packing::PackingError),
     #[error("Failed to send data to channel: {0}")]
-    TrySendError(#[from] mpsc::error::TrySendError<BlocksResponse>),
+    TrySendError(#[from] mpsc::error::SendError<BlocksResponse>),
 }
 
 #[derive(Debug)]
@@ -170,9 +172,11 @@ impl Behaviour {
 
         let request =
             DownloadBlocksRequest::new(target_block, local_tip, immutable_block, additional_blocks);
-        let task = DownloadBlocksTask::new(peer_id, self.control.clone(), request, rx_blocks);
+        let mut task = DownloadBlocksTask::new(request, rx_blocks);
 
-        self.locally_initiated_downloads.push(task.boxed());
+        let control = self.control.clone();
+        self.locally_initiated_downloads
+            .push(async move { task.download_blocks(peer_id, control).await }.boxed());
 
         Ok(())
     }
@@ -183,9 +187,12 @@ impl Behaviour {
     ) -> Option<Poll<ToSwarmEvent>> {
         match result {
             Ok((stream, request)) => {
-                let (task, reply_sender) = ProvideBlocksTask::new(stream);
+                let (reply_sender, reply_rcv) = mpsc::channel(BUFFER_SIZE);
 
-                self.externally_initiated_downloads.push(task.boxed());
+                self.externally_initiated_downloads.push(
+                    async move { ProvideBlocksTask::provide_blocks(reply_rcv, stream).await }
+                        .boxed(),
+                );
 
                 return Some(Poll::Ready(ToSwarm::GenerateEvent(
                     Event::provide_blocks_request(
