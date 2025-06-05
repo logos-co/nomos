@@ -56,7 +56,7 @@ macro_rules! wait_until_services_are_ready {
         let overwatch_handle: &::overwatch::overwatch::OverwatchHandle<RuntimeServiceId> = $overwatch_handle;
         let timeout: Option<::std::time::Duration> = $timeout;
 
-        let mut non_ready_services: Vec<(String, ::overwatch::services::status::ServiceStatus)> = Vec::new();
+        let mut non_ready_services: Vec<$crate::overwatch::status::entry::ServiceStatusEntry<RuntimeServiceId>> = Vec::new();
 
         $(
             if let Err(service_status) = overwatch_handle
@@ -66,20 +66,14 @@ macro_rules! wait_until_services_are_ready {
                 .await
             {
                 let service_id = <RuntimeServiceId as ::overwatch::services::AsServiceId<$service_type>>::SERVICE_ID;
-                non_ready_services.push((service_id.to_string(), service_status));
+                let service_status_entry = $crate::overwatch::status::entry::ServiceStatusEntry::<RuntimeServiceId>::from_overwatch(service_id, service_status);
+                non_ready_services.push(service_status_entry);
             }
         )+;
 
         if !non_ready_services.is_empty() {
-            let error_message = format!(
-                "The following services are not ready: {}",
-                non_ready_services
-                    .into_iter()
-                    .map(|(id, status)| format!("{id}: {status:?}")) // TODO: Use display
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-            return Err(::overwatch::DynError::from(error_message));
+            let error: $crate::overwatch::status::entry::errors::ServiceStatusEntriesError<RuntimeServiceId> = non_ready_services.into();
+            return Err(::overwatch::DynError::from(error));
         }
     };
 }
