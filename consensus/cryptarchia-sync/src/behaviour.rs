@@ -331,7 +331,7 @@ mod tests {
     use libp2p::{multiaddr::Protocol, swarm::SwarmEvent, Multiaddr, Swarm};
     use libp2p_swarm_test::SwarmExt as _;
     use nomos_core::header::HeaderId;
-    use rand::{rng, thread_rng, Rng};
+    use rand::{rng, Rng as _};
     use tokio::{
         sync::{
             mpsc,
@@ -424,7 +424,7 @@ mod tests {
 
     async fn start_provider_and_downloader() -> Swarm<Behaviour> {
         let mut provider_swarm = Swarm::new_ephemeral_tokio(|_k| Behaviour::new());
-        let provider_addr: Multiaddr = Protocol::Memory(rng().random::<u16>() as u64).into();
+        let provider_addr: Multiaddr = Protocol::Memory(u64::from(rng().random::<u16>())).into();
         provider_swarm.listen_on(provider_addr.clone()).unwrap();
 
         tokio::spawn(async move {
