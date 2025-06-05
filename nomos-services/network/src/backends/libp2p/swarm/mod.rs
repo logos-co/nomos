@@ -273,7 +273,10 @@ mod tests {
             port,
             node_key: nomos_libp2p::ed25519::SecretKey::generate(),
             gossipsub_config: nomos_libp2p::gossipsub::Config::default(),
-            kademlia_config: Some(nomos_libp2p::KademliaSettings::default()),
+            kademlia_config: Some(nomos_libp2p::KademliaSettings {
+                periodic_bootstrap_interval_secs: Some(1),
+                ..Default::default()
+            }),
             identify_config: Some(nomos_libp2p::IdentifySettings::default()),
             autonat_client_config: is_boot
                 .then_some(nomos_libp2p::AutonatClientSettings::default()),
