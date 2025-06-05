@@ -1,8 +1,15 @@
-use std::task::{Context, Poll};
+use std::{
+    task::{Context, Poll},
+    time::Duration,
+};
 
-use futures::future::OptionFuture;
+use either::Either;
+use futures::{future::BoxFuture, stream::FuturesUnordered, FutureExt as _, StreamExt};
 use libp2p::{
-    autonat::v2::client::{Behaviour, Config},
+    autonat::{
+        self,
+        v2::client::{Behaviour, Config},
+    },
     core::{transport::PortUse, Endpoint},
     swarm::{
         behaviour::toggle::{Toggle, ToggleConnectionHandler},
@@ -18,6 +25,12 @@ mod state_machine;
 use state_machine::{Command, StateMachine};
 use tokio::sync::mpsc::UnboundedReceiver;
 
+/// Mock event from future address mapping behaviour.
+#[derive(Debug)]
+pub struct DummyAddressMappingFailed;
+
+type Task = BoxFuture<'static, Either<autonat::v2::client::Event, DummyAddressMappingFailed>>;
+
 /// This behaviour is responsible for confirming that the addresses of the node
 /// are publicly reachable.
 pub struct NatBehaviour<R: RngCore + 'static> {
@@ -29,12 +42,15 @@ pub struct NatBehaviour<R: RngCore + 'static> {
     /// node are indeed publicly reachable. This behaviour is **disabled** if
     /// the node is configured with a static public IP address.
     autonat_client_behaviour: Toggle<Behaviour<R>>,
-    /// TODO
-    next_autonat_client_tick: OptionFuture<tokio::time::Sleep>,
-    /// TODO
+    /// The state machine reacts to events from the swarm and from the
+    /// sub-behaviours of the `NatBehaviour` and issues commands to the
+    /// `NatBehaviour`.
     state_machine: StateMachine,
-    /// TODO
+    /// Commands issued by the state machine are received through this end of
+    /// the channel.
     command_rx: UnboundedReceiver<Command>,
+    /// Used to schedule tasks which commanded from the state machine.
+    tasks: FuturesUnordered<Task>,
 }
 
 impl<R: RngCore + 'static> NatBehaviour<R> {
@@ -49,12 +65,9 @@ impl<R: RngCore + 'static> NatBehaviour<R> {
         Self {
             static_listen_addr: None,
             autonat_client_behaviour,
-            next_autonat_client_tick: Some(tokio::time::sleep(tokio::time::Duration::from_secs(
-                60, // TODO config
-            )))
-            .into(),
-            state_machine,
+            tasks: FuturesUnordered::new(),
             command_rx,
+            state_machine,
         }
     }
 }
@@ -63,7 +76,7 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
     type ConnectionHandler =
         ToggleConnectionHandler<<Behaviour as NetworkBehaviour>::ConnectionHandler>;
 
-    type ToSwarm = <Behaviour as NetworkBehaviour>::ToSwarm;
+    type ToSwarm = Either<<Behaviour as NetworkBehaviour>::ToSwarm, DummyAddressMappingFailed>;
 
     fn handle_pending_inbound_connection(
         &mut self,
@@ -153,12 +166,62 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
             return Poll::Ready(ToSwarm::ExternalAddrConfirmed(addr));
         }
 
-        if let Poll::Ready(command) = self.autonat_client_behaviour.poll(cx) {
-            if let ToSwarm::GenerateEvent(event) = &command {
+        if let Poll::Ready(to_swarm) = self.autonat_client_behaviour.poll(cx) {
+            if let ToSwarm::GenerateEvent(event) = &to_swarm {
                 self.state_machine.on_event(event);
             }
 
-            return Poll::Ready(command);
+            return Poll::Ready(to_swarm.map_out(Either::Left));
+        }
+
+        if let Poll::Ready(command) = self.command_rx.poll_recv(cx) {
+            if let Some(command) = command {
+                match command {
+                    // TODO once we have the address mapping behaviour and the autonat client
+                    // behaviour capable of re-testing successfully tested addresses, the takss will
+                    // return noting ()
+                    Command::ScheduleAutonatClientTest => self.tasks.push(
+                        async {
+                            // TODO config
+                            tokio::time::sleep(Duration::from_secs(60)).await;
+                            // TODO rework autonat::v2::Client to allow
+                            // re-testing a successfully tested address.
+                            // For now simulate a successful test.
+                            Either::Left(autonat::v2::client::Event {
+                                // This should be the address to test
+                                tested_addr: Multiaddr::empty(),
+                                result: Ok(()),
+                                bytes_sent: 0,
+                                server: PeerId::random(),
+                            })
+                        }
+                        .boxed(),
+                    ),
+                    Command::MapAddress => self.tasks.push(
+                        async {
+                            // Simulate an address mapping failure.
+                            Either::Right(DummyAddressMappingFailed)
+                        }
+                        .boxed(),
+                    ),
+                    Command::NewExternalAddrCandidate => {
+                        // TODO
+                        return Poll::Ready(ToSwarm::NewExternalAddrCandidate(Multiaddr::empty()));
+                    }
+                }
+            }
+        }
+
+        // Pretend we're polling events from the address mapping behaviour
+        // TODO add dummy address mapping behaviour which always fails
+        // TODO add autonat client wrapper which always returns a success on re-test
+        if let Poll::Ready(Some(mocked_event)) = self.tasks.poll_next_unpin(cx) {
+            match mocked_event {
+                Either::Left(autonat_event) => self.state_machine.on_event(&autonat_event),
+                Either::Right(address_mapper_event) => {
+                    self.state_machine.on_event(&address_mapper_event)
+                }
+            }
         }
 
         Poll::Pending
@@ -252,7 +315,7 @@ mod tests {
                 ..
             } = client
                 .wait(|e| match e {
-                    SwarmEvent::Behaviour(ClientEvent::Nat(event)) => Some(event),
+                    SwarmEvent::Behaviour(ClientEvent::Nat(Either::Left(event))) => Some(event),
                     _ => None,
                 })
                 .await;
