@@ -176,6 +176,19 @@ mod tests {
 
     #[test]
     fn test_adapter_usage() {
+        // Test demonstrates the usage of DaMembershipHandler in Overwatch service.
+        //
+        // Network backend with swarm is initialized in then service init
+        // method. Adapter will be initialized in the run method, because it needs
+        // handle to the membership service. To allow backend to read the current
+        // membership and adapter to update the membership, a shared DaMembershipHandler
+        // was created.
+        //
+        // It's initialized inside init method, and then passed as clone to the adapter
+        // in the run method.
+        //
+        // To see how DaMembership is initialized and later cloned please check out
+        // MockService::init and MockService::run methods.
         let service = MockService::init();
         service.run();
 
