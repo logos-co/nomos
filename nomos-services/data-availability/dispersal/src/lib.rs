@@ -1,6 +1,7 @@
 use std::{
     fmt::{Debug, Display},
     marker::PhantomData,
+    time::Duration,
 };
 
 use nomos_core::da::blob::metadata;
@@ -13,6 +14,7 @@ use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
 };
 use serde::{Deserialize, Serialize};
+use services_utils::wait_until_services_are_ready;
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
 use tracing::error;
@@ -130,7 +132,8 @@ where
         + Send
         + AsServiceId<Self>
         + AsServiceId<NetworkAdapter::NetworkService>
-        + AsServiceId<MempoolAdapter::MempoolService>,
+        + AsServiceId<MempoolAdapter::MempoolService>
+        + 'static,
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
@@ -171,6 +174,13 @@ where
         tracing::info!(
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
+
+        wait_until_services_are_ready!(
+            &service_resources_handle.overwatch_handle,
+            Some(Duration::from_millis(3000)),
+            NetworkAdapter::NetworkService,
+            MempoolAdapter::MempoolService
         );
 
         while let Some(dispersal_msg) = inbound_relay.recv().await {
