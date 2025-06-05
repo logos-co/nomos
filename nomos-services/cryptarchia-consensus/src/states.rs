@@ -1,7 +1,7 @@
-use std::marker::PhantomData;
+use std::{collections::HashSet, marker::PhantomData};
 
 use cl::NoteWitness;
-use cryptarchia_engine::{Branch, CryptarchiaState, ForkDivergenceInfo};
+use cryptarchia_engine::{CryptarchiaState, ForkDivergenceInfo};
 use nomos_core::header::HeaderId;
 use nomos_ledger::LedgerState;
 use overwatch::services::state::ServiceState;
@@ -32,13 +32,6 @@ pub struct SecurityRecoveryStrategy {
     pub security_ledger_state: LedgerState,
     pub security_leader_notes: Vec<NoteWitness>,
     pub security_block_chain_length: u64,
-    /// The list of blocks that should have been deleted from the persistence
-    /// layer but failed to do so.
-    ///
-    /// We keep track of them in the recovery state so we can re-trigger their
-    /// deletion from the persistence storage after the cryptarchia instance is
-    /// re-created.
-    pub prunable_blocks: Vec<Branch<HeaderId>>,
 }
 
 pub enum CryptarchiaInitialisationStrategy {
@@ -62,7 +55,10 @@ pub struct CryptarchiaConsensusState<
     security_ledger_state: Option<LedgerState>,
     security_leader_notes: Option<Vec<NoteWitness>>,
     security_block_length: Option<u64>,
-    prunable_blocks: Vec<Branch<HeaderId>>,
+    /// Set of blocks that have been pruned from the engine but have not yet
+    /// been deleted from the persistence layer because of some unexpected
+    /// error.
+    pub(crate) prunable_blocks: HashSet<HeaderId>,
     _txs: PhantomData<TxS>,
     _bxs: PhantomData<BxS>,
     _network_adapter_settings: PhantomData<NetworkAdapterSettings>,
@@ -85,7 +81,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
         security_ledger_state: Option<LedgerState>,
         security_leader_notes: Option<Vec<NoteWitness>>,
         security_block_length: Option<u64>,
-        prunable_blocks: Vec<Branch<HeaderId>>,
+        prunable_blocks: HashSet<HeaderId>,
     ) -> Self {
         Self {
             tip,
@@ -102,9 +98,17 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
         }
     }
 
-    pub(crate) fn from_cryptarchia<State: CryptarchiaState>(
+    /// Re-create the cryptarchia state given the engine instance and the leader
+    /// details.
+    ///
+    /// Furthermore, it allows to specify blocks deleted from the cryptarchia
+    /// engine (hence not tracked anymore) but that should be deleted from the
+    /// persistence layer, which are added to the prunable blocks belonging to
+    /// old enough forks as returned by the cryptarchia engine.
+    pub(crate) fn from_cryptarchia_and_unpruned_blocks<State: CryptarchiaState>(
         cryptarchia: &Cryptarchia<State>,
         leader: &Leader,
+        mut prunable_blocks: HashSet<HeaderId>,
     ) -> Self {
         let security_block_header = cryptarchia.consensus.get_security_block_header_id();
         let security_ledger_state = security_block_header
@@ -137,11 +141,10 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
 
         // Merge all blocks from each prunable fork's tip up until (but excluding) the
         // fork's LCA with the canonical chain.
-        let mut prunable_blocks = Vec::new();
         for ForkDivergenceInfo { lca, tip } in prunable_forks {
             let mut cursor = tip;
             while cursor != lca {
-                prunable_blocks.push(cursor);
+                prunable_blocks.insert(cursor.id());
                 cursor = cryptarchia
                     .consensus
                     .branches()
@@ -195,7 +198,6 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
                     .security_block_length
                     .take()
                     .expect("security block length not available"),
-                prunable_blocks: self.prunable_blocks.clone(),
             };
             CryptarchiaInitialisationStrategy::RecoveryFromSecurity(Box::new(strategy))
         } else if self.can_recover() {
@@ -222,7 +224,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
     type Error = Error;
 
     fn from_settings(_settings: &Self::Settings) -> Result<Self, Self::Error> {
-        Ok(Self::new(None, None, None, None, None, Vec::new()))
+        Ok(Self::new(None, None, None, None, None, HashSet::new()))
     }
 }
 
@@ -297,7 +299,6 @@ mod tests {
                 .field("security_ledger_state", &self.security_ledger_state)
                 .field("security_leader_notes", &self.security_leader_notes)
                 .field("security_block_length", &self.security_block_chain_length)
-                .field("prunable_blocks", &self.prunable_blocks)
                 .finish()
         }
     }
@@ -310,7 +311,7 @@ mod tests {
             None,
             None,
             None,
-            Vec::new(),
+            HashSet::new(),
         );
         assert!(!state.can_recover());
 
@@ -321,7 +322,7 @@ mod tests {
             None,
             None,
             None,
-            Vec::new(),
+            HashSet::new(),
         );
         assert!(state.can_recover());
     }
@@ -335,7 +336,7 @@ mod tests {
             None,
             None,
             None,
-            Vec::new(),
+            HashSet::new(),
         );
         assert!(!state.can_recover_from_security());
 
@@ -345,7 +346,7 @@ mod tests {
             Some(LedgerState::from_commitments(vec![], 0)),
             Some(Vec::new()),
             Some(0),
-            Vec::new(),
+            HashSet::new(),
         );
         assert!(state.can_recover_from_security());
     }
@@ -358,7 +359,7 @@ mod tests {
             None,
             None,
             None,
-            Vec::new(),
+            HashSet::new(),
         );
         assert_eq!(
             state.recovery_strategy(),
@@ -372,7 +373,7 @@ mod tests {
             None,
             None,
             None,
-            Vec::new(),
+            HashSet::new(),
         );
         assert_eq!(
             state.recovery_strategy(),
@@ -388,7 +389,7 @@ mod tests {
             Some(ledger_state.clone()),
             Some(Vec::new()),
             Some(0),
-            Vec::new(),
+            HashSet::new(),
         );
         assert_eq!(
             state.recovery_strategy(),
@@ -399,7 +400,6 @@ mod tests {
                     security_ledger_state: ledger_state,
                     security_leader_notes: Vec::new(),
                     security_block_chain_length: 0,
-                    prunable_blocks: Vec::new()
                 }
             ))
         );
@@ -476,13 +476,16 @@ mod tests {
             ledger_config,
         );
 
-        let recovery_state = CryptarchiaConsensusState::<(), (), (), (), ()>::from_cryptarchia(
-            &Cryptarchia {
-                ledger: ledger_state,
-                consensus: cryptarchia_engine,
-            },
-            &leader,
-        );
+        // Test when no additional blocks are included.
+        let recovery_state =
+            CryptarchiaConsensusState::<(), (), (), (), ()>::from_cryptarchia_and_unpruned_blocks(
+                &Cryptarchia {
+                    ledger: ledger_state.clone(),
+                    consensus: cryptarchia_engine.clone(),
+                },
+                &leader,
+                HashSet::new(),
+            );
 
         // We configured `k = 2`, and since the canonical chain is 4-block long (blocks
         // `0` to `4`), it means that all forks diverging from and before 2
@@ -496,13 +499,39 @@ mod tests {
             recovery_state
                 .prunable_blocks
                 .into_iter()
-                .map(|b| b.id())
                 .collect::<HashSet<_>>(),
             [
                 [4; 32].into(),
                 [5; 32].into(),
                 [6; 32].into(),
                 [7; 32].into()
+            ]
+            .into()
+        );
+
+        // Test when additional blocks are included.
+        let recovery_state =
+            CryptarchiaConsensusState::<(), (), (), (), ()>::from_cryptarchia_and_unpruned_blocks(
+                &Cryptarchia {
+                    ledger: ledger_state,
+                    consensus: cryptarchia_engine,
+                },
+                &leader,
+                core::iter::once([255; 32].into()).collect(),
+            );
+
+        // Result should be the same as above, with the addition of the new block
+        assert_eq!(
+            recovery_state
+                .prunable_blocks
+                .into_iter()
+                .collect::<HashSet<_>>(),
+            [
+                [4; 32].into(),
+                [5; 32].into(),
+                [6; 32].into(),
+                [7; 32].into(),
+                [255; 32].into()
             ]
             .into()
         );

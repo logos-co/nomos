@@ -7,9 +7,14 @@ mod states;
 pub mod storage;
 
 use core::fmt::Debug;
-use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
+use std::{
+    collections::{BTreeSet, HashSet},
+    fmt::Display,
+    hash::Hash,
+    path::PathBuf,
+};
 
-use cryptarchia_engine::{Boostrapping, CryptarchiaState, Online, Slot};
+use cryptarchia_engine::{CryptarchiaState, Online, Slot};
 use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
@@ -610,6 +615,10 @@ where
 
         let genesis_id = HeaderId::from([0; 32]);
 
+        // These are blocks that have been pruned by the cryptarchia engine but have not
+        // yet been deleted from the storage layer.
+        let mut previously_pruned_blocks = self.initial_state.prunable_blocks.clone();
+
         let (mut cryptarchia, mut leader) = Self::build_cryptarchia(
             self.initial_state,
             genesis_id,
@@ -661,9 +670,10 @@ where
                         )
                         .await;
 
-                        Self::prune_old_forks(&mut cryptarchia, &mut leader, relays.storage_adapter()).await;
-                        // We update cryptarchia state only after attempting to prune blocks, to avoid saving blocks that have been already successfully pruned.
-                        self.service_resources_handle.state_updater.update(Some(Self::State::from_cryptarchia(&cryptarchia, &leader)));
+                        // This will modify `previously_pruned_blocks` to include blocks which are not tracked by Cryptarchia anymore but have not been deleted from the persistence layer.
+                        Self::prune_forks(&mut cryptarchia, &mut leader, relays.storage_adapter(), &mut previously_pruned_blocks).await;
+                        // We dump the undeleted blocks to storage so they are picked up by the service again if it suddenly stops.
+                        self.service_resources_handle.state_updater.update(Some(Self::State::from_cryptarchia_and_unpruned_blocks(&cryptarchia, &leader, previously_pruned_blocks.clone())));
 
                         info!(counter.consensus_processed_blocks = 1);
                     }
@@ -698,9 +708,10 @@ where
                                     &relays,
                                     &mut self.block_subscription_sender
                                 ).await;
-                                Self::prune_old_forks(&mut cryptarchia, &mut leader, relays.storage_adapter()).await;
-                                // We update cryptarchia state only after attempting to prune blocks, to avoid saving blocks that have been already successfully pruned.
-                                self.service_resources_handle.state_updater.update(Some(Self::State::from_cryptarchia(&cryptarchia, &leader)));
+                                // This will modify `previously_pruned_blocks` to include blocks which are not tracked by Cryptarchia but have not been deleted from the persistence layer.
+                                Self::prune_forks(&mut cryptarchia, &mut leader, relays.storage_adapter(), &mut previously_pruned_blocks).await;
+                                // We dump the undeleted blocks to storage so they are picked up by the service again if it suddenly stops.
+                                self.service_resources_handle.state_updater.update(Some(Self::State::from_cryptarchia_and_unpruned_blocks(&cryptarchia, &leader, previously_pruned_blocks.clone())));
                                 blend_adapter.blend(block).await;
                             }
                         }
@@ -1365,7 +1376,6 @@ where
             security_ledger_state,
             security_leader_notes,
             security_block_chain_length,
-            prunable_blocks,
         }: SecurityRecoveryStrategy,
         genesis_id: HeaderId,
         genesis_state: LedgerState,
@@ -1388,12 +1398,8 @@ where
         >,
         block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> (Cryptarchia<Online>, Leader) {
-        // We need to initialize cryptarchia in bootstrapping mode to allow to add old,
-        // undeleted forks to the engine (down below). Once those forks are added, we
-        // migrate to `Online` state and let the service call `prune_forks`
-        // later on.
         let mut cryptarchia =
-            <Cryptarchia<Boostrapping>>::from_genesis(genesis_id, genesis_state, ledger_config);
+            <Cryptarchia<Online>>::from_genesis(genesis_id, genesis_state, ledger_config);
         let mut leader = Leader::new(
             security_block_id,
             security_leader_notes,
@@ -1428,75 +1434,29 @@ where
             .await;
         }
 
-        // Add prunable blocks, to account for potential DB errors before the node was
-        // shutdown and avoid inconsistent state later on.
-        // We only store the information about the blocks themselves, without any
-        // associated ledger nor leadership-related information.
-        // Each block that has already been deleted by the storage adapter in a previous
-        // iteration will result in a no-op, so it's not a big deal.
-        // Given the right fork choice rules, these forks will fail to extend as they
-        // are past the Last Immutable Block (LIB), hence they will be pruned the next
-        // time the fork choice rule is triggered.
-        for block in prunable_blocks {
-            cryptarchia.consensus = cryptarchia.consensus.receive_block_unchecked(
-                block.id(),
-                block.parent(),
-                block.slot(),
-                block.length(),
-            );
-        }
-
-        (
-            Cryptarchia {
-                consensus: cryptarchia.consensus.online(),
-                ledger: cryptarchia.ledger,
-            },
-            leader,
-        )
+        (cryptarchia, leader)
     }
 
     /// Remove the in-memory storage of stale blocks from the cryptarchia engine
     /// and of stale `PoL` notes from the `PoL` machinery.
     /// Furthermore, it attempts to remove the deleted block data from storage
-    /// as well.
+    /// as well, also including the blocks provided in `prunable_blocks` that
+    /// might belong to previous pruning operations and that failed for some
+    /// reason.
     ///
-    /// If the interaction with the DB fails, the changes are rolled back, and
-    /// the to-be-pruned forks kept inside the in-memory engine, and a new
-    /// deletion will be performed at the next pruning attempt.
-    async fn prune_old_forks(
+    /// Any block that fails to be deleted from the storage layer is added to
+    /// the provided `prunable_blocks` parameter and will be picked up at the
+    /// next invocation of this function.
+    async fn prune_forks(
         cryptarchia: &mut Cryptarchia<Online>,
         leader: &mut Leader,
         storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
+        prunable_blocks: &mut HashSet<HeaderId>,
     ) {
-        // We make a copy of the original state so we don't change the input state
-        // directly. This allows us to rollback in case the storage yields inconsistent
-        // results.
-        let mut local_cryptarchia_changes = cryptarchia.clone();
-        let mut local_leader_changes = leader.clone();
-
-        // Apply changes to the local copy.
-        let old_forks_pruned = local_cryptarchia_changes
-            .prune_old_forks()
-            .collect::<Vec<_>>();
-
-        let Ok(()) = Self::delete_pruned_blocks_from_storage(
-            old_forks_pruned.iter().copied(),
-            storage_adapter,
-        )
-        .await
-        else {
-            // Bail out early (not changing the input `cryptarchia` value if the storage
-            // returned an error).
-            tracing::error!(
-                target: LOG_TARGET,
-                "Underlying storage failed to delete some blocks. We rollback cryptarchia to avoid inconsistencies."
-            );
-            return;
-        };
-
+        let old_forks_pruned = cryptarchia.prune_old_forks().collect::<HashSet<_>>();
         // And remove the notes of the pruned blocks from the leader state.
         for old_fork_pruned in &old_forks_pruned {
-            if local_leader_changes.prune_notes_at(old_fork_pruned) {
+            if leader.prune_notes_at(old_fork_pruned) {
                 tracing::debug!(
                     target: LOG_TARGET,
                     "Leader proof for block {old_fork_pruned} removed from in-memory storage."
@@ -1504,10 +1464,26 @@ where
             }
         }
 
-        // If all operations succeed, update the input values to point to the updated
-        // state.
-        *cryptarchia = local_cryptarchia_changes;
-        *leader = local_leader_changes;
+        // We try to delete both freshly pruned forks as well as old pruned blocks.
+        match Self::delete_pruned_blocks_from_storage(
+            old_forks_pruned
+                .iter()
+                .chain(prunable_blocks.iter())
+                .copied(),
+            storage_adapter,
+        )
+        .await
+        {
+            // All blocks, past and present, have been successfully deleted from storage.
+            Ok(()) => *prunable_blocks = HashSet::new(),
+            // We retain the blocks that failed to be deleted.
+            Err(failed_blocks) => {
+                *prunable_blocks = failed_blocks
+                    .into_iter()
+                    .map(|(block_id, _)| block_id)
+                    .collect();
+            }
+        }
     }
 
     /// Send a bulk deletion request to the storage adapter.
