@@ -1,10 +1,7 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashSet, sync::Arc};
 
 use arc_swap::{ArcSwap, Guard};
-use subnetworks_assignations::MembershipHandler;
+use subnetworks_assignations::{MembershipHandler, SubnetworkAssignations};
 
 pub struct DaMembershipHandler<Membership> {
     membership: Arc<ArcSwap<Membership>>,
@@ -64,7 +61,7 @@ where
         self.membership.load().get_address(peer_id)
     }
 
-    fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
+    fn subnetworks(&self) -> SubnetworkAssignations<Self::NetworkId, Self::Id> {
         self.membership.load().subnetworks()
     }
 }

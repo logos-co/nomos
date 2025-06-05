@@ -9,6 +9,8 @@ use std::{
 use libp2p::Multiaddr;
 use libp2p_identity::PeerId;
 
+pub type SubnetworkAssignations<NetworkId, Id> = HashMap<NetworkId, HashSet<Id>>;
+
 pub trait MembershipCreator: MembershipHandler {
     /// Initializes the underlying implementor with the provided members list.
     #[must_use]
@@ -48,7 +50,7 @@ pub trait MembershipHandler {
     fn get_address(&self, peer_id: &PeerId) -> Option<Multiaddr>;
 
     /// Returns all subnetworks with assigned members.
-    fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>>;
+    fn subnetworks(&self) -> SubnetworkAssignations<Self::NetworkId, Self::Id>;
 }
 
 impl<T> MembershipHandler for Arc<T>

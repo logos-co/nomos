@@ -4,7 +4,7 @@ use libp2p::Multiaddr;
 use libp2p_identity::PeerId;
 use serde::{Deserialize, Serialize};
 
-use crate::MembershipHandler;
+use crate::{MembershipHandler, SubnetworkAssignations};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct FillWithOriginalReplication {
@@ -113,7 +113,7 @@ impl MembershipHandler for FillWithOriginalReplication {
         self.addressbook.get(peer_id).cloned()
     }
 
-    fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
+    fn subnetworks(&self) -> SubnetworkAssignations<Self::NetworkId, Self::Id> {
         self.assignations
             .iter()
             .enumerate()
