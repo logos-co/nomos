@@ -5,7 +5,7 @@ use crate::{
     tx::TxHash,
 };
 
-#[derive(Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct InscriptionOp {
     /// Message to be written in the blockchain
     inscription: Vec<u8>,

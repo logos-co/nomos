@@ -29,12 +29,13 @@ use nomos_da_verifier::{
     network::adapters::executor::Libp2pAdapter as VerifierNetworkAdapter,
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
+use nomos_mantle_core::tx::SignedMantleTx;
 use nomos_mempool::backend::mockpool::MockPool;
 #[cfg(feature = "tracing")]
 use nomos_node::Tracing;
 use nomos_node::{
     BlobInfo, HeaderId, MempoolNetworkAdapter, NetworkBackend, NomosDaMembership, RocksBackend,
-    SystemSig, Tx, Wire, MB16,
+    SystemSig, Wire, MB16,
 };
 use nomos_time::backends::NtpTimeBackend;
 use overwatch::derive_services;
@@ -145,7 +146,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
         KzgrsDaVerifier,
         VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
         VerifierStorageAdapter<DaShare, Wire, DaStorageConverter>,
-        Tx,
+        SignedMantleTx,
         Wire,
         DaStorageConverter,
         DispersalKZGRSBackend<
