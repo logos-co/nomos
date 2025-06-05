@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use nomos_core::block::BlockNumber;
-use nomos_sdp::backends::SdpBackendError;
 use nomos_sdp_core::{FinalizedBlockEvent, ServiceType};
 use overwatch::DynError;
+use thiserror::Error;
 
 use crate::MembershipProviders;
 
@@ -18,11 +18,13 @@ pub struct Settings {
     historical_block_delta: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum MembershipBackendError {
-    Other(DynError),
-    Sdp(SdpBackendError),
-    MockBackendError(DynError),
+    #[error("Other error: {0}")]
+    Other(#[from] DynError),
+
+    #[error("The block received is not greater than the last known block")]
+    BlockFromPast,
 }
 
 #[async_trait]

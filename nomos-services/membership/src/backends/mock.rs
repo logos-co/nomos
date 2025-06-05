@@ -71,9 +71,7 @@ impl MembershipBackend for MockMembershipBackend {
         let block_number = update.block_number;
 
         if block_number <= self.latest_block_number {
-            return Err(MembershipBackendError::Other(
-                "Block number is not greater than the latest block number".into(),
-            ));
+            return Err(MembershipBackendError::BlockFromPast);
         }
 
         let mut latest_entry = self
