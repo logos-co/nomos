@@ -22,6 +22,8 @@ jobs:
         uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
       - name: Check cargo version
         run: cargo --version
+      - name: Check rustup version
+        run: rustup --version
       - name: Install cargo-depgraph
         run: cargo install cargo-depgraph@1.6.0
       - name: Generate new graph
