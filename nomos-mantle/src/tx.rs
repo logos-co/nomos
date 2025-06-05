@@ -25,7 +25,7 @@ impl GasPrice for LedgerTx {
     }
 }
 pub type OpProof = ();
-pub type LedgerTxProof = ();
+pub type ZkSignature = ();
 
 pub const MANTLE_HASH_VERSION: &[u8] = b"NOMOS_MANTLE_TXHASH_V1";
 
@@ -34,7 +34,7 @@ pub struct MantleTx {
     pub ops: Vec<Op>,
     // temporary holder
     pub ledger_tx: LedgerTx,
-    pub gas_price: u64,
+    pub gas_price: Gas,
 }
 
 impl Hash for MantleTx {
@@ -72,5 +72,5 @@ impl nomos_core::tx::Transaction for MantleTx {
 pub struct SignedMantleTx {
     pub mantle_tx: MantleTx,
     pub ops_profs: Vec<OpProof>,
-    pub ledger_tx_proof: LedgerTxProof,
+    pub ledger_tx_proof: ZkSignature,
 }
