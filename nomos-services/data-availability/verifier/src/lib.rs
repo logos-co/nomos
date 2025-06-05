@@ -6,6 +6,7 @@ use std::{
     error::Error,
     fmt::{Debug, Display, Formatter},
     sync::Arc,
+    time::Duration,
 };
 
 use backend::VerifierBackend;
@@ -22,6 +23,7 @@ use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
 };
 use serde::{Deserialize, Serialize};
+use services_utils::wait_until_services_are_ready;
 use storage::DaStorageAdapter;
 use tokio::sync::oneshot::Sender;
 use tokio_stream::StreamExt as _;
@@ -198,6 +200,13 @@ where
         tracing::info!(
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
+
+        wait_until_services_are_ready!(
+            &service_resources_handle.overwatch_handle,
+            Some(Duration::from_millis(3000)),
+            NetworkService<_, _>,
+            StorageService<_, _>
         );
 
         loop {
