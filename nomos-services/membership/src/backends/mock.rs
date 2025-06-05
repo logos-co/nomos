@@ -3,8 +3,9 @@ use std::{
     vec,
 };
 
+use nomos_core::block::BlockNumber;
 use nomos_sdp_core::{
-    BlockNumber, FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId, ServiceType,
+    FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId, ServiceType,
 };
 
 use super::{MembershipBackend, MembershipBackendError, Settings};
@@ -152,10 +153,10 @@ mod tests {
     use std::collections::{BTreeSet, HashMap, HashSet};
 
     use multiaddr::multiaddr;
+    use nomos_core::block::BlockNumber;
     use nomos_sdp_core::{
-        BlockNumber, DeclarationId, DeclarationInfo, DeclarationMessage, DeclarationState,
-        FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId, RewardAddress,
-        ServiceType,
+        DeclarationId, DeclarationInfo, DeclarationMessage, DeclarationState, FinalizedBlockEvent,
+        FinalizedBlockEventUpdate, Locator, ProviderId, RewardAddress, ServiceType,
     };
 
     use super::{

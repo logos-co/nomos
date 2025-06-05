@@ -1,3 +1,4 @@
+use nomos_core::block::BlockNumber;
 use nomos_sdp_core::{
     ledger::{
         SdpLedger,
@@ -8,7 +9,7 @@ use nomos_sdp_core::{
         },
         ServicesRepository,
     },
-    BlockNumber, SdpMessage,
+    SdpMessage,
 };
 
 use super::{SdpBackend, SdpBackendError};

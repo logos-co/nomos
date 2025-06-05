@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
+use nomos_core::block::BlockNumber;
 use nomos_sdp::backends::SdpBackendError;
-use nomos_sdp_core::{BlockNumber, FinalizedBlockEvent, ServiceType};
+use nomos_sdp_core::{FinalizedBlockEvent, ServiceType};
 use overwatch::DynError;
 
 use crate::MembershipProviders;

@@ -7,7 +7,8 @@ use adapters::{declaration::SdpDeclarationAdapter, services::SdpServicesAdapter}
 use async_trait::async_trait;
 use backends::{SdpBackend, SdpBackendError};
 use futures::{Stream, StreamExt as _};
-use nomos_sdp_core::{ledger, BlockNumber, FinalizedBlockEvent};
+use nomos_core::block::BlockNumber;
+use nomos_sdp_core::{ledger, FinalizedBlockEvent};
 use overwatch::{
     services::{
         state::{NoOperator, NoState},

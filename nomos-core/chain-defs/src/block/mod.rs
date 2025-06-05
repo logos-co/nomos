@@ -10,6 +10,8 @@ use crate::{header::Header, wire};
 
 pub type TxHash = [u8; 32];
 
+pub type BlockNumber = u64;
+
 /// A block
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Block<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> {

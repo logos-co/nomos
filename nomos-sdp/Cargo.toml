@@ -8,6 +8,7 @@ version           = "0.1.0"
 async-trait = "0.1"
 blake2      = "0.10"
 multiaddr   = "0.18"
+nomos-core  = { workspace = true }
 thiserror   = "1"
 tracing     = "0.1"
 

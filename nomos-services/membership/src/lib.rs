@@ -8,7 +8,8 @@ use adapters::SdpAdapter;
 use async_trait::async_trait;
 use backends::{MembershipBackend, MembershipBackendError};
 use futures::{Stream, StreamExt as _};
-use nomos_sdp_core::{BlockNumber, Locator, ProviderId};
+use nomos_core::block::BlockNumber;
+use nomos_sdp_core::{Locator, ProviderId};
 use overwatch::{
     services::{
         state::{NoOperator, NoState},

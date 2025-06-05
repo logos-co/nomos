@@ -1,4 +1,4 @@
-use nomos_sdp_core::BlockNumber;
+use nomos_core::block::BlockNumber;
 use overwatch::DynError;
 
 use crate::adapters::{declaration::SdpDeclarationAdapter, services::SdpServicesAdapter};
