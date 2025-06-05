@@ -184,25 +184,21 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
         }
     }
 
-    /// Prune the in-memory storage of forks older than or equal to the security
-    /// block `k`.
+    /// Prune the in-memory storage of forks older than or equal to the Last
+    /// Immutable Block (LIB).
     ///
     /// The old blocks are removed from the consensus engine and their state
     /// removed from the ledger state.
     pub fn prune_old_forks(&mut self) -> impl Iterator<Item = HeaderId> {
         // We need to iterate once, then return the unconsumed iterator, so we need to
         // collect first.
-        let old_forks_pruned = self
+        let lib_depth = self
             .consensus
-            .prune_forks(
-                self.ledger
-                    .config()
-                    .consensus_config
-                    .security_param
-                    .get()
-                    .into(),
-            )
-            .collect::<Vec<_>>();
+            .tip_branch()
+            .length()
+            .checked_sub(self.consensus.lib_branch().length())
+            .expect("Canonical chain tip heigh must be higher than LIB height.");
+        let old_forks_pruned = self.consensus.prune_forks(lib_depth).collect::<Vec<_>>();
         let mut pruned_states_count = 0usize;
         for pruned_block in &old_forks_pruned {
             if self.ledger.prune_state_at(pruned_block) {

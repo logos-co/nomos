@@ -570,6 +570,10 @@ where
         self.branches.lib
     }
 
+    pub fn lib_branch(&self) -> &Branch<Id> {
+        &self.branches.branches[&self.lib()]
+    }
+
     pub fn get_security_block_header_id(&self) -> Option<Id> {
         (0..self.config.security_param.get()).try_fold(self.tip(), |header, _| {
             let branch = self.branches.get(&header)?;
