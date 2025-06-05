@@ -12,6 +12,7 @@ use std::{
     fmt::Display,
     hash::Hash,
     path::PathBuf,
+    time::Duration,
 };
 
 use cryptarchia_engine::{CryptarchiaState, Online, Slot};
@@ -44,8 +45,9 @@ use overwatch::{
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_with::serde_as;
-use services_utils::overwatch::{
-    recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator,
+use services_utils::{
+    overwatch::{recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator},
+    wait_until_services_are_ready,
 };
 use thiserror::Error;
 use tokio::sync::{broadcast, oneshot};
@@ -655,6 +657,19 @@ where
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
+
+        wait_until_services_are_ready!(
+            &self.service_resources_handle.overwatch_handle,
+            Some(Duration::from_millis(3000)),
+            NetworkService<_, _>,
+            BlendService<_, _, _>,
+            TxMempoolService<_, _, _>,
+            DaMempoolService<_, _, _, _, _, _, _, _, _, _, _>,
+            DaSamplingService<_, _, _, _, _, _, _, _, _>,
+            StorageService<_, _>,
+            TimeService<_, _>
+        )
+        .await?;
 
         let async_loop = async {
             loop {

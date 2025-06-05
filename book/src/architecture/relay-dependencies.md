@@ -53,6 +53,7 @@ graph TD
 
   Blend --> Network
 
+  CryptarchiaConsensus --> Network
   CryptarchiaConsensus --> Blend
   CryptarchiaConsensus --> Mempool_TX
   CryptarchiaConsensus --> Mempool_DA
@@ -101,6 +102,7 @@ Blend
 └── Network
 
 CryptarchiaConsensus  
+├── Network
 ├── Blend  
 ├── Mempool - TX  
 ├── Mempool - DA  
