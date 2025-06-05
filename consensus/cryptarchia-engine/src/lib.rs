@@ -551,9 +551,9 @@ where
         }
         tracing::debug!(
             target: LOG_TARGET,
-            "Pruned {} branches from {tip:#?} to {current_tip:#?}.", removed_blocks.len()
+            "Pruned {} blocks from {tip:#?} to {current_tip:#?}.", removed_blocks.len()
         );
-        removed_blocks.into_iter()
+        removed_blocks
     }
 
     pub const fn genesis(&self) -> Id {
