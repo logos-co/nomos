@@ -5,8 +5,8 @@ use std::{collections::BTreeSet, hash::Hash};
 
 use blake2::{Blake2b, Digest as _};
 use multiaddr::Multiaddr;
-use serde::{Deserialize, Serialize};
 use nomos_core::block::BlockNumber;
+use serde::{Deserialize, Serialize};
 
 pub type StakeThreshold = u64;
 
