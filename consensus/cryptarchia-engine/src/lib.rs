@@ -504,7 +504,7 @@ where
     pub fn prunable_forks(&self, depth: u64) -> impl Iterator<Item = ForkDivergenceInfo<Id>> + '_ {
         let local_chain = self.local_chain;
         let Some(target_height) = local_chain.length.checked_sub(depth) else {
-            tracing::info!(
+            tracing::debug!(
                 target: LOG_TARGET,
                 "No prunable fork, the canonical chain is not longer than the provided depth. Canonical chain length: {}, provided depth: {}", local_chain.length, depth
             );
