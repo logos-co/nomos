@@ -1,5 +1,7 @@
 use libp2p::{autonat, swarm::FromSwarm};
 
+use crate::behaviour::nat::DummyAddressMappingFailed;
+
 pub(super) enum TestIfPublicEvent {
     ExternalAddressConfirmed,
     AutonatClientTestFailed,
@@ -153,5 +155,13 @@ impl TryFrom<&autonat::v2::client::Event> for Event {
             autonat::v2::client::Event { result: Err(_), .. } => Ok(Event::AutonatClientTestFailed),
             autonat::v2::client::Event { result: Ok(_), .. } => Ok(Event::AutonatClientTestOk),
         }
+    }
+}
+
+impl TryFrom<&DummyAddressMappingFailed> for Event {
+    type Error = ();
+
+    fn try_from(_: &DummyAddressMappingFailed) -> Result<Self, Self::Error> {
+        Ok(Event::AddressMappingFailed)
     }
 }

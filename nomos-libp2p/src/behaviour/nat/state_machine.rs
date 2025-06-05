@@ -33,7 +33,7 @@ struct CommandTx {
 pub enum Command {
     ScheduleAutonatClientTest,
     MapAddress,
-    ToSwarmGenerateNewExternalAddrCandidate,
+    NewExternalAddrCandidate,
 }
 
 impl StateMachine {
@@ -109,7 +109,7 @@ impl OnEvent for TryAddressMapping {
     fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State {
         match event {
             Self::Event::NewExternalMappedAddress => {
-                command_tx.send(Command::ToSwarmGenerateNewExternalAddrCandidate);
+                command_tx.send(Command::NewExternalAddrCandidate);
                 TestIfMappedPublic.into()
             }
             Self::Event::AddressMappingFailed => Private.into(),
@@ -191,12 +191,6 @@ mod tests {
 
     use super::*;
 
-    struct Transition {
-        from: State,
-        event: Event,
-        to: State,
-    }
-
     fn all_events() -> BTreeSet<Event> {
         [
             Event::AutonatClientTestFailed,
@@ -240,7 +234,7 @@ mod tests {
                     (
                         Event::NewExternalMappedAddress,
                         TestIfMappedPublic.into(),
-                        Some(Command::ToSwarmGenerateNewExternalAddrCandidate),
+                        Some(Command::NewExternalAddrCandidate),
                     ),
                     (Event::AddressMappingFailed, Private.into(), None),
                 ],
@@ -322,11 +316,6 @@ mod tests {
                     sm.state,
                 );
             }
-
-            eprintln!(
-                "State `{:?}`: expected ignored events: {:#?}",
-                src_state, expected_ignored_events
-            );
 
             for event in expected_ignored_events {
                 let (tx, mut rx) = unbounded_channel();
