@@ -8,68 +8,81 @@ use states::*;
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(Clone))]
-pub struct StateMachine {
-    state: State,
-    command_tx: CommandTx,
+pub struct StateMachine<Addr> {
+    state: State<Addr>,
+    command_tx: CommandTx<Addr>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum State {
-    TestIfPublic(TestIfPublic),
-    TryAddressMapping(TryAddressMapping),
-    TestIfMappedPublic(TestIfMappedPublic),
-    Public(Public),
-    MappedPublic(MappedPublic),
-    Private(Private),
+enum State<Addr> {
+    Uninitialized(Uninitialized),
+    TestIfPublic(TestIfPublic<Addr>),
+    TryAddressMapping(TryAddressMapping<Addr>),
+    TestIfMappedPublic(TestIfMappedPublic<Addr>),
+    Public(Public<Addr>),
+    MappedPublic(MappedPublic<Addr>),
+    Private(Private<Addr>),
 }
 
 #[derive(Debug, Clone)]
-struct CommandTx {
-    tx: UnboundedSender<Command>,
+struct CommandTx<Addr> {
+    tx: UnboundedSender<Command<Addr>>,
 }
 
 /// Commands that can be issued by the state machine to `NatBehaviour`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Command {
-    ScheduleAutonatClientTest,
-    MapAddress,
-    NewExternalAddrCandidate,
+pub enum Command<Addr> {
+    ScheduleAutonatClientTest(Addr),
+    MapAddress(Addr),
+    NewExternalAddrCandidate(Addr),
 }
 
-impl StateMachine {
-    pub fn new(command_tx: UnboundedSender<Command>) -> Self {
+impl<Addr: Clone> StateMachine<Addr> {
+    pub fn new(command_tx: UnboundedSender<Command<Addr>>) -> Self {
         Self {
-            state: TestIfPublic.into(),
+            state: Uninitialized.into(),
             command_tx: command_tx.into(),
         }
     }
 
-    pub fn on_event(&mut self, event: impl TryInto<Event>) {
-        self.state = self.state.on_event(event, &self.command_tx);
+    pub fn on_event(&mut self, event: impl TryInto<Event<Addr>>) {
+        self.state = self.state.take().on_event(event, &self.command_tx);
     }
 }
 
-impl State {
-    /// Event conversion is 2-staged
-    /// 1. Convert from libp2p to a generic Event type
-    /// 2. Convert from generic Event type to the state specific event type
+impl<Addr: Clone> State<Addr> {
+    /// Event conversion is 2-staged:
+    /// 1. Convert from libp2p to a generic Event type.
+    /// 2. Convert from generic Event type to the state specific event type in
+    ///    `on_event_inner`.
     /// This allows us to handle events in each state in a type-safe manner,
     /// while still allowing compy-paste boilerplate when converting from libp2p
     /// events.
-    pub fn on_event(self, event: impl TryInto<Event>, command_tx: &CommandTx) -> Self {
+    pub fn on_event(self, event: impl TryInto<Event<Addr>>, command_tx: &CommandTx<Addr>) -> Self {
         let Ok(event) = event.try_into() else {
             return self;
         };
 
+        let current_state = self.clone();
+
         let Ok(new_state) = self.on_event_inner(event, command_tx) else {
-            return self;
+            return current_state;
         };
 
         new_state
     }
 
-    fn on_event_inner(self, event: Event, command_tx: &CommandTx) -> Result<State, ()> {
+    pub fn take(&mut self) -> State<Addr> {
+        std::mem::replace(self, Uninitialized.into())
+    }
+
+    fn on_event_inner(
+        self,
+        event: Event<Addr>,
+        command_tx: &CommandTx<Addr>,
+    ) -> Result<State<Addr>, ()> {
         Ok(match self {
+            State::Uninitialized(x) => x.on_event(event.try_into()?, command_tx),
             State::TestIfPublic(x) => x.on_event(event.try_into()?, command_tx),
             State::TryAddressMapping(x) => x.on_event(event.try_into()?, command_tx),
             State::TestIfMappedPublic(x) => x.on_event(event.try_into()?, command_tx),
@@ -80,105 +93,117 @@ impl State {
     }
 }
 
-trait OnEvent {
+trait OnEvent<Addr> {
     type Event;
 
-    fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State;
+    fn on_event(self, event: Self::Event, command_tx: &CommandTx<Addr>) -> State<Addr>;
 }
 
-impl OnEvent for TestIfPublic {
-    type Event = TestIfPublicEvent;
+impl<Addr: Clone> OnEvent<Addr> for Uninitialized {
+    type Event = UninitializedEvent<Addr>;
 
-    fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State {
+    fn on_event(self, event: Self::Event, _: &CommandTx<Addr>) -> State<Addr> {
         match event {
-            Self::Event::ExternalAddressConfirmed => {
-                command_tx.send(Command::ScheduleAutonatClientTest);
-                Public.into()
+            Self::Event::NewExternalAddressCandidate(addr) => TestIfPublic(addr).into(),
+        }
+    }
+}
+
+impl<Addr: Clone> OnEvent<Addr> for TestIfPublic<Addr> {
+    type Event = TestIfPublicEvent<Addr>;
+
+    fn on_event(self, event: Self::Event, command_tx: &CommandTx<Addr>) -> State<Addr> {
+        match event {
+            Self::Event::ExternalAddressConfirmed(addr) => {
+                command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
+                Public(addr).into()
             }
-            Self::Event::AutonatClientTestFailed => {
-                command_tx.send(Command::MapAddress);
-                TryAddressMapping.into()
+            Self::Event::AutonatClientTestFailed(addr) => {
+                command_tx.send(Command::MapAddress(addr.clone()));
+                TryAddressMapping(addr).into()
             }
         }
     }
 }
 
-impl OnEvent for TryAddressMapping {
-    type Event = TryAddressMappingEvent;
+impl<Addr: Clone> OnEvent<Addr> for TryAddressMapping<Addr> {
+    type Event = TryAddressMappingEvent<Addr>;
 
-    fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State {
+    fn on_event(self, event: Self::Event, command_tx: &CommandTx<Addr>) -> State<Addr> {
         match event {
-            Self::Event::NewExternalMappedAddress => {
-                command_tx.send(Command::NewExternalAddrCandidate);
-                TestIfMappedPublic.into()
+            Self::Event::NewExternalMappedAddress(addr) => {
+                command_tx.send(Command::NewExternalAddrCandidate(addr.clone()));
+                TestIfMappedPublic(addr).into()
             }
-            Self::Event::AddressMappingFailed => Private.into(),
+            Self::Event::AddressMappingFailed(addr) => Private(addr).into(),
         }
     }
 }
 
-impl OnEvent for TestIfMappedPublic {
-    type Event = TestIfMappedPublicEvent;
+impl<Addr: Clone> OnEvent<Addr> for TestIfMappedPublic<Addr> {
+    type Event = TestIfMappedPublicEvent<Addr>;
 
-    fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State {
+    fn on_event(self, event: Self::Event, command_tx: &CommandTx<Addr>) -> State<Addr> {
         match event {
-            Self::Event::ExternalAddressConfirmed => {
-                command_tx.send(Command::ScheduleAutonatClientTest);
-                MappedPublic.into()
+            Self::Event::ExternalAddressConfirmed(addr) => {
+                command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
+                MappedPublic(addr).into()
             }
-            Self::Event::AutonatClientTestFailed => Private.into(),
+            Self::Event::AutonatClientTestFailed(addr) => Private(addr).into(),
         }
     }
 }
 
-impl OnEvent for Public {
-    type Event = PublicEvent;
+impl<Addr: Clone> OnEvent<Addr> for Public<Addr> {
+    type Event = PublicEvent<Addr>;
 
-    fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State {
+    fn on_event(self, event: Self::Event, command_tx: &CommandTx<Addr>) -> State<Addr> {
         match event {
-            Self::Event::ExternalAddressConfirmed | Self::Event::AutonatClientTestOk => {
-                command_tx.send(Command::ScheduleAutonatClientTest);
-                Public.into()
+            Self::Event::ExternalAddressConfirmed(addr)
+            | Self::Event::AutonatClientTestOk(addr) => {
+                command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
+                Public(addr).into()
             }
-            Self::Event::AutonatClientTestFailed => TestIfPublic.into(),
+            Self::Event::AutonatClientTestFailed(addr) => TestIfPublic(addr).into(),
         }
     }
 }
 
-impl OnEvent for MappedPublic {
-    type Event = MappedPublicEvent;
+impl<Addr: Clone> OnEvent<Addr> for MappedPublic<Addr> {
+    type Event = MappedPublicEvent<Addr>;
 
-    fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State {
+    fn on_event(self, event: Self::Event, command_tx: &CommandTx<Addr>) -> State<Addr> {
         match event {
-            Self::Event::ExternalAddressConfirmed | Self::Event::AutonatClientTestOk => {
-                command_tx.send(Command::ScheduleAutonatClientTest);
-                Public.into()
+            Self::Event::ExternalAddressConfirmed(addr)
+            | Self::Event::AutonatClientTestOk(addr) => {
+                command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
+                Public(addr).into()
             }
-            Self::Event::AutonatClientTestFailed => Private.into(),
+            Self::Event::AutonatClientTestFailed(addr) => Private(addr).into(),
         }
     }
 }
 
-impl OnEvent for Private {
+impl<Addr> OnEvent<Addr> for Private<Addr> {
     type Event = PrivateEvent;
 
-    fn on_event(self, event: Self::Event, _: &CommandTx) -> State {
+    fn on_event(self, event: Self::Event, _: &CommandTx<Addr>) -> State<Addr> {
         match event {
             Self::Event::LocalAddressChanged | Self::Event::DefaultGatewayChanged => {
-                TestIfPublic.into()
+                Uninitialized.into()
             }
         }
     }
 }
 
-impl From<UnboundedSender<Command>> for CommandTx {
-    fn from(tx: UnboundedSender<Command>) -> Self {
+impl<Addr> From<UnboundedSender<Command<Addr>>> for CommandTx<Addr> {
+    fn from(tx: UnboundedSender<Command<Addr>>) -> Self {
         Self { tx }
     }
 }
 
-impl CommandTx {
-    pub fn send(&self, command: Command) {
+impl<Addr> CommandTx<Addr> {
+    pub fn send(&self, command: Command<Addr>) {
         self.tx.send(command).expect("Channel not to be closed");
     }
 }
@@ -213,6 +238,14 @@ mod tests {
     #[test]
     fn test_transitions_and_emitted_commands() {
         let expected_transitions: Vec<(State, Vec<(Event, State, Option<Command>)>)> = vec![
+            (
+                Uninitialized.into(),
+                vec![(
+                    Event::NewExternalAddressCandidate,
+                    TestIfPublic.into(),
+                    None,
+                )],
+            ),
             (
                 TestIfPublic.into(),
                 vec![

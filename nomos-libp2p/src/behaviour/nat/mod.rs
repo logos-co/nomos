@@ -51,10 +51,10 @@ pub struct NatBehaviour<R: RngCore + 'static> {
     /// The state machine reacts to events from the swarm and from the
     /// sub-behaviours of the `NatBehaviour` and issues commands to the
     /// `NatBehaviour`.
-    state_machine: StateMachine,
+    state_machine: StateMachine<Multiaddr>,
     /// Commands issued by the state machine are received through this end of
     /// the channel.
-    command_rx: UnboundedReceiver<Command>,
+    command_rx: UnboundedReceiver<Command<Multiaddr>>,
     /// Used to schedule "re-tests" for already confirmed external addresses via
     /// the `autonat_client_behaviour`
     next_autonat_client_tick: OptionFuture<Task>,
@@ -154,7 +154,7 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
 
     fn on_swarm_event(&mut self, event: FromSwarm) {
         if self.autonat_client_behaviour.is_enabled() {
-            self.state_machine.on_event(&event);
+            self.state_machine.on_event(event);
             self.autonat_client_behaviour.on_swarm_event(event);
         } else {
             match event {
@@ -201,36 +201,34 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
             return Poll::Ready(to_swarm.map_out(Either::Right).map_in(Either::Right));
         }
 
-        if let Poll::Ready(Some(addr)) = self.next_autonat_client_tick.poll_unpin(cx) {
-            self.autonat_client_behaviour.as_mut().map(|autonat| {
-                // TODO: This is a placeholder for the missing API of the
-                // autonat client
-                // autonat.retest_address(addr);
-            });
+        if let Poll::Ready(Some(_addr)) = self.next_autonat_client_tick.poll_unpin(cx) {
+            self.autonat_client_behaviour
+                .as_mut()
+                .map(|_autonat_client_behaviour| {
+                    // TODO: This is a placeholder for the missing API of the
+                    // autonat client
+                    // autonat.retest_address(addr);
+                });
         }
 
         if let Poll::Ready(command) = self.command_rx.poll_recv(cx) {
             if let Some(command) = command {
                 match command {
-                    Command::ScheduleAutonatClientTest => {
+                    Command::ScheduleAutonatClientTest(addr) => {
                         self.next_autonat_client_tick = Some(
                             tokio::time::sleep(Duration::from_secs(60)) /* TODO */
-                                .map(|_| Multiaddr::empty() /* TODO */)
+                                .map(|_| addr)
                                 .boxed(),
                         )
                         .into();
                     }
-                    Command::MapAddress => {
-                        self.address_mapper_behaviour.as_mut().map(|mapper| {
-                            mapper.try_map_address(
-                                // TODO
-                                Multiaddr::empty(),
-                            )
-                        });
+                    Command::MapAddress(addr) => {
+                        self.address_mapper_behaviour
+                            .as_mut()
+                            .map(|mapper| mapper.try_map_address(addr));
                     }
-                    Command::NewExternalAddrCandidate => {
-                        // TODO
-                        return Poll::Ready(ToSwarm::NewExternalAddrCandidate(Multiaddr::empty()));
+                    Command::NewExternalAddrCandidate(addr) => {
+                        return Poll::Ready(ToSwarm::NewExternalAddrCandidate(addr));
                     }
                 }
             }

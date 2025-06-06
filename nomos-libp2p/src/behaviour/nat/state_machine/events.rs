@@ -1,32 +1,40 @@
-use libp2p::{autonat, swarm::FromSwarm};
+use libp2p::{
+    autonat,
+    swarm::{behaviour::ExternalAddrConfirmed, FromSwarm, NewExternalAddrCandidate},
+    Multiaddr,
+};
 
 use crate::behaviour::nat::address_mapper;
 
-pub(super) enum TestIfPublicEvent {
-    ExternalAddressConfirmed,
-    AutonatClientTestFailed,
+pub(super) enum UninitializedEvent<Addr> {
+    NewExternalAddressCandidate(Addr),
 }
 
-pub(super) enum TryAddressMappingEvent {
-    NewExternalMappedAddress,
-    AddressMappingFailed,
+pub(super) enum TestIfPublicEvent<Addr> {
+    ExternalAddressConfirmed(Addr),
+    AutonatClientTestFailed(Addr),
 }
 
-pub(super) enum TestIfMappedPublicEvent {
-    ExternalAddressConfirmed,
-    AutonatClientTestFailed,
+pub(super) enum TryAddressMappingEvent<Addr> {
+    NewExternalMappedAddress(Addr),
+    AddressMappingFailed(Addr),
 }
 
-pub(super) enum PublicEvent {
-    ExternalAddressConfirmed,
-    AutonatClientTestOk,
-    AutonatClientTestFailed,
+pub(super) enum TestIfMappedPublicEvent<Addr> {
+    ExternalAddressConfirmed(Addr),
+    AutonatClientTestFailed(Addr),
 }
 
-pub(super) enum MappedPublicEvent {
-    ExternalAddressConfirmed,
-    AutonatClientTestOk,
-    AutonatClientTestFailed,
+pub(super) enum PublicEvent<Addr> {
+    ExternalAddressConfirmed(Addr),
+    AutonatClientTestOk(Addr),
+    AutonatClientTestFailed(Addr),
+}
+
+pub(super) enum MappedPublicEvent<Addr> {
+    ExternalAddressConfirmed(Addr),
+    AutonatClientTestOk(Addr),
+    AutonatClientTestFailed(Addr),
 }
 
 pub(super) enum PrivateEvent {
@@ -34,76 +42,103 @@ pub(super) enum PrivateEvent {
     DefaultGatewayChanged,
 }
 
-impl TryFrom<Event> for TestIfPublicEvent {
+impl<Addr> TryFrom<Event<Addr>> for UninitializedEvent<Addr> {
     type Error = ();
 
-    fn try_from(event: Event) -> Result<Self, Self::Error> {
+    fn try_from(event: Event<Addr>) -> Result<Self, Self::Error> {
         match event {
-            Event::ExternalAddressConfirmed => Ok(TestIfPublicEvent::ExternalAddressConfirmed),
-            Event::AutonatClientTestFailed => Ok(TestIfPublicEvent::AutonatClientTestFailed),
-            _ => Err(()),
-        }
-    }
-}
-
-impl TryFrom<Event> for TryAddressMappingEvent {
-    type Error = ();
-
-    fn try_from(event: Event) -> Result<Self, Self::Error> {
-        match event {
-            Event::_NewExternalMappedAddress => {
-                Ok(TryAddressMappingEvent::NewExternalMappedAddress)
+            Event::NewExternalAddressCandidate(addr) => {
+                Ok(UninitializedEvent::NewExternalAddressCandidate(addr))
             }
-            Event::AddressMappingFailed => Ok(TryAddressMappingEvent::AddressMappingFailed),
             _ => Err(()),
         }
     }
 }
 
-impl TryFrom<Event> for TestIfMappedPublicEvent {
+impl<Addr> TryFrom<Event<Addr>> for TestIfPublicEvent<Addr> {
     type Error = ();
 
-    fn try_from(event: Event) -> Result<Self, Self::Error> {
+    fn try_from(event: Event<Addr>) -> Result<Self, Self::Error> {
         match event {
-            Event::ExternalAddressConfirmed => {
-                Ok(TestIfMappedPublicEvent::ExternalAddressConfirmed)
+            Event::ExternalAddressConfirmed(addr) => {
+                Ok(TestIfPublicEvent::ExternalAddressConfirmed(addr))
             }
-            Event::AutonatClientTestFailed => Ok(TestIfMappedPublicEvent::AutonatClientTestFailed),
+            Event::AutonatClientTestFailed(addr) => {
+                Ok(TestIfPublicEvent::AutonatClientTestFailed(addr))
+            }
             _ => Err(()),
         }
     }
 }
 
-impl TryFrom<Event> for PublicEvent {
+impl<Addr> TryFrom<Event<Addr>> for TryAddressMappingEvent<Addr> {
     type Error = ();
 
-    fn try_from(event: Event) -> Result<Self, Self::Error> {
+    fn try_from(event: Event<Addr>) -> Result<Self, Self::Error> {
         match event {
-            Event::ExternalAddressConfirmed => Ok(PublicEvent::ExternalAddressConfirmed),
-            Event::AutonatClientTestOk => Ok(PublicEvent::AutonatClientTestOk),
-            Event::AutonatClientTestFailed => Ok(PublicEvent::AutonatClientTestFailed),
+            Event::_NewExternalMappedAddress(addr) => {
+                Ok(TryAddressMappingEvent::NewExternalMappedAddress(addr))
+            }
+            Event::AddressMappingFailed(addr) => {
+                Ok(TryAddressMappingEvent::AddressMappingFailed(addr))
+            }
             _ => Err(()),
         }
     }
 }
 
-impl TryFrom<Event> for MappedPublicEvent {
+impl<Addr> TryFrom<Event<Addr>> for TestIfMappedPublicEvent<Addr> {
     type Error = ();
 
-    fn try_from(event: Event) -> Result<Self, Self::Error> {
+    fn try_from(event: Event<Addr>) -> Result<Self, Self::Error> {
         match event {
-            Event::ExternalAddressConfirmed => Ok(MappedPublicEvent::ExternalAddressConfirmed),
-            Event::AutonatClientTestOk => Ok(MappedPublicEvent::AutonatClientTestOk),
-            Event::AutonatClientTestFailed => Ok(MappedPublicEvent::AutonatClientTestFailed),
+            Event::ExternalAddressConfirmed(addr) => {
+                Ok(TestIfMappedPublicEvent::ExternalAddressConfirmed(addr))
+            }
+            Event::AutonatClientTestFailed(addr) => {
+                Ok(TestIfMappedPublicEvent::AutonatClientTestFailed(addr))
+            }
             _ => Err(()),
         }
     }
 }
 
-impl TryFrom<Event> for PrivateEvent {
+impl<Addr> TryFrom<Event<Addr>> for PublicEvent<Addr> {
     type Error = ();
 
-    fn try_from(event: Event) -> Result<Self, Self::Error> {
+    fn try_from(event: Event<Addr>) -> Result<Self, Self::Error> {
+        match event {
+            Event::ExternalAddressConfirmed(addr) => {
+                Ok(PublicEvent::ExternalAddressConfirmed(addr))
+            }
+            Event::AutonatClientTestOk(addr) => Ok(PublicEvent::AutonatClientTestOk(addr)),
+            Event::AutonatClientTestFailed(addr) => Ok(PublicEvent::AutonatClientTestFailed(addr)),
+            _ => Err(()),
+        }
+    }
+}
+
+impl<Addr> TryFrom<Event<Addr>> for MappedPublicEvent<Addr> {
+    type Error = ();
+
+    fn try_from(event: Event<Addr>) -> Result<Self, Self::Error> {
+        match event {
+            Event::ExternalAddressConfirmed(addr) => {
+                Ok(MappedPublicEvent::ExternalAddressConfirmed(addr))
+            }
+            Event::AutonatClientTestOk(addr) => Ok(MappedPublicEvent::AutonatClientTestOk(addr)),
+            Event::AutonatClientTestFailed(addr) => {
+                Ok(MappedPublicEvent::AutonatClientTestFailed(addr))
+            }
+            _ => Err(()),
+        }
+    }
+}
+
+impl<Addr> TryFrom<Event<Addr>> for PrivateEvent {
+    type Error = ();
+
+    fn try_from(event: Event<Addr>) -> Result<Self, Self::Error> {
         match event {
             Event::_LocalAddressChanged => Ok(PrivateEvent::LocalAddressChanged),
             Event::_DefaultGatewayChanged => Ok(PrivateEvent::DefaultGatewayChanged),
@@ -113,43 +148,57 @@ impl TryFrom<Event> for PrivateEvent {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Event {
-    AutonatClientTestOk,
-    AutonatClientTestFailed,
-    AddressMappingFailed,
+pub(crate) enum Event<Addr> {
+    AutonatClientTestOk(Addr),
+    AutonatClientTestFailed(Addr),
+    AddressMappingFailed(Addr),
     _DefaultGatewayChanged,
-    ExternalAddressConfirmed,
+    ExternalAddressConfirmed(Addr),
     _LocalAddressChanged,
-    _NewExternalMappedAddress,
+    NewExternalAddressCandidate(Addr),
+    _NewExternalMappedAddress(Addr),
 }
 
-impl TryFrom<&FromSwarm<'_>> for Event {
+impl TryFrom<FromSwarm<'_>> for Event<Multiaddr> {
     type Error = ();
 
-    fn try_from(event: &FromSwarm<'_>) -> Result<Self, Self::Error> {
+    fn try_from(event: FromSwarm<'_>) -> Result<Self, Self::Error> {
         match event {
-            FromSwarm::ExternalAddrConfirmed(_) => Ok(Event::ExternalAddressConfirmed),
+            FromSwarm::NewExternalAddrCandidate(NewExternalAddrCandidate { addr }) => {
+                Ok(Event::NewExternalAddressCandidate(addr.clone()))
+            }
+            FromSwarm::ExternalAddrConfirmed(ExternalAddrConfirmed { addr }) => {
+                Ok(Event::ExternalAddressConfirmed(addr.clone()))
+            }
             _ => Err(()),
         }
     }
 }
 
-impl TryFrom<&autonat::v2::client::Event> for Event {
+impl TryFrom<&autonat::v2::client::Event> for Event<Multiaddr> {
     type Error = ();
 
     fn try_from(event: &autonat::v2::client::Event) -> Result<Self, Self::Error> {
         match event {
-            autonat::v2::client::Event { result: Err(_), .. } => Ok(Event::AutonatClientTestFailed),
-            autonat::v2::client::Event { result: Ok(_), .. } => Ok(Event::AutonatClientTestOk),
+            autonat::v2::client::Event {
+                result: Err(_),
+                tested_addr,
+                ..
+            } => Ok(Event::AutonatClientTestFailed(tested_addr.clone())),
+            autonat::v2::client::Event {
+                result: Ok(_),
+                tested_addr,
+                ..
+            } => Ok(Event::AutonatClientTestOk(tested_addr.clone())),
         }
     }
 }
 
-impl TryFrom<&address_mapper::Event> for Event {
+impl TryFrom<&address_mapper::Event> for Event<Multiaddr> {
     type Error = ();
 
     fn try_from(event: &address_mapper::Event) -> Result<Self, Self::Error> {
         let address_mapper::Event::AddressMappingFailed(address) = event;
-        Ok(Event::AddressMappingFailed)
+        Ok(Event::AddressMappingFailed(address.clone()))
     }
 }
