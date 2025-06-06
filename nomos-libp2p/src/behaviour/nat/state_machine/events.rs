@@ -1,6 +1,6 @@
 use libp2p::{autonat, swarm::FromSwarm};
 
-use crate::behaviour::nat::DummyAddressMappingFailed;
+use crate::behaviour::nat::address_mapper;
 
 pub(super) enum TestIfPublicEvent {
     ExternalAddressConfirmed,
@@ -51,7 +51,9 @@ impl TryFrom<Event> for TryAddressMappingEvent {
 
     fn try_from(event: Event) -> Result<Self, Self::Error> {
         match event {
-            Event::NewExternalMappedAddress => Ok(TryAddressMappingEvent::NewExternalMappedAddress),
+            Event::_NewExternalMappedAddress => {
+                Ok(TryAddressMappingEvent::NewExternalMappedAddress)
+            }
             Event::AddressMappingFailed => Ok(TryAddressMappingEvent::AddressMappingFailed),
             _ => Err(()),
         }
@@ -103,8 +105,8 @@ impl TryFrom<Event> for PrivateEvent {
 
     fn try_from(event: Event) -> Result<Self, Self::Error> {
         match event {
-            Event::LocalAddressChanged => Ok(PrivateEvent::LocalAddressChanged),
-            Event::DefaultGatewayChanged => Ok(PrivateEvent::DefaultGatewayChanged),
+            Event::_LocalAddressChanged => Ok(PrivateEvent::LocalAddressChanged),
+            Event::_DefaultGatewayChanged => Ok(PrivateEvent::DefaultGatewayChanged),
             _ => Err(()),
         }
     }
@@ -115,20 +117,12 @@ pub(crate) enum Event {
     AutonatClientTestOk,
     AutonatClientTestFailed,
     AddressMappingFailed,
-    DefaultGatewayChanged,
+    _DefaultGatewayChanged,
     ExternalAddressConfirmed,
-    LocalAddressChanged,
-    NewExternalMappedAddress,
+    _LocalAddressChanged,
+    _NewExternalMappedAddress,
 }
 
-/// TODO improve this comment or move it to a better place
-///
-/// autonat::v2::Client successful flow:
-/// 1. FromSwarm::ExternalAddrConfirmed(ExternalAddrConfirmed(addr))
-/// 2. autonat::v2::client::Event { result == Ok(()), tested_addr == addr, .. }
-///
-/// So we need to intercept the first event only and we can happily ignore the
-/// second one.
 impl TryFrom<&FromSwarm<'_>> for Event {
     type Error = ();
 
@@ -140,13 +134,6 @@ impl TryFrom<&FromSwarm<'_>> for Event {
     }
 }
 
-/// TODO improve this comment or move it to a better place
-///
-/// autonat::v2::Client failure flow:
-/// 1. autonat::v2::client::Event { result == Err(..), tested_addr, .. }
-///
-/// So we need to intercept the first event only and we can happily ignore the
-/// second one.
 impl TryFrom<&autonat::v2::client::Event> for Event {
     type Error = ();
 
@@ -158,10 +145,11 @@ impl TryFrom<&autonat::v2::client::Event> for Event {
     }
 }
 
-impl TryFrom<&DummyAddressMappingFailed> for Event {
+impl TryFrom<&address_mapper::Event> for Event {
     type Error = ();
 
-    fn try_from(_: &DummyAddressMappingFailed) -> Result<Self, Self::Error> {
+    fn try_from(event: &address_mapper::Event) -> Result<Self, Self::Error> {
+        let address_mapper::Event::AddressMappingFailed(address) = event;
         Ok(Event::AddressMappingFailed)
     }
 }

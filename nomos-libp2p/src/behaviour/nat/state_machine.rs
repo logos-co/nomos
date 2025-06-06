@@ -196,10 +196,10 @@ mod tests {
             Event::AutonatClientTestFailed,
             Event::AutonatClientTestOk,
             Event::AddressMappingFailed,
-            Event::DefaultGatewayChanged,
+            Event::_DefaultGatewayChanged,
             Event::ExternalAddressConfirmed,
-            Event::LocalAddressChanged,
-            Event::NewExternalMappedAddress,
+            Event::_LocalAddressChanged,
+            Event::_NewExternalMappedAddress,
         ]
         .into()
     }
@@ -232,7 +232,7 @@ mod tests {
                 TryAddressMapping.into(),
                 vec![
                     (
-                        Event::NewExternalMappedAddress,
+                        Event::_NewExternalMappedAddress,
                         TestIfMappedPublic.into(),
                         Some(Command::NewExternalAddrCandidate),
                     ),
@@ -285,8 +285,8 @@ mod tests {
             (
                 Private.into(),
                 vec![
-                    (Event::LocalAddressChanged, TestIfPublic.into(), None),
-                    (Event::DefaultGatewayChanged, TestIfPublic.into(), None),
+                    (Event::_LocalAddressChanged, TestIfPublic.into(), None),
+                    (Event::_DefaultGatewayChanged, TestIfPublic.into(), None),
                 ],
             ),
         ];
