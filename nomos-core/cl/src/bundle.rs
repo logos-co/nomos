@@ -68,7 +68,6 @@ mod test {
         note::{derive_unit, NoteWitness},
         nullifier::NullifierSecret,
         output::OutputWitness,
-        partial_tx::PartialTxWitness,
     };
 
     #[test]
