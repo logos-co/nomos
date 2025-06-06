@@ -27,7 +27,7 @@ impl blob::info::DispersedBlobInfo for BlobInfo {
     }
 
     fn size(&self) -> usize {
-        std::mem::size_of_val(&self.id) + self.metadata.size()
+        size_of_val(&self.id) + self.metadata.size()
     }
 }
 
@@ -74,7 +74,7 @@ impl Metadata {
     )]
     #[must_use]
     pub fn size(&self) -> usize {
-        std::mem::size_of_val(&self.app_id) + std::mem::size_of_val(&self.index)
+        size_of_val(&self.app_id) + size_of_val(&self.index)
     }
 }
 

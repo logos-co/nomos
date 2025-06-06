@@ -86,8 +86,8 @@ where
         + Send
         + Sync
         + 'static,
-    <T as nomos_core::tx::Transaction>::Hash:
-        std::cmp::Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+    <T as Transaction>::Hash:
+        Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     RuntimeServiceId:
         Debug + Sync + Display + 'static + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
 {
@@ -108,8 +108,8 @@ pub async fn cl_status<T, RuntimeServiceId>(
 ) -> Response
 where
     T: Transaction + Clone + Debug + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
-    <T as nomos_core::tx::Transaction>::Hash:
-        Serialize + DeserializeOwned + std::cmp::Ord + Debug + Send + Sync + 'static,
+    <T as Transaction>::Hash:
+        Serialize + DeserializeOwned + Ord + Debug + Send + Sync + 'static,
     RuntimeServiceId:
         Debug + Sync + Display + 'static + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
 {
@@ -158,7 +158,7 @@ where
         + Sync
         + 'static,
     <Tx as Transaction>::Hash:
-        std::cmp::Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+        Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SS: StorageSerde + Send + Sync + 'static,
     SamplingRng: SeedableRng + RngCore,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = BlobId> + Send,
@@ -168,7 +168,7 @@ where
     SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
-    DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + 'static,
+    DaVerifierBackend: VerifierBackend + Send + 'static,
     DaVerifierBackend::Settings: Clone,
     DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
@@ -252,7 +252,7 @@ where
         + Sync
         + 'static,
     <Tx as Transaction>::Hash:
-        std::cmp::Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+        Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SS: StorageSerde + Send + Sync + 'static,
     SamplingRng: SeedableRng + RngCore,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = BlobId> + Send,
@@ -262,7 +262,7 @@ where
     SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
-    DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + 'static,
+    DaVerifierBackend: VerifierBackend + Send + 'static,
     DaVerifierBackend::Settings: Clone,
     DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
@@ -392,7 +392,7 @@ where
         + Sync
         + 'static,
     <Tx as Transaction>::Hash:
-        std::cmp::Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+        Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     C: DispersedBlobInfo<BlobId = [u8; 32]>
         + Clone
         + Debug
@@ -429,7 +429,7 @@ where
     SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
-    DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + 'static,
+    DaVerifierBackend: VerifierBackend + Send + 'static,
     DaVerifierBackend::Settings: Clone,
     DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
@@ -585,7 +585,7 @@ pub async fn block<S, HttpStorageAdapter, Tx, RuntimeServiceId>(
     Json(id): Json<HeaderId>,
 ) -> Response
 where
-    Tx: serde::Serialize + DeserializeOwned + Clone + Eq + Hash,
+    Tx: Serialize + DeserializeOwned + Clone + Eq + Hash,
     S: StorageSerde + Send + Sync + 'static,
     HttpStorageAdapter: storage::StorageAdapter<S, RuntimeServiceId> + Send + Sync + 'static,
     <S as StorageSerde>::Error: Send + Sync,
@@ -621,7 +621,7 @@ where
     DaShare: Share,
     <DaShare as Share>::BlobId: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     <DaShare as Share>::SharesCommitments:
-        serde::Serialize + DeserializeOwned + Send + Sync + 'static,
+        Serialize + DeserializeOwned + Send + Sync + 'static,
     StorageOp: StorageSerde + Send + Sync + 'static,
     <StorageOp as StorageSerde>::Error: Send + Sync,
     DaStorageConverter:
@@ -708,7 +708,7 @@ pub async fn da_get_shares<
 where
     DaShare: Share + 'static,
     <DaShare as Share>::BlobId: Clone + Send + Sync + 'static,
-    <DaShare as Share>::ShareIndex: serde::Serialize + DeserializeOwned + Send + Sync + Eq + Hash,
+    <DaShare as Share>::ShareIndex: Serialize + DeserializeOwned + Send + Sync + Eq + Hash,
     <DaShare as Share>::LightShare: LightShare<ShareIndex = <DaShare as Share>::ShareIndex>
         + Serialize
         + DeserializeOwned
@@ -804,7 +804,7 @@ pub async fn add_tx<Tx, RuntimeServiceId>(
 where
     Tx: Transaction + Clone + Debug + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
     <Tx as Transaction>::Hash:
-        std::cmp::Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+        Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -859,7 +859,7 @@ where
         + Send
         + Sync
         + 'static,
-    <B as DispersedBlobInfo>::BlobId: std::cmp::Ord
+    <B as DispersedBlobInfo>::BlobId: Ord
         + Clone
         + Debug
         + Hash
@@ -878,7 +878,7 @@ where
     SamplingRng: SeedableRng + RngCore + Send + 'static,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
-    DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + 'static,
+    DaVerifierBackend: VerifierBackend + Send + 'static,
     DaVerifierBackend::Settings: Clone,
     DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,

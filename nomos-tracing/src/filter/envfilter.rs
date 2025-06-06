@@ -20,5 +20,5 @@ pub fn create_envfilter_layer(
         .collect::<Vec<_>>()
         .join(",");
 
-    EnvFilter::try_new(filter_string).map_err(std::convert::Into::into)
+    EnvFilter::try_new(filter_string).map_err(Into::into)
 }

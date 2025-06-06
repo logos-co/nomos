@@ -943,7 +943,7 @@ where
     #[instrument(level = "debug", skip(cryptarchia, leader, relays))]
     async fn process_block<State: CryptarchiaState>(
         cryptarchia: Cryptarchia<State>,
-        leader: &mut leadership::Leader,
+        leader: &mut Leader,
         block: Block<ClPool::Item, DaPool::Item>,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,

@@ -17,7 +17,7 @@ pub struct DaMempoolSettings<PoolSettings, NetworkAdapterSettings> {
 impl<PoolSettings, NetworkAdapterSettings> FileBackendSettings
     for DaMempoolSettings<PoolSettings, NetworkAdapterSettings>
 {
-    fn recovery_file(&self) -> &std::path::PathBuf {
+    fn recovery_file(&self) -> &PathBuf {
         &self.recovery_path
     }
 }
