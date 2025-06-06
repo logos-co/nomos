@@ -231,7 +231,6 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, TimeBackendSettings
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::HashSet,
         fmt::{Debug, Formatter},
         num::NonZero,
     };
