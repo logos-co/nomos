@@ -92,6 +92,7 @@ where
         Debug + Sync + Display + 'static + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
 {
     make_request_and_return_response!(cl::cl_mempool_metrics::<T, RuntimeServiceId>(&handle))
+    //  Mempool TX and DA, double-check if this is correct
 }
 
 #[utoipa::path(
@@ -114,6 +115,7 @@ where
         Debug + Sync + Display + 'static + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
 {
     make_request_and_return_response!(cl::cl_mempool_status::<T, RuntimeServiceId>(&handle, items))
+    //  Mempool TX and DA, double-check if this is correct
 }
 #[derive(Deserialize)]
 pub struct CryptarchiaInfoQuery {
@@ -211,7 +213,7 @@ where
         ApiAdapter,
         RuntimeServiceId,
         SIZE,
-    >(&handle))
+    >(&handle)) // CryptarchiaConsensus
 }
 
 #[utoipa::path(
@@ -306,7 +308,7 @@ where
         ApiAdapter,
         RuntimeServiceId,
         SIZE,
-    >(&handle, from, to))
+    >(&handle, from, to)) // CryptarchiaConsensus
 }
 
 #[utoipa::path(
@@ -349,7 +351,7 @@ where
         SS,
         StorageConverter,
         RuntimeServiceId,
-    >(&handle, share))
+    >(&handle, share)) // DAV
 }
 
 #[utoipa::path(
@@ -476,7 +478,7 @@ where
         ApiAdapter,
         RuntimeServiceId,
         SIZE,
-    >(&handle, app_id, range))
+    >(&handle, app_id, range)) // DAI
 }
 
 #[utoipa::path(
@@ -499,7 +501,7 @@ where
 {
     make_request_and_return_response!(da::block_peer::<Backend, RuntimeServiceId>(
         &handle, peer_id
-    ))
+    )) // NetworkService
 }
 
 #[utoipa::path(
@@ -523,7 +525,7 @@ where
 {
     make_request_and_return_response!(da::unblock_peer::<Backend, RuntimeServiceId>(
         &handle, peer_id
-    ))
+    )) // NetworkService
 }
 
 #[utoipa::path(
@@ -544,6 +546,7 @@ where
         Debug + Sync + Display + 'static + AsServiceId<NetworkService<Backend, RuntimeServiceId>>,
 {
     make_request_and_return_response!(da::blacklisted_peers::<Backend, RuntimeServiceId>(&handle))
+    // DaNetworkService
 }
 
 #[utoipa::path(
@@ -570,6 +573,7 @@ where
         >,
 {
     make_request_and_return_response!(libp2p::libp2p_info::<RuntimeServiceId>(&handle))
+    // NetworkService
 }
 
 #[utoipa::path(
@@ -593,6 +597,7 @@ where
         AsServiceId<StorageService<RocksBackend<S>, RuntimeServiceId>> + Debug + Sync + Display,
 {
     let relay = match handle.relay().await {
+        //
         Ok(relay) => relay,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     };
@@ -640,7 +645,7 @@ where
     make_request_and_return_response!(HttpStorageAdapter::get_shared_commitments::<
         DaStorageConverter,
         DaShare,
-    >(relay, req.blob_id,))
+    >(relay, req.blob_id,)) // Storage
 }
 
 #[utoipa::path(
@@ -678,6 +683,7 @@ where
         + 'static,
 {
     let relay = match handle.relay().await {
+        // Storage
         Ok(relay) => relay,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     };
@@ -729,6 +735,7 @@ where
         + AsServiceId<StorageService<RocksBackend<StorageOp>, RuntimeServiceId>>,
 {
     let relay = match handle.relay().await {
+        // Storage
         Ok(relay) => relay,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     };
@@ -767,6 +774,7 @@ where
         Debug + Sync + Display + 'static + AsServiceId<NetworkService<Backend, RuntimeServiceId>>,
 {
     make_request_and_return_response!(da::balancer_stats::<Backend, RuntimeServiceId>(&handle,))
+    // DaNetworkService
 }
 
 #[utoipa::path(
@@ -823,7 +831,8 @@ where
         Tx,
         <Tx as Transaction>::Hash,
         RuntimeServiceId,
-    >(&handle, tx, Transaction::hash))
+    >(&handle, tx, Transaction::hash)) // Mempool TX and DA, double-check if
+                                       // this is correct
 }
 
 #[utoipa::path(
@@ -917,5 +926,7 @@ where
         DaVerifierStorage,
         ApiAdapter,
         RuntimeServiceId,
-    >(&handle, blob_info, DispersedBlobInfo::blob_id))
+    >(&handle, blob_info, DispersedBlobInfo::blob_id)) // Mempool TX and DA,
+                                                       // double-check if this
+                                                       // is correct
 }

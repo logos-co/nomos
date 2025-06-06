@@ -38,6 +38,7 @@ overwatch                = { workspace = true }
 rand_chacha              = "0.3"
 serde                    = "1"
 serde_yaml               = "0.9"
+services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
 tokio                    = "1"
 tracing                  = { workspace = true }

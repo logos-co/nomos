@@ -2,6 +2,7 @@ use std::{
     error::Error,
     fmt::{Debug, Display},
     hash::Hash,
+    time::Duration,
 };
 
 use axum::{http::HeaderValue, routing, Router, Server};
@@ -37,9 +38,10 @@ use nomos_storage::{
     backends::{rocksdb::RocksBackend, StorageSerde},
     StorageService,
 };
-use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
+use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use services_utils::wait_until_services_are_ready;
 use subnetworks_assignations::MembershipHandler;
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -55,7 +57,7 @@ use super::handlers::{
 };
 
 pub(crate) type DaStorageBackend<SerdeOp> = RocksBackend<SerdeOp>;
-type DaService<DaStorageSerializer, RuntimeServiceId> =
+type DaStorageService<DaStorageSerializer, RuntimeServiceId> =
     StorageService<DaStorageBackend<DaStorageSerializer>, RuntimeServiceId>;
 
 /// Configuration for the Http Server
@@ -321,7 +323,7 @@ where
                 RuntimeServiceId,
             >,
         >
-        + AsServiceId<DaService<DaStorageSerializer, RuntimeServiceId>>
+        + AsServiceId<DaStorageService<DaStorageSerializer, RuntimeServiceId>>
         + AsServiceId<
             TxMempoolService<
                 nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
@@ -383,6 +385,39 @@ where
         })
     }
 
+    async fn wait_until_ready(
+        &mut self,
+        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+    ) -> Result<(), DynError> {
+        wait_until_services_are_ready!(
+            &overwatch_handle,
+            Some(Duration::from_millis(3000)),
+            Cryptarchia<
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                SIZE,
+            >,
+            DaVerifier<_, _, _, _, _, _>,
+            DaIndexer<_, _, _, _, _, _, _, _, _, _, _, _, _, _, SIZE>,
+            nomos_da_network_service::NetworkService<_, _>,
+            nomos_network::NetworkService<_, _>,
+            DaStorageService<_, _>,
+            TxMempoolService<_, _, _>,
+            DaMempoolService<_, _, _, _, _, _, _, _, _, _, _>
+        );
+        Ok(())
+    }
+
     #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
     async fn serve(self, handle: OverwatchHandle<RuntimeServiceId>) -> Result<(), Self::Error> {
         let mut builder = CorsLayer::new();
@@ -409,11 +444,11 @@ where
             .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
             .route(
                 paths::CL_METRICS,
-                routing::get(cl_metrics::<Tx, RuntimeServiceId>),
+                routing::get(cl_metrics::<Tx, RuntimeServiceId>), //
             )
             .route(
                 paths::CL_STATUS,
-                routing::post(cl_status::<Tx, RuntimeServiceId>),
+                routing::post(cl_status::<Tx, RuntimeServiceId>), //
             )
             .route(
                 paths::CRYPTARCHIA_INFO,
@@ -433,7 +468,7 @@ where
                         RuntimeServiceId,
                         SIZE,
                     >,
-                ),
+                ), //
             )
             .route(
                 paths::CRYPTARCHIA_HEADERS,
@@ -453,7 +488,7 @@ where
                         RuntimeServiceId,
                         SIZE,
                     >,
-                ),
+                ), //
             )
             .route(
                 paths::DA_ADD_SHARE,
@@ -467,7 +502,7 @@ where
                         DaStorageConverter,
                         RuntimeServiceId,
                     >,
-                ),
+                ), //
             )
             .route(
                 paths::DA_GET_RANGE,
@@ -489,37 +524,37 @@ where
                         RuntimeServiceId,
                         SIZE,
                     >,
-                ),
+                ), //
             )
             .route(
                 paths::DA_BLOCK_PEER,
                 routing::post(
                     block_peer::<DaNetworkValidatorBackend<Membership>, RuntimeServiceId>,
-                ),
+                ), //
             )
             .route(
                 paths::DA_UNBLOCK_PEER,
                 routing::post(
                     unblock_peer::<DaNetworkValidatorBackend<Membership>, RuntimeServiceId>,
-                ),
+                ), //
             )
             .route(
                 paths::DA_BLACKLISTED_PEERS,
                 routing::get(
                     blacklisted_peers::<DaNetworkValidatorBackend<Membership>, RuntimeServiceId>,
-                ),
+                ), //
             )
             .route(
                 paths::NETWORK_INFO,
-                routing::get(libp2p_info::<RuntimeServiceId>),
+                routing::get(libp2p_info::<RuntimeServiceId>), //
             )
             .route(
                 paths::STORAGE_BLOCK,
-                routing::post(block::<DaStorageSerializer, StorageAdapter, Tx, RuntimeServiceId>),
+                routing::post(block::<DaStorageSerializer, StorageAdapter, Tx, RuntimeServiceId>), //
             )
             .route(
                 paths::MEMPOOL_ADD_TX,
-                routing::post(add_tx::<Tx, RuntimeServiceId>),
+                routing::post(add_tx::<Tx, RuntimeServiceId>), //
             )
             .route(
                 paths::MEMPOOL_ADD_BLOB_INFO,
@@ -536,7 +571,7 @@ where
                         ApiAdapter,
                         RuntimeServiceId,
                     >,
-                ),
+                ), //
             )
             .route(
                 paths::DA_GET_SHARES_COMMITMENTS,
@@ -548,7 +583,7 @@ where
                         DaShare,
                         RuntimeServiceId,
                     >,
-                ),
+                ), //
             )
             .route(
                 paths::DA_GET_LIGHT_SHARE,
@@ -560,7 +595,7 @@ where
                         DaShare,
                         RuntimeServiceId,
                     >,
-                ),
+                ), // Storage
             )
             .route(
                 paths::DA_GET_SHARES,
@@ -572,19 +607,19 @@ where
                         DaShare,
                         RuntimeServiceId,
                     >,
-                ),
+                ), //
             )
             .route(
                 paths::DA_BALANCER_STATS,
                 routing::get(
                     balancer_stats::<DaNetworkValidatorBackend<Membership>, RuntimeServiceId>,
-                ),
+                ), //
             )
             .route(
                 paths::DA_MONITOR_STATS,
                 routing::get(
                     monitor_stats::<DaNetworkValidatorBackend<Membership>, RuntimeServiceId>,
-                ),
+                ), //
             )
             .with_state(handle);
 

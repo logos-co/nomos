@@ -26,6 +26,11 @@ pub trait Backend<RuntimeServiceId> {
     where
         Self: Sized;
 
+    async fn wait_until_ready(
+        &mut self,
+        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+    ) -> Result<(), DynError>;
+
     async fn serve(self, handle: OverwatchHandle<RuntimeServiceId>) -> Result<(), Self::Error>;
 }
 
@@ -54,7 +59,7 @@ impl<B: Backend<RuntimeServiceId>, RuntimeServiceId> ServiceData
 impl<B, RuntimeServiceId> ServiceCore<RuntimeServiceId> for ApiService<B, RuntimeServiceId>
 where
     B: Backend<RuntimeServiceId> + Send + Sync + 'static,
-    RuntimeServiceId: AsServiceId<Self> + Display + Send,
+    RuntimeServiceId: AsServiceId<Self> + Display + Send + Clone,
 {
     /// Initialize the service with the given state
     fn init(
@@ -78,7 +83,7 @@ where
 
     /// Service main loop
     async fn run(mut self) -> Result<(), DynError> {
-        let endpoint = B::new(self.settings.backend_settings).await?;
+        let mut endpoint = B::new(self.settings.backend_settings).await?;
 
         self.service_resources_handle.status_updater.notify_ready();
         tracing::info!(
@@ -87,8 +92,15 @@ where
         );
 
         endpoint
+            .wait_until_ready(self.service_resources_handle.overwatch_handle.clone())
+            .await?;
+
+        let endpoint = endpoint;
+
+        endpoint
             .serve(self.service_resources_handle.overwatch_handle)
             .await?;
+
         Ok(())
     }
 }
