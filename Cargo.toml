@@ -249,7 +249,7 @@ rust_2021_prelude_collisions                 = { level = "allow" }
 rust_2024_guarded_string_incompatible_syntax = { level = "allow" }
 rust_2024_incompatible_pat                   = { level = "allow" }
 rust_2024_prelude_collisions                 = { level = "allow" }
-single_use_lifetimes                         = { level = "warn" }
+single_use_lifetimes                         = { level = "allow" }
 tail_expr_drop_order                         = { level = "allow" }
 trivial_casts                                = { level = "allow" }
 trivial_numeric_casts                        = { level = "allow" }
