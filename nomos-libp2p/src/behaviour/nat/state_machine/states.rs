@@ -1,19 +1,19 @@
 use super::State;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct Uninitialized;
+pub(crate) struct Uninitialized;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct TestIfPublic<Addr>(pub Addr);
+pub(crate) struct TestIfPublic<Addr>(pub Addr);
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct TryAddressMapping<Addr>(pub Addr);
+pub(crate) struct TryAddressMapping<Addr>(pub Addr);
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct TestIfMappedPublic<Addr>(pub Addr);
+pub(crate) struct TestIfMappedPublic<Addr>(pub Addr);
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct Public<Addr>(pub Addr);
+pub(crate) struct Public<Addr>(pub Addr);
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct MappedPublic<Addr>(pub Addr);
+pub(crate) struct MappedPublic<Addr>(pub Addr);
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct Private<Addr>(pub Addr);
+pub(crate) struct Private<Addr>(pub Addr);
 
 impl<Addr> From<Uninitialized> for State<Addr> {
     fn from(value: Uninitialized) -> Self {
