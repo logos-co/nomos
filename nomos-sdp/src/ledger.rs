@@ -302,11 +302,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashMap,
-        marker::PhantomData,
-        sync::{Arc, Mutex},
-    };
+    use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
     use multiaddr::multiaddr;

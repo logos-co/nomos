@@ -17,4 +17,9 @@ pub trait StorageChainApi {
         header_id: HeaderId,
         block: Self::Block,
     ) -> Result<(), Self::Error>;
+
+    async fn remove_block(
+        &mut self,
+        header_id: HeaderId,
+    ) -> Result<Option<Self::Block>, Self::Error>;
 }

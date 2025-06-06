@@ -372,9 +372,6 @@ fn compute_failure_rate(
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
-    use libp2p::PeerId;
     use subnetworks_assignations::versions::v1::FillFromNodeList;
 
     use super::*;

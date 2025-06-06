@@ -180,13 +180,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashSet,
-        task::{Context, Poll},
-    };
-
     use futures::stream;
-    use libp2p::PeerId;
     use tokio_stream::StreamExt as _;
 
     use super::*;
@@ -246,6 +240,10 @@ mod tests {
         }
 
         fn get_address(&self, _peer_id: &PeerId) -> Option<libp2p::Multiaddr> {
+            unimplemented!()
+        }
+
+        fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
             unimplemented!()
         }
     }

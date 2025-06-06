@@ -70,6 +70,10 @@ impl MembershipBackend for MockMembershipBackend {
     ) -> Result<HashMap<ServiceType, MembershipProviders>, MembershipBackendError> {
         let block_number = update.block_number;
 
+        if block_number <= self.latest_block_number {
+            return Err(MembershipBackendError::BlockFromPast);
+        }
+
         let mut latest_entry = self
             .membership
             .get(&self.latest_block_number)

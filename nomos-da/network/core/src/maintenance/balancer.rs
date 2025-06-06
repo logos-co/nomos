@@ -183,15 +183,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::{HashSet, VecDeque},
-        time::Duration,
-    };
+    use std::{collections::HashSet, time::Duration};
 
-    use libp2p::{
-        swarm::{Swarm, SwarmEvent},
-        PeerId,
-    };
+    use libp2p::swarm::{Swarm, SwarmEvent};
     use libp2p_swarm_test::SwarmExt as _;
     use tokio::time::timeout;
 

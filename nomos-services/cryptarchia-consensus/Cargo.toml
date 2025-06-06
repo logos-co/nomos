@@ -30,7 +30,7 @@ services-utils         = { workspace = true }
 thiserror              = "1.0"
 tokio                  = { version = "1", features = ["sync"] }
 tokio-stream           = "0.1"
-tracing                = "0.1"
+tracing                = { workspace = true }
 tracing-futures        = "0.2"
 utoipa                 = { version = "4.0", optional = true }
 

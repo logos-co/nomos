@@ -11,6 +11,7 @@ use nomos_ledger::{EpochState, NoteTree};
 use nomos_proof_statements::leadership::{LeaderPrivate, LeaderPublic};
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone)]
 pub struct Leader {
     // for each block, the indexes in the note tree of the notes we control
     notes: HashMap<HeaderId, Vec<NoteWitness>>,
@@ -136,6 +137,23 @@ impl Leader {
 
     pub(crate) fn notes(&self, header_id: &HeaderId) -> Option<&[NoteWitness]> {
         self.notes.get(header_id).map(Vec::as_slice)
+    }
+
+    /// Removes the notes stored for the given block id.
+    ///
+    /// This function must be called only when the notes being pruned won't be
+    /// needed for any subsequent proof going forward.
+    ///
+    /// ## Arguments
+    ///
+    /// The block ID to prune the state for.
+    ///
+    /// ## Returns
+    ///
+    /// `true` if the state was successfully removed, `false` otherwise (e.g.,
+    /// if no state was associated to the provided block ID).
+    pub(crate) fn prune_notes_at(&mut self, header_id: &HeaderId) -> bool {
+        self.notes.remove(header_id).is_some()
     }
 }
 

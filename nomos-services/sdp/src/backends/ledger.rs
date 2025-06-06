@@ -1,14 +1,6 @@
 use nomos_core::block::BlockNumber;
 use nomos_sdp_core::{
-    ledger::{
-        SdpLedger,
-        SdpLedgerError::{
-            self, DeclarationsRepository, DuplicateDeclarationInBlock, DuplicateServiceDeclaration,
-            IncorrectServiceType, Other, ProviderState,
-            ServicesRepository as LedgerServicesRepository, WrongDeclarationId,
-        },
-        ServicesRepository,
-    },
+    ledger::{SdpLedger, ServicesRepository},
     SdpMessage,
 };
 
@@ -50,20 +42,5 @@ where
 
     fn discard_block(&mut self, block_number: BlockNumber) {
         self.discard_block(block_number);
-    }
-}
-
-impl From<SdpLedgerError> for SdpBackendError {
-    fn from(e: SdpLedgerError) -> Self {
-        match e {
-            ProviderState(provider_state_error) => Self::Other(Box::new(provider_state_error)),
-            DeclarationsRepository(err) => Self::DeclarationAdapterError(Box::new(err)),
-            LedgerServicesRepository(err) => Self::ServicesAdapterError(Box::new(err)),
-            DuplicateServiceDeclaration
-            | IncorrectServiceType(_)
-            | DuplicateDeclarationInBlock
-            | WrongDeclarationId => Self::Other(Box::new(e)),
-            Other(error) => Self::Other(error),
-        }
     }
 }

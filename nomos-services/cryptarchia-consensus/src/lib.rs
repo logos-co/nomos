@@ -7,7 +7,12 @@ mod states;
 pub mod storage;
 
 use core::fmt::Debug;
-use std::{collections::BTreeSet, fmt::Display, hash::Hash, path::PathBuf};
+use std::{
+    collections::{BTreeSet, HashSet},
+    fmt::Display,
+    hash::Hash,
+    path::PathBuf,
+};
 
 use cryptarchia_engine::{CryptarchiaState, Online, Slot};
 use futures::StreamExt as _;
@@ -64,6 +69,8 @@ type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
 const HEADERS_LIMIT: usize = 512;
 const CRYPTARCHIA_ID: &str = "Cryptarchia";
 
+pub(crate) const LOG_TARGET: &str = "cryptarchia::service";
+
 #[derive(Debug, Clone, Error)]
 pub enum Error {
     #[error("Ledger error: {0}")]
@@ -72,6 +79,7 @@ pub enum Error {
     Consensus(#[from] cryptarchia_engine::Error<HeaderId>),
 }
 
+#[derive(Clone)]
 struct Cryptarchia<State> {
     ledger: nomos_ledger::Ledger<HeaderId>,
     consensus: cryptarchia_engine::Cryptarchia<HeaderId, State>,
@@ -179,6 +187,38 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
         } else {
             None
         }
+    }
+
+    /// Prune the in-memory storage of forks older than or equal to the Last
+    /// Immutable Block (LIB).
+    ///
+    /// The old blocks are removed from the consensus engine and their state
+    /// removed from the ledger state.
+    pub fn prune_old_forks(&mut self) -> impl Iterator<Item = HeaderId> {
+        // We need to iterate once, then return the unconsumed iterator, so we need to
+        // collect first.
+        let lib_depth = self
+            .consensus
+            .tip_branch()
+            .length()
+            .checked_sub(self.consensus.lib_branch().length())
+            .expect("Canonical chain tip heigh must be higher than LIB height.");
+        let old_forks_pruned = self.consensus.prune_forks(lib_depth).collect::<Vec<_>>();
+        let mut pruned_states_count = 0usize;
+        for pruned_block in &old_forks_pruned {
+            if self.ledger.prune_state_at(pruned_block) {
+                pruned_states_count = pruned_states_count.saturating_add(1);
+            } else {
+                tracing::error!(
+                   target: LOG_TARGET,
+                    "Failed to prune ledger state for block {:?} which should exist.",
+                    pruned_block
+                );
+            }
+        }
+        tracing::debug!(target: LOG_TARGET, "Pruned {pruned_states_count} old forks and their ledger states.");
+
+        old_forks_pruned.into_iter()
     }
 }
 
@@ -575,6 +615,10 @@ where
 
         let genesis_id = HeaderId::from([0; 32]);
 
+        // These are blocks that have been pruned by the cryptarchia engine but have not
+        // yet been deleted from the storage layer.
+        let mut previously_pruned_blocks = self.initial_state.prunable_blocks.clone();
+
         let (mut cryptarchia, mut leader) = Self::build_cryptarchia(
             self.initial_state,
             genesis_id,
@@ -626,7 +670,10 @@ where
                         )
                         .await;
 
-                        self.service_resources_handle.state_updater.update(Some(Self::State::from_cryptarchia(&cryptarchia, &leader)));
+                        // This will modify `previously_pruned_blocks` to include blocks which are not tracked by Cryptarchia anymore but have not been deleted from the persistence layer.
+                        Self::prune_forks(&mut cryptarchia, &mut leader, relays.storage_adapter(), &mut previously_pruned_blocks).await;
+                        // We dump the undeleted blocks to storage so they are picked up by the service again if it suddenly stops.
+                        self.service_resources_handle.state_updater.update(Some(Self::State::from_cryptarchia_and_unpruned_blocks(&cryptarchia, &leader, previously_pruned_blocks.clone())));
 
                         info!(counter.consensus_processed_blocks = 1);
                     }
@@ -661,6 +708,10 @@ where
                                     &relays,
                                     &mut self.block_subscription_sender
                                 ).await;
+                                // This will modify `previously_pruned_blocks` to include blocks which are not tracked by Cryptarchia but have not been deleted from the persistence layer.
+                                Self::prune_forks(&mut cryptarchia, &mut leader, relays.storage_adapter(), &mut previously_pruned_blocks).await;
+                                // We dump the undeleted blocks to storage so they are picked up by the service again if it suddenly stops.
+                                self.service_resources_handle.state_updater.update(Some(Self::State::from_cryptarchia_and_unpruned_blocks(&cryptarchia, &leader, previously_pruned_blocks.clone())));
                                 blend_adapter.blend(block).await;
                             }
                         }
@@ -1384,6 +1435,108 @@ where
         }
 
         (cryptarchia, leader)
+    }
+
+    /// Remove the in-memory storage of stale blocks from the cryptarchia engine
+    /// and of stale `PoL` notes from the `PoL` machinery.
+    /// Furthermore, it attempts to remove the deleted block data from storage
+    /// as well, also including the blocks provided in `prunable_blocks` that
+    /// might belong to previous pruning operations and that failed for some
+    /// reason.
+    ///
+    /// Any block that fails to be deleted from the storage layer is added to
+    /// the provided `prunable_blocks` parameter and will be picked up at the
+    /// next invocation of this function.
+    async fn prune_forks(
+        cryptarchia: &mut Cryptarchia<Online>,
+        leader: &mut Leader,
+        storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
+        prunable_blocks: &mut HashSet<HeaderId>,
+    ) {
+        let old_forks_pruned = cryptarchia.prune_old_forks().collect::<HashSet<_>>();
+        // And remove the notes of the pruned blocks from the leader state.
+        for old_fork_pruned in &old_forks_pruned {
+            if leader.prune_notes_at(old_fork_pruned) {
+                tracing::debug!(
+                    target: LOG_TARGET,
+                    "Leader proof for block {old_fork_pruned} removed from in-memory storage."
+                );
+            }
+        }
+
+        // We try to delete both freshly pruned forks as well as old pruned blocks.
+        match Self::delete_pruned_blocks_from_storage(
+            old_forks_pruned
+                .iter()
+                .chain(prunable_blocks.iter())
+                .copied(),
+            storage_adapter,
+        )
+        .await
+        {
+            // All blocks, past and present, have been successfully deleted from storage.
+            Ok(()) => *prunable_blocks = HashSet::new(),
+            // We retain the blocks that failed to be deleted.
+            Err(failed_blocks) => {
+                *prunable_blocks = failed_blocks
+                    .into_iter()
+                    .map(|(block_id, _)| block_id)
+                    .collect();
+            }
+        }
+    }
+
+    /// Send a bulk deletion request to the storage adapter.
+    ///
+    /// If no request fails, the method returns `Ok()`.
+    /// If any request fails, the header ID and the generated error for each
+    /// failing request are collected and returned as part of the `Err`
+    /// result.
+    async fn delete_pruned_blocks_from_storage<Headers>(
+        pruned_block_headers: Headers,
+        storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
+    ) -> Result<(), Vec<(HeaderId, DynError)>>
+    where
+        Headers: Iterator<Item = HeaderId> + Send,
+    {
+        let blocks_to_delete = pruned_block_headers.collect::<Vec<_>>();
+        let block_deletion_outcomes = blocks_to_delete.iter().copied().zip(
+            storage_adapter
+                .remove_blocks(blocks_to_delete.iter().copied())
+                .await,
+        );
+
+        let errors: Vec<_> = block_deletion_outcomes
+            .filter_map(|(block_id, outcome)| match outcome {
+                Ok(Some(_)) => {
+                    tracing::debug!(
+                        target: LOG_TARGET,
+                        "Block {block_id:#?} successfully deleted from storage."
+                    );
+                    None
+                }
+                Ok(None) => {
+                    tracing::trace!(
+                        target: LOG_TARGET,
+                        "Block {block_id:#?} was not found in storage."
+                    );
+                    None
+                }
+                Err(e) => {
+                    tracing::error!(
+                        target: LOG_TARGET,
+                        "Error deleting block {block_id:#?} from storage: {e}."
+                    );
+                    Some((block_id, e))
+                }
+            })
+            .collect();
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 }
 

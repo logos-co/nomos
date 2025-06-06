@@ -1,3 +1,5 @@
+# DO NOT RE-ORDER LINES IN THIS FILE, AS ORDER MATTERS!
+
 [target.'cfg(target_os = "macos")']
 # when using osx, we need to link against some golang libraries, it did just work with this missing flags
 # from: https://github.com/golang/go/issues/42459
@@ -69,7 +71,7 @@ rustflags = [
   "-Aclippy::use_debug",
   "-Aclippy::wildcard_enum_match_arm",
 
-  # TODO: Address these lints at some point.
+  # TODO: Address these Clippy lints at some point (by deleting the entry, which turns them into warnings).
   "-Aclippy::arithmetic_side_effects",
   "-Aclippy::as_conversions",
   "-Aclippy::as_pointer_underscore",
@@ -103,4 +105,62 @@ rustflags = [
   "-Aclippy::unreachable",
   "-Aclippy::unwrap_in_result",
   "-Aclippy::unwrap_used",
+
+  # Explicitly allowed Rustc lints
+
+  # Rustc lints which are allow-by-default but have been changed to "warn"
+  "-Wredundant_imports",
+  "-Wredundant_lifetimes",
+
+  # TODO: Address these allow-by-default Rustc lints at some point by either allowing them permanently or enforce them, and move them to the relative section according to the decision.
+  "-Aabsolute_paths_not_starting_with_crate",
+  "-Aambiguous_negative_literals",
+  "-Aclosure_returning_async_block",
+  "-Adeprecated_safe_2024",
+  "-Aderef_into_dyn_supertrait",
+  "-Aedition_2024_expr_fragment_specifier",
+  "-Aelided_lifetimes_in_paths",
+  "-Aexplicit_outlives_requirements",
+  "-Affi_unwind_calls",
+  "-Aif_let_rescope",
+  "-Aimpl_trait_overcaptures",
+  "-Aimpl_trait_redundant_captures",
+  "-Akeyword-idents",
+  "-Akeyword_idents_2018",
+  "-Akeyword_idents_2024",
+  "-Alet_underscore_drop",
+  "-Alinker_messages",
+  "-Amacro_use_extern_crate",
+  "-Ameta_variable_misuse",
+  "-Amissing_copy_implementations",
+  "-Amissing_debug_implementations",
+  "-Amissing_docs",
+  "-Amissing_unsafe_on_extern",
+  "-Anon_ascii_idents",
+  "-Arust_2021_incompatible_closure_captures",
+  "-Arust_2021_incompatible_or_patterns",
+  "-Arust_2021_prefixes_incompatible_syntax",
+  "-Arust_2021_prelude_collisions",
+  "-Arust_2024_guarded_string_incompatible_syntax",
+  "-Arust_2024_incompatible_pat",
+  "-Arust_2024_prelude_collisions",
+  "-Asingle_use_lifetimes",
+  "-Atail_expr_drop_order",
+  "-Atrivial_casts",
+  "-Atrivial_numeric_casts",
+  "-Aunit_bindings",
+  "-Aunnameable_types",
+  "-Aunreachable_pub",
+  "-Aunsafe_attr_outside_unsafe",
+  "-Aunsafe_code",
+  "-Aunsafe_op_in_unsafe_fn",
+  "-Aunstable_features",
+  "-Aunused_crate_dependencies",
+  "-Aunused_extern_crates",
+  "-Aunused_import_braces",
+  "-Aunused_lifetimes",
+  "-Aunused_macro_rules",
+  "-Aunused_qualifications",
+  "-Aunused_results",
+  "-Avariant_size_differences"
 ]

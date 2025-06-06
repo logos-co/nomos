@@ -1,4 +1,5 @@
 pub mod backends;
+pub mod membership;
 
 use std::{
     fmt::{self, Debug, Display},

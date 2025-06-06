@@ -1,5 +1,7 @@
 use nomos_core::block::BlockNumber;
+use nomos_sdp_core::ledger::SdpLedgerError;
 use overwatch::DynError;
+use thiserror::Error;
 
 use crate::adapters::{declaration::SdpDeclarationAdapter, services::SdpServicesAdapter};
 
@@ -13,13 +15,13 @@ pub struct ServiceParams {
     pub timestamp: BlockNumber,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum SdpBackendError {
-    DeclarationAdapterError(DynError),
-    RewardsAdapterError(DynError),
-    StakesVerifierAdapterError(DynError),
-    ServicesAdapterError(DynError),
-    Other(DynError),
+    #[error("Sdp ledger error: {0}")]
+    SdpLedgerError(#[from] SdpLedgerError),
+
+    #[error("Other SDP backend error: {0}")]
+    Other(#[from] DynError),
 }
 
 #[async_trait::async_trait]

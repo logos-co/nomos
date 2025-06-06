@@ -4,7 +4,7 @@ use libp2p::Multiaddr;
 use libp2p_identity::PeerId;
 use serde::{Deserialize, Serialize};
 
-use crate::MembershipHandler;
+use crate::{MembershipHandler, SubnetworkAssignations};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct FillWithOriginalReplication {
@@ -109,8 +109,19 @@ impl MembershipHandler for FillWithOriginalReplication {
         self.subnetwork_size.saturating_sub(1) as u16
     }
 
-    fn get_address(&self, peer_id: &PeerId) -> Option<Multiaddr> {
+    fn get_address(&self, peer_id: &Self::Id) -> Option<Multiaddr> {
         self.addressbook.get(peer_id).cloned()
+    }
+
+    fn subnetworks(&self) -> SubnetworkAssignations<Self::NetworkId, Self::Id> {
+        self.assignations
+            .iter()
+            .enumerate()
+            .map(|(index, member_set)| {
+                let network_id = index as Self::NetworkId;
+                (network_id, member_set.clone())
+            })
+            .collect()
     }
 }
 

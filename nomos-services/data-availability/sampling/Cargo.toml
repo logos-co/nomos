@@ -25,7 +25,7 @@ serde                    = { version = "1.0", features = ["derive"] }
 subnetworks-assignations = { workspace = true }
 tokio                    = { version = "1", features = ["macros", "sync"] }
 tokio-stream             = "0.1.15"
-tracing                  = "0.1"
+tracing                  = { workspace = true }
 url                      = "2.5.4"
 
 [dev-dependencies]
