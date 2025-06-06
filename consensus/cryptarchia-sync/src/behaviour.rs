@@ -196,11 +196,8 @@ impl Behaviour {
         let control = self.control.clone();
 
         self.locally_pending_download_requests.push(
-            async move {
-                let stream = DownloadBlocksTask::send_request(peer_id, control, request).await?;
-                Ok(stream)
-            }
-            .boxed(),
+            async move { DownloadBlocksTask::send_request(peer_id, control, request).await }
+                .boxed(),
         );
 
         Ok(())
@@ -340,8 +337,8 @@ impl NetworkBehaviour for Behaviour {
         {
             match result {
                 Ok(stream) => {
-                    let stream = DownloadBlocksTask::download_blocks(stream);
-                    self.locally_initiated_downloads.push(stream);
+                    self.locally_initiated_downloads
+                        .push(DownloadBlocksTask::download_blocks(stream));
 
                     cx.waker().wake_by_ref();
                 }
@@ -402,7 +399,6 @@ mod tests {
     use libp2p_swarm_test::SwarmExt as _;
     use nomos_core::header::HeaderId;
     use rand::{rng, Rng as _};
-    use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
     use crate::{
         behaviour::MAX_INCOMING_REQUESTS, Behaviour, BlocksResponse, ChainSyncError, Event,
@@ -411,12 +407,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_block_sync_between_two_swarms() {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .compact()
-            .with_writer(TestWriter::default())
-            .try_init();
-
         let mut downloader_swarm = start_provider_and_downloader().await;
 
         request_syncs(&mut downloader_swarm, 1);
