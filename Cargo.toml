@@ -174,7 +174,7 @@ wildcard_enum_match_arm           = { level = "allow" }
 
 # TODO: Address these allow-by-default lints at some point by either allowing them permanently or enforce them, and move them to the relative section according to the decision.
 # When doing so, please update the same table for all crates that are not part of the workspace.
-arithmetic_side_effects     = { level = "allow" }
+arithmetic_side_effects     = { level = "warn" }
 as_conversions              = { level = "allow" }
 as_pointer_underscore       = { level = "allow" }
 as_underscore               = { level = "allow" }
@@ -263,7 +263,7 @@ unstable_features                            = { level = "allow" }
 unused_crate_dependencies                    = { level = "allow" }
 unused_extern_crates                         = { level = "allow" }
 unused_import_braces                         = { level = "allow" }
-unused_lifetimes                             = { level = "allow" }
+unused_lifetimes                             = { level = "warn" }
 unused_macro_rules                           = { level = "allow" }
 unused_qualifications                        = { level = "allow" }
 unused_results                               = { level = "allow" }
