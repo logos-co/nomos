@@ -276,7 +276,8 @@ pub struct CryptarchiaConsensus<
     ClPool::Settings: Clone,
     ClPool::Item: Clone + Eq + Hash + Debug + 'static,
     ClPool::Key: Debug + 'static,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
+    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = ClPool::Key>,
+    ClPoolAdapter::Payload: Into<ClPool::Item>,
     DaPool: RecoverableMempool<BlockId = HeaderId>,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     DaPool::Item: Clone + Eq + Hash + Debug + 'static,
@@ -362,7 +363,8 @@ where
     ClPool::Settings: Clone,
     ClPool::Item: Clone + Eq + Hash + Debug,
     ClPool::Key: Debug,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
+    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = ClPool::Key>,
+    ClPoolAdapter::Payload: Into<ClPool::Item>,
     DaPool: RecoverableMempool<BlockId = HeaderId>,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     DaPool::Item: Clone + Eq + Hash + Debug,
@@ -482,6 +484,7 @@ where
         + Send
         + Sync
         + 'static,
+    ClPoolAdapter::Payload: Into<ClPool::Item>,
     DaPool: RecoverableMempool<BlockId = HeaderId, Key = SamplingBackend::BlobId>
         + Send
         + Sync
@@ -800,10 +803,8 @@ where
         + Sync
         + 'static,
     ClPool::Key: Debug + Send + Sync,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
-        + Send
-        + Sync
-        + 'static,
+    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = ClPool::Key> + Send + Sync + 'static,
+    ClPoolAdapter::Payload: Into<ClPool::Item>,
     DaPool::Item: DispersedBlobInfo<BlobId = DaPool::Key>
         + BlobMetadata
         + Debug

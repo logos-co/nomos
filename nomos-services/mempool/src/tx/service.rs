@@ -93,7 +93,7 @@ where
     type Settings = TxMempoolSettings<Pool::Settings, NetworkAdapter::Settings>;
     type State = TxMempoolState<Pool::RecoveryState, Pool::Settings, NetworkAdapter::Settings>;
     type StateOperator = RecoveryOperator<RecoveryBackend>;
-    type Message = MempoolMsg<Pool::BlockId, Pool::Item, Pool::Item, Pool::Key>;
+    type Message = MempoolMsg<Pool::BlockId, NetworkAdapter::Payload, Pool::Item, Pool::Key>;
 }
 
 #[async_trait::async_trait]
@@ -106,9 +106,9 @@ where
     Pool::Item: Clone + Send + 'static,
     Pool::BlockId: Send,
     Pool::Settings: Clone + Sync + Send,
-    NetworkAdapter:
-        NetworkAdapterTrait<RuntimeServiceId, Payload = Pool::Item, Key = Pool::Key> + Send,
+    NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId, Key = Pool::Key> + Send,
     NetworkAdapter::Settings: Clone + Send + Sync + 'static,
+    NetworkAdapter::Payload: Into<Pool::Item> + Clone,
     RecoveryBackend: RecoveryBackendTrait + Send,
     RuntimeServiceId: Display
         + Debug
@@ -189,8 +189,9 @@ where
     Pool: RecoverableMempool,
     Pool::Item: Clone + Send + 'static,
     Pool::Settings: Clone,
-    NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId, Payload = Pool::Item> + Send,
+    NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId> + Send,
     NetworkAdapter::Settings: Clone + Send + 'static,
+    NetworkAdapter::Payload: Into<Pool::Item> + Clone,
     RecoveryBackend: RecoveryBackendTrait,
     RuntimeServiceId: 'static,
 {
@@ -200,7 +201,7 @@ where
     )]
     fn handle_mempool_message(
         &mut self,
-        message: MempoolMsg<Pool::BlockId, Pool::Item, Pool::Item, Pool::Key>,
+        message: MempoolMsg<Pool::BlockId, NetworkAdapter::Payload, Pool::Item, Pool::Key>,
         network_relay: OutboundRelay<BackendNetworkMsg<NetworkAdapter::Backend, RuntimeServiceId>>,
     ) {
         match message {
