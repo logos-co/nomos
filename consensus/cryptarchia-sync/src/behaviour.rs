@@ -255,6 +255,19 @@ impl NetworkBehaviour for Behaviour {
     type ConnectionHandler = <StreamBehaviour as NetworkBehaviour>::ConnectionHandler;
     type ToSwarm = Event;
 
+    fn handle_pending_inbound_connection(
+        &mut self,
+        connection_id: ConnectionId,
+        local_addr: &Multiaddr,
+        remote_addr: &Multiaddr,
+    ) -> Result<(), ConnectionDenied> {
+        self.stream_behaviour.handle_pending_inbound_connection(
+            connection_id,
+            local_addr,
+            remote_addr,
+        )
+    }
+
     fn handle_established_inbound_connection(
         &mut self,
         connection_id: ConnectionId,
