@@ -14,6 +14,7 @@
 ///
 /// # Returns
 ///
+/// A scope that returns:
 /// - `Ok(())` if all specified services are ready within the timeout.
 /// - `Err(DynError)` if any of the specified services are not ready within the
 ///   timeout.
@@ -53,27 +54,31 @@
 #[macro_export]
 macro_rules! wait_until_services_are_ready {
     ( $overwatch_handle:expr, $timeout:expr, $( $service_type:ty ),+ ) => {
-        let overwatch_handle: &::overwatch::overwatch::OverwatchHandle<RuntimeServiceId> = $overwatch_handle;
-        let timeout: Option<::std::time::Duration> = $timeout;
+        {
+            let overwatch_handle: &::overwatch::overwatch::OverwatchHandle<RuntimeServiceId> = $overwatch_handle;
+            let timeout: Option<::std::time::Duration> = $timeout;
 
-        let mut non_ready_services: Vec<$crate::overwatch::status::ServiceStatusEntry<RuntimeServiceId>> = Vec::new();
+            let mut non_ready_services: Vec<$crate::overwatch::status::ServiceStatusEntry<RuntimeServiceId>> = Vec::new();
 
-        $(
-            if let Err(service_status) = overwatch_handle
-                .status_watcher::<$service_type>()
-                .await
-                .wait_for(::overwatch::services::status::ServiceStatus::Ready, timeout)
-                .await
-            {
-                let service_id = <RuntimeServiceId as ::overwatch::services::AsServiceId<$service_type>>::SERVICE_ID;
-                let service_status_entry = $crate::overwatch::status::ServiceStatusEntry::<RuntimeServiceId>::from_overwatch(service_id, service_status);
-                non_ready_services.push(service_status_entry);
+            $(
+                if let Err(service_status) = overwatch_handle
+                    .status_watcher::<$service_type>()
+                    .await
+                    .wait_for(::overwatch::services::status::ServiceStatus::Ready, timeout)
+                    .await
+                {
+                    let service_id = <RuntimeServiceId as ::overwatch::services::AsServiceId<$service_type>>::SERVICE_ID;
+                    let service_status_entry = $crate::overwatch::status::ServiceStatusEntry::<RuntimeServiceId>::from_overwatch(service_id, service_status);
+                    non_ready_services.push(service_status_entry);
+                }
+            )+;
+
+            if !non_ready_services.is_empty() {
+                let error: $crate::overwatch::status::ServiceStatusEntriesError<RuntimeServiceId> = non_ready_services.into();
+                return ::std::result::Result::Err(::overwatch::DynError::from(error));
             }
-        )+;
 
-        if !non_ready_services.is_empty() {
-            let error: $crate::overwatch::status::ServiceStatusEntriesError<RuntimeServiceId> = non_ready_services.into();
-            return Err(::overwatch::DynError::from(error));
+            ::std::result::Result::<(), ::overwatch::DynError>::Ok(())
         }
     };
 }
@@ -244,7 +249,7 @@ mod tests {
                 Some(Duration::from_secs(5)),
                 GenericService,
                 ServiceB
-            );
+            )?;
             self.service_resources_handle.status_updater.notify_ready();
             Ok(())
         }
