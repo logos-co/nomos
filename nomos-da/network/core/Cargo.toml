@@ -4,6 +4,9 @@ license = { workspace = true }
 name    = "nomos-da-network-core"
 version = "0.1.0"
 
+[lints]
+workspace = true
+
 [dependencies]
 cached                   = { workspace = true }
 either                   = "1.13.0"

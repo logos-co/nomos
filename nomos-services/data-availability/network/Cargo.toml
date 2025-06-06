@@ -4,6 +4,9 @@ license = { workspace = true }
 name    = "nomos-da-network-service"
 version = "0.1.0"
 
+[lints]
+workspace = true
+
 [dependencies]
 arc-swap                 = "1"
 async-trait              = "0.1"

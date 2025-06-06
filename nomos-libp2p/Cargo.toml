@@ -4,6 +4,9 @@ license = { workspace = true }
 name    = "nomos-libp2p"
 version = "0.1.0"
 
+[lints]
+workspace = true
+
 [dependencies]
 blake2 = { version = "0.10" }
 futures = "0.3"
