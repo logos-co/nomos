@@ -164,7 +164,7 @@ impl Behaviour {
         local_tip: HeaderId,
         immutable_block: HeaderId,
         additional_blocks: Vec<HeaderId>,
-        rx_blocks: mpsc::Sender<BlocksResponse>,
+        reply_tx: mpsc::Sender<BlocksResponse>,
     ) -> Result<(), ChainSyncError> {
         let peer_id = self.choose_peer().ok_or_else(|| {
             ChainSyncError::StartSyncError("No peers available for chain sync".into())
@@ -172,11 +172,14 @@ impl Behaviour {
 
         let request =
             DownloadBlocksRequest::new(target_block, local_tip, immutable_block, additional_blocks);
-        let mut task = DownloadBlocksTask::new(request, rx_blocks);
 
         let control = self.control.clone();
-        self.locally_initiated_downloads
-            .push(async move { task.download_blocks(peer_id, control).await }.boxed());
+        self.locally_initiated_downloads.push(
+            async move {
+                DownloadBlocksTask::download_blocks(peer_id, control, reply_tx, request).await
+            }
+            .boxed(),
+        );
 
         Ok(())
     }
