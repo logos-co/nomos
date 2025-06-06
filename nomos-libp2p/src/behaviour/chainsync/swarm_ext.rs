@@ -1,5 +1,4 @@
-use cryptarchia_sync::{BlocksResponse, HeaderId};
-use tokio::sync::mpsc;
+use cryptarchia_sync::HeaderId;
 
 use crate::{behaviour::BehaviourError, Swarm};
 
@@ -10,20 +9,13 @@ impl Swarm {
         local_tip: HeaderId,
         immutable_block: HeaderId,
         additional_blocks: Vec<HeaderId>,
-        reply_rcv: mpsc::Sender<BlocksResponse>,
     ) -> Result<(), BehaviourError> {
         let Some(chain_sync) = self.swarm.behaviour_mut().chain_sync.as_mut() else {
             return Err(BehaviourError::OperationNotSupported);
         };
 
         chain_sync
-            .start_blocks_download(
-                target_block,
-                local_tip,
-                immutable_block,
-                additional_blocks,
-                reply_rcv,
-            )
+            .start_blocks_download(target_block, local_tip, immutable_block, additional_blocks)
             .map_err(Into::into)
     }
 }
