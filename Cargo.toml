@@ -173,6 +173,7 @@ use_debug                         = { level = "allow" }
 wildcard_enum_match_arm           = { level = "allow" }
 
 # TODO: Address these allow-by-default lints at some point by either allowing them permanently or enforce them, and move them to the relative section according to the decision.
+# When doing so, please update the same table for all crates that are not part of the workspace.
 arithmetic_side_effects     = { level = "allow" }
 as_conversions              = { level = "allow" }
 as_pointer_underscore       = { level = "allow" }
@@ -216,6 +217,7 @@ redundant_imports   = { level = "warn" }
 redundant_lifetimes = { level = "warn" }
 
 # TODO: Address these allow-by-default Rustc lints at some point by either allowing them permanently or enforce them, and move them to the relative section according to the decision.
+# When doing so, please update the same table for all crates that are not part of the workspace.
 absolute_paths_not_starting_with_crate       = { level = "allow" }
 ambiguous_negative_literals                  = { level = "allow" }
 closure_returning_async_block                = { level = "allow" }
