@@ -4,6 +4,9 @@ license = { workspace = true }
 name    = "nomos-da-verifier"
 version = "0.1.0"
 
+[lints]
+workspace = true
+
 [dependencies]
 async-trait              = "0.1"
 futures                  = "0.3"
