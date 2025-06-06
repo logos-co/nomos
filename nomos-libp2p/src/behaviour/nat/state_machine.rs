@@ -8,7 +8,7 @@ use states::*;
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(Clone))]
-pub struct StateMachine<Addr> {
+pub(crate) struct StateMachine<Addr> {
     state: State<Addr>,
     command_tx: CommandTx<Addr>,
 }
@@ -31,7 +31,7 @@ struct CommandTx<Addr> {
 
 /// Commands that can be issued by the state machine to `NatBehaviour`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Command<Addr> {
+pub(crate) enum Command<Addr> {
     ScheduleAutonatClientTest(Addr),
     MapAddress(Addr),
     NewExternalAddrCandidate(Addr),
@@ -45,42 +45,36 @@ impl<Addr: Clone> StateMachine<Addr> {
         }
     }
 
-    pub fn on_event(&mut self, event: impl TryInto<Event<Addr>>) {
-        self.state = self.state.take().on_event(event, &self.command_tx);
+    pub fn on_event<Event>(&mut self, event: Event)
+    where
+        Event: TryInto<UninitializedEvent<Addr>, Error = ()>
+            + TryInto<TestIfPublicEvent<Addr>, Error = ()>
+            + TryInto<TryAddressMappingEvent<Addr>, Error = ()>
+            + TryInto<TestIfMappedPublicEvent<Addr>, Error = ()>
+            + TryInto<PublicEvent<Addr>, Error = ()>
+            + TryInto<MappedPublicEvent<Addr>, Error = ()>
+            + TryInto<PrivateEvent, Error = ()>,
+    {
+        let Ok(new_state) = self.state.clone().on_event(event, &self.command_tx) else {
+            // If the event is not recognized by the current state, we ignore it.
+            return;
+        };
+
+        self.state = new_state;
     }
 }
 
 impl<Addr: Clone> State<Addr> {
-    /// Event conversion is 2-staged:
-    /// 1. Convert from libp2p to a generic Event type.
-    /// 2. Convert from generic Event type to the state specific event type in
-    ///    `on_event_inner`.
-    /// This allows us to handle events in each state in a type-safe manner,
-    /// while still allowing compy-paste boilerplate when converting from libp2p
-    /// events.
-    pub fn on_event(self, event: impl TryInto<Event<Addr>>, command_tx: &CommandTx<Addr>) -> Self {
-        let Ok(event) = event.try_into() else {
-            return self;
-        };
-
-        let current_state = self.clone();
-
-        let Ok(new_state) = self.on_event_inner(event, command_tx) else {
-            return current_state;
-        };
-
-        new_state
-    }
-
-    pub fn take(&mut self) -> State<Addr> {
-        std::mem::replace(self, Uninitialized.into())
-    }
-
-    fn on_event_inner(
-        self,
-        event: Event<Addr>,
-        command_tx: &CommandTx<Addr>,
-    ) -> Result<State<Addr>, ()> {
+    pub fn on_event<Event>(self, event: Event, command_tx: &CommandTx<Addr>) -> Result<Self, ()>
+    where
+        Event: TryInto<UninitializedEvent<Addr>, Error = ()>
+            + TryInto<TestIfPublicEvent<Addr>, Error = ()>
+            + TryInto<TryAddressMappingEvent<Addr>, Error = ()>
+            + TryInto<TestIfMappedPublicEvent<Addr>, Error = ()>
+            + TryInto<PublicEvent<Addr>, Error = ()>
+            + TryInto<MappedPublicEvent<Addr>, Error = ()>
+            + TryInto<PrivateEvent, Error = ()>,
+    {
         Ok(match self {
             State::Uninitialized(x) => x.on_event(event.try_into()?, command_tx),
             State::TestIfPublic(x) => x.on_event(event.try_into()?, command_tx),
@@ -131,7 +125,7 @@ impl<Addr: Clone> OnEvent<Addr> for TryAddressMapping<Addr> {
 
     fn on_event(self, event: Self::Event, command_tx: &CommandTx<Addr>) -> State<Addr> {
         match event {
-            Self::Event::NewExternalMappedAddress(addr) => {
+            Self::Event::_NewExternalMappedAddress(addr) => {
                 command_tx.send(Command::NewExternalAddrCandidate(addr.clone()));
                 TestIfMappedPublic(addr).into()
             }
@@ -189,7 +183,7 @@ impl<Addr> OnEvent<Addr> for Private<Addr> {
 
     fn on_event(self, event: Self::Event, _: &CommandTx<Addr>) -> State<Addr> {
         match event {
-            Self::Event::LocalAddressChanged | Self::Event::DefaultGatewayChanged => {
+            Self::Event::_LocalAddressChanged | Self::Event::_DefaultGatewayChanged => {
                 Uninitialized.into()
             }
         }
