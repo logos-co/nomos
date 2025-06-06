@@ -31,6 +31,7 @@ nomos-executor           = { workspace = true, default-features = false, feature
 nomos-http-api-common    = { workspace = true }
 nomos-ledger             = { workspace = true, features = ["serde"] }
 nomos-libp2p             = { workspace = true }
+nomos-mantle-core        = { workspace = true }
 nomos-mempool            = { workspace = true, features = ["libp2p", "mock"] }
 nomos-network            = { workspace = true, features = ["libp2p"] }
 nomos-node               = { workspace = true, default-features = false }
@@ -58,5 +59,9 @@ name = "test_da"
 path = "src/tests/da/disperse.rs"
 
 [[test]]
-name = "test_api"
+name = "test_da_api"
 path = "src/tests/da/api.rs"
+
+[[test]]
+name = "test_mempool_api"
+path = "src/tests/mempool/api.rs"
