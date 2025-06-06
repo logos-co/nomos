@@ -45,7 +45,7 @@ pub struct Reconstruct {
         value_name = "APP_BLOBS",
         value_parser(parse_app_shares)
     )]
-    pub app_shares: Option<std::vec::Vec<(Index, Vec<DaShare>)>>,
+    pub app_shares: Option<Vec<(Index, Vec<DaShare>)>>,
     /// File with blobs.
     #[clap(short, long)]
     pub file: Option<PathBuf>,
@@ -56,7 +56,7 @@ impl Retrieve {
         clippy::cognitive_complexity,
         reason = "TODO: Address this at some point."
     )]
-    pub fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn run(self) -> Result<(), Box<dyn Error>> {
         let app_id: [u8; 32] = hex::decode(&self.app_id)?
             .try_into()
             .map_err(|_| "Invalid app_id")?;
@@ -102,7 +102,7 @@ async fn retrieve_data(
     range: Range<Index>,
 ) {
     let res = get_app_data_range_from_node::<kzgrs_backend::dispersal::Metadata>(
-        reqwest::Client::new(),
+        Client::new(),
         url,
         app_id,
         range,
@@ -140,7 +140,7 @@ where
 }
 
 impl Reconstruct {
-    pub fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn run(self) -> Result<(), Box<dyn Error>> {
         let app_shares: Vec<(Index, Vec<DaShare>)> = if let Some(shares) = self.app_shares {
             shares
         } else {

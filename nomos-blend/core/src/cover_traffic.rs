@@ -91,7 +91,7 @@ fn generate_ticket<Id: Hash + Eq + AsRef<[u8]>>(node_id: Id, r: usize, slot: usi
     hasher.update(node_id);
     hasher.update(r.to_be_bytes());
     hasher.update(slot.to_be_bytes());
-    let hash: [u8; std::mem::size_of::<u32>()] = hasher.finalize()[..].to_vec().try_into().unwrap();
+    let hash: [u8; size_of::<u32>()] = hasher.finalize()[..].to_vec().try_into().unwrap();
     u32::from_be_bytes(hash)
 }
 

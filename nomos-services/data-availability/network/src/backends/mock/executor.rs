@@ -75,13 +75,9 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
     type NetworkEvent = Event;
     type Membership = MockMembership;
 
-    fn new(
-        config: Self::Settings,
-        _: OverwatchHandle<RuntimeServiceId>,
-        _membership: Self::Membership,
-    ) -> Self {
-        let (commands_tx, _) = tokio::sync::mpsc::channel(BUFFER_SIZE);
-        let (events_tx, _) = tokio::sync::broadcast::channel(BUFFER_SIZE);
+    fn new(config: Self::Settings, _: OverwatchHandle<RuntimeServiceId>) -> Self {
+        let (commands_tx, _) = mpsc::channel(BUFFER_SIZE);
+        let (events_tx, _) = broadcast::channel(BUFFER_SIZE);
         Self {
             _config: config,
             _commands_tx: commands_tx,
