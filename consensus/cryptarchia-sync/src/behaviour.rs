@@ -15,7 +15,7 @@ use libp2p::{
         behaviour::ConnectionEstablished, ConnectionClosed, ConnectionDenied, ConnectionHandler,
         ConnectionId, FromSwarm, NetworkBehaviour, THandlerInEvent, ToSwarm,
     },
-    Multiaddr, PeerId, Stream, StreamProtocol,
+    Multiaddr, PeerId, Stream as Libp2pStream, StreamProtocol,
 };
 use libp2p_stream::{Behaviour as StreamBehaviour, Control, IncomingStreams};
 use nomos_core::header::HeaderId;
@@ -28,7 +28,7 @@ use crate::{
     blocks_downloader::DownloadBlocksTask,
     blocks_provider::{ProvideBlocksTask, BUFFER_SIZE},
     messages::DownloadBlocksRequest,
-    Block,
+    SerialisedBlock,
 };
 
 /// Cryptarchia networking protocol for synchronizing blocks.
@@ -70,7 +70,7 @@ pub enum Event {
         /// The list of additional blocks that the requester has.
         additional_blocks: Vec<HeaderId>,
         /// Channel to send blocks to the behaviour.
-        reply_sender: mpsc::Sender<Block>,
+        reply_sender: mpsc::Sender<SerialisedBlock>,
     },
     DownloadBlocksResponse {
         /// The response containing a block or an error.
@@ -85,7 +85,7 @@ impl Event {
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
         additional_blocks: Vec<HeaderId>,
-        reply_sender: mpsc::Sender<Block>,
+        reply_sender: mpsc::Sender<SerialisedBlock>,
     ) -> Self {
         Self::ProvideBlocksRequest {
             target_block,
@@ -100,7 +100,7 @@ impl Event {
 #[derive(Debug, Clone)]
 pub enum BlocksResponse {
     /// Successful response containing a block.
-    Block(Block),
+    Block(SerialisedBlock),
     /// Error happened during block downloading.
     NetworkError(String),
 }
@@ -117,7 +117,7 @@ pub struct Behaviour {
     /// Futures for sending download requests. After the request is
     /// read, sending blocks is handled by `locally_initiated_downloads`.
     locally_pending_download_requests:
-        FuturesUnordered<BoxFuture<'static, Result<Stream, ChainSyncError>>>,
+        FuturesUnordered<BoxFuture<'static, Result<Libp2pStream, ChainSyncError>>>,
     /// Futures for managing the progress of locally initiated block downloads.
     locally_initiated_downloads:
         SelectAll<BoxStream<'static, Result<BlocksResponse, ChainSyncError>>>,
@@ -128,7 +128,7 @@ pub struct Behaviour {
     /// Futures for reading incoming download requests. After the request is
     /// read, sending blocks is handled by `externally_initiated_downloads`.
     external_pending_download_requests: FuturesUnordered<
-        BoxFuture<'static, Result<(Stream, DownloadBlocksRequest), ChainSyncError>>,
+        BoxFuture<'static, Result<(Libp2pStream, DownloadBlocksRequest), ChainSyncError>>,
     >,
     /// Futures for closing incoming streams that were rejected due to excess
     /// requests.
@@ -203,7 +203,7 @@ impl Behaviour {
 
     fn handle_download_request(
         &self,
-        result: Result<(Stream, DownloadBlocksRequest), ChainSyncError>,
+        result: Result<(Libp2pStream, DownloadBlocksRequest), ChainSyncError>,
     ) -> Option<Poll<ToSwarmEvent>> {
         match result {
             Ok((stream, request)) => {
@@ -231,7 +231,7 @@ impl Behaviour {
         None
     }
 
-    fn handle_incoming_stream(&self, cx: &mut Context, mut stream: Stream) {
+    fn handle_incoming_stream(&self, cx: &mut Context, mut stream: Libp2pStream) {
         if self.external_pending_download_requests.len() + self.externally_initiated_downloads.len()
             >= MAX_INCOMING_REQUESTS
         {
@@ -400,7 +400,8 @@ mod tests {
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
     use crate::{
-        behaviour::MAX_INCOMING_REQUESTS, Behaviour, Block, BlocksResponse, ChainSyncError, Event,
+        behaviour::MAX_INCOMING_REQUESTS, Behaviour, BlocksResponse, ChainSyncError, Event,
+        SerialisedBlock,
     };
 
     #[tokio::test]
@@ -491,7 +492,7 @@ mod tests {
     async fn wait_downloader_events(
         mut downloader_swarm: Swarm<Behaviour>,
         expected_count: usize,
-    ) -> (Vec<Block>, Vec<String>) {
+    ) -> (Vec<SerialisedBlock>, Vec<String>) {
         let handle = tokio::spawn(async move {
             let mut blocks = Vec::new();
             let mut errros = Vec::new();

@@ -1,5 +1,5 @@
 use futures::stream::BoxStream;
-use libp2p::{PeerId, Stream};
+use libp2p::{PeerId, Stream as Libp2pStream};
 use libp2p_stream::Control;
 use nomos_core::wire::packing::{pack_to_writer, unpack_from_reader};
 
@@ -18,7 +18,7 @@ impl DownloadBlocksTask {
         peer_id: PeerId,
         mut control: Control,
         request: DownloadBlocksRequest,
-    ) -> Result<Stream, ChainSyncError> {
+    ) -> Result<Libp2pStream, ChainSyncError> {
         let mut stream = match control.open_stream(peer_id, SYNC_PROTOCOL).await {
             Ok(s) => s,
             Err(e) => {
@@ -33,7 +33,7 @@ impl DownloadBlocksTask {
         Ok(stream)
     }
     pub fn download_blocks(
-        stream: Stream,
+        stream: Libp2pStream,
     ) -> BoxStream<'static, Result<BlocksResponse, ChainSyncError>> {
         let received_blocks = 0usize;
         Box::pin(futures::stream::try_unfold(

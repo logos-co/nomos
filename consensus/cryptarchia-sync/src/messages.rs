@@ -2,7 +2,8 @@ use bytes::Bytes;
 use nomos_core::header::HeaderId;
 use serde::{Deserialize, Serialize};
 
-pub type Block = Bytes;
+/// Blocks are serialized using nomos-core's packing format.
+pub type SerialisedBlock = Bytes;
 
 /// A request to initiate block downloading from a peer.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -45,7 +46,7 @@ impl DownloadBlocksRequest {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum DownloadBlocksResponse {
     /// A response containing a block.
-    Block(Block),
+    Block(SerialisedBlock),
     /// A response indicating that no more blocks are available.
     NoMoreBlocks,
 }
