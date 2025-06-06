@@ -1,4 +1,4 @@
-use nomos_libp2p::cryptarchia_sync::{Block, Event, HeaderId};
+use nomos_libp2p::cryptarchia_sync::{Event, HeaderId, SerialisedBlock};
 use tokio::sync::mpsc;
 
 use crate::backends::{libp2p, libp2p::swarm::SwarmHandler};
@@ -7,7 +7,7 @@ use crate::backends::{libp2p, libp2p::swarm::SwarmHandler};
 pub enum ChainSyncEvent {
     ProvideBlocks {
         info: DownloadBlocksInfo,
-        blocks_stream: mpsc::Sender<Block>,
+        blocks_stream: mpsc::Sender<SerialisedBlock>,
     },
 }
 
