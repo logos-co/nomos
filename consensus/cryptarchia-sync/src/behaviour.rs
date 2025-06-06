@@ -1,6 +1,13 @@
-use std::task::{Context, Poll};
+use std::{
+    collections::HashSet,
+    task::{Context, Poll},
+};
 
-use futures::{future::BoxFuture, AsyncWriteExt as _, FutureExt as _, StreamExt as _};
+use futures::{
+    future::BoxFuture,
+    stream::{BoxStream, SelectAll},
+    AsyncWriteExt as _, FutureExt as _, StreamExt as _,
+};
 use libp2p::{
     core::{transport::PortUse, Endpoint},
     futures::stream::FuturesUnordered,
@@ -65,6 +72,10 @@ pub enum Event {
         /// Channel to send blocks to the behaviour.
         reply_sender: mpsc::Sender<Block>,
     },
+    DownloadBlocksResponse {
+        /// The response containing a block or an error.
+        response: BlocksResponse,
+    },
 }
 
 impl Event {
@@ -102,9 +113,14 @@ pub struct Behaviour {
     /// A handle to listen to incoming stream requests.
     incoming_streams: IncomingStreams,
     /// List of connected peers.
-    peers: Vec<PeerId>,
+    peers: HashSet<PeerId>,
+    /// Futures for sending download requests. After the request is
+    /// read, sending blocks is handled by `locally_initiated_downloads`.
+    locally_pending_download_requests:
+        FuturesUnordered<BoxFuture<'static, Result<Stream, ChainSyncError>>>,
     /// Futures for managing the progress of locally initiated block downloads.
-    locally_initiated_downloads: FuturesUnordered<BoxFuture<'static, Result<(), ChainSyncError>>>,
+    locally_initiated_downloads:
+        SelectAll<BoxStream<'static, Result<BlocksResponse, ChainSyncError>>>,
     /// Futures for managing the progress of externally initiated block
     /// downloads.
     externally_initiated_downloads:
@@ -115,6 +131,7 @@ pub struct Behaviour {
         BoxFuture<'static, Result<(Stream, DownloadBlocksRequest), ChainSyncError>>,
     >,
     /// Futures for closing incoming streams that were rejected due to excess
+    /// requests.
     incoming_streams_to_close: FuturesUnordered<BoxFuture<'static, ()>>,
 }
 
@@ -136,22 +153,21 @@ impl Behaviour {
             stream_behaviour,
             control,
             incoming_streams,
-            peers: Vec::new(),
-            locally_initiated_downloads: FuturesUnordered::new(),
+            peers: HashSet::new(),
+            locally_initiated_downloads: SelectAll::new(),
             externally_initiated_downloads: FuturesUnordered::new(),
             external_pending_download_requests: FuturesUnordered::new(),
             incoming_streams_to_close: FuturesUnordered::new(),
+            locally_pending_download_requests: FuturesUnordered::new(),
         }
     }
 
     fn add_peer(&mut self, peer: PeerId) {
-        if !self.peers.contains(&peer) {
-            self.peers.push(peer);
-        }
+        self.peers.insert(peer);
     }
 
     fn remove_peer(&mut self, peer: &PeerId) {
-        self.peers.retain(|p| p != peer);
+        self.peers.remove(peer);
     }
 
     fn choose_peer(&self) -> Option<PeerId> {
@@ -164,7 +180,6 @@ impl Behaviour {
         local_tip: HeaderId,
         immutable_block: HeaderId,
         additional_blocks: Vec<HeaderId>,
-        reply_tx: mpsc::Sender<BlocksResponse>,
     ) -> Result<(), ChainSyncError> {
         let peer_id = self.choose_peer().ok_or_else(|| {
             ChainSyncError::StartSyncError("No peers available for chain sync".into())
@@ -174,9 +189,11 @@ impl Behaviour {
             DownloadBlocksRequest::new(target_block, local_tip, immutable_block, additional_blocks);
 
         let control = self.control.clone();
-        self.locally_initiated_downloads.push(
+
+        self.locally_pending_download_requests.push(
             async move {
-                DownloadBlocksTask::download_blocks(peer_id, control, reply_tx, request).await
+                let stream = DownloadBlocksTask::send_request(peer_id, control, request).await?;
+                Ok(stream)
             }
             .boxed(),
         );
@@ -300,12 +317,37 @@ impl NetworkBehaviour for Behaviour {
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         while self.incoming_streams_to_close.poll_next_unpin(cx) == Poll::Ready(Some(())) {}
 
-        if let Poll::Ready(Some(result)) = self.locally_initiated_downloads.poll_next_unpin(cx) {
-            if let Err(e) = result {
-                error!("Downloading blocks failed: {}", e);
+        if let Poll::Ready(Some(result)) =
+            self.locally_pending_download_requests.poll_next_unpin(cx)
+        {
+            match result {
+                Ok(stream) => {
+                    let stream = DownloadBlocksTask::download_blocks(stream);
+                    self.locally_initiated_downloads.push(stream);
+
+                    cx.waker().wake_by_ref();
+                }
+                Err(e) => {
+                    error!("Failed to initiate local download: {}", e);
+                }
             }
 
             return Poll::Pending;
+        }
+
+        if let Poll::Ready(Some(response)) = self.locally_initiated_downloads.poll_next_unpin(cx) {
+            return match response {
+                Ok(result) => {
+                    cx.waker().wake_by_ref();
+
+                    Poll::Ready(ToSwarm::GenerateEvent(Event::DownloadBlocksResponse {
+                        response: result,
+                    }))
+                }
+                Err(e) => Poll::Ready(ToSwarm::GenerateEvent(Event::DownloadBlocksResponse {
+                    response: BlocksResponse::NetworkError(e.to_string()),
+                })),
+            };
         }
 
         if let Poll::Ready(Some(result)) = self.externally_initiated_downloads.poll_next_unpin(cx) {
@@ -334,7 +376,7 @@ impl NetworkBehaviour for Behaviour {
 
 #[cfg(test)]
 mod tests {
-    use std::{iter, time::Duration};
+    use std::time::Duration;
 
     use bytes::Bytes;
     use futures::StreamExt as _;
@@ -342,13 +384,7 @@ mod tests {
     use libp2p_swarm_test::SwarmExt as _;
     use nomos_core::header::HeaderId;
     use rand::{rng, Rng as _};
-    use tokio::{
-        sync::{
-            mpsc,
-            mpsc::{Receiver, Sender},
-        },
-        time::timeout,
-    };
+    use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
     use crate::{
         behaviour::MAX_INCOMING_REQUESTS, Behaviour, Block, BlocksResponse, ChainSyncError, Event,
@@ -356,17 +392,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_block_sync_between_two_swarms() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .compact()
+            .with_writer(TestWriter::default())
+            .try_init();
+
         let mut downloader_swarm = start_provider_and_downloader().await;
 
-        let (_downloader_txs, mut downloader_rxs) = request_syncs(&mut downloader_swarm, 1);
+        request_syncs(&mut downloader_swarm, 1);
 
-        tokio::spawn(async move {
-            downloader_swarm.loop_on_next().await;
-        });
-
-        let rx = downloader_rxs.remove(0);
-
-        let (blocks, errors) = receive_swarm_results(rx, 2).await;
+        let (blocks, errors) = wait_downloader_events(downloader_swarm, 2).await;
 
         assert_eq!(blocks.len(), 2);
         assert_eq!(errors.len(), 0);
@@ -374,14 +410,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_download_with_no_peers() {
-        let (tx, _rx) = mpsc::channel(1);
         let err = Behaviour::new()
             .start_blocks_download(
                 None,
                 HeaderId::from([0; 32]),
                 HeaderId::from([0; 32]),
                 vec![],
-                tx,
             )
             .unwrap_err();
 
@@ -392,44 +426,12 @@ mod tests {
     async fn test_reject_excess_download_requests() {
         let mut downloader_swarm = start_provider_and_downloader().await;
 
-        let (_downloader_txs, mut downloader_rxs) =
-            request_syncs(&mut downloader_swarm, MAX_INCOMING_REQUESTS + 1);
+        request_syncs(&mut downloader_swarm, MAX_INCOMING_REQUESTS + 1);
 
-        tokio::spawn(async move {
-            downloader_swarm.loop_on_next().await;
-        });
+        let (_blocks, errors) =
+            wait_downloader_events(downloader_swarm, MAX_INCOMING_REQUESTS * 2 + 1).await;
 
-        let rx = downloader_rxs.remove(MAX_INCOMING_REQUESTS);
-
-        let (blocks, errors) = receive_swarm_results(rx, 1).await;
-
-        assert!(blocks.is_empty());
         assert_eq!(errors.len(), 1);
-    }
-
-    fn request_syncs(
-        downloader_swarm: &mut Swarm<Behaviour>,
-        syncs_count: usize,
-    ) -> (Vec<Sender<BlocksResponse>>, Vec<Receiver<BlocksResponse>>) {
-        let (txs, rxs): (Vec<_>, Vec<_>) =
-            iter::repeat_with(|| mpsc::channel::<BlocksResponse>(64))
-                .take(syncs_count)
-                .unzip();
-
-        for tx in &txs {
-            downloader_swarm
-                .behaviour_mut()
-                .start_blocks_download(
-                    None,
-                    HeaderId::from([0; 32]),
-                    HeaderId::from([0; 32]),
-                    vec![],
-                    tx.clone(),
-                )
-                .unwrap();
-        }
-
-        (txs, rxs)
     }
 
     async fn start_provider_and_downloader() -> Swarm<Behaviour> {
@@ -459,34 +461,51 @@ mod tests {
         downloader_swarm
     }
 
-    async fn receive_swarm_results(
-        mut rx: Receiver<BlocksResponse>,
-        expected_results_count: usize,
+    fn request_syncs(downloader_swarm: &mut Swarm<Behaviour>, syncs_count: usize) {
+        for _ in 0..syncs_count {
+            downloader_swarm
+                .behaviour_mut()
+                .start_blocks_download(
+                    None,
+                    HeaderId::from([0; 32]),
+                    HeaderId::from([0; 32]),
+                    vec![],
+                )
+                .unwrap();
+        }
+    }
+
+    async fn wait_downloader_events(
+        mut downloader_swarm: Swarm<Behaviour>,
+        expected_count: usize,
     ) -> (Vec<Block>, Vec<String>) {
-        let (blocks, errors) = timeout(Duration::from_secs(2), async {
+        let handle = tokio::spawn(async move {
             let mut blocks = Vec::new();
             let mut errros = Vec::new();
-
-            while let Some(response) = rx.recv().await {
-                match response {
-                    BlocksResponse::Block(block) => {
-                        blocks.push(block);
+            while let Some(event) = downloader_swarm.next().await {
+                if let SwarmEvent::Behaviour(Event::DownloadBlocksResponse { response }) = event {
+                    match response {
+                        BlocksResponse::Block(block) => {
+                            blocks.push(block);
+                        }
+                        BlocksResponse::NetworkError(e) => {
+                            errros.push(e);
+                        }
                     }
-                    BlocksResponse::NetworkError(e) => {
-                        errros.push(e);
-                    }
-                }
 
-                if blocks.len() + errros.len() >= expected_results_count {
-                    break;
+                    if expected_count == blocks.len() + errros.len() {
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        return (blocks, errros);
+                    }
                 }
             }
 
             (blocks, errros)
-        })
-        .await
-        .expect("Timeout while waiting for blocks");
+        });
 
-        (blocks, errors)
+        tokio::time::timeout(Duration::from_secs(2), handle)
+            .await
+            .unwrap()
+            .unwrap()
     }
 }

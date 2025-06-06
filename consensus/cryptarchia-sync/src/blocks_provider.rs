@@ -1,3 +1,4 @@
+use futures::AsyncWriteExt as _;
 use libp2p::Stream;
 use nomos_core::wire::packing::{pack_to_writer, unpack_from_reader};
 use tokio::sync::mpsc;
@@ -28,6 +29,7 @@ impl ProvideBlocksTask {
             {
                 return Err(ChainSyncError::PackingError(e));
             }
+            stream.flush().await?;
         }
 
         if let Err(e) = pack_to_writer(&DownloadBlocksResponse::NoMoreBlocks, &mut stream).await {
