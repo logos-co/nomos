@@ -1,50 +1,58 @@
 use super::State;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct TestIfPublic;
+pub struct Uninitialized;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct TryAddressMapping;
+pub struct TestIfPublic<Addr>(pub Addr);
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct TestIfMappedPublic;
+pub struct TryAddressMapping<Addr>(pub Addr);
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct Public;
+pub struct TestIfMappedPublic<Addr>(pub Addr);
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct MappedPublic;
+pub struct Public<Addr>(pub Addr);
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct Private;
+pub struct MappedPublic<Addr>(pub Addr);
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct Private<Addr>(pub Addr);
 
-impl From<TestIfPublic> for State {
-    fn from(value: TestIfPublic) -> Self {
+impl<Addr> From<Uninitialized> for State<Addr> {
+    fn from(value: Uninitialized) -> Self {
+        State::Uninitialized(value)
+    }
+}
+
+impl<Addr> From<TestIfPublic<Addr>> for State<Addr> {
+    fn from(value: TestIfPublic<Addr>) -> Self {
         State::TestIfPublic(value)
     }
 }
 
-impl From<TryAddressMapping> for State {
-    fn from(value: TryAddressMapping) -> Self {
+impl<Addr> From<TryAddressMapping<Addr>> for State<Addr> {
+    fn from(value: TryAddressMapping<Addr>) -> Self {
         State::TryAddressMapping(value)
     }
 }
 
-impl From<TestIfMappedPublic> for State {
-    fn from(value: TestIfMappedPublic) -> Self {
+impl<Addr> From<TestIfMappedPublic<Addr>> for State<Addr> {
+    fn from(value: TestIfMappedPublic<Addr>) -> Self {
         State::TestIfMappedPublic(value)
     }
 }
 
-impl From<Public> for State {
-    fn from(value: Public) -> Self {
+impl<Addr> From<Public<Addr>> for State<Addr> {
+    fn from(value: Public<Addr>) -> Self {
         State::Public(value)
     }
 }
 
-impl From<MappedPublic> for State {
-    fn from(value: MappedPublic) -> Self {
+impl<Addr> From<MappedPublic<Addr>> for State<Addr> {
+    fn from(value: MappedPublic<Addr>) -> Self {
         State::MappedPublic(value)
     }
 }
 
-impl From<Private> for State {
-    fn from(value: Private) -> Self {
+impl<Addr> From<Private<Addr>> for State<Addr> {
+    fn from(value: Private<Addr>) -> Self {
         State::Private(value)
     }
 }
