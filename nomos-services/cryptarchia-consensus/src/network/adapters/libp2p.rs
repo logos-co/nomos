@@ -118,6 +118,7 @@ where
                         tracing::error!("lagged messages: {n}");
                         None
                     }
+                    _ => None,
                 }
             }),
         ))
