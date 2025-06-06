@@ -35,9 +35,7 @@ impl BundleWitness {
     #[must_use]
     pub fn balance(&self) -> BalanceWitness {
         BalanceWitness::combine(
-            self.partials
-                .iter()
-                .map(super::partial_tx::PartialTxWitness::balance),
+            self.partials.iter().map(PartialTxWitness::balance),
             [0u8; 16],
         )
     }
@@ -50,11 +48,7 @@ impl BundleWitness {
     #[must_use]
     pub fn commit(&self) -> Bundle {
         Bundle {
-            partials: self
-                .partials
-                .iter()
-                .map(super::partial_tx::PartialTxWitness::commit)
-                .collect(),
+            partials: self.partials.iter().map(PartialTxWitness::commit).collect(),
         }
     }
 }
