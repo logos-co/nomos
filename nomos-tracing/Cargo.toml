@@ -4,6 +4,16 @@ license = { workspace = true }
 name    = "nomos-tracing"
 version = "0.1.0"
 
+[package.metadata.cargo-machete]
+# False positives.
+ignored = [
+  # Required by `opentelemetry_otlp::new_exporter().with_http_client()`.
+  "opentelemetry-http",
+]
+
+[lints]
+workspace = true
+
 [dependencies]
 opentelemetry                      = { version = "0.26" }
 opentelemetry-http                 = { version = "0.26", features = ["reqwest"] }
@@ -21,10 +31,3 @@ tracing-loki                       = "0.2.5"
 tracing-opentelemetry              = "0.27"
 tracing-subscriber                 = { version = "0.3", features = ["env-filter", "json", "registry"] }
 url                                = { version = "2", features = ["serde"] }
-
-[package.metadata.cargo-machete]
-# False positives.
-ignored = [
-  # Required by `opentelemetry_otlp::new_exporter().with_http_client()`.
-  "opentelemetry-http",
-]

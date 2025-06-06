@@ -4,6 +4,16 @@ license = { workspace = true }
 name    = "services-utils"
 version = "0.1.0"
 
+[package.metadata.cargo-machete]
+# False positives.
+ignored = [
+  # Required by Overwatch's `#[derive_services]` macro.
+  "tracing",
+]
+
+[lints]
+workspace = true
+
 [dependencies]
 async-trait = "0.1.83"
 log         = "0.4.22"
@@ -15,10 +25,3 @@ tracing     = { workspace = true }
 
 [dev-dependencies]
 tracing = "0.1"
-
-[package.metadata.cargo-machete]
-# False positives.
-ignored = [
-  # Required by Overwatch's `#[derive_services]` macro.
-  "tracing",
-]

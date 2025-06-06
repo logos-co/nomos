@@ -4,6 +4,9 @@ license = { workspace = true }
 name    = "nomos-blend-network"
 version = "0.1.0"
 
+[lints]
+workspace = true
+
 [dependencies]
 cached              = { workspace = true }
 futures             = "0.3.30"

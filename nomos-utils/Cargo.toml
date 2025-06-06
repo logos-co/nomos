@@ -4,6 +4,9 @@ license = { workspace = true }
 name    = "nomos-utils"
 version = "0.1.0"
 
+[lints]
+workspace = true
+
 [dependencies]
 const-hex   = "1"
 humantime   = { version = "2.1", optional = true }
