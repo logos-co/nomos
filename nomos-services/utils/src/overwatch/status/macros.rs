@@ -120,22 +120,21 @@ mod tests {
 
     use super::*;
 
-    async fn notify_ready_and_sleep<Service: ServiceData>(
+    async fn notify_ready_and_wait<Service: ServiceData>(
         service_resources_handle: &OpaqueServiceResourcesHandle<Service, RuntimeServiceId>,
     ) {
+        // Notify that the service is ready
         service_resources_handle.status_updater.notify_ready();
 
-        // Simulate some work so Status::Stopped can be observed
-        loop {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
+        // Await infinitely Status::Ready can be observed
+        std::future::pending::<()>().await;
     }
 
-    struct ServiceA {
+    struct LightService {
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     }
 
-    impl ServiceData for ServiceA {
+    impl ServiceData for LightService {
         type Settings = ();
         type State = NoState<Self::Settings>;
         type StateOperator = NoOperator<Self::State>;
@@ -143,7 +142,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl ServiceCore<RuntimeServiceId> for ServiceA {
+    impl ServiceCore<RuntimeServiceId> for LightService {
         fn init(
             service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
             _initial_state: Self::State,
@@ -154,16 +153,16 @@ mod tests {
         }
 
         async fn run(self) -> Result<(), DynError> {
-            notify_ready_and_sleep::<Self>(&self.service_resources_handle).await;
+            notify_ready_and_wait::<Self>(&self.service_resources_handle).await;
             Ok(())
         }
     }
 
-    struct ServiceB {
+    struct HeavyService {
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     }
 
-    impl ServiceData for ServiceB {
+    impl ServiceData for HeavyService {
         type Settings = ();
         type State = NoState<Self::Settings>;
         type StateOperator = NoOperator<Self::State>;
@@ -171,7 +170,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl ServiceCore<RuntimeServiceId> for ServiceB {
+    impl ServiceCore<RuntimeServiceId> for HeavyService {
         fn init(
             service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
             _initial_state: Self::State,
@@ -182,7 +181,10 @@ mod tests {
         }
 
         async fn run(self) -> Result<(), DynError> {
-            notify_ready_and_sleep::<Self>(&self.service_resources_handle).await;
+            // Simulate some initialisation work
+            tokio::time::sleep(Duration::from_secs(2)).await;
+
+            notify_ready_and_wait::<Self>(&self.service_resources_handle).await;
             Ok(())
         }
     }
@@ -209,7 +211,7 @@ mod tests {
             + Sync
             + Display
             + AsServiceId<GenericService>
-            + AsServiceId<ServiceB>
+            + AsServiceId<HeavyService>
             + 'static,
     {
         fn init(
@@ -224,9 +226,9 @@ mod tests {
         async fn run(self) -> Result<(), DynError> {
             wait_until_services_are_ready!(
                 &self.service_resources_handle.overwatch_handle,
-                Some(Duration::from_secs(5)),
+                None,
                 GenericService,
-                ServiceB
+                HeavyService
             )?;
             self.service_resources_handle.status_updater.notify_ready();
             Ok(())
@@ -235,15 +237,15 @@ mod tests {
 
     #[derive_services]
     struct App {
-        service_a: ServiceA,
-        service_b: ServiceB,
-        dependent_service: DependantService<ServiceA, RuntimeServiceId>,
+        light_service: LightService,
+        heavy_service: HeavyService,
+        dependent_service: DependantService<LightService, RuntimeServiceId>,
     }
 
     fn initialize() -> Overwatch<RuntimeServiceId> {
         let settings = AppServiceSettings {
-            service_a: (),
-            service_b: (),
+            light_service: (),
+            heavy_service: (),
             dependent_service: (),
         };
         OverwatchRunner::<App>::run(settings, None).expect("Failed to run overwatch")
@@ -260,7 +262,7 @@ mod tests {
         // Wait until ServiceC is ready, which depends on ServiceA and ServiceB
         let dependent_service_status = overwatch_handle.runtime().block_on(async {
             overwatch_handle
-                .status_watcher::<DependantService<ServiceA, RuntimeServiceId>>()
+                .status_watcher::<DependantService<LightService, RuntimeServiceId>>()
                 .await
                 .wait_for(ServiceStatus::Ready, Some(Duration::from_secs(5)))
                 .await
@@ -269,9 +271,38 @@ mod tests {
         assert_eq!(
             dependent_service_status,
             Ok(ServiceStatus::Ready),
-            "DependentService should be ready"
+            "DependentService should be Ready."
         );
 
+        overwatch_handle
+            .runtime()
+            .block_on(overwatch_handle.shutdown());
+    }
+
+    #[test]
+    fn test_wait_until_services_are_ready_macro_timeout() {
+        let overwatch = initialize();
+        let overwatch_handle = overwatch.handle();
+        overwatch_handle
+            .runtime()
+            .block_on(overwatch_handle.start_all_services());
+
+        // Wait for a service that will not be ready, expecting a timeout error
+        let dependent_service_status = overwatch_handle.runtime().block_on(async {
+            overwatch_handle
+                .status_watcher::<DependantService<LightService, RuntimeServiceId>>()
+                .await
+                .wait_for(ServiceStatus::Ready, Some(Duration::from_secs(1)))
+                .await
+        });
+
+        assert_eq!(
+            dependent_service_status,
+            Err(ServiceStatus::Starting),
+            "DependantService should still be Starting."
+        );
+
+        // Teardown
         overwatch_handle
             .runtime()
             .block_on(overwatch_handle.shutdown());
