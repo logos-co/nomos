@@ -108,8 +108,7 @@ pub async fn cl_status<T, RuntimeServiceId>(
 ) -> Response
 where
     T: Transaction + Clone + Debug + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
-    <T as Transaction>::Hash:
-        Serialize + DeserializeOwned + Ord + Debug + Send + Sync + 'static,
+    <T as Transaction>::Hash: Serialize + DeserializeOwned + Ord + Debug + Send + Sync + 'static,
     RuntimeServiceId:
         Debug + Sync + Display + 'static + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
 {
@@ -620,8 +619,7 @@ pub async fn da_get_commitments<
 where
     DaShare: Share,
     <DaShare as Share>::BlobId: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
-    <DaShare as Share>::SharesCommitments:
-        Serialize + DeserializeOwned + Send + Sync + 'static,
+    <DaShare as Share>::SharesCommitments: Serialize + DeserializeOwned + Send + Sync + 'static,
     StorageOp: StorageSerde + Send + Sync + 'static,
     <StorageOp as StorageSerde>::Error: Send + Sync,
     DaStorageConverter:
@@ -859,15 +857,8 @@ where
         + Send
         + Sync
         + 'static,
-    <B as DispersedBlobInfo>::BlobId: Ord
-        + Clone
-        + Debug
-        + Hash
-        + Send
-        + Sync
-        + Serialize
-        + for<'de> Deserialize<'de>
-        + 'static,
+    <B as DispersedBlobInfo>::BlobId:
+        Ord + Clone + Debug + Hash + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = <B as DispersedBlobInfo>::BlobId>
         + Send
         + 'static,

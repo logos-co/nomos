@@ -119,9 +119,7 @@ where
     }
 
     async fn load(&mut self, key: &[u8]) -> Result<Option<Bytes>, <Self as StorageBackend>::Error> {
-        self.rocks
-            .get(key)
-            .map(|opt| opt.map(Into::into))
+        self.rocks.get(key).map(|opt| opt.map(Into::into))
     }
 
     async fn load_prefix(
