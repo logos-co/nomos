@@ -31,7 +31,7 @@ use nomos_da_verifier::{
     network::adapters::validator::Libp2pAdapter as VerifierNetworkAdapter,
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
-use nomos_mantle_core::tx::SignedMantleTx;
+use nomos_mantle_core::tx::{MantleTx, SignedMantleTx};
 pub use nomos_mempool::{
     da::settings::DaMempoolSettings,
     network::adapters::libp2p::{
@@ -149,6 +149,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
         VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
         VerifierStorageAdapter<DaShare, Wire, DaStorageConverter>,
         SignedMantleTx,
+        MantleTx,
         Wire,
         DaStorageConverter,
         KzgrsSamplingBackend<ChaCha20Rng>,

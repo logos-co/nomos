@@ -12,17 +12,18 @@ use tokio::sync::oneshot;
 
 use crate::wait_with_timeout;
 
-pub type ClMempoolService<T, RuntimeServiceId> = TxMempoolService<
-    MempoolNetworkAdapter<T, <T as Transaction>::Hash, RuntimeServiceId>,
-    MockPool<HeaderId, T, <T as Transaction>::Hash>,
+pub type ClMempoolService<SignedTx, Tx, RuntimeServiceId> = TxMempoolService<
+    MempoolNetworkAdapter<SignedTx, <Tx as Transaction>::Hash, RuntimeServiceId>,
+    MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
     RuntimeServiceId,
 >;
 
-pub async fn cl_mempool_metrics<T, RuntimeServiceId>(
+pub async fn cl_mempool_metrics<SignedTx, Tx, RuntimeServiceId>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
 ) -> Result<MempoolMetrics, super::DynError>
 where
-    T: Transaction
+    SignedTx: Transaction
+        + Into<Tx>
         + Clone
         + Debug
         + Hash
@@ -31,9 +32,19 @@ where
         + Send
         + Sync
         + 'static,
-    <T as nomos_core::tx::Transaction>::Hash:
+    Tx: Transaction
+        + Clone
+        + Debug
+        + Hash
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + Send
+        + Sync
+        + 'static,
+    <Tx as nomos_core::tx::Transaction>::Hash:
         std::cmp::Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    RuntimeServiceId: Debug + Sync + Display + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
+    RuntimeServiceId:
+        Debug + Sync + Display + AsServiceId<ClMempoolService<SignedTx, Tx, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
@@ -51,12 +62,13 @@ where
     .await
 }
 
-pub async fn cl_mempool_status<T, RuntimeServiceId>(
+pub async fn cl_mempool_status<SignedTx, Tx, RuntimeServiceId>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
-    items: Vec<<T as Transaction>::Hash>,
+    items: Vec<<Tx as Transaction>::Hash>,
 ) -> Result<Vec<Status<HeaderId>>, super::DynError>
 where
-    T: Transaction
+    SignedTx: Transaction
+        + Into<Tx>
         + Clone
         + Debug
         + Hash
@@ -65,9 +77,19 @@ where
         + Send
         + Sync
         + 'static,
-    <T as nomos_core::tx::Transaction>::Hash:
+    Tx: Transaction
+        + Clone
+        + Debug
+        + Hash
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + Send
+        + Sync
+        + 'static,
+    <Tx as nomos_core::tx::Transaction>::Hash:
         std::cmp::Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    RuntimeServiceId: Debug + Sync + Display + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
+    RuntimeServiceId:
+        Debug + Sync + Display + AsServiceId<ClMempoolService<SignedTx, Tx, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();

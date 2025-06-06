@@ -480,10 +480,7 @@ where
         + Sync
         + 'static,
     ClPool::Key: Debug + Send + Sync,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
-        + Send
-        + Sync
-        + 'static,
+    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = ClPool::Key> + Send + Sync + 'static,
     ClPoolAdapter::Payload: Into<ClPool::Item>,
     DaPool: RecoverableMempool<BlockId = HeaderId, Key = SamplingBackend::BlobId>
         + Send

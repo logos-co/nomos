@@ -68,6 +68,12 @@ impl nomos_core::tx::Transaction for MantleTx {
     }
 }
 
+impl From<SignedMantleTx> for MantleTx {
+    fn from(signed_tx: SignedMantleTx) -> Self {
+        signed_tx.mantle_tx
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignedMantleTx {
     pub mantle_tx: MantleTx,

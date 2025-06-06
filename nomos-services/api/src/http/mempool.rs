@@ -18,32 +18,33 @@ use tokio::sync::oneshot;
 
 use crate::wait_with_timeout;
 
-pub async fn add_tx<N, A, Item, Key, RuntimeServiceId>(
+pub async fn add_tx<Backend, Adapter, Payload, Item, Key, RuntimeServiceId>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
-    item: Item,
-    converter: impl Fn(&Item) -> Key,
+    payload: Payload,
+    converter: impl Fn(&Payload) -> Key,
 ) -> Result<(), DynError>
 where
-    N: NetworkBackend<RuntimeServiceId>,
-    A: NetworkAdapter<RuntimeServiceId, Backend = N, Payload = Item, Key = Key>
+    Backend: NetworkBackend<RuntimeServiceId>,
+    Adapter: NetworkAdapter<RuntimeServiceId, Backend = Backend, Payload = Payload, Key = Key>
         + Send
         + Sync
         + 'static,
-    A::Settings: Send + Sync,
+    Adapter::Payload: Into<Item> + Send + 'static,
+    Adapter::Settings: Send + Sync,
     Item: Clone + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static + Hash,
     Key: Clone + Debug + Ord + Hash + Send + Serialize + for<'de> Deserialize<'de> + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
-        + AsServiceId<TxMempoolService<A, MockPool<HeaderId, Item, Key>, RuntimeServiceId>>,
+        + AsServiceId<TxMempoolService<Adapter, MockPool<HeaderId, Item, Key>, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
 
     relay
         .send(MempoolMsg::Add {
-            key: converter(&item),
-            payload: item,
+            key: converter(&payload),
+            payload,
             reply_channel: sender,
         })
         .await
