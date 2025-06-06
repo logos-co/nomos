@@ -98,13 +98,9 @@ mod test {
 
     const COEFFICIENTS_SIZE: usize = 16;
     static GLOBAL_PARAMETERS: LazyLock<UniversalParams<Bls12_381>> = LazyLock::new(|| {
-        let mut rng = rand::thread_rng();
-        KZG10::<Bls12_381, DensePolynomial<Fr>>::setup(
-            crate::kzg::test::COEFFICIENTS_SIZE - 1,
-            true,
-            &mut rng,
-        )
-        .unwrap()
+        let mut rng = thread_rng();
+        KZG10::<Bls12_381, DensePolynomial<Fr>>::setup(COEFFICIENTS_SIZE - 1, true, &mut rng)
+            .unwrap()
     });
 
     static DOMAIN: LazyLock<GeneralEvaluationDomain<Fr>> =

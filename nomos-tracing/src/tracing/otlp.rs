@@ -47,7 +47,7 @@ where
 
     global::set_text_map_propagator(TraceContextPropagator::new());
     global::set_tracer_provider(tracer_provider.clone());
-    let tracer: opentelemetry_sdk::trace::Tracer = tracer_provider.tracer("NomosTracer");
+    let tracer: Tracer = tracer_provider.tracer("NomosTracer");
 
     Ok(OpenTelemetryLayer::new(tracer))
 }

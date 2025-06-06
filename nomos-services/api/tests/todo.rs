@@ -121,6 +121,11 @@ fn test_todo() {
 }
 
 mod todo {
+    #![expect(
+        unused_qualifications,
+        reason = "utoipa::path macro prepends some paths which triggers this rustc lint."
+    )]
+
     use std::sync::{Arc, Mutex};
 
     use axum::{
@@ -190,7 +195,7 @@ mod todo {
       get,
       path = "/todo/search",
       params(
-          TodoSearchQuery
+        TodoSearchQuery
       ),
       responses(
           (status = 200, description = "List matching todos by query", body = [Todo])

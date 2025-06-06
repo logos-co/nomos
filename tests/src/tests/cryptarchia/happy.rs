@@ -46,7 +46,7 @@ async fn happy_test(topology: &Topology) {
                         .await
                         .join(" | ")
                 );
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
             } => {}
         }
