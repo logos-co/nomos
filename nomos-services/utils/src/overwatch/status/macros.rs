@@ -110,7 +110,7 @@ mod tests {
     use overwatch::{
         overwatch::{Overwatch, OverwatchRunner},
         services::{
-            state::{NoOperator, ServiceState},
+            state::{NoOperator, NoState},
             status::ServiceStatus,
             AsServiceId, ServiceCore, ServiceData,
         },
@@ -131,37 +131,13 @@ mod tests {
         }
     }
 
-    #[derive(Clone)]
-    struct ServiceStateA;
-
-    impl ServiceState for ServiceStateA {
-        type Settings = ();
-        type Error = DynError;
-
-        fn from_settings(_settings: &Self::Settings) -> Result<Self, Self::Error> {
-            Ok(Self {})
-        }
-    }
-
-    #[derive(Clone)]
-    struct ServiceStateB;
-
-    impl ServiceState for ServiceStateB {
-        type Settings = ();
-        type Error = DynError;
-
-        fn from_settings(_settings: &Self::Settings) -> Result<Self, Self::Error> {
-            Ok(Self {})
-        }
-    }
-
     struct ServiceA {
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     }
 
     impl ServiceData for ServiceA {
         type Settings = ();
-        type State = ServiceStateA;
+        type State = NoState<Self::Settings>;
         type StateOperator = NoOperator<Self::State>;
         type Message = ();
     }
@@ -189,7 +165,7 @@ mod tests {
 
     impl ServiceData for ServiceB {
         type Settings = ();
-        type State = ServiceStateB;
+        type State = NoState<Self::Settings>;
         type StateOperator = NoOperator<Self::State>;
         type Message = ();
     }
@@ -211,18 +187,6 @@ mod tests {
         }
     }
 
-    #[derive(Clone)]
-    struct DependantServiceState;
-
-    impl ServiceState for DependantServiceState {
-        type Settings = ();
-        type Error = DynError;
-
-        fn from_settings(_settings: &Self::Settings) -> Result<Self, Self::Error> {
-            Ok(Self {})
-        }
-    }
-
     struct DependantService<GenericService, RuntimeServiceId> {
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     }
@@ -231,7 +195,7 @@ mod tests {
         for DependantService<GenericService, RuntimeServiceId>
     {
         type Settings = ();
-        type State = DependantServiceState;
+        type State = NoState<Self::Settings>;
         type StateOperator = NoOperator<Self::State>;
         type Message = ();
     }
