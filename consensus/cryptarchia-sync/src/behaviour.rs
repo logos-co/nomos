@@ -33,9 +33,19 @@ use crate::{
 
 /// Cryptarchia networking protocol for synchronizing blocks.
 const SYNC_PROTOCOL_ID: &str = "/nomos/cryptarchia/sync/1.0.0";
+
 pub const SYNC_PROTOCOL: StreamProtocol = StreamProtocol::new(SYNC_PROTOCOL_ID);
 
 const MAX_INCOMING_REQUESTS: usize = 4;
+
+type PendingRequestsFuture = BoxFuture<'static, Result<Libp2pStream, ChainSyncError>>;
+
+type LocallyInitiatedDownloadsFuture = BoxStream<'static, Result<BlocksResponse, ChainSyncError>>;
+
+type ExternallyInitiatedDownloadsFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
+
+type ExternalPendingDownloadRequestsFuture =
+    BoxFuture<'static, Result<(Libp2pStream, DownloadBlocksRequest), ChainSyncError>>;
 
 type ToSwarmEvent = ToSwarm<
     <Behaviour as NetworkBehaviour>::ToSwarm,
@@ -116,20 +126,15 @@ pub struct Behaviour {
     peers: HashSet<PeerId>,
     /// Futures for sending download requests. After the request is
     /// read, sending blocks is handled by `locally_initiated_downloads`.
-    locally_pending_download_requests:
-        FuturesUnordered<BoxFuture<'static, Result<Libp2pStream, ChainSyncError>>>,
+    locally_pending_download_requests: FuturesUnordered<PendingRequestsFuture>,
     /// Futures for managing the progress of locally initiated block downloads.
-    locally_initiated_downloads:
-        SelectAll<BoxStream<'static, Result<BlocksResponse, ChainSyncError>>>,
+    locally_initiated_downloads: SelectAll<LocallyInitiatedDownloadsFuture>,
     /// Futures for managing the progress of externally initiated block
     /// downloads.
-    externally_initiated_downloads:
-        FuturesUnordered<BoxFuture<'static, Result<(), ChainSyncError>>>,
+    externally_initiated_downloads: FuturesUnordered<ExternallyInitiatedDownloadsFuture>,
     /// Futures for reading incoming download requests. After the request is
     /// read, sending blocks is handled by `externally_initiated_downloads`.
-    external_pending_download_requests: FuturesUnordered<
-        BoxFuture<'static, Result<(Libp2pStream, DownloadBlocksRequest), ChainSyncError>>,
-    >,
+    external_pending_download_requests: FuturesUnordered<ExternalPendingDownloadRequestsFuture>,
     /// Futures for closing incoming streams that were rejected due to excess
     /// requests.
     incoming_streams_to_close: FuturesUnordered<BoxFuture<'static, ()>>,
