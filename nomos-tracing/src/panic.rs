@@ -10,12 +10,12 @@ pub fn panic_hook(panic_info: &PanicHookInfo) {
         || {
             payload
                 .downcast_ref::<String>()
-                .map(std::string::String::as_str)
+                .map(String::as_str)
         },
         |s| Some(&**s),
     );
 
-    let location = panic_info.location().map(std::string::ToString::to_string);
+    let location = panic_info.location().map(ToString::to_string);
     let backtrace = Backtrace::capture();
     let note = (backtrace.status() == BacktraceStatus::Disabled)
         .then_some("run with RUST_BACKTRACE=1 environment variable to display a backtrace");

@@ -98,7 +98,7 @@ impl CommonHttpClient {
     where
         S: Share,
         S::SharesCommitments: DeserializeOwned + Send + Sync,
-        <S as Share>::BlobId: serde::Serialize + Send + Sync,
+        <S as Share>::BlobId: Serialize + Send + Sync,
     {
         let request: DASharesCommitmentsRequest<S> = DASharesCommitmentsRequest { blob_id };
         let path = DA_GET_SHARES_COMMITMENTS.trim_start_matches('/');
@@ -116,8 +116,8 @@ impl CommonHttpClient {
     where
         C: DeserializeOwned + Send + Sync,
         S: Share + DeserializeOwned + Send + Sync,
-        <S as Share>::BlobId: serde::Serialize + Send + Sync,
-        <S as Share>::ShareIndex: serde::Serialize + Send + Sync,
+        <S as Share>::BlobId: Serialize + Send + Sync,
+        <S as Share>::ShareIndex: Serialize + Send + Sync,
     {
         let request: DaSamplingRequest<S> = DaSamplingRequest { blob_id, share_idx };
         let path = DA_GET_LIGHT_SHARE.trim_start_matches('/');
@@ -135,8 +135,8 @@ impl CommonHttpClient {
     ) -> Result<impl Stream<Item = B::LightShare>, Error>
     where
         B: Share,
-        <B as Share>::BlobId: serde::Serialize + Send + Sync,
-        <B as Share>::ShareIndex: serde::Serialize + DeserializeOwned + Eq + Hash + Send + Sync,
+        <B as Share>::BlobId: Serialize + Send + Sync,
+        <B as Share>::ShareIndex: Serialize + DeserializeOwned + Eq + Hash + Send + Sync,
         <B as Share>::LightShare: DeserializeOwned + Send + Sync,
     {
         let request: GetSharesRequest<B> = GetSharesRequest {

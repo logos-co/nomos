@@ -238,7 +238,7 @@ mod test {
                 .await
         };
         let join1 = tokio::spawn(task_1);
-        let (sender, mut receiver) = tokio::sync::mpsc::channel::<()>(10);
+        let (sender, mut receiver) = mpsc::channel::<()>(10);
         let (terminate_sender, mut terminate_receiver) = tokio::sync::oneshot::channel::<()>();
         let task_2 = async move {
             swarm_2.dial_and_wait(addr2).await;

@@ -101,8 +101,8 @@ impl SwarmHandler {
         }
     }
 
-    pub(super) fn handle_gossipsub_event(&self, event: nomos_libp2p::libp2p::gossipsub::Event) {
-        if let nomos_libp2p::libp2p::gossipsub::Event::Message { message, .. } = event {
+    pub(super) fn handle_gossipsub_event(&self, event: gossipsub::Event) {
+        if let gossipsub::Event::Message { message, .. } = event {
             let message = Event::Message(message);
             if let Err(e) = self.events_tx.send(message) {
                 tracing::error!("Failed to send gossipsub message event: {}", e);

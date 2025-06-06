@@ -39,8 +39,8 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Libp2p {
     type NetworkEvent = Event;
 
     fn new(config: Self::Settings, overwatch_handle: OverwatchHandle<RuntimeServiceId>) -> Self {
-        let (commands_tx, commands_rx) = tokio::sync::mpsc::channel(BUFFER_SIZE);
-        let (events_tx, _) = tokio::sync::broadcast::channel(BUFFER_SIZE);
+        let (commands_tx, commands_rx) = mpsc::channel(BUFFER_SIZE);
+        let (events_tx, _) = broadcast::channel(BUFFER_SIZE);
         let initial_peers = config.initial_peers.clone();
 
         let mut swarm_handler =
