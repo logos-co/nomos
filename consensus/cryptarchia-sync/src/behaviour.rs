@@ -20,10 +20,10 @@ use libp2p::{
 use libp2p_stream::{Behaviour as StreamBehaviour, Control, IncomingStreams};
 use nomos_core::header::HeaderId;
 use rand::prelude::IteratorRandom as _;
-use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::error;
 
+use crate::errors::{ChainSyncError, ChainSyncErrorKind};
 use crate::{
     blocks_downloader::DownloadBlocksTask,
     blocks_provider::{ProvideBlocksTask, BUFFER_SIZE},
@@ -51,32 +51,6 @@ type ToSwarmEvent = ToSwarm<
     <Behaviour as NetworkBehaviour>::ToSwarm,
     <<Behaviour as NetworkBehaviour>::ConnectionHandler as ConnectionHandler>::FromBehaviour,
 >;
-
-#[derive(Debug, Error)]
-pub enum ChainSyncErrorKind {
-    #[error("Failed to start chain sync: {0}")]
-    StartSyncError(String),
-
-    #[error("Peer sent too many blocks (protocol violation): {0}")]
-    ProtocolViolation(String),
-
-    #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
-
-    #[error("Stream error: {0}")]
-    OpenStreamError(#[from] libp2p_stream::OpenStreamError),
-
-    #[error("Failed to unpack data from reader: {0}")]
-    PackingError(#[from] nomos_core::wire::packing::PackingError),
-}
-
-#[derive(Debug, Error)]
-#[error("Peer {peer}: {kind}")]
-pub struct ChainSyncError {
-    pub peer: PeerId,
-    #[source]
-    pub kind: ChainSyncErrorKind,
-}
 
 #[derive(Debug)]
 pub enum Event {

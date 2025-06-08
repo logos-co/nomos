@@ -3,10 +3,10 @@ use libp2p::{PeerId, Stream as Libp2pStream};
 use libp2p_stream::Control;
 use nomos_core::wire::packing::{pack_to_writer, unpack_from_reader};
 
+use crate::errors::{ChainSyncError, ChainSyncErrorKind};
 use crate::{
-    behaviour::{BlocksResponse, ChainSyncErrorKind, SYNC_PROTOCOL},
+    behaviour::{BlocksResponse, SYNC_PROTOCOL},
     messages::{DownloadBlocksRequest, DownloadBlocksResponse},
-    ChainSyncError,
 };
 
 pub const DOWNLOAD_BLOCKS_LIMIT: usize = 1000;
@@ -22,18 +22,12 @@ impl DownloadBlocksTask {
         let mut stream = match control.open_stream(peer_id, SYNC_PROTOCOL).await {
             Ok(s) => s,
             Err(e) => {
-                return Err(ChainSyncError {
-                    peer: peer_id,
-                    kind: ChainSyncErrorKind::OpenStreamError(e),
-                });
+                return Err(ChainSyncError::from((peer_id, e)));
             }
         };
 
         if let Err(e) = pack_to_writer(&request, &mut stream).await {
-            return Err(ChainSyncError {
-                peer: peer_id,
-                kind: ChainSyncErrorKind::PackingError(e),
-            });
+            return Err(ChainSyncError::from((peer_id, e)));
         }
 
         Ok((peer_id, stream))
@@ -70,10 +64,7 @@ impl DownloadBlocksTask {
                         )))
                     }
                     Ok(DownloadBlocksResponse::NoMoreBlocks) => Ok(None),
-                    Err(e) => Err(ChainSyncError {
-                        peer: peer_id,
-                        kind: e.into(),
-                    }),
+                    Err(e) => Err(ChainSyncError::from((peer_id, e))),
                 }
             },
         ))
