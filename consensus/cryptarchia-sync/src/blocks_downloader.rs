@@ -9,7 +9,7 @@ use crate::{
     ChainSyncError,
 };
 
-const DOWNLOAD_BLOCKS_LIMIT: usize = 1000;
+pub const DOWNLOAD_BLOCKS_LIMIT: usize = 1000;
 
 pub struct DownloadBlocksTask;
 
@@ -57,7 +57,7 @@ impl DownloadBlocksTask {
                             });
                         };
 
-                        if count >= DOWNLOAD_BLOCKS_LIMIT {
+                        if count > DOWNLOAD_BLOCKS_LIMIT {
                             let msg = format!("Peer exceeded DOWNLOAD_BLOCKS_LIMIT of {DOWNLOAD_BLOCKS_LIMIT} blocks");
                             return Err(ChainSyncError {
                                 peer: peer_id,
@@ -66,17 +66,14 @@ impl DownloadBlocksTask {
                         }
                         Ok(Some((
                             BlocksResponse::Block((peer_id, block)),
-                            (stream, count + 1),
+                            (stream, count),
                         )))
                     }
                     Ok(DownloadBlocksResponse::NoMoreBlocks) => Ok(None),
-                    Err(e) => {
-                        let msg = format!("Failed to unpack DownloadBlocksResponse: {e}");
-                        Err(ChainSyncError {
-                            peer: peer_id,
-                            kind: ChainSyncErrorKind::ProtocolViolation(msg),
-                        })
-                    }
+                    Err(e) => Err(ChainSyncError {
+                        peer: peer_id,
+                        kind: e.into(),
+                    }),
                 }
             },
         ))

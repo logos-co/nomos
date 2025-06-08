@@ -404,14 +404,25 @@ mod tests {
 
     use crate::{
         behaviour::{ChainSyncErrorKind, MAX_INCOMING_REQUESTS},
+        blocks_downloader::DOWNLOAD_BLOCKS_LIMIT,
+        messages::DownloadBlocksRequest,
         Behaviour, BlocksResponse, Event,
     };
 
     #[tokio::test]
     async fn test_block_sync_between_two_swarms() {
-        let mut downloader_swarm = start_provider_and_downloader().await;
+        let mut downloader_swarm = start_provider_and_downloader(2).await;
 
-        request_syncs(&mut downloader_swarm, 1);
+        request_syncs(
+            &mut downloader_swarm,
+            1,
+            DownloadBlocksRequest::new(
+                None,
+                HeaderId::from([0; 32]),
+                HeaderId::from([0; 32]),
+                vec![],
+            ),
+        );
 
         let (blocks, errors) = wait_downloader_events(downloader_swarm, 2).await;
 
@@ -436,9 +447,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_reject_excess_download_requests() {
-        let mut downloader_swarm = start_provider_and_downloader().await;
+        let mut downloader_swarm = start_provider_and_downloader(2).await;
 
-        request_syncs(&mut downloader_swarm, MAX_INCOMING_REQUESTS + 1);
+        request_syncs(
+            &mut downloader_swarm,
+            MAX_INCOMING_REQUESTS + 1,
+            DownloadBlocksRequest::new(
+                None,
+                HeaderId::from([0; 32]),
+                HeaderId::from([0; 32]),
+                vec![],
+            ),
+        );
 
         let (_blocks, errors) =
             wait_downloader_events(downloader_swarm, MAX_INCOMING_REQUESTS * 2 + 1).await;
@@ -446,7 +466,50 @@ mod tests {
         assert_eq!(errors.len(), 1);
     }
 
-    async fn start_provider_and_downloader() -> Swarm<Behaviour> {
+    #[tokio::test]
+    async fn test_reject_protocol_violation_too_many_blocks() {
+        let mut downloader_swarm = start_provider_and_downloader(DOWNLOAD_BLOCKS_LIMIT + 1).await;
+
+        request_syncs(
+            &mut downloader_swarm,
+            1,
+            DownloadBlocksRequest::new(
+                None,
+                HeaderId::from([0; 32]),
+                HeaderId::from([0; 32]),
+                vec![],
+            ),
+        );
+
+        let (_blocks, errors) =
+            wait_downloader_events(downloader_swarm, DOWNLOAD_BLOCKS_LIMIT + 1).await;
+
+        assert_eq!(errors.len(), 1);
+        matches!(&errors[0], BlocksResponse::NetworkError(e) if matches!(e.kind, ChainSyncErrorKind::ProtocolViolation(_)));
+    }
+
+    #[tokio::test]
+    async fn test_reject_protocol_violation_too_many_additional_blocks() {
+        let mut downloader_swarm = start_provider_and_downloader(1).await;
+
+        request_syncs(
+            &mut downloader_swarm,
+            1,
+            DownloadBlocksRequest::new(
+                None,
+                HeaderId::from([0; 32]),
+                HeaderId::from([0; 32]),
+                vec![HeaderId::from([0; 32]); DOWNLOAD_BLOCKS_LIMIT + 1],
+            ),
+        );
+
+        let (_blocks, errors) = wait_downloader_events(downloader_swarm, 1).await;
+
+        assert_eq!(errors.len(), 1);
+        matches!(&errors[0], BlocksResponse::NetworkError(e) if matches!(e.kind, ChainSyncErrorKind::ProtocolViolation(_)));
+    }
+
+    async fn start_provider_and_downloader(blocks_count: usize) -> Swarm<Behaviour> {
         let mut provider_swarm = Swarm::new_ephemeral_tokio(|_k| Behaviour::new());
         let provider_addr: Multiaddr = Protocol::Memory(u64::from(rng().random::<u16>())).into();
         provider_swarm.listen_on(provider_addr.clone()).unwrap();
@@ -457,9 +520,8 @@ mod tests {
                     event
                 {
                     tokio::spawn(async move {
-                        for _ in 0..2 {
-                            reply_sender.send(Bytes::new()).await.unwrap();
-                            tokio::time::sleep(Duration::from_millis(100)).await;
+                        for _ in 0..blocks_count {
+                            let _ = reply_sender.send(Bytes::new()).await;
                         }
                     });
                 }
@@ -473,16 +535,20 @@ mod tests {
         downloader_swarm
     }
 
-    fn request_syncs(downloader_swarm: &mut Swarm<Behaviour>, syncs_count: usize) {
+    fn request_syncs(
+        downloader_swarm: &mut Swarm<Behaviour>,
+        syncs_count: usize,
+        request: DownloadBlocksRequest,
+    ) {
         for _ in 0..syncs_count {
             downloader_swarm
                 .behaviour_mut()
                 .start_blocks_download(
                     PeerId::random(),
-                    None,
-                    HeaderId::from([0; 32]),
-                    HeaderId::from([0; 32]),
-                    vec![],
+                    request.target_block,
+                    request.known_blocks.local_tip,
+                    request.known_blocks.latest_immutable_block,
+                    request.known_blocks.additional_blocks.clone(),
                 )
                 .unwrap();
         }

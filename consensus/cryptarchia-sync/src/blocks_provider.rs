@@ -4,11 +4,14 @@ use nomos_core::wire::packing::{pack_to_writer, unpack_from_reader};
 use tokio::sync::mpsc;
 
 use crate::{
+    behaviour::ChainSyncErrorKind,
     messages::{DownloadBlocksRequest, DownloadBlocksResponse, SerialisedBlock},
     ChainSyncError,
 };
 
 pub const BUFFER_SIZE: usize = 64;
+
+pub const MAX_ADDITIONAL_BLOCKS: usize = 5;
 
 pub struct ProvideBlocksTask;
 
@@ -17,18 +20,29 @@ impl ProvideBlocksTask {
         peer_id: PeerId,
         mut stream: Libp2pStream,
     ) -> Result<(PeerId, Libp2pStream, DownloadBlocksRequest), ChainSyncError> {
-        let request = unpack_from_reader(&mut stream)
-            .await
-            .map_err(|e| ChainSyncError {
+        let request: DownloadBlocksRequest =
+            unpack_from_reader(&mut stream)
+                .await
+                .map_err(|e| ChainSyncError {
+                    peer: peer_id,
+                    kind: e.into(),
+                })?;
+
+        if request.known_blocks.additional_blocks.len() > MAX_ADDITIONAL_BLOCKS {
+            return Err(ChainSyncError {
                 peer: peer_id,
-                kind: e.into(),
-            })?;
+                kind: ChainSyncErrorKind::ProtocolViolation(
+                    "Too many additional blocks in request".to_owned(),
+                ),
+            });
+        }
+
         Ok((peer_id, stream, request))
     }
 
     pub async fn provide_blocks(
         mut reply_rcv: mpsc::Receiver<SerialisedBlock>,
-        peer_id: libp2p::PeerId,
+        peer_id: PeerId,
         mut stream: Libp2pStream,
     ) -> Result<(), ChainSyncError> {
         while let Some(block) = reply_rcv.recv().await {
