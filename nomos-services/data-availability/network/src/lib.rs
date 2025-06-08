@@ -4,6 +4,7 @@ pub mod membership;
 use std::{
     fmt::{self, Debug, Display},
     marker::PhantomData,
+    mem,
     pin::Pin,
 };
 
@@ -71,7 +72,7 @@ pub struct NetworkService<
 {
     backend: B,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    membership: DaMembershipHandler<Membership>,
+    _membership: DaMembershipHandler<Membership>,
 }
 
 pub struct NetworkState<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId, Membership> {
@@ -116,7 +117,7 @@ where
                 service_resources_handle.overwatch_handle.clone(),
             ),
             service_resources_handle,
-            membership,
+            _membership: membership,
         })
     }
 
@@ -129,7 +130,8 @@ where
                     ..
                 },
             ref mut backend,
-            ref mut membership,
+            // todo: get membership here for updates
+            ..
         } = self;
 
         status_updater.notify_ready();

@@ -133,7 +133,8 @@ pub type DaDispersal<
     RuntimeServiceId,
 >;
 
-pub type DaNetwork<Backend, RuntimeServiceId> = NetworkService<Backend, RuntimeServiceId>;
+pub type DaNetwork<Backend, RuntimeServiceId, Membership> =
+    NetworkService<Backend, RuntimeServiceId, Membership>;
 
 pub async fn add_share<A, S, N, VB, SS, DaStorageConverter, RuntimeServiceId>(
     handle: &OverwatchHandle<RuntimeServiceId>,
@@ -348,15 +349,19 @@ where
     .await?
 }
 
-pub async fn block_peer<B, RuntimeServiceId>(
+pub async fn block_peer<B, RuntimeServiceId, Membership>(
     handle: &OverwatchHandle<RuntimeServiceId>,
     peer_id: PeerId,
 ) -> Result<bool, DynError>
 where
     B: NetworkBackend<RuntimeServiceId> + 'static + Send,
     B::Message: MonitorMessageFactory,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
+    Membership: MembershipHandler + Clone,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<NetworkService<B, RuntimeServiceId, Membership>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
@@ -369,15 +374,19 @@ where
     wait_with_timeout(receiver, "Timeout while waiting for block peer".to_owned()).await
 }
 
-pub async fn unblock_peer<B, RuntimeServiceId>(
+pub async fn unblock_peer<B, RuntimeServiceId, Membership>(
     handle: &OverwatchHandle<RuntimeServiceId>,
     peer_id: PeerId,
 ) -> Result<bool, DynError>
 where
     B: NetworkBackend<RuntimeServiceId> + 'static + Send,
     B::Message: MonitorMessageFactory,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
+    Membership: MembershipHandler + Clone,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<NetworkService<B, RuntimeServiceId, Membership>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
@@ -394,14 +403,18 @@ where
     .await
 }
 
-pub async fn blacklisted_peers<B, RuntimeServiceId>(
+pub async fn blacklisted_peers<B, RuntimeServiceId, Membership>(
     handle: &OverwatchHandle<RuntimeServiceId>,
 ) -> Result<Vec<PeerId>, DynError>
 where
     B: NetworkBackend<RuntimeServiceId> + 'static + Send,
     B::Message: MonitorMessageFactory,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
+    Membership: MembershipHandler + Clone,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<NetworkService<B, RuntimeServiceId, Membership>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
@@ -418,14 +431,18 @@ where
     .await
 }
 
-pub async fn balancer_stats<B, RuntimeServiceId>(
+pub async fn balancer_stats<B, RuntimeServiceId, Membership>(
     handle: &OverwatchHandle<RuntimeServiceId>,
 ) -> Result<<B::Message as BalancerMessageFactory>::BalancerStats, DynError>
 where
     B: NetworkBackend<RuntimeServiceId> + 'static + Send,
     B::Message: BalancerMessageFactory,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
+    Membership: MembershipHandler + Clone,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<NetworkService<B, RuntimeServiceId, Membership>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
@@ -442,14 +459,18 @@ where
     .await
 }
 
-pub async fn monitor_stats<B, RuntimeServiceId>(
+pub async fn monitor_stats<B, RuntimeServiceId, Membership>(
     handle: &OverwatchHandle<RuntimeServiceId>,
 ) -> Result<<B::Message as MonitorMessageFactory>::MonitorStats, DynError>
 where
     B: NetworkBackend<RuntimeServiceId> + 'static + Send,
     B::Message: MonitorMessageFactory,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<NetworkService<B, RuntimeServiceId>>,
+    Membership: MembershipHandler + Clone,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<NetworkService<B, RuntimeServiceId, Membership>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();

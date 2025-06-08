@@ -18,10 +18,11 @@ use overwatch::{
 pub trait NetworkAdapter<RuntimeServiceId> {
     type Backend: NetworkBackend<RuntimeServiceId> + Send + 'static;
     type Settings: Clone;
+    type Membership: Clone;
 
     async fn new(
         network_relay: OutboundRelay<
-            <NetworkService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
+            <NetworkService<Self::Backend, RuntimeServiceId, Self::Membership> as ServiceData>::Message,
         >,
     ) -> Self;
 

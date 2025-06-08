@@ -84,7 +84,8 @@ where
         + 'static,
     RuntimeServiceId: Sync,
 {
-    type NetworkService = NetworkService<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>;
+    type NetworkService =
+        NetworkService<DaNetworkExecutorBackend<Membership>, RuntimeServiceId, Membership>;
 
     type SubnetworkId = Membership::NetworkId;
 

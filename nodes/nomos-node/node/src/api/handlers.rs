@@ -46,6 +46,7 @@ use nomos_storage::{
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use subnetworks_assignations::MembershipHandler;
 
 use crate::api::backend::DaStorageBackend;
 
@@ -487,17 +488,21 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn block_peer<Backend, RuntimeServiceId>(
+pub async fn block_peer<Backend, RuntimeServiceId, Membership>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(peer_id): Json<PeerId>,
 ) -> Response
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::Message: MonitorMessageFactory,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<NetworkService<Backend, RuntimeServiceId>>,
+    Membership: MembershipHandler + Clone,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<NetworkService<Backend, RuntimeServiceId, Membership>>,
 {
-    make_request_and_return_response!(da::block_peer::<Backend, RuntimeServiceId>(
+    make_request_and_return_response!(da::block_peer::<Backend, RuntimeServiceId, Membership>(
         &handle, peer_id
     ))
 }
@@ -511,17 +516,21 @@ where
     )
 )]
 
-pub async fn unblock_peer<Backend, RuntimeServiceId>(
+pub async fn unblock_peer<Backend, RuntimeServiceId, Membership>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(peer_id): Json<PeerId>,
 ) -> Response
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::Message: MonitorMessageFactory,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<NetworkService<Backend, RuntimeServiceId>>,
+    Membership: MembershipHandler + Clone,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<NetworkService<Backend, RuntimeServiceId, Membership>>,
 {
-    make_request_and_return_response!(da::unblock_peer::<Backend, RuntimeServiceId>(
+    make_request_and_return_response!(da::unblock_peer::<Backend, RuntimeServiceId, Membership>(
         &handle, peer_id
     ))
 }
@@ -534,16 +543,22 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn blacklisted_peers<Backend, RuntimeServiceId>(
+pub async fn blacklisted_peers<Backend, RuntimeServiceId, Membership>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::Message: MonitorMessageFactory,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<NetworkService<Backend, RuntimeServiceId>>,
+    Membership: MembershipHandler + Clone,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<NetworkService<Backend, RuntimeServiceId, Membership>>,
 {
-    make_request_and_return_response!(da::blacklisted_peers::<Backend, RuntimeServiceId>(&handle))
+    make_request_and_return_response!(
+        da::blacklisted_peers::<Backend, RuntimeServiceId, Membership>(&handle)
+    )
 }
 
 #[utoipa::path(
@@ -757,16 +772,22 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn balancer_stats<Backend, RuntimeServiceId>(
+pub async fn balancer_stats<Backend, RuntimeServiceId, Membership>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::Message: BalancerMessageFactory,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<NetworkService<Backend, RuntimeServiceId>>,
+    Membership: MembershipHandler + Clone,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<NetworkService<Backend, RuntimeServiceId, Membership>>,
 {
-    make_request_and_return_response!(da::balancer_stats::<Backend, RuntimeServiceId>(&handle,))
+    make_request_and_return_response!(da::balancer_stats::<Backend, RuntimeServiceId, Membership>(
+        &handle,
+    ))
 }
 
 #[utoipa::path(
@@ -777,16 +798,22 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn monitor_stats<Backend, RuntimeServiceId>(
+pub async fn monitor_stats<Backend, RuntimeServiceId, Membership>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::Message: MonitorMessageFactory,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<NetworkService<Backend, RuntimeServiceId>>,
+    Membership: MembershipHandler + Clone,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<NetworkService<Backend, RuntimeServiceId, Membership>>,
 {
-    make_request_and_return_response!(da::monitor_stats::<Backend, RuntimeServiceId>(&handle,))
+    make_request_and_return_response!(da::monitor_stats::<Backend, RuntimeServiceId, Membership>(
+        &handle,
+    ))
 }
 
 #[utoipa::path(

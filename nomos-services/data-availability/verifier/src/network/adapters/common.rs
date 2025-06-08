@@ -10,7 +10,7 @@ macro_rules! adapter_for {
                 + 'static,
         {
             network_relay: OutboundRelay<
-                <NetworkService<$DaNetworkBackend<M>, RuntimeServiceId> as ServiceData>::Message,
+                <NetworkService<$DaNetworkBackend<M>, RuntimeServiceId, M> as ServiceData>::Message,
             >,
             _membership: PhantomData<M>,
         }
@@ -29,11 +29,12 @@ macro_rules! adapter_for {
             type Backend = $DaNetworkBackend<M>;
             type Settings = ();
             type Share = DaShare;
+            type Membership = M;
 
             async fn new(
                 _settings: Self::Settings,
                 network_relay: OutboundRelay<
-                    <NetworkService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
+                    <NetworkService<Self::Backend, RuntimeServiceId, Self::Membership> as ServiceData>::Message,
                 >,
             ) -> Self {
                 Self {

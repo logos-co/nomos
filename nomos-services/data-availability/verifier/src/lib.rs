@@ -23,6 +23,7 @@ use overwatch::{
 };
 use serde::{Deserialize, Serialize};
 use storage::DaStorageAdapter;
+use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot::Sender;
 use tokio_stream::StreamExt as _;
 use tracing::{error, instrument};
@@ -134,6 +135,7 @@ where
     <Backend::DaShare as Share>::LightShare: Debug + Send + Sync + 'static,
     <Backend::DaShare as Share>::SharesCommitments: Debug + Send + Sync + 'static,
     N: NetworkAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + Sync + 'static,
+    N::Membership: MembershipHandler + Clone,
     N::Settings: Clone + Send + Sync + 'static,
     S: DaStorageAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + Sync + 'static,
     S::Settings: Clone + Send + Sync + 'static,
@@ -143,7 +145,7 @@ where
         + Send
         + 'static
         + AsServiceId<Self>
-        + AsServiceId<NetworkService<N::Backend, RuntimeServiceId>>
+        + AsServiceId<NetworkService<N::Backend, RuntimeServiceId, N::Membership>>
         + AsServiceId<StorageService<S::Backend, RuntimeServiceId>>,
 {
     fn init(
@@ -183,7 +185,7 @@ where
 
         let network_relay = service_resources_handle
             .overwatch_handle
-            .relay::<NetworkService<_, _>>()
+            .relay::<NetworkService<_, _, _>>()
             .await?;
         let network_adapter = N::new(network_adapter_settings, network_relay).await;
         let mut share_stream = network_adapter.share_stream().await;
