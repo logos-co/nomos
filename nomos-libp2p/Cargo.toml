@@ -22,7 +22,6 @@ libp2p = { workspace = true, features = [
 multiaddr = "0.18"
 serde = { version = "1.0.166", features = ["derive"] }
 thiserror = "1.0.40"
-tracing = { workspace = true }
 tracing = "0.1"
 
 [dev-dependencies]

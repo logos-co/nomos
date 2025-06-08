@@ -1,4 +1,7 @@
-use nomos_libp2p::cryptarchia_sync::{Event, HeaderId, SerialisedBlock};
+use nomos_libp2p::{
+    cryptarchia_sync::{Event, HeaderId, SerialisedBlock},
+    PeerId,
+};
 use tokio::sync::mpsc;
 
 use crate::backends::{libp2p, libp2p::swarm::SwarmHandler};
@@ -39,7 +42,10 @@ impl From<Event> for libp2p::Event {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum ChainSyncCommand {
-    RequestBlocks { info: DownloadBlocksInfo },
+    RequestBlocks {
+        peer: PeerId,
+        info: DownloadBlocksInfo,
+    },
 }
 
 /// A set of block identifiers the syncing peer already knows.
@@ -58,8 +64,9 @@ pub struct DownloadBlocksInfo {
 impl SwarmHandler {
     pub(super) fn handle_chainsync_command(&mut self, command: ChainSyncCommand) {
         match command {
-            ChainSyncCommand::RequestBlocks { info } => {
+            ChainSyncCommand::RequestBlocks { peer, info } => {
                 if let Err(e) = self.swarm.start_blocks_download(
+                    peer,
                     info.target_block,
                     info.local_tip,
                     info.latest_immutable_block,

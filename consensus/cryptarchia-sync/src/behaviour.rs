@@ -38,34 +38,44 @@ pub const SYNC_PROTOCOL: StreamProtocol = StreamProtocol::new(SYNC_PROTOCOL_ID);
 
 const MAX_INCOMING_REQUESTS: usize = 4;
 
-type PendingRequestsFuture = BoxFuture<'static, Result<Libp2pStream, ChainSyncError>>;
+type PendingRequestsFuture = BoxFuture<'static, Result<(PeerId, Libp2pStream), ChainSyncError>>;
 
 type LocallyInitiatedDownloadsFuture = BoxStream<'static, Result<BlocksResponse, ChainSyncError>>;
 
 type ExternallyInitiatedDownloadsFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
 
 type ExternalPendingDownloadRequestsFuture =
-    BoxFuture<'static, Result<(Libp2pStream, DownloadBlocksRequest), ChainSyncError>>;
+    BoxFuture<'static, Result<(PeerId, Libp2pStream, DownloadBlocksRequest), ChainSyncError>>;
 
 type ToSwarmEvent = ToSwarm<
     <Behaviour as NetworkBehaviour>::ToSwarm,
     <<Behaviour as NetworkBehaviour>::ConnectionHandler as ConnectionHandler>::FromBehaviour,
 >;
 
-#[derive(Error, Debug)]
-pub enum ChainSyncError {
+#[derive(Debug, Error)]
+pub enum ChainSyncErrorKind {
     #[error("Failed to start chain sync: {0}")]
     StartSyncError(String),
+
     #[error("Peer sent too many blocks (protocol violation): {0}")]
     ProtocolViolation(String),
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
+
     #[error("Stream error: {0}")]
     OpenStreamError(#[from] libp2p_stream::OpenStreamError),
+
     #[error("Failed to unpack data from reader: {0}")]
     PackingError(#[from] nomos_core::wire::packing::PackingError),
-    #[error("Failed to send data to channel: {0}")]
-    TrySendError(#[from] mpsc::error::SendError<BlocksResponse>),
+}
+
+#[derive(Debug, Error)]
+#[error("Peer {peer}: {kind}")]
+pub struct ChainSyncError {
+    pub peer: PeerId,
+    #[source]
+    pub kind: ChainSyncErrorKind,
 }
 
 #[derive(Debug)]
@@ -84,7 +94,7 @@ pub enum Event {
     },
     DownloadBlocksResponse {
         /// The response containing a block or an error.
-        response: BlocksResponse,
+        result: BlocksResponse,
     },
 }
 
@@ -107,12 +117,12 @@ impl Event {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum BlocksResponse {
     /// Successful response containing a block.
-    Block(SerialisedBlock),
+    Block((PeerId, SerialisedBlock)),
     /// Error happened during block downloading.
-    NetworkError(String),
+    NetworkError(ChainSyncError),
 }
 
 pub struct Behaviour {
@@ -181,13 +191,15 @@ impl Behaviour {
 
     pub fn start_blocks_download(
         &mut self,
+        peer_id: PeerId,
         target_block: Option<HeaderId>,
         local_tip: HeaderId,
         immutable_block: HeaderId,
         additional_blocks: Vec<HeaderId>,
     ) -> Result<(), ChainSyncError> {
-        let peer_id = self.choose_peer().ok_or_else(|| {
-            ChainSyncError::StartSyncError("No peers available for chain sync".into())
+        let peer_id = self.choose_peer().ok_or_else(|| ChainSyncError {
+            peer: peer_id,
+            kind: ChainSyncErrorKind::StartSyncError("No peers available".to_owned()),
         })?;
 
         let request =
@@ -205,35 +217,27 @@ impl Behaviour {
 
     fn handle_download_request(
         &self,
-        result: Result<(Libp2pStream, DownloadBlocksRequest), ChainSyncError>,
-    ) -> Option<Poll<ToSwarmEvent>> {
-        match result {
-            Ok((stream, request)) => {
-                let (reply_sender, reply_rcv) = mpsc::channel(BUFFER_SIZE);
+        peer_id: PeerId,
+        request: DownloadBlocksRequest,
+        stream: Libp2pStream,
+    ) -> Poll<ToSwarmEvent> {
+        let (reply_sender, reply_rcv) = mpsc::channel(BUFFER_SIZE);
 
-                self.externally_initiated_downloads.push(
-                    async move { ProvideBlocksTask::provide_blocks(reply_rcv, stream).await }
-                        .boxed(),
-                );
+        self.externally_initiated_downloads.push(
+            async move { ProvideBlocksTask::provide_blocks(reply_rcv, peer_id, stream).await }
+                .boxed(),
+        );
 
-                return Some(Poll::Ready(ToSwarm::GenerateEvent(
-                    Event::provide_blocks_request(
-                        request.target_block,
-                        request.known_blocks.local_tip,
-                        request.known_blocks.latest_immutable_block,
-                        request.known_blocks.additional_blocks,
-                        reply_sender,
-                    ),
-                )));
-            }
-            Err(e) => {
-                error!("Failed to process download request: {}", e);
-            }
-        }
-        None
+        Poll::Ready(ToSwarm::GenerateEvent(Event::provide_blocks_request(
+            request.target_block,
+            request.known_blocks.local_tip,
+            request.known_blocks.latest_immutable_block,
+            request.known_blocks.additional_blocks,
+            reply_sender,
+        )))
     }
 
-    fn handle_incoming_stream(&self, cx: &mut Context, mut stream: Libp2pStream) {
+    fn handle_incoming_stream(&self, cx: &mut Context, peer_id: PeerId, mut stream: Libp2pStream) {
         if self.external_pending_download_requests.len() + self.externally_initiated_downloads.len()
             >= MAX_INCOMING_REQUESTS
         {
@@ -246,7 +250,7 @@ impl Behaviour {
             error!("Rejected excess pending incoming request");
         } else {
             self.external_pending_download_requests
-                .push(ProvideBlocksTask::process_download_request(stream).boxed());
+                .push(ProvideBlocksTask::process_download_request(peer_id, stream).boxed());
 
             cx.waker().wake_by_ref();
         }
@@ -336,9 +340,9 @@ impl NetworkBehaviour for Behaviour {
             self.locally_pending_download_requests.poll_next_unpin(cx)
         {
             match result {
-                Ok(stream) => {
+                Ok((peer_id, stream)) => {
                     self.locally_initiated_downloads
-                        .push(DownloadBlocksTask::download_blocks(stream));
+                        .push(DownloadBlocksTask::download_blocks(peer_id, stream));
 
                     cx.waker().wake_by_ref();
                 }
@@ -356,11 +360,11 @@ impl NetworkBehaviour for Behaviour {
                     cx.waker().wake_by_ref();
 
                     Poll::Ready(ToSwarm::GenerateEvent(Event::DownloadBlocksResponse {
-                        response: result,
+                        result,
                     }))
                 }
                 Err(e) => Poll::Ready(ToSwarm::GenerateEvent(Event::DownloadBlocksResponse {
-                    response: BlocksResponse::NetworkError(e.to_string()),
+                    result: BlocksResponse::NetworkError(e),
                 })),
             };
         }
@@ -373,16 +377,14 @@ impl NetworkBehaviour for Behaviour {
             return Poll::Pending;
         }
 
-        if let Poll::Ready(Some(result)) =
+        if let Poll::Ready(Some(Ok((peer_id, stream, request)))) =
             self.external_pending_download_requests.poll_next_unpin(cx)
         {
-            if let Some(value) = self.handle_download_request(result) {
-                return value;
-            }
+            return self.handle_download_request(peer_id, request, stream);
         }
 
-        if let Poll::Ready(Some((_peer_id, stream))) = self.incoming_streams.poll_next_unpin(cx) {
-            self.handle_incoming_stream(cx, stream);
+        if let Poll::Ready(Some((peer_id, stream))) = self.incoming_streams.poll_next_unpin(cx) {
+            self.handle_incoming_stream(cx, peer_id, stream);
         }
 
         Poll::Pending
@@ -395,14 +397,14 @@ mod tests {
 
     use bytes::Bytes;
     use futures::StreamExt as _;
-    use libp2p::{multiaddr::Protocol, swarm::SwarmEvent, Multiaddr, Swarm};
+    use libp2p::{multiaddr::Protocol, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
     use libp2p_swarm_test::SwarmExt as _;
     use nomos_core::header::HeaderId;
     use rand::{rng, Rng as _};
 
     use crate::{
-        behaviour::MAX_INCOMING_REQUESTS, Behaviour, BlocksResponse, ChainSyncError, Event,
-        SerialisedBlock,
+        behaviour::{ChainSyncErrorKind, MAX_INCOMING_REQUESTS},
+        Behaviour, BlocksResponse, Event,
     };
 
     #[tokio::test]
@@ -421,6 +423,7 @@ mod tests {
     async fn test_download_with_no_peers() {
         let err = Behaviour::new()
             .start_blocks_download(
+                PeerId::random(),
                 None,
                 HeaderId::from([0; 32]),
                 HeaderId::from([0; 32]),
@@ -428,7 +431,7 @@ mod tests {
             )
             .unwrap_err();
 
-        matches!(err, ChainSyncError::StartSyncError(_));
+        matches!(err.kind, ChainSyncErrorKind::StartSyncError(_));
     }
 
     #[tokio::test]
@@ -475,6 +478,7 @@ mod tests {
             downloader_swarm
                 .behaviour_mut()
                 .start_blocks_download(
+                    PeerId::random(),
                     None,
                     HeaderId::from([0; 32]),
                     HeaderId::from([0; 32]),
@@ -487,18 +491,20 @@ mod tests {
     async fn wait_downloader_events(
         mut downloader_swarm: Swarm<Behaviour>,
         expected_count: usize,
-    ) -> (Vec<SerialisedBlock>, Vec<String>) {
+    ) -> (Vec<BlocksResponse>, Vec<BlocksResponse>) {
         let handle = tokio::spawn(async move {
             let mut blocks = Vec::new();
             let mut errros = Vec::new();
             while let Some(event) = downloader_swarm.next().await {
-                if let SwarmEvent::Behaviour(Event::DownloadBlocksResponse { response }) = event {
-                    match response {
-                        BlocksResponse::Block(block) => {
-                            blocks.push(block);
+                if let SwarmEvent::Behaviour(Event::DownloadBlocksResponse { result: response }) =
+                    event
+                {
+                    match &response {
+                        BlocksResponse::Block(_) => {
+                            blocks.push(response);
                         }
-                        BlocksResponse::NetworkError(e) => {
-                            errros.push(e);
+                        BlocksResponse::NetworkError(_) => {
+                            errros.push(response);
                         }
                     }
 

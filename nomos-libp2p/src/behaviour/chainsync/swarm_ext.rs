@@ -5,6 +5,7 @@ use crate::{behaviour::BehaviourError, Swarm};
 impl Swarm {
     pub fn start_blocks_download(
         &mut self,
+        peer_id: libp2p::PeerId,
         target_block: Option<HeaderId>,
         local_tip: HeaderId,
         immutable_block: HeaderId,
@@ -15,7 +16,13 @@ impl Swarm {
         };
 
         chain_sync
-            .start_blocks_download(target_block, local_tip, immutable_block, additional_blocks)
+            .start_blocks_download(
+                peer_id,
+                target_block,
+                local_tip,
+                immutable_block,
+                additional_blocks,
+            )
             .map_err(Into::into)
     }
 }

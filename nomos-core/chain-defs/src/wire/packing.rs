@@ -1,4 +1,4 @@
-use std::{io, mem::size_of};
+use std::io;
 
 use futures::{AsyncReadExt, AsyncWriteExt};
 use serde::{de::DeserializeOwned, Serialize};
