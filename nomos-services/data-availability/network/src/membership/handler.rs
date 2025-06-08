@@ -1,6 +1,6 @@
 use std::{collections::HashSet, sync::Arc};
 
-use arc_swap::{ArcSwap, Guard};
+use arc_swap::ArcSwap;
 use subnetworks_assignations::{MembershipHandler, SubnetworkAssignations};
 
 pub struct DaMembershipHandler<Membership> {
@@ -23,9 +23,9 @@ impl<Membership> DaMembershipHandler<Membership> {
     }
 
     #[must_use]
-    pub fn membership(&self) -> Guard<Arc<Membership>> {
+    pub fn membership(&self) -> Arc<Membership> {
         // Inner type held by ArcSwap is wrapped in Arc.
-        self.membership.load()
+        self.membership.load_full()
     }
 }
 

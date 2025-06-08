@@ -3,6 +3,7 @@ pub mod membership;
 
 use std::{
     fmt::{self, Debug, Display},
+    marker::PhantomData,
     pin::Pin,
 };
 
@@ -18,6 +19,8 @@ use overwatch::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
+
+use crate::membership::handler::DaMembershipHandler;
 
 pub enum DaNetworkMsg<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> {
     Process(B::Message),
@@ -41,57 +44,79 @@ impl<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> Debug
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct NetworkConfig<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> {
+pub struct NetworkConfig<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId, Membership>
+where
+    Membership: Clone,
+{
     pub backend: B::Settings,
+    pub membership: Membership,
 }
 
-impl<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> Debug
-    for NetworkConfig<B, RuntimeServiceId>
+impl<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId, Membership> Debug
+    for NetworkConfig<B, RuntimeServiceId, Membership>
+where
+    Membership: Clone + Debug,
 {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(fmt, "NetworkConfig {{ backend: {:?}}}", self.backend)
     }
 }
 
-pub struct NetworkService<B: NetworkBackend<RuntimeServiceId> + Send + 'static, RuntimeServiceId> {
+pub struct NetworkService<
+    B: NetworkBackend<RuntimeServiceId> + Send + 'static,
+    RuntimeServiceId,
+    Membership,
+> where
+    Membership: Clone,
+{
     backend: B,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+    membership: DaMembershipHandler<Membership>,
 }
 
-pub struct NetworkState<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> {
+pub struct NetworkState<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId, Membership> {
     backend: B::State,
+    _membership: PhantomData<Membership>,
 }
 
-impl<B: NetworkBackend<RuntimeServiceId> + 'static + Send, RuntimeServiceId> ServiceData
-    for NetworkService<B, RuntimeServiceId>
+impl<B: NetworkBackend<RuntimeServiceId> + 'static + Send, RuntimeServiceId, Membership> ServiceData
+    for NetworkService<B, RuntimeServiceId, Membership>
+where
+    Membership: Clone,
 {
-    type Settings = NetworkConfig<B, RuntimeServiceId>;
-    type State = NetworkState<B, RuntimeServiceId>;
+    type Settings = NetworkConfig<B, RuntimeServiceId, Membership>;
+    type State = NetworkState<B, RuntimeServiceId, Membership>;
     type StateOperator = NoOperator<Self::State>;
     type Message = DaNetworkMsg<B, RuntimeServiceId>;
 }
 
 #[async_trait]
-impl<B, RuntimeServiceId> ServiceCore<RuntimeServiceId> for NetworkService<B, RuntimeServiceId>
+impl<B, RuntimeServiceId, Membership> ServiceCore<RuntimeServiceId>
+    for NetworkService<B, RuntimeServiceId, Membership>
 where
     B: NetworkBackend<RuntimeServiceId> + Send + 'static,
     B::State: Send + Sync,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send,
+    Membership: Clone + Send + Sync + 'static,
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
+        let settings = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
+
+        let membership = DaMembershipHandler::new(settings.membership);
+
         Ok(Self {
             backend: <B as NetworkBackend<RuntimeServiceId>>::new(
-                service_resources_handle
-                    .settings_handle
-                    .notifier()
-                    .get_updated_settings()
-                    .backend,
+                settings.backend,
                 service_resources_handle.overwatch_handle.clone(),
             ),
             service_resources_handle,
+            membership,
         })
     }
 
@@ -104,6 +129,7 @@ where
                     ..
                 },
             ref mut backend,
+            ref mut membership,
         } = self;
 
         status_updater.notify_ready();
@@ -120,19 +146,22 @@ where
     }
 }
 
-impl<Backend, RuntimeServiceId> Drop for NetworkService<Backend, RuntimeServiceId>
+impl<Backend, RuntimeServiceId, Membership> Drop
+    for NetworkService<Backend, RuntimeServiceId, Membership>
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
+    Membership: Clone,
 {
     fn drop(&mut self) {
         self.backend.shutdown();
     }
 }
 
-impl<B, RuntimeServiceId> NetworkService<B, RuntimeServiceId>
+impl<B, RuntimeServiceId, Membership> NetworkService<B, RuntimeServiceId, Membership>
 where
     B: NetworkBackend<RuntimeServiceId> + Send + 'static,
     B::State: Send + Sync,
+    Membership: Clone + Send + 'static,
 {
     async fn handle_network_service_message(
         msg: DaNetworkMsg<B, RuntimeServiceId>,
@@ -156,33 +185,42 @@ where
     }
 }
 
-impl<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> Clone
-    for NetworkConfig<B, RuntimeServiceId>
+impl<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId, Membership> Clone
+    for NetworkConfig<B, RuntimeServiceId, Membership>
+where
+    Membership: Clone,
 {
     fn clone(&self) -> Self {
         Self {
             backend: self.backend.clone(),
+            membership: self.membership.clone(),
         }
     }
 }
 
-impl<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> Clone
-    for NetworkState<B, RuntimeServiceId>
+impl<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId, Membership> Clone
+    for NetworkState<B, RuntimeServiceId, Membership>
 {
     fn clone(&self) -> Self {
         Self {
             backend: self.backend.clone(),
+            _membership: PhantomData,
         }
     }
 }
 
-impl<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> ServiceState
-    for NetworkState<B, RuntimeServiceId>
+impl<B: NetworkBackend<RuntimeServiceId>, RuntimeServiceId, Membership> ServiceState
+    for NetworkState<B, RuntimeServiceId, Membership>
+where
+    Membership: Clone,
 {
-    type Settings = NetworkConfig<B, RuntimeServiceId>;
+    type Settings = NetworkConfig<B, RuntimeServiceId, Membership>;
     type Error = <B::State as ServiceState>::Error;
 
     fn from_settings(settings: &Self::Settings) -> Result<Self, Self::Error> {
-        B::State::from_settings(&settings.backend).map(|backend| Self { backend })
+        B::State::from_settings(&settings.backend).map(|backend| Self {
+            backend,
+            _membership: PhantomData,
+        })
     }
 }
