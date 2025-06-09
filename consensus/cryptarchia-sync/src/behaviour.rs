@@ -15,7 +15,7 @@ use libp2p::{
         behaviour::ConnectionEstablished, ConnectionClosed, ConnectionDenied, ConnectionHandler,
         ConnectionId, FromSwarm, NetworkBehaviour, THandlerInEvent, ToSwarm,
     },
-    Multiaddr, PeerId, Stream as Libp2pStream, StreamProtocol,
+    Multiaddr, PeerId, Stream as Libp2pStream, Stream, StreamProtocol,
 };
 use libp2p_stream::{Behaviour as StreamBehaviour, Control, IncomingStreams};
 use nomos_core::header::HeaderId;
@@ -229,6 +229,35 @@ impl Behaviour {
             cx.waker().wake_by_ref();
         }
     }
+
+    fn handle_request_available(
+        &mut self,
+        cx: &mut Context,
+        result: Result<(PeerId, Stream), ChainSyncError>,
+    ) -> Poll<
+        ToSwarm<
+            <Self as NetworkBehaviour>::ToSwarm,
+            <<Self as NetworkBehaviour>::ConnectionHandler as ConnectionHandler>::FromBehaviour,
+        >,
+    > {
+        match result {
+            Ok((peer_id, stream)) => {
+                self.locally_initiated_downloads
+                    .push(DownloadBlocksTask::download_blocks(peer_id, stream));
+
+                cx.waker().wake_by_ref();
+
+                Poll::Pending
+            }
+            Err(e) => {
+                error!("Received error while sending download request: {}", e);
+
+                Poll::Ready(ToSwarm::GenerateEvent(Event::DownloadBlocksResponse {
+                    result: BlocksResponse::NetworkError(e),
+                }))
+            }
+        }
+    }
 }
 
 impl NetworkBehaviour for Behaviour {
@@ -313,19 +342,7 @@ impl NetworkBehaviour for Behaviour {
         if let Poll::Ready(Some(result)) =
             self.locally_pending_download_requests.poll_next_unpin(cx)
         {
-            match result {
-                Ok((peer_id, stream)) => {
-                    self.locally_initiated_downloads
-                        .push(DownloadBlocksTask::download_blocks(peer_id, stream));
-
-                    cx.waker().wake_by_ref();
-                }
-                Err(e) => {
-                    error!("Failed to initiate local download: {}", e);
-                }
-            }
-
-            return Poll::Pending;
+            return self.handle_request_available(cx, result);
         }
 
         if let Poll::Ready(Some(response)) = self.locally_initiated_downloads.poll_next_unpin(cx) {
@@ -337,9 +354,13 @@ impl NetworkBehaviour for Behaviour {
                         result,
                     }))
                 }
-                Err(e) => Poll::Ready(ToSwarm::GenerateEvent(Event::DownloadBlocksResponse {
-                    result: BlocksResponse::NetworkError(e),
-                })),
+                Err(e) => {
+                    error!("Error while downloading blocks: {}", e);
+
+                    Poll::Ready(ToSwarm::GenerateEvent(Event::DownloadBlocksResponse {
+                        result: BlocksResponse::NetworkError(e),
+                    }))
+                }
             };
         }
 
@@ -347,6 +368,8 @@ impl NetworkBehaviour for Behaviour {
             if let Err(e) = result {
                 error!("Sending blocks failed: {}", e);
             }
+
+            cx.waker().wake_by_ref();
 
             return Poll::Pending;
         }
@@ -421,7 +444,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_reject_excess_download_requests() {
-        let mut downloader_swarm = start_provider_and_downloader(2).await;
+        let mut downloader_swarm = start_provider_and_downloader(1).await;
 
         request_syncs(
             &mut downloader_swarm,
@@ -435,7 +458,7 @@ mod tests {
         );
 
         let (_blocks, errors) =
-            wait_downloader_events(downloader_swarm, MAX_INCOMING_REQUESTS * 2 + 1).await;
+            wait_downloader_events(downloader_swarm, MAX_INCOMING_REQUESTS + 1).await;
 
         assert_eq!(errors.len(), 1);
     }
@@ -494,6 +517,7 @@ mod tests {
                     event
                 {
                     tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_millis(100)).await;
                         for _ in 0..blocks_count {
                             let _ = reply_sender.send(Bytes::new()).await;
                         }
@@ -549,7 +573,6 @@ mod tests {
                     }
 
                     if expected_count == blocks.len() + errros.len() {
-                        tokio::time::sleep(Duration::from_millis(100)).await;
                         return (blocks, errros);
                     }
                 }
