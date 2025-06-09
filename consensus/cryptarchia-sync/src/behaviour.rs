@@ -23,10 +23,10 @@ use rand::prelude::IteratorRandom as _;
 use tokio::sync::mpsc;
 use tracing::error;
 
-use crate::errors::{ChainSyncError, ChainSyncErrorKind};
 use crate::{
     blocks_downloader::DownloadBlocksTask,
     blocks_provider::{ProvideBlocksTask, BUFFER_SIZE},
+    errors::{ChainSyncError, ChainSyncErrorKind},
     messages::DownloadBlocksRequest,
     SerialisedBlock,
 };
@@ -390,7 +390,7 @@ mod tests {
         request_syncs(
             &mut downloader_swarm,
             1,
-            DownloadBlocksRequest::new(
+            &DownloadBlocksRequest::new(
                 None,
                 HeaderId::from([0; 32]),
                 HeaderId::from([0; 32]),
@@ -426,7 +426,7 @@ mod tests {
         request_syncs(
             &mut downloader_swarm,
             MAX_INCOMING_REQUESTS + 1,
-            DownloadBlocksRequest::new(
+            &DownloadBlocksRequest::new(
                 None,
                 HeaderId::from([0; 32]),
                 HeaderId::from([0; 32]),
@@ -447,7 +447,7 @@ mod tests {
         request_syncs(
             &mut downloader_swarm,
             1,
-            DownloadBlocksRequest::new(
+            &DownloadBlocksRequest::new(
                 None,
                 HeaderId::from([0; 32]),
                 HeaderId::from([0; 32]),
@@ -469,7 +469,7 @@ mod tests {
         request_syncs(
             &mut downloader_swarm,
             1,
-            DownloadBlocksRequest::new(
+            &DownloadBlocksRequest::new(
                 None,
                 HeaderId::from([0; 32]),
                 HeaderId::from([0; 32]),
@@ -512,7 +512,7 @@ mod tests {
     fn request_syncs(
         downloader_swarm: &mut Swarm<Behaviour>,
         syncs_count: usize,
-        request: DownloadBlocksRequest,
+        request: &DownloadBlocksRequest,
     ) {
         for _ in 0..syncs_count {
             downloader_swarm

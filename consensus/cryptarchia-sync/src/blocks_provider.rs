@@ -1,9 +1,13 @@
-use crate::errors::{ChainSyncError, ChainSyncErrorKind};
-use crate::messages::{DownloadBlocksRequest, DownloadBlocksResponse, SerialisedBlock};
-use futures::AsyncWriteExt as _;
+use futures::{AsyncWriteExt as _, StreamExt as _};
 use libp2p::{PeerId, Stream as Libp2pStream};
 use nomos_core::wire::packing::{pack_to_writer, unpack_from_reader};
 use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
+
+use crate::{
+    errors::{ChainSyncError, ChainSyncErrorKind},
+    messages::{DownloadBlocksRequest, DownloadBlocksResponse, SerialisedBlock},
+};
 
 pub const BUFFER_SIZE: usize = 64;
 
@@ -33,20 +37,28 @@ impl ProvideBlocksTask {
     }
 
     pub async fn provide_blocks(
-        mut reply_rcv: mpsc::Receiver<SerialisedBlock>,
+        reply_rcv: mpsc::Receiver<SerialisedBlock>,
         peer_id: PeerId,
         mut stream: Libp2pStream,
     ) -> Result<(), ChainSyncError> {
-        while let Some(block) = reply_rcv.recv().await {
-            if let Err(e) = pack_to_writer(&DownloadBlocksResponse::Block(block), &mut stream).await
-            {
-                return Err((peer_id, e).into());
-            }
-            stream
-                .flush()
-                .await
-                .map_err(|e| ChainSyncError::from((peer_id, e)))?;
-        }
+        ReceiverStream::new(reply_rcv)
+            .fold(
+                Ok(&mut stream),
+                |res: Result<&mut _, ChainSyncError>, block| async move {
+                    let stream = res?;
+                    pack_to_writer(&DownloadBlocksResponse::Block(block), stream)
+                        .await
+                        .map_err(|e| ChainSyncError::from((peer_id, e)))?;
+
+                    stream
+                        .flush()
+                        .await
+                        .map_err(|e| ChainSyncError::from((peer_id, e)))?;
+
+                    Ok(stream)
+                },
+            )
+            .await?;
 
         if let Err(e) = pack_to_writer(&DownloadBlocksResponse::NoMoreBlocks, &mut stream).await {
             return Err(ChainSyncError::from((peer_id, e)));

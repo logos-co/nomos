@@ -3,9 +3,9 @@ use libp2p::{PeerId, Stream as Libp2pStream};
 use libp2p_stream::Control;
 use nomos_core::wire::packing::{pack_to_writer, unpack_from_reader};
 
-use crate::errors::{ChainSyncError, ChainSyncErrorKind};
 use crate::{
     behaviour::{BlocksResponse, SYNC_PROTOCOL},
+    errors::{ChainSyncError, ChainSyncErrorKind},
     messages::{DownloadBlocksRequest, DownloadBlocksResponse},
 };
 

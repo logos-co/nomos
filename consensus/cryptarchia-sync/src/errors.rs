@@ -30,7 +30,7 @@ pub struct ChainSyncError {
 
 impl From<(PeerId, std::io::Error)> for ChainSyncError {
     fn from((peer, err): (PeerId, std::io::Error)) -> Self {
-        ChainSyncError {
+        Self {
             peer,
             kind: err.into(),
         }
@@ -39,7 +39,7 @@ impl From<(PeerId, std::io::Error)> for ChainSyncError {
 
 impl From<(PeerId, libp2p_stream::OpenStreamError)> for ChainSyncError {
     fn from((peer, err): (PeerId, libp2p_stream::OpenStreamError)) -> Self {
-        ChainSyncError {
+        Self {
             peer,
             kind: err.into(),
         }
@@ -48,7 +48,7 @@ impl From<(PeerId, libp2p_stream::OpenStreamError)> for ChainSyncError {
 
 impl From<(PeerId, PackingError)> for ChainSyncError {
     fn from((peer, err): (PeerId, PackingError)) -> Self {
-        ChainSyncError {
+        Self {
             peer,
             kind: err.into(),
         }
