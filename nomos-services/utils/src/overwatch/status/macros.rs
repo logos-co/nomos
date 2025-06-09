@@ -120,7 +120,7 @@ mod tests {
 
     use super::*;
 
-    async fn notify_ready_and_wait<Service: ServiceData>(
+    async fn notify_ready_and_wait<Service: ServiceData, RuntimeServiceId>(
         service_resources_handle: &OpaqueServiceResourcesHandle<Service, RuntimeServiceId>,
     ) {
         // Notify that the service is ready
@@ -153,7 +153,7 @@ mod tests {
         }
 
         async fn run(self) -> Result<(), DynError> {
-            notify_ready_and_wait::<Self>(&self.service_resources_handle).await;
+            notify_ready_and_wait::<Self, RuntimeServiceId>(&self.service_resources_handle).await;
             Ok(())
         }
     }
@@ -184,7 +184,41 @@ mod tests {
             // Simulate some initialisation work
             tokio::time::sleep(Duration::from_secs(2)).await;
 
-            notify_ready_and_wait::<Self>(&self.service_resources_handle).await;
+            notify_ready_and_wait::<Self, RuntimeServiceId>(&self.service_resources_handle).await;
+            Ok(())
+        }
+    }
+
+    struct NestedGenericService<GenericService, RuntimeServiceId> {
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+    }
+
+    impl<GenericService, RuntimeServiceId> ServiceData
+        for NestedGenericService<GenericService, RuntimeServiceId>
+    {
+        type Settings = ();
+        type State = NoState<Self::Settings>;
+        type StateOperator = NoOperator<Self::State>;
+        type Message = ();
+    }
+
+    #[async_trait]
+    impl<GenericService, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+        for NestedGenericService<GenericService, RuntimeServiceId>
+    where
+        RuntimeServiceId: Debug + Send + Sync + Display + AsServiceId<GenericService> + 'static,
+    {
+        fn init(
+            service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+            _initial_state: Self::State,
+        ) -> Result<Self, DynError> {
+            Ok(Self {
+                service_resources_handle,
+            })
+        }
+
+        async fn run(self) -> Result<(), DynError> {
+            notify_ready_and_wait::<Self, RuntimeServiceId>(&self.service_resources_handle).await;
             Ok(())
         }
     }
@@ -239,13 +273,18 @@ mod tests {
     struct App {
         light_service: LightService,
         heavy_service: HeavyService,
-        dependent_service: DependantService<LightService, RuntimeServiceId>,
+        nested_generic_service: NestedGenericService<LightService, RuntimeServiceId>,
+        dependent_service: DependantService<
+            NestedGenericService<LightService, RuntimeServiceId>,
+            RuntimeServiceId,
+        >,
     }
 
     fn initialize() -> Overwatch<RuntimeServiceId> {
         let settings = AppServiceSettings {
             light_service: (),
             heavy_service: (),
+            nested_generic_service: (),
             dependent_service: (),
         };
         OverwatchRunner::<App>::run(settings, None).expect("Failed to run overwatch")
@@ -262,7 +301,10 @@ mod tests {
         // Wait until ServiceC is ready, which depends on ServiceA and ServiceB
         let dependent_service_status = overwatch_handle.runtime().block_on(async {
             overwatch_handle
-                .status_watcher::<DependantService<LightService, RuntimeServiceId>>()
+                .status_watcher::<DependantService<
+                    NestedGenericService<LightService, RuntimeServiceId>,
+                    RuntimeServiceId,
+                >>()
                 .await
                 .wait_for(ServiceStatus::Ready, Some(Duration::from_secs(5)))
                 .await
@@ -290,7 +332,10 @@ mod tests {
         // Wait for a service that will not be ready, expecting a timeout error
         let dependent_service_status = overwatch_handle.runtime().block_on(async {
             overwatch_handle
-                .status_watcher::<DependantService<LightService, RuntimeServiceId>>()
+                .status_watcher::<DependantService<
+                    NestedGenericService<LightService, RuntimeServiceId>,
+                    RuntimeServiceId,
+                >>()
                 .await
                 .wait_for(ServiceStatus::Ready, Some(Duration::from_secs(1)))
                 .await
