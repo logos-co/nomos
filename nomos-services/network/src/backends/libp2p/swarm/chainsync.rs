@@ -1,5 +1,5 @@
 use nomos_libp2p::{
-    cryptarchia_sync::{Event, HeaderId, SerialisedBlock},
+    cryptarchia_sync::{DownloadBlocksInfo, Event, SerialisedBlock},
     PeerId,
 };
 use tokio::sync::mpsc;
@@ -25,13 +25,16 @@ impl From<Event> for libp2p::Event {
                 reply_sender: blocks_stream,
             } => Self::ChainSync(ChainSyncEvent::ProvideBlocks {
                 info: DownloadBlocksInfo {
-                    target_block,
+                    target_block: Some(target_block),
                     local_tip,
                     latest_immutable_block,
                     additional_blocks,
                 },
                 blocks_stream,
             }),
+            Event::ProvideTipsRequest { .. } => {
+                unimplemented!()
+            }
             Event::DownloadBlocksResponse { .. } => {
                 unimplemented!()
             }
@@ -46,19 +49,6 @@ pub enum ChainSyncCommand {
         peer: PeerId,
         info: DownloadBlocksInfo,
     },
-}
-
-/// A set of block identifiers the syncing peer already knows.
-#[derive(Debug, Clone)]
-pub struct DownloadBlocksInfo {
-    /// Return blocks up to `target_block` if specified.
-    pub target_block: Option<HeaderId>,
-    /// The latest block at the tip of the local chain.
-    pub local_tip: HeaderId,
-    /// The latest immutable block.
-    pub latest_immutable_block: HeaderId,
-    /// The list of additional blocks that the requester has.
-    pub additional_blocks: Vec<HeaderId>,
 }
 
 impl SwarmHandler {

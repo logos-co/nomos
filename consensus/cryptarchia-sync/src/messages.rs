@@ -5,11 +5,19 @@ use serde::{Deserialize, Serialize};
 /// Blocks are serialized using nomos-core's packing format.
 pub type SerialisedBlock = Bytes;
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum RequestMessage {
+    /// A request to download blocks.
+    DownloadBlocksRequest(DownloadBlocksRequest),
+    /// A request to get the tip of the peer.
+    GetTipRequest(GetTipRequest),
+}
+
 /// A request to initiate block downloading from a peer.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DownloadBlocksRequest {
     /// Return blocks up to `target_block` if specified.
-    pub target_block: Option<HeaderId>,
+    pub target_block: HeaderId,
     /// The list of known blocks that the requester has.
     pub known_blocks: KnownBlocks,
 }
@@ -27,7 +35,7 @@ pub struct KnownBlocks {
 
 impl DownloadBlocksRequest {
     pub const fn new(
-        target_block: Option<HeaderId>,
+        target_block: HeaderId,
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
         additional_blocks: Vec<HeaderId>,
@@ -49,4 +57,13 @@ pub enum DownloadBlocksResponse {
     Block(SerialisedBlock),
     /// A response indicating that no more blocks are available.
     NoMoreBlocks,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct GetTipRequest;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct GetTipResponse {
+    /// The tip of the peer.
+    pub tip: HeaderId,
 }

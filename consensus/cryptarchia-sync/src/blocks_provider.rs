@@ -1,12 +1,15 @@
 use futures::{AsyncWriteExt as _, StreamExt as _};
 use libp2p::{PeerId, Stream as Libp2pStream};
-use nomos_core::wire::packing::{pack_to_writer, unpack_from_reader};
+use nomos_core::{
+    header::HeaderId,
+    wire::packing::{pack_to_writer, unpack_from_reader},
+};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
     errors::{ChainSyncError, ChainSyncErrorKind},
-    messages::{DownloadBlocksRequest, DownloadBlocksResponse, SerialisedBlock},
+    messages::{DownloadBlocksResponse, GetTipResponse, RequestMessage, SerialisedBlock},
 };
 
 pub const BUFFER_SIZE: usize = 64;
@@ -16,24 +19,43 @@ pub const MAX_ADDITIONAL_BLOCKS: usize = 5;
 pub struct ProvideBlocksTask;
 
 impl ProvideBlocksTask {
-    pub async fn process_download_request(
+    pub async fn process_request(
         peer_id: PeerId,
         mut stream: Libp2pStream,
-    ) -> Result<(PeerId, Libp2pStream, DownloadBlocksRequest), ChainSyncError> {
-        let request: DownloadBlocksRequest = unpack_from_reader(&mut stream)
+    ) -> Result<(PeerId, Libp2pStream, RequestMessage), ChainSyncError> {
+        let request: RequestMessage = unpack_from_reader(&mut stream)
             .await
             .map_err(|e| ChainSyncError::from((peer_id, e)))?;
 
-        if request.known_blocks.additional_blocks.len() > MAX_ADDITIONAL_BLOCKS {
-            return Err(ChainSyncError {
-                peer: peer_id,
-                kind: ChainSyncErrorKind::ProtocolViolation(
-                    "Too many additional blocks in request".to_owned(),
-                ),
-            });
-        }
-
         Ok((peer_id, stream, request))
+    }
+
+    pub async fn provide_tip(
+        mut reply_rcv: mpsc::Receiver<HeaderId>,
+        peer_id: PeerId,
+        mut stream: Libp2pStream,
+    ) -> Result<(), ChainSyncError> {
+        match reply_rcv.recv().await {
+            Some(tip) => {
+                let response = GetTipResponse { tip };
+                pack_to_writer(&response, &mut stream)
+                    .await
+                    .map_err(|e| ChainSyncError::from((peer_id, e)))?;
+
+                stream
+                    .flush()
+                    .await
+                    .map_err(|e| ChainSyncError::from((peer_id, e)))?;
+
+                Ok(())
+            }
+            None => Err(ChainSyncError {
+                peer: peer_id,
+                kind: ChainSyncErrorKind::ChannelReceiveError(
+                    "No tip received in response to GetTipRequest".to_owned(),
+                ),
+            }),
+        }
     }
 
     pub async fn provide_blocks(
