@@ -1,4 +1,4 @@
-use std::{fmt::Debug, marker::PhantomData, pin::Pin, sync::Arc};
+use std::{fmt::Debug, marker::PhantomData, pin::Pin};
 
 use futures::{
     future::{AbortHandle, Abortable, Aborted},
@@ -24,13 +24,16 @@ use tokio::{
 use tokio_stream::wrappers::BroadcastStream;
 use tracing::instrument;
 
-use crate::backends::{
-    libp2p::common::{
-        handle_balancer_command, handle_monitor_command, handle_sample_request,
-        handle_validator_events_stream, DaNetworkBackendSettings, SamplingEvent,
-        BROADCAST_CHANNEL_SIZE,
+use crate::{
+    backends::{
+        libp2p::common::{
+            handle_balancer_command, handle_monitor_command, handle_sample_request,
+            handle_validator_events_stream, DaNetworkBackendSettings, SamplingEvent,
+            BROADCAST_CHANNEL_SIZE,
+        },
+        NetworkBackend,
     },
-    NetworkBackend,
+    membership::handler::DaMembershipHandler,
 };
 
 /// Message that the backend replies to
@@ -91,18 +94,23 @@ where
         + 'static,
     BalancerStats: Debug + Serialize + Send + Sync + 'static,
 {
-    type Settings = DaNetworkBackendSettings<Membership>;
+    type Settings = DaNetworkBackendSettings;
     type State = NoState<Self::Settings>;
     type Message = DaNetworkMessage<BalancerStats, MonitorStats>;
     type EventKind = DaNetworkEventKind;
     type NetworkEvent = DaNetworkEvent;
+    type Membership = DaMembershipHandler<Membership>;
 
-    fn new(config: Self::Settings, overwatch_handle: OverwatchHandle<RuntimeServiceId>) -> Self {
+    fn new(
+        config: Self::Settings,
+        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+        membership: Self::Membership,
+    ) -> Self {
         let keypair =
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
         let (mut validator_swarm, validator_events_stream) = ValidatorSwarm::new(
             keypair,
-            Arc::new(config.membership.clone()),
+            membership,
             config.policy_settings,
             config.monitor_settings,
             config.balancer_interval,

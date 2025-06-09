@@ -105,11 +105,7 @@ async fn four_subnets_disseminate_retrieve_reconstruct() {
     const ITERATIONS: usize = 10;
 
     let topology = Topology::spawn(TopologyConfig::validators_and_executor(3, 4, 2)).await;
-    let membership = &topology.validators()[0]
-        .config()
-        .da_network
-        .backend
-        .membership;
+    let membership = &topology.validators()[0].config().da_network.membership;
 
     let validator_subnet_0 = topology
         .validators()

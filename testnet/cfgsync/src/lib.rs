@@ -96,7 +96,6 @@ mod tests {
         let my_peer_id = PeerId::from_public_key(&key.public());
         let my_multiaddr = config
             .da_network
-            .backend
             .membership
             .get_address(&my_peer_id)
             .unwrap();

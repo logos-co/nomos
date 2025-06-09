@@ -2,8 +2,11 @@ use std::pin::Pin;
 
 use futures::{Stream, StreamExt as _};
 use kzgrs_backend::common::{build_blob_id, share::DaShare};
+use libp2p::PeerId;
+use nomos_da_network_core::SubnetworkId;
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
 use serde::{Deserialize, Serialize};
+use subnetworks_assignations::MembershipHandler;
 use tokio::sync::{
     broadcast::{self},
     mpsc,
@@ -70,8 +73,13 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
     type Message = Command;
     type EventKind = EventKind;
     type NetworkEvent = Event;
+    type Membership = MockMembership;
 
-    fn new(config: Self::Settings, _: OverwatchHandle<RuntimeServiceId>) -> Self {
+    fn new(
+        config: Self::Settings,
+        _: OverwatchHandle<RuntimeServiceId>,
+        _membership: Self::Membership,
+    ) -> Self {
         let (commands_tx, _) = tokio::sync::mpsc::channel(BUFFER_SIZE);
         let (events_tx, _) = tokio::sync::broadcast::channel(BUFFER_SIZE);
         Self {
@@ -111,5 +119,44 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
                     .filter_map(|event| async { event.ok() }),
             ),
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct MockMembership;
+
+impl MembershipHandler for MockMembership {
+    type NetworkId = SubnetworkId;
+
+    type Id = PeerId;
+
+    fn membership(&self, _id: &Self::Id) -> std::collections::HashSet<Self::NetworkId> {
+        todo!()
+    }
+
+    fn is_allowed(&self, _id: &Self::Id) -> bool {
+        todo!()
+    }
+
+    fn members_of(&self, _network_id: &Self::NetworkId) -> std::collections::HashSet<Self::Id> {
+        todo!()
+    }
+
+    fn members(&self) -> std::collections::HashSet<Self::Id> {
+        todo!()
+    }
+
+    fn last_subnetwork_id(&self) -> Self::NetworkId {
+        todo!()
+    }
+
+    fn get_address(&self, _peer_id: &libp2p::PeerId) -> Option<libp2p::Multiaddr> {
+        todo!()
+    }
+
+    fn subnetworks(
+        &self,
+    ) -> subnetworks_assignations::SubnetworkAssignations<Self::NetworkId, Self::Id> {
+        todo!()
     }
 }

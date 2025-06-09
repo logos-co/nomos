@@ -320,7 +320,6 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         da_network: DaNetworkConfig {
             backend: DaNetworkBackendSettings {
                 node_key: config.da_config.node_key,
-                membership: config.da_config.membership.clone(),
                 listening_address: config.da_config.listening_address,
                 policy_settings: DAConnectionPolicySettings {
                     min_dispersal_peers: 0,
@@ -335,6 +334,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 redial_cooldown: config.da_config.redial_cooldown,
                 replication_settings: config.da_config.replication_settings,
             },
+            membership: config.da_config.membership.clone(),
         },
         da_indexer: IndexerSettings {
             storage: IndexerStorageAdapterSettings {

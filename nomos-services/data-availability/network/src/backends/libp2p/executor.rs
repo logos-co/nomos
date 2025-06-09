@@ -1,4 +1,4 @@
-use std::{fmt::Debug, marker::PhantomData, pin::Pin, sync::Arc};
+use std::{fmt::Debug, marker::PhantomData, pin::Pin};
 
 use futures::{
     future::Aborted,
@@ -27,13 +27,16 @@ use tokio::{
 use tokio_stream::wrappers::{BroadcastStream, UnboundedReceiverStream};
 use tracing::instrument;
 
-use crate::backends::{
-    libp2p::common::{
-        handle_balancer_command, handle_monitor_command, handle_sample_request,
-        handle_validator_events_stream, DaNetworkBackendSettings, SamplingEvent,
-        BROADCAST_CHANNEL_SIZE,
+use crate::{
+    backends::{
+        libp2p::common::{
+            handle_balancer_command, handle_monitor_command, handle_sample_request,
+            handle_validator_events_stream, DaNetworkBackendSettings, SamplingEvent,
+            BROADCAST_CHANNEL_SIZE,
+        },
+        NetworkBackend,
     },
-    NetworkBackend,
+    membership::handler::DaMembershipHandler,
 };
 
 /// Message that the backend replies to
@@ -71,8 +74,8 @@ pub enum DaNetworkEvent {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DaNetworkExecutorBackendSettings<Membership> {
-    pub validator_settings: DaNetworkBackendSettings<Membership>,
+pub struct DaNetworkExecutorBackendSettings {
+    pub validator_settings: DaNetworkBackendSettings,
     pub num_subnets: u16,
 }
 
@@ -109,19 +112,24 @@ where
         + 'static,
     BalancerStats: Debug + Serialize + Send + Sync + 'static,
 {
-    type Settings = DaNetworkExecutorBackendSettings<Membership>;
+    type Settings = DaNetworkExecutorBackendSettings;
     type State = NoState<Self::Settings>;
     type Message = ExecutorDaNetworkMessage<BalancerStats, MonitorStats>;
     type EventKind = DaNetworkEventKind;
     type NetworkEvent = DaNetworkEvent;
+    type Membership = DaMembershipHandler<Membership>;
 
-    fn new(config: Self::Settings, overwatch_handle: OverwatchHandle<RuntimeServiceId>) -> Self {
+    fn new(
+        config: Self::Settings,
+        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+        membership: Self::Membership,
+    ) -> Self {
         let keypair = libp2p::identity::Keypair::from(ed25519::Keypair::from(
             config.validator_settings.node_key.clone(),
         ));
         let (mut executor_swarm, executor_events_stream) = ExecutorSwarm::new(
             keypair,
-            Arc::new(config.validator_settings.membership.clone()),
+            membership,
             config.validator_settings.policy_settings.clone(),
             config.validator_settings.monitor_settings.clone(),
             config.validator_settings.balancer_interval,

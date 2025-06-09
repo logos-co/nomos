@@ -5,6 +5,7 @@ use std::pin::Pin;
 
 use futures::Stream;
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::ServiceState};
+use subnetworks_assignations::MembershipHandler;
 
 use super::Debug;
 
@@ -15,8 +16,13 @@ pub trait NetworkBackend<RuntimeServiceId> {
     type Message: Debug + Send + Sync + 'static;
     type EventKind: Debug + Send + Sync + 'static;
     type NetworkEvent: Debug + Send + Sync + 'static;
+    type Membership: MembershipHandler + Clone;
 
-    fn new(config: Self::Settings, overwatch_handle: OverwatchHandle<RuntimeServiceId>) -> Self;
+    fn new(
+        config: Self::Settings,
+        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+        membership: Self::Membership,
+    ) -> Self;
     fn shutdown(&mut self);
     async fn process(&self, msg: Self::Message);
     async fn subscribe(

@@ -30,12 +30,10 @@ use tokio::sync::{
 pub(crate) const BROADCAST_CHANNEL_SIZE: usize = 128;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DaNetworkBackendSettings<Membership> {
+pub struct DaNetworkBackendSettings {
     // Identification Secp256k1 private key in Hex format (`0x123...abc`). Default random.
     #[serde(with = "secret_key_serde", default = "ed25519::SecretKey::generate")]
     pub node_key: ed25519::SecretKey,
-    /// Membership of DA network `PoV` set
-    pub membership: Membership,
     pub listening_address: Multiaddr,
     pub policy_settings: DAConnectionPolicySettings,
     pub monitor_settings: DAConnectionMonitorSettings,

@@ -3,6 +3,7 @@ use std::{collections::HashSet, sync::Arc};
 use arc_swap::ArcSwap;
 use subnetworks_assignations::{MembershipHandler, SubnetworkAssignations};
 
+#[derive(Debug, Clone)]
 pub struct DaMembershipHandler<Membership> {
     membership: Arc<ArcSwap<Membership>>,
 }
@@ -63,13 +64,5 @@ where
 
     fn subnetworks(&self) -> SubnetworkAssignations<Self::NetworkId, Self::Id> {
         self.membership.load().subnetworks()
-    }
-}
-
-impl<Membership> Clone for DaMembershipHandler<Membership> {
-    fn clone(&self) -> Self {
-        Self {
-            membership: Arc::clone(&self.membership),
-        }
     }
 }

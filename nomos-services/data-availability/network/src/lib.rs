@@ -4,7 +4,6 @@ pub mod membership;
 use std::{
     fmt::{self, Debug, Display},
     marker::PhantomData,
-    mem,
     pin::Pin,
 };
 
@@ -95,7 +94,9 @@ where
 impl<B, RuntimeServiceId, Membership> ServiceCore<RuntimeServiceId>
     for NetworkService<B, RuntimeServiceId, Membership>
 where
-    B: NetworkBackend<RuntimeServiceId> + Send + 'static,
+    B: NetworkBackend<RuntimeServiceId, Membership = DaMembershipHandler<Membership>>
+        + Send
+        + 'static,
     B::State: Send + Sync,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send,
     Membership: Clone + Send + Sync + 'static,
@@ -115,6 +116,7 @@ where
             backend: <B as NetworkBackend<RuntimeServiceId>>::new(
                 settings.backend,
                 service_resources_handle.overwatch_handle.clone(),
+                membership.clone(),
             ),
             service_resources_handle,
             _membership: membership,
