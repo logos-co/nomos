@@ -20,9 +20,10 @@ pub struct AddressMapperBehaviour {
     waker: Option<Waker>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Event {
     AddressMappingFailed(Multiaddr),
+    _NewExternalMappedAddress(Multiaddr),
 }
 
 impl AddressMapperBehaviour {
