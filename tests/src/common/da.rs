@@ -33,7 +33,9 @@ pub async fn wait_for_indexed_blob(
     let shares_fut = async {
         let mut num_shares = 0;
         while num_shares < num_subnets {
+            println!("Before {num_shares}");
             let executor_shares = executor.get_indexer_range(app_id, from..to).await;
+            println!("After {num_shares}");
             num_shares = executor_shares
                 .into_iter()
                 .filter(|(i, _)| i == &from)

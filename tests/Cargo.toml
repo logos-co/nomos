@@ -45,7 +45,7 @@ serde_yaml               = "0.9"
 subnetworks-assignations = { workspace = true }
 tempfile                 = "3"
 time                     = "0.3"
-tokio                    = "1"
+tokio                    = { version = "1", features = ["time"] }
 tracing                  = { workspace = true }
 x25519-dalek             = { version = "2", features = ["getrandom", "static_secrets"] }
 
