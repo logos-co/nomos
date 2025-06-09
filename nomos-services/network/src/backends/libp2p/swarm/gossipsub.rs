@@ -106,7 +106,7 @@ impl SwarmHandler {
     pub(super) fn handle_gossipsub_event(&self, event: gossipsub::Event) {
         if let gossipsub::Event::Message { message, .. } = event {
             let message = Event::Message(message);
-            self.event_channels.send_chainsync_event(message);
+            self.event_channels.send_gossipsub_message(message);
         }
     }
 }
