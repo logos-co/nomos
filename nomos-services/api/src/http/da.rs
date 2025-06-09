@@ -349,23 +349,23 @@ where
     .await?
 }
 
-pub async fn block_peer<B, RuntimeServiceId, Membership>(
+pub async fn block_peer<Backend, RuntimeServiceId, Membership>(
     handle: &OverwatchHandle<RuntimeServiceId>,
     peer_id: PeerId,
 ) -> Result<bool, DynError>
 where
-    B: NetworkBackend<RuntimeServiceId> + 'static + Send,
-    B::Message: MonitorMessageFactory,
+    Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
+    Backend::Message: MonitorMessageFactory,
     Membership: MembershipHandler + Clone,
     RuntimeServiceId: Debug
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<B, RuntimeServiceId, Membership>>,
+        + AsServiceId<NetworkService<Backend, RuntimeServiceId, Membership>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
-    let message = B::Message::create_block_message(peer_id, sender);
+    let message = Backend::Message::create_block_message(peer_id, sender);
     relay
         .send(DaNetworkMsg::Process(message))
         .await
@@ -374,23 +374,23 @@ where
     wait_with_timeout(receiver, "Timeout while waiting for block peer".to_owned()).await
 }
 
-pub async fn unblock_peer<B, RuntimeServiceId, Membership>(
+pub async fn unblock_peer<Backend, RuntimeServiceId, Membership>(
     handle: &OverwatchHandle<RuntimeServiceId>,
     peer_id: PeerId,
 ) -> Result<bool, DynError>
 where
-    B: NetworkBackend<RuntimeServiceId> + 'static + Send,
-    B::Message: MonitorMessageFactory,
+    Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
+    Backend::Message: MonitorMessageFactory,
     Membership: MembershipHandler + Clone,
     RuntimeServiceId: Debug
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<B, RuntimeServiceId, Membership>>,
+        + AsServiceId<NetworkService<Backend, RuntimeServiceId, Membership>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
-    let message = B::Message::create_unblock_message(peer_id, sender);
+    let message = Backend::Message::create_unblock_message(peer_id, sender);
     relay
         .send(DaNetworkMsg::Process(message))
         .await
@@ -403,22 +403,22 @@ where
     .await
 }
 
-pub async fn blacklisted_peers<B, RuntimeServiceId, Membership>(
+pub async fn blacklisted_peers<Backend, RuntimeServiceId, Membership>(
     handle: &OverwatchHandle<RuntimeServiceId>,
 ) -> Result<Vec<PeerId>, DynError>
 where
-    B: NetworkBackend<RuntimeServiceId> + 'static + Send,
-    B::Message: MonitorMessageFactory,
+    Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
+    Backend::Message: MonitorMessageFactory,
     Membership: MembershipHandler + Clone,
     RuntimeServiceId: Debug
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<B, RuntimeServiceId, Membership>>,
+        + AsServiceId<NetworkService<Backend, RuntimeServiceId, Membership>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
-    let message = B::Message::create_blacklisted_message(sender);
+    let message = Backend::Message::create_blacklisted_message(sender);
     relay
         .send(DaNetworkMsg::Process(message))
         .await
@@ -431,22 +431,22 @@ where
     .await
 }
 
-pub async fn balancer_stats<B, RuntimeServiceId, Membership>(
+pub async fn balancer_stats<Backend, RuntimeServiceId, Membership>(
     handle: &OverwatchHandle<RuntimeServiceId>,
-) -> Result<<B::Message as BalancerMessageFactory>::BalancerStats, DynError>
+) -> Result<<Backend::Message as BalancerMessageFactory>::BalancerStats, DynError>
 where
-    B: NetworkBackend<RuntimeServiceId> + 'static + Send,
-    B::Message: BalancerMessageFactory,
+    Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
+    Backend::Message: BalancerMessageFactory,
     Membership: MembershipHandler + Clone,
     RuntimeServiceId: Debug
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<B, RuntimeServiceId, Membership>>,
+        + AsServiceId<NetworkService<Backend, RuntimeServiceId, Membership>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
-    let message = B::Message::create_stats_message(sender);
+    let message = Backend::Message::create_stats_message(sender);
     relay
         .send(DaNetworkMsg::Process(message))
         .await
@@ -459,22 +459,22 @@ where
     .await
 }
 
-pub async fn monitor_stats<B, RuntimeServiceId, Membership>(
+pub async fn monitor_stats<Backend, RuntimeServiceId, Membership>(
     handle: &OverwatchHandle<RuntimeServiceId>,
-) -> Result<<B::Message as MonitorMessageFactory>::MonitorStats, DynError>
+) -> Result<<Backend::Message as MonitorMessageFactory>::MonitorStats, DynError>
 where
-    B: NetworkBackend<RuntimeServiceId> + 'static + Send,
-    B::Message: MonitorMessageFactory,
+    Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
+    Backend::Message: MonitorMessageFactory,
     Membership: MembershipHandler + Clone,
     RuntimeServiceId: Debug
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<B, RuntimeServiceId, Membership>>,
+        + AsServiceId<NetworkService<Backend, RuntimeServiceId, Membership>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
-    let message = B::Message::create_stats_message(sender);
+    let message = Backend::Message::create_stats_message(sender);
     relay
         .send(DaNetworkMsg::Process(message))
         .await
