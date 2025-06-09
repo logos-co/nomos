@@ -135,7 +135,8 @@ where
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_millis(3000)),
             <S as SdpAdapter>::SdpService
-        )?;
+        )
+        .await?;
 
         loop {
             tokio::select! {

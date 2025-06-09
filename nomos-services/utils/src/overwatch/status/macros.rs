@@ -14,7 +14,7 @@
 ///
 /// # Returns
 ///
-/// A scope that returns:
+/// An async scope that returns:
 /// - `Ok(())` if all specified services are ready within the timeout.
 /// - `Err(DynError)` if any of the specified services are not ready within the
 ///   timeout.
@@ -23,7 +23,7 @@
 ///
 /// ```rust,ignore
 /// use std::time::Duration;
-/// use overwatch::overwatch::OverwatchHandle;
+/// use overwatch::{DynError, overwatch::OverwatchHandle};
 /// use services_utils::overwatch::status::wait_until_services_are_ready;
 ///
 /// // The following types would be defined as part of your Overwatch runtime.
@@ -37,15 +37,15 @@
 ///     unimplemented!()
 /// }
 ///
-/// fn main() {
+/// async fn main() {
 ///     let overwatch_handle = get_overwatch_handle();
-///     wait_until_services_are_ready!(
+///     let _: Result<(), DynError> = wait_until_services_are_ready!(
 ///        &overwatch_handle,
 ///        Some(Duration::from_secs(10)),
 ///        ServiceA,
 ///        ServiceB,
 ///        ServiceC
-///     );
+///     ).await;
 /// }
 /// ```
 ///
@@ -54,7 +54,7 @@
 #[macro_export]
 macro_rules! wait_until_services_are_ready {
     ( $overwatch_handle:expr, $timeout:expr, $( $service_type:ty ),+ ) => {
-        {
+        async {
             let overwatch_handle: &::overwatch::overwatch::OverwatchHandle<RuntimeServiceId> = $overwatch_handle;
             let timeout: Option<::std::time::Duration> = $timeout;
             let mut wait_for_futures: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = ::std::result::Result::<(), $crate::overwatch::status::ServiceStatusEntry::<RuntimeServiceId>>> + Send>>> = Vec::new();
@@ -263,7 +263,8 @@ mod tests {
                 None,
                 GenericService,
                 HeavyService
-            )?;
+            )
+            .await?;
             self.service_resources_handle.status_updater.notify_ready();
             Ok(())
         }
