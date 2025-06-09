@@ -91,13 +91,8 @@ where
         }
     }
 
-    /// Publish a message (data or drop) to all connected peers
+    /// Publish a message to all connected peers
     pub fn publish(&mut self, message: &[u8]) -> Result<(), Error> {
-        if M::is_drop(message) {
-            // Bypass deduplication for the drop message
-            return self.forward_message(message, None);
-        }
-
         let msg_id = Self::message_id(message);
         // If the message was already seen, don't forward it again
         if self.seen_message_cache.cache_get(&msg_id).is_some() {
@@ -236,7 +231,7 @@ where
         event: THandlerOutEvent<Self>,
     ) {
         match event {
-            // A non-drop message was forwarded from the peer.
+            // A message was forwarded from the peer.
             ToBehaviour::Message(message) => {
                 // Add the message to the cache. If it was already seen, ignore it.
                 if self

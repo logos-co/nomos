@@ -5,7 +5,6 @@ pub trait BlendMessage {
     type PublicKey;
     type PrivateKey;
     type Error: std::error::Error;
-    const DROP_MESSAGE: &'static [u8];
 
     fn build(payload: &[u8], public_keys: &[Self::PublicKey]) -> Result<Vec<u8>, Self::Error>;
     /// Unwrap the message one layer.
@@ -20,10 +19,6 @@ pub trait BlendMessage {
         message: &[u8],
         private_key: &Self::PrivateKey,
     ) -> Result<(Vec<u8>, bool), MessageUnwrapError<Self::Error>>;
-    #[must_use]
-    fn is_drop(message: &[u8]) -> bool {
-        message == Self::DROP_MESSAGE
-    }
 }
 
 #[derive(thiserror::Error, Debug)]

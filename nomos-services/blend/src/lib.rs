@@ -128,15 +128,12 @@ where
 
         // tier 1 persistent transmission
         let (persistent_sender, persistent_receiver) = mpsc::unbounded_channel();
-        let mut persistent_transmission_messages: PersistentTransmissionStream<_, _, _> =
+        let mut persistent_transmission_messages: PersistentTransmissionStream<_, _> =
             UnboundedReceiverStream::new(persistent_receiver).persistent_transmission(
-                blend_config.persistent_transmission,
-                ChaCha12Rng::from_entropy(),
                 IntervalStream::new(time::interval(Duration::from_secs_f64(
                     1.0 / blend_config.persistent_transmission.max_emission_frequency,
                 )))
                 .map(|_| ()),
-                SphinxMessage::DROP_MESSAGE.to_vec(),
             );
 
         // tier 2 blend

@@ -23,7 +23,6 @@ impl BlendMessage for MockBlendMessage {
     type PublicKey = [u8; NODE_ID_SIZE];
     type PrivateKey = [u8; NODE_ID_SIZE];
     type Error = Error;
-    const DROP_MESSAGE: &'static [u8] = &[0; MESSAGE_SIZE];
 
     /// The length of the encoded message is fixed to [`MESSAGE_SIZE`] bytes.
     /// The [`MAX_LAYERS`] number of [`NodeId`]s are concatenated in front of
