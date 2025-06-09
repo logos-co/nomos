@@ -8,22 +8,16 @@
 
 use std::fmt::{Debug, Display, Formatter};
 
-use crate::overwatch::status::service_status_entry::status_wrapper;
+use overwatch::services::status::ServiceStatus;
 
 pub struct ServiceStatusEntry<RuntimeServiceId> {
     id: RuntimeServiceId,
-    status: status_wrapper::ServiceStatus,
+    status: ServiceStatus,
 }
 
 impl<RuntimeServiceId> ServiceStatusEntry<RuntimeServiceId> {
-    pub const fn from_overwatch(
-        id: RuntimeServiceId,
-        status: overwatch::services::status::ServiceStatus,
-    ) -> Self {
-        Self {
-            id,
-            status: status_wrapper::ServiceStatus::new(status),
-        }
+    pub const fn from_overwatch(id: RuntimeServiceId, status: ServiceStatus) -> Self {
+        Self { id, status }
     }
 }
 

@@ -5,7 +5,6 @@
 
 pub mod entry;
 pub mod error;
-mod status_wrapper;
 
 pub use entry::ServiceStatusEntry;
 pub use error::ServiceStatusEntriesError;
