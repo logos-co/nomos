@@ -8,15 +8,13 @@ use nomos_core::{
 
 use crate::{
     behaviour::{BlocksResponse, SYNC_PROTOCOL},
-    errors::{ChainSyncError, ChainSyncErrorKind},
+    errors::ChainSyncError,
     messages::{
         DownloadBlocksRequest, DownloadBlocksResponse, GetTipRequest, GetTipResponse,
         RequestMessage,
     },
     DownloadBlocksInfo,
 };
-
-pub const DOWNLOAD_BLOCKS_LIMIT: usize = 1000;
 
 pub struct DownloadBlocksTask;
 
@@ -98,32 +96,12 @@ impl DownloadBlocksTask {
         peer_id: PeerId,
         stream: Libp2pStream,
     ) -> BoxStream<'static, Result<BlocksResponse, ChainSyncError>> {
-        let received_blocks = 0usize;
         Box::pin(futures::stream::try_unfold(
-            (stream, received_blocks),
-            move |(mut stream, count)| async move {
+            stream,
+            move |mut stream| async move {
                 match unpack_from_reader::<DownloadBlocksResponse, _>(&mut stream).await {
                     Ok(DownloadBlocksResponse::Block(block)) => {
-                        let Some(count) = count.checked_add(1) else {
-                            return Err(ChainSyncError {
-                                peer: peer_id,
-                                kind: ChainSyncErrorKind::ProtocolViolation(
-                                    "Block count overflow".to_owned(),
-                                ),
-                            });
-                        };
-
-                        if count > DOWNLOAD_BLOCKS_LIMIT {
-                            let msg = format!("Peer exceeded DOWNLOAD_BLOCKS_LIMIT of {DOWNLOAD_BLOCKS_LIMIT} blocks");
-                            return Err(ChainSyncError {
-                                peer: peer_id,
-                                kind: ChainSyncErrorKind::ProtocolViolation(msg),
-                            });
-                        }
-                        Ok(Some((
-                            BlocksResponse::Block((peer_id, block)),
-                            (stream, count),
-                        )))
+                        Ok(Some((BlocksResponse::Block((peer_id, block)), stream)))
                     }
                     Ok(DownloadBlocksResponse::NoMoreBlocks) => Ok(None),
                     Err(e) => Err(ChainSyncError::from((peer_id, e))),
