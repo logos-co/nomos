@@ -63,7 +63,7 @@ tracing         = []
 [package.metadata.cargo-machete]
 # False positives.
 ignored = [
-  # Required by Overwatch's `#[derive_swervices]` macro.
+  # Required by Overwatch's `#[derive_services]` macro.
   "tokio",
   # Required by `wait_until_services_are_ready` macro.
   "futures",

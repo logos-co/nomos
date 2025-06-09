@@ -75,7 +75,7 @@ pub struct AxumBackend<
     DaBlobInfo,
     Membership,
     DaVerifiedBlobInfo,
-    DaVerifierBackend,
+    DaVerifierBackend, // TODO:
     DaVerifierNetwork,
     DaVerifierStorage,
     Tx,
@@ -445,11 +445,11 @@ where
             .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
             .route(
                 paths::CL_METRICS,
-                routing::get(cl_metrics::<Tx, RuntimeServiceId>), //
+                routing::get(cl_metrics::<Tx, RuntimeServiceId>),
             )
             .route(
                 paths::CL_STATUS,
-                routing::post(cl_status::<Tx, RuntimeServiceId>), //
+                routing::post(cl_status::<Tx, RuntimeServiceId>),
             )
             .route(
                 paths::CRYPTARCHIA_INFO,
@@ -469,7 +469,7 @@ where
                         RuntimeServiceId,
                         SIZE,
                     >,
-                ), //
+                ),
             )
             .route(
                 paths::CRYPTARCHIA_HEADERS,
@@ -489,7 +489,7 @@ where
                         RuntimeServiceId,
                         SIZE,
                     >,
-                ), //
+                ),
             )
             .route(
                 paths::DA_ADD_SHARE,
@@ -503,7 +503,7 @@ where
                         DaStorageConverter,
                         RuntimeServiceId,
                     >,
-                ), //
+                ),
             )
             .route(
                 paths::DA_GET_RANGE,
@@ -525,37 +525,37 @@ where
                         RuntimeServiceId,
                         SIZE,
                     >,
-                ), //
+                ),
             )
             .route(
                 paths::DA_BLOCK_PEER,
                 routing::post(
                     block_peer::<DaNetworkValidatorBackend<Membership>, RuntimeServiceId>,
-                ), //
+                ),
             )
             .route(
                 paths::DA_UNBLOCK_PEER,
                 routing::post(
                     unblock_peer::<DaNetworkValidatorBackend<Membership>, RuntimeServiceId>,
-                ), //
+                ),
             )
             .route(
                 paths::DA_BLACKLISTED_PEERS,
                 routing::get(
                     blacklisted_peers::<DaNetworkValidatorBackend<Membership>, RuntimeServiceId>,
-                ), //
+                ),
             )
             .route(
                 paths::NETWORK_INFO,
-                routing::get(libp2p_info::<RuntimeServiceId>), //
+                routing::get(libp2p_info::<RuntimeServiceId>),
             )
             .route(
                 paths::STORAGE_BLOCK,
-                routing::post(block::<DaStorageSerializer, StorageAdapter, Tx, RuntimeServiceId>), //
+                routing::post(block::<DaStorageSerializer, StorageAdapter, Tx, RuntimeServiceId>),
             )
             .route(
                 paths::MEMPOOL_ADD_TX,
-                routing::post(add_tx::<Tx, RuntimeServiceId>), //
+                routing::post(add_tx::<Tx, RuntimeServiceId>),
             )
             .route(
                 paths::MEMPOOL_ADD_BLOB_INFO,
@@ -572,7 +572,7 @@ where
                         ApiAdapter,
                         RuntimeServiceId,
                     >,
-                ), //
+                ),
             )
             .route(
                 paths::DA_GET_SHARES_COMMITMENTS,
@@ -584,7 +584,7 @@ where
                         DaShare,
                         RuntimeServiceId,
                     >,
-                ), //
+                ),
             )
             .route(
                 paths::DA_GET_LIGHT_SHARE,
@@ -596,7 +596,7 @@ where
                         DaShare,
                         RuntimeServiceId,
                     >,
-                ), // Storage
+                ),
             )
             .route(
                 paths::DA_GET_SHARES,
@@ -608,19 +608,19 @@ where
                         DaShare,
                         RuntimeServiceId,
                     >,
-                ), //
+                ),
             )
             .route(
                 paths::DA_BALANCER_STATS,
                 routing::get(
                     balancer_stats::<DaNetworkValidatorBackend<Membership>, RuntimeServiceId>,
-                ), //
+                ),
             )
             .route(
                 paths::DA_MONITOR_STATS,
                 routing::get(
                     monitor_stats::<DaNetworkValidatorBackend<Membership>, RuntimeServiceId>,
-                ), //
+                ),
             )
             .with_state(handle);
 

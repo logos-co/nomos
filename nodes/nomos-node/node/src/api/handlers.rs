@@ -92,7 +92,6 @@ where
         Debug + Sync + Display + 'static + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
 {
     make_request_and_return_response!(cl::cl_mempool_metrics::<T, RuntimeServiceId>(&handle))
-    //  Mempool TX and DA, double-check if this is correct
 }
 
 #[utoipa::path(
@@ -115,7 +114,6 @@ where
         Debug + Sync + Display + 'static + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
 {
     make_request_and_return_response!(cl::cl_mempool_status::<T, RuntimeServiceId>(&handle, items))
-    //  Mempool TX and DA, double-check if this is correct
 }
 #[derive(Deserialize)]
 pub struct CryptarchiaInfoQuery {
@@ -213,7 +211,7 @@ where
         ApiAdapter,
         RuntimeServiceId,
         SIZE,
-    >(&handle)) // CryptarchiaConsensus
+    >(&handle))
 }
 
 #[utoipa::path(
@@ -308,7 +306,7 @@ where
         ApiAdapter,
         RuntimeServiceId,
         SIZE,
-    >(&handle, from, to)) // CryptarchiaConsensus
+    >(&handle, from, to))
 }
 
 #[utoipa::path(
@@ -351,7 +349,7 @@ where
         SS,
         StorageConverter,
         RuntimeServiceId,
-    >(&handle, share)) // DAV
+    >(&handle, share))
 }
 
 #[utoipa::path(
@@ -478,7 +476,7 @@ where
         ApiAdapter,
         RuntimeServiceId,
         SIZE,
-    >(&handle, app_id, range)) // DAI
+    >(&handle, app_id, range))
 }
 
 #[utoipa::path(
@@ -501,7 +499,7 @@ where
 {
     make_request_and_return_response!(da::block_peer::<Backend, RuntimeServiceId>(
         &handle, peer_id
-    )) // NetworkService
+    ))
 }
 
 #[utoipa::path(
@@ -525,7 +523,7 @@ where
 {
     make_request_and_return_response!(da::unblock_peer::<Backend, RuntimeServiceId>(
         &handle, peer_id
-    )) // NetworkService
+    ))
 }
 
 #[utoipa::path(
@@ -546,7 +544,6 @@ where
         Debug + Sync + Display + 'static + AsServiceId<NetworkService<Backend, RuntimeServiceId>>,
 {
     make_request_and_return_response!(da::blacklisted_peers::<Backend, RuntimeServiceId>(&handle))
-    // DaNetworkService
 }
 
 #[utoipa::path(
@@ -573,7 +570,6 @@ where
         >,
 {
     make_request_and_return_response!(libp2p::libp2p_info::<RuntimeServiceId>(&handle))
-    // NetworkService
 }
 
 #[utoipa::path(
@@ -645,7 +641,7 @@ where
     make_request_and_return_response!(HttpStorageAdapter::get_shared_commitments::<
         DaStorageConverter,
         DaShare,
-    >(relay, req.blob_id,)) // Storage
+    >(relay, req.blob_id))
 }
 
 #[utoipa::path(
@@ -683,7 +679,6 @@ where
         + 'static,
 {
     let relay = match handle.relay().await {
-        // Storage
         Ok(relay) => relay,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     };
@@ -735,7 +730,6 @@ where
         + AsServiceId<StorageService<RocksBackend<StorageOp>, RuntimeServiceId>>,
 {
     let relay = match handle.relay().await {
-        // Storage
         Ok(relay) => relay,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     };
@@ -773,8 +767,7 @@ where
     RuntimeServiceId:
         Debug + Sync + Display + 'static + AsServiceId<NetworkService<Backend, RuntimeServiceId>>,
 {
-    make_request_and_return_response!(da::balancer_stats::<Backend, RuntimeServiceId>(&handle,))
-    // DaNetworkService
+    make_request_and_return_response!(da::balancer_stats::<Backend, RuntimeServiceId>(&handle))
 }
 
 #[utoipa::path(
@@ -794,7 +787,7 @@ where
     RuntimeServiceId:
         Debug + Sync + Display + 'static + AsServiceId<NetworkService<Backend, RuntimeServiceId>>,
 {
-    make_request_and_return_response!(da::monitor_stats::<Backend, RuntimeServiceId>(&handle,))
+    make_request_and_return_response!(da::monitor_stats::<Backend, RuntimeServiceId>(&handle))
 }
 
 #[utoipa::path(
@@ -831,8 +824,7 @@ where
         Tx,
         <Tx as Transaction>::Hash,
         RuntimeServiceId,
-    >(&handle, tx, Transaction::hash)) // Mempool TX and DA, double-check if
-                                       // this is correct
+    >(&handle, tx, Transaction::hash))
 }
 
 #[utoipa::path(
@@ -926,7 +918,5 @@ where
         DaVerifierStorage,
         ApiAdapter,
         RuntimeServiceId,
-    >(&handle, blob_info, DispersedBlobInfo::blob_id)) // Mempool TX and DA,
-                                                       // double-check if this
-                                                       // is correct
+    >(&handle, blob_info, DispersedBlobInfo::blob_id))
 }
