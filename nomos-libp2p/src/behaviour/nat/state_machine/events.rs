@@ -6,35 +6,35 @@ use libp2p::{
 
 use crate::behaviour::nat::address_mapper;
 
-pub(crate) enum UninitializedEvent<Addr> {
-    NewExternalAddressCandidate(Addr),
+pub(crate) enum UninitializedEvent {
+    NewExternalAddressCandidate(Multiaddr),
 }
 
-pub(crate) enum TestIfPublicEvent<Addr> {
-    ExternalAddressConfirmed(Addr),
-    AutonatClientTestFailed(Addr),
+pub(crate) enum TestIfPublicEvent {
+    ExternalAddressConfirmed(Multiaddr),
+    AutonatClientTestFailed(Multiaddr),
 }
 
-pub(crate) enum TryAddressMappingEvent<Addr> {
-    _NewExternalMappedAddress(Addr),
-    AddressMappingFailed(Addr),
+pub(crate) enum TryAddressMappingEvent {
+    _NewExternalMappedAddress(Multiaddr),
+    AddressMappingFailed(Multiaddr),
 }
 
-pub(crate) enum TestIfMappedPublicEvent<Addr> {
-    ExternalAddressConfirmed(Addr),
-    AutonatClientTestFailed(Addr),
+pub(crate) enum TestIfMappedPublicEvent {
+    ExternalAddressConfirmed(Multiaddr),
+    AutonatClientTestFailed(Multiaddr),
 }
 
-pub(crate) enum PublicEvent<Addr> {
-    ExternalAddressConfirmed(Addr),
-    AutonatClientTestOk(Addr),
-    AutonatClientTestFailed(Addr),
+pub(crate) enum PublicEvent {
+    ExternalAddressConfirmed(Multiaddr),
+    AutonatClientTestOk(Multiaddr),
+    AutonatClientTestFailed(Multiaddr),
 }
 
-pub(crate) enum MappedPublicEvent<Addr> {
-    ExternalAddressConfirmed(Addr),
-    AutonatClientTestOk(Addr),
-    AutonatClientTestFailed(Addr),
+pub(crate) enum MappedPublicEvent {
+    ExternalAddressConfirmed(Multiaddr),
+    AutonatClientTestOk(Multiaddr),
+    AutonatClientTestFailed(Multiaddr),
 }
 
 #[derive(Debug)]
@@ -72,7 +72,7 @@ macro_rules! impl_try_from_foreach {
 #[cfg(test)]
 pub(super) use {impl_try_from, impl_try_from_foreach};
 
-impl_try_from_foreach!(FromSwarm<'_>, event, [UninitializedEvent<Multiaddr>], {
+impl_try_from_foreach!(FromSwarm<'_>, event, [UninitializedEvent], {
     match event {
         FromSwarm::NewExternalAddrCandidate(NewExternalAddrCandidate { addr }) => {
             Ok(Self::NewExternalAddressCandidate(addr.clone()))
@@ -85,10 +85,10 @@ impl_try_from_foreach!(
     FromSwarm<'_>,
     event,
     [
-        TestIfPublicEvent<Multiaddr>,
-        TestIfMappedPublicEvent<Multiaddr>,
-        PublicEvent<Multiaddr>,
-        MappedPublicEvent<Multiaddr>,
+        TestIfPublicEvent,
+        TestIfMappedPublicEvent,
+        PublicEvent,
+        MappedPublicEvent,
     ],
     {
         match event {
@@ -103,29 +103,30 @@ impl_try_from_foreach!(
 impl_try_from_foreach!(
     FromSwarm<'_>,
     _event,
-    [TryAddressMappingEvent<Multiaddr>, PrivateEvent],
+    [TryAddressMappingEvent, PrivateEvent],
     { Err(()) }
 );
 
 impl_try_from_foreach!(
     &autonat::v2::client::Event,
     event,
-    [TestIfPublicEvent<Multiaddr>, TestIfMappedPublicEvent<Multiaddr>],
+    [TestIfPublicEvent, TestIfMappedPublicEvent],
     {
-    match event {
-        autonat::v2::client::Event {
-            result: Err(_),
-            tested_addr,
-            ..
-        } => Ok(Self::AutonatClientTestFailed(tested_addr.clone())),
-        _ => Err(())
+        match event {
+            autonat::v2::client::Event {
+                result: Err(_),
+                tested_addr,
+                ..
+            } => Ok(Self::AutonatClientTestFailed(tested_addr.clone())),
+            _ => Err(()),
+        }
     }
-});
+);
 
 impl_try_from_foreach!(
     &autonat::v2::client::Event,
     event,
-    [PublicEvent<Multiaddr>, MappedPublicEvent<Multiaddr>],
+    [PublicEvent, MappedPublicEvent],
     {
         match event {
             autonat::v2::client::Event {
@@ -145,35 +146,30 @@ impl_try_from_foreach!(
 impl_try_from_foreach!(
     &autonat::v2::client::Event,
     _event,
-    [UninitializedEvent<Multiaddr>, TryAddressMappingEvent<Multiaddr>, PrivateEvent],
+    [UninitializedEvent, TryAddressMappingEvent, PrivateEvent],
     { Err(()) }
 );
 
-impl_try_from_foreach!(
-    &address_mapper::Event,
-    event,
-    [TryAddressMappingEvent<Multiaddr>],
-    {
-        match event {
-            address_mapper::Event::AddressMappingFailed(addr) => {
-                Ok(Self::AddressMappingFailed(addr.clone()))
-            }
-            address_mapper::Event::_NewExternalMappedAddress(addr) => {
-                Ok(Self::_NewExternalMappedAddress(addr.clone()))
-            }
+impl_try_from_foreach!(&address_mapper::Event, event, [TryAddressMappingEvent], {
+    match event {
+        address_mapper::Event::AddressMappingFailed(addr) => {
+            Ok(Self::AddressMappingFailed(addr.clone()))
+        }
+        address_mapper::Event::_NewExternalMappedAddress(addr) => {
+            Ok(Self::_NewExternalMappedAddress(addr.clone()))
         }
     }
-);
+});
 
 impl_try_from_foreach!(
     &address_mapper::Event,
     _event,
     [
-        UninitializedEvent<Multiaddr>,
-        TestIfPublicEvent<Multiaddr>,
-        TestIfMappedPublicEvent<Multiaddr>,
-        PublicEvent<Multiaddr>,
-        MappedPublicEvent<Multiaddr>,
+        UninitializedEvent,
+        TestIfPublicEvent,
+        TestIfMappedPublicEvent,
+        PublicEvent,
+        MappedPublicEvent,
         PrivateEvent
     ],
     { Err(()) }

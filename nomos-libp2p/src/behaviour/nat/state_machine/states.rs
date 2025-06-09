@@ -1,58 +1,60 @@
+use libp2p::Multiaddr;
+
 use super::State;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(crate) struct Uninitialized;
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(crate) struct TestIfPublic<Addr>(pub Addr);
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(crate) struct TryAddressMapping<Addr>(pub Addr);
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(crate) struct TestIfMappedPublic<Addr>(pub Addr);
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(crate) struct Public<Addr>(pub Addr);
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(crate) struct MappedPublic<Addr>(pub Addr);
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(crate) struct Private<Addr>(pub Addr);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TestIfPublic(pub Multiaddr);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TryAddressMapping(pub Multiaddr);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TestIfMappedPublic(pub Multiaddr);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Public(pub Multiaddr);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MappedPublic(pub Multiaddr);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Private(pub Multiaddr);
 
-impl<Addr> From<Uninitialized> for State<Addr> {
+impl From<Uninitialized> for State {
     fn from(value: Uninitialized) -> Self {
         State::Uninitialized(value)
     }
 }
 
-impl<Addr> From<TestIfPublic<Addr>> for State<Addr> {
-    fn from(value: TestIfPublic<Addr>) -> Self {
+impl From<TestIfPublic> for State {
+    fn from(value: TestIfPublic) -> Self {
         State::TestIfPublic(value)
     }
 }
 
-impl<Addr> From<TryAddressMapping<Addr>> for State<Addr> {
-    fn from(value: TryAddressMapping<Addr>) -> Self {
+impl From<TryAddressMapping> for State {
+    fn from(value: TryAddressMapping) -> Self {
         State::TryAddressMapping(value)
     }
 }
 
-impl<Addr> From<TestIfMappedPublic<Addr>> for State<Addr> {
-    fn from(value: TestIfMappedPublic<Addr>) -> Self {
+impl From<TestIfMappedPublic> for State {
+    fn from(value: TestIfMappedPublic) -> Self {
         State::TestIfMappedPublic(value)
     }
 }
 
-impl<Addr> From<Public<Addr>> for State<Addr> {
-    fn from(value: Public<Addr>) -> Self {
+impl From<Public> for State {
+    fn from(value: Public) -> Self {
         State::Public(value)
     }
 }
 
-impl<Addr> From<MappedPublic<Addr>> for State<Addr> {
-    fn from(value: MappedPublic<Addr>) -> Self {
+impl From<MappedPublic> for State {
+    fn from(value: MappedPublic) -> Self {
         State::MappedPublic(value)
     }
 }
 
-impl<Addr> From<Private<Addr>> for State<Addr> {
-    fn from(value: Private<Addr>) -> Self {
+impl From<Private> for State {
+    fn from(value: Private) -> Self {
         State::Private(value)
     }
 }
