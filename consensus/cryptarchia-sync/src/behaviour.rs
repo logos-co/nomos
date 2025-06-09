@@ -110,15 +110,15 @@ pub struct Behaviour {
     peers: HashSet<PeerId>,
     /// Futures for sending download requests. After the request is
     /// read, sending blocks is handled by `locally_initiated_downloads`.
-    locally_pending_download_requests: FuturesUnordered<PendingRequestsFuture>,
+    pending_download_requests: FuturesUnordered<PendingRequestsFuture>,
     /// Futures for managing the progress of locally initiated block downloads.
-    locally_initiated_downloads: SelectAll<LocallyInitiatedDownloadsFuture>,
-    /// Futures for managing the progress of externally initiated block
-    /// downloads.
-    externally_initiated_downloads: FuturesUnordered<ExternallyInitiatedDownloadsFuture>,
+    in_progress_download_requests: SelectAll<LocallyInitiatedDownloadsFuture>,
     /// Futures for reading incoming download requests. After the request is
     /// read, sending blocks is handled by `externally_initiated_downloads`.
-    external_pending_download_requests: FuturesUnordered<ExternalPendingDownloadRequestsFuture>,
+    pending_download_responses: FuturesUnordered<ExternalPendingDownloadRequestsFuture>,
+    /// Futures for managing the progress of externally initiated block
+    /// downloads.
+    in_progress_download_responses: FuturesUnordered<ExternallyInitiatedDownloadsFuture>,
     /// Futures for closing incoming streams that were rejected due to excess
     /// requests.
     incoming_streams_to_close: FuturesUnordered<BoxFuture<'static, ()>>,
@@ -143,11 +143,11 @@ impl Behaviour {
             control,
             incoming_streams,
             peers: HashSet::new(),
-            locally_initiated_downloads: SelectAll::new(),
-            externally_initiated_downloads: FuturesUnordered::new(),
-            external_pending_download_requests: FuturesUnordered::new(),
+            in_progress_download_requests: SelectAll::new(),
+            in_progress_download_responses: FuturesUnordered::new(),
+            pending_download_responses: FuturesUnordered::new(),
             incoming_streams_to_close: FuturesUnordered::new(),
-            locally_pending_download_requests: FuturesUnordered::new(),
+            pending_download_requests: FuturesUnordered::new(),
         }
     }
 
@@ -181,7 +181,7 @@ impl Behaviour {
 
         let control = self.control.clone();
 
-        self.locally_pending_download_requests.push(
+        self.pending_download_requests.push(
             async move { DownloadBlocksTask::send_request(peer_id, control, request).await }
                 .boxed(),
         );
@@ -197,7 +197,7 @@ impl Behaviour {
     ) -> Poll<ToSwarmEvent> {
         let (reply_sender, reply_rcv) = mpsc::channel(BUFFER_SIZE);
 
-        self.externally_initiated_downloads.push(
+        self.in_progress_download_responses.push(
             async move { ProvideBlocksTask::provide_blocks(reply_rcv, peer_id, stream).await }
                 .boxed(),
         );
@@ -212,7 +212,7 @@ impl Behaviour {
     }
 
     fn handle_incoming_stream(&self, cx: &mut Context, peer_id: PeerId, mut stream: Libp2pStream) {
-        if self.external_pending_download_requests.len() + self.externally_initiated_downloads.len()
+        if self.pending_download_responses.len() + self.in_progress_download_responses.len()
             >= MAX_INCOMING_REQUESTS
         {
             self.incoming_streams_to_close.push(
@@ -223,7 +223,7 @@ impl Behaviour {
             );
             error!("Rejected excess pending incoming request");
         } else {
-            self.external_pending_download_requests
+            self.pending_download_responses
                 .push(ProvideBlocksTask::process_download_request(peer_id, stream).boxed());
 
             cx.waker().wake_by_ref();
@@ -242,7 +242,7 @@ impl Behaviour {
     > {
         match result {
             Ok((peer_id, stream)) => {
-                self.locally_initiated_downloads
+                self.in_progress_download_requests
                     .push(DownloadBlocksTask::download_blocks(peer_id, stream));
 
                 cx.waker().wake_by_ref();
@@ -339,13 +339,12 @@ impl NetworkBehaviour for Behaviour {
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         while self.incoming_streams_to_close.poll_next_unpin(cx) == Poll::Ready(Some(())) {}
 
-        if let Poll::Ready(Some(result)) =
-            self.locally_pending_download_requests.poll_next_unpin(cx)
-        {
+        if let Poll::Ready(Some(result)) = self.pending_download_requests.poll_next_unpin(cx) {
             return self.handle_request_available(cx, result);
         }
 
-        if let Poll::Ready(Some(response)) = self.locally_initiated_downloads.poll_next_unpin(cx) {
+        if let Poll::Ready(Some(response)) = self.in_progress_download_requests.poll_next_unpin(cx)
+        {
             return match response {
                 Ok(result) => {
                     cx.waker().wake_by_ref();
@@ -364,7 +363,7 @@ impl NetworkBehaviour for Behaviour {
             };
         }
 
-        if let Poll::Ready(Some(result)) = self.externally_initiated_downloads.poll_next_unpin(cx) {
+        if let Poll::Ready(Some(result)) = self.in_progress_download_responses.poll_next_unpin(cx) {
             if let Err(e) = result {
                 error!("Sending blocks failed: {}", e);
             }
@@ -375,7 +374,7 @@ impl NetworkBehaviour for Behaviour {
         }
 
         if let Poll::Ready(Some(Ok((peer_id, stream, request)))) =
-            self.external_pending_download_requests.poll_next_unpin(cx)
+            self.pending_download_responses.poll_next_unpin(cx)
         {
             return self.handle_download_request(peer_id, request, stream);
         }
