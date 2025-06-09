@@ -628,7 +628,7 @@ where
             ledger_config,
             leader_config,
             &relays,
-            &mut self.block_subscription_sender,
+            &self.block_subscription_sender,
         )
         .await;
 
@@ -681,7 +681,7 @@ where
                             &mut leader,
                             block,
                             &relays,
-                            &mut self.block_subscription_sender,
+                            &self.block_subscription_sender,
                         )
                         .await;
 
@@ -721,7 +721,7 @@ where
                                     &mut leader,
                                     block.clone(),
                                     &relays,
-                                    &mut self.block_subscription_sender
+                                    &self.block_subscription_sender
                                 ).await;
                                 // This will modify `previously_pruned_blocks` to include blocks which are not tracked by Cryptarchia but have not been deleted from the persistence layer.
                                 Self::prune_forks(&mut cryptarchia, &mut leader, relays.storage_adapter(), &mut previously_pruned_blocks).await;
@@ -975,7 +975,7 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-        block_broadcaster: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
+        block_broadcaster: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> Cryptarchia<State> {
         debug!("received proposal {:?}", block);
         if !Self::validate_received_block(&block, relays).await {
@@ -1008,7 +1008,7 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-        block_broadcaster: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
+        block_broadcaster: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> Cryptarchia<State> {
         // TODO: filter on time?
         let header = block.header();
@@ -1252,7 +1252,7 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-        block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
+        block_subscription_sender: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> (Cryptarchia<Online>, Leader) {
         match initial_state.recovery_strategy() {
             CryptarchiaInitialisationStrategy::Genesis => {
@@ -1339,7 +1339,7 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-        block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
+        block_subscription_sender: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> (Cryptarchia<Online>, Leader) {
         let mut cryptarchia =
             <Cryptarchia<Online>>::from_genesis(genesis_id, genesis_state, ledger_config);
@@ -1411,7 +1411,7 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-        block_subscription_sender: &mut broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
+        block_subscription_sender: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> (Cryptarchia<Online>, Leader) {
         let mut cryptarchia =
             <Cryptarchia<Online>>::from_genesis(genesis_id, genesis_state, ledger_config);
