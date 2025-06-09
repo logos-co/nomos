@@ -175,7 +175,8 @@ where
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_millis(3000)),
             NetworkService<_, _>
-        );
+        )
+        .await?;
 
         loop {
             tokio::select! {

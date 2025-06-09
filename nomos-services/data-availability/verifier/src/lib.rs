@@ -207,7 +207,8 @@ where
             Some(Duration::from_millis(3000)),
             NetworkService<_, _>,
             StorageService<_, _>
-        );
+        )
+        .await?;
 
         loop {
             tokio::select! {

@@ -330,7 +330,8 @@ where
             Some(Duration::from_millis(3000)),
             NetworkService<_, _>,
             DaSamplingService<_, _, _, _, _, _, _, _, _>
-        );
+        )
+        .await?;
 
         loop {
             tokio::select! {

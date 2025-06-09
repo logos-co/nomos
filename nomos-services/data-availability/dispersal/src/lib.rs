@@ -181,7 +181,8 @@ where
             Some(Duration::from_millis(3000)),
             NetworkAdapter::NetworkService,
             MempoolAdapter::MempoolService
-        );
+        )
+        .await?;
 
         while let Some(dispersal_msg) = inbound_relay.recv().await {
             match dispersal_msg {

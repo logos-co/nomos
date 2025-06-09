@@ -482,7 +482,8 @@ where
             NetworkService<_, _>,
             StorageService<_, _>,
             DaVerifierService<_, _, _, _>
-        );
+        )
+        .await?;
 
         loop {
             tokio::select! {

@@ -544,7 +544,8 @@ where
             Some(Duration::from_millis(3000)),
             StorageService<_, _>,
             CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _>
-        );
+        )
+        .await?;
 
         loop {
             tokio::select! {

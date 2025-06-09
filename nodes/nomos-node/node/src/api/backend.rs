@@ -414,7 +414,8 @@ where
             DaStorageService<_, _>,
             TxMempoolService<_, _, _>,
             DaMempoolService<_, _, _, _, _, _, _, _, _, _, _>
-        );
+        )
+        .await?;
         Ok(())
     }
 

@@ -438,7 +438,8 @@ where
             TxMempoolService<_, _, _>,
             DaMempoolService<_, _, _, _, _, _, _, _, _, _, _>,
             DaDispersal<_, _, _, _, _, _>
-        );
+        )
+        .await
     }
 
     #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
