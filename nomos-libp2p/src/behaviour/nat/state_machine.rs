@@ -1,3 +1,4 @@
+use libp2p::Multiaddr;
 use tokio::sync::mpsc::UnboundedSender;
 
 mod events;
@@ -8,37 +9,37 @@ use states::*;
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(Clone))]
-pub(crate) struct StateMachine<Addr> {
-    state: State<Addr>,
-    command_tx: CommandTx<Addr>,
+pub(crate) struct StateMachine {
+    state: State,
+    command_tx: CommandTx,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum State<Addr> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum State {
     Uninitialized(Uninitialized),
-    TestIfPublic(TestIfPublic<Addr>),
-    TryAddressMapping(TryAddressMapping<Addr>),
-    TestIfMappedPublic(TestIfMappedPublic<Addr>),
-    Public(Public<Addr>),
-    MappedPublic(MappedPublic<Addr>),
-    Private(Private<Addr>),
+    TestIfPublic(TestIfPublic),
+    TryAddressMapping(TryAddressMapping),
+    TestIfMappedPublic(TestIfMappedPublic),
+    Public(Public),
+    MappedPublic(MappedPublic),
+    Private(Private),
 }
 
 #[derive(Debug, Clone)]
-struct CommandTx<Addr> {
-    tx: UnboundedSender<Command<Addr>>,
+struct CommandTx {
+    tx: UnboundedSender<Command>,
 }
 
 /// Commands that can be issued by the state machine to `NatBehaviour`.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(crate) enum Command<Addr> {
-    ScheduleAutonatClientTest(Addr),
-    MapAddress(Addr),
-    NewExternalAddrCandidate(Addr),
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Command {
+    ScheduleAutonatClientTest(Multiaddr),
+    MapAddress(Multiaddr),
+    NewExternalAddrCandidate(Multiaddr),
 }
 
-impl<Addr: Clone> StateMachine<Addr> {
-    pub fn new(command_tx: UnboundedSender<Command<Addr>>) -> Self {
+impl StateMachine {
+    pub fn new(command_tx: UnboundedSender<Command>) -> Self {
         Self {
             state: Uninitialized.into(),
             command_tx: command_tx.into(),
@@ -47,12 +48,12 @@ impl<Addr: Clone> StateMachine<Addr> {
 
     pub fn on_event<Event>(&mut self, event: Event)
     where
-        Event: TryInto<UninitializedEvent<Addr>, Error = ()>
-            + TryInto<TestIfPublicEvent<Addr>, Error = ()>
-            + TryInto<TryAddressMappingEvent<Addr>, Error = ()>
-            + TryInto<TestIfMappedPublicEvent<Addr>, Error = ()>
-            + TryInto<PublicEvent<Addr>, Error = ()>
-            + TryInto<MappedPublicEvent<Addr>, Error = ()>
+        Event: TryInto<UninitializedEvent, Error = ()>
+            + TryInto<TestIfPublicEvent, Error = ()>
+            + TryInto<TryAddressMappingEvent, Error = ()>
+            + TryInto<TestIfMappedPublicEvent, Error = ()>
+            + TryInto<PublicEvent, Error = ()>
+            + TryInto<MappedPublicEvent, Error = ()>
             + TryInto<PrivateEvent, Error = ()>,
     {
         let Ok(new_state) = self.state.clone().on_event(event, &self.command_tx) else {
@@ -64,15 +65,15 @@ impl<Addr: Clone> StateMachine<Addr> {
     }
 }
 
-impl<Addr: Clone> State<Addr> {
-    pub fn on_event<Event>(self, event: Event, command_tx: &CommandTx<Addr>) -> Result<Self, ()>
+impl State {
+    pub fn on_event<Event>(self, event: Event, command_tx: &CommandTx) -> Result<Self, ()>
     where
-        Event: TryInto<UninitializedEvent<Addr>, Error = ()>
-            + TryInto<TestIfPublicEvent<Addr>, Error = ()>
-            + TryInto<TryAddressMappingEvent<Addr>, Error = ()>
-            + TryInto<TestIfMappedPublicEvent<Addr>, Error = ()>
-            + TryInto<PublicEvent<Addr>, Error = ()>
-            + TryInto<MappedPublicEvent<Addr>, Error = ()>
+        Event: TryInto<UninitializedEvent, Error = ()>
+            + TryInto<TestIfPublicEvent, Error = ()>
+            + TryInto<TryAddressMappingEvent, Error = ()>
+            + TryInto<TestIfMappedPublicEvent, Error = ()>
+            + TryInto<PublicEvent, Error = ()>
+            + TryInto<MappedPublicEvent, Error = ()>
             + TryInto<PrivateEvent, Error = ()>,
     {
         Ok(match self {
@@ -87,101 +88,160 @@ impl<Addr: Clone> State<Addr> {
     }
 }
 
-trait OnEvent<Addr> {
+trait OnEvent {
     type Event;
 
-    fn on_event(self, event: Self::Event, command_tx: &CommandTx<Addr>) -> State<Addr>;
+    fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State;
 }
 
-impl<Addr: Clone> OnEvent<Addr> for Uninitialized {
-    type Event = UninitializedEvent<Addr>;
+impl OnEvent for Uninitialized {
+    type Event = UninitializedEvent;
 
-    fn on_event(self, event: Self::Event, _: &CommandTx<Addr>) -> State<Addr> {
+    fn on_event(self, event: Self::Event, _: &CommandTx) -> State {
         match event {
             Self::Event::NewExternalAddressCandidate(addr) => TestIfPublic(addr).into(),
         }
     }
 }
 
-impl<Addr: Clone> OnEvent<Addr> for TestIfPublic<Addr> {
-    type Event = TestIfPublicEvent<Addr>;
+impl OnEvent for TestIfPublic {
+    type Event = TestIfPublicEvent;
 
-    fn on_event(self, event: Self::Event, command_tx: &CommandTx<Addr>) -> State<Addr> {
+    fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State {
         match event {
-            Self::Event::ExternalAddressConfirmed(addr) => {
+            Self::Event::ExternalAddressConfirmed(addr) if self.0 == addr => {
                 command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
                 Public(addr).into()
             }
-            Self::Event::AutonatClientTestFailed(addr) => {
+            Self::Event::AutonatClientTestFailed(addr) if self.0 == addr => {
                 command_tx.send(Command::MapAddress(addr.clone()));
                 TryAddressMapping(addr).into()
+            }
+            Self::Event::ExternalAddressConfirmed(addr)
+            | Self::Event::AutonatClientTestFailed(addr) => {
+                tracing::error!(
+                    "Autonat client reported address {}, but {} was expected",
+                    addr,
+                    self.0,
+                );
+
+                self.into()
             }
         }
     }
 }
 
-impl<Addr: Clone> OnEvent<Addr> for TryAddressMapping<Addr> {
-    type Event = TryAddressMappingEvent<Addr>;
+impl OnEvent for TryAddressMapping {
+    type Event = TryAddressMappingEvent;
 
-    fn on_event(self, event: Self::Event, command_tx: &CommandTx<Addr>) -> State<Addr> {
+    fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State {
         match event {
             Self::Event::_NewExternalMappedAddress(addr) => {
                 command_tx.send(Command::NewExternalAddrCandidate(addr.clone()));
                 TestIfMappedPublic(addr).into()
             }
-            Self::Event::AddressMappingFailed(addr) => Private(addr).into(),
+            Self::Event::AddressMappingFailed(addr) if self.0 == addr => Private(addr).into(),
+            Self::Event::AddressMappingFailed(addr) => {
+                tracing::error!(
+                    "Address mapper reported failure for address {}, but {} was expected",
+                    addr,
+                    self.0,
+                );
+
+                self.into()
+            }
         }
     }
 }
 
-impl<Addr: Clone> OnEvent<Addr> for TestIfMappedPublic<Addr> {
-    type Event = TestIfMappedPublicEvent<Addr>;
+impl OnEvent for TestIfMappedPublic {
+    type Event = TestIfMappedPublicEvent;
 
-    fn on_event(self, event: Self::Event, command_tx: &CommandTx<Addr>) -> State<Addr> {
+    fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State {
         match event {
-            Self::Event::ExternalAddressConfirmed(addr) => {
+            Self::Event::ExternalAddressConfirmed(addr) if self.0 == addr => {
                 command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
                 MappedPublic(addr).into()
             }
-            Self::Event::AutonatClientTestFailed(addr) => Private(addr).into(),
+            Self::Event::AutonatClientTestFailed(addr) if self.0 == addr => Private(addr).into(),
+            Self::Event::ExternalAddressConfirmed(addr)
+            | Self::Event::AutonatClientTestFailed(addr) => {
+                tracing::error!(
+                    "Autonat client reported address {}, but {} was expected",
+                    addr,
+                    self.0,
+                );
+
+                self.into()
+            }
         }
     }
 }
 
-impl<Addr: Clone> OnEvent<Addr> for Public<Addr> {
-    type Event = PublicEvent<Addr>;
+impl OnEvent for Public {
+    type Event = PublicEvent;
 
-    fn on_event(self, event: Self::Event, command_tx: &CommandTx<Addr>) -> State<Addr> {
+    fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State {
         match event {
             Self::Event::ExternalAddressConfirmed(addr)
-            | Self::Event::AutonatClientTestOk(addr) => {
+            | Self::Event::AutonatClientTestOk(addr)
+                if self.0 == addr =>
+            {
                 command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
                 Public(addr).into()
             }
-            Self::Event::AutonatClientTestFailed(addr) => TestIfPublic(addr).into(),
+            Self::Event::AutonatClientTestFailed(addr) if self.0 == addr => {
+                TestIfPublic(addr).into()
+            }
+            Self::Event::ExternalAddressConfirmed(addr)
+            | Self::Event::AutonatClientTestOk(addr)
+            | Self::Event::AutonatClientTestFailed(addr) => {
+                tracing::error!(
+                    "Autonat client reported address {}, but {} was expected",
+                    addr,
+                    self.0,
+                );
+
+                self.into()
+            }
         }
     }
 }
 
-impl<Addr: Clone> OnEvent<Addr> for MappedPublic<Addr> {
-    type Event = MappedPublicEvent<Addr>;
+impl OnEvent for MappedPublic {
+    type Event = MappedPublicEvent;
 
-    fn on_event(self, event: Self::Event, command_tx: &CommandTx<Addr>) -> State<Addr> {
+    fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State {
         match event {
             Self::Event::ExternalAddressConfirmed(addr)
-            | Self::Event::AutonatClientTestOk(addr) => {
+            | Self::Event::AutonatClientTestOk(addr)
+                if self.0 == addr =>
+            {
                 command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
-                Public(addr).into()
+                MappedPublic(addr).into()
             }
-            Self::Event::AutonatClientTestFailed(addr) => Private(addr).into(),
+            Self::Event::AutonatClientTestFailed(addr) if self.0 == addr => {
+                TestIfPublic(addr).into()
+            }
+            Self::Event::ExternalAddressConfirmed(addr)
+            | Self::Event::AutonatClientTestOk(addr)
+            | Self::Event::AutonatClientTestFailed(addr) => {
+                tracing::error!(
+                    "Autonat client reported address {}, but {} was expected",
+                    addr,
+                    self.0,
+                );
+
+                self.into()
+            }
         }
     }
 }
 
-impl<Addr> OnEvent<Addr> for Private<Addr> {
+impl OnEvent for Private {
     type Event = PrivateEvent;
 
-    fn on_event(self, event: Self::Event, _: &CommandTx<Addr>) -> State<Addr> {
+    fn on_event(self, event: Self::Event, _: &CommandTx) -> State {
         match event {
             Self::Event::_LocalAddressChanged | Self::Event::_DefaultGatewayChanged => {
                 Uninitialized.into()
@@ -190,292 +250,26 @@ impl<Addr> OnEvent<Addr> for Private<Addr> {
     }
 }
 
-impl<Addr> From<UnboundedSender<Command<Addr>>> for CommandTx<Addr> {
-    fn from(tx: UnboundedSender<Command<Addr>>) -> Self {
+impl From<UnboundedSender<Command>> for CommandTx {
+    fn from(tx: UnboundedSender<Command>) -> Self {
         Self { tx }
     }
 }
 
-impl<Addr> CommandTx<Addr> {
-    pub fn send(&self, command: Command<Addr>) {
+impl CommandTx {
+    pub fn send(&self, command: Command) {
         self.tx.send(command).expect("Channel not to be closed");
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, fmt::Debug, hash::Hash, str::FromStr, sync::LazyLock};
+    use std::collections::HashSet;
 
-    use libp2p::{
-        autonat,
-        swarm::{
-            behaviour::ExternalAddrConfirmed, FromSwarm, NewExternalAddrCandidate,
-            NewExternalAddrOfPeer,
-        },
-        Multiaddr, PeerId,
-    };
+    use fixtures::*;
     use tokio::sync::mpsc::{error::TryRecvError, unbounded_channel};
 
     use super::*;
-    use crate::behaviour::nat::address_mapper;
-
-    #[derive(Debug)]
-    enum TestEvent<'a> {
-        AutonatClientFailed(&'static autonat::v2::client::Event),
-        AutonatClientOk(autonat::v2::client::Event),
-        AddressMapping(address_mapper::Event),
-        /// For ExternalAddrConfirmed
-        FromSwarm(FromSwarm<'a>),
-        /// These events are not generated by any behaviour yet
-        _DefaultGatewayChanged,
-        _LocalAddressChanged,
-    }
-
-    impl<'a> StateMachine<Multiaddr> {
-        fn on_test_event(&mut self, event: TestEvent<'a>) {
-            match event {
-                TestEvent::AutonatClientFailed(event) => {
-                    self.on_event(event);
-                }
-                TestEvent::AutonatClientOk(event) => {
-                    self.on_event(&event);
-                }
-                TestEvent::AddressMapping(event) => {
-                    self.on_event(&event);
-                }
-                TestEvent::FromSwarm(event) => {
-                    self.on_event(event);
-                }
-                TestEvent::_DefaultGatewayChanged => {
-                    self.on_event(event);
-                }
-                TestEvent::_LocalAddressChanged => {
-                    self.on_event(event);
-                }
-            }
-        }
-    }
-
-    // TODO Remove this implementation once the two events are generated by a
-    // behaviour
-    impl_try_from_foreach!(TestEvent<'_>, event, [PrivateEvent], {
-        match event {
-            TestEvent::_DefaultGatewayChanged => Ok(Self::_DefaultGatewayChanged),
-            TestEvent::_LocalAddressChanged => Ok(Self::_LocalAddressChanged),
-            _ => unreachable!(),
-        }
-    });
-
-    // TODO Remove this implementation once the two events are generated by a
-    // behaviour
-    impl_try_from_foreach!(
-        TestEvent<'_>,
-        event,
-        [
-            UninitializedEvent<Multiaddr>,
-            TestIfPublicEvent<Multiaddr>,
-            TryAddressMappingEvent<Multiaddr>,
-            TestIfMappedPublicEvent<Multiaddr>,
-            PublicEvent<Multiaddr>,
-            MappedPublicEvent<Multiaddr>
-        ],
-        {
-            match event {
-                TestEvent::_DefaultGatewayChanged => Err(()),
-                TestEvent::_LocalAddressChanged => Err(()),
-                _ => unreachable!(),
-            }
-        }
-    );
-
-    impl Eq for TestEvent<'_> {
-        fn assert_receiver_is_total_eq(&self) {}
-    }
-
-    impl PartialEq for TestEvent<'_> {
-        fn eq(&self, other: &Self) -> bool {
-            match (self, other) {
-                (Self::AutonatClientFailed(l), Self::AutonatClientFailed(r)) => {
-                    l.tested_addr == r.tested_addr
-                        && l.bytes_sent == r.bytes_sent
-                        && l.server == r.server
-                        // This is sufficient for testing purposes
-                        && l.result.is_ok() == r.result.is_ok()
-                }
-                (Self::AutonatClientOk(l), Self::AutonatClientOk(r)) => {
-                    l.tested_addr == r.tested_addr
-                        && l.bytes_sent == r.bytes_sent
-                        && l.server == r.server
-                        // This is sufficient for testing purposes
-                        && l.result.is_ok() == r.result.is_ok()
-                }
-                (Self::AddressMapping(l), Self::AddressMapping(r)) => l.eq(r),
-                (Self::FromSwarm(l), Self::FromSwarm(r)) => match (l, r) {
-                    (
-                        FromSwarm::NewExternalAddrCandidate(l),
-                        FromSwarm::NewExternalAddrCandidate(r),
-                    ) => l.addr == r.addr,
-                    (FromSwarm::ExternalAddrConfirmed(l), FromSwarm::ExternalAddrConfirmed(r)) => {
-                        l.addr == r.addr
-                    }
-                    _ => false,
-                },
-                _ => core::mem::discriminant(self) == core::mem::discriminant(other),
-            }
-        }
-    }
-
-    impl Hash for TestEvent<'_> {
-        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-            match self {
-                Self::AutonatClientFailed(event) => {
-                    event.tested_addr.hash(state);
-                    event.bytes_sent.hash(state);
-                    event.server.hash(state);
-                    // This is sufficient for testing purposes
-                    event.result.is_ok().hash(state);
-                }
-                Self::AutonatClientOk(event) => {
-                    event.tested_addr.hash(state);
-                    event.bytes_sent.hash(state);
-                    event.server.hash(state);
-                    // This is sufficient for testing purposes
-                    event.result.is_ok().hash(state);
-                }
-                Self::AddressMapping(event) => event.hash(state),
-                Self::FromSwarm(event) => match event {
-                    FromSwarm::NewExternalAddrCandidate(candidate) => candidate.addr.hash(state),
-                    FromSwarm::ExternalAddrConfirmed(confirmed) => confirmed.addr.hash(state),
-                    // Sufficient for testing purposes
-                    _ => core::mem::discriminant(event).hash(state),
-                },
-                _ => core::mem::discriminant(self).hash(state),
-            }
-        }
-    }
-
-    static ADDR: LazyLock<Multiaddr> = LazyLock::new(|| Multiaddr::from_str("/memory/0").unwrap());
-    static ADDR_MISMATCH: LazyLock<Multiaddr> =
-        LazyLock::new(|| Multiaddr::from_str("/memory/1").unwrap());
-    static AUTONAT_FAILED: LazyLock<BinaryCompatAutonatEvent> =
-        LazyLock::new(|| BinaryCompatAutonatEvent::new("/memory/0"));
-    static AUTONAT_FAILED_ADDR_MISMATCH: LazyLock<BinaryCompatAutonatEvent> =
-        LazyLock::new(|| BinaryCompatAutonatEvent::new("/memory/0"));
-
-    fn autonat_ok<'a>() -> TestEvent<'a> {
-        TestEvent::AutonatClientOk(autonat::v2::client::Event {
-            tested_addr: ADDR.clone(),
-            bytes_sent: 0,
-            server: PeerId::random(),
-            result: Ok(()),
-        })
-    }
-
-    fn autonat_ok_with_address_mismatch<'a>() -> TestEvent<'a> {
-        TestEvent::AutonatClientOk(autonat::v2::client::Event {
-            tested_addr: ADDR_MISMATCH.clone(),
-            bytes_sent: 0,
-            server: PeerId::random(),
-            result: Ok(()),
-        })
-    }
-
-    #[derive(Debug)]
-    pub struct BinaryCompatAutonatEvent {
-        pub _tested_addr: Multiaddr,
-        pub _bytes_sent: usize,
-        pub _server: PeerId,
-        pub _result: Result<(), BinaryCompatAutonatError>,
-    }
-
-    impl BinaryCompatAutonatEvent {
-        pub fn new(tested_addr: &str) -> Self {
-            Self {
-                _tested_addr: Multiaddr::from_str(tested_addr).unwrap(),
-                _bytes_sent: 0,
-                _server: PeerId::random(),
-                _result: Err(BinaryCompatAutonatError {
-                    _inner: BinaryCompatDialBackError::NoConnection,
-                }),
-            }
-        }
-    }
-
-    #[derive(Debug)]
-    pub struct BinaryCompatAutonatError {
-        pub(crate) _inner: BinaryCompatDialBackError,
-    }
-
-    #[derive(thiserror::Error, Debug)]
-    pub enum BinaryCompatDialBackError {
-        #[error("server failed to establish a connection")]
-        NoConnection,
-    }
-
-    fn autonat_failed<'a>() -> TestEvent<'a> {
-        TestEvent::AutonatClientFailed(unsafe { std::mem::transmute(&*AUTONAT_FAILED) })
-    }
-
-    fn autonat_failed_with_addr_mismatch<'a>() -> TestEvent<'a> {
-        TestEvent::AutonatClientFailed(unsafe {
-            std::mem::transmute(&*AUTONAT_FAILED_ADDR_MISMATCH)
-        })
-    }
-
-    fn mapping_failed<'a>() -> TestEvent<'a> {
-        TestEvent::AddressMapping(address_mapper::Event::AddressMappingFailed(ADDR.clone()))
-    }
-
-    fn mapping_failed_with_addr_mismatch<'a>() -> TestEvent<'a> {
-        TestEvent::AddressMapping(address_mapper::Event::AddressMappingFailed(
-            ADDR_MISMATCH.clone(),
-        ))
-    }
-
-    fn mapping_ok<'a>() -> TestEvent<'a> {
-        TestEvent::AddressMapping(address_mapper::Event::_NewExternalMappedAddress(
-            ADDR.clone(),
-        ))
-    }
-
-    fn mapping_ok_with_address_mismatch<'a>() -> TestEvent<'a> {
-        TestEvent::AddressMapping(address_mapper::Event::_NewExternalMappedAddress(
-            ADDR_MISMATCH.clone(),
-        ))
-    }
-
-    fn new_external_address_candidate<'a>() -> TestEvent<'a> {
-        TestEvent::FromSwarm(FromSwarm::NewExternalAddrCandidate(
-            NewExternalAddrCandidate { addr: &ADDR },
-        ))
-    }
-
-    fn new_external_address_candidate_with_addr_mismatch<'a>() -> TestEvent<'a> {
-        TestEvent::FromSwarm(FromSwarm::NewExternalAddrCandidate(
-            NewExternalAddrCandidate {
-                addr: &ADDR_MISMATCH,
-            },
-        ))
-    }
-
-    fn external_address_confirmed<'a>() -> TestEvent<'a> {
-        TestEvent::FromSwarm(FromSwarm::ExternalAddrConfirmed(ExternalAddrConfirmed {
-            addr: &ADDR,
-        }))
-    }
-
-    fn external_address_confirmed_with_addr_mismatch<'a>() -> TestEvent<'a> {
-        TestEvent::FromSwarm(FromSwarm::ExternalAddrConfirmed(ExternalAddrConfirmed {
-            addr: &ADDR_MISMATCH,
-        }))
-    }
-
-    fn other_from_swarm_event<'a>() -> TestEvent<'a> {
-        TestEvent::FromSwarm(FromSwarm::NewExternalAddrOfPeer(NewExternalAddrOfPeer {
-            peer_id: PeerId::random(),
-            addr: &ADDR_MISMATCH,
-        }))
-    }
 
     fn all_events<'a>() -> HashSet<TestEvent<'a>> {
         [
@@ -486,9 +280,7 @@ mod tests {
             mapping_failed(),
             mapping_failed_with_addr_mismatch(),
             mapping_ok(),
-            mapping_ok_with_address_mismatch(),
             new_external_address_candidate(),
-            new_external_address_candidate_with_addr_mismatch(),
             external_address_confirmed(),
             external_address_confirmed_with_addr_mismatch(),
             TestEvent::_DefaultGatewayChanged,
@@ -498,10 +290,7 @@ mod tests {
         .into()
     }
 
-    fn init_state_machine(
-        init_state: State<Multiaddr>,
-        tx: UnboundedSender<Command<Multiaddr>>,
-    ) -> StateMachine<Multiaddr> {
+    fn init_state_machine(init_state: State, tx: UnboundedSender<Command>) -> StateMachine {
         let mut sm = StateMachine::new(tx);
         sm.state = init_state;
         sm
@@ -509,11 +298,7 @@ mod tests {
 
     #[test]
     fn test_transitions_and_emitted_commands() {
-        let expected_transitions: Vec<(
-            u32,
-            State<Multiaddr>,
-            Vec<(TestEvent<'_>, State<Multiaddr>, Option<Command<Multiaddr>>)>,
-        )> = vec![
+        let expected_transitions: Vec<(u32, State, Vec<(TestEvent<'_>, State, Option<Command>)>)> = vec![
             (
                 line!(),
                 Uninitialized.into(),
@@ -586,15 +371,15 @@ mod tests {
                 vec![
                     (
                         external_address_confirmed(),
-                        Public(ADDR.clone()).into(),
+                        MappedPublic(ADDR.clone()).into(),
                         Some(Command::ScheduleAutonatClientTest(ADDR.clone())),
                     ),
                     (
                         autonat_ok(),
-                        Public(ADDR.clone()).into(),
+                        MappedPublic(ADDR.clone()).into(),
                         Some(Command::ScheduleAutonatClientTest(ADDR.clone())),
                     ),
-                    (autonat_failed(), Private(ADDR.clone()).into(), None),
+                    (autonat_failed(), TestIfPublic(ADDR.clone()).into(), None),
                 ],
             ),
             (
@@ -614,7 +399,17 @@ mod tests {
         for (line, src_state, expected_transition) in expected_transitions {
             let mut expected_ignored_events: HashSet<TestEvent<'_>> = all_events();
 
+            eprintln!(
+                "A Line {}, len {} state {:#?} ignored events: {:#?}",
+                line,
+                expected_ignored_events.len(),
+                src_state,
+                expected_ignored_events
+            );
+
             for (event, expected_state, expected_command) in expected_transition {
+                eprintln!("event: {:#?}", event);
+
                 expected_ignored_events.remove(&event);
 
                 let (tx, mut rx) = unbounded_channel();
@@ -639,6 +434,14 @@ mod tests {
                 );
             }
 
+            eprintln!(
+                "B Line {}, len {} state {:#?} ignored events: {:#?}",
+                line,
+                expected_ignored_events.len(),
+                src_state,
+                expected_ignored_events
+            );
+
             for event in expected_ignored_events {
                 let (tx, mut rx) = unbounded_channel();
                 let mut sm = init_state_machine(src_state.clone(), tx);
@@ -658,6 +461,274 @@ mod tests {
                     src_state
                 );
             }
+        }
+    }
+
+    mod fixtures {
+        use std::{hash::Hash, str::FromStr, sync::LazyLock};
+
+        use libp2p::{
+            autonat,
+            swarm::{
+                behaviour::ExternalAddrConfirmed, FromSwarm, NewExternalAddrCandidate,
+                NewExternalAddrOfPeer,
+            },
+            Multiaddr, PeerId,
+        };
+
+        use crate::behaviour::nat::{
+            address_mapper,
+            state_machine::{events::*, impl_try_from, impl_try_from_foreach, StateMachine},
+        };
+
+        #[derive(Debug)]
+        pub enum TestEvent<'a> {
+            AutonatClientFailed(&'static autonat::v2::client::Event),
+            AutonatClientOk(autonat::v2::client::Event),
+            AddressMapping(address_mapper::Event),
+            /// For ExternalAddrConfirmed
+            FromSwarm(FromSwarm<'a>),
+            /// These events are not generated by any behaviour yet
+            _DefaultGatewayChanged,
+            _LocalAddressChanged,
+        }
+
+        impl TestEvent<'_> {
+            pub fn autonat_ok(tested_addr: Multiaddr) -> Self {
+                TestEvent::AutonatClientOk(autonat::v2::client::Event {
+                    tested_addr,
+                    bytes_sent: 0,
+                    server: *PEER_ID,
+                    result: Ok(()),
+                })
+            }
+        }
+
+        impl<'a> StateMachine {
+            pub(super) fn on_test_event(&mut self, event: TestEvent<'a>) {
+                match event {
+                    TestEvent::AutonatClientFailed(event) => {
+                        self.on_event(event);
+                    }
+                    TestEvent::AutonatClientOk(event) => {
+                        self.on_event(&event);
+                    }
+                    TestEvent::AddressMapping(event) => {
+                        self.on_event(&event);
+                    }
+                    TestEvent::FromSwarm(event) => {
+                        self.on_event(event);
+                    }
+                    TestEvent::_DefaultGatewayChanged => {
+                        self.on_event(event);
+                    }
+                    TestEvent::_LocalAddressChanged => {
+                        self.on_event(event);
+                    }
+                }
+            }
+        }
+
+        // TODO Remove this implementation once the two events are generated by a
+        // behaviour
+        impl_try_from_foreach!(TestEvent<'_>, event, [PrivateEvent], {
+            match event {
+                TestEvent::_DefaultGatewayChanged => Ok(Self::_DefaultGatewayChanged),
+                TestEvent::_LocalAddressChanged => Ok(Self::_LocalAddressChanged),
+                _ => unreachable!(),
+            }
+        });
+
+        // TODO Remove this implementation once the two events are generated by a
+        // behaviour
+        impl_try_from_foreach!(
+            TestEvent<'_>,
+            event,
+            [
+                UninitializedEvent,
+                TestIfPublicEvent,
+                TryAddressMappingEvent,
+                TestIfMappedPublicEvent,
+                PublicEvent,
+                MappedPublicEvent
+            ],
+            {
+                match event {
+                    TestEvent::_DefaultGatewayChanged => Err(()),
+                    TestEvent::_LocalAddressChanged => Err(()),
+                    _ => unreachable!(),
+                }
+            }
+        );
+
+        impl Eq for TestEvent<'_> {
+            fn assert_receiver_is_total_eq(&self) {}
+        }
+
+        impl PartialEq for TestEvent<'_> {
+            fn eq(&self, other: &Self) -> bool {
+                match (self, other) {
+                    (Self::AutonatClientFailed(l), Self::AutonatClientFailed(r)) => {
+                        l.tested_addr == r.tested_addr
+                        && l.bytes_sent == r.bytes_sent
+                        && l.server == r.server
+                        // This is sufficient for testing purposes
+                        && l.result.is_ok() == r.result.is_ok()
+                    }
+                    (Self::AutonatClientOk(l), Self::AutonatClientOk(r)) => {
+                        l.tested_addr == r.tested_addr
+                        && l.bytes_sent == r.bytes_sent
+                        && l.server == r.server
+                        // This is sufficient for testing purposes
+                        && l.result.is_ok() == r.result.is_ok()
+                    }
+                    (Self::AddressMapping(l), Self::AddressMapping(r)) => l.eq(r),
+                    (Self::FromSwarm(l), Self::FromSwarm(r)) => match (l, r) {
+                        (
+                            FromSwarm::NewExternalAddrCandidate(l),
+                            FromSwarm::NewExternalAddrCandidate(r),
+                        ) => l.addr == r.addr,
+                        (
+                            FromSwarm::ExternalAddrConfirmed(l),
+                            FromSwarm::ExternalAddrConfirmed(r),
+                        ) => l.addr == r.addr,
+                        _ => false,
+                    },
+                    _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+                }
+            }
+        }
+
+        impl Hash for TestEvent<'_> {
+            fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                match self {
+                    Self::AutonatClientFailed(event) => {
+                        event.tested_addr.hash(state);
+                        event.bytes_sent.hash(state);
+                        event.server.hash(state);
+                        // This is sufficient for testing purposes
+                        event.result.is_ok().hash(state);
+                    }
+                    Self::AutonatClientOk(event) => {
+                        event.tested_addr.hash(state);
+                        event.bytes_sent.hash(state);
+                        event.server.hash(state);
+                        // This is sufficient for testing purposes
+                        event.result.is_ok().hash(state);
+                    }
+                    Self::AddressMapping(event) => event.hash(state),
+                    Self::FromSwarm(event) => match event {
+                        FromSwarm::NewExternalAddrCandidate(candidate) => {
+                            candidate.addr.hash(state)
+                        }
+                        FromSwarm::ExternalAddrConfirmed(confirmed) => confirmed.addr.hash(state),
+                        // Sufficient for testing purposes
+                        _ => core::mem::discriminant(event).hash(state),
+                    },
+                    _ => core::mem::discriminant(self).hash(state),
+                }
+            }
+        }
+
+        pub static ADDR: LazyLock<Multiaddr> =
+            LazyLock::new(|| Multiaddr::from_str("/memory/0").unwrap());
+        pub static ADDR_MISMATCH: LazyLock<Multiaddr> =
+            LazyLock::new(|| Multiaddr::from_str("/memory/1").unwrap());
+        pub static AUTONAT_FAILED: LazyLock<BinaryCompatAutonatEvent> =
+            LazyLock::new(|| BinaryCompatAutonatEvent::new("/memory/0"));
+        pub static AUTONAT_FAILED_ADDR_MISMATCH: LazyLock<BinaryCompatAutonatEvent> =
+            LazyLock::new(|| BinaryCompatAutonatEvent::new("/memory/1"));
+        pub static PEER_ID: LazyLock<PeerId> = LazyLock::new(PeerId::random);
+
+        pub fn autonat_ok<'a>() -> TestEvent<'a> {
+            TestEvent::autonat_ok(ADDR.clone())
+        }
+
+        pub fn autonat_ok_with_address_mismatch<'a>() -> TestEvent<'a> {
+            TestEvent::autonat_ok(ADDR_MISMATCH.clone())
+        }
+
+        #[derive(Debug)]
+        pub struct BinaryCompatAutonatEvent {
+            pub _tested_addr: Multiaddr,
+            pub _bytes_sent: usize,
+            pub _server: PeerId,
+            pub _result: Result<(), BinaryCompatAutonatError>,
+        }
+
+        impl BinaryCompatAutonatEvent {
+            pub fn new(tested_addr: &str) -> Self {
+                Self {
+                    _tested_addr: Multiaddr::from_str(tested_addr).unwrap(),
+                    _bytes_sent: 0,
+                    _server: *PEER_ID,
+                    _result: Err(BinaryCompatAutonatError {
+                        _inner: BinaryCompatDialBackError::NoConnection,
+                    }),
+                }
+            }
+        }
+
+        #[derive(Debug)]
+        pub struct BinaryCompatAutonatError {
+            pub(crate) _inner: BinaryCompatDialBackError,
+        }
+
+        #[derive(thiserror::Error, Debug)]
+        pub enum BinaryCompatDialBackError {
+            #[error("server failed to establish a connection")]
+            NoConnection,
+        }
+
+        pub fn autonat_failed<'a>() -> TestEvent<'a> {
+            TestEvent::AutonatClientFailed(unsafe { std::mem::transmute(&*AUTONAT_FAILED) })
+        }
+
+        pub fn autonat_failed_with_addr_mismatch<'a>() -> TestEvent<'a> {
+            TestEvent::AutonatClientFailed(unsafe {
+                std::mem::transmute(&*AUTONAT_FAILED_ADDR_MISMATCH)
+            })
+        }
+
+        pub fn mapping_failed<'a>() -> TestEvent<'a> {
+            TestEvent::AddressMapping(address_mapper::Event::AddressMappingFailed(ADDR.clone()))
+        }
+
+        pub fn mapping_failed_with_addr_mismatch<'a>() -> TestEvent<'a> {
+            TestEvent::AddressMapping(address_mapper::Event::AddressMappingFailed(
+                ADDR_MISMATCH.clone(),
+            ))
+        }
+
+        pub fn mapping_ok<'a>() -> TestEvent<'a> {
+            TestEvent::AddressMapping(address_mapper::Event::_NewExternalMappedAddress(
+                ADDR.clone(),
+            ))
+        }
+
+        pub fn new_external_address_candidate<'a>() -> TestEvent<'a> {
+            TestEvent::FromSwarm(FromSwarm::NewExternalAddrCandidate(
+                NewExternalAddrCandidate { addr: &ADDR },
+            ))
+        }
+
+        pub fn external_address_confirmed<'a>() -> TestEvent<'a> {
+            TestEvent::FromSwarm(FromSwarm::ExternalAddrConfirmed(ExternalAddrConfirmed {
+                addr: &ADDR,
+            }))
+        }
+
+        pub fn external_address_confirmed_with_addr_mismatch<'a>() -> TestEvent<'a> {
+            TestEvent::FromSwarm(FromSwarm::ExternalAddrConfirmed(ExternalAddrConfirmed {
+                addr: &ADDR_MISMATCH,
+            }))
+        }
+
+        pub fn other_from_swarm_event<'a>() -> TestEvent<'a> {
+            TestEvent::FromSwarm(FromSwarm::NewExternalAddrOfPeer(NewExternalAddrOfPeer {
+                peer_id: *PEER_ID,
+                addr: &ADDR_MISMATCH,
+            }))
         }
     }
 }

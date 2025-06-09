@@ -51,10 +51,10 @@ pub struct NatBehaviour<R: RngCore + 'static> {
     /// The state machine reacts to events from the swarm and from the
     /// sub-behaviours of the `NatBehaviour` and issues commands to the
     /// `NatBehaviour`.
-    state_machine: StateMachine<Multiaddr>,
+    state_machine: StateMachine,
     /// Commands issued by the state machine are received through this end of
     /// the channel.
-    command_rx: UnboundedReceiver<Command<Multiaddr>>,
+    command_rx: UnboundedReceiver<Command>,
     /// Used to schedule "re-tests" for already confirmed external addresses via
     /// the `autonat_client_behaviour`
     next_autonat_client_tick: OptionFuture<Task>,
