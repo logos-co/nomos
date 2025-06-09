@@ -23,4 +23,4 @@ serde_with               = { workspace = true }
 subnetworks-assignations = { workspace = true }
 tokio                    = "1"
 tokio-stream             = "0.1.15"
-tracing                  = "0.1"
+tracing                  = { workspace = true }

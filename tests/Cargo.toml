@@ -46,7 +46,7 @@ subnetworks-assignations = { workspace = true }
 tempfile                 = "3"
 time                     = "0.3"
 tokio                    = "1"
-tracing                  = "0.1"
+tracing                  = { workspace = true }
 x25519-dalek             = { version = "2", features = ["getrandom", "static_secrets"] }
 
 [[test]]

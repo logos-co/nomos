@@ -180,6 +180,22 @@ where
     pub const fn config(&self) -> &Config {
         &self.config
     }
+
+    /// Removes the state stored for the given block id.
+    ///
+    /// This function must be called only when the states being pruned won't be
+    /// needed for any subsequent proof.
+    ///
+    /// ## Arguments
+    ///
+    /// The block ID to prune the state for.
+    ///
+    /// ## Returns
+    ///
+    /// `true` if the state was successfully removed, `false` otherwise.
+    pub fn prune_state_at(&mut self, block: &Id) -> bool {
+        self.states.remove(block).is_some()
+    }
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

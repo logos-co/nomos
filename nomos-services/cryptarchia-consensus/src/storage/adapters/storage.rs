@@ -80,4 +80,29 @@ where
 
         Ok(())
     }
+
+    async fn remove_block(
+        &self,
+        header_id: HeaderId,
+    ) -> Result<Option<Self::Block>, overwatch::DynError> {
+        let (sender, receiver) = oneshot::channel();
+
+        self.storage_relay
+            .send(StorageMsg::remove_block_request(header_id, sender))
+            .await
+            .map_err(|_| "Failed to send remove block request to storage relay.")?;
+
+        let Some(removed_block) = receiver
+            .await
+            .map_err(|_| "No block was deleted from the storage.")?
+        else {
+            return Ok(None);
+        };
+
+        let deserialized_block = removed_block
+            .try_into()
+            .map_err(|_| "Failed to convert block to storage format.")?;
+
+        Ok(Some(deserialized_block))
+    }
 }

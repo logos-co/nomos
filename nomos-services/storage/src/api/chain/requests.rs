@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use nomos_core::header::HeaderId;
 use tokio::sync::oneshot::Sender;
 
@@ -16,6 +18,10 @@ pub enum ChainApiRequest<Backend: StorageBackend> {
         header_id: HeaderId,
         block: <Backend as StorageChainApi>::Block,
     },
+    RemoveBlock {
+        header_id: HeaderId,
+        response_tx: Sender<Option<Backend::Block>>,
+    },
 }
 
 impl<Backend> StorageOperation<Backend> for ChainApiRequest<Backend>
@@ -31,6 +37,10 @@ where
             Self::StoreBlock { header_id, block } => {
                 handle_store_block(backend, header_id, block).await
             }
+            Self::RemoveBlock {
+                header_id,
+                response_tx,
+            } => handle_remove_block(backend, header_id, response_tx).await,
         }
     }
 }
@@ -67,6 +77,27 @@ async fn handle_store_block<Backend: StorageBackend>(
         .map_err(|e| StorageServiceError::BackendError(e.into()))
 }
 
+async fn handle_remove_block<B>(
+    backend: &mut B,
+    header_id: HeaderId,
+    response_tx: Sender<Option<B::Block>>,
+) -> Result<(), StorageServiceError>
+where
+    B: StorageBackend<Error: Display>,
+{
+    let result = backend
+        .remove_block(header_id)
+        .await
+        .map_err(|e| StorageServiceError::BackendError(e.into()))?;
+    response_tx
+        .send(result)
+        .map_err(|_| StorageServiceError::ReplyError {
+            message: format!(
+                "Failed to send reply for remove block request by header_id: {header_id}"
+            ),
+        })
+}
+
 impl<Api: StorageBackend> StorageMsg<Api> {
     #[must_use]
     pub const fn get_block_request(
@@ -87,6 +118,19 @@ impl<Api: StorageBackend> StorageMsg<Api> {
     ) -> Self {
         Self::Api {
             request: StorageApiRequest::Chain(ChainApiRequest::StoreBlock { header_id, block }),
+        }
+    }
+
+    #[must_use]
+    pub const fn remove_block_request(
+        header_id: HeaderId,
+        response_tx: Sender<Option<Api::Block>>,
+    ) -> Self {
+        Self::Api {
+            request: StorageApiRequest::Chain(ChainApiRequest::RemoveBlock {
+                header_id,
+                response_tx,
+            }),
         }
     }
 }

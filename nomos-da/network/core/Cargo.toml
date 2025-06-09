@@ -24,7 +24,7 @@ subnetworks-assignations = { workspace = true }
 thiserror                = "1.0"
 tokio                    = { version = "1" }
 tokio-stream             = "0.1"
-tracing                  = "0.1"
+tracing                  = { workspace = true }
 tracing-subscriber       = "0.3.18"
 
 [dev-dependencies]
