@@ -41,6 +41,7 @@ pub async fn wait_for_indexed_blob(
                 .filter(|(i, _)| i == &from)
                 .flat_map(|(_, shares)| shares)
                 .count();
+            println!("new_shares = {num_shares}. num_subnet = {num_subnets}");
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     };
