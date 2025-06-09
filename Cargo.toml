@@ -100,8 +100,8 @@ blake2           = "0.10"
 bytes            = "1.3"
 cached           = { version = "0.55.1", default-features = false }
 libp2p           = "0.55"
-overwatch        = { git = "https://github.com/logos-co/Overwatch", rev = "1c75121" }
-overwatch-derive = { git = "https://github.com/logos-co/Overwatch", rev = "1c75121" }
+overwatch        = { git = "https://github.com/logos-co/Overwatch", rev = "c823c01" }
+overwatch-derive = { git = "https://github.com/logos-co/Overwatch", rev = "c823c01" }
 reqwest          = "0.12"
 risc0-zkvm       = "2.0.0"
 serde_with       = "3.12.0"
