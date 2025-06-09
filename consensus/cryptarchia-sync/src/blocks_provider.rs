@@ -1,9 +1,10 @@
 use futures::{AsyncWriteExt as _, StreamExt as _};
-use libp2p::{PeerId, Stream as Libp2pStream};
+use libp2p::{PeerId, Stream as Libp2pStream, Stream};
 use nomos_core::{
     header::HeaderId,
     wire::packing::{pack_to_writer, unpack_from_reader},
 };
+use serde::Serialize;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -38,14 +39,7 @@ impl ProvideBlocksTask {
         match reply_rcv.recv().await {
             Some(tip) => {
                 let response = GetTipResponse { tip };
-                pack_to_writer(&response, &mut stream)
-                    .await
-                    .map_err(|e| ChainSyncError::from((peer_id, e)))?;
-
-                stream
-                    .flush()
-                    .await
-                    .map_err(|e| ChainSyncError::from((peer_id, e)))?;
+                Self::send_message(peer_id, &mut stream, &response).await?;
 
                 Ok(())
             }
@@ -68,24 +62,32 @@ impl ProvideBlocksTask {
                 Ok(&mut stream),
                 |res: Result<&mut _, ChainSyncError>, block| async move {
                     let stream = res?;
-                    pack_to_writer(&DownloadBlocksResponse::Block(block), stream)
-                        .await
-                        .map_err(|e| ChainSyncError::from((peer_id, e)))?;
-
-                    stream
-                        .flush()
-                        .await
-                        .map_err(|e| ChainSyncError::from((peer_id, e)))?;
-
+                    Self::send_message(peer_id, stream, &block).await?;
                     Ok(stream)
                 },
             )
             .await?;
 
-        if let Err(e) = pack_to_writer(&DownloadBlocksResponse::NoMoreBlocks, &mut stream).await {
-            return Err(ChainSyncError::from((peer_id, e)));
-        }
+        let request = DownloadBlocksResponse::NoMoreBlocks;
 
+        Self::send_message(peer_id, &mut stream, &request).await?;
+
+        Ok(())
+    }
+
+    async fn send_message<M: Serialize + Sync>(
+        peer_id: PeerId,
+        mut stream: &mut Stream,
+        message: &M,
+    ) -> Result<(), ChainSyncError> {
+        pack_to_writer(&message, &mut stream)
+            .await
+            .map_err(|e| ChainSyncError::from((peer_id, e)))?;
+
+        stream
+            .flush()
+            .await
+            .map_err(|e| ChainSyncError::from((peer_id, e)))?;
         Ok(())
     }
 }

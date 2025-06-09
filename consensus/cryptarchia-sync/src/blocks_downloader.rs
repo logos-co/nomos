@@ -1,18 +1,16 @@
-use futures::{stream::BoxStream, AsyncWriteExt as _};
+use futures::stream::BoxStream;
 use libp2p::{PeerId, Stream as Libp2pStream, Stream};
 use libp2p_stream::Control;
-use nomos_core::{
-    header::HeaderId,
-    wire::packing::{pack_to_writer, unpack_from_reader},
-};
+use nomos_core::{header::HeaderId, wire::packing::unpack_from_reader};
 
 use crate::{
-    behaviour::{BlocksResponse, SYNC_PROTOCOL},
+    behaviour::BlocksResponse,
     errors::ChainSyncError,
     messages::{
         DownloadBlocksRequest, DownloadBlocksResponse, GetTipRequest, GetTipResponse,
         RequestMessage,
     },
+    util::{open_stream, send_message},
     DownloadBlocksInfo,
 };
 
@@ -36,21 +34,10 @@ impl DownloadBlocksTask {
         peer_id: PeerId,
         control: &mut Control,
     ) -> Result<GetTipResponse, ChainSyncError> {
-        let mut stream = control
-            .open_stream(peer_id, SYNC_PROTOCOL)
-            .await
-            .map_err(|e| ChainSyncError::from((peer_id, e)))?;
+        let mut stream = open_stream(peer_id, control).await?;
 
         let tip_request = RequestMessage::GetTipRequest(GetTipRequest);
-
-        pack_to_writer(&tip_request, &mut stream)
-            .await
-            .map_err(|e| ChainSyncError::from((peer_id, e)))?;
-
-        stream
-            .flush()
-            .await
-            .map_err(|e| ChainSyncError::from((peer_id, e)))?;
+        send_message(peer_id, &mut stream, &tip_request).await?;
 
         let response: GetTipResponse = unpack_from_reader(&mut stream)
             .await
@@ -65,10 +52,7 @@ impl DownloadBlocksTask {
         request: DownloadBlocksInfo,
         peer_tip: HeaderId,
     ) -> Result<(PeerId, Stream), ChainSyncError> {
-        let mut stream = control
-            .open_stream(peer_id, SYNC_PROTOCOL)
-            .await
-            .map_err(|e| ChainSyncError::from((peer_id, e)))?;
+        let mut stream = open_stream(peer_id, control).await?;
 
         let target_block = request.target_block.unwrap_or(peer_tip);
         let request = DownloadBlocksRequest::new(
@@ -80,14 +64,7 @@ impl DownloadBlocksTask {
 
         let download_request = RequestMessage::DownloadBlocksRequest(request);
 
-        pack_to_writer(&download_request, &mut stream)
-            .await
-            .map_err(|e| ChainSyncError::from((peer_id, e)))?;
-
-        stream
-            .flush()
-            .await
-            .map_err(|e| ChainSyncError::from((peer_id, e)))?;
+        send_message(peer_id, &mut stream, &download_request).await?;
 
         Ok((peer_id, stream))
     }

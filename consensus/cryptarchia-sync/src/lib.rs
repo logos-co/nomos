@@ -3,6 +3,7 @@ mod blocks_downloader;
 mod blocks_provider;
 mod errors;
 mod messages;
+mod util;
 
 pub use behaviour::{Behaviour, BlocksResponse, DownloadBlocksInfo, Event};
 pub use errors::{ChainSyncError, ChainSyncErrorKind};
