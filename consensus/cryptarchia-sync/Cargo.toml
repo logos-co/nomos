@@ -6,16 +6,16 @@ version           = "0.1.0"
 
 [dependencies]
 bytes         = { workspace = true }
-futures       = "0.3.31"
+futures       = "0.3"
 libp2p        = { workspace = true, features = ["quic", "tokio", "yamux"] }
 libp2p-stream = { workspace = true }
 nomos-core    = { workspace = true }
-rand          = "0.9.1"
-serde         = { version = "1.0", features = ["derive"] }
-thiserror     = "1.0"
-tokio         = { version = "1.43", features = ["macros", "rt", "sync"] }
-tokio-stream  = "0.1.17"
-tracing       = "0.1.41"
+rand          = "0.9"
+serde         = { version = "1", features = ["derive"] }
+thiserror     = "1"
+tokio         = { version = "1", features = ["macros", "rt", "sync"] }
+tokio-stream  = "0.1"
+tracing       = "0.1"
 
 [dev-dependencies]
-libp2p-swarm-test = { version = "0.5.0", features = ["tokio"] }
+libp2p-swarm-test = { version = "0.5", features = ["tokio"] }
