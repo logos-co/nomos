@@ -27,7 +27,7 @@ runs:
       # * .github/workflows/code-check.yml (the `risc0-clippy` within the `lints` job)
       run: |
         cargo install rzup --version 0.4.1 --locked \
-          && ~/.cargo/bin/rzup install cargo-risczero 2.0.0 \
+          && ~/.cargo/bin/rzup install cargo-risczero 2.1.0 \
           && ~/.cargo/bin/rzup install rust 1.85.0
       shell: bash
       env:
