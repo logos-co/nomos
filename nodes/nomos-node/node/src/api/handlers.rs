@@ -593,7 +593,6 @@ where
         AsServiceId<StorageService<RocksBackend<S>, RuntimeServiceId>> + Debug + Sync + Display,
 {
     let relay = match handle.relay().await {
-        //
         Ok(relay) => relay,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     };

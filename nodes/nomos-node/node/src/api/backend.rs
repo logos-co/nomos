@@ -75,7 +75,7 @@ pub struct AxumBackend<
     DaBlobInfo,
     Membership,
     DaVerifiedBlobInfo,
-    DaVerifierBackend, // TODO:
+    DaVerifierBackend,
     DaVerifierNetwork,
     DaVerifierStorage,
     Tx,
