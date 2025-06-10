@@ -1,34 +1,13 @@
+use std::{fmt::Debug, marker::PhantomData};
+
 use libp2p::Multiaddr;
 use tokio::sync::mpsc::UnboundedSender;
 
-mod events;
-mod states;
+mod event;
+mod state;
 
-use events::*;
-use states::*;
-
-#[derive(Debug)]
-#[cfg_attr(test, derive(Clone))]
-pub(crate) struct StateMachine {
-    state: State,
-    command_tx: CommandTx,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum State {
-    Uninitialized(Uninitialized),
-    TestIfPublic(TestIfPublic),
-    TryAddressMapping(TryAddressMapping),
-    TestIfMappedPublic(TestIfMappedPublic),
-    Public(Public),
-    MappedPublic(MappedPublic),
-    Private(Private),
-}
-
-#[derive(Debug, Clone)]
-struct CommandTx {
-    tx: UnboundedSender<Command>,
-}
+use event::*;
+use state::*;
 
 /// Commands that can be issued by the state machine to `NatBehaviour`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,216 +17,47 @@ pub(crate) enum Command {
     NewExternalAddrCandidate(Multiaddr),
 }
 
+#[derive(Debug)]
+pub struct StateMachine {
+    inner: Option<Box<dyn OnEvent<Event>>>,
+    command_tx: CommandTx,
+}
+
 impl StateMachine {
     pub fn new(command_tx: UnboundedSender<Command>) -> Self {
         Self {
-            state: Uninitialized.into(),
+            inner: Some(Box::new(State::<Uninitialized, Event>::new())),
             command_tx: command_tx.into(),
         }
     }
 
-    pub fn on_event<Event>(&mut self, event: Event)
+    pub fn on_event<E>(&mut self, event: E)
     where
-        Event: TryInto<UninitializedEvent, Error = ()>
-            + TryInto<TestIfPublicEvent, Error = ()>
-            + TryInto<TryAddressMappingEvent, Error = ()>
-            + TryInto<TestIfMappedPublicEvent, Error = ()>
-            + TryInto<PublicEvent, Error = ()>
-            + TryInto<MappedPublicEvent, Error = ()>
-            + TryInto<PrivateEvent, Error = ()>,
+        E: TryInto<Event, Error = ()>,
     {
-        let Ok(new_state) = self.state.clone().on_event(event, &self.command_tx) else {
-            // If the event is not recognized by the current state, we ignore it.
-            return;
-        };
+        let current_state = self.inner.take().expect("State to be Some");
 
-        self.state = new_state;
-    }
-}
-
-impl State {
-    pub fn on_event<Event>(self, event: Event, command_tx: &CommandTx) -> Result<Self, ()>
-    where
-        Event: TryInto<UninitializedEvent, Error = ()>
-            + TryInto<TestIfPublicEvent, Error = ()>
-            + TryInto<TryAddressMappingEvent, Error = ()>
-            + TryInto<TestIfMappedPublicEvent, Error = ()>
-            + TryInto<PublicEvent, Error = ()>
-            + TryInto<MappedPublicEvent, Error = ()>
-            + TryInto<PrivateEvent, Error = ()>,
-    {
-        Ok(match self {
-            State::Uninitialized(x) => x.on_event(event.try_into()?, command_tx),
-            State::TestIfPublic(x) => x.on_event(event.try_into()?, command_tx),
-            State::TryAddressMapping(x) => x.on_event(event.try_into()?, command_tx),
-            State::TestIfMappedPublic(x) => x.on_event(event.try_into()?, command_tx),
-            State::Public(x) => x.on_event(event.try_into()?, command_tx),
-            State::MappedPublic(x) => x.on_event(event.try_into()?, command_tx),
-            State::Private(x) => x.on_event(event.try_into()?, command_tx),
-        })
-    }
-}
-
-trait OnEvent {
-    type Event;
-
-    fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State;
-}
-
-impl OnEvent for Uninitialized {
-    type Event = UninitializedEvent;
-
-    fn on_event(self, event: Self::Event, _: &CommandTx) -> State {
-        match event {
-            Self::Event::NewExternalAddressCandidate(addr) => TestIfPublic(addr).into(),
-        }
-    }
-}
-
-impl OnEvent for TestIfPublic {
-    type Event = TestIfPublicEvent;
-
-    fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State {
-        match event {
-            Self::Event::ExternalAddressConfirmed(addr) if self.0 == addr => {
-                command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
-                Public(addr).into()
+        match event.try_into() {
+            Err(_) => {
+                // Ignore unrecognized events
+                self.inner = Some(current_state);
             }
-            Self::Event::AutonatClientTestFailed(addr) if self.0 == addr => {
-                command_tx.send(Command::MapAddress(addr.clone()));
-                TryAddressMapping(addr).into()
-            }
-            Self::Event::ExternalAddressConfirmed(addr)
-            | Self::Event::AutonatClientTestFailed(addr) => {
-                tracing::error!(
-                    "Autonat client reported address {}, but {} was expected",
-                    addr,
-                    self.0,
-                );
-
-                self.into()
+            Ok(event) => {
+                self.inner = Some(current_state.on_event(event, &self.command_tx));
             }
         }
     }
 }
 
-impl OnEvent for TryAddressMapping {
-    type Event = TryAddressMappingEvent;
-
-    fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State {
-        match event {
-            Self::Event::_NewExternalMappedAddress(addr) => {
-                command_tx.send(Command::NewExternalAddrCandidate(addr.clone()));
-                TestIfMappedPublic(addr).into()
-            }
-            Self::Event::AddressMappingFailed(addr) if self.0 == addr => Private(addr).into(),
-            Self::Event::AddressMappingFailed(addr) => {
-                tracing::error!(
-                    "Address mapper reported failure for address {}, but {} was expected",
-                    addr,
-                    self.0,
-                );
-
-                self.into()
-            }
-        }
-    }
+#[derive(Debug, Clone, PartialEq)]
+struct State<S, E> {
+    pub state: S,
+    pub _phantom_event: PhantomData<E>,
 }
 
-impl OnEvent for TestIfMappedPublic {
-    type Event = TestIfMappedPublicEvent;
-
-    fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State {
-        match event {
-            Self::Event::ExternalAddressConfirmed(addr) if self.0 == addr => {
-                command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
-                MappedPublic(addr).into()
-            }
-            Self::Event::AutonatClientTestFailed(addr) if self.0 == addr => Private(addr).into(),
-            Self::Event::ExternalAddressConfirmed(addr)
-            | Self::Event::AutonatClientTestFailed(addr) => {
-                tracing::error!(
-                    "Autonat client reported address {}, but {} was expected",
-                    addr,
-                    self.0,
-                );
-
-                self.into()
-            }
-        }
-    }
-}
-
-impl OnEvent for Public {
-    type Event = PublicEvent;
-
-    fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State {
-        match event {
-            Self::Event::ExternalAddressConfirmed(addr)
-            | Self::Event::AutonatClientTestOk(addr)
-                if self.0 == addr =>
-            {
-                command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
-                Public(addr).into()
-            }
-            Self::Event::AutonatClientTestFailed(addr) if self.0 == addr => {
-                TestIfPublic(addr).into()
-            }
-            Self::Event::ExternalAddressConfirmed(addr)
-            | Self::Event::AutonatClientTestOk(addr)
-            | Self::Event::AutonatClientTestFailed(addr) => {
-                tracing::error!(
-                    "Autonat client reported address {}, but {} was expected",
-                    addr,
-                    self.0,
-                );
-
-                self.into()
-            }
-        }
-    }
-}
-
-impl OnEvent for MappedPublic {
-    type Event = MappedPublicEvent;
-
-    fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State {
-        match event {
-            Self::Event::ExternalAddressConfirmed(addr)
-            | Self::Event::AutonatClientTestOk(addr)
-                if self.0 == addr =>
-            {
-                command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
-                MappedPublic(addr).into()
-            }
-            Self::Event::AutonatClientTestFailed(addr) if self.0 == addr => {
-                TestIfPublic(addr).into()
-            }
-            Self::Event::ExternalAddressConfirmed(addr)
-            | Self::Event::AutonatClientTestOk(addr)
-            | Self::Event::AutonatClientTestFailed(addr) => {
-                tracing::error!(
-                    "Autonat client reported address {}, but {} was expected",
-                    addr,
-                    self.0,
-                );
-
-                self.into()
-            }
-        }
-    }
-}
-
-impl OnEvent for Private {
-    type Event = PrivateEvent;
-
-    fn on_event(self, event: Self::Event, _: &CommandTx) -> State {
-        match event {
-            Self::Event::_LocalAddressChanged | Self::Event::_DefaultGatewayChanged => {
-                Uninitialized.into()
-            }
-        }
-    }
+#[derive(Debug, Clone)]
+struct CommandTx {
+    tx: UnboundedSender<Command>,
 }
 
 impl From<UnboundedSender<Command>> for CommandTx {
@@ -257,8 +67,203 @@ impl From<UnboundedSender<Command>> for CommandTx {
 }
 
 impl CommandTx {
-    pub fn send(&self, command: Command) {
+    fn send(&self, command: Command) {
         self.tx.send(command).expect("Channel not to be closed");
+    }
+}
+
+#[cfg(not(test))]
+trait OnEvent<E>: Debug + Send {
+    fn on_event(self: Box<Self>, event: E, command_tx: &CommandTx) -> Box<dyn OnEvent<E>>;
+}
+
+#[cfg(test)]
+trait OnEvent<E>: Debug + Send + DynPartialEq {
+    fn on_event(self: Box<Self>, event: E, command_tx: &CommandTx) -> Box<dyn OnEvent<E>>;
+}
+
+#[cfg(test)]
+trait DynPartialEq {
+    fn box_eq(&self, other: &dyn std::any::Any) -> bool;
+    fn as_any(&self) -> &dyn std::any::Any;
+}
+
+impl<S, E> State<S, E> {
+    fn into_boxed<T, C>(self, next_state_ctor: C) -> Box<State<T, E>>
+    where
+        C: FnOnce(S) -> T,
+    {
+        let State {
+            state,
+            _phantom_event,
+        } = self;
+        Box::new(State {
+            state: next_state_ctor(state),
+            _phantom_event,
+        })
+    }
+}
+
+impl OnEvent<Event> for State<Uninitialized, Event> {
+    fn on_event(self: Box<Self>, event: Event, _: &CommandTx) -> Box<dyn OnEvent<Event>> {
+        match event {
+            Event::NewExternalAddressCandidate(addr) => {
+                self.into_boxed(|state| state.into_test_if_public(addr))
+            }
+            _ => self,
+        }
+    }
+}
+
+impl OnEvent<Event> for State<TestIfPublic, Event> {
+    fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent<Event>> {
+        match event {
+            Event::ExternalAddressConfirmed(addr) if self.state.addr_to_test() == &addr => {
+                command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
+                self.into_boxed(|state| state.into_public())
+            }
+            Event::AutonatClientTestFailed(addr) if self.state.addr_to_test() == &addr => {
+                command_tx.send(Command::MapAddress(addr.clone()));
+                self.into_boxed(|state| state.into_try_address_mapping())
+            }
+            Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestFailed(addr) => {
+                tracing::error!(
+                    "Autonat client reported address {}, but {} was expected",
+                    addr,
+                    self.state.addr_to_test(),
+                );
+                self
+            }
+            _ => self,
+        }
+    }
+}
+
+impl OnEvent<Event> for State<TryMapAddress, Event> {
+    fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent<Event>> {
+        match event {
+            Event::NewExternalMappedAddress(addr) => {
+                command_tx.send(Command::NewExternalAddrCandidate(addr.clone()));
+                self.into_boxed(|state| state.into_test_if_mapped_public(addr))
+            }
+            Event::AddressMappingFailed(addr) if self.state.addr_to_map() == &addr => {
+                self.into_boxed(|state| state.into_private())
+            }
+            Event::AddressMappingFailed(addr) => {
+                tracing::error!(
+                    "Address mapper reported failure for address {}, but {} was expected",
+                    addr,
+                    self.state.addr_to_map(),
+                );
+
+                self
+            }
+            _ => self,
+        }
+    }
+}
+
+impl OnEvent<Event> for State<TestIfMappedPublic, Event> {
+    fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent<Event>> {
+        match event {
+            Event::ExternalAddressConfirmed(addr) if self.state.addr_to_test() == &addr => {
+                command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
+                self.into_boxed(|state| state.into_mapped_public())
+            }
+            Event::AutonatClientTestFailed(addr) if self.state.addr_to_test() == &addr => {
+                self.into_boxed(|state| state.into_private())
+            }
+            Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestFailed(addr) => {
+                tracing::error!(
+                    "Autonat client reported address {}, but {} was expected",
+                    addr,
+                    self.state.addr_to_test(),
+                );
+                self
+            }
+            _ => self,
+        }
+    }
+}
+
+impl OnEvent<Event> for State<Public, Event> {
+    fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent<Event>> {
+        match event {
+            Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestOk(addr)
+                if self.state.addr() == &addr =>
+            {
+                command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
+                self
+            }
+            Event::AutonatClientTestFailed(addr) if self.state.addr() == &addr => {
+                self.into_boxed(|state| state.into_test_if_public())
+            }
+            Event::ExternalAddressConfirmed(addr) => {
+                tracing::error!(
+                    "Swarm confirmed external address {}, but {} was expected",
+                    addr,
+                    self.state.addr(),
+                );
+                self
+            }
+            Event::AutonatClientTestOk(addr) | Event::AutonatClientTestFailed(addr) => {
+                tracing::error!(
+                    "Autonat client reported address {}, but {} was expected",
+                    addr,
+                    self.state.addr(),
+                );
+                self
+            }
+            _ => self,
+        }
+    }
+}
+
+impl OnEvent<Event> for State<MappedPublic, Event> {
+    fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent<Event>> {
+        match event {
+            Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestOk(addr)
+                if self.state.addr() == &addr =>
+            {
+                command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
+                self
+            }
+            Event::AutonatClientTestFailed(addr) if self.state.addr() == &addr => {
+                self.into_boxed(|state| state.into_test_if_public())
+            }
+            Event::ExternalAddressConfirmed(addr) => {
+                tracing::error!(
+                    "Swarm confirmed external address {}, but {} was expected",
+                    addr,
+                    self.state.addr(),
+                );
+                self
+            }
+            Event::AutonatClientTestOk(addr) | Event::AutonatClientTestFailed(addr) => {
+                tracing::error!(
+                    "Autonat client reported address {}, but {} was expected",
+                    addr,
+                    self.state.addr(),
+                );
+                self
+            }
+            _ => self,
+        }
+    }
+}
+
+impl OnEvent<Event> for State<Private, Event> {
+    fn on_event(self: Box<Self>, event: Event, _: &CommandTx) -> Box<dyn OnEvent<Event>> {
+        match event {
+            Event::LocalAddressChanged(addr) => {
+                self.into_boxed(|state| state.into_test_if_public(addr))
+            }
+            Event::DefaultGatewayChanged(_) => {
+                let local_addr = self.state.addr().clone();
+                self.into_boxed(|state| state.into_test_if_public(local_addr))
+            }
+            _ => self,
+        }
     }
 }
 
@@ -270,6 +275,31 @@ mod tests {
     use tokio::sync::mpsc::{error::TryRecvError, unbounded_channel};
 
     use super::*;
+
+    #[cfg(test)]
+    impl<S: PartialEq + 'static, E: PartialEq + 'static> DynPartialEq for State<S, E> {
+        fn as_any(&self) -> &dyn core::any::Any {
+            self
+        }
+
+        fn box_eq(&self, other: &dyn core::any::Any) -> bool {
+            other.downcast_ref::<Self>().map_or(false, |a| self == a)
+        }
+    }
+
+    #[cfg(test)]
+    impl<E: PartialEq> PartialEq for Box<dyn OnEvent<E>> {
+        fn eq(&self, other: &Self) -> bool {
+            self.box_eq(other.as_any())
+        }
+    }
+
+    #[cfg(test)]
+    impl<E: PartialEq> PartialEq<&Self> for Box<dyn OnEvent<E>> {
+        fn eq(&self, other: &&Self) -> bool {
+            self.box_eq(other.as_any())
+        }
+    }
 
     fn all_events<'a>() -> HashSet<TestEvent<'a>> {
         [
@@ -283,113 +313,145 @@ mod tests {
             new_external_address_candidate(),
             external_address_confirmed(),
             external_address_confirmed_with_addr_mismatch(),
-            TestEvent::_DefaultGatewayChanged,
-            TestEvent::_LocalAddressChanged,
+            default_gateway_changed(),
+            local_address_changed(),
             other_from_swarm_event(),
         ]
         .into()
     }
 
-    fn init_state_machine(init_state: State, tx: UnboundedSender<Command>) -> StateMachine {
-        let mut sm = StateMachine::new(tx);
-        sm.state = init_state;
-        sm
+    fn init_state_machine(
+        init_state: Box<dyn OnEvent<Event>>,
+        command_tx: UnboundedSender<Command>,
+    ) -> StateMachine {
+        StateMachine {
+            inner: Some(init_state),
+            command_tx: command_tx.into(),
+        }
     }
 
     #[test]
     fn test_transitions_and_emitted_commands() {
-        let expected_transitions: Vec<(u32, State, Vec<(TestEvent<'_>, State, Option<Command>)>)> = vec![
+        let expected_transitions: Vec<(
+            u32,
+            Box<dyn Fn() -> Box<dyn OnEvent<Event>>>,
+            Vec<(
+                TestEvent<'_>,
+                Box<dyn Fn() -> Box<dyn OnEvent<Event>>>,
+                Option<Command>,
+            )>,
+        )> = vec![
             (
                 line!(),
-                Uninitialized.into(),
+                Box::new(|| Uninitialized::for_test()),
                 vec![(
                     new_external_address_candidate(),
-                    TestIfPublic(ADDR.clone()).into(),
+                    Box::new(|| TestIfPublic::for_test(ADDR.clone())),
                     None,
                 )],
             ),
             (
                 line!(),
-                TestIfPublic(ADDR.clone()).into(),
+                Box::new(|| TestIfPublic::for_test(ADDR.clone())),
                 vec![
                     (
                         autonat_failed(),
-                        TryAddressMapping(ADDR.clone()).into(),
+                        Box::new(|| TryMapAddress::for_test(ADDR.clone())),
                         Some(Command::MapAddress(ADDR.clone())),
                     ),
                     (
                         external_address_confirmed(),
-                        Public(ADDR.clone()).into(),
+                        Box::new(|| Public::for_test(ADDR.clone())),
                         Some(Command::ScheduleAutonatClientTest(ADDR.clone())),
                     ),
                 ],
             ),
             (
                 line!(),
-                TryAddressMapping(ADDR.clone()).into(),
+                Box::new(|| TryMapAddress::for_test(ADDR.clone())),
                 vec![
                     (
                         mapping_ok(),
-                        TestIfMappedPublic(ADDR.clone()).into(),
+                        Box::new(|| TestIfMappedPublic::for_test(ADDR.clone())),
                         Some(Command::NewExternalAddrCandidate(ADDR.clone())),
                     ),
-                    (mapping_failed(), Private(ADDR.clone()).into(), None),
+                    (
+                        mapping_failed(),
+                        Box::new(|| Private::for_test(ADDR.clone())),
+                        None,
+                    ),
                 ],
             ),
             (
                 line!(),
-                TestIfMappedPublic(ADDR.clone()).into(),
+                Box::new(|| TestIfMappedPublic::for_test(ADDR.clone())),
                 vec![
                     (
                         external_address_confirmed(),
-                        MappedPublic(ADDR.clone()).into(),
+                        Box::new(|| MappedPublic::for_test(ADDR.clone())),
                         Some(Command::ScheduleAutonatClientTest(ADDR.clone())),
                     ),
-                    (autonat_failed(), Private(ADDR.clone()).into(), None),
+                    (
+                        autonat_failed(),
+                        Box::new(|| Private::for_test(ADDR.clone())),
+                        None,
+                    ),
                 ],
             ),
             (
                 line!(),
-                Public(ADDR.clone()).into(),
+                Box::new(|| Public::for_test(ADDR.clone())),
                 vec![
                     (
                         external_address_confirmed(),
-                        Public(ADDR.clone()).into(),
+                        Box::new(|| Public::for_test(ADDR.clone())),
                         Some(Command::ScheduleAutonatClientTest(ADDR.clone())),
                     ),
                     (
                         autonat_ok(),
-                        Public(ADDR.clone()).into(),
+                        Box::new(|| Public::for_test(ADDR.clone())),
                         Some(Command::ScheduleAutonatClientTest(ADDR.clone())),
                     ),
-                    (autonat_failed(), TestIfPublic(ADDR.clone()).into(), None),
+                    (
+                        autonat_failed(),
+                        Box::new(|| TestIfPublic::for_test(ADDR.clone())),
+                        None,
+                    ),
                 ],
             ),
             (
                 line!(),
-                MappedPublic(ADDR.clone()).into(),
+                Box::new(|| MappedPublic::for_test(ADDR.clone())),
                 vec![
                     (
                         external_address_confirmed(),
-                        MappedPublic(ADDR.clone()).into(),
+                        Box::new(|| MappedPublic::for_test(ADDR.clone())),
                         Some(Command::ScheduleAutonatClientTest(ADDR.clone())),
                     ),
                     (
                         autonat_ok(),
-                        MappedPublic(ADDR.clone()).into(),
+                        Box::new(|| MappedPublic::for_test(ADDR.clone())),
                         Some(Command::ScheduleAutonatClientTest(ADDR.clone())),
                     ),
-                    (autonat_failed(), TestIfPublic(ADDR.clone()).into(), None),
+                    (
+                        autonat_failed(),
+                        Box::new(|| TestIfPublic::for_test(ADDR.clone())),
+                        None,
+                    ),
                 ],
             ),
             (
                 line!(),
-                Private(ADDR.clone()).into(),
+                Box::new(|| Private::for_test(ADDR.clone())),
                 vec![
-                    (TestEvent::_LocalAddressChanged, Uninitialized.into(), None),
                     (
-                        TestEvent::_DefaultGatewayChanged,
-                        Uninitialized.into(),
+                        local_address_changed(),
+                        Box::new(|| TestIfPublic::for_test(ADDR_1.clone())),
+                        None,
+                    ),
+                    (
+                        default_gateway_changed(),
+                        Box::new(|| TestIfPublic::for_test(ADDR.clone())),
                         None,
                     ),
                 ],
@@ -399,66 +461,53 @@ mod tests {
         for (line, src_state, expected_transition) in expected_transitions {
             let mut expected_ignored_events: HashSet<TestEvent<'_>> = all_events();
 
-            eprintln!(
-                "A Line {}, len {} state {:#?} ignored events: {:#?}",
-                line,
-                expected_ignored_events.len(),
-                src_state,
-                expected_ignored_events
-            );
-
             for (event, expected_state, expected_command) in expected_transition {
-                eprintln!("event: {:#?}", event);
-
                 expected_ignored_events.remove(&event);
 
                 let (tx, mut rx) = unbounded_channel();
-                let mut sm = init_state_machine(src_state.clone(), tx);
+                let mut sm = init_state_machine(src_state(), tx);
 
                 let dbg_event = format!("{:?}", event);
                 sm.on_test_event(event);
 
                 assert_eq!(
-                    expected_state, sm.state,
+                    &expected_state(), sm.inner.as_ref().unwrap(),
                     "Line {}, event `{}` caused transition `{:?} -> {:?}`, expected transition `{:?} -> {:?}`",
-                    line, dbg_event, src_state, sm.state, src_state, expected_state,
-                );
+                    line, dbg_event, src_state(), sm.inner, src_state(), expected_state(),
+                    );
+
                 assert_eq!(
                     rx.try_recv(),
                     expected_command.ok_or(TryRecvError::Empty),
                     "Line {}, invalid command emitted for event `{}` in transition `{:?} -> {:?}`",
                     line,
                     dbg_event,
-                    src_state,
-                    sm.state,
+                    src_state(),
+                    sm.inner.unwrap(),
                 );
             }
 
-            eprintln!(
-                "B Line {}, len {} state {:#?} ignored events: {:#?}",
-                line,
-                expected_ignored_events.len(),
-                src_state,
-                expected_ignored_events
-            );
-
             for event in expected_ignored_events {
                 let (tx, mut rx) = unbounded_channel();
-                let mut sm = init_state_machine(src_state.clone(), tx);
+                let mut sm = init_state_machine(src_state(), tx);
 
                 let dbg_event = format!("{:?}", event);
                 sm.on_test_event(event);
 
                 assert_eq!(
-                    src_state, sm.state,
+                    &src_state(),
+                    sm.inner.as_ref().unwrap(),
                     "Event `{}` should be ignored but instead caused a transition `{:?} -> {:?}`",
-                    dbg_event, src_state, sm.state
+                    dbg_event,
+                    src_state(),
+                    sm.inner.as_ref().unwrap()
                 );
+
                 assert!(
                     matches!(rx.try_recv(), Err(TryRecvError::Empty)),
                     "Event `{}` should be ignored and not emit any command from `{:?}` state",
                     dbg_event,
-                    src_state
+                    src_state()
                 );
             }
         }
@@ -476,21 +525,14 @@ mod tests {
             Multiaddr, PeerId,
         };
 
-        use crate::behaviour::nat::{
-            address_mapper,
-            state_machine::{events::*, impl_try_from, impl_try_from_foreach, StateMachine},
-        };
+        use crate::behaviour::nat::{address_mapper, state_machine::StateMachine};
 
         #[derive(Debug)]
         pub enum TestEvent<'a> {
             AutonatClientFailed(&'static autonat::v2::client::Event),
             AutonatClientOk(autonat::v2::client::Event),
             AddressMapping(address_mapper::Event),
-            /// For ExternalAddrConfirmed
             FromSwarm(FromSwarm<'a>),
-            /// These events are not generated by any behaviour yet
-            _DefaultGatewayChanged,
-            _LocalAddressChanged,
         }
 
         impl TestEvent<'_> {
@@ -519,47 +561,9 @@ mod tests {
                     TestEvent::FromSwarm(event) => {
                         self.on_event(event);
                     }
-                    TestEvent::_DefaultGatewayChanged => {
-                        self.on_event(event);
-                    }
-                    TestEvent::_LocalAddressChanged => {
-                        self.on_event(event);
-                    }
                 }
             }
         }
-
-        // TODO Remove this implementation once the two events are generated by a
-        // behaviour
-        impl_try_from_foreach!(TestEvent<'_>, event, [PrivateEvent], {
-            match event {
-                TestEvent::_DefaultGatewayChanged => Ok(Self::_DefaultGatewayChanged),
-                TestEvent::_LocalAddressChanged => Ok(Self::_LocalAddressChanged),
-                _ => unreachable!(),
-            }
-        });
-
-        // TODO Remove this implementation once the two events are generated by a
-        // behaviour
-        impl_try_from_foreach!(
-            TestEvent<'_>,
-            event,
-            [
-                UninitializedEvent,
-                TestIfPublicEvent,
-                TryAddressMappingEvent,
-                TestIfMappedPublicEvent,
-                PublicEvent,
-                MappedPublicEvent
-            ],
-            {
-                match event {
-                    TestEvent::_DefaultGatewayChanged => Err(()),
-                    TestEvent::_LocalAddressChanged => Err(()),
-                    _ => unreachable!(),
-                }
-            }
-        );
 
         impl Eq for TestEvent<'_> {
             fn assert_receiver_is_total_eq(&self) {}
@@ -625,18 +629,17 @@ mod tests {
                         // Sufficient for testing purposes
                         _ => core::mem::discriminant(event).hash(state),
                     },
-                    _ => core::mem::discriminant(self).hash(state),
                 }
             }
         }
 
         pub static ADDR: LazyLock<Multiaddr> =
             LazyLock::new(|| Multiaddr::from_str("/memory/0").unwrap());
-        pub static ADDR_MISMATCH: LazyLock<Multiaddr> =
+        pub static ADDR_1: LazyLock<Multiaddr> =
             LazyLock::new(|| Multiaddr::from_str("/memory/1").unwrap());
         pub static AUTONAT_FAILED: LazyLock<BinaryCompatAutonatEvent> =
             LazyLock::new(|| BinaryCompatAutonatEvent::new("/memory/0"));
-        pub static AUTONAT_FAILED_ADDR_MISMATCH: LazyLock<BinaryCompatAutonatEvent> =
+        pub static AUTONAT_FAILED_ADDR_1: LazyLock<BinaryCompatAutonatEvent> =
             LazyLock::new(|| BinaryCompatAutonatEvent::new("/memory/1"));
         pub static PEER_ID: LazyLock<PeerId> = LazyLock::new(PeerId::random);
 
@@ -645,7 +648,7 @@ mod tests {
         }
 
         pub fn autonat_ok_with_address_mismatch<'a>() -> TestEvent<'a> {
-            TestEvent::autonat_ok(ADDR_MISMATCH.clone())
+            TestEvent::autonat_ok(ADDR_1.clone())
         }
 
         #[derive(Debug)]
@@ -685,9 +688,7 @@ mod tests {
         }
 
         pub fn autonat_failed_with_addr_mismatch<'a>() -> TestEvent<'a> {
-            TestEvent::AutonatClientFailed(unsafe {
-                std::mem::transmute(&*AUTONAT_FAILED_ADDR_MISMATCH)
-            })
+            TestEvent::AutonatClientFailed(unsafe { std::mem::transmute(&*AUTONAT_FAILED_ADDR_1) })
         }
 
         pub fn mapping_failed<'a>() -> TestEvent<'a> {
@@ -695,9 +696,7 @@ mod tests {
         }
 
         pub fn mapping_failed_with_addr_mismatch<'a>() -> TestEvent<'a> {
-            TestEvent::AddressMapping(address_mapper::Event::AddressMappingFailed(
-                ADDR_MISMATCH.clone(),
-            ))
+            TestEvent::AddressMapping(address_mapper::Event::AddressMappingFailed(ADDR_1.clone()))
         }
 
         pub fn mapping_ok<'a>() -> TestEvent<'a> {
@@ -720,15 +719,23 @@ mod tests {
 
         pub fn external_address_confirmed_with_addr_mismatch<'a>() -> TestEvent<'a> {
             TestEvent::FromSwarm(FromSwarm::ExternalAddrConfirmed(ExternalAddrConfirmed {
-                addr: &ADDR_MISMATCH,
+                addr: &ADDR_1,
             }))
         }
 
         pub fn other_from_swarm_event<'a>() -> TestEvent<'a> {
             TestEvent::FromSwarm(FromSwarm::NewExternalAddrOfPeer(NewExternalAddrOfPeer {
                 peer_id: *PEER_ID,
-                addr: &ADDR_MISMATCH,
+                addr: &ADDR_1,
             }))
+        }
+
+        pub fn default_gateway_changed<'a>() -> TestEvent<'a> {
+            TestEvent::AddressMapping(address_mapper::Event::_DefaultGatewayChanged)
+        }
+
+        pub fn local_address_changed<'a>() -> TestEvent<'a> {
+            TestEvent::AddressMapping(address_mapper::Event::_LocalAddressChanged(ADDR_1.clone()))
         }
     }
 }
