@@ -56,6 +56,7 @@ use tokio::sync::oneshot;
 use crate::wait_with_timeout;
 
 pub type DaIndexer<
+    SignedTx,
     Tx,
     C,
     V,
@@ -85,7 +86,7 @@ pub type DaIndexer<
         RuntimeServiceId,
     >,
     MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
-    MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
+    MempoolNetworkAdapter<SignedTx, <Tx as Transaction>::Hash, RuntimeServiceId>,
     MockPool<HeaderId, V, [u8; 32]>,
     MempoolNetworkAdapter<C, <C as DispersedBlobInfo>::BlobId, RuntimeServiceId>,
     FillSizeWithTx<SIZE, Tx>,
@@ -172,6 +173,7 @@ where
 }
 
 pub async fn get_range<
+    SignedTx,
     Tx,
     C,
     V,
@@ -193,6 +195,17 @@ pub async fn get_range<
     range: Range<<V as metadata::Metadata>::Index>,
 ) -> Result<Vec<(<V as metadata::Metadata>::Index, Vec<DaShare>)>, DynError>
 where
+    SignedTx: Transaction
+        + Into<Tx>
+        + Eq
+        + Clone
+        + Debug
+        + Hash
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
     Tx: Transaction
         + Eq
         + Clone
@@ -253,6 +266,7 @@ where
         + 'static
         + AsServiceId<
             DaIndexer<
+                SignedTx,
                 Tx,
                 C,
                 V,

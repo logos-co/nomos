@@ -76,6 +76,7 @@ pub struct AxumBackend<
     DaVerifierBackend,
     DaVerifierNetwork,
     DaVerifierStorage,
+    SignedTx,
     Tx,
     DaStorageSerializer,
     DaStorageConverter,
@@ -97,6 +98,7 @@ pub struct AxumBackend<
     _verifier_backend: core::marker::PhantomData<DaVerifierBackend>,
     _verifier_network: core::marker::PhantomData<DaVerifierNetwork>,
     _verifier_storage: core::marker::PhantomData<DaVerifierStorage>,
+    _signed_tx: core::marker::PhantomData<SignedTx>,
     _tx: core::marker::PhantomData<Tx>,
     _storage_serde: core::marker::PhantomData<DaStorageSerializer>,
     _storage_converter: core::marker::PhantomData<DaStorageConverter>,
@@ -132,6 +134,7 @@ impl<
         DaVerifierBackend,
         DaVerifierNetwork,
         DaVerifierStorage,
+        SignedTx,
         Tx,
         DaStorageSerializer,
         DaStorageConverter,
@@ -154,6 +157,7 @@ impl<
         DaVerifierBackend,
         DaVerifierNetwork,
         DaVerifierStorage,
+        SignedTx,
         Tx,
         DaStorageSerializer,
         DaStorageConverter,
@@ -212,7 +216,19 @@ where
         nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
     DaVerifierStorage:
         nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
-    Tx: Transaction
+    SignedTx: Transaction
+        + Into<Tx>
+        + Clone
+        + Debug
+        + Eq
+        + Hash
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + Send
+        + Sync
+        + 'static,
+    <SignedTx as Transaction>::Hash: std::cmp::Ord + Debug + Send + Sync + 'static,
+    Tx: Transaction<Hash = <SignedTx as Transaction>::Hash>
         + Clone
         + Debug
         + Eq
@@ -265,6 +281,7 @@ where
         + 'static
         + AsServiceId<
             Cryptarchia<
+                SignedTx,
                 Tx,
                 DaStorageSerializer,
                 SamplingBackend,
@@ -292,6 +309,7 @@ where
         >
         + AsServiceId<
             DaIndexer<
+                SignedTx,
                 Tx,
                 DaBlobInfo,
                 DaVerifiedBlobInfo,
@@ -325,7 +343,7 @@ where
         + AsServiceId<
             TxMempoolService<
                 nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-                    Tx,
+                    SignedTx,
                     <Tx as Transaction>::Hash,
                     RuntimeServiceId,
                 >,
@@ -370,6 +388,7 @@ where
             _verifier_backend: core::marker::PhantomData,
             _verifier_network: core::marker::PhantomData,
             _verifier_storage: core::marker::PhantomData,
+            _signed_tx: core::marker::PhantomData,
             _tx: core::marker::PhantomData,
             _storage_serde: core::marker::PhantomData,
             _storage_converter: core::marker::PhantomData,
@@ -409,16 +428,17 @@ where
             .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
             .route(
                 paths::CL_METRICS,
-                routing::get(cl_metrics::<Tx, RuntimeServiceId>),
+                routing::get(cl_metrics::<SignedTx, Tx, RuntimeServiceId>),
             )
             .route(
                 paths::CL_STATUS,
-                routing::post(cl_status::<Tx, RuntimeServiceId>),
+                routing::post(cl_status::<SignedTx, Tx, RuntimeServiceId>),
             )
             .route(
                 paths::CRYPTARCHIA_INFO,
                 routing::get(
                     cryptarchia_info::<
+                        SignedTx,
                         Tx,
                         DaStorageSerializer,
                         SamplingBackend,
@@ -439,6 +459,7 @@ where
                 paths::CRYPTARCHIA_HEADERS,
                 routing::get(
                     cryptarchia_headers::<
+                        SignedTx,
                         Tx,
                         DaStorageSerializer,
                         SamplingBackend,
@@ -473,6 +494,7 @@ where
                 paths::DA_GET_RANGE,
                 routing::post(
                     get_range::<
+                        SignedTx,
                         Tx,
                         DaBlobInfo,
                         DaVerifiedBlobInfo,
@@ -519,7 +541,7 @@ where
             )
             .route(
                 paths::MEMPOOL_ADD_TX,
-                routing::post(add_tx::<Tx, RuntimeServiceId>),
+                routing::post(add_tx::<SignedTx, Tx, RuntimeServiceId>),
             )
             .route(
                 paths::MEMPOOL_ADD_BLOB_INFO,

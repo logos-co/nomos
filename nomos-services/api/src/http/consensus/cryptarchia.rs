@@ -31,6 +31,7 @@ use tokio::sync::oneshot;
 use crate::http::DynError;
 
 pub type Cryptarchia<
+    SignedTx,
     Tx,
     SS,
     SamplingBackend,
@@ -48,7 +49,7 @@ pub type Cryptarchia<
     ConsensusNetworkAdapter<Tx, BlobInfo, RuntimeServiceId>,
     BlendAdapter<BlendNetworkAdapter<RuntimeServiceId>, Tx, BlobInfo, RuntimeServiceId>,
     MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
-    MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
+    MempoolNetworkAdapter<SignedTx, <Tx as Transaction>::Hash, RuntimeServiceId>,
     MockPool<HeaderId, BlobInfo, <BlobInfo as blob::info::DispersedBlobInfo>::BlobId>,
     MempoolNetworkAdapter<
         BlobInfo,
@@ -72,6 +73,7 @@ pub type Cryptarchia<
 
 pub async fn cryptarchia_info<
     'a,
+    SignedTx,
     Tx,
     SS,
     SamplingBackend,
@@ -89,6 +91,17 @@ pub async fn cryptarchia_info<
     handle: &'a OverwatchHandle<RuntimeServiceId>,
 ) -> Result<CryptarchiaInfo, DynError>
 where
+    SignedTx: Transaction
+        + Into<Tx>
+        + Eq
+        + Clone
+        + Debug
+        + Hash
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
     Tx: Transaction
         + Eq
         + Clone
@@ -123,6 +136,7 @@ where
         + 'static
         + AsServiceId<
             Cryptarchia<
+                SignedTx,
                 Tx,
                 SS,
                 SamplingBackend,
@@ -151,6 +165,7 @@ where
 
 pub async fn cryptarchia_headers<
     'a,
+    SignedTx,
     Tx,
     SS,
     SamplingBackend,
@@ -170,6 +185,17 @@ pub async fn cryptarchia_headers<
     to: Option<HeaderId>,
 ) -> Result<Vec<HeaderId>, DynError>
 where
+    SignedTx: Transaction
+        + Into<Tx>
+        + Clone
+        + Debug
+        + Eq
+        + Hash
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
     Tx: Transaction
         + Clone
         + Debug
@@ -204,6 +230,7 @@ where
         + 'static
         + AsServiceId<
             Cryptarchia<
+                SignedTx,
                 Tx,
                 SS,
                 SamplingBackend,

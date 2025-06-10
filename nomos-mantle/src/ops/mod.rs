@@ -27,7 +27,7 @@ use crate::{
 pub type Ed25519PublicKey = [u8; 32];
 pub type ChannelId = u64;
 
-#[derive(Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Op {
     Inscribe(

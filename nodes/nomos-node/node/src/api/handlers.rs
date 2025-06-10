@@ -73,11 +73,12 @@ macro_rules! make_request_and_return_response {
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn cl_metrics<T, RuntimeServiceId>(
+pub async fn cl_metrics<SignedTx, Tx, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
-    T: Transaction
+    SignedTx: Transaction
+        + Into<Tx>
         + Clone
         + Debug
         + Hash
@@ -86,12 +87,26 @@ where
         + Send
         + Sync
         + 'static,
-    <T as nomos_core::tx::Transaction>::Hash:
+    Tx: Transaction
+        + Clone
+        + Debug
+        + Hash
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + Send
+        + Sync
+        + 'static,
+    <Tx as nomos_core::tx::Transaction>::Hash:
         std::cmp::Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<ClMempoolService<SignedTx, Tx, RuntimeServiceId>>,
 {
-    make_request_and_return_response!(cl::cl_mempool_metrics::<T, RuntimeServiceId>(&handle))
+    make_request_and_return_response!(cl::cl_mempool_metrics::<SignedTx, Tx, RuntimeServiceId>(
+        &handle
+    ))
 }
 
 #[utoipa::path(
@@ -102,18 +117,33 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn cl_status<T, RuntimeServiceId>(
+pub async fn cl_status<SignedTx, Tx, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
-    Json(items): Json<Vec<<T as Transaction>::Hash>>,
+    Json(items): Json<Vec<<Tx as Transaction>::Hash>>,
 ) -> Response
 where
-    T: Transaction + Clone + Debug + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
-    <T as nomos_core::tx::Transaction>::Hash:
+    SignedTx: Transaction
+        + Into<Tx>
+        + Clone
+        + Debug
+        + Hash
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
+    Tx: Transaction + Clone + Debug + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
+    <Tx as nomos_core::tx::Transaction>::Hash:
         Serialize + DeserializeOwned + std::cmp::Ord + Debug + Send + Sync + 'static,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<ClMempoolService<SignedTx, Tx, RuntimeServiceId>>,
 {
-    make_request_and_return_response!(cl::cl_mempool_status::<T, RuntimeServiceId>(&handle, items))
+    make_request_and_return_response!(cl::cl_mempool_status::<SignedTx, Tx, RuntimeServiceId>(
+        &handle, items
+    ))
 }
 #[derive(Deserialize)]
 pub struct CryptarchiaInfoQuery {
@@ -130,6 +160,7 @@ pub struct CryptarchiaInfoQuery {
     )
 )]
 pub async fn cryptarchia_info<
+    SignedTx,
     Tx,
     SS,
     SamplingBackend,
@@ -147,6 +178,17 @@ pub async fn cryptarchia_info<
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
+    SignedTx: Transaction
+        + Into<Tx>
+        + Clone
+        + Eq
+        + Debug
+        + Hash
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
     Tx: Transaction
         + Clone
         + Eq
@@ -181,6 +223,7 @@ where
         + 'static
         + AsServiceId<
             Cryptarchia<
+                SignedTx,
                 Tx,
                 SS,
                 SamplingBackend,
@@ -198,6 +241,7 @@ where
         >,
 {
     make_request_and_return_response!(consensus::cryptarchia_info::<
+        SignedTx,
         Tx,
         SS,
         SamplingBackend,
@@ -223,6 +267,7 @@ where
     )
 )]
 pub async fn cryptarchia_headers<
+    SignedTx,
     Tx,
     SS,
     SamplingBackend,
@@ -241,6 +286,17 @@ pub async fn cryptarchia_headers<
     Query(query): Query<CryptarchiaInfoQuery>,
 ) -> Response
 where
+    SignedTx: Transaction
+        + Into<Tx>
+        + Eq
+        + Clone
+        + Debug
+        + Hash
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
     Tx: Transaction
         + Eq
         + Clone
@@ -275,6 +331,7 @@ where
         + 'static
         + AsServiceId<
             Cryptarchia<
+                SignedTx,
                 Tx,
                 SS,
                 SamplingBackend,
@@ -293,6 +350,7 @@ where
 {
     let CryptarchiaInfoQuery { from, to } = query;
     make_request_and_return_response!(consensus::cryptarchia_headers::<
+        SignedTx,
         Tx,
         SS,
         SamplingBackend,
@@ -361,6 +419,7 @@ where
     )
 )]
 pub async fn get_range<
+    SignedTx,
     Tx,
     C,
     V,
@@ -381,6 +440,17 @@ pub async fn get_range<
     Json(GetRangeReq { app_id, range }): Json<GetRangeReq<V>>,
 ) -> Response
 where
+    SignedTx: Transaction
+        + Into<Tx>
+        + Eq
+        + Clone
+        + Debug
+        + Hash
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
     Tx: Transaction
         + Eq
         + Clone
@@ -442,6 +512,7 @@ where
         + 'static
         + AsServiceId<
             DaIndexer<
+                SignedTx,
                 Tx,
                 C,
                 V,
@@ -461,6 +532,7 @@ where
         >,
 {
     make_request_and_return_response!(da::get_range::<
+        SignedTx,
         Tx,
         C,
         V,
@@ -797,12 +869,31 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn add_tx<Tx, RuntimeServiceId>(
+pub async fn add_tx<Payload, Tx, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
-    Json(tx): Json<Tx>,
+    Json(payload): Json<Payload>,
 ) -> Response
 where
-    Tx: Transaction + Clone + Debug + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
+    Payload: Transaction
+        + Into<Tx>
+        + Clone
+        + Debug
+        + Hash
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
+    <Payload as Transaction>::Hash: std::cmp::Ord + Debug + Send + Sync + 'static,
+    Tx: Transaction<Hash = <Payload as Transaction>::Hash>
+        + Clone
+        + Debug
+        + Hash
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
     <Tx as Transaction>::Hash:
         std::cmp::Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     RuntimeServiceId: Debug
@@ -811,7 +902,7 @@ where
         + 'static
         + AsServiceId<
             TxMempoolService<
-                MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
+                MempoolNetworkAdapter<Payload, <Tx as Transaction>::Hash, RuntimeServiceId>,
                 MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
                 RuntimeServiceId,
             >,
@@ -819,11 +910,12 @@ where
 {
     make_request_and_return_response!(mempool::add_tx::<
         Libp2pNetworkBackend,
-        MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
+        MempoolNetworkAdapter<Payload, <Tx as Transaction>::Hash, RuntimeServiceId>,
+        Payload,
         Tx,
         <Tx as Transaction>::Hash,
         RuntimeServiceId,
-    >(&handle, tx, Transaction::hash))
+    >(&handle, payload, Transaction::hash))
 }
 
 #[utoipa::path(

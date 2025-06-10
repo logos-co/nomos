@@ -31,6 +31,7 @@ use nomos_da_verifier::{
     network::adapters::validator::Libp2pAdapter as VerifierNetworkAdapter,
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
+use nomos_mantle_core::tx::{MantleTx, SignedMantleTx};
 pub use nomos_mempool::{
     da::settings::DaMempoolSettings,
     network::adapters::libp2p::{
@@ -52,10 +53,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use subnetworks_assignations::versions::v1::FillFromNodeList;
 
 use crate::api::backend::AxumBackend;
-pub use crate::{
-    config::{Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs},
-    tx::Tx,
-};
+pub use crate::config::{Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs};
 
 pub const CONSENSUS_TOPIC: &str = "/cryptarchia/proto";
 pub const CL_TOPIC: &str = "cl";
@@ -150,7 +148,8 @@ pub(crate) type ApiService = nomos_api::ApiService<
         KzgrsDaVerifier,
         VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
         VerifierStorageAdapter<DaShare, Wire, DaStorageConverter>,
-        Tx,
+        SignedMantleTx,
+        MantleTx,
         Wire,
         DaStorageConverter,
         KzgrsSamplingBackend<ChaCha20Rng>,
