@@ -38,13 +38,14 @@ pub const SYNC_PROTOCOL: StreamProtocol = StreamProtocol::new(SYNC_PROTOCOL_ID);
 
 const MAX_INCOMING_REQUESTS: usize = 4;
 
-type PendingRequestsFuture = BoxFuture<'static, Result<(PeerId, Libp2pStream), ChainSyncError>>;
+type PendingDownloadRequestsFuture =
+    BoxFuture<'static, Result<(PeerId, Libp2pStream), ChainSyncError>>;
 
-type LocallyInitiatedDownloadsFuture = BoxStream<'static, Result<BlocksResponse, ChainSyncError>>;
+type InProgressDownloadRequestsFuture = BoxStream<'static, Result<BlocksResponse, ChainSyncError>>;
 
-type ExternallyInitiatedDownloadsFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
+type InProgressDownloadResponsesFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
 
-type ExternalPendingDownloadRequestsFuture =
+type PendingDownloadResponsesFuture =
     BoxFuture<'static, Result<(PeerId, Libp2pStream, RequestMessage), ChainSyncError>>;
 
 type ToSwarmEvent = ToSwarm<
@@ -127,15 +128,15 @@ pub struct Behaviour {
     peers: HashSet<PeerId>,
     /// Futures for sending download requests. After the request is
     /// read, sending blocks is handled by `locally_initiated_downloads`.
-    pending_download_requests: FuturesUnordered<PendingRequestsFuture>,
+    pending_download_requests: FuturesUnordered<PendingDownloadRequestsFuture>,
     /// Futures for managing the progress of locally initiated block downloads.
-    in_progress_download_requests: SelectAll<LocallyInitiatedDownloadsFuture>,
+    in_progress_download_requests: SelectAll<InProgressDownloadRequestsFuture>,
     /// Futures for reading incoming download requests. After the request is
     /// read, sending blocks is handled by `externally_initiated_downloads`.
-    pending_download_responses: FuturesUnordered<ExternalPendingDownloadRequestsFuture>,
+    pending_download_responses: FuturesUnordered<PendingDownloadResponsesFuture>,
     /// Futures for managing the progress of externally initiated block
     /// downloads.
-    in_progress_download_responses: FuturesUnordered<ExternallyInitiatedDownloadsFuture>,
+    in_progress_download_responses: FuturesUnordered<InProgressDownloadResponsesFuture>,
     /// Futures for closing incoming streams that were rejected due to excess
     /// requests.
     incoming_streams_to_close: FuturesUnordered<BoxFuture<'static, ()>>,
