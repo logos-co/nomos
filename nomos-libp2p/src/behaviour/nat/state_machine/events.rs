@@ -40,7 +40,7 @@ pub(crate) enum MappedPublicEvent {
 #[derive(Debug)]
 pub(crate) enum PrivateEvent {
     // TODO impl TryFrom<AddressMapperBehaviour::Event> when it's available
-    _LocalAddressChanged,
+    _LocalAddressChanged(Multiaddr),
     // TODO impl TryFrom<AddressMapperBehaviour::Event> when it's available
     _DefaultGatewayChanged,
 }
