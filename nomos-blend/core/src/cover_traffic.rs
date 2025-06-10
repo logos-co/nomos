@@ -1,132 +1,179 @@
 use std::{
     collections::HashSet,
-    hash::Hash,
     marker::PhantomData,
-    ops::Div as _,
     pin::Pin,
     task::{Context, Poll},
+    time::Duration,
 };
 
-use blake2::{digest::consts::U4, Digest as _};
-use futures::{Stream, StreamExt as _};
-use nomos_blend_message::BlendMessage;
+use futures::{
+    stream::{Enumerate, Map},
+    Stream, StreamExt as _,
+};
+use multiaddr::PeerId;
 use serde::Deserialize;
+use tokio::time::{self, Instant};
+use tokio_stream::wrappers::IntervalStream;
+use tracing::trace;
 
 #[derive(Copy, Clone, Deserialize)]
 pub struct CoverTrafficSettings {
-    pub node_id: [u8; 32],
-    pub number_of_hops: usize,
-    pub slots_per_epoch: usize,
-    pub network_size: usize,
+    // S: number of rounds in a session.
+    rounds_per_session: u64,
+    // |I|: length of an interval in terms of rounds.
+    interval_duration: u64,
+    // length of a round in terms of seconds.
+    round_duration: u64,
+    // F_c: frequency at which cover messages are generated per round.
+    // TODO: Prevent this from being negative
+    message_frequency_per_round: f64,
+    // H_c: expected number of blending operations for each cover message.
+    blending_ops_per_message: usize,
+    // R_c: redundancy parameter for cover messages.
+    redundancy_parameter: usize,
+    // ß_max: maximum number of blending operations of a single message.
+    maximum_blending_ops_per_message: usize,
+    // max: safety buffer length, expressed in intervals
+    safety_buffer_intervals: u64,
 }
 
-pub struct CoverTraffic<EpochStream, SlotStream, Message> {
-    winning_probability: f64,
+impl CoverTrafficSettings {
+    fn rounds_stream(&self) -> Map<Enumerate<IntervalStream>, impl FnMut((usize, Instant)) -> u64> {
+        IntervalStream::new(time::interval(Duration::from_secs(self.round_duration)))
+            .enumerate()
+            .map(|(i, _)| i as u64)
+    }
+
+    fn intervals_stream(
+        &self,
+    ) -> Map<Enumerate<IntervalStream>, impl FnMut((usize, Instant)) -> u64> {
+        IntervalStream::new(time::interval(Duration::from_secs(
+            self.interval_duration * self.round_duration,
+        )))
+        .enumerate()
+        .map(|(i, _)| i as u64)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct InternalSessionInfo {
+    // Used mark rounds that should result in a new cover message.
+    // The key is (interval, interval).
+    message_slots: HashSet<(u64, u64)>,
+    current_interval: u64,
+}
+
+impl InternalSessionInfo {
+    // TODO: Remove unsafe casts
+    fn from_session_info_and_settings<Rng>(
+        session_info: SessionInfo,
+        mut rng: Rng,
+        &CoverTrafficSettings {
+            blending_ops_per_message,
+            message_frequency_per_round,
+            redundancy_parameter,
+            maximum_blending_ops_per_message,
+            rounds_per_session,
+            interval_duration,
+            safety_buffer_intervals: safety_buffer_length,
+            ..
+        }: &CoverTrafficSettings,
+    ) -> Self
+    where
+        Rng: rand::Rng,
+    {
+        // C: Expected number of cover messages that are generated during a session.
+        let expected_number_of_session_messages =
+            rounds_per_session as f64 * message_frequency_per_round;
+        // Q_c: Messaging allowance that can be used by a core node during a
+        // single session.
+        let core_quota = ((expected_number_of_session_messages
+            * (blending_ops_per_message + redundancy_parameter * blending_ops_per_message) as f64)
+            / session_info.core_nodes.len() as f64)
+            .ceil();
+        // c: Maximal number of cover messages a node can generate per session.
+        let mut session_messages =
+            (core_quota / maximum_blending_ops_per_message as f64).ceil() as usize;
+
+        let mut message_slots = HashSet::with_capacity(session_messages);
+        let total_intervals = (rounds_per_session / interval_duration) + safety_buffer_length;
+        while session_messages > 0 {
+            let random_interval = rng.gen_range(0..total_intervals);
+            let random_round = rng.gen_range(0..interval_duration);
+            if message_slots.insert((random_interval, random_round)) {
+                session_messages -= 1;
+            } else {
+                trace!("Random slot generation generated an existing entry. Retrying...");
+            }
+        }
+
+        Self { message_slots }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SessionInfo {
+    core_nodes: Vec<PeerId>,
+}
+
+pub struct CoverTraffic<SessionStream, Rng> {
+    sessions: SessionStream,
+    rounds: Box<dyn Stream<Item = u64> + Unpin>,
+    intervals: Box<dyn Stream<Item = u64> + Unpin>,
     settings: CoverTrafficSettings,
-    epoch_stream: EpochStream,
-    slot_stream: SlotStream,
-    selected_slots: HashSet<u32>,
-    _message: PhantomData<Message>,
+    session_info: InternalSessionInfo,
+    rng: Rng,
 }
 
-impl<EpochStream, SlotStream, Message> CoverTraffic<EpochStream, SlotStream, Message>
-where
-    EpochStream: Stream<Item = usize> + Send + Sync + Unpin,
-    SlotStream: Stream<Item = usize> + Send + Sync + Unpin,
-{
-    pub fn new(
-        settings: CoverTrafficSettings,
-        epoch_stream: EpochStream,
-        slot_stream: SlotStream,
-    ) -> Self {
-        let winning_probability = winning_probability(settings.number_of_hops);
+impl<SessionStream, Rng> CoverTraffic<SessionStream, Rng> {
+    pub fn new(settings: CoverTrafficSettings, sessions: SessionStream, rng: Rng) -> Self {
         Self {
-            winning_probability,
+            rounds: Box::new(settings.rounds_stream()),
+            intervals: Box::new(settings.intervals_stream()),
+            sessions,
             settings,
-            epoch_stream,
-            slot_stream,
-            selected_slots: HashSet::default(),
-            _message: PhantomData,
+            session_info: InternalSessionInfo::default(),
+            rng,
         }
     }
 }
 
-impl<EpochStream, SlotStream, Message> Stream for CoverTraffic<EpochStream, SlotStream, Message>
+impl<SessionStream, Rng> Stream for CoverTraffic<SessionStream, Rng>
 where
-    EpochStream: Stream<Item = usize> + Send + Sync + Unpin,
-    SlotStream: Stream<Item = usize> + Send + Sync + Unpin,
-    Message: BlendMessage + Send + Sync + Unpin,
+    SessionStream: Stream<Item = SessionInfo> + Unpin,
+    Rng: rand::Rng + Unpin,
 {
     type Item = Vec<u8>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Self {
-            winning_probability,
             settings,
-            epoch_stream,
-            slot_stream,
-            selected_slots,
+            rng,
+            session_info,
+            sessions,
+            rounds,
+            intervals,
             ..
         } = &mut *self;
-        if let Poll::Ready(Some(epoch)) = epoch_stream.poll_next_unpin(cx) {
-            *selected_slots = select_slot(
-                settings.node_id,
-                epoch,
-                settings.network_size,
-                settings.slots_per_epoch,
-                *winning_probability,
-            );
-        }
-        if let Poll::Ready(Some(slot)) = slot_stream.poll_next_unpin(cx) {
-            if selected_slots.contains(&(slot as u32)) {
-                return Poll::Ready(Some(vec![]));
-            }
-        }
-        Poll::Pending
-    }
-}
 
-fn generate_ticket<Id: Hash + Eq + AsRef<[u8]>>(node_id: Id, r: usize, slot: usize) -> u32 {
-    let mut hasher = blake2::Blake2s::<U4>::new();
-    hasher.update(node_id);
-    hasher.update(r.to_be_bytes());
-    hasher.update(slot.to_be_bytes());
-    let hash: [u8; std::mem::size_of::<u32>()] = hasher.finalize()[..].to_vec().try_into().unwrap();
-    u32::from_be_bytes(hash)
-}
-
-fn select_slot<Id: Hash + Eq + AsRef<[u8]> + Copy>(
-    node_id: Id,
-    r: usize,
-    network_size: usize,
-    slots_per_epoch: usize,
-    winning_probability: f64,
-) -> HashSet<u32> {
-    let i = (slots_per_epoch as f64).div(network_size as f64) * winning_probability;
-    let size = i.ceil() as usize;
-    let mut w = HashSet::new();
-    let mut i = 0;
-    while w.len() != size {
-        w.insert(generate_ticket(node_id, r, i) % slots_per_epoch as u32);
-        i += 1;
-    }
-    w
-}
-
-fn winning_probability(number_of_hops: usize) -> f64 {
-    1.0 / number_of_hops as f64
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::cover_traffic::{generate_ticket, select_slot, winning_probability};
-
-    #[test]
-    fn test_ticket() {
-        generate_ticket(10u32.to_be_bytes(), 1123, 0);
-        for i in 0..1u32 {
-            let slots = select_slot(i.to_be_bytes(), 1234, 100, 21600, winning_probability(1));
-            println!("slots = {slots:?}");
-        }
+        // It's fine for multiple streams to tick at the same time, it means we enter a
+        // new period (e.g., a new interval, or a new session), and all lower-level
+        // streams should be reset. Before resetting, we need to fetch a value from them
+        // in case they have one.
+        // Maybe we can have our own implementation of `Stream` which returns what we
+        // need?
+        let should_emit_new_message =
+            if let Poll::Ready(Some(new_round)) = rounds.poll_next_unpin(cx) {
+                if session_info
+                    .message_slots
+                    .remove(&(session_info.current_interval, new_round))
+                {
+                    Some(true)
+                } else {
+                    Some(false)
+                }
+            } else {
+                None
+            };
     }
 }
