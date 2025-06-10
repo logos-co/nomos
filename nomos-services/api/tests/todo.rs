@@ -10,6 +10,7 @@ use nomos_api::{ApiService, ApiServiceSettings, Backend};
 use overwatch::{
     derive_services,
     overwatch::{handle::OverwatchHandle, OverwatchRunner},
+    DynError,
 };
 use utoipa::{
     openapi::security::{ApiKey, ApiKeyValue, SecurityScheme},
@@ -71,6 +72,13 @@ impl Backend<RuntimeServiceId> for WebServer {
         Self: Sized,
     {
         Ok(Self { addr: settings })
+    }
+
+    async fn wait_until_ready(
+        &mut self,
+        _overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+    ) -> Result<(), DynError> {
+        Ok(())
     }
 
     async fn serve(self, _handle: OverwatchHandle<RuntimeServiceId>) -> Result<(), Self::Error> {
