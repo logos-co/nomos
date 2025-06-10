@@ -391,7 +391,7 @@ where
     ) -> Result<(), DynError> {
         wait_until_services_are_ready!(
             &overwatch_handle,
-            Some(Duration::from_millis(3000)),
+            Some(Duration::from_secs(60)),
             Cryptarchia<
                 _,
                 _,

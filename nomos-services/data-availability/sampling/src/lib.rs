@@ -478,7 +478,7 @@ where
 
         wait_until_services_are_ready!(
             &service_resources_handle.overwatch_handle,
-            Some(Duration::from_millis(3000)),
+            Some(Duration::from_secs(60)),
             NetworkService<_, _>,
             StorageService<_, _>,
             DaVerifierService<_, _, _, _>
