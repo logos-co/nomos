@@ -18,7 +18,7 @@ use overwatch::{
 pub trait NetworkAdapter<RuntimeServiceId> {
     type Backend: NetworkBackend<RuntimeServiceId> + Send + 'static;
     type Settings: Clone;
-    type Membership: Clone;
+    type Membership;
 
     async fn new(
         network_relay: OutboundRelay<
