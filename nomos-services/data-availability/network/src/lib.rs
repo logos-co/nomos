@@ -44,10 +44,7 @@ impl<Backend: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> Debug
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct NetworkConfig<Backend: NetworkBackend<RuntimeServiceId>, RuntimeServiceId, Membership>
-where
-    Membership: Clone,
-{
+pub struct NetworkConfig<Backend: NetworkBackend<RuntimeServiceId>, RuntimeServiceId, Membership> {
     pub backend: Backend::Settings,
     pub membership: Membership,
 }
@@ -66,9 +63,7 @@ pub struct NetworkService<
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     RuntimeServiceId,
     Membership,
-> where
-    Membership: Clone,
-{
+> {
     backend: Backend,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     _membership: DaMembershipHandler<Membership>,
@@ -81,8 +76,6 @@ pub struct NetworkState<Backend: NetworkBackend<RuntimeServiceId>, RuntimeServic
 
 impl<Backend: NetworkBackend<RuntimeServiceId> + 'static + Send, RuntimeServiceId, Membership>
     ServiceData for NetworkService<Backend, RuntimeServiceId, Membership>
-where
-    Membership: Clone,
 {
     type Settings = NetworkConfig<Backend, RuntimeServiceId, Membership>;
     type State = NetworkState<Backend, RuntimeServiceId, Membership>;
@@ -154,7 +147,6 @@ impl<Backend, RuntimeServiceId, Membership> Drop
     for NetworkService<Backend, RuntimeServiceId, Membership>
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
-    Membership: Clone,
 {
     fn drop(&mut self) {
         self.backend.shutdown();
