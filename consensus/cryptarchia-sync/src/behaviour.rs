@@ -76,7 +76,7 @@ pub enum Event {
     },
 }
 
-/// A set of block identifiers the syncing peer already knows.
+/// Info to initiate block downloading from a peer.
 #[derive(Debug, Clone)]
 pub struct DownloadBlocksInfo {
     /// Return blocks up to `target_block` if specified.
