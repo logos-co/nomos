@@ -6,6 +6,94 @@ use libp2p::{
 
 use crate::behaviour::nat::address_mapper;
 
+pub struct AddressMappingFailed(pub Multiaddr);
+pub struct AutonatClientTestFailed(pub Multiaddr);
+pub struct AutonatClientTestOk(pub Multiaddr);
+pub struct DefaultGatewayChanged;
+pub struct ExternalAddressConfirmed(pub Multiaddr);
+pub struct LocalAddressChanged(pub Multiaddr);
+pub struct NewExternalAddressCandidate(pub Multiaddr);
+pub struct NewExternalMappedAddress(pub Multiaddr);
+
+impl TryFrom<FromSwarm<'_>> for NewExternalAddressCandidate {
+    type Error = ();
+
+    fn try_from(event: FromSwarm<'_>) -> Result<Self, Self::Error> {
+        match event {
+            FromSwarm::NewExternalAddrCandidate(NewExternalAddrCandidate { addr }) => {
+                Ok(Self(addr.clone()))
+            }
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<FromSwarm<'_>> for ExternalAddressConfirmed {
+    type Error = ();
+
+    fn try_from(event: FromSwarm<'_>) -> Result<Self, Self::Error> {
+        match event {
+            FromSwarm::ExternalAddrConfirmed(ExternalAddrConfirmed { addr }) => {
+                Ok(Self(addr.clone()))
+            }
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<&autonat::v2::client::Event> for AutonatClientTestFailed {
+    type Error = ();
+
+    fn try_from(event: &autonat::v2::client::Event) -> Result<Self, Self::Error> {
+        match event {
+            autonat::v2::client::Event {
+                result: Err(_),
+                tested_addr,
+                ..
+            } => Ok(Self(tested_addr.clone())),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<&autonat::v2::client::Event> for AutonatClientTestOk {
+    type Error = ();
+
+    fn try_from(event: &autonat::v2::client::Event) -> Result<Self, Self::Error> {
+        match event {
+            autonat::v2::client::Event {
+                result: Ok(_),
+                tested_addr,
+                ..
+            } => Ok(Self(tested_addr.clone())),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<&address_mapper::Event> for NewExternalMappedAddress {
+    type Error = ();
+
+    fn try_from(event: &address_mapper::Event) -> Result<Self, Self::Error> {
+        match event {
+            address_mapper::Event::_NewExternalMappedAddress(addr) => Ok(Self(addr.clone())),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<&address_mapper::Event> for AddressMappingFailed {
+    type Error = ();
+
+    fn try_from(event: &address_mapper::Event) -> Result<Self, Self::Error> {
+        match event {
+            address_mapper::Event::AddressMappingFailed(addr) => Ok(Self(addr.clone())),
+            _ => Err(()),
+        }
+    }
+}
+
+/*
 pub(crate) enum UninitializedEvent {
     NewExternalAddressCandidate(Multiaddr),
 }
@@ -44,7 +132,7 @@ pub(crate) enum PrivateEvent {
     // TODO impl TryFrom<AddressMapperBehaviour::Event> when it's available
     _DefaultGatewayChanged,
 }
-
+*/
 macro_rules! impl_try_from {
     ($in_type:ty, $arg_name:ident, $out_type:ty, $block:block) => {
         impl TryFrom<$in_type> for $out_type {
@@ -72,6 +160,56 @@ macro_rules! impl_try_from_foreach {
 #[cfg(test)]
 pub(super) use {impl_try_from, impl_try_from_foreach};
 
+/*  */
+impl_try_from_foreach!(
+    FromSwarm<'_>,
+    _event,
+    [
+        AddressMappingFailed,
+        AutonatClientTestFailed,
+        AutonatClientTestOk,
+        DefaultGatewayChanged,
+        // ExternalAddressConfirmed
+        LocalAddressChanged,
+        // NewExternalAddressCandidate,
+        NewExternalMappedAddress
+    ],
+    { Err(()) }
+);
+
+impl_try_from_foreach!(
+    &autonat::v2::client::Event,
+    _event,
+    [
+        AddressMappingFailed,
+        // AutonatClientTestFailed,
+        // AutonatClientTestOk,
+        DefaultGatewayChanged,
+        ExternalAddressConfirmed,
+        LocalAddressChanged,
+        NewExternalAddressCandidate,
+        NewExternalMappedAddress
+    ],
+    { Err(()) }
+);
+
+impl_try_from_foreach!(
+    &address_mapper::Event,
+    _event,
+    [
+        // AddressMappingFailed,
+        AutonatClientTestFailed,
+        AutonatClientTestOk,
+        DefaultGatewayChanged,
+        ExternalAddressConfirmed,
+        LocalAddressChanged,
+        NewExternalAddressCandidate,
+        // NewExternalMappedAddress
+    ],
+    { Err(()) }
+);
+
+/*
 impl_try_from_foreach!(FromSwarm<'_>, event, [UninitializedEvent], {
     match event {
         FromSwarm::NewExternalAddrCandidate(NewExternalAddrCandidate { addr }) => {
@@ -174,3 +312,4 @@ impl_try_from_foreach!(
     ],
     { Err(()) }
 );
+*/

@@ -38,6 +38,7 @@ pub(crate) enum Command {
     NewExternalAddrCandidate(Multiaddr),
 }
 
+#[cfg(off)]
 impl StateMachine {
     pub fn new(command_tx: UnboundedSender<Command>) -> Self {
         Self {
@@ -65,6 +66,35 @@ impl StateMachine {
     }
 }
 
+impl StateMachine {
+    pub fn new(command_tx: UnboundedSender<Command>) -> Self {
+        Self {
+            state: Uninitialized.into(),
+            command_tx: command_tx.into(),
+        }
+    }
+
+    pub fn on_event<Event>(&mut self, event: Event)
+    where
+        Event: TryInto<events::AddressMappingFailed, Error = ()>
+            + TryInto<events::AutonatClientTestFailed, Error = ()>
+            + TryInto<events::AutonatClientTestOk, Error = ()>
+            + TryInto<events::DefaultGatewayChanged, Error = ()>
+            + TryInto<events::ExternalAddressConfirmed, Error = ()>
+            + TryInto<events::LocalAddressChanged, Error = ()>
+            + TryInto<events::NewExternalAddressCandidate, Error = ()>
+            + TryInto<events::NewExternalMappedAddress, Error = ()>,
+    {
+        let Ok(new_state) = self.state.clone().on_event(event, &self.command_tx) else {
+            // If the event is not recognized by the current state, we ignore it.
+            return;
+        };
+
+        self.state = new_state;
+    }
+}
+
+#[cfg(off)]
 impl State {
     pub fn on_event<Event>(self, event: Event, command_tx: &CommandTx) -> Result<Self, ()>
     where
@@ -88,12 +118,57 @@ impl State {
     }
 }
 
+impl State {
+    pub fn on_event<Event>(self, event: Event, command_tx: &CommandTx) -> Result<Self, ()>
+    where
+        Event: TryInto<events::AddressMappingFailed, Error = ()>
+            + TryInto<events::AutonatClientTestFailed, Error = ()>
+            + TryInto<events::AutonatClientTestOk, Error = ()>
+            + TryInto<events::DefaultGatewayChanged, Error = ()>
+            + TryInto<events::ExternalAddressConfirmed, Error = ()>
+            + TryInto<events::LocalAddressChanged, Error = ()>
+            + TryInto<events::NewExternalAddressCandidate, Error = ()>
+            + TryInto<events::NewExternalMappedAddress, Error = ()>,
+    {
+        Ok(match self {
+            State::Uninitialized(x) => x.on_event(event.try_into()?, command_tx),
+            State::TestIfPublic(x) => x.on_event(event.try_into()?, command_tx),
+            _ => panic!(),
+            /* State::TestIfPublic(x) => x.on_event(event.try_into()?,
+             * command_tx), */
+            /*
+            State::TryAddressMapping(x) => x.on_event(event.try_into()?, command_tx),
+            State::TestIfMappedPublic(x) => x.on_event(event.try_into()?, command_tx),
+            State::Public(x) => x.on_event(event.try_into()?, command_tx),
+            State::MappedPublic(x) => x.on_event(event.try_into()?, command_tx),
+            State::Private(x) => x.on_event(event.try_into()?, command_tx),
+            */
+        })
+    }
+}
+
+#[cfg(off)]
 trait OnEvent {
     type Event;
 
     fn on_event(self, event: Self::Event, command_tx: &CommandTx) -> State;
 }
 
+#[cfg(off2)]
+trait OnEvent<Event> {
+    fn on_event(self, event: Event, command_tx: &CommandTx) -> State
+    where
+        Self: Sized + Into<State>,
+    {
+        self.into()
+    }
+}
+
+trait OnEvent<Event> {
+    fn on_event(self, event: Event, command_tx: &CommandTx) -> State;
+}
+
+#[cfg(off)]
 impl OnEvent for Uninitialized {
     type Event = UninitializedEvent;
 
@@ -104,6 +179,49 @@ impl OnEvent for Uninitialized {
     }
 }
 
+impl OnEvent<NewExternalAddressCandidate> for Uninitialized {
+    fn on_event(self, event: NewExternalAddressCandidate, _: &CommandTx) -> State {
+        TestIfPublic(event.0).into()
+    }
+}
+
+impl OnEvent<ExternalAddressConfirmed> for TestIfPublic {
+    fn on_event(self, event: ExternalAddressConfirmed, command_tx: &CommandTx) -> State {
+        let ExternalAddressConfirmed(addr) = event;
+
+        if self.0 == addr {
+            command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
+            Public(addr).into()
+        } else {
+            tracing::error!(
+                "Autonat client reported address {}, but {} was expected",
+                addr,
+                self.0,
+            );
+            self.into()
+        }
+    }
+}
+
+impl OnEvent<AutonatClientTestFailed> for TestIfPublic {
+    fn on_event(self, event: AutonatClientTestFailed, command_tx: &CommandTx) -> State {
+        let AutonatClientTestFailed(addr) = event;
+
+        if self.0 == addr {
+            command_tx.send(Command::MapAddress(addr.clone()));
+            TryAddressMapping(addr).into()
+        } else {
+            tracing::error!(
+                "Autonat client reported address {}, but {} was expected",
+                addr,
+                self.0,
+            );
+            self.into()
+        }
+    }
+}
+
+#[cfg(off)]
 impl OnEvent for TestIfPublic {
     type Event = TestIfPublicEvent;
 
@@ -131,6 +249,33 @@ impl OnEvent for TestIfPublic {
     }
 }
 
+impl OnEvent<NewExternalMappedAddress> for TryAddressMapping {
+    fn on_event(self, event: NewExternalMappedAddress, command_tx: &CommandTx) -> State {
+        let NewExternalMappedAddress(addr) = event;
+
+        command_tx.send(Command::NewExternalAddrCandidate(addr.clone()));
+        TestIfMappedPublic(addr).into()
+    }
+}
+
+impl OnEvent<AddressMappingFailed> for TryAddressMapping {
+    fn on_event(self, event: AddressMappingFailed, _: &CommandTx) -> State {
+        let AddressMappingFailed(addr) = event;
+
+        if self.0 == addr {
+            Private(addr).into()
+        } else {
+            tracing::error!(
+                "Address mapper reported failure for address {}, but {} was expected",
+                addr,
+                self.0,
+            );
+            self.into()
+        }
+    }
+}
+
+#[cfg(off)]
 impl OnEvent for TryAddressMapping {
     type Event = TryAddressMappingEvent;
 
@@ -154,6 +299,42 @@ impl OnEvent for TryAddressMapping {
     }
 }
 
+impl OnEvent<ExternalAddressConfirmed> for TestIfMappedPublic {
+    fn on_event(self, event: ExternalAddressConfirmed, command_tx: &CommandTx) -> State {
+        let ExternalAddressConfirmed(addr) = event;
+
+        if self.0 == addr {
+            command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
+            MappedPublic(addr).into()
+        } else {
+            tracing::error!(
+                "Autonat client reported address {}, but {} was expected",
+                addr,
+                self.0,
+            );
+            self.into()
+        }
+    }
+}
+
+impl OnEvent<AutonatClientTestFailed> for TestIfMappedPublic {
+    fn on_event(self, event: AutonatClientTestFailed, _: &CommandTx) -> State {
+        let AutonatClientTestFailed(addr) = event;
+
+        if self.0 == addr {
+            Private(addr).into()
+        } else {
+            tracing::error!(
+                "Autonat client reported address {}, but {} was expected",
+                addr,
+                self.0,
+            );
+            self.into()
+        }
+    }
+}
+
+#[cfg(off)]
 impl OnEvent for TestIfMappedPublic {
     type Event = TestIfMappedPublicEvent;
 
@@ -178,6 +359,60 @@ impl OnEvent for TestIfMappedPublic {
     }
 }
 
+impl OnEvent<ExternalAddressConfirmed> for Public {
+    fn on_event(self, event: ExternalAddressConfirmed, command_tx: &CommandTx) -> State {
+        let ExternalAddressConfirmed(addr) = event;
+
+        if self.0 == addr {
+            command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
+            Public(addr).into()
+        } else {
+            tracing::error!(
+                "Autonat client reported address {}, but {} was expected",
+                addr,
+                self.0,
+            );
+            self.into()
+        }
+    }
+}
+
+impl OnEvent<AutonatClientTestOk> for Public {
+    fn on_event(self, event: AutonatClientTestOk, command_tx: &CommandTx) -> State {
+        let AutonatClientTestOk(addr) = event;
+
+        if self.0 == addr {
+            command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
+            Public(addr).into()
+        } else {
+            tracing::error!(
+                "Autonat client reported address {}, but {} was expected",
+                addr,
+                self.0,
+            );
+            self.into()
+        }
+    }
+}
+
+impl OnEvent<AutonatClientTestFailed> for Public {
+    fn on_event(self, event: AutonatClientTestFailed, _: &CommandTx) -> State {
+        let AutonatClientTestFailed(addr) = event;
+
+        if self.0 == addr {
+            TestIfPublic(addr).into()
+        } else {
+            tracing::error!(
+                "Autonat client reported address {}, but {} was expected",
+                addr,
+                self.0,
+            );
+            self.into()
+        }
+    }
+}
+
+#[cfg(off)]
 impl OnEvent for Public {
     type Event = PublicEvent;
 
@@ -208,6 +443,7 @@ impl OnEvent for Public {
     }
 }
 
+#[cfg(off)]
 impl OnEvent for MappedPublic {
     type Event = MappedPublicEvent;
 
@@ -238,6 +474,60 @@ impl OnEvent for MappedPublic {
     }
 }
 
+impl OnEvent<ExternalAddressConfirmed> for MappedPublic {
+    fn on_event(self, event: ExternalAddressConfirmed, command_tx: &CommandTx) -> State {
+        let ExternalAddressConfirmed(addr) = event;
+
+        if self.0 == addr {
+            command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
+            Public(addr).into()
+        } else {
+            tracing::error!(
+                "Autonat client reported address {}, but {} was expected",
+                addr,
+                self.0,
+            );
+            self.into()
+        }
+    }
+}
+
+impl OnEvent<AutonatClientTestOk> for MappedPublic {
+    fn on_event(self, event: AutonatClientTestOk, command_tx: &CommandTx) -> State {
+        let AutonatClientTestOk(addr) = event;
+
+        if self.0 == addr {
+            command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
+            Public(addr).into()
+        } else {
+            tracing::error!(
+                "Autonat client reported address {}, but {} was expected",
+                addr,
+                self.0,
+            );
+            self.into()
+        }
+    }
+}
+
+impl OnEvent<AutonatClientTestFailed> for MappedPublic {
+    fn on_event(self, event: AutonatClientTestFailed, _: &CommandTx) -> State {
+        let AutonatClientTestFailed(addr) = event;
+
+        if self.0 == addr {
+            TestIfPublic(addr).into()
+        } else {
+            tracing::error!(
+                "Autonat client reported address {}, but {} was expected",
+                addr,
+                self.0,
+            );
+            self.into()
+        }
+    }
+}
+
+#[cfg(off)]
 impl OnEvent for Private {
     type Event = PrivateEvent;
 
@@ -247,6 +537,20 @@ impl OnEvent for Private {
                 Uninitialized.into()
             }
         }
+    }
+}
+
+impl OnEvent<LocalAddressChanged> for Private {
+    fn on_event(self, event: LocalAddressChanged, _: &CommandTx) -> State {
+        let LocalAddressChanged(addr) = event;
+
+        TestIfPublic(addr).into()
+    }
+}
+
+impl OnEvent<DefaultGatewayChanged> for Private {
+    fn on_event(self, event: DefaultGatewayChanged, _: &CommandTx) -> State {
+        Uninitialized.into()
     }
 }
 
@@ -478,7 +782,8 @@ mod tests {
 
         use crate::behaviour::nat::{
             address_mapper,
-            state_machine::{events::*, impl_try_from, impl_try_from_foreach, StateMachine},
+            // state_machine::{events::*, impl_try_from, impl_try_from_foreach, StateMachine},
+            state_machine::{events::*, StateMachine},
         };
 
         #[derive(Debug)]
@@ -520,15 +825,16 @@ mod tests {
                         self.on_event(event);
                     }
                     TestEvent::_DefaultGatewayChanged => {
-                        self.on_event(event);
+                        // self.on_event(event);
                     }
                     TestEvent::_LocalAddressChanged => {
-                        self.on_event(event);
+                        // self.on_event(event);
                     }
                 }
             }
         }
 
+        /*
         // TODO Remove this implementation once the two events are generated by a
         // behaviour
         impl_try_from_foreach!(TestEvent<'_>, event, [PrivateEvent], {
@@ -560,6 +866,7 @@ mod tests {
                 }
             }
         );
+        */
 
         impl Eq for TestEvent<'_> {
             fn assert_receiver_is_total_eq(&self) {}
