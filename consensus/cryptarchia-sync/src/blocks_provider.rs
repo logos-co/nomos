@@ -1,16 +1,13 @@
-use futures::{AsyncWriteExt as _, StreamExt as _};
-use libp2p::{PeerId, Stream as Libp2pStream, Stream};
-use nomos_core::{
-    header::HeaderId,
-    wire::packing::{pack_to_writer, unpack_from_reader},
-};
-use serde::Serialize;
+use futures::StreamExt as _;
+use libp2p::{PeerId, Stream as Libp2pStream};
+use nomos_core::{header::HeaderId, wire::packing::unpack_from_reader};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
     errors::{ChainSyncError, ChainSyncErrorKind},
     messages::{DownloadBlocksResponse, GetTipResponse, RequestMessage, SerialisedBlock},
+    util::send_message,
 };
 
 pub const BUFFER_SIZE: usize = 64;
@@ -39,7 +36,7 @@ impl ProvideBlocksTask {
         match reply_rcv.recv().await {
             Some(tip) => {
                 let response = GetTipResponse { tip };
-                Self::send_message(peer_id, &mut stream, &response).await?;
+                send_message(peer_id, &mut stream, &response).await?;
 
                 Ok(())
             }
@@ -62,32 +59,16 @@ impl ProvideBlocksTask {
                 Ok(&mut stream),
                 |res: Result<&mut _, ChainSyncError>, block| async move {
                     let stream = res?;
-                    Self::send_message(peer_id, stream, &block).await?;
+                    let message = DownloadBlocksResponse::Block(block);
+                    send_message(peer_id, stream, &message).await?;
                     Ok(stream)
                 },
             )
             .await?;
 
         let request = DownloadBlocksResponse::NoMoreBlocks;
+        send_message(peer_id, &mut stream, &request).await?;
 
-        Self::send_message(peer_id, &mut stream, &request).await?;
-
-        Ok(())
-    }
-
-    async fn send_message<M: Serialize + Sync>(
-        peer_id: PeerId,
-        mut stream: &mut Stream,
-        message: &M,
-    ) -> Result<(), ChainSyncError> {
-        pack_to_writer(&message, &mut stream)
-            .await
-            .map_err(|e| ChainSyncError::from((peer_id, e)))?;
-
-        stream
-            .flush()
-            .await
-            .map_err(|e| ChainSyncError::from((peer_id, e)))?;
         Ok(())
     }
 }

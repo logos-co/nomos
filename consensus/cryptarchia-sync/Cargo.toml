@@ -5,17 +5,18 @@ name              = "cryptarchia-sync"
 version           = "0.1.0"
 
 [dependencies]
-bytes         = { workspace = true }
-futures       = "0.3"
-libp2p        = { workspace = true, features = ["quic", "tokio", "yamux"] }
-libp2p-stream = { workspace = true }
-nomos-core    = { workspace = true }
-rand          = "0.9"
-serde         = { version = "1", features = ["derive"] }
-thiserror     = "1"
-tokio         = { version = "1", features = ["macros", "rt", "sync"] }
-tokio-stream  = "0.1"
-tracing       = "0.1"
+bytes              = { workspace = true }
+futures            = "0.3"
+libp2p             = { workspace = true, features = ["quic", "tokio", "yamux"] }
+libp2p-stream      = { workspace = true }
+nomos-core         = { workspace = true }
+rand               = "0.9"
+serde              = { version = "1", features = ["derive"] }
+thiserror          = "1"
+tokio              = { version = "1", features = ["macros", "rt", "sync"] }
+tokio-stream       = "0.1"
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [dev-dependencies]
 libp2p-swarm-test = { version = "0.5", features = ["tokio"] }

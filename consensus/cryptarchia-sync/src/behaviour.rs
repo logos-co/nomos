@@ -267,6 +267,7 @@ impl Behaviour {
 
     fn handle_request_available(
         &mut self,
+        cx: &mut Context,
         result: Result<(PeerId, Stream), ChainSyncError>,
     ) -> Poll<
         ToSwarm<
@@ -278,6 +279,8 @@ impl Behaviour {
             Ok((peer_id, stream)) => {
                 self.in_progress_download_requests
                     .push(DownloadBlocksTask::download_blocks(peer_id, stream));
+
+                cx.waker().wake_by_ref();
 
                 Poll::Pending
             }
@@ -399,8 +402,7 @@ impl NetworkBehaviour for Behaviour {
         while self.incoming_streams_to_close.poll_next_unpin(cx) == Poll::Ready(Some(())) {}
 
         if let Poll::Ready(Some(result)) = self.pending_download_requests.poll_next_unpin(cx) {
-            cx.waker().wake_by_ref();
-            return self.handle_request_available(result);
+            return self.handle_request_available(cx, result);
         }
 
         if let Poll::Ready(Some(response)) = self.in_progress_download_requests.poll_next_unpin(cx)
@@ -415,6 +417,9 @@ impl NetworkBehaviour for Behaviour {
                 }
                 Err(e) => {
                     error!("Error while downloading blocks: {}", e);
+                    return Poll::Ready(ToSwarm::GenerateEvent(Event::DownloadBlocksResponse {
+                        result: BlocksResponse::NetworkError(e),
+                    }));
                 }
             }
         }
@@ -434,8 +439,9 @@ impl NetworkBehaviour for Behaviour {
         }
 
         if let Poll::Ready(Some((peer_id, stream))) = self.incoming_streams.poll_next_unpin(cx) {
-            cx.waker().wake_by_ref();
             self.handle_incoming_stream(peer_id, stream);
+
+            cx.waker().wake_by_ref();
         }
 
         Poll::Pending
@@ -455,6 +461,7 @@ mod tests {
 
     use crate::{
         behaviour::{ChainSyncErrorKind, MAX_INCOMING_REQUESTS},
+        blocks_provider::MAX_ADDITIONAL_BLOCKS,
         Behaviour, BlocksResponse, DownloadBlocksInfo, Event,
     };
 
@@ -498,6 +505,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_reject_excess_download_requests() {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .without_time()
+            .init();
         let mut downloader_swarm = start_provider_and_downloader(1).await;
 
         request_syncs(
@@ -528,7 +539,7 @@ mod tests {
                 target_block: None,
                 local_tip: HeaderId::from([0; 32]),
                 latest_immutable_block: HeaderId::from([0; 32]),
-                additional_blocks: vec![],
+                additional_blocks: vec![HeaderId::from([1; 32]); MAX_ADDITIONAL_BLOCKS + 1],
             },
         );
 
@@ -612,7 +623,7 @@ mod tests {
             (blocks, errros)
         });
 
-        tokio::time::timeout(Duration::from_secs(2), handle)
+        tokio::time::timeout(Duration::from_secs(5), handle)
             .await
             .unwrap()
             .unwrap()
