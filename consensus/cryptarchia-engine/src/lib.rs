@@ -127,7 +127,6 @@ pub struct Cryptarchia<Id, State: ?Sized> {
     local_chain: Branch<Id>,
     branches: Branches<Id>,
     config: Config,
-    genesis: Id,
     // Just a marker to indicate whether the node is bootstrapping or online.
     // Does not actually end up in memory.
     _state: std::marker::PhantomData<State>,
@@ -141,7 +140,6 @@ where
         self.local_chain == other.local_chain
             && self.branches == other.branches
             && self.config == other.config
-            && self.genesis == other.genesis
     }
 }
 
@@ -190,72 +188,22 @@ impl<Id> Branches<Id>
 where
     Id: Eq + std::hash::Hash + Copy,
 {
-    pub fn from_genesis(genesis: Id) -> Self {
+    pub fn from_lib(lib: Id) -> Self {
         let mut branches = HashMap::new();
         branches.insert(
-            genesis,
+            lib,
             Branch {
-                id: genesis,
-                parent: genesis,
+                id: lib,
+                parent: lib,
                 slot: 0.into(),
                 length: 0,
             },
         );
-        let tips = HashSet::from([genesis]);
-        let lib = genesis;
+        let tips = HashSet::from([lib]);
         Self {
             branches,
             tips,
             lib,
-        }
-    }
-
-    /// Create a new [`Branches`] instance with the updated state.
-    /// This method adds a [`Branch`] to the new instance without running
-    /// validation.
-    ///
-    /// # Warning
-    ///
-    /// **This method bypasses safety checks** and can corrupt the state if used
-    /// incorrectly.
-    /// Only use for recovery, debugging, or other manipulations where the input
-    /// is known to be valid.
-    ///
-    /// # Arguments
-    ///
-    /// * `header` - The ID of the block to be added.
-    /// * `parent` - The ID of the parent block. Due to the nature of the method
-    ///   (`unchecked`), the existence of the parent block is not verified.
-    /// * `slot` - The slot of the block to be added.
-    /// * `chain_length`: The position of the block in the chain.
-    #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    fn apply_header_unchecked(
-        &self,
-        header: Id,
-        parent: Id,
-        slot: Slot,
-        chain_length: u64,
-    ) -> Self {
-        let mut branches = self.branches.clone();
-
-        let mut tips = self.tips.clone();
-        tips.remove(&parent);
-        tips.insert(header);
-
-        branches.insert(
-            header,
-            Branch {
-                id: header,
-                parent,
-                length: chain_length,
-                slot,
-            },
-        );
-
-        Self {
-            branches,
-            tips,
-            lib: self.lib,
         }
     }
 
@@ -279,17 +227,32 @@ where
             return Err(Error::ImmutableFork(parent));
         }
 
-        // Calculating the length here allows us to reuse
-        // `Self::apply_header_unchecked`. Could this lead to length difference
-        // issues? We are calculating length here but the `self.branches` is
-        // cloned in the `Self::apply_header_unchecked` method, which means
-        // there's a risk of length being different due to concurrent operations.
         let length = parent_branch
             .length
             .checked_add(1)
             .expect("New branch height overflows.");
 
-        Ok(self.apply_header_unchecked(header, parent, slot, length))
+        let mut branches = self.branches.clone();
+        let mut tips = self.tips.clone();
+
+        tips.remove(&parent);
+        tips.insert(header);
+
+        branches.insert(
+            header,
+            Branch {
+                id: header,
+                parent,
+                length,
+                slot,
+            },
+        );
+
+        Ok(Self {
+            branches,
+            tips,
+            lib: self.lib,
+        })
     }
 
     pub fn branches(&self) -> impl Iterator<Item = Branch<Id>> + '_ {
@@ -396,9 +359,9 @@ where
     Id: Eq + std::hash::Hash + Copy + Debug,
     State: CryptarchiaState + Copy,
 {
-    pub fn from_genesis(id: Id, config: Config) -> Self {
+    pub fn from_lib(id: Id, config: Config) -> Self {
         Self {
-            branches: Branches::from_genesis(id),
+            branches: Branches::from_lib(id),
             local_chain: Branch {
                 id,
                 length: 0,
@@ -406,43 +369,8 @@ where
                 slot: 0.into(),
             },
             config,
-            genesis: id,
             _state: std::marker::PhantomData,
         }
-    }
-
-    /// Create a new [`Cryptarchia`] instance with the updated state.
-    /// This method adds a [`Block`] to the new instance without running
-    /// validation.
-    ///
-    /// # Warning
-    ///
-    /// **This method bypasses safety checks** and can corrupt the state if used
-    /// incorrectly.
-    /// Only use for recovery, debugging, or other manipulations where the input
-    /// is known to be valid.
-    ///
-    /// # Arguments
-    ///
-    /// * `header` - The ID of the block to be added.
-    /// * `parent` - The ID of the parent block. Due to the nature of the method
-    ///   (`unchecked`), the existence of the parent block is not verified.
-    /// * `slot` - The slot of the block to be added.
-    /// * `chain_length`: The position of the block in the chain.
-    #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    pub fn receive_block_unchecked(
-        &self,
-        header: Id,
-        parent: Id,
-        slot: Slot,
-        chain_length: u64,
-    ) -> Self {
-        let mut new = self.clone();
-        new.branches = new
-            .branches
-            .apply_header_unchecked(header, parent, slot, chain_length);
-        new.local_chain = new.fork_choice();
-        new
     }
 
     /// Create a new [`Cryptarchia`] instance with the updated state.
@@ -553,10 +481,6 @@ where
         removed_blocks
     }
 
-    pub const fn genesis(&self) -> Id {
-        self.genesis
-    }
-
     pub const fn branches(&self) -> &Branches<Id> {
         &self.branches
     }
@@ -570,19 +494,6 @@ where
     pub fn lib_branch(&self) -> &Branch<Id> {
         &self.branches.branches[&self.lib()]
     }
-
-    pub fn get_security_block_header_id(&self) -> Option<Id> {
-        (0..self.config.security_param.get()).try_fold(self.tip(), |header, _| {
-            let branch = self.branches.get(&header)?;
-            let parent = branch.parent;
-            if header == parent {
-                // If the header is the genesis block, we arrived at the end of the chain
-                None
-            } else {
-                Some(parent)
-            }
-        })
-    }
 }
 
 impl<Id> Cryptarchia<Id, Boostrapping>
@@ -595,7 +506,6 @@ where
             local_chain: self.local_chain,
             branches: self.branches.clone(),
             config: self.config,
-            genesis: self.genesis,
             _state: std::marker::PhantomData,
         };
         // Update the LIB to the current local chain's tip
@@ -642,8 +552,8 @@ pub mod tests {
         length: NonZero<u64>,
         c: Option<Config>,
     ) -> Cryptarchia<[u8; 32], Boostrapping> {
-        let mut engine = Cryptarchia::from_genesis([0; 32], c.unwrap_or_else(config));
-        let mut parent = engine.genesis();
+        let mut engine = Cryptarchia::from_lib([0; 32], c.unwrap_or_else(config));
+        let mut parent = engine.lib();
         for i in 1..length.get() {
             let new_block = hash(&i);
             engine = engine
@@ -661,7 +571,7 @@ pub mod tests {
         // │   ├── grandchild
         // │   └── granchild_2
 
-        let mut branches = super::Branches::from_genesis([0; 32]);
+        let mut branches = super::Branches::from_lib([0; 32]);
         let parent = [1; 32];
         let child = [2; 32];
         let grandchild = [3; 32];
@@ -711,7 +621,7 @@ pub mod tests {
         // parent
         // └── child
 
-        let mut branches = super::Branches::from_genesis([0; 32]);
+        let mut branches = super::Branches::from_lib([0; 32]);
         let parent = [1; 32];
         let child = [2; 32];
 
@@ -729,7 +639,7 @@ pub mod tests {
         // |    └── b2
         // └── b3
 
-        let mut branches = super::Branches::from_genesis([0; 32]);
+        let mut branches = super::Branches::from_lib([0; 32]);
         let b1 = [1; 32];
         let lib = [2; 32];
         let b2 = [3; 32];
@@ -747,12 +657,12 @@ pub mod tests {
     #[test]
     fn test_fork_choice() {
         // TODO: use cryptarchia
-        let mut engine = <Cryptarchia<_, Boostrapping>>::from_genesis([0; 32], config());
+        let mut engine = <Cryptarchia<_, Boostrapping>>::from_lib([0; 32], config());
         // by setting a low k we trigger the density choice rule, and the shorter chain
         // is denser after the fork
         engine.config.security_param = NonZero::new(10).unwrap();
 
-        let mut parent = engine.genesis();
+        let mut parent = engine.lib();
         for i in 1..50 {
             let new_block = hash(&i);
             engine = engine.receive_block(new_block, parent, i.into()).unwrap();
@@ -822,8 +732,8 @@ pub mod tests {
 
     #[test]
     fn test_getters() {
-        let engine = <Cryptarchia<_, Boostrapping>>::from_genesis([0; 32], config());
-        let id_0 = engine.genesis();
+        let engine = <Cryptarchia<_, Boostrapping>>::from_lib([0; 32], config());
+        let id_0 = engine.lib();
 
         // Get branch directly from HashMap
         let branch1 = engine.branches.get(&id_0).expect("branch1 should be there");
@@ -848,31 +758,6 @@ pub mod tests {
         assert!(
             branches.get(&id_100).is_none(),
             "id_100 should not be related to this branch"
-        );
-    }
-
-    #[test]
-    fn test_get_security_block() {
-        let mut engine = <Cryptarchia<_, Boostrapping>>::from_genesis([0; 32], config());
-        let mut parent_header = engine.genesis();
-
-        assert!(engine.get_security_block_header_id().is_none());
-
-        let headers_size = 10;
-        let headers: Vec<_> = (0..headers_size).map(|i| hash(&i)).collect();
-        for (slot, header) in headers.iter().enumerate() {
-            let current_header = *header;
-            engine = engine
-                .receive_block(current_header, parent_header, (slot as u64).into())
-                .unwrap();
-            parent_header = current_header;
-        }
-
-        let security_header_position =
-            (headers_size - engine.config.security_param.get() - 1) as usize;
-        assert_eq!(
-            engine.get_security_block_header_id().unwrap(),
-            headers[security_header_position]
         );
     }
 
