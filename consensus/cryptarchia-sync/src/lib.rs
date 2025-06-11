@@ -2,9 +2,9 @@ mod behaviour;
 mod downloader;
 mod errors;
 mod messages;
+mod packing;
 mod provider;
 mod utils;
-mod packing;
 
 pub use behaviour::{Behaviour, BlocksResponse, Event};
 pub use errors::{ChainSyncError, ChainSyncErrorKind};

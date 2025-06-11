@@ -2,10 +2,10 @@ use bytes::Bytes;
 use nomos_core::header::HeaderId;
 use serde::{Deserialize, Serialize};
 
-/// Blocks are serialized using nomos-core's packing format.
+/// Blocks are serialized using nomos-core's wire format.
 pub type SerialisedBlock = Bytes;
 
-/// `HeaderId` is serialized using nomos-core's packing format.
+/// `HeaderId` is serialized using nomos-core's wire format.
 pub type SerialisedHeaderId = Bytes;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
