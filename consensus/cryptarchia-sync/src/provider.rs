@@ -3,7 +3,6 @@ use libp2p::{PeerId, Stream as Libp2pStream};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    behaviour::ResponseStream,
     errors::{ChainSyncError, ChainSyncErrorKind},
     messages::{
         DownloadBlocksResponse, GetTipResponse, RequestMessage, SerialisedBlock, SerialisedHeaderId,
@@ -16,16 +15,18 @@ pub const MAX_ADDITIONAL_BLOCKS: usize = 5;
 
 pub struct Provider;
 
+pub type ReceivingRequestStream = (PeerId, Libp2pStream, RequestMessage);
+
 impl Provider {
     pub async fn process_request(
         peer_id: PeerId,
         mut stream: Libp2pStream,
-    ) -> Result<ResponseStream, ChainSyncError> {
+    ) -> Result<ReceivingRequestStream, ChainSyncError> {
         let request: RequestMessage = unpack_from_reader(&mut stream)
             .await
             .map_err(|e| ChainSyncError::from((peer_id, e)))?;
 
-        Ok(ResponseStream::new(peer_id, stream, request))
+        Ok((peer_id, stream, request))
     }
 
     pub async fn provide_tip(
