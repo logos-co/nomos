@@ -4,6 +4,7 @@ pub mod network;
 use std::{
     fmt::{Debug, Display},
     hash::Hash,
+    num::NonZero,
     time::Duration,
 };
 
@@ -27,7 +28,10 @@ use nomos_blend::{
 use nomos_blend_message::{sphinx::SphinxMessage, BlendMessage};
 use nomos_core::wire;
 use nomos_network::NetworkService;
-use nomos_utils::bounded_duration::{MinimalBoundedDuration, SECOND};
+use nomos_utils::{
+    bounded_duration::{MinimalBoundedDuration, SECOND},
+    math::NonNegativeF64,
+};
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -153,7 +157,7 @@ where
             blend_config
                 .cover_traffic
                 .cover_traffic_settings(&blend_config.message_blend.cryptographic_processor),
-            blend_config.cover_traffic.epoch_stream(membership.size()),
+            blend_config.cover_traffic.session_stream(membership.size()),
             rng,
         );
 
@@ -180,7 +184,7 @@ where
             tokio::select! {
                 Some(msg) = persistent_transmission_messages.next() => {
                     backend.publish(msg).await;
-                    cover_traffic.notify_new_data_message().await;
+                    cover_traffic.notify_of_new_data_message().await;
                 }
                 // Already processed blend messages
                 Some(msg) = blend_messages.next() => {
@@ -272,15 +276,12 @@ pub struct BlendConfig<BackendSettings, BackendNodeId> {
 #[serde_with::serde_as]
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CoverTrafficExtSettings {
-    #[serde_as(as = "MinimalBoundedDuration<1, SECOND>")]
-    pub epoch_duration: Duration,
-    pub intervals_per_session: u64,
-    pub rounds_per_interval: u64,
+    pub rounds_per_session: NonZero<u64>,
+    pub rounds_per_interval: NonZero<u64>,
     #[serde_as(as = "MinimalBoundedDuration<1, SECOND>")]
     pub round_duration: Duration,
-    pub message_frequency_per_round: f64,
+    pub message_frequency_per_round: NonNegativeF64,
     pub redundancy_parameter: usize,
-    pub maximum_blending_ops_per_message: usize,
 }
 
 impl CoverTrafficExtSettings {
@@ -290,28 +291,36 @@ impl CoverTrafficExtSettings {
             <SphinxMessage as BlendMessage>::PrivateKey,
         >,
     ) -> CoverTrafficSettings {
-        CoverTrafficSettings::new(
-            self.intervals_per_session,
-            self.rounds_per_interval,
-            self.round_duration,
-            self.message_frequency_per_round,
-            cryptographic_processor_settings.num_blend_layers,
-            self.redundancy_parameter,
-            self.maximum_blending_ops_per_message,
-        )
+        CoverTrafficSettings {
+            blending_ops_per_message: cryptographic_processor_settings.num_blend_layers,
+            message_frequency_per_round: self.message_frequency_per_round,
+            redundancy_parameter: self.redundancy_parameter,
+            round_duration: self.round_duration,
+            rounds_per_interval: self.rounds_per_interval,
+            rounds_per_session: self.rounds_per_session,
+        }
     }
 
-    fn epoch_stream(
+    fn session_stream(
         &self,
         membership_size: usize,
     ) -> Box<dyn Stream<Item = SessionInfo> + Send + Unpin> {
+        let session_duration_in_seconds = self
+            .round_duration
+            .as_secs()
+            .checked_mul(self.rounds_per_interval.get())
+            .unwrap()
+            .checked_mul(self.rounds_per_session.get())
+            .expect("Overflow when computing the total duration of a session in seconds.");
         Box::new(
-            IntervalStream::new(time::interval(self.epoch_duration))
-                .enumerate()
-                .map(move |(i, _)| SessionInfo {
-                    session_number: i as u64,
-                    membership_size,
-                }),
+            IntervalStream::new(time::interval(Duration::from_secs(
+                session_duration_in_seconds,
+            )))
+            .enumerate()
+            .map(move |(i, _)| SessionInfo {
+                session_number: (i as u64).into(),
+                membership_size,
+            }),
         )
     }
 }

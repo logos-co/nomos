@@ -1,116 +1,136 @@
 use std::{
     collections::HashSet,
-    fmt::Debug,
+    fmt::{Debug, Display, Formatter},
+    num::NonZeroU64,
     pin::Pin,
     task::{Context, Poll},
     time::Duration,
 };
 
-use futures::{Stream, StreamExt as _};
+use futures::{stream::empty, Stream, StreamExt as _};
+use nomos_utils::math::NonNegativeF64;
 use tokio::{sync::mpsc, time};
 use tokio_stream::wrappers::IntervalStream;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, trace, warn};
 
 // max: safety buffer length, expressed in intervals
 const SAFETY_BUFFER_INTERVALS: u64 = 100;
+const LOG_TARGET: &str = "blend::core::cover";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
+pub struct Round(u64);
+
+impl From<u64> for Round {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+impl Display for Round {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
+pub struct Interval(u64);
+
+impl From<u64> for Interval {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+impl Display for Interval {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
+pub struct Session(u64);
+
+impl From<u64> for Session {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+impl Display for Session {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 #[derive(Copy, Clone)]
 pub struct CoverTrafficSettings {
-    // length of a session in terms of expected intervals.
-    intervals_per_session: u64,
-    // |I|: length of an interval in terms of rounds.
-    rounds_per_interval: u64,
-    // length of a round in terms of seconds.
-    round_duration: Duration,
-    // F_c: frequency at which cover messages are generated per round.
-    message_frequency_per_round: f64,
-    // H_c: expected number of blending operations for each cover message.
-    blending_ops_per_message: usize,
-    // R_c: redundancy parameter for cover messages.
-    redundancy_parameter: usize,
-    // ß_max: maximum number of blending operations of a single message.
-    maximum_blending_ops_per_message: usize,
+    /// `S`: length of a session in terms of expected rounds (on average).
+    pub rounds_per_session: NonZeroU64,
+    /// `|I|`: length of an interval in terms of rounds.
+    pub rounds_per_interval: NonZeroU64,
+    /// Duration of a round.
+    pub round_duration: Duration,
+    /// `F_c`: frequency at which cover messages are generated per round.
+    pub message_frequency_per_round: NonNegativeF64,
+    /// `ß_c`: expected number of blending operations for each cover message.
+    pub blending_ops_per_message: usize,
+    /// `R_c`: redundancy parameter for cover messages.
+    pub redundancy_parameter: usize,
 }
 
 impl CoverTrafficSettings {
     #[must_use]
-    pub const fn new(
-        intervals_per_session: u64,
-        rounds_per_interval: u64,
-        round_duration: Duration,
-        message_frequency_per_round: f64,
-        blending_ops_per_message: usize,
-        redundancy_parameter: usize,
-        maximum_blending_ops_per_message: usize,
-    ) -> Self {
-        assert!(
-            message_frequency_per_round >= 0f64,
-            "Message frequency per round cannot have a negative value."
-        );
-        Self {
-            intervals_per_session,
-            rounds_per_interval,
-            round_duration,
-            message_frequency_per_round,
-            blending_ops_per_message,
-            redundancy_parameter,
-            maximum_blending_ops_per_message,
-        }
+    pub const fn intervals_per_session(&self) -> u64 {
+        self.rounds_per_session
+            .get()
+            .checked_div(self.rounds_per_interval.get())
+            .expect("Calculating the number of intervals per session failed.")
+    }
+
+    #[must_use]
+    pub const fn intervals_per_session_including_safety_buffer(&self) -> u64 {
+        self.intervals_per_session().checked_add(SAFETY_BUFFER_INTERVALS).expect("Overflow when calculating the total number of intervals for the session, including the safety buffer.")
     }
 }
 
+/// Information computed internally at every session change.
 #[derive(Debug, Clone, Default)]
 struct InternalSessionInfo {
     // Used mark rounds that should result in a new cover message, for a given session.
-    // The key is (interval, round).
-    message_slots: HashSet<(u64, u64)>,
-    session_number: u64,
+    message_slots: HashSet<(Interval, Round)>,
+    // The current session number.
+    session_number: Session,
 }
 
 impl InternalSessionInfo {
     // TODO: Remove unsafe casts
+    /// Given the new session info and the cover message settings, it computes
+    /// the new maximum quota as per the spec, and randomly generated rounds at
+    /// which such quota will be depleted.
     fn from_session_info_and_settings<Rng>(
         session_info: &SessionInfo,
         mut rng: Rng,
-        &CoverTrafficSettings {
-            blending_ops_per_message,
-            message_frequency_per_round,
-            redundancy_parameter,
-            maximum_blending_ops_per_message,
-            intervals_per_session,
-            rounds_per_interval,
-            ..
-        }: &CoverTrafficSettings,
+        settings: &CoverTrafficSettings,
     ) -> Self
     where
         Rng: rand::Rng,
     {
-        let rounds_per_session = rounds_per_interval * intervals_per_session;
         // C: Expected number of cover messages that are generated during a session.
         let expected_number_of_session_messages =
-            rounds_per_session as f64 * message_frequency_per_round;
+            settings.rounds_per_session.get() as f64 * settings.message_frequency_per_round.get();
         // Q_c: Messaging allowance that can be used by a core node during a
         // single session.
         let core_quota = ((expected_number_of_session_messages
-            * (blending_ops_per_message + redundancy_parameter * blending_ops_per_message) as f64)
+            * (settings.blending_ops_per_message
+                + settings.redundancy_parameter * settings.blending_ops_per_message)
+                as f64)
             / session_info.membership_size as f64)
             .ceil();
         // c: Maximal number of cover messages a node can generate per session.
-        let mut session_messages =
-            (core_quota / maximum_blending_ops_per_message as f64).ceil() as usize;
+        let session_messages =
+            (core_quota / settings.blending_ops_per_message as f64).ceil() as usize;
 
-        let mut message_slots = HashSet::with_capacity(session_messages);
-        let total_intervals =
-            (rounds_per_session / intervals_per_session) + SAFETY_BUFFER_INTERVALS;
-        while session_messages > 0 {
-            let random_interval = rng.gen_range(0..total_intervals);
-            let random_round = rng.gen_range(0..intervals_per_session);
-            if message_slots.insert((random_interval, random_round)) {
-                session_messages -= 1;
-            } else {
-                trace!("Random slot generation generated an existing entry. Retrying...");
-            }
-        }
+        let message_slots = generate_message_slots(session_messages, settings, &mut rng);
 
         Self {
             message_slots,
@@ -119,61 +139,112 @@ impl InternalSessionInfo {
     }
 }
 
+/// As per the spec, it randomly generates rounds at which a cover message will
+/// be generated, over the whole duration of the session, including the
+/// specified safety buffer intervals.
+fn generate_message_slots<Rng>(
+    mut total_message_count: usize,
+    settings: &CoverTrafficSettings,
+    rng: &mut Rng,
+) -> HashSet<(Interval, Round)>
+where
+    Rng: rand::Rng,
+{
+    let mut message_slots = HashSet::with_capacity(total_message_count);
+    while total_message_count > 0 {
+        // Pick a random interval.
+        let random_interval =
+            rng.gen_range(0..settings.intervals_per_session_including_safety_buffer());
+        // Pick a random round within that interval
+        let random_round = rng.gen_range(0..settings.rounds_per_interval.get());
+        // Add it to the pre-computed slots. If an entry exists, do nothing and try
+        // again.
+        if message_slots.insert((random_interval.into(), random_round.into())) {
+            total_message_count -= 1;
+        } else {
+            trace!(target: LOG_TARGET, "Random round generation generated an existing entry. Retrying...");
+        }
+    }
+    message_slots
+}
+
+/// Information that the input stream to this module must provide at every
+/// session change.
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
+    /// The size of the list of core nodes participating in Blend.
     pub membership_size: usize,
-    pub session_number: u64,
+    /// The current session number.
+    pub session_number: Session,
 }
 
 pub struct CoverTraffic<SessionStream, Rng> {
+    /// The session stream triggered at every session change, provided from the
+    /// outside.
     sessions: SessionStream,
-    rounds: Box<dyn Stream<Item = u64> + Send + Unpin>,
-    intervals: Box<dyn Stream<Item = u64> + Send + Unpin>,
-    current_interval: u64,
+    /// The internal stream that generates a new element at every round change.
+    rounds: Box<dyn Stream<Item = Round> + Send + Unpin>,
+    /// The internal stream that generates a new element at every interval.
+    intervals: Box<dyn Stream<Item = Interval> + Send + Unpin>,
+    /// The current interval value, used to look into the pre-generated slots.
+    current_interval: Interval,
+    /// The provided settings.
     settings: CoverTrafficSettings,
+    /// The info corresponding to the currently running session.
     session_info: InternalSessionInfo,
+    /// The RNG to pre-compute new slots at every session change.
     rng: Rng,
+    /// The channel to notify this module about data messages the node has
+    /// already sent, so that it can modify its own scheduling accordingly, as
+    /// per the spec.
     data_message_emission_notification_channel: (mpsc::Sender<()>, mpsc::Receiver<()>),
 }
 
 impl<SessionStream, Rng> CoverTraffic<SessionStream, Rng> {
     pub fn new(settings: CoverTrafficSettings, sessions: SessionStream, rng: Rng) -> Self {
-        let rounds = Box::new(
-            IntervalStream::new(time::interval(settings.round_duration))
-                .enumerate()
-                .map(move |(i, _)| i as u64 % settings.rounds_per_interval),
-        );
-        let intervals = Box::new(
-            IntervalStream::new(time::interval(Duration::from_secs(
-                settings.rounds_per_interval * settings.round_duration.as_secs(),
-            )))
-            .enumerate()
-            .map(move |(i, _)| i as u64 % settings.intervals_per_session),
-        );
         Self {
-            rounds,
-            intervals,
-            current_interval: 0,
+            // We don't start any timers until we get information about a session.
+            rounds: Box::new(empty::<Round>()),
+            intervals: Box::new(empty::<Interval>()),
+            current_interval: Interval::default(),
             sessions,
             settings,
             session_info: InternalSessionInfo::default(),
             rng,
+            // Channel is created assuming the node might generate a message for each round, for
+            // each interval, including the safety buffer. This is the absolutely worst case.
             data_message_emission_notification_channel: mpsc::channel(
-                (settings.rounds_per_interval * settings.intervals_per_session) as usize,
+                (settings.intervals_per_session_including_safety_buffer()
+                    * settings.rounds_per_session.get()) as usize,
             ),
         }
     }
 
-    pub async fn notify_new_data_message(&mut self) {
+    pub async fn notify_of_new_data_message(&mut self) {
         if let Err(e) = self
             .data_message_emission_notification_channel
             .0
             .send(())
             .await
         {
-            error!("Failed to notify cover message stream of new data message generated. Error = {e:?}");
+            error!(target: LOG_TARGET, "Failed to notify cover message stream of new data message generated. Error = {e:?}");
         }
     }
+}
+
+fn intervals_stream(
+    rounds_per_interval: NonZeroU64,
+    round_duration: Duration,
+) -> Box<dyn Stream<Item = Interval> + Send + Unpin> {
+    Box::new(
+        IntervalStream::new(time::interval(Duration::from_secs(
+            rounds_per_interval.get() * round_duration.as_secs(),
+        )))
+        .enumerate()
+        // Do not wrap around. We ignore intervals past the safety buffer, while the stream will be
+        // reset upon a new session.
+        .map(move |(i, _)| (i as u64).into()),
+    )
 }
 
 impl<SessionStream, Rng> Stream for CoverTraffic<SessionStream, Rng>
@@ -196,24 +267,22 @@ where
         } = &mut *self;
 
         if let Poll::Ready(Some(new_session_info)) = sessions.poll_next_unpin(cx) {
-            on_session_change(session_info, &new_session_info, rng, settings);
+            on_session_change(session_info, &new_session_info, rng, settings, intervals);
         }
         if let Poll::Ready(Some(new_interval)) = intervals.poll_next_unpin(cx) {
-            on_interval_change(session_info, current_interval, new_interval);
+            on_interval_change(session_info, current_interval, new_interval, settings);
         }
         if let Poll::Ready(Some(new_round)) = rounds.poll_next_unpin(cx) {
-            if on_new_round(
+            on_new_round(
                 session_info,
                 *current_interval,
                 new_round,
                 cx,
                 &mut data_message_emission_notification_channel.1,
-            ) == Some(())
-            {
-                return Poll::Ready(Some(vec![]));
-            }
+            )
+        } else {
+            Poll::Pending
         }
-        Poll::Pending
     }
 }
 
@@ -222,46 +291,66 @@ fn on_session_change<Rng>(
     new_session_info: &SessionInfo,
     rng: Rng,
     settings: &CoverTrafficSettings,
+    intervals: &mut Box<dyn Stream<Item = Interval> + Send + Unpin>,
 ) where
     Rng: rand::Rng,
 {
-    debug!("Session {} started.", new_session_info.session_number);
+    debug!(target: LOG_TARGET, "Session {} started.", new_session_info.session_number);
     *current_session_info =
         InternalSessionInfo::from_session_info_and_settings(new_session_info, rng, settings);
+    *intervals = intervals_stream(settings.rounds_per_interval, settings.round_duration);
 }
 
 fn on_interval_change(
     current_session_info: &InternalSessionInfo,
-    current_interval: &mut u64,
-    new_interval: u64,
+    current_interval: &mut Interval,
+    new_interval: Interval,
+    settings: &CoverTrafficSettings,
 ) {
-    *current_interval = new_interval;
-    debug!(
-        "Interval {new_interval} started for session {}.",
-        current_session_info.session_number
-    );
+    let maximum_interval_value = settings.intervals_per_session_including_safety_buffer();
+    if new_interval < Interval::from(maximum_interval_value) {
+        *current_interval = new_interval;
+        debug!(
+            target: LOG_TARGET, "Interval {new_interval} started for session {}.",
+            current_session_info.session_number
+        );
+    } else {
+        warn!(target: LOG_TARGET, "Interval stream has passed the expected limit including the safety buffer. Current value = {new_interval:?}, maximum allowed = {maximum_interval_value:?}");
+    }
 }
 
 fn on_new_round(
     current_session_info: &mut InternalSessionInfo,
-    current_interval: u64,
-    new_round: u64,
+    current_interval: Interval,
+    new_round: Round,
     poll_context: &mut Context,
     data_message_receiver_channel: &mut mpsc::Receiver<()>,
-) -> Option<()> {
+) -> Poll<Option<Vec<u8>>> {
     debug!(
-        "New round {new_round} started for interval {} and session {}.",
-        current_interval, current_session_info.session_number
+        target: LOG_TARGET, "New round {new_round} started for interval {current_interval} and session {}.",
+        current_session_info.session_number
     );
     let should_emit_scheduled_cover_message = current_session_info
         .message_slots
         .remove(&(current_interval, new_round));
+    // If we have not scheduled to emit a new cover message, we do not consume the
+    // incoming channel at all.
+    if !should_emit_scheduled_cover_message {
+        trace!(target: LOG_TARGET, "Not a pre-scheduled emission for this round.");
+        return Poll::Pending;
+    }
+
     let data_message_override = matches!(
         data_message_receiver_channel.poll_recv(poll_context),
         Poll::Ready(Some(()))
     );
-    if should_emit_scheduled_cover_message && !data_message_override {
-        return Some(());
+    if data_message_override {
+        trace!(target: LOG_TARGET, "Skipping message emission because of override by data message.");
+        Poll::Pending
+    } else {
+        debug!(
+            target: LOG_TARGET, "Emitting new cover message for (interval, round) ({current_interval}, {new_round})"
+        );
+        Poll::Ready(Some(vec![]))
     }
-    None
 }
