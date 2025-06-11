@@ -1,48 +1,44 @@
-use bytes::Bytes;
-use futures::{channel::oneshot, stream::BoxStream, StreamExt as _, TryStreamExt as _};
+use futures::{stream::BoxStream, TryStreamExt as _};
 use libp2p::{PeerId, Stream as Libp2pStream};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    behaviour::RequestStream,
+    behaviour::ResponseStream,
     errors::{ChainSyncError, ChainSyncErrorKind},
-    messages::{DownloadBlocksResponse, GetTipResponse, RequestMessage, SerialisedBlock},
+    messages::{
+        DownloadBlocksResponse, GetTipResponse, RequestMessage, SerialisedBlock, SerialisedHeaderId,
+    },
     packing::unpack_from_reader,
     utils::send_message,
 };
 
 pub const MAX_ADDITIONAL_BLOCKS: usize = 5;
 
-pub struct ProvideBlocksTask;
+pub struct Provider;
 
-impl ProvideBlocksTask {
+impl Provider {
     pub async fn process_request(
         peer_id: PeerId,
         mut stream: Libp2pStream,
-    ) -> Result<RequestStream, ChainSyncError> {
+    ) -> Result<ResponseStream, ChainSyncError> {
         let request: RequestMessage = unpack_from_reader(&mut stream)
             .await
             .map_err(|e| ChainSyncError::from((peer_id, e)))?;
 
-        Ok(RequestStream::new(peer_id, stream, request))
+        Ok(ResponseStream::new(peer_id, stream, request))
     }
 
     pub async fn provide_tip(
-        reply_rcv: oneshot::Receiver<BoxStream<'static, Result<Bytes, ChainSyncError>>>,
+        reply_rcv: oneshot::Receiver<SerialisedHeaderId>,
         peer_id: PeerId,
         mut libp2p_stream: Libp2pStream,
     ) -> Result<(), ChainSyncError> {
-        let mut stream = reply_rcv.await.map_err(|_| ChainSyncError {
+        let tip = reply_rcv.await.map_err(|_| ChainSyncError {
             peer: peer_id,
             kind: ChainSyncErrorKind::ChannelReceiveError(
                 "Failed to receive blocks stream".to_owned(),
             ),
         })?;
-
-        let tip = stream.next().await.ok_or_else(|| ChainSyncError {
-            peer: peer_id,
-            kind: ChainSyncErrorKind::ChannelReceiveError("No tip received".to_owned()),
-        })??;
 
         let response = GetTipResponse { tip };
         send_message(peer_id, &mut libp2p_stream, &response).await?;

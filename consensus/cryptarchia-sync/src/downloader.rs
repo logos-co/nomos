@@ -1,11 +1,12 @@
 use futures::{future::BoxFuture, stream, stream::BoxStream, StreamExt as _};
 use libp2p::{PeerId, Stream as Libp2pStream};
 use libp2p_stream::Control;
-use tokio::sync::mpsc::Sender;
+use nomos_core::header::HeaderId;
+use tokio::sync::{mpsc::Sender, oneshot};
 use tracing::error;
 
 use crate::{
-    behaviour::{BlocksResponse, RequestStream, ResponseKind, TipResponse},
+    behaviour::{BlocksResponse, ReplyChannel, RequestStream, TipResponse},
     errors::ChainSyncError,
     messages::{DownloadBlocksRequest, DownloadBlocksResponse, GetTipResponse, RequestMessage},
     packing::unpack_from_reader,
@@ -20,94 +21,106 @@ impl DownloadBlocksTask {
     pub async fn send_tip_request(
         peer_id: PeerId,
         control: &mut Control,
-        reply_sender: Sender<BoxStream<'static, Result<ResponseKind, ChainSyncError>>>,
-    ) -> Result<
-        (
-            RequestStream,
-            Sender<BoxStream<'static, Result<ResponseKind, ChainSyncError>>>,
-        ),
-        ChainSyncError,
-    > {
+        reply_sender: oneshot::Sender<TipResponse>,
+    ) -> Result<RequestStream, ChainSyncError> {
         let mut stream = open_stream(peer_id, control).await?;
 
         let tip_request = RequestMessage::GetTip;
         send_message(peer_id, &mut stream, &tip_request).await?;
 
-        let request_stream = RequestStream::new(peer_id, stream, tip_request);
-        Ok((request_stream, reply_sender))
+        let request_stream = RequestStream::new(
+            peer_id,
+            stream,
+            tip_request,
+            ReplyChannel::Tip(reply_sender),
+        );
+
+        Ok(request_stream)
     }
 
     pub async fn send_download_request(
         peer_id: PeerId,
         mut control: Control,
         request: DownloadBlocksRequest,
-        reply_sender: Sender<BoxStream<'static, Result<ResponseKind, ChainSyncError>>>,
-    ) -> Result<
-        (
-            RequestStream,
-            Sender<BoxStream<'static, Result<ResponseKind, ChainSyncError>>>,
-        ),
-        ChainSyncError,
-    > {
+        reply_sender: Sender<BoxStream<'static, Result<BlocksResponse, ChainSyncError>>>,
+    ) -> Result<RequestStream, ChainSyncError> {
         let mut stream = open_stream(peer_id, &mut control).await?;
 
         let download_request = RequestMessage::DownloadBlocksRequest(request);
         send_message(peer_id, &mut stream, &download_request).await?;
 
-        let request_stream = RequestStream::new(peer_id, stream, download_request);
-        Ok((request_stream, reply_sender))
+        let request_stream = RequestStream::new(
+            peer_id,
+            stream,
+            download_request,
+            ReplyChannel::Blocks(reply_sender.clone()),
+        );
+
+        Ok(request_stream)
     }
 
     pub fn receive_tip(
-        peer_id: PeerId,
-        mut stream: Libp2pStream,
-        reply_tx: Sender<BoxStream<'static, Result<ResponseKind, ChainSyncError>>>,
+        request_stream: RequestStream,
     ) -> BoxFuture<'static, Result<(), ChainSyncError>> {
         Box::pin(async move {
-            let response_result = unpack_from_reader::<GetTipResponse, _>(&mut stream)
-                .await
-                .map_err(|e| ChainSyncError::from((peer_id, e)));
+            let RequestStream {
+                mut stream,
+                peer_id,
+                reply_channel,
+                ..
+            } = request_stream;
 
-            let tip_stream: BoxStream<'static, Result<ResponseKind, ChainSyncError>> =
-                match response_result {
-                    Ok(response) => {
-                        let tip_response =
-                            ResponseKind::Tip(TipResponse::Tip((peer_id, response.tip)));
-                        stream::iter(vec![Ok(tip_response)])
-                    }
-                    .boxed(),
-                    Err(e) => {
-                        error!("Failed to get tip for peer {}: {}", peer_id, e);
-                        utils::close_stream(peer_id, stream).await?;
+            let reply_tx = if let ReplyChannel::Tip(tx) = reply_channel {
+                tx
+            } else {
+                return Err(ChainSyncError {
+                    peer: peer_id,
+                    kind: ChainSyncErrorKind::ChannelSendError(
+                        "Invalid reply channel for tip".to_string(),
+                    ),
+                });
+            };
 
-                        stream::iter(vec![Ok(ResponseKind::Tip(TipResponse::NetworkError(e)))])
-                            .boxed()
-                    }
-                };
+            let tip_response = match unpack_from_reader::<GetTipResponse, _>(&mut stream).await {
+                Ok(GetTipResponse { tip }) => TipResponse::Tip((peer_id, tip)),
+                Err(e) => {
+                    error!("Failed to receive tip from peer {peer_id}: {e}");
+                    TipResponse::NetworkError(ChainSyncError {
+                        peer: peer_id,
+                        kind: e.into(),
+                    })
+                }
+            };
 
-            reply_tx.send(tip_stream).await.map_err(|e| ChainSyncError {
-                peer: peer_id,
-                kind: ChainSyncErrorKind::ChannelSendError(format!(
-                    "Failed to send tip stream: {e}",
-                )),
-            })
+            if let Err(e) = reply_tx.send(tip_response) {
+                error!("Failed to send tip response to peer {peer_id}: {e:?}");
+            }
+
+            utils::close_stream(peer_id, stream).await
         })
     }
-
     pub fn receive_blocks(
-        peer_id: PeerId,
-        libp2p_stream: Libp2pStream,
-        reply_tx: Sender<BoxStream<'static, Result<ResponseKind, ChainSyncError>>>,
+        request_stream: RequestStream,
     ) -> BoxFuture<'static, Result<(), ChainSyncError>> {
         Box::pin(async move {
+            let libp2p_stream = request_stream.stream;
+            let peer_id = request_stream.peer_id;
+            let ReplyChannel::Blocks(reply_tx) = request_stream.reply_channel else {
+                return Err(ChainSyncError {
+                    peer: peer_id,
+                    kind: ChainSyncErrorKind::ChannelSendError(
+                        "Invalid reply channel for blocks".to_owned(),
+                    ),
+                });
+            };
+
             let stream = Box::pin(stream::try_unfold(
                 libp2p_stream,
                 move |mut stream| async move {
                     match unpack_from_reader::<DownloadBlocksResponse, _>(&mut stream).await {
-                        Ok(DownloadBlocksResponse::Block(block)) => Ok(Some((
-                            ResponseKind::Blocks(BlocksResponse::Block((peer_id, block))),
-                            stream,
-                        ))),
+                        Ok(DownloadBlocksResponse::Block(block)) => {
+                            Ok(Some((BlocksResponse::Block((peer_id, block)), stream)))
+                        }
                         Ok(DownloadBlocksResponse::NoMoreBlocks) => {
                             utils::close_stream(peer_id, stream).await?;
                             Ok(None)

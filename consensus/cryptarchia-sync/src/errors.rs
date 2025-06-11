@@ -35,6 +35,12 @@ pub struct ChainSyncError {
     pub kind: ChainSyncErrorKind,
 }
 
+impl ChainSyncError {
+    pub fn new(peer: PeerId, kind: ChainSyncErrorKind) -> Self {
+        Self { peer, kind }
+    }
+}
+
 impl From<(PeerId, std::io::Error)> for ChainSyncError {
     fn from((peer, err): (PeerId, std::io::Error)) -> Self {
         Self {
