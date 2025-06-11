@@ -1,7 +1,8 @@
-use futures::{future::BoxFuture, stream, stream::BoxStream, StreamExt as _};
+use std::future::Future;
+
+use futures::{stream, stream::BoxStream, StreamExt as _};
 use libp2p::{PeerId, Stream as Libp2pStream};
 use libp2p_stream::Control;
-use nomos_core::header::HeaderId;
 use tokio::sync::{mpsc::Sender, oneshot};
 use tracing::error;
 
@@ -15,9 +16,9 @@ use crate::{
     ChainSyncErrorKind,
 };
 
-pub struct DownloadBlocksTask;
+pub struct Downloader;
 
-impl DownloadBlocksTask {
+impl Downloader {
     pub async fn send_tip_request(
         peer_id: PeerId,
         control: &mut Control,
@@ -61,8 +62,8 @@ impl DownloadBlocksTask {
 
     pub fn receive_tip(
         request_stream: RequestStream,
-    ) -> BoxFuture<'static, Result<(), ChainSyncError>> {
-        Box::pin(async move {
+    ) -> impl Future<Output = Result<(), ChainSyncError>> + 'static {
+        async move {
             let RequestStream {
                 mut stream,
                 peer_id,
@@ -97,12 +98,12 @@ impl DownloadBlocksTask {
             }
 
             utils::close_stream(peer_id, stream).await
-        })
+        }
     }
     pub fn receive_blocks(
         request_stream: RequestStream,
-    ) -> BoxFuture<'static, Result<(), ChainSyncError>> {
-        Box::pin(async move {
+    ) -> impl Future<Output = Result<(), ChainSyncError>> + 'static {
+        async move {
             let libp2p_stream = request_stream.stream;
             let peer_id = request_stream.peer_id;
             let ReplyChannel::Blocks(reply_tx) = request_stream.reply_channel else {
@@ -141,6 +142,6 @@ impl DownloadBlocksTask {
                     "Failed to send blocks stream: {e}"
                 )),
             })
-        })
+        }
     }
 }

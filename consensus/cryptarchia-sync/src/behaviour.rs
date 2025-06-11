@@ -21,7 +21,7 @@ use tokio::sync::{mpsc, mpsc::Sender, oneshot};
 use tracing::error;
 
 use crate::{
-    downloader::DownloadBlocksTask,
+    downloader::Downloader,
     errors::{ChainSyncError, ChainSyncErrorKind},
     messages::{DownloadBlocksRequest, RequestMessage, SerialisedHeaderId},
     provider::{Provider, MAX_ADDITIONAL_BLOCKS},
@@ -213,10 +213,8 @@ impl Behaviour {
         let mut control = self.control.clone();
 
         self.sending_requests.push(
-            async move {
-                DownloadBlocksTask::send_tip_request(peer_id, &mut control, reply_sender).await
-            }
-            .boxed(),
+            async move { Downloader::send_tip_request(peer_id, &mut control, reply_sender).await }
+                .boxed(),
         );
 
         Ok(())
@@ -248,8 +246,7 @@ impl Behaviour {
         );
 
         self.sending_requests.push(
-            DownloadBlocksTask::send_download_request(peer_id, control, request, reply_sender)
-                .boxed(),
+            Downloader::send_download_request(peer_id, control, request, reply_sender).boxed(),
         );
 
         Ok(())
@@ -318,13 +315,13 @@ impl Behaviour {
 
     fn handle_tip_request_available(&self, cx: &Context<'_>, request_stream: RequestStream) {
         self.receiving_responses
-            .push(DownloadBlocksTask::receive_tip(request_stream));
+            .push(Downloader::receive_tip(request_stream).boxed());
         cx.waker().wake_by_ref();
     }
 
     fn handle_blocks_request_available(&self, cx: &Context<'_>, request_stream: RequestStream) {
         self.receiving_responses
-            .push(DownloadBlocksTask::receive_blocks(request_stream));
+            .push(Downloader::receive_blocks(request_stream).boxed());
 
         cx.waker().wake_by_ref();
     }
@@ -474,6 +471,8 @@ impl NetworkBehaviour for Behaviour {
 
         if let Poll::Ready(Some(_)) = self.receiving_responses.poll_next_unpin(cx) {
             cx.waker().wake_by_ref();
+
+            return Poll::Pending;
         }
 
         if let Poll::Ready(Some(result)) = self.sending_responses.poll_next_unpin(cx) {
@@ -611,7 +610,7 @@ mod tests {
     async fn test_get_tip() {
         let (mut downloader_swarm, provider_peer_id) = start_provider_and_downloader(0).await;
 
-        let mut receiver = request_tip(&mut downloader_swarm, provider_peer_id);
+        let receiver = request_tip(&mut downloader_swarm, provider_peer_id);
 
         tokio::spawn(async move { downloader_swarm.loop_on_next().await });
 
