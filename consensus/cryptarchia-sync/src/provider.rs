@@ -29,11 +29,11 @@ impl Provider {
     }
 
     pub async fn provide_tip(
-        reply_rcv: oneshot::Receiver<SerialisedHeaderId>,
+        reply_receiver: oneshot::Receiver<SerialisedHeaderId>,
         peer_id: PeerId,
         mut libp2p_stream: Libp2pStream,
     ) -> Result<(), ChainSyncError> {
-        let tip = reply_rcv.await.map_err(|_| ChainSyncError {
+        let tip = reply_receiver.await.map_err(|_| ChainSyncError {
             peer: peer_id,
             kind: ChainSyncErrorKind::ChannelReceiveError(
                 "Failed to receive blocks stream".to_owned(),
@@ -47,11 +47,13 @@ impl Provider {
     }
 
     pub async fn provide_blocks(
-        mut reply_rcv: mpsc::Receiver<BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>>,
+        mut reply_receiver: mpsc::Receiver<
+            BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>,
+        >,
         peer_id: PeerId,
         mut libp2p_stream: Libp2pStream,
     ) -> Result<(), ChainSyncError> {
-        let stream = reply_rcv.recv().await.ok_or_else(|| ChainSyncError {
+        let stream = reply_receiver.recv().await.ok_or_else(|| ChainSyncError {
             peer: peer_id,
             kind: ChainSyncErrorKind::ChannelReceiveError(
                 "Failed to receive blocks stream".to_owned(),

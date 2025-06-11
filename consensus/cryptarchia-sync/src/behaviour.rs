@@ -253,10 +253,11 @@ impl Behaviour {
     }
 
     fn handle_tip_request(&self, peer_id: PeerId, stream: Libp2pStream) -> Poll<ToSwarmEvent> {
-        let (reply_sender, reply_rcv) = oneshot::channel();
+        let (reply_sender, reply_receiver) = oneshot::channel();
 
-        self.sending_responses
-            .push(async move { Provider::provide_tip(reply_rcv, peer_id, stream).await }.boxed());
+        self.sending_responses.push(
+            async move { Provider::provide_tip(reply_receiver, peer_id, stream).await }.boxed(),
+        );
 
         Poll::Ready(ToSwarm::GenerateEvent(Event::ProvideTipsRequest {
             reply_sender,
@@ -282,10 +283,10 @@ impl Behaviour {
             return Poll::Pending;
         }
 
-        let (reply_sender, reply_rcv) = mpsc::channel(1);
+        let (reply_sender, reply_receiver) = mpsc::channel(1);
 
         self.sending_responses.push(
-            async move { Provider::provide_blocks(reply_rcv, peer_id, stream).await }.boxed(),
+            async move { Provider::provide_blocks(reply_receiver, peer_id, stream).await }.boxed(),
         );
 
         Poll::Ready(ToSwarm::GenerateEvent(Event::ProvideBlocksRequest {
