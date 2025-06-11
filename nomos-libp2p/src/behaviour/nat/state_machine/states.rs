@@ -1,6 +1,7 @@
 use libp2p::Multiaddr;
 
-use super::State;
+use super::StateWrapper;
+use crate::behaviour::nat::state_machine::State;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(crate) struct Uninitialized;
@@ -17,44 +18,45 @@ pub(crate) struct MappedPublic(pub Multiaddr);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Private(pub Multiaddr);
 
-impl From<Uninitialized> for State {
-    fn from(value: Uninitialized) -> Self {
-        State::Uninitialized(value)
+impl From<State<Uninitialized>> for StateWrapper {
+    fn from(value: State<Uninitialized>) -> Self {
+        StateWrapper::Uninitialized(value)
     }
 }
 
-impl From<TestIfPublic> for State {
-    fn from(value: TestIfPublic) -> Self {
-        State::TestIfPublic(value)
+impl From<State<TestIfPublic>> for StateWrapper {
+    fn from(value: State<TestIfPublic>) -> Self {
+        StateWrapper::TestIfPublic(value)
     }
 }
 
-impl From<TryAddressMapping> for State {
-    fn from(value: TryAddressMapping) -> Self {
-        State::TryAddressMapping(value)
+impl From<State<TryAddressMapping>> for StateWrapper {
+    fn from(value: State<TryAddressMapping>) -> Self {
+        StateWrapper::TryAddressMapping(value)
     }
 }
-
-impl From<TestIfMappedPublic> for State {
+/*
+impl From<TestIfMappedPublic> for StateWrapper {
     fn from(value: TestIfMappedPublic) -> Self {
-        State::TestIfMappedPublic(value)
+        StateWrapper::TestIfMappedPublic(value)
     }
 }
-
-impl From<Public> for State {
-    fn from(value: Public) -> Self {
-        State::Public(value)
+*/
+impl From<State<Public>> for StateWrapper {
+    fn from(value: State<Public>) -> Self {
+        StateWrapper::Public(value)
     }
 }
-
-impl From<MappedPublic> for State {
+/*
+impl From<MappedPublic> for StateWrapper {
     fn from(value: MappedPublic) -> Self {
-        State::MappedPublic(value)
+        StateWrapper::MappedPublic(value)
     }
 }
 
-impl From<Private> for State {
+impl From<Private> for StateWrapper {
     fn from(value: Private) -> Self {
-        State::Private(value)
+        StateWrapper::Private(value)
     }
 }
+*/
