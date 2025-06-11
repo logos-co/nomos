@@ -1,0 +1,19 @@
+# Consensus
+/consensus/ @zeegomo @youngjoon-lee
+/nomos-services/cryptarchia-consensus @zeegomo @youngjoon-lee
+
+# Mantle
+/ledger/ @zeegomo @danielSanchezQ
+/nomos-mantle/ @zeegomo @danielSanchezQ
+
+# Blend
+/nomos-blend/  @youngjoon-lee @ntn-x2
+/nomos-services/blend @youngjoon-lee @ntn-x2
+
+# DA
+/nomos-services/data-availability @danielSanchezQ @bacv
+/nomos-da/ @danielSanchezQ @bacv
+
+# SDP
+/nomos-sdp/ @bacv @pradovic
+/nomos-services/sdp @bacv @pradovic
