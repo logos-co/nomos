@@ -146,7 +146,7 @@ pub struct Behaviour {
     /// A handle to listen to incoming stream requests.
     incoming_streams: IncomingStreams,
     /// List of connected peers.
-    peers: HashSet<PeerId>,
+    connected_peers: HashSet<PeerId>,
     /// Initial peers from configuration.
     initial_peers: HashMap<PeerId, Multiaddr>,
     /// Futures for sending download requests. After the request is
@@ -177,7 +177,7 @@ impl Behaviour {
             stream_behaviour,
             control,
             incoming_streams,
-            peers: HashSet::new(),
+            connected_peers: HashSet::new(),
             receiving_responses: FuturesUnordered::new(),
             sending_responses: FuturesUnordered::new(),
             receiving_requests: FuturesUnordered::new(),
@@ -188,11 +188,11 @@ impl Behaviour {
     }
 
     fn add_peer(&mut self, peer: PeerId) {
-        self.peers.insert(peer);
+        self.connected_peers.insert(peer);
     }
 
     fn remove_peer(&mut self, peer: &PeerId) {
-        self.peers.remove(peer);
+        self.connected_peers.remove(peer);
     }
 
     pub fn request_tip(
@@ -200,7 +200,7 @@ impl Behaviour {
         peer_id: PeerId,
         reply_sender: oneshot::Sender<TipResponse>,
     ) -> Result<(), ChainSyncError> {
-        if !self.peers.contains(&peer_id) {
+        if !self.connected_peers.contains(&peer_id) {
             return Err(ChainSyncError {
                 peer: peer_id,
                 kind: ChainSyncErrorKind::RequestTipsError("Peer is not connected".to_owned()),
@@ -226,7 +226,7 @@ impl Behaviour {
         additional_blocks: Vec<HeaderId>,
         reply_sender: Sender<BoxStream<'static, Result<BlocksResponse, ChainSyncError>>>,
     ) -> Result<(), ChainSyncError> {
-        if !self.peers.contains(&peer_id) && !self.initial_peers.contains_key(&peer_id) {
+        if !self.connected_peers.contains(&peer_id) && !self.initial_peers.contains_key(&peer_id) {
             return Err(ChainSyncError {
                 peer: peer_id,
                 kind: ChainSyncErrorKind::StartSyncError(
