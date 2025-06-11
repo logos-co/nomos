@@ -32,6 +32,11 @@ pub async fn open_stream(peer_id: PeerId, control: &mut Control) -> Result<Strea
 
 pub async fn close_stream(peer_id: PeerId, mut stream: Stream) -> Result<(), ChainSyncError> {
     stream
+        .flush()
+        .await
+        .map_err(|e| ChainSyncError::from((peer_id, e)))?;
+
+    stream
         .close()
         .await
         .map_err(|e| ChainSyncError::from((peer_id, e)))?;
