@@ -36,7 +36,8 @@ pub struct ChainSyncError {
 }
 
 impl ChainSyncError {
-    pub fn new(peer: PeerId, kind: ChainSyncErrorKind) -> Self {
+    #[must_use]
+    pub const fn new(peer: PeerId, kind: ChainSyncErrorKind) -> Self {
         Self { peer, kind }
     }
 }

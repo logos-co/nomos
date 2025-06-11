@@ -1,7 +1,5 @@
-use std::future::Future;
-
-use futures::{stream, stream::BoxStream, StreamExt as _};
-use libp2p::{PeerId, Stream as Libp2pStream};
+use futures::{stream, stream::BoxStream};
+use libp2p::PeerId;
 use libp2p_stream::Control;
 use tokio::sync::{mpsc::Sender, oneshot};
 use tracing::error;
@@ -60,88 +58,78 @@ impl Downloader {
         Ok(request_stream)
     }
 
-    pub fn receive_tip(
-        request_stream: RequestStream,
-    ) -> impl Future<Output = Result<(), ChainSyncError>> + 'static {
-        async move {
-            let RequestStream {
-                mut stream,
-                peer_id,
-                reply_channel,
-                ..
-            } = request_stream;
+    pub async fn receive_tip(request_stream: RequestStream) -> Result<(), ChainSyncError> {
+        let RequestStream {
+            mut stream,
+            peer_id,
+            reply_channel,
+            ..
+        } = request_stream;
 
-            let reply_tx = if let ReplyChannel::Tip(tx) = reply_channel {
-                tx
-            } else {
-                return Err(ChainSyncError {
-                    peer: peer_id,
-                    kind: ChainSyncErrorKind::ChannelSendError(
-                        "Invalid reply channel for tip".to_string(),
-                    ),
-                });
-            };
-
-            let tip_response = match unpack_from_reader::<GetTipResponse, _>(&mut stream).await {
-                Ok(GetTipResponse { tip }) => TipResponse::Tip((peer_id, tip)),
-                Err(e) => {
-                    error!("Failed to receive tip from peer {peer_id}: {e}");
-                    TipResponse::NetworkError(ChainSyncError {
-                        peer: peer_id,
-                        kind: e.into(),
-                    })
-                }
-            };
-
-            if let Err(e) = reply_tx.send(tip_response) {
-                error!("Failed to send tip response to peer {peer_id}: {e:?}");
-            }
-
-            utils::close_stream(peer_id, stream).await
-        }
-    }
-    pub fn receive_blocks(
-        request_stream: RequestStream,
-    ) -> impl Future<Output = Result<(), ChainSyncError>> + 'static {
-        async move {
-            let libp2p_stream = request_stream.stream;
-            let peer_id = request_stream.peer_id;
-            let ReplyChannel::Blocks(reply_tx) = request_stream.reply_channel else {
-                return Err(ChainSyncError {
-                    peer: peer_id,
-                    kind: ChainSyncErrorKind::ChannelSendError(
-                        "Invalid reply channel for blocks".to_owned(),
-                    ),
-                });
-            };
-
-            let stream = Box::pin(stream::try_unfold(
-                libp2p_stream,
-                move |mut stream| async move {
-                    match unpack_from_reader::<DownloadBlocksResponse, _>(&mut stream).await {
-                        Ok(DownloadBlocksResponse::Block(block)) => {
-                            Ok(Some((BlocksResponse::Block((peer_id, block)), stream)))
-                        }
-                        Ok(DownloadBlocksResponse::NoMoreBlocks) => {
-                            utils::close_stream(peer_id, stream).await?;
-                            Ok(None)
-                        }
-                        Err(e) => {
-                            error!("Failed to receive blocks from peer {}: {}", peer_id, e);
-                            utils::close_stream(peer_id, stream).await?;
-
-                            Err(ChainSyncError::from((peer_id, e)))
-                        }
-                    }
-                },
-            ));
-
-            reply_tx.send(stream).await.map_err(|e| ChainSyncError {
+        let ReplyChannel::Tip(reply_tx) = reply_channel else {
+            return Err(ChainSyncError {
                 peer: peer_id,
-                kind: ChainSyncErrorKind::ChannelSendError(format!(
-                    "Failed to send blocks stream: {e}"
-                )),
-            })
+                kind: ChainSyncErrorKind::ChannelSendError(
+                    "Invalid reply channel for tip".to_owned(),
+                ),
+            });
+        };
+
+        let tip_response = match unpack_from_reader::<GetTipResponse, _>(&mut stream).await {
+            Ok(GetTipResponse { tip }) => TipResponse::Tip((peer_id, tip)),
+            Err(e) => {
+                error!("Failed to receive tip from peer {peer_id}: {e}");
+                TipResponse::NetworkError(ChainSyncError {
+                    peer: peer_id,
+                    kind: e.into(),
+                })
+            }
+        };
+
+        if let Err(e) = reply_tx.send(tip_response) {
+            error!("Failed to send tip response to peer {peer_id}: {e:?}");
         }
+
+        utils::close_stream(peer_id, stream).await
+    }
+    pub async fn receive_blocks(request_stream: RequestStream) -> Result<(), ChainSyncError> {
+        let libp2p_stream = request_stream.stream;
+        let peer_id = request_stream.peer_id;
+        let ReplyChannel::Blocks(reply_tx) = request_stream.reply_channel else {
+            return Err(ChainSyncError {
+                peer: peer_id,
+                kind: ChainSyncErrorKind::ChannelSendError(
+                    "Invalid reply channel for blocks".to_owned(),
+                ),
+            });
+        };
+
+        let stream = Box::pin(stream::try_unfold(
+            libp2p_stream,
+            move |mut stream| async move {
+                match unpack_from_reader::<DownloadBlocksResponse, _>(&mut stream).await {
+                    Ok(DownloadBlocksResponse::Block(block)) => {
+                        Ok(Some((BlocksResponse::Block((peer_id, block)), stream)))
+                    }
+                    Ok(DownloadBlocksResponse::NoMoreBlocks) => {
+                        utils::close_stream(peer_id, stream).await?;
+                        Ok(None)
+                    }
+                    Err(e) => {
+                        error!("Failed to receive blocks from peer {}: {}", peer_id, e);
+                        utils::close_stream(peer_id, stream).await?;
+
+                        Err(ChainSyncError::from((peer_id, e)))
+                    }
+                }
+            },
+        ));
+
+        reply_tx.send(stream).await.map_err(|e| ChainSyncError {
+            peer: peer_id,
+            kind: ChainSyncErrorKind::ChannelSendError(format!(
+                "Failed to send blocks stream: {e}"
+            )),
+        })
     }
 }

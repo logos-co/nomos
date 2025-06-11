@@ -78,7 +78,7 @@ impl RequestStream {
     }
 }
 
-pub(crate) struct ResponseStream {
+pub struct ResponseStream {
     pub peer_id: PeerId,
     pub stream: Libp2pStream,
     pub request: RequestMessage,
