@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     task::{Context, Poll},
 };
 
@@ -10,8 +10,8 @@ use libp2p::{
     core::{transport::PortUse, Endpoint},
     futures::stream::FuturesUnordered,
     swarm::{
-        behaviour::ConnectionEstablished, ConnectionClosed, ConnectionDenied, ConnectionHandler,
-        ConnectionId, FromSwarm, NetworkBehaviour, THandlerInEvent, ToSwarm,
+        behaviour::ConnectionEstablished, dial_opts::DialOpts, ConnectionClosed, ConnectionDenied,
+        ConnectionHandler, ConnectionId, FromSwarm, NetworkBehaviour, THandlerInEvent, ToSwarm,
     },
     Multiaddr, PeerId, Stream as Libp2pStream, Stream, StreamProtocol,
 };
@@ -147,6 +147,8 @@ pub struct Behaviour {
     incoming_streams: IncomingStreams,
     /// List of connected peers.
     peers: HashSet<PeerId>,
+    /// Initial peers from configuration.
+    initial_peers: HashMap<PeerId, Multiaddr>,
     /// Futures for sending download requests. After the request is
     /// read, reading blocks is handled by `in_progress_download_requests`.
     sending_requests: FuturesUnordered<SendingRequestsFuture>,
@@ -163,15 +165,9 @@ pub struct Behaviour {
     incoming_streams_to_close: FuturesUnordered<BoxFuture<'static, ()>>,
 }
 
-impl Default for Behaviour {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Behaviour {
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(initial_peers: HashMap<PeerId, Multiaddr>) -> Self {
         let stream_behaviour = StreamBehaviour::new();
         let mut control = stream_behaviour.new_control();
         let incoming_streams = control
@@ -187,6 +183,7 @@ impl Behaviour {
             receiving_requests: FuturesUnordered::new(),
             incoming_streams_to_close: FuturesUnordered::new(),
             sending_requests: FuturesUnordered::new(),
+            initial_peers,
         }
     }
 
@@ -229,10 +226,12 @@ impl Behaviour {
         additional_blocks: Vec<HeaderId>,
         reply_sender: Sender<BoxStream<'static, Result<BlocksResponse, ChainSyncError>>>,
     ) -> Result<(), ChainSyncError> {
-        if !self.peers.contains(&peer_id) {
+        if !self.peers.contains(&peer_id) && !self.initial_peers.contains_key(&peer_id) {
             return Err(ChainSyncError {
                 peer: peer_id,
-                kind: ChainSyncErrorKind::StartSyncError("Peer is not connected".to_owned()),
+                kind: ChainSyncErrorKind::StartSyncError(
+                    "Peer is neither connected nor known".to_owned(),
+                ),
             });
         }
 
@@ -499,13 +498,29 @@ impl NetworkBehaviour for Behaviour {
             self.handle_incoming_stream(cx, peer_id, stream);
         }
 
+        if let Poll::Ready(ToSwarm::Dial { mut opts }) = self.stream_behaviour.poll(cx) {
+            // attach known peer address if possible
+            if let Some(address) = opts
+                .get_peer_id()
+                .and_then(|peer_id: PeerId| self.initial_peers.get(&peer_id))
+            {
+                opts = DialOpts::peer_id(opts.get_peer_id().unwrap())
+                    .addresses(vec![address.clone()])
+                    .extend_addresses_through_behaviour()
+                    .build();
+                // If we dial, some outgoing task is created, poll again.
+                cx.waker().wake_by_ref();
+                return Poll::Ready(ToSwarm::Dial { opts });
+            }
+        }
+
         Poll::Pending
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{collections::HashMap, time::Duration};
 
     use bytes::Bytes;
     use futures::{stream::BoxStream, StreamExt as _};
@@ -551,7 +566,7 @@ mod tests {
     #[tokio::test]
     async fn test_download_with_no_peers() {
         let (response_tx, _response_rx) = mpsc::channel(1);
-        let err = Behaviour::new()
+        let err = Behaviour::new(HashMap::new())
             .start_blocks_download(
                 PeerId::random(),
                 HeaderId::from([0; 32]),
@@ -620,7 +635,7 @@ mod tests {
     }
 
     async fn start_provider_and_downloader(blocks_count: usize) -> (Swarm<Behaviour>, PeerId) {
-        let mut provider_swarm = Swarm::new_ephemeral_tokio(|_k| Behaviour::new());
+        let mut provider_swarm = Swarm::new_ephemeral_tokio(|_k| Behaviour::new(HashMap::new()));
         let provider_swarm_peer_id = *provider_swarm.local_peer_id();
         let provider_addr: Multiaddr = Protocol::Memory(u64::from(rng().random::<u16>())).into();
         provider_swarm.listen_on(provider_addr.clone()).unwrap();
@@ -651,7 +666,7 @@ mod tests {
             }
         });
 
-        let mut downloader_swarm = Swarm::new_ephemeral_tokio(|_k| Behaviour::new());
+        let mut downloader_swarm = Swarm::new_ephemeral_tokio(|_k| Behaviour::new(HashMap::new()));
 
         downloader_swarm.dial_and_wait(provider_addr).await;
 
