@@ -50,9 +50,11 @@ graph TD
   API --> DataAvailability_Verifier
   API --> Mempool_DA
   API --> Mempool_TX
+  API --> Storage
 
   Blend --> Network
 
+  CryptarchiaConsensus --> Network
   CryptarchiaConsensus --> Blend
   CryptarchiaConsensus --> Mempool_TX
   CryptarchiaConsensus --> Mempool_DA
@@ -87,76 +89,78 @@ graph TD
 <summary>Dependencies in TXT format.</summary>
 
 ```
-API  
-├── Network  
-├── CryptarchiaConsensus  
-├── DataAvailability - Verifier  
-├── DataAvailability - Dispersal  
-├── DataAvailability - Network  
-├── DataAvailability - Indexer  
-├── Mempool - DA  
-└── Mempool - TX
+API
+├── Network
+├── CryptarchiaConsensus
+├── DataAvailability - Dispersal
+├── DataAvailability - Network
+├── DataAvailability - Indexer
+├── DataAvailability - Verifier
+├── Mempool - DA
+├── Mempool - TX
+└── Storage
 
-Blend  
+Blend
 └── Network
 
-CryptarchiaConsensus  
-├── Blend  
-├── Mempool - TX  
-├── Mempool - DA  
-├── DataAvailability - Sampling  
-├── Storage  
+CryptarchiaConsensus
+├── Network
+├── Blend
+├── Mempool - TX
+├── Mempool - DA
+├── DataAvailability - Sampling
+├── Storage
 └── Time
 
-DataAvailability - Dispersal  
-├── Network  
+DataAvailability - Dispersal
+├── Network
 └── Mempool - DA
 
-DataAvailability - Indexer  
-├── CryptarchiaConsensus  
+DataAvailability - Indexer
+├── CryptarchiaConsensus
 └── Storage
 
-DataAvailability - Network  
+DataAvailability - Network
 └── (no dependencies)
 
-DataAvailability - Sampling  
-├── Network  
-├── Storage  
+DataAvailability - Sampling
+├── Network
+├── Storage
 └── DataAvailability - Verifier
 
-DataAvailability - Verifier  
-├── Network  
+DataAvailability - Verifier
+├── Network
 └── Storage
 
-Key Management System  
+Key Management System
 └── (no dependencies)
 
-Membership  
+Membership
 └── Service Declaration Protocol
 
-Mempool - DA  
-├── Network  
+Mempool - DA
+├── Network
 └── DataAvailability - Sampling
 
-Mempool - TX  
+Mempool - TX
 └── Network
 
-Network  
+Network
 └── (no dependencies)
 
-Service Declaration Protocol  
+Service Declaration Protocol
 └── (no dependencies)
 
-Storage  
+Storage
 └── (no dependencies)
 
-System Sig  
+System Sig
 └── (no dependencies)
 
-Time  
+Time
 └── (no dependencies)
 
-Tracing  
+Tracing
 └── (no dependencies)
 ```
 

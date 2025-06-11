@@ -16,6 +16,7 @@ nomos-storage            = { workspace = true }
 nomos-tracing            = { workspace = true }
 overwatch                = { workspace = true }
 serde                    = { version = "1.0", features = ["derive"] }
+services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
 tokio                    = { version = "1", features = ["macros", "sync"] }
 tokio-stream             = "0.1.15"

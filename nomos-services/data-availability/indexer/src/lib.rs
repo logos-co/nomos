@@ -5,6 +5,7 @@ use std::{
     fmt::{Debug, Display, Formatter},
     hash::Hash,
     ops::Range,
+    time::Duration,
 };
 
 use consensus::ConsensusAdapter;
@@ -32,6 +33,7 @@ use overwatch::{
 };
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use services_utils::wait_until_services_are_ready;
 use storage::DaStorageAdapter;
 use tokio::sync::oneshot::Sender;
 use tracing::instrument;
@@ -498,7 +500,8 @@ where
                 ApiAdapter,
                 RuntimeServiceId,
             >,
-        > + AsServiceId<StorageService<DaStorage::Backend, RuntimeServiceId>>,
+        > + AsServiceId<StorageService<DaStorage::Backend, RuntimeServiceId>>
+        + 'static,
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
@@ -535,6 +538,14 @@ where
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
+
+        wait_until_services_are_ready!(
+            &service_resources_handle.overwatch_handle,
+            Some(Duration::from_secs(60)),
+            StorageService<_, _>,
+            CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _>
+        )
+        .await?;
 
         loop {
             tokio::select! {

@@ -202,22 +202,16 @@ where
 
                     // Record the message to the monitor.
                     if let Some(monitor) = &mut self.monitor {
-                        if Msg::is_drop(&msg) {
-                            monitor.record_drop_message();
-                        } else {
-                            monitor.record_effective_message();
-                        }
+                        monitor.record_message();
                     }
 
                     self.inbound_substream =
                         Some(InboundSubstreamState::PendingRecv(recv_msg(stream).boxed()));
 
-                    // Notify behaviour only on non-drop messages.
-                    if !Msg::is_drop(&msg) {
-                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                            ToBehaviour::Message(msg),
-                        ));
-                    }
+                    // Notify behaviour.
+                    return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                        ToBehaviour::Message(msg),
+                    ));
                 }
                 Poll::Ready(Err(e)) => {
                     tracing::error!(

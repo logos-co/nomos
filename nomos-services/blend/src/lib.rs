@@ -38,6 +38,7 @@ use overwatch::{
 use rand::SeedableRng as _;
 use rand_chacha::ChaCha12Rng;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use services_utils::wait_until_services_are_ready;
 use tokio::{sync::mpsc, time};
 use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
 
@@ -128,15 +129,12 @@ where
 
         // tier 1 persistent transmission
         let (persistent_sender, persistent_receiver) = mpsc::unbounded_channel();
-        let mut persistent_transmission_messages: PersistentTransmissionStream<_, _, _> =
+        let mut persistent_transmission_messages: PersistentTransmissionStream<_, _> =
             UnboundedReceiverStream::new(persistent_receiver).persistent_transmission(
-                blend_config.persistent_transmission,
-                ChaCha12Rng::from_entropy(),
                 IntervalStream::new(time::interval(Duration::from_secs_f64(
                     1.0 / blend_config.persistent_transmission.max_emission_frequency,
                 )))
                 .map(|_| ()),
-                SphinxMessage::DROP_MESSAGE.to_vec(),
             );
 
         // tier 2 blend
@@ -173,6 +171,13 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
+        wait_until_services_are_ready!(
+            &self.service_resources_handle.overwatch_handle,
+            Some(Duration::from_secs(60)),
+            NetworkService<_, _>
+        )
+        .await?;
+
         loop {
             tokio::select! {
                 Some(msg) = persistent_transmission_messages.next() => {
@@ -187,15 +192,18 @@ where
                                 tracing::error!("Error sending message to persistent stream: {e}");
                             }
                         }
-                        // If the message is fully unwrapped, broadcast it (unencrypted) to the rest of the network.
+                        // If the message is fully unwrapped, broadcast it (unencrypted) to the rest of the network if it's not a cover message.
                         BlendOutgoingMessage::FullyUnwrapped(msg) => {
-                            tracing::debug!("Broadcasting fully unwrapped message");
+                            tracing::debug!("Processing a fully unwrapped message.");
+                            // TODO: Change deserialization logic to return the actual type of message to the service, instead of assuming that a failed deserialization can mean a cover message as well as a malformed message.
                             match wire::deserialize::<NetworkMessage<Network::BroadcastSettings>>(&msg) {
                                 Ok(msg) => {
+                                    // Message is a valid network message, broadcast it to the entire network.
                                     network_adapter.broadcast(msg.message, msg.broadcast_settings).await;
                                 },
                                 _ => {
-                                    tracing::debug!("unrecognized message from blend backend");
+                                    // Message failed to be deserialized. It means that it was either malformed, or a cover message.
+                                    tracing::debug!("Unrecognized message from blend backend. Either malformed or a cover message. Dropping.");
                                 }
                             }
                         }

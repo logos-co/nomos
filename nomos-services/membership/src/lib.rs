@@ -2,6 +2,7 @@ use std::{
     collections::{BTreeSet, HashMap},
     fmt::{Debug, Display},
     pin::Pin,
+    time::Duration,
 };
 
 use adapters::SdpAdapter;
@@ -15,9 +16,10 @@ use overwatch::{
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
     },
-    OpaqueServiceResourcesHandle,
+    DynError, OpaqueServiceResourcesHandle,
 };
 use serde::{Deserialize, Serialize};
+use services_utils::wait_until_services_are_ready;
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 
@@ -92,8 +94,8 @@ where
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-        _initstate: Self::State,
-    ) -> Result<Self, overwatch::DynError> {
+        _initial_state: Self::State,
+    ) -> Result<Self, DynError> {
         let BackendSettings {
             backend: backend_settings,
         } = service_resources_handle
@@ -108,7 +110,7 @@ where
         })
     }
 
-    async fn run(mut self) -> Result<(), overwatch::DynError> {
+    async fn run(mut self) -> Result<(), DynError> {
         let sdp_relay = self
             .service_resources_handle
             .overwatch_handle
@@ -128,6 +130,13 @@ where
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
+
+        wait_until_services_are_ready!(
+            &self.service_resources_handle.overwatch_handle,
+            Some(Duration::from_secs(60)),
+            <S as SdpAdapter>::SdpService
+        )
+        .await?;
 
         loop {
             tokio::select! {

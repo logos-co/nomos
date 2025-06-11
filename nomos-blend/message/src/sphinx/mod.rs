@@ -20,9 +20,6 @@ impl BlendMessage for SphinxMessage {
     type PublicKey = [u8; ASYM_KEY_SIZE];
     type PrivateKey = [u8; ASYM_KEY_SIZE];
     type Error = Error;
-
-    const DROP_MESSAGE: &'static [u8] = &[0; Packet::size(MAX_LAYERS, MAX_PAYLOAD_SIZE)];
-
     fn build(payload: &[u8], public_keys: &[Self::PublicKey]) -> Result<Vec<u8>, Self::Error> {
         let packet = Packet::build(
             &public_keys

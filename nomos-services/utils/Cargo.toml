@@ -6,6 +6,7 @@ version = "0.1.0"
 
 [dependencies]
 async-trait = "0.1.83"
+futures     = "0.3"
 log         = "0.4.22"
 overwatch   = { workspace = true }
 serde       = { version = "1.0", features = ["derive"] }
@@ -14,7 +15,9 @@ thiserror   = "1"
 tracing     = { workspace = true }
 
 [dev-dependencies]
-tracing = "0.1"
+overwatch-derive = { workspace = true }
+tokio            = { version = "1", features = ["macros"] }
+tracing          = "0.1"
 
 [package.metadata.cargo-machete]
 # False positives.

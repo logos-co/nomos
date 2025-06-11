@@ -130,12 +130,9 @@ mod test {
         // Init two swarms with connection monitoring enabled.
         let conn_monitor_settings = ConnectionMonitorSettings {
             interval: Duration::from_secs(1),
-            expected_effective_messages: U57F7::from_num(0.0),
-            effective_message_malicious_tolerance: U57F7::from_num(0.0),
-            effective_message_unhealthy_tolerance: U57F7::from_num(0.0),
-            expected_drop_messages: U57F7::from_num(0.0),
-            drop_message_malicious_tolerance: U57F7::from_num(0.0),
-            drop_message_unhealthy_tolerance: U57F7::from_num(0.0),
+            expected_messages: U57F7::from_num(0.0),
+            message_malicious_tolerance: U57F7::from_num(0.0),
+            message_unhealthy_tolerance: U57F7::from_num(0.0),
         };
         let (mut nodes, mut keypairs) = nodes(2, 8290);
         let node1_addr = nodes.next().unwrap().address;
@@ -151,7 +148,7 @@ mod test {
         );
         swarm2.dial(node1_addr).unwrap();
 
-        // Swarm2 sends a message to Swarm1, even though expected_effective_messages is
+        // Swarm2 sends a message to Swarm1, even though `expected_messages` is
         // 0. Then, Swarm1 should detect Swarm2 as a malicious peer.
         let task = async {
             let mut num_events_waiting = 2;
@@ -204,12 +201,9 @@ mod test {
         // Init two swarms with connection monitoring enabled.
         let conn_monitor_settings = ConnectionMonitorSettings {
             interval: Duration::from_secs(1),
-            expected_effective_messages: U57F7::from_num(1.0),
-            effective_message_malicious_tolerance: U57F7::from_num(0.0),
-            effective_message_unhealthy_tolerance: U57F7::from_num(0.0),
-            expected_drop_messages: U57F7::from_num(0.0),
-            drop_message_malicious_tolerance: U57F7::from_num(0.0),
-            drop_message_unhealthy_tolerance: U57F7::from_num(0.0),
+            expected_messages: U57F7::from_num(1.0),
+            message_malicious_tolerance: U57F7::from_num(0.0),
+            message_unhealthy_tolerance: U57F7::from_num(0.0),
         };
         let (mut nodes, mut keypairs) = nodes(2, 8390);
         let node1_addr = nodes.next().unwrap().address;
@@ -225,7 +219,7 @@ mod test {
         );
         swarm2.dial(node1_addr).unwrap();
 
-        // Swarms don't send anything, even though expected_effective_messages is 1.
+        // Swarms don't send anything, even though `expected_messages` is 1.
         // Then, both should detect the other as unhealthy.
         // Swarms shouldn't close the connection of the unhealthy peers.
         let task = async {

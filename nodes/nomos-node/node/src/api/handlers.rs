@@ -655,7 +655,7 @@ where
     make_request_and_return_response!(HttpStorageAdapter::get_shared_commitments::<
         DaStorageConverter,
         DaShare,
-    >(relay, req.blob_id,))
+    >(relay, req.blob_id))
 }
 
 #[utoipa::path(
@@ -786,7 +786,7 @@ where
         + AsServiceId<NetworkService<Backend, Membership, RuntimeServiceId>>,
 {
     make_request_and_return_response!(da::balancer_stats::<Backend, Membership, RuntimeServiceId>(
-        &handle,
+        &handle
     ))
 }
 
@@ -812,7 +812,7 @@ where
         + AsServiceId<NetworkService<Backend, Membership, RuntimeServiceId>>,
 {
     make_request_and_return_response!(da::monitor_stats::<Backend, Membership, RuntimeServiceId>(
-        &handle,
+        &handle
     ))
 }
 

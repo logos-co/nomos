@@ -13,6 +13,7 @@ cl                       = { workspace = true }
 clap                     = { version = "4", features = ["derive", "env"] }
 color-eyre               = "0.6.0"
 cryptarchia-consensus    = { workspace = true, features = ["libp2p"] }
+futures                  = "0.3"
 hex                      = "0.4.3"
 http                     = "0.2.9"
 kzgrs-backend            = { workspace = true }
@@ -38,6 +39,7 @@ overwatch                = { workspace = true }
 rand_chacha              = "0.3"
 serde                    = "1"
 serde_yaml               = "0.9"
+services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
 tokio                    = "1"
 tracing                  = { workspace = true }
@@ -63,4 +65,6 @@ tracing         = []
 ignored = [
   # Required by Overwatch's `#[derive_services]` macro.
   "tokio",
+  # Required by `wait_until_services_are_ready` macro.
+  "futures",
 ]

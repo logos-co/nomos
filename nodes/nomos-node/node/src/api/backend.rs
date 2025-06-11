@@ -2,6 +2,7 @@ use std::{
     error::Error,
     fmt::{Debug, Display},
     hash::Hash,
+    time::Duration,
 };
 
 use axum::{http::HeaderValue, routing, Router, Server};
@@ -37,9 +38,10 @@ use nomos_storage::{
     backends::{rocksdb::RocksBackend, StorageSerde},
     StorageService,
 };
-use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
+use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use services_utils::wait_until_services_are_ready;
 use subnetworks_assignations::MembershipHandler;
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -55,7 +57,7 @@ use super::handlers::{
 };
 
 pub(crate) type DaStorageBackend<SerdeOp> = RocksBackend<SerdeOp>;
-type DaService<DaStorageSerializer, RuntimeServiceId> =
+type DaStorageService<DaStorageSerializer, RuntimeServiceId> =
     StorageService<DaStorageBackend<DaStorageSerializer>, RuntimeServiceId>;
 
 /// Configuration for the Http Server
@@ -322,7 +324,7 @@ where
                 RuntimeServiceId,
             >,
         >
-        + AsServiceId<DaService<DaStorageSerializer, RuntimeServiceId>>
+        + AsServiceId<DaStorageService<DaStorageSerializer, RuntimeServiceId>>
         + AsServiceId<
             TxMempoolService<
                 nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
@@ -382,6 +384,40 @@ where
             _api_adapter: core::marker::PhantomData,
             _storage_adapter: core::marker::PhantomData,
         })
+    }
+
+    async fn wait_until_ready(
+        &mut self,
+        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+    ) -> Result<(), DynError> {
+        wait_until_services_are_ready!(
+            &overwatch_handle,
+            Some(Duration::from_secs(60)),
+            Cryptarchia<
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                SIZE,
+            >,
+            DaVerifier<_, _, _, _, _, _>,
+            DaIndexer<_, _, _, _, _, _, _, _, _, _, _, _, _, _, SIZE>,
+            nomos_da_network_service::NetworkService<_, _>,
+            nomos_network::NetworkService<_, _>,
+            DaStorageService<_, _>,
+            TxMempoolService<_, _, _>,
+            DaMempoolService<_, _, _, _, _, _, _, _, _, _, _>
+        )
+        .await?;
+        Ok(())
     }
 
     #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]

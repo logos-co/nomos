@@ -7,6 +7,7 @@ pub mod openapi {
 use std::{
     fmt::{Debug, Display},
     marker::PhantomData,
+    time::Duration,
 };
 
 use futures::StreamExt as _;
@@ -20,8 +21,12 @@ use overwatch::{
     OpaqueServiceResourcesHandle,
 };
 use rand::Rng;
-use services_utils::overwatch::{
-    recovery::operators::RecoveryBackend as RecoveryBackendTrait, JsonFileBackend, RecoveryOperator,
+use services_utils::{
+    overwatch::{
+        recovery::operators::RecoveryBackend as RecoveryBackendTrait, JsonFileBackend,
+        RecoveryOperator,
+    },
+    wait_until_services_are_ready,
 };
 
 use crate::{
@@ -319,6 +324,14 @@ where
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
+
+        wait_until_services_are_ready!(
+            &self.service_resources_handle.overwatch_handle,
+            Some(Duration::from_secs(60)),
+            NetworkService<_, _>,
+            DaSamplingService<_, _, _, _, _, _, _, _, _>
+        )
+        .await?;
 
         loop {
             tokio::select! {
