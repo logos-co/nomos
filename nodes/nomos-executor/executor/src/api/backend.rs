@@ -433,7 +433,7 @@ where
             Cryptarchia<_, _, _, _, _, _, _, _, _, _, _, _, SIZE>,
             DaVerifier<_, _, _, _, _, _>,
             DaIndexer<_, _, _, _, _, _, _, _, _, _, _, _, _, _, SIZE>,
-            nomos_da_network_service::NetworkService<_, _>,
+            nomos_da_network_service::NetworkService<_, _, _>,
             nomos_network::NetworkService<_, _>,
             DaStorageService<_, _>,
             TxMempoolService<_, _, _>,
