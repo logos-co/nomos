@@ -9,10 +9,10 @@ use std::{
 
 use async_trait::async_trait;
 use backends::BlendBackend;
-use futures::StreamExt as _;
+use futures::{Stream, StreamExt as _};
 use network::NetworkAdapter;
 use nomos_blend::{
-    cover_traffic::{CoverTraffic, CoverTrafficSettings},
+    cover_traffic::{CoverTraffic, CoverTrafficSettings, SessionInfo},
     membership::{Membership, Node},
     message_blend::{
         crypto::CryptographicProcessor, temporal::TemporalScheduler,
@@ -150,13 +150,12 @@ where
         );
 
         // tier 3 cover traffic
-        let mut cover_traffic: CoverTraffic<_, _, SphinxMessage> = CoverTraffic::new(
-            blend_config.cover_traffic.cover_traffic_settings(
-                membership,
-                &blend_config.message_blend.cryptographic_processor,
-            ),
-            blend_config.cover_traffic.epoch_stream(),
-            blend_config.cover_traffic.slot_stream(),
+        let mut cover_traffic: CoverTraffic<_, _> = CoverTraffic::new(
+            blend_config
+                .cover_traffic
+                .cover_traffic_settings(&blend_config.message_blend.cryptographic_processor),
+            blend_config.cover_traffic.epoch_stream(membership.size()),
+            ChaCha12Rng::from_entropy(),
         );
 
         // local messages are bypassed and sent immediately
@@ -182,6 +181,7 @@ where
             tokio::select! {
                 Some(msg) = persistent_transmission_messages.next() => {
                     backend.publish(msg).await;
+                    // cover_traffic.notify_new_data_message().await;
                 }
                 // Already processed blend messages
                 Some(msg) = blend_messages.next() => {
@@ -275,56 +275,42 @@ pub struct BlendConfig<BackendSettings, BackendNodeId> {
 pub struct CoverTrafficExtSettings {
     #[serde_as(as = "MinimalBoundedDuration<1, SECOND>")]
     pub epoch_duration: Duration,
+    pub intervals_per_session: u64,
+    pub rounds_per_interval: u64,
     #[serde_as(as = "MinimalBoundedDuration<1, SECOND>")]
-    pub slot_duration: Duration,
+    pub round_duration: Duration,
+    pub message_frequency_per_round: f64,
+    pub redundancy_parameter: usize,
+    pub maximum_blending_ops_per_message: usize,
 }
 
 impl CoverTrafficExtSettings {
-    const fn cover_traffic_settings<NodeId>(
+    const fn cover_traffic_settings(
         &self,
-        membership: &Membership<NodeId, SphinxMessage>,
         cryptographic_processor_settings: &CryptographicProcessorSettings<
             <SphinxMessage as BlendMessage>::PrivateKey,
         >,
-    ) -> CoverTrafficSettings
-    where
-        NodeId: Hash + Eq,
-    {
+    ) -> CoverTrafficSettings {
         CoverTrafficSettings {
-            node_id: membership.local_node().public_key,
-            number_of_hops: cryptographic_processor_settings.num_blend_layers,
-            slots_per_epoch: self.slots_per_epoch(),
-            network_size: membership.size(),
+            blending_ops_per_message: self.maximum_blending_ops_per_message,
+            intervals_per_session: self.intervals_per_session,
+            maximum_blending_ops_per_message: cryptographic_processor_settings.num_blend_layers,
+            message_frequency_per_round: self.message_frequency_per_round,
+            redundancy_parameter: self.redundancy_parameter,
+            round_duration: self.round_duration,
+            rounds_per_interval: self.rounds_per_interval,
         }
-    }
-
-    const fn slots_per_epoch(&self) -> usize {
-        (self.epoch_duration.as_secs() as usize)
-            .checked_div(self.slot_duration.as_secs() as usize)
-            .expect("Invalid epoch & slot duration")
     }
 
     fn epoch_stream(
         &self,
-    ) -> futures::stream::Map<
-        futures::stream::Enumerate<IntervalStream>,
-        impl FnMut((usize, time::Instant)) -> usize,
-    > {
-        IntervalStream::new(time::interval(self.epoch_duration))
-            .enumerate()
-            .map(|(i, _)| i)
-    }
-
-    fn slot_stream(
-        &self,
-    ) -> futures::stream::Map<
-        futures::stream::Enumerate<IntervalStream>,
-        impl FnMut((usize, time::Instant)) -> usize,
-    > {
-        let slots_per_epoch = self.slots_per_epoch();
-        IntervalStream::new(time::interval(self.slot_duration))
-            .enumerate()
-            .map(move |(i, _)| i % slots_per_epoch)
+        membership_size: usize,
+    ) -> Box<dyn Stream<Item = (usize, SessionInfo)> + Send + Unpin> {
+        Box::new(
+            IntervalStream::new(time::interval(self.epoch_duration))
+                .enumerate()
+                .map(move |(i, _)| (i, SessionInfo { membership_size })),
+        )
     }
 }
 
