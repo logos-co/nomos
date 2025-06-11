@@ -3,7 +3,7 @@ use std::{
     fmt::{Debug, Display, Formatter},
     num::NonZeroU64,
     pin::Pin,
-    task::{Context, Poll},
+    task::{Context, Poll, Waker},
     time::Duration,
 };
 
@@ -151,6 +151,7 @@ where
     Rng: rand::Rng,
 {
     let mut message_slots = HashSet::with_capacity(total_message_count);
+    trace!(target: LOG_TARGET, "Generating {total_message_count} cover message slots.");
     while total_message_count > 0 {
         // Pick a random interval.
         let random_interval =
@@ -198,6 +199,7 @@ pub struct CoverTraffic<SessionStream, Rng> {
     /// already sent, so that it can modify its own scheduling accordingly, as
     /// per the spec.
     data_message_emission_notification_channel: (mpsc::Sender<()>, mpsc::Receiver<()>),
+    waker: Option<Waker>,
 }
 
 impl<SessionStream, Rng> CoverTraffic<SessionStream, Rng> {
@@ -217,6 +219,7 @@ impl<SessionStream, Rng> CoverTraffic<SessionStream, Rng> {
                 (settings.intervals_per_session_including_safety_buffer()
                     * settings.rounds_per_session.get()) as usize,
             ),
+            waker: None,
         }
     }
 
@@ -232,18 +235,21 @@ impl<SessionStream, Rng> CoverTraffic<SessionStream, Rng> {
     }
 }
 
+fn rounds_stream(round_duration: Duration) -> Box<dyn Stream<Item = Round> + Send + Unpin> {
+    Box::new(
+        IntervalStream::new(time::interval(round_duration))
+            .enumerate()
+            .map(move |(i, _)| (i as u64).into()),
+    )
+}
+
 fn intervals_stream(
-    rounds_per_interval: NonZeroU64,
-    round_duration: Duration,
+    interval_duration: Duration,
 ) -> Box<dyn Stream<Item = Interval> + Send + Unpin> {
     Box::new(
-        IntervalStream::new(time::interval(Duration::from_secs(
-            rounds_per_interval.get() * round_duration.as_secs(),
-        )))
-        .enumerate()
-        // Do not wrap around. We ignore intervals past the safety buffer, while the stream will be
-        // reset upon a new session.
-        .map(move |(i, _)| (i as u64).into()),
+        IntervalStream::new(time::interval(interval_duration))
+            .enumerate()
+            .map(move |(i, _)| (i as u64).into()),
     )
 }
 
@@ -264,15 +270,25 @@ where
             rounds,
             intervals,
             data_message_emission_notification_channel,
+            waker,
         } = &mut *self;
 
         if let Poll::Ready(Some(new_session_info)) = sessions.poll_next_unpin(cx) {
             on_session_change(session_info, &new_session_info, rng, settings, intervals);
         }
         if let Poll::Ready(Some(new_interval)) = intervals.poll_next_unpin(cx) {
-            on_interval_change(session_info, current_interval, new_interval, settings);
+            on_interval_change(
+                session_info,
+                current_interval,
+                new_interval,
+                settings,
+                rounds,
+            );
         }
-        if let Poll::Ready(Some(new_round)) = rounds.poll_next_unpin(cx) {
+        let res = if let Poll::Ready(Some(new_round)) = rounds.poll_next_unpin(cx) {
+            if let Some(w) = waker.take() {
+                w.wake();
+            }
             on_new_round(
                 session_info,
                 *current_interval,
@@ -281,8 +297,10 @@ where
                 &mut data_message_emission_notification_channel.1,
             )
         } else {
+            *waker = Some(cx.waker().clone());
             Poll::Pending
-        }
+        };
+        res
     }
 }
 
@@ -298,7 +316,9 @@ fn on_session_change<Rng>(
     debug!(target: LOG_TARGET, "Session {} started.", new_session_info.session_number);
     *current_session_info =
         InternalSessionInfo::from_session_info_and_settings(new_session_info, rng, settings);
-    *intervals = intervals_stream(settings.rounds_per_interval, settings.round_duration);
+    *intervals = intervals_stream(Duration::from_secs(
+        settings.rounds_per_interval.get() * settings.round_duration.as_secs(),
+    ));
 }
 
 fn on_interval_change(
@@ -306,10 +326,12 @@ fn on_interval_change(
     current_interval: &mut Interval,
     new_interval: Interval,
     settings: &CoverTrafficSettings,
+    rounds: &mut Box<dyn Stream<Item = Round> + Send + Unpin>,
 ) {
     let maximum_interval_value = settings.intervals_per_session_including_safety_buffer();
     if new_interval < Interval::from(maximum_interval_value) {
         *current_interval = new_interval;
+        *rounds = rounds_stream(settings.round_duration);
         debug!(
             target: LOG_TARGET, "Interval {new_interval} started for session {}.",
             current_session_info.session_number
@@ -353,4 +375,57 @@ fn on_new_round(
         );
         Poll::Ready(Some(vec![]))
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::{num::NonZeroU64, time::Duration};
+
+    use futures::StreamExt as _;
+    use rand::SeedableRng as _;
+    use rand_chacha::ChaCha12Rng;
+    use tokio::time;
+    use tokio_stream::wrappers::IntervalStream;
+
+    use crate::cover_traffic::{CoverTraffic, CoverTrafficSettings, SessionInfo};
+
+    #[test_log::test(tokio::test)]
+    async fn message_emission_without_data_messages() {
+        let settings = CoverTrafficSettings {
+            blending_ops_per_message: 3,
+            message_frequency_per_round: 1f64.try_into().unwrap(),
+            redundancy_parameter: 0,
+            round_duration: Duration::from_secs(1),
+            rounds_per_interval: NonZeroU64::try_from(3).unwrap(),
+            rounds_per_session: NonZeroU64::try_from(9).unwrap(),
+        };
+        let mut cover_traffic = CoverTraffic::new(
+            settings,
+            Box::new(
+                IntervalStream::new(time::interval(Duration::from_secs(
+                    settings.round_duration.as_secs() * settings.rounds_per_session.get(),
+                )))
+                .enumerate()
+                .map(|(i, _)| SessionInfo {
+                    membership_size: 1,
+                    session_number: (i as u64).into(),
+                }),
+            ),
+            ChaCha12Rng::from_entropy(),
+        );
+
+        loop {
+            tokio::select! {
+                Some(msg) = cover_traffic.next() => {
+                    println!("Next: {msg:?}");
+                },
+            }
+        }
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn message_emission_with_data_messages() {}
+
+    #[test_log::test(tokio::test)]
+    async fn message_emission_with_long_session() {}
 }

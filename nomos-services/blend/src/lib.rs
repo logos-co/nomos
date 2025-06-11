@@ -4,7 +4,7 @@ pub mod network;
 use std::{
     fmt::{Debug, Display},
     hash::Hash,
-    num::NonZero,
+    num::{NonZero, NonZeroU64},
     time::Duration,
 };
 
@@ -276,8 +276,8 @@ pub struct BlendConfig<BackendSettings, BackendNodeId> {
 #[serde_with::serde_as]
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CoverTrafficExtSettings {
-    pub rounds_per_session: NonZero<u64>,
-    pub rounds_per_interval: NonZero<u64>,
+    pub rounds_per_session: NonZeroU64,
+    pub rounds_per_interval: NonZeroU64,
     #[serde_as(as = "MinimalBoundedDuration<1, SECOND>")]
     pub round_duration: Duration,
     pub message_frequency_per_round: NonNegativeF64,

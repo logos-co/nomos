@@ -19,4 +19,6 @@ tokio-stream        = "0.1"
 tracing             = { workspace = true }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+rand_chacha = "0.3"
+test-log    = { version = "0.2.17", features = ["trace"] }
+tokio       = { version = "1", features = ["rt-multi-thread", "time"] }
