@@ -4,8 +4,6 @@ mod errors;
 mod messages;
 mod provider;
 mod utils;
-
-// TODO: move to nomos-core
 mod packing;
 
 pub use behaviour::{Behaviour, BlocksResponse, Event};
