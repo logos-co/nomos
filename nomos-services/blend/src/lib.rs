@@ -119,10 +119,11 @@ where
             ref membership,
         } = self;
         let blend_config = settings_handle.notifier().get_updated_settings();
+        let rng = ChaCha12Rng::from_entropy();
         let mut cryptographic_processor = CryptographicProcessor::new(
             blend_config.message_blend.cryptographic_processor.clone(),
             membership.clone(),
-            ChaCha12Rng::from_entropy(),
+            rng.clone(),
         );
         let network_relay = overwatch_handle.relay::<NetworkService<_, _>>().await?;
         let network_adapter = Network::new(network_relay);
@@ -138,15 +139,13 @@ where
             );
 
         // tier 2 blend
-        let temporal_scheduler = TemporalScheduler::new(
-            blend_config.message_blend.temporal_processor,
-            ChaCha12Rng::from_entropy(),
-        );
+        let temporal_scheduler =
+            TemporalScheduler::new(blend_config.message_blend.temporal_processor, rng.clone());
         let mut blend_messages = backend.listen_to_incoming_messages().blend(
             blend_config.message_blend.clone(),
             membership.clone(),
             temporal_scheduler,
-            ChaCha12Rng::from_entropy(),
+            rng.clone(),
         );
 
         // tier 3 cover traffic
@@ -155,7 +154,7 @@ where
                 .cover_traffic
                 .cover_traffic_settings(&blend_config.message_blend.cryptographic_processor),
             blend_config.cover_traffic.epoch_stream(membership.size()),
-            ChaCha12Rng::from_entropy(),
+            rng,
         );
 
         // local messages are bypassed and sent immediately
@@ -181,7 +180,7 @@ where
             tokio::select! {
                 Some(msg) = persistent_transmission_messages.next() => {
                     backend.publish(msg).await;
-                    // cover_traffic.notify_new_data_message().await;
+                    cover_traffic.notify_new_data_message().await;
                 }
                 // Already processed blend messages
                 Some(msg) = blend_messages.next() => {
@@ -291,25 +290,28 @@ impl CoverTrafficExtSettings {
             <SphinxMessage as BlendMessage>::PrivateKey,
         >,
     ) -> CoverTrafficSettings {
-        CoverTrafficSettings {
-            blending_ops_per_message: self.maximum_blending_ops_per_message,
-            intervals_per_session: self.intervals_per_session,
-            maximum_blending_ops_per_message: cryptographic_processor_settings.num_blend_layers,
-            message_frequency_per_round: self.message_frequency_per_round,
-            redundancy_parameter: self.redundancy_parameter,
-            round_duration: self.round_duration,
-            rounds_per_interval: self.rounds_per_interval,
-        }
+        CoverTrafficSettings::new(
+            self.intervals_per_session,
+            self.rounds_per_interval,
+            self.round_duration,
+            self.message_frequency_per_round,
+            cryptographic_processor_settings.num_blend_layers,
+            self.redundancy_parameter,
+            self.maximum_blending_ops_per_message,
+        )
     }
 
     fn epoch_stream(
         &self,
         membership_size: usize,
-    ) -> Box<dyn Stream<Item = (usize, SessionInfo)> + Send + Unpin> {
+    ) -> Box<dyn Stream<Item = SessionInfo> + Send + Unpin> {
         Box::new(
             IntervalStream::new(time::interval(self.epoch_duration))
                 .enumerate()
-                .map(move |(i, _)| (i, SessionInfo { membership_size })),
+                .map(move |(i, _)| SessionInfo {
+                    session_number: i as u64,
+                    membership_size,
+                }),
         )
     }
 }
