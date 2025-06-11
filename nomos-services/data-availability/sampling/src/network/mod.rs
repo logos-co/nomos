@@ -22,7 +22,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
 
     async fn new(
         network_relay: OutboundRelay<
-            <NetworkService<Self::Backend, RuntimeServiceId, Self::Membership> as ServiceData>::Message,
+            <NetworkService<Self::Backend, Self::Membership, RuntimeServiceId> as ServiceData>::Message,
         >,
     ) -> Self;
 

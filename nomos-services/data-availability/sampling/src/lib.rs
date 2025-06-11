@@ -417,7 +417,7 @@ where
     ApiAdapter::Settings: Clone + Send + Sync,
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<
-            NetworkService<SamplingNetwork::Backend, RuntimeServiceId, SamplingNetwork::Membership>,
+            NetworkService<SamplingNetwork::Backend, SamplingNetwork::Membership, RuntimeServiceId>,
         > + AsServiceId<StorageService<SamplingStorage::Backend, RuntimeServiceId>>
         + AsServiceId<
             DaVerifierService<VerifierBackend, VerifierNetwork, VerifierStorage, RuntimeServiceId>,

@@ -312,8 +312,8 @@ where
         + AsServiceId<
             nomos_da_network_service::NetworkService<
                 DaNetworkValidatorBackend<Membership>,
-                RuntimeServiceId,
                 Membership,
+                RuntimeServiceId,
             >,
         >
         + AsServiceId<
@@ -500,8 +500,8 @@ where
                     routing::post(
                         block_peer::<
                             DaNetworkValidatorBackend<Membership>,
-                            RuntimeServiceId,
                             Membership,
+                            RuntimeServiceId,
                         >,
                     ),
                 )
@@ -510,8 +510,8 @@ where
                     routing::post(
                         unblock_peer::<
                             DaNetworkValidatorBackend<Membership>,
-                            RuntimeServiceId,
                             Membership,
+                            RuntimeServiceId,
                         >,
                     ),
                 )
@@ -520,8 +520,8 @@ where
                     routing::get(
                         blacklisted_peers::<
                             DaNetworkValidatorBackend<Membership>,
-                            RuntimeServiceId,
                             Membership,
+                            RuntimeServiceId,
                         >,
                     ),
                 )
@@ -597,8 +597,8 @@ where
                     routing::get(
                         balancer_stats::<
                             DaNetworkValidatorBackend<Membership>,
-                            RuntimeServiceId,
                             Membership,
+                            RuntimeServiceId,
                         >,
                     ),
                 )
@@ -607,8 +607,8 @@ where
                     routing::get(
                         monitor_stats::<
                             DaNetworkValidatorBackend<Membership>,
-                            RuntimeServiceId,
                             Membership,
+                            RuntimeServiceId,
                         >,
                     ),
                 )

@@ -107,8 +107,8 @@ pub(crate) type DaSamplingService = nomos_node::generic_services::DaSamplingServ
 
 pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
     DaNetworkExecutorBackend<NomosDaMembership>,
-    RuntimeServiceId,
     NomosDaMembership,
+    RuntimeServiceId,
 >;
 
 pub(crate) type ClMempoolService = nomos_node::generic_services::TxMempoolService<RuntimeServiceId>;

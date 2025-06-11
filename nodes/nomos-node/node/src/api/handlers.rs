@@ -488,7 +488,7 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn block_peer<Backend, RuntimeServiceId, Membership>(
+pub async fn block_peer<Backend, Membership, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(peer_id): Json<PeerId>,
 ) -> Response
@@ -500,9 +500,9 @@ where
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<Backend, RuntimeServiceId, Membership>>,
+        + AsServiceId<NetworkService<Backend, Membership, RuntimeServiceId>>,
 {
-    make_request_and_return_response!(da::block_peer::<Backend, RuntimeServiceId, Membership>(
+    make_request_and_return_response!(da::block_peer::<Backend, Membership, RuntimeServiceId>(
         &handle, peer_id
     ))
 }
@@ -516,7 +516,7 @@ where
     )
 )]
 
-pub async fn unblock_peer<Backend, RuntimeServiceId, Membership>(
+pub async fn unblock_peer<Backend, Membership, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(peer_id): Json<PeerId>,
 ) -> Response
@@ -528,9 +528,9 @@ where
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<Backend, RuntimeServiceId, Membership>>,
+        + AsServiceId<NetworkService<Backend, Membership, RuntimeServiceId>>,
 {
-    make_request_and_return_response!(da::unblock_peer::<Backend, RuntimeServiceId, Membership>(
+    make_request_and_return_response!(da::unblock_peer::<Backend, Membership, RuntimeServiceId>(
         &handle, peer_id
     ))
 }
@@ -543,7 +543,7 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn blacklisted_peers<Backend, RuntimeServiceId, Membership>(
+pub async fn blacklisted_peers<Backend, Membership, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
@@ -554,10 +554,10 @@ where
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<Backend, RuntimeServiceId, Membership>>,
+        + AsServiceId<NetworkService<Backend, Membership, RuntimeServiceId>>,
 {
     make_request_and_return_response!(
-        da::blacklisted_peers::<Backend, RuntimeServiceId, Membership>(&handle)
+        da::blacklisted_peers::<Backend, Membership, RuntimeServiceId>(&handle)
     )
 }
 
@@ -772,7 +772,7 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn balancer_stats<Backend, RuntimeServiceId, Membership>(
+pub async fn balancer_stats<Backend, Membership, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
@@ -783,9 +783,9 @@ where
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<Backend, RuntimeServiceId, Membership>>,
+        + AsServiceId<NetworkService<Backend, Membership, RuntimeServiceId>>,
 {
-    make_request_and_return_response!(da::balancer_stats::<Backend, RuntimeServiceId, Membership>(
+    make_request_and_return_response!(da::balancer_stats::<Backend, Membership, RuntimeServiceId>(
         &handle,
     ))
 }
@@ -798,7 +798,7 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn monitor_stats<Backend, RuntimeServiceId, Membership>(
+pub async fn monitor_stats<Backend, Membership, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
@@ -809,9 +809,9 @@ where
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<Backend, RuntimeServiceId, Membership>>,
+        + AsServiceId<NetworkService<Backend, Membership, RuntimeServiceId>>,
 {
-    make_request_and_return_response!(da::monitor_stats::<Backend, RuntimeServiceId, Membership>(
+    make_request_and_return_response!(da::monitor_stats::<Backend, Membership, RuntimeServiceId>(
         &handle,
     ))
 }

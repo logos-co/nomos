@@ -44,13 +44,13 @@ impl<Backend: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> Debug
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct NetworkConfig<Backend: NetworkBackend<RuntimeServiceId>, RuntimeServiceId, Membership> {
+pub struct NetworkConfig<Backend: NetworkBackend<RuntimeServiceId>, Membership, RuntimeServiceId> {
     pub backend: Backend::Settings,
     pub membership: Membership,
 }
 
-impl<Backend: NetworkBackend<RuntimeServiceId>, RuntimeServiceId, Membership> Debug
-    for NetworkConfig<Backend, RuntimeServiceId, Membership>
+impl<Backend: NetworkBackend<RuntimeServiceId>, Membership, RuntimeServiceId> Debug
+    for NetworkConfig<Backend, Membership, RuntimeServiceId>
 where
     Membership: Clone + Debug,
 {
@@ -61,31 +61,31 @@ where
 
 pub struct NetworkService<
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
-    RuntimeServiceId,
     Membership,
+    RuntimeServiceId,
 > {
     backend: Backend,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     _membership: DaMembershipHandler<Membership>,
 }
 
-pub struct NetworkState<Backend: NetworkBackend<RuntimeServiceId>, RuntimeServiceId, Membership> {
+pub struct NetworkState<Backend: NetworkBackend<RuntimeServiceId>, Membership, RuntimeServiceId> {
     backend: Backend::State,
     _membership: PhantomData<Membership>,
 }
 
-impl<Backend: NetworkBackend<RuntimeServiceId> + 'static + Send, RuntimeServiceId, Membership>
-    ServiceData for NetworkService<Backend, RuntimeServiceId, Membership>
+impl<Backend: NetworkBackend<RuntimeServiceId> + 'static + Send, Membership, RuntimeServiceId>
+    ServiceData for NetworkService<Backend, Membership, RuntimeServiceId>
 {
-    type Settings = NetworkConfig<Backend, RuntimeServiceId, Membership>;
-    type State = NetworkState<Backend, RuntimeServiceId, Membership>;
+    type Settings = NetworkConfig<Backend, Membership, RuntimeServiceId>;
+    type State = NetworkState<Backend, Membership, RuntimeServiceId>;
     type StateOperator = NoOperator<Self::State>;
     type Message = DaNetworkMsg<Backend, RuntimeServiceId>;
 }
 
 #[async_trait]
-impl<Backend, RuntimeServiceId, Membership> ServiceCore<RuntimeServiceId>
-    for NetworkService<Backend, RuntimeServiceId, Membership>
+impl<Backend, Membership, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for NetworkService<Backend, Membership, RuntimeServiceId>
 where
     Backend: NetworkBackend<RuntimeServiceId, Membership = DaMembershipHandler<Membership>>
         + Send
@@ -143,8 +143,8 @@ where
     }
 }
 
-impl<Backend, RuntimeServiceId, Membership> Drop
-    for NetworkService<Backend, RuntimeServiceId, Membership>
+impl<Backend, Membership, RuntimeServiceId> Drop
+    for NetworkService<Backend, Membership, RuntimeServiceId>
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
 {
@@ -153,7 +153,7 @@ where
     }
 }
 
-impl<Backend, RuntimeServiceId, Membership> NetworkService<Backend, RuntimeServiceId, Membership>
+impl<Backend, Membership, RuntimeServiceId> NetworkService<Backend, Membership, RuntimeServiceId>
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::State: Send + Sync,
@@ -181,8 +181,8 @@ where
     }
 }
 
-impl<Backend: NetworkBackend<RuntimeServiceId>, RuntimeServiceId, Membership> Clone
-    for NetworkConfig<Backend, RuntimeServiceId, Membership>
+impl<Backend: NetworkBackend<RuntimeServiceId>, Membership, RuntimeServiceId> Clone
+    for NetworkConfig<Backend, Membership, RuntimeServiceId>
 where
     Membership: Clone,
 {
@@ -194,8 +194,8 @@ where
     }
 }
 
-impl<Backend: NetworkBackend<RuntimeServiceId>, RuntimeServiceId, Membership> Clone
-    for NetworkState<Backend, RuntimeServiceId, Membership>
+impl<Backend: NetworkBackend<RuntimeServiceId>, Membership, RuntimeServiceId> Clone
+    for NetworkState<Backend, Membership, RuntimeServiceId>
 {
     fn clone(&self) -> Self {
         Self {
@@ -205,12 +205,12 @@ impl<Backend: NetworkBackend<RuntimeServiceId>, RuntimeServiceId, Membership> Cl
     }
 }
 
-impl<Backend: NetworkBackend<RuntimeServiceId>, RuntimeServiceId, Membership> ServiceState
-    for NetworkState<Backend, RuntimeServiceId, Membership>
+impl<Backend: NetworkBackend<RuntimeServiceId>, Membership, RuntimeServiceId> ServiceState
+    for NetworkState<Backend, Membership, RuntimeServiceId>
 where
     Membership: Clone,
 {
-    type Settings = NetworkConfig<Backend, RuntimeServiceId, Membership>;
+    type Settings = NetworkConfig<Backend, Membership, RuntimeServiceId>;
     type Error = <Backend::State as ServiceState>::Error;
 
     fn from_settings(settings: &Self::Settings) -> Result<Self, Self::Error> {

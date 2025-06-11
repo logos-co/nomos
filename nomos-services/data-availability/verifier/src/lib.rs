@@ -145,7 +145,7 @@ where
         + Send
         + 'static
         + AsServiceId<Self>
-        + AsServiceId<NetworkService<N::Backend, RuntimeServiceId, N::Membership>>
+        + AsServiceId<NetworkService<N::Backend, N::Membership, RuntimeServiceId>>
         + AsServiceId<StorageService<S::Backend, RuntimeServiceId>>,
 {
     fn init(
