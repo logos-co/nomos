@@ -561,8 +561,6 @@ where
 
         let CryptarchiaSettings {
             config: ledger_config,
-            genesis_state,
-            genesis_id,
             transaction_selector_settings,
             blob_selector_settings,
             leader_config,
@@ -578,11 +576,8 @@ where
         // These are blocks that have been pruned by the cryptarchia engine but have not
         // yet been deleted from the storage layer.
         let mut previously_pruned_blocks = self.initial_state.prunable_blocks.clone();
-
         let (mut cryptarchia, mut leader) = Self::initialize_cryptarchia(
             self.initial_state,
-            genesis_id,
-            genesis_state,
             ledger_config,
             leader_config,
             &relays,
@@ -1214,8 +1209,6 @@ where
             NetAdapter::Settings,
             BlendAdapter::Settings,
         >,
-        lib_id: HeaderId,
-        lib_state: LedgerState,
         ledger_config: nomos_ledger::Config,
         leader_config: LeaderConfig,
         relays: &CryptarchiaConsensusRelays<
@@ -1235,7 +1228,9 @@ where
         >,
         block_subscription_sender: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> (Cryptarchia<Online>, Leader) {
-        let mut cryptarchia = <Cryptarchia<Online>>::from_lib(lib_id, lib_state, ledger_config);
+        let lib_id = initial_state.lib;
+        let mut cryptarchia =
+            <Cryptarchia<Online>>::from_lib(lib_id, initial_state.lib_ledger_state, ledger_config);
         let mut leader = Leader::new(
             lib_id,
             initial_state.lib_leader_notes.clone(),

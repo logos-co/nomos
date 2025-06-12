@@ -102,7 +102,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> ServiceState
                 tip: settings.genesis_id,
                 lib: settings.genesis_id,
                 lib_ledger_state: settings.genesis_state.clone(),
-                lib_leader_notes: vec![],
+                lib_leader_notes: settings.leader_config.notes.clone(),
                 lib_block_length: 0,
                 prunable_blocks: HashSet::new(),
                 _markers: PhantomData,
