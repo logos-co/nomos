@@ -593,7 +593,7 @@ mod tests {
             HeaderId::from([0; 32]),
             HeaderId::from([0; 32]),
             HeaderId::from([0; 32]),
-            HashSet::new(),
+            &HashSet::new(),
             provider_peer_id,
         );
 
@@ -632,7 +632,7 @@ mod tests {
             HeaderId::from([0; 32]),
             HeaderId::from([0; 32]),
             HeaderId::from([0; 32]),
-            HashSet::new(),
+            &HashSet::new(),
             provider_peer_id,
         );
 
@@ -653,9 +653,8 @@ mod tests {
             HeaderId::from([0; 32]),
             HeaderId::from([0; 32]),
             HeaderId::from([0; 32]),
-            HashSet::from_iter(
-                iter::repeat(HeaderId::from([1; 32])).take(MAX_ADDITIONAL_BLOCKS + 1),
-            ),
+            &iter::repeat_n(HeaderId::from([1; 32]), MAX_ADDITIONAL_BLOCKS + 1)
+                .collect::<HashSet<HeaderId>>(),
             provider_peer_id,
         );
 
@@ -723,7 +722,7 @@ mod tests {
         target_block: HeaderId,
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
-        additional_blocks: HashSet<HeaderId>,
+        additional_blocks: &HashSet<HeaderId>,
         peer_id: PeerId,
     ) -> Vec<BlocksResponseChannel> {
         let mut channels = Vec::new();
@@ -737,7 +736,7 @@ mod tests {
                     target_block,
                     local_tip,
                     latest_immutable_block,
-                    additional_blocks.to_owned(),
+                    additional_blocks.clone(),
                     tx,
                 )
                 .unwrap();
