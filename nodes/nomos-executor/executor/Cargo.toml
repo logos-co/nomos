@@ -26,8 +26,6 @@ nomos-membership         = { workspace = true }
 nomos-mempool            = { workspace = true, features = ["libp2p", "mock"] }
 nomos-network            = { workspace = true, features = ["libp2p"] }
 nomos-node               = { workspace = true }
-nomos-sdp                = { workspace = true }
-nomos-sdp-core           = { workspace = true }
 nomos-storage            = { workspace = true, features = ["rocksdb-backend"] }
 nomos-time               = { workspace = true }
 overwatch                = { workspace = true }
