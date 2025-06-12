@@ -214,9 +214,8 @@ impl<SessionStream, Rng> CoverTraffic<SessionStream, Rng> {
             rng,
             // Channel is created assuming the node might generate a message for each round, for
             // each interval, including the safety buffer. This is the absolutely worst case.
-            data_message_emission_notification_channel: mpsc::channel(
-                (settings.intervals_per_session_including_safety_buffer()
-                    * settings.rounds_per_session.get()) as usize,
+            data_message_emission_notification_channel: new_data_emission_notification_channel(
+                &settings,
             ),
         }
     }
@@ -231,6 +230,15 @@ impl<SessionStream, Rng> CoverTraffic<SessionStream, Rng> {
             error!(target: LOG_TARGET, "Failed to notify cover message stream of new data message generated. Error = {e:?}");
         }
     }
+}
+
+fn new_data_emission_notification_channel(
+    settings: &CoverTrafficSettings,
+) -> (mpsc::Sender<()>, mpsc::Receiver<()>) {
+    mpsc::channel(
+        (settings.intervals_per_session_including_safety_buffer()
+            * settings.rounds_per_session.get()) as usize,
+    )
 }
 
 fn rounds_stream(round_duration: Duration) -> Box<dyn Stream<Item = Round> + Send + Unpin> {
@@ -271,7 +279,14 @@ where
         } = &mut *self;
 
         if let Poll::Ready(Some(new_session_info)) = sessions.poll_next_unpin(cx) {
-            on_session_change(session_info, &new_session_info, rng, settings, intervals);
+            on_session_change(
+                session_info,
+                &new_session_info,
+                rng,
+                settings,
+                intervals,
+                data_message_emission_notification_channel,
+            );
         }
         if let Poll::Ready(Some(new_interval)) = intervals.poll_next_unpin(cx) {
             on_interval_change(
@@ -302,6 +317,7 @@ fn on_session_change<Rng>(
     rng: Rng,
     settings: &CoverTrafficSettings,
     intervals: &mut Box<dyn Stream<Item = Interval> + Send + Unpin>,
+    data_message_emission_notification_channel: &mut (mpsc::Sender<()>, mpsc::Receiver<()>),
 ) where
     Rng: rand::Rng,
 {
@@ -311,6 +327,7 @@ fn on_session_change<Rng>(
     *intervals = intervals_stream(Duration::from_secs(
         settings.rounds_per_interval.get() * settings.round_duration.as_secs(),
     ));
+    *data_message_emission_notification_channel = new_data_emission_notification_channel(settings);
 }
 
 fn on_interval_change(
