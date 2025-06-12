@@ -315,57 +315,57 @@ mod tests {
 
         // (1st entry)
         // blocknumber 100 = 105 - k.historical_block_delta
-        let result = backend.get_providers_at(service_type, 105).await.unwrap().1;
+        let (_, providers) = backend.get_providers_at(service_type, 105).await.unwrap();
 
-        assert_eq!(result.len(), 1);
-        assert!(result.contains_key(&provider_info_1.provider_id));
+        assert_eq!(providers.len(), 1);
+        assert!(providers.contains_key(&provider_info_1.provider_id));
         assert_eq!(
-            result.get(&provider_info_1.provider_id).unwrap(),
+            providers.get(&provider_info_1.provider_id).unwrap(),
             &BTreeSet::from_iter(declaration_update_1.locators.clone())
         );
 
         // (second entry)
         // should have 1st and 2nd
-        let result = backend.get_providers_at(service_type, 106).await.unwrap().1;
-        assert_eq!(result.len(), 2);
-        assert!(result.contains_key(&provider_info_1.provider_id));
-        assert!(result.contains_key(&provider_info_2.provider_id));
+        let (_, providers) = backend.get_providers_at(service_type, 106).await.unwrap();
+        assert_eq!(providers.len(), 2);
+        assert!(providers.contains_key(&provider_info_1.provider_id));
+        assert!(providers.contains_key(&provider_info_2.provider_id));
 
         assert_eq!(
-            result.get(&provider_info_2.provider_id).unwrap(),
+            providers.get(&provider_info_2.provider_id).unwrap(),
             &BTreeSet::from_iter(declaration_update_2.locators)
         );
         assert_eq!(
-            result.get(&provider_info_1.provider_id).unwrap(),
+            providers.get(&provider_info_1.provider_id).unwrap(),
             &BTreeSet::from_iter(declaration_update_1.locators.clone())
         );
 
         // (third entry)
         // should have 1st and 3rd
-        let result = backend.get_providers_at(service_type, 107).await.unwrap().1;
-        assert_eq!(result.len(), 2);
-        assert!(result.contains_key(&provider_info_1.provider_id));
-        assert!(result.contains_key(&provider_info_3.provider_id));
+        let (_, providers) = backend.get_providers_at(service_type, 107).await.unwrap();
+        assert_eq!(providers.len(), 2);
+        assert!(providers.contains_key(&provider_info_1.provider_id));
+        assert!(providers.contains_key(&provider_info_3.provider_id));
         assert_eq!(
-            result.get(&provider_info_1.provider_id).unwrap(),
+            providers.get(&provider_info_1.provider_id).unwrap(),
             &BTreeSet::from_iter(declaration_update_1.locators.clone())
         );
         assert_eq!(
-            result.get(&provider_info_3.provider_id).unwrap(),
+            providers.get(&provider_info_3.provider_id).unwrap(),
             &BTreeSet::from_iter(declaration_update_3.locators.clone())
         );
 
         // latest one should be same as the one we just added
-        let result = backend.get_latest_providers(service_type).await.unwrap().1;
-        assert_eq!(result.len(), 2);
-        assert!(result.contains_key(&provider_info_1.provider_id));
-        assert!(result.contains_key(&provider_info_3.provider_id));
+        let (_, providers) = backend.get_latest_providers(service_type).await.unwrap();
+        assert_eq!(providers.len(), 2);
+        assert!(providers.contains_key(&provider_info_1.provider_id));
+        assert!(providers.contains_key(&provider_info_3.provider_id));
         assert_eq!(
-            result.get(&provider_info_1.provider_id).unwrap(),
+            providers.get(&provider_info_1.provider_id).unwrap(),
             &BTreeSet::from_iter(declaration_update_1.locators)
         );
         assert_eq!(
-            result.get(&provider_info_3.provider_id).unwrap(),
+            providers.get(&provider_info_3.provider_id).unwrap(),
             &BTreeSet::from_iter(declaration_update_3.locators)
         );
     }
@@ -504,7 +504,7 @@ mod tests {
             "Result should contain the expected service type"
         );
 
-        let providers = result.get(&service_type).unwrap().1.clone();
+        let (_, providers) = result.get(&service_type).unwrap();
 
         // Only check providers that were part of this update
         for (provider_id, expected_locators) in expected_providers {
