@@ -2,6 +2,7 @@ pub mod backends;
 pub mod network;
 
 use std::{
+    collections::HashSet,
     fmt::{Debug, Display},
     hash::Hash,
     num::NonZeroU64,
@@ -180,11 +181,20 @@ where
         )
         .await?;
 
+        // Temporary structure used to distinguish the messages that are scheduled via
+        // the temporal scheduler. We keep track of locally generated messages
+        // because they affect the schedule of the cover message scheduler. This
+        // logic will find a better place after we refactor the code to implement the
+        // latest v1 of the spec.
+        let mut scheduled_local_messages = HashSet::new();
         loop {
             tokio::select! {
                 Some(msg) = persistent_transmission_messages.next() => {
+                    let is_local_message = scheduled_local_messages.remove(&msg);
                     backend.publish(msg).await;
-                    cover_traffic.notify_of_new_data_message().await;
+                    if is_local_message {
+                        cover_traffic.notify_of_new_data_message().await;
+                    }
                 }
                 // Already processed blend messages
                 Some(msg) = blend_messages.next() => {
@@ -218,6 +228,7 @@ where
                 }
                 Some(msg) = local_messages.next() => {
                     Self::wrap_and_send_to_persistent_transmission(&msg, &mut cryptographic_processor, &persistent_sender);
+                    scheduled_local_messages.insert(msg);
                 }
             }
         }
