@@ -97,7 +97,7 @@ impl TipRequestStream {
 #[derive(Debug)]
 pub enum Event {
     ProvideBlocksRequest {
-        /// Return blocks up to `target_block` if specified.
+        /// Return blocks up to `target_block`.
         target_block: HeaderId,
         /// The local canonical chain latest block.
         local_tip: HeaderId,
@@ -105,11 +105,11 @@ pub enum Event {
         latest_immutable_block: HeaderId,
         /// The list of additional blocks that the requester has.
         additional_blocks: HashSet<HeaderId>,
-        /// Channel to send blocks to the behaviour.
+        /// Channel to send blocks to the service.
         reply_sender: Sender<BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>>,
     },
     ProvideTipsRequest {
-        /// Channel to send the latest tip to the behaviour.
+        /// Channel to send the latest tip to the service.
         reply_sender: oneshot::Sender<SerialisedHeaderId>,
     },
     DownloadBlocksResponse {
@@ -117,7 +117,7 @@ pub enum Event {
         result: Result<SerialisedBlock, ChainSyncError>,
     },
     GetTipResponse {
-        /// Local tip.
+        /// The response containing the latest tip or an error.
         result: Result<SerialisedHeaderId, ChainSyncError>,
     },
 }
@@ -139,7 +139,7 @@ pub struct Behaviour {
     /// either `sending_block_responses` or `sending_tip_responses`.
     receiving_requests: FuturesUnordered<ReceivingRequestsFuture>,
     /// Futures for sending block download requests. After the request is
-    /// read, reading blocks is handled by `receiving_block_responses`.
+    /// read, reading blocks are handled by `receiving_block_responses`.
     sending_block_requests: FuturesUnordered<SendingBlocksRequestsFuture>,
     /// Futures for managing the progress of locally initiated block downloads.
     receiving_block_responses: FuturesUnordered<ReceivingBlocksResponsesFuture>,
@@ -158,7 +158,7 @@ pub struct Behaviour {
     /// requests.
     incoming_streams_to_close: FuturesUnordered<BoxFuture<'static, ()>>,
     /// Waker to notify the behaviour when `request_tip` or
-    /// `start_blocks_download` is called and swarm is idle.
+    /// `start_blocks_download` is called.
     waker: Option<std::task::Waker>,
 }
 
