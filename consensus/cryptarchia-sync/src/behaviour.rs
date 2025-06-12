@@ -508,6 +508,8 @@ impl NetworkBehaviour for Behaviour {
                 error!("Sending response failed: {}", e);
             }
 
+            self.try_notify_waker();
+
             return Poll::Pending;
         }
 
@@ -516,6 +518,7 @@ impl NetworkBehaviour for Behaviour {
                 error!("Sending response failed: {}", e);
             }
 
+            self.try_notify_waker();
             return Poll::Pending;
         }
 
@@ -562,7 +565,7 @@ mod tests {
 
     use bytes::Bytes;
     use futures::{stream::BoxStream, StreamExt as _};
-    use libp2p::{multiaddr::Protocol, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
+    use libp2p::{swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
     use libp2p_swarm_test::SwarmExt as _;
     use nomos_core::header::HeaderId;
     use rand::{rng, Rng as _};
@@ -575,16 +578,11 @@ mod tests {
         Behaviour, ChainSyncError, Event, SerialisedBlock,
     };
 
-    type BlocksResponseChannel = (
-        mpsc::Sender<BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>>,
-        mpsc::Receiver<BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>>,
-    );
-
     #[tokio::test]
     async fn test_block_sync_between_two_swarms() {
         let (mut downloader_swarm, provider_peer_id) = start_provider_and_downloader(200).await;
 
-        let mut streams = request_download(
+        let streams = request_download(
             &mut downloader_swarm,
             1,
             HeaderId::from([0; 32]),
@@ -596,7 +594,7 @@ mod tests {
 
         tokio::spawn(async move { downloader_swarm.loop_on_next().await });
 
-        let (blocks, errors) = wait_block_messages(200, &mut streams).await;
+        let (blocks, errors) = wait_block_messages(200, streams).await;
 
         assert_eq!(blocks.len(), 200);
         assert_eq!(errors.len(), 0);
@@ -623,7 +621,7 @@ mod tests {
     async fn test_reject_excess_download_requests() {
         let (mut downloader_swarm, provider_peer_id) = start_provider_and_downloader(1).await;
 
-        let mut streams = request_download(
+        let streams = request_download(
             &mut downloader_swarm,
             MAX_INCOMING_REQUESTS + 1,
             HeaderId::from([0; 32]),
@@ -635,8 +633,9 @@ mod tests {
 
         tokio::spawn(async move { downloader_swarm.loop_on_next().await });
 
-        let (_blocks, errors) = wait_block_messages(1, &mut streams).await;
+        let (blocks, errors) = wait_block_messages(MAX_INCOMING_REQUESTS + 1, streams).await;
 
+        assert_eq!(blocks.len(), MAX_INCOMING_REQUESTS);
         assert_eq!(errors.len(), 1);
     }
 
@@ -644,7 +643,7 @@ mod tests {
     async fn test_reject_protocol_violation_too_many_additional_blocks() {
         let (mut downloader_swarm, provider_peer_id) = start_provider_and_downloader(1).await;
 
-        let mut streams = request_download(
+        let streams = request_download(
             &mut downloader_swarm,
             MAX_INCOMING_REQUESTS + 1,
             HeaderId::from([0; 32]),
@@ -657,7 +656,7 @@ mod tests {
 
         tokio::spawn(async move { downloader_swarm.loop_on_next().await });
 
-        let (_blocks, errors) = wait_block_messages(1, &mut streams).await;
+        let (_blocks, errors) = wait_block_messages(MAX_INCOMING_REQUESTS + 1, streams).await;
 
         assert_eq!(errors.len(), 1);
     }
@@ -675,9 +674,15 @@ mod tests {
     }
 
     async fn start_provider_and_downloader(blocks_count: usize) -> (Swarm<Behaviour>, PeerId) {
-        let mut provider_swarm = Swarm::new_ephemeral_tokio(|_k| Behaviour::new(HashMap::new()));
+        let mut provider_swarm = new_swarm_with_quic();
         let provider_swarm_peer_id = *provider_swarm.local_peer_id();
-        let provider_addr: Multiaddr = Protocol::Memory(u64::from(rng().random::<u16>())).into();
+
+        let provider_addr: Multiaddr = format!(
+            "/ip4/127.0.0.1/udp/{}/quic-v1",
+            u64::from(rng().random::<u16>())
+        )
+        .parse()
+        .unwrap();
         provider_swarm.listen_on(provider_addr.clone()).unwrap();
 
         tokio::spawn(async move {
@@ -706,7 +711,7 @@ mod tests {
             }
         });
 
-        let mut downloader_swarm = Swarm::new_ephemeral_tokio(|_k| Behaviour::new(HashMap::new()));
+        let mut downloader_swarm = new_swarm_with_quic();
 
         downloader_swarm.dial_and_wait(provider_addr).await;
 
@@ -721,11 +726,11 @@ mod tests {
         latest_immutable_block: HeaderId,
         additional_blocks: &HashSet<HeaderId>,
         peer_id: PeerId,
-    ) -> Vec<BlocksResponseChannel> {
+    ) -> Vec<mpsc::Receiver<BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>>> {
         let mut channels = Vec::new();
         for _ in 0..syncs_count {
             let (tx, rx) = mpsc::channel(1);
-            channels.push((tx.clone(), rx));
+            channels.push(rx);
             downloader_swarm
                 .behaviour_mut()
                 .start_blocks_download(
@@ -756,27 +761,46 @@ mod tests {
 
     async fn wait_block_messages(
         expected_count: usize,
-        streams: &mut Vec<BlocksResponseChannel>,
-    ) -> (
-        Vec<SerialisedBlock>,
-        Vec<Result<SerialisedBlock, ChainSyncError>>,
-    ) {
-        let (_tx, mut receiver) = streams.pop().unwrap();
-        let mut stream = receiver.recv().await.unwrap();
+        streams: Vec<mpsc::Receiver<BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>>>,
+    ) -> (Vec<SerialisedBlock>, Vec<()>) {
         let mut blocks = Vec::new();
         let mut errors = Vec::new();
 
-        while let Some(block) = stream.next().await {
-            match block {
-                Ok(block) => {
-                    blocks.push(block);
-                    if blocks.len() == expected_count {
-                        break;
-                    }
+        for mut receiver in streams.into_iter() {
+            let mut stream = match receiver.recv().await {
+                Some(stream) => stream,
+                None => {
+                    errors.push(());
+                    continue;
                 }
-                Err(e) => errors.push(Err(e)),
+            };
+
+            while let Some(result) = stream.next().await {
+                match result {
+                    Ok(block) => {
+                        blocks.push(block);
+                    }
+                    Err(_) => errors.push(()),
+                }
+            }
+
+            if blocks.len() + errors.len() == expected_count {
+                break;
             }
         }
         (blocks, errors)
+    }
+
+    fn new_swarm_with_quic() -> Swarm<Behaviour> {
+        let keypair = libp2p::identity::Keypair::generate_ed25519();
+        libp2p::SwarmBuilder::with_existing_identity(keypair)
+            .with_tokio()
+            .with_quic()
+            .with_dns()
+            .unwrap()
+            .with_behaviour(|_| Behaviour::new(HashMap::new()))
+            .unwrap()
+            .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(10)))
+            .build()
     }
 }

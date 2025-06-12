@@ -43,6 +43,7 @@ impl Downloader {
         let mut stream = open_stream(peer_id, &mut control).await?;
 
         let download_request = RequestMessage::DownloadBlocksRequest(request);
+
         send_message(peer_id, &mut stream, &download_request).await?;
 
         let request_stream = BlocksRequestStream::new(peer_id, stream, reply_sender);
