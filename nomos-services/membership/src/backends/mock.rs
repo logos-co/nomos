@@ -315,8 +315,8 @@ mod tests {
 
         // (1st entry)
         // blocknumber 100 = 105 - k.historical_block_delta
-        let result = backend.get_providers_at(service_type, 105).await.unwrap();
-        let result = result.1;
+        let result = backend.get_providers_at(service_type, 105).await.unwrap().1;
+
         assert_eq!(result.len(), 1);
         assert!(result.contains_key(&provider_info_1.provider_id));
         assert_eq!(
@@ -326,8 +326,7 @@ mod tests {
 
         // (second entry)
         // should have 1st and 2nd
-        let result = backend.get_providers_at(service_type, 106).await.unwrap();
-        let result = result.1;
+        let result = backend.get_providers_at(service_type, 106).await.unwrap().1;
         assert_eq!(result.len(), 2);
         assert!(result.contains_key(&provider_info_1.provider_id));
         assert!(result.contains_key(&provider_info_2.provider_id));
@@ -343,8 +342,7 @@ mod tests {
 
         // (third entry)
         // should have 1st and 3rd
-        let result = backend.get_providers_at(service_type, 107).await.unwrap();
-        let result = result.1;
+        let result = backend.get_providers_at(service_type, 107).await.unwrap().1;
         assert_eq!(result.len(), 2);
         assert!(result.contains_key(&provider_info_1.provider_id));
         assert!(result.contains_key(&provider_info_3.provider_id));
@@ -358,8 +356,7 @@ mod tests {
         );
 
         // latest one should be same as the one we just added
-        let result = backend.get_latest_providers(service_type).await.unwrap();
-        let result = result.1;
+        let result = backend.get_latest_providers(service_type).await.unwrap().1;
         assert_eq!(result.len(), 2);
         assert!(result.contains_key(&provider_info_1.provider_id));
         assert!(result.contains_key(&provider_info_3.provider_id));
