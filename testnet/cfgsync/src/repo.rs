@@ -113,7 +113,7 @@ impl ConfigRepo {
             if self.waiting_hosts.lock().unwrap().len() >= self.n_hosts {
                 break;
             }
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
     }
 }

@@ -463,7 +463,7 @@ mod tests {
         // Empty ledger state.
         let ledger_state = nomos_ledger::Ledger::new(
             [0; 32].into(),
-            nomos_ledger::LedgerState::from_commitments([], 0),
+            LedgerState::from_commitments([], 0),
             ledger_config,
         );
 

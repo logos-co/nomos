@@ -23,7 +23,7 @@ impl ledger::DeclarationsRepository for LedgerDeclarationAdapter {
 
     async fn update(
         &self,
-        _declaration_update: nomos_sdp_core::DeclarationInfo,
+        _declaration_update: DeclarationInfo,
     ) -> Result<(), DeclarationsRepositoryError> {
         todo!()
     }

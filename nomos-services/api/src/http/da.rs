@@ -205,7 +205,7 @@ where
         + Sync
         + 'static,
     <Tx as Transaction>::Hash:
-        std::cmp::Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+        Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     C: DispersedBlobInfo<BlobId = [u8; 32]>
         + Clone
         + Debug
@@ -241,7 +241,7 @@ where
     SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
-    DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + 'static,
+    DaVerifierBackend: VerifierBackend + Send + 'static,
     DaVerifierBackend::Settings: Clone,
     DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,

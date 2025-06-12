@@ -368,12 +368,12 @@ where
 /// Write a message to the stream
 async fn send_msg(mut stream: Stream, msg: Vec<u8>) -> io::Result<Stream> {
     let msg_len: u16 = msg.len().try_into().map_err(|_| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
             format!(
                 "Message length is too big. Got {}, expected {}",
                 msg.len(),
-                std::mem::size_of::<u16>()
+                size_of::<u16>()
             ),
         )
     })?;
@@ -384,7 +384,7 @@ async fn send_msg(mut stream: Stream, msg: Vec<u8>) -> io::Result<Stream> {
 }
 /// Read a message from the stream
 async fn recv_msg(mut stream: Stream) -> io::Result<(Stream, Vec<u8>)> {
-    let mut msg_len = [0; std::mem::size_of::<u16>()];
+    let mut msg_len = [0; size_of::<u16>()];
     stream.read_exact(&mut msg_len).await?;
     let msg_len = u16::from_be_bytes(msg_len) as usize;
 

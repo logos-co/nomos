@@ -142,7 +142,7 @@ pub enum MockBackendMessage {
     },
 }
 
-impl core::fmt::Debug for MockBackendMessage {
+impl Debug for MockBackendMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::BootProducer { .. } => write!(f, "BootProducer"),
