@@ -2,7 +2,9 @@ use core::ops::{Deref, DerefMut};
 
 #[derive(Clone, Copy, PartialEq, PartialOrd, Debug)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
-pub struct NonNegativeF64(#[serde(deserialize_with = "serde::deserialize")] f64);
+pub struct NonNegativeF64(
+    #[cfg_attr(feature = "serde", serde(deserialize_with = "serde::deserialize"))] f64,
+);
 
 impl NonNegativeF64 {
     #[must_use]

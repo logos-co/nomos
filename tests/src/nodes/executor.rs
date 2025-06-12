@@ -255,7 +255,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 round_duration: Duration::from_secs(1),
                 rounds_per_interval: NonZeroU64::try_from(30u64)
                     .expect("Rounds per interval cannot be zero."),
-                // 21,600 blocks * 30s per block = 648,000
+                // (21,600 blocks * 30s per block) / 1s per round = 648,000 rounds
                 rounds_per_session: NonZeroU64::try_from(648_000u64)
                     .expect("Rounds per session cannot be zero."),
             },

@@ -308,8 +308,6 @@ impl CoverTrafficExtSettings {
         let session_duration_in_seconds = self
             .round_duration
             .as_secs()
-            .checked_mul(self.rounds_per_interval.get())
-            .unwrap()
             .checked_mul(self.rounds_per_session.get())
             .expect("Overflow when computing the total duration of a session in seconds.");
         Box::new(
