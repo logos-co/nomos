@@ -4,7 +4,7 @@ pub mod network;
 use std::{
     fmt::{Debug, Display},
     hash::Hash,
-    num::{NonZero, NonZeroU64},
+    num::NonZeroU64,
     time::Duration,
 };
 

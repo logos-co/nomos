@@ -3,7 +3,7 @@ use std::{
     fmt::{Debug, Display, Formatter},
     num::NonZeroU64,
     pin::Pin,
-    task::{Context, Poll, Waker},
+    task::{Context, Poll},
     time::Duration,
 };
 
@@ -188,7 +188,7 @@ pub struct CoverTraffic<SessionStream, Rng> {
     /// The internal stream that generates a new element at every interval.
     intervals: Box<dyn Stream<Item = Interval> + Send + Unpin>,
     /// The current interval value, used to look into the pre-generated slots.
-    current_interval: Interval,
+    current_interval: Option<Interval>,
     /// The provided settings.
     settings: CoverTrafficSettings,
     /// The info corresponding to the currently running session.
@@ -199,7 +199,6 @@ pub struct CoverTraffic<SessionStream, Rng> {
     /// already sent, so that it can modify its own scheduling accordingly, as
     /// per the spec.
     data_message_emission_notification_channel: (mpsc::Sender<()>, mpsc::Receiver<()>),
-    waker: Option<Waker>,
 }
 
 impl<SessionStream, Rng> CoverTraffic<SessionStream, Rng> {
@@ -208,7 +207,7 @@ impl<SessionStream, Rng> CoverTraffic<SessionStream, Rng> {
             // We don't start any timers until we get information about a session.
             rounds: Box::new(empty::<Round>()),
             intervals: Box::new(empty::<Interval>()),
-            current_interval: Interval::default(),
+            current_interval: None,
             sessions,
             settings,
             session_info: InternalSessionInfo::default(),
@@ -219,7 +218,6 @@ impl<SessionStream, Rng> CoverTraffic<SessionStream, Rng> {
                 (settings.intervals_per_session_including_safety_buffer()
                     * settings.rounds_per_session.get()) as usize,
             ),
-            waker: None,
         }
     }
 
@@ -270,7 +268,6 @@ where
             rounds,
             intervals,
             data_message_emission_notification_channel,
-            waker,
         } = &mut *self;
 
         if let Poll::Ready(Some(new_session_info)) = sessions.poll_next_unpin(cx) {
@@ -285,22 +282,17 @@ where
                 rounds,
             );
         }
-        let res = if let Poll::Ready(Some(new_round)) = rounds.poll_next_unpin(cx) {
-            if let Some(w) = waker.take() {
-                w.wake();
-            }
-            on_new_round(
+        if let Poll::Ready(Some(new_round)) = rounds.poll_next_unpin(cx) {
+            cx.waker().wake_by_ref();
+            return on_new_round(
                 session_info,
                 *current_interval,
                 new_round,
                 cx,
                 &mut data_message_emission_notification_channel.1,
-            )
-        } else {
-            *waker = Some(cx.waker().clone());
-            Poll::Pending
-        };
-        res
+            );
+        }
+        Poll::Pending
     }
 }
 
@@ -323,31 +315,44 @@ fn on_session_change<Rng>(
 
 fn on_interval_change(
     current_session_info: &InternalSessionInfo,
-    current_interval: &mut Interval,
+    current_interval: &mut Option<Interval>,
     new_interval: Interval,
     settings: &CoverTrafficSettings,
     rounds: &mut Box<dyn Stream<Item = Round> + Send + Unpin>,
 ) {
     let maximum_interval_value = settings.intervals_per_session_including_safety_buffer();
     if new_interval < Interval::from(maximum_interval_value) {
-        *current_interval = new_interval;
+        *current_interval = Some(new_interval);
         *rounds = rounds_stream(settings.round_duration);
         debug!(
             target: LOG_TARGET, "Interval {new_interval} started for session {}.",
             current_session_info.session_number
         );
     } else {
+        *current_interval = None;
         warn!(target: LOG_TARGET, "Interval stream has passed the expected limit including the safety buffer. Current value = {new_interval:?}, maximum allowed = {maximum_interval_value:?}");
     }
 }
 
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "Expanded macro code adds complexity."
+)]
 fn on_new_round(
     current_session_info: &mut InternalSessionInfo,
-    current_interval: Interval,
+    current_interval: Option<Interval>,
     new_round: Round,
     poll_context: &mut Context,
     data_message_receiver_channel: &mut mpsc::Receiver<()>,
 ) -> Poll<Option<Vec<u8>>> {
+    // If this session is lasting too long, there is nothing more we can do until a
+    // new one is started.
+    let Some(current_interval) = current_interval else {
+        debug!(
+            target: LOG_TARGET, "New rounds are ignored since the session is lasting too long.",
+        );
+        return Poll::Pending;
+    };
     debug!(
         target: LOG_TARGET, "New round {new_round} started for interval {current_interval} and session {}.",
         current_session_info.session_number
@@ -380,52 +385,230 @@ fn on_new_round(
 #[cfg(test)]
 mod tests {
     use core::{num::NonZeroU64, time::Duration};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
 
-    use futures::StreamExt as _;
+    use futures::{Stream, StreamExt as _};
     use rand::SeedableRng as _;
     use rand_chacha::ChaCha12Rng;
     use tokio::time;
     use tokio_stream::wrappers::IntervalStream;
 
-    use crate::cover_traffic::{CoverTraffic, CoverTrafficSettings, SessionInfo};
+    use crate::cover_traffic::{
+        CoverTraffic, CoverTrafficSettings, InternalSessionInfo, SessionInfo,
+    };
 
-    #[test_log::test(tokio::test)]
-    async fn message_emission_without_data_messages() {
-        let settings = CoverTrafficSettings {
+    // Rounds of 1 second, 2 rounds per interval, 6 rounds per session (3
+    // intervals).
+    fn get_settings() -> CoverTrafficSettings {
+        CoverTrafficSettings {
             blending_ops_per_message: 3,
             message_frequency_per_round: 1f64.try_into().unwrap(),
             redundancy_parameter: 0,
             round_duration: Duration::from_secs(1),
-            rounds_per_interval: NonZeroU64::try_from(3).unwrap(),
-            rounds_per_session: NonZeroU64::try_from(9).unwrap(),
-        };
-        let mut cover_traffic = CoverTraffic::new(
-            settings,
-            Box::new(
-                IntervalStream::new(time::interval(Duration::from_secs(
-                    settings.round_duration.as_secs() * settings.rounds_per_session.get(),
-                )))
-                .enumerate()
-                .map(|(i, _)| SessionInfo {
-                    membership_size: 1,
-                    session_number: (i as u64).into(),
-                }),
-            ),
-            ChaCha12Rng::from_entropy(),
-        );
-
-        loop {
-            tokio::select! {
-                Some(msg) = cover_traffic.next() => {
-                    println!("Next: {msg:?}");
-                },
-            }
+            rounds_per_interval: NonZeroU64::try_from(2).unwrap(),
+            rounds_per_session: NonZeroU64::try_from(6).unwrap(),
         }
     }
 
-    #[test_log::test(tokio::test)]
-    async fn message_emission_with_data_messages() {}
+    fn get_cover_traffic(
+        actual_session_duration: Duration,
+        settings: &CoverTrafficSettings,
+    ) -> (
+        CoverTraffic<Box<dyn Stream<Item = SessionInfo> + Unpin + Send>, ChaCha12Rng>,
+        usize,
+    ) {
+        let rng = ChaCha12Rng::from_entropy();
+        let membership_size = 2;
+        let expected_messages = InternalSessionInfo::from_session_info_and_settings(
+            &SessionInfo {
+                membership_size,
+                // Not relevant to calculate the expected number of cover messages (quota).
+                session_number: 0.into(),
+            },
+            rng.clone(),
+            settings,
+        )
+        .message_slots
+        .len();
+        (
+            CoverTraffic::new(
+                get_settings(),
+                Box::new(
+                    IntervalStream::new(time::interval(actual_session_duration))
+                        .enumerate()
+                        .map(move |(i, _)| SessionInfo {
+                            session_number: (i as u64).into(),
+                            membership_size,
+                        }),
+                ),
+                rng,
+            ),
+            expected_messages,
+        )
+    }
 
-    #[test_log::test(tokio::test)]
-    async fn message_emission_with_long_session() {}
+    fn inc_inner(value: &Arc<AtomicUsize>) {
+        value.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn read_inner(value: &Arc<AtomicUsize>) -> usize {
+        value.load(Ordering::Relaxed)
+    }
+
+    #[tokio::test]
+    async fn message_emission_without_data_messages() {
+        let settings = get_settings();
+        // Session lasts exactly as long as it should (simulating no consensus delays).
+        let session_duration = Duration::from_secs(
+            settings.round_duration.as_secs() * settings.rounds_per_session.get(),
+        );
+        let (mut cover_traffic, expected_cover_messages_count) =
+            get_cover_traffic(session_duration, &settings);
+        let generated_messages = Arc::new(AtomicUsize::new(0));
+        let generated_messages_clone = Arc::clone(&generated_messages);
+
+        let task = tokio::spawn(async move {
+            while (cover_traffic.next().await).is_some() {
+                inc_inner(&generated_messages_clone);
+            }
+        });
+
+        // We wait until one full session has passed, and we make sure not more than the
+        // allowed amount of cover messages has been generated.
+        tokio::time::sleep(session_duration).await;
+        drop(task);
+
+        // We can't say exactly how many messages were generated since some of them
+        // might belong to the safety buffer. We can only check that the number was from
+        // `0` (in case they were all scheduled to be released in the safety period) to
+        // the expected maximum (in case no message was scheduled to be released during
+        // the safety period).
+        assert!(
+            (0..expected_cover_messages_count)
+                .contains(&read_inner(&generated_messages)),
+            "There should be between 0 and the expected maximum number of cover messages generated."
+        );
+    }
+
+    #[tokio::test]
+    async fn message_emission_with_long_session() {
+        let settings = get_settings();
+        let session_duration = {
+            // Session lasts 1 round more than the number of expected intervals + the safety
+            // buffer, in rounds.
+            let rounds_for_all_intervals = settings.rounds_per_interval.get()
+                * settings.intervals_per_session_including_safety_buffer()
+                + 1;
+            Duration::from_secs(settings.round_duration.as_secs() * rounds_for_all_intervals)
+        };
+        let (mut cover_traffic, expected_cover_messages_count) =
+            get_cover_traffic(session_duration, &settings);
+        let generated_messages = Arc::new(AtomicUsize::new(0));
+        let generated_messages_clone = Arc::clone(&generated_messages);
+
+        let task = tokio::spawn(async move {
+            while (cover_traffic.next().await).is_some() {
+                inc_inner(&generated_messages_clone);
+            }
+        });
+
+        // We wait until one full (long) session has passed, and we make sure not more
+        // than the allowed amount of cover messages has been generated.
+        tokio::time::sleep(session_duration).await;
+        drop(task);
+
+        // In this case, we should generate EXACTLY the expected number of messages.
+        assert_eq!(
+            expected_cover_messages_count,
+            read_inner(&generated_messages),
+            "Number of generated cover messages should match the expected maximum."
+        );
+    }
+
+    #[tokio::test]
+    async fn message_emission_with_single_data_message() {
+        let settings = get_settings();
+        let session_duration = {
+            // Session lasts 1 round more than the number of expected intervals + the safety
+            // buffer, in rounds.
+            let rounds_for_all_intervals = settings.rounds_per_interval.get()
+                * settings.intervals_per_session_including_safety_buffer()
+                + 1;
+            Duration::from_secs(settings.round_duration.as_secs() * rounds_for_all_intervals)
+        };
+        let (mut cover_traffic, expected_cover_messages_count) =
+            get_cover_traffic(session_duration, &settings);
+        let generated_messages = Arc::new(AtomicUsize::new(0));
+        let generated_messages_clone = Arc::clone(&generated_messages);
+
+        // We already add one data message in the queue for the cover traffic module to
+        // read when it needs to.
+        cover_traffic.notify_of_new_data_message().await;
+
+        let task = tokio::spawn(async move {
+            while (cover_traffic.next().await).is_some() {
+                inc_inner(&generated_messages_clone);
+            }
+        });
+
+        // We wait until one full session has passed, and we make sure not more than the
+        // allowed amount of cover messages has been generated.
+        tokio::time::sleep(session_duration).await;
+        drop(task);
+
+        // In this case, we should arrive to exactly `1` messages left, because there
+        // was a data message generated during the session.
+        assert_eq!(
+            expected_cover_messages_count - read_inner(&generated_messages),
+            1,
+            "There should be 1 cover message skipped due to a data message."
+        );
+    }
+
+    #[tokio::test]
+    // We test that in the unlikely case a session results in all data messages, no
+    // cover message is generated at all.
+    async fn message_emission_with_all_data_messages() {
+        let settings = get_settings();
+        let session_duration = {
+            // Session lasts 1 round more than the number of expected intervals + the safety
+            // buffer, in rounds.
+            let rounds_for_all_intervals = settings.rounds_per_interval.get()
+                * settings.intervals_per_session_including_safety_buffer()
+                + 1;
+            Duration::from_secs(settings.round_duration.as_secs() * rounds_for_all_intervals)
+        };
+        let (mut cover_traffic, expected_cover_messages_count) =
+            get_cover_traffic(session_duration, &settings);
+        let generated_messages = Arc::new(AtomicUsize::new(0));
+        let generated_messages_clone = Arc::clone(&generated_messages);
+
+        // We fill the channel with as many data message signals as there should be
+        // cover messages.
+        for _ in 0..expected_cover_messages_count {
+            cover_traffic.notify_of_new_data_message().await;
+        }
+
+        let task = tokio::spawn(async move {
+            while (cover_traffic.next().await).is_some() {
+                inc_inner(&generated_messages_clone);
+            }
+        });
+
+        // We wait until one full session has passed, and we make sure that no cover
+        // message is generated at all.
+        tokio::time::sleep(session_duration).await;
+        drop(task);
+
+        // In this case, we should have generated `0` messages since all message slots
+        // were overridden by data messages.
+        assert_eq!(
+            read_inner(&generated_messages),
+            0,
+            "Cover module should not generate any messages at all."
+        );
+    }
 }
