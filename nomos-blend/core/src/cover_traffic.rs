@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use futures::{stream::empty, Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _};
 use nomos_utils::math::NonNegativeF64;
 use tokio::{sync::mpsc, time};
 use tokio_stream::wrappers::IntervalStream;
@@ -109,7 +109,7 @@ impl InternalSessionInfo {
     /// which such quota will be depleted.
     fn from_session_info_and_settings<Rng>(
         session_info: &SessionInfo,
-        mut rng: Rng,
+        rng: &mut Rng,
         settings: &CoverTrafficSettings,
     ) -> Self
     where
@@ -130,7 +130,7 @@ impl InternalSessionInfo {
         let session_messages =
             (core_quota / settings.blending_ops_per_message as f64).ceil() as usize;
 
-        let message_slots = generate_message_slots(session_messages, settings, &mut rng);
+        let message_slots = generate_message_slots(session_messages, settings, rng);
 
         Self {
             message_slots,
@@ -179,7 +179,43 @@ pub struct SessionInfo {
     pub session_number: Session,
 }
 
+/// The instance of the cover traffic module before it is initialized with the
+/// very first session info.
 pub struct CoverTraffic<SessionStream, Rng> {
+    settings: CoverTrafficSettings,
+    sessions: SessionStream,
+    rng: Rng,
+}
+
+impl<SessionStream, Rng> CoverTraffic<SessionStream, Rng> {
+    pub const fn new(settings: CoverTrafficSettings, sessions: SessionStream, rng: Rng) -> Self {
+        Self {
+            settings,
+            sessions,
+            rng,
+        }
+    }
+}
+
+impl<SessionStream, Rng> CoverTraffic<SessionStream, Rng>
+where
+    SessionStream: Stream<Item = SessionInfo> + Unpin,
+    Rng: rand::Rng,
+{
+    /// Waits until the first session info is yielded by the provided stream,
+    /// after which the instance is initialized, started, and returned.
+    pub async fn wait_ready(mut self) -> RunningCoverTraffic<SessionStream, Rng> {
+        let mut next: Option<SessionInfo> = None;
+        while next.is_none() {
+            next = self.sessions.next().await;
+        }
+        let first_session_info =
+            next.expect("We just checked that is was not None. How did this happen?");
+        RunningCoverTraffic::new(self.settings, self.sessions, self.rng, &first_session_info)
+    }
+}
+
+pub struct RunningCoverTraffic<SessionStream, Rng> {
     /// The session stream triggered at every session change, provided from the
     /// outside.
     sessions: SessionStream,
@@ -201,16 +237,29 @@ pub struct CoverTraffic<SessionStream, Rng> {
     data_message_emission_notification_channel: (mpsc::Sender<()>, mpsc::Receiver<()>),
 }
 
-impl<SessionStream, Rng> CoverTraffic<SessionStream, Rng> {
-    pub fn new(settings: CoverTrafficSettings, sessions: SessionStream, rng: Rng) -> Self {
+impl<SessionStream, Rng> RunningCoverTraffic<SessionStream, Rng>
+where
+    Rng: rand::Rng,
+{
+    fn new(
+        settings: CoverTrafficSettings,
+        sessions: SessionStream,
+        mut rng: Rng,
+        first_session_info: &SessionInfo,
+    ) -> Self {
         Self {
-            // We don't start any timers until we get information about a session.
-            rounds: Box::new(empty::<Round>()),
-            intervals: Box::new(empty::<Interval>()),
-            current_interval: None,
+            rounds: rounds_stream(settings.round_duration),
+            intervals: intervals_stream(Duration::from_secs(
+                settings.rounds_per_interval.get() * settings.round_duration.as_secs(),
+            )),
+            current_interval: Some(Interval::default()),
             sessions,
             settings,
-            session_info: InternalSessionInfo::default(),
+            session_info: InternalSessionInfo::from_session_info_and_settings(
+                first_session_info,
+                &mut rng,
+                &settings,
+            ),
             rng,
             // Channel is created assuming the node might generate a message for each round, for
             // each interval, including the safety buffer. This is the absolutely worst case.
@@ -219,7 +268,9 @@ impl<SessionStream, Rng> CoverTraffic<SessionStream, Rng> {
             ),
         }
     }
+}
 
+impl<SessionStream, Rng> RunningCoverTraffic<SessionStream, Rng> {
     pub async fn notify_of_new_data_message(&mut self) {
         if let Err(e) = self
             .data_message_emission_notification_channel
@@ -259,7 +310,7 @@ fn intervals_stream(
     )
 }
 
-impl<SessionStream, Rng> Stream for CoverTraffic<SessionStream, Rng>
+impl<SessionStream, Rng> Stream for RunningCoverTraffic<SessionStream, Rng>
 where
     SessionStream: Stream<Item = SessionInfo> + Unpin,
     Rng: rand::Rng + Unpin,
@@ -314,7 +365,7 @@ where
 fn on_session_change<Rng>(
     current_session_info: &mut InternalSessionInfo,
     new_session_info: &SessionInfo,
-    rng: Rng,
+    rng: &mut Rng,
     settings: &CoverTrafficSettings,
     intervals: &mut Box<dyn Stream<Item = Interval> + Send + Unpin>,
     data_message_emission_notification_channel: &mut (mpsc::Sender<()>, mpsc::Receiver<()>),
@@ -414,7 +465,7 @@ mod tests {
     use tokio_stream::wrappers::IntervalStream;
 
     use crate::cover_traffic::{
-        CoverTraffic, CoverTrafficSettings, InternalSessionInfo, SessionInfo,
+        CoverTraffic, CoverTrafficSettings, InternalSessionInfo, RunningCoverTraffic, SessionInfo,
     };
 
     // Rounds of 1 second, 2 rounds per interval, 6 rounds per session (3
@@ -430,14 +481,14 @@ mod tests {
         }
     }
 
-    fn get_cover_traffic(
+    async fn get_cover_traffic(
         actual_session_duration: Duration,
         settings: &CoverTrafficSettings,
     ) -> (
-        CoverTraffic<Box<dyn Stream<Item = SessionInfo> + Unpin + Send>, ChaCha12Rng>,
+        RunningCoverTraffic<Box<dyn Stream<Item = SessionInfo> + Unpin + Send>, ChaCha12Rng>,
         usize,
     ) {
-        let rng = ChaCha12Rng::from_entropy();
+        let mut rng = ChaCha12Rng::from_entropy();
         let membership_size = 2;
         let expected_messages = InternalSessionInfo::from_session_info_and_settings(
             &SessionInfo {
@@ -445,7 +496,7 @@ mod tests {
                 // Not relevant to calculate the expected number of cover messages (quota).
                 session_number: 0.into(),
             },
-            rng.clone(),
+            &mut rng,
             settings,
         )
         .message_slots
@@ -460,9 +511,11 @@ mod tests {
                             session_number: (i as u64).into(),
                             membership_size,
                         }),
-                ),
+                ) as Box<dyn Stream<Item = SessionInfo> + Unpin + Send>,
                 rng,
-            ),
+            )
+            .wait_ready()
+            .await,
             expected_messages,
         )
     }
@@ -483,7 +536,7 @@ mod tests {
             settings.round_duration.as_secs() * settings.rounds_per_session.get(),
         );
         let (mut cover_traffic, expected_cover_messages_count) =
-            get_cover_traffic(session_duration, &settings);
+            get_cover_traffic(session_duration, &settings).await;
         let generated_messages = Arc::new(AtomicUsize::new(0));
         let generated_messages_clone = Arc::clone(&generated_messages);
 
@@ -522,7 +575,7 @@ mod tests {
             Duration::from_secs(settings.round_duration.as_secs() * rounds_for_all_intervals)
         };
         let (mut cover_traffic, expected_cover_messages_count) =
-            get_cover_traffic(session_duration, &settings);
+            get_cover_traffic(session_duration, &settings).await;
         let generated_messages = Arc::new(AtomicUsize::new(0));
         let generated_messages_clone = Arc::clone(&generated_messages);
 
@@ -557,7 +610,7 @@ mod tests {
             Duration::from_secs(settings.round_duration.as_secs() * rounds_for_all_intervals)
         };
         let (mut cover_traffic, expected_cover_messages_count) =
-            get_cover_traffic(session_duration, &settings);
+            get_cover_traffic(session_duration, &settings).await;
         let generated_messages = Arc::new(AtomicUsize::new(0));
         let generated_messages_clone = Arc::clone(&generated_messages);
 
@@ -599,7 +652,7 @@ mod tests {
             Duration::from_secs(settings.round_duration.as_secs() * rounds_for_all_intervals)
         };
         let (mut cover_traffic, expected_cover_messages_count) =
-            get_cover_traffic(session_duration, &settings);
+            get_cover_traffic(session_duration, &settings).await;
         let generated_messages = Arc::new(AtomicUsize::new(0));
         let generated_messages_clone = Arc::clone(&generated_messages);
 

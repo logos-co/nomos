@@ -154,13 +154,15 @@ where
         );
 
         // tier 3 cover traffic
-        let mut cover_traffic: CoverTraffic<_, _> = CoverTraffic::new(
+        let mut cover_traffic = CoverTraffic::new(
             blend_config
                 .cover_traffic
                 .cover_traffic_settings(&blend_config.message_blend.cryptographic_processor),
             blend_config.cover_traffic.session_stream(membership.size()),
             rng,
-        );
+        )
+        .wait_ready()
+        .await;
 
         // local messages are bypassed and sent immediately
         let mut local_messages = inbound_relay.map(|ServiceMessage::Blend(message)| {
