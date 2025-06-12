@@ -13,9 +13,9 @@ use crate::MembershipProviders;
 
 #[derive(Clone, Debug)]
 pub struct MockMembershipBackendSettings {
-    settings_per_service: HashMap<ServiceType, Settings>,
-    initial_membership: HashMap<BlockNumber, MockMembershipEntry>,
-    initial_locators_mapping: HashMap<ProviderId, BTreeSet<Locator>>,
+    pub settings_per_service: HashMap<ServiceType, Settings>,
+    pub initial_membership: HashMap<BlockNumber, MockMembershipEntry>,
+    pub initial_locators_mapping: HashMap<ProviderId, BTreeSet<Locator>>,
 }
 
 type MockMembershipEntry = HashMap<ServiceType, HashSet<ProviderId>>;

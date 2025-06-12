@@ -66,11 +66,11 @@ impl FillFromNodeList {
 }
 
 impl MembershipCreator for FillFromNodeList {
-    fn init(&self, peer_addresses: HashMap<Self::NetworkId, HashSet<PeerId>>) -> Self {
+    fn init(&self, _peer_addresses: HashMap<Self::NetworkId, HashSet<PeerId>>) -> Self {
         todo!()
     }
 
-    fn update(&self, new_peer_addresses: HashMap<Self::Id, Multiaddr>) -> Self {
+    fn update(&self, _new_peer_addresses: HashMap<Self::Id, Multiaddr>) -> Self {
         todo!()
     }
 }

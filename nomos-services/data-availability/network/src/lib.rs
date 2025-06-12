@@ -215,8 +215,9 @@ where
                     Self::handle_network_service_message(msg, backend).await;
                 }
                 Some(update) = stream.next() => {
-                    let (block_number, update) = Self::handle_membership_update(update);
-                    membership_service_adapter.update(block_number, update).await;
+                    let (_block_number, _update) = Self::handle_membership_update(&update);
+                    // membership_service_adapter.update(block_number, update).await;
+                    // todo: implement update with loading initial state from membership service instead of config
                 }
             }
         }
@@ -267,13 +268,11 @@ where
         }
     }
 
-    fn handle_membership_update(update: MembershipProviders) -> (u64, HashMap<PeerId, Multiaddr>) {
+    fn handle_membership_update(update: &MembershipProviders) -> (u64, HashMap<PeerId, Multiaddr>) {
         tracing::debug!("Received membership update: {update:?}");
-        // todo: replace with actual block number membership service is updated
-        // todo: create new members from membership update
-        let block_number = 1;
-        let mut new_members = HashMap::new();
-        return (block_number, new_members);
+        // todo: implement update
+
+        (0, HashMap::new())
     }
 }
 
