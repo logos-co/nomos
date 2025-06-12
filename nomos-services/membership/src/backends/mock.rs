@@ -131,7 +131,8 @@ impl MockMembershipBackend {
         block_number: BlockNumber,
         service_type: ServiceType,
     ) -> MembershipProviders {
-        self.membership
+        let snapshot = self
+            .membership
             .get(&block_number)
             .and_then(|entry| entry.get(&service_type))
             .map(|snapshot| {
@@ -148,7 +149,9 @@ impl MockMembershipBackend {
                     })
                     .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+
+        (block_number, snapshot)
     }
 }
 
@@ -246,7 +249,7 @@ mod tests {
 
         // Test with empty membership
         let result = backend.get_providers_at(service_type, 5).await.unwrap();
-        assert_eq!(result.len(), 0);
+        assert_eq!(result.1.len(), 0);
     }
 
     #[tokio::test]
@@ -313,6 +316,7 @@ mod tests {
         // (1st entry)
         // blocknumber 100 = 105 - k.historical_block_delta
         let result = backend.get_providers_at(service_type, 105).await.unwrap();
+        let result = result.1;
         assert_eq!(result.len(), 1);
         assert!(result.contains_key(&provider_info_1.provider_id));
         assert_eq!(
@@ -323,6 +327,7 @@ mod tests {
         // (second entry)
         // should have 1st and 2nd
         let result = backend.get_providers_at(service_type, 106).await.unwrap();
+        let result = result.1;
         assert_eq!(result.len(), 2);
         assert!(result.contains_key(&provider_info_1.provider_id));
         assert!(result.contains_key(&provider_info_2.provider_id));
@@ -339,6 +344,7 @@ mod tests {
         // (third entry)
         // should have 1st and 3rd
         let result = backend.get_providers_at(service_type, 107).await.unwrap();
+        let result = result.1;
         assert_eq!(result.len(), 2);
         assert!(result.contains_key(&provider_info_1.provider_id));
         assert!(result.contains_key(&provider_info_3.provider_id));
@@ -353,6 +359,7 @@ mod tests {
 
         // latest one should be same as the one we just added
         let result = backend.get_latest_providers(service_type).await.unwrap();
+        let result = result.1;
         assert_eq!(result.len(), 2);
         assert!(result.contains_key(&provider_info_1.provider_id));
         assert!(result.contains_key(&provider_info_3.provider_id));
@@ -500,7 +507,7 @@ mod tests {
             "Result should contain the expected service type"
         );
 
-        let providers = result.get(&service_type).unwrap();
+        let providers = result.get(&service_type).unwrap().1.clone();
 
         // Only check providers that were part of this update
         for (provider_id, expected_locators) in expected_providers {
