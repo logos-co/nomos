@@ -268,12 +268,6 @@ impl Behaviour {
         }))
     }
 
-    fn try_notify_waker(&self) {
-        if let Some(waker) = &self.waker {
-            waker.wake_by_ref();
-        }
-    }
-
     fn handle_download_request(
         &self,
         peer_id: PeerId,
@@ -312,7 +306,8 @@ impl Behaviour {
         let concurrent_requests = self.receiving_requests.len()
             + self.sending_block_responses.len()
             + self.sending_tip_responses.len();
-        if concurrent_requests >= MAX_INCOMING_REQUESTS {
+
+        if concurrent_requests > MAX_INCOMING_REQUESTS {
             self.incoming_streams_to_close.push(
                 async move {
                     let _ = stream.close().await;
@@ -323,6 +318,7 @@ impl Behaviour {
         } else {
             self.receiving_requests
                 .push(Provider::process_request(peer_id, stream).boxed());
+
             self.try_notify_waker();
         }
     }
@@ -330,6 +326,7 @@ impl Behaviour {
     fn handle_tip_request_available(&self, cx: &Context<'_>, request_stream: TipRequestStream) {
         self.receiving_tip_responses
             .push(Downloader::receive_tip(request_stream).boxed());
+
         cx.waker().wake_by_ref();
     }
 
@@ -361,6 +358,12 @@ impl Behaviour {
         self.try_notify_waker();
 
         event
+    }
+
+    fn try_notify_waker(&self) {
+        if let Some(waker) = &self.waker {
+            waker.wake_by_ref();
+        }
     }
 }
 
