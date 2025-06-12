@@ -21,9 +21,6 @@ pub enum PackingError {
 
     #[error("Serialization error")]
     Serialization(#[from] wire::Error),
-
-    #[error("Length conversion failed")]
-    LengthConversion,
 }
 
 pub async fn pack_to_writer<Message, Writer>(message: &Message, writer: &mut Writer) -> Result<()>
