@@ -110,6 +110,7 @@ where
         })
     }
 
+    #[expect(clippy::too_many_lines, reason = "This code will soon be refactored.")]
     async fn run(mut self) -> Result<(), overwatch::DynError> {
         let Self {
             service_resources_handle:
@@ -226,11 +227,14 @@ where
                 }
                 // Cover message scheduler has already randomized message generation, so as soon as a message is produced, it is published to the rest of the network.
                 Some(msg) = cover_traffic.next() => {
-                    backend.publish(msg).await;
+                    let wrapped_message = cryptographic_processor.wrap_message(&msg)?;
+                    backend.publish(wrapped_message).await;
                 }
                 Some(msg) = local_messages.next() => {
-                    Self::wrap_and_send_to_persistent_transmission(&msg, &mut cryptographic_processor, &persistent_sender);
-                    scheduled_local_messages.insert(msg);
+                    let Some(wrapped_message) = Self::wrap_and_send_to_persistent_transmission(&msg, &mut cryptographic_processor, &persistent_sender) else {
+                        continue;
+                    };
+                    scheduled_local_messages.insert(wrapped_message);
                 }
             }
         }
@@ -264,15 +268,17 @@ where
             SphinxMessage,
         >,
         persistent_sender: &mpsc::UnboundedSender<Vec<u8>>,
-    ) {
+    ) -> Option<Vec<u8>> {
         match cryptographic_processor.wrap_message(message) {
             Ok(wrapped_message) => {
-                if let Err(e) = persistent_sender.send(wrapped_message) {
+                if let Err(e) = persistent_sender.send(wrapped_message.clone()) {
                     tracing::error!("Error sending message to persistent stream: {e}");
                 }
+                Some(wrapped_message)
             }
             Err(e) => {
                 tracing::error!("Failed to wrap message: {:?}", e);
+                None
             }
         }
     }
