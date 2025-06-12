@@ -25,8 +25,8 @@ use nomos_core::{
 };
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
-    backends::libp2p::validator::DaNetworkValidatorBackend, membership::adapter::MembershipAdapter,
-    storage::MembershipStorage,
+    backends::libp2p::validator::DaNetworkValidatorBackend,
+    membership::adapters::MembershipAdapter, storage::MembershipStorage,
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_da_verifier::backend::VerifierBackend;

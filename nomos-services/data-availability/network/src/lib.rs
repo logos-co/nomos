@@ -26,7 +26,7 @@ use tokio::sync::oneshot;
 use tokio_stream::StreamExt as _;
 
 use crate::{
-    membership::{adapter::MembershipAdapter, handler::DaMembershipHandler},
+    membership::{adapters::MembershipAdapter, handler::DaMembershipHandler},
     storage::MembershipStorage,
 };
 

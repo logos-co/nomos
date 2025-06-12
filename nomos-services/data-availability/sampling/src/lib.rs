@@ -17,7 +17,7 @@ use network::NetworkAdapter;
 use nomos_core::da::{blob::Share, BlobId, DaVerifier};
 use nomos_da_network_core::protocols::sampling::behaviour::SamplingError;
 use nomos_da_network_service::{
-    backends::libp2p::common::SamplingEvent, membership::adapter::MembershipAdapter,
+    backends::libp2p::common::SamplingEvent, membership::adapters::MembershipAdapter,
     storage::MembershipStorage, NetworkService,
 };
 use nomos_da_verifier::{

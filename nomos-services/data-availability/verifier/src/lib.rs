@@ -13,7 +13,7 @@ use backend::VerifierBackend;
 use network::NetworkAdapter;
 use nomos_core::da::blob::Share;
 use nomos_da_network_service::{
-    membership::adapter::MembershipAdapter, storage::MembershipStorage, NetworkService,
+    membership::adapters::MembershipAdapter, storage::MembershipStorage, NetworkService,
 };
 use nomos_storage::StorageService;
 use nomos_tracing::info_with_id;

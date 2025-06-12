@@ -6,7 +6,7 @@ use libp2p::PeerId;
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
     backends::libp2p::validator::{DaNetworkEvent, DaNetworkEventKind, DaNetworkValidatorBackend},
-    membership::adapter::MembershipAdapter,
+    membership::adapters::MembershipAdapter,
     NetworkService,
 };
 use overwatch::services::{relay::OutboundRelay, ServiceData};

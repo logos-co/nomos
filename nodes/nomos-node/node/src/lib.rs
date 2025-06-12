@@ -19,7 +19,7 @@ pub use nomos_core::{
 };
 pub use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBackend;
 use nomos_da_network_service::{
-    membership::adapter::mock::MockMembershipAdapter, storage::adapters::mock::MockStorage,
+    membership::adapters::mock::MockMembershipAdapter, storage::adapters::mock::MockStorage,
 };
 use nomos_da_sampling::{
     api::http::HttApiAdapter,
@@ -99,6 +99,26 @@ pub type DaMembershipAdapter = MockMembershipAdapter<
         RuntimeServiceId,
     >,
     DaMembershipStorage,
+    RuntimeServiceId,
+>;
+
+pub(crate) type MembershipService = nomos_membership::MembershipService<
+    MockMembershipBackend,
+    LedgerSdpAdapter<
+        SdpLedger<LedgerDeclarationAdapter, LedgerServicesAdapter, Metadata>,
+        LedgerDeclarationAdapter,
+        LedgerServicesAdapter,
+        Metadata,
+        RuntimeServiceId,
+    >,
+    RuntimeServiceId,
+>;
+
+pub(crate) type SdpService = nomos_sdp::SdpService<
+    SdpLedger<LedgerDeclarationAdapter, LedgerServicesAdapter, Metadata>,
+    LedgerDeclarationAdapter,
+    LedgerServicesAdapter,
+    Metadata,
     RuntimeServiceId,
 >;
 
@@ -256,6 +276,8 @@ pub struct Nomos {
     cl_mempool: ClMempoolService,
     da_mempool: DaMempoolService,
     cryptarchia: CryptarchiaService,
+    membership: MembershipService,
+    sdp: SdpService,
     time: TimeService,
     http: ApiService,
     storage: StorageService,
