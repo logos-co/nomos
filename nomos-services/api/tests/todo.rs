@@ -112,7 +112,7 @@ fn test_todo() {
         },
     };
     let app = OverwatchRunner::<NomosApi>::run(settings, None).unwrap();
-    app.runtime().block_on(app.handle().start_all_services());
+    let _ = app.runtime().block_on(app.handle().start_all_services());
 
     sleep(Duration::from_secs(1));
     let client = reqwest::blocking::Client::new();
@@ -124,7 +124,7 @@ fn test_todo() {
 
     assert!(response.status().is_success());
 
-    app.runtime().block_on(app.handle().shutdown());
+    let _ = app.runtime().block_on(app.handle().shutdown());
     app.wait_finished();
 }
 

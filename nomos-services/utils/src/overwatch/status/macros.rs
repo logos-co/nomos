@@ -295,7 +295,7 @@ mod tests {
     fn test_wait_until_services_are_ready_macro() {
         let overwatch = initialize();
         let overwatch_handle = overwatch.handle();
-        overwatch_handle
+        let _ = overwatch_handle
             .runtime()
             .block_on(overwatch_handle.start_all_services());
 
@@ -317,7 +317,7 @@ mod tests {
             "DependentService should be Ready."
         );
 
-        overwatch_handle
+        let _ = overwatch_handle
             .runtime()
             .block_on(overwatch_handle.shutdown());
     }
@@ -326,7 +326,7 @@ mod tests {
     fn test_wait_until_services_are_ready_macro_timeout() {
         let overwatch = initialize();
         let overwatch_handle = overwatch.handle();
-        overwatch_handle
+        let _ = overwatch_handle
             .runtime()
             .block_on(overwatch_handle.start_all_services());
 
@@ -349,7 +349,7 @@ mod tests {
         );
 
         // Teardown
-        overwatch_handle
+        let _ = overwatch_handle
             .runtime()
             .block_on(overwatch_handle.shutdown());
     }
