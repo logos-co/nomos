@@ -157,6 +157,9 @@ pub struct Behaviour {
     /// Futures for closing incoming streams that were rejected due to excess
     /// requests.
     incoming_streams_to_close: FuturesUnordered<BoxFuture<'static, ()>>,
+    /// Waker to notify the behaviour when `request_tip` or
+    /// `start_blocks_download` is called and swarm is idle.
+    waker: Option<std::task::Waker>,
 }
 
 impl Behaviour {
@@ -181,6 +184,7 @@ impl Behaviour {
             sending_tip_requests: FuturesUnordered::new(),
             receiving_tip_responses: FuturesUnordered::new(),
             sending_tip_responses: FuturesUnordered::new(),
+            waker: None,
         }
     }
 
@@ -210,6 +214,8 @@ impl Behaviour {
             async move { Downloader::send_tip_request(peer_id, &mut control, reply_sender).await }
                 .boxed(),
         );
+
+        self.try_notify_waker();
 
         Ok(())
     }
@@ -245,6 +251,8 @@ impl Behaviour {
             Downloader::send_download_request(peer_id, control, request, reply_sender).boxed(),
         );
 
+        self.try_notify_waker();
+
         Ok(())
     }
 
@@ -258,6 +266,12 @@ impl Behaviour {
         Poll::Ready(ToSwarm::GenerateEvent(Event::ProvideTipsRequest {
             reply_sender,
         }))
+    }
+
+    fn try_notify_waker(&self) {
+        if let Some(waker) = &self.waker {
+            waker.wake_by_ref();
+        }
     }
 
     fn handle_download_request(
@@ -294,7 +308,7 @@ impl Behaviour {
         }))
     }
 
-    fn handle_incoming_stream(&self, cx: &Context<'_>, peer_id: PeerId, mut stream: Libp2pStream) {
+    fn handle_incoming_stream(&self, peer_id: PeerId, mut stream: Libp2pStream) {
         let concurrent_requests = self.receiving_requests.len()
             + self.sending_block_responses.len()
             + self.sending_tip_responses.len();
@@ -309,7 +323,7 @@ impl Behaviour {
         } else {
             self.receiving_requests
                 .push(Provider::process_request(peer_id, stream).boxed());
-            cx.waker().wake_by_ref();
+            self.try_notify_waker();
         }
     }
 
@@ -319,20 +333,15 @@ impl Behaviour {
         cx.waker().wake_by_ref();
     }
 
-    fn handle_blocks_request_available(
-        &self,
-        cx: &Context<'_>,
-        request_stream: BlocksRequestStream,
-    ) {
+    fn handle_blocks_request_available(&self, request_stream: BlocksRequestStream) {
         self.receiving_block_responses
             .push(Downloader::receive_blocks(request_stream).boxed());
 
-        cx.waker().wake_by_ref();
+        self.try_notify_waker();
     }
 
     fn handle_request_ready(
         &self,
-        cx: &Context<'_>,
         receive_request_stream: ReceivingRequestStream,
     ) -> Poll<
         ToSwarm<
@@ -349,7 +358,7 @@ impl Behaviour {
             RequestMessage::GetTip => self.handle_tip_request(peer_id, stream),
         };
 
-        cx.waker().wake_by_ref();
+        self.try_notify_waker();
 
         event
     }
@@ -451,12 +460,14 @@ impl NetworkBehaviour for Behaviour {
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+        self.waker = Some(cx.waker().clone());
+
         while self.incoming_streams_to_close.poll_next_unpin(cx) == Poll::Ready(Some(())) {}
 
         if let Poll::Ready(Some(result)) = self.sending_block_requests.poll_next_unpin(cx) {
             match result {
                 Ok(request_stream) => {
-                    self.handle_blocks_request_available(cx, request_stream);
+                    self.handle_blocks_request_available(request_stream);
                 }
                 Err(e) => {
                     error!("Error while processing block download request: {}", e);
@@ -513,7 +524,7 @@ impl NetworkBehaviour for Behaviour {
 
         if let Poll::Ready(Some(result)) = self.receiving_requests.poll_next_unpin(cx) {
             match result {
-                Ok(request_stream) => return self.handle_request_ready(cx, request_stream),
+                Ok(request_stream) => return self.handle_request_ready(request_stream),
                 Err(e) => {
                     error!("Error while processing incoming request: {}", e);
                 }
@@ -521,7 +532,7 @@ impl NetworkBehaviour for Behaviour {
         }
 
         if let Poll::Ready(Some((peer_id, stream))) = self.incoming_streams.poll_next_unpin(cx) {
-            self.handle_incoming_stream(cx, peer_id, stream);
+            self.handle_incoming_stream(peer_id, stream);
         }
 
         if let Poll::Ready(ToSwarm::Dial { mut opts }) = self.stream_behaviour.poll(cx) {
