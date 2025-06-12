@@ -104,7 +104,7 @@ pub enum Event {
         /// The latest immutable block.
         latest_immutable_block: HeaderId,
         /// The list of additional blocks that the requester has.
-        additional_blocks: Vec<HeaderId>,
+        additional_blocks: HashSet<HeaderId>,
         /// Channel to send blocks to the behaviour.
         reply_sender: Sender<BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>>,
     },
@@ -226,7 +226,7 @@ impl Behaviour {
         target_block: HeaderId,
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
-        additional_blocks: Vec<HeaderId>,
+        additional_blocks: HashSet<HeaderId>,
         reply_sender: Sender<BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>>,
     ) -> Result<(), ChainSyncError> {
         if !self.connected_peers.contains(&peer_id) && !self.initial_peers.contains_key(&peer_id) {
@@ -557,7 +557,11 @@ impl NetworkBehaviour for Behaviour {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, time::Duration};
+    use std::{
+        collections::{HashMap, HashSet},
+        iter,
+        time::Duration,
+    };
 
     use bytes::Bytes;
     use futures::{stream::BoxStream, StreamExt as _};
@@ -589,7 +593,7 @@ mod tests {
             HeaderId::from([0; 32]),
             HeaderId::from([0; 32]),
             HeaderId::from([0; 32]),
-            &[],
+            HashSet::new(),
             provider_peer_id,
         );
 
@@ -610,7 +614,7 @@ mod tests {
                 HeaderId::from([0; 32]),
                 HeaderId::from([0; 32]),
                 HeaderId::from([0; 32]),
-                vec![],
+                HashSet::new(),
                 response_tx,
             )
             .unwrap_err();
@@ -628,7 +632,7 @@ mod tests {
             HeaderId::from([0; 32]),
             HeaderId::from([0; 32]),
             HeaderId::from([0; 32]),
-            &[],
+            HashSet::new(),
             provider_peer_id,
         );
 
@@ -649,7 +653,9 @@ mod tests {
             HeaderId::from([0; 32]),
             HeaderId::from([0; 32]),
             HeaderId::from([0; 32]),
-            &[HeaderId::from([1; 32]); MAX_ADDITIONAL_BLOCKS + 1],
+            HashSet::from_iter(
+                iter::repeat(HeaderId::from([1; 32])).take(MAX_ADDITIONAL_BLOCKS + 1),
+            ),
             provider_peer_id,
         );
 
@@ -692,7 +698,7 @@ mod tests {
                         let _stream = reply_sender
                             .send(
                                 futures::stream::iter(
-                                    std::iter::repeat_with(|| Bytes::from_static(&[0; 32]))
+                                    iter::repeat_with(|| Bytes::from_static(&[0; 32]))
                                         .take(blocks_count)
                                         .map(Ok),
                                 )
@@ -717,7 +723,7 @@ mod tests {
         target_block: HeaderId,
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
-        additional_blocks: &[HeaderId],
+        additional_blocks: HashSet<HeaderId>,
         peer_id: PeerId,
     ) -> Vec<BlocksResponseChannel> {
         let mut channels = Vec::new();

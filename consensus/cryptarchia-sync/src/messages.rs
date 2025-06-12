@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use bytes::Bytes;
 use nomos_core::header::HeaderId;
 use serde::{Deserialize, Serialize};
@@ -33,7 +35,7 @@ pub struct KnownBlocks {
     /// The latest immutable block.
     pub latest_immutable_block: HeaderId,
     /// The list of additional blocks that the requester has.
-    pub additional_blocks: Vec<HeaderId>,
+    pub additional_blocks: HashSet<HeaderId>,
 }
 
 impl DownloadBlocksRequest {
@@ -42,7 +44,7 @@ impl DownloadBlocksRequest {
         target_block: HeaderId,
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
-        additional_blocks: Vec<HeaderId>,
+        additional_blocks: HashSet<HeaderId>,
     ) -> Self {
         Self {
             target_block,
