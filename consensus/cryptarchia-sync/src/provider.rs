@@ -37,7 +37,7 @@ impl Provider {
         let tip = reply_receiver.await.map_err(|_| ChainSyncError {
             peer: peer_id,
             kind: ChainSyncErrorKind::ChannelReceiveError(
-                "Failed to receive blocks stream".to_owned(),
+                "Failed to receive tip from channel".to_owned(),
             ),
         })?;
 
@@ -57,7 +57,7 @@ impl Provider {
         let stream = reply_receiver.recv().await.ok_or_else(|| ChainSyncError {
             peer: peer_id,
             kind: ChainSyncErrorKind::ChannelReceiveError(
-                "Failed to receive blocks stream".to_owned(),
+                "Failed to receive blocks stream from channel".to_owned(),
             ),
         })?;
 

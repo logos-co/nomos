@@ -18,7 +18,7 @@ use libp2p::{
 use libp2p_stream::{Behaviour as StreamBehaviour, Control, IncomingStreams};
 use nomos_core::header::HeaderId;
 use tokio::sync::{mpsc, mpsc::Sender, oneshot};
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::{
     downloader::Downloader,
@@ -307,7 +307,7 @@ impl Behaviour {
             + self.sending_block_responses.len()
             + self.sending_tip_responses.len();
 
-        if concurrent_requests > MAX_INCOMING_REQUESTS {
+        if concurrent_requests >= MAX_INCOMING_REQUESTS {
             self.incoming_streams_to_close.push(
                 async move {
                     let _ = stream.close().await;
@@ -465,7 +465,9 @@ impl NetworkBehaviour for Behaviour {
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         self.waker = Some(cx.waker().clone());
 
-        while self.incoming_streams_to_close.poll_next_unpin(cx) == Poll::Ready(Some(())) {}
+        if self.incoming_streams_to_close.poll_next_unpin(cx) == Poll::Ready(Some(())) {
+            debug!("Incoming stream closed");
+        }
 
         if let Poll::Ready(Some(result)) = self.sending_block_requests.poll_next_unpin(cx) {
             match result {
@@ -494,14 +496,10 @@ impl NetworkBehaviour for Behaviour {
         }
 
         if let Poll::Ready(Some(_)) = self.receiving_block_responses.poll_next_unpin(cx) {
-            cx.waker().wake_by_ref();
-
             return Poll::Pending;
         }
 
         if let Poll::Ready(Some(_)) = self.receiving_tip_responses.poll_next_unpin(cx) {
-            cx.waker().wake_by_ref();
-
             return Poll::Pending;
         }
 
@@ -510,8 +508,6 @@ impl NetworkBehaviour for Behaviour {
                 error!("Sending response failed: {}", e);
             }
 
-            cx.waker().wake_by_ref();
-
             return Poll::Pending;
         }
 
@@ -519,8 +515,6 @@ impl NetworkBehaviour for Behaviour {
             if let Err(e) = result {
                 error!("Sending response failed: {}", e);
             }
-
-            cx.waker().wake_by_ref();
 
             return Poll::Pending;
         }

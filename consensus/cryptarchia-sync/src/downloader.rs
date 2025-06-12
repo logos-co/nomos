@@ -31,7 +31,6 @@ impl Downloader {
         send_message(peer_id, &mut stream, &tip_request).await?;
 
         let request_stream = TipRequestStream::new(peer_id, stream, reply_sender);
-
         Ok(request_stream)
     }
 
@@ -47,7 +46,6 @@ impl Downloader {
         send_message(peer_id, &mut stream, &download_request).await?;
 
         let request_stream = BlocksRequestStream::new(peer_id, stream, reply_sender);
-
         Ok(request_stream)
     }
 
