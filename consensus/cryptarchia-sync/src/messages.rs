@@ -19,7 +19,7 @@ pub enum RequestMessage {
 /// A request to initiate block downloading from a peer.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DownloadBlocksRequest {
-    /// Return blocks up to `target_block` if specified.
+    /// Return blocks up to `target_block`.
     pub target_block: HeaderId,
     /// The list of known blocks that the requester has.
     pub known_blocks: KnownBlocks,
