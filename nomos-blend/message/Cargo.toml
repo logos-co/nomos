@@ -5,8 +5,12 @@ name    = "nomos-blend-message"
 version = "0.1.0"
 
 [dependencies]
+bincode = { version = "2", features = ["serde"] }
 itertools     = "0.13"
 rand_chacha   = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde-big-array = "0.5"
+serde_repr = "0.1"
 sha2          = "0.10"
 sphinx-packet = "0.2"
 thiserror     = "1.0.65"

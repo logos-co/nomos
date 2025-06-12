@@ -1,4 +1,9 @@
+pub mod crypto;
+pub mod header;
+pub mod message;
 pub mod mock;
+pub mod payload;
+pub(crate) mod serde;
 pub mod sphinx;
 
 pub trait BlendMessage {
