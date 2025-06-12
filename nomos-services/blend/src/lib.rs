@@ -212,8 +212,9 @@ where
                         }
                     }
                 }
+                // Cover message scheduler has already randomized message generation, so as soon as a message is produced, it is published to the rest of the network.
                 Some(msg) = cover_traffic.next() => {
-                    Self::wrap_and_send_to_persistent_transmission(&msg, &mut cryptographic_processor, &persistent_sender);
+                    backend.publish(msg).await;
                 }
                 Some(msg) = local_messages.next() => {
                     Self::wrap_and_send_to_persistent_transmission(&msg, &mut cryptographic_processor, &persistent_sender);
