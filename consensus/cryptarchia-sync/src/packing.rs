@@ -39,7 +39,7 @@ where
                 actual: packed_message.len(),
             })?;
 
-    // Note: using vectorised io seems to fail
+    // Note: using vectorised io doesn't work
     writer
         .write_all(&length_prefix.to_be_bytes())
         .await
