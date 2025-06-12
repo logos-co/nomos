@@ -11,11 +11,19 @@ pub trait NetworkAdapter<RuntimeServiceId> {
     type Settings;
     type Share;
     type Membership: MembershipHandler + Clone;
+    type Storage;
+    type MembershipAdapter;
 
     async fn new(
         settings: Self::Settings,
         network_relay: OutboundRelay<
-            <NetworkService<Self::Backend, Self::Membership, RuntimeServiceId> as ServiceData>::Message,
+            <NetworkService<
+                Self::Backend,
+                Self::Membership,
+                Self::MembershipAdapter,
+                Self::Storage,
+                RuntimeServiceId,
+            > as ServiceData>::Message,
         >,
     ) -> Self;
 

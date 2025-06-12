@@ -11,6 +11,7 @@ use nomos_sdp_core::{
 use super::{MembershipBackend, MembershipBackendError, Settings};
 use crate::MembershipProviders;
 
+#[derive(Clone)]
 pub struct MockMembershipBackendSettings {
     settings_per_service: HashMap<ServiceType, Settings>,
     initial_membership: HashMap<BlockNumber, MockMembershipEntry>,

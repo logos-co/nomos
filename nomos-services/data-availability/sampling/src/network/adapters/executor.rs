@@ -11,6 +11,7 @@ use nomos_da_network_service::{
             DaNetworkEvent, DaNetworkEventKind, DaNetworkExecutorBackend, ExecutorDaNetworkMessage,
         },
     },
+    membership::adapter::MembershipAdapter,
     DaNetworkMsg, NetworkService,
 };
 use overwatch::{
