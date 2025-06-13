@@ -1,5 +1,3 @@
-use std::io::Read;
-
 use blake2::digest::{Update, VariableOutput};
 use blake2::Blake2bVar;
 use bytes::BytesMut;
@@ -29,7 +27,7 @@ const PAYLOAD_SIZE: usize = PAYLOAD_HEADER_SIZE + MAX_PAYLOAD_BODY_SIZE;
 const MESSAGE_SIZE: usize = HEADER_SIZE + PUBLIC_HEADER_SIZE + PRIVATE_HEADER_SIZE + PAYLOAD_SIZE;
 
 impl Message {
-    pub fn initialize(shared_keys: Vec<[u8; KEY_SIZE]>) -> BytesMut {
+    pub fn initialize(shared_keys: &[[u8; KEY_SIZE]]) -> BytesMut {
         if shared_keys.len() > MAX_ENCAPSULATIONS {
             panic!("Number of encapsulations exceeds the maximum allowed.");
         }
@@ -99,6 +97,109 @@ impl Message {
 
         msg
     }
+
+    pub fn encapsulate(
+        mut msg: BytesMut,
+        shared_keys: &[[u8; KEY_SIZE]],
+        signing_keys: &[([u8; KEY_SIZE], [u8; KEY_SIZE], [u8; PROOF_OF_QUOTA_SIZE])],
+        proof_of_selections: &[[u8; PROOF_OF_SELECTION_SIZE]],
+    ) -> BytesMut {
+        if shared_keys.len() > MAX_ENCAPSULATIONS {
+            panic!("Number of encapsulations exceeds the maximum allowed.");
+        }
+        if shared_keys.len() != signing_keys.len() {
+            panic!("Number of shared keys must match the number of signing keys.");
+        }
+        if shared_keys.len() != proof_of_selections.len() {
+            panic!("Number of shared keys must match the number of proof of selections.");
+        }
+
+        println!("===== ENCAPSULATING =====");
+
+        let initial_private_key = random_key();
+        let initial_public_key = initial_private_key; // TODO: priv -> pub
+        let initial_proof_of_quota: [u8; PROOF_OF_QUOTA_SIZE] =
+            pseudo_random_bytes(&blake2b256(&initial_private_key), PROOF_OF_QUOTA_SIZE)
+                .try_into()
+                .unwrap();
+
+        let private_header_pos = HEADER_SIZE + PUBLIC_HEADER_SIZE;
+        let payload_pos = private_header_pos + PRIVATE_HEADER_SIZE;
+
+        // Encapsulate the private header and payload using each shared key.
+        for (i, (shared_key, proof_of_selection)) in
+            shared_keys.iter().zip(proof_of_selections).enumerate()
+        {
+            // Sign on the concat of current private header and payload.
+            let (signing_key, signing_pubkey, proof_of_quota) = if i == 0 {
+                println!("Signing using the initial signing key");
+                (
+                    initial_private_key,
+                    initial_public_key,
+                    initial_proof_of_quota,
+                )
+            } else {
+                println!("Signing using {i}-th signing key");
+                signing_keys[i - 1]
+            };
+            let sig = sign(&msg[private_header_pos..], &signing_key);
+
+            // Encrypt the payload.
+            println!("Encrypting payload with {i}-th shared key");
+            encrypt(
+                &mut msg[payload_pos..],
+                &pseudo_random_bytes(&blake2b256(shared_key), PAYLOAD_SIZE),
+            );
+
+            // Shift blending headers by one rightward by zeroing the first blending header.
+            println!("Shifting blending headers one rightward");
+            msg.copy_within(
+                private_header_pos..payload_pos - BLENDING_HEADER_SIZE,
+                private_header_pos + BLENDING_HEADER_SIZE,
+            );
+            msg[private_header_pos..private_header_pos + BLENDING_HEADER_SIZE].fill(0);
+
+            // Fill the first blending header.
+            let mut pos = private_header_pos;
+            println!("Filling the first blending header: offset:{pos}, size:{KEY_SIZE}");
+            msg[pos..pos + KEY_SIZE].copy_from_slice(&signing_pubkey);
+            pos += KEY_SIZE;
+            println!("Filling the first blending header: offset:{pos}, size:{PROOF_OF_QUOTA_SIZE}");
+            msg[pos..pos + PROOF_OF_QUOTA_SIZE].copy_from_slice(&proof_of_quota);
+            pos += PROOF_OF_QUOTA_SIZE;
+            println!("Filling the first blending header: offset:{pos}, size:{SIGNATURE_SIZE}");
+            msg[pos..pos + SIGNATURE_SIZE].copy_from_slice(&sig);
+            pos += SIGNATURE_SIZE;
+            println!(
+                "Filling the first blending header: offset:{pos}, size:{PROOF_OF_SELECTION_SIZE}"
+            );
+            msg[pos..pos + PROOF_OF_SELECTION_SIZE].copy_from_slice(proof_of_selection);
+
+            // Encrypt the private header.
+            let key = pseudo_random_bytes(&blake2b256(shared_key), BLENDING_HEADER_SIZE);
+            for i in 0..MAX_ENCAPSULATIONS {
+                let offset = private_header_pos + i * BLENDING_HEADER_SIZE;
+                println!("Encrypting the {i}-th blending header: offset:{offset}, size:{BLENDING_HEADER_SIZE}");
+                encrypt(&mut msg[offset..offset + BLENDING_HEADER_SIZE], &key);
+            }
+        }
+
+        // Construct the public header.
+        println!("Constructing the public header");
+        let (signing_key, signing_pubkey, proof_of_quota) = signing_keys.last().unwrap();
+        let sig = sign(&msg[private_header_pos..], signing_key);
+        let mut pos = HEADER_SIZE;
+        println!("Filling the public header: offset:{pos}, size:{KEY_SIZE}");
+        msg[pos..pos + KEY_SIZE].copy_from_slice(signing_pubkey);
+        pos += KEY_SIZE;
+        println!("Filling the public header: offset:{pos}, size:{PROOF_OF_QUOTA_SIZE}");
+        msg[pos..pos + PROOF_OF_QUOTA_SIZE].copy_from_slice(proof_of_quota);
+        pos += PROOF_OF_QUOTA_SIZE;
+        println!("Filling the public header: offset:{pos}, size:{SIGNATURE_SIZE}");
+        msg[pos..pos + SIGNATURE_SIZE].copy_from_slice(&sig);
+
+        msg
+    }
 }
 
 fn pseudo_random_bytes(key: &[u8; 32], size: usize) -> Vec<u8> {
@@ -137,15 +238,43 @@ fn xor_in_place(a: &mut [u8], b: &[u8]) {
     a.iter_mut().zip(b.iter()).for_each(|(x1, &x2)| *x1 ^= x2);
 }
 
+fn sign(data: &[u8], key: &[u8; 32]) -> [u8; SIGNATURE_SIZE] {
+    // TODO: Placeholder for actual signing logic.
+    // In a real implementation, this would use a cryptographic signing algorithm.
+    let mut signature = [0u8; SIGNATURE_SIZE];
+    let mut hasher = Blake2bVar::new(SIGNATURE_SIZE).unwrap();
+    hasher.update(data);
+    hasher.update(key);
+    hasher.finalize_variable(&mut signature).unwrap();
+    signature
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn initialize() {
-        let msg = Message::initialize(vec![[0u8; 32], [1u8; 32]]);
+        let msg = Message::initialize(&[[0u8; 32], [1u8; 32]]);
         assert_eq!(msg.len(), MESSAGE_SIZE);
         assert_eq!(msg[0], VERSION);
+    }
+
+    #[test]
+    fn encapsulate() {
+        let msg = Message::initialize(&[[0u8; 32], [1u8; 32]]);
+        let initialized_msg = msg.clone();
+        let msg = Message::encapsulate(
+            msg,
+            &[[0u8; 32], [1u8; 32]],
+            &[
+                ([10u8; 32], [10u8; 32], [1u8; 160]),
+                ([20u8; 32], [20u8; 32], [2u8; 160]),
+            ],
+            &[[11u8; 32], [22u8; 32]],
+        );
+        assert_eq!(msg.len(), MESSAGE_SIZE);
+        assert_ne!(msg, initialized_msg);
     }
 
     #[test]
