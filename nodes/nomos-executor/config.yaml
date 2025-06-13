@@ -140,27 +140,29 @@ blend:
         ]
 da_network:
   backend:
-    node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d
-    listening_address: /ip4/127.0.0.1/udp/8716/quic-v1
-    policy_settings:
-      min_dispersal_peers: 1
-      min_replication_peers: 1
-      max_dispersal_failures: 3
-      max_sampling_failures: 3
-      max_replication_failures: 3
-      malicious_threshold: 5
-    monitor_settings:
-      failure_time_window: "10.0"
-      time_decay_factor: "0.8"
-    balancer_interval:
-      secs: 5
-      nanos: 0
-    redial_cooldown:
-      secs: 5
-      nanos: 0
-    replication_settings:
-      seen_message_cache_size: 1000
-      seen_message_ttl: "3600.0"
+    validator_settings:
+      node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d
+      listening_address: /ip4/127.0.0.1/udp/8716/quic-v1
+      policy_settings:
+        min_dispersal_peers: 1
+        min_replication_peers: 1
+        max_dispersal_failures: 3
+        max_sampling_failures: 3
+        max_replication_failures: 3
+        malicious_threshold: 5
+      monitor_settings:
+        failure_time_window: "10.0"
+        time_decay_factor: "0.8"
+      balancer_interval:
+        secs: 5
+        nanos: 0
+      redial_cooldown:
+        secs: 5
+        nanos: 0
+      replication_settings:
+        seen_message_cache_size: 1000
+        seen_message_ttl: "3600.0"
+    num_subnets: 2
   membership:
     assignations:
       - - 12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
@@ -172,6 +174,18 @@ da_network:
     addressbook:
       12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir: /ip4/127.0.0.1/udp/8717/quic-v1/p2p/12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
       12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh: /ip4/127.0.0.1/udp/8716/quic-v1/p2p/12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
+da_dispersal:
+  backend:
+    encoder_settings:
+      num_columns: 2
+      with_cache: false
+      global_params_path: /tmp
+    dispersal_timeout: [20, 0]
+    mempool_strategy:
+      !SampleSubnetworks
+        sample_threshold: 2
+        timeout: [10, 0]
+        cooldown: [0, 100]
 da_indexer:
   storage:
     blob_storage_directory: ./

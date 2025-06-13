@@ -16,6 +16,10 @@ use overwatch::overwatch::OverwatchRunner;
 struct Args {
     /// Path for a yaml-encoded network config file
     config: std::path::PathBuf,
+    /// Dry-run flag. If active, the binary will try to deserialize the config
+    /// file and then exit.
+    #[clap(long = "check-config", action)]
+    check_config_only: bool,
     /// Overrides log config.
     #[clap(flatten)]
     log: LogArgs,
@@ -40,6 +44,7 @@ fn main() -> Result<()> {
         network: network_args,
         blend: blend_args,
         cryptarchia: cryptarchia_args,
+        check_config_only,
     } = Args::parse();
     let config = serde_yaml::from_reader::<_, ExecutorConfig>(std::fs::File::open(config)?)?
         .update_from_args(
@@ -49,6 +54,15 @@ fn main() -> Result<()> {
             http_args,
             cryptarchia_args,
         )?;
+
+    #[expect(
+        clippy::non_ascii_literal,
+        reason = "Use of green checkmark for better UX."
+    )]
+    if check_config_only {
+        println!("Config file is valid! ✅");
+        return Ok(());
+    }
 
     let app = OverwatchRunner::<NomosExecutor>::run(
         NomosExecutorServiceSettings {

@@ -197,19 +197,17 @@ jobs:
       - name: Run the node binary to check the config file validity
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         env:
-          CONFIG_FILE_PATH: nodes/nomos-node/config.yaml
           RISC0_SKIP_BUILD: true
         with:
           command: run
-          args: --all-features -p nomos-node ${{ env.CONFIG_FILE_PATH }} --check-config
+          args: --all-features -p nomos-node nodes/nomos-node/config.yaml --check-config
       - name: Run the executor binary to check the config file validity
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         env:
-          CONFIG_FILE_PATH: nodes/nomos-node/config.yaml
           RISC0_SKIP_BUILD: true
         with:
           command: run
-          args: --all-features -p nomos-executor ${{ env.CONFIG_FILE_PATH }} --check-config
+          args: --all-features -p nomos-executor nodes/nomos-executor/config.yaml --check-config
       - name: Cargo test
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         env:
