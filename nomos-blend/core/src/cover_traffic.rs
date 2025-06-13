@@ -115,10 +115,11 @@ impl InternalSessionInfo {
     where
         Rng: rand::Rng,
     {
-        // C: Expected number of cover messages that are generated during a session.
+        // `C`: Expected number of cover messages that are generated during a session by
+        // the core nodes.
         let expected_number_of_session_messages =
             settings.rounds_per_session.get() as f64 * settings.message_frequency_per_round.get();
-        // Q_c: Messaging allowance that can be used by a core node during a
+        // `Q_c`: Messaging allowance that can be used by a core node during a
         // single session.
         let core_quota = ((expected_number_of_session_messages
             * (settings.blending_ops_per_message
@@ -126,7 +127,7 @@ impl InternalSessionInfo {
                 as f64)
             / session_info.membership_size as f64)
             .ceil();
-        // c: Maximal number of cover messages a node can generate per session.
+        // `c`: Maximal number of cover messages a node can generate per session.
         let session_messages =
             (core_quota / settings.blending_ops_per_message as f64).ceil() as usize;
 
