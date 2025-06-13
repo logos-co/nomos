@@ -3,6 +3,7 @@
 exclude = ["nomos-core/cl", "nomos-core/proof_statements", "nomos-core/risc0_proofs"]
 members = [
   "consensus/cryptarchia-engine",
+  "consensus/cryptarchia-sync",
   "ledger/nomos-ledger",
   "nodes/api-common",
   "nodes/nomos-executor/executor",
@@ -56,6 +57,7 @@ cl                       = { path = "./nomos-core/cl" }
 common-http-client       = { path = "./nodes/nomos-node/http-client" }
 cryptarchia-consensus    = { path = "./nomos-services/cryptarchia-consensus" }
 cryptarchia-engine       = { path = "./consensus/cryptarchia-engine" }
+cryptarchia-sync         = { path = "./consensus/cryptarchia-sync" }
 executor-http-client     = { path = "./nodes/nomos-executor/http-client" }
 key-management-system    = { path = "./nomos-services/key-management-system" }
 kzgrs                    = { path = "./nomos-da/kzgrs" }
@@ -100,6 +102,7 @@ blake2           = "0.10"
 bytes            = "1.3"
 cached           = { version = "0.55.1", default-features = false }
 libp2p           = "0.55"
+libp2p-stream    = "0.3.0-alpha"
 overwatch        = { git = "https://github.com/logos-co/Overwatch", rev = "9cdad59" }
 overwatch-derive = { git = "https://github.com/logos-co/Overwatch", rev = "9cdad59" }
 reqwest          = "0.12"
