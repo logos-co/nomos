@@ -214,8 +214,8 @@ where
                 Some(msg) = inbound_relay.recv() => {
                     Self::handle_network_service_message(msg, backend).await;
                 }
-                Some(update) = stream.next() => {
-                    let (_block_number, _update) = Self::handle_membership_update(&update);
+                Some((_block_number, providers)) = stream.next() => {
+                    let _update = Self::handle_membership_update(&providers);
                     // membership_service_adapter.update(block_number, update).await;
                     // todo: implement update with loading initial state from membership service instead of config
                 }
@@ -268,11 +268,11 @@ where
         }
     }
 
-    fn handle_membership_update(update: &MembershipProviders) -> (u64, HashMap<PeerId, Multiaddr>) {
+    fn handle_membership_update(update: &MembershipProviders) -> HashMap<PeerId, Multiaddr> {
         tracing::debug!("Received membership update: {update:?}");
         // todo: implement update
 
-        (0, HashMap::new())
+        HashMap::new()
     }
 }
 
