@@ -15,19 +15,33 @@ use tauri_utils::platform::target_triple;
 const CRATE_NAME: &str = "nomos-node";
 const CRATE_PATH_RELATIVE_TO_WORKSPACE_ROOT: &str = "nodes/nomos-node";
 
-fn prepare_environment(architecture: &str) {
-    // Bypass an issue in the current linuxdeploy's version
+/// Prepares the environment for bundling the application
+///
+/// # Safety
+///
+/// This function is unsafe because it sets environment variables,
+/// which can lead to unexpected behaviour in multithreaded contexts.
+///
+/// For more information, see the documentation for [`set_var`].
+unsafe fn prepare_environment(architecture: &str) {
+    // Bypass an issue in the current `linuxdeploy`'s version
     set_var("NO_STRIP", "true");
 
-    // Tell `appimagetool` what arch we're building for, without it the tool errors
-    // out This could be due to us making an ad-hoc use of `tauri-bundler` here,
-    // perhaps we are bypassing some `tauri-bundler` piece of code or config that
-    // handles that, but if that's the actual reason I couldn't find where that
-    // would be Regardless, this works.
+    // Tell `appimagetool` what architecture we're building for.
+    // Without this, the tool errors out.
+    // This could be due to us making an ad-hoc use of `tauri-bundler` here. We
+    // might be bypassing some `tauri-bundler` piece of code or config that
+    // handles that. If that's the case, I couldn't find what that would be.
+    // Regardless, this works around that issue.
     set_var("ARCH", architecture);
 }
 
-fn build_package(version: String) {
+/// Bundles the package
+///
+/// # Safety
+///
+/// This function is unsafe because it calls [`prepare_environment`].
+unsafe fn build_package(version: String) {
     let crate_path = get_workspace_root().join(CRATE_PATH_RELATIVE_TO_WORKSPACE_ROOT);
     info!("Bundling package '{}'", crate_path.display());
     let resources_path = crate_path.join("resources");
@@ -116,7 +130,7 @@ fn build_package(version: String) {
     prepare_environment(arch);
 
     if let Err(error) = tauri_bundler::bundle_project(&settings) {
-        error!("Error while bundling project: {error:?}");
+        error!("Error while bundling the project: {error:?}");
     } else {
         info!("Package bundled successfully");
     }
@@ -141,10 +155,12 @@ fn parse_version(arguments: BundleArguments, cargo_package_version: String) -> S
     if let Some(version) = arguments.version {
         // Check for version mismatch
         // Maybe this should be a warning instead of a panic?
-        assert!(version == cargo_package_version,
-                "Error: Expected Cargo package version: '{cargo_package_version}', but received argument: '{version}'. \
+        assert_eq!(
+            version, cargo_package_version,
+            "Error: Expected Cargo package version: '{cargo_package_version}', \
+            but received argument: '{version}'. \
             Please ensure the version matches the Cargo package version."
-            );
+        );
 
         version
     } else {
@@ -159,5 +175,11 @@ fn main() {
     let bundle_arguments = BundleArguments::parse();
     let version = parse_version(bundle_arguments, cargo_package_version);
 
-    build_package(version);
+    // SAFETY: This is a single-threaded context as no threads have been spawned
+    // yet. Due to this, it is safe to call `build_package` which internally
+    // relies on `set_var`, a function that is unsafe in some multithreaded
+    // contexts.
+    unsafe {
+        build_package(version);
+    }
 }
