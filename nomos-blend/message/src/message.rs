@@ -67,6 +67,11 @@ impl X25519PrivateKey {
     pub fn from_bytes(bytes: [u8; KEY_SIZE]) -> Self {
         Self(x25519_dalek::StaticSecret::from(bytes))
     }
+
+    #[must_use]
+    pub fn derive_shared_key(&self, public_key: &X25519PublicKey) -> [u8; KEY_SIZE] {
+        self.0.diffie_hellman(&public_key.0).to_bytes()
+    }
 }
 
 pub struct X25519PublicKey(x25519_dalek::PublicKey);
