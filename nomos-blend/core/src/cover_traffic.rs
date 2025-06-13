@@ -228,7 +228,8 @@ pub struct RunningCoverTraffic<SessionStream, Rng> {
     rounds: Box<dyn Stream<Item = Round> + Send + Unpin>,
     /// The internal stream that generates a new element at every interval.
     intervals: Box<dyn Stream<Item = Interval> + Send + Unpin>,
-    /// The current interval value, used to look into the pre-generated slots.
+    /// The current interval value, used as range to select the
+    /// message-generating rounds.
     current_interval: Option<Interval>,
     /// The provided settings.
     settings: CoverTrafficSettings,
