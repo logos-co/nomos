@@ -1866,7 +1866,9 @@ dependencies = [
  "nomos-da-network-core",
  "nomos-executor",
  "nomos-libp2p",
+ "nomos-membership",
  "nomos-node",
+ "nomos-sdp-core",
  "nomos-tracing-service",
  "nomos-utils",
  "rand 0.8.5",
@@ -2328,6 +2330,22 @@ dependencies = [
  "serde_with",
  "thiserror 1.0.69",
  "time",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "cryptarchia-sync"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "libp2p",
+ "libp2p-stream",
+ "libp2p-swarm-test",
+ "nomos-core",
+ "rand 0.9.1",
+ "serde",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
 ]
@@ -6059,13 +6077,12 @@ dependencies = [
 name = "nomos-blend"
 version = "0.1.0"
 dependencies = [
- "blake2 0.10.6",
- "fixed",
  "futures",
  "multiaddr",
  "nomos-blend-message",
  "nomos-utils",
  "rand 0.8.5",
+ "rand_chacha 0.3.1",
  "serde",
  "serde_with",
  "tokio",
@@ -6090,11 +6107,11 @@ name = "nomos-blend-network"
 version = "0.1.0"
 dependencies = [
  "cached",
- "fixed",
  "futures",
  "libp2p",
  "nomos-blend",
  "nomos-blend-message",
+ "nomos-utils",
  "sha2",
  "tokio",
  "tokio-stream",
@@ -6277,10 +6294,13 @@ dependencies = [
  "nomos-core",
  "nomos-da-network-core",
  "nomos-libp2p",
+ "nomos-membership",
+ "nomos-sdp-core",
  "nomos-tracing",
  "overwatch",
  "serde",
  "subnetworks-assignations",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -6359,6 +6379,7 @@ dependencies = [
  "nomos-da-verifier",
  "nomos-http-api-common",
  "nomos-libp2p",
+ "nomos-mantle-core",
  "nomos-mempool",
  "nomos-network",
  "nomos-node",
@@ -6405,6 +6426,7 @@ name = "nomos-libp2p"
 version = "0.1.0"
 dependencies = [
  "blake2 0.10.6",
+ "cryptarchia-sync",
  "futures",
  "hex",
  "libp2p",
@@ -6412,6 +6434,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+ "tokio",
  "tracing",
 ]
 
@@ -6478,8 +6501,10 @@ name = "nomos-network"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "bytes",
  "chrono",
  "futures",
+ "nomos-core",
  "nomos-libp2p",
  "overwatch",
  "rand 0.7.3",
@@ -6518,8 +6543,12 @@ dependencies = [
  "nomos-da-verifier",
  "nomos-http-api-common",
  "nomos-libp2p",
+ "nomos-mantle-core",
+ "nomos-membership",
  "nomos-mempool",
  "nomos-network",
+ "nomos-sdp",
+ "nomos-sdp-core",
  "nomos-storage",
  "nomos-system-sig",
  "nomos-time",
@@ -6561,6 +6590,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "blake2 0.10.6",
+ "const-hex",
  "multiaddr",
  "nomos-core",
  "serde",
@@ -7134,7 +7164,7 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 [[package]]
 name = "overwatch"
 version = "0.1.0"
-source = "git+https://github.com/logos-co/Overwatch?rev=9cdad59#9cdad59cbac907ba116ff92230bc517b2247b537"
+source = "git+https://github.com/logos-co/Overwatch?rev=f5a9902#f5a99022f389d65adbd55e51f1e3f9eead62432a"
 dependencies = [
  "async-trait",
  "futures",
@@ -7149,7 +7179,7 @@ dependencies = [
 [[package]]
 name = "overwatch-derive"
 version = "0.1.0"
-source = "git+https://github.com/logos-co/Overwatch?rev=9cdad59#9cdad59cbac907ba116ff92230bc517b2247b537"
+source = "git+https://github.com/logos-co/Overwatch?rev=f5a9902#f5a99022f389d65adbd55e51f1e3f9eead62432a"
 dependencies = [
  "convert_case 0.8.0",
  "proc-macro-error2",
@@ -10317,12 +10347,16 @@ dependencies = [
  "nomos-http-api-common",
  "nomos-ledger",
  "nomos-libp2p",
+ "nomos-mantle-core",
+ "nomos-membership",
  "nomos-mempool",
  "nomos-network",
  "nomos-node",
+ "nomos-sdp-core",
  "nomos-time",
  "nomos-tracing",
  "nomos-tracing-service",
+ "nomos-utils",
  "rand 0.8.5",
  "reqwest 0.12.20",
  "serde",
