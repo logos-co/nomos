@@ -1,18 +1,28 @@
 use cryptarchia_consensus::CryptarchiaConsensus;
-use kzgrs_backend::{common::share::DaShare, dispersal::BlobInfo};
+use kzgrs_backend::{
+    common::share::DaShare,
+    dispersal::{BlobInfo, Metadata},
+};
 use nomos_core::{da::blob::info::DispersedBlobInfo, header::HeaderId, tx::Transaction};
 use nomos_da_indexer::consensus::adapters::cryptarchia::CryptarchiaConsensusAdapter;
+use nomos_da_network_service::membership::adapters::mock::MockMembershipAdapter;
 use nomos_da_sampling::{
     api::http::HttApiAdapter, backend::kzgrs::KzgrsSamplingBackend,
     storage::adapters::rocksdb::converter::DaStorageConverter,
 };
 use nomos_da_verifier::backend::kzgrs::KzgrsDaVerifier;
+use nomos_membership::{adapters::sdp::LedgerSdpAdapter, backends::mock::MockMembershipBackend};
 use nomos_mempool::backend::mockpool::MockPool;
+use nomos_sdp::adapters::{
+    declaration::repository::LedgerDeclarationAdapter,
+    services::services_repository::LedgerServicesAdapter,
+};
+use nomos_sdp_core::ledger::SdpLedger;
 use nomos_storage::backends::rocksdb::RocksBackend;
 use nomos_time::backends::NtpTimeBackend;
 use rand_chacha::ChaCha20Rng;
 
-use crate::{NomosDaMembership, Tx, Wire, MB16};
+use crate::{DaMembershipStorage, NomosDaMembership, Tx, Wire, MB16};
 
 pub type TxMempoolService<RuntimeServiceId> = nomos_mempool::TxMempoolService<
     nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
@@ -190,3 +200,37 @@ pub type CryptarchiaService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> 
         HttApiAdapter<NomosDaMembership>,
         RuntimeServiceId,
     >;
+
+pub type MembershipService<RuntimeServiceId> = nomos_membership::MembershipService<
+    MockMembershipBackend,
+    LedgerSdpAdapter<
+        SdpLedger<LedgerDeclarationAdapter, LedgerServicesAdapter, Metadata>,
+        LedgerDeclarationAdapter,
+        LedgerServicesAdapter,
+        Metadata,
+        RuntimeServiceId,
+    >,
+    RuntimeServiceId,
+>;
+
+pub type DaMembershipAdapter<RuntimeServiceId> = MockMembershipAdapter<
+    MockMembershipBackend,
+    NomosDaMembership,
+    LedgerSdpAdapter<
+        SdpLedger<LedgerDeclarationAdapter, LedgerServicesAdapter, Metadata>,
+        LedgerDeclarationAdapter,
+        LedgerServicesAdapter,
+        Metadata,
+        RuntimeServiceId,
+    >,
+    DaMembershipStorage,
+    RuntimeServiceId,
+>;
+
+pub type SdpService<RuntimeServiceId> = nomos_sdp::SdpService<
+    SdpLedger<LedgerDeclarationAdapter, LedgerServicesAdapter, Metadata>,
+    LedgerDeclarationAdapter,
+    LedgerServicesAdapter,
+    Metadata,
+    RuntimeServiceId,
+>;

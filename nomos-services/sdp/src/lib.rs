@@ -3,7 +3,6 @@ pub mod backends;
 
 use std::{fmt::Display, pin::Pin};
 
-use adapters::{declaration::SdpDeclarationAdapter, services::SdpServicesAdapter};
 use async_trait::async_trait;
 use backends::{SdpBackend, SdpBackendError};
 use futures::{Stream, StreamExt as _};
@@ -18,6 +17,11 @@ use overwatch::{
 };
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
+
+use crate::adapters::{
+    declaration::repository::SdpDeclarationAdapter,
+    services::services_repository::SdpServicesAdapter,
+};
 
 const BROADCAST_CHANNEL_SIZE: usize = 128;
 

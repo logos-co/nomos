@@ -2,7 +2,10 @@ use std::marker::PhantomData;
 
 use async_trait::async_trait;
 use nomos_sdp::{
-    adapters::{declaration::SdpDeclarationAdapter, services::SdpServicesAdapter},
+    adapters::{
+        declaration::repository::SdpDeclarationAdapter,
+        services::services_repository::SdpServicesAdapter,
+    },
     backends::SdpBackend,
     FinalizedBlockUpdateStream, SdpMessage, SdpService,
 };

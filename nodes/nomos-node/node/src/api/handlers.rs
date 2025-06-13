@@ -488,7 +488,13 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn block_peer<Backend, Membership, RuntimeServiceId>(
+pub async fn block_peer<
+    Backend,
+    Membership,
+    MembershipAdapter,
+    MembershipStorage,
+    RuntimeServiceId,
+>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(peer_id): Json<PeerId>,
 ) -> Response
@@ -500,11 +506,23 @@ where
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<Backend, Membership, RuntimeServiceId>>,
+        + AsServiceId<
+            NetworkService<
+                Backend,
+                Membership,
+                MembershipAdapter,
+                MembershipStorage,
+                RuntimeServiceId,
+            >,
+        >,
 {
-    make_request_and_return_response!(da::block_peer::<Backend, Membership, RuntimeServiceId>(
-        &handle, peer_id
-    ))
+    make_request_and_return_response!(da::block_peer::<
+        Backend,
+        Membership,
+        MembershipAdapter,
+        MembershipStorage,
+        RuntimeServiceId,
+    >(&handle, peer_id))
 }
 
 #[utoipa::path(
@@ -516,7 +534,13 @@ where
     )
 )]
 
-pub async fn unblock_peer<Backend, Membership, RuntimeServiceId>(
+pub async fn unblock_peer<
+    Backend,
+    Membership,
+    MembershipAdapter,
+    MembershipStorage,
+    RuntimeServiceId,
+>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(peer_id): Json<PeerId>,
 ) -> Response
@@ -528,11 +552,23 @@ where
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<Backend, Membership, RuntimeServiceId>>,
+        + AsServiceId<
+            NetworkService<
+                Backend,
+                Membership,
+                MembershipAdapter,
+                MembershipStorage,
+                RuntimeServiceId,
+            >,
+        >,
 {
-    make_request_and_return_response!(da::unblock_peer::<Backend, Membership, RuntimeServiceId>(
-        &handle, peer_id
-    ))
+    make_request_and_return_response!(da::unblock_peer::<
+        Backend,
+        Membership,
+        MembershipAdapter,
+        MembershipStorage,
+        RuntimeServiceId,
+    >(&handle, peer_id))
 }
 
 #[utoipa::path(
@@ -543,7 +579,13 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn blacklisted_peers<Backend, Membership, RuntimeServiceId>(
+pub async fn blacklisted_peers<
+    Backend,
+    Membership,
+    MembershipAdapter,
+    MembershipStorage,
+    RuntimeServiceId,
+>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
@@ -554,11 +596,23 @@ where
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<Backend, Membership, RuntimeServiceId>>,
+        + AsServiceId<
+            NetworkService<
+                Backend,
+                Membership,
+                MembershipAdapter,
+                MembershipStorage,
+                RuntimeServiceId,
+            >,
+        >,
 {
-    make_request_and_return_response!(
-        da::blacklisted_peers::<Backend, Membership, RuntimeServiceId>(&handle)
-    )
+    make_request_and_return_response!(da::blacklisted_peers::<
+        Backend,
+        Membership,
+        MembershipAdapter,
+        MembershipStorage,
+        RuntimeServiceId,
+    >(&handle))
 }
 
 #[utoipa::path(
@@ -772,7 +826,13 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn balancer_stats<Backend, Membership, RuntimeServiceId>(
+pub async fn balancer_stats<
+    Backend,
+    Membership,
+    MembershipAdapter,
+    MembershipStorage,
+    RuntimeServiceId,
+>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
@@ -783,11 +843,23 @@ where
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<Backend, Membership, RuntimeServiceId>>,
+        + AsServiceId<
+            NetworkService<
+                Backend,
+                Membership,
+                MembershipAdapter,
+                MembershipStorage,
+                RuntimeServiceId,
+            >,
+        >,
 {
-    make_request_and_return_response!(da::balancer_stats::<Backend, Membership, RuntimeServiceId>(
-        &handle
-    ))
+    make_request_and_return_response!(da::balancer_stats::<
+        Backend,
+        Membership,
+        MembershipAdapter,
+        MembershipStorage,
+        RuntimeServiceId,
+    >(&handle))
 }
 
 #[utoipa::path(
@@ -798,7 +870,13 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn monitor_stats<Backend, Membership, RuntimeServiceId>(
+pub async fn monitor_stats<
+    Backend,
+    Membership,
+    MembershipAdapter,
+    MembershipStorage,
+    RuntimeServiceId,
+>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
@@ -809,11 +887,23 @@ where
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<Backend, Membership, RuntimeServiceId>>,
+        + AsServiceId<
+            NetworkService<
+                Backend,
+                Membership,
+                MembershipAdapter,
+                MembershipStorage,
+                RuntimeServiceId,
+            >,
+        >,
 {
-    make_request_and_return_response!(da::monitor_stats::<Backend, Membership, RuntimeServiceId>(
-        &handle
-    ))
+    make_request_and_return_response!(da::monitor_stats::<
+        Backend,
+        Membership,
+        MembershipAdapter,
+        MembershipStorage,
+        RuntimeServiceId,
+    >(&handle))
 }
 
 #[utoipa::path(

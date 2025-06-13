@@ -4,7 +4,7 @@ use libp2p::Multiaddr;
 use libp2p_identity::PeerId;
 use serde::{Deserialize, Serialize};
 
-use crate::{MembershipHandler, SubnetworkAssignations};
+use crate::{MembershipCreator, MembershipHandler, SubnetworkAssignations};
 
 /// Fill a `N` sized set of "subnetworks" from a list of peer ids members
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +62,16 @@ impl FillFromNodeList {
         })
         .take(subnetwork_size)
         .collect()
+    }
+}
+
+impl MembershipCreator for FillFromNodeList {
+    fn init(&self, _peer_addresses: HashMap<Self::NetworkId, HashSet<PeerId>>) -> Self {
+        todo!()
+    }
+
+    fn update(&self, _new_peer_addresses: HashMap<Self::Id, Multiaddr>) -> Self {
+        todo!()
     }
 }
 

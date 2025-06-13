@@ -3,7 +3,10 @@ use nomos_sdp_core::ledger::SdpLedgerError;
 use overwatch::DynError;
 use thiserror::Error;
 
-use crate::adapters::{declaration::SdpDeclarationAdapter, services::SdpServicesAdapter};
+use crate::adapters::{
+    declaration::repository::SdpDeclarationAdapter,
+    services::services_repository::SdpServicesAdapter,
+};
 
 pub mod ledger;
 

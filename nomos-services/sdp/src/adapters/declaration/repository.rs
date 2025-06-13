@@ -1,10 +1,14 @@
 use async_trait::async_trait;
 use nomos_sdp_core::{
-    ledger::{self, DeclarationsRepositoryError},
+    ledger::{self, DeclarationsRepository, DeclarationsRepositoryError},
     DeclarationInfo,
 };
 
 pub struct LedgerDeclarationAdapter;
+
+pub trait SdpDeclarationAdapter: DeclarationsRepository {
+    fn new() -> Self;
+}
 
 impl SdpDeclarationAdapter for LedgerDeclarationAdapter {
     fn new() -> Self {
@@ -35,8 +39,4 @@ impl ledger::DeclarationsRepository for LedgerDeclarationAdapter {
     ) -> Result<(), DeclarationsRepositoryError> {
         todo!()
     }
-}
-
-pub trait SdpDeclarationAdapter: ledger::DeclarationsRepository {
-    fn new() -> Self;
 }
