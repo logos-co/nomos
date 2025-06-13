@@ -5,6 +5,10 @@ name    = "nomos-blend-message"
 version = "0.1.0"
 
 [dependencies]
+blake2.workspace = true
+bytes.workspace = true
+chacha20 = "0.9.1"
+cipher = "0.4.4"
 itertools     = "0.13"
 rand_chacha   = "0.3"
 sha2          = "0.10"
