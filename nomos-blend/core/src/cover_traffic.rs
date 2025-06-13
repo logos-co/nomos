@@ -206,12 +206,16 @@ where
     /// Waits until the first session info is yielded by the provided stream,
     /// after which the instance is initialized, started, and returned.
     pub async fn wait_ready(mut self) -> RunningCoverTraffic<SessionStream, Rng> {
-        let mut next: Option<SessionInfo> = None;
-        while next.is_none() {
-            next = self.sessions.next().await;
+        // We wait until the provided session stream returns a proper value, which we
+        // use to initialize the cover traffic module.
+        let first_session_info = async {
+            loop {
+                if let Some(session_info) = self.sessions.next().await {
+                    break session_info;
+                }
+            }
         }
-        let first_session_info =
-            next.expect("We just checked that is was not None. How did this happen?");
+        .await;
         RunningCoverTraffic::new(self.settings, self.sessions, self.rng, &first_session_info)
     }
 }
