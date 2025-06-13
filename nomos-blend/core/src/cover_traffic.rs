@@ -351,14 +351,15 @@ where
             );
         }
         if let Poll::Ready(Some(new_round)) = rounds.poll_next_unpin(cx) {
-            cx.waker().wake_by_ref();
-            return on_new_round(
+            let new_round_result = on_new_round(
                 session_info,
                 *current_interval,
                 new_round,
                 cx,
                 &mut data_message_emission_notification_channel.1,
             );
+            cx.waker().wake_by_ref();
+            return new_round_result;
         }
         Poll::Pending
     }
