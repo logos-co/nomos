@@ -151,13 +151,12 @@ impl Message {
                 &pseudo_random_bytes(&blake2b256(shared_key), PAYLOAD_SIZE),
             );
 
-            // Shift blending headers by one rightward by zeroing the first blending header.
+            // Shift blending headers by one rightward.
             println!("Shifting blending headers one rightward");
             msg.copy_within(
                 private_header_pos..payload_pos - BLENDING_HEADER_SIZE,
                 private_header_pos + BLENDING_HEADER_SIZE,
             );
-            msg[private_header_pos..private_header_pos + BLENDING_HEADER_SIZE].fill(0);
 
             // Fill the first blending header.
             let mut pos = private_header_pos;
@@ -199,6 +198,110 @@ impl Message {
         msg[pos..pos + SIGNATURE_SIZE].copy_from_slice(&sig);
 
         msg
+    }
+
+    pub fn decapsulate(
+        mut msg: BytesMut,
+        nonephemeral_private_key: &[u8; KEY_SIZE],
+        verify_proof_of_selection_fn: impl Fn(&[u8]) -> bool,
+    ) -> Result<BytesMut, ()> {
+        // Derive the shared key.
+        let shared_key = derive_shared_key(
+            &msg[HEADER_SIZE..HEADER_SIZE + KEY_SIZE],
+            nonephemeral_private_key,
+        );
+
+        // Decrypt the private header.
+        let private_header_pos = HEADER_SIZE + PUBLIC_HEADER_SIZE;
+        for i in 0..MAX_ENCAPSULATIONS {
+            let offset = private_header_pos + i * BLENDING_HEADER_SIZE;
+            println!("Decrypting the {i}-th blending header: offset:{offset}, size:{BLENDING_HEADER_SIZE}");
+            let key = pseudo_random_bytes(&blake2b256(&shared_key), BLENDING_HEADER_SIZE);
+            decrypt(&mut msg[offset..offset + BLENDING_HEADER_SIZE], &key);
+        }
+
+        // Verify the first blending header which was decrypted.
+        let proof_of_selection =
+            &msg[private_header_pos + KEY_SIZE + PROOF_OF_QUOTA_SIZE + SIGNATURE_SIZE
+                ..private_header_pos + BLENDING_HEADER_SIZE];
+        if !verify_proof_of_selection_fn(proof_of_selection) {
+            println!("Proof of selection verification failed.");
+            return Err(());
+        }
+        // TODO: deduplication
+
+        // Set the public header.
+        let mut pos = HEADER_SIZE;
+        println!("Filling the public header: offset:{pos}, size:{KEY_SIZE}");
+        msg.copy_within(private_header_pos..private_header_pos + KEY_SIZE, pos);
+        pos += KEY_SIZE;
+        println!("Filling the public header: offset:{pos}, size:{PROOF_OF_QUOTA_SIZE}");
+        msg.copy_within(
+            private_header_pos + KEY_SIZE..private_header_pos + KEY_SIZE + PROOF_OF_QUOTA_SIZE,
+            pos,
+        );
+        pos += PROOF_OF_QUOTA_SIZE;
+        println!("Filling the public header: offset:{pos}, size:{SIGNATURE_SIZE}");
+        msg.copy_within(
+            private_header_pos + KEY_SIZE + PROOF_OF_QUOTA_SIZE
+                ..private_header_pos + KEY_SIZE + PROOF_OF_QUOTA_SIZE + SIGNATURE_SIZE,
+            pos,
+        );
+
+        // Decrypt the payload.
+        let payload_pos = private_header_pos + PRIVATE_HEADER_SIZE;
+        println!("Decrypting the payload: offset:{payload_pos}, size:{PAYLOAD_SIZE}");
+        let key = pseudo_random_bytes(&blake2b256(&shared_key), PAYLOAD_SIZE);
+        decrypt(&mut msg[payload_pos..], &key);
+
+        // Shift blending headers one leftward.
+        msg.copy_within(
+            private_header_pos + BLENDING_HEADER_SIZE..private_header_pos + PRIVATE_HEADER_SIZE,
+            private_header_pos,
+        );
+
+        // Reconstruct the last blending header.
+        let r1 = pseudo_random_bytes(
+            &blake2b256(&shared_key.iter().chain(&[1]).copied().collect::<Vec<_>>()),
+            KEY_SIZE,
+        );
+        let r2 = pseudo_random_bytes(
+            &blake2b256(&shared_key.iter().chain(&[2]).copied().collect::<Vec<_>>()),
+            PROOF_OF_QUOTA_SIZE,
+        );
+        let r3 = pseudo_random_bytes(
+            &blake2b256(&shared_key.iter().chain(&[3]).copied().collect::<Vec<_>>()),
+            SIGNATURE_SIZE,
+        );
+        let r4 = pseudo_random_bytes(
+            &blake2b256(&shared_key.iter().chain(&[4]).copied().collect::<Vec<_>>()),
+            PROOF_OF_SELECTION_SIZE,
+        );
+        let last_blending_header_pos =
+            private_header_pos + (MAX_ENCAPSULATIONS - 1) * BLENDING_HEADER_SIZE;
+        let mut offset = last_blending_header_pos;
+        println!("offset:{offset}, size:{}", r1.len());
+        msg[offset..offset + r1.len()].copy_from_slice(&r1);
+        offset += r1.len();
+        println!("offset:{offset}, size:{}", r2.len());
+        msg[offset..offset + r2.len()].copy_from_slice(&r2);
+        offset += r2.len();
+        println!("offset:{offset}, size:{}", r3.len());
+        msg[offset..offset + r3.len()].copy_from_slice(&r3);
+        offset += r3.len();
+        println!("offset:{offset}, size:{}", r4.len());
+        msg[offset..offset + r4.len()].copy_from_slice(&r4);
+
+        // Encrypt the reconstructed last blending header.
+        let key = pseudo_random_bytes(&blake2b256(&shared_key), BLENDING_HEADER_SIZE);
+        encrypt(
+            &mut msg[last_blending_header_pos..last_blending_header_pos + BLENDING_HEADER_SIZE],
+            &key,
+        );
+
+        // TODO: Compare signatures
+
+        Ok(msg)
     }
 }
 
@@ -249,6 +352,17 @@ fn sign(data: &[u8], key: &[u8; 32]) -> [u8; SIGNATURE_SIZE] {
     signature
 }
 
+fn derive_shared_key(public_key: &[u8], private_key: &[u8; KEY_SIZE]) -> [u8; KEY_SIZE] {
+    // TODO: Placeholder for actual key derivation logic.
+    // In a real implementation, this would use a key exchange algorithm like ECDH.
+    let mut shared_key = [0u8; KEY_SIZE];
+    let mut hasher = Blake2bVar::new(KEY_SIZE).unwrap();
+    hasher.update(public_key);
+    hasher.update(private_key);
+    hasher.finalize_variable(&mut shared_key).unwrap();
+    shared_key
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -275,6 +389,31 @@ mod tests {
         );
         assert_eq!(msg.len(), MESSAGE_SIZE);
         assert_ne!(msg, initialized_msg);
+    }
+
+    fn derive_public_key(private_key: &[u8; KEY_SIZE]) -> [u8; KEY_SIZE] {
+        // TODO: Placeholder for actual public key derivation logic.
+        // In a real implementation, this would use a cryptographic algorithm.
+        *private_key
+    }
+
+    fn build_proof_of_selection(node_id: usize) -> [u8; PROOF_OF_SELECTION_SIZE] {
+        //TODO
+        [node_id as u8; PROOF_OF_SELECTION_SIZE]
+    }
+
+    const PROOF_OF_QUOTA: [u8; PROOF_OF_QUOTA_SIZE] = [10u8; PROOF_OF_QUOTA_SIZE];
+
+    fn build_signing_keys(
+        cnt: usize,
+    ) -> Vec<([u8; KEY_SIZE], [u8; KEY_SIZE], [u8; PROOF_OF_QUOTA_SIZE])> {
+        (0..cnt)
+            .map(|i| {
+                let private_key = [i as u8; KEY_SIZE];
+                let public_key = derive_public_key(&private_key);
+                (private_key, public_key, PROOF_OF_QUOTA)
+            })
+            .collect()
     }
 
     #[test]
