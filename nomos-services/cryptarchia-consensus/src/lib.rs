@@ -39,7 +39,7 @@ use nomos_network::NetworkService;
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageService};
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
-    services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},
+    services::{relay::OutboundRelay, state::StateUpdater, AsServiceId, ServiceCore, ServiceData},
     DynError, OpaqueServiceResourcesHandle,
 };
 use rand::{RngCore, SeedableRng};
@@ -57,10 +57,7 @@ use tracing_futures::Instrument as _;
 use crate::{
     leadership::Leader,
     relays::CryptarchiaConsensusRelays,
-    states::{
-        CryptarchiaConsensusState, CryptarchiaInitialisationStrategy, GenesisRecoveryStrategy,
-        SecurityRecoveryStrategy,
-    },
+    states::CryptarchiaConsensusState,
     storage::{adapters::StorageAdapter, StorageAdapter as _},
 };
 
@@ -89,18 +86,17 @@ struct Cryptarchia<State> {
 
 impl<State: CryptarchiaState> Cryptarchia<State> {
     /// Initialize a new [`Cryptarchia`] instance.
-    /// [`Cryptarchia`] must always be initialized from genesis.
-    pub fn from_genesis(
-        genesis_id: HeaderId,
-        genesis_ledger_state: LedgerState,
+    pub fn from_lib(
+        lib_id: HeaderId,
+        lib_ledger_state: LedgerState,
         ledger_config: nomos_ledger::Config,
     ) -> Self {
         Self {
-            consensus: <cryptarchia_engine::Cryptarchia<_, _>>::from_genesis(
-                genesis_id,
+            consensus: <cryptarchia_engine::Cryptarchia<_, _>>::from_lib(
+                lib_id,
                 ledger_config.consensus_config,
             ),
-            ledger: <nomos_ledger::Ledger<_>>::new(genesis_id, genesis_ledger_state, ledger_config),
+            ledger: <nomos_ledger::Ledger<_>>::new(lib_id, lib_ledger_state, ledger_config),
         }
     }
 
@@ -114,45 +110,8 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
             .expect("tip state not available")
     }
 
-    const fn genesis(&self) -> HeaderId {
-        self.consensus.genesis()
-    }
-
-    /// Create a new [`Cryptarchia`] instance with the updated state.
-    /// This method adds a [`LedgerState`] and [`Header`] to the new instance
-    /// without running validation.
-    ///
-    /// # Warning
-    ///
-    /// **This method bypasses safety checks** and can corrupt the state if used
-    /// incorrectly.
-    /// Only use for recovery, debugging, or other manipulations where the input
-    /// is known to be valid.
-    ///
-    /// # Arguments
-    ///
-    /// * `header`: The header to apply.
-    /// * `ledger_state`: The ledger state to apply.
-    /// * `chain_length`: The position of the block in the chain.
-    ///
-    /// # Returns
-    ///
-    /// A new [`Cryptarchia`] instance with the updated state.
-    pub fn apply_unchecked(
-        &self,
-        header: &Header,
-        ledger_state: LedgerState,
-        chain_length: u64,
-    ) -> Self {
-        let header_id = header.id();
-        let ledger = self.ledger.apply_state_unchecked(header_id, ledger_state);
-        let consensus = self.consensus.receive_block_unchecked(
-            header_id,
-            header.parent(),
-            header.slot(),
-            chain_length,
-        );
-        Self { ledger, consensus }
+    const fn lib(&self) -> HeaderId {
+        self.consensus.lib()
     }
 
     /// Create a new [`Cryptarchia`] with the updated state.
@@ -231,6 +190,7 @@ pub struct CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendAdapterSetti
     #[serde(default)]
     pub blob_selector_settings: Bs,
     pub config: nomos_ledger::Config,
+    pub genesis_id: HeaderId,
     pub genesis_state: LedgerState,
     pub leader_config: LeaderConfig,
     pub network_adapter_settings: NetworkAdapterSettings,
@@ -404,7 +364,6 @@ where
         BS::Settings,
         NetAdapter::Settings,
         BlendAdapter::Settings,
-        TimeBackend::Settings,
     >;
     type StateOperator = RecoveryOperator<JsonFileBackend<Self::State, Self::Settings>>;
     type Message = ConsensusMsg<Block<ClPool::Item, DaPool::Item>>;
@@ -602,7 +561,6 @@ where
 
         let CryptarchiaSettings {
             config: ledger_config,
-            genesis_state,
             transaction_selector_settings,
             blob_selector_settings,
             leader_config,
@@ -615,16 +573,11 @@ where
             .notifier()
             .get_updated_settings();
 
-        let genesis_id = HeaderId::from([0; 32]);
-
         // These are blocks that have been pruned by the cryptarchia engine but have not
         // yet been deleted from the storage layer.
         let mut previously_pruned_blocks = self.initial_state.prunable_blocks.clone();
-
-        let (mut cryptarchia, mut leader) = Self::build_cryptarchia(
+        let (mut cryptarchia, mut leader) = Self::initialize_cryptarchia(
             self.initial_state,
-            genesis_id,
-            genesis_state,
             ledger_config,
             leader_config,
             &relays,
@@ -676,19 +629,19 @@ where
                 tokio::select! {
                     Some(block) = incoming_blocks.next() => {
                         Self::log_received_block(&block);
-                        cryptarchia = Self::process_block(
+
+                        // Process the received block and update the cryptarchia state.
+                        cryptarchia = Self::process_block_and_update_state(
                             cryptarchia,
                             &mut leader,
-                            block,
+                            block.clone(),
+
+                            &mut previously_pruned_blocks,
                             &relays,
                             &self.block_subscription_sender,
-                        )
-                        .await;
-
-                        // This will modify `previously_pruned_blocks` to include blocks which are not tracked by Cryptarchia anymore but have not been deleted from the persistence layer.
-                        Self::prune_forks(&mut cryptarchia, &mut leader, relays.storage_adapter(), &mut previously_pruned_blocks).await;
-                        // We dump the undeleted blocks to storage so they are picked up by the service again if it suddenly stops.
-                        self.service_resources_handle.state_updater.update(Some(Self::State::from_cryptarchia_and_unpruned_blocks(&cryptarchia, &leader, previously_pruned_blocks.clone())));
+                            self.service_resources_handle
+                                        .state_updater.clone()
+                        ).await;
 
                         info!(counter.consensus_processed_blocks = 1);
                     }
@@ -716,17 +669,19 @@ where
 
                             if let Some(block) = block {
                                 // apply our own block
-                                cryptarchia = Self::process_block(
-                                    cryptarchia,
+                                cryptarchia = Self::process_block_and_update_state(
+                                     cryptarchia,
                                     &mut leader,
                                     block.clone(),
+
+                                    &mut previously_pruned_blocks,
                                     &relays,
-                                    &self.block_subscription_sender
-                                ).await;
-                                // This will modify `previously_pruned_blocks` to include blocks which are not tracked by Cryptarchia but have not been deleted from the persistence layer.
-                                Self::prune_forks(&mut cryptarchia, &mut leader, relays.storage_adapter(), &mut previously_pruned_blocks).await;
-                                // We dump the undeleted blocks to storage so they are picked up by the service again if it suddenly stops.
-                                self.service_resources_handle.state_updater.update(Some(Self::State::from_cryptarchia_and_unpruned_blocks(&cryptarchia, &leader, previously_pruned_blocks.clone())));
+                                    &self.block_subscription_sender,
+                                    self.service_resources_handle
+                                        .state_updater.clone()
+                                        ,
+                                )
+                                .await;
                                 blend_adapter.blend(block).await;
                             }
                         }
@@ -894,8 +849,10 @@ where
             ConsensusMsg::GetHeaders { from, to, tx } => {
                 // default to tip block if not present
                 let from = from.unwrap_or_else(|| cryptarchia.tip());
-                // default to genesis block if not present
-                let to = to.unwrap_or_else(|| cryptarchia.genesis());
+                // default to LIB block if not present
+                // TODO: for a full history, we should use genesis, but we don't want to
+                // keep it all in memory, headers past LIB should be fetched from storage
+                let to = to.unwrap_or_else(|| cryptarchia.lib());
 
                 let mut res = Vec::new();
                 let mut cur = from;
@@ -904,7 +861,7 @@ where
                 while let Some(h) = branches.get(&cur) {
                     res.push(h.id());
                     // limit the response size
-                    if cur == to || cur == cryptarchia.genesis() || res.len() >= HEADERS_LIMIT {
+                    if cur == to || cur == cryptarchia.lib() || res.len() >= HEADERS_LIMIT {
                         break;
                     }
                     cur = h.parent();
@@ -916,10 +873,19 @@ where
         }
     }
 
-    #[expect(clippy::allow_attributes_without_reason)]
-    #[expect(clippy::type_complexity)]
-    async fn validate_received_block(
-        block: &Block<ClPool::Item, DaPool::Item>,
+    #[expect(
+        clippy::type_complexity,
+        reason = "CryptarchiaConsensusState and CryptarchiaConsensusRelays amount of generics."
+    )]
+    #[expect(
+        clippy::future_not_send,
+        reason = "Internal function, settings are not Sync"
+    )]
+    async fn process_block_and_update_state(
+        mut cryptarchia: Cryptarchia<Online>,
+        leader: &mut leadership::Leader,
+        block: Block<ClPool::Item, DaPool::Item>,
+        previously_pruned_blocks: &mut HashSet<HeaderId>,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
             BS,
@@ -935,29 +901,61 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-    ) -> bool {
-        let sampled_blobs = match get_sampled_blobs(relays.sampling_relay().clone()).await {
-            Ok(sampled_blobs) => sampled_blobs,
-            Err(error) => {
-                error!("Unable to retrieved sampled blobs: {error}");
-                return false;
+        block_subscription_sender: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
+        state_updater: StateUpdater<
+            Option<
+                CryptarchiaConsensusState<
+                    TxS::Settings,
+                    BS::Settings,
+                    NetAdapter::Settings,
+                    BlendAdapter::Settings,
+                >,
+            >,
+        >,
+    ) -> Cryptarchia<Online> {
+        cryptarchia = Self::process_block(
+            cryptarchia,
+            leader,
+            block,
+            relays,
+            block_subscription_sender,
+        )
+        .await;
+
+        // This will modify `previously_pruned_blocks` to include blocks which are not
+        // tracked by Cryptarchia anymore but have not been deleted from the persistence
+        // layer.
+        Self::prune_forks(
+            &mut cryptarchia,
+            leader,
+            relays.storage_adapter(),
+            previously_pruned_blocks,
+        )
+        .await;
+
+        match <Self as ServiceData>::State::from_cryptarchia_and_unpruned_blocks(
+            &cryptarchia,
+            leader,
+            previously_pruned_blocks.clone(),
+        ) {
+            Ok(state) => {
+                state_updater.update(Some(state));
             }
-        };
-        if !Self::validate_blocks_blobs(block, &sampled_blobs) {
-            error!("Invalid block: {block:?}");
-            return false;
+            Err(e) => {
+                error!(target: LOG_TARGET, "Failed to update state: {}", e);
+            }
         }
-        true
+
+        cryptarchia
     }
 
-    /// Add a [`Block`] to [`Cryptarchia`].
+    /// Try to add a [`Block`] to [`Cryptarchia`].
     /// A [`Block`] is only added if it's valid
-    /// ([`CryptarchiaConsensus::validate_received_block`]).
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(cryptarchia, leader, relays))]
     async fn process_block<State: CryptarchiaState>(
-        cryptarchia: Cryptarchia<State>,
+        mut cryptarchia: Cryptarchia<State>,
         leader: &mut leadership::Leader,
         block: Block<ClPool::Item, DaPool::Item>,
         relays: &CryptarchiaConsensusRelays<
@@ -978,38 +976,19 @@ where
         block_broadcaster: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> Cryptarchia<State> {
         debug!("received proposal {:?}", block);
-        if !Self::validate_received_block(&block, relays).await {
+
+        let sampled_blobs = match get_sampled_blobs(relays.sampling_relay().clone()).await {
+            Ok(sampled_blobs) => sampled_blobs,
+            Err(error) => {
+                error!("Unable to retrieved sampled blobs: {error}");
+                return cryptarchia;
+            }
+        };
+        if !Self::validate_blocks_blobs(&block, &sampled_blobs) {
+            error!("Invalid block: {block:?}");
             return cryptarchia;
         }
-        Self::process_block_unchecked(cryptarchia, leader, block, relays, block_broadcaster).await
-    }
 
-    /// Add a [`Block`] to [`Cryptarchia`].
-    /// This method does not validate the block.
-    #[expect(clippy::allow_attributes_without_reason)]
-    #[expect(clippy::type_complexity)]
-    #[instrument(level = "debug", skip(cryptarchia, leader, relays))]
-    async fn process_block_unchecked<State: CryptarchiaState>(
-        mut cryptarchia: Cryptarchia<State>,
-        leader: &mut Leader,
-        block: Block<ClPool::Item, DaPool::Item>,
-        relays: &CryptarchiaConsensusRelays<
-            BlendAdapter,
-            BS,
-            ClPool,
-            ClPoolAdapter,
-            DaPool,
-            DaPoolAdapter,
-            NetAdapter,
-            SamplingBackend,
-            SamplingRng,
-            Storage,
-            TxS,
-            DaVerifierBackend,
-            RuntimeServiceId,
-        >,
-        block_broadcaster: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> Cryptarchia<State> {
         // TODO: filter on time?
         let header = block.header();
         let id = header.id();
@@ -1202,18 +1181,16 @@ where
         blocks.collect::<Vec<_>>().await.into_iter().rev().collect()
     }
 
-    /// Builds cryptarchia
-    /// The build process is determined by the initial state passed:
-    /// - If the initial state doesn't contain any recovery information,
-    ///   cryptarchia is built from genesis.
-    /// - If it does, the recovery process is started: Recovery is done from
-    ///   genesis or security depending on the available information.
+    /// Initialize cryptarchia
+    /// It initialize cryptarchia from the LIB (initially genesis) +
+    /// (optionally) known blocks which were received before the service
+    /// restarted.
     ///
     /// # Arguments
     ///
     /// * `initial_state` - The initial state of cryptarchia.
-    /// * `genesis_id` - The genesis block id.
-    /// * `genesis_state` - The genesis ledger state.
+    /// * `lib_id` - The LIB block id.
+    /// * `lib_state` - The LIB ledger state.
     /// * `leader` - The leader instance. It needs to be a Leader initialised to
     ///   genesis. This function will update the leader if needed.
     /// * `ledger_config` - The ledger configuration.
@@ -1225,16 +1202,13 @@ where
         clippy::type_complexity,
         reason = "CryptarchiaConsensusState and CryptarchiaConsensusRelays amount of generics."
     )]
-    async fn build_cryptarchia(
-        mut initial_state: CryptarchiaConsensusState<
+    async fn initialize_cryptarchia(
+        initial_state: CryptarchiaConsensusState<
             TxS::Settings,
             BS::Settings,
             NetAdapter::Settings,
             BlendAdapter::Settings,
-            TimeBackend::Settings,
         >,
-        genesis_id: HeaderId,
-        genesis_state: LedgerState,
         ledger_config: nomos_ledger::Config,
         leader_config: LeaderConfig,
         relays: &CryptarchiaConsensusRelays<
@@ -1254,192 +1228,24 @@ where
         >,
         block_subscription_sender: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> (Cryptarchia<Online>, Leader) {
-        match initial_state.recovery_strategy() {
-            CryptarchiaInitialisationStrategy::Genesis => {
-                info!("Building Cryptarchia from genesis.");
-                Self::build_from_genesis(genesis_id, genesis_state, leader_config, ledger_config)
-            }
-            CryptarchiaInitialisationStrategy::RecoveryFromGenesis(strategy) => {
-                info!("Recovering Cryptarchia with Genesis strategy.");
-                Self::recover_from_genesis(
-                    strategy,
-                    genesis_id,
-                    genesis_state,
-                    leader_config,
-                    ledger_config,
-                    relays,
-                    block_subscription_sender,
-                )
-                .await
-            }
-            CryptarchiaInitialisationStrategy::RecoveryFromSecurity(strategy) => {
-                info!("Recovering Cryptarchia with Security strategy.");
-                Self::recover_from_security(
-                    *strategy,
-                    genesis_id,
-                    genesis_state,
-                    leader_config,
-                    ledger_config,
-                    relays,
-                    block_subscription_sender,
-                )
-                .await
-            }
-        }
-    }
-
-    fn build_from_genesis(
-        genesis_id: HeaderId,
-        genesis_state: LedgerState,
-        leader_config: LeaderConfig,
-        ledger_config: nomos_ledger::Config,
-    ) -> (Cryptarchia<Online>, Leader) {
-        let leader = Leader::from_genesis(genesis_id, leader_config, ledger_config);
-        let cryptarchia = Cryptarchia::from_genesis(genesis_id, genesis_state, ledger_config);
-
-        (cryptarchia, leader)
-    }
-
-    /// Recovers cryptarchia from genesis to the saved tip
-    ///
-    /// # Arguments
-    ///
-    /// * `GenesisRecoveryStrategy` - Strategy instance containing the genesis
-    ///   recovery information.
-    /// * `genesis_id` - The genesis block id.
-    /// * `genesis_state` - The genesis ledger state.
-    /// * `leader_config` - The leader configuration.
-    /// * `ledger_config` - The ledger configuration.
-    /// * `relays` - The relays object containing all the necessary relays for
-    ///   the consensus.
-    /// * `block_subscription_sender` - The broadcast channel to send the blocks
-    ///   to the services.
-    #[expect(
-        clippy::type_complexity,
-        reason = "CryptarchiaConsensusRelays amount of generics."
-    )]
-    async fn recover_from_genesis(
-        GenesisRecoveryStrategy { tip }: GenesisRecoveryStrategy,
-        genesis_id: HeaderId,
-        genesis_state: LedgerState,
-        leader_config: LeaderConfig,
-        ledger_config: nomos_ledger::Config,
-        relays: &CryptarchiaConsensusRelays<
-            BlendAdapter,
-            BS,
-            ClPool,
-            ClPoolAdapter,
-            DaPool,
-            DaPoolAdapter,
-            NetAdapter,
-            SamplingBackend,
-            SamplingRng,
-            Storage,
-            TxS,
-            DaVerifierBackend,
-            RuntimeServiceId,
-        >,
-        block_subscription_sender: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> (Cryptarchia<Online>, Leader) {
+        let lib_id = initial_state.lib;
         let mut cryptarchia =
-            <Cryptarchia<Online>>::from_genesis(genesis_id, genesis_state, ledger_config);
-
-        let mut leader = Leader::from_genesis(genesis_id, leader_config, ledger_config);
-
-        let blocks = Self::get_blocks_in_range(genesis_id, tip, relays.storage_adapter()).await;
-
-        // Skip genesis blocks since Cryptarchia is already built from it
-        let blocks = blocks.into_iter().skip(1);
-
-        for block in blocks {
-            cryptarchia = Self::process_block(
-                cryptarchia,
-                &mut leader,
-                block,
-                relays,
-                block_subscription_sender,
-            )
-            .await;
-        }
-
-        (cryptarchia, leader)
-    }
-
-    /// Recovers cryptarchia from a previously saved security block to the saved
-    /// tip
-    ///
-    /// # Arguments
-    ///
-    /// * `SecurityRecoveryStrategy` - Strategy instance containing the security
-    ///   recovery information.
-    /// * `genesis_id` - The genesis block id.
-    /// * `genesis_state` - The genesis ledger state.
-    /// * `leader_config` - The leader configuration.
-    /// * `ledger_config` - The ledger configuration.
-    /// * `relays` - The relays object containing all the necessary relays for
-    ///   the consensus.
-    /// * `block_subscription_sender` - The broadcast channel to send the blocks
-    ///   to the services.
-    #[expect(
-        clippy::type_complexity,
-        reason = "CryptarchiaConsensusRelays amount of generics."
-    )]
-    async fn recover_from_security(
-        SecurityRecoveryStrategy {
-            tip,
-            security_block_id,
-            security_ledger_state,
-            security_leader_notes,
-            security_block_chain_length,
-        }: SecurityRecoveryStrategy,
-        genesis_id: HeaderId,
-        genesis_state: LedgerState,
-        leader_config: LeaderConfig,
-        ledger_config: nomos_ledger::Config,
-        relays: &CryptarchiaConsensusRelays<
-            BlendAdapter,
-            BS,
-            ClPool,
-            ClPoolAdapter,
-            DaPool,
-            DaPoolAdapter,
-            NetAdapter,
-            SamplingBackend,
-            SamplingRng,
-            Storage,
-            TxS,
-            DaVerifierBackend,
-            RuntimeServiceId,
-        >,
-        block_subscription_sender: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> (Cryptarchia<Online>, Leader) {
-        let mut cryptarchia =
-            <Cryptarchia<Online>>::from_genesis(genesis_id, genesis_state, ledger_config);
+            <Cryptarchia<Online>>::from_lib(lib_id, initial_state.lib_ledger_state, ledger_config);
         let mut leader = Leader::new(
-            security_block_id,
-            security_leader_notes,
+            lib_id,
+            initial_state.lib_leader_notes.clone(),
             leader_config.nf_sk,
             ledger_config,
         );
 
         let blocks =
-            Self::get_blocks_in_range(security_block_id, tip, relays.storage_adapter()).await;
+            Self::get_blocks_in_range(lib_id, initial_state.tip, relays.storage_adapter()).await;
 
-        // Apply security block with _unchecked_ since it's already validated and in its
-        // final form.
-        let mut blocks_iter = blocks.into_iter();
-        let security_block = blocks_iter
-            .next()
-            .expect("Security block must be present when recovering from security block.");
-        cryptarchia = cryptarchia.apply_unchecked(
-            security_block.header(),
-            security_ledger_state,
-            security_block_chain_length,
-        );
+        // Skip LIB block since it's already applied
+        let blocks = blocks.into_iter().skip(1);
 
-        // Apply remaining blocks with _unchecked_ to bypass blobs validation
-        for block in blocks_iter {
-            cryptarchia = Self::process_block_unchecked(
+        for block in blocks {
+            cryptarchia = Self::process_block(
                 cryptarchia,
                 &mut leader,
                 block,
