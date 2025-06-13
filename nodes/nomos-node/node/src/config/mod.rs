@@ -62,19 +62,19 @@ impl CliArgs {
     /// If flags the blend service group to start if either all service groups
     /// are flagged to start or the blend service group is.
     #[must_use]
-    pub fn dry_run(&self) -> bool {
+    pub const fn dry_run(&self) -> bool {
         self.check_config_only
     }
 
     #[must_use]
-    pub fn must_blend_service_group_start(&self) -> bool {
+    pub const fn must_blend_service_group_start(&self) -> bool {
         self.must_all_service_groups_start() || self.blend.start_blend_at_boot
     }
 
     /// If flags the DA service group to start if either all service groups are
     /// flagged to start or the DA service group is.
     #[must_use]
-    pub fn must_da_service_group_start(&self) -> bool {
+    pub const fn must_da_service_group_start(&self) -> bool {
         self.must_all_service_groups_start() || self.da.start_da_at_boot
     }
 

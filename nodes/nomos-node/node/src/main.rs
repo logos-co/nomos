@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::Parser as _;
 use color_eyre::eyre::{eyre, Result};
 use kzgrs_backend::dispersal::BlobInfo;
 use nomos_core::{da::blob::info::DispersedBlobInfo, tx::Transaction};
@@ -10,6 +10,7 @@ use overwatch::overwatch::OverwatchRunner;
 
 fn main() -> Result<()> {
     let cli_args = CliArgs::parse();
+    let is_dry_run = cli_args.dry_run();
     let config =
         serde_yaml::from_reader::<_, Config>(std::fs::File::open(cli_args.config_path())?)?
             .update_from_args(cli_args)?;
@@ -18,7 +19,7 @@ fn main() -> Result<()> {
         clippy::non_ascii_literal,
         reason = "Use of green checkmark for better UX."
     )]
-    if cli_args.dry_run() {
+    if is_dry_run {
         println!("Config file is valid! ✅");
         return Ok(());
     }
