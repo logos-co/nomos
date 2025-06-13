@@ -1,6 +1,6 @@
 use futures::{stream::BoxStream, TryStreamExt as _};
 use libp2p::{PeerId, Stream as Libp2pStream};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 
 use crate::{
     errors::{ChainSyncError, ChainSyncErrorKind},
@@ -30,11 +30,11 @@ impl Provider {
     }
 
     pub async fn provide_tip(
-        reply_receiver: oneshot::Receiver<SerialisedHeaderId>,
+        mut reply_receiver: mpsc::Receiver<SerialisedHeaderId>,
         peer_id: PeerId,
         mut libp2p_stream: Libp2pStream,
     ) -> Result<(), ChainSyncError> {
-        let tip = reply_receiver.await.map_err(|_| ChainSyncError {
+        let tip = reply_receiver.recv().await.ok_or_else(|| ChainSyncError {
             peer: peer_id,
             kind: ChainSyncErrorKind::ChannelReceiveError(
                 "Failed to receive tip from channel".to_owned(),

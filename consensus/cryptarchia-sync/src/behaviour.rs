@@ -110,7 +110,7 @@ pub enum Event {
     },
     ProvideTipsRequest {
         /// Channel to send the latest tip to the service.
-        reply_sender: oneshot::Sender<SerialisedHeaderId>,
+        reply_sender: Sender<SerialisedHeaderId>,
     },
     DownloadBlocksResponse {
         /// The response containing a block or an error.
@@ -257,7 +257,7 @@ impl Behaviour {
     }
 
     fn handle_tip_request(&self, peer_id: PeerId, stream: Libp2pStream) -> Poll<ToSwarmEvent> {
-        let (reply_sender, reply_receiver) = oneshot::channel();
+        let (reply_sender, reply_receiver) = mpsc::channel(1);
 
         self.sending_tip_responses.push(
             async move { Provider::provide_tip(reply_receiver, peer_id, stream).await }.boxed(),
@@ -688,7 +688,7 @@ mod tests {
         tokio::spawn(async move {
             while let Some(event) = provider_swarm.next().await {
                 if let SwarmEvent::Behaviour(Event::ProvideTipsRequest { reply_sender }) = event {
-                    let _ = reply_sender.send(Bytes::new());
+                    reply_sender.send(Bytes::new()).await.unwrap();
                     continue;
                 }
                 if let SwarmEvent::Behaviour(Event::ProvideBlocksRequest { reply_sender, .. }) =
@@ -766,13 +766,10 @@ mod tests {
         let mut blocks = Vec::new();
         let mut errors = Vec::new();
 
-        for mut receiver in streams.into_iter() {
-            let mut stream = match receiver.recv().await {
-                Some(stream) => stream,
-                None => {
-                    errors.push(());
-                    continue;
-                }
+        for mut receiver in streams {
+            let Some(mut stream) = receiver.recv().await else {
+                errors.push(());
+                continue;
             };
 
             while let Some(result) = stream.next().await {
