@@ -356,15 +356,13 @@ where
             );
         }
         if let Poll::Ready(Some(new_round)) = rounds.poll_next_unpin(cx) {
-            let new_round_result = on_new_round(
+            return on_new_round(
                 session_info,
                 *current_interval,
                 new_round,
                 cx,
                 &mut data_message_emission_notification_channel.1,
             );
-            cx.waker().wake_by_ref();
-            return new_round_result;
         }
         Poll::Pending
     }
@@ -427,6 +425,7 @@ fn on_new_round(
         debug!(
             target: LOG_TARGET, "New rounds are ignored since the session is lasting too long.",
         );
+        // We don't awake the waker since we are in an invalid state.
         return Poll::Pending;
     };
     debug!(
@@ -440,6 +439,7 @@ fn on_new_round(
     // incoming channel at all.
     if !should_emit_scheduled_cover_message {
         trace!(target: LOG_TARGET, "Not a pre-scheduled emission for this round.");
+        poll_context.waker().wake_by_ref();
         return Poll::Pending;
     }
 
@@ -449,6 +449,7 @@ fn on_new_round(
     );
     if data_message_override {
         trace!(target: LOG_TARGET, "Skipping message emission because of override by data message.");
+        poll_context.waker().wake_by_ref();
         Poll::Pending
     } else {
         debug!(
