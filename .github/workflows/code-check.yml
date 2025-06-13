@@ -140,7 +140,7 @@ jobs:
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         with:
           command: clippy
-          args: --all --all-targets --all-features
+          args: --all --all-targets --all-features --frozen
       - name: Update Cargo cache
         if: success() || failure()
         uses: ./.github/actions/update-cargo-cache
@@ -157,9 +157,9 @@ jobs:
         # We need to do this way since we can't use `--all-features` for crates outside of the workspace, so we need to lint each crate separately.
         run: |
           cd ./nomos-core/proof_statements
-          cargo clippy --all-targets --all-features
+          cargo clippy --all-targets --all-features --frozen
           cd ../risc0_proofs
-          cargo clippy --all-targets --all-features
+          cargo clippy --all-targets --all-features --frozen
  
   tests:
     name: Run test suite
@@ -191,17 +191,12 @@ jobs:
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         with:
           command: run
-          args: -p nomos-node nodes/nomos-node/config.yaml --check-config
+          args: --all-features --frozen -p nomos-node nodes/nomos-node/config.yaml --check-config
       - name: Run the executor binary to check the config file validity
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         with:
           command: run
-          args: -p nomos-executor nodes/nomos-executor/config.yaml --check-config
-      - name: Build binaries with all features  # This includes testing feature needed for tests
-        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72
-        with:
-          command: build
-          args: --all-features
+          args: --all-features --frozen -p nomos-executor nodes/nomos-executor/config.yaml --check-config
       - name: Cargo test
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         env:
@@ -210,7 +205,7 @@ jobs:
         with:
           command: test
           # We don't test benches as they take 6h+, leading to a timeout
-          args: --all --lib --bins --tests --examples --all-features
+          args: --all --lib --bins --tests --examples --all-features --frozen
       - name: Update Cargo cache
         if: success() || failure()
         uses: ./.github/actions/update-cargo-cache
