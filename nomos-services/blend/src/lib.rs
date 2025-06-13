@@ -302,6 +302,7 @@ pub struct CoverTrafficExtSettings {
     pub round_duration: Duration,
     pub message_frequency_per_round: NonNegativeF64,
     pub redundancy_parameter: usize,
+    pub intervals_for_safety_buffer: u64,
 }
 
 impl CoverTrafficExtSettings {
@@ -318,6 +319,7 @@ impl CoverTrafficExtSettings {
             round_duration: self.round_duration,
             rounds_per_interval: self.rounds_per_interval,
             rounds_per_session: self.rounds_per_session,
+            intervals_for_safety_buffer: self.intervals_for_safety_buffer,
         }
     }
 

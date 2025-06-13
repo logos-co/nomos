@@ -258,6 +258,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 // (21,600 blocks * 30s per block) / 1s per round = 648,000 rounds
                 rounds_per_session: NonZeroU64::try_from(648_000u64)
                     .expect("Rounds per session cannot be zero."),
+                intervals_for_safety_buffer: 100,
             },
             membership: config.blend_config.membership,
         },

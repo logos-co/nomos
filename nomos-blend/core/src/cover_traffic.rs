@@ -13,8 +13,6 @@ use tokio::{sync::mpsc, time};
 use tokio_stream::wrappers::IntervalStream;
 use tracing::{debug, error, trace, warn};
 
-// max: safety buffer length, expressed in intervals
-const SAFETY_BUFFER_INTERVALS: u64 = 100;
 const LOG_TARGET: &str = "blend::core::cover";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
@@ -76,6 +74,8 @@ pub struct CoverTrafficSettings {
     pub blending_ops_per_message: usize,
     /// `R_c`: redundancy parameter for cover messages.
     pub redundancy_parameter: usize,
+    // `max`: safety buffer length, expressed in intervals
+    pub intervals_for_safety_buffer: u64,
 }
 
 impl CoverTrafficSettings {
@@ -89,7 +89,7 @@ impl CoverTrafficSettings {
 
     #[must_use]
     pub const fn intervals_per_session_including_safety_buffer(&self) -> u64 {
-        self.intervals_per_session().checked_add(SAFETY_BUFFER_INTERVALS).expect("Overflow when calculating the total number of intervals for the session, including the safety buffer.")
+        self.intervals_per_session().checked_add(self.intervals_for_safety_buffer).expect("Overflow when calculating the total number of intervals for the session, including the safety buffer.")
     }
 }
 
@@ -469,7 +469,7 @@ mod tests {
     };
 
     // Rounds of 1 second, 2 rounds per interval, 6 rounds per session (3
-    // intervals).
+    // intervals). No safety buffer by default.
     fn get_settings() -> CoverTrafficSettings {
         CoverTrafficSettings {
             blending_ops_per_message: 3,
@@ -478,6 +478,7 @@ mod tests {
             round_duration: Duration::from_secs(1),
             rounds_per_interval: NonZeroU64::try_from(2).unwrap(),
             rounds_per_session: NonZeroU64::try_from(6).unwrap(),
+            intervals_for_safety_buffer: 0,
         }
     }
 
@@ -551,15 +552,12 @@ mod tests {
         tokio::time::sleep(session_duration).await;
         drop(task);
 
-        // We can't say exactly how many messages were generated since some of them
-        // might belong to the safety buffer. We can only check that the number was from
-        // `0` (in case they were all scheduled to be released in the safety period) to
-        // the expected maximum (in case no message was scheduled to be released during
-        // the safety period).
-        assert!(
-            (0..expected_cover_messages_count)
-                .contains(&read_inner(&generated_messages)),
-            "There should be between 0 and the expected maximum number of cover messages generated."
+        // Since by default we don't use any safety buffer, we can verify that EXACTLY
+        // the expected number of cover message has been generated.
+        assert_eq!(
+            expected_cover_messages_count,
+            read_inner(&generated_messages),
+            "The expected number of cover message should be generated."
         );
     }
 
