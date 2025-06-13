@@ -262,8 +262,6 @@ where
                 &settings,
             ),
             rng,
-            // Channel is created assuming the node might generate a message for each round, for
-            // each interval, including the safety buffer. This is the absolutely worst case.
             data_message_emission_notification_channel: new_data_emission_notification_channel(
                 &settings,
             ),
@@ -284,6 +282,9 @@ impl<SessionStream, Rng> RunningCoverTraffic<SessionStream, Rng> {
     }
 }
 
+// Channel is created assuming the node might generate a message for each round,
+// for each interval, including the safety buffer. This is the absolutely worst
+// case.
 fn new_data_emission_notification_channel(
     settings: &CoverTrafficSettings,
 ) -> (mpsc::Sender<()>, mpsc::Receiver<()>) {
