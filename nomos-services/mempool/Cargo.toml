@@ -4,7 +4,15 @@ license = { workspace = true }
 name    = "nomos-mempool"
 version = "0.1.0"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[package.metadata.cargo-machete]
+# False positives.
+ignored = [
+  # Required by `utoipa`.
+  "serde_json",
+]
+
+[lints]
+workspace = true
 
 [dependencies]
 async-trait           = "0.1"
@@ -40,10 +48,3 @@ mock            = ["dep:linked-hash-map", "nomos-core/mock", "nomos-network/mock
 
 # enable to help generate OpenAPI
 openapi = ["dep:serde_json", "dep:utoipa"]
-
-[package.metadata.cargo-machete]
-# False positives.
-ignored = [
-  # Required by `utoipa`.
-  "serde_json",
-]

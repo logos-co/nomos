@@ -122,7 +122,12 @@ mod tests {
 
     async fn notify_ready_and_wait<Service: ServiceData, RuntimeServiceId>(
         service_resources_handle: &OpaqueServiceResourcesHandle<Service, RuntimeServiceId>,
-    ) {
+    ) where
+        Service::Message: Send,
+        Service::State: Send + Sync,
+        Service::Settings: Send + Sync,
+        RuntimeServiceId: Send,
+    {
         // Notify that the service is ready
         service_resources_handle.status_updater.notify_ready();
 

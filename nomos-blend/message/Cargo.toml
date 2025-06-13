@@ -4,6 +4,9 @@ license = { workspace = true }
 name    = "nomos-blend-message"
 version = "0.1.0"
 
+[lints]
+workspace = true
+
 [dependencies]
 itertools     = "0.13"
 rand_chacha   = "0.3"

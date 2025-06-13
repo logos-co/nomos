@@ -4,6 +4,20 @@ license = { workspace = true }
 name    = "nomos-executor"
 version = "0.1.0"
 
+[package.metadata.cargo-machete]
+# False positives.
+ignored = [
+  # Required by Overwatch's `#[derive_services]` macro.
+  "tracing",
+  # Required by Overwatch's `#[derive_services]` macro.
+  "tokio",
+  # Required by `wait_until_services_are_ready` macro.
+  "futures",
+]
+
+[lints]
+workspace = true
+
 [dependencies]
 async-trait              = "0.1"
 axum                     = { version = "0.6" }
@@ -44,14 +58,3 @@ utoipa-swagger-ui        = { version = "4.0" }
 default         = ["tracing"]
 instrumentation = ["nomos-node/instrumentation"]
 tracing         = ["nomos-node/tracing"]
-
-[package.metadata.cargo-machete]
-# False positives.
-ignored = [
-  # Required by Overwatch's `#[derive_services]` macro.
-  "tracing",
-  # Required by Overwatch's `#[derive_services]` macro.
-  "tokio",
-  # Required by `wait_until_services_are_ready` macro.
-  "futures",
-]
