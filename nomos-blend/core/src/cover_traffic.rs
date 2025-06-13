@@ -425,7 +425,7 @@ fn on_new_round(
         debug!(
             target: LOG_TARGET, "New rounds are ignored since the session is lasting too long.",
         );
-        // We don't awake the waker since we are in an invalid state.
+        poll_context.waker().wake_by_ref();
         return Poll::Pending;
     };
     debug!(
