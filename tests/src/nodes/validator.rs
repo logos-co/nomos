@@ -301,6 +301,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         cryptarchia: CryptarchiaSettings {
             leader_config: config.consensus_config.leader_config,
             config: config.consensus_config.ledger_config,
+            genesis_id: HeaderId::from([0; 32]),
             genesis_state: config.consensus_config.genesis_state,
             transaction_selector_settings: (),
             blob_selector_settings: (),

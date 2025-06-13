@@ -40,14 +40,6 @@ impl Leader {
         }
     }
 
-    pub fn from_genesis(
-        genesis: HeaderId,
-        LeaderConfig { notes, nf_sk }: LeaderConfig,
-        config: nomos_ledger::Config,
-    ) -> Self {
-        Self::new(genesis, notes, nf_sk, config)
-    }
-
     // Signal that the chain extended with a new header, possibly evolving a leader
     // notes in the process FIXME: this implementation does not delete old coins
     // and will attempt to re-use a note in different forks,        we should

@@ -52,12 +52,13 @@ async fn happy_test(topology: &Topology) {
         }
     }
 
-    let last_committed_block_height = n_blocks - security_param.get();
     println!("{:?}", nodes[0].consensus_info().await);
 
     let infos = stream::iter(nodes)
         .then(|n| async move { n.get_headers(None, None).await })
-        .map(|blocks| blocks[last_committed_block_height as usize])
+        // TODO: this can actually fail if the one node is slightly behind, we should really either
+        // get the block at a specific height, but we currently lack the API for that
+        .map(|blocks| blocks.last().copied().unwrap()) // we're getting the LIB
         .collect::<HashSet<_>>()
         .await;
 
