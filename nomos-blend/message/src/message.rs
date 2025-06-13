@@ -26,45 +26,57 @@ const MAX_PAYLOAD_BODY_SIZE: usize = 34 * 1024;
 const PAYLOAD_SIZE: usize = PAYLOAD_HEADER_SIZE + MAX_PAYLOAD_BODY_SIZE;
 const MESSAGE_SIZE: usize = HEADER_SIZE + PUBLIC_HEADER_SIZE + PRIVATE_HEADER_SIZE + PAYLOAD_SIZE;
 
-pub struct Ed25519PrivateKey(pub [u8; KEY_SIZE]);
+pub struct Ed25519PrivateKey(ed25519_dalek::SigningKey);
 
 impl Ed25519PrivateKey {
     #[must_use]
+    pub fn from_bytes(bytes: &[u8; KEY_SIZE]) -> Self {
+        Self(ed25519_dalek::SigningKey::from_bytes(bytes))
+    }
+
+    #[must_use]
     pub fn public_key(&self) -> Ed25519PublicKey {
-        Ed25519PublicKey(
-            ed25519_dalek::SigningKey::from_bytes(&self.0)
-                .verifying_key()
-                .to_bytes(),
-        )
+        Ed25519PublicKey(self.0.verifying_key())
     }
 
     #[must_use]
     pub fn derive_x25519_private_key(&self) -> X25519PrivateKey {
-        X25519PrivateKey(
-            x25519_dalek::StaticSecret::from(
-                ed25519_dalek::SigningKey::from_bytes(&self.0).to_scalar_bytes(),
-            )
-            .to_bytes(),
-        )
+        X25519PrivateKey::from_bytes(self.0.to_scalar_bytes())
     }
 }
 
-pub struct Ed25519PublicKey(pub [u8; KEY_SIZE]);
+pub struct Ed25519PublicKey(ed25519_dalek::VerifyingKey);
 
 impl Ed25519PublicKey {
+    pub fn from_bytes(bytes: &[u8; KEY_SIZE]) -> Result<Self, String> {
+        ed25519_dalek::VerifyingKey::from_bytes(bytes)
+            .map_err(|e| e.to_string())
+            .map(Self)
+    }
+
     #[must_use]
     pub fn derive_x25519_public_key(&self) -> X25519PublicKey {
-        X25519PublicKey(
-            ed25519_dalek::VerifyingKey::from_bytes(&self.0)
-                .unwrap()
-                .to_montgomery()
-                .to_bytes(),
-        )
+        X25519PublicKey::from_bytes(self.0.to_montgomery().to_bytes())
     }
 }
 
-pub struct X25519PrivateKey(pub [u8; KEY_SIZE]);
-pub struct X25519PublicKey(pub [u8; KEY_SIZE]);
+pub struct X25519PrivateKey(x25519_dalek::StaticSecret);
+
+impl X25519PrivateKey {
+    #[must_use]
+    pub fn from_bytes(bytes: [u8; KEY_SIZE]) -> Self {
+        Self(x25519_dalek::StaticSecret::from(bytes))
+    }
+}
+
+pub struct X25519PublicKey(x25519_dalek::PublicKey);
+
+impl X25519PublicKey {
+    #[must_use]
+    pub fn from_bytes(bytes: [u8; KEY_SIZE]) -> Self {
+        Self(x25519_dalek::PublicKey::from(bytes))
+    }
+}
 
 impl Message {
     pub fn initialize(shared_keys: &[[u8; KEY_SIZE]]) -> BytesMut {
