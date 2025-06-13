@@ -131,7 +131,7 @@ impl InternalSessionInfo {
         let session_messages =
             (core_quota / settings.blending_ops_per_message as f64).ceil() as usize;
 
-        let message_slots = generate_message_slots(session_messages, settings, rng);
+        let message_slots = select_message_rounds(session_messages, settings, rng);
 
         Self {
             message_slots,
@@ -143,7 +143,7 @@ impl InternalSessionInfo {
 /// As per the spec, it randomly generates rounds at which a cover message will
 /// be generated, over the whole duration of the session, including the
 /// specified safety buffer intervals.
-fn generate_message_slots<Rng>(
+fn select_message_rounds<Rng>(
     mut total_message_count: usize,
     settings: &CoverTrafficSettings,
     rng: &mut Rng,
