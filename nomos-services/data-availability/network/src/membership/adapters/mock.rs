@@ -112,9 +112,9 @@ where
     }
 
     fn update(_block_number: u64, _new_members: MembershipProviders) {
-        // todo: implement update with loading initial state from
         // todo: transpose MembershipProviders to peer_id -> multiaddr mapping
         // membership service instead of config
+        // todo: implement update with loading initial state from
 
         // let updated_membership =
         // self.handler.membership().update(new_members);
