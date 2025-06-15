@@ -51,7 +51,7 @@ pub struct Behaviour<R: Clone + Send + RngCore + 'static> {
     // The `Toggle` wrapper is used to disable the autonat server in special circumstances, for
     // example in specific tests.
     pub(crate) autonat_server: autonat::v2::server::Behaviour<R>,
-    pub(crate) nat: Toggle<nat::NatBehaviour<R>>,
+    pub(crate) nat: nat::NatBehaviour<R>,
 }
 
 impl<R: Clone + Send + RngCore + 'static> Behaviour<R> {
@@ -89,9 +89,10 @@ impl<R: Clone + Send + RngCore + 'static> Behaviour<R> {
 
         let autonat_server = autonat::v2::server::Behaviour::new(rng.clone());
 
-        let nat = Toggle::from(autonat_client_config.map(|autonat_client_config| {
-            nat::NatBehaviour::new(rng, autonat_client_config.to_libp2p_config())
-        }));
+        let nat = nat::NatBehaviour::new(
+            rng,
+            autonat_client_config.map(|config| config.to_libp2p_config()),
+        );
 
         Ok(Self {
             gossipsub,

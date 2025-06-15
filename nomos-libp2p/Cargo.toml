@@ -6,6 +6,7 @@ version = "0.1.0"
 
 [dependencies]
 blake2 = { version = "0.10" }
+either = "1.13.0"
 futures = "0.3"
 hex = "0.4.3"
 libp2p = { workspace = true, features = [
@@ -23,10 +24,10 @@ multiaddr = "0.18"
 rand = "0.8"
 serde = { version = "1.0.166", features = ["derive"] }
 thiserror = "1.0.40"
+tokio = { version = "1", features = ["macros", "time"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
 libp2p-swarm-test  = { version = "0.5.0", features = ["tokio"] }
 serde_json         = "1.0.99"
-tokio              = { version = "1", features = ["macros", "time"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
