@@ -7,7 +7,9 @@ mod event;
 mod state;
 
 use event::Event;
-use state::*;
+use state::{
+    MappedPublic, Private, Public, TestIfMappedPublic, TestIfPublic, TryMapAddress, Uninitialized,
+};
 
 /// Commands that can be issued by the state machine to `NatBehaviour`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,13 +95,10 @@ impl<S, E> State<S, E> {
     where
         C: FnOnce(S) -> T,
     {
-        let Self {
-            state,
-            _phantom_event,
-        } = self;
+        let Self { state, .. } = self;
         Box::new(State {
             state: next_state_ctor(state),
-            _phantom_event,
+            _phantom_event: PhantomData,
         })
     }
 }
@@ -517,7 +516,7 @@ mod tests {
     }
 
     mod fixtures {
-        use std::{hash::Hash, str::FromStr, sync::LazyLock};
+        use std::{hash::Hash, str::FromStr as _, sync::LazyLock};
 
         use libp2p::{
             autonat,
@@ -626,7 +625,7 @@ mod tests {
                     Self::AddressMapping(event) => event.hash(state),
                     Self::FromSwarm(event) => match event {
                         FromSwarm::NewExternalAddrCandidate(candidate) => {
-                            candidate.addr.hash(state)
+                            candidate.addr.hash(state);
                         }
                         FromSwarm::ExternalAddrConfirmed(confirmed) => confirmed.addr.hash(state),
                         // Sufficient for testing purposes
@@ -687,11 +686,19 @@ mod tests {
         }
 
         pub fn autonat_failed<'a>() -> TestEvent<'a> {
-            TestEvent::AutonatClientFailed(unsafe { std::mem::transmute(&*AUTONAT_FAILED) })
+            // SAFETY: layout and alignment of `BinaryCompatAutonatEvent` is compatible with
+            // `autonat::v2::client::Event`
+            TestEvent::AutonatClientFailed(unsafe {
+                &*(&raw const *AUTONAT_FAILED).cast::<autonat::v2::client::Event>()
+            })
         }
 
         pub fn autonat_failed_with_addr_mismatch<'a>() -> TestEvent<'a> {
-            TestEvent::AutonatClientFailed(unsafe { std::mem::transmute(&*AUTONAT_FAILED_ADDR_1) })
+            // SAFETY: layout and alignment of `BinaryCompatAutonatEvent` is compatible with
+            // `autonat::v2::client::Event`
+            TestEvent::AutonatClientFailed(unsafe {
+                &*(&raw const *AUTONAT_FAILED_ADDR_1).cast::<autonat::v2::client::Event>()
+            })
         }
 
         pub fn mapping_failed<'a>() -> TestEvent<'a> {
@@ -703,7 +710,7 @@ mod tests {
         }
 
         pub fn mapping_ok<'a>() -> TestEvent<'a> {
-            TestEvent::AddressMapping(address_mapper::Event::_NewExternalMappedAddress(
+            TestEvent::AddressMapping(address_mapper::Event::NewExternalMappedAddress(
                 ADDR.clone(),
             ))
         }
@@ -734,11 +741,11 @@ mod tests {
         }
 
         pub fn default_gateway_changed<'a>() -> TestEvent<'a> {
-            TestEvent::AddressMapping(address_mapper::Event::_DefaultGatewayChanged)
+            TestEvent::AddressMapping(address_mapper::Event::DefaultGatewayChanged)
         }
 
         pub fn local_address_changed<'a>() -> TestEvent<'a> {
-            TestEvent::AddressMapping(address_mapper::Event::_LocalAddressChanged(ADDR_1.clone()))
+            TestEvent::AddressMapping(address_mapper::Event::LocalAddressChanged(ADDR_1.clone()))
         }
     }
 }

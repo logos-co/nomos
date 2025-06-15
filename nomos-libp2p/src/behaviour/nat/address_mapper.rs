@@ -23,9 +23,9 @@ pub struct AddressMapperBehaviour {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Event {
     AddressMappingFailed(Multiaddr),
-    _DefaultGatewayChanged,
-    _LocalAddressChanged(Multiaddr),
-    _NewExternalMappedAddress(Multiaddr),
+    DefaultGatewayChanged,
+    LocalAddressChanged(Multiaddr),
+    NewExternalMappedAddress(Multiaddr),
 }
 
 impl AddressMapperBehaviour {

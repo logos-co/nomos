@@ -156,10 +156,8 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
         if self.autonat_client_behaviour.is_enabled() {
             self.state_machine.on_event(event);
             self.autonat_client_behaviour.on_swarm_event(event);
-        } else {
-            if let FromSwarm::NewListenAddr(NewListenAddr { addr, .. }) = event {
-                self.static_listen_addr = Some(addr.clone())
-            }
+        } else if let FromSwarm::NewListenAddr(NewListenAddr { addr, .. }) = event {
+            self.static_listen_addr = Some(addr.clone());
         }
     }
 

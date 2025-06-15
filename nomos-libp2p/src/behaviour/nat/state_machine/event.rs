@@ -45,11 +45,11 @@ impl TryFrom<&address_mapper::Event> for Event {
             address_mapper::Event::AddressMappingFailed(addr) => {
                 Self::AddressMappingFailed(addr.clone())
             }
-            address_mapper::Event::_DefaultGatewayChanged => Self::DefaultGatewayChanged(None),
-            address_mapper::Event::_LocalAddressChanged(addr) => {
+            address_mapper::Event::DefaultGatewayChanged => Self::DefaultGatewayChanged(None),
+            address_mapper::Event::LocalAddressChanged(addr) => {
                 Self::LocalAddressChanged(addr.clone())
             }
-            address_mapper::Event::_NewExternalMappedAddress(addr) => {
+            address_mapper::Event::NewExternalMappedAddress(addr) => {
                 Self::NewExternalMappedAddress(addr.clone())
             }
         })
