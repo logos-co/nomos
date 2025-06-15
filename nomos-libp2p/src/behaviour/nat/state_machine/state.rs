@@ -140,8 +140,6 @@ impl Private {
 
 #[cfg(test)]
 pub(crate) mod test_utils {
-    use libp2p::Multiaddr;
-
     use super::*;
     use crate::behaviour::nat::state_machine::{event::Event, OnEvent, State};
 

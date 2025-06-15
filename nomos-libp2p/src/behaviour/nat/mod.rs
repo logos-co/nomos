@@ -240,14 +240,7 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
-    use libp2p::{
-        autonat::{self},
-        identify, identity,
-        swarm::SwarmEvent,
-        Swarm,
-    };
+    use libp2p::{identify, identity, swarm::SwarmEvent, Swarm};
     use libp2p_swarm_test::SwarmExt as _;
     use rand::rngs::OsRng;
     use tokio::time::timeout;
