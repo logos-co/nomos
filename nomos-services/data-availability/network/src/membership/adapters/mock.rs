@@ -61,12 +61,6 @@ where
         }
     }
 
-    // Some((_block_number, providers)) = stream.next() => {
-    //                 let _update = Self::handle_membership_update(&providers);
-    //                 // membership_service_adapter.update(block_number,
-    // update).await;                 // todo: implement update with loading
-    // initial state from membership service instead of config             }
-
     async fn get_historic_membership(&self, block_number: u64) -> Option<Membership> {
         let assignations = self.storage.get(block_number)?;
         Some(self.handler.membership().init(assignations))
