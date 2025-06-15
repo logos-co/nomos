@@ -3,7 +3,7 @@ use std::{fmt::Debug, marker::PhantomData};
 use libp2p::Multiaddr;
 
 impl<E: Debug> super::State<Uninitialized, E> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             state: Uninitialized(()),
             _phantom_event: PhantomData,
@@ -11,44 +11,48 @@ impl<E: Debug> super::State<Uninitialized, E> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Uninitialized(
     // Intentionally private so that this state cannot be constructed outside this module
     (),
 );
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestIfPublic {
     addr_to_test: Multiaddr,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TryMapAddress {
     addr_to_map: Multiaddr,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestIfMappedPublic {
     addr_to_test: Multiaddr,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Public {
     addr: Multiaddr,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MappedPublic {
     addr: Multiaddr,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Private {
     addr: Multiaddr,
 }
 
 impl Uninitialized {
-    pub fn into_test_if_public(self, addr_to_test: Multiaddr) -> TestIfPublic {
+    #[expect(
+        clippy::unused_self,
+        reason = "The aim of the pattern is to consume self."
+    )]
+    pub const fn into_test_if_public(self, addr_to_test: Multiaddr) -> TestIfPublic {
         TestIfPublic { addr_to_test }
     }
 }
@@ -66,12 +70,16 @@ impl TestIfPublic {
         }
     }
 
-    pub fn addr_to_test(&self) -> &Multiaddr {
+    pub const fn addr_to_test(&self) -> &Multiaddr {
         &self.addr_to_test
     }
 }
 
 impl TryMapAddress {
+    #[expect(
+        clippy::unused_self,
+        reason = "The aim of the pattern is to consume self."
+    )]
     pub fn into_test_if_mapped_public(self, new_external_addr: Multiaddr) -> TestIfMappedPublic {
         TestIfMappedPublic {
             addr_to_test: new_external_addr,
@@ -83,7 +91,7 @@ impl TryMapAddress {
         Private { addr: addr_to_map }
     }
 
-    pub fn addr_to_map(&self) -> &Multiaddr {
+    pub const fn addr_to_map(&self) -> &Multiaddr {
         &self.addr_to_map
     }
 }
@@ -99,7 +107,7 @@ impl TestIfMappedPublic {
         Private { addr: addr_to_test }
     }
 
-    pub fn addr_to_test(&self) -> &Multiaddr {
+    pub const fn addr_to_test(&self) -> &Multiaddr {
         &self.addr_to_test
     }
 }
@@ -110,7 +118,7 @@ impl Public {
         TestIfPublic { addr_to_test: addr }
     }
 
-    pub fn addr(&self) -> &Multiaddr {
+    pub const fn addr(&self) -> &Multiaddr {
         &self.addr
     }
 }
@@ -121,38 +129,42 @@ impl MappedPublic {
         TestIfPublic { addr_to_test: addr }
     }
 
-    pub fn addr(&self) -> &Multiaddr {
+    pub const fn addr(&self) -> &Multiaddr {
         &self.addr
     }
 }
 
 impl Private {
+    #[expect(
+        clippy::unused_self,
+        reason = "The aim of the pattern is to consume self."
+    )]
     pub fn into_test_if_public(self, new_addr: Multiaddr) -> TestIfPublic {
         TestIfPublic {
             addr_to_test: new_addr,
         }
     }
 
-    pub fn addr(&self) -> &Multiaddr {
+    pub const fn addr(&self) -> &Multiaddr {
         &self.addr
     }
 }
 
 #[cfg(test)]
-pub(crate) mod test_utils {
+pub mod test_utils {
     use super::*;
     use crate::behaviour::nat::state_machine::{event::Event, OnEvent, State};
 
     impl Uninitialized {
         pub(crate) fn for_test() -> Box<dyn OnEvent<Event>> {
-            Box::new(State::<Uninitialized, Event>::new())
+            Box::new(State::<Self, Event>::new())
         }
     }
 
     impl TestIfPublic {
         pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent<Event>> {
-            Box::new(State::<TestIfPublic, Event> {
-                state: TestIfPublic { addr_to_test: addr },
+            Box::new(State::<Self, Event> {
+                state: Self { addr_to_test: addr },
                 _phantom_event: PhantomData,
             })
         }
@@ -160,8 +172,8 @@ pub(crate) mod test_utils {
 
     impl TryMapAddress {
         pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent<Event>> {
-            Box::new(State::<TryMapAddress, Event> {
-                state: TryMapAddress { addr_to_map: addr },
+            Box::new(State::<Self, Event> {
+                state: Self { addr_to_map: addr },
                 _phantom_event: PhantomData,
             })
         }
@@ -169,8 +181,8 @@ pub(crate) mod test_utils {
 
     impl TestIfMappedPublic {
         pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent<Event>> {
-            Box::new(State::<TestIfMappedPublic, Event> {
-                state: TestIfMappedPublic { addr_to_test: addr },
+            Box::new(State::<Self, Event> {
+                state: Self { addr_to_test: addr },
                 _phantom_event: PhantomData,
             })
         }
@@ -178,8 +190,8 @@ pub(crate) mod test_utils {
 
     impl Public {
         pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent<Event>> {
-            Box::new(State::<Public, Event> {
-                state: Public { addr },
+            Box::new(State::<Self, Event> {
+                state: Self { addr },
                 _phantom_event: PhantomData,
             })
         }
@@ -187,8 +199,8 @@ pub(crate) mod test_utils {
 
     impl MappedPublic {
         pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent<Event>> {
-            Box::new(State::<MappedPublic, Event> {
-                state: MappedPublic { addr },
+            Box::new(State::<Self, Event> {
+                state: Self { addr },
                 _phantom_event: PhantomData,
             })
         }
@@ -196,8 +208,8 @@ pub(crate) mod test_utils {
 
     impl Private {
         pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent<Event>> {
-            Box::new(State::<Private, Event> {
-                state: Private { addr },
+            Box::new(State::<Self, Event> {
+                state: Self { addr },
                 _phantom_event: PhantomData,
             })
         }

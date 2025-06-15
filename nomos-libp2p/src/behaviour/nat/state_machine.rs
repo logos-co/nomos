@@ -6,12 +6,12 @@ use tokio::sync::mpsc::UnboundedSender;
 mod event;
 mod state;
 
-use event::*;
+use event::Event;
 use state::*;
 
 /// Commands that can be issued by the state machine to `NatBehaviour`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Command {
+pub enum Command {
     ScheduleAutonatClientTest(Multiaddr),
     MapAddress(Multiaddr),
     NewExternalAddrCandidate(Multiaddr),
@@ -38,7 +38,7 @@ impl StateMachine {
         let current_state = self.inner.take().expect("State to be Some");
 
         match event.try_into() {
-            Err(_) => {
+            Err(()) => {
                 // Ignore unrecognized events
                 self.inner = Some(current_state);
             }
@@ -93,7 +93,7 @@ impl<S, E> State<S, E> {
     where
         C: FnOnce(S) -> T,
     {
-        let State {
+        let Self {
             state,
             _phantom_event,
         } = self;
@@ -119,12 +119,12 @@ impl OnEvent<Event> for State<TestIfPublic, Event> {
     fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent<Event>> {
         match event {
             Event::ExternalAddressConfirmed(addr) if self.state.addr_to_test() == &addr => {
-                command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
-                self.into_boxed(|state| state.into_public())
+                command_tx.send(Command::ScheduleAutonatClientTest(addr));
+                self.into_boxed(TestIfPublic::into_public)
             }
             Event::AutonatClientTestFailed(addr) if self.state.addr_to_test() == &addr => {
-                command_tx.send(Command::MapAddress(addr.clone()));
-                self.into_boxed(|state| state.into_try_address_mapping())
+                command_tx.send(Command::MapAddress(addr));
+                self.into_boxed(TestIfPublic::into_try_address_mapping)
             }
             Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestFailed(addr) => {
                 tracing::error!(
@@ -147,7 +147,7 @@ impl OnEvent<Event> for State<TryMapAddress, Event> {
                 self.into_boxed(|state| state.into_test_if_mapped_public(addr))
             }
             Event::AddressMappingFailed(addr) if self.state.addr_to_map() == &addr => {
-                self.into_boxed(|state| state.into_private())
+                self.into_boxed(TryMapAddress::into_private)
             }
             Event::AddressMappingFailed(addr) => {
                 tracing::error!(
@@ -167,11 +167,11 @@ impl OnEvent<Event> for State<TestIfMappedPublic, Event> {
     fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent<Event>> {
         match event {
             Event::ExternalAddressConfirmed(addr) if self.state.addr_to_test() == &addr => {
-                command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
-                self.into_boxed(|state| state.into_mapped_public())
+                command_tx.send(Command::ScheduleAutonatClientTest(addr));
+                self.into_boxed(TestIfMappedPublic::into_mapped_public)
             }
             Event::AutonatClientTestFailed(addr) if self.state.addr_to_test() == &addr => {
-                self.into_boxed(|state| state.into_private())
+                self.into_boxed(TestIfMappedPublic::into_private)
             }
             Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestFailed(addr) => {
                 tracing::error!(
@@ -192,11 +192,11 @@ impl OnEvent<Event> for State<Public, Event> {
             Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestOk(addr)
                 if self.state.addr() == &addr =>
             {
-                command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
+                command_tx.send(Command::ScheduleAutonatClientTest(addr));
                 self
             }
             Event::AutonatClientTestFailed(addr) if self.state.addr() == &addr => {
-                self.into_boxed(|state| state.into_test_if_public())
+                self.into_boxed(Public::into_test_if_public)
             }
             Event::ExternalAddressConfirmed(addr) => {
                 tracing::error!(
@@ -225,11 +225,11 @@ impl OnEvent<Event> for State<MappedPublic, Event> {
             Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestOk(addr)
                 if self.state.addr() == &addr =>
             {
-                command_tx.send(Command::ScheduleAutonatClientTest(addr.clone()));
+                command_tx.send(Command::ScheduleAutonatClientTest(addr));
                 self
             }
             Event::AutonatClientTestFailed(addr) if self.state.addr() == &addr => {
-                self.into_boxed(|state| state.into_test_if_public())
+                self.into_boxed(MappedPublic::into_test_if_public)
             }
             Event::ExternalAddressConfirmed(addr) => {
                 tracing::error!(
@@ -283,7 +283,7 @@ mod tests {
         }
 
         fn box_eq(&self, other: &dyn core::any::Any) -> bool {
-            other.downcast_ref::<Self>().map_or(false, |a| self == a)
+            other.downcast_ref::<Self>() == Some(self)
         }
     }
 
@@ -330,17 +330,20 @@ mod tests {
         }
     }
 
+    type TestCase<'a> = Vec<(
+        u32,
+        Box<dyn Fn() -> Box<dyn OnEvent<Event>>>,
+        Vec<(
+            TestEvent<'a>,
+            Box<dyn Fn() -> Box<dyn OnEvent<Event>>>,
+            Option<Command>,
+        )>,
+    )>;
+
+    #[expect(clippy::too_many_lines, reason = "Keep the test readable")]
     #[test]
     fn test_transitions_and_emitted_commands() {
-        let expected_transitions: Vec<(
-            u32,
-            Box<dyn Fn() -> Box<dyn OnEvent<Event>>>,
-            Vec<(
-                TestEvent<'_>,
-                Box<dyn Fn() -> Box<dyn OnEvent<Event>>>,
-                Option<Command>,
-            )>,
-        )> = vec![
+        let expected_transitions: TestCase<'_> = vec![
             (
                 line!(),
                 Box::new(|| Uninitialized::for_test()),
@@ -467,7 +470,7 @@ mod tests {
                 let (tx, mut rx) = unbounded_channel();
                 let mut sm = init_state_machine(src_state(), tx);
 
-                let dbg_event = format!("{:?}", event);
+                let dbg_event = format!("{event:?}");
                 sm.on_test_event(event);
 
                 assert_eq!(
@@ -491,7 +494,7 @@ mod tests {
                 let (tx, mut rx) = unbounded_channel();
                 let mut sm = init_state_machine(src_state(), tx);
 
-                let dbg_event = format!("{:?}", event);
+                let dbg_event = format!("{event:?}");
                 sm.on_test_event(event);
 
                 assert_eq!(

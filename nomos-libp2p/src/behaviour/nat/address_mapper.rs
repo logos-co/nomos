@@ -29,8 +29,8 @@ pub enum Event {
 }
 
 impl AddressMapperBehaviour {
-    pub fn new() -> Self {
-        AddressMapperBehaviour {
+    pub const fn new() -> Self {
+        Self {
             address_to_map: None,
             waker: None,
         }

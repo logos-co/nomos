@@ -7,7 +7,7 @@ use libp2p::{
 use crate::behaviour::nat::address_mapper;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Event {
+pub enum Event {
     AutonatClientTestFailed(Multiaddr),
     AutonatClientTestOk(Multiaddr),
     AddressMappingFailed(Multiaddr),
@@ -29,7 +29,7 @@ impl TryFrom<&autonat::v2::client::Event> for Event {
                 ..
             } => Self::AutonatClientTestFailed(tested_addr.clone()),
             autonat::v2::client::Event {
-                result: Ok(_),
+                result: Ok(()),
                 tested_addr,
                 ..
             } => Self::AutonatClientTestOk(tested_addr.clone()),
