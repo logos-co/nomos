@@ -7,12 +7,12 @@ use std::{
     fmt::{self, Debug, Display},
     marker::PhantomData,
     pin::Pin,
+    sync::Arc,
 };
 
 use async_trait::async_trait;
 use backends::NetworkBackend;
 use futures::Stream;
-use libp2p::{Multiaddr, PeerId};
 use nomos_sdp_core::{Locator, ProviderId};
 use overwatch::{
     services::{
@@ -23,7 +23,6 @@ use overwatch::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
-use tokio_stream::StreamExt as _;
 
 use crate::{
     membership::{adapters::MembershipAdapter, handler::DaMembershipHandler},
@@ -192,16 +191,13 @@ where
 
         let storage_adapter = StorageAdapter::default();
 
-        let membership_service_adapter = MembershipServiceAdapter::new(
+        let membership_service_adapter = Arc::new(MembershipServiceAdapter::new(
             membership_service_relay,
             membership.clone(),
             storage_adapter,
-        );
+        ));
 
-        let mut stream = membership_service_adapter.subscribe().await.map_err(|e| {
-            tracing::error!("Failed to subscribe to membership service: {e}");
-            e
-        })?;
+        membership_service_adapter.bootstrap().await?;
 
         status_updater.notify_ready();
         tracing::info!(
@@ -209,18 +205,16 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        loop {
-            tokio::select! {
-                Some(msg) = inbound_relay.recv() => {
-                    Self::handle_network_service_message(msg, backend).await;
-                }
-                Some((_block_number, providers)) = stream.next() => {
-                    let _update = Self::handle_membership_update(&providers);
-                    // membership_service_adapter.update(block_number, update).await;
-                    // todo: implement update with loading initial state from membership service instead of config
-                }
-            }
+        while let Some(msg) = inbound_relay.recv().await {
+            Self::handle_network_service_message(msg, backend).await;
         }
+
+        tracing::info!(
+            "Service '{}' is shutting down.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
+
+        Ok(())
     }
 }
 
@@ -266,13 +260,6 @@ where
                     );
                 }),
         }
-    }
-
-    fn handle_membership_update(update: &MembershipProviders) -> HashMap<PeerId, Multiaddr> {
-        tracing::debug!("Received membership update: {update:?}");
-        // todo: implement update
-
-        HashMap::new()
     }
 }
 

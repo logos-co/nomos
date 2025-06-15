@@ -1,12 +1,13 @@
-use std::{collections::HashMap, marker::PhantomData};
+use std::{marker::PhantomData, sync::Arc};
 
-use libp2p::{Multiaddr, PeerId};
+use libp2p::PeerId;
 use nomos_da_network_core::SubnetworkId;
 use nomos_membership::{MembershipMessage, MembershipService, MembershipSnapshotStream};
 use nomos_sdp_core::ServiceType;
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 use subnetworks_assignations::MembershipCreator;
 use tokio::sync::oneshot;
+use tokio_stream::StreamExt as _;
 
 use crate::{
     membership::{
@@ -14,6 +15,7 @@ use crate::{
         handler::DaMembershipHandler,
     },
     storage::MembershipStorage,
+    MembershipProviders,
 };
 
 pub struct MockMembershipAdapter<Backend, Membership, SdpAdapter, Storage, RuntimeServiceId>
@@ -37,8 +39,9 @@ impl<Backend, Membership, SdpAdapter, Storage, RuntimeServiceId>
     MembershipAdapter<Membership, Storage>
     for MockMembershipAdapter<Backend, Membership, SdpAdapter, Storage, RuntimeServiceId>
 where
-    Membership: MembershipCreator<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send + Sync,
-    Storage: MembershipStorage + Send + Sync,
+    Membership:
+        MembershipCreator<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send + Sync + 'static,
+    Storage: MembershipStorage + Send + Sync + 'static,
     SdpAdapter: nomos_membership::adapters::SdpAdapter + Send + Sync + 'static,
     Backend: nomos_membership::backends::MembershipBackend + Send + Sync + 'static,
     Backend::Settings: Clone,
@@ -58,21 +61,27 @@ where
         }
     }
 
-    async fn update(&self, block_number: u64, new_members: HashMap<PeerId, Multiaddr>) {
-        let updated_membership = self.handler.membership().update(new_members);
-        let assignations = updated_membership.subnetworks();
-
-        self.handler.update(updated_membership);
-        self.storage.store(block_number, assignations);
-    }
+    // Some((_block_number, providers)) = stream.next() => {
+    //                 let _update = Self::handle_membership_update(&providers);
+    //                 // membership_service_adapter.update(block_number,
+    // update).await;                 // todo: implement update with loading
+    // initial state from membership service instead of config             }
 
     async fn get_historic_membership(&self, block_number: u64) -> Option<Membership> {
         let assignations = self.storage.get(block_number)?;
         Some(self.handler.membership().init(assignations))
     }
 
-    async fn subscribe(&self) -> Result<MembershipSnapshotStream, MembershipAdapterError> {
-        self.subscribe_stream(ServiceType::DataAvailability).await
+    async fn bootstrap(self: Arc<Self>) -> Result<(), MembershipAdapterError> {
+        let mut stream = self.subscribe_stream(ServiceType::DataAvailability).await?;
+
+        tokio::spawn(async move {
+            while let Some((block_number, new_members)) = stream.next().await {
+                Self::update(block_number, new_members);
+            }
+        });
+
+        Ok(())
     }
 }
 
@@ -106,5 +115,18 @@ where
             .map_err(MembershipAdapterError::Backend);
 
         res
+    }
+
+    fn update(_block_number: u64, _new_members: MembershipProviders) {
+        // todo: implement update with loading initial state from
+        // todo: transpose MembershipProviders to peer_id -> multiaddr mapping
+        // membership service instead of config
+
+        // let updated_membership =
+        // self.handler.membership().update(new_members);
+        // let assignations = updated_membership.subnetworks();
+
+        // self.handler.update(updated_membership);
+        // self.storage.store(block_number, assignations);
     }
 }

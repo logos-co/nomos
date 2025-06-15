@@ -1,9 +1,8 @@
 pub mod mock;
 
-use std::collections::HashMap;
+use std::sync::Arc;
 
-use libp2p::{Multiaddr, PeerId};
-use nomos_membership::{backends::MembershipBackendError, MembershipSnapshotStream};
+use nomos_membership::backends::MembershipBackendError;
 use overwatch::{
     services::{relay::OutboundRelay, ServiceData},
     DynError,
@@ -31,8 +30,11 @@ pub trait MembershipAdapter<Membership, Storage> {
         storage: Storage,
     ) -> Self;
 
-    async fn subscribe(&self) -> Result<MembershipSnapshotStream, MembershipAdapterError>;
+    // async fn subscribe(&self) -> Result<MembershipSnapshotStream,
+    // MembershipAdapterError>;\
+    async fn bootstrap(self: Arc<Self>) -> Result<(), MembershipAdapterError>;
 
-    async fn update(&self, block_number: u64, new_members: HashMap<PeerId, Multiaddr>);
+    //async fn update(&self, block_number: u64, new_members: HashMap<PeerId,
+    // Multiaddr>);
     async fn get_historic_membership(&self, block_number: u64) -> Option<Membership>;
 }
