@@ -95,6 +95,7 @@ impl Message {
         shared_keys: &[SharedKey],
         signing_keys: &[(Ed25519PrivateKey, Ed25519PublicKey, ProofOfQuota)],
         proof_of_selections: &[ProofOfSelection],
+        payload: &[u8],
     ) -> Self {
         if shared_keys.len() > MAX_ENCAPSULATIONS {
             panic!("Number of encapsulations exceeds the maximum allowed.");
@@ -112,6 +113,11 @@ impl Message {
 
         let private_header_pos = HEADER_SIZE + PUBLIC_HEADER_SIZE;
         let payload_pos = private_header_pos + PRIVATE_HEADER_SIZE;
+        // TODO: check payload size
+        msg[payload_pos] = 0x01; // data message
+        let payload_size: u16 = payload.len().try_into().unwrap();
+        msg[payload_pos + 1..payload_pos + 3].copy_from_slice(&payload_size.to_le_bytes());
+        msg[payload_pos + 3..payload_pos + 3 + payload.len()].copy_from_slice(payload);
 
         // Encapsulate the private header and payload using each shared key.
         for (i, (shared_key, proof_of_selection)) in
@@ -287,6 +293,13 @@ impl Message {
 
         Ok(Self(msg))
     }
+
+    pub fn payload_body(&self) -> &[u8] {
+        let payload_pos = HEADER_SIZE + PUBLIC_HEADER_SIZE + PRIVATE_HEADER_SIZE;
+        let size = u16::from_le_bytes(self.0[payload_pos + 1..payload_pos + 3].try_into().unwrap())
+            as usize;
+        &self.0[payload_pos + PAYLOAD_HEADER_SIZE..payload_pos + PAYLOAD_HEADER_SIZE + size]
+    }
 }
 
 fn concat(a: &[u8], b: &[u8]) -> Vec<u8> {
@@ -340,6 +353,7 @@ mod tests {
                 .iter()
                 .map(|k| ProofOfSelection(*k.nonephemeral_signing_key.public_key().as_bytes()))
                 .collect::<Vec<_>>(),
+            "hello".as_bytes(),
         );
         assert_eq!(msg.0.len(), MESSAGE_SIZE);
         assert_ne!(msg.0, initialized_msg.0);
@@ -373,8 +387,26 @@ mod tests {
                 .iter()
                 .map(|k| ProofOfSelection(*k.nonephemeral_signing_key.public_key().as_bytes()))
                 .collect::<Vec<_>>(),
+            "hello".as_bytes(),
         );
 
+        // Check that the message cannot be decapsulated with the wrong ephemeral key.
+        let (nonephemeral_signing_pubkey, nonephemeral_encryption_key) = (
+            keysets
+                .first()
+                .unwrap()
+                .nonephemeral_signing_key
+                .public_key(),
+            &keysets.first().unwrap().nonephemeral_encryption_key,
+        );
+        assert!(msg
+            .clone()
+            .decapsulate(nonephemeral_encryption_key, |proof_of_selection| {
+                proof_of_selection.as_bytes() == nonephemeral_signing_pubkey.as_bytes()
+            })
+            .is_err());
+
+        // Check that the message can be decapsulated with the correct ephemeral key.
         let (nonephemeral_signing_pubkey, nonephemeral_encryption_key) = (
             keysets
                 .last()
@@ -389,6 +421,8 @@ mod tests {
             })
             .unwrap();
 
+        // Check that the message can be decapsulated with the correct ephemeral key
+        // and the fully-decapsulated payload is correct.
         let (nonephemeral_signing_pubkey, nonephemeral_encryption_key) = (
             keysets
                 .first()
@@ -402,6 +436,7 @@ mod tests {
                 proof_of_selection.as_bytes() == nonephemeral_signing_pubkey.as_bytes()
             })
             .unwrap();
+        assert_eq!(msg.payload_body(), "hello".as_bytes());
     }
 
     struct KeySet {
