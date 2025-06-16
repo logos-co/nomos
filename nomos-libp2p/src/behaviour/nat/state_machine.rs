@@ -91,7 +91,7 @@ trait DynPartialEq {
 }
 
 impl<S, E> State<S, E> {
-    fn into_boxed<T, C>(self, next_state_ctor: C) -> Box<State<T, E>>
+    fn boxed<T, C>(self, next_state_ctor: C) -> Box<State<T, E>>
     where
         C: FnOnce(S) -> T,
     {
@@ -107,7 +107,7 @@ impl OnEvent<Event> for State<Uninitialized, Event> {
     fn on_event(self: Box<Self>, event: Event, _: &CommandTx) -> Box<dyn OnEvent<Event>> {
         match event {
             Event::NewExternalAddressCandidate(addr) => {
-                self.into_boxed(|state| state.into_test_if_public(addr))
+                self.boxed(|state| state.into_test_if_public(addr))
             }
             _ => self,
         }
@@ -119,11 +119,11 @@ impl OnEvent<Event> for State<TestIfPublic, Event> {
         match event {
             Event::ExternalAddressConfirmed(addr) if self.state.addr_to_test() == &addr => {
                 command_tx.send(Command::ScheduleAutonatClientTest(addr));
-                self.into_boxed(TestIfPublic::into_public)
+                self.boxed(TestIfPublic::into_public)
             }
             Event::AutonatClientTestFailed(addr) if self.state.addr_to_test() == &addr => {
                 command_tx.send(Command::MapAddress(addr));
-                self.into_boxed(TestIfPublic::into_try_address_mapping)
+                self.boxed(TestIfPublic::into_try_address_mapping)
             }
             Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestFailed(addr) => {
                 tracing::error!(
@@ -143,10 +143,10 @@ impl OnEvent<Event> for State<TryMapAddress, Event> {
         match event {
             Event::NewExternalMappedAddress(addr) => {
                 command_tx.send(Command::NewExternalAddrCandidate(addr.clone()));
-                self.into_boxed(|state| state.into_test_if_mapped_public(addr))
+                self.boxed(|state| state.into_test_if_mapped_public(addr))
             }
             Event::AddressMappingFailed(addr) if self.state.addr_to_map() == &addr => {
-                self.into_boxed(TryMapAddress::into_private)
+                self.boxed(TryMapAddress::into_private)
             }
             Event::AddressMappingFailed(addr) => {
                 tracing::error!(
@@ -167,10 +167,10 @@ impl OnEvent<Event> for State<TestIfMappedPublic, Event> {
         match event {
             Event::ExternalAddressConfirmed(addr) if self.state.addr_to_test() == &addr => {
                 command_tx.send(Command::ScheduleAutonatClientTest(addr));
-                self.into_boxed(TestIfMappedPublic::into_mapped_public)
+                self.boxed(TestIfMappedPublic::into_mapped_public)
             }
             Event::AutonatClientTestFailed(addr) if self.state.addr_to_test() == &addr => {
-                self.into_boxed(TestIfMappedPublic::into_private)
+                self.boxed(TestIfMappedPublic::into_private)
             }
             Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestFailed(addr) => {
                 tracing::error!(
@@ -195,7 +195,7 @@ impl OnEvent<Event> for State<Public, Event> {
                 self
             }
             Event::AutonatClientTestFailed(addr) if self.state.addr() == &addr => {
-                self.into_boxed(Public::into_test_if_public)
+                self.boxed(Public::into_test_if_public)
             }
             Event::ExternalAddressConfirmed(addr) => {
                 tracing::error!(
@@ -228,7 +228,7 @@ impl OnEvent<Event> for State<MappedPublic, Event> {
                 self
             }
             Event::AutonatClientTestFailed(addr) if self.state.addr() == &addr => {
-                self.into_boxed(MappedPublic::into_test_if_public)
+                self.boxed(MappedPublic::into_test_if_public)
             }
             Event::ExternalAddressConfirmed(addr) => {
                 tracing::error!(
@@ -254,12 +254,10 @@ impl OnEvent<Event> for State<MappedPublic, Event> {
 impl OnEvent<Event> for State<Private, Event> {
     fn on_event(self: Box<Self>, event: Event, _: &CommandTx) -> Box<dyn OnEvent<Event>> {
         match event {
-            Event::LocalAddressChanged(addr) => {
-                self.into_boxed(|state| state.into_test_if_public(addr))
-            }
+            Event::LocalAddressChanged(addr) => self.boxed(|state| state.into_test_if_public(addr)),
             Event::DefaultGatewayChanged(_) => {
                 let local_addr = self.state.addr().clone();
-                self.into_boxed(|state| state.into_test_if_public(local_addr))
+                self.boxed(|state| state.into_test_if_public(local_addr))
             }
             _ => self,
         }
