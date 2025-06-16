@@ -16,7 +16,7 @@ use nomos_da_network_service::{
             DaNetworkEvent, DaNetworkEventKind, DaNetworkExecutorBackend, ExecutorDaNetworkMessage,
         },
     },
-    membership::adapters::MembershipAdapter,
+    membership::MembershipAdapter,
     DaNetworkMsg, NetworkService,
 };
 use overwatch::{
@@ -40,7 +40,7 @@ pub struct Libp2pNetworkAdapter<
         + Send
         + Sync
         + 'static,
-    MembershipServiceAdapter: MembershipAdapter<Membership, StorageAdapter>,
+    MembershipServiceAdapter: MembershipAdapter,
 {
     outbound_relay:
         OutboundRelay<DaNetworkMsg<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>>,
@@ -56,7 +56,7 @@ where
         + Send
         + Sync
         + 'static,
-    MembershipServiceAdapter: MembershipAdapter<Membership, StorageAdapter> + Sync,
+    MembershipServiceAdapter: MembershipAdapter + Sync,
     StorageAdapter: Sync,
     RuntimeServiceId: Sync,
 {
@@ -91,7 +91,7 @@ where
         + Send
         + Sync
         + 'static,
-    MembershipServiceAdapter: MembershipAdapter<Membership, StorageAdapter> + Sync,
+    MembershipServiceAdapter: MembershipAdapter + Sync,
     StorageAdapter: Sync,
     RuntimeServiceId: Sync,
 {

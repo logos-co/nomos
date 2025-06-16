@@ -26,7 +26,7 @@ use tokio_stream::wrappers::BroadcastStream;
 pub mod adapters;
 pub mod backends;
 
-type MembershipProviders = (BlockNumber, HashMap<ProviderId, BTreeSet<Locator>>);
+pub type MembershipProviders = (BlockNumber, HashMap<ProviderId, BTreeSet<Locator>>);
 
 pub type MembershipSnapshotStream =
     Pin<Box<dyn Stream<Item = MembershipProviders> + Send + Sync + Unpin>>;

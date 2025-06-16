@@ -1,19 +1,42 @@
 use std::{collections::HashMap, sync::Mutex};
 
-use crate::{membership::Assignations, storage::MembershipStorage};
+use libp2p::PeerId;
+use nomos_core::block::BlockNumber;
+use nomos_da_network_core::SubnetworkId;
+use overwatch::services::{relay::OutboundRelay, state::NoState, ServiceData};
+
+use crate::{membership::Assignations, MembershipStorageAdapter};
+
+pub struct MockStorageService;
+
+impl ServiceData for MockStorageService {
+    type Settings = ();
+
+    type State = NoState<()>;
+
+    type StateOperator = ();
+
+    type Message = ();
+}
 
 #[derive(Default)]
 pub struct MockStorage {
-    storage: Mutex<HashMap<u64, Assignations>>,
+    storage: Mutex<HashMap<BlockNumber, Assignations<PeerId, SubnetworkId>>>,
 }
 
-impl MembershipStorage for MockStorage {
-    fn store(&self, block_number: u64, assignations: Assignations) {
+impl MembershipStorageAdapter<PeerId, SubnetworkId> for MockStorage {
+    type StorageService = MockStorageService;
+
+    fn new(_relay: OutboundRelay<<Self::StorageService as ServiceData>::Message>) -> Self {
+        MockStorage::default()
+    }
+
+    fn store(&self, block_number: BlockNumber, assignations: Assignations<PeerId, SubnetworkId>) {
         let mut storage = self.storage.lock().unwrap();
         storage.insert(block_number, assignations);
     }
 
-    fn get(&self, block_number: u64) -> Option<Assignations> {
+    fn get(&self, block_number: BlockNumber) -> Option<Assignations<PeerId, SubnetworkId>> {
         self.storage.lock().unwrap().get(&block_number).cloned()
     }
 }

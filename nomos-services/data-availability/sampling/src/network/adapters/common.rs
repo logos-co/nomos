@@ -8,7 +8,7 @@ macro_rules! adapter_for {
                 + Send
                 + Sync
                 + 'static,
-            MembershipServiceAdapter: MembershipAdapter<Membership, StorageAdapter>,
+            MembershipServiceAdapter: MembershipAdapter,
 
         {
             network_relay: OutboundRelay<
@@ -25,7 +25,7 @@ macro_rules! adapter_for {
                 + Send
                 + Sync
                 + 'static,
-            MembershipServiceAdapter: MembershipAdapter<Membership, StorageAdapter>,
+            MembershipServiceAdapter: MembershipAdapter,
 
         {
             type Backend = $DaNetworkBackend<Membership>;

@@ -25,8 +25,8 @@ use nomos_core::{
 };
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
-    backends::libp2p::validator::DaNetworkValidatorBackend,
-    membership::adapters::MembershipAdapter, storage::MembershipStorage,
+    backends::libp2p::validator::DaNetworkValidatorBackend, membership::MembershipAdapter,
+    storage::MembershipStorageAdapter,
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_da_verifier::backend::VerifierBackend;
@@ -200,8 +200,8 @@ where
         + Send
         + Sync
         + 'static,
-    DaMembershipAdapter: MembershipAdapter<Membership, DaMembershipStorage> + Send + Sync + 'static,
-    DaMembershipStorage: MembershipStorage + Send + Sync + 'static,
+    DaMembershipAdapter: MembershipAdapter + Send + Sync + 'static,
+    DaMembershipStorage: MembershipStorageAdapter<PeerId, SubnetworkId> + Send + Sync + 'static,
     DaVerifiedBlobInfo: DispersedBlobInfo<BlobId = [u8; 32]>
         + From<DaBlobInfo>
         + Eq

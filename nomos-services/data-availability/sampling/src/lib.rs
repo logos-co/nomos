@@ -17,8 +17,8 @@ use network::NetworkAdapter;
 use nomos_core::da::{blob::Share, BlobId, DaVerifier};
 use nomos_da_network_core::protocols::sampling::behaviour::SamplingError;
 use nomos_da_network_service::{
-    backends::libp2p::common::SamplingEvent, membership::adapters::MembershipAdapter,
-    storage::MembershipStorage, NetworkService,
+    backends::libp2p::common::SamplingEvent, membership::MembershipAdapter,
+    storage::MembershipStorageAdapter, NetworkService,
 };
 use nomos_da_verifier::{
     backend::VerifierBackend as VerifierBackendTrait, DaVerifierMsg, DaVerifierService,
@@ -412,9 +412,13 @@ where
     VerifierBackend::Settings: Clone,
     VerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send,
     VerifierNetwork::Settings: Clone,
-    VerifierNetwork::Storage: MembershipStorage + Send + Sync + 'static,
-    VerifierNetwork::MembershipAdapter:
-        MembershipAdapter<VerifierNetwork::Membership, VerifierNetwork::Storage>,
+    VerifierNetwork::Storage: MembershipStorageAdapter<
+            <SamplingNetwork::Membership as MembershipHandler>::Id,
+            <SamplingNetwork::Membership as MembershipHandler>::NetworkId,
+        > + Send
+        + Sync
+        + 'static,
+    VerifierNetwork::MembershipAdapter: MembershipAdapter,
     VerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send,
     ApiAdapter: ApiAdapterTrait<
             Share = SamplingBackend::Share,

@@ -26,8 +26,8 @@ use nomos_core::{
 use nomos_da_dispersal::adapters::mempool::DaMempoolAdapter;
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
-    backends::libp2p::executor::DaNetworkExecutorBackend, membership::adapters::MembershipAdapter,
-    storage::MembershipStorage,
+    backends::libp2p::executor::DaNetworkExecutorBackend, membership::MembershipAdapter,
+    storage::MembershipStorageAdapter,
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_da_verifier::backend::VerifierBackend;
@@ -256,8 +256,8 @@ where
     DaVerifierStorage:
         nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
     DaVerifierStorage::Settings: Clone,
-    DaMembershipAdapter: MembershipAdapter<Membership, DaMembershipStorage> + Send + Sync + 'static,
-    DaMembershipStorage: MembershipStorage + Send + Sync + 'static,
+    DaMembershipAdapter: MembershipAdapter + Send + Sync + 'static,
+    DaMembershipStorage: MembershipStorageAdapter<PeerId, SubnetworkId> + Send + Sync + 'static,
     Tx: Transaction
         + Clone
         + Debug
