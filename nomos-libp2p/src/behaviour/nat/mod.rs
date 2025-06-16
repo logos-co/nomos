@@ -68,7 +68,7 @@ impl<R: RngCore + 'static> NatBehaviour<R> {
         let address_mapper_behaviour = Toggle::from(
             autonat_client_config
                 .as_ref()
-                .map(|_| AddressMapperBehaviour::new()),
+                .map(|_| AddressMapperBehaviour::default()),
         );
 
         let autonat_client_behaviour = Toggle::from(

@@ -15,6 +15,7 @@ use libp2p::{
 ///
 /// The current implementation does not perform any actual address mapping, and
 /// always generates a failure event.
+#[derive(Default)]
 pub struct AddressMapperBehaviour {
     address_to_map: Option<Multiaddr>,
     waker: Option<Waker>,
@@ -29,13 +30,6 @@ pub enum Event {
 }
 
 impl AddressMapperBehaviour {
-    pub const fn new() -> Self {
-        Self {
-            address_to_map: None,
-            waker: None,
-        }
-    }
-
     /// Instruct the behaviour to attempt to map the given address.
     pub fn try_map_address(&mut self, address: Multiaddr) {
         self.address_to_map = Some(address);
