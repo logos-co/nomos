@@ -536,6 +536,8 @@ impl NetworkBehaviour for Behaviour {
 
         if let Poll::Ready(Some((peer_id, stream))) = self.incoming_streams.poll_next_unpin(cx) {
             self.handle_incoming_stream(peer_id, stream);
+
+            return Poll::Pending;
         }
 
         if let Poll::Ready(ToSwarm::Dial { opts }) = self.stream_behaviour.poll(cx) {
