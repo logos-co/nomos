@@ -321,9 +321,9 @@ impl Behaviour {
         } else {
             self.receiving_requests
                 .push(Provider::process_request(peer_id, stream).boxed());
-
-            self.try_notify_waker();
         }
+
+        self.try_notify_waker();
     }
 
     fn handle_tip_request_available(&self, request_stream: TipRequestStream) {
