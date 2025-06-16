@@ -132,7 +132,7 @@ mod test {
     async fn detect_malicious_peer() {
         // Init two swarms with connection monitoring enabled.
         let conn_monitor_settings = ConnectionMonitorSettings {
-            expected_message_range: 0..=1,
+            expected_message_range: 0..=0,
         };
         let (mut nodes, mut keypairs) = nodes(2, 8290);
         let node1_addr = nodes.next().unwrap().address;
