@@ -1,4 +1,5 @@
 mod behaviour;
+mod conn_maintenance;
 mod error;
 mod handler;
 
@@ -6,6 +7,7 @@ mod handler;
 use std::time::Duration;
 
 pub use behaviour::{Behaviour, Config, Event, IntervalStreamProvider};
+pub use conn_maintenance::ConnectionMonitorSettings;
 #[cfg(feature = "tokio")]
 use tokio_stream::StreamExt as _;
 
@@ -40,11 +42,14 @@ mod test {
         swarm::{dummy, NetworkBehaviour, SwarmEvent},
         Multiaddr, PeerId, Swarm, SwarmBuilder,
     };
-    use nomos_blend::{conn_maintenance::ConnectionMonitorSettings, membership::Node};
+    use nomos_blend::membership::Node;
     use nomos_blend_message::{mock::MockBlendMessage, BlendMessage};
     use tokio::select;
 
-    use crate::{behaviour::Config, error::Error, Behaviour, Event, TokioIntervalStreamProvider};
+    use crate::{
+        behaviour::Config, conn_maintenance::ConnectionMonitorSettings, error::Error, Behaviour,
+        Event, TokioIntervalStreamProvider,
+    };
 
     /// Check that a published messsage arrives in the peers successfully.
     #[tokio::test]
@@ -52,8 +57,8 @@ mod test {
         // Initialize two swarms that support the blend protocol.
         let (mut nodes, mut keypairs) = nodes(2, 8090);
         let node1_addr = nodes.next().unwrap().address;
-        let mut swarm1 = new_blend_swarm(keypairs.next().unwrap(), node1_addr.clone(), None);
-        let mut swarm2 = new_blend_swarm(
+        let (mut swarm1, _) = new_blend_swarm(keypairs.next().unwrap(), node1_addr.clone(), None);
+        let (mut swarm2, _) = new_blend_swarm(
             keypairs.next().unwrap(),
             nodes.next().unwrap().address,
             None,
@@ -101,7 +106,7 @@ mod test {
         let (mut nodes, mut keypairs) = nodes(2, 8190);
         let node1_addr = nodes.next().unwrap().address;
         let mut swarm1 = new_dummy_swarm(keypairs.next().unwrap(), node1_addr.clone());
-        let mut swarm2 = new_blend_swarm(
+        let (mut swarm2, _) = new_blend_swarm(
             keypairs.next().unwrap(),
             nodes.next().unwrap().address,
             None,

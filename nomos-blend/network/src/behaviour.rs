@@ -15,10 +15,10 @@ use libp2p::{
     },
     Multiaddr, PeerId,
 };
-use nomos_blend::conn_maintenance::{ConnectionMonitor, ConnectionMonitorSettings};
 use sha2::{Digest as _, Sha256};
 
 use crate::{
+    conn_maintenance::{ConnectionMonitor, ConnectionMonitorSettings},
     error::Error,
     handler::{BlendConnectionHandler, FromBehaviour, ToBehaviour},
 };

@@ -15,7 +15,8 @@ use libp2p::{
     },
     Stream, StreamProtocol,
 };
-use nomos_blend::conn_maintenance::{ConnectionMonitor, ConnectionMonitorOutput};
+
+use crate::conn_maintenance::{ConnectionMonitor, ConnectionMonitorOutput};
 
 // Metrics
 const VALUE_FULLY_NEGOTIATED_INBOUND: &str = "fully_negotiated_inbound";
