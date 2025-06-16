@@ -28,7 +28,7 @@ pub(super) struct BlendSwarm<Rng> {
     // TODO: Instead of holding the membership, we just want a way to get the list of addresses.
     membership: Membership<PeerId, SphinxMessage>,
     rng: Rng,
-    peering_degree: u16,
+    peering_degree: usize,
 }
 
 impl<Rng> BlendSwarm<Rng>
@@ -64,7 +64,7 @@ where
 
         // Dial the initial peers randomly selected
         membership
-            .choose_remote_nodes(&mut rng, config.backend.peering_degree as usize)
+            .choose_remote_nodes(&mut rng, config.backend.peering_degree)
             .iter()
             .for_each(|peer| {
                 if let Err(e) = swarm.dial(peer.address.clone()) {
@@ -94,7 +94,7 @@ impl<Rng> BlendSwarm<Rng> {
 
     #[expect(
         clippy::cognitive_complexity,
-        reason = "TODO: Address this at some point."
+        reason = "Tracing macros generate more code that triggers this warning."
     )]
     fn handle_publish_swarm_message(&mut self, msg: &[u8]) {
         if let Err(e) = self.swarm.behaviour_mut().blend.publish(msg) {
@@ -108,7 +108,7 @@ impl<Rng> BlendSwarm<Rng> {
 
     #[expect(
         clippy::cognitive_complexity,
-        reason = "TODO: Address this at some point."
+        reason = "Tracing macros generate more code that triggers this warning."
     )]
     fn handle_blend_message(&self, msg: Vec<u8>) {
         tracing::debug!("Received message from a peer: {msg:?}");
@@ -198,7 +198,8 @@ where
     /// Dial new peers, if necessary, to maintain the peering degree.
     /// We aim to have at least the peering degree number of "healthy" peers.
     fn check_and_dial_new_peers(&mut self) {
-        let num_new_conns_needed = (self.peering_degree as usize)
+        let num_new_conns_needed = self
+            .peering_degree
             .saturating_sub(self.swarm.behaviour().blend.num_healthy_peers());
         if num_new_conns_needed > 0 {
             self.dial_random_peers(num_new_conns_needed);

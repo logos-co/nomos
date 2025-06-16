@@ -2,7 +2,7 @@ use std::pin::Pin;
 
 use async_trait::async_trait;
 use futures::{
-    future::{AbortHandle, Abortable, Aborted},
+    future::{AbortHandle, Abortable},
     Stream, StreamExt as _,
 };
 use libp2p::{identity::ed25519, Multiaddr, PeerId};
@@ -13,10 +13,7 @@ use nomos_libp2p::secret_key_serde;
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use tokio::{
-    sync::{broadcast, mpsc},
-    task::JoinHandle,
-};
+use tokio::sync::{broadcast, mpsc};
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::{
@@ -32,7 +29,7 @@ mod swarm;
 
 /// A blend backend that uses the libp2p network stack.
 pub struct Libp2pBlendBackend {
-    swarm_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
+    swarm_task_abort_handle: AbortHandle,
     swarm_message_sender: mpsc::Sender<BlendSwarmMessage>,
     incoming_message_sender: broadcast::Sender<Vec<u8>>,
 }
@@ -43,8 +40,8 @@ pub struct Libp2pBlendBackendSettings {
     // A key for deriving PeerId and establishing secure connections (TLS 1.3 by QUIC)
     #[serde(with = "secret_key_serde", default = "ed25519::SecretKey::generate")]
     pub node_key: ed25519::SecretKey,
-    pub peering_degree: u16,
-    pub max_peering_degree: u16,
+    pub peering_degree: usize,
+    pub max_peering_degree: u32,
     pub conn_monitor: Option<ConnectionMonitorSettings>,
 }
 
@@ -55,14 +52,14 @@ impl<RuntimeServiceId> BlendBackend<RuntimeServiceId> for Libp2pBlendBackend {
     type Settings = Libp2pBlendBackendSettings;
     type NodeId = PeerId;
 
-    fn new<R>(
+    fn new<Rng>(
         config: BlendConfig<Self::Settings, Self::NodeId>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Membership<Self::NodeId, SphinxMessage>,
-        rng: R,
+        rng: Rng,
     ) -> Self
     where
-        R: RngCore + Send + 'static,
+        Rng: RngCore + Send + 'static,
     {
         let (swarm_message_sender, swarm_message_receiver) = mpsc::channel(CHANNEL_SIZE);
         let (incoming_message_sender, _) = broadcast::channel(CHANNEL_SIZE);
@@ -75,16 +72,13 @@ impl<RuntimeServiceId> BlendBackend<RuntimeServiceId> for Libp2pBlendBackend {
             incoming_message_sender.clone(),
         );
 
-        let (task_abort_handle, abort_registration) = AbortHandle::new_pair();
-        let swarm_task = (
-            task_abort_handle,
-            overwatch_handle
-                .runtime()
-                .spawn(Abortable::new(swarm.run(), abort_registration)),
-        );
+        let (swarm_task_abort_handle, swarm_task_abort_registration) = AbortHandle::new_pair();
+        overwatch_handle
+            .runtime()
+            .spawn(Abortable::new(swarm.run(), swarm_task_abort_registration));
 
         Self {
-            swarm_task,
+            swarm_task_abort_handle,
             swarm_message_sender,
             incoming_message_sender,
         }
@@ -92,7 +86,7 @@ impl<RuntimeServiceId> BlendBackend<RuntimeServiceId> for Libp2pBlendBackend {
 
     fn shutdown(&mut self) {
         let Self {
-            swarm_task: (swarm_task_abort_handle, _),
+            swarm_task_abort_handle,
             ..
         } = self;
         swarm_task_abort_handle.abort();

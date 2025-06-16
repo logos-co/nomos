@@ -138,8 +138,8 @@ impl<IntervalProvider> Behaviour<IntervalProvider> {
     #[must_use]
     pub fn num_healthy_peers(&self) -> usize {
         self.negotiated_peers
-            .iter()
-            .filter(|(_, state)| **state == NegotiatedPeerState::Healthy)
+            .values()
+            .filter(|state| **state == NegotiatedPeerState::Healthy)
             .count()
     }
 
