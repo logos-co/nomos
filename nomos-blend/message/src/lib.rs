@@ -2,6 +2,7 @@ pub mod crypto;
 pub mod message;
 pub mod mock;
 pub mod sphinx;
+mod view;
 
 pub trait BlendMessage {
     type PublicKey;

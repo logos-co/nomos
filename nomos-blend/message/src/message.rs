@@ -1,156 +1,92 @@
 use bytes::BytesMut;
 
-use crate::crypto::{
-    pseudo_random_bytes, Ed25519PrivateKey, Ed25519PublicKey, ProofOfQuota, ProofOfSelection,
-    SharedKey, X25519PrivateKey, KEY_SIZE, PROOF_OF_QUOTA_SIZE, PROOF_OF_SELECTION_SIZE,
-    SIGNATURE_SIZE,
+use crate::{
+    crypto::{
+        pseudo_random_bytes, Ed25519PrivateKey, Ed25519PublicKey, ProofOfQuota, ProofOfSelection,
+        SharedKey, X25519PrivateKey, PROOF_OF_QUOTA_SIZE,
+    },
+    view::{RegionView, ShiftDirection, View, MESSAGE_SIZE},
 };
 
-const VERSION: u8 = 1;
-const HEADER_SIZE: usize = 1;
-const BLENDING_SUBHEADER_SIZE: usize = KEY_SIZE + SIGNATURE_SIZE + PROOF_OF_QUOTA_SIZE;
-const BLENDING_HEADER_SIZE: usize = BLENDING_SUBHEADER_SIZE + PROOF_OF_SELECTION_SIZE;
-const MAX_ENCAPSULATIONS: usize = 3;
-const PUBLIC_HEADER_SIZE: usize = BLENDING_SUBHEADER_SIZE;
-const PRIVATE_HEADER_SIZE: usize = BLENDING_HEADER_SIZE * MAX_ENCAPSULATIONS;
-const PAYLOAD_HEADER_SIZE: usize = 1 + 2;
-const MAX_PAYLOAD_BODY_SIZE: usize = 34 * 1024;
-const PAYLOAD_SIZE: usize = PAYLOAD_HEADER_SIZE + MAX_PAYLOAD_BODY_SIZE;
-const MESSAGE_SIZE: usize = HEADER_SIZE + PUBLIC_HEADER_SIZE + PRIVATE_HEADER_SIZE + PAYLOAD_SIZE;
+pub(crate) const VERSION: u8 = 1;
+pub(crate) const MAX_ENCAPSULATIONS: usize = 3;
+pub(crate) const MAX_PAYLOAD_BODY_SIZE: usize = 34 * 1024;
 
-#[derive(Debug, Clone)]
-pub struct Message(BytesMut);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Message(pub(crate) BytesMut);
 
 impl Message {
-    pub fn new(
+    pub fn encapsulate(
         encapsulation_inputs: &[EncapsulationInput],
         payload: &[u8],
     ) -> Result<Self, MessageError> {
         if encapsulation_inputs.len() > MAX_ENCAPSULATIONS {
             return Err(MessageError::MaxEncapsulationsExceeded);
         }
-        Ok(Self::initialize(encapsulation_inputs).encapsulate(encapsulation_inputs, payload))
+        Ok(Self::initialize(encapsulation_inputs, payload)?.encapsulate_all(encapsulation_inputs))
     }
 
-    fn initialize(inputs: &[EncapsulationInput]) -> Self {
+    fn initialize(
+        inputs: &[EncapsulationInput],
+        payload_body: &[u8],
+    ) -> Result<Self, MessageError> {
         assert!(inputs.len() <= MAX_ENCAPSULATIONS);
 
-        let mut msg = BytesMut::zeroed(MESSAGE_SIZE);
+        let mut msg = Self(BytesMut::zeroed(MESSAGE_SIZE));
 
         // Fill the message header.
-        msg[0] = VERSION;
+        let mut view = View::new(&mut msg);
+        *view.header.version = VERSION;
 
         // Randomize the private header.
-        let private_header_pos = HEADER_SIZE + PUBLIC_HEADER_SIZE;
         for i in 0..MAX_ENCAPSULATIONS {
-            let bytes = pseudo_random_bytes(
-                Ed25519PrivateKey::generate().public_key().as_bytes(),
-                BLENDING_HEADER_SIZE,
-            );
-            let offset = private_header_pos + i * BLENDING_HEADER_SIZE;
-            msg[offset..offset + BLENDING_HEADER_SIZE].copy_from_slice(&bytes);
+            view.private_header
+                .get(i)
+                .expect("BlendingHeader should exist")
+                .fill_random(Ed25519PrivateKey::generate().public_key().as_bytes());
         }
 
-        // Fill the last `shared_key.len()` blending headers with resonstructed data.
+        // Fill the last `inputs.len()` blending headers with resonstructed data.
         let num_encapsulations = inputs.len();
         for (i, input) in inputs.iter().rev().enumerate() {
-            let key = input.shared_key.as_slice();
-            let r1 = pseudo_random_bytes(&concat(key, &[1]), KEY_SIZE);
-            let r2 = pseudo_random_bytes(&concat(key, &[2]), PROOF_OF_QUOTA_SIZE);
-            let r3 = pseudo_random_bytes(&concat(key, &[3]), SIGNATURE_SIZE);
-            let r4 = pseudo_random_bytes(&concat(key, &[4]), PROOF_OF_SELECTION_SIZE);
-
-            let blending_header_idx = i + MAX_ENCAPSULATIONS - num_encapsulations;
-
-            let mut offset = private_header_pos + blending_header_idx * BLENDING_HEADER_SIZE;
-            msg[offset..offset + r1.len()].copy_from_slice(&r1);
-            offset += r1.len();
-            msg[offset..offset + r2.len()].copy_from_slice(&r2);
-            offset += r2.len();
-            msg[offset..offset + r3.len()].copy_from_slice(&r3);
-            offset += r3.len();
-            msg[offset..offset + r4.len()].copy_from_slice(&r4);
+            let blending_header = view
+                .private_header
+                .get(i + MAX_ENCAPSULATIONS - num_encapsulations)
+                .expect("BlendingHeader should exist");
+            blending_header.fill_random(input.shared_key.as_slice());
         }
 
+        // Fill the payload.
+        view.payload.fill(0x01, payload_body)?;
+
         // Encrypt the last `shared_key.len()` blending headers.
+        // Example:
+        //          ...
+        //          BlendingHeaders[k-3]
+        // E2(E1(E0(BlendingHeaders[k-2])))
+        //    E1(E0(BlendingHeaders[k-1]))
+        //       E0(BlendingHeaders[k])
+        let mut view = RegionView::new(&mut msg);
+        let num_encapsulations = inputs.len();
         for (i, input) in inputs.iter().enumerate() {
-            let cipher = input.shared_key.cipher(BLENDING_HEADER_SIZE);
             for j in 0..num_encapsulations - i {
-                let blending_header_idx = j + MAX_ENCAPSULATIONS - num_encapsulations;
-                let offset = private_header_pos + blending_header_idx * BLENDING_HEADER_SIZE;
-                cipher.encrypt(&mut msg[offset..offset + BLENDING_HEADER_SIZE]);
+                input
+                    .shared_key
+                    .encrypt(view.blending_header_mut(j + MAX_ENCAPSULATIONS - num_encapsulations));
             }
         }
 
-        Self(msg)
+        Ok(msg)
     }
 
-    fn encapsulate(self, inputs: &[EncapsulationInput], payload: &[u8]) -> Self {
+    fn encapsulate_all(self, inputs: &[EncapsulationInput]) -> Self {
         assert!(inputs.len() <= MAX_ENCAPSULATIONS);
 
-        let mut msg = self.0;
-
-        let private_header_pos = HEADER_SIZE + PUBLIC_HEADER_SIZE;
-        let payload_pos = private_header_pos + PRIVATE_HEADER_SIZE;
-        // TODO: check payload size
-        msg[payload_pos] = 0x01; // data message
-        let payload_size: u16 = payload.len().try_into().unwrap();
-        msg[payload_pos + 1..payload_pos + 3].copy_from_slice(&payload_size.to_le_bytes());
-        msg[payload_pos + 3..payload_pos + 3 + payload.len()].copy_from_slice(payload);
+        let mut msg = self;
 
         // Encapsulate the private header and payload using each shared key.
         for (i, input) in inputs.iter().enumerate() {
-            // Sign on the concat of current private header and payload.
-            let (signing_key, signing_pubkey, proof_of_quota) = if i == 0 {
-                let initial_private_key = Ed25519PrivateKey::generate();
-                let initial_public_key = initial_private_key.public_key();
-                let initial_proof_of_quota = ProofOfQuota(
-                    pseudo_random_bytes(initial_private_key.as_bytes(), PROOF_OF_QUOTA_SIZE)
-                        .try_into()
-                        .unwrap(),
-                );
-                (
-                    initial_private_key,
-                    initial_public_key,
-                    initial_proof_of_quota,
-                )
-            } else {
-                let EncapsulationInput {
-                    signing_key,
-                    proof_of_quota,
-                    ..
-                } = inputs.get(i - 1).unwrap();
-                let signing_pubkey = signing_key.public_key();
-                (signing_key.clone(), signing_pubkey, proof_of_quota.clone())
-            };
-            let sig = signing_key.sign(&msg[private_header_pos..]);
-
-            // Encrypt the payload.
-            input.shared_key.encrypt(&mut msg[payload_pos..]);
-
-            // Shift blending headers by one rightward.
-            msg.copy_within(
-                private_header_pos..payload_pos - BLENDING_HEADER_SIZE,
-                private_header_pos + BLENDING_HEADER_SIZE,
-            );
-
-            // Fill the first blending header.
-            let mut pos = private_header_pos;
-            msg[pos..pos + KEY_SIZE].copy_from_slice(signing_pubkey.as_bytes());
-            pos += KEY_SIZE;
-            msg[pos..pos + PROOF_OF_QUOTA_SIZE].copy_from_slice(proof_of_quota.as_bytes());
-            pos += PROOF_OF_QUOTA_SIZE;
-            msg[pos..pos + SIGNATURE_SIZE].copy_from_slice(&sig);
-            pos += SIGNATURE_SIZE;
-            msg[pos..pos + PROOF_OF_SELECTION_SIZE]
-                .copy_from_slice(input.proof_of_selection.as_bytes());
-
-            // Encrypt the private header.
-            let cipher = input.shared_key.cipher(BLENDING_HEADER_SIZE);
-            for i in 0..MAX_ENCAPSULATIONS {
-                let offset = private_header_pos + i * BLENDING_HEADER_SIZE;
-                cipher.encrypt(&mut msg[offset..offset + BLENDING_HEADER_SIZE]);
-            }
+            msg = msg.encapsulate_once(input, if i == 0 { None } else { Some(&inputs[i - 1]) });
         }
 
         // Construct the public header.
@@ -159,107 +95,126 @@ impl Message {
             proof_of_quota,
             ..
         } = inputs.last().unwrap();
-        let sig = signing_key.sign(&msg[private_header_pos..]);
-        let mut pos = HEADER_SIZE;
-        msg[pos..pos + KEY_SIZE].copy_from_slice(signing_key.public_key().as_bytes());
-        pos += KEY_SIZE;
-        msg[pos..pos + PROOF_OF_QUOTA_SIZE].copy_from_slice(proof_of_quota.as_bytes());
-        pos += PROOF_OF_QUOTA_SIZE;
-        msg[pos..pos + SIGNATURE_SIZE].copy_from_slice(&sig);
+        let sig = signing_key.sign(RegionView::new(&mut msg).signing_body());
+        View::new(&mut msg).public_header.fill(
+            signing_key.public_key().as_bytes(),
+            proof_of_quota.as_bytes(),
+            &sig,
+        );
 
-        Self(msg)
+        msg
+    }
+
+    fn encapsulate_once(
+        self,
+        input: &EncapsulationInput,
+        prev_input: Option<&EncapsulationInput>,
+    ) -> Self {
+        let mut msg = self;
+
+        // Sign on the concat of current private header and payload.
+        let (signing_key, signing_pubkey, proof_of_quota) = if let Some(EncapsulationInput {
+            signing_key,
+            proof_of_quota,
+            ..
+        }) = prev_input
+        {
+            let signing_pubkey = signing_key.public_key();
+            (signing_key.clone(), signing_pubkey, proof_of_quota.clone())
+        } else {
+            // Generate a new signing key and proof of quota.
+            let signing_key = Ed25519PrivateKey::generate();
+            let signing_pubkey = signing_key.public_key();
+            let proof_of_quota = ProofOfQuota(
+                pseudo_random_bytes(signing_key.as_bytes(), PROOF_OF_QUOTA_SIZE)
+                    .try_into()
+                    .unwrap(),
+            );
+            (signing_key, signing_pubkey, proof_of_quota)
+        };
+        let mut view = RegionView::new(&mut msg);
+        let sig = signing_key.sign(view.signing_body());
+
+        // Encrypt the payload.
+        input.shared_key.encrypt(view.payload_mut());
+
+        // Shift blending headers by one rightward.
+        let mut view = View::new(&mut msg);
+        view.private_header.shift(ShiftDirection::Right);
+
+        // Fill the first blending header.
+        view.private_header.first().fill(
+            signing_pubkey.as_bytes(),
+            proof_of_quota.as_bytes(),
+            &sig,
+            input.proof_of_selection.as_bytes(),
+        );
+
+        // Encrypt the private header.
+        let mut view = RegionView::new(&mut msg);
+        for i in 0..MAX_ENCAPSULATIONS {
+            input.shared_key.encrypt(view.blending_header_mut(i));
+        }
+
+        msg
     }
 
     pub fn decapsulate(
-        self,
+        message: BytesMut,
         private_key: &X25519PrivateKey,
+        // TODO: This should be replaced with a proper impl.
         verify_proof_of_selection: impl Fn(&ProofOfSelection) -> bool,
     ) -> Result<Self, MessageError> {
-        let mut msg = self.0;
+        let mut msg = Self(message);
 
         // Derive the shared key.
-        let recipient_public_key =
-            Ed25519PublicKey::from_slice(&msg[HEADER_SIZE..HEADER_SIZE + KEY_SIZE])
-                .map_err(|_| MessageError::InvalidPublicKey)?;
-        let shared_key = private_key.derive_shared_key(&recipient_public_key.derive_x25519());
+        let view = View::new(&mut msg);
+        let shared_key = private_key.derive_shared_key(
+            &Ed25519PublicKey::from_slice(view.public_header.signing_pubkey)
+                .map_err(|_| MessageError::InvalidPublicKey)?
+                .derive_x25519(),
+        );
 
         // Decrypt the private header.
-        let private_header_pos = HEADER_SIZE + PUBLIC_HEADER_SIZE;
+        let mut view = RegionView::new(&mut msg);
         for i in 0..MAX_ENCAPSULATIONS {
-            let offset = private_header_pos + i * BLENDING_HEADER_SIZE;
-            shared_key.decrypt(&mut msg[offset..offset + BLENDING_HEADER_SIZE]);
+            shared_key.decrypt(view.blending_header_mut(i));
         }
 
         // Verify the first blending header which was decrypted.
-        let proof_of_selection = ProofOfSelection(
-            msg[private_header_pos + KEY_SIZE + PROOF_OF_QUOTA_SIZE + SIGNATURE_SIZE
-                ..private_header_pos + BLENDING_HEADER_SIZE]
-                .try_into()
-                .unwrap(),
-        );
-        if !verify_proof_of_selection(&proof_of_selection) {
+        let mut view = View::new(&mut msg);
+        if !verify_proof_of_selection(&view.private_header.first().proof_of_selection()) {
             return Err(MessageError::ProofOfSelectionVerificationFailed);
         }
-        // TODO: deduplication
 
         // Set the public header.
-        let mut pos = HEADER_SIZE;
-        msg.copy_within(private_header_pos..private_header_pos + KEY_SIZE, pos);
-        pos += KEY_SIZE;
-        msg.copy_within(
-            private_header_pos + KEY_SIZE..private_header_pos + KEY_SIZE + PROOF_OF_QUOTA_SIZE,
-            pos,
-        );
-        pos += PROOF_OF_QUOTA_SIZE;
-        msg.copy_within(
-            private_header_pos + KEY_SIZE + PROOF_OF_QUOTA_SIZE
-                ..private_header_pos + KEY_SIZE + PROOF_OF_QUOTA_SIZE + SIGNATURE_SIZE,
-            pos,
+        let first_blending_header = view.private_header.first();
+        view.public_header.fill(
+            first_blending_header.signing_pubkey,
+            first_blending_header.proof_of_quota,
+            first_blending_header.signature,
         );
 
         // Decrypt the payload.
-        let payload_pos = private_header_pos + PRIVATE_HEADER_SIZE;
-        shared_key.decrypt(&mut msg[payload_pos..]);
+        let mut view = RegionView::new(&mut msg);
+        shared_key.decrypt(view.payload_mut());
 
         // Shift blending headers one leftward.
-        msg.copy_within(
-            private_header_pos + BLENDING_HEADER_SIZE..private_header_pos + PRIVATE_HEADER_SIZE,
-            private_header_pos,
-        );
+        let mut view = View::new(&mut msg);
+        view.private_header.shift(ShiftDirection::Left);
 
         // Reconstruct the last blending header.
-        let key = shared_key.as_slice();
-        let r1 = pseudo_random_bytes(&concat(key, &[1]), KEY_SIZE);
-        let r2 = pseudo_random_bytes(&concat(key, &[2]), PROOF_OF_QUOTA_SIZE);
-        let r3 = pseudo_random_bytes(&concat(key, &[3]), SIGNATURE_SIZE);
-        let r4 = pseudo_random_bytes(&concat(key, &[4]), PROOF_OF_SELECTION_SIZE);
-        let last_blending_header_pos =
-            private_header_pos + (MAX_ENCAPSULATIONS - 1) * BLENDING_HEADER_SIZE;
-        let mut offset = last_blending_header_pos;
-        msg[offset..offset + r1.len()].copy_from_slice(&r1);
-        offset += r1.len();
-        msg[offset..offset + r2.len()].copy_from_slice(&r2);
-        offset += r2.len();
-        msg[offset..offset + r3.len()].copy_from_slice(&r3);
-        offset += r3.len();
-        msg[offset..offset + r4.len()].copy_from_slice(&r4);
+        view.private_header
+            .last()
+            .fill_random(shared_key.as_slice());
 
         // Encrypt the reconstructed last blending header.
-        shared_key.encrypt(
-            &mut msg[last_blending_header_pos..last_blending_header_pos + BLENDING_HEADER_SIZE],
-        );
+        let mut view = RegionView::new(&mut msg);
+        shared_key.encrypt(view.blending_header_mut(MAX_ENCAPSULATIONS - 1));
 
         // TODO: Compare signatures
 
-        Ok(Self(msg))
-    }
-
-    #[must_use]
-    pub fn payload_body(&self) -> &[u8] {
-        let payload_pos = HEADER_SIZE + PUBLIC_HEADER_SIZE + PRIVATE_HEADER_SIZE;
-        let size = u16::from_le_bytes(self.0[payload_pos + 1..payload_pos + 3].try_into().unwrap())
-            as usize;
-        &self.0[payload_pos + PAYLOAD_HEADER_SIZE..payload_pos + PAYLOAD_HEADER_SIZE + size]
+        Ok(msg)
     }
 }
 
@@ -290,15 +245,18 @@ impl EncapsulationInput {
     }
 }
 
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug, PartialEq, Eq)]
 pub enum MessageError {
+    #[error("Max encapsulations exceeded")]
     MaxEncapsulationsExceeded,
-    InvalidPublicKey,
+    #[error("Payload too large")]
+    PayloadTooLarge,
+    #[error("Proof of selection verification failed")]
     ProofOfSelectionVerificationFailed,
-}
-
-fn concat(a: &[u8], b: &[u8]) -> Vec<u8> {
-    itertools::chain(a, b).copied().collect::<Vec<_>>()
+    #[error("Invalid public key")]
+    InvalidPublicKey,
+    #[error("Invalid payload length")]
+    InvalidPayloadLen,
 }
 
 #[cfg(test)]
@@ -310,44 +268,54 @@ mod tests {
         const PAYLOAD_BODY: &[u8] = b"hello";
 
         let (inputs, recipient_signing_keys) = generate_inputs(2);
-        let msg = Message::new(&inputs, PAYLOAD_BODY).unwrap();
+        let msg = Message::encapsulate(&inputs, PAYLOAD_BODY).unwrap();
         assert_eq!(msg.0.len(), MESSAGE_SIZE);
 
         // Cannot decapsulate with an invalid private key.
         let recipient_signing_key = recipient_signing_keys.first().unwrap();
-        assert!(msg
-            .clone()
-            .decapsulate(
-                &recipient_signing_key.derive_x25519(),
-                |proof_of_selection| {
-                    proof_of_selection.as_bytes() == recipient_signing_key.public_key().as_bytes()
-                },
-            )
-            .is_err());
+        assert!(Message::decapsulate(
+            msg.0.clone(),
+            &recipient_signing_key.derive_x25519(),
+            |proof_of_selection| {
+                proof_of_selection.as_bytes() == recipient_signing_key.public_key().as_bytes()
+            },
+        )
+        .is_err());
 
         // Can decapsulate with the correct private key.
         let recipient_signing_key = recipient_signing_keys.last().unwrap();
-        let msg = msg
-            .decapsulate(
-                &recipient_signing_key.derive_x25519(),
-                |proof_of_selection| {
-                    proof_of_selection.as_bytes() == recipient_signing_key.public_key().as_bytes()
-                },
-            )
-            .unwrap();
+        let msg = Message::decapsulate(
+            msg.0,
+            &recipient_signing_key.derive_x25519(),
+            |proof_of_selection| {
+                proof_of_selection.as_bytes() == recipient_signing_key.public_key().as_bytes()
+            },
+        )
+        .unwrap();
 
         // Can decapsulate with the correct private key
         // and the fully-decapsulated message is correct.
         let recipient_signing_key = recipient_signing_keys.first().unwrap();
-        let msg = msg
-            .decapsulate(
-                &recipient_signing_key.derive_x25519(),
-                |proof_of_selection| {
-                    proof_of_selection.as_bytes() == recipient_signing_key.public_key().as_bytes()
-                },
-            )
-            .unwrap();
-        assert_eq!(msg.payload_body(), PAYLOAD_BODY);
+        let mut msg = Message::decapsulate(
+            msg.0,
+            &recipient_signing_key.derive_x25519(),
+            |proof_of_selection| {
+                proof_of_selection.as_bytes() == recipient_signing_key.public_key().as_bytes()
+            },
+        )
+        .unwrap();
+        assert_eq!(View::new(&mut msg).payload.body().unwrap(), PAYLOAD_BODY);
+    }
+
+    #[test]
+    fn too_long_payload() {
+        const PAYLOAD_BODY: &[u8] = &[0u8; MAX_PAYLOAD_BODY_SIZE + 1];
+
+        let (inputs, _) = generate_inputs(1);
+        assert_eq!(
+            Message::encapsulate(&inputs, PAYLOAD_BODY),
+            Err(MessageError::PayloadTooLarge)
+        );
     }
 
     fn generate_inputs(cnt: usize) -> (Vec<EncapsulationInput>, Vec<Ed25519PrivateKey>) {

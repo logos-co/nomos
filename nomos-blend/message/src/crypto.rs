@@ -113,31 +113,11 @@ impl SharedKey {
     }
 
     pub fn encrypt(&self, data: &mut [u8]) {
-        self.cipher(data.len()).encrypt(data);
+        Self::xor_in_place(data, &pseudo_random_bytes(self.as_slice(), data.len()));
     }
 
     pub fn decrypt(&self, data: &mut [u8]) {
-        self.cipher(data.len()).decrypt(data);
-    }
-
-    pub fn cipher(&self, data_size: usize) -> Cipher {
-        Cipher {
-            pseudo_random_bytes: pseudo_random_bytes(self.as_slice(), data_size),
-        }
-    }
-}
-
-pub struct Cipher {
-    pseudo_random_bytes: Vec<u8>,
-}
-
-impl Cipher {
-    pub fn encrypt(&self, data: &mut [u8]) {
-        Self::xor_in_place(data, &self.pseudo_random_bytes);
-    }
-
-    pub fn decrypt(&self, data: &mut [u8]) {
-        self.encrypt(data); // encryption and decryption are symmetric
+        self.encrypt(data);
     }
 
     fn xor_in_place(a: &mut [u8], b: &[u8]) {
