@@ -1,7 +1,6 @@
 use std::{
     collections::VecDeque,
     io,
-    marker::PhantomData,
     task::{Context, Poll, Waker},
 };
 
@@ -17,7 +16,6 @@ use libp2p::{
     Stream, StreamProtocol,
 };
 use nomos_blend::conn_maintenance::{ConnectionMonitor, ConnectionMonitorOutput};
-use nomos_blend_message::BlendMessage;
 
 // Metrics
 const VALUE_FULLY_NEGOTIATED_INBOUND: &str = "fully_negotiated_inbound";
@@ -27,16 +25,15 @@ const VALUE_IGNORED: &str = "ignored";
 
 const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/nomos/blend/0.1.0");
 
-pub struct BlendConnectionHandler<Msg> {
+pub struct BlendConnectionHandler<ConnectionWindowClock> {
     inbound_substream: Option<InboundSubstreamState>,
     outbound_substream: Option<OutboundSubstreamState>,
     outbound_msgs: VecDeque<Vec<u8>>,
     pending_events_to_behaviour: VecDeque<ToBehaviour>,
     // NOTE: Until we figure out optimal parameters for the monitor, we will keep it optional
     // to avoid unintended side effects.
-    monitor: Option<ConnectionMonitor>,
+    monitor: Option<ConnectionMonitor<ConnectionWindowClock>>,
     waker: Option<Waker>,
-    _blend_message: PhantomData<Msg>,
 }
 
 type MsgSendFuture = BoxFuture<'static, Result<Stream, io::Error>>;
@@ -60,8 +57,8 @@ enum OutboundSubstreamState {
     Dropped,
 }
 
-impl<Msg> BlendConnectionHandler<Msg> {
-    pub const fn new(monitor: Option<ConnectionMonitor>) -> Self {
+impl<ConnectionWindowClock> BlendConnectionHandler<ConnectionWindowClock> {
+    pub const fn new(monitor: Option<ConnectionMonitor<ConnectionWindowClock>>) -> Self {
         Self {
             inbound_substream: None,
             outbound_substream: None,
@@ -69,7 +66,6 @@ impl<Msg> BlendConnectionHandler<Msg> {
             pending_events_to_behaviour: VecDeque::new(),
             monitor,
             waker: None,
-            _blend_message: PhantomData,
         }
     }
 
@@ -128,9 +124,9 @@ pub enum ToBehaviour {
     IOError(io::Error),
 }
 
-impl<Msg> ConnectionHandler for BlendConnectionHandler<Msg>
+impl<ConnectionWindowClock> ConnectionHandler for BlendConnectionHandler<ConnectionWindowClock>
 where
-    Msg: BlendMessage + Send + 'static,
+    ConnectionWindowClock: futures::Stream + Unpin + Send + 'static,
 {
     type FromBehaviour = FromBehaviour;
     type ToBehaviour = ToBehaviour;
@@ -166,7 +162,7 @@ where
         if let Some(monitor) = &mut self.monitor {
             if let Poll::Ready(output) = monitor.poll(cx) {
                 match output {
-                    ConnectionMonitorOutput::Malicious => {
+                    ConnectionMonitorOutput::Spammy => {
                         self.close_substreams();
                         self.pending_events_to_behaviour
                             .push_back(ToBehaviour::MaliciousPeer);

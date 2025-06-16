@@ -6,6 +6,7 @@ use std::{
 };
 
 use cached::{Cached as _, SizedCache};
+use futures::Stream;
 use libp2p::{
     core::{transport::PortUse, Endpoint},
     swarm::{
@@ -15,7 +16,6 @@ use libp2p::{
     Multiaddr, PeerId,
 };
 use nomos_blend::conn_maintenance::{ConnectionMonitor, ConnectionMonitorSettings};
-use nomos_blend_message::BlendMessage;
 use sha2::{Digest as _, Sha256};
 
 use crate::{
@@ -26,11 +26,7 @@ use crate::{
 /// A [`NetworkBehaviour`]:
 /// - forwards messages to all connected peers with deduplication.
 /// - receives messages from all connected peers.
-pub struct Behaviour<M, IntervalProvider>
-where
-    M: BlendMessage,
-    IntervalProvider: IntervalStreamProvider,
-{
+pub struct Behaviour<ObservationWindowClockProvider> {
     config: Config,
     negotiated_peers: HashMap<PeerId, NegotiatedPeerState>,
     /// Queue of events to yield to the swarm.
@@ -44,8 +40,7 @@ where
     // TODO: This cache should be cleared after the session transition period has passed,
     //       because keys and nullifiers are valid during a single session.
     seen_message_cache: SizedCache<Vec<u8>, ()>,
-    _blend_message: PhantomData<M>,
-    _interval_provider: PhantomData<IntervalProvider>,
+    _observation_window_clock_provider: PhantomData<ObservationWindowClockProvider>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -57,6 +52,7 @@ enum NegotiatedPeerState {
 #[derive(Debug)]
 pub struct Config {
     pub seen_message_cache_size: usize,
+    pub observation_window_duration: Duration,
     pub conn_monitor_settings: Option<ConnectionMonitorSettings>,
 }
 
@@ -71,12 +67,7 @@ pub enum Event {
     Error(Error),
 }
 
-impl<M, IntervalProvider> Behaviour<M, IntervalProvider>
-where
-    M: BlendMessage,
-    M::PublicKey: PartialEq,
-    IntervalProvider: IntervalStreamProvider,
-{
+impl<IntervalProvider> Behaviour<IntervalProvider> {
     #[must_use]
     pub fn new(config: Config) -> Self {
         let duplicate_cache = SizedCache::with_size(config.seen_message_cache_size);
@@ -86,8 +77,7 @@ where
             events: VecDeque::new(),
             waker: None,
             seen_message_cache: duplicate_cache,
-            _blend_message: PhantomData,
-            _interval_provider: PhantomData,
+            _observation_window_clock_provider: PhantomData,
         }
     }
 
@@ -153,16 +143,6 @@ where
             .count()
     }
 
-    fn create_connection_handler(&self) -> BlendConnectionHandler<M> {
-        let monitor = self.config.conn_monitor_settings.as_ref().map(|settings| {
-            ConnectionMonitor::new(
-                *settings,
-                IntervalProvider::interval_stream(settings.interval),
-            )
-        });
-        BlendConnectionHandler::new(monitor)
-    }
-
     fn try_wake(&mut self) {
         if let Some(waker) = self.waker.take() {
             waker.wake();
@@ -170,13 +150,28 @@ where
     }
 }
 
-impl<M, IntervalProvider> NetworkBehaviour for Behaviour<M, IntervalProvider>
+impl<IntervalProvider> Behaviour<IntervalProvider>
 where
-    M: BlendMessage + Send + 'static,
-    M::PublicKey: PartialEq + 'static,
-    IntervalProvider: IntervalStreamProvider + 'static,
+    IntervalProvider: IntervalStreamProvider,
 {
-    type ConnectionHandler = BlendConnectionHandler<M>;
+    fn create_connection_handler(
+        &self,
+    ) -> BlendConnectionHandler<IntervalProvider::IntervalStream> {
+        let monitor = self.config.conn_monitor_settings.as_ref().map(|settings| {
+            ConnectionMonitor::new(
+                settings.clone(),
+                IntervalProvider::interval_stream(self.config.observation_window_duration),
+            )
+        });
+        BlendConnectionHandler::new(monitor)
+    }
+}
+
+impl<IntervalProvider> NetworkBehaviour for Behaviour<IntervalProvider>
+where
+    IntervalProvider: IntervalStreamProvider<IntervalStream: Unpin + Send> + 'static,
+{
+    type ConnectionHandler = BlendConnectionHandler<IntervalProvider::IntervalStream>;
     type ToSwarm = Event;
 
     fn handle_established_inbound_connection(
@@ -306,5 +301,7 @@ where
 }
 
 pub trait IntervalStreamProvider {
-    fn interval_stream(interval: Duration) -> impl futures::Stream<Item = ()> + Send + 'static;
+    type IntervalStream: Stream<Item = ()>;
+
+    fn interval_stream(interval: Duration) -> Self::IntervalStream;
 }

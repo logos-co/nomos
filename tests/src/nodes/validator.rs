@@ -298,13 +298,17 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 message_frequency_per_round: NonNegativeF64::try_from(1f64)
                     .expect("Message frequency per round cannot be negative."),
                 redundancy_parameter: 0,
+                intervals_for_safety_buffer: 100,
+            },
+            timing_settings: nomos_blend_service::TimingSettings {
                 round_duration: Duration::from_secs(1),
                 rounds_per_interval: NonZeroU64::try_from(30u64)
                     .expect("Rounds per interval cannot be zero."),
                 // (21,600 blocks * 30s per block) / 1s per round = 648,000 rounds
                 rounds_per_session: NonZeroU64::try_from(648_000u64)
                     .expect("Rounds per session cannot be zero."),
-                intervals_for_safety_buffer: 100,
+                rounds_per_observation_window: NonZeroU64::try_from(30u64)
+                    .expect("Rounds per observation window cannot be zero."),
             },
             membership: config.blend_config.membership,
         },

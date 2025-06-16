@@ -14,14 +14,18 @@ pub struct TokioIntervalStreamProvider;
 
 #[cfg(feature = "tokio")]
 impl IntervalStreamProvider for TokioIntervalStreamProvider {
-    fn interval_stream(interval: Duration) -> impl futures::Stream<Item = ()> + Send + 'static {
+    type IntervalStream = Box<dyn futures::Stream<Item = ()> + Send + Unpin + 'static>;
+
+    fn interval_stream(interval: Duration) -> Self::IntervalStream {
         // Since tokio::time::interval.tick() returns immediately regardless of the
         // interval, we need to explicitly specify the time of the first tick we
         // expect. If not, the peer would be marked as unhealthy immediately
         // as soon as the connection is established.
         let start = tokio::time::Instant::now() + interval;
-        tokio_stream::wrappers::IntervalStream::new(tokio::time::interval_at(start, interval))
-            .map(|_| ())
+        Box::new(
+            tokio_stream::wrappers::IntervalStream::new(tokio::time::interval_at(start, interval))
+                .map(|_| ()),
+        )
     }
 }
 
@@ -30,7 +34,6 @@ impl IntervalStreamProvider for TokioIntervalStreamProvider {
 mod test {
     use std::time::Duration;
 
-    use fixed::types::U57F7;
     use libp2p::{
         futures::StreamExt as _,
         identity::Keypair,
@@ -129,17 +132,14 @@ mod test {
     async fn detect_malicious_peer() {
         // Init two swarms with connection monitoring enabled.
         let conn_monitor_settings = ConnectionMonitorSettings {
-            interval: Duration::from_secs(1),
-            expected_messages: U57F7::from_num(0.0),
-            message_malicious_tolerance: U57F7::from_num(0.0),
-            message_unhealthy_tolerance: U57F7::from_num(0.0),
+            expected_message_range: 0..=1,
         };
         let (mut nodes, mut keypairs) = nodes(2, 8290);
         let node1_addr = nodes.next().unwrap().address;
         let mut swarm1 = new_blend_swarm(
             keypairs.next().unwrap(),
             node1_addr.clone(),
-            Some(conn_monitor_settings),
+            Some(conn_monitor_settings.clone()),
         );
         let mut swarm2 = new_blend_swarm(
             keypairs.next().unwrap(),
@@ -189,7 +189,8 @@ mod test {
 
         // Expect for the task to be completed in time
         assert!(tokio::time::timeout(
-            conn_monitor_settings.interval + Duration::from_secs(1),
+            // 5s is what we use as the observation window.
+            Duration::from_secs(5 + 1),
             task
         )
         .await
@@ -200,17 +201,14 @@ mod test {
     async fn detect_unhealthy_peer() {
         // Init two swarms with connection monitoring enabled.
         let conn_monitor_settings = ConnectionMonitorSettings {
-            interval: Duration::from_secs(1),
-            expected_messages: U57F7::from_num(1.0),
-            message_malicious_tolerance: U57F7::from_num(0.0),
-            message_unhealthy_tolerance: U57F7::from_num(0.0),
+            expected_message_range: 1..=1,
         };
         let (mut nodes, mut keypairs) = nodes(2, 8390);
         let node1_addr = nodes.next().unwrap().address;
         let mut swarm1 = new_blend_swarm(
             keypairs.next().unwrap(),
             node1_addr.clone(),
-            Some(conn_monitor_settings),
+            Some(conn_monitor_settings.clone()),
         );
         let mut swarm2 = new_blend_swarm(
             keypairs.next().unwrap(),
@@ -253,7 +251,8 @@ mod test {
 
         // Expect for the task to be completed in time
         assert!(tokio::time::timeout(
-            conn_monitor_settings.interval + Duration::from_secs(1),
+            // 5s is what we use as the observation window.
+            Duration::from_secs(5 + 1),
             task
         )
         .await
@@ -264,12 +263,13 @@ mod test {
         keypair: Keypair,
         addr: Multiaddr,
         conn_monitor_settings: Option<ConnectionMonitorSettings>,
-    ) -> Swarm<Behaviour<MockBlendMessage, TokioIntervalStreamProvider>> {
+    ) -> Swarm<Behaviour<TokioIntervalStreamProvider>> {
         new_swarm_with_behaviour(
             keypair,
             addr,
-            Behaviour::<MockBlendMessage, TokioIntervalStreamProvider>::new(Config {
+            Behaviour::<TokioIntervalStreamProvider>::new(Config {
                 seen_message_cache_size: 1000,
+                observation_window_duration: Duration::from_secs(5),
                 conn_monitor_settings,
             }),
         )
@@ -279,11 +279,11 @@ mod test {
         new_swarm_with_behaviour(keypair, addr, dummy::Behaviour)
     }
 
-    fn new_swarm_with_behaviour<B: NetworkBehaviour>(
+    fn new_swarm_with_behaviour<Behaviour: NetworkBehaviour>(
         keypair: Keypair,
         addr: Multiaddr,
-        behaviour: B,
-    ) -> Swarm<B> {
+        behaviour: Behaviour,
+    ) -> Swarm<Behaviour> {
         let mut swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_other_transport(|keypair| {

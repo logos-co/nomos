@@ -1,82 +1,83 @@
 use std::{
-    pin::Pin,
+    ops::RangeInclusive,
     task::{Context, Poll},
-    time::Duration,
 };
 
-use fixed::types::U57F7;
-use nomos_utils::bounded_duration::{MinimalBoundedDuration, SECOND};
+use futures::{Stream, StreamExt as _};
 use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
 
 /// Counts the number of messages received from a peer during
 /// an interval. `interval` is a field that implements [`futures::Stream`] to
 /// support both sync and async environments.
-pub struct ConnectionMonitor {
+pub struct ConnectionMonitor<ConnectionWindowClock> {
     settings: ConnectionMonitorSettings,
-    interval: Pin<Box<dyn futures::Stream<Item = ()> + Send>>,
-    messages: U57F7,
+    connection_window_clock: ConnectionWindowClock,
+    current_window_message_count: usize,
 }
 
-#[serde_as]
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConnectionMonitorSettings {
-    /// Time interval to measure/evaluate the number of messages sent by each
-    /// peer.
-    #[serde_as(as = "MinimalBoundedDuration<1, SECOND>")]
-    pub interval: Duration,
-    /// The number of (data or cover) messages that a peer is expected
-    /// to send in a given time window.
-    ///
-    /// If the count is greater than (expected * (1 + `malicious_tolerance`)),
-    /// the peer is considered malicious.
-    /// If the count is less than (expected * (1 - `unhealthy_tolerance`)), the
-    /// peer is considered unhealthy.
-    pub expected_messages: U57F7,
-    pub message_malicious_tolerance: U57F7,
-    pub message_unhealthy_tolerance: U57F7,
+    pub expected_message_range: RangeInclusive<usize>,
 }
 
 /// A result of connection monitoring during an interval.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectionMonitorOutput {
-    Malicious,
+    Spammy,
     Unhealthy,
     Healthy,
 }
 
-impl ConnectionMonitor {
-    pub fn new(
+impl<ConnectionWindowClock> ConnectionMonitor<ConnectionWindowClock> {
+    pub const fn new(
         settings: ConnectionMonitorSettings,
-        interval: impl futures::Stream<Item = ()> + Send + 'static,
+        connection_window_clock: ConnectionWindowClock,
     ) -> Self {
         Self {
             settings,
-            interval: Box::pin(interval),
-            messages: U57F7::ZERO,
+            connection_window_clock,
+            current_window_message_count: 0,
         }
     }
 
     /// Record a message received from the peer.
     pub fn record_message(&mut self) {
-        self.messages = Self::_record_message(self.messages);
+        self.current_window_message_count = self
+            .current_window_message_count
+            .checked_add(1)
+            .unwrap_or_else(|| {
+                tracing::warn!("Skipping recording a message due to overflow");
+                self.current_window_message_count
+            });
     }
 
-    fn _record_message(value: U57F7) -> U57F7 {
-        value.checked_add(U57F7::ONE).unwrap_or_else(|| {
-            tracing::warn!("Skipping recording a message due to overflow");
-            value
-        })
+    const fn reset(&mut self) {
+        self.current_window_message_count = 0;
     }
 
+    /// Check if the peer is malicious based on the number of messages sent
+    const fn is_spammy(&self) -> bool {
+        self.current_window_message_count > *self.settings.expected_message_range.end()
+    }
+
+    /// Check if the peer is unhealthy based on the number of messages sent
+    const fn is_unhealthy(&self) -> bool {
+        self.current_window_message_count < *self.settings.expected_message_range.start()
+    }
+}
+
+impl<ConnectionWindowClock> ConnectionMonitor<ConnectionWindowClock>
+where
+    ConnectionWindowClock: Stream + Unpin,
+{
     /// Poll the connection monitor to check if the interval has elapsed.
     /// If the interval has elapsed, evaluate the peer's status,
     /// reset the monitor, and return the result as `Poll::Ready`.
     /// If not, return `Poll::Pending`.
     pub fn poll(&mut self, cx: &mut Context<'_>) -> Poll<ConnectionMonitorOutput> {
-        if self.interval.as_mut().poll_next(cx).is_ready() {
-            let outcome = if self.is_malicious() {
-                ConnectionMonitorOutput::Malicious
+        if self.connection_window_clock.poll_next_unpin(cx).is_ready() {
+            let outcome = if self.is_spammy() {
+                ConnectionMonitorOutput::Spammy
             } else if self.is_unhealthy() {
                 ConnectionMonitorOutput::Unhealthy
             } else {
@@ -88,46 +89,40 @@ impl ConnectionMonitor {
             Poll::Pending
         }
     }
-
-    const fn reset(&mut self) {
-        self.messages = U57F7::ZERO;
-    }
-
-    /// Check if the peer is malicious based on the number of messages sent
-    fn is_malicious(&self) -> bool {
-        let threshold = self.settings.expected_messages
-            * (U57F7::ONE + self.settings.message_malicious_tolerance);
-        self.messages > threshold
-    }
-
-    /// Check if the peer is unhealthy based on the number of messages sent
-    fn is_unhealthy(&self) -> bool {
-        let threshold = self.settings.expected_messages
-            * (U57F7::ONE - self.settings.message_unhealthy_tolerance);
-        threshold > self.messages
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        task::{Context, Poll},
+        time::Duration,
+    };
+
     use futures::task::noop_waker;
     use tokio_stream::StreamExt as _;
 
-    use super::*;
+    use crate::conn_maintenance::{
+        ConnectionMonitor, ConnectionMonitorOutput, ConnectionMonitorSettings,
+    };
 
     #[test]
     fn monitor() {
         let mut monitor = ConnectionMonitor::new(
             ConnectionMonitorSettings {
-                interval: Duration::from_secs(1),
-                expected_messages: U57F7::from_num(2.0),
-                message_malicious_tolerance: U57F7::from_num(0.5),
-                message_unhealthy_tolerance: U57F7::from_num(0.1),
+                expected_message_range: 1..=2,
             },
             futures::stream::iter(std::iter::repeat(())),
         );
 
-        // Recording the expected number of messages,
+        // Recording the minimum expected number of messages,
+        // expecting the peer to be healthy
+        monitor.record_message();
+        assert_eq!(
+            monitor.poll(&mut Context::from_waker(&noop_waker())),
+            Poll::Ready(ConnectionMonitorOutput::Healthy)
+        );
+
+        // Recording the maximum expected number of messages,
         // expecting the peer to be healthy
         monitor.record_message();
         monitor.record_message();
@@ -141,15 +136,13 @@ mod tests {
         monitor.record_message();
         monitor.record_message();
         monitor.record_message();
-        monitor.record_message();
         assert_eq!(
             monitor.poll(&mut Context::from_waker(&noop_waker())),
-            Poll::Ready(ConnectionMonitorOutput::Malicious)
+            Poll::Ready(ConnectionMonitorOutput::Spammy)
         );
 
-        // Recording less than the expected number of messages,
+        // Recording less than the expected number of messages (i.e. no message),
         // expecting the peer to be unhealthy
-        monitor.record_message();
         assert_eq!(
             monitor.poll(&mut Context::from_waker(&noop_waker())),
             Poll::Ready(ConnectionMonitorOutput::Unhealthy)
@@ -161,10 +154,7 @@ mod tests {
         let interval = Duration::from_millis(100);
         let mut monitor = ConnectionMonitor::new(
             ConnectionMonitorSettings {
-                interval: Duration::from_secs(1),
-                expected_messages: U57F7::from_num(2.0),
-                message_malicious_tolerance: U57F7::from_num(0.1),
-                message_unhealthy_tolerance: U57F7::from_num(0.1),
+                expected_message_range: 1..=2,
             },
             tokio_stream::wrappers::IntervalStream::new(tokio::time::interval_at(
                 tokio::time::Instant::now() + interval,

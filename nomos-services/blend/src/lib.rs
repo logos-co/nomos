@@ -100,7 +100,7 @@ where
         let blend_config = settings_reader.get_updated_settings();
         Ok(Self {
             backend: <Backend as BlendBackend<RuntimeServiceId>>::new(
-                settings_reader.get_updated_settings().backend,
+                settings_reader.get_updated_settings(),
                 service_resources_handle.overwatch_handle.clone(),
                 blend_config.membership(),
                 ChaCha12Rng::from_entropy(),
@@ -305,6 +305,7 @@ pub struct TimingSettings {
     pub rounds_per_interval: NonZeroU64,
     #[serde_as(as = "MinimalBoundedDuration<1, SECOND>")]
     pub round_duration: Duration,
+    pub rounds_per_observation_window: NonZeroU64,
 }
 
 impl TimingSettings {
@@ -326,6 +327,15 @@ impl TimingSettings {
                 session_number: (i as u64).into(),
                 membership_size,
             }),
+        )
+    }
+
+    const fn observation_window_duration(&self) -> Duration {
+        Duration::from_secs(
+            self.rounds_per_observation_window
+                .get()
+                .checked_add(self.round_duration.as_secs())
+                .expect("Overflow when calculating observation window duration."),
         )
     }
 }
