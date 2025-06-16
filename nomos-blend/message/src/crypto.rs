@@ -148,6 +148,7 @@ impl Cipher {
 
 pub const PROOF_OF_QUOTA_SIZE: usize = 160;
 
+#[derive(Clone)]
 pub struct ProofOfQuota(pub [u8; PROOF_OF_QUOTA_SIZE]);
 
 impl ProofOfQuota {
@@ -158,6 +159,7 @@ impl ProofOfQuota {
 
 pub const PROOF_OF_SELECTION_SIZE: usize = 32;
 
+#[derive(Clone)]
 pub struct ProofOfSelection(pub [u8; PROOF_OF_SELECTION_SIZE]);
 
 impl ProofOfSelection {

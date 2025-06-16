@@ -1,8 +1,4 @@
-use blake2::digest::{Update, VariableOutput};
-use blake2::Blake2bVar;
 use bytes::BytesMut;
-use chacha20::ChaCha20;
-use cipher::{KeyIvInit, StreamCipher};
 
 use crate::crypto::{
     pseudo_random_bytes, Ed25519PrivateKey, Ed25519PublicKey, ProofOfQuota, ProofOfSelection,
@@ -12,7 +8,6 @@ use crate::crypto::{
 
 const VERSION: u8 = 1;
 const HEADER_SIZE: usize = 1;
-
 const BLENDING_SUBHEADER_SIZE: usize = KEY_SIZE + SIGNATURE_SIZE + PROOF_OF_QUOTA_SIZE;
 const BLENDING_HEADER_SIZE: usize = BLENDING_SUBHEADER_SIZE + PROOF_OF_SELECTION_SIZE;
 const MAX_ENCAPSULATIONS: usize = 3;
@@ -27,10 +22,18 @@ const MESSAGE_SIZE: usize = HEADER_SIZE + PUBLIC_HEADER_SIZE + PRIVATE_HEADER_SI
 pub struct Message(BytesMut);
 
 impl Message {
-    pub fn initialize(shared_keys: &[SharedKey]) -> Self {
-        if shared_keys.len() > MAX_ENCAPSULATIONS {
-            panic!("Number of encapsulations exceeds the maximum allowed.");
+    pub fn new(
+        encapsulation_inputs: &[EncapsulationInput],
+        payload: &[u8],
+    ) -> Result<Self, MessageError> {
+        if encapsulation_inputs.len() > MAX_ENCAPSULATIONS {
+            return Err(MessageError::MaxEncapsulationsExceeded);
         }
+        Ok(Self::initialize(encapsulation_inputs).encapsulate(encapsulation_inputs, payload))
+    }
+
+    fn initialize(inputs: &[EncapsulationInput]) -> Self {
+        assert!(inputs.len() <= MAX_ENCAPSULATIONS);
 
         let mut msg = BytesMut::zeroed(MESSAGE_SIZE);
 
@@ -45,44 +48,36 @@ impl Message {
                 BLENDING_HEADER_SIZE,
             );
             let offset = private_header_pos + i * BLENDING_HEADER_SIZE;
-            println!(
-                "Randomizing a private header at offset:{offset}, size:{BLENDING_HEADER_SIZE}"
-            );
             msg[offset..offset + BLENDING_HEADER_SIZE].copy_from_slice(&bytes);
         }
 
         // Fill the last `shared_key.len()` blending headers with resonstructed data.
-        for (i, shared_key) in shared_keys.iter().rev().enumerate() {
-            let key = shared_key.as_slice();
+        let num_encapsulations = inputs.len();
+        for (i, input) in inputs.iter().rev().enumerate() {
+            let key = input.shared_key.as_slice();
             let r1 = pseudo_random_bytes(&concat(key, &[1]), KEY_SIZE);
             let r2 = pseudo_random_bytes(&concat(key, &[2]), PROOF_OF_QUOTA_SIZE);
             let r3 = pseudo_random_bytes(&concat(key, &[3]), SIGNATURE_SIZE);
             let r4 = pseudo_random_bytes(&concat(key, &[4]), PROOF_OF_SELECTION_SIZE);
 
-            let blending_header_idx = i + MAX_ENCAPSULATIONS - shared_keys.len();
-            println!("Filling the {blending_header_idx}-th blending header");
+            let blending_header_idx = i + MAX_ENCAPSULATIONS - num_encapsulations;
 
             let mut offset = private_header_pos + blending_header_idx * BLENDING_HEADER_SIZE;
-            println!("offset:{offset}, size:{}", r1.len());
             msg[offset..offset + r1.len()].copy_from_slice(&r1);
             offset += r1.len();
-            println!("offset:{offset}, size:{}", r2.len());
             msg[offset..offset + r2.len()].copy_from_slice(&r2);
             offset += r2.len();
-            println!("offset:{offset}, size:{}", r3.len());
             msg[offset..offset + r3.len()].copy_from_slice(&r3);
             offset += r3.len();
-            println!("offset:{offset}, size:{}", r4.len());
             msg[offset..offset + r4.len()].copy_from_slice(&r4);
         }
 
         // Encrypt the last `shared_key.len()` blending headers.
-        for (i, shared_key) in shared_keys.iter().enumerate() {
-            let cipher = shared_key.cipher(BLENDING_HEADER_SIZE);
-            for j in 0..shared_keys.len() - i {
-                let blending_header_idx = j + MAX_ENCAPSULATIONS - shared_keys.len();
+        for (i, input) in inputs.iter().enumerate() {
+            let cipher = input.shared_key.cipher(BLENDING_HEADER_SIZE);
+            for j in 0..num_encapsulations - i {
+                let blending_header_idx = j + MAX_ENCAPSULATIONS - num_encapsulations;
                 let offset = private_header_pos + blending_header_idx * BLENDING_HEADER_SIZE;
-                println!("Encrypting the {blending_header_idx}-th blending header with {i}-th key: offset:{offset}, size:{BLENDING_HEADER_SIZE}");
                 cipher.encrypt(&mut msg[offset..offset + BLENDING_HEADER_SIZE]);
             }
         }
@@ -90,24 +85,8 @@ impl Message {
         Self(msg)
     }
 
-    pub fn encapsulate(
-        self,
-        shared_keys: &[SharedKey],
-        signing_keys: &[(Ed25519PrivateKey, Ed25519PublicKey, ProofOfQuota)],
-        proof_of_selections: &[ProofOfSelection],
-        payload: &[u8],
-    ) -> Self {
-        if shared_keys.len() > MAX_ENCAPSULATIONS {
-            panic!("Number of encapsulations exceeds the maximum allowed.");
-        }
-        if shared_keys.len() != signing_keys.len() {
-            panic!("Number of shared keys must match the number of signing keys.");
-        }
-        if shared_keys.len() != proof_of_selections.len() {
-            panic!("Number of shared keys must match the number of proof of selections.");
-        }
-
-        println!("===== ENCAPSULATING =====");
+    fn encapsulate(self, inputs: &[EncapsulationInput], payload: &[u8]) -> Self {
+        assert!(inputs.len() <= MAX_ENCAPSULATIONS);
 
         let mut msg = self.0;
 
@@ -120,12 +99,9 @@ impl Message {
         msg[payload_pos + 3..payload_pos + 3 + payload.len()].copy_from_slice(payload);
 
         // Encapsulate the private header and payload using each shared key.
-        for (i, (shared_key, proof_of_selection)) in
-            shared_keys.iter().zip(proof_of_selections).enumerate()
-        {
+        for (i, input) in inputs.iter().enumerate() {
             // Sign on the concat of current private header and payload.
             let (signing_key, signing_pubkey, proof_of_quota) = if i == 0 {
-                println!("Signing using the initial signing key");
                 let initial_private_key = Ed25519PrivateKey::generate();
                 let initial_public_key = initial_private_key.public_key();
                 let initial_proof_of_quota = ProofOfQuota(
@@ -133,23 +109,26 @@ impl Message {
                         .try_into()
                         .unwrap(),
                 );
-                &(
+                (
                     initial_private_key,
                     initial_public_key,
                     initial_proof_of_quota,
                 )
             } else {
-                println!("Signing using {i}-th signing key");
-                signing_keys.get(i - 1).unwrap()
+                let EncapsulationInput {
+                    signing_key,
+                    proof_of_quota,
+                    ..
+                } = inputs.get(i - 1).unwrap();
+                let signing_pubkey = signing_key.public_key();
+                (signing_key.clone(), signing_pubkey, proof_of_quota.clone())
             };
             let sig = signing_key.sign(&msg[private_header_pos..]);
 
             // Encrypt the payload.
-            println!("Encrypting payload with {i}-th shared key");
-            shared_key.encrypt(&mut msg[payload_pos..]);
+            input.shared_key.encrypt(&mut msg[payload_pos..]);
 
             // Shift blending headers by one rightward.
-            println!("Shifting blending headers one rightward");
             msg.copy_within(
                 private_header_pos..payload_pos - BLENDING_HEADER_SIZE,
                 private_header_pos + BLENDING_HEADER_SIZE,
@@ -157,41 +136,35 @@ impl Message {
 
             // Fill the first blending header.
             let mut pos = private_header_pos;
-            println!("Filling the first blending header: offset:{pos}, size:{KEY_SIZE}");
             msg[pos..pos + KEY_SIZE].copy_from_slice(signing_pubkey.as_bytes());
             pos += KEY_SIZE;
-            println!("Filling the first blending header: offset:{pos}, size:{PROOF_OF_QUOTA_SIZE}");
             msg[pos..pos + PROOF_OF_QUOTA_SIZE].copy_from_slice(proof_of_quota.as_bytes());
             pos += PROOF_OF_QUOTA_SIZE;
-            println!("Filling the first blending header: offset:{pos}, size:{SIGNATURE_SIZE}");
             msg[pos..pos + SIGNATURE_SIZE].copy_from_slice(&sig);
             pos += SIGNATURE_SIZE;
-            println!(
-                "Filling the first blending header: offset:{pos}, size:{PROOF_OF_SELECTION_SIZE}"
-            );
-            msg[pos..pos + PROOF_OF_SELECTION_SIZE].copy_from_slice(proof_of_selection.as_bytes());
+            msg[pos..pos + PROOF_OF_SELECTION_SIZE]
+                .copy_from_slice(input.proof_of_selection.as_bytes());
 
             // Encrypt the private header.
-            let cipher = shared_key.cipher(BLENDING_HEADER_SIZE);
+            let cipher = input.shared_key.cipher(BLENDING_HEADER_SIZE);
             for i in 0..MAX_ENCAPSULATIONS {
                 let offset = private_header_pos + i * BLENDING_HEADER_SIZE;
-                println!("Encrypting the {i}-th blending header: offset:{offset}, size:{BLENDING_HEADER_SIZE}");
                 cipher.encrypt(&mut msg[offset..offset + BLENDING_HEADER_SIZE]);
             }
         }
 
         // Construct the public header.
-        println!("Constructing the public header");
-        let (signing_key, signing_pubkey, proof_of_quota) = signing_keys.last().unwrap();
+        let EncapsulationInput {
+            signing_key,
+            proof_of_quota,
+            ..
+        } = inputs.last().unwrap();
         let sig = signing_key.sign(&msg[private_header_pos..]);
         let mut pos = HEADER_SIZE;
-        println!("Filling the public header: offset:{pos}, size:{KEY_SIZE}");
-        msg[pos..pos + KEY_SIZE].copy_from_slice(signing_pubkey.as_bytes());
+        msg[pos..pos + KEY_SIZE].copy_from_slice(signing_key.public_key().as_bytes());
         pos += KEY_SIZE;
-        println!("Filling the public header: offset:{pos}, size:{PROOF_OF_QUOTA_SIZE}");
         msg[pos..pos + PROOF_OF_QUOTA_SIZE].copy_from_slice(proof_of_quota.as_bytes());
         pos += PROOF_OF_QUOTA_SIZE;
-        println!("Filling the public header: offset:{pos}, size:{SIGNATURE_SIZE}");
         msg[pos..pos + SIGNATURE_SIZE].copy_from_slice(&sig);
 
         Self(msg)
@@ -201,23 +174,19 @@ impl Message {
         self,
         private_key: &X25519PrivateKey,
         verify_proof_of_selection: impl Fn(&ProofOfSelection) -> bool,
-    ) -> Result<Self, ()> {
+    ) -> Result<Self, MessageError> {
         let mut msg = self.0;
 
         // Derive the shared key.
-        let peer_public_key = Ed25519PublicKey::from_slice(
-            &msg[HEADER_SIZE..HEADER_SIZE + KEY_SIZE],
-        )
-        .map_err(|_| {
-            println!("Invalid public key in the message header.");
-        })?;
-        let shared_key = private_key.derive_shared_key(&peer_public_key.derive_x25519());
+        let recipient_public_key =
+            Ed25519PublicKey::from_slice(&msg[HEADER_SIZE..HEADER_SIZE + KEY_SIZE])
+                .map_err(|_| MessageError::InvalidPublicKey)?;
+        let shared_key = private_key.derive_shared_key(&recipient_public_key.derive_x25519());
 
         // Decrypt the private header.
         let private_header_pos = HEADER_SIZE + PUBLIC_HEADER_SIZE;
         for i in 0..MAX_ENCAPSULATIONS {
             let offset = private_header_pos + i * BLENDING_HEADER_SIZE;
-            println!("Decrypting the {i}-th blending header: offset:{offset}, size:{BLENDING_HEADER_SIZE}");
             shared_key.decrypt(&mut msg[offset..offset + BLENDING_HEADER_SIZE]);
         }
 
@@ -229,23 +198,19 @@ impl Message {
                 .unwrap(),
         );
         if !verify_proof_of_selection(&proof_of_selection) {
-            println!("Proof of selection verification failed.");
-            return Err(());
+            return Err(MessageError::ProofOfSelectionVerificationFailed);
         }
         // TODO: deduplication
 
         // Set the public header.
         let mut pos = HEADER_SIZE;
-        println!("Filling the public header: offset:{pos}, size:{KEY_SIZE}");
         msg.copy_within(private_header_pos..private_header_pos + KEY_SIZE, pos);
         pos += KEY_SIZE;
-        println!("Filling the public header: offset:{pos}, size:{PROOF_OF_QUOTA_SIZE}");
         msg.copy_within(
             private_header_pos + KEY_SIZE..private_header_pos + KEY_SIZE + PROOF_OF_QUOTA_SIZE,
             pos,
         );
         pos += PROOF_OF_QUOTA_SIZE;
-        println!("Filling the public header: offset:{pos}, size:{SIGNATURE_SIZE}");
         msg.copy_within(
             private_header_pos + KEY_SIZE + PROOF_OF_QUOTA_SIZE
                 ..private_header_pos + KEY_SIZE + PROOF_OF_QUOTA_SIZE + SIGNATURE_SIZE,
@@ -254,7 +219,6 @@ impl Message {
 
         // Decrypt the payload.
         let payload_pos = private_header_pos + PRIVATE_HEADER_SIZE;
-        println!("Decrypting the payload: offset:{payload_pos}, size:{PAYLOAD_SIZE}");
         shared_key.decrypt(&mut msg[payload_pos..]);
 
         // Shift blending headers one leftward.
@@ -272,16 +236,12 @@ impl Message {
         let last_blending_header_pos =
             private_header_pos + (MAX_ENCAPSULATIONS - 1) * BLENDING_HEADER_SIZE;
         let mut offset = last_blending_header_pos;
-        println!("offset:{offset}, size:{}", r1.len());
         msg[offset..offset + r1.len()].copy_from_slice(&r1);
         offset += r1.len();
-        println!("offset:{offset}, size:{}", r2.len());
         msg[offset..offset + r2.len()].copy_from_slice(&r2);
         offset += r2.len();
-        println!("offset:{offset}, size:{}", r3.len());
         msg[offset..offset + r3.len()].copy_from_slice(&r3);
         offset += r3.len();
-        println!("offset:{offset}, size:{}", r4.len());
         msg[offset..offset + r4.len()].copy_from_slice(&r4);
 
         // Encrypt the reconstructed last blending header.
@@ -294,6 +254,7 @@ impl Message {
         Ok(Self(msg))
     }
 
+    #[must_use]
     pub fn payload_body(&self) -> &[u8] {
         let payload_pos = HEADER_SIZE + PUBLIC_HEADER_SIZE + PRIVATE_HEADER_SIZE;
         let size = u16::from_le_bytes(self.0[payload_pos + 1..payload_pos + 3].try_into().unwrap())
@@ -302,184 +263,110 @@ impl Message {
     }
 }
 
+pub struct EncapsulationInput {
+    signing_key: Ed25519PrivateKey,
+    shared_key: SharedKey,
+    proof_of_quota: ProofOfQuota,
+    proof_of_selection: ProofOfSelection,
+}
+
+impl EncapsulationInput {
+    #[must_use]
+    pub fn new(
+        signing_key: Ed25519PrivateKey,
+        recipient_signing_key: &Ed25519PublicKey,
+        proof_of_quota: ProofOfQuota,
+        proof_of_selection: ProofOfSelection,
+    ) -> Self {
+        let shared_key = signing_key
+            .derive_x25519()
+            .derive_shared_key(&recipient_signing_key.derive_x25519());
+        Self {
+            signing_key,
+            shared_key,
+            proof_of_quota,
+            proof_of_selection,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum MessageError {
+    MaxEncapsulationsExceeded,
+    InvalidPublicKey,
+    ProofOfSelectionVerificationFailed,
+}
+
 fn concat(a: &[u8], b: &[u8]) -> Vec<u8> {
     itertools::chain(a, b).copied().collect::<Vec<_>>()
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::crypto::X25519PrivateKey;
-
     use super::*;
 
     #[test]
-    fn initialize() {
-        let keysets = generate_keysets(2);
-        let msg = Message::initialize(
-            &keysets
-                .iter()
-                .map(|k| k.shared_key.clone())
-                .collect::<Vec<_>>(),
-        );
+    fn encapsulate_and_decapsulate() {
+        const PAYLOAD_BODY: &[u8] = b"hello";
+
+        let (inputs, recipient_signing_keys) = generate_inputs(2);
+        let msg = Message::new(&inputs, PAYLOAD_BODY).unwrap();
         assert_eq!(msg.0.len(), MESSAGE_SIZE);
-        assert_eq!(msg.0[0], VERSION);
-    }
 
-    #[test]
-    fn encapsulate() {
-        let keysets = generate_keysets(2);
-        let initialized_msg = Message::initialize(
-            &keysets
-                .iter()
-                .map(|k| k.shared_key.clone())
-                .collect::<Vec<_>>(),
-        );
-        let msg = initialized_msg.clone().encapsulate(
-            &keysets
-                .iter()
-                .map(|k| k.shared_key.clone())
-                .collect::<Vec<_>>(),
-            &keysets
-                .iter()
-                .map(|k| {
-                    (
-                        k.ephemeral_signing_key.clone(),
-                        k.ephemeral_signing_key.public_key(),
-                        ProofOfQuota([0u8; PROOF_OF_QUOTA_SIZE]),
-                    )
-                })
-                .collect::<Vec<_>>(),
-            &keysets
-                .iter()
-                .map(|k| ProofOfSelection(*k.nonephemeral_signing_key.public_key().as_bytes()))
-                .collect::<Vec<_>>(),
-            "hello".as_bytes(),
-        );
-        assert_eq!(msg.0.len(), MESSAGE_SIZE);
-        assert_ne!(msg.0, initialized_msg.0);
-    }
-
-    #[test]
-    fn decapsulate() {
-        let keysets = generate_keysets(2);
-        let msg = Message::initialize(
-            &keysets
-                .iter()
-                .map(|k| k.shared_key.clone())
-                .collect::<Vec<_>>(),
-        );
-        let msg = msg.encapsulate(
-            &keysets
-                .iter()
-                .map(|k| k.shared_key.clone())
-                .collect::<Vec<_>>(),
-            &keysets
-                .iter()
-                .map(|k| {
-                    (
-                        k.ephemeral_signing_key.clone(),
-                        k.ephemeral_signing_key.public_key(),
-                        ProofOfQuota([0u8; PROOF_OF_QUOTA_SIZE]),
-                    )
-                })
-                .collect::<Vec<_>>(),
-            &keysets
-                .iter()
-                .map(|k| ProofOfSelection(*k.nonephemeral_signing_key.public_key().as_bytes()))
-                .collect::<Vec<_>>(),
-            "hello".as_bytes(),
-        );
-
-        // Check that the message cannot be decapsulated with the wrong ephemeral key.
-        let (nonephemeral_signing_pubkey, nonephemeral_encryption_key) = (
-            keysets
-                .first()
-                .unwrap()
-                .nonephemeral_signing_key
-                .public_key(),
-            &keysets.first().unwrap().nonephemeral_encryption_key,
-        );
+        // Cannot decapsulate with an invalid private key.
+        let recipient_signing_key = recipient_signing_keys.first().unwrap();
         assert!(msg
             .clone()
-            .decapsulate(nonephemeral_encryption_key, |proof_of_selection| {
-                proof_of_selection.as_bytes() == nonephemeral_signing_pubkey.as_bytes()
-            })
-            .is_err());
-
-        // Check that the message can be decapsulated with the correct ephemeral key.
-        let (nonephemeral_signing_pubkey, nonephemeral_encryption_key) = (
-            keysets
-                .last()
-                .unwrap()
-                .nonephemeral_signing_key
-                .public_key(),
-            &keysets.last().unwrap().nonephemeral_encryption_key,
-        );
-        let msg = msg
-            .decapsulate(nonephemeral_encryption_key, |proof_of_selection| {
-                proof_of_selection.as_bytes() == nonephemeral_signing_pubkey.as_bytes()
-            })
-            .unwrap();
-
-        // Check that the message can be decapsulated with the correct ephemeral key
-        // and the fully-decapsulated payload is correct.
-        let (nonephemeral_signing_pubkey, nonephemeral_encryption_key) = (
-            keysets
-                .first()
-                .unwrap()
-                .nonephemeral_signing_key
-                .public_key(),
-            &keysets.first().unwrap().nonephemeral_encryption_key,
-        );
-        let msg = msg
-            .decapsulate(nonephemeral_encryption_key, |proof_of_selection| {
-                proof_of_selection.as_bytes() == nonephemeral_signing_pubkey.as_bytes()
-            })
-            .unwrap();
-        assert_eq!(msg.payload_body(), "hello".as_bytes());
-    }
-
-    struct KeySet {
-        ephemeral_signing_key: Ed25519PrivateKey,
-        ephemeral_encryption_key: X25519PrivateKey,
-        nonephemeral_signing_key: Ed25519PrivateKey,
-        nonephemeral_encryption_key: X25519PrivateKey,
-        shared_key: SharedKey,
-    }
-
-    fn generate_keysets(cnt: usize) -> Vec<KeySet> {
-        let ephemeral_keys = generate_keys(cnt);
-        let nonephemeral_keys = generate_keys(cnt);
-
-        ephemeral_keys
-            .into_iter()
-            .zip(nonephemeral_keys)
-            .map(
-                |(
-                    (ephemeral_signing_key, ephemeral_encryption_key),
-                    (nonephemeral_signing_key, nonephemeral_encryption_key),
-                )| {
-                    let shared_key = ephemeral_encryption_key
-                        .derive_shared_key(&nonephemeral_encryption_key.public_key());
-                    KeySet {
-                        ephemeral_signing_key,
-                        ephemeral_encryption_key,
-                        nonephemeral_signing_key,
-                        nonephemeral_encryption_key,
-                        shared_key,
-                    }
+            .decapsulate(
+                &recipient_signing_key.derive_x25519(),
+                |proof_of_selection| {
+                    proof_of_selection.as_bytes() == recipient_signing_key.public_key().as_bytes()
                 },
             )
-            .collect()
+            .is_err());
+
+        // Can decapsulate with the correct private key.
+        let recipient_signing_key = recipient_signing_keys.last().unwrap();
+        let msg = msg
+            .decapsulate(
+                &recipient_signing_key.derive_x25519(),
+                |proof_of_selection| {
+                    proof_of_selection.as_bytes() == recipient_signing_key.public_key().as_bytes()
+                },
+            )
+            .unwrap();
+
+        // Can decapsulate with the correct private key
+        // and the fully-decapsulated message is correct.
+        let recipient_signing_key = recipient_signing_keys.first().unwrap();
+        let msg = msg
+            .decapsulate(
+                &recipient_signing_key.derive_x25519(),
+                |proof_of_selection| {
+                    proof_of_selection.as_bytes() == recipient_signing_key.public_key().as_bytes()
+                },
+            )
+            .unwrap();
+        assert_eq!(msg.payload_body(), PAYLOAD_BODY);
     }
 
-    fn generate_keys(cnt: usize) -> Vec<(Ed25519PrivateKey, X25519PrivateKey)> {
-        (0..cnt)
-            .map(|_| {
-                let signing_key = Ed25519PrivateKey::generate();
-                let encryption_key = signing_key.derive_x25519();
-                (signing_key, encryption_key)
+    fn generate_inputs(cnt: usize) -> (Vec<EncapsulationInput>, Vec<Ed25519PrivateKey>) {
+        let recipient_signing_keys = std::iter::repeat_with(Ed25519PrivateKey::generate)
+            .take(cnt)
+            .collect::<Vec<_>>();
+        let inputs = recipient_signing_keys
+            .iter()
+            .map(|recipient_signing_key| {
+                let recipient_signing_pubkey = recipient_signing_key.public_key();
+                let proof_of_selection = ProofOfSelection(*recipient_signing_pubkey.as_bytes());
+                EncapsulationInput::new(
+                    Ed25519PrivateKey::generate(),
+                    &recipient_signing_pubkey,
+                    ProofOfQuota([0u8; PROOF_OF_QUOTA_SIZE]),
+                    proof_of_selection,
+                )
             })
-            .collect()
+            .collect::<Vec<_>>();
+        (inputs, recipient_signing_keys)
     }
 }
