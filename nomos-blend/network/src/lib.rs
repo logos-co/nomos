@@ -136,12 +136,12 @@ mod test {
         };
         let (mut nodes, mut keypairs) = nodes(2, 8290);
         let node1_addr = nodes.next().unwrap().address;
-        let mut swarm1 = new_blend_swarm(
+        let (mut swarm1, observation_window) = new_blend_swarm(
             keypairs.next().unwrap(),
             node1_addr.clone(),
             Some(conn_monitor_settings.clone()),
         );
-        let mut swarm2 = new_blend_swarm(
+        let (mut swarm2, _) = new_blend_swarm(
             keypairs.next().unwrap(),
             nodes.next().unwrap().address,
             Some(conn_monitor_settings),
@@ -188,13 +188,11 @@ mod test {
         };
 
         // Expect for the task to be completed in time
-        assert!(tokio::time::timeout(
-            // 5s is what we use as the observation window.
-            Duration::from_secs(5 + 1),
-            task
-        )
-        .await
-        .is_ok());
+        assert!(
+            tokio::time::timeout(Duration::from_secs(observation_window.as_secs() + 1), task)
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -205,12 +203,12 @@ mod test {
         };
         let (mut nodes, mut keypairs) = nodes(2, 8390);
         let node1_addr = nodes.next().unwrap().address;
-        let mut swarm1 = new_blend_swarm(
+        let (mut swarm1, observation_window) = new_blend_swarm(
             keypairs.next().unwrap(),
             node1_addr.clone(),
             Some(conn_monitor_settings.clone()),
         );
-        let mut swarm2 = new_blend_swarm(
+        let (mut swarm2, _) = new_blend_swarm(
             keypairs.next().unwrap(),
             nodes.next().unwrap().address,
             Some(conn_monitor_settings),
@@ -250,28 +248,30 @@ mod test {
         };
 
         // Expect for the task to be completed in time
-        assert!(tokio::time::timeout(
-            // 5s is what we use as the observation window.
-            Duration::from_secs(5 + 1),
-            task
-        )
-        .await
-        .is_ok());
+        assert!(
+            tokio::time::timeout(Duration::from_secs(observation_window.as_secs() + 1), task)
+                .await
+                .is_ok()
+        );
     }
 
     fn new_blend_swarm(
         keypair: Keypair,
         addr: Multiaddr,
         conn_monitor_settings: Option<ConnectionMonitorSettings>,
-    ) -> Swarm<Behaviour<TokioIntervalStreamProvider>> {
-        new_swarm_with_behaviour(
-            keypair,
-            addr,
-            Behaviour::<TokioIntervalStreamProvider>::new(Config {
-                seen_message_cache_size: 1000,
-                observation_window_duration: Duration::from_secs(5),
-                conn_monitor_settings,
-            }),
+    ) -> (Swarm<Behaviour<TokioIntervalStreamProvider>>, Duration) {
+        let observation_window_duration = Duration::from_secs(5);
+        (
+            new_swarm_with_behaviour(
+                keypair,
+                addr,
+                Behaviour::<TokioIntervalStreamProvider>::new(Config {
+                    seen_message_cache_size: 1000,
+                    observation_window_duration,
+                    conn_monitor_settings,
+                }),
+            ),
+            observation_window_duration,
         )
     }
 
