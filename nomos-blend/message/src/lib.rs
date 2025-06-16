@@ -1,3 +1,4 @@
+pub mod crypto;
 pub mod message;
 pub mod mock;
 pub mod sphinx;
