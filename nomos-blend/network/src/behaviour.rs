@@ -18,7 +18,7 @@ use libp2p::{
 use sha2::{Digest as _, Sha256};
 
 use crate::{
-    conn_maintenance::{ConnectionMonitor, ConnectionMonitorSettings},
+    conn_maintenance::ConnectionMonitor,
     error::Error,
     handler::{BlendConnectionHandler, FromBehaviour, ToBehaviour},
 };
@@ -53,7 +53,7 @@ enum NegotiatedPeerState {
 pub struct Config {
     pub seen_message_cache_size: usize,
     pub observation_window_duration: Duration,
-    pub conn_monitor_settings: Option<ConnectionMonitorSettings>,
+    pub include_monitor: bool,
 }
 
 #[derive(Debug)]
@@ -157,12 +157,13 @@ where
     fn create_connection_handler(
         &self,
     ) -> BlendConnectionHandler<IntervalProvider::IntervalStream> {
-        let monitor = self.config.conn_monitor_settings.as_ref().map(|settings| {
-            ConnectionMonitor::new(
-                settings.clone(),
-                IntervalProvider::interval_stream(self.config.observation_window_duration),
-            )
-        });
+        let monitor = if self.config.include_monitor {
+            Some(ConnectionMonitor::new(IntervalProvider::interval_stream(
+                self.config.observation_window_duration,
+            )))
+        } else {
+            None
+        };
         BlendConnectionHandler::new(monitor)
     }
 }

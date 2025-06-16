@@ -7,7 +7,6 @@ mod handler;
 use std::time::Duration;
 
 pub use behaviour::{Behaviour, Config, Event, IntervalStreamProvider};
-pub use conn_maintenance::ConnectionMonitorSettings;
 #[cfg(feature = "tokio")]
 use tokio_stream::StreamExt as _;
 
@@ -34,7 +33,7 @@ impl IntervalStreamProvider for TokioIntervalStreamProvider {
 #[cfg(test)]
 #[cfg(feature = "tokio")]
 mod test {
-    use std::time::Duration;
+    use std::{ops::RangeInclusive, time::Duration};
 
     use libp2p::{
         futures::StreamExt as _,
@@ -46,10 +45,7 @@ mod test {
     use nomos_blend_message::{mock::MockBlendMessage, BlendMessage};
     use tokio::select;
 
-    use crate::{
-        behaviour::Config, conn_maintenance::ConnectionMonitorSettings, error::Error, Behaviour,
-        Event, TokioIntervalStreamProvider,
-    };
+    use crate::{behaviour::Config, error::Error, Behaviour, Event, TokioIntervalStreamProvider};
 
     /// Check that a published messsage arrives in the peers successfully.
     #[tokio::test]
@@ -263,7 +259,7 @@ mod test {
     fn new_blend_swarm(
         keypair: Keypair,
         addr: Multiaddr,
-        conn_monitor_settings: Option<ConnectionMonitorSettings>,
+        expected_message_range: Option<RangeInclusive<usize>>,
     ) -> (Swarm<Behaviour<TokioIntervalStreamProvider>>, Duration) {
         let observation_window_duration = Duration::from_secs(5);
         (
