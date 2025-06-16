@@ -333,18 +333,10 @@ mod tests {
         let msg = Message::encapsulate(&inputs, PAYLOAD_BODY).unwrap();
         assert_eq!(msg.0.len(), MESSAGE_SIZE);
 
-        // Cannot decapsulate with an invalid private key.
-        let blend_node_signing_key = blend_node_signing_keys.first().unwrap();
-        assert!(Message::decapsulate(
-            msg.0.clone(),
-            &blend_node_signing_key.derive_x25519(),
-            |proof_of_selection| {
-                proof_of_selection.as_bytes() == blend_node_signing_key.public_key().as_bytes()
-            },
-        )
-        .is_err());
+        // We expect that the decapsulations can be done
+        // in the reverse order of blend_node_signing_keys.
 
-        // Can decapsulate with the correct private key.
+        // We can decapsulate with the correct private key.
         let blend_node_signing_key = blend_node_signing_keys.last().unwrap();
         let msg = Message::decapsulate(
             msg.0,
@@ -355,7 +347,18 @@ mod tests {
         )
         .unwrap();
 
-        // Can decapsulate with the correct private key
+        // We cannot decapsulate with an invalid private key,
+        // which we already used for the first decapsulation.
+        assert!(Message::decapsulate(
+            msg.0.clone(),
+            &blend_node_signing_key.derive_x25519(),
+            |proof_of_selection| {
+                proof_of_selection.as_bytes() == blend_node_signing_key.public_key().as_bytes()
+            },
+        )
+        .is_err());
+
+        // We can decapsulate with the correct private key
         // and the fully-decapsulated message is correct.
         let blend_node_signing_key = blend_node_signing_keys.first().unwrap();
         let mut msg = Message::decapsulate(
