@@ -339,11 +339,7 @@ impl<'a> RegionView<'a> {
 /// ensuring that the first part has the exact size and the second part
 /// contains all the remaining bytes.
 fn split_at(bytes: &mut [u8], size: usize) -> Result<(&mut [u8], &mut [u8]), MessageError> {
-    let (chunk, rest) = bytes
+    bytes
         .split_at_mut_checked(size)
-        .ok_or(MessageError::InvalidMessageFormat)?;
-    if chunk.len() != size {
-        return Err(MessageError::InvalidMessageFormat);
-    }
-    Ok((chunk, rest))
+        .ok_or(MessageError::InvalidMessageFormat)
 }
