@@ -5,7 +5,7 @@ use nomos_core::block::BlockNumber;
 use nomos_da_network_core::SubnetworkId;
 use overwatch::services::{relay::OutboundRelay, state::NoState, ServiceData};
 
-use crate::{membership::Assignations, storage::MembershipStorage, MembershipStorageAdapter};
+use crate::{membership::Assignations, MembershipStorageAdapter};
 
 pub struct MockStorageService;
 

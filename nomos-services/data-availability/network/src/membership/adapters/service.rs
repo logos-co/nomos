@@ -1,26 +1,14 @@
-use std::{collections::HashMap, marker::PhantomData, pin::Pin};
+use std::{collections::HashMap, marker::PhantomData};
 
-use futures::{stream, StreamExt};
-use libp2p::{
-    identity::{self, ed25519, PublicKey},
-    Multiaddr, PeerId,
-};
-use nomos_da_network_core::SubnetworkId;
-use nomos_membership::{
-    MembershipMessage, MembershipProviders, MembershipService, MembershipSnapshotStream,
-};
-use nomos_sdp_core::{ProviderId, ServiceType};
+use futures::StreamExt;
+use libp2p::{core::signed_envelope::DecodingError, Multiaddr, PeerId};
+use nomos_libp2p::ed25519;
+use nomos_membership::{MembershipMessage, MembershipService, MembershipSnapshotStream};
+use nomos_sdp_core::ServiceType;
 use overwatch::services::{relay::OutboundRelay, ServiceData};
-use subnetworks_assignations::MembershipCreator;
 use tokio::sync::oneshot;
 
-use crate::{
-    membership::{
-        handler::DaMembershipHandler, MembershipAdapter, MembershipAdapterError,
-        PeerMultiaddrStream,
-    },
-    storage::MembershipStorage,
-};
+use crate::membership::{MembershipAdapter, MembershipAdapterError, PeerMultiaddrStream};
 
 pub struct MembershipServiceAdapter<Backend, SdpAdapter, RuntimeServiceId>
 where
@@ -91,11 +79,19 @@ where
             let peers_map: HashMap<PeerId, Multiaddr> = providers_map
                 .into_iter()
                 .filter_map(|(provider_id, locators)| {
-                    locators.first().map(|locator| {
-                        let peer_id = PeerId::random(); //provider_to_peer_id(provider_id)?;
-                        let multiaddr = locator.0.clone();
-                        (peer_id, multiaddr)
-                    })
+                    // TODO: Support multiple multiaddrs in the membership.
+                    let locator = locators.first()?;
+                    match peer_id_from_provider_id(&provider_id.0) {
+                        Ok(peer_id) => Some((peer_id, locator.0.clone())),
+                        Err(err) => {
+                            tracing::warn!(
+                                "Failed to parse PeerId from provider_id: {:?}, error: {:?}",
+                                provider_id.0,
+                                err
+                            );
+                            None
+                        }
+                    }
                 })
                 .collect();
 
@@ -104,4 +100,9 @@ where
 
         Ok(Box::pin(converted_stream))
     }
+}
+
+fn peer_id_from_provider_id(pk_raw: &[u8]) -> Result<PeerId, DecodingError> {
+    let ed_pub = ed25519::PublicKey::try_from_bytes(pk_raw)?;
+    Ok(PeerId::from_public_key(&ed_pub.into()))
 }

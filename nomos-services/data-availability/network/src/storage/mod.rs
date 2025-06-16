@@ -1,9 +1,8 @@
 pub mod adapters;
 use std::collections::HashMap;
 
-use libp2p::{Multiaddr, PeerId};
+use libp2p::Multiaddr;
 use nomos_core::block::BlockNumber;
-use nomos_da_network_core::SubnetworkId;
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 use subnetworks_assignations::{MembershipCreator, MembershipHandler};
 

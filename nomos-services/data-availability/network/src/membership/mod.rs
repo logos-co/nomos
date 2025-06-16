@@ -7,10 +7,9 @@ use std::{
 };
 
 use futures::Stream;
-use libp2p::{Multiaddr, PeerId};
+use libp2p::Multiaddr;
 use nomos_core::block::BlockNumber;
-use nomos_da_network_core::SubnetworkId;
-use nomos_membership::{backends::MembershipBackendError, MembershipSnapshotStream};
+use nomos_membership::backends::MembershipBackendError;
 use overwatch::{
     services::{relay::OutboundRelay, ServiceData},
     DynError,

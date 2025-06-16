@@ -3,9 +3,8 @@ pub mod membership;
 pub mod storage;
 
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::HashMap,
     fmt::{self, Debug, Display},
-    hash::Hash,
     marker::PhantomData,
     pin::Pin,
 };
@@ -13,10 +12,8 @@ use std::{
 use async_trait::async_trait;
 use backends::NetworkBackend;
 use futures::Stream;
-use libp2p::{Multiaddr, PeerId};
-use membership::PeerMultiaddrStream;
+use libp2p::Multiaddr;
 use nomos_core::block::BlockNumber;
-use nomos_sdp_core::{Locator, ProviderId};
 use overwatch::{
     services::{
         state::{NoOperator, ServiceState},
@@ -30,7 +27,7 @@ use subnetworks_assignations::{MembershipCreator, MembershipHandler};
 use tokio::sync::oneshot;
 use tokio_stream::StreamExt as _;
 
-use crate::membership::{handler::DaMembershipHandler, MembershipAdapter, SubnetworkPeers};
+use crate::membership::{handler::DaMembershipHandler, MembershipAdapter};
 
 pub enum DaNetworkMsg<Backend: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> {
     Process(Backend::Message),
@@ -220,7 +217,8 @@ where
                     Self::handle_network_service_message(msg, backend).await;
                 }
                 Some((block_number, providers)) = stream.next() => {
-                    Self::handle_membership_update(block_number, providers, &membership_storage); }
+                    Self::handle_membership_update(block_number, providers, &membership_storage).await;
+                }
             }
         }
     }
@@ -274,12 +272,12 @@ where
         }
     }
 
-    fn handle_membership_update(
+    async fn handle_membership_update(
         block_numnber: BlockNumber,
         update: HashMap<<Membership as MembershipHandler>::Id, Multiaddr>,
         storage: &MembershipStorage<StorageAdapter, Membership>,
     ) {
-        storage.update(block_numnber, update);
+        storage.update(block_numnber, update).await;
     }
 }
 

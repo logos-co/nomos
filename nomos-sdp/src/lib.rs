@@ -4,7 +4,7 @@ mod state;
 use std::{collections::BTreeSet, hash::Hash};
 
 use blake2::{Blake2b, Digest as _};
-use multiaddr::{Multiaddr, PeerId};
+use multiaddr::Multiaddr;
 use nomos_core::block::BlockNumber;
 use serde::{Deserialize, Serialize};
 

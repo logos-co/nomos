@@ -22,7 +22,7 @@ use nomos_storage::backends::rocksdb::RocksBackend;
 use nomos_time::backends::NtpTimeBackend;
 use rand_chacha::ChaCha20Rng;
 
-use crate::{DaMembershipStorage, NomosDaMembership, Tx, Wire, MB16};
+use crate::{NomosDaMembership, Tx, Wire, MB16};
 
 pub type TxMempoolService<RuntimeServiceId> = nomos_mempool::TxMempoolService<
     nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
