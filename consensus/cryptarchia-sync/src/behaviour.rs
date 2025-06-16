@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     task::{Context, Poll},
 };
 
@@ -10,8 +10,8 @@ use libp2p::{
     core::{transport::PortUse, Endpoint},
     futures::stream::FuturesUnordered,
     swarm::{
-        behaviour::ConnectionEstablished, dial_opts::DialOpts, ConnectionClosed, ConnectionDenied,
-        ConnectionHandler, ConnectionId, FromSwarm, NetworkBehaviour, THandlerInEvent, ToSwarm,
+        behaviour::ConnectionEstablished, ConnectionClosed, ConnectionDenied, ConnectionHandler,
+        ConnectionId, FromSwarm, NetworkBehaviour, THandlerInEvent, ToSwarm,
     },
     Multiaddr, PeerId, Stream as Libp2pStream, Stream, StreamProtocol,
 };
@@ -131,8 +131,6 @@ pub struct Behaviour {
     incoming_streams: IncomingStreams,
     /// List of connected peers.
     connected_peers: HashSet<PeerId>,
-    /// Initial peers from configuration.
-    initial_peers: HashMap<PeerId, Multiaddr>,
     /// Futures for reading incoming requests. This is common to both tip and
     /// block because initially we don't know which request we receive over
     /// stream. After reading the request, we use dedicated `FuturesUnordered`,
@@ -162,9 +160,15 @@ pub struct Behaviour {
     waker: Option<std::task::Waker>,
 }
 
+impl Default for Behaviour {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Behaviour {
     #[must_use]
-    pub fn new(initial_peers: HashMap<PeerId, Multiaddr>) -> Self {
+    pub fn new() -> Self {
         let stream_behaviour = StreamBehaviour::new();
         let mut control = stream_behaviour.new_control();
         let incoming_streams = control
@@ -174,7 +178,6 @@ impl Behaviour {
             stream_behaviour,
             control,
             incoming_streams,
-            initial_peers,
             connected_peers: HashSet::new(),
             receiving_block_responses: FuturesUnordered::new(),
             sending_block_responses: FuturesUnordered::new(),
@@ -229,7 +232,7 @@ impl Behaviour {
         additional_blocks: HashSet<HeaderId>,
         reply_sender: Sender<BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>>,
     ) -> Result<(), ChainSyncError> {
-        if !self.connected_peers.contains(&peer_id) && !self.initial_peers.contains_key(&peer_id) {
+        if !self.connected_peers.contains(&peer_id) {
             return Err(ChainSyncError {
                 peer: peer_id,
                 kind: ChainSyncErrorKind::StartSyncError(
@@ -535,20 +538,10 @@ impl NetworkBehaviour for Behaviour {
             self.handle_incoming_stream(peer_id, stream);
         }
 
-        if let Poll::Ready(ToSwarm::Dial { mut opts }) = self.stream_behaviour.poll(cx) {
-            // attach known peer address if possible
-            if let Some(address) = opts
-                .get_peer_id()
-                .and_then(|peer_id: PeerId| self.initial_peers.get(&peer_id))
-            {
-                opts = DialOpts::peer_id(opts.get_peer_id().unwrap())
-                    .addresses(vec![address.clone()])
-                    .extend_addresses_through_behaviour()
-                    .build();
-                // If we dial, some outgoing task is created, poll again.
-                self.try_notify_waker();
-                return Poll::Ready(ToSwarm::Dial { opts });
-            }
+        if let Poll::Ready(ToSwarm::Dial { opts }) = self.stream_behaviour.poll(cx) {
+            // If we dial, some outgoing task is created, poll again.
+            self.try_notify_waker();
+            return Poll::Ready(ToSwarm::Dial { opts });
         }
 
         Poll::Pending
@@ -557,11 +550,7 @@ impl NetworkBehaviour for Behaviour {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::{HashMap, HashSet},
-        iter,
-        time::Duration,
-    };
+    use std::{collections::HashSet, iter, time::Duration};
 
     use bytes::Bytes;
     use futures::{stream::BoxStream, StreamExt as _};
@@ -603,7 +592,7 @@ mod tests {
     #[tokio::test]
     async fn test_download_with_no_peers() {
         let (response_tx, _response_rx) = mpsc::channel(1);
-        let err = Behaviour::new(HashMap::new())
+        let err = Behaviour::new()
             .start_blocks_download(
                 PeerId::random(),
                 HeaderId::from([0; 32]),
@@ -795,7 +784,7 @@ mod tests {
             .with_quic()
             .with_dns()
             .unwrap()
-            .with_behaviour(|_| Behaviour::new(HashMap::new()))
+            .with_behaviour(|_| Behaviour::new())
             .unwrap()
             .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(10)))
             .build()
