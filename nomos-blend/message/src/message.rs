@@ -97,9 +97,9 @@ impl Message {
         let num_encapsulations = inputs.len();
         for (i, input) in inputs.iter().enumerate() {
             for j in 0..num_encapsulations - i {
-                input
-                    .shared_key
-                    .encrypt(view.blending_header_mut(j + MAX_ENCAPSULATIONS - num_encapsulations));
+                input.shared_key.encrypt(
+                    view.blending_header_mut(j + MAX_ENCAPSULATIONS - num_encapsulations)?,
+                );
             }
         }
 
@@ -124,7 +124,7 @@ impl Message {
             proof_of_quota,
             ..
         } = inputs.last().unwrap();
-        let sig = signing_key.sign(RegionView::new(&mut msg).signing_body());
+        let sig = signing_key.sign(RegionView::new(&mut msg).signing_body()?);
         View::parse(&mut msg)?.public_header.fill(
             signing_key.public_key().as_bytes(),
             proof_of_quota.as_bytes(),
@@ -167,10 +167,10 @@ impl Message {
             (signing_key, signing_pubkey, proof_of_quota)
         };
         let mut view = RegionView::new(&mut msg);
-        let sig = signing_key.sign(view.signing_body());
+        let sig = signing_key.sign(view.signing_body()?);
 
         // Encrypt the payload using `input`.
-        input.shared_key.encrypt(view.payload_mut());
+        input.shared_key.encrypt(view.payload_mut()?);
 
         // Shift blending headers by one rightward.
         let mut view = View::parse(&mut msg)?;
@@ -189,7 +189,7 @@ impl Message {
         // Encrypt the private header using `input`.
         let mut view = RegionView::new(&mut msg);
         for i in 0..MAX_ENCAPSULATIONS {
-            input.shared_key.encrypt(view.blending_header_mut(i));
+            input.shared_key.encrypt(view.blending_header_mut(i)?);
         }
 
         Ok(msg)
@@ -220,7 +220,7 @@ impl Message {
         // Decrypt the private header.
         let mut view = RegionView::new(&mut msg);
         for i in 0..MAX_ENCAPSULATIONS {
-            shared_key.decrypt(view.blending_header_mut(i));
+            shared_key.decrypt(view.blending_header_mut(i)?);
         }
 
         // Check if the first blending header which was correctly decrypted
@@ -242,7 +242,7 @@ impl Message {
 
         // Decrypt the payload.
         let mut view = RegionView::new(&mut msg);
-        shared_key.decrypt(view.payload_mut());
+        shared_key.decrypt(view.payload_mut()?);
 
         // Shift blending headers one leftward.
         let mut view = View::parse(&mut msg)?;
@@ -256,7 +256,7 @@ impl Message {
 
         // Encrypt the reconstructed last blending header.
         let mut view = RegionView::new(&mut msg);
-        shared_key.encrypt(view.blending_header_mut(MAX_ENCAPSULATIONS - 1));
+        shared_key.encrypt(view.blending_header_mut(MAX_ENCAPSULATIONS - 1)?);
 
         // TODO: Compare signatures (The spec should be clarified).
 

@@ -320,18 +320,37 @@ impl<'a> RegionView<'a> {
         Self(message)
     }
 
-    pub fn signing_body(&self) -> &[u8] {
-        &self.0 .0[Header::SIZE + PublicHeader::SIZE..]
+    pub fn signing_body(&self) -> Result<&[u8], MessageError> {
+        Ok(self
+            .as_bytes()
+            .split_at_checked(Header::SIZE + PublicHeader::SIZE)
+            .ok_or(MessageError::InvalidMessageFormat)?
+            .1)
     }
 
-    pub fn blending_header_mut(&mut self, index: usize) -> &mut [u8] {
-        assert!(index < MAX_ENCAPSULATIONS);
-        let pos = Header::SIZE + PublicHeader::SIZE + index * BlendingHeader::SIZE;
-        &mut self.0 .0[pos..pos + BlendingHeader::SIZE]
+    pub fn blending_header_mut(&mut self, index: usize) -> Result<&mut [u8], MessageError> {
+        let rest = split_at(
+            self.as_bytes_mut(),
+            Header::SIZE + PublicHeader::SIZE + index * BlendingHeader::SIZE,
+        )?
+        .1;
+        Ok(split_at(rest, BlendingHeader::SIZE)?.0)
     }
 
-    pub fn payload_mut(&mut self) -> &mut [u8] {
-        &mut self.0 .0[Header::SIZE + PublicHeader::SIZE + PrivateHeader::SIZE..]
+    pub fn payload_mut(&mut self) -> Result<&mut [u8], MessageError> {
+        Ok(split_at(
+            self.as_bytes_mut(),
+            Header::SIZE + PublicHeader::SIZE + PrivateHeader::SIZE,
+        )?
+        .1)
+    }
+
+    const fn as_bytes(&self) -> &BytesMut {
+        &self.0 .0
+    }
+
+    const fn as_bytes_mut(&mut self) -> &mut BytesMut {
+        &mut self.0 .0
     }
 }
 
