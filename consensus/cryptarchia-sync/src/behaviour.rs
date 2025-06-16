@@ -323,11 +323,11 @@ impl Behaviour {
         }
     }
 
-    fn handle_tip_request_available(&self, cx: &Context<'_>, request_stream: TipRequestStream) {
+    fn handle_tip_request_available(&self, request_stream: TipRequestStream) {
         self.receiving_tip_responses
             .push(Downloader::receive_tip(request_stream).boxed());
 
-        cx.waker().wake_by_ref();
+        self.try_notify_waker();
     }
 
     fn handle_blocks_request_available(&self, request_stream: BlocksRequestStream) {
@@ -485,7 +485,7 @@ impl NetworkBehaviour for Behaviour {
         if let Poll::Ready(Some(result)) = self.sending_tip_requests.poll_next_unpin(cx) {
             match result {
                 Ok(request_stream) => {
-                    self.handle_tip_request_available(cx, request_stream);
+                    self.handle_tip_request_available(request_stream);
                 }
                 Err(e) => {
                     error!("Error while processing tip request: {}", e);
@@ -546,7 +546,7 @@ impl NetworkBehaviour for Behaviour {
                     .extend_addresses_through_behaviour()
                     .build();
                 // If we dial, some outgoing task is created, poll again.
-                cx.waker().wake_by_ref();
+                self.try_notify_waker();
                 return Poll::Ready(ToSwarm::Dial { opts });
             }
         }
