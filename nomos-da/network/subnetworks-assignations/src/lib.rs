@@ -14,7 +14,7 @@ pub type SubnetworkAssignations<NetworkId, Id> = HashMap<NetworkId, HashSet<Id>>
 pub trait MembershipCreator: MembershipHandler {
     /// Initializes the underlying implementor with the provided members list.
     #[must_use]
-    fn init(&self, peer_addresses: HashMap<Self::NetworkId, HashSet<PeerId>>) -> Self;
+    fn init(&self, peer_addresses: HashMap<Self::NetworkId, HashSet<Self::Id>>) -> Self;
 
     /// Creates a new instance of membership handler that combines previous
     /// members and new members.

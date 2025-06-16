@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use backends::NetworkBackend;
 use futures::Stream;
 use libp2p::{Multiaddr, PeerId};
+use nomos_core::block::BlockNumber;
 use nomos_sdp_core::{Locator, ProviderId};
 use overwatch::{
     services::{
@@ -22,13 +23,12 @@ use overwatch::{
     OpaqueServiceResourcesHandle,
 };
 use serde::{Deserialize, Serialize};
+use storage::{MembershipStorage, MembershipStorageAdapter};
+use subnetworks_assignations::{MembershipCreator, MembershipHandler};
 use tokio::sync::oneshot;
 use tokio_stream::StreamExt as _;
 
-use crate::{
-    membership::{adapters::MembershipAdapter, handler::DaMembershipHandler},
-    storage::MembershipStorage,
-};
+use crate::membership::{handler::DaMembershipHandler, MembershipAdapter};
 
 type MembershipProviders = HashMap<ProviderId, BTreeSet<Locator>>;
 
@@ -137,9 +137,16 @@ where
         + Send
         + 'static,
     Backend::State: Send + Sync,
-    Membership: Clone + Send + Sync + 'static,
-    MembershipServiceAdapter: MembershipAdapter<Membership, StorageAdapter> + Send + Sync + 'static,
-    StorageAdapter: MembershipStorage + Default + Send + Sync + 'static,
+    Membership:
+        MembershipCreator + MembershipHandler<Id = ProviderId> + Clone + Send + Sync + 'static,
+    MembershipServiceAdapter: MembershipAdapter + Send + Sync + 'static,
+    StorageAdapter: MembershipStorageAdapter<
+            <Membership as MembershipHandler>::Id,
+            <Membership as MembershipHandler>::NetworkId,
+        > + Default
+        + Send
+        + Sync
+        + 'static,
     <MembershipServiceAdapter::MembershipService as ServiceData>::Message: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self>
         + Clone
@@ -191,12 +198,9 @@ where
             .await?;
 
         let storage_adapter = StorageAdapter::default();
+        let membership_storage = MembershipStorage::new(storage_adapter, membership.clone());
 
-        let membership_service_adapter = MembershipServiceAdapter::new(
-            membership_service_relay,
-            membership.clone(),
-            storage_adapter,
-        );
+        let membership_service_adapter = MembershipServiceAdapter::new(membership_service_relay);
 
         let mut stream = membership_service_adapter.subscribe().await.map_err(|e| {
             tracing::error!("Failed to subscribe to membership service: {e}");
@@ -214,11 +218,8 @@ where
                 Some(msg) = inbound_relay.recv() => {
                     Self::handle_network_service_message(msg, backend).await;
                 }
-                Some((_block_number, providers)) = stream.next() => {
-                    let _update = Self::handle_membership_update(&providers);
-                    // membership_service_adapter.update(block_number, update).await;
-                    // todo: implement update with loading initial state from membership service instead of config
-                }
+                Some((block_number, providers)) = stream.next() => {
+                    Self::handle_membership_update(block_number, providers, &membership_storage); }
             }
         }
     }
@@ -243,9 +244,13 @@ where
 impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
     NetworkService<Backend, Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
 where
+    StorageAdapter: MembershipStorageAdapter<
+        <Membership as MembershipHandler>::Id,
+        <Membership as MembershipHandler>::NetworkId,
+    >,
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::State: Send + Sync,
-    Membership: Clone + Send + 'static,
+    Membership: MembershipCreator<Id = ProviderId> + Clone + Send + 'static,
 {
     async fn handle_network_service_message(
         msg: DaNetworkMsg<Backend, RuntimeServiceId>,
@@ -268,11 +273,25 @@ where
         }
     }
 
-    fn handle_membership_update(update: &MembershipProviders) -> HashMap<PeerId, Multiaddr> {
-        tracing::debug!("Received membership update: {update:?}");
-        // todo: implement update
+    fn handle_membership_update(
+        block_numnber: BlockNumber,
+        update: MembershipProviders,
+        storage: &MembershipStorage<StorageAdapter, Membership>,
+    ) {
+        // TODO: handle multiple locators for one provider.
+        // Now taking the first declared locator, because swarm and membership are not
+        // adjusted to handle multiple locators.
+        let update = update
+            .into_iter()
+            .filter_map(|(provider_id, locators)| {
+                locators
+                    .iter()
+                    .next()
+                    .map(|locator| (provider_id, locator.0.clone()))
+            })
+            .collect();
 
-        HashMap::new()
+        storage.update(block_numnber, update);
     }
 }
 
