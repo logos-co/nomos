@@ -38,11 +38,12 @@ use nomos_http_api_common::paths::{
     CL_METRICS, CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_RANGE,
     DA_MONITOR_STATS, STORAGE_BLOCK,
 };
+use nomos_mantle_core::tx::SignedMantleTx;
 use nomos_mempool::MempoolMetrics;
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
     api::backend::AxumBackendSettings, config::mempool::MempoolConfig, BlobInfo, Config, HeaderId,
-    RocksBackendSettings, Tx,
+    RocksBackendSettings,
 };
 use nomos_time::{
     backends::{ntp::async_client::NTPClientSettings, NtpTimeBackendSettings},
@@ -155,7 +156,7 @@ impl Validator {
         }
     }
 
-    pub async fn get_block(&self, id: HeaderId) -> Option<Block<Tx, BlobInfo>> {
+    pub async fn get_block(&self, id: HeaderId) -> Option<Block<SignedMantleTx, BlobInfo>> {
         CLIENT
             .post(format!("http://{}{}", self.addr, STORAGE_BLOCK))
             .header("Content-Type", "application/json")
@@ -163,7 +164,7 @@ impl Validator {
             .send()
             .await
             .unwrap()
-            .json::<Option<Block<Tx, BlobInfo>>>()
+            .json::<Option<Block<SignedMantleTx, BlobInfo>>>()
             .await
             .unwrap()
     }

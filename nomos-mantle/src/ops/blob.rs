@@ -8,7 +8,7 @@ use crate::{
 
 pub type BlobId = [u8; 32];
 
-#[derive(Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct BlobOp {
     pub channel: ChannelId,
     pub blob: BlobId,

@@ -1,7 +1,6 @@
 pub mod api;
 pub mod config;
 pub mod generic_services;
-mod tx;
 
 use bytes::Bytes;
 use color_eyre::eyre::Result;
@@ -32,6 +31,7 @@ use nomos_da_verifier::{
     network::adapters::validator::Libp2pAdapter as VerifierNetworkAdapter,
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
+use nomos_mantle_core::tx::SignedMantleTx;
 pub use nomos_mempool::{
     da::settings::DaMempoolSettings,
     network::adapters::libp2p::{
@@ -52,13 +52,10 @@ use rand_chacha::ChaCha20Rng;
 use serde::{de::DeserializeOwned, Serialize};
 use subnetworks_assignations::versions::v1::FillFromNodeList;
 
+pub use crate::config::{Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs};
 use crate::{
     api::backend::AxumBackend,
     generic_services::{DaMembershipAdapter, MembershipService, SdpService},
-};
-pub use crate::{
-    config::{Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs},
-    tx::Tx,
 };
 
 pub const CONSENSUS_TOPIC: &str = "/cryptarchia/proto";
@@ -201,7 +198,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
             RuntimeServiceId,
         >,
         VerifierStorageAdapter<DaShare, Wire, DaStorageConverter>,
-        Tx,
+        SignedMantleTx,
         Wire,
         DaStorageConverter,
         KzgrsSamplingBackend<ChaCha20Rng>,

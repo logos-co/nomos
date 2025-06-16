@@ -6,11 +6,12 @@ use nomos_core::da::blob::info::DispersedBlobInfo;
 use nomos_executor::{
     config::Config as ExecutorConfig, NomosExecutor, NomosExecutorServiceSettings,
 };
+use nomos_mantle_core::tx::SignedMantleTx;
 use nomos_membership::{backends::mock::MockMembershipBackendSettings, BackendSettings};
 use nomos_mempool::tx::settings::TxMempoolSettings;
 use nomos_node::{
     config::BlendArgs, BlobInfo, CryptarchiaArgs, DaMempoolSettings, HttpArgs, LogArgs,
-    MempoolAdapterSettings, NetworkArgs, Transaction, Tx, CL_TOPIC, DA_TOPIC,
+    MempoolAdapterSettings, NetworkArgs, Transaction, CL_TOPIC, DA_TOPIC,
 };
 use overwatch::overwatch::OverwatchRunner;
 
@@ -79,7 +80,7 @@ async fn main() -> Result<()> {
                 pool: (),
                 network_adapter: MempoolAdapterSettings {
                     topic: String::from(CL_TOPIC),
-                    id: <Tx as Transaction>::hash,
+                    id: <SignedMantleTx as Transaction>::hash,
                 },
                 recovery_path: config.mempool.cl_pool_recovery_path,
             },
