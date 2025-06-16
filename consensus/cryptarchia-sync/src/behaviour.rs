@@ -37,15 +37,15 @@ const MAX_INCOMING_REQUESTS: usize = 4;
 
 type SendingBlocksRequestsFuture = BoxFuture<'static, Result<BlocksRequestStream, ChainSyncError>>;
 
-type SendingTipsRequestFuture = BoxFuture<'static, Result<TipRequestStream, ChainSyncError>>;
+type SendingTipRequestFuture = BoxFuture<'static, Result<TipRequestStream, ChainSyncError>>;
 
 type ReceivingBlocksResponsesFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
 
-type ReceivingTipsResponsesFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
+type ReceivingTipResponsesFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
 
 type SendingBlocksResponsesFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
 
-type SendingTipsResponsesFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
+type SendingTipResponsesFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
 
 type ReceivingRequestsFuture = BoxFuture<'static, Result<ReceivingRequestStream, ChainSyncError>>;
 
@@ -148,12 +148,12 @@ pub struct Behaviour {
     sending_block_responses: FuturesUnordered<SendingBlocksResponsesFuture>,
     /// Futures for sending tip requests. After the request is
     /// read, the reading tip is handled by `receiving_tip_responses`.
-    sending_tip_requests: FuturesUnordered<SendingTipsRequestFuture>,
+    sending_tip_requests: FuturesUnordered<SendingTipRequestFuture>,
     /// Futures for managing the progress of locally initiated tip requests.
-    receiving_tip_responses: FuturesUnordered<ReceivingTipsResponsesFuture>,
+    receiving_tip_responses: FuturesUnordered<ReceivingTipResponsesFuture>,
     /// Futures for managing the progress of externally initiated tip
     /// requests.
-    sending_tip_responses: FuturesUnordered<SendingTipsResponsesFuture>,
+    sending_tip_responses: FuturesUnordered<SendingTipResponsesFuture>,
     /// Futures for closing incoming streams that were rejected due to excess
     /// requests.
     incoming_streams_to_close: FuturesUnordered<BoxFuture<'static, ()>>,
