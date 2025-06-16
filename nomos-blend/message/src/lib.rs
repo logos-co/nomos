@@ -1,5 +1,10 @@
+pub mod crypto;
+pub mod message;
+// TODO: Remove mock and sphinx.
+// We don't need to maintain multiple implementations.
 pub mod mock;
 pub mod sphinx;
+mod view;
 
 pub trait BlendMessage {
     type PublicKey;
