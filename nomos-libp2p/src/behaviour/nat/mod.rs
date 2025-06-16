@@ -5,11 +5,11 @@ use std::{
 
 use either::Either;
 use futures::{
-    future::{BoxFuture, OptionFuture},
+    future::{BoxFuture, Fuse, OptionFuture},
     FutureExt as _,
 };
 use libp2p::{
-    autonat::{self, v2::client::Config},
+    autonat,
     core::{transport::PortUse, Endpoint},
     swarm::{
         behaviour::toggle::{Toggle, ToggleConnectionHandler},
@@ -26,7 +26,7 @@ mod state_machine;
 use state_machine::{Command, StateMachine};
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use crate::behaviour::nat::address_mapper::AddressMapperBehaviour;
+use crate::{behaviour::nat::address_mapper::AddressMapperBehaviour, AutonatClientSettings};
 
 type Task = BoxFuture<'static, Multiaddr>;
 
@@ -57,11 +57,14 @@ pub struct NatBehaviour<R: RngCore + 'static> {
     command_rx: UnboundedReceiver<Command>,
     /// Used to schedule "re-tests" for already confirmed external addresses via
     /// the `autonat_client_behaviour`
-    next_autonat_client_tick: OptionFuture<Task>,
+    next_autonat_client_tick: Fuse<OptionFuture<Task>>,
+    /// Interval for the above ticker. `None` if the node is configured with a
+    /// static public IP address.
+    autonat_client_tick_interval: Option<Duration>,
 }
 
 impl<R: RngCore + 'static> NatBehaviour<R> {
-    pub fn new(rng: R, autonat_client_config: Option<Config>) -> Self {
+    pub fn new(rng: R, autonat_client_config: Option<AutonatClientSettings>) -> Self {
         let address_mapper_behaviour = Toggle::from(
             autonat_client_config
                 .as_ref()
@@ -69,12 +72,18 @@ impl<R: RngCore + 'static> NatBehaviour<R> {
         );
 
         let autonat_client_behaviour = Toggle::from(
-            autonat_client_config.map(|config| autonat::v2::client::Behaviour::new(rng, config)),
+            autonat_client_config
+                .as_ref()
+                .map(|config| autonat::v2::client::Behaviour::new(rng, config.to_libp2p_config())),
         );
 
         let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let state_machine = StateMachine::new(command_tx);
+
+        let autonat_client_tick_interval = autonat_client_config.map(|config| {
+            Duration::from_millis(config.retest_successful_external_addresses_interval_millisecs)
+        });
 
         Self {
             static_listen_addr: None,
@@ -82,7 +91,8 @@ impl<R: RngCore + 'static> NatBehaviour<R> {
             address_mapper_behaviour,
             state_machine,
             command_rx,
-            next_autonat_client_tick: None.into(),
+            next_autonat_client_tick: OptionFuture::default().fuse(),
+            autonat_client_tick_interval,
         }
     }
 }
@@ -206,12 +216,15 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
         if let Poll::Ready(Some(command)) = self.command_rx.poll_recv(cx) {
             match command {
                 Command::ScheduleAutonatClientTest(addr) => {
-                    self.next_autonat_client_tick = Some(
-                        tokio::time::sleep(Duration::from_secs(60)) /* TODO */
-                            .map(|()| addr)
-                            .boxed(),
-                    )
-                    .into();
+                    self.next_autonat_client_tick = OptionFuture::from(Some(
+                        tokio::time::sleep(
+                            self.autonat_client_tick_interval
+                                .expect("autonat client to be enabled"),
+                        )
+                        .map(|()| addr)
+                        .boxed(),
+                    ))
+                    .fuse();
                 }
                 Command::MapAddress(addr) => {
                     if let Some(mapper) = self.address_mapper_behaviour.as_mut() {
@@ -248,7 +261,7 @@ mod tests {
         pub fn new(public_key: identity::PublicKey) -> Self {
             let nat = NatBehaviour::new(
                 OsRng,
-                Some(Config::default().with_probe_interval(Duration::from_millis(100))),
+                Some(AutonatClientSettings::default().with_probe_interval_millisecs(10)),
             );
             let identify =
                 identify::Behaviour::new(identify::Config::new("/unittest".into(), public_key));

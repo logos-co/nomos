@@ -14,7 +14,14 @@ pub struct Settings {
     /// The interval at which we will attempt to confirm candidates as external
     /// addresses.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub probe_interval_secs: Option<u64>,
+    pub probe_interval_millisecs: Option<u64>,
+
+    #[serde(default = "default_restest_interval_millisecs")]
+    pub retest_successful_external_addresses_interval_millisecs: u64,
+}
+
+fn default_restest_interval_millisecs() -> u64 {
+    60_000 // 1 minute
 }
 
 impl Settings {
@@ -28,10 +35,15 @@ impl Settings {
             config = config.with_max_candidates(max_candidates);
         }
 
-        if let Some(probe_interval_secs) = self.probe_interval_secs {
-            config = config.with_probe_interval(Duration::from_secs(probe_interval_secs));
+        if let Some(probe_interval_millisecs) = self.probe_interval_millisecs {
+            config = config.with_probe_interval(Duration::from_millis(probe_interval_millisecs));
         }
 
         config
+    }
+
+    pub fn with_probe_interval_millisecs(mut self, millisecs: u64) -> Self {
+        self.probe_interval_millisecs = Some(millisecs);
+        self
     }
 }

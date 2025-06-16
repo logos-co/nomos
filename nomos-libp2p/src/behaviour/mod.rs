@@ -89,10 +89,7 @@ impl<R: Clone + Send + RngCore + 'static> Behaviour<R> {
 
         let autonat_server = autonat::v2::server::Behaviour::new(rng.clone());
 
-        let nat = nat::NatBehaviour::new(
-            rng,
-            autonat_client_config.map(|config| config.to_libp2p_config()),
-        );
+        let nat = nat::NatBehaviour::new(rng, autonat_client_config);
 
         Ok(Self {
             gossipsub,
