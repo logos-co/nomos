@@ -5,6 +5,7 @@ pub mod storage;
 use std::{
     collections::{BTreeSet, HashMap},
     fmt::{self, Debug, Display},
+    hash::Hash,
     marker::PhantomData,
     pin::Pin,
 };
@@ -13,6 +14,7 @@ use async_trait::async_trait;
 use backends::NetworkBackend;
 use futures::Stream;
 use libp2p::{Multiaddr, PeerId};
+use membership::PeerMultiaddrStream;
 use nomos_core::block::BlockNumber;
 use nomos_sdp_core::{Locator, ProviderId};
 use overwatch::{
@@ -28,9 +30,7 @@ use subnetworks_assignations::{MembershipCreator, MembershipHandler};
 use tokio::sync::oneshot;
 use tokio_stream::StreamExt as _;
 
-use crate::membership::{handler::DaMembershipHandler, MembershipAdapter};
-
-type MembershipProviders = HashMap<ProviderId, BTreeSet<Locator>>;
+use crate::membership::{handler::DaMembershipHandler, MembershipAdapter, SubnetworkPeers};
 
 pub enum DaNetworkMsg<Backend: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> {
     Process(Backend::Message),
@@ -137,9 +137,10 @@ where
         + Send
         + 'static,
     Backend::State: Send + Sync,
-    Membership:
-        MembershipCreator + MembershipHandler<Id = ProviderId> + Clone + Send + Sync + 'static,
-    MembershipServiceAdapter: MembershipAdapter + Send + Sync + 'static,
+    Membership: MembershipCreator + MembershipHandler + Clone + Send + Sync + 'static,
+    Membership::Id: Send,
+    Membership::NetworkId: Send,
+    MembershipServiceAdapter: MembershipAdapter<Id = Membership::Id> + Send + Sync + 'static,
     StorageAdapter: MembershipStorageAdapter<
             <Membership as MembershipHandler>::Id,
             <Membership as MembershipHandler>::NetworkId,
@@ -250,7 +251,7 @@ where
     >,
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::State: Send + Sync,
-    Membership: MembershipCreator<Id = ProviderId> + Clone + Send + 'static,
+    Membership: MembershipCreator + Clone + Send + 'static,
 {
     async fn handle_network_service_message(
         msg: DaNetworkMsg<Backend, RuntimeServiceId>,
@@ -275,22 +276,9 @@ where
 
     fn handle_membership_update(
         block_numnber: BlockNumber,
-        update: MembershipProviders,
+        update: HashMap<<Membership as MembershipHandler>::Id, Multiaddr>,
         storage: &MembershipStorage<StorageAdapter, Membership>,
     ) {
-        // TODO: handle multiple locators for one provider.
-        // Now taking the first declared locator, because swarm and membership are not
-        // adjusted to handle multiple locators.
-        let update = update
-            .into_iter()
-            .filter_map(|(provider_id, locators)| {
-                locators
-                    .iter()
-                    .next()
-                    .map(|locator| (provider_id, locator.0.clone()))
-            })
-            .collect();
-
         storage.update(block_numnber, update);
     }
 }

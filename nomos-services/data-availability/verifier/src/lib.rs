@@ -13,7 +13,7 @@ use backend::VerifierBackend;
 use network::NetworkAdapter;
 use nomos_core::da::blob::Share;
 use nomos_da_network_service::{
-    membership::adapters::MembershipAdapter, storage::MembershipStorage, NetworkService,
+    membership::MembershipAdapter, storage::MembershipStorageAdapter, NetworkService,
 };
 use nomos_storage::StorageService;
 use nomos_tracing::info_with_id;
@@ -143,8 +143,13 @@ where
     Network: NetworkAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + Sync + 'static,
     Network::Membership: MembershipHandler + Clone,
     Network::Settings: Clone + Send + Sync + 'static,
-    Network::Storage: MembershipStorage + Send + Sync + 'static,
-    Network::MembershipAdapter: MembershipAdapter<Network::Membership, Network::Storage>,
+    Network::Storage: MembershipStorageAdapter<
+            <Network::Membership as MembershipHandler>::Id,
+            <Network::Membership as MembershipHandler>::NetworkId,
+        > + Send
+        + Sync
+        + 'static,
+    Network::MembershipAdapter: MembershipAdapter,
     DaStorage: DaStorageAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + Sync + 'static,
     DaStorage::Settings: Clone + Send + Sync + 'static,
     RuntimeServiceId: Debug

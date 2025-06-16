@@ -5,7 +5,7 @@ use kzgrs_backend::{
 };
 use nomos_core::{da::blob::info::DispersedBlobInfo, header::HeaderId, tx::Transaction};
 use nomos_da_indexer::consensus::adapters::cryptarchia::CryptarchiaConsensusAdapter;
-use nomos_da_network_service::membership::adapters::mock::MockMembershipAdapter;
+use nomos_da_network_service::membership::adapters::service::MembershipServiceAdapter;
 use nomos_da_sampling::{
     api::http::HttApiAdapter, backend::kzgrs::KzgrsSamplingBackend,
     storage::adapters::rocksdb::converter::DaStorageConverter,
@@ -213,9 +213,8 @@ pub type MembershipService<RuntimeServiceId> = nomos_membership::MembershipServi
     RuntimeServiceId,
 >;
 
-pub type DaMembershipAdapter<RuntimeServiceId> = MockMembershipAdapter<
+pub type DaMembershipAdapter<RuntimeServiceId> = MembershipServiceAdapter<
     MockMembershipBackend,
-    NomosDaMembership,
     LedgerSdpAdapter<
         SdpLedger<LedgerDeclarationAdapter, LedgerServicesAdapter, Metadata>,
         LedgerDeclarationAdapter,
@@ -223,7 +222,6 @@ pub type DaMembershipAdapter<RuntimeServiceId> = MockMembershipAdapter<
         Metadata,
         RuntimeServiceId,
     >,
-    DaMembershipStorage,
     RuntimeServiceId,
 >;
 
