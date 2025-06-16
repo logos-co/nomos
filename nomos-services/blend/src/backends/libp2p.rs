@@ -238,13 +238,12 @@ where
         reason = "TODO: Address this at some point."
     )]
     fn handle_publish_swarm_message(&mut self, msg: &[u8]) {
-        let msg_size = msg.len();
         if let Err(e) = self.swarm.behaviour_mut().blend.publish(msg) {
             tracing::error!("Failed to publish message to blend network: {e:?}");
             tracing::info!(counter.failed_outbound_messages = 1);
         } else {
             tracing::info!(counter.successful_outbound_messages = 1);
-            tracing::info!(histogram.sent_data = msg_size as u64);
+            tracing::info!(histogram.sent_data = msg.len() as u64);
         }
     }
 
@@ -298,13 +297,12 @@ where
     fn handle_blend_message(&self, msg: Vec<u8>) {
         tracing::debug!("Received message from a peer: {msg:?}");
 
-        let msg_size = msg.len();
         if let Err(e) = self.incoming_message_sender.send(msg) {
             tracing::error!("Failed to send incoming message to channel: {e}");
             tracing::info!(counter.failed_inbound_messages = 1);
         } else {
             tracing::info!(counter.successful_inbound_messages = 1);
-            tracing::info!(histogram.received_data = msg_size as u64);
+            tracing::info!(histogram.received_data = msg.len() as u64);
         }
     }
 
