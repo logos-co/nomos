@@ -135,7 +135,7 @@ where
         + 'static,
     Backend::State: Send + Sync,
     Membership: MembershipCreator + MembershipHandler + Clone + Send + Sync + 'static,
-    Membership::Id: Send,
+    Membership::Id: Send + Sync,
     Membership::NetworkId: Send,
     MembershipServiceAdapter: MembershipAdapter<Id = Membership::Id> + Send + Sync + 'static,
     StorageAdapter: MembershipStorageAdapter<
@@ -244,12 +244,15 @@ impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServi
     NetworkService<Backend, Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
 where
     StorageAdapter: MembershipStorageAdapter<
-        <Membership as MembershipHandler>::Id,
-        <Membership as MembershipHandler>::NetworkId,
-    >,
+            <Membership as MembershipHandler>::Id,
+            <Membership as MembershipHandler>::NetworkId,
+        > + Send
+        + Sync,
+
+    Membership::Id: Send + Sync,
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::State: Send + Sync,
-    Membership: MembershipCreator + Clone + Send + 'static,
+    Membership: MembershipCreator + Clone + Send + Sync + 'static,
 {
     async fn handle_network_service_message(
         msg: DaNetworkMsg<Backend, RuntimeServiceId>,
@@ -272,12 +275,17 @@ where
         }
     }
 
+    #[expect(
+        clippy::unused_async,
+        reason = "This function is a placeholder for future implementation"
+    )]
     async fn handle_membership_update(
-        block_numnber: BlockNumber,
-        update: HashMap<<Membership as MembershipHandler>::Id, Multiaddr>,
-        storage: &MembershipStorage<StorageAdapter, Membership>,
+        _block_numnber: BlockNumber,
+        _update: HashMap<<Membership as MembershipHandler>::Id, Multiaddr>,
+        _storage: &MembershipStorage<StorageAdapter, Membership>,
     ) {
-        storage.update(block_numnber, update).await;
+        //update(block_numnber, update).await;
+        // todo: implement update when config is moved to the membership service
     }
 }
 

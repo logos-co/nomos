@@ -28,7 +28,7 @@ impl MembershipStorageAdapter<PeerId, SubnetworkId> for MockStorage {
     type StorageService = MockStorageService;
 
     fn new(_relay: OutboundRelay<<Self::StorageService as ServiceData>::Message>) -> Self {
-        MockStorage::default()
+        Self::default()
     }
 
     fn store(&self, block_number: BlockNumber, assignations: Assignations<PeerId, SubnetworkId>) {

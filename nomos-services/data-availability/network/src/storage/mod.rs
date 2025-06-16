@@ -25,16 +25,18 @@ pub struct MembershipStorage<Adapter, Membership> {
 impl<Adapter, Membership> MembershipStorage<Adapter, Membership>
 where
     Adapter: MembershipStorageAdapter<
-        <Membership as MembershipHandler>::Id,
-        <Membership as MembershipHandler>::NetworkId,
-    >,
-    Membership: MembershipCreator + MembershipHandler + Clone,
+            <Membership as MembershipHandler>::Id,
+            <Membership as MembershipHandler>::NetworkId,
+        > + Send
+        + Sync,
+    Membership: MembershipCreator + MembershipHandler + Clone + Send + Sync,
+    Membership::Id: Send + Sync,
 {
-    pub fn new(adapter: Adapter, handler: DaMembershipHandler<Membership>) -> Self {
+    pub const fn new(adapter: Adapter, handler: DaMembershipHandler<Membership>) -> Self {
         Self { adapter, handler }
     }
 
-    pub async fn update(
+    pub fn update(
         &self,
         block_number: BlockNumber,
         new_members: HashMap<Membership::Id, Multiaddr>,
@@ -46,7 +48,7 @@ where
         self.adapter.store(block_number, assignations);
     }
 
-    pub async fn get_historic_membership(&self, block_number: BlockNumber) -> Option<Membership> {
+    pub fn get_historic_membership(&self, block_number: BlockNumber) -> Option<Membership> {
         let assignations = self.adapter.get(block_number)?;
         Some(self.handler.membership().init(assignations))
     }
