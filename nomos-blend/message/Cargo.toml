@@ -7,12 +7,12 @@ version = "0.1.0"
 [dependencies]
 blake2.workspace = true
 bytes.workspace  = true
-chacha20         = "0.9.1"
-cipher           = "0.4.4"
-ed25519-dalek    = { features = ["rand_core"], version = "2" }
+chacha20         = "0.9"
+cipher           = "0.4"
+ed25519-dalek    = { version = "2", features = ["rand_core"] }
 itertools        = "0.13"
 rand_chacha      = "0.3"
 sha2             = "0.10"
 sphinx-packet    = "0.2"
-thiserror        = "1.0.65"
-x25519-dalek     = { features = ["getrandom", "serde", "static_secrets"], version = "2.0.1" }
+thiserror        = "1"
+x25519-dalek     = { version = "2", features = ["getrandom", "serde", "static_secrets"] }
