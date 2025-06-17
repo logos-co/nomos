@@ -1,7 +1,7 @@
 use futures::Stream;
 use nomos_core::wire;
 use nomos_network::{
-    backends::libp2p::{Command, Event, EventKind, Libp2p, Message, PubSubCommand, TopicHash},
+    backends::libp2p::{Command, Libp2p, Message, PubSubCommand, TopicHash},
     message::NetworkMsg,
     NetworkService,
 };
@@ -53,16 +53,13 @@ where
         let id = self.settings.id;
         let (sender, receiver) = tokio::sync::oneshot::channel();
         self.network_relay
-            .send(NetworkMsg::Subscribe {
-                kind: EventKind::Message,
-                sender,
-            })
+            .send(NetworkMsg::SubscribeToPubSub { sender })
             .await
             .expect("Network backend should be ready");
         let receiver = receiver.await.unwrap();
         Box::new(Box::pin(BroadcastStream::new(receiver).filter_map(
             move |message| match message {
-                Ok(Event::Message(Message { data, topic, .. })) if topic == topic_hash => {
+                Ok(Message { data, topic, .. }) if topic == topic_hash => {
                     match wire::deserialize::<Item>(&data) {
                         Ok(item) => Some((id(&item), item)),
                         Err(e) => {

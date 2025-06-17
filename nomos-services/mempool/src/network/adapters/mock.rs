@@ -1,9 +1,7 @@
 use futures::{Stream, StreamExt as _};
 use nomos_core::tx::mock::{MockTransaction, MockTxId};
 use nomos_network::{
-    backends::mock::{
-        EventKind, Mock, MockBackendMessage, MockContentTopic, MockMessage, NetworkEvent,
-    },
+    backends::mock::{Mock, MockBackendMessage, MockContentTopic, MockMessage, NetworkEvent},
     message::NetworkMsg,
     NetworkService,
 };
@@ -66,10 +64,7 @@ impl<RuntimeServiceId> NetworkAdapter<RuntimeServiceId> for MockAdapter<RuntimeS
         let (sender, receiver) = tokio::sync::oneshot::channel();
         if let Err((_, e)) = self
             .network_relay
-            .send(NetworkMsg::Subscribe {
-                kind: EventKind::Message,
-                sender,
-            })
+            .send(NetworkMsg::SubscribeToPubSub { sender })
             .await
         {
             tracing::error!(err = ?e);

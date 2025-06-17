@@ -2,7 +2,7 @@ use std::{hash::Hash, marker::PhantomData};
 
 use nomos_core::{block::Block, wire};
 use nomos_network::{
-    backends::libp2p::{Command, Event, EventKind, Libp2p, PubSubCommand::Subscribe},
+    backends::libp2p::{Command, Libp2p, PubSubCommand::Subscribe},
     message::NetworkMsg,
     NetworkService,
 };
@@ -91,10 +91,7 @@ where
         let (sender, receiver) = tokio::sync::oneshot::channel();
         if let Err((e, _)) = self
             .network_relay
-            .send(NetworkMsg::Subscribe {
-                kind: EventKind::Message,
-                sender,
-            })
+            .send(NetworkMsg::SubscribeToPubSub { sender })
             .await
         {
             return Err(Box::new(e));
@@ -102,7 +99,7 @@ where
         Ok(Box::new(
             BroadcastStream::new(receiver.await.map_err(Box::new)?).filter_map(|message| {
                 match message {
-                    Ok(Event::Message(message)) => wire::deserialize(&message.data).map_or_else(
+                    Ok(message) => wire::deserialize(&message.data).map_or_else(
                         |_| {
                             tracing::debug!("unrecognized gossipsub message");
                             None

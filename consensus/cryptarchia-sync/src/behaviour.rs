@@ -94,7 +94,7 @@ impl TipRequestStream {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Event {
     ProvideBlocksRequest {
         /// Return blocks up to `target_block`.

@@ -5,16 +5,18 @@ use tokio::sync::{broadcast, oneshot};
 use crate::backends::NetworkBackend;
 
 #[derive(Debug)]
-pub enum NetworkMsg<Payload, EventKind, NetworkEvent> {
+pub enum NetworkMsg<Payload, PubSubEvent, ChainSyncEvent> {
     Process(Payload),
-    Subscribe {
-        kind: EventKind,
-        sender: oneshot::Sender<broadcast::Receiver<NetworkEvent>>,
+    SubscribeToPubSub {
+        sender: oneshot::Sender<broadcast::Receiver<PubSubEvent>>,
+    },
+    SubscribeToChainSync {
+        sender: oneshot::Sender<broadcast::Receiver<ChainSyncEvent>>,
     },
 }
 
 pub type BackendNetworkMsg<Backend, RuntimeServiceId> = NetworkMsg<
     <Backend as NetworkBackend<RuntimeServiceId>>::Message,
-    <Backend as NetworkBackend<RuntimeServiceId>>::EventKind,
-    <Backend as NetworkBackend<RuntimeServiceId>>::NetworkEvent,
+    <Backend as NetworkBackend<RuntimeServiceId>>::PubSubEvent,
+    <Backend as NetworkBackend<RuntimeServiceId>>::ChainSyncEvent,
 >;
