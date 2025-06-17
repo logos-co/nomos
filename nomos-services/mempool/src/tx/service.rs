@@ -235,7 +235,7 @@ where
                 }
                 Some((key, item)) = network_items.next() => {
                     processor.process(&item).await.unwrap_or_else(|e| {
-                        tracing::debug!("could not process item from network due to: {e}");
+                        tracing::debug!("could not process item from network due to: {e:?}");
                     });
                     self.pool.add_item(key, item).unwrap_or_else(|e| {
                         tracing::debug!("could not add item to the pool due to: {e}");

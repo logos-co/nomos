@@ -19,5 +19,5 @@ pub trait PayloadProcessor {
     ) -> Self;
 
     /// Executes required procedures before adding payload to the pool.
-    async fn process(&self, payload: &Self::Payload) -> Result<(), Self::Error>;
+    async fn process(&self, payload: &Self::Payload) -> Result<(), Vec<Self::Error>>;
 }

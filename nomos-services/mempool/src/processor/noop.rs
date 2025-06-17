@@ -25,7 +25,7 @@ where
         Self
     }
 
-    async fn process(&self, _: &Self::Payload) -> Result<(), Self::Error> {
+    async fn process(&self, _: &Self::Payload) -> Result<(), Vec<Self::Error>> {
         Ok(())
     }
 }

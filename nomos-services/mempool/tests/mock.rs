@@ -66,7 +66,7 @@ fn get_test_random_path() -> PathBuf {
 }
 
 #[test]
-#[expect(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines, reason = "self contained test")]
 fn test_mock_mempool() {
     let recovery_file_path = get_test_random_path();
     run_with_recovery_teardown(&recovery_file_path, || {
