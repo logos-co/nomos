@@ -17,7 +17,7 @@ impl SdpDeclarationAdapter for LedgerDeclarationAdapter {
 }
 
 #[async_trait]
-impl ledger::DeclarationsRepository for LedgerDeclarationAdapter {
+impl DeclarationsRepository for LedgerDeclarationAdapter {
     async fn get(
         &self,
         _id: nomos_sdp_core::DeclarationId,
