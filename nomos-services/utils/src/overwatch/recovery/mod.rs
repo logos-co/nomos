@@ -116,8 +116,11 @@ mod tests {
             recovery: recovery_settings,
         };
         let app = OverwatchRunner::<RecoveryTest>::run(service_settings, None).unwrap();
-        let _ = app.runtime().block_on(app.handle().start_all_services());
-        app.wait_finished();
+        let _ = app
+            .runtime()
+            .handle()
+            .block_on(app.handle().start_all_services());
+        app.blocking_wait_finished();
 
         // Read the content of the recovery file
         let serialized_state = std::fs::read_to_string(file_backend.recovery_file());

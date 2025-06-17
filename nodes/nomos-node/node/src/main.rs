@@ -36,7 +36,8 @@ struct Args {
     cryptarchia: CryptarchiaArgs,
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let Args {
         config,
         check_config_only,
@@ -99,7 +100,7 @@ fn main() -> Result<()> {
         None,
     )
     .map_err(|e| eyre!("Error encountered: {}", e))?;
-    let _ = app.runtime().block_on(app.handle().start_all_services());
-    app.wait_finished();
+    let _ = app.handle().start_all_services().await;
+    app.wait_finished().await;
     Ok(())
 }
