@@ -69,6 +69,7 @@ impl From<(PeerId, PackingError)> for ChainSyncError {
     }
 }
 
+// Implement Clone manually because some variants contain non-cloneable types
 impl Clone for ChainSyncErrorKind {
     fn clone(&self) -> Self {
         match self {
