@@ -1,9 +1,8 @@
 ## 1. What does this PR implement?
 
 > [!NOTE]  
-> Review  
->
-the [Specification to Implementation Process document](https://www.notion.so/Specification-to-Implementation-Process-0cd6547233fa43a1a03d6e360de9eb2b).
+> Review the 
+> [Specification to Implementation Process document](https://www.notion.so/Specification-to-Implementation-Process-0cd6547233fa43a1a03d6e360de9eb2b).
 
 ## 2. Does the code have enough context to be clearly understood?
 
@@ -40,8 +39,9 @@ the [Specification to Implementation Process document](https://www.notion.so/Spe
 > [!WARNING]  
 > Do not merge the PR if any of the following is missing:
 
-* [ ] 1. Description added.
-* [ ] 2. Context and links to Specification document(s) added.
-* [ ] 3. Main contact(s) (developers and specification authors) added
-* [ ] 4. Implementation and Specification are 100% in sync including changes. This is critical.
-* [ ] 5. Link PR to a specific milestone.
+* [ ] 1. The PR title follows the Conventional Commits [specification](https://www.notion.so/How-to-open-a-Pull-Request-215261aa09df80deb538ed59f5e4e0b5).
+* [ ] 2. Description added.
+* [ ] 3. Context and links to Specification document(s) added.
+* [ ] 4. Main contact(s) (developers and specification authors) added
+* [ ] 5. Implementation and Specification are 100% in sync including changes. This is critical.
+* [ ] 6. Link PR to a specific milestone.

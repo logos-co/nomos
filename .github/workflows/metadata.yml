@@ -3,7 +3,6 @@ name: Metadata
 on:
   pull_request_target:
     types: [ opened, synchronize, reopened, edited ]
-  pull_request:
 
 permissions:
   pull-requests: write
