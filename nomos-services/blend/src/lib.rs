@@ -329,14 +329,6 @@ impl TimingSettings {
             }),
         )
     }
-
-    const fn observation_window_duration(&self) -> Duration {
-        Duration::from_secs(
-            (self.rounds_per_observation_window.get() as u64)
-                .checked_add(self.round_duration.as_secs())
-                .expect("Overflow when calculating observation window duration."),
-        )
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

@@ -6,8 +6,11 @@ use std::{
 use futures::{Stream, StreamExt as _};
 
 /// Counts the number of messages received from a peer during
-/// an interval. `interval` is a field that implements [`futures::Stream`] to
-/// support both sync and async environments.
+/// an interval.
+///
+/// Upon each interval conclusion, the provider is expected to return the range
+/// of expected messages for the new interval, which is then used by the monitor
+/// to evaluate the remote peer.
 pub struct ConnectionMonitor<ConnectionWindowClock> {
     expected_message_range: RangeInclusive<usize>,
     connection_window_clock: ConnectionWindowClock,
@@ -23,11 +26,14 @@ pub enum ConnectionMonitorOutput {
 }
 
 impl<ConnectionWindowClock> ConnectionMonitor<ConnectionWindowClock> {
-    pub const fn new(connection_window_clock: ConnectionWindowClock) -> Self {
+    pub const fn new(
+        connection_window_clock: ConnectionWindowClock,
+        initial_range_value: RangeInclusive<usize>,
+    ) -> Self {
         Self {
             connection_window_clock,
             current_window_message_count: 0,
-            expected_message_range: 0..=0,
+            expected_message_range: initial_range_value,
         }
     }
 
@@ -98,9 +104,9 @@ mod tests {
 
     #[test]
     fn monitor() {
-        let mut monitor = ConnectionMonitor::new(futures::stream::iter(std::iter::repeat(1..=2)));
-        // We poll once to set the expected number of messages.
-        let _ = monitor.poll(&mut Context::from_waker(&noop_waker()));
+        // We set the monitor to expect between 1 and 2 messages at each round.
+        let mut monitor =
+            ConnectionMonitor::new(futures::stream::iter(std::iter::repeat(1..=2)), 1..=2);
 
         // Recording the minimum expected number of messages,
         // expecting the peer to be healthy
@@ -146,6 +152,7 @@ mod tests {
                 interval,
             ))
             .map(|_| 1..=2),
+            1..=2,
         );
 
         let waker = noop_waker();

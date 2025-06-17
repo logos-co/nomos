@@ -2,7 +2,6 @@ use std::{
     collections::{HashMap, VecDeque},
     ops::RangeInclusive,
     task::{Context, Poll, Waker},
-    time::Duration,
 };
 
 use cached::{Cached as _, SizedCache};
@@ -27,7 +26,6 @@ use crate::{
 /// - forwards messages to all connected peers with deduplication.
 /// - receives messages from all connected peers.
 pub struct Behaviour<ObservationWindowClockProvider> {
-    config: Config,
     negotiated_peers: HashMap<PeerId, NegotiatedPeerState>,
     /// Queue of events to yield to the swarm.
     events: VecDeque<ToSwarm<Event, FromBehaviour>>,
@@ -68,12 +66,11 @@ pub enum Event {
 impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     #[must_use]
     pub fn new(
-        config: Config,
+        config: &Config,
         observation_window_clock_provider: ObservationWindowClockProvider,
     ) -> Self {
         let duplicate_cache = SizedCache::with_size(config.seen_message_cache_size);
         Self {
-            config,
             negotiated_peers: HashMap::new(),
             events: VecDeque::new(),
             waker: None,
@@ -153,13 +150,14 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
 
 impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider>
 where
-    ObservationWindowClockProvider: IntervalStreamProvider,
+    ObservationWindowClockProvider: IntervalStreamProvider<IntervalItem = RangeInclusive<usize>>,
 {
     fn create_connection_handler(
         &self,
     ) -> BlendConnectionHandler<ObservationWindowClockProvider::IntervalStream> {
         BlendConnectionHandler::new(ConnectionMonitor::new(
             self.observation_window_clock_provider.interval_stream(),
+            self.observation_window_clock_provider.initial_value(),
         ))
     }
 }
@@ -302,5 +300,6 @@ pub trait IntervalStreamProvider {
     type IntervalStream: Stream<Item = Self::IntervalItem>;
     type IntervalItem;
 
+    fn initial_value(&self) -> Self::IntervalItem;
     fn interval_stream(&self) -> Self::IntervalStream;
 }
