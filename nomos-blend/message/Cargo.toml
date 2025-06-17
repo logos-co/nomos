@@ -12,6 +12,7 @@ cipher           = "0.4"
 ed25519-dalek    = { version = "2", features = ["rand_core"] }
 itertools        = "0.13"
 rand_chacha      = "0.3"
+rkyv = { version = "0.8.10", features = ["little_endian", "unaligned"] }
 sha2             = "0.10"
 sphinx-packet    = "0.2"
 thiserror        = "1"

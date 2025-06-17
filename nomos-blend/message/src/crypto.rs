@@ -8,7 +8,6 @@ use ed25519_dalek::ed25519::signature::Signer as _;
 use rand_chacha::{rand_core::SeedableRng as _, ChaCha12Rng};
 
 pub const KEY_SIZE: usize = 32;
-pub const SIGNATURE_SIZE: usize = 64;
 
 #[derive(Clone)]
 pub struct Ed25519PrivateKey(ed25519_dalek::SigningKey);
@@ -39,8 +38,8 @@ impl Ed25519PrivateKey {
 
     /// Signs a message.
     #[must_use]
-    pub fn sign(&self, message: &[u8]) -> [u8; SIGNATURE_SIZE] {
-        self.0.sign(message).to_bytes()
+    pub fn sign(&self, message: &[u8]) -> Signature {
+        Signature(self.0.sign(message).to_bytes())
     }
 
     /// Derives an X25519 private key.
@@ -80,6 +79,18 @@ impl Ed25519PublicKey {
     #[must_use]
     pub fn derive_x25519(&self) -> X25519PublicKey {
         X25519PublicKey::from_bytes(self.0.to_montgomery().to_bytes())
+    }
+}
+
+pub const SIGNATURE_SIZE: usize = 64;
+
+#[derive(Clone)]
+pub struct Signature([u8; SIGNATURE_SIZE]);
+
+impl Signature {
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8; SIGNATURE_SIZE] {
+        &self.0
     }
 }
 

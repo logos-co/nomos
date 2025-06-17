@@ -4,7 +4,6 @@ pub mod message;
 // We don't need to maintain multiple implementations.
 pub mod mock;
 pub mod sphinx;
-mod view;
 
 pub trait BlendMessage {
     type PublicKey;
