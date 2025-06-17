@@ -272,6 +272,7 @@ mod tests {
             gossipsub_config: nomos_libp2p::gossipsub::Config::default(),
             kademlia_config: Some(nomos_libp2p::KademliaSettings::default()),
             identify_config: Some(nomos_libp2p::IdentifySettings::default()),
+            chainsync_config: Some(nomos_libp2p::ChainsyncSettings),
             protocol_name_env: ProtocolName::Unittest,
         }
     }

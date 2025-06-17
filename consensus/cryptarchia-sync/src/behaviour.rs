@@ -200,7 +200,7 @@ impl Behaviour {
     }
 
     pub fn request_tip(
-        &mut self,
+        &self,
         peer_id: PeerId,
         reply_sender: oneshot::Sender<Result<SerialisedHeaderId, ChainSyncError>>,
     ) -> Result<(), ChainSyncError> {
@@ -224,7 +224,7 @@ impl Behaviour {
     }
 
     pub fn start_blocks_download(
-        &mut self,
+        &self,
         peer_id: PeerId,
         target_block: HeaderId,
         local_tip: HeaderId,
