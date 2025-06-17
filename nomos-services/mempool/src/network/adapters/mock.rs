@@ -6,7 +6,6 @@ use nomos_network::{
     NetworkService,
 };
 use overwatch::services::{relay::OutboundRelay, ServiceData};
-use tokio_stream::wrappers::BroadcastStream;
 
 use crate::network::NetworkAdapter;
 
@@ -70,21 +69,19 @@ impl<RuntimeServiceId> NetworkAdapter<RuntimeServiceId> for MockAdapter<RuntimeS
             tracing::error!(err = ?e);
         }
 
-        let receiver = receiver.await.unwrap();
-        Box::new(Box::pin(BroadcastStream::new(receiver).filter_map(
-            |event| async move {
-                match event {
-                    Ok(NetworkEvent::RawMessage(message)) => {
-                        tracing::info!("Received message: {:?}", message.payload());
-                        message.content_topic().eq(&MOCK_TX_CONTENT_TOPIC).then(|| {
-                            let tx = MockTransaction::new(message);
-                            (tx.id(), tx)
-                        })
-                    }
-                    Err(_e) => None,
+        let stream = receiver.await.unwrap();
+        Box::new(Box::pin(stream.filter_map(|event| async move {
+            match event {
+                Ok(NetworkEvent::RawMessage(message)) => {
+                    tracing::info!("Received message: {:?}", message.payload());
+                    message.content_topic().eq(&MOCK_TX_CONTENT_TOPIC).then(|| {
+                        let tx = MockTransaction::new(message);
+                        (tx.id(), tx)
+                    })
                 }
-            },
-        )))
+                Err(_e) => None,
+            }
+        })))
     }
 
     async fn send(&self, msg: Self::Payload) {

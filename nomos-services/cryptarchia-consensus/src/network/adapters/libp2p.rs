@@ -11,10 +11,7 @@ use overwatch::{
     DynError,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use tokio_stream::{
-    wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
-    StreamExt as _,
-};
+use tokio_stream::{wrappers::errors::BroadcastStreamRecvError, StreamExt as _};
 
 use crate::{
     messages::NetworkMessage,
@@ -96,27 +93,24 @@ where
         {
             return Err(Box::new(e));
         }
-        Ok(Box::new(
-            BroadcastStream::new(receiver.await.map_err(Box::new)?).filter_map(|message| {
-                match message {
-                    Ok(message) => wire::deserialize(&message.data).map_or_else(
-                        |_| {
-                            tracing::debug!("unrecognized gossipsub message");
-                            None
-                        },
-                        |msg| match msg {
-                            NetworkMessage::Block(block) => {
-                                tracing::debug!("received block {:?}", block.header().id());
-                                Some(block)
-                            }
-                        },
-                    ),
-                    Err(BroadcastStreamRecvError::Lagged(n)) => {
-                        tracing::error!("lagged messages: {n}");
-                        None
+        let stream = receiver.await.map_err(Box::new)?;
+        Ok(Box::new(stream.filter_map(|message| match message {
+            Ok(message) => wire::deserialize(&message.data).map_or_else(
+                |_| {
+                    tracing::debug!("unrecognized gossipsub message");
+                    None
+                },
+                |msg| match msg {
+                    NetworkMessage::Block(block) => {
+                        tracing::debug!("received block {:?}", block.header().id());
+                        Some(block)
                     }
-                }
-            }),
-        ))
+                },
+            ),
+            Err(BroadcastStreamRecvError::Lagged(n)) => {
+                tracing::error!("lagged messages: {n}");
+                None
+            }
+        })))
     }
 }

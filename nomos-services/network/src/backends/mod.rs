@@ -1,5 +1,5 @@
 use overwatch::overwatch::handle::OverwatchHandle;
-use tokio::sync::broadcast::Receiver;
+use tokio_stream::wrappers::BroadcastStream;
 
 use super::Debug;
 
@@ -18,7 +18,7 @@ pub trait NetworkBackend<RuntimeServiceId> {
 
     fn new(config: Self::Settings, overwatch_handle: OverwatchHandle<RuntimeServiceId>) -> Self;
     async fn process(&self, msg: Self::Message);
-    async fn subscribe_to_pubsub(&mut self) -> Receiver<Self::PubSubEvent>;
+    async fn subscribe_to_pubsub(&mut self) -> BroadcastStream<Self::PubSubEvent>;
 
-    async fn subscribe_to_chainsync(&mut self) -> Receiver<Self::ChainSyncEvent>;
+    async fn subscribe_to_chainsync(&mut self) -> BroadcastStream<Self::ChainSyncEvent>;
 }

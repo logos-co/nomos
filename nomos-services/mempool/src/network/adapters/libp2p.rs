@@ -7,7 +7,7 @@ use nomos_network::{
 };
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 use serde::{de::DeserializeOwned, Serialize};
-use tokio_stream::{wrappers::BroadcastStream, StreamExt as _};
+use tokio_stream::StreamExt as _;
 
 use crate::network::NetworkAdapter;
 
@@ -56,21 +56,20 @@ where
             .send(NetworkMsg::SubscribeToPubSub { sender })
             .await
             .expect("Network backend should be ready");
-        let receiver = receiver.await.unwrap();
-        Box::new(Box::pin(BroadcastStream::new(receiver).filter_map(
-            move |message| match message {
-                Ok(Message { data, topic, .. }) if topic == topic_hash => {
-                    match wire::deserialize::<Item>(&data) {
-                        Ok(item) => Some((id(&item), item)),
-                        Err(e) => {
-                            tracing::debug!("Unrecognized message: {e}");
-                            None
-                        }
+
+        let stream = receiver.await.unwrap();
+        Box::new(Box::pin(stream.filter_map(move |message| match message {
+            Ok(Message { data, topic, .. }) if topic == topic_hash => {
+                match wire::deserialize::<Item>(&data) {
+                    Ok(item) => Some((id(&item), item)),
+                    Err(e) => {
+                        tracing::debug!("Unrecognized message: {e}");
+                        None
                     }
                 }
-                _ => None,
-            },
-        )))
+            }
+            _ => None,
+        })))
     }
 
     async fn send(&self, item: Item) {

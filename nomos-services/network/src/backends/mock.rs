@@ -12,7 +12,8 @@ use rand::{
     SeedableRng as _,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast::{self, Receiver, Sender};
+use tokio::sync::broadcast::{self, Sender};
+use tokio_stream::wrappers::BroadcastStream;
 
 use super::{Debug, NetworkBackend, OverwatchHandle};
 
@@ -294,12 +295,12 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Mock {
         }
     }
 
-    async fn subscribe_to_pubsub(&mut self) -> Receiver<Self::PubSubEvent> {
-        self.pubsub_events_tx.subscribe()
+    async fn subscribe_to_pubsub(&mut self) -> BroadcastStream<Self::PubSubEvent> {
+        BroadcastStream::new(self.pubsub_events_tx.subscribe())
     }
 
-    async fn subscribe_to_chainsync(&mut self) -> Receiver<Self::ChainSyncEvent> {
-        self.chainsync_events_tx.subscribe()
+    async fn subscribe_to_chainsync(&mut self) -> BroadcastStream<Self::ChainSyncEvent> {
+        BroadcastStream::new(self.chainsync_events_tx.subscribe())
     }
 }
 

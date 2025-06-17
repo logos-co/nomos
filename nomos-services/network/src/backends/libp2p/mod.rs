@@ -5,11 +5,8 @@ pub(crate) mod swarm;
 use nomos_libp2p::cryptarchia_sync;
 pub use nomos_libp2p::libp2p::gossipsub::{Message, TopicHash};
 use overwatch::overwatch::handle::OverwatchHandle;
-use tokio::sync::{
-    broadcast,
-    broadcast::{Receiver, Sender},
-    mpsc,
-};
+use tokio::sync::{broadcast, broadcast::Sender, mpsc};
+use tokio_stream::wrappers::BroadcastStream;
 
 use self::swarm::SwarmHandler;
 pub use self::{
@@ -65,11 +62,11 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Libp2p {
         }
     }
 
-    async fn subscribe_to_pubsub(&mut self) -> Receiver<Self::PubSubEvent> {
-        self.pubsub_events_tx.subscribe()
+    async fn subscribe_to_pubsub(&mut self) -> BroadcastStream<Self::PubSubEvent> {
+        BroadcastStream::new(self.pubsub_events_tx.subscribe())
     }
 
-    async fn subscribe_to_chainsync(&mut self) -> Receiver<Self::ChainSyncEvent> {
-        self.chainsync_events_tx.subscribe()
+    async fn subscribe_to_chainsync(&mut self) -> BroadcastStream<Self::ChainSyncEvent> {
+        BroadcastStream::new(self.chainsync_events_tx.subscribe())
     }
 }

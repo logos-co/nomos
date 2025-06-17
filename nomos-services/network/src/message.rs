@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::oneshot;
+use tokio_stream::wrappers::BroadcastStream;
 
 use crate::backends::NetworkBackend;
 
@@ -8,10 +9,10 @@ use crate::backends::NetworkBackend;
 pub enum NetworkMsg<Payload, PubSubEvent, ChainSyncEvent> {
     Process(Payload),
     SubscribeToPubSub {
-        sender: oneshot::Sender<broadcast::Receiver<PubSubEvent>>,
+        sender: oneshot::Sender<BroadcastStream<PubSubEvent>>,
     },
     SubscribeToChainSync {
-        sender: oneshot::Sender<broadcast::Receiver<ChainSyncEvent>>,
+        sender: oneshot::Sender<BroadcastStream<ChainSyncEvent>>,
     },
 }
 
