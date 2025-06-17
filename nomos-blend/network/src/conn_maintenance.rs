@@ -79,12 +79,13 @@ where
         let Poll::Ready(Some(new_expected_message_count_range)) =
             self.connection_window_clock.poll_next_unpin(cx)
         else {
+            cx.waker().wake_by_ref();
             return Poll::Pending;
         };
-        cx.waker().wake_by_ref();
         // First tick is used to set the range for the new observation window.
         if self.expected_message_range.is_none() {
             self.reset(new_expected_message_count_range);
+            cx.waker().wake_by_ref();
             return Poll::Pending;
         }
         let outcome = if self.is_spammy() {
