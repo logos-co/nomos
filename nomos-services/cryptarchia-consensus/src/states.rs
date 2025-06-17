@@ -179,7 +179,7 @@ mod tests {
         // Empty ledger state.
         let ledger_state = nomos_ledger::Ledger::new(
             cryptarchia_engine.lib(),
-            nomos_ledger::LedgerState::from_commitments([], 0),
+            LedgerState::from_commitments([], 0),
             ledger_config,
         );
 

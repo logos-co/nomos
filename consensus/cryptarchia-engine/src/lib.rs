@@ -21,19 +21,19 @@ pub struct Boostrapping;
 #[derive(Clone, Debug, Copy)]
 pub struct Online;
 
-pub trait CryptarchiaState: Copy + std::fmt::Debug {
+pub trait CryptarchiaState: Copy + Debug {
     fn fork_choice<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Branch<Id>
     where
-        Id: Eq + std::hash::Hash + Copy;
+        Id: Eq + Hash + Copy;
     fn lib<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Id
     where
-        Id: Eq + std::hash::Hash + Copy;
+        Id: Eq + Hash + Copy;
 }
 
 impl CryptarchiaState for Boostrapping {
     fn fork_choice<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Branch<Id>
     where
-        Id: Eq + std::hash::Hash + Copy,
+        Id: Eq + Hash + Copy,
     {
         let k = cryptarchia.config.security_param.get().into();
         let s = cryptarchia.config.s();
@@ -42,7 +42,7 @@ impl CryptarchiaState for Boostrapping {
 
     fn lib<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Id
     where
-        Id: Eq + std::hash::Hash + Copy,
+        Id: Eq + Hash + Copy,
     {
         cryptarchia.branches.lib
     }
@@ -51,7 +51,7 @@ impl CryptarchiaState for Boostrapping {
 impl CryptarchiaState for Online {
     fn fork_choice<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Branch<Id>
     where
-        Id: Eq + std::hash::Hash + Copy,
+        Id: Eq + Hash + Copy,
     {
         let k = cryptarchia.config.security_param.get().into();
         maxvalid_mc(cryptarchia.local_chain, &cryptarchia.branches, k)
@@ -59,7 +59,7 @@ impl CryptarchiaState for Online {
 
     fn lib<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Id
     where
-        Id: Eq + std::hash::Hash + Copy,
+        Id: Eq + Hash + Copy,
     {
         cryptarchia
             .branches
@@ -77,7 +77,7 @@ impl CryptarchiaState for Online {
 // happened we will inspect for chain density
 fn maxvalid_bg<Id>(local_chain: Branch<Id>, branches: &Branches<Id>, k: u64, s: u64) -> Branch<Id>
 where
-    Id: Eq + std::hash::Hash + Copy,
+    Id: Eq + Hash + Copy,
 {
     let mut cmax = local_chain;
     let forks = branches.branches();
@@ -107,7 +107,7 @@ where
 // paper k defines the forking depth of chain we can accept
 fn maxvalid_mc<Id>(local_chain: Branch<Id>, branches: &Branches<Id>, k: u64) -> Branch<Id>
 where
-    Id: Eq + std::hash::Hash + Copy,
+    Id: Eq + Hash + Copy,
 {
     let mut cmax = local_chain;
     let forks = branches.branches();
@@ -186,7 +186,7 @@ impl<Id: Copy> Branch<Id> {
 
 impl<Id> Branches<Id>
 where
-    Id: Eq + std::hash::Hash + Copy,
+    Id: Eq + Hash + Copy,
 {
     pub fn from_lib(lib: Id) -> Self {
         let mut branches = HashMap::new();
@@ -356,7 +356,7 @@ pub struct ForkDivergenceInfo<Id> {
 
 impl<Id, State> Cryptarchia<Id, State>
 where
-    Id: Eq + std::hash::Hash + Copy + Debug,
+    Id: Eq + Hash + Copy + Debug,
     State: CryptarchiaState + Copy,
 {
     pub fn from_lib(id: Id, config: Config) -> Self {
@@ -498,7 +498,7 @@ where
 
 impl<Id> Cryptarchia<Id, Boostrapping>
 where
-    Id: Eq + std::hash::Hash + Copy + Debug,
+    Id: Eq + Hash + Copy + Debug,
 {
     /// Signal transitioning to the online state.
     pub fn online(self) -> Cryptarchia<Id, Online> {

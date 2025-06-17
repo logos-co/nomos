@@ -4,6 +4,9 @@ license = { workspace = true }
 name    = "cfgsync"
 version = "0.1.0"
 
+[lints]
+workspace = true
+
 [dependencies]
 axum                     = { version = "0.6" }
 clap                     = { version = "4", features = ["derive"] }

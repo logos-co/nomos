@@ -40,7 +40,7 @@ impl ConsistentLengthLayeredCipherData for RoutingInformation {
         vec![self.flag]
     }
 
-    const SIZE: usize = std::mem::size_of::<RoutingFlag>();
+    const SIZE: usize = size_of::<RoutingFlag>();
 }
 
 /// Encrypted routing information that will be contained in a packet header.

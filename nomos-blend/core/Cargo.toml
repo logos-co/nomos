@@ -4,6 +4,9 @@ license = { workspace = true }
 name    = "nomos-blend"
 version = "0.1.0"
 
+[lints]
+workspace = true
+
 [dependencies]
 fixed               = { version = "1", features = ["serde-str"] }
 futures             = "0.3"
