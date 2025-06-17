@@ -57,6 +57,8 @@ blend:
       num_blend_layers: 1
     temporal_processor:
       max_delay: "2.0"
+    minimum_messages_coefficient: 3
+    normalization_constant: 1.03
   persistent_transmission:
     max_emission_frequency: 1.0
     drop_message_probability: 0.5
