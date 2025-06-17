@@ -12,6 +12,7 @@ use nomos_da_network_core::swarm::DAConnectionPolicySettings;
 use rand::{thread_rng, Rng as _};
 
 use crate::{
+    get_available_port,
     nodes::{
         executor::{create_executor_config, Executor},
         validator::{create_validator_config, Validator},
@@ -20,6 +21,7 @@ use crate::{
         api::create_api_configs,
         blend::create_blend_configs,
         consensus::{create_consensus_configs, ConsensusParams},
+        membership::create_membership_configs,
         time::default_time_config,
     },
 };
@@ -114,12 +116,15 @@ impl Topology {
         // * coin nonce
         // * libp2p node key
         let mut ids = vec![[0; 32]; n_participants];
+        let mut ports = vec![];
         for id in &mut ids {
             thread_rng().fill(id);
+            ports.push(get_available_port());
         }
 
         let consensus_configs = create_consensus_configs(&ids, &config.consensus_params);
-        let da_configs = create_da_configs(&ids, &config.da_params);
+        let da_configs = create_da_configs(&ids, &config.da_params, &ports);
+        let membership_configs = create_membership_configs(ids.as_slice(), &ports);
         let network_configs = create_network_configs(&ids, &config.network_params);
         let blend_configs = create_blend_configs(&ids);
         let api_configs = create_api_configs(&ids);
@@ -136,6 +141,7 @@ impl Topology {
                 api_config: api_configs[i].clone(),
                 tracing_config: tracing_configs[i].clone(),
                 time_config: time_config.clone(),
+                membership_config: membership_configs[i].clone(),
             });
             validators.push(Validator::spawn(config).await);
         }
@@ -150,6 +156,7 @@ impl Topology {
                 api_config: api_configs[i].clone(),
                 tracing_config: tracing_configs[i].clone(),
                 time_config: time_config.clone(),
+                membership_config: membership_configs[i].clone(),
             });
             executors.push(Executor::spawn(config).await);
         }

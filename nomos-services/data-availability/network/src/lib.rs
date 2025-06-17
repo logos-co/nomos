@@ -217,7 +217,7 @@ where
                     Self::handle_network_service_message(msg, backend).await;
                 }
                 Some((block_number, providers)) = stream.next() => {
-                    Self::handle_membership_update(block_number, providers, &membership_storage).await;
+                    Self::handle_membership_update(block_number, providers, &membership_storage);
                 }
             }
         }
@@ -275,17 +275,12 @@ where
         }
     }
 
-    #[expect(
-        clippy::unused_async,
-        reason = "This function is a placeholder for future implementation"
-    )]
-    async fn handle_membership_update(
-        _block_numnber: BlockNumber,
-        _update: HashMap<<Membership as MembershipHandler>::Id, Multiaddr>,
-        _storage: &MembershipStorage<StorageAdapter, Membership>,
+    fn handle_membership_update(
+        block_numnber: BlockNumber,
+        update: HashMap<<Membership as MembershipHandler>::Id, Multiaddr>,
+        storage: &MembershipStorage<StorageAdapter, Membership>,
     ) {
-        //update(block_numnber, update).await;
-        // todo: implement update when config is moved to the membership service
+        storage.update(block_numnber, update);
     }
 }
 
