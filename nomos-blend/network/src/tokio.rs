@@ -43,21 +43,13 @@ impl IntervalStreamProvider for ObservationWindowTokioIntervalProvider {
         Box<dyn futures::Stream<Item = RangeInclusive<usize>> + Send + Unpin + 'static>;
     type IntervalItem = RangeInclusive<usize>;
 
-    fn initial_value(&self) -> Self::IntervalItem {
-        self.calculate_expected_message_range()
-    }
-
     fn interval_stream(&self) -> Self::IntervalStream {
-        // Since tokio::time::interval.tick() returns immediately regardless of the
-        // interval, we need to explicitly specify the time of the first tick we
-        // expect. If not, the peer would be marked as unhealthy immediately
-        // as soon as the connection is established.
         let expected_message_range = self.calculate_expected_message_range();
-        let interval = Duration::from_secs(self.round_duration_seconds.get());
-        let start = tokio::time::Instant::now() + interval;
         Box::new(
-            tokio_stream::wrappers::IntervalStream::new(tokio::time::interval_at(start, interval))
-                .map(move |_| expected_message_range.clone()),
+            tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(
+                Duration::from_secs(self.round_duration_seconds.get()),
+            ))
+            .map(move |_| expected_message_range.clone()),
         )
     }
 }
@@ -86,19 +78,12 @@ mod test {
             Box<dyn Stream<Item = RangeInclusive<usize>> + Send + Unpin + 'static>;
         type IntervalItem = RangeInclusive<usize>;
 
-        fn initial_value(&self) -> Self::IntervalItem {
-            self.1.clone()
-        }
-
         fn interval_stream(&self) -> Self::IntervalStream {
             let interval = self.0;
-            let start = tokio::time::Instant::now() + interval;
             let range = self.1.clone();
             Box::new(
-                tokio_stream::wrappers::IntervalStream::new(tokio::time::interval_at(
-                    start, interval,
-                ))
-                .map(move |_| range.clone()),
+                tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(interval))
+                    .map(move |_| range.clone()),
             )
         }
     }

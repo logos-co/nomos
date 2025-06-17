@@ -157,7 +157,6 @@ where
     ) -> BlendConnectionHandler<ObservationWindowClockProvider::IntervalStream> {
         BlendConnectionHandler::new(ConnectionMonitor::new(
             self.observation_window_clock_provider.interval_stream(),
-            self.observation_window_clock_provider.initial_value(),
         ))
     }
 }
@@ -300,6 +299,5 @@ pub trait IntervalStreamProvider {
     type IntervalStream: Stream<Item = Self::IntervalItem>;
     type IntervalItem;
 
-    fn initial_value(&self) -> Self::IntervalItem;
     fn interval_stream(&self) -> Self::IntervalStream;
 }

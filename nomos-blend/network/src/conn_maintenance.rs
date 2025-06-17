@@ -10,9 +10,9 @@ use futures::{Stream, StreamExt as _};
 ///
 /// Upon each interval conclusion, the provider is expected to return the range
 /// of expected messages for the new interval, which is then used by the monitor
-/// to evaluate the remote peer.
+/// to evaluate the remote peer during the next observation window.
 pub struct ConnectionMonitor<ConnectionWindowClock> {
-    expected_message_range: RangeInclusive<usize>,
+    expected_message_range: Option<RangeInclusive<usize>>,
     connection_window_clock: ConnectionWindowClock,
     current_window_message_count: usize,
 }
@@ -26,14 +26,11 @@ pub enum ConnectionMonitorOutput {
 }
 
 impl<ConnectionWindowClock> ConnectionMonitor<ConnectionWindowClock> {
-    pub const fn new(
-        connection_window_clock: ConnectionWindowClock,
-        initial_range_value: RangeInclusive<usize>,
-    ) -> Self {
+    pub const fn new(connection_window_clock: ConnectionWindowClock) -> Self {
         Self {
             connection_window_clock,
             current_window_message_count: 0,
-            expected_message_range: initial_range_value,
+            expected_message_range: None,
         }
     }
 
@@ -50,17 +47,23 @@ impl<ConnectionWindowClock> ConnectionMonitor<ConnectionWindowClock> {
 
     const fn reset(&mut self, new_expected_message_count_range: RangeInclusive<usize>) {
         self.current_window_message_count = 0;
-        self.expected_message_range = new_expected_message_count_range;
+        self.expected_message_range = Some(new_expected_message_count_range);
     }
 
     /// Check if the peer is malicious based on the number of messages sent
     const fn is_spammy(&self) -> bool {
-        self.current_window_message_count > *self.expected_message_range.end()
+        let Some(expected_message_range) = &self.expected_message_range else {
+            return false;
+        };
+        self.current_window_message_count > *expected_message_range.end()
     }
 
     /// Check if the peer is unhealthy based on the number of messages sent
     const fn is_unhealthy(&self) -> bool {
-        self.current_window_message_count < *self.expected_message_range.start()
+        let Some(expected_message_range) = &self.expected_message_range else {
+            return false;
+        };
+        self.current_window_message_count < *expected_message_range.start()
     }
 }
 
@@ -78,6 +81,12 @@ where
         else {
             return Poll::Pending;
         };
+        cx.waker().wake_by_ref();
+        // First tick is used to set the range for the new observation window.
+        if self.expected_message_range.is_none() {
+            self.reset(new_expected_message_count_range);
+            return Poll::Pending;
+        }
         let outcome = if self.is_spammy() {
             ConnectionMonitorOutput::Spammy
         } else if self.is_unhealthy() {
@@ -105,8 +114,14 @@ mod tests {
     #[test]
     fn monitor() {
         // We set the monitor to expect between 1 and 2 messages at each round.
-        let mut monitor =
-            ConnectionMonitor::new(futures::stream::iter(std::iter::repeat(1..=2)), 1..=2);
+        let mut monitor = ConnectionMonitor::new(futures::stream::iter(std::iter::repeat(1..=2)));
+
+        // First poll should return `Pending` since the expected range has not yet been
+        // set.
+        assert_eq!(
+            monitor.poll(&mut Context::from_waker(&noop_waker())),
+            Poll::Pending
+        );
 
         // Recording the minimum expected number of messages,
         // expecting the peer to be healthy
@@ -152,14 +167,15 @@ mod tests {
                 interval,
             ))
             .map(|_| 1..=2),
-            1..=2,
         );
 
         let waker = noop_waker();
         let mut cx = Context::from_waker(&waker);
 
-        assert!(monitor.poll(&mut cx).is_pending());
+        tokio::time::sleep(interval).await;
 
+        // First poll is pending because the range has not been set.
+        assert!(monitor.poll(&mut cx).is_pending());
         tokio::time::sleep(interval).await;
         assert!(monitor.poll(&mut cx).is_ready());
         assert!(monitor.poll(&mut cx).is_pending());

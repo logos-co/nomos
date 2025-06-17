@@ -33,7 +33,9 @@ where
 {
     pub cryptographic_processor: CryptographicProcessorSettings<M::PrivateKey>,
     pub temporal_processor: TemporalSchedulerSettings,
+    // As per the Blend spec
     pub minimum_messages_coefficient: usize,
+    /// `alpha`: message number normalization constant
     pub normalization_constant: NonNegativeF64,
 }
 
