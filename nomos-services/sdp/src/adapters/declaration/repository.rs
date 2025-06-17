@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use nomos_sdp_core::{
-    ledger::{self, DeclarationsRepository, DeclarationsRepositoryError},
+    ledger::{DeclarationsRepository, DeclarationsRepositoryError},
     DeclarationInfo,
 };
 
