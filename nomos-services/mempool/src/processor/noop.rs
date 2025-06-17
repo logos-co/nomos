@@ -1,30 +1,22 @@
 use std::{convert::Infallible, marker::PhantomData};
 
-use overwatch::services::{relay::OutboundRelay, state::NoState, ServiceData};
+use overwatch::services::{relay::OutboundRelay, ServiceData};
 
 use super::PayloadProcessor;
 
-pub struct NoSampling;
-
-impl ServiceData for NoSampling {
-    type Settings = ();
-    type State = NoState<()>;
-    type StateOperator = ();
-    type Message = ();
-}
-
-pub type NoOpPayloadProcessor<Payload> = PhantomData<Payload>;
+pub type NoOpPayloadProcessor<Service, Payload> = PhantomData<(Service, Payload)>;
 
 #[async_trait::async_trait]
-impl<Payload> PayloadProcessor for NoOpPayloadProcessor<Payload>
+impl<Service, Payload> PayloadProcessor for NoOpPayloadProcessor<Service, Payload>
 where
     Payload: Send + Sync,
+    Service: ServiceData + Send + Sync,
 {
     type Payload = Payload;
     type Settings = ();
     type Error = Infallible;
 
-    type DaSamplingService = NoSampling;
+    type DaSamplingService = Service;
 
     fn new(
         (): Self::Settings,

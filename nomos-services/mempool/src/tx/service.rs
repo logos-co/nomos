@@ -12,6 +12,7 @@ use std::{
 
 use futures::StreamExt as _;
 use nomos_network::{message::BackendNetworkMsg, NetworkService};
+use nomos_utils::noop_service::NoService;
 use overwatch::{
     services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},
     OpaqueServiceResourcesHandle,
@@ -32,21 +33,29 @@ use crate::{
     MempoolMetrics, MempoolMsg,
 };
 
+type NoProcessor<NetworkAdapter> = NoOpPayloadProcessor<NoService, NetworkAdapter>;
+
 /// A tx mempool service that uses a [`JsonFileBackend`] as a recovery
 /// mechanism.
 pub type TxMempoolService<NetworkAdapter, Pool, RuntimeServiceId> = GenericTxMempoolService<
     Pool,
     NetworkAdapter,
-    NoOpPayloadProcessor<<NetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Payload>,
+    NoProcessor<<NetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Payload>,
     JsonFileBackend<
         TxMempoolState<
             <Pool as RecoverableMempool>::RecoveryState,
             <Pool as MemPool>::Settings,
             <NetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Settings,
+            <NoProcessor<
+                <NetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Payload,
+            > as PayloadProcessor>::Settings,
         >,
         TxMempoolSettings<
             <Pool as MemPool>::Settings,
             <NetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Settings,
+            <NoProcessor<
+                <NetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Payload,
+            > as PayloadProcessor>::Settings,
         >,
     >,
     RuntimeServiceId,
@@ -65,6 +74,8 @@ pub struct GenericTxMempoolService<
     Pool::Settings: Clone,
     NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId>,
     NetworkAdapter::Settings: Clone,
+    Processor: PayloadProcessor,
+    Processor::Settings: Clone,
     RecoveryBackend: RecoveryBackendTrait,
 {
     pool: Pool,
@@ -79,6 +90,8 @@ where
     Pool::Settings: Clone,
     NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId>,
     NetworkAdapter::Settings: Clone,
+    Processor: PayloadProcessor,
+    Processor::Settings: Clone,
     RecoveryBackend: RecoveryBackendTrait,
 {
     pub const fn new(
@@ -100,10 +113,18 @@ where
     Pool::Settings: Clone,
     NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId>,
     NetworkAdapter::Settings: Clone,
+    Processor: PayloadProcessor,
+    Processor::Settings: Clone,
     RecoveryBackend: RecoveryBackendTrait,
 {
-    type Settings = TxMempoolSettings<Pool::Settings, NetworkAdapter::Settings>;
-    type State = TxMempoolState<Pool::RecoveryState, Pool::Settings, NetworkAdapter::Settings>;
+    type Settings =
+        TxMempoolSettings<Pool::Settings, NetworkAdapter::Settings, Processor::Settings>;
+    type State = TxMempoolState<
+        Pool::RecoveryState,
+        Pool::Settings,
+        NetworkAdapter::Settings,
+        Processor::Settings,
+    >;
     type StateOperator = RecoveryOperator<RecoveryBackend>;
     type Message = MempoolMsg<Pool::BlockId, Pool::Item, Pool::Item, Pool::Key>;
 }
@@ -123,6 +144,9 @@ where
         NetworkAdapterTrait<RuntimeServiceId, Payload = Pool::Item, Key = Pool::Key> + Send,
     NetworkAdapter::Settings: Clone + Send + Sync + 'static,
     Processor: PayloadProcessor<Payload = NetworkAdapter::Payload> + Send,
+    Processor::Settings: Clone + Send + Sync,
+    Processor::DaSamplingService: ServiceData,
+    <<Processor as PayloadProcessor>::DaSamplingService as ServiceData>::Message: Send + 'static,
     RecoveryBackend: RecoveryBackendTrait + Send,
     RuntimeServiceId: Display
         + Debug
@@ -130,7 +154,8 @@ where
         + Send
         + 'static
         + AsServiceId<Self>
-        + AsServiceId<NetworkService<NetworkAdapter::Backend, RuntimeServiceId>>,
+        + AsServiceId<NetworkService<NetworkAdapter::Backend, RuntimeServiceId>>
+        + AsServiceId<Processor::DaSamplingService>,
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
@@ -173,6 +198,13 @@ where
         .payload_stream()
         .await;
 
+        let sampling_relay = self
+            .service_resources_handle
+            .overwatch_handle
+            .relay::<Processor::DaSamplingService>()
+            .await
+            .expect("Relay connection with sampling service should succeed");
+
         self.service_resources_handle.status_updater.notify_ready();
         tracing::info!(
             "Service '{}' is ready.",
@@ -186,13 +218,25 @@ where
         )
         .await?;
 
+        let processor = Processor::new(
+            self.service_resources_handle
+                .settings_handle
+                .notifier()
+                .get_updated_settings()
+                .processor,
+            sampling_relay,
+        );
+
         loop {
             tokio::select! {
                 // Queue for relay messages
                 Some(relay_msg) = self.service_resources_handle.inbound_relay.recv() => {
                     self.handle_mempool_message(relay_msg, network_service_relay.clone());
                 }
-                Some((key, item )) = network_items.next() => {
+                Some((key, item)) = network_items.next() => {
+                    processor.process(&item).await.unwrap_or_else(|e| {
+                        tracing::debug!("could not process item from network due to: {e}");
+                    });
                     self.pool.add_item(key, item).unwrap_or_else(|e| {
                         tracing::debug!("could not add item to the pool due to: {e}");
                     });
@@ -213,6 +257,7 @@ where
     NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId, Payload = Pool::Item> + Send,
     NetworkAdapter::Settings: Clone + Send + 'static,
     Processor: PayloadProcessor<Payload = NetworkAdapter::Payload>,
+    Processor::Settings: Clone,
     RecoveryBackend: RecoveryBackendTrait,
     RuntimeServiceId: 'static,
 {

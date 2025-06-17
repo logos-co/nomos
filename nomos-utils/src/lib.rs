@@ -1,5 +1,6 @@
 pub mod fisheryates;
 pub mod math;
+pub mod noop_service;
 
 #[cfg(feature = "time")]
 pub mod bounded_duration;

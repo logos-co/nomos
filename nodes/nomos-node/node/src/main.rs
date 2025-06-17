@@ -82,6 +82,7 @@ async fn main() -> Result<()> {
                     topic: String::from(nomos_node::CL_TOPIC),
                     id: <SignedMantleTx as Transaction>::hash,
                 },
+                processor: (),
                 recovery_path: config.mempool.cl_pool_recovery_path,
             },
             da_mempool: nomos_mempool::DaMempoolSettings {
@@ -108,6 +109,7 @@ async fn main() -> Result<()> {
                     initial_locators_mapping: HashMap::default(),
                 },
             },
+            no_service: (),
         },
         None,
     )

@@ -49,6 +49,7 @@ nomos-system-sig         = { workspace = true }
 nomos-time               = { workspace = true, features = ["ntp", "serde"] }
 nomos-tracing            = { workspace = true }
 nomos-tracing-service    = { workspace = true }
+nomos-utils              = { workspace = true }
 overwatch                = { workspace = true }
 rand_chacha              = "0.3"
 serde                    = "1"
