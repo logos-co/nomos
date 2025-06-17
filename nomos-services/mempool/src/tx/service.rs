@@ -234,12 +234,14 @@ where
                     self.handle_mempool_message(relay_msg, network_service_relay.clone());
                 }
                 Some((key, item)) = network_items.next() => {
-                    processor.process(&item).await.unwrap_or_else(|e| {
+                    if let Err(e) =processor.process(&item).await {
                         tracing::debug!("could not process item from network due to: {e:?}");
-                    });
-                    self.pool.add_item(key, item).unwrap_or_else(|e| {
+                        continue;
+                    }
+                    if let Err(e) = self.pool.add_item(key, item) {
                         tracing::debug!("could not add item to the pool due to: {e}");
-                    });
+                        continue;
+                    }
                     tracing::info!(counter.tx_mempool_pending_items = self.pool.pending_item_count());
                     self.service_resources_handle.state_updater.update(Some(self.pool.save().into()));
                 }
