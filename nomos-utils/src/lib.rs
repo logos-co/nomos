@@ -1,4 +1,5 @@
 pub mod fisheryates;
+pub mod math;
 
 #[cfg(feature = "time")]
 pub mod bounded_duration;

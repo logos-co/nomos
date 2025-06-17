@@ -1,5 +1,6 @@
 use std::{
     net::SocketAddr,
+    num::NonZeroU64,
     ops::Range,
     path::PathBuf,
     process::{Child, Command, Stdio},
@@ -49,6 +50,7 @@ use nomos_time::{
 };
 use nomos_tracing::logging::local::FileConfig;
 use nomos_tracing_service::LoggerLayer;
+use nomos_utils::math::NonNegativeF64;
 use reqwest::Url;
 use tempfile::NamedTempFile;
 
@@ -293,8 +295,16 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 },
             },
             cover_traffic: nomos_blend_service::CoverTrafficExtSettings {
-                epoch_duration: Duration::from_secs(432_000),
-                slot_duration: Duration::from_secs(20),
+                message_frequency_per_round: NonNegativeF64::try_from(1f64)
+                    .expect("Message frequency per round cannot be negative."),
+                redundancy_parameter: 0,
+                round_duration: Duration::from_secs(1),
+                rounds_per_interval: NonZeroU64::try_from(30u64)
+                    .expect("Rounds per interval cannot be zero."),
+                // (21,600 blocks * 30s per block) / 1s per round = 648,000 rounds
+                rounds_per_session: NonZeroU64::try_from(648_000u64)
+                    .expect("Rounds per session cannot be zero."),
+                intervals_for_safety_buffer: 100,
             },
             membership: config.blend_config.membership,
         },
