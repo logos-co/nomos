@@ -44,7 +44,7 @@ pub struct SwarmHandler {
     pub pending_dials: HashMap<ConnectionId, Dial>,
     pub commands_tx: mpsc::Sender<Command>,
     pub commands_rx: mpsc::Receiver<Command>,
-    pub pubsub_events_tx: broadcast::Sender<Message>,
+    pub pubsub_messages_tx: broadcast::Sender<Message>,
     pub chainsync_events_tx: broadcast::Sender<cryptarchia_sync::Event>,
 
     pending_queries: HashMap<QueryId, PendingQueryData>,
@@ -74,7 +74,7 @@ impl SwarmHandler {
             pending_dials,
             commands_tx,
             commands_rx,
-            pubsub_events_tx,
+            pubsub_messages_tx: pubsub_events_tx,
             chainsync_events_tx,
             pending_queries: HashMap::new(),
         }
