@@ -195,7 +195,7 @@ where
     D: Deserializer<'de>,
     T: CanonicalDeserialize,
 {
-    let bytes: Vec<u8> = serde::Deserialize::deserialize(deserializer)?;
+    let bytes: Vec<u8> = Deserialize::deserialize(deserializer)?;
     let mut cursor = Cursor::new(bytes);
     T::deserialize_compressed(&mut cursor).map_err(serde::de::Error::custom)
 }

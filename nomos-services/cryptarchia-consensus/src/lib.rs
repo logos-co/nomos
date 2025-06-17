@@ -883,7 +883,7 @@ where
     )]
     async fn process_block_and_update_state(
         mut cryptarchia: Cryptarchia<Online>,
-        leader: &mut leadership::Leader,
+        leader: &mut Leader,
         block: Block<ClPool::Item, DaPool::Item>,
         previously_pruned_blocks: &mut HashSet<HeaderId>,
         relays: &CryptarchiaConsensusRelays<
@@ -956,7 +956,7 @@ where
     #[instrument(level = "debug", skip(cryptarchia, leader, relays))]
     async fn process_block<State: CryptarchiaState>(
         mut cryptarchia: Cryptarchia<State>,
-        leader: &mut leadership::Leader,
+        leader: &mut Leader,
         block: Block<ClPool::Item, DaPool::Item>,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,

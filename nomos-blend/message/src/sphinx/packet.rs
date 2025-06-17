@@ -51,7 +51,7 @@ impl Packet {
             .iter()
             .map(|key_material| key_material.payload_key)
             .collect::<Vec<_>>();
-        let payload = sphinx_packet::payload::Payload::encapsulate_message(
+        let payload = Payload::encapsulate_message(
             payload,
             &payload_keys,
             // sphinx_packet::payload requires this parameter to include the overhead size.
@@ -98,7 +98,7 @@ impl Packet {
         );
 
         // Decrypt one layer of encryption on the payload
-        let payload = sphinx_packet::payload::Payload::from_bytes(&self.payload)?;
+        let payload = Payload::from_bytes(&self.payload)?;
         let payload = payload.unwrap(&routing_keys.payload_key)?;
 
         // Unpack the routing information

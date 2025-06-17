@@ -70,7 +70,7 @@ impl LeaderProof for Risc0LeaderProof {
 }
 
 impl Serialize for Risc0LeaderProof {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -79,7 +79,7 @@ impl Serialize for Risc0LeaderProof {
 }
 
 impl<'de> Deserialize<'de> for Risc0LeaderProof {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {

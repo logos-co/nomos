@@ -330,9 +330,7 @@ where
         peer_id: &PeerId,
         to_disperse: &mut HashMap<PeerId, VecDeque<(SubnetworkId, DaShare)>>,
     ) -> Option<(SubnetworkId, DaShare)> {
-        to_disperse
-            .get_mut(peer_id)
-            .and_then(std::collections::VecDeque::pop_front)
+        to_disperse.get_mut(peer_id).and_then(VecDeque::pop_front)
     }
 
     pub fn try_wake(&mut self) {

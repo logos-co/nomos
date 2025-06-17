@@ -4,6 +4,9 @@ license = { workspace = true }
 name    = "executor-http-client"
 version = "0.1.0"
 
+[lints]
+workspace = true
+
 [dependencies]
 common-http-client    = { workspace = true }
 futures               = "0.3.31"

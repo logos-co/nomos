@@ -558,7 +558,7 @@ mod tests {
 
         // We wait until one full session has passed, and we make sure not more than the
         // allowed amount of cover messages has been generated.
-        tokio::time::sleep(session_duration).await;
+        time::sleep(session_duration).await;
         drop(task);
 
         // Since by default we don't use any safety buffer, we can verify that EXACTLY
@@ -594,7 +594,7 @@ mod tests {
 
         // We wait until one full (long) session has passed, and we make sure not more
         // than the allowed amount of cover messages has been generated.
-        tokio::time::sleep(session_duration).await;
+        time::sleep(session_duration).await;
         drop(task);
 
         // In this case, we should generate EXACTLY the expected number of messages.
@@ -633,7 +633,7 @@ mod tests {
 
         // We wait until one full session has passed, and we make sure not more than the
         // allowed amount of cover messages has been generated.
-        tokio::time::sleep(session_duration).await;
+        time::sleep(session_duration).await;
         drop(task);
 
         // In this case, we should arrive to exactly `1` messages left, because there
@@ -677,7 +677,7 @@ mod tests {
 
         // We wait until one full session has passed, and we make sure that no cover
         // message is generated at all.
-        tokio::time::sleep(session_duration).await;
+        time::sleep(session_duration).await;
         drop(task);
 
         // In this case, we should have generated `0` messages since all message slots

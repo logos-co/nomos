@@ -30,9 +30,7 @@ where
 {
     let (non_blocking, guard) = tracing_appender::non_blocking(writer);
 
-    let layer = tracing_subscriber::fmt::Layer::new()
-        .with_level(true)
-        .with_writer(non_blocking);
+    let layer = Layer::new().with_level(true).with_writer(non_blocking);
 
     (layer, guard)
 }
