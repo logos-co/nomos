@@ -8,7 +8,6 @@ use futures::{
 use libp2p::{identity::ed25519, Multiaddr, PeerId};
 use nomos_blend::membership::Membership;
 use nomos_blend_message::sphinx::SphinxMessage;
-use nomos_blend_network::ConnectionMonitorSettings;
 use nomos_libp2p::secret_key_serde;
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
@@ -42,7 +41,6 @@ pub struct Libp2pBlendBackendSettings {
     pub node_key: ed25519::SecretKey,
     pub peering_degree: usize,
     pub max_peering_degree: u32,
-    pub conn_monitor: Option<ConnectionMonitorSettings>,
 }
 
 const CHANNEL_SIZE: usize = 64;

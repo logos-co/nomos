@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
-    marker::PhantomData,
+    ops::RangeInclusive,
     task::{Context, Poll, Waker},
     time::Duration,
 };
@@ -40,7 +40,7 @@ pub struct Behaviour<ObservationWindowClockProvider> {
     // TODO: This cache should be cleared after the session transition period has passed,
     //       because keys and nullifiers are valid during a single session.
     seen_message_cache: SizedCache<Vec<u8>, ()>,
-    _observation_window_clock_provider: PhantomData<ObservationWindowClockProvider>,
+    observation_window_clock_provider: ObservationWindowClockProvider,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -52,8 +52,6 @@ enum NegotiatedPeerState {
 #[derive(Debug)]
 pub struct Config {
     pub seen_message_cache_size: usize,
-    pub observation_window_duration: Duration,
-    pub include_monitor: bool,
 }
 
 #[derive(Debug)]
@@ -67,9 +65,12 @@ pub enum Event {
     Error(Error),
 }
 
-impl<IntervalProvider> Behaviour<IntervalProvider> {
+impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     #[must_use]
-    pub fn new(config: Config) -> Self {
+    pub fn new(
+        config: Config,
+        observation_window_clock_provider: ObservationWindowClockProvider,
+    ) -> Self {
         let duplicate_cache = SizedCache::with_size(config.seen_message_cache_size);
         Self {
             config,
@@ -77,7 +78,7 @@ impl<IntervalProvider> Behaviour<IntervalProvider> {
             events: VecDeque::new(),
             waker: None,
             seen_message_cache: duplicate_cache,
-            _observation_window_clock_provider: PhantomData,
+            observation_window_clock_provider,
         }
     }
 
@@ -150,29 +151,25 @@ impl<IntervalProvider> Behaviour<IntervalProvider> {
     }
 }
 
-impl<IntervalProvider> Behaviour<IntervalProvider>
+impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider>
 where
-    IntervalProvider: IntervalStreamProvider,
+    ObservationWindowClockProvider: IntervalStreamProvider,
 {
     fn create_connection_handler(
         &self,
-    ) -> BlendConnectionHandler<IntervalProvider::IntervalStream> {
-        let monitor = if self.config.include_monitor {
-            Some(ConnectionMonitor::new(IntervalProvider::interval_stream(
-                self.config.observation_window_duration,
-            )))
-        } else {
-            None
-        };
-        BlendConnectionHandler::new(monitor)
+    ) -> BlendConnectionHandler<ObservationWindowClockProvider::IntervalStream> {
+        BlendConnectionHandler::new(ConnectionMonitor::new(
+            self.observation_window_clock_provider.interval_stream(),
+        ))
     }
 }
 
-impl<IntervalProvider> NetworkBehaviour for Behaviour<IntervalProvider>
+impl<ObservationWindowClockProvider> NetworkBehaviour for Behaviour<ObservationWindowClockProvider>
 where
-    IntervalProvider: IntervalStreamProvider<IntervalStream: Unpin + Send> + 'static,
+    ObservationWindowClockProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<usize>>
+        + 'static,
 {
-    type ConnectionHandler = BlendConnectionHandler<IntervalProvider::IntervalStream>;
+    type ConnectionHandler = BlendConnectionHandler<ObservationWindowClockProvider::IntervalStream>;
     type ToSwarm = Event;
 
     fn handle_established_inbound_connection(
@@ -302,7 +299,8 @@ where
 }
 
 pub trait IntervalStreamProvider {
-    type IntervalStream: Stream<Item = ()>;
+    type IntervalStream: Stream<Item = Self::IntervalItem>;
+    type IntervalItem;
 
-    fn interval_stream(interval: Duration) -> Self::IntervalStream;
+    fn interval_stream(&self) -> Self::IntervalStream;
 }

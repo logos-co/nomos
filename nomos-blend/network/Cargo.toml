@@ -10,6 +10,7 @@ futures             = "0.3.30"
 libp2p              = { workspace = true }
 nomos-blend         = { workspace = true }
 nomos-blend-message = { workspace = true }
+nomos-utils         = { workspace = true, optional = true }
 serde               = { version = "1.0", features = ["derive"] }
 sha2                = "0.10"
 tokio               = { version = "1", features = ["time"], optional = true }
@@ -24,4 +25,4 @@ tokio-stream = "0.1"
 
 [features]
 default = ["tokio"]
-tokio   = ["dep:tokio", "dep:tokio-stream"]
+tokio   = ["dep:nomos-utils", "dep:tokio", "dep:tokio-stream"]

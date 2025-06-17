@@ -4,28 +4,56 @@ mod error;
 mod handler;
 
 #[cfg(feature = "tokio")]
-use std::time::Duration;
+use std::{
+    num::{NonZeroU64, NonZeroUsize},
+    ops::RangeInclusive,
+    time::Duration,
+};
 
 pub use behaviour::{Behaviour, Config, Event, IntervalStreamProvider};
+#[cfg(feature = "tokio")]
+use nomos_utils::math::NonNegativeF64;
 #[cfg(feature = "tokio")]
 use tokio_stream::StreamExt as _;
 
 #[cfg(feature = "tokio")]
-pub struct TokioIntervalStreamProvider;
+#[derive(Clone)]
+pub struct TokioIntervalStreamProvider {
+    pub round_duration_seconds: NonZeroU64,
+    pub maximal_delay_seconds: NonZeroU64,
+    pub blending_ops_per_message: NonZeroU64,
+    pub normalization_constant: NonNegativeF64,
+    pub membership_size: NonZeroUsize,
+    pub rounds_per_observation_window: NonZeroUsize,
+    pub minimum_messages_coefficient: NonZeroUsize,
+}
 
 #[cfg(feature = "tokio")]
 impl IntervalStreamProvider for TokioIntervalStreamProvider {
-    type IntervalStream = Box<dyn futures::Stream<Item = ()> + Send + Unpin + 'static>;
+    type IntervalStream =
+        Box<dyn futures::Stream<Item = RangeInclusive<usize>> + Send + Unpin + 'static>;
+    type IntervalItem = RangeInclusive<usize>;
 
-    fn interval_stream(interval: Duration) -> Self::IntervalStream {
+    fn interval_stream(&self) -> Self::IntervalStream {
         // Since tokio::time::interval.tick() returns immediately regardless of the
         // interval, we need to explicitly specify the time of the first tick we
         // expect. If not, the peer would be marked as unhealthy immediately
         // as soon as the connection is established.
+        let expected_message_range = {
+            // TODO: Remove unsafe arithmetic operations
+            let mu = ((self.maximal_delay_seconds.get() as f64
+                * self.blending_ops_per_message.get() as f64
+                * self.normalization_constant.get())
+                / self.membership_size.get() as f64)
+                .ceil() as usize;
+            (mu * self.minimum_messages_coefficient.get())
+                ..=(mu * self.rounds_per_observation_window.get())
+        };
+        let interval = Duration::from_secs(self.round_duration_seconds.get());
         let start = tokio::time::Instant::now() + interval;
         Box::new(
             tokio_stream::wrappers::IntervalStream::new(tokio::time::interval_at(start, interval))
-                .map(|_| ()),
+                .map(move |_| expected_message_range.clone()),
         )
     }
 }
@@ -35,6 +63,7 @@ impl IntervalStreamProvider for TokioIntervalStreamProvider {
 mod test {
     use std::{ops::RangeInclusive, time::Duration};
 
+    use futures::Stream;
     use libp2p::{
         futures::StreamExt as _,
         identity::Keypair,
@@ -45,7 +74,27 @@ mod test {
     use nomos_blend_message::{mock::MockBlendMessage, BlendMessage};
     use tokio::select;
 
-    use crate::{behaviour::Config, error::Error, Behaviour, Event, TokioIntervalStreamProvider};
+    use crate::{behaviour::Config, error::Error, Behaviour, Event, IntervalStreamProvider};
+
+    struct TestTokioIntervalStreamProvider(Duration, RangeInclusive<usize>);
+
+    impl IntervalStreamProvider for TestTokioIntervalStreamProvider {
+        type IntervalStream =
+            Box<dyn Stream<Item = RangeInclusive<usize>> + Send + Unpin + 'static>;
+        type IntervalItem = RangeInclusive<usize>;
+
+        fn interval_stream(&self) -> Self::IntervalStream {
+            let interval = self.0.clone();
+            let start = tokio::time::Instant::now() + interval;
+            let range = self.1.clone();
+            Box::new(
+                tokio_stream::wrappers::IntervalStream::new(tokio::time::interval_at(
+                    start, interval,
+                ))
+                .map(move |_| range.clone()),
+            )
+        }
+    }
 
     /// Check that a published messsage arrives in the peers successfully.
     #[tokio::test]
@@ -53,10 +102,16 @@ mod test {
         // Initialize two swarms that support the blend protocol.
         let (mut nodes, mut keypairs) = nodes(2, 8090);
         let node1_addr = nodes.next().unwrap().address;
-        let (mut swarm1, _) = new_blend_swarm(keypairs.next().unwrap(), node1_addr.clone(), None);
-        let (mut swarm2, _) = new_blend_swarm(
+        let mut swarm1 = new_blend_swarm(
+            keypairs.next().unwrap(),
+            node1_addr.clone(),
+            Duration::from_secs(5),
+            None,
+        );
+        let mut swarm2 = new_blend_swarm(
             keypairs.next().unwrap(),
             nodes.next().unwrap().address,
+            Duration::from_secs(5),
             None,
         );
         swarm2.dial(node1_addr).unwrap();
@@ -102,9 +157,10 @@ mod test {
         let (mut nodes, mut keypairs) = nodes(2, 8190);
         let node1_addr = nodes.next().unwrap().address;
         let mut swarm1 = new_dummy_swarm(keypairs.next().unwrap(), node1_addr.clone());
-        let (mut swarm2, _) = new_blend_swarm(
+        let mut swarm2 = new_blend_swarm(
             keypairs.next().unwrap(),
             nodes.next().unwrap().address,
+            Duration::from_secs(5),
             None,
         );
         swarm2.dial(node1_addr).unwrap();
@@ -132,20 +188,19 @@ mod test {
     #[tokio::test]
     async fn detect_malicious_peer() {
         // Init two swarms with connection monitoring enabled.
-        let conn_monitor_settings = ConnectionMonitorSettings {
-            expected_message_range: 0..=0,
-        };
         let (mut nodes, mut keypairs) = nodes(2, 8290);
         let node1_addr = nodes.next().unwrap().address;
-        let (mut swarm1, observation_window) = new_blend_swarm(
+        let mut swarm1 = new_blend_swarm(
             keypairs.next().unwrap(),
             node1_addr.clone(),
-            Some(conn_monitor_settings.clone()),
+            Duration::from_secs(5),
+            Some(0..=0),
         );
-        let (mut swarm2, _) = new_blend_swarm(
+        let mut swarm2 = new_blend_swarm(
             keypairs.next().unwrap(),
             nodes.next().unwrap().address,
-            Some(conn_monitor_settings),
+            Duration::from_secs(5),
+            Some(0..=0),
         );
         swarm2.dial(node1_addr).unwrap();
 
@@ -189,30 +244,27 @@ mod test {
         };
 
         // Expect for the task to be completed in time
-        assert!(
-            tokio::time::timeout(Duration::from_secs(observation_window.as_secs() + 1), task)
-                .await
-                .is_ok()
-        );
+        assert!(tokio::time::timeout(Duration::from_secs(6), task)
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
     async fn detect_unhealthy_peer() {
         // Init two swarms with connection monitoring enabled.
-        let conn_monitor_settings = ConnectionMonitorSettings {
-            expected_message_range: 1..=1,
-        };
         let (mut nodes, mut keypairs) = nodes(2, 8390);
         let node1_addr = nodes.next().unwrap().address;
-        let (mut swarm1, observation_window) = new_blend_swarm(
+        let mut swarm1 = new_blend_swarm(
             keypairs.next().unwrap(),
             node1_addr.clone(),
-            Some(conn_monitor_settings.clone()),
+            Duration::from_secs(5),
+            Some(1..=1),
         );
-        let (mut swarm2, _) = new_blend_swarm(
+        let mut swarm2 = new_blend_swarm(
             keypairs.next().unwrap(),
             nodes.next().unwrap().address,
-            Some(conn_monitor_settings),
+            Duration::from_secs(5),
+            Some(1..=1),
         );
         swarm2.dial(node1_addr).unwrap();
 
@@ -249,30 +301,31 @@ mod test {
         };
 
         // Expect for the task to be completed in time
-        assert!(
-            tokio::time::timeout(Duration::from_secs(observation_window.as_secs() + 1), task)
-                .await
-                .is_ok()
-        );
+        assert!(tokio::time::timeout(Duration::from_secs(6), task)
+            .await
+            .is_ok());
     }
 
     fn new_blend_swarm(
         keypair: Keypair,
         addr: Multiaddr,
+        expected_duration: Duration,
         expected_message_range: Option<RangeInclusive<usize>>,
-    ) -> (Swarm<Behaviour<TokioIntervalStreamProvider>>, Duration) {
-        let observation_window_duration = Duration::from_secs(5);
-        (
-            new_swarm_with_behaviour(
-                keypair,
-                addr,
-                Behaviour::<TokioIntervalStreamProvider>::new(Config {
+    ) -> Swarm<Behaviour<TestTokioIntervalStreamProvider>> {
+        new_swarm_with_behaviour(
+            keypair,
+            addr,
+            Behaviour::new(
+                Config {
                     seen_message_cache_size: 1000,
-                    observation_window_duration,
-                    conn_monitor_settings,
-                }),
+                },
+                TestTokioIntervalStreamProvider(
+                    expected_duration,
+                    // If no range is provided, we assume the maximum range which is equivalent
+                    // to not having a monitor at all.
+                    expected_message_range.unwrap_or(0..=usize::MAX),
+                ),
             ),
-            observation_window_duration,
         )
     }
 

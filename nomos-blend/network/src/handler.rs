@@ -1,6 +1,7 @@
 use std::{
     collections::VecDeque,
     io,
+    ops::RangeInclusive,
     task::{Context, Poll, Waker},
 };
 
@@ -31,9 +32,7 @@ pub struct BlendConnectionHandler<ConnectionWindowClock> {
     outbound_substream: Option<OutboundSubstreamState>,
     outbound_msgs: VecDeque<Vec<u8>>,
     pending_events_to_behaviour: VecDeque<ToBehaviour>,
-    // NOTE: Until we figure out optimal parameters for the monitor, we will keep it optional
-    // to avoid unintended side effects.
-    monitor: Option<ConnectionMonitor<ConnectionWindowClock>>,
+    monitor: ConnectionMonitor<ConnectionWindowClock>,
     waker: Option<Waker>,
 }
 
@@ -59,7 +58,7 @@ enum OutboundSubstreamState {
 }
 
 impl<ConnectionWindowClock> BlendConnectionHandler<ConnectionWindowClock> {
-    pub const fn new(monitor: Option<ConnectionMonitor<ConnectionWindowClock>>) -> Self {
+    pub const fn new(monitor: ConnectionMonitor<ConnectionWindowClock>) -> Self {
         Self {
             inbound_substream: None,
             outbound_substream: None,
@@ -127,7 +126,7 @@ pub enum ToBehaviour {
 
 impl<ConnectionWindowClock> ConnectionHandler for BlendConnectionHandler<ConnectionWindowClock>
 where
-    ConnectionWindowClock: futures::Stream + Unpin + Send + 'static,
+    ConnectionWindowClock: futures::Stream<Item = RangeInclusive<usize>> + Unpin + Send + 'static,
 {
     type FromBehaviour = FromBehaviour;
     type ToBehaviour = ToBehaviour;
@@ -160,20 +159,18 @@ where
 
         // Check if the monitor interval has elapsed, if exists.
         // TODO: Refactor this to a separate function.
-        if let Some(monitor) = &mut self.monitor {
-            if let Poll::Ready(output) = monitor.poll(cx) {
-                match output {
-                    ConnectionMonitorOutput::Spammy => {
-                        self.close_substreams();
-                        self.pending_events_to_behaviour
-                            .push_back(ToBehaviour::MaliciousPeer);
-                    }
-                    ConnectionMonitorOutput::Unhealthy => {
-                        self.pending_events_to_behaviour
-                            .push_back(ToBehaviour::UnhealthyPeer);
-                    }
-                    ConnectionMonitorOutput::Healthy => {}
+        if let Poll::Ready(output) = self.monitor.poll(cx) {
+            match output {
+                ConnectionMonitorOutput::Spammy => {
+                    self.close_substreams();
+                    self.pending_events_to_behaviour
+                        .push_back(ToBehaviour::MaliciousPeer);
                 }
+                ConnectionMonitorOutput::Unhealthy => {
+                    self.pending_events_to_behaviour
+                        .push_back(ToBehaviour::UnhealthyPeer);
+                }
+                ConnectionMonitorOutput::Healthy => {}
             }
         }
 
@@ -198,9 +195,7 @@ where
                     );
 
                     // Record the message to the monitor.
-                    if let Some(monitor) = &mut self.monitor {
-                        monitor.record_message();
-                    }
+                    self.monitor.record_message();
 
                     self.inbound_substream =
                         Some(InboundSubstreamState::PendingRecv(recv_msg(stream).boxed()));

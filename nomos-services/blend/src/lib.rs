@@ -5,7 +5,7 @@ use std::{
     collections::HashSet,
     fmt::{Debug, Display},
     hash::Hash,
-    num::NonZeroU64,
+    num::{NonZeroU64, NonZeroUsize},
     time::Duration,
 };
 
@@ -305,7 +305,7 @@ pub struct TimingSettings {
     pub rounds_per_interval: NonZeroU64,
     #[serde_as(as = "MinimalBoundedDuration<1, SECOND>")]
     pub round_duration: Duration,
-    pub rounds_per_observation_window: NonZeroU64,
+    pub rounds_per_observation_window: NonZeroUsize,
 }
 
 impl TimingSettings {
@@ -332,8 +332,7 @@ impl TimingSettings {
 
     const fn observation_window_duration(&self) -> Duration {
         Duration::from_secs(
-            self.rounds_per_observation_window
-                .get()
+            (self.rounds_per_observation_window.get() as u64)
                 .checked_add(self.round_duration.as_secs())
                 .expect("Overflow when calculating observation window duration."),
         )
