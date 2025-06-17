@@ -216,8 +216,9 @@ where
                 Some(msg) = inbound_relay.recv() => {
                     Self::handle_network_service_message(msg, backend).await;
                 }
-                Some((block_number, providers)) = stream.next() => {
-                    Self::handle_membership_update(block_number, providers, &membership_storage);
+                Some((_block_number, _providers)) = stream.next() => {
+                    // Self::handle_membership_update(block_number, providers, &membership_storage);
+                    // todo: implement when subnetwork assignations update is ready
                 }
             }
         }
@@ -275,6 +276,10 @@ where
         }
     }
 
+    #[expect(
+        dead_code,
+        reason = "Enable this function when subnetwork assignations update is ready"
+    )]
     fn handle_membership_update(
         block_numnber: BlockNumber,
         update: HashMap<<Membership as MembershipHandler>::Id, Multiaddr>,
