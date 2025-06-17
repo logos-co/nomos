@@ -9,6 +9,7 @@ workspace = true
 
 [dependencies]
 async-trait = "0.1"
+base64      = "0.22"
 blake2      = "0.10"
 multiaddr   = "0.18"
 nomos-core  = { workspace = true }

@@ -1,12 +1,13 @@
 pub mod ledger;
 mod state;
 
-use std::{collections::BTreeSet, hash::Hash};
+use std::{collections::BTreeSet, hash::Hash, str::FromStr};
 
+use base64::prelude::*;
 use blake2::{Blake2b, Digest as _};
 use multiaddr::Multiaddr;
 use nomos_core::block::BlockNumber;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub type StakeThreshold = u64;
 
@@ -51,11 +52,70 @@ pub enum ServiceType {
     ExecutorNetwork,
 }
 
+// Add Display and FromStr implementations so we can serialize
+// Hashmap<ServiceType, ...> easily
+impl std::fmt::Display for ServiceType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BlendNetwork => write!(f, "BN"),
+            Self::DataAvailability => write!(f, "DA"),
+            Self::ExecutorNetwork => write!(f, "EX"),
+        }
+    }
+}
+
+impl FromStr for ServiceType {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "BN" => Ok(Self::BlendNetwork),
+            "DA" => Ok(Self::DataAvailability),
+            "EX" => Ok(Self::ExecutorNetwork),
+            _ => Err(format!("Unknown ServiceType: {s}")),
+        }
+    }
+}
+
 pub type Nonce = [u8; 16];
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct ProviderId(pub [u8; 32]);
+
+impl Serialize for ProviderId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if serializer.is_human_readable() {
+            // For JSON: serialize as base64 string
+            BASE64_STANDARD.encode(self.0).serialize(serializer)
+        } else {
+            // For binary: serialize as bytes
+            self.0.serialize(serializer)
+        }
+    }
+}
+impl<'de> Deserialize<'de> for ProviderId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            // For JSON: deserialize from base64 string
+            let s = String::deserialize(deserializer)?;
+            let bytes = BASE64_STANDARD
+                .decode(&s)
+                .map_err(serde::de::Error::custom)?;
+            if bytes.len() != 32 {
+                return Err(serde::de::Error::custom("Invalid byte length"));
+            }
+            Ok(Self(bytes.try_into().unwrap()))
+        } else {
+            // For binary: deserialize from bytes
+            Ok(Self(<[u8; 32]>::deserialize(deserializer)?))
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct DeclarationId(pub [u8; 32]);

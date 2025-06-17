@@ -70,15 +70,14 @@ mod tests {
 
         let client_fn = |i| async move {
             let ip = Ipv4Addr::from_str(&format!("1.0.0.{i}")).unwrap();
-            (
+            let result = get_config::<ValidatorConfig>(
                 ip,
-                get_config::<ValidatorConfig>(
-                    ip,
-                    ip.to_string(),
-                    &format!("http://{app_addr}/validator"),
-                )
-                .await,
+                ip.to_string(),
+                &format!("http://{app_addr}/validator"),
             )
+            .await;
+
+            (ip, result)
         };
 
         let tasks: Vec<_> = (0..n_hosts).map(client_fn).collect();

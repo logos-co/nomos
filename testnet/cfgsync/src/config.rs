@@ -15,7 +15,7 @@ use nomos_sdp_core::{Locator, ServiceType};
 use nomos_tracing_service::{LoggerLayer, MetricsLayer, TracingLayer, TracingSettings};
 use rand::{thread_rng, Rng as _};
 use tests::{
-    secret_key_to_provider_id,
+    get_available_port, secret_key_to_provider_id,
     topology::configs::{
         api::GeneralApiConfig,
         blend::create_blend_configs,
@@ -85,9 +85,9 @@ pub fn create_node_configs(
 ) -> HashMap<Host, GeneralConfig> {
     let mut ids = vec![[0; 32]; consensus_params.n_participants];
     let mut ports = vec![];
-    for (i, id) in ids.iter_mut().enumerate() {
+    for id in &mut ids {
         thread_rng().fill(id);
-        ports.push(hosts[i].network_port);
+        ports.push(get_available_port());
     }
 
     let consensus_configs = create_consensus_configs(&ids, consensus_params);

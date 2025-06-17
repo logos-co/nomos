@@ -196,7 +196,7 @@ where
             .await?;
 
         let storage_adapter = StorageAdapter::default();
-        let membership_storage = MembershipStorage::new(storage_adapter, membership.clone());
+        let _membership_storage = MembershipStorage::new(storage_adapter, membership.clone());
 
         let membership_service_adapter = MembershipServiceAdapter::new(membership_service_relay);
 
