@@ -7,6 +7,8 @@ use tokio::sync::{mpsc::Sender, oneshot};
 
 use crate::{behaviour::BehaviourError, Swarm};
 
+type SerialisedBlockStream = BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>;
+
 impl Swarm {
     pub fn request_tip(
         &self,
@@ -29,7 +31,7 @@ impl Swarm {
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
-        reply_sender: Sender<BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>>,
+        reply_sender: Sender<SerialisedBlockStream>,
     ) -> Result<(), BehaviourError> {
         let Some(chain_sync) = self.swarm.behaviour().chain_sync.as_ref() else {
             return Err(BehaviourError::OperationNotSupported);
