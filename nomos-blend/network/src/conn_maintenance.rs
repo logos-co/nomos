@@ -50,7 +50,7 @@ impl<ConnectionWindowClock> ConnectionMonitor<ConnectionWindowClock> {
         self.expected_message_range = Some(new_expected_message_count_range);
     }
 
-    /// Check if the peer is malicious based on the number of messages sent
+    /// Check if the peer is spammy based on the number of messages sent
     const fn is_spammy(&self) -> bool {
         let Some(expected_message_range) = &self.expected_message_range else {
             return false;
@@ -142,7 +142,7 @@ mod tests {
         );
 
         // Recording more than the expected number of messages,
-        // expecting the peer to be malicious
+        // expecting the peer to be spammy
         monitor.record_message();
         monitor.record_message();
         monitor.record_message();
@@ -156,6 +156,13 @@ mod tests {
         assert_eq!(
             monitor.poll(&mut Context::from_waker(&noop_waker())),
             Poll::Ready(ConnectionMonitorOutput::Unhealthy)
+        );
+
+        // Recording the right number of messages, marks the peer as healthy again.
+        monitor.record_message();
+        assert_eq!(
+            monitor.poll(&mut Context::from_waker(&noop_waker())),
+            Poll::Ready(ConnectionMonitorOutput::Healthy)
         );
     }
 

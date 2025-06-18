@@ -178,7 +178,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn detect_malicious_peer() {
+    async fn detect_spammy_peer() {
         // Init two swarms with connection monitoring enabled.
         let (mut nodes, mut keypairs) = nodes(2, 8290);
         let node1_addr = nodes.next().unwrap().address;
@@ -197,7 +197,7 @@ mod test {
         swarm2.dial(node1_addr).unwrap();
 
         // Swarm2 sends a message to Swarm1, even though `expected_messages` is
-        // 0. Then, Swarm1 should detect Swarm2 as a malicious peer.
+        // 0. Then, Swarm1 should detect Swarm2 as a spammy peer.
         let task = async {
             let mut num_events_waiting = 2;
             let mut msg_published = false;
@@ -215,8 +215,8 @@ mod test {
                     }
                     event = swarm1.select_next_some() => {
                         match event {
-                            // We expect the behaviour reports a malicious peer.
-                            SwarmEvent::Behaviour(Event::MaliciousPeer(peer_id)) => {
+                            // We expect the behaviour reports a spammy peer.
+                            SwarmEvent::Behaviour(Event::SpammyPeer(peer_id)) => {
                                 assert_eq!(peer_id, *swarm2.local_peer_id());
                                 num_events_waiting -= 1;
                             },
