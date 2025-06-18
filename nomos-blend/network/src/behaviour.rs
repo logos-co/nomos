@@ -276,13 +276,10 @@ where
                 let previous_state = self
                     .negotiated_peers
                     .insert(peer_id, NegotiatedPeerState::Unhealthy);
-                match previous_state {
-                    None | Some(NegotiatedPeerState::Healthy) => {
-                        tracing::debug!("Peer {:?} has been detected as unhealthy", peer_id);
-                        self.events
-                            .push_back(ToSwarm::GenerateEvent(Event::UnhealthyPeer(peer_id)));
-                    }
-                    _ => {}
+                if matches!(previous_state, None | Some(NegotiatedPeerState::Healthy)) {
+                    tracing::debug!("Peer {:?} has been detected as unhealthy", peer_id);
+                    self.events
+                        .push_back(ToSwarm::GenerateEvent(Event::UnhealthyPeer(peer_id)));
                 }
             }
             ToBehaviour::HealthyPeer => {
@@ -290,13 +287,10 @@ where
                 let previous_state = self
                     .negotiated_peers
                     .insert(peer_id, NegotiatedPeerState::Healthy);
-                match previous_state {
-                    None | Some(NegotiatedPeerState::Unhealthy) => {
-                        tracing::debug!("Peer {:?} has been detected as healthy", peer_id);
-                        self.events
-                            .push_back(ToSwarm::GenerateEvent(Event::HealthyPeer(peer_id)));
-                    }
-                    _ => {}
+                if matches!(previous_state, None | Some(NegotiatedPeerState::Unhealthy)) {
+                    tracing::debug!("Peer {:?} has been detected as healthy", peer_id);
+                    self.events
+                        .push_back(ToSwarm::GenerateEvent(Event::HealthyPeer(peer_id)));
                 }
             }
             ToBehaviour::IOError(error) => {
