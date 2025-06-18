@@ -1,5 +1,6 @@
 use std::{collections::HashSet, fmt::Debug};
 
+use bytes::Bytes;
 use futures::stream::BoxStream;
 use nomos_core::header::HeaderId;
 use overwatch::DynError;
@@ -8,7 +9,7 @@ use tokio_stream::wrappers::BroadcastStream;
 
 use crate::backends::NetworkBackend;
 
-type BlocksStream = BoxStream<'static, Result<Vec<u8>, DynError>>;
+type BlocksStream = BoxStream<'static, Result<Bytes, DynError>>;
 
 #[derive(Debug)]
 pub enum NetworkMsg<Payload, PubSubEvent, ChainSyncEvent> {

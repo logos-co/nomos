@@ -547,7 +547,7 @@ mod tests {
     use std::{collections::HashSet, iter, time::Duration};
 
     use futures::{stream::BoxStream, StreamExt as _};
-    use libp2p::{swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
+    use libp2p::{bytes::Bytes, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
     use libp2p_swarm_test::SwarmExt as _;
     use nomos_core::header::HeaderId;
     use rand::{rng, Rng as _};
@@ -680,7 +680,9 @@ mod tests {
                         let _stream = reply_sender
                             .send(
                                 futures::stream::iter(
-                                    iter::repeat_with(|| vec![0; 32]).take(blocks_count).map(Ok),
+                                    iter::repeat_with(|| Bytes::from_static(&[0; 32]))
+                                        .take(blocks_count)
+                                        .map(Ok),
                                 )
                                 .boxed(),
                             )

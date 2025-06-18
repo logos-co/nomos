@@ -1,10 +1,11 @@
 use std::collections::HashSet;
 
+use libp2p::bytes::Bytes;
 use nomos_core::header::HeaderId;
 use serde::{Deserialize, Serialize};
 
 /// Blocks are serialized using nomos-core's wire format.
-pub type SerialisedBlock = Vec<u8>;
+pub type SerialisedBlock = Bytes;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum RequestMessage {
