@@ -165,7 +165,6 @@ type StreamHandlerFuture = BoxFuture<'static, Result<StreamHandlerFutureSuccess,
 
 /// Executor dispersal protocol.
 ///
-/// Do not handle incoming connections, just accepts outgoing ones.
 /// It takes care of sending blobs to different subnetworks.
 /// Bubbles up events with the success or error when dispersing
 pub struct DispersalExecutorBehaviour<Membership: MembershipHandler> {
@@ -183,6 +182,8 @@ pub struct DispersalExecutorBehaviour<Membership: MembershipHandler> {
     disconnected_pending_shares: HashMap<Membership::NetworkId, VecDeque<DaShare>>,
     /// Already connected peers connection Ids
     connected_peers: HashMap<PeerId, ConnectionId>,
+    /// List of peers that already has pending open stream request.
+    pending_peer_open_stream_requests: HashSet<PeerId>,
     /// Subnetwork working streams
     subnetwork_open_streams: HashSet<SubnetworkId>,
     /// Sender hook of peers to open streams channel
@@ -209,6 +210,7 @@ where
         let connected_peers = HashMap::new();
         let subnetwork_open_streams = HashSet::new();
         let idle_streams = HashMap::new();
+        let pending_peer_open_stream_requests = HashSet::new();
         let (pending_out_streams_sender, receiver) = mpsc::unbounded_channel();
         let control = stream_behaviour.new_control();
         let pending_out_streams = UnboundedReceiverStream::new(receiver)
@@ -229,6 +231,7 @@ where
             connected_peers,
             subnetwork_open_streams,
             idle_streams,
+            pending_peer_open_stream_requests,
             pending_out_streams_sender,
             pending_out_streams,
             pending_shares_sender,
@@ -388,6 +391,29 @@ impl<Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'sta
         }
     }
 
+    fn try_open_stream(
+        pending_out_streams_sender: &mut UnboundedSender<PeerId>,
+        membership: &Membership,
+        connected_peers: &HashMap<PeerId, ConnectionId>,
+        pending_peer_open_stream_requests: &mut HashSet<PeerId>,
+        subnetwork_id: SubnetworkId,
+    ) {
+        let members = membership.members_of(&subnetwork_id);
+        let peers: Vec<_> = members
+            .iter()
+            .filter(|peer_id| connected_peers.contains_key(peer_id))
+            .filter(|peer_id| !pending_peer_open_stream_requests.contains(&peer_id))
+            .collect();
+
+        for peer in peers {
+            if let Err(e) = pending_out_streams_sender.send(*peer) {
+                error!("Error requesting stream for peer {peer}: {e}");
+            } else {
+                pending_peer_open_stream_requests.insert(*peer);
+            }
+        }
+    }
+
     fn prune_shares_for_peer(&mut self, peer_id: PeerId) -> VecDeque<(SubnetworkId, DaShare)> {
         self.to_disperse.remove(&peer_id).unwrap_or_default()
     }
@@ -422,12 +448,22 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
 
     fn handle_established_inbound_connection(
         &mut self,
-        _connection_id: ConnectionId,
-        _peer: PeerId,
-        _local_addr: &Multiaddr,
-        _remote_addr: &Multiaddr,
+        connection_id: ConnectionId,
+        peer: PeerId,
+        local_addr: &Multiaddr,
+        remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler))
+        // A member peer might open connection to the execuror for sampling or
+        // replication. During the lifetime of a connection the executor might
+        // decide to disperse data via existing connection - in such case the
+        // connection needs to already have a handler that is able to open streams.
+        self.connected_peers.insert(peer, connection_id);
+        if !self.membership.is_allowed(&peer) {
+            return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
+        }
+        self.stream_behaviour
+            .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)
+            .map(Either::Left)
     }
 
     fn handle_established_outbound_connection(
@@ -482,6 +518,8 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
             to_disperse,
             disconnected_pending_shares,
             idle_streams,
+            pending_peer_open_stream_requests,
+            pending_out_streams_sender,
             pending_out_streams,
             pending_shares_stream,
             membership,
@@ -535,6 +573,13 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
                     &share,
                 );
             } else {
+                Self::try_open_stream(
+                    pending_out_streams_sender,
+                    membership,
+                    connected_peers,
+                    pending_peer_open_stream_requests,
+                    subnetwork_id,
+                );
                 let entry = disconnected_pending_shares
                     .entry(subnetwork_id)
                     .or_default();
@@ -547,6 +592,7 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
             match res {
                 Ok(stream) => {
                     subnetwork_open_streams.extend(membership.membership(&stream.peer_id));
+                    pending_peer_open_stream_requests.remove(&stream.peer_id);
                     Self::reschedule_shares_for_peer_stream(
                         &stream,
                         membership,

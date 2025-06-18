@@ -62,7 +62,7 @@ impl TopologyConfig {
                     max_replication_failures: 0,
                     malicious_threshold: 0,
                 },
-                balancer_interval: Duration::from_secs(5),
+                balancer_interval: Duration::from_secs(1),
                 ..Default::default()
             },
             network_params: NetworkParams::default(),
