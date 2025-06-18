@@ -8,13 +8,16 @@ use nomos_core::{
 use nomos_mempool::{
     network::adapters::libp2p::Settings as AdapterSettings, tx::settings::TxMempoolSettings,
 };
-use nomos_node::{config::CliArgs, Config, Nomos, NomosServiceSettings};
-use overwatch::overwatch::OverwatchRunner;
+use nomos_node::{config::CliArgs, Config, Nomos, NomosServiceSettings, RuntimeServiceId};
+use overwatch::overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli_args = CliArgs::parse();
     let is_dry_run = cli_args.dry_run();
+    let must_blend_service_group_start = cli_args.must_blend_service_group_start();
+    let must_da_service_group_start = cli_args.must_da_service_group_start();
+
     let config =
         serde_yaml::from_reader::<_, Config>(std::fs::File::open(cli_args.config_path())?)?
             .update_from_args(cli_args)?;
@@ -65,7 +68,41 @@ async fn main() -> Result<()> {
         None,
     )
     .map_err(|e| eyre!("Error encountered: {}", e))?;
-    let _ = app.handle().start_all_services().await;
+
+    let services_to_start = get_services_to_start(
+        &app,
+        must_blend_service_group_start,
+        must_da_service_group_start,
+    )
+    .await?;
+
+    let _ = app.handle().start_service_sequence(services_to_start).await;
+
     app.wait_finished().await;
     Ok(())
+}
+
+async fn get_services_to_start(
+    app: &Overwatch<RuntimeServiceId>,
+    must_blend_service_group_start: bool,
+    must_da_service_group_start: bool,
+) -> Result<Vec<RuntimeServiceId>, OverwatchError> {
+    let mut service_ids = app.handle().retrieve_service_ids().await?;
+
+    if !must_blend_service_group_start {
+        service_ids.retain(|value| value != &RuntimeServiceId::Blend);
+    }
+
+    if !must_da_service_group_start {
+        let da_service_ids = [
+            RuntimeServiceId::DaIndexer,
+            RuntimeServiceId::DaVerifier,
+            RuntimeServiceId::DaSampling,
+            RuntimeServiceId::DaNetwork,
+            RuntimeServiceId::DaMempool,
+        ];
+        service_ids.retain(|value| !da_service_ids.contains(value));
+    }
+
+    Ok(service_ids)
 }
