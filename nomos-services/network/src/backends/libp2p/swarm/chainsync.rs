@@ -89,3 +89,27 @@ impl SwarmHandler {
         }
     }
 }
+
+// Convert libp2p specific type to a common type.
+impl From<cryptarchia_sync::Event> for ChainSyncEvent {
+    fn from(event: cryptarchia_sync::Event) -> Self {
+        match event {
+            cryptarchia_sync::Event::ProvideBlocksRequest {
+                target_block,
+                local_tip,
+                latest_immutable_block,
+                additional_blocks,
+                reply_sender,
+            } => Self::ProvideBlocksRequest {
+                target_block,
+                local_tip,
+                latest_immutable_block,
+                additional_blocks,
+                reply_sender,
+            },
+            cryptarchia_sync::Event::ProvideTipsRequest { reply_sender } => {
+                Self::ProvideTipRequest { reply_sender }
+            }
+        }
+    }
+}

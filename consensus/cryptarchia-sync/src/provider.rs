@@ -4,7 +4,7 @@ use nomos_core::header::HeaderId;
 use tokio::sync::mpsc;
 
 use crate::{
-    errors::{ChainSyncError, ChainSyncErrorKind},
+    errors::{ChainSyncError, ChainSyncErrorKind, DynError},
     messages::{DownloadBlocksResponse, GetTipResponse, RequestMessage, SerialisedBlock},
     packing::unpack_from_reader,
     utils::send_message,
@@ -47,9 +47,7 @@ impl Provider {
     }
 
     pub async fn provide_blocks(
-        mut reply_receiver: mpsc::Receiver<
-            BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>,
-        >,
+        mut reply_receiver: mpsc::Receiver<BoxStream<'static, Result<SerialisedBlock, DynError>>>,
         peer_id: PeerId,
         mut libp2p_stream: Libp2pStream,
     ) -> Result<(), ChainSyncError> {
@@ -66,7 +64,11 @@ impl Provider {
                 send_message(peer_id, stream, &message).await?;
                 Ok(stream)
             })
-            .await?;
+            .await
+            .map_err(|e| ChainSyncError {
+                peer: peer_id,
+                kind: ChainSyncErrorKind::ServiceError(format!("Failed to receive blocks: {e}")),
+            })?;
 
         let request = DownloadBlocksResponse::NoMoreBlocks;
         send_message(peer_id, &mut libp2p_stream, &request).await?;

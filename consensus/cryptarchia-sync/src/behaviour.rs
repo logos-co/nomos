@@ -22,7 +22,7 @@ use tracing::{debug, error};
 
 use crate::{
     downloader::Downloader,
-    errors::{ChainSyncError, ChainSyncErrorKind},
+    errors::{ChainSyncError, ChainSyncErrorKind, DynError},
     messages::{DownloadBlocksRequest, RequestMessage},
     provider::{Provider, ReceivingRequestStream, MAX_ADDITIONAL_BLOCKS},
     SerialisedBlock,
@@ -106,7 +106,7 @@ pub enum Event {
         /// The list of additional blocks that the requester has.
         additional_blocks: HashSet<HeaderId>,
         /// Channel to send blocks to the service.
-        reply_sender: Sender<BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>>,
+        reply_sender: Sender<BoxStream<'static, Result<SerialisedBlock, DynError>>>,
     },
     ProvideTipsRequest {
         /// Channel to send the latest tip to the service.
@@ -546,7 +546,6 @@ impl NetworkBehaviour for Behaviour {
 mod tests {
     use std::{collections::HashSet, iter, time::Duration};
 
-    use bytes::Bytes;
     use futures::{stream::BoxStream, StreamExt as _};
     use libp2p::{swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
     use libp2p_swarm_test::SwarmExt as _;
@@ -681,9 +680,7 @@ mod tests {
                         let _stream = reply_sender
                             .send(
                                 futures::stream::iter(
-                                    iter::repeat_with(|| Bytes::from_static(&[0; 32]))
-                                        .take(blocks_count)
-                                        .map(Ok),
+                                    iter::repeat_with(|| vec![0; 32]).take(blocks_count).map(Ok),
                                 )
                                 .boxed(),
                             )

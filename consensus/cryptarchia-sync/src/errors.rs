@@ -3,6 +3,8 @@ use thiserror::Error;
 
 use crate::packing::PackingError;
 
+pub type DynError = Box<dyn std::error::Error + Send + Sync + 'static>;
+
 #[derive(Debug, Error)]
 pub enum ChainSyncErrorKind {
     #[error("Failed to start chain sync: {0}")]
@@ -25,6 +27,9 @@ pub enum ChainSyncErrorKind {
 
     #[error("Failed to send data to channel: {0}")]
     ChannelSendError(String),
+
+    #[error("Service error: {0}")]
+    ServiceError(String),
 }
 
 #[derive(Debug, Error, Clone)]

@@ -5,7 +5,6 @@ name              = "cryptarchia-sync"
 version           = "0.1.0"
 
 [dependencies]
-bytes         = { workspace = true }
 futures       = "0.3"
 libp2p        = { workspace = true, features = ["quic", "tokio", "yamux"] }
 libp2p-stream = { workspace = true }
