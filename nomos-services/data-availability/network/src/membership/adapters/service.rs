@@ -102,7 +102,7 @@ where
     }
 }
 
-fn peer_id_from_provider_id(pk_raw: &[u8]) -> Result<PeerId, DecodingError> {
+pub fn peer_id_from_provider_id(pk_raw: &[u8]) -> Result<PeerId, DecodingError> {
     let ed_pub = ed25519::PublicKey::try_from_bytes(pk_raw)?;
     Ok(PeerId::from_public_key(&ed_pub.into()))
 }
