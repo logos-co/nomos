@@ -257,7 +257,7 @@ mod tests {
             + Display
             + AsServiceId<GenericService>
             + AsServiceId<HeavyService>
-            + AsServiceId<DependantService<GenericService, RuntimeServiceId>>
+            + AsServiceId<Self>
             + 'static,
     {
         fn init(
@@ -364,6 +364,6 @@ mod tests {
         let _ = overwatch_handle
             .runtime()
             .block_on(overwatch_handle.shutdown());
-        overwatch.blocking_wait_finished()
+        overwatch.blocking_wait_finished();
     }
 }
