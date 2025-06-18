@@ -71,6 +71,12 @@ impl Payload {
 /// This must be encapsulated when being sent to the blend network.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PayloadHeader {
-    pub payload_type: u8,
+    pub payload_type: PayloadType,
     pub body_len: u16,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub enum PayloadType {
+    Cover = 0x00,
+    Data = 0x01,
 }

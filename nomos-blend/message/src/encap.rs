@@ -10,7 +10,7 @@ use crate::{
         PROOF_OF_SELECTION_SIZE, SIGNATURE_SIZE,
     },
     error::Error,
-    message::{BlendingHeader, Header, Payload, PayloadHeader, PublicHeader},
+    message::{BlendingHeader, Header, Payload, PayloadHeader, PayloadType, PublicHeader},
 };
 
 // TODO: Consider having these as parameters or generics.
@@ -35,18 +35,22 @@ pub struct EncapsulatedMessage {
 impl EncapsulatedMessage {
     /// Encapsulates the given payload with the provided encapsulation inputs.
     /// Encapsulation inputs more than [`MAX_ENCAPSULATIONS`] are not allowed.
-    pub fn new(inputs: &[EncapsulationInput], payload: &[u8]) -> Result<Self, Error> {
+    pub fn new(
+        inputs: &[EncapsulationInput],
+        payload_type: PayloadType,
+        payload_body: &[u8],
+    ) -> Result<Self, Error> {
         if inputs.len() > MAX_ENCAPSULATIONS {
             return Err(Error::MaxEncapsulationsExceeded);
         }
         if inputs.is_empty() {
             return Err(Error::EmptyEncapsulationInputs);
         }
-        if payload.len() > MAX_PAYLOAD_BODY_SIZE {
+        if payload_body.len() > MAX_PAYLOAD_BODY_SIZE {
             return Err(Error::PayloadTooLarge);
         }
 
-        let msg = Self::initialize(inputs, payload)?;
+        let msg = Self::initialize(inputs, payload_type, payload_body)?;
 
         // Encapsulate message using each shared key.
         let (mut msg, _) = inputs.iter().fold((msg, None), |(msg, prev_input), input| {
@@ -71,7 +75,11 @@ impl EncapsulatedMessage {
     }
 
     /// An initialization step for preparing encapsulations.
-    fn initialize(inputs: &[EncapsulationInput], payload_body: &[u8]) -> Result<Self, Error> {
+    fn initialize(
+        inputs: &[EncapsulationInput],
+        payload_type: PayloadType,
+        payload_body: &[u8],
+    ) -> Result<Self, Error> {
         // Fill the header.
         let header = Header::new();
 
@@ -121,7 +129,7 @@ impl EncapsulatedMessage {
         // Fill the payload.
         let mut payload = Payload {
             header: PayloadHeader {
-                payload_type: 0x01,
+                payload_type,
                 body_len: payload_body
                     .len()
                     .try_into()
@@ -383,7 +391,7 @@ mod tests {
         const PAYLOAD_BODY: &[u8] = b"hello";
 
         let (inputs, blend_node_signing_keys) = generate_inputs(2);
-        let msg = EncapsulatedMessage::new(&inputs, PAYLOAD_BODY).unwrap();
+        let msg = EncapsulatedMessage::new(&inputs, PayloadType::Data, PAYLOAD_BODY).unwrap();
 
         // We expect that the decapsulations can be done
         // in the reverse order of blend_node_signing_keys.
@@ -432,7 +440,7 @@ mod tests {
     fn max_encapsulations_exceeded() {
         let (inputs, _) = generate_inputs(MAX_ENCAPSULATIONS + 1);
         assert_eq!(
-            EncapsulatedMessage::new(&inputs, b"hello").err(),
+            EncapsulatedMessage::new(&inputs, PayloadType::Data, b"hello").err(),
             Some(Error::MaxEncapsulationsExceeded)
         );
     }
@@ -441,7 +449,12 @@ mod tests {
     fn payload_too_long() {
         let (inputs, _) = generate_inputs(1);
         assert_eq!(
-            EncapsulatedMessage::new(&inputs, &vec![0u8; MAX_PAYLOAD_BODY_SIZE + 1]).err(),
+            EncapsulatedMessage::new(
+                &inputs,
+                PayloadType::Data,
+                &vec![0u8; MAX_PAYLOAD_BODY_SIZE + 1]
+            )
+            .err(),
             Some(Error::PayloadTooLarge)
         );
     }
