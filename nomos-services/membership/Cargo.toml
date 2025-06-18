@@ -8,6 +8,7 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
+
 async-trait    = "0.1"
 futures        = "0.3"
 nomos-core     = { workspace = true }
@@ -15,7 +16,7 @@ nomos-sdp      = { workspace = true }
 nomos-sdp-core = { workspace = true }
 overwatch      = { workspace = true }
 serde          = { version = "1.0", features = ["derive"] }
-serde_with     = "3"
+serde_with     = { version = "3", features = ["json"] }
 services-utils = { workspace = true }
 thiserror      = "1"
 tokio          = { version = "1", features = ["macros", "sync"] }

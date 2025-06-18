@@ -16,7 +16,7 @@ use crate::MembershipProviders;
 #[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MockMembershipBackendSettings {
-    #[serde_as(as = "HashMap<serde_with::DisplayFromStr, _>")]
+    #[serde_as(as = "HashMap<serde_with::json::JsonString, _>")]
     pub settings_per_service: HashMap<ServiceType, MembershipBackendServiceSettings>,
     pub initial_membership: HashMap<BlockNumber, MockMembershipEntry>,
     pub initial_locators_mapping: HashMap<ProviderId, BTreeSet<Locator>>,

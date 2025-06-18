@@ -52,30 +52,6 @@ pub enum ServiceType {
     ExecutorNetwork,
 }
 
-// Add Display and FromStr implementations so we can serialize
-// Hashmap<ServiceType, ...> easily
-impl std::fmt::Display for ServiceType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::BlendNetwork => write!(f, "BN"),
-            Self::DataAvailability => write!(f, "DA"),
-            Self::ExecutorNetwork => write!(f, "EX"),
-        }
-    }
-}
-
-impl FromStr for ServiceType {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "BN" => Ok(Self::BlendNetwork),
-            "DA" => Ok(Self::DataAvailability),
-            "EX" => Ok(Self::ExecutorNetwork),
-            _ => Err(format!("Unknown ServiceType: {s}")),
-        }
-    }
-}
-
 pub type Nonce = [u8; 16];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
