@@ -98,7 +98,7 @@ pub enum FromBehaviour {
     /// This happens when [`crate::Behaviour`] determines that one of the
     /// followings is true.
     /// - Max peering degree is reached.
-    /// - The peer has been detected as malicious.
+    /// - The peer has been detected as spammy.
     CloseSubstreams,
 }
 
@@ -114,11 +114,13 @@ pub enum ToBehaviour {
     DialUpgradeError(DialUpgradeError<(), ReadyUpgrade<StreamProtocol>>),
     /// A message has been received from the connection.
     Message(Vec<u8>),
-    /// Notifying that the peer is detected as malicious.
+    /// Notifying that the peer is detected as spammy.
     /// The inbound/outbound streams to the peer are closed proactively.
-    MaliciousPeer,
+    SpammyPeer,
     /// Notifying that the peer is detected as unhealthy.
     UnhealthyPeer,
+    /// Notifying that the peer is detected as healthy.
+    HealthyPeer,
     /// An IO error from the connection.
     /// The inbound/outbound streams to the peer are closed proactively.
     IOError(io::Error),
@@ -164,13 +166,16 @@ where
                 ConnectionMonitorOutput::Spammy => {
                     self.close_substreams();
                     self.pending_events_to_behaviour
-                        .push_back(ToBehaviour::MaliciousPeer);
+                        .push_back(ToBehaviour::SpammyPeer);
                 }
                 ConnectionMonitorOutput::Unhealthy => {
                     self.pending_events_to_behaviour
                         .push_back(ToBehaviour::UnhealthyPeer);
                 }
-                ConnectionMonitorOutput::Healthy => {}
+                ConnectionMonitorOutput::Healthy => {
+                    self.pending_events_to_behaviour
+                        .push_back(ToBehaviour::HealthyPeer);
+                }
             }
         }
 

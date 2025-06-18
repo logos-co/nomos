@@ -146,11 +146,14 @@ where
             nomos_blend_network::Event::Message(msg) => {
                 self.handle_blend_message(msg);
             }
-            nomos_blend_network::Event::MaliciousPeer(peer_id) => {
-                self.handle_malicious_peer(peer_id);
+            nomos_blend_network::Event::SpammyPeer(peer_id) => {
+                self.handle_spammy_peer(peer_id);
             }
             nomos_blend_network::Event::UnhealthyPeer(peer_id) => {
                 self.handle_unhealthy_peer(peer_id);
+            }
+            nomos_blend_network::Event::HealthyPeer(peer_id) => {
+                Self::handle_healthy_peer(peer_id);
             }
             nomos_blend_network::Event::Error(e) => {
                 tracing::error!("Received error from blend network: {e:?}");
@@ -184,8 +187,8 @@ where
         }
     }
 
-    fn handle_malicious_peer(&mut self, peer_id: PeerId) {
-        tracing::debug!("Peer {} is malicious", peer_id);
+    fn handle_spammy_peer(&mut self, peer_id: PeerId) {
+        tracing::debug!("Peer {} is spammy", peer_id);
         self.swarm.behaviour_mut().blocked_peers.block_peer(peer_id);
         self.check_and_dial_new_peers();
     }
@@ -193,6 +196,10 @@ where
     fn handle_unhealthy_peer(&mut self, peer_id: PeerId) {
         tracing::debug!("Peer {} is unhealthy", peer_id);
         self.check_and_dial_new_peers();
+    }
+
+    fn handle_healthy_peer(peer_id: PeerId) {
+        tracing::debug!("Peer {} is healthy", peer_id);
     }
 
     /// Dial new peers, if necessary, to maintain the peering degree.
