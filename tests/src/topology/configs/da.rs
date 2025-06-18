@@ -132,8 +132,8 @@ pub fn create_da_configs(
     let addresses = build_da_peer_list(&peer_ids, &listening_addresses);
 
     let membership = NomosDaMembership::new(
-        &peer_ids,
-        addresses,
+        &[],
+        HashMap::default(),
         da_params.subnetwork_size,
         da_params.dispersal_factor,
     );

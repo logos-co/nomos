@@ -188,8 +188,6 @@ where
                 let stream = make_pin_broadcast_stream(tx.subscribe());
                 let providers = self.backend.get_latest_providers(service_type).await;
 
-                
-
                 if let Ok(providers) = providers {
                     if tx.send(providers).is_err() {
                         tracing::error!(

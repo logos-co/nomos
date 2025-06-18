@@ -37,6 +37,13 @@ impl MembershipStorageAdapter<PeerId, SubnetworkId> for MockStorage {
     }
 
     fn get(&self, block_number: BlockNumber) -> Option<Assignations<PeerId, SubnetworkId>> {
-        self.storage.lock().unwrap().get(&block_number).cloned()
+        let result = self.storage.lock().unwrap().get(&block_number).cloned();
+        tracing::info!(
+            "BUGHUNTING: Get membership for block {}, assignations: {:?}",
+            block_number,
+            result,
+        );
+
+        result
     }
 }

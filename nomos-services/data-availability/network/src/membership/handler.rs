@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashSet, fmt::Debug, sync::Arc};
 
 use arc_swap::ArcSwap;
 use subnetworks_assignations::{MembershipHandler, SubnetworkAssignations};
@@ -34,12 +34,21 @@ impl<Membership> DaMembershipHandler<Membership> {
 impl<Membership> MembershipHandler for DaMembershipHandler<Membership>
 where
     Membership: MembershipHandler + Clone,
+    Membership::Id: Debug,
+    Membership::NetworkId: Debug,
 {
     type NetworkId = Membership::NetworkId;
     type Id = Membership::Id;
 
     fn membership(&self, id: &Self::Id) -> HashSet<Self::NetworkId> {
-        self.membership.load().membership(id)
+        let result = self.membership.load().membership(id);
+        tracing::info!(
+            "BUGHUNTING:  membership() for id {:?}, result: {:?}",
+            id,
+            result,
+        );
+
+        result
     }
 
     fn is_allowed(&self, id: &Self::Id) -> bool {
