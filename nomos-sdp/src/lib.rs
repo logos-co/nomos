@@ -1,9 +1,8 @@
 pub mod ledger;
 mod state;
 
-use std::{collections::BTreeSet, hash::Hash, str::FromStr};
+use std::{collections::BTreeSet, hash::Hash};
 
-use base64::prelude::*;
 use blake2::{Blake2b, Digest as _};
 use multiaddr::Multiaddr;
 use nomos_core::block::BlockNumber;
@@ -63,25 +62,24 @@ impl Serialize for ProviderId {
         S: Serializer,
     {
         if serializer.is_human_readable() {
-            // For JSON: serialize as base64 string
-            BASE64_STANDARD.encode(self.0).serialize(serializer)
+            // For JSON: serialize as hex string
+            const_hex::encode(self.0).serialize(serializer)
         } else {
             // For binary: serialize as bytes
             self.0.serialize(serializer)
         }
     }
 }
+
 impl<'de> Deserialize<'de> for ProviderId {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         if deserializer.is_human_readable() {
-            // For JSON: deserialize from base64 string
+            // For JSON: deserialize from hex string
             let s = String::deserialize(deserializer)?;
-            let bytes = BASE64_STANDARD
-                .decode(&s)
-                .map_err(serde::de::Error::custom)?;
+            let bytes = const_hex::decode(&s).map_err(serde::de::Error::custom)?;
             if bytes.len() != 32 {
                 return Err(serde::de::Error::custom("Invalid byte length"));
             }

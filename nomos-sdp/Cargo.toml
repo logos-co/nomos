@@ -11,11 +11,13 @@ workspace = true
 async-trait = "0.1"
 base64      = "0.22"
 blake2      = "0.10"
+const-hex   = "1"
 multiaddr   = "0.18"
 nomos-core  = { workspace = true }
 serde       = { version = "1.0", features = ["derive"] }
 thiserror   = "1"
-tracing     = { workspace = true }
+
+tracing = { workspace = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
