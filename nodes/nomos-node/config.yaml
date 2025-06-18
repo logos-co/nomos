@@ -745,4 +745,5 @@ membership:
     settings_per_service: {}
     initial_membership: {}
     initial_locators_mapping: {}
+    latest_block_number: 0
 sdp: 
