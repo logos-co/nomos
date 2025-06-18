@@ -1,10 +1,7 @@
-use std::collections::HashMap;
-
 use clap::Parser;
 use color_eyre::eyre::{eyre, Result};
 use kzgrs_backend::dispersal::BlobInfo;
 use nomos_core::{da::blob::info::DispersedBlobInfo, tx::Transaction};
-use nomos_membership::{backends::mock::MockMembershipBackendSettings, MembershipServiceSettings};
 use nomos_mempool::{
     network::adapters::libp2p::Settings as AdapterSettings, tx::settings::TxMempoolSettings,
 };

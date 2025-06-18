@@ -129,8 +129,6 @@ pub fn create_da_configs(
         listening_addresses.push(listening_address);
     }
 
-    let addresses = build_da_peer_list(&peer_ids, &listening_addresses);
-
     let membership = NomosDaMembership::new(
         &[],
         HashMap::default(),
@@ -169,20 +167,6 @@ pub fn create_da_configs(
                 redial_cooldown: da_params.redial_cooldown,
                 replication_settings: da_params.replication_settings,
             }
-        })
-        .collect()
-}
-
-fn build_da_peer_list(
-    peer_ids: &[PeerId],
-    listening_addresses: &[Multiaddr],
-) -> HashMap<PeerId, Multiaddr> {
-    peer_ids
-        .iter()
-        .zip(listening_addresses.iter())
-        .map(|(peer_id, listening_address)| {
-            let p2p_addr = listening_address.clone().with_p2p(*peer_id).unwrap();
-            (*peer_id, p2p_addr)
         })
         .collect()
 }

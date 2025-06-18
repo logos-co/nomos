@@ -1,12 +1,9 @@
-use std::collections::HashMap;
-
 use clap::Parser;
 use color_eyre::eyre::{eyre, Result};
 use nomos_core::da::blob::info::DispersedBlobInfo;
 use nomos_executor::{
     config::Config as ExecutorConfig, NomosExecutor, NomosExecutorServiceSettings,
 };
-use nomos_membership::{backends::mock::MockMembershipBackendSettings, MembershipServiceSettings};
 use nomos_mempool::tx::settings::TxMempoolSettings;
 use nomos_node::{
     config::BlendArgs, BlobInfo, CryptarchiaArgs, DaMempoolSettings, HttpArgs, LogArgs,
