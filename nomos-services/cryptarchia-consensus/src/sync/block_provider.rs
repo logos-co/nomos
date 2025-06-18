@@ -1,5 +1,6 @@
 use std::{collections::VecDeque, hash::Hash, marker::PhantomData};
 
+use bytes::Bytes;
 use cryptarchia_engine::CryptarchiaState;
 use futures::{stream, stream::BoxStream, StreamExt, TryFutureExt};
 use nomos_core::{block::Block, header::HeaderId, wire};
@@ -60,11 +61,11 @@ where
     pub async fn send_blocks(
         &self,
         cryptarchia: &Cryptarchia<State>,
-        local_tip: HeaderId,
         target_block: HeaderId,
+        local_tip: HeaderId,
         latest_immutable_block: HeaderId,
         additional_blocks: Vec<HeaderId>,
-        replay_sender: oneshot::Sender<BoxStream<'static, Vec<u8>>>,
+        replay_sender: oneshot::Sender<BoxStream<'static, Bytes>>,
     ) -> Result<(), GetBlocksError> {
         let known_blocks = additional_blocks
             .into_iter()
@@ -74,7 +75,7 @@ where
         let Some(start_block) = Self::max_lca(cryptarchia, target_block, known_blocks) else {
             error!("Failed to find LCA for target block {target_block:?} and known blocks");
             replay_sender
-                .send(Box::pin(stream::empty::<Vec<u8>>()))
+                .send(Box::pin(stream::empty::<Bytes>()))
                 .map_err(|_| GetBlocksError::SendError)?;
             return Ok(());
         };
@@ -103,8 +104,9 @@ where
                     .try_into()
                     .map_err(|_| GetBlocksError::ConversionError)?;
 
-                let serialized_block =
-                    wire::serialize(&block).map_err(|_| GetBlocksError::ConversionError)?;
+                let serialized_block = Bytes::from(
+                    wire::serialize(&block).map_err(|_| GetBlocksError::ConversionError)?,
+                );
 
                 Ok(serialized_block)
             }
@@ -113,7 +115,7 @@ where
         let stream = stream
             .take_while(|result| futures::future::ready(result.is_ok()))
             // This will never happen but forces the expected type
-            .map(|result: Result<Vec<u8>, GetBlocksError>| result.unwrap_or_default());
+            .map(|result: Result<Bytes, GetBlocksError>| result.unwrap_or_default());
 
         replay_sender
             .send(Box::pin(stream))
