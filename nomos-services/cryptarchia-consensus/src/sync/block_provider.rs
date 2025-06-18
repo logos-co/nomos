@@ -2,7 +2,7 @@ use std::{collections::VecDeque, hash::Hash, marker::PhantomData};
 
 use bytes::Bytes;
 use cryptarchia_engine::CryptarchiaState;
-use futures::{stream, stream::BoxStream, StreamExt, TryFutureExt};
+use futures::{stream, stream::BoxStream, StreamExt as _, TryFutureExt as _};
 use nomos_core::{block::Block, header::HeaderId, wire};
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageMsg};
 use serde::Serialize;
@@ -35,7 +35,6 @@ where
     _phantom_tx: PhantomData<Tx>,
     _phantom_blob: PhantomData<BlobCertificate>,
 }
-
 impl<Storage, State, Tx, BlobCertificate> BlockProvider<Storage, State, Tx, BlobCertificate>
 where
     Storage: StorageBackend + 'static,
@@ -45,7 +44,7 @@ where
     Tx: Clone + Eq + Hash + Serialize,
     BlobCertificate: Clone + Eq + Hash + Serialize,
 {
-    pub fn new(storage_relay: StorageRelay<Storage>) -> Self {
+    pub const fn new(storage_relay: StorageRelay<Storage>) -> Self {
         Self {
             storage_relay,
             _phantom: PhantomData,
@@ -54,11 +53,11 @@ where
         }
     }
 
-    /// Returns a stream of up to MAX_NUMBER_OF_BLOCKS serialized blocks from a
-    /// known block towards the target_block, in parent-to-child order. The
-    /// stream yields blocks one by one and terminates early if an error is
-    /// encountered.
-    pub async fn send_blocks(
+    /// Returns a stream of up to `MAX_NUMBER_OF_BLOCKS` serialized blocks from
+    /// a known block towards the `target_block`, in parent-to-child order.
+    /// The stream yields blocks one by one and terminates early if an error
+    /// is encountered.
+    pub fn send_blocks(
         &self,
         cryptarchia: &Cryptarchia<State>,
         target_block: HeaderId,
@@ -72,7 +71,7 @@ where
             .chain([local_tip, latest_immutable_block])
             .collect::<Vec<_>>();
 
-        let Some(start_block) = Self::max_lca(cryptarchia, target_block, known_blocks) else {
+        let Some(start_block) = Self::max_lca(cryptarchia, target_block, &known_blocks) else {
             error!("Failed to find LCA for target block {target_block:?} and known blocks");
             replay_sender
                 .send(Box::pin(stream::empty::<Bytes>()))
@@ -86,7 +85,7 @@ where
 
         // Here we can't return a stream from storage because blocks aren't ordered by
         // their IDs in storage.
-        let stream = stream::iter(path.into_iter()).then(move |id| {
+        let stream = stream::iter(path).then(move |id| {
             let storage = storage_relay.clone();
             async move {
                 let (tx, rx) = oneshot::channel();
@@ -127,7 +126,7 @@ where
     fn max_lca(
         cryptarchia: &Cryptarchia<State>,
         target_block: HeaderId,
-        known_blocks: Vec<HeaderId>,
+        known_blocks: &[HeaderId],
     ) -> Option<HeaderId> {
         let branches = cryptarchia.consensus.branches();
         let target = branches.get(&target_block)?;
@@ -135,7 +134,7 @@ where
         known_blocks
             .iter()
             .filter_map(|known| branches.get(known).map(|b| branches.lca(b, target)))
-            .max_by_key(|b| b.length())
+            .max_by_key(cryptarchia_engine::Branch::length)
             .map(|b| b.id())
     }
 
@@ -145,6 +144,8 @@ where
         target_block: HeaderId,
         limit: usize,
     ) -> VecDeque<HeaderId> {
+        let branches = cryptarchia.consensus.branches();
+
         let mut path = VecDeque::new();
         let mut current = Some(target_block);
 
@@ -159,11 +160,7 @@ where
 
             path.push_front(id);
 
-            let parent = cryptarchia
-                .consensus
-                .branches()
-                .get(&id)
-                .map(|block| block.parent());
+            let parent = branches.get(&id).map(cryptarchia_engine::Branch::parent);
 
             if parent.is_none() {
                 error!("Failed to find parent for block {id:?}");
