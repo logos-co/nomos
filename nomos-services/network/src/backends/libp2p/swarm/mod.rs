@@ -17,7 +17,6 @@ use std::{collections::HashMap, time::Duration};
 
 use nomos_libp2p::{
     behaviour::BehaviourEvent,
-    cryptarchia_sync,
     libp2p::{kad::QueryId, swarm::ConnectionId},
     Multiaddr, PeerId, Swarm, SwarmEvent,
 };
@@ -39,13 +38,15 @@ pub use chainsync::ChainSyncCommand;
 pub use gossipsub::PubSubCommand;
 pub use kademlia::DiscoveryCommand;
 
+use crate::message::ChainSyncEvent;
+
 pub struct SwarmHandler {
     pub swarm: Swarm,
     pub pending_dials: HashMap<ConnectionId, Dial>,
     pub commands_tx: mpsc::Sender<Command>,
     pub commands_rx: mpsc::Receiver<Command>,
     pub pubsub_messages_tx: broadcast::Sender<Message>,
-    pub chainsync_events_tx: broadcast::Sender<cryptarchia_sync::Event>,
+    pub chainsync_events_tx: broadcast::Sender<ChainSyncEvent>,
 
     pending_queries: HashMap<QueryId, PendingQueryData>,
 }
@@ -61,7 +62,7 @@ impl SwarmHandler {
         commands_tx: mpsc::Sender<Command>,
         commands_rx: mpsc::Receiver<Command>,
         pubsub_events_tx: broadcast::Sender<Message>,
-        chainsync_events_tx: broadcast::Sender<cryptarchia_sync::Event>,
+        chainsync_events_tx: broadcast::Sender<ChainSyncEvent>,
     ) -> Self {
         let swarm = Swarm::build(config.inner).unwrap();
 

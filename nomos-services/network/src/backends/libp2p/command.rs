@@ -2,8 +2,7 @@ use nomos_libp2p::{Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
-use crate::backends::libp2p::swarm::ChainSyncCommand;
-pub use crate::backends::libp2p::swarm::{DiscoveryCommand, PubSubCommand};
+pub use crate::backends::libp2p::swarm::{ChainSyncCommand, DiscoveryCommand, PubSubCommand};
 
 #[derive(Debug)]
 #[non_exhaustive]

@@ -7,9 +7,6 @@ use serde::{Deserialize, Serialize};
 /// Blocks are serialized using nomos-core's wire format.
 pub type SerialisedBlock = Bytes;
 
-/// `HeaderId` is serialized using nomos-core's wire format.
-pub type SerialisedHeaderId = Bytes;
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum RequestMessage {
     /// A request to download blocks.
@@ -68,5 +65,5 @@ pub enum DownloadBlocksResponse {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct GetTipResponse {
     /// The tip of the peer.
-    pub tip: Bytes,
+    pub tip: HeaderId,
 }

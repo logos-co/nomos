@@ -3,19 +3,19 @@ use std::{collections::HashSet, fmt::Debug};
 use futures::stream::BoxStream;
 use nomos_libp2p::{
     cryptarchia_sync,
-    cryptarchia_sync::{ChainSyncError, HeaderId, SerialisedBlock, SerialisedHeaderId},
+    cryptarchia_sync::{ChainSyncError, HeaderId, SerialisedBlock},
     PeerId,
 };
 use tokio::sync::{mpsc, oneshot};
 
-use crate::backends::libp2p::swarm::SwarmHandler;
+use crate::{backends::libp2p::swarm::SwarmHandler, message::ChainSyncEvent};
 
 type SerialisedBlockStream = BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>;
 
 pub enum ChainSyncCommand {
     RequestTip {
         peer: PeerId,
-        reply_sender: oneshot::Sender<Result<SerialisedHeaderId, ChainSyncError>>,
+        reply_sender: oneshot::Sender<Result<HeaderId, ChainSyncError>>,
     },
     DownloadBlocks {
         peer: PeerId,
@@ -83,6 +83,7 @@ impl SwarmHandler {
     }
 
     pub(super) fn handle_chainsync_event(&self, event: cryptarchia_sync::Event) {
+        let event = ChainSyncEvent::from(event);
         if let Err(e) = self.chainsync_events_tx.send(event) {
             tracing::error!("failed to send chainsync event: {e:?}");
         }

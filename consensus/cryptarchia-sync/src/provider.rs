@@ -1,12 +1,11 @@
 use futures::{stream::BoxStream, TryStreamExt as _};
 use libp2p::{PeerId, Stream as Libp2pStream};
+use nomos_core::header::HeaderId;
 use tokio::sync::mpsc;
 
 use crate::{
     errors::{ChainSyncError, ChainSyncErrorKind},
-    messages::{
-        DownloadBlocksResponse, GetTipResponse, RequestMessage, SerialisedBlock, SerialisedHeaderId,
-    },
+    messages::{DownloadBlocksResponse, GetTipResponse, RequestMessage, SerialisedBlock},
     packing::unpack_from_reader,
     utils::send_message,
 };
@@ -30,7 +29,7 @@ impl Provider {
     }
 
     pub async fn provide_tip(
-        mut reply_receiver: mpsc::Receiver<SerialisedHeaderId>,
+        mut reply_receiver: mpsc::Receiver<HeaderId>,
         peer_id: PeerId,
         mut libp2p_stream: Libp2pStream,
     ) -> Result<(), ChainSyncError> {

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use cryptarchia_sync::{ChainSyncError, HeaderId, SerialisedBlock, SerialisedHeaderId};
+use cryptarchia_sync::{ChainSyncError, HeaderId, SerialisedBlock};
 use futures::stream::BoxStream;
 use libp2p::PeerId;
 use tokio::sync::{mpsc::Sender, oneshot};
@@ -13,7 +13,7 @@ impl Swarm {
     pub fn request_tip(
         &self,
         peer_id: PeerId,
-        reply_sender: oneshot::Sender<Result<SerialisedHeaderId, ChainSyncError>>,
+        reply_sender: oneshot::Sender<Result<HeaderId, ChainSyncError>>,
     ) -> Result<(), BehaviourError> {
         let chain_sync = &self.swarm.behaviour().chain_sync;
 

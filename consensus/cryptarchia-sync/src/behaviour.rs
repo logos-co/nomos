@@ -23,7 +23,7 @@ use tracing::{debug, error};
 use crate::{
     downloader::Downloader,
     errors::{ChainSyncError, ChainSyncErrorKind},
-    messages::{DownloadBlocksRequest, RequestMessage, SerialisedHeaderId},
+    messages::{DownloadBlocksRequest, RequestMessage},
     provider::{Provider, ReceivingRequestStream, MAX_ADDITIONAL_BLOCKS},
     SerialisedBlock,
 };
@@ -77,14 +77,14 @@ impl BlocksRequestStream {
 pub struct TipRequestStream {
     pub peer_id: PeerId,
     pub stream: Libp2pStream,
-    pub reply_channel: oneshot::Sender<Result<SerialisedHeaderId, ChainSyncError>>,
+    pub reply_channel: oneshot::Sender<Result<HeaderId, ChainSyncError>>,
 }
 
 impl TipRequestStream {
     pub const fn new(
         peer_id: PeerId,
         stream: Stream,
-        reply_channel: oneshot::Sender<Result<SerialisedHeaderId, ChainSyncError>>,
+        reply_channel: oneshot::Sender<Result<HeaderId, ChainSyncError>>,
     ) -> Self {
         Self {
             peer_id,
@@ -110,15 +110,7 @@ pub enum Event {
     },
     ProvideTipsRequest {
         /// Channel to send the latest tip to the service.
-        reply_sender: Sender<SerialisedHeaderId>,
-    },
-    DownloadBlocksResponse {
-        /// The response containing a block or an error.
-        result: Result<SerialisedBlock, ChainSyncError>,
-    },
-    GetTipResponse {
-        /// The response containing the latest tip or an error.
-        result: Result<SerialisedHeaderId, ChainSyncError>,
+        reply_sender: Sender<HeaderId>,
     },
 }
 
@@ -202,7 +194,7 @@ impl Behaviour {
     pub fn request_tip(
         &self,
         peer_id: PeerId,
-        reply_sender: oneshot::Sender<Result<SerialisedHeaderId, ChainSyncError>>,
+        reply_sender: oneshot::Sender<Result<HeaderId, ChainSyncError>>,
     ) -> Result<(), ChainSyncError> {
         if !self.connected_peers.contains(&peer_id) {
             return Err(ChainSyncError {
@@ -564,7 +556,6 @@ mod tests {
 
     use crate::{
         behaviour::{ChainSyncErrorKind, MAX_INCOMING_REQUESTS},
-        messages::SerialisedHeaderId,
         provider::MAX_ADDITIONAL_BLOCKS,
         Behaviour, ChainSyncError, Event, SerialisedBlock,
     };
@@ -661,7 +652,7 @@ mod tests {
         tokio::spawn(async move { downloader_swarm.loop_on_next().await });
 
         let tip = receiver.await.unwrap();
-        assert_eq!(tip.unwrap(), Bytes::new());
+        assert_eq!(tip.unwrap(), HeaderId::from([0; 32]));
     }
 
     async fn start_provider_and_downloader(blocks_count: usize) -> (Swarm<Behaviour>, PeerId) {
@@ -679,7 +670,7 @@ mod tests {
         tokio::spawn(async move {
             while let Some(event) = provider_swarm.next().await {
                 if let SwarmEvent::Behaviour(Event::ProvideTipsRequest { reply_sender }) = event {
-                    reply_sender.send(Bytes::new()).await.unwrap();
+                    reply_sender.send([0; 32].into()).await.unwrap();
                     continue;
                 }
                 if let SwarmEvent::Behaviour(Event::ProvideBlocksRequest { reply_sender, .. }) =
@@ -741,7 +732,7 @@ mod tests {
     fn request_tip(
         downloader_swarm: &mut Swarm<Behaviour>,
         peer_id: PeerId,
-    ) -> oneshot::Receiver<Result<SerialisedHeaderId, ChainSyncError>> {
+    ) -> oneshot::Receiver<Result<HeaderId, ChainSyncError>> {
         let (tx, rx) = oneshot::channel();
         downloader_swarm
             .behaviour_mut()

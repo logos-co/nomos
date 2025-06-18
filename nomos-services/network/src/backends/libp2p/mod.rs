@@ -2,22 +2,28 @@ mod command;
 mod config;
 pub(crate) mod swarm;
 
-use nomos_libp2p::cryptarchia_sync;
-pub use nomos_libp2p::libp2p::gossipsub::{Message, TopicHash};
+pub use nomos_libp2p::{
+    libp2p::gossipsub::{Message, TopicHash},
+    PeerId,
+};
 use overwatch::overwatch::handle::OverwatchHandle;
 use tokio::sync::{broadcast, broadcast::Sender, mpsc};
 use tokio_stream::wrappers::BroadcastStream;
 
 use self::swarm::SwarmHandler;
 pub use self::{
-    command::{Command, Dial, DiscoveryCommand, Libp2pInfo, NetworkCommand, PubSubCommand},
+    command::{
+        ChainSyncCommand, Command, Dial, DiscoveryCommand, Libp2pInfo, NetworkCommand,
+        PubSubCommand,
+    },
     config::Libp2pConfig,
 };
 use super::NetworkBackend;
+use crate::message::ChainSyncEvent;
 
 pub struct Libp2p {
     pubsub_events_tx: Sender<Message>,
-    chainsync_events_tx: Sender<cryptarchia_sync::Event>,
+    chainsync_events_tx: Sender<ChainSyncEvent>,
     commands_tx: mpsc::Sender<Command>,
 }
 const BUFFER_SIZE: usize = 64;
@@ -27,7 +33,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Libp2p {
     type Settings = Libp2pConfig;
     type Message = Command;
     type PubSubEvent = Message;
-    type ChainSyncEvent = cryptarchia_sync::Event;
+    type ChainSyncEvent = ChainSyncEvent;
 
     fn new(config: Self::Settings, overwatch_handle: OverwatchHandle<RuntimeServiceId>) -> Self {
         let (commands_tx, commands_rx) = mpsc::channel(BUFFER_SIZE);
