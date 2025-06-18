@@ -69,6 +69,7 @@ pub fn create_membership_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<General
         settings_per_service,
         initial_membership,
         initial_locators_mapping,
+        latest_block_number: 0,
     };
 
     let config = GeneralMembershipConfig {

@@ -70,8 +70,29 @@ impl MembershipCreator for FillFromNodeList {
         todo!()
     }
 
-    fn update(&self, _new_peer_addresses: HashMap<Self::Id, Multiaddr>) -> Self {
-        todo!()
+    fn update(&self, new_peer_addresses: HashMap<Self::Id, Multiaddr>) -> Self {
+        // todo: implement incremental update
+        // for now we just add the new addresses to the addressbook
+        // and re-fill the assignations
+        let mut addressbook = self.addressbook.clone();
+        for (peer_id, address) in &new_peer_addresses {
+            addressbook.insert(*peer_id, address.clone());
+        }
+
+        let members: Vec<Self::Id> = new_peer_addresses.keys().copied().collect();
+        tracing::info!(
+            "BUGHUNTING:  addresbook {:?}, members {:?} new addresses {:?}",
+            addressbook,
+            members,
+            new_peer_addresses,
+        );
+
+        Self {
+            assignations: Self::fill(&members, self.subnetwork_size, self.dispersal_factor),
+            subnetwork_size: self.subnetwork_size,
+            dispersal_factor: self.dispersal_factor,
+            addressbook,
+        }
     }
 }
 
@@ -83,10 +104,10 @@ impl MembershipHandler for FillFromNodeList {
         self.assignations
             .iter()
             .enumerate()
-            .filter_map(|(netowrk_id, subnetwork)| {
+            .filter_map(|(network_id, subnetwork)| {
                 subnetwork
                     .contains(id)
-                    .then_some(netowrk_id as Self::NetworkId)
+                    .then_some(network_id as Self::NetworkId)
             })
             .collect()
     }

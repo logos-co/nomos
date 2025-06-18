@@ -101,13 +101,7 @@ async fn main() -> Result<()> {
             storage: config.storage,
             system_sig: (),
             sdp: (),
-            membership: MembershipServiceSettings {
-                backend: MockMembershipBackendSettings {
-                    settings_per_service: HashMap::default(),
-                    initial_membership: HashMap::default(),
-                    initial_locators_mapping: HashMap::default(),
-                },
-            },
+            membership: config.membership,
         },
         None,
     )

@@ -196,7 +196,7 @@ where
             .await?;
 
         let storage_adapter = StorageAdapter::default();
-        let _membership_storage = MembershipStorage::new(storage_adapter, membership.clone());
+        let membership_storage = MembershipStorage::new(storage_adapter, membership.clone());
 
         let membership_service_adapter = MembershipServiceAdapter::new(membership_service_relay);
 
@@ -216,9 +216,13 @@ where
                 Some(msg) = inbound_relay.recv() => {
                     Self::handle_network_service_message(msg, backend).await;
                 }
-                Some((_block_number, _providers)) = stream.next() => {
-                    // Self::handle_membership_update(block_number, providers, &membership_storage);
-                    // todo: implement when subnetwork assignations update is ready
+                Some((block_number, providers)) = stream.next() => {
+                    tracing::info!(
+                        "BUGHUNTING: Received membership update for block {}: {:?}",
+                        block_number, providers
+                    );
+
+                    Self::handle_membership_update(block_number, providers, &membership_storage);
                 }
             }
         }
@@ -276,10 +280,6 @@ where
         }
     }
 
-    #[expect(
-        dead_code,
-        reason = "Enable this function when subnetwork assignations update is ready"
-    )]
     fn handle_membership_update(
         block_numnber: BlockNumber,
         update: HashMap<<Membership as MembershipHandler>::Id, Multiaddr>,
