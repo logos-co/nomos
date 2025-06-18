@@ -42,11 +42,6 @@ where
         new_members: HashMap<Membership::Id, Multiaddr>,
     ) {
         let updated_membership = self.handler.membership().update(new_members);
-        tracing::info!(
-            "BUGHUNTING:  Storing membership for block {} with members {:?}",
-            block_number,
-            updated_membership.members(),
-        );
         let assignations = updated_membership.subnetworks();
 
         self.handler.update(updated_membership);

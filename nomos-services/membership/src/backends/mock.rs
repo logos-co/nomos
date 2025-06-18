@@ -8,15 +8,12 @@ use nomos_sdp_core::{
     FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId, ServiceType,
 };
 use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
 
 use super::{MembershipBackend, MembershipBackendError, MembershipBackendServiceSettings};
 use crate::MembershipProviders;
 
-#[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MockMembershipBackendSettings {
-    #[serde_as(as = "HashMap<serde_with::json::JsonString, _>")]
     pub settings_per_service: HashMap<ServiceType, MembershipBackendServiceSettings>,
     pub initial_membership: HashMap<BlockNumber, MockMembershipEntry>,
     pub initial_locators_mapping: HashMap<ProviderId, BTreeSet<Locator>>,
@@ -62,11 +59,6 @@ impl MembershipBackend for MockMembershipBackend {
         &self,
         service_type: ServiceType,
     ) -> Result<MembershipProviders, MembershipBackendError> {
-        tracing::info!(
-            "BUGHUNTING: Getting latest providers for service type: {:?}, membership {:?}",
-            service_type,
-            self.membership
-        );
         return Ok(self.get_snapshot(self.latest_block_number, service_type));
     }
 

@@ -41,14 +41,7 @@ where
     type Id = Membership::Id;
 
     fn membership(&self, id: &Self::Id) -> HashSet<Self::NetworkId> {
-        let result = self.membership.load().membership(id);
-        tracing::info!(
-            "BUGHUNTING:  membership() for id {:?}, result: {:?}",
-            id,
-            result,
-        );
-
-        result
+        self.membership.load().membership(id)
     }
 
     fn is_allowed(&self, id: &Self::Id) -> bool {

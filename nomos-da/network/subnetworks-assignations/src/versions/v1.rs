@@ -83,12 +83,6 @@ impl MembershipCreator for FillFromNodeList {
         }
 
         let members: Vec<Self::Id> = new_peer_addresses.keys().copied().collect();
-        tracing::info!(
-            "BUGHUNTING:  addresbook {:?}, members {:?} new addresses {:?}",
-            addressbook,
-            members,
-            new_peer_addresses,
-        );
 
         Self {
             assignations: Self::fill(&members, self.subnetwork_size, self.dispersal_factor),
