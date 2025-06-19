@@ -392,7 +392,7 @@ impl<Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'sta
     }
 
     fn try_open_stream(
-        pending_out_streams_sender: &mut UnboundedSender<PeerId>,
+        pending_out_streams_sender: &UnboundedSender<PeerId>,
         membership: &Membership,
         connected_peers: &HashMap<PeerId, ConnectionId>,
         pending_peer_open_stream_requests: &mut HashSet<PeerId>,
@@ -402,7 +402,7 @@ impl<Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'sta
         let peers: Vec<_> = members
             .iter()
             .filter(|peer_id| connected_peers.contains_key(peer_id))
-            .filter(|peer_id| !pending_peer_open_stream_requests.contains(&peer_id))
+            .filter(|peer_id| !pending_peer_open_stream_requests.contains(peer_id))
             .collect();
 
         for peer in peers {
@@ -433,6 +433,118 @@ impl<Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'sta
         if self.connected_peers.remove(&peer_id).is_some() {
             // mangle pending blobs for disconnected subnetworks from peer
             self.recover_shares_for_disconnected_subnetworks(peer_id);
+        }
+    }
+
+    fn poll_pending_tasks(&mut self, cx: &mut Context<'_>) -> Option<DispersalExecutorEvent> {
+        if let Poll::Ready(Some(future_result)) = self.tasks.poll_next_unpin(cx) {
+            match future_result {
+                Ok((blob_id, subnetwork_id, dispersal_response, stream)) => {
+                    // Handle the now-free stream and return the success event.
+                    Self::handle_stream(
+                        &self.tasks,
+                        &mut self.to_disperse,
+                        &mut self.idle_streams,
+                        stream,
+                        cx,
+                    );
+                    // If the other side returned an error, propagate it.
+                    if let dispersal::DispersalResponse::Error(error) = dispersal_response {
+                        return Some(DispersalExecutorEvent::DispersalError {
+                            error: DispersalError::Protocol {
+                                subnetwork_id,
+                                error,
+                            },
+                        });
+                    }
+                    Some(DispersalExecutorEvent::DispersalSuccess {
+                        blob_id,
+                        subnetwork_id,
+                    })
+                }
+                // An error occurred on our side; bubble it up.
+                Err(error) => Some(DispersalExecutorEvent::DispersalError { error }),
+            }
+        } else {
+            None
+        }
+    }
+
+    fn poll_pending_shares(&mut self, cx: &mut Context<'_>) {
+        if let Poll::Ready(Some((subnetwork_id, share))) =
+            self.pending_shares_stream.poll_next_unpin(cx)
+        {
+            if self.subnetwork_open_streams.contains(&subnetwork_id) {
+                Self::disperse_share(
+                    &self.tasks,
+                    &mut self.idle_streams,
+                    &self.membership,
+                    &self.connected_peers,
+                    &mut self.to_disperse,
+                    subnetwork_id,
+                    &share,
+                );
+            } else {
+                Self::try_open_stream(
+                    &self.pending_out_streams_sender,
+                    &self.membership,
+                    &self.connected_peers,
+                    &mut self.pending_peer_open_stream_requests,
+                    subnetwork_id,
+                );
+                self.disconnected_pending_shares
+                    .entry(subnetwork_id)
+                    .or_default()
+                    .push_back(share);
+            }
+            cx.waker().wake_by_ref();
+        }
+    }
+
+    fn poll_pending_streams(&mut self, cx: &mut Context<'_>) -> Option<DispersalExecutorEvent> {
+        if let Poll::Ready(Some(res)) = self.pending_out_streams.poll_next_unpin(cx) {
+            match res {
+                Ok(stream) => {
+                    self.subnetwork_open_streams
+                        .extend(self.membership.membership(&stream.peer_id));
+                    self.pending_peer_open_stream_requests
+                        .remove(&stream.peer_id);
+                    Self::reschedule_shares_for_peer_stream(
+                        &stream,
+                        &self.membership,
+                        &mut self.to_disperse,
+                        &mut self.disconnected_pending_shares,
+                    );
+                    Self::handle_stream(
+                        &self.tasks,
+                        &mut self.to_disperse,
+                        &mut self.idle_streams,
+                        stream,
+                        cx,
+                    );
+                    None
+                }
+                Err(error) => Some(DispersalExecutorEvent::DispersalError { error }),
+            }
+        } else {
+            None
+        }
+    }
+
+    fn poll_dial_requests<Out, In>(&mut self, cx: &mut Context<'_>) -> Option<ToSwarm<Out, In>> {
+        if let Poll::Ready(ToSwarm::Dial { mut opts }) = self.stream_behaviour.poll(cx) {
+            // Attach a known peer address if possible.
+            if let Some(address) = opts
+                .get_peer_id()
+                .and_then(|peer_id: PeerId| self.membership.get_address(&peer_id))
+            {
+                opts = DialOpts::peer_id(opts.get_peer_id().unwrap())
+                    .addresses(vec![address])
+                    .build();
+            }
+            Some(ToSwarm::Dial { opts })
+        } else {
+            None
         }
     }
 }
@@ -513,114 +625,22 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
-        let Self {
-            tasks,
-            to_disperse,
-            disconnected_pending_shares,
-            idle_streams,
-            pending_peer_open_stream_requests,
-            pending_out_streams_sender,
-            pending_out_streams,
-            pending_shares_stream,
-            membership,
-            connected_peers,
-            subnetwork_open_streams,
-            ..
-        } = self;
-        // poll pending tasks
-        if let Poll::Ready(Some(future_result)) = tasks.poll_next_unpin(cx) {
-            match future_result {
-                Ok((blob_id, subnetwork_id, dispersal_response, stream)) => {
-                    // handle the free stream then return the success
-                    Self::handle_stream(tasks, to_disperse, idle_streams, stream, cx);
-                    // return an error if there was an error on the other side of the wire
-                    if let dispersal::DispersalResponse::Error(error) = dispersal_response {
-                        return Poll::Ready(ToSwarm::GenerateEvent(
-                            DispersalExecutorEvent::DispersalError {
-                                error: DispersalError::Protocol {
-                                    subnetwork_id,
-                                    error,
-                                },
-                            },
-                        ));
-                    }
-                    return Poll::Ready(ToSwarm::GenerateEvent(
-                        DispersalExecutorEvent::DispersalSuccess {
-                            blob_id,
-                            subnetwork_id,
-                        },
-                    ));
-                }
-                // Something went up on our side of the wire, bubble it up
-                Err(error) => {
-                    return Poll::Ready(ToSwarm::GenerateEvent(
-                        DispersalExecutorEvent::DispersalError { error },
-                    ));
-                }
-            }
+        // Poll tasks generated by streams and share requests.
+        if let Some(event) = self.poll_pending_tasks(cx) {
+            return Poll::Ready(ToSwarm::GenerateEvent(event));
         }
-        // poll pending blobs
-        if let Poll::Ready(Some((subnetwork_id, share))) = pending_shares_stream.poll_next_unpin(cx)
-        {
-            if subnetwork_open_streams.contains(&subnetwork_id) {
-                Self::disperse_share(
-                    tasks,
-                    idle_streams,
-                    membership,
-                    connected_peers,
-                    to_disperse,
-                    subnetwork_id,
-                    &share,
-                );
-            } else {
-                Self::try_open_stream(
-                    pending_out_streams_sender,
-                    membership,
-                    connected_peers,
-                    pending_peer_open_stream_requests,
-                    subnetwork_id,
-                );
-                let entry = disconnected_pending_shares
-                    .entry(subnetwork_id)
-                    .or_default();
-                entry.push_back(share);
-            }
-            cx.waker().wake_by_ref();
-        }
-        // poll pending streams
-        if let Poll::Ready(Some(res)) = pending_out_streams.poll_next_unpin(cx) {
-            match res {
-                Ok(stream) => {
-                    subnetwork_open_streams.extend(membership.membership(&stream.peer_id));
-                    pending_peer_open_stream_requests.remove(&stream.peer_id);
-                    Self::reschedule_shares_for_peer_stream(
-                        &stream,
-                        membership,
-                        to_disperse,
-                        disconnected_pending_shares,
-                    );
-                    Self::handle_stream(tasks, to_disperse, idle_streams, stream, cx);
-                }
-                Err(error) => {
-                    return Poll::Ready(ToSwarm::GenerateEvent(
-                        DispersalExecutorEvent::DispersalError { error },
-                    ));
-                }
-            }
-        }
-        // Deal with connection as the underlying behaviour would do
-        if let Poll::Ready(ToSwarm::Dial { mut opts }) = self.stream_behaviour.poll(cx) {
-            // attach known peer address if possible
-            if let Some(address) = opts
-                .get_peer_id()
-                .and_then(|peer_id: PeerId| membership.get_address(&peer_id))
-            {
-                opts = DialOpts::peer_id(opts.get_peer_id().unwrap())
-                    .addresses(vec![address])
-                    .build();
 
-                return Poll::Ready(ToSwarm::Dial { opts });
-            }
+        // Poll and process any pending shares for dispersal.
+        self.poll_pending_shares(cx);
+
+        // Poll for newly opened outbound streams.
+        if let Some(event) = self.poll_pending_streams(cx) {
+            return Poll::Ready(ToSwarm::GenerateEvent(event));
+        }
+
+        // Poll the underlying stream behaviour for dialing requests.
+        if let Some(event) = self.poll_dial_requests(cx) {
+            return Poll::Ready(event);
         }
 
         self.waker = Some(cx.waker().clone());
