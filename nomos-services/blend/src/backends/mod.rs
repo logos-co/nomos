@@ -4,7 +4,7 @@ pub mod libp2p;
 use std::{fmt::Debug, pin::Pin};
 
 use futures::Stream;
-use nomos_blend::membership::Membership;
+use nomos_blend_scheduling::membership::Membership;
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
 

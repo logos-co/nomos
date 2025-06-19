@@ -19,8 +19,8 @@ futures-util             = "0.3.31"
 hex                      = "0.4.3"
 kzgrs-backend            = { workspace = true }
 nomos-api                = { workspace = true }
-nomos-blend              = { workspace = true }
 nomos-blend-message      = { workspace = true }
+nomos-blend-scheduling   = { workspace = true }
 nomos-blend-service      = { workspace = true, features = ["libp2p"] }
 nomos-core               = { workspace = true }
 nomos-da-dispersal       = { workspace = true }
