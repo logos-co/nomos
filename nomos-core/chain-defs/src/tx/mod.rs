@@ -19,7 +19,7 @@ pub trait Transaction {
     fn hash(&self) -> Self::Hash {
         Self::HASHER(self)
     }
-    fn as_bytes(&self) -> Bytes;
+    fn as_sign_bytes(&self) -> Bytes;
 }
 
 pub trait TxSelect {
@@ -38,10 +38,10 @@ pub enum Tx {
 }
 
 impl Transaction for Tx {
-    const HASHER: TransactionHasher<Self> = |tx| Blake2b::digest(tx.as_bytes()).into();
+    const HASHER: TransactionHasher<Self> = |tx| Blake2b::digest(tx.as_sign_bytes()).into();
     type Hash = [u8; 32];
 
-    fn as_bytes(&self) -> Bytes {
+    fn as_sign_bytes(&self) -> Bytes {
         match self {
             Self::Bundle(bundle) => bundle.as_bytes(),
         }

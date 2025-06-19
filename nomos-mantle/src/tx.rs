@@ -55,10 +55,10 @@ impl GasPrice for MantleTx {
 }
 
 impl nomos_core::tx::Transaction for MantleTx {
-    const HASHER: TransactionHasher<Self> = |tx| blake2::Blake2b::digest(tx.as_bytes()).into();
+    const HASHER: TransactionHasher<Self> = |tx| blake2::Blake2b::digest(tx.as_sign_bytes()).into();
     type Hash = TxHash;
 
-    fn as_bytes(&self) -> bytes::Bytes {
+    fn as_sign_bytes(&self) -> bytes::Bytes {
         let mut buff = bytes::BytesMut::new();
         buff.extend_from_slice(MANTLE_HASH_VERSION);
         buff.extend_from_slice(wire::serialize(&self.ops).unwrap().as_ref());
@@ -88,10 +88,10 @@ impl Hash for SignedMantleTx {
 }
 
 impl nomos_core::tx::Transaction for SignedMantleTx {
-    const HASHER: TransactionHasher<Self> = |tx| blake2::Blake2b::digest(tx.as_bytes()).into();
+    const HASHER: TransactionHasher<Self> = |tx| blake2::Blake2b::digest(tx.as_sign_bytes()).into();
     type Hash = TxHash;
 
-    fn as_bytes(&self) -> bytes::Bytes {
-        self.mantle_tx.as_bytes()
+    fn as_sign_bytes(&self) -> bytes::Bytes {
+        self.mantle_tx.as_sign_bytes()
     }
 }
