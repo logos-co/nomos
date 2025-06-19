@@ -6,9 +6,12 @@ use std::{
 };
 
 use futures::{Stream, StreamExt as _};
+use tokio::time;
+use tokio_stream::wrappers::IntervalStream;
 
 use crate::{
     cover_traffic_2::SessionCoverTraffic,
+    message::OutboundMessage,
     message_scheduler::{round_info::RoundInfo, session_info::SessionInfo},
     release_delayer::SessionReleaseDelayer,
 };
@@ -65,6 +68,9 @@ where
                 maximum_release_delay_in_rounds: settings.maximum_release_delay_in_rounds,
                 rng: settings.rng,
             }),
+            round_clock: Box::new(
+                IntervalStream::new(time::interval(settings.round_duration)).map(|_| ()),
+            ),
             session_clock,
         }
     }
@@ -76,6 +82,16 @@ pub struct MessageScheduler<SessionClock, Rng> {
     release_delayer: SessionReleaseDelayer<Rng>,
     round_clock: Box<dyn Stream<Item = ()>>,
     session_clock: SessionClock,
+}
+
+impl<SessionClock, Rng> MessageScheduler<SessionClock, Rng> {
+    pub fn notify_new_data_message(&mut self) {
+        self.cover_traffic.notify_new_data_message();
+    }
+
+    pub fn schedule_message(&mut self, message: OutboundMessage) {
+        self.release_delayer.schedule_message(message);
+    }
 }
 
 impl<SessionClock, Rng> Stream for MessageScheduler<SessionClock, Rng>
