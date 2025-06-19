@@ -39,6 +39,7 @@ use nomos_node::{
     NomosDaMembership, RocksBackend, SystemSig, Wire, MB16,
 };
 use nomos_time::backends::NtpTimeBackend;
+use nomos_utils::noop_service::NoService;
 use overwatch::derive_services;
 use rand_chacha::ChaCha20Rng;
 
@@ -266,4 +267,5 @@ pub struct NomosExecutor {
     http: ApiService,
     storage: StorageService,
     system_sig: SystemSigService,
+    no_service: NoService,
 }

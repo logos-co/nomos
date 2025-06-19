@@ -47,6 +47,7 @@ pub use nomos_system_sig::SystemSig;
 use nomos_time::backends::NtpTimeBackend;
 #[cfg(feature = "tracing")]
 pub use nomos_tracing_service::Tracing;
+use nomos_utils::noop_service::NoService;
 use overwatch::derive_services;
 use rand_chacha::ChaCha20Rng;
 use serde::{de::DeserializeOwned, Serialize};
@@ -241,4 +242,5 @@ pub struct Nomos {
     http: ApiService,
     storage: StorageService,
     system_sig: SystemSigService,
+    no_service: NoService,
 }

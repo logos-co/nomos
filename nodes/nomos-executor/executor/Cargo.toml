@@ -43,6 +43,7 @@ nomos-network            = { workspace = true, features = ["libp2p"] }
 nomos-node               = { workspace = true }
 nomos-storage            = { workspace = true, features = ["rocksdb-backend"] }
 nomos-time               = { workspace = true }
+nomos-utils              = { workspace = true }
 overwatch                = { workspace = true }
 rand                     = "0.8"
 rand_chacha              = "0.3"
