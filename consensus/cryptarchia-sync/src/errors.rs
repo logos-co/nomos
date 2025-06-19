@@ -27,6 +27,9 @@ pub enum ChainSyncErrorKind {
 
     #[error("Failed to send data to channel: {0}")]
     ChannelSendError(String),
+
+    #[error("Service error: {0}")]
+    ReceivingBlocksError(String),
 }
 
 #[derive(Debug, Error, Clone)]

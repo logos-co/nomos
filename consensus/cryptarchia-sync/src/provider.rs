@@ -59,16 +59,18 @@ impl Provider {
         })?;
 
         stream
+            .map_err(|e| ChainSyncError {
+                peer: peer_id,
+                kind: ChainSyncErrorKind::ReceivingBlocksError(format!(
+                    "Failed to receive block from stream: {e}"
+                )),
+            })
             .try_fold(&mut libp2p_stream, |stream, block| async move {
                 let message = DownloadBlocksResponse::Block(block);
                 send_message(peer_id, stream, &message).await?;
                 Ok(stream)
             })
-            .await
-            .map_err(|e| ChainSyncError {
-                peer: peer_id,
-                kind: ChainSyncErrorKind::ChannelReceiveError(e.to_string()),
-            })?;
+            .await?;
 
         let request = DownloadBlocksResponse::NoMoreBlocks;
         send_message(peer_id, &mut libp2p_stream, &request).await?;
