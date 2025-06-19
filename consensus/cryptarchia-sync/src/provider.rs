@@ -67,9 +67,7 @@ impl Provider {
             .await
             .map_err(|e| ChainSyncError {
                 peer: peer_id,
-                kind: ChainSyncErrorKind::ReceivingBlocksError(format!(
-                    "Failed to receive blocks: {e}"
-                )),
+                kind: ChainSyncErrorKind::ChannelReceiveError(e.to_string()),
             })?;
 
         let request = DownloadBlocksResponse::NoMoreBlocks;
