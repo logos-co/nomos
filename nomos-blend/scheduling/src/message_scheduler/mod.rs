@@ -38,7 +38,7 @@ where
     SessionClock: Stream<Item = SessionInfo> + Unpin,
     Rng: rand::Rng + Clone,
 {
-    pub async fn wait_ready(self) -> MessageScheduler<SessionClock, Rng> {
+    pub async fn wait_next_session_start(self) -> MessageScheduler<SessionClock, Rng> {
         let Self {
             mut session_clock,
             settings,
