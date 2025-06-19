@@ -19,6 +19,11 @@ pub trait Transaction {
     fn hash(&self) -> Self::Hash {
         Self::HASHER(self)
     }
+    /// Returns the bytes that are used to form a signature of a transaction.
+    ///
+    /// The resulting bytes are then used by the `HASHER`
+    /// to produce the transaction's unique hash, which is what is typically
+    /// signed by the transaction originator.
     fn as_sign_bytes(&self) -> Bytes;
 }
 
