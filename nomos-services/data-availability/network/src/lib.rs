@@ -1,7 +1,9 @@
 pub mod backends;
 pub mod membership;
+pub mod storage;
 
 use std::{
+    collections::HashMap,
     fmt::{self, Debug, Display},
     marker::PhantomData,
     pin::Pin,
@@ -10,6 +12,8 @@ use std::{
 use async_trait::async_trait;
 use backends::NetworkBackend;
 use futures::Stream;
+use libp2p::Multiaddr;
+use nomos_core::block::BlockNumber;
 use overwatch::{
     services::{
         state::{NoOperator, ServiceState},
@@ -18,9 +22,12 @@ use overwatch::{
     OpaqueServiceResourcesHandle,
 };
 use serde::{Deserialize, Serialize};
+use storage::{MembershipStorage, MembershipStorageAdapter};
+use subnetworks_assignations::{MembershipCreator, MembershipHandler};
 use tokio::sync::oneshot;
+use tokio_stream::StreamExt as _;
 
-use crate::membership::handler::DaMembershipHandler;
+use crate::membership::{handler::DaMembershipHandler, MembershipAdapter};
 
 pub enum DaNetworkMsg<Backend: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> {
     Process(Backend::Message),
@@ -62,37 +69,90 @@ where
 pub struct NetworkService<
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Membership,
+    MembershipServiceAdapter,
+    StorageAdapter,
     RuntimeServiceId,
 > {
     backend: Backend,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    _membership: DaMembershipHandler<Membership>,
+    membership: DaMembershipHandler<Membership>,
+    phantom: PhantomData<MembershipServiceAdapter>,
 }
 
-pub struct NetworkState<Backend: NetworkBackend<RuntimeServiceId>, Membership, RuntimeServiceId> {
+pub struct NetworkState<
+    Backend,
+    Membership,
+    MembershipServiceAdapter,
+    StorageAdapter,
+    RuntimeServiceId,
+> where
+    Backend: NetworkBackend<RuntimeServiceId>,
+{
     backend: Backend::State,
-    _membership: PhantomData<Membership>,
+    phantom: PhantomData<(Membership, MembershipServiceAdapter, StorageAdapter)>,
 }
 
-impl<Backend: NetworkBackend<RuntimeServiceId> + 'static + Send, Membership, RuntimeServiceId>
-    ServiceData for NetworkService<Backend, Membership, RuntimeServiceId>
+impl<
+        Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
+        Membership,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        RuntimeServiceId,
+    > ServiceData
+    for NetworkService<
+        Backend,
+        Membership,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        RuntimeServiceId,
+    >
 {
     type Settings = NetworkConfig<Backend, Membership, RuntimeServiceId>;
-    type State = NetworkState<Backend, Membership, RuntimeServiceId>;
+    type State = NetworkState<
+        Backend,
+        Membership,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        RuntimeServiceId,
+    >;
     type StateOperator = NoOperator<Self::State>;
     type Message = DaNetworkMsg<Backend, RuntimeServiceId>;
 }
 
 #[async_trait]
-impl<Backend, Membership, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for NetworkService<Backend, Membership, RuntimeServiceId>
+impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
+    ServiceCore<RuntimeServiceId>
+    for NetworkService<
+        Backend,
+        Membership,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        RuntimeServiceId,
+    >
 where
     Backend: NetworkBackend<RuntimeServiceId, Membership = DaMembershipHandler<Membership>>
         + Send
         + 'static,
     Backend::State: Send + Sync,
-    RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send,
-    Membership: Clone + Send + Sync + 'static,
+    Membership: MembershipCreator + MembershipHandler + Clone + Send + Sync + 'static,
+    Membership::Id: Send + Sync,
+    Membership::NetworkId: Send,
+    MembershipServiceAdapter: MembershipAdapter<Id = Membership::Id> + Send + Sync + 'static,
+    StorageAdapter: MembershipStorageAdapter<
+            <Membership as MembershipHandler>::Id,
+            <Membership as MembershipHandler>::NetworkId,
+        > + Default
+        + Send
+        + Sync
+        + 'static,
+    <MembershipServiceAdapter::MembershipService as ServiceData>::Message: Send + Sync + 'static,
+    RuntimeServiceId: AsServiceId<Self>
+        + Clone
+        + Display
+        + Send
+        + Sync
+        + Debug
+        + AsServiceId<MembershipServiceAdapter::MembershipService>,
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
@@ -112,7 +172,8 @@ where
                 membership.clone(),
             ),
             service_resources_handle,
-            _membership: membership,
+            membership,
+            phantom: PhantomData,
         })
     }
 
@@ -122,12 +183,27 @@ where
                 OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
                     ref mut inbound_relay,
                     ref status_updater,
+                    ref overwatch_handle,
                     ..
                 },
             ref mut backend,
-            // todo: get membership here for updates
+            ref membership,
             ..
         } = self;
+
+        let membership_service_relay = overwatch_handle
+            .relay::<MembershipServiceAdapter::MembershipService>()
+            .await?;
+
+        let storage_adapter = StorageAdapter::default();
+        let membership_storage = MembershipStorage::new(storage_adapter, membership.clone());
+
+        let membership_service_adapter = MembershipServiceAdapter::new(membership_service_relay);
+
+        let mut stream = membership_service_adapter.subscribe().await.map_err(|e| {
+            tracing::error!("Failed to subscribe to membership service: {e}");
+            e
+        })?;
 
         status_updater.notify_ready();
         tracing::info!(
@@ -135,16 +211,27 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        while let Some(msg) = inbound_relay.recv().await {
-            Self::handle_network_service_message(msg, backend).await;
+        loop {
+            tokio::select! {
+                Some(msg) = inbound_relay.recv() => {
+                    Self::handle_network_service_message(msg, backend).await;
+                }
+                Some((block_number, providers)) = stream.next() => {
+                    Self::handle_membership_update(block_number, providers, &membership_storage).await;
+                }
+            }
         }
-
-        Ok(())
     }
 }
 
-impl<Backend, Membership, RuntimeServiceId> Drop
-    for NetworkService<Backend, Membership, RuntimeServiceId>
+impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId> Drop
+    for NetworkService<
+        Backend,
+        Membership,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        RuntimeServiceId,
+    >
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
 {
@@ -153,11 +240,19 @@ where
     }
 }
 
-impl<Backend, Membership, RuntimeServiceId> NetworkService<Backend, Membership, RuntimeServiceId>
+impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
+    NetworkService<Backend, Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
 where
+    StorageAdapter: MembershipStorageAdapter<
+            <Membership as MembershipHandler>::Id,
+            <Membership as MembershipHandler>::NetworkId,
+        > + Send
+        + Sync,
+
+    Membership::Id: Send + Sync,
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::State: Send + Sync,
-    Membership: Clone + Send + 'static,
+    Membership: MembershipCreator + Clone + Send + Sync + 'static,
 {
     async fn handle_network_service_message(
         msg: DaNetworkMsg<Backend, RuntimeServiceId>,
@@ -179,6 +274,19 @@ where
                 }),
         }
     }
+
+    #[expect(
+        clippy::unused_async,
+        reason = "This function is a placeholder for future implementation"
+    )]
+    async fn handle_membership_update(
+        _block_numnber: BlockNumber,
+        _update: HashMap<<Membership as MembershipHandler>::Id, Multiaddr>,
+        _storage: &MembershipStorage<StorageAdapter, Membership>,
+    ) {
+        //update(block_numnber, update).await;
+        // todo: implement update when config is moved to the membership service
+    }
 }
 
 impl<Backend: NetworkBackend<RuntimeServiceId>, Membership, RuntimeServiceId> Clone
@@ -194,19 +302,43 @@ where
     }
 }
 
-impl<Backend: NetworkBackend<RuntimeServiceId>, Membership, RuntimeServiceId> Clone
-    for NetworkState<Backend, Membership, RuntimeServiceId>
+impl<
+        Backend: NetworkBackend<RuntimeServiceId>,
+        Membership,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        RuntimeServiceId,
+    > Clone
+    for NetworkState<
+        Backend,
+        Membership,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        RuntimeServiceId,
+    >
 {
     fn clone(&self) -> Self {
         Self {
             backend: self.backend.clone(),
-            _membership: PhantomData,
+            phantom: PhantomData,
         }
     }
 }
 
-impl<Backend: NetworkBackend<RuntimeServiceId>, Membership, RuntimeServiceId> ServiceState
-    for NetworkState<Backend, Membership, RuntimeServiceId>
+impl<
+        Backend: NetworkBackend<RuntimeServiceId>,
+        Membership,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        RuntimeServiceId,
+    > ServiceState
+    for NetworkState<
+        Backend,
+        Membership,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        RuntimeServiceId,
+    >
 where
     Membership: Clone,
 {
@@ -216,7 +348,7 @@ where
     fn from_settings(settings: &Self::Settings) -> Result<Self, Self::Error> {
         Backend::State::from_settings(&settings.backend).map(|backend| Self {
             backend,
-            _membership: PhantomData,
+            phantom: PhantomData,
         })
     }
 }

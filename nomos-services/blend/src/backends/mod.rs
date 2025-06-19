@@ -9,6 +9,8 @@ use nomos_blend_message::sphinx::SphinxMessage;
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
 
+use crate::BlendConfig;
+
 /// A trait for blend backends that send messages to the blend network.
 #[async_trait::async_trait]
 pub trait BlendBackend<RuntimeServiceId> {
@@ -16,7 +18,7 @@ pub trait BlendBackend<RuntimeServiceId> {
     type NodeId: Clone + Debug + Send + Sync + 'static;
 
     fn new<R>(
-        config: Self::Settings,
+        service_config: BlendConfig<Self::Settings, Self::NodeId>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Membership<Self::NodeId, SphinxMessage>,
         rng: R,

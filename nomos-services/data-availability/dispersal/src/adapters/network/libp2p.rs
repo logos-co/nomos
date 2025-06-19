@@ -16,6 +16,7 @@ use nomos_da_network_service::{
             DaNetworkEvent, DaNetworkEventKind, DaNetworkExecutorBackend, ExecutorDaNetworkMessage,
         },
     },
+    membership::MembershipAdapter,
     DaNetworkMsg, NetworkService,
 };
 use overwatch::{
@@ -27,21 +28,27 @@ use tokio::sync::oneshot;
 
 use crate::adapters::network::DispersalNetworkAdapter;
 
-pub struct Libp2pNetworkAdapter<Membership, RuntimeServiceId>
-where
+pub struct Libp2pNetworkAdapter<
+    Membership,
+    MembershipServiceAdapter,
+    StorageAdapter,
+    RuntimeServiceId,
+> where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
         + Debug
         + Send
         + Sync
         + 'static,
+    MembershipServiceAdapter: MembershipAdapter,
 {
     outbound_relay:
         OutboundRelay<DaNetworkMsg<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>>,
-    _phantom: PhantomData<RuntimeServiceId>,
+    _phantom: PhantomData<(RuntimeServiceId, MembershipServiceAdapter, StorageAdapter)>,
 }
 
-impl<Membership, RuntimeServiceId> Libp2pNetworkAdapter<Membership, RuntimeServiceId>
+impl<Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
+    Libp2pNetworkAdapter<Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -49,6 +56,8 @@ where
         + Send
         + Sync
         + 'static,
+    MembershipServiceAdapter: MembershipAdapter + Sync,
+    StorageAdapter: Sync,
     RuntimeServiceId: Sync,
 {
     async fn start_sampling(
@@ -73,8 +82,8 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Membership, RuntimeServiceId> DispersalNetworkAdapter
-    for Libp2pNetworkAdapter<Membership, RuntimeServiceId>
+impl<Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId> DispersalNetworkAdapter
+    for Libp2pNetworkAdapter<Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -82,10 +91,17 @@ where
         + Send
         + Sync
         + 'static,
+    MembershipServiceAdapter: MembershipAdapter + Sync,
+    StorageAdapter: Sync,
     RuntimeServiceId: Sync,
 {
-    type NetworkService =
-        NetworkService<DaNetworkExecutorBackend<Membership>, Membership, RuntimeServiceId>;
+    type NetworkService = NetworkService<
+        DaNetworkExecutorBackend<Membership>,
+        Membership,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        RuntimeServiceId,
+    >;
 
     type SubnetworkId = Membership::NetworkId;
 

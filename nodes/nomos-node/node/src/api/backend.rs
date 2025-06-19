@@ -24,7 +24,10 @@ use nomos_core::{
     tx::Transaction,
 };
 use nomos_da_network_core::SubnetworkId;
-use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBackend;
+use nomos_da_network_service::{
+    backends::libp2p::validator::DaNetworkValidatorBackend, membership::MembershipAdapter,
+    storage::MembershipStorageAdapter,
+};
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_da_verifier::backend::VerifierBackend;
 use nomos_http_api_common::paths;
@@ -74,6 +77,8 @@ pub struct AxumBackend<
     DaShare,
     DaBlobInfo,
     Membership,
+    DaMembershipAdapter,
+    DaMembershipStorage,
     DaVerifiedBlobInfo,
     DaVerifierBackend,
     DaVerifierNetwork,
@@ -109,6 +114,7 @@ pub struct AxumBackend<
     _time_backend: core::marker::PhantomData<TimeBackend>,
     _api_adapter: core::marker::PhantomData<ApiAdapter>,
     _storage_adapter: core::marker::PhantomData<HttpStorageAdapter>,
+    _da_membership: core::marker::PhantomData<(DaMembershipAdapter, DaMembershipStorage)>,
 }
 
 #[derive(OpenApi)]
@@ -130,6 +136,8 @@ impl<
         DaShare,
         DaBlobInfo,
         Membership,
+        DaMembershipAdapter,
+        DaMembershipStorage,
         DaVerifiedBlobInfo,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -152,6 +160,8 @@ impl<
         DaShare,
         DaBlobInfo,
         Membership,
+        DaMembershipAdapter,
+        DaMembershipStorage,
         DaVerifiedBlobInfo,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -190,6 +200,8 @@ where
         + Send
         + Sync
         + 'static,
+    DaMembershipAdapter: MembershipAdapter + Send + Sync + 'static,
+    DaMembershipStorage: MembershipStorageAdapter<PeerId, SubnetworkId> + Send + Sync + 'static,
     DaVerifiedBlobInfo: DispersedBlobInfo<BlobId = [u8; 32]>
         + From<DaBlobInfo>
         + Eq
@@ -315,6 +327,8 @@ where
             nomos_da_network_service::NetworkService<
                 DaNetworkValidatorBackend<Membership>,
                 Membership,
+                DaMembershipAdapter,
+                DaMembershipStorage,
                 RuntimeServiceId,
             >,
         >
@@ -383,6 +397,7 @@ where
             _time_backend: core::marker::PhantomData,
             _api_adapter: core::marker::PhantomData,
             _storage_adapter: core::marker::PhantomData,
+            _da_membership: core::marker::PhantomData,
         })
     }
 
@@ -410,7 +425,7 @@ where
             >,
             DaVerifier<_, _, _, _, _, _>,
             DaIndexer<_, _, _, _, _, _, _, _, _, _, _, _, _, _, SIZE>,
-            nomos_da_network_service::NetworkService<_, _, _>,
+            nomos_da_network_service::NetworkService<_, _, _, _, _>,
             nomos_network::NetworkService<_, _>,
             DaStorageService<_, _>,
             TxMempoolService<_, _, _>,
@@ -436,219 +451,224 @@ where
             );
         }
 
-        let app =
-            Router::new()
-                .layer(
-                    builder
-                        .allow_headers([CONTENT_TYPE, USER_AGENT])
-                        .allow_methods(Any),
-                )
-                .layer(TraceLayer::new_for_http())
-                .merge(
-                    SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()),
-                )
-                .route(
-                    paths::CL_METRICS,
-                    routing::get(cl_metrics::<Tx, RuntimeServiceId>),
-                )
-                .route(
-                    paths::CL_STATUS,
-                    routing::post(cl_status::<Tx, RuntimeServiceId>),
-                )
-                .route(
-                    paths::CRYPTARCHIA_INFO,
-                    routing::get(
-                        cryptarchia_info::<
-                            Tx,
-                            DaStorageSerializer,
-                            SamplingBackend,
-                            SamplingNetworkAdapter,
-                            SamplingRng,
-                            SamplingStorage,
-                            DaVerifierBackend,
-                            DaVerifierNetwork,
-                            DaVerifierStorage,
-                            TimeBackend,
-                            ApiAdapter,
-                            RuntimeServiceId,
-                            SIZE,
-                        >,
-                    ),
-                )
-                .route(
-                    paths::CRYPTARCHIA_HEADERS,
-                    routing::get(
-                        cryptarchia_headers::<
-                            Tx,
-                            DaStorageSerializer,
-                            SamplingBackend,
-                            SamplingNetworkAdapter,
-                            SamplingRng,
-                            SamplingStorage,
-                            DaVerifierBackend,
-                            DaVerifierNetwork,
-                            DaVerifierStorage,
-                            TimeBackend,
-                            ApiAdapter,
-                            RuntimeServiceId,
-                            SIZE,
-                        >,
-                    ),
-                )
-                .route(
-                    paths::DA_ADD_SHARE,
-                    routing::post(
-                        add_share::<
-                            DaAttestation,
-                            DaShare,
-                            DaVerifierNetwork,
-                            DaVerifierBackend,
-                            DaStorageSerializer,
-                            DaStorageConverter,
-                            RuntimeServiceId,
-                        >,
-                    ),
-                )
-                .route(
-                    paths::DA_GET_RANGE,
-                    routing::post(
-                        get_range::<
-                            Tx,
-                            DaBlobInfo,
-                            DaVerifiedBlobInfo,
-                            DaStorageSerializer,
-                            SamplingBackend,
-                            SamplingNetworkAdapter,
-                            SamplingRng,
-                            SamplingStorage,
-                            DaVerifierBackend,
-                            DaVerifierNetwork,
-                            DaVerifierStorage,
-                            TimeBackend,
-                            ApiAdapter,
-                            RuntimeServiceId,
-                            SIZE,
-                        >,
-                    ),
-                )
-                .route(
-                    paths::DA_BLOCK_PEER,
-                    routing::post(
-                        block_peer::<
-                            DaNetworkValidatorBackend<Membership>,
-                            Membership,
-                            RuntimeServiceId,
-                        >,
-                    ),
-                )
-                .route(
-                    paths::DA_UNBLOCK_PEER,
-                    routing::post(
-                        unblock_peer::<
-                            DaNetworkValidatorBackend<Membership>,
-                            Membership,
-                            RuntimeServiceId,
-                        >,
-                    ),
-                )
-                .route(
-                    paths::DA_BLACKLISTED_PEERS,
-                    routing::get(
-                        blacklisted_peers::<
-                            DaNetworkValidatorBackend<Membership>,
-                            Membership,
-                            RuntimeServiceId,
-                        >,
-                    ),
-                )
-                .route(
-                    paths::NETWORK_INFO,
-                    routing::get(libp2p_info::<RuntimeServiceId>),
-                )
-                .route(
-                    paths::STORAGE_BLOCK,
-                    routing::post(
-                        block::<DaStorageSerializer, StorageAdapter, Tx, RuntimeServiceId>,
-                    ),
-                )
-                .route(
-                    paths::MEMPOOL_ADD_TX,
-                    routing::post(add_tx::<Tx, RuntimeServiceId>),
-                )
-                .route(
-                    paths::MEMPOOL_ADD_BLOB_INFO,
-                    routing::post(
-                        add_blob_info::<
-                            DaVerifiedBlobInfo,
-                            SamplingBackend,
-                            SamplingNetworkAdapter,
-                            SamplingRng,
-                            SamplingStorage,
-                            DaVerifierBackend,
-                            DaVerifierNetwork,
-                            DaVerifierStorage,
-                            ApiAdapter,
-                            RuntimeServiceId,
-                        >,
-                    ),
-                )
-                .route(
-                    paths::DA_GET_SHARES_COMMITMENTS,
-                    routing::get(
-                        da_get_commitments::<
-                            DaStorageSerializer,
-                            DaStorageConverter,
-                            StorageAdapter,
-                            DaShare,
-                            RuntimeServiceId,
-                        >,
-                    ),
-                )
-                .route(
-                    paths::DA_GET_LIGHT_SHARE,
-                    routing::get(
-                        da_get_light_share::<
-                            DaStorageSerializer,
-                            DaStorageConverter,
-                            StorageAdapter,
-                            DaShare,
-                            RuntimeServiceId,
-                        >,
-                    ),
-                )
-                .route(
-                    paths::DA_GET_SHARES,
-                    routing::get(
-                        da_get_shares::<
-                            DaStorageSerializer,
-                            DaStorageConverter,
-                            StorageAdapter,
-                            DaShare,
-                            RuntimeServiceId,
-                        >,
-                    ),
-                )
-                .route(
-                    paths::DA_BALANCER_STATS,
-                    routing::get(
-                        balancer_stats::<
-                            DaNetworkValidatorBackend<Membership>,
-                            Membership,
-                            RuntimeServiceId,
-                        >,
-                    ),
-                )
-                .route(
-                    paths::DA_MONITOR_STATS,
-                    routing::get(
-                        monitor_stats::<
-                            DaNetworkValidatorBackend<Membership>,
-                            Membership,
-                            RuntimeServiceId,
-                        >,
-                    ),
-                )
-                .with_state(handle);
+        let app = Router::new()
+            .layer(
+                builder
+                    .allow_headers([CONTENT_TYPE, USER_AGENT])
+                    .allow_methods(Any),
+            )
+            .layer(TraceLayer::new_for_http())
+            .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+            .route(
+                paths::CL_METRICS,
+                routing::get(cl_metrics::<Tx, RuntimeServiceId>),
+            )
+            .route(
+                paths::CL_STATUS,
+                routing::post(cl_status::<Tx, RuntimeServiceId>),
+            )
+            .route(
+                paths::CRYPTARCHIA_INFO,
+                routing::get(
+                    cryptarchia_info::<
+                        Tx,
+                        DaStorageSerializer,
+                        SamplingBackend,
+                        SamplingNetworkAdapter,
+                        SamplingRng,
+                        SamplingStorage,
+                        DaVerifierBackend,
+                        DaVerifierNetwork,
+                        DaVerifierStorage,
+                        TimeBackend,
+                        ApiAdapter,
+                        RuntimeServiceId,
+                        SIZE,
+                    >,
+                ),
+            )
+            .route(
+                paths::CRYPTARCHIA_HEADERS,
+                routing::get(
+                    cryptarchia_headers::<
+                        Tx,
+                        DaStorageSerializer,
+                        SamplingBackend,
+                        SamplingNetworkAdapter,
+                        SamplingRng,
+                        SamplingStorage,
+                        DaVerifierBackend,
+                        DaVerifierNetwork,
+                        DaVerifierStorage,
+                        TimeBackend,
+                        ApiAdapter,
+                        RuntimeServiceId,
+                        SIZE,
+                    >,
+                ),
+            )
+            .route(
+                paths::DA_ADD_SHARE,
+                routing::post(
+                    add_share::<
+                        DaAttestation,
+                        DaShare,
+                        DaVerifierNetwork,
+                        DaVerifierBackend,
+                        DaStorageSerializer,
+                        DaStorageConverter,
+                        RuntimeServiceId,
+                    >,
+                ),
+            )
+            .route(
+                paths::DA_GET_RANGE,
+                routing::post(
+                    get_range::<
+                        Tx,
+                        DaBlobInfo,
+                        DaVerifiedBlobInfo,
+                        DaStorageSerializer,
+                        SamplingBackend,
+                        SamplingNetworkAdapter,
+                        SamplingRng,
+                        SamplingStorage,
+                        DaVerifierBackend,
+                        DaVerifierNetwork,
+                        DaVerifierStorage,
+                        TimeBackend,
+                        ApiAdapter,
+                        RuntimeServiceId,
+                        SIZE,
+                    >,
+                ),
+            )
+            .route(
+                paths::DA_BLOCK_PEER,
+                routing::post(
+                    block_peer::<
+                        DaNetworkValidatorBackend<Membership>,
+                        Membership,
+                        DaMembershipAdapter,
+                        DaMembershipStorage,
+                        RuntimeServiceId,
+                    >,
+                ),
+            )
+            .route(
+                paths::DA_UNBLOCK_PEER,
+                routing::post(
+                    unblock_peer::<
+                        DaNetworkValidatorBackend<Membership>,
+                        Membership,
+                        DaMembershipAdapter,
+                        DaMembershipStorage,
+                        RuntimeServiceId,
+                    >,
+                ),
+            )
+            .route(
+                paths::DA_BLACKLISTED_PEERS,
+                routing::get(
+                    blacklisted_peers::<
+                        DaNetworkValidatorBackend<Membership>,
+                        Membership,
+                        DaMembershipAdapter,
+                        DaMembershipStorage,
+                        RuntimeServiceId,
+                    >,
+                ),
+            )
+            .route(
+                paths::NETWORK_INFO,
+                routing::get(libp2p_info::<RuntimeServiceId>),
+            )
+            .route(
+                paths::STORAGE_BLOCK,
+                routing::post(block::<DaStorageSerializer, StorageAdapter, Tx, RuntimeServiceId>),
+            )
+            .route(
+                paths::MEMPOOL_ADD_TX,
+                routing::post(add_tx::<Tx, RuntimeServiceId>),
+            )
+            .route(
+                paths::MEMPOOL_ADD_BLOB_INFO,
+                routing::post(
+                    add_blob_info::<
+                        DaVerifiedBlobInfo,
+                        SamplingBackend,
+                        SamplingNetworkAdapter,
+                        SamplingRng,
+                        SamplingStorage,
+                        DaVerifierBackend,
+                        DaVerifierNetwork,
+                        DaVerifierStorage,
+                        ApiAdapter,
+                        RuntimeServiceId,
+                    >,
+                ),
+            )
+            .route(
+                paths::DA_GET_SHARES_COMMITMENTS,
+                routing::get(
+                    da_get_commitments::<
+                        DaStorageSerializer,
+                        DaStorageConverter,
+                        StorageAdapter,
+                        DaShare,
+                        RuntimeServiceId,
+                    >,
+                ),
+            )
+            .route(
+                paths::DA_GET_LIGHT_SHARE,
+                routing::get(
+                    da_get_light_share::<
+                        DaStorageSerializer,
+                        DaStorageConverter,
+                        StorageAdapter,
+                        DaShare,
+                        RuntimeServiceId,
+                    >,
+                ),
+            )
+            .route(
+                paths::DA_GET_SHARES,
+                routing::get(
+                    da_get_shares::<
+                        DaStorageSerializer,
+                        DaStorageConverter,
+                        StorageAdapter,
+                        DaShare,
+                        RuntimeServiceId,
+                    >,
+                ),
+            )
+            .route(
+                paths::DA_BALANCER_STATS,
+                routing::get(
+                    balancer_stats::<
+                        DaNetworkValidatorBackend<Membership>,
+                        Membership,
+                        DaMembershipAdapter,
+                        DaMembershipStorage,
+                        RuntimeServiceId,
+                    >,
+                ),
+            )
+            .route(
+                paths::DA_MONITOR_STATS,
+                routing::get(
+                    monitor_stats::<
+                        DaNetworkValidatorBackend<Membership>,
+                        Membership,
+                        DaMembershipAdapter,
+                        DaMembershipStorage,
+                        RuntimeServiceId,
+                    >,
+                ),
+            )
+            .with_state(handle);
 
         Server::bind(&self.settings.address)
             .serve(app.into_make_service())
