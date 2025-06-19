@@ -40,7 +40,7 @@ impl SessionCoverTraffic {
         }
     }
 
-    pub fn poll_next(&mut self) -> bool {
+    pub fn poll_next_round(&mut self) -> bool {
         let current_round = self.current_round;
         self.current_round = self
             .current_round
