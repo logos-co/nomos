@@ -34,8 +34,6 @@ impl<Membership> DaMembershipHandler<Membership> {
 impl<Membership> MembershipHandler for DaMembershipHandler<Membership>
 where
     Membership: MembershipHandler + Clone,
-    Membership::Id: Debug,
-    Membership::NetworkId: Debug,
 {
     type NetworkId = Membership::NetworkId;
     type Id = Membership::Id;

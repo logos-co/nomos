@@ -1,4 +1,4 @@
-use std::{collections::HashSet, time::Duration};
+use std::collections::HashSet;
 
 use common_http_client::CommonHttpClient;
 use futures_util::stream::StreamExt as _;
@@ -140,10 +140,7 @@ async fn test_get_shares() {
     let app_id: [u8; 32] = app_id.try_into().unwrap();
     let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
 
-    tokio::time::sleep(Duration::from_secs(15)).await;
-
     disseminate_with_metadata(executor, &data, metadata).await;
-    tokio::time::sleep(Duration::from_secs(20)).await;
 
     let from = 0u64.to_be_bytes();
     let to = 1u64.to_be_bytes();
