@@ -33,7 +33,7 @@ where
         }
     }
 
-    pub fn poll_next(&mut self) -> Option<Vec<OutboundMessage>> {
+    pub fn poll_next_round(&mut self) -> Option<Vec<OutboundMessage>> {
         let current_round = self.current_round;
         self.current_round = self
             .current_round
