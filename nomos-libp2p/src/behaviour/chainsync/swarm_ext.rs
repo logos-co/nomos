@@ -15,9 +15,7 @@ impl Swarm {
         peer_id: PeerId,
         reply_sender: oneshot::Sender<Result<SerialisedHeaderId, ChainSyncError>>,
     ) -> Result<(), BehaviourError> {
-        let Some(chain_sync) = self.swarm.behaviour().chain_sync.as_ref() else {
-            return Err(BehaviourError::OperationNotSupported);
-        };
+        let chain_sync = &self.swarm.behaviour().chain_sync;
 
         chain_sync
             .request_tip(peer_id, reply_sender)
@@ -33,9 +31,7 @@ impl Swarm {
         additional_blocks: HashSet<HeaderId>,
         reply_sender: Sender<SerialisedBlockStream>,
     ) -> Result<(), BehaviourError> {
-        let Some(chain_sync) = self.swarm.behaviour().chain_sync.as_ref() else {
-            return Err(BehaviourError::OperationNotSupported);
-        };
+        let chain_sync = &self.swarm.behaviour().chain_sync;
 
         chain_sync
             .start_blocks_download(

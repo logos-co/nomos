@@ -14,8 +14,8 @@ use libp2p::{
 use thiserror::Error;
 
 use crate::{
-    behaviour::gossipsub::compute_message_id, config::ChainsyncSettings,
-    protocol_name::ProtocolName, IdentifySettings, KademliaSettings,
+    behaviour::gossipsub::compute_message_id, protocol_name::ProtocolName, IdentifySettings,
+    KademliaSettings,
 };
 
 pub mod chainsync;
@@ -40,7 +40,7 @@ pub struct Behaviour {
     // todo: support persistent store if needed
     pub(crate) kademlia: Toggle<kad::Behaviour<kad::store::MemoryStore>>,
     pub(crate) identify: Toggle<libp2p::identify::Behaviour>,
-    pub(crate) chain_sync: Toggle<cryptarchia_sync::Behaviour>,
+    pub(crate) chain_sync: cryptarchia_sync::Behaviour,
 }
 
 impl Behaviour {
@@ -48,7 +48,6 @@ impl Behaviour {
         gossipsub_config: libp2p::gossipsub::Config,
         kad_config: Option<KademliaSettings>,
         identify_config: Option<IdentifySettings>,
-        chainsync_config: Option<ChainsyncSettings>,
         protocol_name: ProtocolName,
         public_key: identity::PublicKey,
     ) -> Result<Self, Box<dyn Error>> {
@@ -82,9 +81,7 @@ impl Behaviour {
             },
         );
 
-        let chain_sync = chainsync_config.map_or(Toggle::from(None), |_| {
-            Toggle::from(Some(cryptarchia_sync::Behaviour::new()))
-        });
+        let chain_sync = cryptarchia_sync::Behaviour::default();
 
         Ok(Self {
             gossipsub,

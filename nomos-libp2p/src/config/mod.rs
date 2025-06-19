@@ -1,4 +1,3 @@
-pub use chainsync::Settings as ChainsyncSettings;
 pub use identify::Settings as IdentifySettings;
 pub use kademlia::Settings as KademliaSettings;
 use libp2p::identity::ed25519;
@@ -6,7 +5,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::protocol_name::ProtocolName;
 
-mod chainsync;
 mod gossipsub;
 mod identify;
 mod kademlia;
@@ -51,11 +49,6 @@ pub struct SwarmConfig {
     /// When a value is None, identify is disabled.
     #[serde(default)]
     pub identify_config: Option<identify::Settings>,
-
-    /// Chainsync config
-    /// When a value is None, chainsync is disabled.
-    #[serde(default)]
-    pub chainsync_config: Option<chainsync::Settings>,
 }
 
 impl Default for SwarmConfig {
@@ -68,7 +61,6 @@ impl Default for SwarmConfig {
             protocol_name_env: ProtocolName::default(),
             kademlia_config: None,
             identify_config: None,
-            chainsync_config: None,
         }
     }
 }
