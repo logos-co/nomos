@@ -670,7 +670,7 @@ mod tests {
 
         let provider_addr: Multiaddr = format!(
             "/ip4/127.0.0.1/udp/{}/quic-v1",
-            u64::from(rng().random::<u16>())
+            i32::from(rng().random_range(10000..60000))
         )
         .parse()
         .unwrap();
