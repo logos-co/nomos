@@ -10,10 +10,11 @@ pub use nomos_blend_service::{
     backends::libp2p::Libp2pBlendBackend as BlendBackend,
     network::libp2p::Libp2pAdapter as BlendNetworkAdapter,
 };
+use nomos_core::mantle::SignedMantleTx;
 pub use nomos_core::{
     da::blob::{info::DispersedBlobInfo, select::FillSize as FillSizeWithBlobs},
     header::HeaderId,
-    tx::{select::FillSize as FillSizeWithTx, Transaction},
+    mantle::{select::FillSize as FillSizeWithTx, Transaction},
     wire,
 };
 pub use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBackend;
@@ -31,7 +32,6 @@ use nomos_da_verifier::{
     network::adapters::validator::Libp2pAdapter as VerifierNetworkAdapter,
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
-use nomos_mantle_core::tx::SignedMantleTx;
 pub use nomos_mempool::{
     da::settings::DaMempoolSettings,
     network::adapters::libp2p::{

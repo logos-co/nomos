@@ -13,7 +13,7 @@ use nomos_core::{
         BlobId, DaVerifier as CoreDaVerifier,
     },
     header::HeaderId,
-    tx::{select::FillSize as FillSizeWithTx, Transaction},
+    mantle::{select::FillSize as FillSizeWithTx, Transaction},
 };
 use nomos_da_dispersal::{
     adapters::{mempool::DaMempoolAdapter, network::DispersalNetworkAdapter},

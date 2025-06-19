@@ -24,8 +24,8 @@ use nomos_core::{
     block::{builder::BlockBuilder, Block},
     da::blob::{info::DispersedBlobInfo, metadata::Metadata as BlobMetadata, BlobSelect},
     header::{Builder, Header, HeaderId},
+    mantle::{Transaction, TxSelect},
     proofs::leader_proof::Risc0LeaderProof,
-    tx::{Transaction, TxSelect},
 };
 use nomos_da_sampling::{
     backend::DaSamplingServiceBackend, DaSamplingService, DaSamplingServiceMsg,
@@ -1218,8 +1218,8 @@ where
         let mut cryptarchia =
             <Cryptarchia<Online>>::from_lib(lib_id, initial_state.lib_ledger_state, ledger_config);
         let leader = Leader::new(
-            initial_state.lib_leader_notes.clone(),
-            leader_config.nf_sk,
+            initial_state.lib_leader_utxos.clone(),
+            leader_config.sk,
             ledger_config,
         );
 
@@ -1238,7 +1238,7 @@ where
     }
 
     /// Remove the in-memory storage of stale blocks from the cryptarchia engine
-    /// and of stale `PoL` notes from the `PoL` machinery.
+    /// and of stale `PoL` utxos from the `PoL` machinery.
     /// Furthermore, it attempts to remove the deleted block data from storage
     /// as well, also including the blocks provided in `prunable_blocks` that
     /// might belong to previous pruning operations and that failed for some

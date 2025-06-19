@@ -23,7 +23,7 @@ use nomos_core::{
         BlobId, DaVerifier as CoreDaVerifier,
     },
     header::HeaderId,
-    tx::Transaction,
+    mantle::Transaction,
 };
 use nomos_da_messages::http::da::{
     DASharesCommitmentsRequest, DaSamplingRequest, GetRangeReq, GetSharesRequest,

@@ -3,10 +3,10 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
     block::Block,
-    crypto::Blake2b,
+    crypto::Hasher,
     da::blob::{info::DispersedBlobInfo, BlobSelect},
     header::Builder,
-    tx::{Transaction, TxSelect},
+    mantle::{Transaction, TxSelect},
     wire,
 };
 
@@ -90,7 +90,7 @@ where
                     u32::MAX
                 )
             })?;
-            let content_id = <[u8; 32]>::from(Blake2b::digest(&serialized_content)).into();
+            let content_id = <[u8; 32]>::from(Hasher::digest(&serialized_content)).into();
 
             let header = header_builder.build(content_id, content_size);
 

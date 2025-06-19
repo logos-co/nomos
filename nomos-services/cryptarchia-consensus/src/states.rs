@@ -1,8 +1,7 @@
 use std::{collections::HashSet, marker::PhantomData};
 
-use cl::NoteWitness;
 use cryptarchia_engine::{CryptarchiaState, ForkDivergenceInfo};
-use nomos_core::header::HeaderId;
+use nomos_core::{header::HeaderId, mantle::Utxo};
 use nomos_ledger::LedgerState;
 use overwatch::{services::state::ServiceState, DynError};
 use serde::{Deserialize, Serialize};
@@ -14,7 +13,7 @@ pub struct CryptarchiaConsensusState<TxS, BxS, NetworkAdapterSettings, BlendAdap
     pub tip: HeaderId,
     pub lib: HeaderId,
     pub lib_ledger_state: LedgerState,
-    pub lib_leader_notes: Vec<NoteWitness>,
+    pub lib_leader_utxos: Vec<Utxo>,
     pub lib_block_length: u64,
     /// Set of blocks that have been pruned from the engine but have not yet
     /// been deleted from the persistence layer because of some unexpected
@@ -46,7 +45,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
             ));
         };
         let lib_block_length = lib.length();
-        let lib_leader_notes = leader.notes().to_vec();
+        let lib_leader_utxos = leader.utxos().to_vec();
 
         // Retrieve the prunable forks from the cryptarchia engine.
         let prunable_forks = {
@@ -80,7 +79,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
             tip: cryptarchia.consensus.tip_branch().id(),
             lib: lib.id(),
             lib_ledger_state,
-            lib_leader_notes,
+            lib_leader_utxos,
             lib_block_length,
             prunable_blocks: prunable_blocks.into_iter().collect(),
             _markers: PhantomData,
@@ -102,7 +101,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> ServiceState
                 tip: settings.genesis_id,
                 lib: settings.genesis_id,
                 lib_ledger_state: settings.genesis_state.clone(),
-                lib_leader_notes: settings.leader_config.notes.clone(),
+                lib_leader_utxos: settings.leader_config.utxos.clone(),
                 lib_block_length: 0,
                 prunable_blocks: HashSet::new(),
                 _markers: PhantomData,
@@ -115,7 +114,6 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> ServiceState
 mod tests {
     use std::num::NonZero;
 
-    use cl::NullifierSecret;
     use cryptarchia_engine::Boostrapping;
 
     use super::*;
@@ -179,12 +177,12 @@ mod tests {
         // Empty ledger state.
         let ledger_state = nomos_ledger::Ledger::new(
             cryptarchia_engine.lib(),
-            LedgerState::from_commitments([], 0),
+            LedgerState::from_utxos([]),
             ledger_config,
         );
 
-        // Empty leader notes.
-        let leader = Leader::new(vec![], NullifierSecret::zero(), ledger_config);
+        // Empty leader utxos.
+        let leader = Leader::new(vec![], [0; 16].into(), ledger_config);
 
         // Test when no additional blocks are included.
         let recovery_state =

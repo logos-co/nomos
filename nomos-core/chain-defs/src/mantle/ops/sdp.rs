@@ -1,4 +1,4 @@
-use crate::gas::{Gas, GasConstants, GasPrice};
+use crate::mantle::gas::{Gas, GasConstants, GasPrice};
 
 pub type SDPDeclareOp = nomos_sdp_core::DeclarationMessage;
 pub type SDPWithdrawOp = nomos_sdp_core::WithdrawMessage;

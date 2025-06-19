@@ -1,24 +1,24 @@
 mod config;
 mod crypto;
-pub mod leader_proof;
-mod notetree;
+mod utxotree;
 
 use std::{collections::HashMap, hash::Hash};
 
 use blake2::Digest as _;
-use cl::{balance::Value, note::NoteCommitment, nullifier::Nullifier};
 pub use config::Config;
 use cryptarchia_engine::{Epoch, Slot};
 use crypto::Blake2b;
+use nomos_core::{
+    mantle::{Utxo, Value},
+    proofs::leader_proof,
+};
 use nomos_proof_statements::leadership::LeaderPublic;
-pub use notetree::NoteTree;
-use rpds::{HashTrieSet, HashTrieSetSync};
 use thiserror::Error;
+
+pub use crate::utxotree::UtxoTree;
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum LedgerError<Id> {
-    #[error("Nullifier already exists in the ledger state")]
-    DoubleSpend(Nullifier),
     #[error("Invalid block slot {block:?} for parent slot {parent:?}")]
     InvalidSlot { parent: Slot, block: Slot },
     #[error("Parent block not found: {0:?}")]
@@ -36,9 +36,9 @@ pub struct EpochState {
     // epoch
     nonce: [u8; 32],
     // stake distribution snapshot taken at the beginning of the epoch
-    // (in practice, this is equivalent to the notes the are spendable at the beginning of the
+    // (in practice, this is equivalent to the utxos the are spendable at the beginning of the
     // epoch)
-    commitments: NoteTree,
+    utxos: UtxoTree,
     total_stake: Value,
 }
 
@@ -52,15 +52,15 @@ impl EpochState {
         };
 
         let stake_snapshot_slot = config.stake_distribution_snapshot(self.epoch);
-        let commitments = if ledger.slot < stake_snapshot_slot {
-            ledger.commitments.clone()
+        let utxos = if ledger.slot < stake_snapshot_slot {
+            ledger.utxos.clone()
         } else {
-            self.commitments
+            self.utxos
         };
         Self {
             epoch: self.epoch,
             nonce,
-            commitments,
+            utxos,
             total_stake: self.total_stake,
         }
     }
@@ -174,9 +174,8 @@ where
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Eq, PartialEq)]
 pub struct LedgerState {
-    // commitments to notes that can be spent
-    commitments: NoteTree,
-    nullifiers: HashTrieSetSync<Nullifier>,
+    // All available Unspent Transtaction Outputs (UTXOs) at the current slot
+    utxos: UtxoTree,
     // randomness contribution
     nonce: [u8; 32],
     slot: Slot,
@@ -235,7 +234,7 @@ impl LedgerState {
             let next_epoch_state = EpochState {
                 epoch: new_epoch + 1,
                 nonce: self.nonce,
-                commitments: self.commitments.clone(),
+                utxos: self.utxos.clone(),
                 total_stake,
             };
             Ok(Self {
@@ -249,13 +248,13 @@ impl LedgerState {
             let epoch_state = EpochState {
                 epoch: new_epoch,
                 nonce: self.nonce,
-                commitments: self.commitments.clone(),
+                utxos: self.utxos.clone(),
                 total_stake,
             };
             let next_epoch_state = EpochState {
                 epoch: new_epoch + 1,
                 nonce: self.nonce,
-                commitments: self.commitments.clone(),
+                utxos: self.utxos.clone(),
                 total_stake,
             };
             Ok(Self {
@@ -309,11 +308,6 @@ impl LedgerState {
         Ok(self)
     }
 
-    #[must_use]
-    pub fn is_nullified(&self, nullifier: &Nullifier) -> bool {
-        self.nullifiers.contains(nullifier)
-    }
-
     fn update_nonce(self, contrib: [u8; 32], slot: Slot) -> Self {
         Self {
             nonce: <[u8; 32]>::from(
@@ -327,26 +321,27 @@ impl LedgerState {
         }
     }
 
-    pub fn from_commitments(
-        commitments: impl IntoIterator<Item = NoteCommitment>,
-        total_stake: Value,
-    ) -> Self {
-        let commitments = commitments.into_iter().collect::<NoteTree>();
+    pub fn from_utxos(utxos: impl IntoIterator<Item = Utxo>) -> Self {
+        let utxos = utxos.into_iter().collect::<UtxoTree>();
+        let total_stake = utxos
+            .utxos()
+            .iter()
+            .map(|(_, note)| note.value)
+            .sum::<Value>();
         Self {
-            commitments: commitments.clone(),
-            nullifiers: HashTrieSet::default(),
+            utxos: utxos.clone(),
             nonce: [0; 32],
             slot: 0.into(),
             next_epoch_state: EpochState {
                 epoch: 1.into(),
                 nonce: [0; 32],
-                commitments: NoteTree::default(),
+                utxos: utxos.clone(),
                 total_stake,
             },
             epoch_state: EpochState {
                 epoch: 0.into(),
                 nonce: [0; 32],
-                commitments,
+                utxos,
                 total_stake,
             },
         }
@@ -368,13 +363,13 @@ impl LedgerState {
     }
 
     #[must_use]
-    pub const fn latest_commitments(&self) -> &NoteTree {
-        &self.commitments
+    pub const fn latest_commitments(&self) -> &UtxoTree {
+        &self.utxos
     }
 
     #[must_use]
-    pub const fn aged_commitments(&self) -> &NoteTree {
-        &self.epoch_state.commitments
+    pub const fn aged_commitments(&self) -> &UtxoTree {
+        &self.epoch_state.utxos
     }
 }
 
@@ -385,8 +380,7 @@ impl LedgerState {
 impl core::fmt::Debug for LedgerState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LedgerState")
-            .field("commitments", &self.commitments.root())
-            .field("nullifiers", &self.nullifiers.iter().collect::<Vec<_>>())
+            .field("utxos root", &self.utxos.root())
             .field("nonce", &self.nonce)
             .field("slot", &self.slot)
             .finish()
@@ -398,42 +392,35 @@ pub mod tests {
     use std::num::NonZero;
 
     use blake2::Digest as _;
-    use cl::{note::NoteWitness as Note, NullifierSecret};
     use cryptarchia_engine::EpochConfig;
     use crypto_bigint::U256;
-    use rand::thread_rng;
+    use nomos_core::mantle::Note;
+    use rand::{thread_rng, RngCore as _};
 
     use super::*;
     use crate::leader_proof::LeaderProof;
 
     type HeaderId = [u8; 32];
 
-    const NF_SK: NullifierSecret = NullifierSecret([0; 16]);
-
-    fn note() -> Note {
-        Note::basic(0, [0; 32], &mut thread_rng())
+    fn utxo() -> Utxo {
+        let mut tx_hash = [0; 32];
+        thread_rng().fill_bytes(&mut tx_hash);
+        Utxo {
+            tx_hash: tx_hash.into(),
+            output_index: 0,
+            note: Note::new(1, [0; 32].into()),
+        }
     }
 
-    type DummyProof = LeaderPublic;
+    struct DummyProof(LeaderPublic);
 
     impl LeaderProof for DummyProof {
         fn verify(&self, public_inputs: &LeaderPublic) -> bool {
-            self == public_inputs
+            &self.0 == public_inputs
         }
 
         fn entropy(&self) -> [u8; 32] {
-            self.entropy
-        }
-    }
-
-    fn commit(note: Note) -> NoteCommitment {
-        note.commit(NF_SK.commit())
-    }
-
-    fn evolve(note: Note) -> Note {
-        Note {
-            nonce: note.evolved_nonce(NF_SK, b"test"),
-            ..note
+            self.0.entropy
         }
     }
 
@@ -441,7 +428,7 @@ pub mod tests {
         ledger: &mut Ledger<HeaderId>,
         parent: HeaderId,
         slot: impl Into<Slot>,
-        note: Note,
+        utxo: Utxo,
     ) -> Result<HeaderId, LedgerError<HeaderId>> {
         let slot = slot.into();
         let ledger_state = ledger
@@ -451,17 +438,17 @@ pub mod tests {
             .update_epoch_state::<HeaderId>(slot, ledger.config())
             .unwrap();
         let config = ledger.config();
-        let id = make_id(parent, slot, note);
-        let proof = generate_proof(&ledger_state, note, slot, config);
+        let id = make_id(parent, slot, utxo);
+        let proof = generate_proof(&ledger_state, utxo, slot, config);
         *ledger = ledger.try_update(id, parent, slot, &proof)?;
         Ok(id)
     }
 
-    fn make_id(parent: HeaderId, slot: impl Into<Slot>, note: Note) -> HeaderId {
+    fn make_id(parent: HeaderId, slot: impl Into<Slot>, utxo: Utxo) -> HeaderId {
         Blake2b::new()
             .chain_update(parent)
             .chain_update(slot.into().to_be_bytes())
-            .chain_update(commit(note).as_bytes())
+            .chain_update(utxo.id().0)
             .finalize()
             .into()
     }
@@ -469,26 +456,21 @@ pub mod tests {
     // produce a proof for a note
     fn generate_proof(
         ledger_state: &LedgerState,
-        note: Note,
+        utxo: Utxo,
         slot: Slot,
         config: &Config,
     ) -> DummyProof {
-        // inefficient implementation, but it's just a test
-        fn contains(note_tree: &NoteTree, note: &Note) -> bool {
-            note_tree.commitments().iter().any(|n| n == &commit(*note))
-        }
+        let latest_tree = ledger_state.latest_commitments();
+        let aged_tree = ledger_state.aged_commitments();
 
-        let latest_tree = &ledger_state.latest_commitments();
-        let aged_tree = &ledger_state.aged_commitments();
-
-        DummyProof::new(
-            if contains(aged_tree, &note) {
+        DummyProof(LeaderPublic::new(
+            if aged_tree.contains(&utxo) {
                 aged_tree.root()
             } else {
                 println!("Note not found in latest commitments, using zero root");
                 [0; 32]
             },
-            if contains(latest_tree, &note) {
+            if latest_tree.contains(&utxo) {
                 latest_tree.root()
             } else {
                 println!("Note not found in latest commitments, using zero root");
@@ -499,7 +481,7 @@ pub mod tests {
             slot.into(),
             config.consensus_config.active_slot_coeff,
             ledger_state.epoch_state.total_stake,
-        )
+        ))
     }
 
     #[must_use]
@@ -518,108 +500,89 @@ pub mod tests {
     }
 
     #[must_use]
-    pub fn genesis_state(commitments: &[NoteCommitment]) -> LedgerState {
+    pub fn genesis_state(utxos: &[Utxo]) -> LedgerState {
+        let total_stake = utxos.iter().map(|u| u.note.value).sum();
         LedgerState {
-            commitments: commitments.iter().copied().collect(),
-            nullifiers: HashTrieSet::default(),
+            utxos: utxos.iter().copied().collect(),
             nonce: [0; 32],
             slot: 0.into(),
             next_epoch_state: EpochState {
                 epoch: 1.into(),
                 nonce: [0; 32],
-                commitments: commitments.iter().copied().collect(),
-                total_stake: 1,
+                utxos: utxos.iter().copied().collect(),
+                total_stake,
             },
             epoch_state: EpochState {
                 epoch: 0.into(),
                 nonce: [0; 32],
-                commitments: commitments.iter().copied().collect(),
-                total_stake: 1,
+                utxos: utxos.iter().copied().collect(),
+                total_stake,
             },
         }
     }
 
-    fn ledger(commitments: &[NoteCommitment]) -> (Ledger<HeaderId>, HeaderId) {
-        let genesis_state = genesis_state(commitments);
+    fn ledger(utxos: &[Utxo]) -> (Ledger<HeaderId>, HeaderId) {
+        let genesis_state = genesis_state(utxos);
         (Ledger::new([0; 32], genesis_state, config()), [0; 32])
     }
 
-    fn apply_and_add_note(
+    fn apply_and_add_utxo(
         ledger: &mut Ledger<HeaderId>,
         parent: HeaderId,
         slot: impl Into<Slot>,
-        note_proof: Note,
-        note_add: Note,
+        utxo_proof: Utxo,
+        utxo_add: Utxo,
     ) -> HeaderId {
-        let id = update_ledger(ledger, parent, slot, note_proof).unwrap();
+        let id = update_ledger(ledger, parent, slot, utxo_proof).unwrap();
         // we still don't have transactions, so the only way to add a commitment to
         // spendable commitments and test epoch snapshotting is by doing this
         // manually
         let mut block_state = ledger.states[&id].clone();
-        block_state.commitments = block_state.commitments.insert(commit(note_add));
+        block_state.utxos = block_state.utxos.insert(utxo_add);
         ledger.states.insert(id, block_state);
         id
     }
 
     #[test]
-    fn test_ledger_state_allow_leadership_note_reuse() {
-        let note = note();
-        let (mut ledger, genesis) = ledger(&[commit(note)]);
+    fn test_ledger_state_allow_leadership_utxo_reuse() {
+        let utxo = utxo();
+        let (mut ledger, genesis) = ledger(&[utxo]);
 
-        let h = update_ledger(&mut ledger, genesis, 1, note).unwrap();
+        let h = update_ledger(&mut ledger, genesis, 1, utxo).unwrap();
 
-        // reusing the same note for leadersip should be prevented
-        update_ledger(&mut ledger, h, 2, note).unwrap();
+        // reusing the same utxo for leadersip should be allowed
+        update_ledger(&mut ledger, h, 2, utxo).unwrap();
     }
 
     #[test]
-    fn test_ledger_state_uncommited_note() {
-        let note = note();
-        let (mut ledger, genesis) = ledger(&[]);
+    fn test_ledger_state_uncommited_utxo() {
+        let utxo_1 = utxo();
+        let (mut ledger, genesis) = ledger(&[utxo()]);
         assert!(matches!(
-            update_ledger(&mut ledger, genesis, 1, note),
+            update_ledger(&mut ledger, genesis, 1, utxo_1),
             Err(LedgerError::InvalidProof),
         ));
     }
 
     #[test]
-    fn test_ledger_state_is_properly_updated_on_reorg() {
-        let note_1 = note();
-        let note_2 = note();
-        let note_3 = note();
-
-        let (mut ledger, genesis) = ledger(&[commit(note_1), commit(note_2), commit(note_3)]);
-
-        // note_1 & note_2 both concurrently win slot 0
-
-        update_ledger(&mut ledger, genesis, 1, note_1).unwrap();
-        let h = update_ledger(&mut ledger, genesis, 1, note_2).unwrap();
-
-        // then note_3 wins slot 1 and chooses to extend from block_2
-        let h_3 = update_ledger(&mut ledger, h, 2, note_3).unwrap();
-        // note 1 is not spent in the chain that ends with block_3
-        assert!(!ledger.states[&h_3].is_nullified(&Nullifier::new(NF_SK, commit(note_1))));
-    }
-
-    #[test]
     fn test_epoch_transition() {
-        let notes = std::iter::repeat_with(note).take(4).collect::<Vec<_>>();
-        let note_4 = note();
-        let note_5 = note();
-        let (mut ledger, genesis) = ledger(&notes.iter().copied().map(commit).collect::<Vec<_>>());
+        let utxos = std::iter::repeat_with(utxo).take(4).collect::<Vec<_>>();
+        let utxo_4 = utxo();
+        let utxo_5 = utxo();
+        let (mut ledger, genesis) = ledger(&utxos);
 
         // An epoch will be 10 slots long, with stake distribution snapshot taken at the
         // start of the epoch and nonce snapshot before slot 7
 
-        let h_1 = update_ledger(&mut ledger, genesis, 1, notes[0]).unwrap();
+        let h_1 = update_ledger(&mut ledger, genesis, 1, utxos[0]).unwrap();
         assert_eq!(ledger.states[&h_1].epoch_state.epoch, 0.into());
 
-        let h_2 = update_ledger(&mut ledger, h_1, 6, notes[1]).unwrap();
+        let h_2 = update_ledger(&mut ledger, h_1, 6, utxos[1]).unwrap();
 
-        let h_3 = apply_and_add_note(&mut ledger, h_2, 9, notes[2], note_4);
+        let h_3 = apply_and_add_utxo(&mut ledger, h_2, 9, utxos[2], utxo_4);
 
         // test epoch jump
-        let h_4 = update_ledger(&mut ledger, h_3, 20, notes[3]).unwrap();
+        let h_4 = update_ledger(&mut ledger, h_3, 20, utxos[3]).unwrap();
         // nonce for epoch 2 should be taken at the end of slot 16, but in our case the
         // last block is at slot 9
         assert_eq!(
@@ -628,86 +591,63 @@ pub mod tests {
         );
         // stake distribution snapshot should be taken at the end of slot 9
         assert_eq!(
-            ledger.states[&h_4].epoch_state.commitments,
-            ledger.states[&h_3].commitments,
+            ledger.states[&h_4].epoch_state.utxos,
+            ledger.states[&h_3].utxos,
         );
 
         // nonce for epoch 1 should be taken at the end of slot 6
-        update_ledger(&mut ledger, h_3, 10, notes[3]).unwrap();
-        let h_5 = apply_and_add_note(&mut ledger, h_3, 10, notes[3], note_5);
+        update_ledger(&mut ledger, h_3, 10, utxos[3]).unwrap();
+        let h_5 = apply_and_add_utxo(&mut ledger, h_3, 10, utxos[3], utxo_5);
         assert_eq!(
             ledger.states[&h_5].epoch_state.nonce,
             ledger.states[&h_2].nonce,
         );
 
-        let h_6 = update_ledger(&mut ledger, h_5, 20, notes[3]).unwrap();
+        let h_6 = update_ledger(&mut ledger, h_5, 20, utxos[3]).unwrap();
         // stake distribution snapshot should be taken at the end of slot 9, check that
         // changes in slot 10 are ignored
         assert_eq!(
-            ledger.states[&h_6].epoch_state.commitments,
-            ledger.states[&h_3].commitments,
+            ledger.states[&h_6].epoch_state.utxos,
+            ledger.states[&h_3].utxos,
         );
     }
 
     #[test]
-    fn test_no_leadership_note_evolution() {
-        let note = note();
-        let (mut ledger, genesis) = ledger(&[commit(note)]);
+    fn test_new_utxos_becoming_eligible_after_stake_distribution_stabilizes() {
+        let utxo_1 = utxo();
+        let utxo = utxo();
 
-        let h = update_ledger(&mut ledger, genesis, 1, note).unwrap();
-
-        // reusing the same note should be allow, as PoLv2 does not consume a note
-        update_ledger(&mut ledger, h, 2, note).unwrap();
-
-        // no evolved note is not eligible for leadership
-        assert!(matches!(
-            update_ledger(&mut ledger, genesis, 2, evolve(note)),
-            Err(LedgerError::InvalidProof),
-        ));
-        // the evolved note is eligible after note 1 is spent
-        assert!(matches!(
-            update_ledger(&mut ledger, h, 2, evolve(note)),
-            Err(LedgerError::InvalidProof),
-        ));
-    }
-
-    #[test]
-    fn test_new_notes_becoming_eligible_after_stake_distribution_stabilizes() {
-        let note_1 = note();
-        let note = note();
-
-        let (mut ledger, genesis) = ledger(&[commit(note)]);
+        let (mut ledger, genesis) = ledger(&[utxo]);
 
         // EPOCH 0
-        // mint a new note to be used for leader elections in upcoming epochs
-        let h_0_1 = apply_and_add_note(&mut ledger, genesis, 1, note, note_1);
+        // mint a new utxo to be used for leader elections in upcoming epochs
+        let h_0_1 = apply_and_add_utxo(&mut ledger, genesis, 1, utxo, utxo_1);
 
-        // the new note is not yet eligible for leader elections
+        // the new utxo is not yet eligible for leader elections
         assert!(matches!(
-            update_ledger(&mut ledger, h_0_1, 2, note_1),
+            update_ledger(&mut ledger, h_0_1, 2, utxo_1),
             Err(LedgerError::InvalidProof),
         ));
 
         // EPOCH 1
         for i in 10..20 {
-            // the newly minted note is still not eligible in the following epoch since the
+            // the newly minted utxo is still not eligible in the following epoch since the
             // stake distribution snapshot is taken at the beginning of the previous epoch
             assert!(matches!(
-                update_ledger(&mut ledger, h_0_1, i, note_1),
+                update_ledger(&mut ledger, h_0_1, i, utxo_1),
                 Err(LedgerError::InvalidProof),
             ));
         }
 
         // EPOCH 2
-        // the note is finally eligible 2 epochs after it was first minted
-        update_ledger(&mut ledger, h_0_1, 20, note_1).unwrap();
+        // the utxo is finally eligible 2 epochs after it was first minted
+        update_ledger(&mut ledger, h_0_1, 20, utxo_1).unwrap();
     }
 
     #[test]
     fn test_update_epoch_state_with_outdated_slot_error() {
-        let note = note();
-        let commitment = commit(note);
-        let (ledger, genesis) = ledger(&[commitment]);
+        let utxo = utxo();
+        let (ledger, genesis) = ledger(&[utxo]);
 
         let ledger_state = ledger.state(&genesis).unwrap().clone();
         let ledger_config = ledger.config();
@@ -732,19 +672,18 @@ pub mod tests {
 
     #[test]
     fn test_invalid_aged_root_rejected() {
-        let note = note();
-        let commitment = commit(note);
-        let (ledger, genesis) = ledger(&[commitment]);
+        let utxo = utxo();
+        let (ledger, genesis) = ledger(&[utxo]);
         let ledger_state = ledger.state(&genesis).unwrap().clone();
         let slot = Slot::genesis() + 1;
-        let proof = DummyProof {
+        let proof = DummyProof(LeaderPublic {
             aged_root: [1; 32], // Invalid aged root
-            latest_root: ledger_state.commitments.root(),
+            latest_root: ledger_state.latest_commitments().root(),
             epoch_nonce: ledger_state.epoch_state.nonce,
             slot: slot.into(),
             entropy: [1; 32],
             scaled_phi_approx: (U256::from(1u32), U256::from(1u32)),
-        };
+        });
         let update_err = ledger_state
             .try_apply_proof::<_, ()>(slot, &proof, ledger.config())
             .err();
@@ -754,19 +693,18 @@ pub mod tests {
 
     #[test]
     fn test_invalid_latest_root_rejected() {
-        let note = note();
-        let commitment = commit(note);
-        let (ledger, genesis) = ledger(&[commitment]);
+        let utxo = utxo();
+        let (ledger, genesis) = ledger(&[utxo]);
         let ledger_state = ledger.state(&genesis).unwrap().clone();
         let slot = Slot::genesis() + 1;
-        let proof = DummyProof {
-            aged_root: [1; 32], // Invalid aged root
-            latest_root: ledger_state.commitments.root(),
+        let proof = DummyProof(LeaderPublic {
+            aged_root: ledger_state.aged_commitments().root(),
+            latest_root: [1; 32], // Invalid latest root
             epoch_nonce: ledger_state.epoch_state.nonce,
             slot: slot.into(),
             entropy: [1; 32],
             scaled_phi_approx: (U256::from(1u32), U256::from(1u32)),
-        };
+        });
         let update_err = ledger_state
             .try_apply_proof::<_, ()>(slot, &proof, ledger.config())
             .err();

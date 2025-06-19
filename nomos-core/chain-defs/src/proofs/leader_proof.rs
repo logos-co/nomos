@@ -1,4 +1,3 @@
-use nomos_ledger::leader_proof::LeaderProof;
 use nomos_proof_statements::leadership::{LeaderPrivate, LeaderPublic};
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
@@ -50,6 +49,14 @@ impl Risc0LeaderProof {
     }
 }
 
+pub trait LeaderProof {
+    /// Verify the proof against the public inputs.
+    fn verify(&self, public_inputs: &LeaderPublic) -> bool;
+
+    /// Get the entropy used in the proof.
+    fn entropy(&self) -> [u8; 32];
+}
+
 impl LeaderProof for Risc0LeaderProof {
     fn verify(&self, public_inputs: &LeaderPublic) -> bool {
         // The risc0 proof is valid by contract
@@ -94,41 +101,31 @@ impl<'de> Deserialize<'de> for Risc0LeaderProof {
 
 #[cfg(test)]
 mod test {
-    use cl::{note::NoteWitness, nullifier::NullifierSecret};
-    use rand::thread_rng;
-
     use super::*;
+    use crate::mantle::{merkle, Note, Utxo};
 
     const MAX_NOTE_COMMS: usize = 1 << 8;
 
-    // derive-unit(NOMOS_NMO)
-    pub const NMO_UNIT: [u8; 32] = [
-        67, 50, 140, 228, 181, 204, 226, 242, 254, 193, 239, 51, 237, 68, 36, 126, 124, 227, 60,
-        112, 223, 195, 146, 236, 5, 21, 42, 215, 48, 122, 25, 195,
-    ];
-
-    fn note_commitment_leaves(
-        note_commitments: &[cl::NoteCommitment],
-    ) -> [[u8; 32]; MAX_NOTE_COMMS] {
-        let note_comm_bytes: Vec<Vec<u8>> = note_commitments
-            .iter()
-            .map(|c| c.as_bytes().to_vec())
-            .collect();
-        cl::merkle::padded_leaves::<MAX_NOTE_COMMS>(&note_comm_bytes)
+    fn note_id_leaves(note_ids: &[Utxo]) -> [[u8; 32]; MAX_NOTE_COMMS] {
+        let note_comm_bytes: Vec<Vec<u8>> = note_ids.iter().map(|c| c.id().0.to_vec()).collect();
+        merkle::padded_leaves::<MAX_NOTE_COMMS>(&note_comm_bytes)
     }
 
     #[test]
     fn test_leader_prover() {
-        let mut rng = thread_rng();
+        let sk = [1; 16];
+        let pk = [2; 32]; // TODO: derive from sk, this is not yet checked in the proof
+        let note = Note::new(32, pk.into());
 
-        let note = NoteWitness::basic(32, NMO_UNIT, &mut rng);
-        let nf_sk = NullifierSecret::random(&mut rng);
+        let aged_notes = vec![Utxo {
+            tx_hash: [0; 32].into(),
+            output_index: 0,
+            note,
+        }];
+        let aged_leaves = note_id_leaves(&aged_notes);
 
-        let aged_notes = vec![note.commit(nf_sk.commit())];
-        let aged_leaves = note_commitment_leaves(&aged_notes);
-
-        let latest_notes = vec![note.commit(nf_sk.commit())];
-        let latest_leaves = note_commitment_leaves(&latest_notes);
+        let latest_notes = aged_notes; // For simplicity, using the same notes for latest
+        let latest_leaves = note_id_leaves(&latest_notes);
         // placeholder
         let note_id = [0; 32];
 
@@ -138,8 +135,8 @@ mod test {
         let total_stake = 1000;
 
         let mut expected_public_inputs = LeaderPublic::new(
-            cl::merkle::root(aged_leaves),
-            cl::merkle::root(latest_leaves),
+            merkle::root(aged_leaves),
+            merkle::root(latest_leaves),
             [1; 32], // placeholder for entropy
             epoch_nonce,
             slot,
@@ -147,7 +144,7 @@ mod test {
             total_stake,
         );
 
-        while !expected_public_inputs.check_winning(note.value, note_id, nf_sk.0) {
+        while !expected_public_inputs.check_winning(note.value, note_id, sk) {
             expected_public_inputs.slot += 1;
         }
 
@@ -156,7 +153,7 @@ mod test {
         let private_inputs = LeaderPrivate {
             value: note.value,
             note_id,
-            sk: nf_sk.0,
+            sk,
         };
 
         let proof = Risc0LeaderProof::prove(

@@ -16,7 +16,7 @@ use nomos_blend::{
     },
     persistent_transmission::PersistentTransmissionSettings,
 };
-use nomos_core::block::Block;
+use nomos_core::{block::Block, mantle::SignedMantleTx};
 use nomos_da_indexer::{
     storage::adapters::rocksdb::RocksAdapterSettings as IndexerStorageAdapterSettings,
     IndexerSettings,
@@ -38,7 +38,6 @@ use nomos_http_api_common::paths::{
     CL_METRICS, CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_RANGE,
     DA_MONITOR_STATS, STORAGE_BLOCK,
 };
-use nomos_mantle_core::tx::SignedMantleTx;
 use nomos_mempool::MempoolMetrics;
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{

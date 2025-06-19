@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::gas::{Gas, GasConstants, GasPrice};
+use crate::mantle::gas::{Gas, GasConstants, GasPrice};
 
 pub type RewardsRoot = [u8; 32];
 pub type VoucherNullifier = [u8; 32];

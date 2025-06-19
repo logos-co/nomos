@@ -1,15 +1,20 @@
 use std::hash::Hash;
 
-use blake2::Digest as _;
 use bytes::Bytes;
 use thiserror::Error;
 
-use crate::crypto::Blake2b;
-
-pub mod bundle;
+pub mod gas;
+pub mod keys;
+pub mod ledger;
+pub mod merkle;
 #[cfg(feature = "mock")]
 pub mod mock;
+pub mod ops;
 pub mod select;
+pub mod tx;
+
+pub use ledger::{Note, NoteId, Utxo, Value};
+pub use tx::{MantleTx, SignedMantleTx};
 
 pub type TransactionHasher<T> = fn(&T) -> <T as Transaction>::Hash;
 
@@ -36,21 +41,6 @@ pub trait TxSelect {
         &self,
         txs: I,
     ) -> impl Iterator<Item = Self::Tx> + 'i;
-}
-
-pub enum Tx {
-    Bundle(bundle::Bundle),
-}
-
-impl Transaction for Tx {
-    const HASHER: TransactionHasher<Self> = |tx| Blake2b::digest(tx.as_sign_bytes()).into();
-    type Hash = [u8; 32];
-
-    fn as_sign_bytes(&self) -> Bytes {
-        match self {
-            Self::Bundle(bundle) => bundle.as_bytes(),
-        }
-    }
 }
 
 #[derive(Debug, Error)]

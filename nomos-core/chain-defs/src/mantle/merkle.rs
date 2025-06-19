@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use sha2::{Digest as _, Sha256};
+
+use crate::crypto::{Digest as _, Hasher};
 
 #[must_use]
 pub fn padded_leaves<const N: usize>(elements: &[Vec<u8>]) -> [[u8; 32]; N] {
@@ -15,7 +16,7 @@ pub fn padded_leaves<const N: usize>(elements: &[Vec<u8>]) -> [[u8; 32]; N] {
 
 #[must_use]
 pub fn leaf(data: &[u8]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
+    let mut hasher = Hasher::new();
     hasher.update(b"NOMOS_MERKLE_LEAF");
     hasher.update(data);
     hasher.finalize().into()
@@ -23,7 +24,7 @@ pub fn leaf(data: &[u8]) -> [u8; 32] {
 
 #[must_use]
 pub fn node(a: [u8; 32], b: [u8; 32]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
+    let mut hasher = Hasher::new();
     hasher.update(b"NOMOS_MERKLE_NODE");
     hasher.update(a);
     hasher.update(b);

@@ -1,11 +1,10 @@
 use blake2::Digest as _;
 use cryptarchia_engine::Slot;
-use nomos_ledger::leader_proof::LeaderProof;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    crypto::Blake2b,
-    proofs::leader_proof::Risc0LeaderProof,
+    crypto::Hasher,
+    proofs::leader_proof::{LeaderProof, Risc0LeaderProof},
     utils::{display_hex_bytes_newtype, serde_bytes_newtype},
 };
 
@@ -37,7 +36,7 @@ impl Header {
         self.parent
     }
 
-    fn update_hasher(&self, h: &mut Blake2b) {
+    fn update_hasher(&self, h: &mut Hasher) {
         h.update(b"\x01");
         h.update(self.content_size.to_be_bytes());
         h.update(self.content_id.0);
@@ -49,7 +48,7 @@ impl Header {
 
     #[must_use]
     pub fn id(&self) -> HeaderId {
-        let mut h = Blake2b::new();
+        let mut h = Hasher::new();
         self.update_hasher(&mut h);
         HeaderId(h.finalize().into())
     }

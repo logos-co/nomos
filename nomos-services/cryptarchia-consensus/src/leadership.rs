@@ -1,7 +1,9 @@
-use cl::{note::NoteWitness, nullifier::NullifierSecret, NoteCommitment};
 use cryptarchia_engine::Slot;
-use nomos_core::proofs::leader_proof::Risc0LeaderProof;
-use nomos_ledger::{EpochState, NoteTree};
+use nomos_core::{
+    mantle::{keys::SecretKey, Utxo},
+    proofs::leader_proof::Risc0LeaderProof,
+};
+use nomos_ledger::{EpochState, UtxoTree};
 use nomos_proof_statements::leadership::{LeaderPrivate, LeaderPublic};
 use serde::{Deserialize, Serialize};
 
@@ -10,56 +12,37 @@ use serde::{Deserialize, Serialize};
 /// and moved
 #[derive(Clone)]
 pub struct Leader {
-    // for each block, the indexes in the note tree of the notes we control
-    notes: Vec<NoteWitness>,
-    nf_sk: NullifierSecret,
+    utxos: Vec<Utxo>,
+    sk: SecretKey,
     config: nomos_ledger::Config,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LeaderConfig {
-    pub notes: Vec<NoteWitness>,
+    pub utxos: Vec<Utxo>,
     // this is common to every note
-    pub nf_sk: NullifierSecret,
+    pub sk: SecretKey,
 }
 
 impl Leader {
-    pub const fn new(
-        notes: Vec<NoteWitness>,
-        nf_sk: NullifierSecret,
-        config: nomos_ledger::Config,
-    ) -> Self {
-        Self {
-            notes,
-            nf_sk,
-            config,
-        }
+    pub const fn new(utxos: Vec<Utxo>, sk: SecretKey, config: nomos_ledger::Config) -> Self {
+        Self { utxos, sk, config }
     }
 
     pub async fn build_proof_for(
         &self,
-        aged_tree: &NoteTree,
-        latest_tree: &NoteTree,
+        aged_tree: &UtxoTree,
+        latest_tree: &UtxoTree,
         epoch_state: &EpochState,
         slot: Slot,
     ) -> Option<Risc0LeaderProof> {
-        fn find(tree: &NoteTree, note_commit: &NoteCommitment) -> Option<usize> {
-            tree.commitments().iter().position(|cm| cm == note_commit)
-        }
-
-        for note in &self.notes {
-            let note_commit = note.commit(self.nf_sk.commit());
-
-            if !matches!(
-                (
-                    find(aged_tree, &note_commit),
-                    find(latest_tree, &note_commit),
-                ),
-                (Some(_), Some(_))
-            ) {
-                tracing::warn!("Note not found in either tree: {:?}", note);
+        for utxo in &self.utxos {
+            let Some(_aged_witness) = aged_tree.witness(&utxo.id()) else {
                 continue;
-            }
+            };
+            let Some(_latest_witness) = latest_tree.witness(&utxo.id()) else {
+                continue;
+            };
 
             let note_id = [1; 32]; // placeholder for note ID, replace after mantle notes format update
 
@@ -73,19 +56,18 @@ impl Leader {
                 epoch_state.total_stake(),
             );
 
-            if public_inputs.check_winning(note.value, note_id, self.nf_sk.0) {
+            if public_inputs.check_winning(utxo.note.value, note_id, *self.sk.as_bytes()) {
                 tracing::debug!(
                     "leader for slot {:?}, {:?}/{:?}",
                     slot,
-                    note.value,
+                    utxo.note.value,
                     epoch_state.total_stake()
                 );
 
-                let sk = self.nf_sk.0;
                 let private_inputs = LeaderPrivate {
-                    value: note.value,
+                    value: utxo.note.value,
                     note_id,
-                    sk,
+                    sk: *self.sk.as_bytes(),
                 };
                 let res = tokio::task::spawn_blocking(move || {
                     Risc0LeaderProof::prove(
@@ -105,10 +87,10 @@ impl Leader {
                     }
                 }
             } else {
-                tracing::debug!(
+                tracing::trace!(
                     "Not a leader for slot {:?}, {:?}/{:?}",
                     slot,
-                    note.value,
+                    utxo.note.value,
                     epoch_state.total_stake()
                 );
             }
@@ -117,7 +99,7 @@ impl Leader {
         None
     }
 
-    pub(crate) fn notes(&self) -> &[NoteWitness] {
-        &self.notes
+    pub(crate) fn utxos(&self) -> &[Utxo] {
+        &self.utxos
     }
 }

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::gas::{Gas, GasConstants, GasPrice};
+use crate::mantle::gas::{Gas, GasConstants, GasPrice};
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct NativeOp;

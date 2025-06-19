@@ -6,7 +6,7 @@ use std::{
 
 use nomos_core::{
     header::HeaderId,
-    tx::mock::{MockTransaction, MockTxId},
+    mantle::mock::{MockTransaction, MockTxId},
 };
 use nomos_mempool::{
     backend::mockpool::MockPool,

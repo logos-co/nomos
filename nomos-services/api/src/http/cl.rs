@@ -1,7 +1,7 @@
 use core::fmt::Debug;
 use std::fmt::Display;
 
-use nomos_core::{header::HeaderId, tx::Transaction};
+use nomos_core::{header::HeaderId, mantle::Transaction};
 use nomos_mempool::{
     backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
     tx::service::openapi::Status, MempoolMetrics, MempoolMsg, TxMempoolService,

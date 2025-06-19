@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::{
-    tx::{Transaction, TxSelect},
+    mantle::{Transaction, TxSelect},
     utils,
 };
 

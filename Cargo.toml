@@ -22,7 +22,6 @@ members = [
   "nomos-da/network/messages",
   "nomos-da/network/subnetworks-assignations",
   "nomos-libp2p",
-  "nomos-mantle",
   "nomos-sdp",
   "nomos-services/api",
   "nomos-services/blend",

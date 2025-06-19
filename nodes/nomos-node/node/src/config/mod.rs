@@ -3,11 +3,10 @@ use std::{
     path::PathBuf,
 };
 
-use cl::{Nonce, NoteWitness, NullifierSecret};
 use clap::{Parser, ValueEnum};
 use color_eyre::eyre::{eyre, Result};
 use hex::FromHex as _;
-use nomos_core::{proofs::covenant::CovenantProof, staking::NMO_UNIT};
+use nomos_core::mantle::{Note, Utxo};
 use nomos_libp2p::{ed25519::SecretKey, Multiaddr};
 use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 use nomos_tracing::logging::{gelf::GelfConfig, local::FileConfig};
@@ -98,25 +97,32 @@ pub struct HttpArgs {
 #[derive(Parser, Debug, Clone)]
 pub struct CryptarchiaArgs {
     #[clap(
-        long = "consensus-note-sk",
-        env = "CONSENSUS_NOTE_SK",
-        requires("note_value")
+        long = "consensus-utxo-sk",
+        env = "CONSENSUS_UTXO_SK",
+        requires = "value"
     )]
-    note_secret_key: Option<String>,
+    pub secret_key: Option<String>,
 
     #[clap(
-        long = "consensus-note-value",
-        env = "CONSENSUS_NOTE_VALUE",
-        requires("note_secret_key")
+        long = "consensus-utxo-value",
+        env = "CONSENSUS_UTXO_VALUE",
+        requires = "secret_key"
     )]
-    note_value: Option<u32>,
+    value: Option<u64>,
 
     #[clap(
-        long = "consensus-note-nonce",
-        env = "CONSENSUS_NOTE_NONCE",
-        requires("note_value")
+        long = "consensus-utxo-txhash",
+        env = "CONSENSUS_UTXO_TXHASH",
+        requires = "value"
     )]
-    note_nonce: Option<String>,
+    tx_hash: Option<String>,
+
+    #[clap(
+        long = "consensus-utxo-output-index",
+        env = "CONSENSUS_UTXO_OUTPUT_INDEX",
+        requires = "value"
+    )]
+    output_index: Option<usize>,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -291,26 +297,29 @@ pub fn update_cryptarchia_consensus(
     consensus_args: CryptarchiaArgs,
 ) -> Result<()> {
     let CryptarchiaArgs {
-        note_secret_key,
-        note_value,
-        note_nonce,
+        secret_key,
+        value,
+        tx_hash,
+        output_index,
     } = consensus_args;
 
-    if let (Some(value), Some(nonce)) = (note_value, note_nonce) {
-        let nonce = Nonce::from_bytes(<[u8; 32]>::from_hex(nonce)?);
-        cryptarchia.leader_config.notes.push(NoteWitness::new(
-            value.into(),
-            NMO_UNIT,
-            CovenantProof::nop_constraint(),
-            [0; 32],
-            nonce,
-        ));
-    }
+    let (Some(secret_key), Some(value), Some(tx_hash), Some(output_index)) =
+        (secret_key, value, tx_hash, output_index)
+    else {
+        return Ok(());
+    };
 
-    if let Some(sk) = note_secret_key {
-        let sk = <[u8; 16]>::from_hex(sk)?;
-        cryptarchia.leader_config.nf_sk = NullifierSecret::from_bytes(sk);
-    }
+    let sk = nomos_core::mantle::keys::SecretKey::from(<[u8; 16]>::from_hex(secret_key)?);
+    cryptarchia.leader_config.sk = sk;
+
+    let pk = sk.to_public_key();
+
+    let tx_hash = <[u8; 32]>::from_hex(tx_hash)?;
+    cryptarchia.leader_config.utxos.push(Utxo {
+        tx_hash: tx_hash.into(),
+        output_index,
+        note: Note { value, pk },
+    });
 
     Ok(())
 }

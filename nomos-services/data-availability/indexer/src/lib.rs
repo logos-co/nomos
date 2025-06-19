@@ -14,7 +14,7 @@ use nomos_core::{
     block::Block,
     da::blob::{info::DispersedBlobInfo, metadata::Metadata, BlobSelect},
     header::HeaderId,
-    tx::{Transaction, TxSelect},
+    mantle::{Transaction, TxSelect},
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_mempool::{

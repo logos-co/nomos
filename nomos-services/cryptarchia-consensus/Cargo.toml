@@ -10,7 +10,6 @@ workspace = true
 [dependencies]
 async-trait            = "0.1"
 bytes                  = { workspace = true }
-cl                     = { workspace = true }
 cryptarchia-engine     = { workspace = true, features = ["serde"] }
 futures                = "0.3"
 nomos-blend-service    = { workspace = true }

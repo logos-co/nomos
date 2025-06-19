@@ -9,7 +9,7 @@ mod serde_;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{
+use super::{
     gas::{Gas, GasConstants, GasPrice},
     ops::{
         blob::BlobOp,
@@ -105,11 +105,35 @@ impl GasPrice for Op {
     }
 }
 
+impl Op {
+    #[must_use]
+    pub const fn opcode(&self) -> u8 {
+        match self {
+            Self::Inscribe(_) => INSCRIBE,
+            Self::Blob(_) => BLOB,
+            Self::SetChannelKeys(_) => SET_CHANNEL_KEYS,
+            Self::Native(_) => NATIVE,
+            Self::SDPDeclare(_) => SDP_DECLARE,
+            Self::SDPWithdraw(_) => SDP_WITHDRAW,
+            Self::SDPActive(_) => SDP_ACTIVE,
+            Self::LeaderClaim(_) => LEADER_CLAIM,
+        }
+    }
+
+    #[must_use]
+    pub fn as_sign_bytes(&self) -> bytes::Bytes {
+        let mut buff = bytes::BytesMut::new();
+        buff.extend_from_slice(&[self.opcode()]);
+        // TODO: add ops payload
+        buff.freeze()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use serde_json::{Value, json};
+    use serde_json::{json, Value};
 
-    use crate::ops::{Op, blob::BlobOp};
+    use super::{blob::BlobOp, Op};
 
     #[test]
     fn test_serialize_deserialize_blob_op() {

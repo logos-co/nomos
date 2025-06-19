@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{
+use crate::mantle::{
     gas::{Gas, GasConstants, GasPrice},
     ops::{ChannelId, Ed25519PublicKey},
 };

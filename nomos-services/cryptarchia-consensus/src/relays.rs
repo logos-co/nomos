@@ -10,7 +10,7 @@ use nomos_core::{
     block::Block,
     da::blob::{info::DispersedBlobInfo, BlobSelect},
     header::HeaderId,
-    tx::TxSelect,
+    mantle::TxSelect,
 };
 use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
 use nomos_mempool::{

@@ -3,7 +3,11 @@ use kzgrs_backend::{
     common::share::DaShare,
     dispersal::{BlobInfo, Metadata},
 };
-use nomos_core::{da::blob::info::DispersedBlobInfo, header::HeaderId, tx::Transaction};
+use nomos_core::{
+    da::blob::info::DispersedBlobInfo,
+    header::HeaderId,
+    mantle::{SignedMantleTx, Transaction},
+};
 use nomos_da_indexer::consensus::adapters::cryptarchia::CryptarchiaConsensusAdapter;
 use nomos_da_network_service::membership::adapters::service::MembershipServiceAdapter;
 use nomos_da_sampling::{
@@ -11,7 +15,6 @@ use nomos_da_sampling::{
     storage::adapters::rocksdb::converter::DaStorageConverter,
 };
 use nomos_da_verifier::backend::kzgrs::KzgrsDaVerifier;
-use nomos_mantle_core::tx::SignedMantleTx;
 use nomos_membership::{adapters::sdp::LedgerSdpAdapter, backends::mock::MockMembershipBackend};
 use nomos_mempool::backend::mockpool::MockPool;
 use nomos_sdp::adapters::{
@@ -71,7 +74,7 @@ pub type DaIndexerService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> =
             <BlobInfo as DispersedBlobInfo>::BlobId,
             RuntimeServiceId,
         >,
-        nomos_core::tx::select::FillSize<MB16, SignedMantleTx>,
+        nomos_core::mantle::select::FillSize<MB16, SignedMantleTx>,
         nomos_core::da::blob::select::FillSize<MB16, BlobInfo>,
         RocksBackend<Wire>,
         KzgrsSamplingBackend<ChaCha20Rng>,
@@ -179,7 +182,7 @@ pub type CryptarchiaService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> 
             <BlobInfo as DispersedBlobInfo>::BlobId,
             RuntimeServiceId,
         >,
-        nomos_core::tx::select::FillSize<MB16, SignedMantleTx>,
+        nomos_core::mantle::select::FillSize<MB16, SignedMantleTx>,
         nomos_core::da::blob::select::FillSize<MB16, BlobInfo>,
         RocksBackend<Wire>,
         KzgrsSamplingBackend<ChaCha20Rng>,

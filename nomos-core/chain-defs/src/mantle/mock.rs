@@ -8,7 +8,7 @@ use bytes::{Bytes, BytesMut};
 use serde::Serialize;
 
 use crate::{
-    tx::{Transaction, TransactionHasher},
+    mantle::{Transaction, TransactionHasher},
     wire,
     wire::serialize,
 };

@@ -21,7 +21,7 @@ use nomos_core::{
         DaVerifier as CoreDaVerifier,
     },
     header::HeaderId,
-    tx::Transaction,
+    mantle::Transaction,
 };
 use nomos_da_dispersal::adapters::mempool::DaMempoolAdapter;
 use nomos_da_network_core::SubnetworkId;
