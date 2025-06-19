@@ -29,7 +29,7 @@ pub enum ChainSyncErrorKind {
     ChannelSendError(String),
 
     #[error("Service error: {0}")]
-    ServiceError(String),
+    ReceivingBlocksError(String),
 }
 
 #[derive(Debug, Error, Clone)]
