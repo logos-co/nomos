@@ -65,8 +65,8 @@ mod test {
         swarm::{dummy, NetworkBehaviour, SwarmEvent},
         Multiaddr, PeerId, Swarm, SwarmBuilder,
     };
-    use nomos_blend::membership::Node;
     use nomos_blend_message::{mock::MockBlendMessage, BlendMessage};
+    use nomos_blend_scheduling::membership::Node;
     use tokio::select;
 
     use crate::{behaviour::Config, error::Error, Behaviour, Event, IntervalStreamProvider};

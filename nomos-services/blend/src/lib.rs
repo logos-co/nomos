@@ -13,7 +13,8 @@ use async_trait::async_trait;
 use backends::BlendBackend;
 use futures::{Stream, StreamExt as _};
 use network::NetworkAdapter;
-use nomos_blend::{
+use nomos_blend_message::{sphinx::SphinxMessage, BlendMessage};
+use nomos_blend_scheduling::{
     cover_traffic::{CoverTraffic, CoverTrafficSettings, SessionInfo},
     membership::{Membership, Node},
     message_blend::{
@@ -26,7 +27,6 @@ use nomos_blend::{
     },
     BlendOutgoingMessage,
 };
-use nomos_blend_message::{sphinx::SphinxMessage, BlendMessage};
 use nomos_core::wire;
 use nomos_network::NetworkService;
 use nomos_utils::{

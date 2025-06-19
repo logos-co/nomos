@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 license = { workspace = true }
-name    = "nomos-blend"
+name    = "nomos-blend-scheduling"
 version = "0.1.0"
 
 [lints]

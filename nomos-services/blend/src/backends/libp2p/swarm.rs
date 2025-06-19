@@ -2,8 +2,8 @@ use std::{collections::HashSet, time::Duration};
 
 use futures::StreamExt as _;
 use libp2p::{identity::Keypair, PeerId, Swarm, SwarmBuilder};
-use nomos_blend::membership::Membership;
 use nomos_blend_message::sphinx::SphinxMessage;
+use nomos_blend_scheduling::membership::Membership;
 use nomos_libp2p::{ed25519, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};

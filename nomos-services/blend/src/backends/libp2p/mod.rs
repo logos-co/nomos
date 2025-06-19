@@ -6,8 +6,8 @@ use futures::{
     Stream, StreamExt as _,
 };
 use libp2p::{identity::ed25519, Multiaddr, PeerId};
-use nomos_blend::membership::Membership;
 use nomos_blend_message::sphinx::SphinxMessage;
+use nomos_blend_scheduling::membership::Membership;
 use nomos_libp2p::secret_key_serde;
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
