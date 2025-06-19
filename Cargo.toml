@@ -10,9 +10,9 @@ members = [
   "nodes/nomos-executor/http-client",
   "nodes/nomos-node/http-client",
   "nodes/nomos-node/node",
-  "nomos-blend/core",
   "nomos-blend/message",
   "nomos-blend/network",
+  "nomos-blend/scheduling",
   "nomos-bundler",
   "nomos-cli",
   "nomos-core/chain-defs",
@@ -62,9 +62,9 @@ key-management-system    = { path = "./nomos-services/key-management-system" }
 kzgrs                    = { path = "./nomos-da/kzgrs" }
 kzgrs-backend            = { path = "./nomos-da/kzgrs-backend" }
 nomos-api                = { path = "./nomos-services/api" }
-nomos-blend              = { path = "./nomos-blend/core" }
 nomos-blend-message      = { path = "./nomos-blend/message" }
 nomos-blend-network      = { path = "./nomos-blend/network" }
+nomos-blend-scheduling   = { path = "./nomos-blend/scheduling" }
 nomos-blend-service      = { path = "./nomos-services/blend" }
 nomos-cli                = { path = "./nomos-cli" }
 nomos-core               = { path = "./nomos-core/chain-defs" }
