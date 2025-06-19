@@ -30,7 +30,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
         &self,
     ) -> Result<BoxedStream<Block<Self::Tx, Self::BlobCertificate>>, DynError>;
 
-    async fn chainsync_stream(&self) -> Result<BoxedStream<ChainSyncEvent>, DynError>;
+    async fn chainsync_events_stream(&self) -> Result<BoxedStream<ChainSyncEvent>, DynError>;
 
     async fn request_tip(&self, peer: Self::PeerId) -> Result<HeaderId, DynError>;
 }

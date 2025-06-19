@@ -591,7 +591,7 @@ where
         let blob_selector = BS::new(blob_selector_settings);
 
         let mut incoming_blocks = network_adapter.blocks_stream().await?;
-        let mut chainsync_events = network_adapter.chainsync_stream().await?;
+        let mut chainsync_events = network_adapter.chainsync_events_stream().await?;
 
         let mut slot_timer = {
             let (sender, receiver) = oneshot::channel();

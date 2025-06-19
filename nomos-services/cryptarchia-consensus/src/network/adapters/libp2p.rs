@@ -115,7 +115,7 @@ where
         })))
     }
 
-    async fn chainsync_stream(&self) -> Result<BoxedStream<ChainSyncEvent>, DynError> {
+    async fn chainsync_events_stream(&self) -> Result<BoxedStream<ChainSyncEvent>, DynError> {
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
         if let Err((e, _)) = self
