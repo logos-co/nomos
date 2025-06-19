@@ -1,10 +1,11 @@
 pub mod crypto;
-mod encap;
+pub mod encap;
 pub mod error;
 mod message;
 
 // TODO: Remove mock and sphinx.
 // We don't need to maintain multiple implementations.
+pub mod input;
 pub mod mock;
 pub mod sphinx;
 

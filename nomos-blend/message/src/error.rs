@@ -1,7 +1,5 @@
 #[derive(thiserror::Error, Debug, PartialEq, Eq)]
 pub enum Error {
-    #[error("Invalid message format")]
-    InvalidMessageFormat,
     #[error("Max encapsulations exceeded")]
     MaxEncapsulationsExceeded,
     #[error("Empty encapsulation inputs")]
@@ -10,6 +8,8 @@ pub enum Error {
     PayloadTooLarge,
     #[error("Proof of selection verification failed")]
     ProofOfSelectionVerificationFailed,
+    #[error("Deserialization failed")]
+    DeserializationFailed,
     #[error("Invalid payload length")]
     InvalidPayloadLength,
 }

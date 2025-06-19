@@ -2,454 +2,501 @@ use std::iter::repeat_n;
 
 use nomos_core::wire;
 use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
 use crate::{
     crypto::{
-        pseudo_random_bytes, Ed25519PrivateKey, Ed25519PublicKey, ProofOfQuota, ProofOfSelection,
-        SharedKey, Signature, X25519PrivateKey, KEY_SIZE, PROOF_OF_QUOTA_SIZE,
-        PROOF_OF_SELECTION_SIZE, SIGNATURE_SIZE,
+        random_sized_bytes, Ed25519PrivateKey, Ed25519PublicKey, ProofOfQuota, ProofOfSelection,
+        SharedKey, Signature, X25519PrivateKey,
     },
     error::Error,
-    message::{BlendingHeader, Header, Payload, PayloadHeader, PayloadType, PublicHeader},
+    input::EncapsulationInputs,
+    message::{BlendingHeader, Header, Payload, PayloadType, PublicHeader},
 };
-
-// TODO: Consider having these as parameters or generics.
-const MAX_ENCAPSULATIONS: usize = 3;
-const MAX_PAYLOAD_BODY_SIZE: usize = 34 * 1024;
 
 /// An encapsulated message that is sent to the blend network.
 //
 // TODO: Implement [`BlendMessage`] trait for this type.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct EncapsulatedMessage {
+pub struct EncapsulatedMessage<const MAX_ENCAPSULATIONS: usize> {
     /// A header that is not encapsulated.
     header: Header,
     /// A public header that is not encapsulated.
     public_header: PublicHeader,
-    /// An encapsulated private header.
-    private_header: [Vec<u8>; MAX_ENCAPSULATIONS],
-    /// A encapsulated payload.
-    payload: Vec<u8>,
+    /// Encapsulated parts
+    encapsulated_part: EncapsulatedPart<MAX_ENCAPSULATIONS>,
 }
 
-impl EncapsulatedMessage {
-    /// Encapsulates the given payload with the provided encapsulation inputs.
-    /// Encapsulation inputs more than [`MAX_ENCAPSULATIONS`] are not allowed.
+impl<const MAX_ENCAPSULATIONS: usize> EncapsulatedMessage<MAX_ENCAPSULATIONS> {
+    /// Creates a new [`EncapsulatedMessage`] with the provided inputs and
+    /// payload.
     pub fn new(
-        inputs: &[EncapsulationInput],
+        inputs: &EncapsulationInputs<MAX_ENCAPSULATIONS>,
         payload_type: PayloadType,
         payload_body: &[u8],
     ) -> Result<Self, Error> {
-        if inputs.len() > MAX_ENCAPSULATIONS {
-            return Err(Error::MaxEncapsulationsExceeded);
-        }
-        if inputs.is_empty() {
-            return Err(Error::EmptyEncapsulationInputs);
-        }
-        if payload_body.len() > MAX_PAYLOAD_BODY_SIZE {
-            return Err(Error::PayloadTooLarge);
-        }
-
-        let msg = Self::initialize(inputs, payload_type, payload_body)?;
-
-        // Encapsulate message using each shared key.
-        let (mut msg, _) = inputs.iter().fold((msg, None), |(msg, prev_input), input| {
-            let msg = Self::encapsulate(msg, input, prev_input);
-            (msg, Some(input))
-        });
+        // Create the encapsulated part.
+        let (part, signing_key, proof_of_quota) = inputs.iter().enumerate().fold(
+            (
+                // Start with an initialized encapsulated part,
+                // a random signing key, and proof of quota.
+                EncapsulatedPart::initialize(inputs, payload_type, payload_body)?,
+                Ed25519PrivateKey::generate(),
+                ProofOfQuota::from(random_sized_bytes()),
+            ),
+            |(part, signing_key, proof_of_quota), (i, input)| {
+                (
+                    part.encapsulate(
+                        &input.shared_key,
+                        &signing_key,
+                        proof_of_quota,
+                        input.proof_of_selection.clone(),
+                        i == 0,
+                    ),
+                    input.signing_key.clone(),
+                    input.proof_of_quota.clone(),
+                )
+            },
+        );
 
         // Construct the public header.
-        let EncapsulationInput {
-            signing_key,
-            proof_of_quota,
-            ..
-        } = inputs.last().expect("inputs should not be empty");
-        let sig = signing_key.sign(&msg.signing_body());
-        msg.public_header = PublicHeader {
+        let public_header = PublicHeader {
             signing_pubkey: signing_key.public_key(),
-            proof_of_quota: proof_of_quota.clone(),
-            signature: sig,
+            proof_of_quota,
+            signature: part.sign(&signing_key),
         };
-
-        Ok(msg)
-    }
-
-    /// An initialization step for preparing encapsulations.
-    fn initialize(
-        inputs: &[EncapsulationInput],
-        payload_type: PayloadType,
-        payload_body: &[u8],
-    ) -> Result<Self, Error> {
-        // Fill the header.
-        let header = Header::new();
-
-        // Zero out the public header.
-        let public_header = Self::zeroized_public_header();
-
-        // Randomize the private header.
-        // The last `inputs.len()` blending headers should be randomized with
-        // resonstructed data. BlendingHeaders[0]: randomized
-        // BlendingHeaders[1]: pseudo-randomized with inputs[1]
-        // BlendingHeaders[2]: pseudo-randomized with inputs[0]
-        assert!(inputs.len() <= MAX_ENCAPSULATIONS);
-        let mut private_header: [Vec<u8>; MAX_ENCAPSULATIONS] = inputs
-            .iter()
-            .map(Some)
-            .chain(repeat_n(None, MAX_ENCAPSULATIONS - inputs.len()))
-            .rev()
-            .map(|input| {
-                input.map_or_else(Self::random_blending_header, |input| {
-                    Self::pseudo_random_blending_header(input.shared_key.as_slice())
-                })
-            })
-            .map(|blending_header| {
-                wire::serialize(&blending_header).expect("BlendingHeader should be serialized")
-            })
-            .collect::<Vec<_>>()
-            .try_into()
-            .expect("Expected num of BlendingHeaders must be generated");
-
-        // Encrypt the last `shared_key.len()` blending headers.
-        // Each blending header should be encrypted in order of inputs.
-        // Each subsequent blending header should be encrypted one layer less.
-        //       BlendingHeaders[0]
-        // E1(E0(BlendingHeaders[1])))
-        //    E0(BlendingHeaders[2]))
-        private_header
-            .iter_mut()
-            .rev()
-            .take(inputs.len())
-            .enumerate()
-            .for_each(|(i, blending_header)| {
-                inputs.iter().take(i + 1).for_each(|input| {
-                    input.shared_key.encrypt(blending_header);
-                });
-            });
-
-        // Fill the payload.
-        let mut payload = Payload {
-            header: PayloadHeader {
-                payload_type,
-                body_len: payload_body
-                    .len()
-                    .try_into()
-                    .map_err(|_| Error::InvalidPayloadLength)?,
-            },
-            body: vec![0u8; MAX_PAYLOAD_BODY_SIZE],
-        };
-        assert!(payload_body.len() <= payload.body.len());
-        payload.body[..payload_body.len()].copy_from_slice(payload_body);
-        let payload = wire::serialize(&payload).expect("Payload should be serialized");
 
         Ok(Self {
-            header,
+            header: Header::new(),
             public_header,
-            private_header,
-            payload,
+            encapsulated_part: part,
         })
     }
 
-    /// Encapsulates the message once with a given input.
+    /// Decapsulates the message using the provided key.
     ///
-    /// A `prev_input` should be provided, if exists, to construct a blending
-    /// header. If not, a random signing key and proof will be used.
+    /// If the provided key is eligible, returns the following:
+    /// - [`DecapsulationOutput::Completed`] if the message was fully
+    ///   decapsulated by this call.
+    /// - [`DecapsulationOutput::Incompleted`] if the message is still
+    ///   encapsulated.
+    ///
+    /// If not, [`Error::ProofOfSelectionVerificationFailed`] will be returned.
+    pub fn decapsulate(
+        self,
+        private_key: &X25519PrivateKey,
+    ) -> Result<DecapsulationOutput<MAX_ENCAPSULATIONS>, Error> {
+        // Derive the shared key.
+        let shared_key =
+            private_key.derive_shared_key(&self.public_header.signing_pubkey.derive_x25519());
+
+        // Decapsulate the encapsulated part.
+        match self.encapsulated_part.decapsulate(&shared_key)? {
+            PartDecapsulationOutput::Incompleted((encapsulated_part, public_header)) => {
+                Ok(DecapsulationOutput::Incompleted(Self {
+                    header: self.header,
+                    public_header,
+                    encapsulated_part,
+                }))
+            }
+            PartDecapsulationOutput::Completed(payload) => {
+                Ok(DecapsulationOutput::Completed(payload))
+            }
+        }
+    }
+}
+
+/// The output of [`EncapsulatedMessage::decapsulate`]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Size difference between variants is not too large (small MAX_ENCAPSULATIONS)"
+)]
+pub enum DecapsulationOutput<const MAX_ENCAPSULATIONS: usize> {
+    Incompleted(EncapsulatedMessage<MAX_ENCAPSULATIONS>),
+    Completed(Payload),
+}
+
+/// Part of the message that should be encapsulated.
+#[derive(Clone, Serialize, Deserialize)]
+struct EncapsulatedPart<const MAX_ENCAPSULATIONS: usize> {
+    private_header: EncapsulatedPrivateHeader<MAX_ENCAPSULATIONS>,
+    payload: EncapsulatedPayload,
+}
+
+impl<const MAX_ENCAPSULATIONS: usize> EncapsulatedPart<MAX_ENCAPSULATIONS> {
+    /// Initializes the encapsulated part as preparation for actual
+    /// encapsulations.
+    fn initialize(
+        inputs: &EncapsulationInputs<MAX_ENCAPSULATIONS>,
+        payload_type: PayloadType,
+        payload_body: &[u8],
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            private_header: EncapsulatedPrivateHeader::initialize(inputs),
+            payload: EncapsulatedPayload::initialize(&Payload::new(payload_type, payload_body)?),
+        })
+    }
+
+    /// Add a layer of encapsulation.
+    fn encapsulate(
+        self,
+        shared_key: &SharedKey,
+        signing_key: &Ed25519PrivateKey,
+        proof_of_quota: ProofOfQuota,
+        proof_of_selection: ProofOfSelection,
+        is_last: bool,
+    ) -> Self {
+        // Compute the signature of the current encapsulated part.
+        let signature = self.sign(signing_key);
+
+        // Encapsulate the private header.
+        let private_header = self.private_header.encapsulate(
+            shared_key,
+            signing_key.public_key(),
+            proof_of_quota,
+            signature,
+            proof_of_selection,
+            is_last,
+        );
+
+        // Encrypt the payload.
+        let payload = self.payload.encapsulate(shared_key);
+
+        Self {
+            private_header,
+            payload,
+        }
+    }
+
+    /// Decapsulate a layer.
+    fn decapsulate(
+        self,
+        key: &SharedKey,
+    ) -> Result<PartDecapsulationOutput<MAX_ENCAPSULATIONS>, Error> {
+        match self.private_header.decapsulate(key)? {
+            PrivateHeaderDecapsulationOutput::Incompleted((private_header, public_header)) => {
+                let payload = self.payload.decapsulate(key);
+                // TODO: public_header.signature.verify(private_header|payload)
+                // The spec should be clarified on this.
+                Ok(PartDecapsulationOutput::Incompleted((
+                    Self {
+                        private_header,
+                        payload,
+                    },
+                    public_header,
+                )))
+            }
+            PrivateHeaderDecapsulationOutput::Completed((_private_header, _public_header)) => {
+                let payload = self.payload.decapsulate(key);
+                // The spec should be clarified on this.
+                // TODO: public_header.signature.verify(private_header|payload)
+                Ok(PartDecapsulationOutput::Completed(
+                    payload.try_deserialize()?,
+                ))
+            }
+        }
+    }
+
+    /// Signs the encapsulated part using the provided key.
+    fn sign(&self, key: &Ed25519PrivateKey) -> Signature {
+        key.sign(&Self::signing_body(&self.private_header, &self.payload))
+    }
+
+    /// Returns the body that should be signed.
+    fn signing_body(
+        private_header: &EncapsulatedPrivateHeader<MAX_ENCAPSULATIONS>,
+        payload: &EncapsulatedPayload,
+    ) -> Vec<u8> {
+        private_header
+            .iter_bytes()
+            .chain(payload.iter_bytes())
+            .collect::<Vec<_>>()
+    }
+}
+
+/// The output of [`EncapsulatedPart::decapsulate`]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Size difference between variants is not too large (small MAX_ENCAPSULATIONS)"
+)]
+enum PartDecapsulationOutput<const MAX_ENCAPSULATIONS: usize> {
+    Incompleted((EncapsulatedPart<MAX_ENCAPSULATIONS>, PublicHeader)),
+    Completed(Payload),
+}
+
+/// An encapsulated private header, which is a set of encapsulated blending
+/// headers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct EncapsulatedPrivateHeader<const MAX_ENCAPSULATIONS: usize>(
+    #[serde(with = "BigArray")] [EncapsulatedBlendingHeader; MAX_ENCAPSULATIONS],
+);
+
+impl<const MAX_ENCAPSULATIONS: usize> EncapsulatedPrivateHeader<MAX_ENCAPSULATIONS> {
+    /// Initializes the private header as preparation for actual encapsulations.
+    fn initialize(inputs: &EncapsulationInputs<MAX_ENCAPSULATIONS>) -> Self {
+        // Randomize the private header in the reconstructable way,
+        // so that the corresponding signatures can be verified later.
+        // Plus, encapsulate the last `inputs.len()` blending headers.
+        //
+        // BlendingHeaders[0]:       random
+        // BlendingHeaders[1]: X1(X0(pseudo_random(inputs[1])))
+        // BlendingHeaders[2]:    X0(pseudo_random(inputs[0])
+        Self(
+            inputs
+                .iter()
+                .map(|input| Some(&input.shared_key))
+                .chain(repeat_n(None, inputs.num_empty_slots()))
+                .rev()
+                .enumerate()
+                .map(|(i, rng_key)| {
+                    rng_key.map_or_else(
+                        || EncapsulatedBlendingHeader::initialize(&BlendingHeader::random()),
+                        |rng_key| {
+                            let mut header = EncapsulatedBlendingHeader::initialize(
+                                &BlendingHeader::pseudo_random(rng_key.as_slice()),
+                            );
+                            inputs.iter().take(i + 1).for_each(|input| {
+                                header.encapsulate(&input.shared_key);
+                            });
+                            header
+                        },
+                    )
+                })
+                .collect::<Vec<_>>()
+                .try_into()
+                .expect("Expected num of BlendingHeaders must be generated"),
+        )
+    }
+
+    /// Encapsulates the private header.
     fn encapsulate(
         mut self,
-        input: &EncapsulationInput,
-        prev_input: Option<&EncapsulationInput>,
+        shared_key: &SharedKey,
+        signing_pubkey: Ed25519PublicKey,
+        proof_of_quota: ProofOfQuota,
+        signature: Signature,
+        proof_of_selection: ProofOfSelection,
+        is_last: bool,
     ) -> Self {
-        // Generate a signature over the concatenation of the current private header and
-        // payload, using the signing key of the `prev_input`.
-        let (signing_key, signing_pubkey, proof_of_quota) = if let Some(EncapsulationInput {
-            signing_key,
-            proof_of_quota,
-            ..
-        }) = prev_input
-        {
-            let signing_pubkey = signing_key.public_key();
-            (signing_key.clone(), signing_pubkey, proof_of_quota.clone())
-        } else {
-            // If `prev_input` is `None`, use a random key and proof.
-            let signing_key = Ed25519PrivateKey::generate();
-            let signing_pubkey = signing_key.public_key();
-            let proof_of_quota = ProofOfQuota(
-                pseudo_random_bytes(signing_key.as_bytes(), PROOF_OF_QUOTA_SIZE)
-                    .try_into()
-                    .unwrap(),
-            );
-            (signing_key, signing_pubkey, proof_of_quota)
-        };
-        let signature = signing_key.sign(&self.signing_body());
-
-        // Encrypt the payload using `input`.
-        input.shared_key.encrypt(&mut self.payload);
-
         // Shift blending headers by one rightward.
-        self.private_header.rotate_right(1);
+        self.shift_right();
 
-        // Fill the first blending header.
-        // The key, proof of quota, and signature of the `prev_input` should be used.
-        // The proof of selection must be calculated using `input`.
-        let first_blending_header = self
-            .private_header
-            .first_mut()
-            .expect("Private header shouldn't be empty");
-        *first_blending_header = wire::serialize(&BlendingHeader {
+        // Replace the first blending header with the new one.
+        self.replace_first(EncapsulatedBlendingHeader::initialize(&BlendingHeader {
             signing_pubkey,
             proof_of_quota,
             signature,
-            proof_of_selection: input.proof_of_selection.clone(),
-        })
-        .unwrap();
+            proof_of_selection,
+            is_last,
+        }));
 
-        // Encrypt the private header using `input`.
-        self.private_header.iter_mut().for_each(|header| {
-            input.shared_key.encrypt(header);
+        // Encrypt all blending headers
+        self.0.iter_mut().for_each(|header| {
+            header.encapsulate(shared_key);
         });
 
         self
     }
 
-    /// Decapsulates the message using the provided encryption private key.
-    ///
-    /// If the `private_key` is not the one for decapsulating the first
-    /// encapsulation, [`Error::ProofOfSelectionVerificationFailed`]
-    /// will be returned. If it is the correct key, the first encapsulation
-    /// will be decapsulated.
-    pub fn decapsulate(
-        mut msg: Self,
-        private_key: &X25519PrivateKey,
-        // TODO: Replace this with a proper impl.
-        verify_proof_of_selection: impl Fn(&ProofOfSelection) -> bool,
-    ) -> Result<Self, Error> {
-        // Derive the shared key.
-        let shared_key =
-            private_key.derive_shared_key(&msg.public_header.signing_pubkey.derive_x25519());
-
-        // Decrypt the private header.
-        msg.private_header.iter_mut().for_each(|header| {
-            shared_key.decrypt(header);
+    fn decapsulate(
+        mut self,
+        key: &SharedKey,
+    ) -> Result<PrivateHeaderDecapsulationOutput<MAX_ENCAPSULATIONS>, Error> {
+        // Decrypt all blending headers
+        self.0.iter_mut().for_each(|header| {
+            header.decapsulate(key);
         });
 
         // Check if the first blending header which was correctly decrypted
         // by verifying the decrypted proof of selection.
         // If the `private_key` is not correct, the proof of selection is
         // badly decrypted and verification will fail.
-        let first_blending_header: BlendingHeader =
-            wire::deserialize(&msg.private_header[0]).map_err(|_| Error::InvalidMessageFormat)?;
-        if !verify_proof_of_selection(&first_blending_header.proof_of_selection) {
+        let first_blending_header = self.first().try_deserialize()?;
+        if !first_blending_header.proof_of_selection.verify() {
             return Err(Error::ProofOfSelectionVerificationFailed);
         }
 
-        // Replace the public header with the values in the first blending header.
-        msg.public_header = PublicHeader {
+        // Build a new public header with the values in the first blending header.
+        let public_header = PublicHeader {
             signing_pubkey: first_blending_header.signing_pubkey.clone(),
             proof_of_quota: first_blending_header.proof_of_quota.clone(),
-            signature: first_blending_header.signature,
+            signature: first_blending_header.signature.clone(),
         };
 
-        // Decrypt the payload.
-        shared_key.decrypt(&mut msg.payload);
-
         // Shift blending headers one leftward.
-        msg.private_header.rotate_left(1);
+        self.shift_left();
 
-        // Reconstruct the last blending header
+        // Reconstruct/encrypt the last blending header
         // in the same way as the initialization step.
-        *msg.private_header.last_mut().unwrap() =
-            wire::serialize(&Self::pseudo_random_blending_header(shared_key.as_slice())).unwrap();
+        let mut last_blending_header =
+            EncapsulatedBlendingHeader::initialize(&BlendingHeader::pseudo_random(key.as_slice()));
+        last_blending_header.encapsulate(key);
+        self.replace_last(last_blending_header);
 
-        // Encrypt the reconstructed last blending header.
-        shared_key.encrypt(msg.private_header.last_mut().unwrap());
-
-        // TODO: Verify the signature of the new public header.
-        // The spec should be clarified on this.
-
-        Ok(msg)
-    }
-
-    pub fn deserialize_payload(&self) -> Result<Payload, Error> {
-        wire::deserialize(&self.payload).map_err(|_| Error::InvalidMessageFormat)
-    }
-
-    fn signing_body(&self) -> Vec<u8> {
-        itertools::chain(
-            self.private_header.iter().flat_map(|h| h.iter()),
-            self.payload.iter(),
-        )
-        .copied()
-        .collect()
-    }
-
-    fn zeroized_public_header() -> PublicHeader {
-        PublicHeader {
-            signing_pubkey: Ed25519PrivateKey::from_bytes(&[0u8; KEY_SIZE]).public_key(),
-            proof_of_quota: ProofOfQuota::from_bytes(&[0u8; PROOF_OF_QUOTA_SIZE]),
-            signature: Signature::from_bytes(&[0u8; SIGNATURE_SIZE]),
+        if first_blending_header.is_last {
+            Ok(PrivateHeaderDecapsulationOutput::Completed((
+                self,
+                public_header,
+            )))
+        } else {
+            Ok(PrivateHeaderDecapsulationOutput::Incompleted((
+                self,
+                public_header,
+            )))
         }
     }
 
-    /// Build a blending header with random data based on the provided key.
-    /// in the reconstructable way.
-    /// Each field in the header is filled with pseudo-random bytes derived from
-    /// the key concatenated with a unique byte (1, 2, 3, or 4).
-    fn pseudo_random_blending_header(key: &[u8]) -> BlendingHeader {
-        // Unlike the spec, use random bytes to derive a private key
-        // and derive the public key from it
-        // because a public key cannot always be successfully derived from random bytes.
-        //
-        // TODO: This will be changed once we have zerocopy serde.
-        let signing_pubkey = Ed25519PrivateKey::from_bytes(
-            &pseudo_random_bytes(&concat(key, &[1]), KEY_SIZE)
-                .as_slice()
-                .try_into()
-                .expect("Random bytes size should be correct"),
-        )
-        .public_key();
-        let proof_of_quota = ProofOfQuota::from_bytes(
-            &pseudo_random_bytes(&concat(key, &[2]), PROOF_OF_QUOTA_SIZE)
-                .as_slice()
-                .try_into()
-                .expect("Random bytes size should be correct"),
-        );
-        let signature = Signature::from_bytes(
-            &pseudo_random_bytes(&concat(key, &[3]), SIGNATURE_SIZE)
-                .as_slice()
-                .try_into()
-                .expect("Random bytes size should be correct"),
-        );
-        let proof_of_selection = ProofOfSelection::from_bytes(
-            &pseudo_random_bytes(&concat(key, &[4]), PROOF_OF_SELECTION_SIZE)
-                .as_slice()
-                .try_into()
-                .expect("Random bytes size should be correct"),
-        );
-        BlendingHeader {
-            signing_pubkey,
-            proof_of_quota,
-            signature,
-            proof_of_selection,
-        }
+    fn shift_right(&mut self) {
+        self.0.rotate_right(1);
     }
 
-    /// Build a blending header with random data based on the provided key.
-    fn random_blending_header() -> BlendingHeader {
-        // Use a zeroed key because this randomized blending header doesn't need to be
-        // reconstructed.
-        Self::pseudo_random_blending_header(&[0u8; KEY_SIZE])
+    fn shift_left(&mut self) {
+        self.0.rotate_left(1);
+    }
+
+    const fn first(&self) -> &EncapsulatedBlendingHeader {
+        self.0
+            .first()
+            .expect("private header always have MAX_ENCAPSULATIONS blending headers")
+    }
+
+    fn replace_first(&mut self, header: EncapsulatedBlendingHeader) {
+        *self
+            .0
+            .first_mut()
+            .expect("private header always have MAX_ENCAPSULATIONS blending headers") = header;
+    }
+
+    fn replace_last(&mut self, header: EncapsulatedBlendingHeader) {
+        *self
+            .0
+            .last_mut()
+            .expect("private header always have MAX_ENCAPSULATIONS blending headers") = header;
+    }
+
+    fn iter_bytes(&self) -> impl Iterator<Item = u8> + '_ {
+        self.0
+            .iter()
+            .flat_map(EncapsulatedBlendingHeader::iter_bytes)
     }
 }
 
-fn concat(a: &[u8], b: &[u8]) -> Vec<u8> {
-    itertools::chain(a, b).copied().collect::<Vec<_>>()
+/// The output of [`EncapsulatedPrivateHeader::decapsulate`]
+enum PrivateHeaderDecapsulationOutput<const MAX_ENCAPSULATIONS: usize> {
+    Incompleted((EncapsulatedPrivateHeader<MAX_ENCAPSULATIONS>, PublicHeader)),
+    Completed((EncapsulatedPrivateHeader<MAX_ENCAPSULATIONS>, PublicHeader)),
 }
 
-/// Input for a single encapsulation,
-pub struct EncapsulationInput {
-    /// An ephemeral signing key generated by the encapsulating node.
-    signing_key: Ed25519PrivateKey,
-    /// A shared key derived from the ephemeral encryption key and
-    /// the selected blend node's non-ephemeral encryption key.
-    /// Encryption keys are derived from the signing keys.
-    shared_key: SharedKey,
-    /// A proof of quota for the encapsulation.
-    proof_of_quota: ProofOfQuota,
-    /// A proof of selection of the selected blend node.
-    proof_of_selection: ProofOfSelection,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct EncapsulatedBlendingHeader(Vec<u8>);
+
+impl EncapsulatedBlendingHeader {
+    fn initialize(header: &BlendingHeader) -> Self {
+        Self(wire::serialize(header).expect("BlendingHeader should be able to be serialized"))
+    }
+
+    fn try_deserialize(&self) -> Result<BlendingHeader, Error> {
+        wire::deserialize(&self.0).map_err(|_| Error::DeserializationFailed)
+    }
+
+    fn encapsulate(&mut self, key: &SharedKey) {
+        key.encrypt(self.0.as_mut_slice());
+    }
+
+    fn decapsulate(&mut self, key: &SharedKey) {
+        key.decrypt(self.0.as_mut_slice());
+    }
+
+    fn iter_bytes(&self) -> impl Iterator<Item = u8> + '_ {
+        self.0.iter().copied()
+    }
 }
 
-impl EncapsulationInput {
-    /// Creates a new [`EncapsulationInput`]
-    ///
-    /// To derive the shared key, the `signing_key` and `blend_node_signing_key`
-    /// are converted into encryptions keys.
-    #[must_use]
-    pub fn new(
-        signing_key: Ed25519PrivateKey,
-        blend_node_signing_key: &Ed25519PublicKey,
-        proof_of_quota: ProofOfQuota,
-        proof_of_selection: ProofOfSelection,
-    ) -> Self {
-        let shared_key = signing_key
-            .derive_x25519()
-            .derive_shared_key(&blend_node_signing_key.derive_x25519());
-        Self {
-            signing_key,
-            shared_key,
-            proof_of_quota,
-            proof_of_selection,
-        }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct EncapsulatedPayload(Vec<u8>);
+
+impl EncapsulatedPayload {
+    fn initialize(payload: &Payload) -> Self {
+        Self(wire::serialize(payload).expect("Payload should be able to be serialized"))
+    }
+
+    fn try_deserialize(&self) -> Result<Payload, Error> {
+        wire::deserialize(&self.0).map_err(|_| Error::DeserializationFailed)
+    }
+
+    fn encapsulate(mut self, key: &SharedKey) -> Self {
+        key.encrypt(self.0.as_mut_slice());
+        self
+    }
+
+    fn decapsulate(mut self, key: &SharedKey) -> Self {
+        key.decrypt(self.0.as_mut_slice());
+        self
+    }
+
+    fn iter_bytes(&self) -> impl Iterator<Item = u8> + '_ {
+        self.0.iter().copied()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        crypto::PROOF_OF_QUOTA_SIZE, input::EncapsulationInput, message::MAX_PAYLOAD_BODY_SIZE,
+    };
+
+    const MAX_ENCAPSULATIONS: usize = 3;
 
     #[test]
     fn encapsulate_and_decapsulate() {
         const PAYLOAD_BODY: &[u8] = b"hello";
 
-        let (inputs, blend_node_signing_keys) = generate_inputs(2);
-        let msg = EncapsulatedMessage::new(&inputs, PayloadType::Data, PAYLOAD_BODY).unwrap();
-
-        // We expect that the decapsulations can be done
-        // in the reverse order of blend_node_signing_keys.
-
-        // We can decapsulate with the correct private key.
-        let blend_node_signing_key = blend_node_signing_keys.last().unwrap();
-        let msg = EncapsulatedMessage::decapsulate(
-            msg,
-            &blend_node_signing_key.derive_x25519(),
-            |proof_of_selection| {
-                proof_of_selection.as_bytes() == blend_node_signing_key.public_key().as_bytes()
-            },
+        let (inputs, blend_node_enc_keys) = generate_inputs(2).unwrap();
+        let msg = EncapsulatedMessage::<MAX_ENCAPSULATIONS>::new(
+            &inputs,
+            PayloadType::Data,
+            PAYLOAD_BODY,
         )
         .unwrap();
+
+        // NOTE: We expect that the decapsulations can be done
+        // in the "reverse" order of blend_node_enc_keys.
+        // (following the notion in the spec)
+
+        // We can decapsulate with the correct private key.
+        let DecapsulationOutput::Incompleted(msg) = msg
+            .decapsulate(blend_node_enc_keys.last().unwrap())
+            .unwrap()
+        else {
+            panic!("Expected an incompleted message");
+        };
 
         // We cannot decapsulate with an invalid private key,
         // which we already used for the first decapsulation.
-        assert!(EncapsulatedMessage::decapsulate(
-            msg.clone(),
-            &blend_node_signing_key.derive_x25519(),
-            |proof_of_selection| {
-                proof_of_selection.as_bytes() == blend_node_signing_key.public_key().as_bytes()
-            },
-        )
-        .is_err());
+        assert!(msg
+            .clone()
+            .decapsulate(blend_node_enc_keys.last().unwrap())
+            .is_err());
 
         // We can decapsulate with the correct private key
-        // and the fully-decapsulated message is correct.
-        let blend_node_signing_key = blend_node_signing_keys.first().unwrap();
-        let msg = EncapsulatedMessage::decapsulate(
-            msg,
-            &blend_node_signing_key.derive_x25519(),
-            |proof_of_selection| {
-                proof_of_selection.as_bytes() == blend_node_signing_key.public_key().as_bytes()
-            },
-        )
-        .unwrap();
+        // and the fully-decapsulated payload is correct.
+        let DecapsulationOutput::Completed(payload) = msg
+            .decapsulate(blend_node_enc_keys.first().unwrap())
+            .unwrap()
+        else {
+            panic!("Expected an incompleted message");
+        };
         // The payload body should be the same as the original one.
-        assert_eq!(
-            msg.deserialize_payload().unwrap().body().unwrap(),
-            PAYLOAD_BODY
-        );
-    }
-
-    #[test]
-    fn max_encapsulations_exceeded() {
-        let (inputs, _) = generate_inputs(MAX_ENCAPSULATIONS + 1);
-        assert_eq!(
-            EncapsulatedMessage::new(&inputs, PayloadType::Data, b"hello").err(),
-            Some(Error::MaxEncapsulationsExceeded)
-        );
+        assert_eq!(payload.payload_type(), PayloadType::Data);
+        assert_eq!(payload.body().unwrap(), PAYLOAD_BODY);
     }
 
     #[test]
     fn payload_too_long() {
-        let (inputs, _) = generate_inputs(1);
+        let (inputs, _) = generate_inputs(1).unwrap();
         assert_eq!(
-            EncapsulatedMessage::new(
+            EncapsulatedMessage::<MAX_ENCAPSULATIONS>::new(
                 &inputs,
                 PayloadType::Data,
                 &vec![0u8; MAX_PAYLOAD_BODY_SIZE + 1]
@@ -459,23 +506,38 @@ mod tests {
         );
     }
 
-    fn generate_inputs(cnt: usize) -> (Vec<EncapsulationInput>, Vec<Ed25519PrivateKey>) {
+    fn generate_inputs(
+        cnt: usize,
+    ) -> Result<
+        (
+            EncapsulationInputs<MAX_ENCAPSULATIONS>,
+            Vec<X25519PrivateKey>,
+        ),
+        Error,
+    > {
         let recipient_signing_keys = std::iter::repeat_with(Ed25519PrivateKey::generate)
             .take(cnt)
             .collect::<Vec<_>>();
-        let inputs = recipient_signing_keys
-            .iter()
-            .map(|recipient_signing_key| {
-                let recipient_signing_pubkey = recipient_signing_key.public_key();
-                let proof_of_selection = ProofOfSelection(*recipient_signing_pubkey.as_bytes());
-                EncapsulationInput::new(
-                    Ed25519PrivateKey::generate(),
-                    &recipient_signing_pubkey,
-                    ProofOfQuota([0u8; PROOF_OF_QUOTA_SIZE]),
-                    proof_of_selection,
-                )
-            })
-            .collect::<Vec<_>>();
-        (inputs, recipient_signing_keys)
+        let inputs = EncapsulationInputs::new(
+            recipient_signing_keys
+                .iter()
+                .map(|recipient_signing_key| {
+                    EncapsulationInput::new(
+                        Ed25519PrivateKey::generate(),
+                        &recipient_signing_key.public_key(),
+                        ProofOfQuota::from([0u8; PROOF_OF_QUOTA_SIZE]),
+                        ProofOfSelection::dummy(),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+        )?;
+        Ok((
+            inputs,
+            recipient_signing_keys
+                .iter()
+                .map(Ed25519PrivateKey::derive_x25519)
+                .collect(),
+        ))
     }
 }
