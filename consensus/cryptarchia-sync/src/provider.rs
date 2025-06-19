@@ -1,12 +1,11 @@
 use futures::{stream::BoxStream, TryStreamExt as _};
 use libp2p::{PeerId, Stream as Libp2pStream};
+use nomos_core::header::HeaderId;
 use tokio::sync::mpsc;
 
 use crate::{
-    errors::{ChainSyncError, ChainSyncErrorKind},
-    messages::{
-        DownloadBlocksResponse, GetTipResponse, RequestMessage, SerialisedBlock, SerialisedHeaderId,
-    },
+    errors::{ChainSyncError, ChainSyncErrorKind, DynError},
+    messages::{DownloadBlocksResponse, GetTipResponse, RequestMessage, SerialisedBlock},
     packing::unpack_from_reader,
     utils::send_message,
 };
@@ -30,7 +29,7 @@ impl Provider {
     }
 
     pub async fn provide_tip(
-        mut reply_receiver: mpsc::Receiver<SerialisedHeaderId>,
+        mut reply_receiver: mpsc::Receiver<HeaderId>,
         peer_id: PeerId,
         mut libp2p_stream: Libp2pStream,
     ) -> Result<(), ChainSyncError> {
@@ -48,9 +47,7 @@ impl Provider {
     }
 
     pub async fn provide_blocks(
-        mut reply_receiver: mpsc::Receiver<
-            BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>,
-        >,
+        mut reply_receiver: mpsc::Receiver<BoxStream<'static, Result<SerialisedBlock, DynError>>>,
         peer_id: PeerId,
         mut libp2p_stream: Libp2pStream,
     ) -> Result<(), ChainSyncError> {
@@ -62,6 +59,12 @@ impl Provider {
         })?;
 
         stream
+            .map_err(|e| ChainSyncError {
+                peer: peer_id,
+                kind: ChainSyncErrorKind::ReceivingBlocksError(format!(
+                    "Failed to receive block from stream: {e}"
+                )),
+            })
             .try_fold(&mut libp2p_stream, |stream, block| async move {
                 let message = DownloadBlocksResponse::Block(block);
                 send_message(peer_id, stream, &message).await?;

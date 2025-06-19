@@ -66,6 +66,7 @@ async fn happy_test(topology: &Topology) {
 }
 
 #[tokio::test]
+#[ignore = "test is executed separately to allow other integration tests run, unignore when stable"]
 async fn two_nodes_happy() {
     let topology = Topology::spawn(TopologyConfig::two_validators()).await;
     happy_test(&topology).await;

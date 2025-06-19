@@ -2,7 +2,7 @@ use nomos_libp2p::{behaviour::gossipsub::swarm_ext::topic_hash, gossipsub};
 
 use crate::backends::libp2p::{
     swarm::{exp_backoff, SwarmHandler, MAX_RETRY},
-    Command, Event,
+    Command,
 };
 
 pub type Topic = String;
@@ -65,12 +65,12 @@ impl SwarmHandler {
                 tracing::debug!("broadcasted message with id: {id} tp topic: {topic}");
                 // self-notification because libp2p doesn't do it
                 if self.swarm.is_subscribed(&topic) {
-                    log_error!(self.events_tx.send(Event::Message(gossipsub::Message {
+                    log_error!(self.pubsub_messages_tx.send(gossipsub::Message {
                         source: None,
                         data: message.into(),
                         sequence_number: None,
                         topic: topic_hash(&topic),
-                    })));
+                    }));
                 }
             }
             Err(gossipsub::PublishError::InsufficientPeers) if retry_count < MAX_RETRY => {
@@ -103,8 +103,7 @@ impl SwarmHandler {
 
     pub(super) fn handle_gossipsub_event(&self, event: gossipsub::Event) {
         if let gossipsub::Event::Message { message, .. } = event {
-            let message = Event::Message(message);
-            if let Err(e) = self.events_tx.send(message) {
+            if let Err(e) = self.pubsub_messages_tx.send(message) {
                 tracing::error!("Failed to send gossipsub message event: {}", e);
             }
         }

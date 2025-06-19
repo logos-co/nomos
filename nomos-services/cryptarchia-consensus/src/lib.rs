@@ -35,7 +35,7 @@ use nomos_mempool::{
     backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter, DaMempoolService,
     MempoolMsg, TxMempoolService,
 };
-use nomos_network::NetworkService;
+use nomos_network::{message::ChainSyncEvent, NetworkService};
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageService};
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
@@ -591,6 +591,7 @@ where
         let blob_selector = BS::new(blob_selector_settings);
 
         let mut incoming_blocks = network_adapter.blocks_stream().await?;
+        let mut chainsync_events = network_adapter.chainsync_events_stream().await?;
 
         let mut slot_timer = {
             let (sender, receiver) = oneshot::channel();
@@ -689,6 +690,15 @@ where
 
                     Some(msg) = self.service_resources_handle.inbound_relay.next() => {
                         Self::process_message(&cryptarchia, &self.block_subscription_sender, msg);
+                    }
+
+                    Some(event) = chainsync_events.next() => {
+                        if let ChainSyncEvent::ProvideTipRequest{reply_sender} = event {
+                            let tip = cryptarchia.tip();
+                            if let Err(e) = reply_sender.send(tip).await {
+                                error!("Failed to send tip header: {e}");
+                            }
+                        }
                     }
                 }
             }

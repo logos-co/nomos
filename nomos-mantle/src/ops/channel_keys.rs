@@ -5,7 +5,7 @@ use crate::{
     ops::{ChannelId, Ed25519PublicKey},
 };
 
-#[derive(Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct SetChannelKeysOp {
     channel: ChannelId,
     keys: Vec<Ed25519PublicKey>,

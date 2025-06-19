@@ -1,14 +1,11 @@
 use futures::{Stream, StreamExt as _};
 use nomos_core::tx::mock::{MockTransaction, MockTxId};
 use nomos_network::{
-    backends::mock::{
-        EventKind, Mock, MockBackendMessage, MockContentTopic, MockMessage, NetworkEvent,
-    },
+    backends::mock::{Mock, MockBackendMessage, MockContentTopic, MockMessage, NetworkEvent},
     message::NetworkMsg,
     NetworkService,
 };
 use overwatch::services::{relay::OutboundRelay, ServiceData};
-use tokio_stream::wrappers::BroadcastStream;
 
 use crate::network::NetworkAdapter;
 
@@ -66,30 +63,25 @@ impl<RuntimeServiceId> NetworkAdapter<RuntimeServiceId> for MockAdapter<RuntimeS
         let (sender, receiver) = tokio::sync::oneshot::channel();
         if let Err((_, e)) = self
             .network_relay
-            .send(NetworkMsg::Subscribe {
-                kind: EventKind::Message,
-                sender,
-            })
+            .send(NetworkMsg::SubscribeToPubSub { sender })
             .await
         {
             tracing::error!(err = ?e);
         }
 
-        let receiver = receiver.await.unwrap();
-        Box::new(Box::pin(BroadcastStream::new(receiver).filter_map(
-            |event| async move {
-                match event {
-                    Ok(NetworkEvent::RawMessage(message)) => {
-                        tracing::info!("Received message: {:?}", message.payload());
-                        message.content_topic().eq(&MOCK_TX_CONTENT_TOPIC).then(|| {
-                            let tx = MockTransaction::new(message);
-                            (tx.id(), tx)
-                        })
-                    }
-                    Err(_e) => None,
+        let stream = receiver.await.unwrap();
+        Box::new(Box::pin(stream.filter_map(|event| async move {
+            match event {
+                Ok(NetworkEvent::RawMessage(message)) => {
+                    tracing::info!("Received message: {:?}", message.payload());
+                    message.content_topic().eq(&MOCK_TX_CONTENT_TOPIC).then(|| {
+                        let tx = MockTransaction::new(message);
+                        (tx.id(), tx)
+                    })
                 }
-            },
-        )))
+                Err(_e) => None,
+            }
+        })))
     }
 
     async fn send(&self, msg: Self::Payload) {

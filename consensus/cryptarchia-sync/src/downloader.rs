@@ -1,16 +1,14 @@
 use futures::{stream, stream::BoxStream};
 use libp2p::PeerId;
 use libp2p_stream::Control;
+use nomos_core::header::HeaderId;
 use tokio::sync::{mpsc::Sender, oneshot};
 use tracing::error;
 
 use crate::{
     behaviour::{BlocksRequestStream, TipRequestStream},
     errors::ChainSyncError,
-    messages::{
-        DownloadBlocksRequest, DownloadBlocksResponse, GetTipResponse, RequestMessage,
-        SerialisedHeaderId,
-    },
+    messages::{DownloadBlocksRequest, DownloadBlocksResponse, GetTipResponse, RequestMessage},
     packing::unpack_from_reader,
     utils,
     utils::{open_stream, send_message},
@@ -23,7 +21,7 @@ impl Downloader {
     pub async fn send_tip_request(
         peer_id: PeerId,
         control: &mut Control,
-        reply_sender: oneshot::Sender<Result<SerialisedHeaderId, ChainSyncError>>,
+        reply_sender: oneshot::Sender<Result<HeaderId, ChainSyncError>>,
     ) -> Result<TipRequestStream, ChainSyncError> {
         let mut stream = open_stream(peer_id, control).await?;
 

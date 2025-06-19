@@ -3,6 +3,8 @@ use thiserror::Error;
 
 use crate::packing::PackingError;
 
+pub type DynError = Box<dyn std::error::Error + Send + Sync + 'static>;
+
 #[derive(Debug, Error)]
 pub enum ChainSyncErrorKind {
     #[error("Failed to start chain sync: {0}")]
@@ -25,9 +27,12 @@ pub enum ChainSyncErrorKind {
 
     #[error("Failed to send data to channel: {0}")]
     ChannelSendError(String),
+
+    #[error("Service error: {0}")]
+    ReceivingBlocksError(String),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 #[error("Peer {peer}: {kind}")]
 pub struct ChainSyncError {
     pub peer: PeerId,
@@ -65,6 +70,45 @@ impl From<(PeerId, PackingError)> for ChainSyncError {
         Self {
             peer,
             kind: err.into(),
+        }
+    }
+}
+
+// Implement Clone manually because some variants contain non-cloneable types
+impl Clone for ChainSyncErrorKind {
+    fn clone(&self) -> Self {
+        match self {
+            Self::IoError(e) => Self::IoError(std::io::Error::new(e.kind(), e.to_string())),
+            Self::OpenStreamError(e) => match e {
+                libp2p_stream::OpenStreamError::UnsupportedProtocol(p) => Self::OpenStreamError(
+                    libp2p_stream::OpenStreamError::UnsupportedProtocol(p.clone()),
+                ),
+                libp2p_stream::OpenStreamError::Io(e) => {
+                    Self::OpenStreamError(libp2p_stream::OpenStreamError::Io(std::io::Error::new(
+                        e.kind(),
+                        e.to_string(),
+                    )))
+                }
+                err => Self::OpenStreamError(libp2p_stream::OpenStreamError::Io(
+                    std::io::Error::other(err.to_string()),
+                )),
+            },
+            Self::PackingError(e) => match e {
+                PackingError::MessageTooLarge { max, actual } => {
+                    Self::PackingError(PackingError::MessageTooLarge {
+                        max: *max,
+                        actual: *actual,
+                    })
+                }
+                PackingError::Io(e) => Self::PackingError(PackingError::Io(std::io::Error::new(
+                    e.kind(),
+                    e.to_string(),
+                ))),
+                PackingError::Serialization(e) => {
+                    Self::PackingError(PackingError::Serialization(e.clone()))
+                }
+            },
+            err => err.clone(),
         }
     }
 }

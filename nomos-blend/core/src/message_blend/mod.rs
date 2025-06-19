@@ -12,6 +12,7 @@ use std::{
 pub use crypto::CryptographicProcessorSettings;
 use futures::{Stream, StreamExt as _};
 use nomos_blend_message::{BlendMessage, MessageUnwrapError};
+use nomos_utils::math::NonNegativeF64;
 use rand::RngCore;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 pub use temporal::TemporalSchedulerSettings;
@@ -32,6 +33,10 @@ where
 {
     pub cryptographic_processor: CryptographicProcessorSettings<M::PrivateKey>,
     pub temporal_processor: TemporalSchedulerSettings,
+    // As per the Blend spec
+    pub minimum_messages_coefficient: usize,
+    /// `alpha`: message number normalization constant
+    pub normalization_constant: NonNegativeF64,
 }
 
 /// [`MessageBlendStream`] handles the entire blending tiers process

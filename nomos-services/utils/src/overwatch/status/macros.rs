@@ -131,7 +131,7 @@ mod tests {
         // Notify that the service is ready
         service_resources_handle.status_updater.notify_ready();
 
-        // Await infinitely Status::Ready can be observed
+        // Await infinitely so Status::Ready can be observed
         std::future::pending::<()>().await;
     }
 
@@ -223,6 +223,12 @@ mod tests {
         }
 
         async fn run(self) -> Result<(), DynError> {
+            wait_until_services_are_ready!(
+                &self.service_resources_handle.overwatch_handle,
+                None,
+                GenericService
+            )
+            .await?;
             notify_ready_and_wait::<Self, RuntimeServiceId>(&self.service_resources_handle).await;
             Ok(())
         }
@@ -251,6 +257,7 @@ mod tests {
             + Display
             + AsServiceId<GenericService>
             + AsServiceId<HeavyService>
+            + AsServiceId<Self>
             + 'static,
     {
         fn init(
@@ -270,7 +277,7 @@ mod tests {
                 HeavyService
             )
             .await?;
-            self.service_resources_handle.status_updater.notify_ready();
+            notify_ready_and_wait::<Self, RuntimeServiceId>(&self.service_resources_handle).await;
             Ok(())
         }
     }
@@ -357,5 +364,6 @@ mod tests {
         let _ = overwatch_handle
             .runtime()
             .block_on(overwatch_handle.shutdown());
+        overwatch.blocking_wait_finished();
     }
 }

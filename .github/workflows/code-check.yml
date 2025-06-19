@@ -208,6 +208,15 @@ jobs:
           command: test
           # We don't test benches as they take 6h+, leading to a timeout
           args: --all --lib --bins --tests --examples --all-features
+      - name: Cargo test two_nodes_happy
+        if: always()
+        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72 # Version 1.0.1
+        env:
+          RISC0_DEV_MODE: true
+          CONSENSUS_SLOT_TIME: 5
+        with:
+          command: test
+          args: -p tests two_nodes_happy -- --ignored
       - name: Update Cargo cache
         if: success() || failure()
         uses: ./.github/actions/update-cargo-cache

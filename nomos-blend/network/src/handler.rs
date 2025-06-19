@@ -1,7 +1,7 @@
 use std::{
     collections::VecDeque,
     io,
-    marker::PhantomData,
+    ops::RangeInclusive,
     task::{Context, Poll, Waker},
 };
 
@@ -16,8 +16,8 @@ use libp2p::{
     },
     Stream, StreamProtocol,
 };
-use nomos_blend::conn_maintenance::{ConnectionMonitor, ConnectionMonitorOutput};
-use nomos_blend_message::BlendMessage;
+
+use crate::conn_maintenance::{ConnectionMonitor, ConnectionMonitorOutput};
 
 // Metrics
 const VALUE_FULLY_NEGOTIATED_INBOUND: &str = "fully_negotiated_inbound";
@@ -27,16 +27,13 @@ const VALUE_IGNORED: &str = "ignored";
 
 const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/nomos/blend/0.1.0");
 
-pub struct BlendConnectionHandler<Msg> {
+pub struct BlendConnectionHandler<ConnectionWindowClock> {
     inbound_substream: Option<InboundSubstreamState>,
     outbound_substream: Option<OutboundSubstreamState>,
     outbound_msgs: VecDeque<Vec<u8>>,
     pending_events_to_behaviour: VecDeque<ToBehaviour>,
-    // NOTE: Until we figure out optimal parameters for the monitor, we will keep it optional
-    // to avoid unintended side effects.
-    monitor: Option<ConnectionMonitor>,
+    monitor: ConnectionMonitor<ConnectionWindowClock>,
     waker: Option<Waker>,
-    _blend_message: PhantomData<Msg>,
 }
 
 type MsgSendFuture = BoxFuture<'static, Result<Stream, io::Error>>;
@@ -60,8 +57,8 @@ enum OutboundSubstreamState {
     Dropped,
 }
 
-impl<Msg> BlendConnectionHandler<Msg> {
-    pub const fn new(monitor: Option<ConnectionMonitor>) -> Self {
+impl<ConnectionWindowClock> BlendConnectionHandler<ConnectionWindowClock> {
+    pub const fn new(monitor: ConnectionMonitor<ConnectionWindowClock>) -> Self {
         Self {
             inbound_substream: None,
             outbound_substream: None,
@@ -69,7 +66,6 @@ impl<Msg> BlendConnectionHandler<Msg> {
             pending_events_to_behaviour: VecDeque::new(),
             monitor,
             waker: None,
-            _blend_message: PhantomData,
         }
     }
 
@@ -102,7 +98,7 @@ pub enum FromBehaviour {
     /// This happens when [`crate::Behaviour`] determines that one of the
     /// followings is true.
     /// - Max peering degree is reached.
-    /// - The peer has been detected as malicious.
+    /// - The peer has been detected as spammy.
     CloseSubstreams,
 }
 
@@ -118,19 +114,21 @@ pub enum ToBehaviour {
     DialUpgradeError(DialUpgradeError<(), ReadyUpgrade<StreamProtocol>>),
     /// A message has been received from the connection.
     Message(Vec<u8>),
-    /// Notifying that the peer is detected as malicious.
+    /// Notifying that the peer is detected as spammy.
     /// The inbound/outbound streams to the peer are closed proactively.
-    MaliciousPeer,
+    SpammyPeer,
     /// Notifying that the peer is detected as unhealthy.
     UnhealthyPeer,
+    /// Notifying that the peer is detected as healthy.
+    HealthyPeer,
     /// An IO error from the connection.
     /// The inbound/outbound streams to the peer are closed proactively.
     IOError(io::Error),
 }
 
-impl<Msg> ConnectionHandler for BlendConnectionHandler<Msg>
+impl<ConnectionWindowClock> ConnectionHandler for BlendConnectionHandler<ConnectionWindowClock>
 where
-    Msg: BlendMessage + Send + 'static,
+    ConnectionWindowClock: futures::Stream<Item = RangeInclusive<usize>> + Unpin + Send + 'static,
 {
     type FromBehaviour = FromBehaviour;
     type ToBehaviour = ToBehaviour;
@@ -163,19 +161,20 @@ where
 
         // Check if the monitor interval has elapsed, if exists.
         // TODO: Refactor this to a separate function.
-        if let Some(monitor) = &mut self.monitor {
-            if let Poll::Ready(output) = monitor.poll(cx) {
-                match output {
-                    ConnectionMonitorOutput::Malicious => {
-                        self.close_substreams();
-                        self.pending_events_to_behaviour
-                            .push_back(ToBehaviour::MaliciousPeer);
-                    }
-                    ConnectionMonitorOutput::Unhealthy => {
-                        self.pending_events_to_behaviour
-                            .push_back(ToBehaviour::UnhealthyPeer);
-                    }
-                    ConnectionMonitorOutput::Healthy => {}
+        if let Poll::Ready(output) = self.monitor.poll(cx) {
+            match output {
+                ConnectionMonitorOutput::Spammy => {
+                    self.close_substreams();
+                    self.pending_events_to_behaviour
+                        .push_back(ToBehaviour::SpammyPeer);
+                }
+                ConnectionMonitorOutput::Unhealthy => {
+                    self.pending_events_to_behaviour
+                        .push_back(ToBehaviour::UnhealthyPeer);
+                }
+                ConnectionMonitorOutput::Healthy => {
+                    self.pending_events_to_behaviour
+                        .push_back(ToBehaviour::HealthyPeer);
                 }
             }
         }
@@ -201,9 +200,7 @@ where
                     );
 
                     // Record the message to the monitor.
-                    if let Some(monitor) = &mut self.monitor {
-                        monitor.record_message();
-                    }
+                    self.monitor.record_message();
 
                     self.inbound_substream =
                         Some(InboundSubstreamState::PendingRecv(recv_msg(stream).boxed()));

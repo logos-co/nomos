@@ -29,7 +29,7 @@ pub type ZkSignature = ();
 
 pub const MANTLE_HASH_VERSION: &[u8] = b"NOMOS_MANTLE_TXHASH_V1";
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MantleTx {
     pub ops: Vec<Op>,
     // temporary holder
@@ -55,10 +55,10 @@ impl GasPrice for MantleTx {
 }
 
 impl nomos_core::tx::Transaction for MantleTx {
-    const HASHER: TransactionHasher<Self> = |tx| blake2::Blake2b::digest(tx.as_bytes()).into();
+    const HASHER: TransactionHasher<Self> = |tx| blake2::Blake2b::digest(tx.as_sign_bytes()).into();
     type Hash = TxHash;
 
-    fn as_bytes(&self) -> bytes::Bytes {
+    fn as_sign_bytes(&self) -> bytes::Bytes {
         let mut buff = bytes::BytesMut::new();
         buff.extend_from_slice(MANTLE_HASH_VERSION);
         buff.extend_from_slice(wire::serialize(&self.ops).unwrap().as_ref());
@@ -68,9 +68,30 @@ impl nomos_core::tx::Transaction for MantleTx {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+impl From<SignedMantleTx> for MantleTx {
+    fn from(signed_tx: SignedMantleTx) -> Self {
+        signed_tx.mantle_tx
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignedMantleTx {
     pub mantle_tx: MantleTx,
     pub ops_profs: Vec<OpProof>,
     pub ledger_tx_proof: ZkSignature,
+}
+
+impl Hash for SignedMantleTx {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.mantle_tx.hash(state);
+    }
+}
+
+impl nomos_core::tx::Transaction for SignedMantleTx {
+    const HASHER: TransactionHasher<Self> = |tx| blake2::Blake2b::digest(tx.as_sign_bytes()).into();
+    type Hash = TxHash;
+
+    fn as_sign_bytes(&self) -> bytes::Bytes {
+        self.mantle_tx.as_sign_bytes()
+    }
 }

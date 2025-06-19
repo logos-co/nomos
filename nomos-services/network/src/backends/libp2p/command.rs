@@ -2,7 +2,7 @@ use nomos_libp2p::{Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
-pub use crate::backends::libp2p::swarm::{DiscoveryCommand, PubSubCommand};
+pub use crate::backends::libp2p::swarm::{ChainSyncCommand, DiscoveryCommand, PubSubCommand};
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -17,6 +17,7 @@ pub enum Command {
     PubSub(PubSubCommand),
     Discovery(DiscoveryCommand),
     Network(NetworkCommand),
+    ChainSync(ChainSyncCommand),
 }
 
 #[derive(Debug)]
