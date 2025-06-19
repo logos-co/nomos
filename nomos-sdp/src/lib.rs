@@ -26,7 +26,7 @@ pub struct ServiceParameters {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct Locator(Multiaddr);
+pub struct Locator(pub Multiaddr);
 
 impl Locator {
     #[must_use]

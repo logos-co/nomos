@@ -1,11 +1,11 @@
 use std::{
     collections::{HashMap, VecDeque},
-    marker::PhantomData,
+    ops::RangeInclusive,
     task::{Context, Poll, Waker},
-    time::Duration,
 };
 
 use cached::{Cached as _, SizedCache};
+use futures::Stream;
 use libp2p::{
     core::{transport::PortUse, Endpoint},
     swarm::{
@@ -14,11 +14,10 @@ use libp2p::{
     },
     Multiaddr, PeerId,
 };
-use nomos_blend::conn_maintenance::{ConnectionMonitor, ConnectionMonitorSettings};
-use nomos_blend_message::BlendMessage;
 use sha2::{Digest as _, Sha256};
 
 use crate::{
+    conn_maintenance::ConnectionMonitor,
     error::Error,
     handler::{BlendConnectionHandler, FromBehaviour, ToBehaviour},
 };
@@ -26,12 +25,7 @@ use crate::{
 /// A [`NetworkBehaviour`]:
 /// - forwards messages to all connected peers with deduplication.
 /// - receives messages from all connected peers.
-pub struct Behaviour<M, IntervalProvider>
-where
-    M: BlendMessage,
-    IntervalProvider: IntervalStreamProvider,
-{
-    config: Config,
+pub struct Behaviour<ObservationWindowClockProvider> {
     negotiated_peers: HashMap<PeerId, NegotiatedPeerState>,
     /// Queue of events to yield to the swarm.
     events: VecDeque<ToSwarm<Event, FromBehaviour>>,
@@ -44,8 +38,7 @@ where
     // TODO: This cache should be cleared after the session transition period has passed,
     //       because keys and nullifiers are valid during a single session.
     seen_message_cache: SizedCache<Vec<u8>, ()>,
-    _blend_message: PhantomData<M>,
-    _interval_provider: PhantomData<IntervalProvider>,
+    observation_window_clock_provider: ObservationWindowClockProvider,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -57,37 +50,34 @@ enum NegotiatedPeerState {
 #[derive(Debug)]
 pub struct Config {
     pub seen_message_cache_size: usize,
-    pub conn_monitor_settings: Option<ConnectionMonitorSettings>,
 }
 
 #[derive(Debug)]
 pub enum Event {
     /// A message received from one of the peers.
     Message(Vec<u8>),
-    /// A peer has been detected as malicious.
-    MaliciousPeer(PeerId),
+    /// A peer has been detected as spammy.
+    SpammyPeer(PeerId),
     /// A peer has been detected as unhealthy.
     UnhealthyPeer(PeerId),
+    /// A peer has been detected as healthy.
+    HealthyPeer(PeerId),
     Error(Error),
 }
 
-impl<M, IntervalProvider> Behaviour<M, IntervalProvider>
-where
-    M: BlendMessage,
-    M::PublicKey: PartialEq,
-    IntervalProvider: IntervalStreamProvider,
-{
+impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     #[must_use]
-    pub fn new(config: Config) -> Self {
+    pub fn new(
+        config: &Config,
+        observation_window_clock_provider: ObservationWindowClockProvider,
+    ) -> Self {
         let duplicate_cache = SizedCache::with_size(config.seen_message_cache_size);
         Self {
-            config,
             negotiated_peers: HashMap::new(),
             events: VecDeque::new(),
             waker: None,
             seen_message_cache: duplicate_cache,
-            _blend_message: PhantomData,
-            _interval_provider: PhantomData,
+            observation_window_clock_provider,
         }
     }
 
@@ -108,7 +98,8 @@ where
         result
     }
 
-    /// Forwards a message to all connected peers except the excluded peer.
+    /// Forwards a message to all connected and healthy peers except the
+    /// excluded peer.
     ///
     /// Returns [`Error::NoPeers`] if there are no connected peers that support
     /// the blend protocol.
@@ -119,9 +110,13 @@ where
     ) -> Result<(), Error> {
         let mut num_peers = 0;
         self.negotiated_peers
-            .keys()
-            .filter(|peer_id| (excluded_peer != Some(**peer_id)))
-            .for_each(|peer_id| {
+            .iter()
+            // Exclude from the list of candidate peers the provided peer (i.e., the sender of the
+            // message we are forwarding).
+            .filter(|(peer_id, _)| (excluded_peer != Some(**peer_id)))
+            // Exclude from the list of candidate peers any peer that is not in a healthy state.
+            .filter(|(_, peer_state)| **peer_state == NegotiatedPeerState::Healthy)
+            .for_each(|(peer_id, _)| {
                 tracing::debug!("Registering event for peer {:?} to send msg", peer_id);
                 self.events.push_back(ToSwarm::NotifyHandler {
                     peer_id: *peer_id,
@@ -148,19 +143,9 @@ where
     #[must_use]
     pub fn num_healthy_peers(&self) -> usize {
         self.negotiated_peers
-            .iter()
-            .filter(|(_, state)| **state == NegotiatedPeerState::Healthy)
+            .values()
+            .filter(|state| **state == NegotiatedPeerState::Healthy)
             .count()
-    }
-
-    fn create_connection_handler(&self) -> BlendConnectionHandler<M> {
-        let monitor = self.config.conn_monitor_settings.as_ref().map(|settings| {
-            ConnectionMonitor::new(
-                *settings,
-                IntervalProvider::interval_stream(settings.interval),
-            )
-        });
-        BlendConnectionHandler::new(monitor)
     }
 
     fn try_wake(&mut self) {
@@ -170,13 +155,25 @@ where
     }
 }
 
-impl<M, IntervalProvider> NetworkBehaviour for Behaviour<M, IntervalProvider>
+impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider>
 where
-    M: BlendMessage + Send + 'static,
-    M::PublicKey: PartialEq + 'static,
-    IntervalProvider: IntervalStreamProvider + 'static,
+    ObservationWindowClockProvider: IntervalStreamProvider<IntervalItem = RangeInclusive<usize>>,
 {
-    type ConnectionHandler = BlendConnectionHandler<M>;
+    fn create_connection_handler(
+        &self,
+    ) -> BlendConnectionHandler<ObservationWindowClockProvider::IntervalStream> {
+        BlendConnectionHandler::new(ConnectionMonitor::new(
+            self.observation_window_clock_provider.interval_stream(),
+        ))
+    }
+}
+
+impl<ObservationWindowClockProvider> NetworkBehaviour for Behaviour<ObservationWindowClockProvider>
+where
+    ObservationWindowClockProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<usize>>
+        + 'static,
+{
+    type ConnectionHandler = BlendConnectionHandler<ObservationWindowClockProvider::IntervalStream>;
     type ToSwarm = Event;
 
     fn handle_established_inbound_connection(
@@ -224,6 +221,10 @@ where
 
     /// Handles an event generated by the [`BlendConnectionHandler`]
     /// dedicated to the connection identified by `peer_id` and `connection_id`.
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "TODO: Address this at some point."
+    )]
     fn on_connection_handler_event(
         &mut self,
         peer_id: PeerId,
@@ -262,20 +263,35 @@ where
             ToBehaviour::DialUpgradeError(_) => {
                 self.negotiated_peers.remove(&peer_id);
             }
-            ToBehaviour::MaliciousPeer => {
-                tracing::debug!("Peer {:?} has been detected as malicious", peer_id);
-                self.negotiated_peers.remove(&peer_id);
-                self.events
-                    .push_back(ToSwarm::GenerateEvent(Event::MaliciousPeer(peer_id)));
+            ToBehaviour::SpammyPeer => {
+                // Notify swarm only if it's the first occurrence.
+                if self.negotiated_peers.remove(&peer_id).is_some() {
+                    tracing::debug!("Peer {:?} has been detected as spammy", peer_id);
+                    self.events
+                        .push_back(ToSwarm::GenerateEvent(Event::SpammyPeer(peer_id)));
+                }
             }
             ToBehaviour::UnhealthyPeer => {
-                tracing::debug!("Peer {:?} has been detected as unhealthy", peer_id);
-                // TODO: Still the algorithm to revert the peer to healthy state is not defined
-                // yet.
-                self.negotiated_peers
+                // Notify swarm only if it's the first transition into the unhealthy state.
+                let previous_state = self
+                    .negotiated_peers
                     .insert(peer_id, NegotiatedPeerState::Unhealthy);
-                self.events
-                    .push_back(ToSwarm::GenerateEvent(Event::UnhealthyPeer(peer_id)));
+                if matches!(previous_state, None | Some(NegotiatedPeerState::Healthy)) {
+                    tracing::debug!("Peer {:?} has been detected as unhealthy", peer_id);
+                    self.events
+                        .push_back(ToSwarm::GenerateEvent(Event::UnhealthyPeer(peer_id)));
+                }
+            }
+            ToBehaviour::HealthyPeer => {
+                // Notify swarm only if it's the first transition into the healthy state.
+                let previous_state = self
+                    .negotiated_peers
+                    .insert(peer_id, NegotiatedPeerState::Healthy);
+                if matches!(previous_state, None | Some(NegotiatedPeerState::Unhealthy)) {
+                    tracing::debug!("Peer {:?} has been detected as healthy", peer_id);
+                    self.events
+                        .push_back(ToSwarm::GenerateEvent(Event::HealthyPeer(peer_id)));
+                }
             }
             ToBehaviour::IOError(error) => {
                 self.negotiated_peers.remove(&peer_id);
@@ -306,5 +322,8 @@ where
 }
 
 pub trait IntervalStreamProvider {
-    fn interval_stream(interval: Duration) -> impl futures::Stream<Item = ()> + Send + 'static;
+    type IntervalStream: Stream<Item = Self::IntervalItem>;
+    type IntervalItem;
+
+    fn interval_stream(&self) -> Self::IntervalStream;
 }

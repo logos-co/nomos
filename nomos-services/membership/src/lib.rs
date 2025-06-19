@@ -23,10 +23,10 @@ use services_utils::wait_until_services_are_ready;
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 
-mod adapters;
+pub mod adapters;
 pub mod backends;
 
-type MembershipProviders = (BlockNumber, HashMap<ProviderId, BTreeSet<Locator>>);
+pub type MembershipProviders = (BlockNumber, HashMap<ProviderId, BTreeSet<Locator>>);
 
 pub type MembershipSnapshotStream =
     Pin<Box<dyn Stream<Item = MembershipProviders> + Send + Sync + Unpin>>;

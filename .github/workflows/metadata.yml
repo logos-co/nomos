@@ -1,0 +1,26 @@
+name: Metadata
+
+on:
+  pull_request_target:
+    types: [ opened, synchronize, reopened, edited ]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  assign-author:
+    name: Assign Author
+    runs-on: ubuntu-latest
+    steps:
+      - uses: toshimaru/auto-author-assign@7e15cd70c245ad136377c3fab3479815df10d844  # Version 2.1.1
+
+  conventional-commits:
+    name: Conventional Commits
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate and Label
+        uses:  ytanikin/pr-conventional-commits@1.4.0
+        with:
+          task_types: '["feat","fix","docs","test","ci","refactor","perf","chore","revert"]'
+          custom_labels: '{"feat": "feature", "fix": "fix", "docs": "documentation", "test": "test", "ci": "CI/CD", "refactor": "refactor", "perf": "performance", "chore": "chore", "revert": "revert", "wip": "WIP"}'
+          add_scope_label: 'true'

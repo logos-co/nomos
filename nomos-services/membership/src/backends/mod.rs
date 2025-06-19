@@ -14,6 +14,7 @@ pub struct MembershipBackendSettings {
     pub settings_per_service: HashMap<ServiceType, Settings>,
 }
 
+#[derive(Clone, Debug, Copy)]
 pub struct Settings {
     historical_block_delta: u64,
 }

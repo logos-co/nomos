@@ -5,7 +5,7 @@ use std::{
     collections::HashSet,
     fmt::{Debug, Display},
     hash::Hash,
-    num::NonZeroU64,
+    num::{NonZeroU64, NonZeroUsize},
     time::Duration,
 };
 
@@ -100,7 +100,7 @@ where
         let blend_config = settings_reader.get_updated_settings();
         Ok(Self {
             backend: <Backend as BlendBackend<RuntimeServiceId>>::new(
-                settings_reader.get_updated_settings().backend,
+                settings_reader.get_updated_settings(),
                 service_resources_handle.overwatch_handle.clone(),
                 blend_config.membership(),
                 ChaCha12Rng::from_entropy(),
@@ -156,10 +156,13 @@ where
 
         // tier 3 cover traffic
         let mut cover_traffic = CoverTraffic::new(
+            blend_config.cover_traffic.cover_traffic_settings(
+                &blend_config.timing_settings,
+                &blend_config.message_blend.cryptographic_processor,
+            ),
             blend_config
-                .cover_traffic
-                .cover_traffic_settings(&blend_config.message_blend.cryptographic_processor),
-            blend_config.cover_traffic.session_stream(membership.size()),
+                .timing_settings
+                .session_stream(membership.size()),
             rng,
         )
         .wait_ready()
@@ -290,39 +293,22 @@ pub struct BlendConfig<BackendSettings, BackendNodeId> {
     pub message_blend: MessageBlendSettings<SphinxMessage>,
     pub persistent_transmission: PersistentTransmissionSettings,
     pub cover_traffic: CoverTrafficExtSettings,
+    #[serde(flatten)]
+    pub timing_settings: TimingSettings,
     pub membership: Vec<Node<BackendNodeId, <SphinxMessage as BlendMessage>::PublicKey>>,
 }
 
 #[serde_with::serde_as]
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct CoverTrafficExtSettings {
+pub struct TimingSettings {
     pub rounds_per_session: NonZeroU64,
     pub rounds_per_interval: NonZeroU64,
     #[serde_as(as = "MinimalBoundedDuration<1, SECOND>")]
     pub round_duration: Duration,
-    pub message_frequency_per_round: NonNegativeF64,
-    pub redundancy_parameter: usize,
-    pub intervals_for_safety_buffer: u64,
+    pub rounds_per_observation_window: NonZeroUsize,
 }
 
-impl CoverTrafficExtSettings {
-    const fn cover_traffic_settings(
-        &self,
-        cryptographic_processor_settings: &CryptographicProcessorSettings<
-            <SphinxMessage as BlendMessage>::PrivateKey,
-        >,
-    ) -> CoverTrafficSettings {
-        CoverTrafficSettings {
-            blending_ops_per_message: cryptographic_processor_settings.num_blend_layers,
-            message_frequency_per_round: self.message_frequency_per_round,
-            redundancy_parameter: self.redundancy_parameter,
-            round_duration: self.round_duration,
-            rounds_per_interval: self.rounds_per_interval,
-            rounds_per_session: self.rounds_per_session,
-            intervals_for_safety_buffer: self.intervals_for_safety_buffer,
-        }
-    }
-
+impl TimingSettings {
     fn session_stream(
         &self,
         membership_size: usize,
@@ -342,6 +328,33 @@ impl CoverTrafficExtSettings {
                 membership_size,
             }),
         )
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct CoverTrafficExtSettings {
+    pub message_frequency_per_round: NonNegativeF64,
+    pub redundancy_parameter: usize,
+    pub intervals_for_safety_buffer: u64,
+}
+
+impl CoverTrafficExtSettings {
+    const fn cover_traffic_settings(
+        &self,
+        timing_settings: &TimingSettings,
+        cryptographic_processor_settings: &CryptographicProcessorSettings<
+            <SphinxMessage as BlendMessage>::PrivateKey,
+        >,
+    ) -> CoverTrafficSettings {
+        CoverTrafficSettings {
+            blending_ops_per_message: cryptographic_processor_settings.num_blend_layers,
+            message_frequency_per_round: self.message_frequency_per_round,
+            redundancy_parameter: self.redundancy_parameter,
+            round_duration: timing_settings.round_duration,
+            rounds_per_interval: timing_settings.rounds_per_interval,
+            rounds_per_session: timing_settings.rounds_per_session,
+            intervals_for_safety_buffer: self.intervals_for_safety_buffer,
+        }
     }
 }
 

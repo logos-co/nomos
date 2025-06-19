@@ -17,10 +17,13 @@ log                      = "0.4.22"
 nomos-core               = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-libp2p             = { workspace = true }
+nomos-membership         = { workspace = true }
+nomos-sdp-core           = { workspace = true }
 nomos-tracing            = { workspace = true }
 overwatch                = { workspace = true }
 serde                    = { version = "1.0", features = ["derive"] }
 subnetworks-assignations = { workspace = true }
+thiserror                = "1"
 tokio                    = { version = "1", features = ["macros", "sync"] }
 tokio-stream             = "0.1"
 tracing                  = { workspace = true }

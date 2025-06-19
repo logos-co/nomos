@@ -16,7 +16,10 @@ use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use network::NetworkAdapter;
 use nomos_core::da::{blob::Share, BlobId, DaVerifier};
 use nomos_da_network_core::protocols::sampling::behaviour::SamplingError;
-use nomos_da_network_service::{backends::libp2p::common::SamplingEvent, NetworkService};
+use nomos_da_network_service::{
+    backends::libp2p::common::SamplingEvent, membership::MembershipAdapter,
+    storage::MembershipStorageAdapter, NetworkService,
+};
 use nomos_da_verifier::{
     backend::VerifierBackend as VerifierBackendTrait, DaVerifierMsg, DaVerifierService,
 };
@@ -409,6 +412,13 @@ where
     VerifierBackend::Settings: Clone,
     VerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send,
     VerifierNetwork::Settings: Clone,
+    VerifierNetwork::Storage: MembershipStorageAdapter<
+            <SamplingNetwork::Membership as MembershipHandler>::Id,
+            <SamplingNetwork::Membership as MembershipHandler>::NetworkId,
+        > + Send
+        + Sync
+        + 'static,
+    VerifierNetwork::MembershipAdapter: MembershipAdapter,
     VerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send,
     ApiAdapter: ApiAdapterTrait<
             Share = SamplingBackend::Share,
@@ -419,7 +429,13 @@ where
     ApiAdapter::Settings: Clone + Send + Sync,
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<
-            NetworkService<SamplingNetwork::Backend, SamplingNetwork::Membership, RuntimeServiceId>,
+            NetworkService<
+                SamplingNetwork::Backend,
+                SamplingNetwork::Membership,
+                VerifierNetwork::MembershipAdapter,
+                VerifierNetwork::Storage,
+                RuntimeServiceId,
+            >,
         > + AsServiceId<StorageService<SamplingStorage::Backend, RuntimeServiceId>>
         + AsServiceId<
             DaVerifierService<VerifierBackend, VerifierNetwork, VerifierStorage, RuntimeServiceId>,
@@ -451,7 +467,7 @@ where
 
         let network_relay = service_resources_handle
             .overwatch_handle
-            .relay::<NetworkService<_, _, _>>()
+            .relay::<NetworkService<_, _, _, _, _>>()
             .await?;
         let mut network_adapter = SamplingNetwork::new(network_relay).await;
         let mut sampling_message_stream = network_adapter.listen_to_sampling_messages().await?;
@@ -482,7 +498,7 @@ where
         wait_until_services_are_ready!(
             &service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
-            NetworkService<_, _, _>,
+            NetworkService<_, _, _, _,_>,
             StorageService<_, _>,
             DaVerifierService<_, _, _, _>
         )
