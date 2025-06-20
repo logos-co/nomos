@@ -17,6 +17,7 @@ use nomos_blend_message::{sphinx::SphinxMessage, BlendMessage};
 use nomos_blend_scheduling::{
     cover_traffic::{CoverTraffic, CoverTrafficSettings, SessionInfo},
     membership::{Membership, Node},
+    message::BlendOutgoingMessage,
     message_blend::{
         crypto::CryptographicProcessor, temporal::TemporalScheduler,
         CryptographicProcessorSettings, MessageBlendExt as _, MessageBlendSettings,
@@ -25,7 +26,6 @@ use nomos_blend_scheduling::{
         PersistentTransmissionExt as _, PersistentTransmissionSettings,
         PersistentTransmissionStream,
     },
-    BlendOutgoingMessage,
 };
 use nomos_core::wire;
 use nomos_network::NetworkService;
@@ -207,7 +207,7 @@ where
                     match msg {
                         // If message is not fully unwrapped, forward the remaining layers to the next hop.
                         BlendOutgoingMessage::Outbound(msg) => {
-                            if let Err(e) = persistent_sender.send(msg) {
+                            if let Err(e) = persistent_sender.send(msg.into()) {
                                 tracing::error!("Error sending message to persistent stream: {e}");
                             }
                         }
@@ -215,7 +215,7 @@ where
                         BlendOutgoingMessage::FullyUnwrapped(msg) => {
                             tracing::debug!("Processing a fully unwrapped message.");
                             // TODO: Change deserialization logic to return the actual type of message to the service, instead of assuming that a failed deserialization can mean a cover message as well as a malformed message.
-                            match wire::deserialize::<NetworkMessage<Network::BroadcastSettings>>(&msg) {
+                            match wire::deserialize::<NetworkMessage<Network::BroadcastSettings>>(msg.as_ref()) {
                                 Ok(msg) => {
                                     // Message is a valid network message, broadcast it to the entire network.
                                     network_adapter.broadcast(msg.message, msg.broadcast_settings).await;

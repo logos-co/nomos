@@ -95,9 +95,9 @@ where
         match self.cryptographic_processor.unwrap_message(message) {
             Ok((unwrapped_message, fully_unwrapped)) => {
                 let message = if fully_unwrapped {
-                    BlendOutgoingMessage::FullyUnwrapped(unwrapped_message)
+                    BlendOutgoingMessage::FullyUnwrapped(unwrapped_message.into())
                 } else {
-                    BlendOutgoingMessage::Outbound(unwrapped_message)
+                    BlendOutgoingMessage::Outbound(unwrapped_message.into())
                 };
                 if let Err(e) = self.temporal_sender.send(message) {
                     tracing::error!("Failed to send message to the outbound channel: {e:?}");
