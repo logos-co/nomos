@@ -1,13 +1,12 @@
 use std::collections::HashSet;
 
-use cryptarchia_sync::{ChainSyncError, HeaderId, SerialisedBlock};
-use futures::stream::BoxStream;
+use cryptarchia_sync::{BoxedStream, ChainSyncError, HeaderId, SerialisedBlock};
 use libp2p::PeerId;
 use tokio::sync::{mpsc::Sender, oneshot};
 
 use crate::{behaviour::BehaviourError, Swarm};
 
-type SerialisedBlockStream = BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>;
+type SerialisedBlockStream = BoxedStream<Result<SerialisedBlock, ChainSyncError>>;
 
 impl Swarm {
     pub fn request_tip(

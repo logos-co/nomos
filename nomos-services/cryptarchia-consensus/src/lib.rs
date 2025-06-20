@@ -59,6 +59,7 @@ use crate::{
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
     storage::{adapters::StorageAdapter, StorageAdapter as _},
+    sync::block_provider::BlockProvider,
 };
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
@@ -581,6 +582,8 @@ where
 
         let mut incoming_blocks = network_adapter.blocks_stream().await?;
         let mut chainsync_events = network_adapter.chainsync_events_stream().await?;
+        let sync_blocks_provider: BlockProvider<_> =
+            BlockProvider::new(relays.storage_adapter().storage_relay.clone());
 
         let mut slot_timer = {
             let (sender, receiver) = oneshot::channel();
@@ -683,12 +686,7 @@ where
                     }
 
                     Some(event) = chainsync_events.next() => {
-                        if let ChainSyncEvent::ProvideTipRequest{reply_sender} = event {
-                            let tip = cryptarchia.tip();
-                            if let Err(e) = reply_sender.send(tip).await {
-                                error!("Failed to send tip header: {e}");
-                            }
-                        }
+                       Self::handle_chainsync_event(&cryptarchia, &sync_blocks_provider, event).await;
                     }
                 }
             }
@@ -1089,6 +1087,7 @@ where
                 }
             }
         }
+
         output
     }
 
@@ -1327,6 +1326,45 @@ where
             Ok(())
         } else {
             Err(errors)
+        }
+    }
+
+    async fn handle_chainsync_event<State>(
+        cryptarchia: &Cryptarchia<State>,
+        sync_blocks_provider: &BlockProvider<Storage>,
+        event: ChainSyncEvent,
+    ) where
+        State: CryptarchiaState + Send + Sync + 'static,
+    {
+        match event {
+            ChainSyncEvent::ProvideBlocksRequest {
+                target_block,
+                local_tip,
+                latest_immutable_block,
+                additional_blocks,
+                reply_sender,
+            } => {
+                if let Err(e) = sync_blocks_provider
+                    .send_blocks(
+                        cryptarchia,
+                        target_block,
+                        local_tip,
+                        latest_immutable_block,
+                        additional_blocks,
+                        reply_sender,
+                    )
+                    .await
+                {
+                    error!("Failed to send blocks for sync: {e}");
+                }
+            }
+            ChainSyncEvent::ProvideTipRequest { reply_sender } => {
+                let tip = cryptarchia.tip();
+                info!("Sending tip {tip}");
+                if let Err(e) = reply_sender.send(tip).await {
+                    error!("Failed to send tip header: {e}");
+                }
+            }
         }
     }
 }
