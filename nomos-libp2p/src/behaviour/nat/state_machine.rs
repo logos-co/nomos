@@ -124,12 +124,11 @@ impl OnEvent for State<TestIfPublic> {
                 self.boxed(TestIfPublic::into_try_address_mapping)
             }
             Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestFailed(addr) => {
-                tracing::error!(
-                    "Autonat client reported address {}, but {} was expected",
+                panic!(
+                    "State<TestIfPublic>: Autonat client reported address {}, but {} was expected",
                     addr,
                     self.state.addr_to_test(),
                 );
-                self
             }
             _ => self,
         }
@@ -147,13 +146,11 @@ impl OnEvent for State<TryMapAddress> {
                 self.boxed(TryMapAddress::into_private)
             }
             Event::AddressMappingFailed(addr) => {
-                tracing::error!(
-                    "Address mapper reported failure for address {}, but {} was expected",
+                panic!(
+                    "State<TryMapAddress>: Address mapper reported failure for address {}, but {} was expected",
                     addr,
                     self.state.addr_to_map(),
                 );
-
-                self
             }
             _ => self,
         }
@@ -171,12 +168,11 @@ impl OnEvent for State<TestIfMappedPublic> {
                 self.boxed(TestIfMappedPublic::into_private)
             }
             Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestFailed(addr) => {
-                tracing::error!(
-                    "Autonat client reported address {}, but {} was expected",
+                panic!(
+                    "State<TestIfMappedPublic>: Autonat client reported address {}, but {} was expected",
                     addr,
                     self.state.addr_to_test(),
                 );
-                self
             }
             _ => self,
         }
@@ -196,20 +192,18 @@ impl OnEvent for State<Public> {
                 self.boxed(Public::into_test_if_public)
             }
             Event::ExternalAddressConfirmed(addr) => {
-                tracing::error!(
-                    "Swarm confirmed external address {}, but {} was expected",
+                panic!(
+                    "State<Public>: Swarm confirmed external address {}, but {} was expected",
                     addr,
                     self.state.addr(),
                 );
-                self
             }
             Event::AutonatClientTestOk(addr) | Event::AutonatClientTestFailed(addr) => {
-                tracing::error!(
-                    "Autonat client reported address {}, but {} was expected",
+                panic!(
+                    "State<Public>: Autonat client reported address {}, but {} was expected",
                     addr,
                     self.state.addr(),
                 );
-                self
             }
             _ => self,
         }
@@ -229,20 +223,18 @@ impl OnEvent for State<MappedPublic> {
                 self.boxed(MappedPublic::into_test_if_public)
             }
             Event::ExternalAddressConfirmed(addr) => {
-                tracing::error!(
-                    "Swarm confirmed external address {}, but {} was expected",
+                panic!(
+                    "State<MappedPublic>: Swarm confirmed external address {}, but {} was expected",
                     addr,
                     self.state.addr(),
                 );
-                self
             }
             Event::AutonatClientTestOk(addr) | Event::AutonatClientTestFailed(addr) => {
-                tracing::error!(
-                    "Autonat client reported address {}, but {} was expected",
+                panic!(
+                    "State<MappedPublic>: Autonat client reported address {}, but {} was expected",
                     addr,
                     self.state.addr(),
                 );
-                self
             }
             _ => self,
         }
