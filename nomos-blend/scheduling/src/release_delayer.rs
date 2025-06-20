@@ -6,11 +6,20 @@ use crate::message::OutboundMessage;
 
 const LOG_TARGET: &str = "blend::scheduling::delay";
 
+/// A scheduler for delaying processed messages and batch them into release
+/// rounds, as per the specification.
 pub struct SessionReleaseDelayer<Rng> {
+    /// The current round within the session the scheduler is at.
     current_round: usize,
+    /// The maximum delay, in terms of rounds, between two consecutive release
+    /// rounds.
     maximum_release_delay_in_rounds: NonZeroUsize,
+    /// The next scheduled round to release the queued messages.
     next_release_round: usize,
+    /// The random generator to select slots for message releasing.
     pub rng: Rng,
+    /// The messages temporarily queued by the scheduler in between release
+    /// rounds.
     unreleased_messages: Vec<OutboundMessage>,
 }
 
@@ -18,10 +27,11 @@ impl<Rng> SessionReleaseDelayer<Rng>
 where
     Rng: rand::Rng,
 {
+    /// Initialize the scheduler with the required details.
     pub fn new(
-        CreationOptions {
+        Settings {
             maximum_release_delay_in_rounds,
-        }: CreationOptions,
+        }: Settings,
         mut rng: Rng,
     ) -> Self {
         debug!(target: LOG_TARGET, "Creating new release delayer with {maximum_release_delay_in_rounds} maximum delay (in rounds).");
@@ -36,6 +46,12 @@ where
         }
     }
 
+    /// Poll the scheduler for a potential new release round, while also
+    /// advancing its internal round counter. Rounds follow 0-based indexing, so
+    /// the very first round in a session is considered to be `0`.
+    ///
+    /// **This function is meant to be externally called at every round, as
+    /// failing to do so might result in missed or delayed release rounds**.
     pub fn poll_next_round(&mut self) -> Option<Vec<OutboundMessage>> {
         let current_round = self.current_round;
         // We can safely saturate, since even if we ever reach the end and there's a
@@ -93,11 +109,15 @@ impl<Rng> SessionReleaseDelayer<Rng> {
 }
 
 impl<Rng> SessionReleaseDelayer<Rng> {
+    /// Add a new message to the queue to be released at the next release round
+    /// along with any other queued message.
     pub fn schedule_message(&mut self, message: OutboundMessage) {
         self.unreleased_messages.push(message);
     }
 }
 
+/// Calculates the random offset, in the range [1, `max`], from the current
+/// round as the next release round.
 fn schedule_next_release_round_offset<Rng>(
     maximum_release_delay_in_rounds: NonZeroUsize,
     rng: &mut Rng,
@@ -109,8 +129,11 @@ where
         .expect("Randomly generated offset should be strictly positive.")
 }
 
+/// The settings to initialize the release delayer scheduler.
 #[derive(Debug, Clone, Copy)]
-pub struct CreationOptions {
+pub struct Settings {
+    /// The max number of rounds to wait between two release rounds, as per the
+    /// specification.
     pub maximum_release_delay_in_rounds: NonZeroUsize,
 }
 
