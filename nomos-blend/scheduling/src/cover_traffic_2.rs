@@ -1,4 +1,5 @@
-use std::{collections::HashSet, num::NonZeroUsize};
+use core::num::NonZeroUsize;
+use std::collections::HashSet;
 
 use tracing::{debug, trace};
 
@@ -106,18 +107,60 @@ pub struct CreationOptions {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
+    use crate::cover_traffic_2::SessionCoverTraffic;
+
     #[test]
     fn no_emission_on_unscheduled_round() {
-        unimplemented!();
+        let mut scheduler = SessionCoverTraffic {
+            current_round: 0,
+            scheduled_message_rounds: HashSet::default(),
+            unprocessed_data_messages: 0,
+        };
+        assert_eq!(scheduler.poll_next_round(), None);
+        // Check that current round has been incremented.
+        assert_eq!(scheduler.current_round, 1);
     }
 
     #[test]
     fn emission_on_scheduled_round() {
-        unimplemented!();
+        let mut scheduler = SessionCoverTraffic {
+            current_round: 1,
+            scheduled_message_rounds: HashSet::from_iter([1]),
+            unprocessed_data_messages: 0,
+        };
+        assert_eq!(scheduler.poll_next_round(), Some(()));
+        // Check that current round has been incremented.
+        assert_eq!(scheduler.current_round, 2);
+        // Check that the scheduled round has been removed from the set.
+        assert!(!scheduler.scheduled_message_rounds.contains(&1));
     }
 
     #[test]
     fn no_emission_on_scheduled_round_with_unprocessed_message() {
-        unimplemented!();
+        let mut scheduler = SessionCoverTraffic {
+            current_round: 1,
+            scheduled_message_rounds: HashSet::from_iter([1]),
+            unprocessed_data_messages: 1,
+        };
+        assert_eq!(scheduler.poll_next_round(), None);
+        // Check that current round has been incremented.
+        assert_eq!(scheduler.current_round, 2);
+        // Check that the scheduled round has been removed from the set.
+        assert!(!scheduler.scheduled_message_rounds.contains(&1));
+        // Check that the number of processed messages has been decremented.
+        assert_eq!(scheduler.unprocessed_data_messages, 0);
+    }
+
+    #[test]
+    fn notify_new_data_message() {
+        let mut scheduler = SessionCoverTraffic {
+            current_round: 1,
+            scheduled_message_rounds: HashSet::from_iter([1]),
+            unprocessed_data_messages: 0,
+        };
+        scheduler.notify_new_data_message();
+        assert_eq!(scheduler.unprocessed_data_messages, 1);
     }
 }
