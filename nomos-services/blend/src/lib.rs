@@ -17,6 +17,7 @@ use nomos_blend_message::{sphinx::SphinxMessage, BlendMessage};
 use nomos_blend_scheduling::{
     cover_traffic::{CoverTraffic, CoverTrafficSettings, SessionInfo},
     membership::{Membership, Node},
+    message::BlendOutgoingMessage,
     message_blend::{
         crypto::CryptographicProcessor, temporal::TemporalScheduler,
         CryptographicProcessorSettings, MessageBlendExt as _, MessageBlendSettings,
@@ -25,7 +26,6 @@ use nomos_blend_scheduling::{
         PersistentTransmissionExt as _, PersistentTransmissionSettings,
         PersistentTransmissionStream,
     },
-    BlendOutgoingMessage,
 };
 use nomos_core::wire;
 use nomos_network::NetworkService;
