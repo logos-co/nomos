@@ -41,6 +41,10 @@ impl SessionCoverTraffic {
         }
     }
 
+    pub const fn current_round(&self) -> usize {
+        self.current_round
+    }
+
     #[cfg(test)]
     pub const fn with_test_values(
         current_round: usize,
@@ -54,8 +58,9 @@ impl SessionCoverTraffic {
         }
     }
 
-    pub fn current_round(&self) -> usize {
-        self.current_round
+    #[cfg(test)]
+    pub const fn unprocessed_data_messages(&self) -> usize {
+        self.unprocessed_data_messages
     }
 
     pub fn poll_next_round(&mut self) -> Option<()> {

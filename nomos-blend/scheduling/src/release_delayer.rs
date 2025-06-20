@@ -36,10 +36,6 @@ where
         }
     }
 
-    pub fn current_round(&self) -> usize {
-        self.current_round
-    }
-
     pub fn poll_next_round(&mut self) -> Option<Vec<OutboundMessage>> {
         let current_round = self.current_round;
         // We can safely saturate, since even if we ever reach the end and there's a
@@ -69,6 +65,10 @@ where
 }
 
 impl<Rng> SessionReleaseDelayer<Rng> {
+    pub const fn current_round(&self) -> usize {
+        self.current_round
+    }
+
     #[cfg(test)]
     pub const fn with_test_values(
         current_round: usize,
@@ -84,6 +84,11 @@ impl<Rng> SessionReleaseDelayer<Rng> {
             rng,
             unreleased_messages,
         }
+    }
+
+    #[cfg(test)]
+    pub fn unreleased_messages(&self) -> &[OutboundMessage] {
+        &self.unreleased_messages
     }
 }
 
