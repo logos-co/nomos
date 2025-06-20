@@ -34,8 +34,8 @@ pub type MembershipSnapshotStream =
 const BROADCAST_CHANNEL_SIZE: usize = 128;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BackendSettings<S> {
-    pub backend: S,
+pub struct MembershipServiceSettings<BackendSettings> {
+    pub backend: BackendSettings,
 }
 
 pub enum MembershipMessage {
@@ -50,53 +50,54 @@ pub enum MembershipMessage {
     },
 }
 
-pub struct MembershipService<B, S, RuntimeServiceId>
+pub struct MembershipService<Backend, Sdp, RuntimeServiceId>
 where
-    B: MembershipBackend,
-    S: SdpAdapter,
-    B::Settings: Clone,
+    Backend: MembershipBackend,
+    Sdp: SdpAdapter,
+    Backend::Settings: Clone,
 {
-    backend: B,
+    backend: Backend,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     subscribe_channels:
         HashMap<nomos_sdp_core::ServiceType, broadcast::Sender<MembershipProviders>>,
 }
 
-impl<B, S, RuntimeServiceId> ServiceData for MembershipService<B, S, RuntimeServiceId>
+impl<Backend, Sdp, RuntimeServiceId> ServiceData
+    for MembershipService<Backend, Sdp, RuntimeServiceId>
 where
-    B: MembershipBackend,
-    S: SdpAdapter,
-    B::Settings: Clone,
+    Backend: MembershipBackend,
+    Sdp: SdpAdapter,
+    Backend::Settings: Clone,
 {
-    type Settings = BackendSettings<B::Settings>;
+    type Settings = MembershipServiceSettings<Backend::Settings>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = MembershipMessage;
 }
 
 #[async_trait]
-impl<B, S, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for MembershipService<B, S, RuntimeServiceId>
+impl<Backend, Sdp, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for MembershipService<Backend, Sdp, RuntimeServiceId>
 where
-    B: MembershipBackend + Send + Sync + 'static,
-    B::Settings: Clone,
+    Backend: MembershipBackend + Send + Sync + 'static,
+    Backend::Settings: Clone,
 
     RuntimeServiceId: AsServiceId<Self>
-        + AsServiceId<S::SdpService>
+        + AsServiceId<Sdp::SdpService>
         + Clone
         + Display
         + Send
         + Sync
         + 'static
         + Debug,
-    S: SdpAdapter + Send + Sync + 'static,
-    <<S as SdpAdapter>::SdpService as ServiceData>::Message: 'static,
+    Sdp: SdpAdapter + Send + Sync + 'static,
+    <<Sdp as SdpAdapter>::SdpService as ServiceData>::Message: 'static,
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, DynError> {
-        let BackendSettings {
+        let MembershipServiceSettings {
             backend: backend_settings,
         } = service_resources_handle
             .settings_handle
@@ -104,7 +105,7 @@ where
             .get_updated_settings();
 
         Ok(Self {
-            backend: B::init(backend_settings),
+            backend: Backend::init(backend_settings),
             service_resources_handle,
             subscribe_channels: HashMap::new(),
         })
@@ -114,10 +115,10 @@ where
         let sdp_relay = self
             .service_resources_handle
             .overwatch_handle
-            .relay::<S::SdpService>()
+            .relay::<Sdp::SdpService>()
             .await?;
 
-        let sdp_adapter = S::new(sdp_relay);
+        let sdp_adapter = Sdp::new(sdp_relay);
         let mut sdp_stream = sdp_adapter
             .finalized_blocks_stream()
             .await
@@ -134,7 +135,7 @@ where
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
-            <S as SdpAdapter>::SdpService
+            <Sdp as SdpAdapter>::SdpService
         )
         .await?;
 
@@ -151,11 +152,11 @@ where
     }
 }
 
-impl<B, S, RuntimeServiceId> MembershipService<B, S, RuntimeServiceId>
+impl<Backend, Sdp, RuntimeServiceId> MembershipService<Backend, Sdp, RuntimeServiceId>
 where
-    B: MembershipBackend,
-    S: SdpAdapter,
-    B::Settings: Clone,
+    Backend: MembershipBackend,
+    Sdp: SdpAdapter,
+    Backend::Settings: Clone,
 {
     async fn handle_message(&mut self, msg: MembershipMessage) {
         match msg {

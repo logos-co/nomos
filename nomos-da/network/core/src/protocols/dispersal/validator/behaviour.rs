@@ -98,10 +98,6 @@ impl<Membership: MembershipHandler> DispersalValidatorBehaviour<Membership> {
         }
     }
 
-    pub fn update_membership(&mut self, membership: Membership) {
-        self.membership = membership;
-    }
-
     /// Stream handling messages task.
     /// This task handles a single message receive. Then it writes up the
     /// acknowledgment into the same stream as response and finish.
@@ -155,13 +151,29 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
 
     fn handle_established_outbound_connection(
         &mut self,
-        _connection_id: ConnectionId,
-        _peer: PeerId,
-        _addr: &Multiaddr,
-        _role_override: Endpoint,
-        _port_use: PortUse,
+        connection_id: ConnectionId,
+        peer: PeerId,
+        addr: &Multiaddr,
+        role_override: Endpoint,
+        port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler))
+        // Sampling or replication behaviour might open connection to a member peer.
+        // During the lifetime of a connection the remote peer might decide to
+        // disperse data via existing connection - in such case the connection
+        // needs to already have a handler that accepts DA_DISPERSAL_PROTOCOL
+        // messages.
+        if !self.membership.is_allowed(&peer) {
+            return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
+        }
+        self.stream_behaviour
+            .handle_established_outbound_connection(
+                connection_id,
+                peer,
+                addr,
+                role_override,
+                port_use,
+            )
+            .map(Either::Left)
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm) {

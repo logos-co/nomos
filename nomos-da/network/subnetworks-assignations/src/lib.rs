@@ -2,6 +2,7 @@ pub mod versions;
 
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Debug,
     hash::Hash,
     sync::Arc,
 };
@@ -26,7 +27,7 @@ pub trait MembershipHandler {
     /// Subnetworks Id type
     type NetworkId: Eq + Hash;
     /// Members Id type
-    type Id;
+    type Id: Debug;
 
     /// Returns the set of `NetworksIds` an id is a member of
     fn membership(&self, id: &Self::Id) -> HashSet<Self::NetworkId>;

@@ -4,6 +4,7 @@ use nomos_node::{
         mempool::MempoolConfig, update_blend, update_cryptarchia_consensus, update_network,
         BlendArgs,
     },
+    generic_services::{MembershipService, SdpService},
     CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs,
 };
 use overwatch::services::ServiceData;
@@ -24,6 +25,8 @@ pub struct Config {
     pub da_dispersal: <DaDispersalService as ServiceData>::Settings,
     pub da_network: <DaNetworkService as ServiceData>::Settings,
     pub da_indexer: <DaIndexerService as ServiceData>::Settings,
+    pub membership: <MembershipService<RuntimeServiceId> as ServiceData>::Settings,
+    pub sdp: <SdpService<RuntimeServiceId> as ServiceData>::Settings,
     pub da_verifier: <DaVerifierService as ServiceData>::Settings,
     pub da_sampling: <DaSamplingService as ServiceData>::Settings,
     pub http: <ApiService as ServiceData>::Settings,

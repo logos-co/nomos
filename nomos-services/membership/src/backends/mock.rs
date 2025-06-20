@@ -7,21 +7,23 @@ use nomos_core::block::BlockNumber;
 use nomos_sdp_core::{
     FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId, ServiceType,
 };
+use serde::{Deserialize, Serialize};
 
-use super::{MembershipBackend, MembershipBackendError, Settings};
+use super::{MembershipBackend, MembershipBackendError, MembershipBackendServiceSettings};
 use crate::MembershipProviders;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MockMembershipBackendSettings {
-    pub settings_per_service: HashMap<ServiceType, Settings>,
+    pub settings_per_service: HashMap<ServiceType, MembershipBackendServiceSettings>,
     pub initial_membership: HashMap<BlockNumber, MockMembershipEntry>,
     pub initial_locators_mapping: HashMap<ProviderId, BTreeSet<Locator>>,
+    pub latest_block_number: BlockNumber,
 }
 
 type MockMembershipEntry = HashMap<ServiceType, HashSet<ProviderId>>;
 
 pub struct MockMembershipBackend {
-    settings: HashMap<ServiceType, Settings>,
+    settings: HashMap<ServiceType, MembershipBackendServiceSettings>,
     membership: HashMap<BlockNumber, MockMembershipEntry>,
     locators_mapping: HashMap<ProviderId, BTreeSet<Locator>>,
     latest_block_number: BlockNumber,
@@ -33,12 +35,7 @@ impl MembershipBackend for MockMembershipBackend {
     fn init(settings: MockMembershipBackendSettings) -> Self {
         Self {
             membership: settings.initial_membership.clone(),
-            latest_block_number: settings
-                .initial_membership
-                .keys()
-                .copied()
-                .max()
-                .unwrap_or(0),
+            latest_block_number: settings.latest_block_number,
             settings: settings.settings_per_service,
             locators_mapping: settings.initial_locators_mapping,
         }
@@ -168,7 +165,8 @@ mod tests {
     };
 
     use super::{
-        MembershipBackend as _, MockMembershipBackend, MockMembershipBackendSettings, Settings,
+        MembershipBackend as _, MembershipBackendServiceSettings, MockMembershipBackend,
+        MockMembershipBackendSettings,
     };
     use crate::MembershipProviders;
 
@@ -235,7 +233,7 @@ mod tests {
         let mut settings_per_service = HashMap::new();
         settings_per_service.insert(
             service_type,
-            Settings {
+            MembershipBackendServiceSettings {
                 historical_block_delta: 10,
             },
         );
@@ -244,6 +242,7 @@ mod tests {
             settings_per_service,
             initial_membership: HashMap::new(),
             initial_locators_mapping: HashMap::new(),
+            latest_block_number: 0,
         };
 
         let backend = MockMembershipBackend::init(settings);
@@ -269,7 +268,7 @@ mod tests {
         let mut settings_per_service = HashMap::new();
         settings_per_service.insert(
             service_type,
-            Settings {
+            MembershipBackendServiceSettings {
                 historical_block_delta: 5,
             },
         );
@@ -310,6 +309,7 @@ mod tests {
                     BTreeSet::from_iter(declaration_update_3.locators.clone()),
                 ),
             ]),
+            latest_block_number: 102,
         };
 
         let backend = MockMembershipBackend::init(settings);
@@ -376,7 +376,7 @@ mod tests {
         let mut settings_per_service = HashMap::new();
         settings_per_service.insert(
             service_type,
-            Settings {
+            MembershipBackendServiceSettings {
                 historical_block_delta: 5,
             },
         );
@@ -384,6 +384,7 @@ mod tests {
             settings_per_service,
             initial_membership: HashMap::new(),
             initial_locators_mapping: HashMap::new(),
+            latest_block_number: 0,
         })
     }
 
@@ -529,7 +530,7 @@ mod tests {
         let mut settings_per_service = HashMap::new();
         settings_per_service.insert(
             service_type,
-            Settings {
+            MembershipBackendServiceSettings {
                 historical_block_delta: 5,
             },
         );
@@ -538,6 +539,7 @@ mod tests {
             settings_per_service,
             initial_membership: HashMap::new(),
             initial_locators_mapping: HashMap::new(),
+            latest_block_number: 0,
         };
 
         let mut backend = MockMembershipBackend::init(settings);

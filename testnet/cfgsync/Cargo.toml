@@ -16,7 +16,9 @@ nomos-da-dispersal       = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-executor           = { workspace = true }
 nomos-libp2p             = { workspace = true }
+nomos-membership         = { workspace = true }
 nomos-node               = { workspace = true }
+nomos-sdp-core           = { workspace = true }
 nomos-tracing-service    = { workspace = true }
 nomos-utils              = { workspace = true, features = ["time"] }
 rand                     = "0.8"

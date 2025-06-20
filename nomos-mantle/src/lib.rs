@@ -1,3 +1,3 @@
 mod gas;
 mod ops;
-mod tx;
+pub mod tx;

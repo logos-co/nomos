@@ -46,7 +46,7 @@ impl<M: Serialize> Transaction for MockTransaction<M> {
     const HASHER: TransactionHasher<Self> = Self::id;
     type Hash = MockTxId;
 
-    fn as_bytes(&self) -> Bytes {
+    fn as_sign_bytes(&self) -> Bytes {
         Self::as_bytes(self)
     }
 }

@@ -80,10 +80,10 @@ impl MembershipHandler for FillWithOriginalReplication {
         self.assignations
             .iter()
             .enumerate()
-            .filter_map(|(netowrk_id, subnetwork)| {
+            .filter_map(|(network_id, subnetwork)| {
                 subnetwork
                     .contains(id)
-                    .then_some(netowrk_id as Self::NetworkId)
+                    .then_some(network_id as Self::NetworkId)
             })
             .collect()
     }

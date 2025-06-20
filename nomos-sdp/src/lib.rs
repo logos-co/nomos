@@ -6,7 +6,7 @@ use std::{collections::BTreeSet, hash::Hash};
 use blake2::{Blake2b, Digest as _};
 use multiaddr::Multiaddr;
 use nomos_core::block::BlockNumber;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub type StakeThreshold = u64;
 
@@ -53,9 +53,43 @@ pub enum ServiceType {
 
 pub type Nonce = [u8; 16];
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct ProviderId(pub [u8; 32]);
+
+impl Serialize for ProviderId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if serializer.is_human_readable() {
+            // For JSON: serialize as hex string
+            const_hex::encode(self.0).serialize(serializer)
+        } else {
+            // For binary: serialize as bytes
+            self.0.serialize(serializer)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ProviderId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            // For JSON: deserialize from hex string
+            let s = String::deserialize(deserializer)?;
+            let bytes = const_hex::decode(&s).map_err(serde::de::Error::custom)?;
+            if bytes.len() != 32 {
+                return Err(serde::de::Error::custom("Invalid byte length"));
+            }
+            Ok(Self(bytes.try_into().unwrap()))
+        } else {
+            // For binary: deserialize from bytes
+            Ok(Self(<[u8; 32]>::deserialize(deserializer)?))
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct DeclarationId(pub [u8; 32]);

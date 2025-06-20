@@ -5,7 +5,9 @@ use nomos_core::da::blob::Share;
 use nomos_da_messages::http::da::{
     DASharesCommitmentsRequest, DaSamplingRequest, GetSharesRequest,
 };
-use nomos_http_api_common::paths::{DA_GET_LIGHT_SHARE, DA_GET_SHARES, DA_GET_SHARES_COMMITMENTS};
+use nomos_http_api_common::paths::{
+    DA_GET_LIGHT_SHARE, DA_GET_SHARES, DA_GET_SHARES_COMMITMENTS, MEMPOOL_ADD_TX,
+};
 use reqwest::{Client, ClientBuilder, RequestBuilder, StatusCode, Url};
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -166,5 +168,15 @@ impl CommonHttpClient {
             StatusCode::INTERNAL_SERVER_ERROR => Err(Error::Server("Error".to_owned())),
             _ => Err(Error::Server(format!("Unexpected response [{status}]",))),
         }
+    }
+
+    pub async fn post_transaction<Tx>(&self, base_url: Url, transaction: Tx) -> Result<(), Error>
+    where
+        Tx: Serialize + Send + Sync + 'static,
+    {
+        let request_url = base_url
+            .join(MEMPOOL_ADD_TX.trim_start_matches('/'))
+            .map_err(Error::Url)?;
+        self.post(request_url, &transaction).await
     }
 }

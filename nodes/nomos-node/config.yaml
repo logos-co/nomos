@@ -744,3 +744,10 @@ storage:
 mempool:
   cl_pool_recovery_path: ./recovery/cl_mempool.json
   da_pool_recovery_path: ./recovery/da_mempool.json
+membership:
+  backend:
+    settings_per_service: {}
+    initial_membership: {}
+    initial_locators_mapping: {}
+    latest_block_number: 0
+sdp: 

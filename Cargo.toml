@@ -80,6 +80,7 @@ nomos-executor           = { path = "./nodes/nomos-executor/executor", default-f
 nomos-http-api-common    = { path = "./nodes/api-common" }
 nomos-ledger             = { path = "./ledger/nomos-ledger" }
 nomos-libp2p             = { path = "./nomos-libp2p" }
+nomos-mantle-core        = { path = "./nomos-mantle" }
 nomos-membership         = { path = "./nomos-services/membership" }
 nomos-mempool            = { path = "./nomos-services/mempool" }
 nomos-network            = { path = "./nomos-services/network" }

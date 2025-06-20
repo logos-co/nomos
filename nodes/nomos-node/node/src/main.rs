@@ -1,16 +1,14 @@
-use std::collections::HashMap;
-
 use clap::Parser;
 use color_eyre::eyre::{eyre, Result};
 use kzgrs_backend::dispersal::BlobInfo;
 use nomos_core::{da::blob::info::DispersedBlobInfo, tx::Transaction};
-use nomos_membership::{backends::mock::MockMembershipBackendSettings, BackendSettings};
+use nomos_mantle_core::tx::SignedMantleTx;
 use nomos_mempool::{
     network::adapters::libp2p::Settings as AdapterSettings, tx::settings::TxMempoolSettings,
 };
 use nomos_node::{
     config::BlendArgs, Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs, Nomos,
-    NomosServiceSettings, Tx,
+    NomosServiceSettings,
 };
 use overwatch::overwatch::OverwatchRunner;
 
@@ -79,7 +77,7 @@ async fn main() -> Result<()> {
                 pool: (),
                 network_adapter: AdapterSettings {
                     topic: String::from(nomos_node::CL_TOPIC),
-                    id: <Tx as Transaction>::hash,
+                    id: <SignedMantleTx as Transaction>::hash,
                 },
                 recovery_path: config.mempool.cl_pool_recovery_path,
             },
@@ -100,13 +98,7 @@ async fn main() -> Result<()> {
             storage: config.storage,
             system_sig: (),
             sdp: (),
-            membership: BackendSettings {
-                backend: MockMembershipBackendSettings {
-                    settings_per_service: HashMap::default(),
-                    initial_membership: HashMap::default(),
-                    initial_locators_mapping: HashMap::default(),
-                },
-            },
+            membership: config.membership,
         },
         None,
     )

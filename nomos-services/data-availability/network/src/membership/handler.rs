@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashSet, fmt::Debug, sync::Arc};
 
 use arc_swap::ArcSwap;
 use subnetworks_assignations::{MembershipHandler, SubnetworkAssignations};
