@@ -1,4 +1,4 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::fmt::Debug;
 
 use libp2p::Multiaddr;
 use tokio::sync::mpsc::UnboundedSender;
@@ -21,14 +21,14 @@ pub enum Command {
 
 #[derive(Debug)]
 pub struct StateMachine {
-    inner: Option<Box<dyn OnEvent<Event>>>,
+    inner: Option<Box<dyn OnEvent>>,
     command_tx: CommandTx,
 }
 
 impl StateMachine {
     pub fn new(command_tx: UnboundedSender<Command>) -> Self {
         Self {
-            inner: Some(Box::new(State::<Uninitialized, Event>::new())),
+            inner: Some(Box::new(State::<Uninitialized>::new())),
             command_tx: command_tx.into(),
         }
     }
@@ -52,9 +52,8 @@ impl StateMachine {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct State<S, E> {
+struct State<S> {
     pub state: S,
-    pub _phantom_event: PhantomData<E>,
 }
 
 #[derive(Debug, Clone)]
@@ -75,13 +74,13 @@ impl CommandTx {
 }
 
 #[cfg(not(test))]
-trait OnEvent<E>: Debug + Send {
-    fn on_event(self: Box<Self>, event: E, command_tx: &CommandTx) -> Box<dyn OnEvent<E>>;
+trait OnEvent: Debug + Send {
+    fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent>;
 }
 
 #[cfg(test)]
-trait OnEvent<E>: Debug + Send + DynPartialEq {
-    fn on_event(self: Box<Self>, event: E, command_tx: &CommandTx) -> Box<dyn OnEvent<E>>;
+trait OnEvent: Debug + Send + DynPartialEq {
+    fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent>;
 }
 
 #[cfg(test)]
@@ -90,21 +89,20 @@ trait DynPartialEq {
     fn as_any(&self) -> &dyn std::any::Any;
 }
 
-impl<S, E> State<S, E> {
-    fn boxed<T, C>(self, next_state_ctor: C) -> Box<State<T, E>>
+impl<S> State<S> {
+    fn boxed<T, C>(self, next_state_ctor: C) -> Box<State<T>>
     where
         C: FnOnce(S) -> T,
     {
         let Self { state, .. } = self;
         Box::new(State {
             state: next_state_ctor(state),
-            _phantom_event: PhantomData,
         })
     }
 }
 
-impl OnEvent<Event> for State<Uninitialized, Event> {
-    fn on_event(self: Box<Self>, event: Event, _: &CommandTx) -> Box<dyn OnEvent<Event>> {
+impl OnEvent for State<Uninitialized> {
+    fn on_event(self: Box<Self>, event: Event, _: &CommandTx) -> Box<dyn OnEvent> {
         match event {
             Event::NewExternalAddressCandidate(addr) => {
                 self.boxed(|state| state.into_test_if_public(addr))
@@ -114,8 +112,8 @@ impl OnEvent<Event> for State<Uninitialized, Event> {
     }
 }
 
-impl OnEvent<Event> for State<TestIfPublic, Event> {
-    fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent<Event>> {
+impl OnEvent for State<TestIfPublic> {
+    fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent> {
         match event {
             Event::ExternalAddressConfirmed(addr) if self.state.addr_to_test() == &addr => {
                 command_tx.send(Command::ScheduleAutonatClientTest(addr));
@@ -138,8 +136,8 @@ impl OnEvent<Event> for State<TestIfPublic, Event> {
     }
 }
 
-impl OnEvent<Event> for State<TryMapAddress, Event> {
-    fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent<Event>> {
+impl OnEvent for State<TryMapAddress> {
+    fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent> {
         match event {
             Event::NewExternalMappedAddress(addr) => {
                 command_tx.send(Command::NewExternalAddrCandidate(addr.clone()));
@@ -162,8 +160,8 @@ impl OnEvent<Event> for State<TryMapAddress, Event> {
     }
 }
 
-impl OnEvent<Event> for State<TestIfMappedPublic, Event> {
-    fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent<Event>> {
+impl OnEvent for State<TestIfMappedPublic> {
+    fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent> {
         match event {
             Event::ExternalAddressConfirmed(addr) if self.state.addr_to_test() == &addr => {
                 command_tx.send(Command::ScheduleAutonatClientTest(addr));
@@ -185,8 +183,8 @@ impl OnEvent<Event> for State<TestIfMappedPublic, Event> {
     }
 }
 
-impl OnEvent<Event> for State<Public, Event> {
-    fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent<Event>> {
+impl OnEvent for State<Public> {
+    fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent> {
         match event {
             Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestOk(addr)
                 if self.state.addr() == &addr =>
@@ -218,8 +216,8 @@ impl OnEvent<Event> for State<Public, Event> {
     }
 }
 
-impl OnEvent<Event> for State<MappedPublic, Event> {
-    fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent<Event>> {
+impl OnEvent for State<MappedPublic> {
+    fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent> {
         match event {
             Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestOk(addr)
                 if self.state.addr() == &addr =>
@@ -251,8 +249,8 @@ impl OnEvent<Event> for State<MappedPublic, Event> {
     }
 }
 
-impl OnEvent<Event> for State<Private, Event> {
-    fn on_event(self: Box<Self>, event: Event, _: &CommandTx) -> Box<dyn OnEvent<Event>> {
+impl OnEvent for State<Private> {
+    fn on_event(self: Box<Self>, event: Event, _: &CommandTx) -> Box<dyn OnEvent> {
         match event {
             Event::LocalAddressChanged(addr) => self.boxed(|state| state.into_test_if_public(addr)),
             Event::DefaultGatewayChanged(_) => {
@@ -274,7 +272,7 @@ mod tests {
     use super::*;
 
     #[cfg(test)]
-    impl<S: PartialEq + 'static, E: PartialEq + 'static> DynPartialEq for State<S, E> {
+    impl<S: PartialEq + 'static> DynPartialEq for State<S> {
         fn as_any(&self) -> &dyn core::any::Any {
             self
         }
@@ -285,14 +283,14 @@ mod tests {
     }
 
     #[cfg(test)]
-    impl<E: PartialEq> PartialEq for Box<dyn OnEvent<E>> {
+    impl PartialEq for Box<dyn OnEvent> {
         fn eq(&self, other: &Self) -> bool {
             self.box_eq(other.as_any())
         }
     }
 
     #[cfg(test)]
-    impl<E: PartialEq> PartialEq<&Self> for Box<dyn OnEvent<E>> {
+    impl PartialEq<&Self> for Box<dyn OnEvent> {
         fn eq(&self, other: &&Self) -> bool {
             self.box_eq(other.as_any())
         }
@@ -318,7 +316,7 @@ mod tests {
     }
 
     fn init_state_machine(
-        init_state: Box<dyn OnEvent<Event>>,
+        init_state: Box<dyn OnEvent>,
         command_tx: UnboundedSender<Command>,
     ) -> StateMachine {
         StateMachine {
@@ -329,10 +327,10 @@ mod tests {
 
     type TestCase<'a> = Vec<(
         u32,
-        Box<dyn Fn() -> Box<dyn OnEvent<Event>>>,
+        Box<dyn Fn() -> Box<dyn OnEvent>>,
         Vec<(
             TestEvent<'a>,
-            Box<dyn Fn() -> Box<dyn OnEvent<Event>>>,
+            Box<dyn Fn() -> Box<dyn OnEvent>>,
             Option<Command>,
         )>,
     )>;
@@ -471,10 +469,16 @@ mod tests {
                 sm.on_test_event(event);
 
                 assert_eq!(
-                    &expected_state(), sm.inner.as_ref().unwrap(),
+                    &expected_state(),
+                    sm.inner.as_ref().unwrap(),
                     "Line {}, event `{}` caused transition `{:?} -> {:?}`, expected transition `{:?} -> {:?}`",
-                    line, dbg_event, src_state(), sm.inner, src_state(), expected_state(),
-                    );
+                    line,
+                    dbg_event,
+                    src_state(),
+                    sm.inner,
+                    src_state(),
+                    expected_state(),
+                );
 
                 assert_eq!(
                     rx.try_recv(),
@@ -517,12 +521,11 @@ mod tests {
         use std::{hash::Hash, str::FromStr as _, sync::LazyLock};
 
         use libp2p::{
-            autonat,
+            Multiaddr, PeerId, autonat,
             swarm::{
-                behaviour::ExternalAddrConfirmed, FromSwarm, NewExternalAddrCandidate,
-                NewExternalAddrOfPeer,
+                FromSwarm, NewExternalAddrCandidate, NewExternalAddrOfPeer,
+                behaviour::ExternalAddrConfirmed,
             },
-            Multiaddr, PeerId,
         };
 
         use crate::behaviour::nat::{address_mapper, state_machine::StateMachine};

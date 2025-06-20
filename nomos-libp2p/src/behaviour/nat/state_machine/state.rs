@@ -1,12 +1,11 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::fmt::Debug;
 
 use libp2p::Multiaddr;
 
-impl<E: Debug> super::State<Uninitialized, E> {
+impl super::State<Uninitialized> {
     pub const fn new() -> Self {
         Self {
             state: Uninitialized(()),
-            _phantom_event: PhantomData,
         }
     }
 }
@@ -153,64 +152,58 @@ impl Private {
 #[cfg(test)]
 pub mod test_utils {
     use super::*;
-    use crate::behaviour::nat::state_machine::{event::Event, OnEvent, State};
+    use crate::behaviour::nat::state_machine::{OnEvent, State, event::Event};
 
     impl Uninitialized {
-        pub(crate) fn for_test() -> Box<dyn OnEvent<Event>> {
-            Box::new(State::<Self, Event>::new())
+        pub(crate) fn for_test() -> Box<dyn OnEvent> {
+            Box::new(State::<Self>::new())
         }
     }
 
     impl TestIfPublic {
-        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent<Event>> {
-            Box::new(State::<Self, Event> {
+        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
+            Box::new(State::<Self> {
                 state: Self { addr_to_test: addr },
-                _phantom_event: PhantomData,
             })
         }
     }
 
     impl TryMapAddress {
-        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent<Event>> {
-            Box::new(State::<Self, Event> {
+        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
+            Box::new(State::<Self> {
                 state: Self { addr_to_map: addr },
-                _phantom_event: PhantomData,
             })
         }
     }
 
     impl TestIfMappedPublic {
-        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent<Event>> {
-            Box::new(State::<Self, Event> {
+        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
+            Box::new(State::<Self> {
                 state: Self { addr_to_test: addr },
-                _phantom_event: PhantomData,
             })
         }
     }
 
     impl Public {
-        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent<Event>> {
-            Box::new(State::<Self, Event> {
+        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
+            Box::new(State::<Self> {
                 state: Self { addr },
-                _phantom_event: PhantomData,
             })
         }
     }
 
     impl MappedPublic {
-        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent<Event>> {
-            Box::new(State::<Self, Event> {
+        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
+            Box::new(State::<Self> {
                 state: Self { addr },
-                _phantom_event: PhantomData,
             })
         }
     }
 
     impl Private {
-        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent<Event>> {
-            Box::new(State::<Self, Event> {
+        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
+            Box::new(State::<Self> {
                 state: Self { addr },
-                _phantom_event: PhantomData,
             })
         }
     }
