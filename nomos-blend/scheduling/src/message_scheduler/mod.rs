@@ -1,4 +1,4 @@
-use std::{
+use core::{
     num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll},
@@ -8,6 +8,7 @@ use std::{
 use futures::{Stream, StreamExt as _};
 use tokio::time;
 use tokio_stream::wrappers::IntervalStream;
+use tracing::trace;
 
 use crate::{
     cover_traffic_2::SessionCoverTraffic,
@@ -18,6 +19,8 @@ use crate::{
 
 pub mod round_info;
 pub mod session_info;
+
+const LOG_TARGET: &str = "blend::scheduling";
 
 pub struct UninitializedMessageScheduler<SessionClock, Rng> {
     rng: Rng,
@@ -114,20 +117,21 @@ where
 
         // We do not return anything if a new round has not elapsed.
         let Poll::Ready(Some(())) = round_clock.poll_next_unpin(cx) else {
-            cx.waker().wake_by_ref();
             return Poll::Pending;
         };
+        trace!(target: LOG_TARGET, "New round started.");
 
         // We poll the sub-stream and return the right result accordingly.
+        debug_assert!(
+            cover_traffic.current_round() == release_delayer.current_round(),
+            "The two sub-streams should never get out of sync."
+        );
         let cover_traffic_output = cover_traffic.poll_next_round().map(|()| vec![].into());
         let release_delayer_output = release_delayer.poll_next_round();
 
         match (cover_traffic_output, release_delayer_output) {
             // If none of the sub-streams yields a result, we do not return anything.
-            (None, None) => {
-                cx.waker().wake_by_ref();
-                Poll::Pending
-            }
+            (None, None) => Poll::Pending,
             // If at least one sub-stream yields a result, we return a new element.
             (cover_message, processed_messages) => Poll::Ready(Some(RoundInfo {
                 cover_message,
@@ -146,6 +150,7 @@ fn setup_new_session<Rng>(
 ) where
     Rng: rand::Rng + Clone,
 {
+    trace!(target: LOG_TARGET, "New session {} started with core quota: {}", new_session_info.session_number, new_session_info.core_quota);
     *cover_traffic = settings.cover_traffic(new_session_info.core_quota, &mut release_delayer.rng);
     *release_delayer = settings.release_delayer(release_delayer.rng.clone());
     *round_clock = settings.round_clock();
@@ -195,15 +200,171 @@ impl CreationOptions {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn no_substream_ready() {}
+    use core::{
+        num::NonZeroUsize,
+        task::{Context, Poll},
+        time::Duration,
+    };
+    use std::collections::HashSet;
 
-    #[test]
-    fn cover_traffic_substream_ready() {}
+    use futures::{task::noop_waker_ref, Stream, StreamExt as _};
+    use rand::SeedableRng as _;
+    use rand_chacha::ChaCha20Rng;
+    use tokio::time::{interval, interval_at, sleep, Instant};
+    use tokio_stream::wrappers::IntervalStream;
 
-    #[test]
-    fn release_delayer_substream_ready() {}
+    use crate::{
+        cover_traffic_2::SessionCoverTraffic,
+        message::OutboundMessage,
+        message_scheduler::{
+            round_info::RoundInfo, session_info::SessionInfo, CreationOptions, MessageScheduler,
+        },
+        release_delayer::SessionReleaseDelayer,
+    };
 
-    #[test]
-    fn both_substreams_ready() {}
+    fn default_scheduler(
+        session_duration: Duration,
+        round_duration: Duration,
+    ) -> MessageScheduler<Box<dyn Stream<Item = SessionInfo> + Unpin>, ChaCha20Rng> {
+        let rng = ChaCha20Rng::from_entropy();
+        MessageScheduler {
+            // No scheduled messages.
+            cover_traffic: SessionCoverTraffic::with_test_values(0, HashSet::new(), 0),
+            // No messages to release at this round.
+            release_delayer: SessionReleaseDelayer::with_test_values(
+                0,
+                NonZeroUsize::new(1).unwrap(),
+                // Next scheduled release is 2 rounds in the future.
+                2,
+                rng,
+                vec![],
+            ),
+            round_clock: Box::new(IntervalStream::new(interval(round_duration)).map(|_| ())),
+            session_clock: Box::new(
+                // First session is assumed to have already started, so we delay the start to the
+                // next session slot.
+                IntervalStream::new(interval_at(
+                    Instant::now() + session_duration,
+                    session_duration,
+                ))
+                .enumerate()
+                .map(|(iteration, _)| SessionInfo {
+                    session_number: u128::try_from(iteration).unwrap().into(),
+                    core_quota: 1,
+                }),
+            ),
+            // Not relevant for tests.
+            settings: CreationOptions {
+                additional_safety_intervals: 0,
+                expected_intervals_per_session: NonZeroUsize::new(2).unwrap(),
+                maximum_release_delay_in_rounds: NonZeroUsize::new(1).unwrap(),
+                round_duration,
+                rounds_per_interval: NonZeroUsize::new(2).unwrap(),
+            },
+        }
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn no_substream_ready() {
+        let mut scheduler = default_scheduler(Duration::from_secs(2), Duration::from_millis(500));
+        let mut cx = Context::from_waker(noop_waker_ref());
+
+        // We poll for round 0, which returns `Pending`, as per the default scheduler
+        // configuration.
+        sleep(Duration::from_millis(100)).await;
+        assert!(scheduler.poll_next_unpin(&mut cx).is_pending());
+        // We sleep for a bit more than one round.
+        sleep(Duration::from_millis(600)).await; // We poll for round 1, which returns `Pending`.
+        assert!(scheduler.poll_next_unpin(&mut cx).is_pending());
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn cover_traffic_substream_ready() {
+        // Round 0 contains a cover message.
+        let mut scheduler = {
+            let mut scheduler =
+                default_scheduler(Duration::from_secs(2), Duration::from_millis(500));
+            scheduler.cover_traffic =
+                SessionCoverTraffic::with_test_values(0, HashSet::from([0]), 0);
+
+            scheduler
+        };
+        let mut cx = Context::from_waker(noop_waker_ref());
+
+        // Poll for round 0, which should return a cover message as per override over
+        // the default.
+        sleep(Duration::from_millis(100)).await;
+        let poll_result = scheduler.poll_next_unpin(&mut cx);
+        assert_eq!(
+            poll_result,
+            Poll::Ready(Some(RoundInfo {
+                cover_message: Some(vec![].into()),
+                processed_messages: vec![]
+            }))
+        );
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn release_delayer_substream_ready() {
+        // Round 0 contains processed messages.
+        let mut scheduler = {
+            let mut scheduler =
+                default_scheduler(Duration::from_secs(2), Duration::from_millis(500));
+            scheduler.release_delayer = SessionReleaseDelayer::with_test_values(
+                0,
+                NonZeroUsize::new(5).unwrap(),
+                0,
+                ChaCha20Rng::from_entropy(),
+                vec![OutboundMessage::from(b"test".to_vec())],
+            );
+
+            scheduler
+        };
+        let mut cx = Context::from_waker(noop_waker_ref());
+
+        // Poll for round 0, which should return the processed messages as per override
+        // over the default.
+        sleep(Duration::from_millis(100)).await;
+        let poll_result = scheduler.poll_next_unpin(&mut cx);
+        assert_eq!(
+            poll_result,
+            Poll::Ready(Some(RoundInfo {
+                cover_message: None,
+                processed_messages: vec![OutboundMessage::from(b"test".to_vec())]
+            }))
+        );
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn both_substreams_ready() {
+        // Round 0 contains both a cover message and processed messages.
+        let mut scheduler = {
+            let mut scheduler =
+                default_scheduler(Duration::from_secs(2), Duration::from_millis(500));
+            scheduler.release_delayer = SessionReleaseDelayer::with_test_values(
+                0,
+                NonZeroUsize::new(5).unwrap(),
+                0,
+                ChaCha20Rng::from_entropy(),
+                vec![OutboundMessage::from(b"test".to_vec())],
+            );
+            scheduler.cover_traffic =
+                SessionCoverTraffic::with_test_values(0, HashSet::from([0]), 0);
+
+            scheduler
+        };
+        let mut cx = Context::from_waker(noop_waker_ref());
+
+        // Poll for round 0, which should return the processed messages and a cover
+        // message as per override over the default.
+        sleep(Duration::from_millis(100)).await;
+        let poll_result = scheduler.poll_next_unpin(&mut cx);
+        assert_eq!(
+            poll_result,
+            Poll::Ready(Some(RoundInfo {
+                cover_message: Some(vec![].into()),
+                processed_messages: vec![OutboundMessage::from(b"test".to_vec())]
+            }))
+        );
+    }
 }
