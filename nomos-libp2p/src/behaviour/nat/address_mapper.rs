@@ -1,12 +1,12 @@
 use std::task::{Context, Poll, Waker};
 
 use libp2p::{
-    core::{transport::PortUse, Endpoint},
-    swarm::{
-        dummy::ConnectionHandler, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour,
-        THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
-    },
     Multiaddr, PeerId,
+    core::{Endpoint, transport::PortUse},
+    swarm::{
+        ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
+        THandlerOutEvent, ToSwarm, dummy::ConnectionHandler,
+    },
 };
 
 /// This is a placeholder for a behaviour that would map the node's addresses at
@@ -36,7 +36,7 @@ impl AddressMapperBehaviour {
         self.try_wake();
     }
 
-    pub fn try_wake(&mut self) {
+    fn try_wake(&mut self) {
         if let Some(waker) = self.waker.take() {
             waker.wake();
         }
