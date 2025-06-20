@@ -40,7 +40,7 @@ impl SessionCoverTraffic {
         }
     }
 
-    pub fn poll_next_round(&mut self) -> bool {
+    pub fn poll_next_round(&mut self) -> Option<()> {
         let current_round = self.current_round;
         self.current_round = self
             .current_round
@@ -52,13 +52,13 @@ impl SessionCoverTraffic {
             let Some(new_unprocessed_data_messages) = self.unprocessed_data_messages.checked_sub(1)
             else {
                 // If the value was already zero, we emit a new cover message.
-                return true;
+                return Some(());
             };
             // Else, we skip emission and update the unprocessed data message counter.
             self.unprocessed_data_messages = new_unprocessed_data_messages;
-            return false;
+            return None;
         }
-        return false;
+        return None;
     }
 
     pub fn notify_new_data_message(&mut self) {
@@ -91,6 +91,7 @@ where
     scheduled_message_rounds
 }
 
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct CreationOptions<Rng> {
     pub additional_safety_intervals: usize,
     pub expected_intervals_per_session: NonZeroUsize,
