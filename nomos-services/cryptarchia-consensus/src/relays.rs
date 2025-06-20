@@ -51,7 +51,7 @@ type DaMempoolRelay<DaPool, DaPoolAdapter, SamplingBackendBlobId, RuntimeService
     <DaPool as MemPool>::Item,
     SamplingBackendBlobId,
 >;
-type StorageRelay<Storage> = OutboundRelay<StorageMsg<Storage>>;
+pub type StorageRelay<Storage> = OutboundRelay<StorageMsg<Storage>>;
 type TimeRelay = OutboundRelay<TimeServiceMessage>;
 
 pub struct CryptarchiaConsensusRelays<

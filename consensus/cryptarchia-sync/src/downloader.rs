@@ -1,4 +1,4 @@
-use futures::{stream, stream::BoxStream};
+use futures::stream;
 use libp2p::PeerId;
 use libp2p_stream::Control;
 use nomos_core::header::HeaderId;
@@ -6,7 +6,7 @@ use tokio::sync::{mpsc::Sender, oneshot};
 use tracing::error;
 
 use crate::{
-    behaviour::{BlocksRequestStream, TipRequestStream},
+    behaviour::{BlocksRequestStream, BoxedStream, TipRequestStream},
     errors::ChainSyncError,
     messages::{DownloadBlocksRequest, DownloadBlocksResponse, GetTipResponse, RequestMessage},
     packing::unpack_from_reader,
@@ -36,7 +36,7 @@ impl Downloader {
         peer_id: PeerId,
         mut control: Control,
         request: DownloadBlocksRequest,
-        reply_sender: Sender<BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>>,
+        reply_sender: Sender<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>,
     ) -> Result<BlocksRequestStream, ChainSyncError> {
         let mut stream = open_stream(peer_id, &mut control).await?;
 
@@ -74,27 +74,25 @@ impl Downloader {
         let peer_id = request_stream.peer_id;
         let reply_channel = request_stream.reply_channel;
 
-        let stream = Box::pin(stream::try_unfold(
-            libp2p_stream,
-            move |mut stream| async move {
-                match unpack_from_reader::<DownloadBlocksResponse, _>(&mut stream).await {
-                    Ok(DownloadBlocksResponse::Block(block)) => Ok(Some((block, stream))),
-                    Ok(DownloadBlocksResponse::NoMoreBlocks) => {
-                        utils::close_stream(peer_id, stream).await?;
-                        Ok(None)
-                    }
-                    Err(e) => {
-                        error!("Failed to receive blocks from peer {}: {}", peer_id, e);
-                        utils::close_stream(peer_id, stream).await?;
-
-                        Err(ChainSyncError::from((peer_id, e)))
-                    }
+        let stream = stream::try_unfold(libp2p_stream, move |mut stream| async move {
+            match unpack_from_reader::<DownloadBlocksResponse, _>(&mut stream).await {
+                Ok(DownloadBlocksResponse::Block(block)) => Ok(Some((block, stream))),
+                Ok(DownloadBlocksResponse::NoMoreBlocks) => {
+                    utils::close_stream(peer_id, stream).await?;
+                    Ok(None)
                 }
-            },
-        ));
+                Err(e) => {
+                    error!("Failed to receive blocks from peer {}: {}", peer_id, e);
+                    utils::close_stream(peer_id, stream).await?;
 
+                    Err(ChainSyncError::from((peer_id, e)))
+                }
+            }
+        });
+
+        let boxed_stream: BoxedStream<_> = Box::new(Box::pin(stream));
         reply_channel
-            .send(stream)
+            .send(boxed_stream)
             .await
             .map_err(|e| ChainSyncError {
                 peer: peer_id,

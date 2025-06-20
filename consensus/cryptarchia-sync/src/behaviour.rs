@@ -49,6 +49,8 @@ type SendingTipResponsesFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
 
 type ReceivingRequestsFuture = BoxFuture<'static, Result<ReceivingRequestStream, ChainSyncError>>;
 
+pub type BoxedStream<T> = Box<dyn futures::Stream<Item = T> + Send + Unpin>;
+
 type ToSwarmEvent = ToSwarm<
     <Behaviour as NetworkBehaviour>::ToSwarm,
     <<Behaviour as NetworkBehaviour>::ConnectionHandler as ConnectionHandler>::FromBehaviour,
@@ -57,14 +59,14 @@ type ToSwarmEvent = ToSwarm<
 pub struct BlocksRequestStream {
     pub peer_id: PeerId,
     pub stream: Libp2pStream,
-    pub reply_channel: Sender<BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>>,
+    pub reply_channel: Sender<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>,
 }
 
 impl BlocksRequestStream {
     pub const fn new(
         peer_id: PeerId,
         stream: Stream,
-        reply_channel: Sender<BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>>,
+        reply_channel: Sender<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>,
     ) -> Self {
         Self {
             peer_id,
@@ -222,7 +224,7 @@ impl Behaviour {
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
-        reply_sender: Sender<BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>>,
+        reply_sender: Sender<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>,
     ) -> Result<(), ChainSyncError> {
         if !self.connected_peers.contains(&peer_id) {
             return Err(ChainSyncError {
@@ -546,7 +548,7 @@ impl NetworkBehaviour for Behaviour {
 mod tests {
     use std::{collections::HashSet, iter, time::Duration};
 
-    use futures::{stream::BoxStream, StreamExt as _};
+    use futures::StreamExt as _;
     use libp2p::{bytes::Bytes, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
     use libp2p_swarm_test::SwarmExt as _;
     use nomos_core::header::HeaderId;
@@ -554,7 +556,7 @@ mod tests {
     use tokio::sync::{mpsc, oneshot};
 
     use crate::{
-        behaviour::{ChainSyncErrorKind, MAX_INCOMING_REQUESTS},
+        behaviour::{BoxedStream, ChainSyncErrorKind, MAX_INCOMING_REQUESTS},
         provider::MAX_ADDITIONAL_BLOCKS,
         Behaviour, ChainSyncError, Event, SerialisedBlock,
     };
@@ -707,7 +709,7 @@ mod tests {
         latest_immutable_block: HeaderId,
         additional_blocks: &HashSet<HeaderId>,
         peer_id: PeerId,
-    ) -> Vec<mpsc::Receiver<BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>>> {
+    ) -> Vec<mpsc::Receiver<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>> {
         let mut channels = Vec::new();
         for _ in 0..syncs_count {
             let (tx, rx) = mpsc::channel(1);
@@ -742,7 +744,7 @@ mod tests {
 
     async fn wait_block_messages(
         expected_count: usize,
-        streams: Vec<mpsc::Receiver<BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>>>,
+        streams: Vec<mpsc::Receiver<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>>,
     ) -> (Vec<SerialisedBlock>, Vec<()>) {
         let mut blocks = Vec::new();
         let mut errors = Vec::new();
