@@ -4,24 +4,25 @@ use sha2::{Digest as _, Sha256};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LeaderPublic {
-    pub cm_root: [u8; 32],
     pub epoch_nonce: [u8; 32],
     pub slot: u64,
     pub scaled_phi_approx: (U256, U256),
-    pub nullifier: cl::Nullifier,
-    pub evolved_commitment: cl::NoteCommitment,
+    pub entropy: [u8; 32],
+    pub aged_root: [u8; 32],
+    pub latest_root: [u8; 32],
+    // TODO: missing rewards
 }
 
 impl LeaderPublic {
     #[must_use]
     pub fn new(
-        cm_root: [u8; 32],
+        aged_root: [u8; 32],
+        latest_root: [u8; 32],
+        entropy: [u8; 32],
         epoch_nonce: [u8; 32],
         slot: u64,
         active_slot_coefficient: f64,
         total_stake: u64,
-        nullifier: cl::Nullifier,
-        evolved_commitment: cl::NoteCommitment,
     ) -> Self {
         let total_stake_big = U256::from_u64(total_stake);
         let total_stake_sq_big = total_stake_big.checked_mul(&total_stake_big).unwrap();
@@ -47,19 +48,19 @@ impl LeaderPublic {
             .unwrap();
 
         Self {
-            cm_root,
+            aged_root,
+            latest_root,
             epoch_nonce,
             slot,
-            nullifier,
-            evolved_commitment,
+            entropy,
             scaled_phi_approx: (t0, t1),
         }
     }
 
     #[must_use]
-    pub fn check_winning(&self, input: &cl::InputWitness) -> bool {
-        let threshold = phi_approx(U256::from_u64(input.note.value), self.scaled_phi_approx);
-        let ticket = ticket(input, self.epoch_nonce, self.slot);
+    pub fn check_winning(&self, value: u64, note_id: [u8; 32], sk: [u8; 16]) -> bool {
+        let threshold = phi_approx(U256::from_u64(value), self.scaled_phi_approx);
+        let ticket = ticket(note_id, sk, self.epoch_nonce, self.slot);
         ticket < threshold
     }
 }
@@ -76,13 +77,13 @@ fn phi_approx(stake: U256, approx: (U256, U256)) -> U256 {
         .unwrap()
 }
 
-fn ticket(input: &cl::InputWitness, epoch_nonce: [u8; 32], slot: u64) -> U256 {
+fn ticket(note_id: [u8; 32], sk: [u8; 16], epoch_nonce: [u8; 32], slot: u64) -> U256 {
     let mut hasher = Sha256::new();
-    hasher.update(b"NOMOS_LEAD");
+    hasher.update(b"LEAD_V1");
     hasher.update(epoch_nonce);
     hasher.update(slot.to_be_bytes());
-    hasher.update(input.note_commitment().as_bytes());
-    hasher.update(input.nf_sk.0);
+    hasher.update(note_id);
+    hasher.update(sk);
 
     let ticket_bytes: [u8; 32] = hasher.finalize().into();
 
@@ -91,5 +92,8 @@ fn ticket(input: &cl::InputWitness, epoch_nonce: [u8; 32], slot: u64) -> U256 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LeaderPrivate {
-    pub input: cl::InputWitness,
+    // PLACEHOLDER: fix after mantle update
+    pub value: u64,
+    pub note_id: [u8; 32],
+    pub sk: [u8; 16],
 }
