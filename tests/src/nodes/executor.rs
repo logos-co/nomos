@@ -10,7 +10,7 @@ use std::{
 use cryptarchia_consensus::CryptarchiaSettings;
 use cryptarchia_engine::time::SlotConfig;
 use kzgrs_backend::common::share::DaShare;
-use nomos_blend::{
+use nomos_blend_scheduling::{
     message_blend::{
         CryptographicProcessorSettings, MessageBlendSettings, TemporalSchedulerSettings,
     },

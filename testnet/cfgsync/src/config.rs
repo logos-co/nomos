@@ -4,8 +4,8 @@ use std::{
     str::FromStr as _,
 };
 
-use nomos_blend::membership::Node;
 use nomos_blend_message::{sphinx::SphinxMessage, BlendMessage};
+use nomos_blend_scheduling::membership::Node;
 use nomos_libp2p::{ed25519, multiaddr, Multiaddr, PeerId};
 use nomos_membership::{
     backends::{mock::MockMembershipBackendSettings, MembershipBackendServiceSettings},
