@@ -252,7 +252,9 @@ impl OnEvent for State<MappedPublic> {
 impl OnEvent for State<Private> {
     fn on_event(self: Box<Self>, event: Event, _: &CommandTx) -> Box<dyn OnEvent> {
         match event {
-            Event::LocalAddressChanged(addr) => self.boxed(|state| state.into_test_if_public(addr)),
+            Event::LocalAddressChanged(addr) if self.state.addr() != &addr => {
+                self.boxed(|state| state.into_test_if_public(addr))
+            }
             Event::DefaultGatewayChanged(_) => {
                 let local_addr = self.state.addr().clone();
                 self.boxed(|state| state.into_test_if_public(local_addr))
@@ -271,7 +273,6 @@ mod tests {
 
     use super::*;
 
-    #[cfg(test)]
     impl<S: PartialEq + 'static> DynPartialEq for State<S> {
         fn as_any(&self) -> &dyn core::any::Any {
             self
@@ -282,14 +283,12 @@ mod tests {
         }
     }
 
-    #[cfg(test)]
     impl PartialEq for Box<dyn OnEvent> {
         fn eq(&self, other: &Self) -> bool {
             self.box_eq(other.as_any())
         }
     }
 
-    #[cfg(test)]
     impl PartialEq<&Self> for Box<dyn OnEvent> {
         fn eq(&self, other: &&Self) -> bool {
             self.box_eq(other.as_any())
@@ -326,11 +325,18 @@ mod tests {
     }
 
     type TestCase<'a> = Vec<(
+        // Source line number for debugging
         u32,
+        // Factory of the initial state of the state machine
         Box<dyn Fn() -> Box<dyn OnEvent>>,
+        // Expected transitions from the initial state
         Vec<(
+            // Event that should cause the transition
             TestEvent<'a>,
+            // Factory of the expected state after the transition
             Box<dyn Fn() -> Box<dyn OnEvent>>,
+            // Expected command that should be emitted by the state machine
+            // If `None`, no command is expected
             Option<Command>,
         )>,
     )>;
