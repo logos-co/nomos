@@ -26,7 +26,7 @@ impl SessionCoverTraffic {
     {
         let total_intervals = expected_intervals_per_session
             .get()
-            .checked_mul(additional_safety_intervals)
+            .checked_add(additional_safety_intervals)
             .expect("Overflow when calculating total intervals per session.");
         let total_rounds = total_intervals
             .checked_mul(rounds_per_interval.get())
@@ -39,6 +39,23 @@ impl SessionCoverTraffic {
             scheduled_message_rounds,
             unprocessed_data_messages: 0,
         }
+    }
+
+    #[cfg(test)]
+    pub const fn with_test_values(
+        current_round: usize,
+        scheduled_message_rounds: HashSet<usize>,
+        unprocessed_data_messages: usize,
+    ) -> Self {
+        Self {
+            current_round,
+            scheduled_message_rounds,
+            unprocessed_data_messages,
+        }
+    }
+
+    pub fn current_round(&self) -> usize {
+        self.current_round
     }
 
     pub fn poll_next_round(&mut self) -> Option<()> {
@@ -63,7 +80,7 @@ impl SessionCoverTraffic {
             trace!(target: LOG_TARGET, "Skipping message emission because of override by data message.");
             return None;
         }
-        trace!(target: LOG_TARGET, "Not a pre-scheduled emission for this round.");
+        trace!(target: LOG_TARGET, "Not a pre-scheduled emission for round {current_round}.");
         None
     }
 
