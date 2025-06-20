@@ -24,7 +24,13 @@ impl Display for Session {
     }
 }
 
+/// Information regarding a session that the message scheduler needs to
+/// initialize its sub-streams.
+#[derive(Debug, Clone, Copy)]
 pub struct SessionInfo {
+    /// The initial quota that the cover message scheduler will use to
+    /// pre-compute the rounds to yield a new message.
     pub core_quota: usize,
+    /// The identifier for the current session.
     pub session_number: Session,
 }
