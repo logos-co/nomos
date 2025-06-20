@@ -1,6 +1,6 @@
 use std::{
     num::NonZeroUsize,
-    pin::{pin, Pin},
+    pin::Pin,
     task::{Context, Poll},
     time::Duration,
 };
@@ -54,34 +54,22 @@ where
         }
         .await;
 
-        let core_quota = first_session_info.core_quota;
         MessageScheduler {
-            current_session_info: first_session_info,
-            cover_traffic: SessionCoverTraffic::new(crate::cover_traffic_2::CreationOptions {
-                additional_safety_intervals: settings.additional_safety_intervals,
-                expected_intervals_per_session: settings.expected_intervals_per_session,
-                rng: settings.rng.clone(),
-                rounds_per_interval: settings.rounds_per_interval,
-                starting_quota: core_quota,
-            }),
-            release_delayer: SessionReleaseDelayer::new(crate::release_delayer::CreationOptions {
-                maximum_release_delay_in_rounds: settings.maximum_release_delay_in_rounds,
-                rng: settings.rng,
-            }),
-            round_clock: Box::new(
-                IntervalStream::new(time::interval(settings.round_duration)).map(|_| ()),
-            ),
+            cover_traffic: settings.cover_traffic(first_session_info.core_quota),
+            release_delayer: settings.release_delayer(),
+            round_clock: settings.round_clock(),
             session_clock,
+            settings,
         }
     }
 }
 
 pub struct MessageScheduler<SessionClock, Rng> {
-    current_session_info: SessionInfo,
     cover_traffic: SessionCoverTraffic,
     release_delayer: SessionReleaseDelayer<Rng>,
-    round_clock: Box<dyn Stream<Item = ()>>,
+    round_clock: Box<dyn Stream<Item = ()> + Unpin>,
     session_clock: SessionClock,
+    settings: CreationOptions<Rng>,
 }
 
 impl<SessionClock, Rng> MessageScheduler<SessionClock, Rng> {
@@ -96,15 +84,71 @@ impl<SessionClock, Rng> MessageScheduler<SessionClock, Rng> {
 
 impl<SessionClock, Rng> Stream for MessageScheduler<SessionClock, Rng>
 where
-    SessionClock: Stream<Item = SessionInfo>,
+    SessionClock: Stream<Item = SessionInfo> + Unpin,
+    Rng: rand::Rng + Clone + Unpin,
 {
     type Item = RoundInfo;
 
-    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        unimplemented!()
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let Self {
+            cover_traffic,
+            release_delayer,
+            round_clock,
+            session_clock,
+            settings,
+        } = &mut *self;
+
+        // We update session info on new sessions.
+        if let Poll::Ready(Some(new_session_info)) = session_clock.poll_next_unpin(cx) {
+            setup_new_session(
+                cover_traffic,
+                release_delayer,
+                round_clock,
+                settings,
+                new_session_info,
+            );
+        }
+
+        // We do not return anything if a new round has not elapsed.
+        let Poll::Ready(Some(())) = round_clock.poll_next_unpin(cx) else {
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        };
+
+        // We poll the sub-stream and return the right result accordingly.
+        let cover_traffic_output = cover_traffic.poll_next_round().map(|_| vec![].into());
+        let release_delayer_output = release_delayer.poll_next_round();
+
+        match (cover_traffic_output, release_delayer_output) {
+            // If none of the sub-streams yields a result, we do not return anything.
+            (None, None) => {
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+            // If at least one sub-stream yields a result, we return a new element.
+            (cover_message, processed_messages) => Poll::Ready(Some(RoundInfo {
+                cover_message,
+                processed_messages: processed_messages.unwrap_or_default(),
+            })),
+        }
     }
 }
 
+fn setup_new_session<Rng>(
+    cover_traffic: &mut SessionCoverTraffic,
+    release_delayer: &mut SessionReleaseDelayer<Rng>,
+    round_clock: &mut Box<dyn Stream<Item = ()> + Unpin>,
+    settings: &CreationOptions<Rng>,
+    new_session_info: SessionInfo,
+) where
+    Rng: rand::Rng + Clone,
+{
+    *cover_traffic = settings.cover_traffic(new_session_info.core_quota);
+    *release_delayer = settings.release_delayer();
+    *round_clock = settings.round_clock();
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct CreationOptions<Rng> {
     pub additional_safety_intervals: usize,
     pub expected_intervals_per_session: NonZeroUsize,
@@ -112,4 +156,45 @@ pub struct CreationOptions<Rng> {
     pub rng: Rng,
     pub round_duration: Duration,
     pub rounds_per_interval: NonZeroUsize,
+}
+
+impl<Rng> CreationOptions<Rng>
+where
+    Rng: rand::Rng + Clone,
+{
+    fn cover_traffic(&self, core_quota: usize) -> SessionCoverTraffic {
+        SessionCoverTraffic::new(crate::cover_traffic_2::CreationOptions {
+            additional_safety_intervals: self.additional_safety_intervals,
+            expected_intervals_per_session: self.expected_intervals_per_session,
+            rng: self.rng.clone(),
+            rounds_per_interval: self.rounds_per_interval,
+            starting_quota: core_quota,
+        })
+    }
+
+    fn release_delayer(&self) -> SessionReleaseDelayer<Rng> {
+        SessionReleaseDelayer::new(crate::release_delayer::CreationOptions {
+            maximum_release_delay_in_rounds: self.maximum_release_delay_in_rounds,
+            rng: self.rng.clone(),
+        })
+    }
+
+    fn round_clock(&self) -> Box<dyn Stream<Item = ()> + Unpin> {
+        Box::new(IntervalStream::new(time::interval(self.round_duration)).map(|_| ()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn no_substream_ready() {}
+
+    #[test]
+    fn cover_traffic_substream_ready() {}
+
+    #[test]
+    fn release_delayer_substream_ready() {}
+
+    #[test]
+    fn both_substreams_ready() {}
 }

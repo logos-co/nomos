@@ -77,6 +77,7 @@ where
         .expect("Randomly generated offset should be strictly positive.")
 }
 
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct CreationOptions<Rng> {
     pub maximum_release_delay_in_rounds: NonZeroUsize,
     pub rng: Rng,

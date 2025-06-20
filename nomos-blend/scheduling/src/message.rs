@@ -23,3 +23,9 @@ impl From<CoverMessage> for Vec<u8> {
         value.0
     }
 }
+
+impl From<Vec<u8>> for CoverMessage {
+    fn from(value: Vec<u8>) -> Self {
+        Self(value)
+    }
+}
