@@ -73,20 +73,8 @@ impl CommandTx {
     }
 }
 
-#[cfg(not(test))]
-trait OnEvent: Debug + Send {
-    fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent>;
-}
-
-#[cfg(test)]
 trait OnEvent: Debug + Send + DynPartialEq {
     fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent>;
-}
-
-#[cfg(test)]
-trait DynPartialEq {
-    fn box_eq(&self, other: &dyn std::any::Any) -> bool;
-    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 impl<S> State<S> {
@@ -256,6 +244,25 @@ impl OnEvent for State<Private> {
     }
 }
 
+trait DynPartialEq {
+    #[cfg(test)]
+    fn box_eq(&self, other: &dyn std::any::Any) -> bool;
+    #[cfg(test)]
+    fn as_any(&self) -> &dyn std::any::Any;
+}
+
+impl<S: PartialEq + 'static> DynPartialEq for State<S> {
+    #[cfg(test)]
+    fn as_any(&self) -> &dyn core::any::Any {
+        self
+    }
+
+    #[cfg(test)]
+    fn box_eq(&self, other: &dyn core::any::Any) -> bool {
+        other.downcast_ref::<Self>() == Some(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -264,16 +271,6 @@ mod tests {
     use tokio::sync::mpsc::{error::TryRecvError, unbounded_channel};
 
     use super::*;
-
-    impl<S: PartialEq + 'static> DynPartialEq for State<S> {
-        fn as_any(&self) -> &dyn core::any::Any {
-            self
-        }
-
-        fn box_eq(&self, other: &dyn core::any::Any) -> bool {
-            other.downcast_ref::<Self>() == Some(self)
-        }
-    }
 
     impl PartialEq for Box<dyn OnEvent> {
         fn eq(&self, other: &Self) -> bool {
