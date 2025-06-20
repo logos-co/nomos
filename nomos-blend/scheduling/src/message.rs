@@ -55,6 +55,7 @@ impl From<BlendOutgoingMessage> for Vec<u8> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoverMessage(Vec<u8>);
 
 impl From<CoverMessage> for Vec<u8> {

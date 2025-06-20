@@ -1,4 +1,4 @@
-use std::{mem, num::NonZeroUsize};
+use core::{mem, num::NonZeroUsize};
 
 use tracing::{debug, trace};
 
@@ -36,6 +36,10 @@ where
         }
     }
 
+    pub fn current_round(&self) -> usize {
+        self.current_round
+    }
+
     pub fn poll_next_round(&mut self) -> Option<Vec<OutboundMessage>> {
         let current_round = self.current_round;
         // We can safely saturate, since even if we ever reach the end and there's a
@@ -61,6 +65,25 @@ where
         }
         trace!(target: LOG_TARGET, "Round {current_round} is not a release round.");
         None
+    }
+}
+
+impl<Rng> SessionReleaseDelayer<Rng> {
+    #[cfg(test)]
+    pub const fn with_test_values(
+        current_round: usize,
+        maximum_release_delay_in_rounds: NonZeroUsize,
+        next_release_round: usize,
+        rng: Rng,
+        unreleased_messages: Vec<OutboundMessage>,
+    ) -> Self {
+        Self {
+            current_round,
+            maximum_release_delay_in_rounds,
+            next_release_round,
+            rng,
+            unreleased_messages,
+        }
     }
 }
 
