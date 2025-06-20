@@ -56,16 +56,8 @@ impl LeaderProof for Risc0LeaderProof {
         public_inputs == &self.public_inputs
     }
 
-    fn nullifier(&self) -> cl::Nullifier {
-        self.public_inputs.nullifier
-    }
-
-    fn evolved_commitment(&self) -> cl::NoteCommitment {
-        self.public_inputs.evolved_commitment
-    }
-
-    fn merke_root(&self) -> [u8; 32] {
-        self.public_inputs.cm_root
+    fn entropy(&self) -> [u8; 32] {
+        self.public_inputs.entropy
     }
 }
 
@@ -132,14 +124,13 @@ mod test {
         let note = NoteWitness::basic(32, NMO_UNIT, &mut rng);
         let nf_sk = NullifierSecret::random(&mut rng);
 
-        let notes = vec![note.commit(nf_sk.commit())];
-        let leaves = note_commitment_leaves(&notes);
+        let aged_notes = vec![note.commit(nf_sk.commit())];
+        let aged_leaves = note_commitment_leaves(&aged_notes);
 
-        let input = cl::InputWitness {
-            note,
-            nf_sk,
-            cm_path: cl::merkle::path(leaves, 0),
-        };
+        let latest_notes = vec![note.commit(nf_sk.commit())];
+        let latest_leaves = note_commitment_leaves(&latest_notes);
+        // placeholder
+        let note_id = [0; 32];
 
         let epoch_nonce = [0u8; 32];
         let slot = 0;
@@ -147,22 +138,26 @@ mod test {
         let total_stake = 1000;
 
         let mut expected_public_inputs = LeaderPublic::new(
-            cl::merkle::root(leaves),
+            cl::merkle::root(aged_leaves),
+            cl::merkle::root(latest_leaves),
+            [1; 32], // placeholder for entropy
             epoch_nonce,
             slot,
             active_slot_coefficient,
             total_stake,
-            input.nullifier(),
-            input.evolve_output(b"NOMOS_POL").commit_note(),
         );
 
-        while !expected_public_inputs.check_winning(&input) {
+        while !expected_public_inputs.check_winning(note.value, note_id, nf_sk.0) {
             expected_public_inputs.slot += 1;
         }
 
         println!("slot={}", expected_public_inputs.slot);
 
-        let private_inputs = LeaderPrivate { input };
+        let private_inputs = LeaderPrivate {
+            value: note.value,
+            note_id,
+            sk: nf_sk.0,
+        };
 
         let proof = Risc0LeaderProof::prove(
             expected_public_inputs,

@@ -12,6 +12,7 @@ blake2 = "0.10"
 # TODO: we only need types definition from this crate
 cl                     = { workspace = true }
 cryptarchia-engine     = { workspace = true }
+crypto-bigint          = "0.5"
 nomos-utils            = { workspace = true, optional = true, features = ["serde"] }
 nomos_proof_statements = { workspace = true }
 rand                   = "0.8.5"
