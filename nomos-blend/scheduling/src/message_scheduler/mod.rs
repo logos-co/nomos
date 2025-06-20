@@ -22,14 +22,20 @@ pub mod session_info;
 
 const LOG_TARGET: &str = "blend::scheduling";
 
+/// A message scheduler waiting for the session stream to provide consumable
+/// session info, to compute session-related components to pass to its
+/// constituent sub-streams.
 pub struct UninitializedMessageScheduler<SessionClock, Rng> {
+    /// The random generator to select slots for message releasing.
     rng: Rng,
+    /// The input stream that ticks upon a session change.
     session_clock: SessionClock,
-    settings: CreationOptions,
+    /// The settings to initialize all the required sub-streams.
+    settings: Settings,
 }
 
 impl<SessionClock, Rng> UninitializedMessageScheduler<SessionClock, Rng> {
-    pub const fn new(session_clock: SessionClock, settings: CreationOptions, rng: Rng) -> Self {
+    pub const fn new(session_clock: SessionClock, settings: Settings, rng: Rng) -> Self {
         Self {
             rng,
             session_clock,
@@ -43,6 +49,8 @@ where
     SessionClock: Stream<Item = SessionInfo> + Unpin,
     Rng: rand::Rng,
 {
+    /// Waits until the provided [`SessionClock`] returns the first tick with
+    /// the relevant session information.
     pub async fn wait_next_session_start(self) -> MessageScheduler<SessionClock, Rng> {
         let Self {
             mut rng,
@@ -70,19 +78,35 @@ where
     }
 }
 
+/// The initialized version of [`UninitializedMessageScheduler`] that is created
+/// after the session stream yields its first result.
 pub struct MessageScheduler<SessionClock, Rng> {
+    /// The module responsible for randomly generated cover messages, given the
+    /// allowed session quota and accounting for data messages generated within
+    /// the session.
     cover_traffic: SessionCoverTraffic,
+    /// The module responsible for delaying the release of processed messages
+    /// that have not been fully decapsulated.
     release_delayer: SessionReleaseDelayer<Rng>,
+    /// The clock ticking at every round, that might result in new messages
+    /// being emitted by this module, as per the specification.
     round_clock: Box<dyn Stream<Item = ()> + Unpin>,
+    /// The input stream that ticks upon a session change.
     session_clock: SessionClock,
-    settings: CreationOptions,
+    /// The settings to initialize all the required sub-streams.
+    settings: Settings,
 }
 
 impl<SessionClock, Rng> MessageScheduler<SessionClock, Rng> {
+    /// Notify the cover message submodule that a new data message has been
+    /// generated in this session, which will reduce the number of cover
+    /// messages generated going forward.
     pub const fn notify_new_data_message(&mut self) {
         self.cover_traffic.notify_new_data_message();
     }
 
+    /// Add a new processed message to the release delayer component queue, for
+    /// release during the next release window.
     pub fn schedule_message(&mut self, message: OutboundMessage) {
         self.release_delayer.schedule_message(message);
     }
@@ -121,18 +145,22 @@ where
         };
         trace!(target: LOG_TARGET, "New round started.");
 
-        // We poll the sub-stream and return the right result accordingly.
+        // Sub-streams should never get out of sync. We check that in debug builds to
+        // catch any issues early on.
         debug_assert!(
             cover_traffic.current_round() == release_delayer.current_round(),
             "The two sub-streams should never get out of sync."
         );
+        // We poll the sub-stream and return the right result accordingly.
         let cover_traffic_output = cover_traffic.poll_next_round().map(|()| vec![].into());
         let release_delayer_output = release_delayer.poll_next_round();
 
         match (cover_traffic_output, release_delayer_output) {
-            // If none of the sub-streams yields a result, we do not return anything.
+            // If none of the sub-streams is ready, we do not return anything.
             (None, None) => Poll::Pending,
-            // If at least one sub-stream yields a result, we return a new element.
+            // If at least one sub-stream yields a result, we return a new element, which might also
+            // contain no elements if the cover message module did not yield a new cover message and
+            // there were no queue messages to be released in this release window.
             (cover_message, processed_messages) => Poll::Ready(Some(RoundInfo {
                 cover_message,
                 processed_messages: processed_messages.unwrap_or_default(),
@@ -141,23 +169,25 @@ where
     }
 }
 
+/// Reset the sub-streams providing the new session info and the round clock at
+/// the beginning of a new session.
 fn setup_new_session<Rng>(
     cover_traffic: &mut SessionCoverTraffic,
     release_delayer: &mut SessionReleaseDelayer<Rng>,
     round_clock: &mut Box<dyn Stream<Item = ()> + Unpin>,
-    settings: &CreationOptions,
+    settings: &Settings,
     new_session_info: &SessionInfo,
 ) where
     Rng: rand::Rng + Clone,
 {
-    trace!(target: LOG_TARGET, "New session {} started with core quota: {}", new_session_info.session_number, new_session_info.core_quota);
+    trace!(target: LOG_TARGET, "New session {} started with session info: {new_session_info:?}", new_session_info.session_number);
     *cover_traffic = settings.cover_traffic(new_session_info.core_quota, &mut release_delayer.rng);
     *release_delayer = settings.release_delayer(release_delayer.rng.clone());
     *round_clock = settings.round_clock();
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct CreationOptions {
+pub struct Settings {
     pub additional_safety_intervals: usize,
     pub expected_intervals_per_session: NonZeroUsize,
     pub maximum_release_delay_in_rounds: NonZeroUsize,
@@ -165,13 +195,13 @@ pub struct CreationOptions {
     pub rounds_per_interval: NonZeroUsize,
 }
 
-impl CreationOptions {
+impl Settings {
     fn cover_traffic<Rng>(&self, core_quota: usize, rng: &mut Rng) -> SessionCoverTraffic
     where
         Rng: rand::Rng,
     {
         SessionCoverTraffic::new(
-            crate::cover_traffic_2::CreationOptions {
+            crate::cover_traffic_2::Settings {
                 additional_safety_intervals: self.additional_safety_intervals,
                 expected_intervals_per_session: self.expected_intervals_per_session,
                 rounds_per_interval: self.rounds_per_interval,
@@ -186,7 +216,7 @@ impl CreationOptions {
         Rng: rand::Rng,
     {
         SessionReleaseDelayer::new(
-            crate::release_delayer::CreationOptions {
+            crate::release_delayer::Settings {
                 maximum_release_delay_in_rounds: self.maximum_release_delay_in_rounds,
             },
             rng,
@@ -218,7 +248,7 @@ mod tests {
         cover_traffic_2::SessionCoverTraffic,
         message::OutboundMessage,
         message_scheduler::{
-            round_info::RoundInfo, session_info::SessionInfo, CreationOptions, MessageScheduler,
+            round_info::RoundInfo, session_info::SessionInfo, MessageScheduler, Settings,
         },
         release_delayer::SessionReleaseDelayer,
     };
@@ -257,7 +287,7 @@ mod tests {
                 }),
             ),
             // Not relevant for tests.
-            settings: CreationOptions {
+            settings: Settings {
                 additional_safety_intervals: 0,
                 expected_intervals_per_session: NonZeroUsize::new(2).unwrap(),
                 maximum_release_delay_in_rounds: NonZeroUsize::new(1).unwrap(),
