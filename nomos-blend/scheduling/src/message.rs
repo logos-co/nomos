@@ -1,8 +1,10 @@
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BlendOutgoingMessage {
     FullyUnwrapped(FullyUnwrappedMessage),
     Outbound(OutboundMessage),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FullyUnwrappedMessage(Vec<u8>);
 
 impl From<Vec<u8>> for FullyUnwrappedMessage {
@@ -23,6 +25,7 @@ impl AsRef<[u8]> for FullyUnwrappedMessage {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutboundMessage(Vec<u8>);
 
 impl From<Vec<u8>> for OutboundMessage {
