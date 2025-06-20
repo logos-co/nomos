@@ -68,7 +68,7 @@ impl From<UnboundedSender<Command>> for CommandTx {
 }
 
 impl CommandTx {
-    fn send(&self, command: Command) {
+    fn force_send(&self, command: Command) {
         self.tx.send(command).expect("Channel not to be closed");
     }
 }
@@ -116,11 +116,11 @@ impl OnEvent for State<TestIfPublic> {
     fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent> {
         match event {
             Event::ExternalAddressConfirmed(addr) if self.state.addr_to_test() == &addr => {
-                command_tx.send(Command::ScheduleAutonatClientTest(addr));
+                command_tx.force_send(Command::ScheduleAutonatClientTest(addr));
                 self.boxed(TestIfPublic::into_public)
             }
             Event::AutonatClientTestFailed(addr) if self.state.addr_to_test() == &addr => {
-                command_tx.send(Command::MapAddress(addr));
+                command_tx.force_send(Command::MapAddress(addr));
                 self.boxed(TestIfPublic::into_try_address_mapping)
             }
             Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestFailed(addr) => {
@@ -140,7 +140,7 @@ impl OnEvent for State<TryMapAddress> {
     fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent> {
         match event {
             Event::NewExternalMappedAddress(addr) => {
-                command_tx.send(Command::NewExternalAddrCandidate(addr.clone()));
+                command_tx.force_send(Command::NewExternalAddrCandidate(addr.clone()));
                 self.boxed(|state| state.into_test_if_mapped_public(addr))
             }
             Event::AddressMappingFailed(addr) if self.state.addr_to_map() == &addr => {
@@ -164,7 +164,7 @@ impl OnEvent for State<TestIfMappedPublic> {
     fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent> {
         match event {
             Event::ExternalAddressConfirmed(addr) if self.state.addr_to_test() == &addr => {
-                command_tx.send(Command::ScheduleAutonatClientTest(addr));
+                command_tx.force_send(Command::ScheduleAutonatClientTest(addr));
                 self.boxed(TestIfMappedPublic::into_mapped_public)
             }
             Event::AutonatClientTestFailed(addr) if self.state.addr_to_test() == &addr => {
@@ -189,7 +189,7 @@ impl OnEvent for State<Public> {
             Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestOk(addr)
                 if self.state.addr() == &addr =>
             {
-                command_tx.send(Command::ScheduleAutonatClientTest(addr));
+                command_tx.force_send(Command::ScheduleAutonatClientTest(addr));
                 self
             }
             Event::AutonatClientTestFailed(addr) if self.state.addr() == &addr => {
@@ -222,7 +222,7 @@ impl OnEvent for State<MappedPublic> {
             Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestOk(addr)
                 if self.state.addr() == &addr =>
             {
-                command_tx.send(Command::ScheduleAutonatClientTest(addr));
+                command_tx.force_send(Command::ScheduleAutonatClientTest(addr));
                 self
             }
             Event::AutonatClientTestFailed(addr) if self.state.addr() == &addr => {
