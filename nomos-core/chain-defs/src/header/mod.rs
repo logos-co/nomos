@@ -44,12 +44,7 @@ impl Header {
         h.update(self.slot.to_be_bytes());
         h.update(self.parent.0);
 
-        h.update(self.leader_proof.nullifier().as_bytes());
-        h.update(self.leader_proof.evolved_commitment().as_bytes());
-
-        for proof in &self.orphaned_leader_proofs {
-            proof.update_hasher(h);
-        }
+        // TODO: header hash missing in specs
     }
 
     #[must_use]

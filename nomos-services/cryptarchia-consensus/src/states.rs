@@ -46,7 +46,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
             ));
         };
         let lib_block_length = lib.length();
-        let lib_leader_notes = leader.notes(&lib.id()).map(Vec::from).unwrap_or_default();
+        let lib_leader_notes = leader.notes().to_vec();
 
         // Retrieve the prunable forks from the cryptarchia engine.
         let prunable_forks = {
@@ -184,12 +184,7 @@ mod tests {
         );
 
         // Empty leader notes.
-        let leader = Leader::new(
-            genesis_header_id,
-            vec![],
-            NullifierSecret::zero(),
-            ledger_config,
-        );
+        let leader = Leader::new(vec![], NullifierSecret::zero(), ledger_config);
 
         // Test when no additional blocks are included.
         let recovery_state =
