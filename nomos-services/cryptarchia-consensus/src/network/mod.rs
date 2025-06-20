@@ -1,6 +1,6 @@
 pub mod adapters;
 
-use std::hash::Hash;
+use std::{collections::HashSet, hash::Hash};
 
 use futures::Stream;
 use nomos_core::{block::Block, header::HeaderId};
@@ -11,7 +11,7 @@ use overwatch::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 
-type BoxedStream<T> = Box<dyn Stream<Item = T> + Send + Sync + Unpin>;
+pub(crate) type BoxedStream<T> = Box<dyn Stream<Item = T> + Send + Unpin>;
 
 #[async_trait::async_trait]
 pub trait NetworkAdapter<RuntimeServiceId> {
@@ -33,4 +33,13 @@ pub trait NetworkAdapter<RuntimeServiceId> {
     async fn chainsync_events_stream(&self) -> Result<BoxedStream<ChainSyncEvent>, DynError>;
 
     async fn request_tip(&self, peer: Self::PeerId) -> Result<HeaderId, DynError>;
+
+    async fn request_blocks_from_peer(
+        &self,
+        peer: String,
+        target_block: HeaderId,
+        local_tip: HeaderId,
+        latest_immutable_block: HeaderId,
+        additional_blocks: HashSet<HeaderId>,
+    ) -> Result<BoxedStream<Result<Block<Self::Tx, Self::BlobCertificate>, DynError>>, DynError>;
 }

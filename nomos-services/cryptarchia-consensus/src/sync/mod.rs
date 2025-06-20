@@ -1,2 +1,2 @@
 #![allow(dead_code, reason = "wip")]
-mod block_provider;
+pub mod block_provider;
