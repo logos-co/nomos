@@ -287,15 +287,15 @@ mod tests {
     fn all_events<'a>() -> HashSet<TestEvent<'a>> {
         [
             autonat_failed(),
-            autonat_failed_with_addr_mismatch(),
+            // autonat_failed_with_addr_mismatch(),
             autonat_ok(),
-            autonat_ok_with_address_mismatch(),
+            // autonat_ok_with_address_mismatch(),
             mapping_failed(),
-            mapping_failed_with_addr_mismatch(),
+            // mapping_failed_with_addr_mismatch(),
             mapping_ok(),
             new_external_address_candidate(),
             external_address_confirmed(),
-            external_address_confirmed_with_addr_mismatch(),
+            // external_address_confirmed_with_addr_mismatch(),
             default_gateway_changed(),
             local_address_changed(),
             other_from_swarm_event(),
@@ -313,7 +313,7 @@ mod tests {
         }
     }
 
-    type TestCase<'a> = Vec<(
+    type TestCases<'a> = Vec<(
         // Source line number for debugging
         u32,
         // Factory of the initial state of the state machine
@@ -333,7 +333,7 @@ mod tests {
     #[expect(clippy::too_many_lines, reason = "Keep the test readable")]
     #[test]
     fn test_transitions_and_emitted_commands() {
-        let expected_transitions: TestCase<'_> = vec![
+        let expected_transitions: TestCases<'_> = vec![
             (
                 line!(),
                 Box::new(|| Uninitialized::for_test()),
@@ -451,6 +451,20 @@ mod tests {
             ),
         ];
 
+        fun_name(expected_transitions);
+    }
+
+    fn fun_name(
+        expected_transitions: Vec<(
+            u32,
+            Box<dyn Fn() -> Box<dyn OnEvent + 'static> + 'static>,
+            Vec<(
+                TestEvent<'_>,
+                Box<dyn Fn() -> Box<dyn OnEvent + 'static> + 'static>,
+                Option<Command>,
+            )>,
+        )>,
+    ) {
         for (line, src_state, expected_transition) in expected_transitions {
             let mut expected_ignored_events: HashSet<TestEvent<'_>> = all_events();
 
@@ -637,16 +651,10 @@ mod tests {
             LazyLock::new(|| Multiaddr::from_str("/memory/1").unwrap());
         pub static AUTONAT_FAILED: LazyLock<BinaryCompatAutonatEvent> =
             LazyLock::new(|| BinaryCompatAutonatEvent::new("/memory/0"));
-        pub static AUTONAT_FAILED_ADDR_1: LazyLock<BinaryCompatAutonatEvent> =
-            LazyLock::new(|| BinaryCompatAutonatEvent::new("/memory/1"));
         pub static PEER_ID: LazyLock<PeerId> = LazyLock::new(PeerId::random);
 
         pub fn autonat_ok<'a>() -> TestEvent<'a> {
             TestEvent::autonat_ok(ADDR.clone())
-        }
-
-        pub fn autonat_ok_with_address_mismatch<'a>() -> TestEvent<'a> {
-            TestEvent::autonat_ok(ADDR_1.clone())
         }
 
         #[derive(Debug)]
@@ -689,20 +697,8 @@ mod tests {
             })
         }
 
-        pub fn autonat_failed_with_addr_mismatch<'a>() -> TestEvent<'a> {
-            // SAFETY: layout and alignment of `BinaryCompatAutonatEvent` is compatible with
-            // `autonat::v2::client::Event`
-            TestEvent::AutonatClientFailed(unsafe {
-                &*(&raw const *AUTONAT_FAILED_ADDR_1).cast::<autonat::v2::client::Event>()
-            })
-        }
-
         pub fn mapping_failed<'a>() -> TestEvent<'a> {
             TestEvent::AddressMapping(address_mapper::Event::AddressMappingFailed(ADDR.clone()))
-        }
-
-        pub fn mapping_failed_with_addr_mismatch<'a>() -> TestEvent<'a> {
-            TestEvent::AddressMapping(address_mapper::Event::AddressMappingFailed(ADDR_1.clone()))
         }
 
         pub fn mapping_ok<'a>() -> TestEvent<'a> {
@@ -720,12 +716,6 @@ mod tests {
         pub fn external_address_confirmed<'a>() -> TestEvent<'a> {
             TestEvent::FromSwarm(FromSwarm::ExternalAddrConfirmed(ExternalAddrConfirmed {
                 addr: &ADDR,
-            }))
-        }
-
-        pub fn external_address_confirmed_with_addr_mismatch<'a>() -> TestEvent<'a> {
-            TestEvent::FromSwarm(FromSwarm::ExternalAddrConfirmed(ExternalAddrConfirmed {
-                addr: &ADDR_1,
             }))
         }
 

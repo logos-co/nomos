@@ -152,7 +152,7 @@ impl Private {
 #[cfg(test)]
 pub mod test_utils {
     use super::*;
-    use crate::behaviour::nat::state_machine::{OnEvent, State, event::Event};
+    use crate::behaviour::nat::state_machine::{OnEvent, State};
 
     impl Uninitialized {
         pub(crate) fn for_test() -> Box<dyn OnEvent> {
