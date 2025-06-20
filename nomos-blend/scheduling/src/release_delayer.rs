@@ -1,14 +1,16 @@
 use std::{mem, num::NonZeroUsize};
 
+use tracing::{debug, trace};
+
 use crate::message::OutboundMessage;
 
 const LOG_TARGET: &str = "blend::scheduling::delay";
 
-pub(super) struct SessionReleaseDelayer<Rng> {
+pub struct SessionReleaseDelayer<Rng> {
     current_round: usize,
     maximum_release_delay_in_rounds: NonZeroUsize,
     next_release_round: usize,
-    rng: Rng,
+    pub rng: Rng,
     unreleased_messages: Vec<OutboundMessage>,
 }
 
@@ -19,9 +21,10 @@ where
     pub fn new(
         CreationOptions {
             maximum_release_delay_in_rounds,
-            mut rng,
-        }: CreationOptions<Rng>,
+        }: CreationOptions,
+        mut rng: Rng,
     ) -> Self {
+        debug!(target: LOG_TARGET, "Creating new release delayer with {maximum_release_delay_in_rounds} maximum delay (in rounds).");
         let next_release_round =
             schedule_next_release_round_offset(maximum_release_delay_in_rounds, &mut rng);
         Self {
@@ -35,10 +38,9 @@ where
 
     pub fn poll_next_round(&mut self) -> Option<Vec<OutboundMessage>> {
         let current_round = self.current_round;
-        self.current_round = self
-            .current_round
-            .checked_add(1)
-            .expect("Overflow when incrementing current round.");
+        // We can safely saturate, since even if we ever reach the end and there's a
+        // scheduled message, it will be consumed the first time the value is hit.
+        self.current_round = self.current_round.saturating_add(1);
 
         // If it's time to release messages...
         if current_round == self.next_release_round {
@@ -54,8 +56,10 @@ where
                 .expect("Overflow when scheduling next release round offset.");
             // Return the unreleased messages and clear the buffer.
             let messages = mem::take(&mut self.unreleased_messages);
+            debug!(target: LOG_TARGET, "Round {current_round} is a release round.");
             return Some(messages);
         }
+        trace!(target: LOG_TARGET, "Round {current_round} is not a release round.");
         None
     }
 }
@@ -78,9 +82,8 @@ where
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct CreationOptions<Rng> {
+pub struct CreationOptions {
     pub maximum_release_delay_in_rounds: NonZeroUsize,
-    pub rng: Rng,
 }
 
 #[cfg(test)]
