@@ -1,12 +1,12 @@
 use std::task::{Context, Poll, Waker};
 
 use libp2p::{
-    Multiaddr, PeerId,
-    core::{Endpoint, transport::PortUse},
+    core::{transport::PortUse, Endpoint},
     swarm::{
-        ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
-        THandlerOutEvent, ToSwarm, dummy::ConnectionHandler,
+        dummy::ConnectionHandler, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour,
+        THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
     },
+    Multiaddr, PeerId,
 };
 
 /// This is a placeholder for a behaviour that would map the node's addresses at

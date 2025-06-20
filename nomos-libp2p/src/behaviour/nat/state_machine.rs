@@ -530,11 +530,12 @@ mod tests {
         use std::{hash::Hash, str::FromStr as _, sync::LazyLock};
 
         use libp2p::{
-            Multiaddr, PeerId, autonat,
+            autonat,
             swarm::{
-                FromSwarm, NewExternalAddrCandidate, NewExternalAddrOfPeer,
-                behaviour::ExternalAddrConfirmed,
+                behaviour::ExternalAddrConfirmed, FromSwarm, NewExternalAddrCandidate,
+                NewExternalAddrOfPeer,
             },
+            Multiaddr, PeerId,
         };
 
         use crate::behaviour::nat::{address_mapper, state_machine::StateMachine};
