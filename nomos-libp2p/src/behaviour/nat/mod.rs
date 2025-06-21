@@ -1,37 +1,58 @@
 use std::task::{Context, Poll};
 
+use either::Either;
 use libp2p::{
-    autonat::v2::client::{Behaviour, Config},
+    autonat,
     core::{transport::PortUse, Endpoint},
     swarm::{
-        ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
-        THandlerOutEvent, ToSwarm,
+        behaviour::toggle::{Toggle, ToggleConnectionHandler},
+        ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, NewListenAddr, THandler,
+        THandlerInEvent, THandlerOutEvent, ToSwarm,
     },
     Multiaddr, PeerId,
 };
 use rand::RngCore;
 
+mod address_mapper;
+mod inner;
+mod state_machine;
+
+use crate::{behaviour::nat::inner::InnerNatBehaviour, AutonatClientSettings};
+
 /// This behaviour is responsible for confirming that the addresses of the node
 /// are publicly reachable.
 pub struct NatBehaviour<R: RngCore + 'static> {
-    /// `AutoNAT` client behaviour which is used to confirm if addresses of our
-    /// node are indeed publicly reachable.
-    autonat_client_behaviour: Behaviour<R>,
+    /// The static public listen address is passed through this variable to
+    /// the `poll()` method. Unused if the node is not configured with a static
+    /// public IP address.
+    static_listen_addr: Option<Multiaddr>,
+    /// Provides dynamic NAT-status detection, NAT-status improvement (via
+    /// address mapping on the NAT-box), and periodic maintenance capabilities.
+    /// Disabled if the node is configured with a static public IP address.
+    inner_behaviour: Toggle<InnerNatBehaviour<R>>,
 }
 
 impl<R: RngCore + 'static> NatBehaviour<R> {
-    pub fn new(rng: R, config: Config) -> Self {
-        let autonat_client_behaviour = Behaviour::new(rng, config);
+    pub fn new(rng: R, autonat_client_config: Option<AutonatClientSettings>) -> Self {
+        let inner_behaviour =
+            Toggle::from(autonat_client_config.map(|config| InnerNatBehaviour::new(rng, config)));
 
         Self {
-            autonat_client_behaviour,
+            static_listen_addr: None,
+            inner_behaviour,
         }
     }
 }
 
 impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
-    type ConnectionHandler = <Behaviour as NetworkBehaviour>::ConnectionHandler;
-    type ToSwarm = <Behaviour as NetworkBehaviour>::ToSwarm;
+    type ConnectionHandler = ToggleConnectionHandler<
+        <autonat::v2::client::Behaviour as NetworkBehaviour>::ConnectionHandler,
+    >;
+
+    type ToSwarm = Either<
+        <autonat::v2::client::Behaviour as NetworkBehaviour>::ToSwarm,
+        address_mapper::Event,
+    >;
 
     fn handle_pending_inbound_connection(
         &mut self,
@@ -39,8 +60,11 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
         local_addr: &Multiaddr,
         remote_addr: &Multiaddr,
     ) -> Result<(), ConnectionDenied> {
-        self.autonat_client_behaviour
-            .handle_pending_inbound_connection(connection_id, local_addr, remote_addr)
+        self.inner_behaviour.handle_pending_inbound_connection(
+            connection_id,
+            local_addr,
+            remote_addr,
+        )
     }
 
     fn handle_established_inbound_connection(
@@ -50,8 +74,12 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
         local_addr: &Multiaddr,
         remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        self.autonat_client_behaviour
-            .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)
+        self.inner_behaviour.handle_established_inbound_connection(
+            connection_id,
+            peer,
+            local_addr,
+            remote_addr,
+        )
     }
 
     fn handle_pending_outbound_connection(
@@ -61,13 +89,12 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
         addresses: &[Multiaddr],
         effective_role: Endpoint,
     ) -> Result<Vec<Multiaddr>, ConnectionDenied> {
-        self.autonat_client_behaviour
-            .handle_pending_outbound_connection(
-                connection_id,
-                maybe_peer,
-                addresses,
-                effective_role,
-            )
+        self.inner_behaviour.handle_pending_outbound_connection(
+            connection_id,
+            maybe_peer,
+            addresses,
+            effective_role,
+        )
     }
 
     fn handle_established_outbound_connection(
@@ -78,18 +105,21 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
         role_override: Endpoint,
         port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        self.autonat_client_behaviour
-            .handle_established_outbound_connection(
-                connection_id,
-                peer,
-                addr,
-                role_override,
-                port_use,
-            )
+        self.inner_behaviour.handle_established_outbound_connection(
+            connection_id,
+            peer,
+            addr,
+            role_override,
+            port_use,
+        )
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm) {
-        self.autonat_client_behaviour.on_swarm_event(event);
+        if let Some(inner_behaviour) = self.inner_behaviour.as_mut() {
+            inner_behaviour.on_swarm_event(event);
+        } else if let FromSwarm::NewListenAddr(NewListenAddr { addr, .. }) = event {
+            self.static_listen_addr = Some(addr.clone());
+        }
     }
 
     fn on_connection_handler_event(
@@ -98,7 +128,7 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
         connection_id: ConnectionId,
         event: THandlerOutEvent<Self>,
     ) {
-        self.autonat_client_behaviour
+        self.inner_behaviour
             .on_connection_handler_event(peer_id, connection_id, event);
     }
 
@@ -106,8 +136,12 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
-        if let Poll::Ready(autonat_event) = self.autonat_client_behaviour.poll(cx) {
-            return Poll::Ready(autonat_event);
+        if let Some(addr) = self.static_listen_addr.take() {
+            return Poll::Ready(ToSwarm::ExternalAddrConfirmed(addr));
+        }
+
+        if let Poll::Ready(to_swarm) = self.inner_behaviour.poll(cx) {
+            return Poll::Ready(to_swarm);
         }
 
         Poll::Pending
@@ -118,12 +152,7 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
 mod tests {
     use std::time::Duration;
 
-    use libp2p::{
-        autonat::{self},
-        identify, identity,
-        swarm::SwarmEvent,
-        Swarm,
-    };
+    use libp2p::{identify, identity, swarm::SwarmEvent, Swarm};
     use libp2p_swarm_test::SwarmExt as _;
     use rand::rngs::OsRng;
     use tokio::time::timeout;
@@ -141,7 +170,7 @@ mod tests {
         pub fn new(public_key: identity::PublicKey) -> Self {
             let nat = NatBehaviour::new(
                 OsRng,
-                Config::default().with_probe_interval(Duration::from_millis(100)),
+                Some(AutonatClientSettings::default().with_probe_interval_millisecs(10)),
             );
             let identify =
                 identify::Behaviour::new(identify::Config::new("/unittest".into(), public_key));
@@ -201,7 +230,7 @@ mod tests {
                 ..
             } = client
                 .wait(|e| match e {
-                    SwarmEvent::Behaviour(ClientEvent::Nat(event)) => Some(event),
+                    SwarmEvent::Behaviour(ClientEvent::Nat(Either::Left(event))) => Some(event),
                     _ => None,
                 })
                 .await;
