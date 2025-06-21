@@ -9,6 +9,9 @@ pub use tokio_stream::StreamExt as _;
 
 use crate::IntervalStreamProvider;
 
+/// Number of rounds that the observation window lasts.
+const OBSERVATION_WINDOW_ROUNDS: u64 = 30;
+
 #[derive(Clone)]
 /// Provider of a stream of observation windows used by the Blend connection
 /// monitor to evaluate peers.
@@ -47,7 +50,7 @@ impl IntervalStreamProvider for ObservationWindowTokioIntervalProvider {
         let expected_message_range = self.calculate_expected_message_range();
         Box::new(
             tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(
-                Duration::from_secs(self.round_duration_seconds.get()),
+                Duration::from_secs(OBSERVATION_WINDOW_ROUNDS * self.round_duration_seconds.get()),
             ))
             .map(move |_| expected_message_range.clone()),
         )
