@@ -1,13 +1,6 @@
-use std::{
-    task::{Context, Poll},
-    time::Duration,
-};
+use std::task::{Context, Poll};
 
 use either::Either;
-use futures::{
-    future::{BoxFuture, Fuse, OptionFuture},
-    FutureExt as _,
-};
 use libp2p::{
     autonat,
     core::{transport::PortUse, Endpoint},
@@ -21,14 +14,10 @@ use libp2p::{
 use rand::RngCore;
 
 mod address_mapper;
+mod inner;
 mod state_machine;
 
-use state_machine::{Command, StateMachine};
-use tokio::sync::mpsc::UnboundedReceiver;
-
-use crate::{behaviour::nat::address_mapper::AddressMapperBehaviour, AutonatClientSettings};
-
-type Task = BoxFuture<'static, Multiaddr>;
+use crate::{behaviour::nat::inner::InnerNatBehaviour, AutonatClientSettings};
 
 /// This behaviour is responsible for confirming that the addresses of the node
 /// are publicly reachable.
@@ -37,62 +26,20 @@ pub struct NatBehaviour<R: RngCore + 'static> {
     /// the `poll()` method. Unused if the node is not configured with a static
     /// public IP address.
     static_listen_addr: Option<Multiaddr>,
-    /// `AutoNAT` client behaviour which is used to confirm if addresses of our
-    /// node are indeed publicly reachable. This behaviour is **disabled** if
-    /// the node is configured with a static public IP address.
-    autonat_client_behaviour: Toggle<autonat::v2::client::Behaviour<R>>,
-    /// The address mapper behaviour is used to map the node's addresses at the
-    /// default gateway using one of the protocols: `PCP`, `NAT-PMP`,
-    /// `UPNP-IGD`. The current implementation is a placeholder and does not
-    /// perform any actual address mapping, and always generates a failure
-    /// event. This behaviour is **disabled** if the node is configured with
-    /// a static public IP address.
-    address_mapper_behaviour: Toggle<AddressMapperBehaviour>,
-    /// The state machine reacts to events from the swarm and from the
-    /// sub-behaviours of the `NatBehaviour` and issues commands to the
-    /// `NatBehaviour`.
-    state_machine: StateMachine,
-    /// Commands issued by the state machine are received through this end of
-    /// the channel.
-    command_rx: UnboundedReceiver<Command>,
-    /// Used to schedule "re-tests" for already confirmed external addresses via
-    /// the `autonat_client_behaviour`
-    next_autonat_client_tick: Fuse<OptionFuture<Task>>,
-    /// Interval for the above ticker. `None` if the node is configured with a
-    /// static public IP address.
-    autonat_client_tick_interval: Option<Duration>,
+    /// Provides dynamic NAT-status detection, NAT-status improvement (via
+    /// address mapping on the NAT-box), and periodic maintenance capabilities.
+    /// Disabled if the node is configured with a static public IP address.
+    inner_behaviour: Toggle<InnerNatBehaviour<R>>,
 }
 
 impl<R: RngCore + 'static> NatBehaviour<R> {
     pub fn new(rng: R, autonat_client_config: Option<AutonatClientSettings>) -> Self {
-        let address_mapper_behaviour = Toggle::from(
-            autonat_client_config
-                .as_ref()
-                .map(|_| AddressMapperBehaviour::default()),
-        );
-
-        let autonat_client_behaviour = Toggle::from(
-            autonat_client_config
-                .as_ref()
-                .map(|config| autonat::v2::client::Behaviour::new(rng, config.to_libp2p_config())),
-        );
-
-        let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
-
-        let state_machine = StateMachine::new(command_tx);
-
-        let autonat_client_tick_interval = autonat_client_config.map(|config| {
-            Duration::from_millis(config.retest_successful_external_addresses_interval_millisecs)
-        });
+        let inner_behaviour =
+            Toggle::from(autonat_client_config.map(|config| InnerNatBehaviour::new(rng, config)));
 
         Self {
             static_listen_addr: None,
-            autonat_client_behaviour,
-            address_mapper_behaviour,
-            state_machine,
-            command_rx,
-            next_autonat_client_tick: OptionFuture::default().fuse(),
-            autonat_client_tick_interval,
+            inner_behaviour,
         }
     }
 }
@@ -113,8 +60,11 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
         local_addr: &Multiaddr,
         remote_addr: &Multiaddr,
     ) -> Result<(), ConnectionDenied> {
-        self.autonat_client_behaviour
-            .handle_pending_inbound_connection(connection_id, local_addr, remote_addr)
+        self.inner_behaviour.handle_pending_inbound_connection(
+            connection_id,
+            local_addr,
+            remote_addr,
+        )
     }
 
     fn handle_established_inbound_connection(
@@ -124,8 +74,12 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
         local_addr: &Multiaddr,
         remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        self.autonat_client_behaviour
-            .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)
+        self.inner_behaviour.handle_established_inbound_connection(
+            connection_id,
+            peer,
+            local_addr,
+            remote_addr,
+        )
     }
 
     fn handle_pending_outbound_connection(
@@ -135,13 +89,12 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
         addresses: &[Multiaddr],
         effective_role: Endpoint,
     ) -> Result<Vec<Multiaddr>, ConnectionDenied> {
-        self.autonat_client_behaviour
-            .handle_pending_outbound_connection(
-                connection_id,
-                maybe_peer,
-                addresses,
-                effective_role,
-            )
+        self.inner_behaviour.handle_pending_outbound_connection(
+            connection_id,
+            maybe_peer,
+            addresses,
+            effective_role,
+        )
     }
 
     fn handle_established_outbound_connection(
@@ -152,20 +105,18 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
         role_override: Endpoint,
         port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        self.autonat_client_behaviour
-            .handle_established_outbound_connection(
-                connection_id,
-                peer,
-                addr,
-                role_override,
-                port_use,
-            )
+        self.inner_behaviour.handle_established_outbound_connection(
+            connection_id,
+            peer,
+            addr,
+            role_override,
+            port_use,
+        )
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm) {
-        if self.autonat_client_behaviour.is_enabled() {
-            self.state_machine.on_event(event);
-            self.autonat_client_behaviour.on_swarm_event(event);
+        if let Some(inner_behaviour) = self.inner_behaviour.as_mut() {
+            inner_behaviour.on_swarm_event(event);
         } else if let FromSwarm::NewListenAddr(NewListenAddr { addr, .. }) = event {
             self.static_listen_addr = Some(addr.clone());
         }
@@ -177,7 +128,7 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
         connection_id: ConnectionId,
         event: THandlerOutEvent<Self>,
     ) {
-        self.autonat_client_behaviour
+        self.inner_behaviour
             .on_connection_handler_event(peer_id, connection_id, event);
     }
 
@@ -189,52 +140,8 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
             return Poll::Ready(ToSwarm::ExternalAddrConfirmed(addr));
         }
 
-        if let Poll::Ready(to_swarm) = self.autonat_client_behaviour.poll(cx) {
-            if let ToSwarm::GenerateEvent(event) = &to_swarm {
-                self.state_machine.on_event(event);
-            }
-
-            return Poll::Ready(to_swarm.map_out(Either::Left));
-        }
-
-        if let Poll::Ready(to_swarm) = self.address_mapper_behaviour.poll(cx) {
-            if let ToSwarm::GenerateEvent(event) = &to_swarm {
-                self.state_machine.on_event(event);
-            }
-
-            return Poll::Ready(to_swarm.map_out(Either::Right).map_in(Either::Right));
-        }
-
-        if let Poll::Ready(Some(_addr)) = self.next_autonat_client_tick.poll_unpin(cx) {
-            if let Some(_autonat_client_behaviour) = self.autonat_client_behaviour.as_mut() {
-                // TODO: This is a placeholder for the missing API of the
-                // autonat client
-                // autonat.retest_address(addr);
-            }
-        }
-
-        if let Poll::Ready(Some(command)) = self.command_rx.poll_recv(cx) {
-            match command {
-                Command::ScheduleAutonatClientTest(addr) => {
-                    self.next_autonat_client_tick = OptionFuture::from(Some(
-                        tokio::time::sleep(
-                            self.autonat_client_tick_interval
-                                .expect("autonat client to be enabled"),
-                        )
-                        .map(|()| addr)
-                        .boxed(),
-                    ))
-                    .fuse();
-                }
-                Command::MapAddress(addr) => {
-                    if let Some(mapper) = self.address_mapper_behaviour.as_mut() {
-                        mapper.try_map_address(addr);
-                    }
-                }
-                Command::NewExternalAddrCandidate(addr) => {
-                    return Poll::Ready(ToSwarm::NewExternalAddrCandidate(addr));
-                }
-            }
+        if let Poll::Ready(to_swarm) = self.inner_behaviour.poll(cx) {
+            return Poll::Ready(to_swarm);
         }
 
         Poll::Pending
@@ -243,6 +150,8 @@ impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use libp2p::{identify, identity, swarm::SwarmEvent, Swarm};
     use libp2p_swarm_test::SwarmExt as _;
     use rand::rngs::OsRng;
