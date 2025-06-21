@@ -12,10 +12,13 @@ pub struct Settings {
     pub max_candidates: Option<usize>,
 
     /// The interval at which we will attempt to confirm candidates as external
-    /// addresses.
+    /// addresses, only used for new candidates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub probe_interval_millisecs: Option<u64>,
 
+    /// The interval at which we will retest successful external addresses.
+    /// This is used to ensure that the external address is still valid and
+    /// reachable.
     #[serde(default = "default_restest_interval_millisecs")]
     pub retest_successful_external_addresses_interval_millisecs: u64,
 }
