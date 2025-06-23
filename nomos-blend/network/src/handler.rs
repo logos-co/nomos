@@ -163,19 +163,20 @@ where
         // TODO: Refactor this to a separate function.
         if let Poll::Ready(output) = self.monitor.poll(cx) {
             match output {
-                ConnectionMonitorOutput::Spammy => {
+                Some(ConnectionMonitorOutput::Spammy) => {
                     self.close_substreams();
                     self.pending_events_to_behaviour
                         .push_back(ToBehaviour::SpammyPeer);
                 }
-                ConnectionMonitorOutput::Unhealthy => {
+                Some(ConnectionMonitorOutput::Unhealthy) => {
                     self.pending_events_to_behaviour
                         .push_back(ToBehaviour::UnhealthyPeer);
                 }
-                ConnectionMonitorOutput::Healthy => {
+                Some(ConnectionMonitorOutput::Healthy) => {
                     self.pending_events_to_behaviour
                         .push_back(ToBehaviour::HealthyPeer);
                 }
+                None => panic!("Connection monitor stream was closed."),
             }
         }
 
