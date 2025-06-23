@@ -5,9 +5,17 @@ use core::{
     time::Duration,
 };
 
-use futures::{Stream, StreamExt as _};
-use tokio::time;
-use tokio_stream::wrappers::IntervalStream;
+use futures::{
+    stream::{AbortHandle, Abortable},
+    Stream, StreamExt as _,
+};
+use rand::SeedableRng;
+use rand_chacha::ChaCha20Rng;
+use tokio::{
+    sync::broadcast,
+    time::{self, interval},
+};
+use tokio_stream::wrappers::{BroadcastStream, IntervalStream};
 use tracing::trace;
 
 use crate::{
@@ -71,13 +79,7 @@ where
         }
         .await;
 
-        MessageScheduler {
-            cover_traffic: settings.cover_traffic(first_session_info.core_quota, &mut rng),
-            release_delayer: settings.release_delayer(rng),
-            round_clock: settings.round_clock(),
-            session_clock,
-            settings,
-        }
+        MessageScheduler::new(session_clock, settings)
     }
 }
 
@@ -91,9 +93,7 @@ pub struct MessageScheduler<SessionClock, Rng> {
     /// The module responsible for delaying the release of processed messages
     /// that have not been fully decapsulated.
     release_delayer: SessionProcessedMessageDelayer<Box<dyn Stream<Item = Round>>, Rng>,
-    /// The clock ticking at every round, that might result in new messages
-    /// being emitted by this module, as per the specification.
-    round_clock: Box<dyn Stream<Item = ()> + Unpin>,
+    round_clock_task: AbortHandle,
     /// The input stream that ticks upon a session change.
     session_clock: SessionClock,
     /// The settings to initialize all the required sub-streams.
@@ -101,6 +101,66 @@ pub struct MessageScheduler<SessionClock, Rng> {
 }
 
 impl<SessionClock, Rng> MessageScheduler<SessionClock, Rng> {
+    pub fn new(session_clock: SessionClock, settings: Settings) -> Self {
+        let mut round_clock = IntervalStream::new(interval(settings.round_duration))
+            .enumerate()
+            .map(|(round, _)| (round as u128).into());
+
+        // Create a broadcast channel
+        let (tx, _) = broadcast::channel(2);
+
+        // Spawn a task that sends ticks to the broadcast channel
+        let (abort_handle, abort_registration) = AbortHandle::new_pair();
+        let handle = tokio::spawn(Abortable::new(
+            async move {
+                loop {
+                    let next_clock = round_clock.next().await;
+                    let _ = tx.send(next_clock);
+                }
+            },
+            abort_registration,
+        ));
+
+        // TODO: 1) Move this to a different type that implements `Clone` and `Stream`.
+        // TODO: 2) Make it a nice wrapper and move it somewhere else in some utils
+        // Create two independent receivers
+        let mut stream1 = Box::new(
+            BroadcastStream::new(tx.subscribe()).map(|i| (i.unwrap().unwrap() as u128).into()),
+        ) as Box<dyn Stream<Item = Round>>;
+        let mut stream2 = Box::new(
+            BroadcastStream::new(tx.subscribe()).map(|i| (i.unwrap().unwrap() as u128).into()),
+        ) as Box<dyn Stream<Item = Round>>;
+
+        let mut rng = ChaCha20Rng::from_entropy();
+
+        let cover_scheduler = SessionCoverTraffic::new(
+            crate::cover_traffic_2::Settings {
+                additional_safety_intervals: 0,
+                expected_intervals_per_session: 1.try_into().unwrap(),
+                rounds_per_interval: 1.try_into().unwrap(),
+                starting_quota: 1,
+            },
+            &mut rng,
+            stream1,
+        );
+
+        let delayer = SessionProcessedMessageDelayer::<Box<dyn Stream<Item = Round>>, Rng>::new(
+            crate::release_delayer::Settings {
+                maximum_release_delay_in_rounds: 1.try_into().unwrap(),
+            },
+            rng,
+            stream2,
+        );
+
+        Self {
+            cover_traffic: cover_scheduler,
+            release_delayer: delayer,
+            round_clock_task: abort_handle,
+            session_clock,
+            settings,
+        }
+    }
+
     /// Notify the cover message submodule that a new data message has been
     /// generated in this session, which will reduce the number of cover
     /// messages generated going forward.
@@ -187,10 +247,10 @@ where
 
 /// Reset the sub-streams providing the new session info and the round clock at
 /// the beginning of a new session.
-fn setup_new_session<Rng>(
-    cover_traffic: &mut SessionCoverTraffic,
-    release_delayer: &mut SessionProcessedMessageDelayer<Rng>,
-    round_clock: &mut Box<dyn Stream<Item = ()> + Unpin>,
+fn setup_new_session<Rng, RoundClock>(
+    cover_traffic: &mut SessionCoverTraffic<RoundClock>,
+    release_delayer: &mut SessionProcessedMessageDelayer<RoundClock, Rng>,
+    round_clock: &mut RoundClock,
     settings: &Settings,
     new_session_info: &SessionInfo,
 ) where
@@ -212,7 +272,12 @@ pub struct Settings {
 }
 
 impl Settings {
-    fn cover_traffic<Rng>(&self, core_quota: usize, rng: &mut Rng) -> SessionCoverTraffic
+    fn cover_traffic<RoundClock, Rng>(
+        &self,
+        core_quota: usize,
+        rng: &mut Rng,
+        round_clock: RoundClock,
+    ) -> SessionCoverTraffic<RoundClock>
     where
         Rng: rand::Rng,
     {
@@ -224,10 +289,15 @@ impl Settings {
                 starting_quota: core_quota,
             },
             rng,
+            round_clock,
         )
     }
 
-    fn release_delayer<Rng>(&self, rng: Rng) -> SessionProcessedMessageDelayer<Rng>
+    fn release_delayer<RoundClock, Rng>(
+        &self,
+        rng: Rng,
+        round_clock: RoundClock,
+    ) -> SessionProcessedMessageDelayer<RoundClock, Rng>
     where
         Rng: rand::Rng,
     {
@@ -236,11 +306,8 @@ impl Settings {
                 maximum_release_delay_in_rounds: self.maximum_release_delay_in_rounds,
             },
             rng,
+            round_clock,
         )
-    }
-
-    fn round_clock(&self) -> Box<dyn Stream<Item = ()> + Unpin> {
-        Box::new(IntervalStream::new(time::interval(self.round_duration)).map(|_| ()))
     }
 }
 
