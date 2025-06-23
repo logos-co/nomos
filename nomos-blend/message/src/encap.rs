@@ -387,22 +387,30 @@ enum PrivateHeaderDecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
     Completed((EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>, PublicHeader)),
 }
 
+/// A blending header encapsulated zero or more times.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct EncapsulatedBlendingHeader(Vec<u8>);
 
 impl EncapsulatedBlendingHeader {
+    /// Build a [`EncapsulatedBlendingHeader`] by serializing a
+    /// [`BlendingHeader`] without any encapsulation.
     fn initialize(header: &BlendingHeader) -> Self {
         Self(wire::serialize(header).expect("BlendingHeader should be able to be serialized"))
     }
 
+    /// Try to deserialize into a [`BlendingHeader`].
+    /// If there is no encapsulation left, and if the bytes are valid,
+    /// the deserialization will succeed.
     fn try_deserialize(&self) -> Result<BlendingHeader, Error> {
         wire::deserialize(&self.0).map_err(|_| Error::DeserializationFailed)
     }
 
+    /// Add a layer of encapsulation.
     fn encapsulate(&mut self, key: &SharedKey) {
         key.encrypt(self.0.as_mut_slice());
     }
 
+    /// Remove a layer of encapsulation.
     fn decapsulate(&mut self, key: &SharedKey) {
         key.decrypt(self.0.as_mut_slice());
     }
@@ -412,23 +420,31 @@ impl EncapsulatedBlendingHeader {
     }
 }
 
+/// A payload encapsulated zero or more times.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct EncapsulatedPayload(Vec<u8>);
 
 impl EncapsulatedPayload {
+    /// Build a [`EncapsulatedPayload`] by serializing a [`Payload`]
+    /// without any encapsulation.
     fn initialize(payload: &Payload) -> Self {
         Self(wire::serialize(payload).expect("Payload should be able to be serialized"))
     }
 
+    /// Try to deserialize into a [`Payload`].
+    /// If there is no encapsulation left, and if the bytes are valid,
+    /// the deserialization will succeed.
     fn try_deserialize(&self) -> Result<Payload, Error> {
         wire::deserialize(&self.0).map_err(|_| Error::DeserializationFailed)
     }
 
+    /// Add a layer of encapsulation.
     fn encapsulate(mut self, key: &SharedKey) -> Self {
         key.encrypt(self.0.as_mut_slice());
         self
     }
 
+    /// Remove a layer of encapsulation.
     fn decapsulate(mut self, key: &SharedKey) -> Self {
         key.decrypt(self.0.as_mut_slice());
         self
