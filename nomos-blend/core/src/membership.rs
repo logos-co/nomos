@@ -44,9 +44,7 @@ impl<NodeId> Membership<NodeId> {
             local_node: local_node.expect("Local node not found"),
         }
     }
-}
 
-impl<NodeId> Membership<NodeId> {
     pub fn choose_remote_nodes<R: Rng>(&self, rng: &mut R, amount: usize) -> Vec<&Node<NodeId>> {
         self.remote_nodes.choose_multiple(rng, amount).collect()
     }
