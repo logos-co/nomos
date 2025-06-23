@@ -59,14 +59,14 @@ type ToSwarmEvent = ToSwarm<
 pub struct BlocksRequestStream {
     pub peer_id: PeerId,
     pub stream: Libp2pStream,
-    pub reply_channel: Sender<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>,
+    pub reply_channel: oneshot::Sender<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>,
 }
 
 impl BlocksRequestStream {
     pub const fn new(
         peer_id: PeerId,
         stream: Stream,
-        reply_channel: Sender<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>,
+        reply_channel: oneshot::Sender<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>,
     ) -> Self {
         Self {
             peer_id,
@@ -224,7 +224,7 @@ impl Behaviour {
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
-        reply_sender: Sender<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>,
+        reply_sender: oneshot::Sender<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>,
     ) -> Result<(), ChainSyncError> {
         if !self.connected_peers.contains(&peer_id) {
             return Err(ChainSyncError {
@@ -553,7 +553,7 @@ mod tests {
     use libp2p_swarm_test::SwarmExt as _;
     use nomos_core::header::HeaderId;
     use rand::{rng, Rng as _};
-    use tokio::sync::{mpsc, oneshot};
+    use tokio::sync::oneshot;
 
     use crate::{
         behaviour::{BoxedStream, ChainSyncErrorKind, MAX_INCOMING_REQUESTS},
@@ -585,7 +585,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_download_with_no_peers() {
-        let (response_tx, _response_rx) = mpsc::channel(1);
+        let (response_tx, _response_rx) = oneshot::channel();
         let err = Behaviour::new()
             .start_blocks_download(
                 PeerId::random(),
@@ -709,10 +709,10 @@ mod tests {
         latest_immutable_block: HeaderId,
         additional_blocks: &HashSet<HeaderId>,
         peer_id: PeerId,
-    ) -> Vec<mpsc::Receiver<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>> {
+    ) -> Vec<oneshot::Receiver<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>> {
         let mut channels = Vec::new();
         for _ in 0..syncs_count {
-            let (tx, rx) = mpsc::channel(1);
+            let (tx, rx) = oneshot::channel();
             channels.push(rx);
             downloader_swarm
                 .behaviour_mut()
@@ -744,13 +744,13 @@ mod tests {
 
     async fn wait_block_messages(
         expected_count: usize,
-        streams: Vec<mpsc::Receiver<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>>,
+        streams: Vec<oneshot::Receiver<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>>,
     ) -> (Vec<SerialisedBlock>, Vec<()>) {
         let mut blocks = Vec::new();
         let mut errors = Vec::new();
 
-        for mut receiver in streams {
-            let Some(mut stream) = receiver.recv().await else {
+        for receiver in streams {
+            let Ok(mut stream) = receiver.await else {
                 errors.push(());
                 continue;
             };

@@ -2,7 +2,7 @@ use futures::stream;
 use libp2p::PeerId;
 use libp2p_stream::Control;
 use nomos_core::header::HeaderId;
-use tokio::sync::{mpsc::Sender, oneshot};
+use tokio::sync::oneshot;
 use tracing::error;
 
 use crate::{
@@ -36,7 +36,7 @@ impl Downloader {
         peer_id: PeerId,
         mut control: Control,
         request: DownloadBlocksRequest,
-        reply_sender: Sender<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>,
+        reply_sender: oneshot::Sender<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>,
     ) -> Result<BlocksRequestStream, ChainSyncError> {
         let mut stream = open_stream(peer_id, &mut control).await?;
 
@@ -93,12 +93,11 @@ impl Downloader {
         let boxed_stream: BoxedStream<_> = Box::new(Box::pin(stream));
         reply_channel
             .send(boxed_stream)
-            .await
-            .map_err(|e| ChainSyncError {
+            .map_err(|_| ChainSyncError {
                 peer: peer_id,
-                kind: ChainSyncErrorKind::ChannelSendError(format!(
-                    "Failed to send blocks stream: {e}"
-                )),
+                kind: ChainSyncErrorKind::ChannelSendError(
+                    "Failed to send blocks stream".to_string(),
+                ),
             })
     }
 }

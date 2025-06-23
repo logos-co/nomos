@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use cryptarchia_sync::{BoxedStream, ChainSyncError, HeaderId, SerialisedBlock};
 use libp2p::PeerId;
-use tokio::sync::{mpsc::Sender, oneshot};
+use tokio::sync::oneshot;
 
 use crate::{behaviour::BehaviourError, Swarm};
 
@@ -28,7 +28,7 @@ impl Swarm {
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
-        reply_sender: Sender<SerialisedBlockStream>,
+        reply_sender: oneshot::Sender<SerialisedBlockStream>,
     ) -> Result<(), BehaviourError> {
         let chain_sync = &self.swarm.behaviour().chain_sync;
 

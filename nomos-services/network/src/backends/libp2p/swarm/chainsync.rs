@@ -5,7 +5,7 @@ use nomos_libp2p::{
     cryptarchia_sync::{BoxedStream, ChainSyncError, HeaderId, SerialisedBlock},
     PeerId,
 };
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 
 use crate::{backends::libp2p::swarm::SwarmHandler, message::ChainSyncEvent};
 
@@ -22,7 +22,7 @@ pub enum ChainSyncCommand {
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
-        reply_sender: mpsc::Sender<SerialisedBlockStream>,
+        reply_sender: oneshot::Sender<SerialisedBlockStream>,
     },
 }
 

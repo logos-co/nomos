@@ -12,7 +12,7 @@ use overwatch::{
     DynError,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use tokio_stream::{wrappers::errors::BroadcastStreamRecvError, StreamExt as _};
 
 use crate::{
@@ -88,7 +88,7 @@ where
     async fn blocks_stream(
         &self,
     ) -> Result<BoxedStream<Block<Self::Tx, Self::BlobCertificate>>, DynError> {
-        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let (sender, receiver) = oneshot::channel();
         if let Err((e, _)) = self
             .network_relay
             .send(NetworkMsg::SubscribeToPubSub { sender })
@@ -118,7 +118,7 @@ where
     }
 
     async fn chainsync_events_stream(&self) -> Result<BoxedStream<ChainSyncEvent>, DynError> {
-        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let (sender, receiver) = oneshot::channel();
 
         if let Err((e, _)) = self
             .network_relay
@@ -139,7 +139,7 @@ where
     async fn request_tip(&self, peer: Self::PeerId) -> Result<HeaderId, DynError> {
         let peer = PeerId::from_str(&peer).map_err(|e| Box::new(e) as DynError)?;
 
-        let (reply_sender, receiver) = tokio::sync::oneshot::channel();
+        let (reply_sender, receiver) = oneshot::channel();
         if let Err((e, _)) = self
             .network_relay
             .send(NetworkMsg::Process(Command::ChainSync(
@@ -165,7 +165,7 @@ where
     {
         let peer = PeerId::from_str(&peer).map_err(|e| Box::new(e) as DynError)?;
 
-        let (reply_sender, mut receiver) = mpsc::channel(1);
+        let (reply_sender, receiver) = oneshot::channel();
         if let Err((e, _)) = self
             .network_relay
             .send(NetworkMsg::Process(Command::ChainSync(
@@ -183,11 +183,7 @@ where
             return Err(Box::new(e));
         }
 
-        let stream = receiver
-            .recv()
-            .await
-            .ok_or_else(|| DynError::from("failed to receive blocks stream"))?;
-
+        let stream = receiver.await?;
         let stream = stream.map_err(|e| Box::new(e) as DynError).map(|result| {
             let block = result?;
             wire::deserialize(&block).map_err(|e| Box::new(e) as DynError)
