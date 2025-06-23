@@ -71,6 +71,3 @@ path = "src/tests/da/api.rs"
 [[test]]
 name = "test_mempool_api"
 path = "src/tests/mempool/api.rs"
-
-[features]
-testing = []

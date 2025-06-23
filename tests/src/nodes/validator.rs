@@ -419,7 +419,6 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         membership: config.membership_config.service_settings,
         sdp: (),
 
-        #[cfg(feature = "testing")]
         testing_http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {
                 address: "127.0.0.1:8723".parse().unwrap(),
