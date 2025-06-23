@@ -74,7 +74,7 @@ impl CommandTx {
     }
 }
 
-trait OnEvent: Debug + Send + DynPartialEq {
+trait OnEvent: Debug + Send {
     fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent>;
 }
 
@@ -87,24 +87,5 @@ impl<S> State<S> {
         Box::new(State {
             state: next_state_ctor(state),
         })
-    }
-}
-
-trait DynPartialEq {
-    #[cfg(test)]
-    fn box_eq(&self, other: &dyn std::any::Any) -> bool;
-    #[cfg(test)]
-    fn as_any(&self) -> &dyn std::any::Any;
-}
-
-impl<S: PartialEq + 'static> DynPartialEq for State<S> {
-    #[cfg(test)]
-    fn as_any(&self) -> &dyn core::any::Any {
-        self
-    }
-
-    #[cfg(test)]
-    fn box_eq(&self, other: &dyn core::any::Any) -> bool {
-        other.downcast_ref::<Self>() == Some(self)
     }
 }

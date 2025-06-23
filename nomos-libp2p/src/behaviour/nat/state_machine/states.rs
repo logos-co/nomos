@@ -154,14 +154,83 @@ pub mod test_utils {
     use super::*;
     use crate::behaviour::nat::state_machine::{OnEvent, State};
 
+    pub(crate) trait OnEventTest: OnEvent + DynPartialEq {}
+
+    impl OnEventTest for State<Uninitialized> {}
+    impl OnEventTest for State<TestIfPublic> {}
+    impl OnEventTest for State<TryMapAddress> {}
+    impl OnEventTest for State<TestIfMappedPublic> {}
+    impl OnEventTest for State<Public> {}
+    impl OnEventTest for State<MappedPublic> {}
+    impl OnEventTest for State<Private> {}
+
+    // PartialEq<&Box<dyn state_machine::OnEvent>>` is not implemented for `Box<dyn
+    // OnEventTest>`
+
+    impl PartialEq<&Box<dyn OnEvent>> for Box<dyn OnEventTest> {
+        fn eq(&self, other: &&Box<dyn OnEvent>) -> bool {
+            self.box_eq(&**other as &dyn std::any::Any)
+        }
+    }
+
+    impl PartialEq<Box<dyn OnEvent>> for Box<dyn OnEventTest> {
+        fn eq(&self, other: &Box<dyn OnEvent>) -> bool {
+            self.box_eq(&*other as &dyn std::any::Any)
+        }
+    }
+
+    // impl PartialEq<&'static dyn OnEvent> for &'static dyn OnEventTest {
+    //     fn eq(&self, other: &&'static dyn OnEvent) -> bool {
+    //         self.box_eq(other as &dyn std::any::Any)
+    //     }
+    // }
+
+    // impl PartialEq<&'static dyn OnEventTest> for &'static dyn OnEvent {
+    //     fn eq(&self, other: &&'static dyn OnEventTest) -> bool {
+    //         other.box_eq(self as &dyn std::any::Any)
+    //     }
+    // }
+
+    pub trait DynPartialEq {
+        fn box_eq(&self, other: &dyn std::any::Any) -> bool;
+        fn as_any(&self) -> &dyn std::any::Any;
+    }
+
+    impl<S: PartialEq + 'static + Debug> DynPartialEq for State<S> {
+        fn as_any(&self) -> &dyn core::any::Any {
+            self
+        }
+
+        fn box_eq(&self, other: &dyn core::any::Any) -> bool {
+            let other = unsafe { &*(other as *const dyn std::any::Any as *const Self) };
+            eprintln!("self {:#?} other {:#?}", self, other);
+
+            // other.downcast_ref::<Self>() == Some(self)
+
+            other == self
+        }
+    }
+
+    impl PartialEq for Box<dyn OnEventTest> {
+        fn eq(&self, other: &Self) -> bool {
+            self.box_eq(other.as_any())
+        }
+    }
+
+    impl PartialEq<&Self> for Box<dyn OnEventTest> {
+        fn eq(&self, other: &&Self) -> bool {
+            self.box_eq(other.as_any())
+        }
+    }
+
     impl Uninitialized {
-        pub(crate) fn for_test() -> Box<dyn OnEvent> {
+        pub(crate) fn for_test() -> Box<dyn OnEventTest> {
             Box::new(State::<Self>::new())
         }
     }
 
     impl TestIfPublic {
-        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
+        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEventTest> {
             Box::new(State::<Self> {
                 state: Self { addr_to_test: addr },
             })
@@ -169,7 +238,7 @@ pub mod test_utils {
     }
 
     impl TryMapAddress {
-        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
+        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEventTest> {
             Box::new(State::<Self> {
                 state: Self { addr_to_map: addr },
             })
@@ -177,7 +246,7 @@ pub mod test_utils {
     }
 
     impl TestIfMappedPublic {
-        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
+        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEventTest> {
             Box::new(State::<Self> {
                 state: Self { addr_to_test: addr },
             })
@@ -185,7 +254,7 @@ pub mod test_utils {
     }
 
     impl Public {
-        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
+        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEventTest> {
             Box::new(State::<Self> {
                 state: Self { addr },
             })
@@ -193,7 +262,7 @@ pub mod test_utils {
     }
 
     impl MappedPublic {
-        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
+        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEventTest> {
             Box::new(State::<Self> {
                 state: Self { addr },
             })
@@ -201,7 +270,7 @@ pub mod test_utils {
     }
 
     impl Private {
-        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
+        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEventTest> {
             Box::new(State::<Self> {
                 state: Self { addr },
             })

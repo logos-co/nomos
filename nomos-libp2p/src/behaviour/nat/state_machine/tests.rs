@@ -5,20 +5,9 @@ use tokio::sync::mpsc::{error::TryRecvError, unbounded_channel};
 
 use super::*;
 use crate::behaviour::nat::state_machine::states::{
-    MappedPublic, Private, Public, TestIfMappedPublic, TestIfPublic, TryMapAddress,
+    test_utils::OnEventTest, MappedPublic, Private, Public, TestIfMappedPublic, TestIfPublic,
+    TryMapAddress,
 };
-
-impl PartialEq for Box<dyn OnEvent> {
-    fn eq(&self, other: &Self) -> bool {
-        self.box_eq(other.as_any())
-    }
-}
-
-impl PartialEq<&Self> for Box<dyn OnEvent> {
-    fn eq(&self, other: &&Self) -> bool {
-        self.box_eq(other.as_any())
-    }
-}
 
 fn all_events<'a>() -> HashSet<TestEvent<'a>> {
     [
@@ -49,13 +38,13 @@ type TestCases<'a> = Vec<(
     // Source line number for debugging
     u32,
     // Factory of the initial state of the state machine
-    Box<dyn Fn() -> Box<dyn OnEvent>>,
+    Box<dyn Fn() -> Box<dyn OnEventTest>>,
     // Expected transitions from the initial state
     Vec<(
         // Event that should cause the transition
         TestEvent<'a>,
         // Factory of the expected state after the transition
-        Box<dyn Fn() -> Box<dyn OnEvent>>,
+        Box<dyn Fn() -> Box<dyn OnEventTest>>,
         // Expected command that should be emitted by the state machine
         // If `None`, no command is expected
         Option<Command>,
@@ -196,7 +185,7 @@ fn test_transitions_and_emitted_commands() {
             sm.on_test_event(event);
 
             assert_eq!(
-                    &expected_state(),
+                    expected_state(),
                     sm.inner.as_ref().unwrap(),
                     "Line {}, event `{}` caused transition `{:?} -> {:?}`, expected transition `{:?} -> {:?}`",
                     line,
