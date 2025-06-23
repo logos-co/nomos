@@ -2,7 +2,7 @@ use core::{mem, num::NonZeroUsize};
 
 use tracing::{debug, trace};
 
-use crate::message::OutboundMessage;
+use crate::message::BlendOutgoingMessage;
 
 const LOG_TARGET: &str = "blend::scheduling::delay";
 
@@ -20,7 +20,7 @@ pub struct SessionProcessedMessageDelayer<Rng> {
     pub rng: Rng,
     /// The messages temporarily queued by the scheduler in between release
     /// rounds.
-    unreleased_messages: Vec<OutboundMessage>,
+    unreleased_messages: Vec<BlendOutgoingMessage>,
 }
 
 impl<Rng> SessionProcessedMessageDelayer<Rng>
@@ -52,7 +52,7 @@ where
     ///
     /// **This function is meant to be externally called at every round, as
     /// failing to do so might result in missed or delayed release rounds**.
-    pub fn poll_next_round(&mut self) -> Option<Vec<OutboundMessage>> {
+    pub fn poll_next_round(&mut self) -> Option<Vec<BlendOutgoingMessage>> {
         let current_round = self.current_round;
         // We can safely saturate, since even if we ever reach the end and there's a
         // scheduled message, it will be consumed the first time the value is hit.
@@ -91,7 +91,7 @@ impl<Rng> SessionProcessedMessageDelayer<Rng> {
         maximum_release_delay_in_rounds: NonZeroUsize,
         next_release_round: usize,
         rng: Rng,
-        unreleased_messages: Vec<OutboundMessage>,
+        unreleased_messages: Vec<BlendOutgoingMessage>,
     ) -> Self {
         Self {
             current_round,
@@ -103,7 +103,7 @@ impl<Rng> SessionProcessedMessageDelayer<Rng> {
     }
 
     #[cfg(test)]
-    pub fn unreleased_messages(&self) -> &[OutboundMessage] {
+    pub fn unreleased_messages(&self) -> &[BlendOutgoingMessage] {
         &self.unreleased_messages
     }
 }
@@ -111,7 +111,7 @@ impl<Rng> SessionProcessedMessageDelayer<Rng> {
 impl<Rng> SessionProcessedMessageDelayer<Rng> {
     /// Add a new message to the queue to be released at the next release round
     /// along with any other queued message.
-    pub fn schedule_message(&mut self, message: OutboundMessage) {
+    pub fn schedule_message(&mut self, message: BlendOutgoingMessage) {
         self.unreleased_messages.push(message);
     }
 }
@@ -189,11 +189,11 @@ mod tests {
             // Next round is 1, so next call to `poll_next_round` will return `Some`.
             next_release_round: 1,
             rng: ChaCha20Rng::from_entropy(),
-            unreleased_messages: vec![OutboundMessage::from(b"test".to_vec())],
+            unreleased_messages: vec![OutboundMessage::from(b"test".to_vec()).into()],
         };
         assert_eq!(
             delayer.poll_next_round(),
-            Some(vec![OutboundMessage::from(b"test".to_vec())])
+            Some(vec![OutboundMessage::from(b"test".to_vec()).into()])
         );
         // Check that current round has been incremented.
         assert_eq!(delayer.current_round, 2);
@@ -211,11 +211,11 @@ mod tests {
             rng: ChaCha20Rng::from_entropy(),
             unreleased_messages: vec![],
         };
-        delayer.schedule_message(OutboundMessage::from(b"test".to_vec()));
+        delayer.schedule_message(OutboundMessage::from(b"test".to_vec()).into());
         // Check that the new message was added to the queue.
         assert_eq!(
             delayer.unreleased_messages,
-            vec![OutboundMessage::from(b"test".to_vec())]
+            vec![OutboundMessage::from(b"test".to_vec()).into()]
         );
     }
 }

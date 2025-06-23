@@ -13,6 +13,18 @@ impl AsRef<[u8]> for BlendOutgoingMessage {
     }
 }
 
+impl From<FullyUnwrappedMessage> for BlendOutgoingMessage {
+    fn from(value: FullyUnwrappedMessage) -> Self {
+        Self::FullyUnwrapped(value)
+    }
+}
+
+impl From<OutboundMessage> for BlendOutgoingMessage {
+    fn from(value: OutboundMessage) -> Self {
+        Self::Outbound(value)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FullyUnwrappedMessage(Vec<u8>);
 

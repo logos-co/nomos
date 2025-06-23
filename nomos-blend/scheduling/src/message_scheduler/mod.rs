@@ -12,7 +12,7 @@ use tracing::trace;
 
 use crate::{
     cover_traffic_2::SessionCoverTraffic,
-    message::OutboundMessage,
+    message::BlendOutgoingMessage,
     message_scheduler::{round_info::RoundInfo, session_info::SessionInfo},
     release_delayer::SessionProcessedMessageDelayer,
 };
@@ -107,7 +107,7 @@ impl<SessionClock, Rng> MessageScheduler<SessionClock, Rng> {
 
     /// Add a new processed message to the release delayer component queue, for
     /// release during the next release window.
-    pub fn schedule_message(&mut self, message: OutboundMessage) {
+    pub fn schedule_message(&mut self, message: BlendOutgoingMessage) {
         self.release_delayer.schedule_message(message);
     }
 }
@@ -359,7 +359,7 @@ mod tests {
                 NonZeroUsize::new(5).unwrap(),
                 0,
                 ChaCha20Rng::from_entropy(),
-                vec![OutboundMessage::from(b"test".to_vec())],
+                vec![OutboundMessage::from(b"test".to_vec()).into()],
             );
 
             scheduler
@@ -374,7 +374,7 @@ mod tests {
             poll_result,
             Poll::Ready(Some(RoundInfo {
                 cover_message: None,
-                processed_messages: vec![OutboundMessage::from(b"test".to_vec())]
+                processed_messages: vec![OutboundMessage::from(b"test".to_vec()).into()]
             }))
         );
     }
@@ -390,7 +390,7 @@ mod tests {
                 NonZeroUsize::new(5).unwrap(),
                 0,
                 ChaCha20Rng::from_entropy(),
-                vec![OutboundMessage::from(b"test".to_vec())],
+                vec![OutboundMessage::from(b"test".to_vec()).into()],
             );
             scheduler.cover_traffic =
                 SessionCoverTraffic::with_test_values(0, HashSet::from([0]), 0);
@@ -423,7 +423,7 @@ mod tests {
                 NonZeroUsize::new(5).unwrap(),
                 2,
                 ChaCha20Rng::from_entropy(),
-                vec![OutboundMessage::from(b"test".to_vec())],
+                vec![OutboundMessage::from(b"test".to_vec()).into()],
             );
             scheduler.cover_traffic =
                 SessionCoverTraffic::with_test_values(0, HashSet::from([1]), 0);
@@ -475,7 +475,7 @@ mod tests {
                 NonZeroUsize::new(5).unwrap(),
                 2,
                 ChaCha20Rng::from_entropy(),
-                vec![OutboundMessage::from(b"test".to_vec())],
+                vec![OutboundMessage::from(b"test".to_vec()).into()],
             );
 
             scheduler

@@ -11,7 +11,7 @@ use std::{
 
 use async_trait::async_trait;
 use backends::BlendBackend;
-use futures::{Stream, StreamExt as _};
+use futures::{future::join_all, Stream, StreamExt as _};
 use network::NetworkAdapter;
 use nomos_blend_message::{sphinx::SphinxMessage, BlendMessage, MessageUnwrapError};
 use nomos_blend_scheduling::{
@@ -22,7 +22,10 @@ use nomos_blend_scheduling::{
         crypto::CryptographicProcessor, temporal::TemporalScheduler,
         CryptographicProcessorSettings, MessageBlendExt as _, MessageBlendSettings,
     },
-    message_scheduler::session_info::{Session, SessionInfo},
+    message_scheduler::{
+        round_info::RoundInfo,
+        session_info::{Session, SessionInfo},
+    },
     persistent_transmission::{
         PersistentTransmissionExt as _, PersistentTransmissionSettings,
         PersistentTransmissionStream,
@@ -42,7 +45,7 @@ use overwatch::{
     },
     OpaqueServiceResourcesHandle,
 };
-use rand::SeedableRng as _;
+use rand::{seq::SliceRandom, SeedableRng as _};
 use rand_chacha::ChaCha12Rng;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
@@ -220,9 +223,8 @@ where
             // * 1) Local messages (i.e., block production messages)
             //     * They are wrapped and broadcasted immediately.
             // * 2) Blend Messages received by peers
-            //     * They are immediately re-broadcasted (minus the sender), processed, and
-            //       then either broadcasted publicly (if fully unwrapped), or scheduled for
-            //       the next release window
+            //     * They are immediately re-blended (minus the sender), processed, and then
+            //       scheduled for the next release window
             // * 3) Scheduler release rounds
             //     * At each round, the scheduler can release a new set of messages, which
             //       can include a cover message and/or the set of messages processed since
@@ -233,18 +235,27 @@ where
                     let Ok(wrapped_message) = cryptographic_processor.wrap_message(&local_message).inspect_err(|e| error!("Failed to wrap message: {local_message:?} with error {e:?}")) else {
                         continue;
                     };
-                    backend.send_to_all(wrapped_message).await;
+                    backend.publish(wrapped_message).await;
                     message_scheduler.notify_new_data_message();
                 }
                 // Point 2.
                 Some(incoming_blend_message) = blend_messages.next() => {
+                    // TODO: Add message header validation.
                     match cryptographic_processor.unwrap_message(incoming_blend_message.as_ref()) {
                         Ok((unwrapped_message, fully_unwrapped)) => {
-                            let message = if fully_unwrapped {
-                                BlendOutgoingMessage::FullyUnwrapped(unwrapped_message.into())
+                            if fully_unwrapped {
+                                debug!("Processing a fully unwrapped message.");
+                                // TODO: Change deserialization logic to return the actual type of message to the service, instead of assuming that a failed deserialization can mean a cover message as well as a malformed message.
+                                if wire::deserialize::<NetworkMessage<Network::BroadcastSettings>>(&unwrapped_message).is_ok() {
+                                    // Message is a valid network message, we add it (still serialized) to the release queue. We will deserialize it again later before releasing.
+                                    message_scheduler.schedule_message(BlendOutgoingMessage::FullyUnwrapped(unwrapped_message.into()).into());
+                                } else {
+                                    // Message failed to be deserialized. It means that it was either malformed, or a cover message.
+                                    debug!("Unrecognized message from blend backend. Either malformed or a cover message. Dropping.");
+                                };
                             } else {
-                                BlendOutgoingMessage::Outbound(unwrapped_message.into())
-                            };
+                                message_scheduler.schedule_message(BlendOutgoingMessage::Outbound(unwrapped_message.into()).into());
+                            }
                         }
                         Err(e @ MessageUnwrapError::NotAllowed) => {
                             debug!("{e}");
@@ -254,82 +265,41 @@ where
                         }
                     }
                 }
-            // Some(incoming_message) = blend_messages.next() => {
-            //             match incoming_message {
-            //                 // If message is not fully unwrapped, forward the remaining layers to the next hop and process it at the same time.
-            //                 BlendOutgoingMessage::Outbound(msg) => {
-            //                     if let Err(e) = persistent_sender.send(msg.into()) {
-            //                         tracing::error!("Error sending message to persistent stream: {e}");
-            //                     }
-            //                 }
-            //                 // If the message is fully unwrapped, broadcast it (unencrypted) to the rest of the network if it's not a cover message.
-            //                 BlendOutgoingMessage::FullyUnwrapped(msg) => {
-            //                     tracing::debug!("Processing a fully unwrapped message.");
-            //                     // TODO: Change deserialization logic to return the actual type of message to the service, instead of assuming that a failed deserialization can mean a cover message as well as a malformed message.
-            //                     match wire::deserialize::<NetworkMessage<Network::BroadcastSettings>>(msg.as_ref()) {
-            //                         Ok(msg) => {
-            //                             // Message is a valid network message, broadcast it to the entire network.
-            //                             network_adapter.broadcast(msg.message, msg.broadcast_settings).await;
-            //                         },
-            //                         _ => {
-            //                             // Message failed to be deserialized. It means that it was either malformed, or a cover message.
-            //                             tracing::debug!("Unrecognized message from blend backend. Either malformed or a cover message. Dropping.");
-            //                         }
-            //                     }
-            //                 }
-            //             }
-            //         }
+                // Point 3.
+                Some(RoundInfo { mut processed_messages, cover_message }) = message_scheduler.next() => {
+                    enum MessageType {
+                        FullyUnwrapped,
+                        Wrapped,
+                        Cover
+                    }
+                    let mut flagged_messages: Vec<_> = processed_messages.into_iter().map(|m| {
+                        match m {
+                            BlendOutgoingMessage::Outbound(outbound_message) => {
+                                (Vec::from(outbound_message), MessageType::Wrapped)
+                            },
+                            BlendOutgoingMessage::FullyUnwrapped(fully_unwrapped_message) => {
+                                (Vec::from(fully_unwrapped_message), MessageType::FullyUnwrapped)
+                            },
+                        }
+                     }).chain(cover_message.map(|c| (Vec::from(c), MessageType::Cover))).collect();
+                    flagged_messages.shuffle(&mut rng);
 
-
-
-
-
-
-            //         Some(msg) = persistent_transmission_messages.next() => {
-            //             let is_local_message = scheduled_local_messages.remove(&msg);
-            //             backend.publish(msg).await;
-            //             if is_local_message {
-            //                 cover_traffic.notify_of_new_data_message().await;
-            //             }
-            //         }
-            //         // Already processed blend messages
-            //         Some(msg) = blend_messages.next() => {
-            //             match msg {
-            //                 // If message is not fully unwrapped, forward the remaining layers to the next hop.
-            //                 BlendOutgoingMessage::Outbound(msg) => {
-            //                     if let Err(e) = persistent_sender.send(msg.into()) {
-            //                         tracing::error!("Error sending message to persistent stream: {e}");
-            //                     }
-            //                 }
-            //                 // If the message is fully unwrapped, broadcast it (unencrypted) to the rest of the network if it's not a cover message.
-            //                 BlendOutgoingMessage::FullyUnwrapped(msg) => {
-            //                     tracing::debug!("Processing a fully unwrapped message.");
-            //                     // TODO: Change deserialization logic to return the actual type of message to the service, instead of assuming that a failed deserialization can mean a cover message as well as a malformed message.
-            //                     match wire::deserialize::<NetworkMessage<Network::BroadcastSettings>>(msg.as_ref()) {
-            //                         Ok(msg) => {
-            //                             // Message is a valid network message, broadcast it to the entire network.
-            //                             network_adapter.broadcast(msg.message, msg.broadcast_settings).await;
-            //                         },
-            //                         _ => {
-            //                             // Message failed to be deserialized. It means that it was either malformed, or a cover message.
-            //                             tracing::debug!("Unrecognized message from blend backend. Either malformed or a cover message. Dropping.");
-            //                         }
-            //                     }
-            //                 }
-            //             }
-            //         }
-            //         // Cover message scheduler has already randomized message generation, so as soon as a message is produced, it is published to the rest of the network.
-            //         Some(msg) = cover_traffic.next() => {
-            //             let wrapped_message = cryptographic_processor.wrap_message(&msg)?;
-            //             backend.publish(wrapped_message).await;
-            //         }
-            //         Some(msg) = local_messages.next() => {
-            //             let Some(wrapped_message) = Self::wrap_and_send_to_persistent_transmission(&msg, &mut cryptographic_processor, &persistent_sender) else {
-            //                 continue;
-            //             };
-            //             scheduled_local_messages.insert(wrapped_message);
-            //         }
-            //     }
+                    // Process all messages in parallel.
+                    join_all(flagged_messages.into_iter().map(|(raw_message, message_type)| async move {
+                        match message_type {
+                            MessageType::FullyUnwrapped => {
+                                if let Ok(deserialized_network_message) = wire::deserialize::<NetworkMessage<Network::BroadcastSettings>>(&raw_message) {
+                                    network_adapter.broadcast(deserialized_network_message.message, deserialized_network_message.broadcast_settings).await;
+                                } else {
+                                    error!("Failed to deserialize previously validated network message: {raw_message:?}");
+                                }
+                            }
+                            MessageType::Wrapped | MessageType::Cover => {
+                                backend.publish(raw_message).await;
+                            }
+                        }
+                    })).await;
+                }
             }
         }
     }
