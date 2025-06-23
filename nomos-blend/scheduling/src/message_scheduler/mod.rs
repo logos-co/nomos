@@ -14,7 +14,7 @@ use crate::{
     cover_traffic_2::SessionCoverTraffic,
     message::OutboundMessage,
     message_scheduler::{round_info::RoundInfo, session_info::SessionInfo},
-    release_delayer::SessionReleaseDelayer,
+    release_delayer::SessionProcessedMessageDelayer,
 };
 
 pub mod round_info;
@@ -87,7 +87,7 @@ pub struct MessageScheduler<SessionClock, Rng> {
     cover_traffic: SessionCoverTraffic,
     /// The module responsible for delaying the release of processed messages
     /// that have not been fully decapsulated.
-    release_delayer: SessionReleaseDelayer<Rng>,
+    release_delayer: SessionProcessedMessageDelayer<Rng>,
     /// The clock ticking at every round, that might result in new messages
     /// being emitted by this module, as per the specification.
     round_clock: Box<dyn Stream<Item = ()> + Unpin>,
@@ -173,7 +173,7 @@ where
 /// the beginning of a new session.
 fn setup_new_session<Rng>(
     cover_traffic: &mut SessionCoverTraffic,
-    release_delayer: &mut SessionReleaseDelayer<Rng>,
+    release_delayer: &mut SessionProcessedMessageDelayer<Rng>,
     round_clock: &mut Box<dyn Stream<Item = ()> + Unpin>,
     settings: &Settings,
     new_session_info: &SessionInfo,
@@ -211,11 +211,11 @@ impl Settings {
         )
     }
 
-    fn release_delayer<Rng>(&self, rng: Rng) -> SessionReleaseDelayer<Rng>
+    fn release_delayer<Rng>(&self, rng: Rng) -> SessionProcessedMessageDelayer<Rng>
     where
         Rng: rand::Rng,
     {
-        SessionReleaseDelayer::new(
+        SessionProcessedMessageDelayer::new(
             crate::release_delayer::Settings {
                 maximum_release_delay_in_rounds: self.maximum_release_delay_in_rounds,
             },
@@ -250,7 +250,7 @@ mod tests {
         message_scheduler::{
             round_info::RoundInfo, session_info::SessionInfo, MessageScheduler, Settings,
         },
-        release_delayer::SessionReleaseDelayer,
+        release_delayer::SessionProcessedMessageDelayer,
     };
 
     fn default_scheduler(
@@ -262,7 +262,7 @@ mod tests {
             // No scheduled messages.
             cover_traffic: SessionCoverTraffic::with_test_values(0, HashSet::new(), 0),
             // No messages to release at this round.
-            release_delayer: SessionReleaseDelayer::with_test_values(
+            release_delayer: SessionProcessedMessageDelayer::with_test_values(
                 0,
                 NonZeroUsize::new(1).unwrap(),
                 // Next scheduled release is 2 rounds in the future.
@@ -343,7 +343,7 @@ mod tests {
         let mut scheduler = {
             let mut scheduler =
                 default_scheduler(Duration::from_secs(2), Duration::from_millis(500));
-            scheduler.release_delayer = SessionReleaseDelayer::with_test_values(
+            scheduler.release_delayer = SessionProcessedMessageDelayer::with_test_values(
                 0,
                 NonZeroUsize::new(5).unwrap(),
                 0,
@@ -374,7 +374,7 @@ mod tests {
         let mut scheduler = {
             let mut scheduler =
                 default_scheduler(Duration::from_secs(2), Duration::from_millis(500));
-            scheduler.release_delayer = SessionReleaseDelayer::with_test_values(
+            scheduler.release_delayer = SessionProcessedMessageDelayer::with_test_values(
                 0,
                 NonZeroUsize::new(5).unwrap(),
                 0,
@@ -407,7 +407,7 @@ mod tests {
         let mut scheduler = {
             let mut scheduler =
                 default_scheduler(Duration::from_secs(2), Duration::from_millis(500));
-            scheduler.release_delayer = SessionReleaseDelayer::with_test_values(
+            scheduler.release_delayer = SessionProcessedMessageDelayer::with_test_values(
                 0,
                 NonZeroUsize::new(5).unwrap(),
                 2,
@@ -459,7 +459,7 @@ mod tests {
             scheduler.cover_traffic = SessionCoverTraffic::with_test_values(0, HashSet::new(), 1);
             // We override the queue of unreleased messages, so we can test the value is
             // reset on session changes.
-            scheduler.release_delayer = SessionReleaseDelayer::with_test_values(
+            scheduler.release_delayer = SessionProcessedMessageDelayer::with_test_values(
                 0,
                 NonZeroUsize::new(5).unwrap(),
                 2,

@@ -8,7 +8,7 @@ const LOG_TARGET: &str = "blend::scheduling::delay";
 
 /// A scheduler for delaying processed messages and batch them into release
 /// rounds, as per the specification.
-pub struct SessionReleaseDelayer<Rng> {
+pub struct SessionProcessedMessageDelayer<Rng> {
     /// The current round within the session the scheduler is at.
     current_round: usize,
     /// The maximum delay, in terms of rounds, between two consecutive release
@@ -23,7 +23,7 @@ pub struct SessionReleaseDelayer<Rng> {
     unreleased_messages: Vec<OutboundMessage>,
 }
 
-impl<Rng> SessionReleaseDelayer<Rng>
+impl<Rng> SessionProcessedMessageDelayer<Rng>
 where
     Rng: rand::Rng,
 {
@@ -80,7 +80,7 @@ where
     }
 }
 
-impl<Rng> SessionReleaseDelayer<Rng> {
+impl<Rng> SessionProcessedMessageDelayer<Rng> {
     pub const fn current_round(&self) -> usize {
         self.current_round
     }
@@ -108,7 +108,7 @@ impl<Rng> SessionReleaseDelayer<Rng> {
     }
 }
 
-impl<Rng> SessionReleaseDelayer<Rng> {
+impl<Rng> SessionProcessedMessageDelayer<Rng> {
     /// Add a new message to the queue to be released at the next release round
     /// along with any other queued message.
     pub fn schedule_message(&mut self, message: OutboundMessage) {
@@ -144,11 +144,11 @@ mod tests {
     use rand::SeedableRng as _;
     use rand_chacha::ChaCha20Rng;
 
-    use crate::{message::OutboundMessage, release_delayer::SessionReleaseDelayer};
+    use crate::{message::OutboundMessage, release_delayer::SessionProcessedMessageDelayer};
 
     #[test]
     fn poll_none_on_unscheduled_round() {
-        let mut delayer = SessionReleaseDelayer {
+        let mut delayer = SessionProcessedMessageDelayer {
             current_round: 0,
             maximum_release_delay_in_rounds: NonZeroUsize::new(3).expect("Non-zero usize"),
             // Next round is 1, so first call to `poll_next_round` will return `None`.
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn poll_empty_on_scheduled_round_with_empty_queue() {
-        let mut delayer = SessionReleaseDelayer {
+        let mut delayer = SessionProcessedMessageDelayer {
             current_round: 1,
             maximum_release_delay_in_rounds: NonZeroUsize::new(3).expect("Non-zero usize"),
             // Next round is 1, so next call to `poll_next_round` will return `Some`.
@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn poll_non_empty_on_scheduled_round_with_non_empty_queue() {
-        let mut delayer = SessionReleaseDelayer {
+        let mut delayer = SessionProcessedMessageDelayer {
             current_round: 1,
             maximum_release_delay_in_rounds: NonZeroUsize::new(3).expect("Non-zero usize"),
             // Next round is 1, so next call to `poll_next_round` will return `Some`.
@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn add_message_to_queue() {
-        let mut delayer = SessionReleaseDelayer {
+        let mut delayer = SessionProcessedMessageDelayer {
             current_round: 1,
             maximum_release_delay_in_rounds: NonZeroUsize::new(3).expect("Non-zero usize"),
             next_release_round: 1,
