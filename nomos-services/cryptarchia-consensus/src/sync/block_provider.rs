@@ -178,6 +178,7 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
 
             let parent = branches.get(&id).map(Branch::parent);
 
+            // If the parent the same as the current block, we have reached genesis.
             if Some(id) == parent {
                 break;
             }
