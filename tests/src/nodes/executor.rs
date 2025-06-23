@@ -241,7 +241,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             persistent_transmission: PersistentTransmissionSettings::default(),
             message_blend: MessageBlendSettings {
                 cryptographic_processor: CryptographicProcessorSettings {
-                    private_key: config.blend_config.private_key.to_bytes(),
+                    signing_private_key: config.blend_config.private_key,
                     num_blend_layers: 1,
                 },
                 temporal_processor: TemporalSchedulerSettings {

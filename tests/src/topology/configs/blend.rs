@@ -1,7 +1,7 @@
 use std::str::FromStr as _;
 
 use nomos_blend::membership::Node;
-use nomos_blend_message::{sphinx::SphinxMessage, BlendMessage};
+use nomos_blend_message::crypto::Ed25519PrivateKey;
 use nomos_blend_service::backends::libp2p::Libp2pBlendBackendSettings;
 use nomos_libp2p::{
     ed25519::{self, Keypair as Ed25519Keypair},
@@ -14,8 +14,8 @@ use crate::get_available_port;
 #[derive(Clone)]
 pub struct GeneralBlendConfig {
     pub backend: Libp2pBlendBackendSettings,
-    pub private_key: x25519_dalek::StaticSecret,
-    pub membership: Vec<Node<PeerId, <SphinxMessage as BlendMessage>::PublicKey>>,
+    pub private_key: Ed25519PrivateKey,
+    pub membership: Vec<Node<PeerId>>,
 }
 
 #[must_use]
@@ -38,7 +38,7 @@ pub fn create_blend_configs(ids: &[[u8; 32]]) -> Vec<GeneralBlendConfig> {
                     peering_degree: 1,
                     max_peering_degree: 3,
                 },
-                private_key: x25519_dalek::StaticSecret::random(),
+                private_key: Ed25519PrivateKey::generate(),
                 membership: Vec::new(),
             }
         })
@@ -52,9 +52,7 @@ pub fn create_blend_configs(ids: &[[u8; 32]]) -> Vec<GeneralBlendConfig> {
     configs
 }
 
-fn blend_nodes(
-    configs: &[GeneralBlendConfig],
-) -> Vec<Node<PeerId, <SphinxMessage as BlendMessage>::PublicKey>> {
+fn blend_nodes(configs: &[GeneralBlendConfig]) -> Vec<Node<PeerId>> {
     configs
         .iter()
         .map(|config| Node {
@@ -62,10 +60,7 @@ fn blend_nodes(
                 &Keypair::from(Ed25519Keypair::from(config.backend.node_key.clone())).public(),
             ),
             address: config.backend.listening_address.clone(),
-            public_key: x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(
-                config.private_key.to_bytes(),
-            ))
-            .to_bytes(),
+            public_key: config.private_key.public_key(),
         })
         .collect()
 }

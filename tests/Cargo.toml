@@ -54,7 +54,6 @@ tempfile                 = "3"
 time                     = "0.3"
 tokio                    = "1"
 tracing                  = { workspace = true }
-x25519-dalek             = { version = "2", features = ["getrandom", "static_secrets"] }
 
 [[test]]
 name = "test_cryptarchia_happy_path"

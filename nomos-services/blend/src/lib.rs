@@ -26,7 +26,6 @@ use nomos_blend::{
     },
     BlendOutgoingMessage,
 };
-use nomos_blend_message::{sphinx::SphinxMessage, BlendMessage};
 use nomos_core::wire;
 use nomos_network::NetworkService;
 use nomos_utils::{
@@ -61,7 +60,7 @@ where
 {
     backend: Backend,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    membership: Membership<Backend::NodeId, SphinxMessage>,
+    membership: Membership<Backend::NodeId>,
 }
 
 impl<Backend, Network, RuntimeServiceId> ServiceData
@@ -169,7 +168,7 @@ where
         .await;
 
         // local messages are bypassed and sent immediately
-        let mut local_messages = inbound_relay.map(|ServiceMessage::Blend(message)| {
+        let mut local_data_messages = inbound_relay.map(|ServiceMessage::Blend(message)| {
             wire::serialize(&message)
                 .expect("Message from internal services should not fail to serialize")
         });
@@ -205,16 +204,15 @@ where
                 // Already processed blend messages
                 Some(msg) = blend_messages.next() => {
                     match msg {
-                        // If message is not fully unwrapped, forward the remaining layers to the next hop.
-                        BlendOutgoingMessage::Outbound(msg) => {
+                        // If more encapsulations remain, forward the encapsulated message to the next hop.
+                        BlendOutgoingMessage::EncapsulatedMessage(msg) => {
                             if let Err(e) = persistent_sender.send(msg) {
                                 tracing::error!("Error sending message to persistent stream: {e}");
                             }
                         }
-                        // If the message is fully unwrapped, broadcast it (unencrypted) to the rest of the network if it's not a cover message.
-                        BlendOutgoingMessage::FullyUnwrapped(msg) => {
-                            tracing::debug!("Processing a fully unwrapped message.");
-                            // TODO: Change deserialization logic to return the actual type of message to the service, instead of assuming that a failed deserialization can mean a cover message as well as a malformed message.
+                        // If the data message is fully decapsulated, broadcast it to the rest of the network.
+                        BlendOutgoingMessage::DataMessage(msg) => {
+                            tracing::debug!("Processing a fully decapsulated data message.");
                             match wire::deserialize::<NetworkMessage<Network::BroadcastSettings>>(&msg) {
                                 Ok(msg) => {
                                     // Message is a valid network message, broadcast it to the entire network.
@@ -222,18 +220,21 @@ where
                                 },
                                 _ => {
                                     // Message failed to be deserialized. It means that it was either malformed, or a cover message.
-                                    tracing::debug!("Unrecognized message from blend backend. Either malformed or a cover message. Dropping.");
+                                    tracing::debug!("Unrecognized data message from blend backend. Dropping.");
                                 }
                             }
+                        }
+                        BlendOutgoingMessage::CoverMessage(_) => {
+                            tracing::debug!("A cover message was fully decapsulated. Ignoring it.");
                         }
                     }
                 }
                 // Cover message scheduler has already randomized message generation, so as soon as a message is produced, it is published to the rest of the network.
                 Some(msg) = cover_traffic.next() => {
-                    let wrapped_message = cryptographic_processor.wrap_message(&msg)?;
+                    let wrapped_message = cryptographic_processor.encapsulate_cover_message(&msg)?;
                     backend.publish(wrapped_message).await;
                 }
-                Some(msg) = local_messages.next() => {
+                Some(msg) = local_data_messages.next() => {
                     let Some(wrapped_message) = Self::wrap_and_send_to_persistent_transmission(&msg, &mut cryptographic_processor, &persistent_sender) else {
                         continue;
                     };
@@ -265,14 +266,10 @@ where
 {
     fn wrap_and_send_to_persistent_transmission(
         message: &[u8],
-        cryptographic_processor: &mut CryptographicProcessor<
-            Backend::NodeId,
-            ChaCha12Rng,
-            SphinxMessage,
-        >,
+        cryptographic_processor: &mut CryptographicProcessor<Backend::NodeId, ChaCha12Rng>,
         persistent_sender: &mpsc::UnboundedSender<Vec<u8>>,
     ) -> Option<Vec<u8>> {
-        match cryptographic_processor.wrap_message(message) {
+        match cryptographic_processor.encapsulate_data_message(message) {
             Ok(wrapped_message) => {
                 if let Err(e) = persistent_sender.send(wrapped_message.clone()) {
                     tracing::error!("Error sending message to persistent stream: {e}");
@@ -290,12 +287,12 @@ where
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BlendConfig<BackendSettings, BackendNodeId> {
     pub backend: BackendSettings,
-    pub message_blend: MessageBlendSettings<SphinxMessage>,
+    pub message_blend: MessageBlendSettings,
     pub persistent_transmission: PersistentTransmissionSettings,
     pub cover_traffic: CoverTrafficExtSettings,
     #[serde(flatten)]
     pub timing_settings: TimingSettings,
-    pub membership: Vec<Node<BackendNodeId, <SphinxMessage as BlendMessage>::PublicKey>>,
+    pub membership: Vec<Node<BackendNodeId>>,
 }
 
 #[serde_with::serde_as]
@@ -342,9 +339,7 @@ impl CoverTrafficExtSettings {
     const fn cover_traffic_settings(
         &self,
         timing_settings: &TimingSettings,
-        cryptographic_processor_settings: &CryptographicProcessorSettings<
-            <SphinxMessage as BlendMessage>::PrivateKey,
-        >,
+        cryptographic_processor_settings: &CryptographicProcessorSettings,
     ) -> CoverTrafficSettings {
         CoverTrafficSettings {
             blending_ops_per_message: cryptographic_processor_settings.num_blend_layers,
@@ -362,12 +357,13 @@ impl<BackendSettings, BackendNodeId> BlendConfig<BackendSettings, BackendNodeId>
 where
     BackendNodeId: Clone + Hash + Eq,
 {
-    fn membership(&self) -> Membership<BackendNodeId, SphinxMessage> {
-        let public_key = x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(
-            self.message_blend.cryptographic_processor.private_key,
-        ))
-        .to_bytes();
-        Membership::new(self.membership.clone(), &public_key)
+    fn membership(&self) -> Membership<BackendNodeId> {
+        let local_signing_pubkey = self
+            .message_blend
+            .cryptographic_processor
+            .signing_private_key
+            .public_key();
+        Membership::new(self.membership.clone(), &local_signing_pubkey)
     }
 }
 

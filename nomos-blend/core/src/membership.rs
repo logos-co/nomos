@@ -1,7 +1,7 @@
 use std::{collections::HashSet, hash::Hash};
 
 use multiaddr::Multiaddr;
-use nomos_blend_message::BlendMessage;
+use nomos_blend_message::crypto::Ed25519PublicKey;
 use rand::{
     seq::{IteratorRandom as _, SliceRandom as _},
     Rng,
@@ -9,16 +9,13 @@ use rand::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug)]
-pub struct Membership<NodeId, Message>
-where
-    Message: BlendMessage,
-{
-    remote_nodes: Vec<Node<NodeId, Message::PublicKey>>,
-    local_node: Node<NodeId, Message::PublicKey>,
+pub struct Membership<NodeId> {
+    remote_nodes: Vec<Node<NodeId>>,
+    local_node: Node<NodeId>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Node<Id, PublicKey> {
+pub struct Node<Id> {
     /// An unique identifier of the node,
     /// which is usually corresponding to the network node identifier
     /// but depending on the network backend.
@@ -26,17 +23,12 @@ pub struct Node<Id, PublicKey> {
     /// A listening address
     pub address: Multiaddr,
     /// A public key used for the blend message encryption
-    pub public_key: PublicKey,
+    pub public_key: Ed25519PublicKey,
 }
 
-impl<NodeId, Message> Membership<NodeId, Message>
-where
-    Message: BlendMessage<PublicKey: PartialEq>,
-{
-    pub fn new(
-        nodes: Vec<Node<NodeId, Message::PublicKey>>,
-        local_public_key: &Message::PublicKey,
-    ) -> Self {
+impl<NodeId> Membership<NodeId> {
+    #[must_use]
+    pub fn new(nodes: Vec<Node<NodeId>>, local_public_key: &Ed25519PublicKey) -> Self {
         let mut remote_nodes = Vec::with_capacity(nodes.len() - 1);
         let mut local_node = None;
         for node in nodes {
@@ -54,19 +46,12 @@ where
     }
 }
 
-impl<NodeId, Message> Membership<NodeId, Message>
-where
-    Message: BlendMessage,
-{
-    pub fn choose_remote_nodes<R: Rng>(
-        &self,
-        rng: &mut R,
-        amount: usize,
-    ) -> Vec<&Node<NodeId, Message::PublicKey>> {
+impl<NodeId> Membership<NodeId> {
+    pub fn choose_remote_nodes<R: Rng>(&self, rng: &mut R, amount: usize) -> Vec<&Node<NodeId>> {
         self.remote_nodes.choose_multiple(rng, amount).collect()
     }
 
-    pub const fn local_node(&self) -> &Node<NodeId, Message::PublicKey> {
+    pub const fn local_node(&self) -> &Node<NodeId> {
         &self.local_node
     }
 
@@ -75,17 +60,16 @@ where
     }
 }
 
-impl<NodeId, Message> Membership<NodeId, Message>
+impl<NodeId> Membership<NodeId>
 where
     NodeId: Eq + Hash,
-    Message: BlendMessage,
 {
     pub fn filter_and_choose_remote_nodes<R: Rng>(
         &self,
         rng: &mut R,
         amount: usize,
         exclude_peers: &HashSet<NodeId>,
-    ) -> Vec<&Node<NodeId, Message::PublicKey>> {
+    ) -> Vec<&Node<NodeId>> {
         self.remote_nodes
             .iter()
             .filter(|node| !exclude_peers.contains(&node.id))

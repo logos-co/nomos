@@ -7,7 +7,6 @@ use futures::{
 };
 use libp2p::{identity::ed25519, Multiaddr, PeerId};
 use nomos_blend::membership::Membership;
-use nomos_blend_message::sphinx::SphinxMessage;
 use nomos_libp2p::secret_key_serde;
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
@@ -53,7 +52,7 @@ impl<RuntimeServiceId> BlendBackend<RuntimeServiceId> for Libp2pBlendBackend {
     fn new<Rng>(
         config: BlendConfig<Self::Settings, Self::NodeId>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-        membership: Membership<Self::NodeId, SphinxMessage>,
+        membership: Membership<Self::NodeId>,
         rng: Rng,
     ) -> Self
     where

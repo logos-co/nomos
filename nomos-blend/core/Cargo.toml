@@ -11,6 +11,7 @@ workspace = true
 futures             = "0.3"
 multiaddr           = "0.18"
 nomos-blend-message = { workspace = true }
+nomos-core          = { workspace = true }
 nomos-utils         = { workspace = true, features = ["serde", "time"] }
 rand                = "0.8"
 serde               = { version = "1.0", features = ["derive"] }

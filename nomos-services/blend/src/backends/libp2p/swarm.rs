@@ -3,7 +3,6 @@ use std::{collections::HashSet, time::Duration};
 use futures::StreamExt as _;
 use libp2p::{identity::Keypair, PeerId, Swarm, SwarmBuilder};
 use nomos_blend::membership::Membership;
-use nomos_blend_message::sphinx::SphinxMessage;
 use nomos_libp2p::{ed25519, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
@@ -26,7 +25,7 @@ pub(super) struct BlendSwarm<Rng> {
     swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
     incoming_message_sender: broadcast::Sender<Vec<u8>>,
     // TODO: Instead of holding the membership, we just want a way to get the list of addresses.
-    membership: Membership<PeerId, SphinxMessage>,
+    membership: Membership<PeerId>,
     rng: Rng,
     peering_degree: usize,
 }
@@ -37,7 +36,7 @@ where
 {
     pub(super) fn new(
         config: BlendConfig<Libp2pBlendBackendSettings, PeerId>,
-        membership: Membership<PeerId, SphinxMessage>,
+        membership: Membership<PeerId>,
         mut rng: Rng,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
         incoming_message_sender: broadcast::Sender<Vec<u8>>,

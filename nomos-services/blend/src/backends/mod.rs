@@ -5,7 +5,6 @@ use std::{fmt::Debug, pin::Pin};
 
 use futures::Stream;
 use nomos_blend::membership::Membership;
-use nomos_blend_message::sphinx::SphinxMessage;
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
 
@@ -20,7 +19,7 @@ pub trait BlendBackend<RuntimeServiceId> {
     fn new<R>(
         service_config: BlendConfig<Self::Settings, Self::NodeId>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-        membership: Membership<Self::NodeId, SphinxMessage>,
+        membership: Membership<Self::NodeId>,
         rng: R,
     ) -> Self
     where
