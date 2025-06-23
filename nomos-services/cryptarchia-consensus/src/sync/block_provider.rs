@@ -148,8 +148,9 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
         known_blocks
             .iter()
             .filter_map(|known| {
-                let know_branch = branches.get(known);
-                know_branch.map(|known_branch| branches.lca(known_branch, target_branch))
+                branches
+                    .get(known)
+                    .map(|known_branch| branches.lca(known_branch, target_branch))
             })
             .max_by_key(Branch::length)
             .map(|b| b.id())
