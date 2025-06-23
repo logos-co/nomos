@@ -4,7 +4,7 @@ use blake2::{
 };
 use chacha20::ChaCha20;
 use cipher::{KeyIvInit as _, StreamCipher as _};
-use ed25519_dalek::ed25519::signature::Signer as _;
+use ed25519_dalek::{ed25519::signature::Signer as _, Verifier as _};
 use rand_chacha::{
     rand_core::{RngCore as _, SeedableRng as _},
     ChaCha12Rng, ChaCha20Rng,
@@ -34,7 +34,7 @@ impl Ed25519PrivateKey {
     /// Signs a message.
     #[must_use]
     pub fn sign(&self, message: &[u8]) -> Signature {
-        Signature(self.0.sign(message).to_bytes())
+        self.0.sign(message).into()
     }
 
     /// Derives an X25519 private key.
@@ -59,6 +59,11 @@ impl Ed25519PublicKey {
     pub fn derive_x25519(&self) -> X25519PublicKey {
         self.0.to_montgomery().to_bytes().into()
     }
+
+    #[must_use]
+    pub fn verify_signature(&self, body: &[u8], signature: &Signature) -> bool {
+        self.0.verify(body, &signature.0).is_ok()
+    }
 }
 
 impl From<Ed25519PublicKey> for [u8; KEY_SIZE] {
@@ -70,11 +75,17 @@ impl From<Ed25519PublicKey> for [u8; KEY_SIZE] {
 pub const SIGNATURE_SIZE: usize = 64;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Signature(#[serde(with = "BigArray")] [u8; SIGNATURE_SIZE]);
+pub struct Signature(ed25519_dalek::Signature);
+
+impl From<ed25519_dalek::Signature> for Signature {
+    fn from(sig: ed25519_dalek::Signature) -> Self {
+        Self(sig)
+    }
+}
 
 impl From<[u8; SIGNATURE_SIZE]> for Signature {
     fn from(bytes: [u8; SIGNATURE_SIZE]) -> Self {
-        Self(bytes)
+        ed25519_dalek::Signature::from_bytes(&bytes).into()
     }
 }
 
@@ -103,7 +114,7 @@ impl From<[u8; KEY_SIZE]> for X25519PublicKey {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct SharedKey([u8; KEY_SIZE]);
 
 impl SharedKey {

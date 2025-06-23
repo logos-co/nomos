@@ -12,4 +12,6 @@ pub enum Error {
     DeserializationFailed,
     #[error("Invalid payload length")]
     InvalidPayloadLength,
+    #[error("Signature verification failed")]
+    SignatureVerificationFailed,
 }
