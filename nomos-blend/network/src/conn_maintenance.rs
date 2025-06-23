@@ -79,7 +79,6 @@ where
         let Poll::Ready(Some(new_expected_message_count_range)) =
             self.connection_window_clock.poll_next_unpin(cx)
         else {
-            // Waker will be called by the `poll_next_unpin` when a new item is ready.
             return Poll::Pending;
         };
         // First tick is used to set the range for the new observation window.
