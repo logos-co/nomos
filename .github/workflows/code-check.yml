@@ -216,7 +216,7 @@ jobs:
           CONSENSUS_SLOT_TIME: 5
         with:
           command: test
-          args: -p tests two_nodes_happy -- --ignored
+          args: -p tests two_nodes_happy --features testing -- --ignored
       - name: Update Cargo cache
         if: success() || failure()
         uses: ./.github/actions/update-cargo-cache
