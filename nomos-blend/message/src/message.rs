@@ -19,6 +19,8 @@ pub struct Header {
 }
 
 impl Header {
+    /// Create a header with the current version
+    /// since this module implements the blend protocol version 1.
     #[must_use]
     pub(crate) const fn new() -> Self {
         Self { version: VERSION }
