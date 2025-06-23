@@ -37,6 +37,7 @@ nomos-da-verifier        = { workspace = true, features = ["libp2p", "rocksdb-ba
 nomos-http-api-common    = { workspace = true }
 nomos-libp2p             = { workspace = true }
 nomos-mantle-core        = { workspace = true }
+nomos-membership         = { workspace = true }
 nomos-mempool            = { workspace = true, features = ["libp2p", "mock"] }
 nomos-network            = { workspace = true, features = ["libp2p"] }
 nomos-node               = { workspace = true }
@@ -58,4 +59,5 @@ utoipa-swagger-ui        = { version = "4.0" }
 [features]
 default         = ["tracing"]
 instrumentation = ["nomos-node/instrumentation"]
+testing         = []
 tracing         = ["nomos-node/tracing"]

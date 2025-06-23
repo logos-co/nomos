@@ -99,6 +99,9 @@ async fn main() -> Result<()> {
             system_sig: (),
             sdp: (),
             membership: config.membership,
+
+            #[cfg(feature = "testing")]
+            testing_http: config.testing_http,
         },
         None,
     )
