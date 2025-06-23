@@ -39,8 +39,8 @@ pub struct MessageBlendSettings {
 /// - Unwraps incoming messages received from network using
 ///   [`CryptographicProcessor`]
 /// - Pushes unwrapped messages to [`TemporalProcessor`]
-pub struct MessageBlendStream<S, NodeId, Rng, Scheduler> {
-    input_stream: S,
+pub struct MessageBlendStream<InputMessageStream, NodeId, Rng, Scheduler> {
+    input_stream: InputMessageStream,
     output_stream: Pin<Box<dyn Stream<Item = BlendOutgoingMessage> + Send + Sync + 'static>>,
     temporal_sender: UnboundedSender<BlendOutgoingMessage>,
     cryptographic_processor: CryptographicProcessor<NodeId, Rng>,
@@ -48,15 +48,16 @@ pub struct MessageBlendStream<S, NodeId, Rng, Scheduler> {
     _scheduler: PhantomData<Scheduler>,
 }
 
-impl<S, NodeId, Rng, Scheduler> MessageBlendStream<S, NodeId, Rng, Scheduler>
+impl<InputMessageStream, NodeId, Rng, Scheduler>
+    MessageBlendStream<InputMessageStream, NodeId, Rng, Scheduler>
 where
-    S: Stream<Item = Vec<u8>>,
+    InputMessageStream: Stream<Item = Vec<u8>>,
     NodeId: Hash + Eq,
     Rng: RngCore + Unpin + Send + 'static,
     Scheduler: Stream<Item = ()> + Unpin + Send + Sync + 'static,
 {
     pub fn new(
-        input_stream: S,
+        input_stream: InputMessageStream,
         settings: MessageBlendSettings,
         membership: Membership<NodeId>,
         scheduler: Scheduler,
@@ -97,9 +98,10 @@ where
     }
 }
 
-impl<S, NodeId, Rng, Scheduler> Stream for MessageBlendStream<S, NodeId, Rng, Scheduler>
+impl<InputMessageStream, NodeId, Rng, Scheduler> Stream
+    for MessageBlendStream<InputMessageStream, NodeId, Rng, Scheduler>
 where
-    S: Stream<Item = Vec<u8>> + Unpin,
+    InputMessageStream: Stream<Item = Vec<u8>> + Unpin,
     NodeId: Hash + Eq + Unpin,
     Rng: RngCore + Unpin + Send + 'static,
     Scheduler: Stream<Item = ()> + Unpin + Send + Sync + 'static,
@@ -140,11 +142,12 @@ where
     }
 }
 
-impl<T, NodeId, Rng, S> MessageBlendExt<NodeId, Rng, S> for T
+impl<InputMessageStream, NodeId, Rng, Scheduler> MessageBlendExt<NodeId, Rng, Scheduler>
+    for InputMessageStream
 where
-    T: Stream<Item = Vec<u8>>,
+    InputMessageStream: Stream<Item = Vec<u8>>,
     NodeId: Hash + Eq,
     Rng: RngCore + Unpin + Send + 'static,
-    S: Stream<Item = ()> + Unpin + Send + Sync + 'static,
+    Scheduler: Stream<Item = ()> + Unpin + Send + Sync + 'static,
 {
 }
