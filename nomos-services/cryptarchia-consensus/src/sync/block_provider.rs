@@ -63,7 +63,7 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
         );
 
         let Some(start_block) =
-            Self::max_lca(cryptarchia.consensus.branches(), target_block, known_blocks)
+            max_lca(cryptarchia.consensus.branches(), target_block, known_blocks)
         else {
             Self::send_error(
                 "Failed to find LCA for target block and known blocks".to_owned(),
@@ -76,7 +76,7 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
 
         info!("Starting to send blocks from {start_block:?} to {target_block:?}");
 
-        let Ok(path) = Self::compute_path(
+        let Ok(path) = compute_path(
             cryptarchia.consensus.branches(),
             start_block,
             target_block,
@@ -131,67 +131,6 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
         }
     }
 
-    fn max_lca(
-        branches: &Branches<HeaderId>,
-        target_block: HeaderId,
-        known_blocks: &HashSet<HeaderId>,
-    ) -> Option<HeaderId> {
-        let target_branch = branches.get(&target_block)?;
-
-        known_blocks
-            .iter()
-            .filter_map(|known| {
-                branches
-                    .get(known)
-                    .map(|known_branch| branches.lca(known_branch, target_branch))
-            })
-            .max_by_key(Branch::length)
-            .map(|b| b.id())
-    }
-
-    fn compute_path(
-        branches: &Branches<HeaderId>,
-        start_block: HeaderId,
-        target_block: HeaderId,
-        limit: usize,
-    ) -> Result<VecDeque<HeaderId>, GetBlocksError> {
-        let mut path = VecDeque::new();
-
-        if start_block == target_block {
-            return Ok(path);
-        }
-
-        let mut current = Some(target_block);
-        while let Some(id) = current {
-            if id == start_block {
-                break;
-            }
-
-            if path.len() == limit {
-                path.pop_back();
-            }
-
-            path.push_front(id);
-
-            let parent = branches.get(&id).map(Branch::parent);
-
-            // If the parent is the same as the current block, we have reached genesis.
-            if Some(id) == parent {
-                break;
-            }
-
-            current = parent;
-        }
-
-        if !path.is_empty() && path.front() != Some(&start_block) {
-            return Err(GetBlocksError::InvalidState(format!(
-                "Unable to compute path from {start_block:?} to {target_block:?}",
-            )));
-        }
-
-        Ok(path)
-    }
-
     async fn send_error(msg: String, reply_sender: Sender<BoxStream<'_, Result<Bytes, DynError>>>) {
         error!(msg);
 
@@ -202,6 +141,64 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
             .map_err(|_| GetBlocksError::SendError("Failed to send error stream".to_owned()))
         {
             error!("Failed to send error stream: {e}");
+        }
+    }
+}
+
+fn max_lca<Id>(branches: &Branches<Id>, target_block: Id, known_blocks: &HashSet<Id>) -> Option<Id>
+where
+    Id: Hash + Eq + Copy + Debug,
+{
+    let target_branch = branches.get(&target_block)?;
+
+    known_blocks
+        .iter()
+        .filter_map(|known| {
+            branches
+                .get(known)
+                .map(|known_branch| branches.lca(known_branch, target_branch))
+        })
+        .max_by_key(Branch::length)
+        .map(|b| b.id())
+}
+
+fn compute_path<Id>(
+    branches: &Branches<Id>,
+    start_block: Id,
+    target_block: Id,
+    limit: usize,
+) -> Result<VecDeque<Id>, GetBlocksError>
+where
+    Id: Copy + Eq + Hash + Debug,
+{
+    let mut path = VecDeque::new();
+
+    let mut current = target_block;
+    loop {
+        path.push_front(current);
+
+        if path.len() > limit {
+            path.pop_back();
+        }
+
+        if current == start_block {
+            return Ok(path);
+        }
+
+        match branches.get(&current).map(Branch::parent) {
+            Some(parent) => {
+                if parent == current {
+                    return Err(GetBlocksError::InvalidState(format!(
+                        "Genesis block reached before reaching start_block: {start_block:?}"
+                    )));
+                }
+                current = parent;
+            }
+            None => {
+                return Err(GetBlocksError::InvalidState(format!(
+                    "Couldn't reach start_block: {start_block:?}"
+                )));
+            }
         }
     }
 }
