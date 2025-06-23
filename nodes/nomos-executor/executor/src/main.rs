@@ -4,10 +4,11 @@ use nomos_core::da::blob::info::DispersedBlobInfo;
 use nomos_executor::{
     config::Config as ExecutorConfig, NomosExecutor, NomosExecutorServiceSettings,
 };
+use nomos_mantle_core::tx::SignedMantleTx;
 use nomos_mempool::tx::settings::TxMempoolSettings;
 use nomos_node::{
     config::BlendArgs, BlobInfo, CryptarchiaArgs, DaMempoolSettings, HttpArgs, LogArgs,
-    MempoolAdapterSettings, NetworkArgs, Transaction, Tx, CL_TOPIC, DA_TOPIC,
+    MempoolAdapterSettings, NetworkArgs, Transaction, CL_TOPIC, DA_TOPIC,
 };
 use overwatch::overwatch::OverwatchRunner;
 
@@ -16,6 +17,10 @@ use overwatch::overwatch::OverwatchRunner;
 struct Args {
     /// Path for a yaml-encoded network config file
     config: std::path::PathBuf,
+    /// Dry-run flag. If active, the binary will try to deserialize the config
+    /// file and then exit.
+    #[clap(long = "check-config", action)]
+    check_config_only: bool,
     /// Overrides log config.
     #[clap(flatten)]
     log: LogArgs,
@@ -32,7 +37,8 @@ struct Args {
     cryptarchia: CryptarchiaArgs,
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let Args {
         config,
         log: log_args,
@@ -40,6 +46,7 @@ fn main() -> Result<()> {
         network: network_args,
         blend: blend_args,
         cryptarchia: cryptarchia_args,
+        check_config_only,
     } = Args::parse();
     let config = serde_yaml::from_reader::<_, ExecutorConfig>(std::fs::File::open(config)?)?
         .update_from_args(
@@ -49,6 +56,15 @@ fn main() -> Result<()> {
             http_args,
             cryptarchia_args,
         )?;
+
+    #[expect(
+        clippy::non_ascii_literal,
+        reason = "Use of green checkmark for better UX."
+    )]
+    if check_config_only {
+        println!("Config file is valid! ✅");
+        return Ok(());
+    }
 
     let app = OverwatchRunner::<NomosExecutor>::run(
         NomosExecutorServiceSettings {
@@ -61,7 +77,7 @@ fn main() -> Result<()> {
                 pool: (),
                 network_adapter: MempoolAdapterSettings {
                     topic: String::from(CL_TOPIC),
-                    id: <Tx as Transaction>::hash,
+                    id: <SignedMantleTx as Transaction>::hash,
                 },
                 recovery_path: config.mempool.cl_pool_recovery_path,
             },
@@ -82,11 +98,13 @@ fn main() -> Result<()> {
             time: config.time,
             storage: config.storage,
             system_sig: (),
+            sdp: (),
+            membership: config.membership,
         },
         None,
     )
     .map_err(|e| eyre!("Error encountered: {}", e))?;
-    let _ = app.runtime().block_on(app.handle().start_all_services());
-    app.wait_finished();
+    let _ = app.handle().start_all_services().await;
+    app.wait_finished().await;
     Ok(())
 }

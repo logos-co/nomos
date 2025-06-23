@@ -1,40 +1,66 @@
 macro_rules! adapter_for {
     ($DaNetworkBackend:ident, $DaNetworksEventKind:ident, $DaNetworkEvent:ident) => {
-        pub struct Libp2pAdapter<M, RuntimeServiceId>
-        where
-            M: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
+        pub struct Libp2pAdapter<
+            Membership,
+            MembershipServiceAdapter,
+            StorageAdapter,
+            RuntimeServiceId,
+        > where
+            Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
                 + Clone
                 + Debug
                 + Send
                 + Sync
                 + 'static,
+            MembershipServiceAdapter: MembershipAdapter,
         {
             network_relay: OutboundRelay<
-                <NetworkService<$DaNetworkBackend<M>, M, RuntimeServiceId> as ServiceData>::Message,
+                <NetworkService<
+                    $DaNetworkBackend<Membership>,
+                    Membership,
+                    MembershipServiceAdapter,
+                    StorageAdapter,
+                    RuntimeServiceId,
+                > as ServiceData>::Message,
             >,
-            _membership: PhantomData<M>,
+            _membership: PhantomData<Membership>,
         }
 
         #[async_trait::async_trait]
-        impl<M, RuntimeServiceId> NetworkAdapter<RuntimeServiceId>
-            for Libp2pAdapter<M, RuntimeServiceId>
+        impl<Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
+            NetworkAdapter<RuntimeServiceId>
+            for Libp2pAdapter<
+                Membership,
+                MembershipServiceAdapter,
+                StorageAdapter,
+                RuntimeServiceId,
+            >
         where
-            M: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
+            Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
                 + Clone
                 + Debug
                 + Send
                 + Sync
                 + 'static,
+            MembershipServiceAdapter: MembershipAdapter,
         {
-            type Backend = $DaNetworkBackend<M>;
+            type Backend = $DaNetworkBackend<Membership>;
             type Settings = ();
             type Share = DaShare;
-            type Membership = M;
+            type Membership = Membership;
+            type Storage = StorageAdapter;
+            type MembershipAdapter = MembershipServiceAdapter;
 
             async fn new(
                 _settings: Self::Settings,
                 network_relay: OutboundRelay<
-                    <NetworkService<Self::Backend, Self::Membership, RuntimeServiceId> as ServiceData>::Message,
+                    <NetworkService<
+                        Self::Backend,
+                        Self::Membership,
+                        Self::MembershipAdapter,
+                        Self::Storage,
+                        RuntimeServiceId,
+                    > as ServiceData>::Message,
                 >,
             ) -> Self {
                 Self {

@@ -21,7 +21,7 @@ pub struct Input {
 pub struct InputWitness {
     pub note: NoteWitness,
     pub nf_sk: NullifierSecret,
-    pub cm_path: Vec<crate::merkle::PathNode>,
+    pub cm_path: Vec<merkle::PathNode>,
 }
 
 impl InputWitness {

@@ -17,9 +17,11 @@ use serde::{Deserialize, Serialize};
 use tracing::Level;
 
 use crate::{
-    config::mempool::MempoolConfig, ApiService, BlendService, CryptarchiaService, DaIndexerService,
-    DaNetworkService, DaSamplingService, DaVerifierService, NetworkService, RuntimeServiceId,
-    StorageService, TimeService,
+    config::mempool::MempoolConfig,
+    generic_services::{MembershipService, SdpService},
+    ApiService, BlendService, CryptarchiaService, DaIndexerService, DaNetworkService,
+    DaSamplingService, DaVerifierService, NetworkService, RuntimeServiceId, StorageService,
+    TimeService,
 };
 
 pub mod mempool;
@@ -134,6 +136,8 @@ pub struct Config {
     pub da_network: <DaNetworkService as ServiceData>::Settings,
     pub da_indexer: <DaIndexerService as ServiceData>::Settings,
     pub da_verifier: <DaVerifierService as ServiceData>::Settings,
+    pub membership: <MembershipService<RuntimeServiceId> as ServiceData>::Settings,
+    pub sdp: <SdpService<RuntimeServiceId> as ServiceData>::Settings,
     pub da_sampling: <DaSamplingService as ServiceData>::Settings,
     pub http: <ApiService as ServiceData>::Settings,
     pub cryptarchia: <CryptarchiaService as ServiceData>::Settings,

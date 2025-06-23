@@ -12,8 +12,8 @@ use rand::{
     SeedableRng as _,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast::{self, Receiver, Sender};
-use tracing::debug;
+use tokio::sync::broadcast::{self, Sender};
+use tokio_stream::wrappers::BroadcastStream;
 
 use super::{Debug, NetworkBackend, OverwatchHandle};
 
@@ -100,7 +100,8 @@ impl MockMessage {
 #[derive(Clone)]
 pub struct Mock {
     messages: Arc<Mutex<HashMap<String, Vec<MockMessage>>>>,
-    message_event: Sender<NetworkEvent>,
+    pubsub_events_tx: Sender<NetworkEvent>,
+    chainsync_events_tx: Sender<()>,
     subscribed_topics: Arc<Mutex<HashSet<String>>>,
     config: MockConfig,
 }
@@ -142,7 +143,7 @@ pub enum MockBackendMessage {
     },
 }
 
-impl core::fmt::Debug for MockBackendMessage {
+impl Debug for MockBackendMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::BootProducer { .. } => write!(f, "BootProducer"),
@@ -156,11 +157,6 @@ impl core::fmt::Debug for MockBackendMessage {
             Self::Query { topic, .. } => write!(f, "Query {{ topic: {topic} }}"),
         }
     }
-}
-
-#[derive(Debug)]
-pub enum EventKind {
-    Message,
 }
 
 #[derive(Debug, Clone)]
@@ -189,7 +185,7 @@ impl Mock {
             tokio::time::sleep(self.config.duration).await;
             let msg = &self.config.predefined_messages[idx];
             match self
-                .message_event
+                .pubsub_events_tx
                 .send(NetworkEvent::RawMessage(msg.clone()))
             {
                 Ok(_) => {
@@ -210,7 +206,7 @@ impl Mock {
         for msg in &self.config.predefined_messages {
             tokio::time::sleep(self.config.duration).await;
             match self
-                .message_event
+                .pubsub_events_tx
                 .send(NetworkEvent::RawMessage(msg.clone()))
             {
                 Ok(_) => {
@@ -233,11 +229,12 @@ impl Mock {
 impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Mock {
     type Settings = MockConfig;
     type Message = MockBackendMessage;
-    type EventKind = EventKind;
-    type NetworkEvent = NetworkEvent;
+    type PubSubEvent = NetworkEvent;
+    type ChainSyncEvent = ();
 
     fn new(config: Self::Settings, _: OverwatchHandle<RuntimeServiceId>) -> Self {
-        let message_event = broadcast::channel(BROADCAST_CHANNEL_BUF).0;
+        let (pubsub_events_tx, _) = broadcast::channel(BROADCAST_CHANNEL_BUF);
+        let (chainsync_events_tx, _) = broadcast::channel(BROADCAST_CHANNEL_BUF);
 
         Self {
             subscribed_topics: Arc::new(Mutex::new(HashSet::new())),
@@ -248,8 +245,9 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Mock {
                     .map(|p| (p.content_topic.content_topic_name.to_string(), Vec::new()))
                     .collect(),
             )),
-            message_event,
+            pubsub_events_tx,
             config,
+            chainsync_events_tx,
         }
     }
 
@@ -273,7 +271,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Mock {
                     .entry(topic)
                     .or_default()
                     .push(msg.clone());
-                let _ = self.message_event.send(NetworkEvent::RawMessage(msg));
+                let _ = self.pubsub_events_tx.send(NetworkEvent::RawMessage(msg));
             }
             MockBackendMessage::RelaySubscribe { topic } => {
                 tracing::info!("processed relay subscription for topic: {topic}");
@@ -297,13 +295,12 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Mock {
         }
     }
 
-    async fn subscribe(&mut self, kind: Self::EventKind) -> Receiver<Self::NetworkEvent> {
-        match kind {
-            EventKind::Message => {
-                debug!("processed subscription to incoming messages");
-                self.message_event.subscribe()
-            }
-        }
+    async fn subscribe_to_pubsub(&mut self) -> BroadcastStream<Self::PubSubEvent> {
+        BroadcastStream::new(self.pubsub_events_tx.subscribe())
+    }
+
+    async fn subscribe_to_chainsync(&mut self) -> BroadcastStream<Self::ChainSyncEvent> {
+        BroadcastStream::new(self.chainsync_events_tx.subscribe())
     }
 }
 

@@ -4,8 +4,12 @@ license = { workspace = true }
 name    = "nomos-libp2p"
 version = "0.1.0"
 
+[lints]
+workspace = true
+
 [dependencies]
 blake2 = { version = "0.10" }
+cryptarchia-sync = { workspace = true }
 futures = "0.3"
 hex = "0.4.3"
 libp2p = { workspace = true, features = [
@@ -21,6 +25,7 @@ libp2p = { workspace = true, features = [
 multiaddr = "0.18"
 serde = { version = "1.0.166", features = ["derive"] }
 thiserror = "1.0.40"
+tokio = "1"
 tracing = { workspace = true }
 
 [dev-dependencies]

@@ -25,23 +25,28 @@ use tokio_stream::StreamExt as _;
 
 use super::{
     command::{Command, Dial, NetworkCommand},
-    Event, Libp2pConfig,
+    Libp2pConfig, Message,
 };
 use crate::backends::libp2p::{swarm::kademlia::PendingQueryData, Libp2pInfo};
 
+mod chainsync;
 mod gossipsub;
 mod identify;
 mod kademlia;
 
+pub use chainsync::ChainSyncCommand;
 pub use gossipsub::PubSubCommand;
 pub use kademlia::DiscoveryCommand;
+
+use crate::message::ChainSyncEvent;
 
 pub struct SwarmHandler {
     pub swarm: Swarm,
     pub pending_dials: HashMap<ConnectionId, Dial>,
     pub commands_tx: mpsc::Sender<Command>,
     pub commands_rx: mpsc::Receiver<Command>,
-    pub events_tx: broadcast::Sender<Event>,
+    pub pubsub_messages_tx: broadcast::Sender<Message>,
+    pub chainsync_events_tx: broadcast::Sender<ChainSyncEvent>,
 
     pending_queries: HashMap<QueryId, PendingQueryData>,
 }
@@ -56,7 +61,8 @@ impl SwarmHandler {
         config: Libp2pConfig,
         commands_tx: mpsc::Sender<Command>,
         commands_rx: mpsc::Receiver<Command>,
-        events_tx: broadcast::Sender<Event>,
+        pubsub_events_tx: broadcast::Sender<Message>,
+        chainsync_events_tx: broadcast::Sender<ChainSyncEvent>,
     ) -> Self {
         let swarm = Swarm::build(config.inner).unwrap();
 
@@ -69,7 +75,8 @@ impl SwarmHandler {
             pending_dials,
             commands_tx,
             commands_rx,
-            events_tx,
+            pubsub_messages_tx: pubsub_events_tx,
+            chainsync_events_tx,
             pending_queries: HashMap::new(),
         }
     }
@@ -115,11 +122,12 @@ impl SwarmHandler {
             SwarmEvent::Behaviour(BehaviourEvent::Identify(event)) => {
                 self.handle_identify_event(event);
             }
-
             SwarmEvent::Behaviour(BehaviourEvent::Kademlia(event)) => {
                 self.handle_kademlia_event(event);
             }
-
+            SwarmEvent::Behaviour(BehaviourEvent::ChainSync(event)) => {
+                self.handle_chainsync_event(event);
+            }
             SwarmEvent::ConnectionEstablished {
                 peer_id,
                 connection_id,
@@ -161,6 +169,7 @@ impl SwarmHandler {
             Command::Network(network_cmd) => self.handle_network_command(network_cmd),
             Command::PubSub(pubsub_cmd) => self.handle_pubsub_command(pubsub_cmd),
             Command::Discovery(discovery_cmd) => self.handle_discovery_command(discovery_cmd),
+            Command::ChainSync(chainsync_cmd) => self.handle_chainsync_command(chainsync_cmd),
         }
     }
 
@@ -242,7 +251,7 @@ impl SwarmHandler {
 }
 
 const fn exp_backoff(retry: usize) -> Duration {
-    std::time::Duration::from_secs(BACKOFF.pow(retry as u32))
+    Duration::from_secs(BACKOFF.pow(retry as u32))
 }
 
 #[cfg(test)]
@@ -286,6 +295,7 @@ mod tests {
     const NODE_COUNT: usize = 10;
 
     #[tokio::test]
+    #[expect(clippy::too_many_lines, reason = "Should be fixed in a separate PR")]
     async fn test_kademlia_bootstrap() {
         init_tracing();
 
@@ -296,9 +306,17 @@ mod tests {
         let (tx1, rx1) = mpsc::channel(10);
         txs.push(tx1.clone());
 
-        let (events_tx1, _) = broadcast::channel(10);
+        let (pubsub_events_tx, _) = broadcast::channel(10);
+        let (chainsync_events_tx, _) = broadcast::channel(10);
+
         let config = create_libp2p_config(vec![], 8000);
-        let mut bootstrap_node = SwarmHandler::new(config, tx1.clone(), rx1, events_tx1.clone());
+        let mut bootstrap_node = SwarmHandler::new(
+            config,
+            tx1.clone(),
+            rx1,
+            pubsub_events_tx,
+            chainsync_events_tx,
+        );
 
         let bootstrap_node_peer_id = *bootstrap_node.swarm.swarm().local_peer_id();
 
@@ -339,11 +357,19 @@ mod tests {
         for i in 1..NODE_COUNT {
             let (tx, rx) = mpsc::channel(10);
             txs.push(tx.clone());
-            let (events_tx, _) = broadcast::channel(10);
 
             // Each node connects to the bootstrap node
+            let (pubsub_events_tx, _) = broadcast::channel(10);
+            let (chainsync_events_tx, _) = broadcast::channel(10);
+
             let config = create_libp2p_config(vec![bootstrap_addr.clone()], 8000 + i as u16);
-            let mut handler = SwarmHandler::new(config, tx.clone(), rx, events_tx);
+            let mut handler = SwarmHandler::new(
+                config,
+                tx.clone(),
+                rx,
+                pubsub_events_tx,
+                chainsync_events_tx,
+            );
 
             let peer_id = *handler.swarm.swarm().local_peer_id();
             tracing::info!("Starting node {} with peer ID: {}", i, peer_id);

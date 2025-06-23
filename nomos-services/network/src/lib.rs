@@ -96,8 +96,15 @@ where
                 let send = backend.process(msg);
                 send.await;
             }
-            BackendNetworkMsg::<Backend, _>::Subscribe { kind, sender } => sender
-                .send(backend.subscribe(kind).await)
+            BackendNetworkMsg::<Backend, _>::SubscribeToPubSub { sender } => sender
+                .send(backend.subscribe_to_pubsub().await)
+                .unwrap_or_else(|_| {
+                    tracing::warn!(
+                        "client hung up before a subscription handle could be established"
+                    );
+                }),
+            BackendNetworkMsg::<Backend, _>::SubscribeToChainSync { sender } => sender
+                .send(backend.subscribe_to_chainsync().await)
                 .unwrap_or_else(|_| {
                     tracing::warn!(
                         "client hung up before a subscription handle could be established"

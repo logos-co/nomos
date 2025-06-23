@@ -1,0 +1,767 @@
+tracing:
+  logger: !Stdout
+  tracing: None
+  filter: None
+  metrics: None
+  level: DEBUG
+network:
+  backend:
+    host: 0.0.0.0
+    port: 3000
+    node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d
+    initial_peers: []
+blend:
+  backend:
+    listening_address: /ip4/127.0.0.1/udp/3001/quic-v1
+    node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d
+    peering_degree: 1
+    max_peering_degree: 3
+    conn_monitor: null
+  message_blend:
+    cryptographic_processor:
+      private_key:
+        [
+          50,
+          228,
+          181,
+          43,
+          120,
+          224,
+          232,
+          39,
+          63,
+          49,
+          226,
+          174,
+          8,
+          38,
+          208,
+          155,
+          3,
+          72,
+          212,
+          198,
+          104,
+          36,
+          175,
+          79,
+          81,
+          236,
+          78,
+          243,
+          56,
+          8,
+          34,
+          17,
+        ]
+      num_blend_layers: 1
+    temporal_processor:
+      max_delay: "2.0"
+    minimum_messages_coefficient: 3
+    normalization_constant: 1.03
+  persistent_transmission:
+    max_emission_frequency: 1.0
+    drop_message_probability: 0.5
+  cover_traffic:
+    message_frequency_per_round: 1.0
+    redundancy_parameter: 0
+    intervals_for_safety_buffer: 100
+  # 21,600 blocks * 30s per block * 1s per round = 648,000 rounds
+  rounds_per_session: 648000
+  rounds_per_interval: 30
+  round_duration: [1, 0]
+  # Defined in the spec
+  rounds_per_observation_window: 30
+  membership:
+    - id: 12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
+      address: /ip4/127.0.0.1/udp/8720/quic-v1
+      public_key:
+        [
+          223,
+          150,
+          178,
+          168,
+          141,
+          122,
+          185,
+          2,
+          106,
+          243,
+          47,
+          123,
+          25,
+          177,
+          191,
+          26,
+          98,
+          228,
+          30,
+          221,
+          115,
+          72,
+          32,
+          173,
+          97,
+          21,
+          71,
+          88,
+          227,
+          209,
+          172,
+          43,
+        ]
+    - id: 12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
+      address: /ip4/127.0.0.1/udp/8721/quic-v1
+      public_key:
+        [
+          37,
+          199,
+          27,
+          35,
+          154,
+          26,
+          211,
+          224,
+          115,
+          140,
+          24,
+          212,
+          236,
+          242,
+          184,
+          68,
+          129,
+          92,
+          174,
+          95,
+          123,
+          211,
+          166,
+          115,
+          228,
+          128,
+          209,
+          15,
+          197,
+          113,
+          247,
+          31,
+        ]
+da_network:
+  backend:
+    validator_settings:
+      node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d
+      listening_address: /ip4/127.0.0.1/udp/8716/quic-v1
+      policy_settings:
+        min_dispersal_peers: 1
+        min_replication_peers: 1
+        max_dispersal_failures: 3
+        max_sampling_failures: 3
+        max_replication_failures: 3
+        malicious_threshold: 5
+      monitor_settings:
+        failure_time_window: "10.0"
+        time_decay_factor: "0.8"
+      balancer_interval:
+        secs: 5
+        nanos: 0
+      redial_cooldown:
+        secs: 5
+        nanos: 0
+      replication_settings:
+        seen_message_cache_size: 1000
+        seen_message_ttl: "3600.0"
+    num_subnets: 2
+  membership:
+    assignations:
+      - - 12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
+        - 12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
+      - - 12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
+        - 12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
+    subnetwork_size: 2
+    dispersal_factor: 2
+    addressbook:
+      12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir: /ip4/127.0.0.1/udp/8717/quic-v1/p2p/12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
+      12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh: /ip4/127.0.0.1/udp/8716/quic-v1/p2p/12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
+da_dispersal:
+  backend:
+    encoder_settings:
+      num_columns: 2
+      with_cache: false
+      global_params_path: /tmp
+    dispersal_timeout: [20, 0]
+    mempool_strategy:
+      !SampleSubnetworks
+        sample_threshold: 2
+        timeout: [10, 0]
+        cooldown: [0, 100]
+da_indexer:
+  storage:
+    blob_storage_directory: ./
+da_verifier:
+  verifier_settings:
+    sk: 67cee9fdc9c5160671b40da60b17153558496a12fb57804c1e64ef51f5a29dca
+    index:
+      - 1
+      - 0
+    global_params_path: ./tests/kzgrs/kzgrs_test_params
+    domain_size: 2
+  network_adapter_settings: null
+  storage_adapter_settings:
+    blob_storage_directory: ./
+da_sampling:
+  sampling_settings:
+    num_samples: 1
+    num_subnets: 2
+    old_blobs_check_interval:
+      secs: 5
+      nanos: 0
+    blobs_validity_duration:
+      secs: 18446744073709551615
+      nanos: 0
+  network_adapter_settings: null
+  storage_adapter_settings:
+    blob_storage_directory: ./
+  api_adapter_settings:
+    api_port: 8722
+    is_secure: false
+    membership:
+      assignations:
+        - - 12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
+          - 12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
+        - - 12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
+          - 12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
+      subnetwork_size: 2
+      dispersal_factor: 2
+      addressbook:
+        12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir: /ip4/127.0.0.1/udp/8717/quic-v1/p2p/12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
+        12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh: /ip4/127.0.0.1/udp/8716/quic-v1/p2p/12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
+http:
+  backend_settings:
+    address: 127.0.0.1:8722
+    cors_origins: []
+time:
+  backend_settings:
+    slot_config:
+      slot_duration: '2.0'
+      chain_start_time: [2025, 41, 9, 38, 29, 993653000, 0, 0, 0]
+    epoch_config:
+      epoch_stake_distribution_stabilization: 3
+      epoch_period_nonce_buffer: 3
+      epoch_period_nonce_stabilization: 4
+    base_period_length: 11
+    update_interval: [16, 0]
+    ntp_server: pool.ntp.org
+    ntp_client_settings:
+      timeout: [5, 0]
+      listening_interface: 0.0.0.0
+cryptarchia:
+  transaction_selector_settings: null
+  blob_selector_settings: null
+  config:
+    epoch_config:
+      epoch_stake_distribution_stabilization: 3
+      epoch_period_nonce_buffer: 3
+      epoch_period_nonce_stabilization: 4
+    consensus_config:
+      security_param: 10
+      active_slot_coeff: 0.9
+  genesis_id: 0x0000000000000000000000000000000000000000000000000000000000000000
+  genesis_state:
+    lead_commitments:
+      commitments:
+        - [
+            18,
+            138,
+            113,
+            123,
+            169,
+            28,
+            11,
+            155,
+            180,
+            170,
+            199,
+            144,
+            209,
+            228,
+            189,
+            186,
+            233,
+            190,
+            225,
+            239,
+            98,
+            148,
+            68,
+            14,
+            87,
+            134,
+            241,
+            118,
+            13,
+            67,
+            236,
+            111,
+          ]
+        - [
+            199,
+            52,
+            183,
+            239,
+            142,
+            16,
+            112,
+            114,
+            62,
+            250,
+            93,
+            82,
+            160,
+            72,
+            22,
+            131,
+            30,
+            118,
+            45,
+            143,
+            60,
+            212,
+            120,
+            133,
+            150,
+            240,
+            190,
+            138,
+            220,
+            189,
+            174,
+            88,
+          ]
+      roots:
+        - [
+            126,
+            154,
+            239,
+            90,
+            153,
+            165,
+            51,
+            3,
+            184,
+            100,
+            215,
+            93,
+            150,
+            98,
+            185,
+            151,
+            31,
+            236,
+            170,
+            227,
+            105,
+            179,
+            206,
+            36,
+            29,
+            176,
+            11,
+            92,
+            44,
+            191,
+            195,
+            97,
+          ]
+    spend_commitments:
+      commitments:
+        - [
+            18,
+            138,
+            113,
+            123,
+            169,
+            28,
+            11,
+            155,
+            180,
+            170,
+            199,
+            144,
+            209,
+            228,
+            189,
+            186,
+            233,
+            190,
+            225,
+            239,
+            98,
+            148,
+            68,
+            14,
+            87,
+            134,
+            241,
+            118,
+            13,
+            67,
+            236,
+            111,
+          ]
+        - [
+            199,
+            52,
+            183,
+            239,
+            142,
+            16,
+            112,
+            114,
+            62,
+            250,
+            93,
+            82,
+            160,
+            72,
+            22,
+            131,
+            30,
+            118,
+            45,
+            143,
+            60,
+            212,
+            120,
+            133,
+            150,
+            240,
+            190,
+            138,
+            220,
+            189,
+            174,
+            88,
+          ]
+      roots:
+        - [
+            126,
+            154,
+            239,
+            90,
+            153,
+            165,
+            51,
+            3,
+            184,
+            100,
+            215,
+            93,
+            150,
+            98,
+            185,
+            151,
+            31,
+            236,
+            170,
+            227,
+            105,
+            179,
+            206,
+            36,
+            29,
+            176,
+            11,
+            92,
+            44,
+            191,
+            195,
+            97,
+          ]
+    nullifiers: []
+    nonce:
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+      ]
+    slot: 0
+    next_epoch_state:
+      epoch: 1
+      nonce:
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+        ]
+      commitments:
+        commitments: []
+        roots: []
+      total_stake: 2
+    epoch_state:
+      epoch: 0
+      nonce:
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+        ]
+      commitments:
+        commitments: []
+        roots: []
+      total_stake: 2
+  time:
+    slot_duration: [2, 0]
+    chain_start_time: [2025, 41, 9, 38, 29, 993653000, 0, 0, 0]
+  leader_config:
+    notes:
+      - value: 1
+        unit:
+          [
+            67,
+            50,
+            140,
+            228,
+            181,
+            204,
+            226,
+            242,
+            254,
+            193,
+            239,
+            51,
+            237,
+            68,
+            36,
+            126,
+            124,
+            227,
+            60,
+            112,
+            223,
+            195,
+            146,
+            236,
+            5,
+            21,
+            42,
+            215,
+            48,
+            122,
+            25,
+            195,
+          ]
+        covenant:
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+          ]
+        state:
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+          ]
+        nonce:
+          [
+            46,
+            19,
+            159,
+            151,
+            211,
+            245,
+            243,
+            202,
+            164,
+            166,
+            78,
+            25,
+            90,
+            19,
+            136,
+            83,
+            221,
+            112,
+            51,
+            191,
+            29,
+            136,
+            79,
+            247,
+            45,
+            145,
+            18,
+            195,
+            89,
+            179,
+            100,
+            189,
+          ]
+    nf_sk:
+      [234, 30, 29, 204, 49, 97, 43, 210, 9, 135, 240, 23, 240, 202, 67, 92]
+  network_adapter_settings:
+    topic: /cryptarchia/proto
+  blend_adapter_settings:
+    broadcast_settings:
+      topic: /cryptarchia/proto
+  recovery_file: ./recovery/cryptarchia.json
+storage:
+  db_path: nomos_db
+  read_only: false
+  column_family: blocks
+mempool:
+  cl_pool_recovery_path: ./recovery/cl_mempool.json
+  da_pool_recovery_path: ./recovery/da_mempool.json
+membership:
+  backend:
+    settings_per_service: {}
+    initial_membership: {}
+    initial_locators_mapping: {}
+    latest_block_number: 0
+sdp:

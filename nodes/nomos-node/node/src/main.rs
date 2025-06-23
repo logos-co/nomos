@@ -2,12 +2,13 @@ use clap::Parser;
 use color_eyre::eyre::{eyre, Result};
 use kzgrs_backend::dispersal::BlobInfo;
 use nomos_core::{da::blob::info::DispersedBlobInfo, tx::Transaction};
+use nomos_mantle_core::tx::SignedMantleTx;
 use nomos_mempool::{
     network::adapters::libp2p::Settings as AdapterSettings, tx::settings::TxMempoolSettings,
 };
 use nomos_node::{
     config::BlendArgs, Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs, Nomos,
-    NomosServiceSettings, Tx,
+    NomosServiceSettings,
 };
 use overwatch::overwatch::OverwatchRunner;
 
@@ -16,6 +17,10 @@ use overwatch::overwatch::OverwatchRunner;
 struct Args {
     /// Path for a yaml-encoded network config file
     config: std::path::PathBuf,
+    /// Dry-run flag. If active, the binary will try to deserialize the config
+    /// file and then exit.
+    #[clap(long = "check-config", action)]
+    check_config_only: bool,
     /// Overrides log config.
     #[clap(flatten)]
     log: LogArgs,
@@ -32,9 +37,11 @@ struct Args {
     cryptarchia: CryptarchiaArgs,
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let Args {
         config,
+        check_config_only,
         log: log_args,
         http: http_args,
         network: network_args,
@@ -50,6 +57,15 @@ fn main() -> Result<()> {
             cryptarchia_args,
         )?;
 
+    #[expect(
+        clippy::non_ascii_literal,
+        reason = "Use of green checkmark for better UX."
+    )]
+    if check_config_only {
+        println!("Config file is valid! ✅");
+        return Ok(());
+    }
+
     let app = OverwatchRunner::<Nomos>::run(
         NomosServiceSettings {
             network: config.network,
@@ -61,7 +77,7 @@ fn main() -> Result<()> {
                 pool: (),
                 network_adapter: AdapterSettings {
                     topic: String::from(nomos_node::CL_TOPIC),
-                    id: <Tx as Transaction>::hash,
+                    id: <SignedMantleTx as Transaction>::hash,
                 },
                 recovery_path: config.mempool.cl_pool_recovery_path,
             },
@@ -81,11 +97,13 @@ fn main() -> Result<()> {
             time: config.time,
             storage: config.storage,
             system_sig: (),
+            sdp: (),
+            membership: config.membership,
         },
         None,
     )
     .map_err(|e| eyre!("Error encountered: {}", e))?;
-    let _ = app.runtime().block_on(app.handle().start_all_services());
-    app.wait_finished();
+    let _ = app.handle().start_all_services().await;
+    app.wait_finished().await;
     Ok(())
 }

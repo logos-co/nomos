@@ -37,7 +37,6 @@ pub fn create_blend_configs(ids: &[[u8; 32]]) -> Vec<GeneralBlendConfig> {
                     node_key,
                     peering_degree: 1,
                     max_peering_degree: 3,
-                    conn_monitor: None,
                 },
                 private_key: x25519_dalek::StaticSecret::random(),
                 membership: Vec::new(),

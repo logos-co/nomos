@@ -4,7 +4,17 @@ license = { workspace = true }
 name    = "nomos-node"
 version = "0.1.0"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[package.metadata.cargo-machete]
+# False positives.
+ignored = [
+  # Required by Overwatch's `#[derive_services]` macro.
+  "tokio",
+  # Required by `wait_until_services_are_ready` macro.
+  "futures",
+]
+
+[lints]
+workspace = true
 
 [dependencies]
 async-trait              = "0.1"
@@ -28,8 +38,12 @@ nomos-da-sampling        = { workspace = true, features = ["rocksdb-backend"] }
 nomos-da-verifier        = { workspace = true, features = ["libp2p", "rocksdb-backend"] }
 nomos-http-api-common    = { workspace = true }
 nomos-libp2p             = { workspace = true }
+nomos-mantle-core        = { workspace = true }
+nomos-membership         = { workspace = true }
 nomos-mempool            = { workspace = true, features = ["libp2p", "mock"] }
 nomos-network            = { workspace = true, features = ["libp2p"] }
+nomos-sdp                = { workspace = true }
+nomos-sdp-core           = { workspace = true }
 nomos-storage            = { workspace = true, features = ["rocksdb-backend"] }
 nomos-system-sig         = { workspace = true }
 nomos-time               = { workspace = true, features = ["ntp", "serde"] }
@@ -59,12 +73,3 @@ tower-http = { version = "0.4", features = ["cors", "trace"] }
 default         = ["tracing"]
 instrumentation = []
 tracing         = []
-
-[package.metadata.cargo-machete]
-# False positives.
-ignored = [
-  # Required by Overwatch's `#[derive_services]` macro.
-  "tokio",
-  # Required by `wait_until_services_are_ready` macro.
-  "futures",
-]

@@ -5,7 +5,9 @@ use nomos_core::da::blob::Share;
 use nomos_da_messages::http::da::{
     DASharesCommitmentsRequest, DaSamplingRequest, GetSharesRequest,
 };
-use nomos_http_api_common::paths::{DA_GET_LIGHT_SHARE, DA_GET_SHARES, DA_GET_SHARES_COMMITMENTS};
+use nomos_http_api_common::paths::{
+    DA_GET_LIGHT_SHARE, DA_GET_SHARES, DA_GET_SHARES_COMMITMENTS, MEMPOOL_ADD_TX,
+};
 use reqwest::{Client, ClientBuilder, RequestBuilder, StatusCode, Url};
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -98,7 +100,7 @@ impl CommonHttpClient {
     where
         S: Share,
         S::SharesCommitments: DeserializeOwned + Send + Sync,
-        <S as Share>::BlobId: serde::Serialize + Send + Sync,
+        <S as Share>::BlobId: Serialize + Send + Sync,
     {
         let request: DASharesCommitmentsRequest<S> = DASharesCommitmentsRequest { blob_id };
         let path = DA_GET_SHARES_COMMITMENTS.trim_start_matches('/');
@@ -116,8 +118,8 @@ impl CommonHttpClient {
     where
         C: DeserializeOwned + Send + Sync,
         S: Share + DeserializeOwned + Send + Sync,
-        <S as Share>::BlobId: serde::Serialize + Send + Sync,
-        <S as Share>::ShareIndex: serde::Serialize + Send + Sync,
+        <S as Share>::BlobId: Serialize + Send + Sync,
+        <S as Share>::ShareIndex: Serialize + Send + Sync,
     {
         let request: DaSamplingRequest<S> = DaSamplingRequest { blob_id, share_idx };
         let path = DA_GET_LIGHT_SHARE.trim_start_matches('/');
@@ -135,8 +137,8 @@ impl CommonHttpClient {
     ) -> Result<impl Stream<Item = B::LightShare>, Error>
     where
         B: Share,
-        <B as Share>::BlobId: serde::Serialize + Send + Sync,
-        <B as Share>::ShareIndex: serde::Serialize + DeserializeOwned + Eq + Hash + Send + Sync,
+        <B as Share>::BlobId: Serialize + Send + Sync,
+        <B as Share>::ShareIndex: Serialize + DeserializeOwned + Eq + Hash + Send + Sync,
         <B as Share>::LightShare: DeserializeOwned + Send + Sync,
     {
         let request: GetSharesRequest<B> = GetSharesRequest {
@@ -166,5 +168,15 @@ impl CommonHttpClient {
             StatusCode::INTERNAL_SERVER_ERROR => Err(Error::Server("Error".to_owned())),
             _ => Err(Error::Server(format!("Unexpected response [{status}]",))),
         }
+    }
+
+    pub async fn post_transaction<Tx>(&self, base_url: Url, transaction: Tx) -> Result<(), Error>
+    where
+        Tx: Serialize + Send + Sync + 'static,
+    {
+        let request_url = base_url
+            .join(MEMPOOL_ADD_TX.trim_start_matches('/'))
+            .map_err(Error::Url)?;
+        self.post(request_url, &transaction).await
     }
 }

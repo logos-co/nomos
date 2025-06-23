@@ -68,7 +68,7 @@ where
     SerdeOp: StorageSerde + Send + Sync + 'static,
 {
     type Settings = RocksBackendSettings;
-    type Error = rocksdb::Error;
+    type Error = Error;
     type Transaction = Transaction;
     type SerdeOperator = SerdeOp;
 
@@ -119,9 +119,7 @@ where
     }
 
     async fn load(&mut self, key: &[u8]) -> Result<Option<Bytes>, <Self as StorageBackend>::Error> {
-        self.rocks
-            .get(key)
-            .map(|opt| opt.map(std::convert::Into::into))
+        self.rocks.get(key).map(|opt| opt.map(Into::into))
     }
 
     async fn load_prefix(
@@ -211,7 +209,7 @@ mod test {
             db.put(key, value)?;
             let result = db.get(key)?;
             db.delete(key)?;
-            Ok(result.map(std::convert::Into::into))
+            Ok(result.map(Into::into))
         });
         let result = db.execute(txn).await??;
         assert_eq!(result, Some(b"bar".as_ref().into()));

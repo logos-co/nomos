@@ -323,10 +323,6 @@ where
         }
     }
 
-    pub fn update_membership(&mut self, membership: Membership) {
-        self.membership = membership;
-    }
-
     /// Open a new stream from the underlying control to the provided peer
     async fn open_stream(
         peer_id: PeerId,
@@ -475,9 +471,8 @@ where
         let peer_id = stream.peer_id;
 
         // If there is a pending task schedule next one
-        if let Some((subnetwork_id, blob_id)) = to_sample
-            .get_mut(&peer_id)
-            .and_then(std::collections::VecDeque::pop_front)
+        if let Some((subnetwork_id, blob_id)) =
+            to_sample.get_mut(&peer_id).and_then(VecDeque::pop_front)
         {
             let sample_request = sampling::SampleRequest::new(blob_id, subnetwork_id);
             stream_tasks.push(Self::stream_sample(stream, sample_request).boxed());
@@ -558,7 +553,7 @@ impl<Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'sta
         if let Some((subnetwork_id, blob_id)) = self
             .to_sample
             .get_mut(&peer_id)
-            .and_then(std::collections::VecDeque::pop_front)
+            .and_then(VecDeque::pop_front)
         {
             let control = self.control.clone();
             let sample_request = sampling::SampleRequest::new(blob_id, subnetwork_id);

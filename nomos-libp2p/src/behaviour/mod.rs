@@ -5,17 +5,20 @@
 
 use std::error::Error;
 
+use cryptarchia_sync::ChainSyncError;
 use libp2p::{
     identity, kad,
     swarm::{behaviour::toggle::Toggle, NetworkBehaviour},
     PeerId,
 };
+use thiserror::Error;
 
 use crate::{
     behaviour::gossipsub::compute_message_id, protocol_name::ProtocolName, IdentifySettings,
     KademliaSettings,
 };
 
+pub mod chainsync;
 pub mod gossipsub;
 pub mod kademlia;
 
@@ -23,9 +26,12 @@ pub mod kademlia;
 // this limit so large. Remove this once we transition to smaller proofs.
 const DATA_LIMIT: usize = 1 << 18; // Do not serialize/deserialize more than 256 KiB
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Error)]
 pub enum BehaviourError {
+    #[error("Operation not supported")]
     OperationNotSupported,
+    #[error("Chainsync error: {0}")]
+    ChainSyncError(#[from] ChainSyncError),
 }
 
 #[derive(NetworkBehaviour)]
@@ -34,6 +40,7 @@ pub struct Behaviour {
     // todo: support persistent store if needed
     pub(crate) kademlia: Toggle<kad::Behaviour<kad::store::MemoryStore>>,
     pub(crate) identify: Toggle<libp2p::identify::Behaviour>,
+    pub(crate) chain_sync: cryptarchia_sync::Behaviour,
 }
 
 impl Behaviour {
@@ -74,10 +81,13 @@ impl Behaviour {
             },
         );
 
+        let chain_sync = cryptarchia_sync::Behaviour::default();
+
         Ok(Self {
             gossipsub,
             kademlia,
             identify,
+            chain_sync,
         })
     }
 }

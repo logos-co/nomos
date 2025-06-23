@@ -1,5 +1,6 @@
 use std::{
     net::SocketAddr,
+    num::{NonZeroU64, NonZeroUsize},
     ops::Range,
     path::PathBuf,
     process::{Child, Command, Stdio},
@@ -15,6 +16,7 @@ use nomos_blend::{
     },
     persistent_transmission::PersistentTransmissionSettings,
 };
+use nomos_core::header::HeaderId;
 use nomos_da_dispersal::{
     backend::kzgrs::{DispersalKZGRSBackendSettings, EncoderSettings},
     DispersalServiceSettings,
@@ -52,6 +54,7 @@ use nomos_time::{
 };
 use nomos_tracing::logging::local::FileConfig;
 use nomos_tracing_service::LoggerLayer;
+use nomos_utils::math::NonNegativeF64;
 use tempfile::NamedTempFile;
 
 use super::{create_tempdir, persist_tempdir, GetRangeReq, CLIENT};
@@ -244,16 +247,31 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 temporal_processor: TemporalSchedulerSettings {
                     max_delay: Duration::from_secs(2),
                 },
+                minimum_messages_coefficient: 3,
+                normalization_constant: 1.03f64.try_into().unwrap(),
             },
             cover_traffic: nomos_blend_service::CoverTrafficExtSettings {
-                epoch_duration: Duration::from_secs(432_000),
-                slot_duration: Duration::from_secs(20),
+                message_frequency_per_round: NonNegativeF64::try_from(1f64)
+                    .expect("Message frequency per round cannot be negative."),
+                redundancy_parameter: 0,
+                intervals_for_safety_buffer: 100,
+            },
+            timing_settings: nomos_blend_service::TimingSettings {
+                round_duration: Duration::from_secs(1),
+                rounds_per_interval: NonZeroU64::try_from(30u64)
+                    .expect("Rounds per interval cannot be zero."),
+                // (21,600 blocks * 30s per block) / 1s per round = 648,000 rounds
+                rounds_per_session: NonZeroU64::try_from(648_000u64)
+                    .expect("Rounds per session cannot be zero."),
+                rounds_per_observation_window: NonZeroUsize::try_from(30usize)
+                    .expect("Rounds per observation window cannot be zero."),
             },
             membership: config.blend_config.membership,
         },
         cryptarchia: CryptarchiaSettings {
             leader_config: config.consensus_config.leader_config,
             config: config.consensus_config.ledger_config,
+            genesis_id: HeaderId::from([0; 32]),
             genesis_state: config.consensus_config.genesis_state,
             transaction_selector_settings: (),
             blob_selector_settings: (),
@@ -357,5 +375,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             cl_pool_recovery_path: "./recovery/cl_mempool.json".into(),
             da_pool_recovery_path: "./recovery/da_mempool.json".into(),
         },
+        membership: config.membership_config.service_settings,
+        sdp: (),
     }
 }

@@ -4,6 +4,9 @@ license = { workspace = true }
 name    = "nomos-api"
 version = "0.1.0"
 
+[lints]
+workspace = true
+
 [features]
 axum            = ["dep:axum", "dep:hyper", "utoipa-swagger-ui/axum"]
 default         = ["axum"]

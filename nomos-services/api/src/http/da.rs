@@ -133,8 +133,8 @@ pub type DaDispersal<
     RuntimeServiceId,
 >;
 
-pub type DaNetwork<Backend, Membership, RuntimeServiceId> =
-    NetworkService<Backend, Membership, RuntimeServiceId>;
+pub type DaNetwork<Backend, Membership, MembershipAdapter, StorageAdapter, RuntimeServiceId> =
+    NetworkService<Backend, Membership, MembershipAdapter, StorageAdapter, RuntimeServiceId>;
 
 pub async fn add_share<A, S, N, VB, SS, DaStorageConverter, RuntimeServiceId>(
     handle: &OverwatchHandle<RuntimeServiceId>,
@@ -205,7 +205,7 @@ where
         + Sync
         + 'static,
     <Tx as Transaction>::Hash:
-        std::cmp::Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+        Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     C: DispersedBlobInfo<BlobId = [u8; 32]>
         + Clone
         + Debug
@@ -241,7 +241,7 @@ where
     SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
-    DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + 'static,
+    DaVerifierBackend: VerifierBackend + Send + 'static,
     DaVerifierBackend::Settings: Clone,
     DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
@@ -349,7 +349,7 @@ where
     .await?
 }
 
-pub async fn block_peer<Backend, Membership, RuntimeServiceId>(
+pub async fn block_peer<Backend, Membership, MembershipAdapter, StorageAdapter, RuntimeServiceId>(
     handle: &OverwatchHandle<RuntimeServiceId>,
     peer_id: PeerId,
 ) -> Result<bool, DynError>
@@ -361,7 +361,15 @@ where
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<Backend, Membership, RuntimeServiceId>>,
+        + AsServiceId<
+            NetworkService<
+                Backend,
+                Membership,
+                MembershipAdapter,
+                StorageAdapter,
+                RuntimeServiceId,
+            >,
+        >,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
@@ -374,7 +382,13 @@ where
     wait_with_timeout(receiver, "Timeout while waiting for block peer".to_owned()).await
 }
 
-pub async fn unblock_peer<Backend, Membership, RuntimeServiceId>(
+pub async fn unblock_peer<
+    Backend,
+    Membership,
+    MembershipAdapter,
+    StorageAdapter,
+    RuntimeServiceId,
+>(
     handle: &OverwatchHandle<RuntimeServiceId>,
     peer_id: PeerId,
 ) -> Result<bool, DynError>
@@ -386,7 +400,15 @@ where
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<Backend, Membership, RuntimeServiceId>>,
+        + AsServiceId<
+            NetworkService<
+                Backend,
+                Membership,
+                MembershipAdapter,
+                StorageAdapter,
+                RuntimeServiceId,
+            >,
+        >,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
@@ -403,7 +425,13 @@ where
     .await
 }
 
-pub async fn blacklisted_peers<Backend, Membership, RuntimeServiceId>(
+pub async fn blacklisted_peers<
+    Backend,
+    Membership,
+    MembershipAdapter,
+    StorageAdapter,
+    RuntimeServiceId,
+>(
     handle: &OverwatchHandle<RuntimeServiceId>,
 ) -> Result<Vec<PeerId>, DynError>
 where
@@ -414,7 +442,15 @@ where
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<Backend, Membership, RuntimeServiceId>>,
+        + AsServiceId<
+            NetworkService<
+                Backend,
+                Membership,
+                MembershipAdapter,
+                StorageAdapter,
+                RuntimeServiceId,
+            >,
+        >,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
@@ -431,7 +467,13 @@ where
     .await
 }
 
-pub async fn balancer_stats<Backend, Membership, RuntimeServiceId>(
+pub async fn balancer_stats<
+    Backend,
+    Membership,
+    MembershipAdapter,
+    StorageAdapter,
+    RuntimeServiceId,
+>(
     handle: &OverwatchHandle<RuntimeServiceId>,
 ) -> Result<<Backend::Message as BalancerMessageFactory>::BalancerStats, DynError>
 where
@@ -442,7 +484,15 @@ where
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<Backend, Membership, RuntimeServiceId>>,
+        + AsServiceId<
+            NetworkService<
+                Backend,
+                Membership,
+                MembershipAdapter,
+                StorageAdapter,
+                RuntimeServiceId,
+            >,
+        >,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
@@ -459,7 +509,13 @@ where
     .await
 }
 
-pub async fn monitor_stats<Backend, Membership, RuntimeServiceId>(
+pub async fn monitor_stats<
+    Backend,
+    Membership,
+    MembershipAdapter,
+    StorageAdapter,
+    RuntimeServiceId,
+>(
     handle: &OverwatchHandle<RuntimeServiceId>,
 ) -> Result<<Backend::Message as MonitorMessageFactory>::MonitorStats, DynError>
 where
@@ -470,7 +526,15 @@ where
         + Sync
         + Display
         + 'static
-        + AsServiceId<NetworkService<Backend, Membership, RuntimeServiceId>>,
+        + AsServiceId<
+            NetworkService<
+                Backend,
+                Membership,
+                MembershipAdapter,
+                StorageAdapter,
+                RuntimeServiceId,
+            >,
+        >,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();

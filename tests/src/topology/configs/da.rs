@@ -15,7 +15,7 @@ use nomos_libp2p::{ed25519, Multiaddr, PeerId};
 use nomos_node::NomosDaMembership;
 use subnetworks_assignations::MembershipHandler as _;
 
-use crate::{get_available_port, secret_key_to_peer_id};
+use crate::secret_key_to_peer_id;
 
 pub static GLOBAL_PARAMS_PATH: LazyLock<String> = LazyLock::new(|| {
     let relative_path = "./kzgrs/kzgrs_test_params";
@@ -105,12 +105,16 @@ pub struct GeneralDaConfig {
 }
 
 #[must_use]
-pub fn create_da_configs(ids: &[[u8; 32]], da_params: &DaParams) -> Vec<GeneralDaConfig> {
+pub fn create_da_configs(
+    ids: &[[u8; 32]],
+    da_params: &DaParams,
+    ports: &[u16],
+) -> Vec<GeneralDaConfig> {
     let mut node_keys = vec![];
     let mut peer_ids = vec![];
     let mut listening_addresses = vec![];
 
-    for id in ids {
+    for (i, id) in ids.iter().enumerate() {
         let mut node_key_bytes = *id;
         let node_key = ed25519::SecretKey::try_from_bytes(&mut node_key_bytes)
             .expect("Failed to generate secret key from bytes");
@@ -119,19 +123,15 @@ pub fn create_da_configs(ids: &[[u8; 32]], da_params: &DaParams) -> Vec<GeneralD
         let peer_id = secret_key_to_peer_id(node_key);
         peer_ids.push(peer_id);
 
-        let listening_address = Multiaddr::from_str(&format!(
-            "/ip4/127.0.0.1/udp/{}/quic-v1",
-            get_available_port(),
-        ))
-        .expect("Failed to create multiaddr");
+        let listening_address =
+            Multiaddr::from_str(&format!("/ip4/127.0.0.1/udp/{}/quic-v1", ports[i],))
+                .expect("Failed to create multiaddr");
         listening_addresses.push(listening_address);
     }
 
-    let addresses = build_da_peer_list(&peer_ids, &listening_addresses);
-
     let membership = NomosDaMembership::new(
-        &peer_ids,
-        addresses,
+        &[],
+        HashMap::default(),
         da_params.subnetwork_size,
         da_params.dispersal_factor,
     );
@@ -167,20 +167,6 @@ pub fn create_da_configs(ids: &[[u8; 32]], da_params: &DaParams) -> Vec<GeneralD
                 redial_cooldown: da_params.redial_cooldown,
                 replication_settings: da_params.replication_settings,
             }
-        })
-        .collect()
-}
-
-fn build_da_peer_list(
-    peer_ids: &[PeerId],
-    listening_addresses: &[Multiaddr],
-) -> HashMap<PeerId, Multiaddr> {
-    peer_ids
-        .iter()
-        .zip(listening_addresses.iter())
-        .map(|(peer_id, listening_address)| {
-            let p2p_addr = listening_address.clone().with_p2p(*peer_id).unwrap();
-            (*peer_id, p2p_addr)
         })
         .collect()
 }

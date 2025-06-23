@@ -7,20 +7,23 @@ use nomos_core::block::BlockNumber;
 use nomos_sdp_core::{
     FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId, ServiceType,
 };
+use serde::{Deserialize, Serialize};
 
-use super::{MembershipBackend, MembershipBackendError, Settings};
+use super::{MembershipBackend, MembershipBackendError, MembershipBackendServiceSettings};
 use crate::MembershipProviders;
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MockMembershipBackendSettings {
-    settings_per_service: HashMap<ServiceType, Settings>,
-    initial_membership: HashMap<BlockNumber, MockMembershipEntry>,
-    initial_locators_mapping: HashMap<ProviderId, BTreeSet<Locator>>,
+    pub settings_per_service: HashMap<ServiceType, MembershipBackendServiceSettings>,
+    pub initial_membership: HashMap<BlockNumber, MockMembershipEntry>,
+    pub initial_locators_mapping: HashMap<ProviderId, BTreeSet<Locator>>,
+    pub latest_block_number: BlockNumber,
 }
 
 type MockMembershipEntry = HashMap<ServiceType, HashSet<ProviderId>>;
 
 pub struct MockMembershipBackend {
-    settings: HashMap<ServiceType, Settings>,
+    settings: HashMap<ServiceType, MembershipBackendServiceSettings>,
     membership: HashMap<BlockNumber, MockMembershipEntry>,
     locators_mapping: HashMap<ProviderId, BTreeSet<Locator>>,
     latest_block_number: BlockNumber,
@@ -32,12 +35,7 @@ impl MembershipBackend for MockMembershipBackend {
     fn init(settings: MockMembershipBackendSettings) -> Self {
         Self {
             membership: settings.initial_membership.clone(),
-            latest_block_number: settings
-                .initial_membership
-                .keys()
-                .copied()
-                .max()
-                .unwrap_or(0),
+            latest_block_number: settings.latest_block_number,
             settings: settings.settings_per_service,
             locators_mapping: settings.initial_locators_mapping,
         }
@@ -131,7 +129,8 @@ impl MockMembershipBackend {
         block_number: BlockNumber,
         service_type: ServiceType,
     ) -> MembershipProviders {
-        self.membership
+        let snapshot = self
+            .membership
             .get(&block_number)
             .and_then(|entry| entry.get(&service_type))
             .map(|snapshot| {
@@ -148,7 +147,9 @@ impl MockMembershipBackend {
                     })
                     .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+
+        (block_number, snapshot)
     }
 }
 
@@ -164,7 +165,8 @@ mod tests {
     };
 
     use super::{
-        MembershipBackend as _, MockMembershipBackend, MockMembershipBackendSettings, Settings,
+        MembershipBackend as _, MembershipBackendServiceSettings, MockMembershipBackend,
+        MockMembershipBackendSettings,
     };
     use crate::MembershipProviders;
 
@@ -231,7 +233,7 @@ mod tests {
         let mut settings_per_service = HashMap::new();
         settings_per_service.insert(
             service_type,
-            Settings {
+            MembershipBackendServiceSettings {
                 historical_block_delta: 10,
             },
         );
@@ -240,13 +242,14 @@ mod tests {
             settings_per_service,
             initial_membership: HashMap::new(),
             initial_locators_mapping: HashMap::new(),
+            latest_block_number: 0,
         };
 
         let backend = MockMembershipBackend::init(settings);
 
         // Test with empty membership
         let result = backend.get_providers_at(service_type, 5).await.unwrap();
-        assert_eq!(result.len(), 0);
+        assert_eq!(result.1.len(), 0);
     }
 
     #[tokio::test]
@@ -265,7 +268,7 @@ mod tests {
         let mut settings_per_service = HashMap::new();
         settings_per_service.insert(
             service_type,
-            Settings {
+            MembershipBackendServiceSettings {
                 historical_block_delta: 5,
             },
         );
@@ -306,62 +309,64 @@ mod tests {
                     BTreeSet::from_iter(declaration_update_3.locators.clone()),
                 ),
             ]),
+            latest_block_number: 102,
         };
 
         let backend = MockMembershipBackend::init(settings);
 
         // (1st entry)
         // blocknumber 100 = 105 - k.historical_block_delta
-        let result = backend.get_providers_at(service_type, 105).await.unwrap();
-        assert_eq!(result.len(), 1);
-        assert!(result.contains_key(&provider_info_1.provider_id));
+        let (_, providers) = backend.get_providers_at(service_type, 105).await.unwrap();
+
+        assert_eq!(providers.len(), 1);
+        assert!(providers.contains_key(&provider_info_1.provider_id));
         assert_eq!(
-            result.get(&provider_info_1.provider_id).unwrap(),
+            providers.get(&provider_info_1.provider_id).unwrap(),
             &BTreeSet::from_iter(declaration_update_1.locators.clone())
         );
 
         // (second entry)
         // should have 1st and 2nd
-        let result = backend.get_providers_at(service_type, 106).await.unwrap();
-        assert_eq!(result.len(), 2);
-        assert!(result.contains_key(&provider_info_1.provider_id));
-        assert!(result.contains_key(&provider_info_2.provider_id));
+        let (_, providers) = backend.get_providers_at(service_type, 106).await.unwrap();
+        assert_eq!(providers.len(), 2);
+        assert!(providers.contains_key(&provider_info_1.provider_id));
+        assert!(providers.contains_key(&provider_info_2.provider_id));
 
         assert_eq!(
-            result.get(&provider_info_2.provider_id).unwrap(),
+            providers.get(&provider_info_2.provider_id).unwrap(),
             &BTreeSet::from_iter(declaration_update_2.locators)
         );
         assert_eq!(
-            result.get(&provider_info_1.provider_id).unwrap(),
+            providers.get(&provider_info_1.provider_id).unwrap(),
             &BTreeSet::from_iter(declaration_update_1.locators.clone())
         );
 
         // (third entry)
         // should have 1st and 3rd
-        let result = backend.get_providers_at(service_type, 107).await.unwrap();
-        assert_eq!(result.len(), 2);
-        assert!(result.contains_key(&provider_info_1.provider_id));
-        assert!(result.contains_key(&provider_info_3.provider_id));
+        let (_, providers) = backend.get_providers_at(service_type, 107).await.unwrap();
+        assert_eq!(providers.len(), 2);
+        assert!(providers.contains_key(&provider_info_1.provider_id));
+        assert!(providers.contains_key(&provider_info_3.provider_id));
         assert_eq!(
-            result.get(&provider_info_1.provider_id).unwrap(),
+            providers.get(&provider_info_1.provider_id).unwrap(),
             &BTreeSet::from_iter(declaration_update_1.locators.clone())
         );
         assert_eq!(
-            result.get(&provider_info_3.provider_id).unwrap(),
+            providers.get(&provider_info_3.provider_id).unwrap(),
             &BTreeSet::from_iter(declaration_update_3.locators.clone())
         );
 
         // latest one should be same as the one we just added
-        let result = backend.get_latest_providers(service_type).await.unwrap();
-        assert_eq!(result.len(), 2);
-        assert!(result.contains_key(&provider_info_1.provider_id));
-        assert!(result.contains_key(&provider_info_3.provider_id));
+        let (_, providers) = backend.get_latest_providers(service_type).await.unwrap();
+        assert_eq!(providers.len(), 2);
+        assert!(providers.contains_key(&provider_info_1.provider_id));
+        assert!(providers.contains_key(&provider_info_3.provider_id));
         assert_eq!(
-            result.get(&provider_info_1.provider_id).unwrap(),
+            providers.get(&provider_info_1.provider_id).unwrap(),
             &BTreeSet::from_iter(declaration_update_1.locators)
         );
         assert_eq!(
-            result.get(&provider_info_3.provider_id).unwrap(),
+            providers.get(&provider_info_3.provider_id).unwrap(),
             &BTreeSet::from_iter(declaration_update_3.locators)
         );
     }
@@ -371,7 +376,7 @@ mod tests {
         let mut settings_per_service = HashMap::new();
         settings_per_service.insert(
             service_type,
-            Settings {
+            MembershipBackendServiceSettings {
                 historical_block_delta: 5,
             },
         );
@@ -379,6 +384,7 @@ mod tests {
             settings_per_service,
             initial_membership: HashMap::new(),
             initial_locators_mapping: HashMap::new(),
+            latest_block_number: 0,
         })
     }
 
@@ -500,7 +506,7 @@ mod tests {
             "Result should contain the expected service type"
         );
 
-        let providers = result.get(&service_type).unwrap();
+        let (_, providers) = result.get(&service_type).unwrap();
 
         // Only check providers that were part of this update
         for (provider_id, expected_locators) in expected_providers {
@@ -524,7 +530,7 @@ mod tests {
         let mut settings_per_service = HashMap::new();
         settings_per_service.insert(
             service_type,
-            Settings {
+            MembershipBackendServiceSettings {
                 historical_block_delta: 5,
             },
         );
@@ -533,6 +539,7 @@ mod tests {
             settings_per_service,
             initial_membership: HashMap::new(),
             initial_locators_mapping: HashMap::new(),
+            latest_block_number: 0,
         };
 
         let mut backend = MockMembershipBackend::init(settings);

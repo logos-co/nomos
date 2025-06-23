@@ -29,12 +29,14 @@ use nomos_da_verifier::{
     network::adapters::executor::Libp2pAdapter as VerifierNetworkAdapter,
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
+use nomos_mantle_core::tx::SignedMantleTx;
 use nomos_mempool::backend::mockpool::MockPool;
 #[cfg(feature = "tracing")]
 use nomos_node::Tracing;
 use nomos_node::{
-    BlobInfo, HeaderId, MempoolNetworkAdapter, NetworkBackend, NomosDaMembership, RocksBackend,
-    SystemSig, Tx, Wire, MB16,
+    generic_services::{DaMembershipAdapter, MembershipService, SdpService},
+    BlobInfo, DaMembershipStorage, HeaderId, MempoolNetworkAdapter, NetworkBackend,
+    NomosDaMembership, RocksBackend, SystemSig, Wire, MB16,
 };
 use nomos_time::backends::NtpTimeBackend;
 use overwatch::derive_services;
@@ -57,22 +59,39 @@ type DispersalMempoolAdapter = KzgrsMempoolAdapter<
     KzgrsSamplingBackend<ChaCha20Rng>,
     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
         NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
         RuntimeServiceId,
     >,
     ChaCha20Rng,
     SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
     KzgrsDaVerifier,
-    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    VerifierNetworkAdapter<
+        NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
+        RuntimeServiceId,
+    >,
     VerifierStorageAdapter<DaShare, Wire, DaStorageConverter>,
     HttApiAdapter<NomosDaMembership>,
     RuntimeServiceId,
 >;
 pub(crate) type DaDispersalService = DispersalService<
     DispersalKZGRSBackend<
-        DispersalNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+        DispersalNetworkAdapter<
+            NomosDaMembership,
+            DaMembershipAdapter<RuntimeServiceId>,
+            DaMembershipStorage,
+            RuntimeServiceId,
+        >,
         DispersalMempoolAdapter,
     >,
-    DispersalNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    DispersalNetworkAdapter<
+        NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
+        RuntimeServiceId,
+    >,
     DispersalMempoolAdapter,
     NomosDaMembership,
     kzgrs_backend::dispersal::Metadata,
@@ -82,24 +101,40 @@ pub(crate) type DaDispersalService = DispersalService<
 pub(crate) type DaIndexerService = nomos_node::generic_services::DaIndexerService<
     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
         NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
         RuntimeServiceId,
     >,
-    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    VerifierNetworkAdapter<
+        NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
+        RuntimeServiceId,
+    >,
     RuntimeServiceId,
 >;
 
 pub(crate) type DaVerifierService = nomos_node::generic_services::DaVerifierService<
-    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    VerifierNetworkAdapter<
+        NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
+        RuntimeServiceId,
+    >,
     RuntimeServiceId,
 >;
 
 pub(crate) type DaSamplingService = nomos_node::generic_services::DaSamplingService<
     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
         NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
         RuntimeServiceId,
     >,
     nomos_da_verifier::network::adapters::executor::Libp2pAdapter<
         NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
         RuntimeServiceId,
     >,
     RuntimeServiceId,
@@ -108,6 +143,8 @@ pub(crate) type DaSamplingService = nomos_node::generic_services::DaSamplingServ
 pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
     DaNetworkExecutorBackend<NomosDaMembership>,
     NomosDaMembership,
+    DaMembershipAdapter<RuntimeServiceId>,
+    DaMembershipStorage,
     RuntimeServiceId,
 >;
 
@@ -116,18 +153,32 @@ pub(crate) type ClMempoolService = nomos_node::generic_services::TxMempoolServic
 pub(crate) type DaMempoolService = nomos_node::generic_services::DaMempoolService<
     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
         NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
         RuntimeServiceId,
     >,
-    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    VerifierNetworkAdapter<
+        NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
+        RuntimeServiceId,
+    >,
     RuntimeServiceId,
 >;
 
 pub(crate) type CryptarchiaService = nomos_node::generic_services::CryptarchiaService<
     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
         NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
         RuntimeServiceId,
     >,
-    VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+    VerifierNetworkAdapter<
+        NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
+        RuntimeServiceId,
+    >,
     RuntimeServiceId,
 >;
 
@@ -142,23 +193,42 @@ pub(crate) type ApiService = nomos_api::ApiService<
         DaShare,
         BlobInfo,
         NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
         BlobInfo,
         KzgrsDaVerifier,
-        VerifierNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+        VerifierNetworkAdapter<
+            NomosDaMembership,
+            DaMembershipAdapter<RuntimeServiceId>,
+            DaMembershipStorage,
+            RuntimeServiceId,
+        >,
         VerifierStorageAdapter<DaShare, Wire, DaStorageConverter>,
-        Tx,
+        SignedMantleTx,
         Wire,
         DaStorageConverter,
         DispersalKZGRSBackend<
-            DispersalNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+            DispersalNetworkAdapter<
+                NomosDaMembership,
+                DaMembershipAdapter<RuntimeServiceId>,
+                DaMembershipStorage,
+                RuntimeServiceId,
+            >,
             DispersalMempoolAdapter,
         >,
-        DispersalNetworkAdapter<NomosDaMembership, RuntimeServiceId>,
+        DispersalNetworkAdapter<
+            NomosDaMembership,
+            DaMembershipAdapter<RuntimeServiceId>,
+            DaMembershipStorage,
+            RuntimeServiceId,
+        >,
         DispersalMempoolAdapter,
         kzgrs_backend::dispersal::Metadata,
         KzgrsSamplingBackend<ChaCha20Rng>,
         nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
             NomosDaMembership,
+            DaMembershipAdapter<RuntimeServiceId>,
+            DaMembershipStorage,
             RuntimeServiceId,
         >,
         ChaCha20Rng,
@@ -187,6 +257,8 @@ pub struct NomosExecutor {
     da_verifier: DaVerifierService,
     da_sampling: DaSamplingService,
     da_network: DaNetworkService,
+    membership: MembershipService<RuntimeServiceId>,
+    sdp: SdpService<RuntimeServiceId>,
     cl_mempool: ClMempoolService,
     da_mempool: DaMempoolService,
     cryptarchia: CryptarchiaService,

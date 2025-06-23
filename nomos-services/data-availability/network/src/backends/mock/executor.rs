@@ -80,8 +80,8 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
         _: OverwatchHandle<RuntimeServiceId>,
         _membership: Self::Membership,
     ) -> Self {
-        let (commands_tx, _) = tokio::sync::mpsc::channel(BUFFER_SIZE);
-        let (events_tx, _) = tokio::sync::broadcast::channel(BUFFER_SIZE);
+        let (commands_tx, _) = mpsc::channel(BUFFER_SIZE);
+        let (events_tx, _) = broadcast::channel(BUFFER_SIZE);
         Self {
             _config: config,
             _commands_tx: commands_tx,
@@ -150,7 +150,7 @@ impl MembershipHandler for MockMembership {
         todo!()
     }
 
-    fn get_address(&self, _peer_id: &libp2p::PeerId) -> Option<libp2p::Multiaddr> {
+    fn get_address(&self, _peer_id: &PeerId) -> Option<libp2p::Multiaddr> {
         todo!()
     }
 

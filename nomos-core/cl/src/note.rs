@@ -139,7 +139,6 @@ impl Nonce {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::nullifier::NullifierSecret;
 
     #[test]
     fn test_note_commit_permutations() {

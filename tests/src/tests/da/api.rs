@@ -4,10 +4,10 @@ use common_http_client::CommonHttpClient;
 use futures_util::stream::StreamExt as _;
 use kzgrs_backend::common::share::{DaLightShare, DaShare};
 use nomos_core::da::blob::{LightShare as _, Share as _};
+use nomos_da_network_service::membership::adapters::service::peer_id_from_provider_id;
 use nomos_libp2p::ed25519;
 use rand::{rngs::OsRng, RngCore as _};
 use reqwest::Url;
-use subnetworks_assignations::MembershipHandler as _;
 use tests::{
     common::da::{disseminate_with_metadata, wait_for_indexed_blob, APP_ID},
     secret_key_to_peer_id,
@@ -72,13 +72,25 @@ async fn test_block_peer() {
     let blacklisted_peers = executor.blacklisted_peers().await;
     assert!(blacklisted_peers.is_empty());
 
-    let membership = executor.config().da_network.membership.members();
+    let membership = executor
+        .config()
+        .membership
+        .backend
+        .initial_membership
+        .get(&0)
+        .expect("Expected at least one membership entry");
+    assert!(!membership.is_empty());
 
     // take second peer ID from the membership set
-    let existing_peer_id = membership
+    let existing_provider_id = *membership
+        .get(&nomos_sdp_core::ServiceType::DataAvailability)
+        .expect("Expected at least one provider ID in the membership set")
         .iter()
         .nth(1)
-        .expect("Expected at least 2 members in the set");
+        .expect("Expected at least two provider IDs in the membership set");
+
+    let existing_peer_id = peer_id_from_provider_id(&existing_provider_id.0)
+        .expect("Failed to convert provider ID to PeerId");
 
     // try block/unblock peer id combinations
     let blocked = executor.block_peer(existing_peer_id.to_string()).await;
@@ -129,6 +141,7 @@ async fn test_get_shares() {
     let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
 
     disseminate_with_metadata(executor, &data, metadata).await;
+
     let from = 0u64.to_be_bytes();
     let to = 1u64.to_be_bytes();
     wait_for_indexed_blob(executor, app_id, from, to, num_subnets).await;

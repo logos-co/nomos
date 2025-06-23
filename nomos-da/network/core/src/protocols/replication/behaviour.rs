@@ -279,10 +279,6 @@ impl<Membership> ReplicationBehaviour<Membership> {
             outbound_read_half_rx: outbound_read_stream_rx,
         }
     }
-
-    pub fn update_membership(&mut self, membership: Membership) {
-        self.membership = membership;
-    }
 }
 
 impl<M> ReplicationBehaviour<M>

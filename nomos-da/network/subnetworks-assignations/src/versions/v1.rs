@@ -4,7 +4,7 @@ use libp2p::Multiaddr;
 use libp2p_identity::PeerId;
 use serde::{Deserialize, Serialize};
 
-use crate::{MembershipHandler, SubnetworkAssignations};
+use crate::{MembershipCreator, MembershipHandler, SubnetworkAssignations};
 
 /// Fill a `N` sized set of "subnetworks" from a list of peer ids members
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
@@ -49,7 +49,10 @@ impl FillFromNodeList {
         subnetwork_size: usize,
         replication_factor: usize,
     ) -> Vec<HashSet<PeerId>> {
-        assert!(!peers.is_empty());
+        if peers.is_empty() {
+            return vec![HashSet::new(); subnetwork_size];
+        }
+
         // sort list to make it deterministic
         let mut peers = peers.to_vec();
         peers.sort_unstable();
@@ -65,6 +68,31 @@ impl FillFromNodeList {
     }
 }
 
+impl MembershipCreator for FillFromNodeList {
+    fn init(&self, _peer_addresses: HashMap<Self::NetworkId, HashSet<PeerId>>) -> Self {
+        todo!()
+    }
+
+    fn update(&self, new_peer_addresses: HashMap<Self::Id, Multiaddr>) -> Self {
+        // todo: implement incremental update
+        // for now we just add the new addresses to the addressbook
+        // and re-fill the assignations
+        let mut addressbook = self.addressbook.clone();
+        for (peer_id, address) in &new_peer_addresses {
+            addressbook.insert(*peer_id, address.clone());
+        }
+
+        let members: Vec<Self::Id> = new_peer_addresses.keys().copied().collect();
+
+        Self {
+            assignations: Self::fill(&members, self.subnetwork_size, self.dispersal_factor),
+            subnetwork_size: self.subnetwork_size,
+            dispersal_factor: self.dispersal_factor,
+            addressbook,
+        }
+    }
+}
+
 impl MembershipHandler for FillFromNodeList {
     type NetworkId = u16;
     type Id = PeerId;
@@ -73,10 +101,10 @@ impl MembershipHandler for FillFromNodeList {
         self.assignations
             .iter()
             .enumerate()
-            .filter_map(|(netowrk_id, subnetwork)| {
+            .filter_map(|(network_id, subnetwork)| {
                 subnetwork
                     .contains(id)
-                    .then_some(netowrk_id as Self::NetworkId)
+                    .then_some(network_id as Self::NetworkId)
             })
             .collect()
     }

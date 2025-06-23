@@ -2,6 +2,7 @@ pub mod versions;
 
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Debug,
     hash::Hash,
     sync::Arc,
 };
@@ -14,7 +15,7 @@ pub type SubnetworkAssignations<NetworkId, Id> = HashMap<NetworkId, HashSet<Id>>
 pub trait MembershipCreator: MembershipHandler {
     /// Initializes the underlying implementor with the provided members list.
     #[must_use]
-    fn init(&self, peer_addresses: HashMap<Self::NetworkId, HashSet<PeerId>>) -> Self;
+    fn init(&self, peer_addresses: HashMap<Self::NetworkId, HashSet<Self::Id>>) -> Self;
 
     /// Creates a new instance of membership handler that combines previous
     /// members and new members.
@@ -26,7 +27,7 @@ pub trait MembershipHandler {
     /// Subnetworks Id type
     type NetworkId: Eq + Hash;
     /// Members Id type
-    type Id;
+    type Id: Debug;
 
     /// Returns the set of `NetworksIds` an id is a member of
     fn membership(&self, id: &Self::Id) -> HashSet<Self::NetworkId>;

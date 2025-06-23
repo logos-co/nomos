@@ -1,9 +1,9 @@
 use std::{hash::Hash, marker::PhantomData};
 
-use nomos_core::{block::Block, wire};
+use nomos_core::{block::Block, header::HeaderId, wire};
 use nomos_network::{
-    backends::libp2p::{Command, Event, EventKind, Libp2p, PubSubCommand::Subscribe},
-    message::NetworkMsg,
+    backends::libp2p::{ChainSyncCommand, Command, Libp2p, PeerId, PubSubCommand::Subscribe},
+    message::{ChainSyncEvent, NetworkMsg},
     NetworkService,
 };
 use overwatch::{
@@ -11,10 +11,7 @@ use overwatch::{
     DynError,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use tokio_stream::{
-    wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
-    StreamExt as _,
-};
+use tokio_stream::{wrappers::errors::BroadcastStreamRecvError, StreamExt as _};
 
 use crate::{
     messages::NetworkMessage,
@@ -69,6 +66,7 @@ where
     type Settings = LibP2pAdapterSettings;
     type Tx = Tx;
     type BlobCertificate = BlobCert;
+    type PeerId = PeerId;
 
     async fn new(settings: Self::Settings, network_relay: Relay<Libp2p, RuntimeServiceId>) -> Self {
         let relay = network_relay.clone();
@@ -91,35 +89,65 @@ where
         let (sender, receiver) = tokio::sync::oneshot::channel();
         if let Err((e, _)) = self
             .network_relay
-            .send(NetworkMsg::Subscribe {
-                kind: EventKind::Message,
-                sender,
-            })
+            .send(NetworkMsg::SubscribeToPubSub { sender })
             .await
         {
             return Err(Box::new(e));
         }
-        Ok(Box::new(
-            BroadcastStream::new(receiver.await.map_err(Box::new)?).filter_map(|message| {
-                match message {
-                    Ok(Event::Message(message)) => wire::deserialize(&message.data).map_or_else(
-                        |_| {
-                            tracing::debug!("unrecognized gossipsub message");
-                            None
-                        },
-                        |msg| match msg {
-                            NetworkMessage::Block(block) => {
-                                tracing::debug!("received block {:?}", block.header().id());
-                                Some(block)
-                            }
-                        },
-                    ),
-                    Err(BroadcastStreamRecvError::Lagged(n)) => {
-                        tracing::error!("lagged messages: {n}");
-                        None
+        let stream = receiver.await.map_err(Box::new)?;
+        Ok(Box::new(stream.filter_map(|message| match message {
+            Ok(message) => wire::deserialize(&message.data).map_or_else(
+                |_| {
+                    tracing::debug!("unrecognized gossipsub message");
+                    None
+                },
+                |msg| match msg {
+                    NetworkMessage::Block(block) => {
+                        tracing::debug!("received block {:?}", block.header().id());
+                        Some(block)
                     }
-                }
-            }),
-        ))
+                },
+            ),
+            Err(BroadcastStreamRecvError::Lagged(n)) => {
+                tracing::error!("lagged messages: {n}");
+                None
+            }
+        })))
+    }
+
+    async fn chainsync_events_stream(&self) -> Result<BoxedStream<ChainSyncEvent>, DynError> {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+
+        if let Err((e, _)) = self
+            .network_relay
+            .send(NetworkMsg::SubscribeToChainSync { sender })
+            .await
+        {
+            return Err(Box::new(e));
+        }
+
+        let stream = receiver.await.map_err(Box::new)?;
+        Ok(Box::new(stream.filter_map(|event| {
+            event
+                .map_err(|e| tracing::error!("lagged messages: {e}"))
+                .ok()
+        })))
+    }
+
+    async fn request_tip(&self, peer: Self::PeerId) -> Result<HeaderId, DynError> {
+        let (reply_sender, receiver) = tokio::sync::oneshot::channel();
+
+        if let Err((e, _)) = self
+            .network_relay
+            .send(NetworkMsg::Process(Command::ChainSync(
+                ChainSyncCommand::RequestTip { peer, reply_sender },
+            )))
+            .await
+        {
+            return Err(Box::new(e));
+        }
+
+        let result = receiver.await.map_err(|e| Box::new(e) as DynError)?;
+        result.map_err(|e| Box::new(e) as DynError)
     }
 }
