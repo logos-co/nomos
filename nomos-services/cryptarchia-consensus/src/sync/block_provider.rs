@@ -46,9 +46,7 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
         &self,
         cryptarchia: &Cryptarchia<State>,
         target_block: HeaderId,
-        peer_tip: HeaderId,
-        latest_immutable_block: HeaderId,
-        additional_blocks: HashSet<HeaderId>,
+        known_blocks: &HashSet<HeaderId>,
         reply_sender: Sender<BoxStream<'static, Result<Bytes, DynError>>>,
     ) -> Result<(), GetBlocksError>
     where
@@ -60,21 +58,12 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
         info!(
             "Requesting blocks with inputs:
             target_block={target_block:?},
-            peer_tip={peer_tip:?},
-            latest_immutable_block={latest_immutable_block:?},
-            additional_blocks={additional_blocks:?}",
+            known_blocks={known_blocks:?},"
         );
 
-        let known_blocks = additional_blocks
-            .into_iter()
-            .chain([peer_tip, latest_immutable_block])
-            .collect::<Vec<_>>();
-
-        let Some(start_block) = Self::max_lca(
-            cryptarchia.consensus.branches(),
-            target_block,
-            &known_blocks,
-        ) else {
+        let Some(start_block) =
+            Self::max_lca(cryptarchia.consensus.branches(), target_block, known_blocks)
+        else {
             error!("Failed to find LCA for target block and known blocks");
 
             let stream = stream::once(async move { Err(DynError::from("LCA not found")) });
@@ -141,7 +130,7 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
     fn max_lca(
         branches: &Branches<HeaderId>,
         target_block: HeaderId,
-        known_blocks: &[HeaderId],
+        known_blocks: &HashSet<HeaderId>,
     ) -> Option<HeaderId> {
         let target_branch = branches.get(&target_block)?;
 

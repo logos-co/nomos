@@ -1344,15 +1344,13 @@ where
                 additional_blocks,
                 reply_sender,
             } => {
+                let known_blocks = vec![local_tip, latest_immutable_block]
+                    .into_iter()
+                    .chain(additional_blocks.into_iter())
+                    .collect::<HashSet<_>>();
+
                 if let Err(e) = sync_blocks_provider
-                    .send_blocks(
-                        cryptarchia,
-                        target_block,
-                        local_tip,
-                        latest_immutable_block,
-                        additional_blocks,
-                        reply_sender,
-                    )
+                    .send_blocks(cryptarchia, target_block, &known_blocks, reply_sender)
                     .await
                 {
                     error!("Failed to send blocks for sync: {e}");
