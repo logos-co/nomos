@@ -157,7 +157,12 @@ where
 
         match (cover_traffic_output, release_delayer_output) {
             // If none of the sub-streams is ready, we do not return anything.
-            (None, None) => Poll::Pending,
+            (None, None) => {
+                // We consumed the round clock, so we need to wake the awaker to get triggered
+                // on the next round again.
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
             // If at least one sub-stream yields a result, we return a new element, which might also
             // contain no elements if the cover message module did not yield a new cover message and
             // there were no queue messages to be released in this release window.
