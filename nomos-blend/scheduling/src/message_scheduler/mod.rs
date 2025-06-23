@@ -129,20 +129,26 @@ where
         } = &mut *self;
 
         // We update session info on new sessions.
-        if let Poll::Ready(Some(new_session_info)) = session_clock.poll_next_unpin(cx) {
-            setup_new_session(
-                cover_traffic,
-                release_delayer,
-                round_clock,
-                settings,
-                &new_session_info,
-            );
+        match session_clock.poll_next_unpin(cx) {
+            Poll::Pending => {}
+            Poll::Ready(None) => return Poll::Ready(None),
+            Poll::Ready(Some(new_session_info)) => {
+                setup_new_session(
+                    cover_traffic,
+                    release_delayer,
+                    round_clock,
+                    settings,
+                    &new_session_info,
+                );
+            }
         }
 
         // We do not return anything if a new round has not elapsed.
-        let Poll::Ready(Some(())) = round_clock.poll_next_unpin(cx) else {
-            return Poll::Pending;
-        };
+        match round_clock.poll_next_unpin(cx) {
+            Poll::Pending => return Poll::Pending,
+            Poll::Ready(None) => return Poll::Ready(None),
+            Poll::Ready(Some(())) => {}
+        }
         trace!(target: LOG_TARGET, "New round started.");
 
         // Sub-streams should never get out of sync. We check that in debug builds to
