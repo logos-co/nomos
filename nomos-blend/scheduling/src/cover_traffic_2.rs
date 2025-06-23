@@ -8,8 +8,6 @@ const LOG_TARGET: &str = "blend::scheduling::cover";
 /// A scheduler for cover messages that can yield a new cover message when
 /// polled, as per the specification.
 pub struct SessionCoverTraffic {
-    /// The current round within the session the scheduler is at.
-    current_round: usize,
     /// The pre-computed set of rounds that will result in a cover message
     /// generated.
     scheduled_message_rounds: HashSet<usize>,
@@ -46,24 +44,17 @@ impl SessionCoverTraffic {
 
         let scheduled_message_rounds = schedule_message_rounds(starting_quota, total_rounds, rng);
         Self {
-            current_round: 0,
             scheduled_message_rounds,
             unprocessed_data_messages: 0,
         }
     }
 
-    pub const fn current_round(&self) -> usize {
-        self.current_round
-    }
-
     #[cfg(test)]
     pub const fn with_test_values(
-        current_round: usize,
         scheduled_message_rounds: HashSet<usize>,
         unprocessed_data_messages: usize,
     ) -> Self {
         Self {
-            current_round,
             scheduled_message_rounds,
             unprocessed_data_messages,
         }
@@ -80,12 +71,7 @@ impl SessionCoverTraffic {
     ///
     /// **This function is meant to be externally called at every round, as
     /// failing to do so might result in missed or delayed cover messages**.
-    pub fn poll_next_round(&mut self) -> Option<()> {
-        let current_round = self.current_round;
-        // We can safely saturate, since even if we ever reach the end and there's a
-        // scheduled message, it will be consumed the first time the value is hit.
-        self.current_round = self.current_round.saturating_add(1);
-
+    pub fn next_round(&mut self, current_round: usize) -> Option<()> {
         // If a new cover message is scheduled...
         if self.scheduled_message_rounds.remove(&current_round) {
             // Check if there's any unprocessed data message, and update the counter.
@@ -164,25 +150,19 @@ mod tests {
     #[test]
     fn no_emission_on_unscheduled_round() {
         let mut scheduler = SessionCoverTraffic {
-            current_round: 0,
             scheduled_message_rounds: HashSet::default(),
             unprocessed_data_messages: 0,
         };
-        assert_eq!(scheduler.poll_next_round(), None);
-        // Check that current round has been incremented.
-        assert_eq!(scheduler.current_round, 1);
+        assert_eq!(scheduler.next_round(0), None);
     }
 
     #[test]
     fn emission_on_scheduled_round() {
         let mut scheduler = SessionCoverTraffic {
-            current_round: 1,
             scheduled_message_rounds: HashSet::from_iter([1]),
             unprocessed_data_messages: 0,
         };
-        assert_eq!(scheduler.poll_next_round(), Some(()));
-        // Check that current round has been incremented.
-        assert_eq!(scheduler.current_round, 2);
+        assert_eq!(scheduler.next_round(1), Some(()));
         // Check that the scheduled round has been removed from the set.
         assert!(!scheduler.scheduled_message_rounds.contains(&1));
     }
@@ -190,13 +170,10 @@ mod tests {
     #[test]
     fn no_emission_on_scheduled_round_with_unprocessed_message() {
         let mut scheduler = SessionCoverTraffic {
-            current_round: 1,
             scheduled_message_rounds: HashSet::from_iter([1]),
             unprocessed_data_messages: 1,
         };
-        assert_eq!(scheduler.poll_next_round(), None);
-        // Check that current round has been incremented.
-        assert_eq!(scheduler.current_round, 2);
+        assert_eq!(scheduler.next_round(1), None);
         // Check that the scheduled round has been removed from the set.
         assert!(!scheduler.scheduled_message_rounds.contains(&1));
         // Check that the number of processed messages has been decremented.
@@ -206,7 +183,6 @@ mod tests {
     #[test]
     fn notify_new_data_message() {
         let mut scheduler = SessionCoverTraffic {
-            current_round: 1,
             scheduled_message_rounds: HashSet::from_iter([1]),
             unprocessed_data_messages: 0,
         };

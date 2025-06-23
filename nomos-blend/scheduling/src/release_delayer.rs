@@ -9,8 +9,6 @@ const LOG_TARGET: &str = "blend::scheduling::delay";
 /// A scheduler for delaying processed messages and batch them into release
 /// rounds, as per the specification.
 pub struct SessionProcessedMessageDelayer<Rng> {
-    /// The current round within the session the scheduler is at.
-    current_round: usize,
     /// The maximum delay, in terms of rounds, between two consecutive release
     /// rounds.
     maximum_release_delay_in_rounds: NonZeroUsize,
@@ -38,7 +36,6 @@ where
         let next_release_round =
             schedule_next_release_round_offset(maximum_release_delay_in_rounds, &mut rng);
         Self {
-            current_round: 0,
             maximum_release_delay_in_rounds,
             next_release_round: next_release_round.get(),
             rng,
@@ -52,12 +49,7 @@ where
     ///
     /// **This function is meant to be externally called at every round, as
     /// failing to do so might result in missed or delayed release rounds**.
-    pub fn poll_next_round(&mut self) -> Option<Vec<OutboundMessage>> {
-        let current_round = self.current_round;
-        // We can safely saturate, since even if we ever reach the end and there's a
-        // scheduled message, it will be consumed the first time the value is hit.
-        self.current_round = self.current_round.saturating_add(1);
-
+    pub fn next_round(&mut self, current_round: usize) -> Option<Vec<OutboundMessage>> {
         // If it's time to release messages...
         if current_round == self.next_release_round {
             // Reset the next release round.
@@ -81,10 +73,6 @@ where
 }
 
 impl<Rng> SessionProcessedMessageDelayer<Rng> {
-    pub const fn current_round(&self) -> usize {
-        self.current_round
-    }
-
     #[cfg(test)]
     pub const fn with_test_values(
         current_round: usize,
@@ -94,7 +82,6 @@ impl<Rng> SessionProcessedMessageDelayer<Rng> {
         unreleased_messages: Vec<OutboundMessage>,
     ) -> Self {
         Self {
-            current_round,
             maximum_release_delay_in_rounds,
             next_release_round,
             rng,
@@ -149,16 +136,13 @@ mod tests {
     #[test]
     fn poll_none_on_unscheduled_round() {
         let mut delayer = SessionProcessedMessageDelayer {
-            current_round: 0,
             maximum_release_delay_in_rounds: NonZeroUsize::new(3).expect("Non-zero usize"),
             // Next round is 1, so first call to `poll_next_round` will return `None`.
             next_release_round: 1,
             rng: ChaCha20Rng::from_entropy(),
             unreleased_messages: vec![],
         };
-        assert!(delayer.poll_next_round().is_none());
-        // Check that current round has been incremented.
-        assert_eq!(delayer.current_round, 1);
+        assert!(delayer.next_round(0).is_none());
         // Check that next release round has not changed.
         assert_eq!(delayer.next_release_round, 1);
     }
@@ -166,16 +150,13 @@ mod tests {
     #[test]
     fn poll_empty_on_scheduled_round_with_empty_queue() {
         let mut delayer = SessionProcessedMessageDelayer {
-            current_round: 1,
             maximum_release_delay_in_rounds: NonZeroUsize::new(3).expect("Non-zero usize"),
             // Next round is 1, so next call to `poll_next_round` will return `Some`.
             next_release_round: 1,
             rng: ChaCha20Rng::from_entropy(),
             unreleased_messages: vec![],
         };
-        assert_eq!(delayer.poll_next_round(), Some(vec![]));
-        // Check that current round has been incremented.
-        assert_eq!(delayer.current_round, 2);
+        assert_eq!(delayer.next_round(1), Some(vec![]));
         // Check that next release round has been updated with an offset in the
         // expected range [1, 3], so the new value must be in the range [2, 4].
         assert!((2..=4).contains(&delayer.next_release_round));
@@ -184,7 +165,6 @@ mod tests {
     #[test]
     fn poll_non_empty_on_scheduled_round_with_non_empty_queue() {
         let mut delayer = SessionProcessedMessageDelayer {
-            current_round: 1,
             maximum_release_delay_in_rounds: NonZeroUsize::new(3).expect("Non-zero usize"),
             // Next round is 1, so next call to `poll_next_round` will return `Some`.
             next_release_round: 1,
@@ -192,11 +172,9 @@ mod tests {
             unreleased_messages: vec![OutboundMessage::from(b"test".to_vec())],
         };
         assert_eq!(
-            delayer.poll_next_round(),
+            delayer.next_round(1),
             Some(vec![OutboundMessage::from(b"test".to_vec())])
         );
-        // Check that current round has been incremented.
-        assert_eq!(delayer.current_round, 2);
         // Check that next release round has been updated with an offset in the
         // expected range [1, 3], so the new value must be in the range [2, 4].
         assert!((2..=4).contains(&delayer.next_release_round));
@@ -205,7 +183,6 @@ mod tests {
     #[test]
     fn add_message_to_queue() {
         let mut delayer = SessionProcessedMessageDelayer {
-            current_round: 1,
             maximum_release_delay_in_rounds: NonZeroUsize::new(3).expect("Non-zero usize"),
             next_release_round: 1,
             rng: ChaCha20Rng::from_entropy(),
