@@ -1349,12 +1349,9 @@ where
                     .chain(additional_blocks.into_iter())
                     .collect::<HashSet<_>>();
 
-                if let Err(e) = sync_blocks_provider
+                sync_blocks_provider
                     .send_blocks(cryptarchia, target_block, &known_blocks, reply_sender)
-                    .await
-                {
-                    error!("Failed to send blocks for sync: {e}");
-                }
+                    .await;
             }
             ChainSyncEvent::ProvideTipRequest { reply_sender } => {
                 let tip = cryptarchia.tip();

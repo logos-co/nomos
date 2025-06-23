@@ -21,6 +21,8 @@ pub enum GetBlocksError {
     ChannelDropped,
     #[error("Block not found in storage for header {0:?}")]
     BlockNotFound(HeaderId),
+    #[error("Invalid state: {0}")]
+    InvalidState(String),
     #[error("Failed to send to channel: {0}")]
     SendError(String),
     #[error("Failed to convert block")]
@@ -48,8 +50,7 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
         target_block: HeaderId,
         known_blocks: &HashSet<HeaderId>,
         reply_sender: Sender<BoxStream<'static, Result<Bytes, DynError>>>,
-    ) -> Result<(), GetBlocksError>
-    where
+    ) where
         State: CryptarchiaState + Send + Sync + 'static,
         <Storage as StorageChainApi>::Block: TryInto<Block<Tx, BlobCertificate>>,
         Tx: Serialize + Clone + Eq + 'static,
@@ -64,26 +65,31 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
         let Some(start_block) =
             Self::max_lca(cryptarchia.consensus.branches(), target_block, known_blocks)
         else {
-            error!("Failed to find LCA for target block and known blocks");
+            Self::send_error(
+                "Failed to find LCA for target block and known blocks".to_owned(),
+                reply_sender,
+            )
+            .await;
 
-            let stream = stream::once(async move { Err(DynError::from("LCA not found")) });
-
-            reply_sender
-                .send(Box::pin(stream))
-                .await
-                .map_err(|_| GetBlocksError::SendError("Failed to send error stream".to_owned()))?;
-
-            return Ok(());
+            return;
         };
 
         info!("Starting to send blocks from {start_block:?} to {target_block:?}");
 
-        let path = Self::compute_path(
+        let Ok(path) = Self::compute_path(
             cryptarchia.consensus.branches(),
             start_block,
             target_block,
             MAX_NUMBER_OF_BLOCKS,
-        );
+        ) else {
+            Self::send_error(
+                "Failed to compute path from start block to target block".to_owned(),
+                reply_sender,
+            )
+            .await;
+
+            return;
+        };
 
         let storage_relay = self.storage_relay.clone();
 
@@ -123,8 +129,6 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
         if let Err(e) = reply_sender.send(Box::pin(stream)).await {
             error!("Failed to send blocks stream: {e}");
         }
-
-        Ok(())
     }
 
     fn max_lca(
@@ -150,8 +154,12 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
         start_block: HeaderId,
         target_block: HeaderId,
         limit: usize,
-    ) -> VecDeque<HeaderId> {
+    ) -> Result<VecDeque<HeaderId>, GetBlocksError> {
         let mut path = VecDeque::new();
+
+        if start_block == target_block {
+            return Ok(path);
+        }
 
         let mut current = Some(target_block);
         while let Some(id) = current {
@@ -167,7 +175,7 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
 
             let parent = branches.get(&id).map(Branch::parent);
 
-            // If the parent the same as the current block, we have reached genesis.
+            // If the parent is the same as the current block, we have reached genesis.
             if Some(id) == parent {
                 break;
             }
@@ -175,6 +183,25 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
             current = parent;
         }
 
-        path
+        if !path.is_empty() && path.front() != Some(&start_block) {
+            return Err(GetBlocksError::InvalidState(format!(
+                "Unable to compute path from {start_block:?} to {target_block:?}",
+            )));
+        }
+
+        Ok(path)
+    }
+
+    async fn send_error(msg: String, reply_sender: Sender<BoxStream<'_, Result<Bytes, DynError>>>) {
+        error!(msg);
+
+        let stream = stream::once(async move { Err(DynError::from(msg)) });
+        if let Err(e) = reply_sender
+            .send(Box::pin(stream))
+            .await
+            .map_err(|_| GetBlocksError::SendError("Failed to send error stream".to_owned()))
+        {
+            error!("Failed to send error stream: {e}");
+        }
     }
 }
