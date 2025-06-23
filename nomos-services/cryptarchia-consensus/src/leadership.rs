@@ -5,7 +5,7 @@ use nomos_ledger::{EpochState, NoteTree};
 use nomos_proof_statements::leadership::{LeaderPrivate, LeaderPublic};
 use serde::{Deserialize, Serialize};
 
-/// TODO: this is a temprorary solution until we have a proper wallet
+/// TODO: this is a temporary solution until we have a proper wallet
 /// implementation. Most notably, it can't track when initial notes are spent
 /// and moved
 #[derive(Clone)]
@@ -50,25 +50,15 @@ impl Leader {
         for note in &self.notes {
             let note_commit = note.commit(self.nf_sk.commit());
 
-            match (
-                find(aged_tree, &note_commit),
-                find(latest_tree, &note_commit),
+            if !matches!(
+                (
+                    find(aged_tree, &note_commit),
+                    find(latest_tree, &note_commit),
+                ),
+                (Some(_), Some(_))
             ) {
-                (Some(_), Some(_)) => {
-                    tracing::debug!("Found note in aged & lastest trees: {:?}", note);
-                }
-                (Some(_), _) => {
-                    tracing::debug!("Found note in aged tree only: {:?}", note);
-                    continue;
-                }
-                (_, Some(_)) => {
-                    tracing::debug!("Found note in latest tree only: {:?}", note);
-                    continue;
-                }
-                (None, None) => {
-                    tracing::debug!("Note not found in either tree: {:?}", note);
-                    continue;
-                }
+                tracing::warn!("Note not found in either tree: {:?}", note);
+                continue;
             }
 
             let note_id = [1; 32]; // placeholder for note ID, replace after mantle notes format update

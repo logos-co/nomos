@@ -278,8 +278,8 @@ impl LedgerState {
     {
         assert_eq!(config.epoch(slot), self.epoch_state.epoch);
         let public_inputs = LeaderPublic::new(
-            self.epoch_state.commitments.root(),
-            self.commitments.root(),
+            self.aged_commitments().root(),
+            self.latest_commitments().root(),
             proof.entropy(),
             self.epoch_state.nonce,
             slot.into(),
@@ -317,7 +317,7 @@ impl LedgerState {
     fn update_nonce(self, contrib: [u8; 32], slot: Slot) -> Self {
         Self {
             nonce: <[u8; 32]>::from(
-                Blake2b::new_with_prefix(b"epoch-nonce")
+                Blake2b::new_with_prefix(b"EPOCH_NONCE")
                     .chain_update(self.nonce)
                     .chain_update(contrib)
                     .chain_update(slot.to_be_bytes())
