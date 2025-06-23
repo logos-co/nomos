@@ -49,7 +49,7 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
         peer_tip: HeaderId,
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
-        replay_sender: Sender<BoxStream<'static, Result<Bytes, DynError>>>,
+        reply_sender: Sender<BoxStream<'static, Result<Bytes, DynError>>>,
     ) -> Result<(), GetBlocksError>
     where
         State: CryptarchiaState + Send + Sync + 'static,
@@ -79,7 +79,7 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
 
             let stream = stream::once(async move { Err(DynError::from("LCA not found")) });
 
-            replay_sender
+            reply_sender
                 .send(Box::pin(stream))
                 .await
                 .map_err(|_| GetBlocksError::SendError("Failed to send error stream".to_owned()))?;
@@ -131,7 +131,7 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
             })
             .take_while(|result| future::ready(result.is_ok()));
 
-        if let Err(e) = replay_sender.send(Box::pin(stream)).await {
+        if let Err(e) = reply_sender.send(Box::pin(stream)).await {
             error!("Failed to send blocks stream: {e}");
         }
 
