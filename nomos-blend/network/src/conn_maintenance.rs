@@ -75,12 +75,14 @@ where
     /// If the interval has elapsed, evaluate the peer's status,
     /// reset the monitor, and return the result as `Poll::Ready`.
     /// If not, return `Poll::Pending`.
-    pub fn poll(&mut self, cx: &mut Context<'_>) -> Poll<ConnectionMonitorOutput> {
-        let Poll::Ready(Some(new_expected_message_count_range)) =
-            self.connection_window_clock.poll_next_unpin(cx)
-        else {
-            cx.waker().wake_by_ref();
-            return Poll::Pending;
+    pub fn poll(&mut self, cx: &mut Context<'_>) -> Poll<Option<ConnectionMonitorOutput>> {
+        let new_expected_message_count_range = match self
+            .connection_window_clock
+            .poll_next_unpin(cx)
+        {
+            Poll::Ready(Some(new_expected_message_count_range)) => new_expected_message_count_range,
+            Poll::Ready(None) => return Poll::Ready(None),
+            Poll::Pending => return Poll::Pending,
         };
         // First tick is used to set the range for the new observation window.
         if self.expected_message_range.is_none() {
@@ -96,7 +98,7 @@ where
             ConnectionMonitorOutput::Healthy
         };
         self.reset(new_expected_message_count_range);
-        Poll::Ready(outcome)
+        Poll::Ready(Some(outcome))
     }
 }
 
@@ -129,7 +131,7 @@ mod tests {
         monitor.record_message();
         assert_eq!(
             monitor.poll(&mut Context::from_waker(&noop_waker())),
-            Poll::Ready(ConnectionMonitorOutput::Healthy)
+            Poll::Ready(Some(ConnectionMonitorOutput::Healthy))
         );
 
         // Recording the maximum expected number of messages,
@@ -138,7 +140,7 @@ mod tests {
         monitor.record_message();
         assert_eq!(
             monitor.poll(&mut Context::from_waker(&noop_waker())),
-            Poll::Ready(ConnectionMonitorOutput::Healthy)
+            Poll::Ready(Some(ConnectionMonitorOutput::Healthy))
         );
 
         // Recording more than the expected number of messages,
@@ -148,21 +150,21 @@ mod tests {
         monitor.record_message();
         assert_eq!(
             monitor.poll(&mut Context::from_waker(&noop_waker())),
-            Poll::Ready(ConnectionMonitorOutput::Spammy)
+            Poll::Ready(Some(ConnectionMonitorOutput::Spammy))
         );
 
         // Recording less than the expected number of messages (i.e. no message),
         // expecting the peer to be unhealthy
         assert_eq!(
             monitor.poll(&mut Context::from_waker(&noop_waker())),
-            Poll::Ready(ConnectionMonitorOutput::Unhealthy)
+            Poll::Ready(Some(ConnectionMonitorOutput::Unhealthy))
         );
 
         // Recording the right number of messages, marks the peer as healthy again.
         monitor.record_message();
         assert_eq!(
             monitor.poll(&mut Context::from_waker(&noop_waker())),
-            Poll::Ready(ConnectionMonitorOutput::Healthy)
+            Poll::Ready(Some(ConnectionMonitorOutput::Healthy))
         );
     }
 

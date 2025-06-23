@@ -47,7 +47,10 @@ impl IntervalStreamProvider for ObservationWindowTokioIntervalProvider {
         let expected_message_range = self.calculate_expected_message_range();
         Box::new(
             tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(
-                Duration::from_secs(self.round_duration_seconds.get()),
+                Duration::from_secs(
+                    (self.rounds_per_observation_window.get() as u64)
+                        * self.round_duration_seconds.get(),
+                ),
             ))
             .map(move |_| expected_message_range.clone()),
         )

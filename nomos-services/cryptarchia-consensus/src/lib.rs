@@ -30,7 +30,7 @@ use nomos_core::{
 use nomos_da_sampling::{
     backend::DaSamplingServiceBackend, DaSamplingService, DaSamplingServiceMsg,
 };
-use nomos_ledger::{leader_proof::LeaderProof as _, LedgerState};
+use nomos_ledger::LedgerState;
 use nomos_mempool::{
     backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter, DaMempoolService,
     MempoolMsg, TxMempoolService,
@@ -120,18 +120,9 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
         let id = header.id();
         let parent = header.parent();
         let slot = header.slot();
-        let ledger = self.ledger.try_update(
-            id,
-            parent,
-            slot,
-            header.leader_proof(),
-            header.orphaned_proofs().iter().map(|imported_header| {
-                (
-                    imported_header.id(),
-                    imported_header.leader_proof().to_orphan_proof(),
-                )
-            }),
-        )?;
+        let ledger = self
+            .ledger
+            .try_update(id, parent, slot, header.leader_proof())?;
         let consensus = self.consensus.receive_block(id, parent, slot)?;
 
         Ok(Self { ledger, consensus })
@@ -576,7 +567,7 @@ where
         // These are blocks that have been pruned by the cryptarchia engine but have not
         // yet been deleted from the storage layer.
         let mut previously_pruned_blocks = self.initial_state.prunable_blocks.clone();
-        let (mut cryptarchia, mut leader) = Self::initialize_cryptarchia(
+        let (mut cryptarchia, leader) = Self::initialize_cryptarchia(
             self.initial_state,
             ledger_config,
             leader_config,
@@ -634,7 +625,7 @@ where
                         // Process the received block and update the cryptarchia state.
                         cryptarchia = Self::process_block_and_update_state(
                             cryptarchia,
-                            &mut leader,
+                            &leader,
                             block.clone(),
 
                             &mut previously_pruned_blocks,
@@ -649,14 +640,15 @@ where
 
                     Some(SlotTick { slot, .. }) = slot_timer.next() => {
                         let parent = cryptarchia.tip();
-                        let note_tree = cryptarchia.tip_state().lead_commitments();
+                        let aged_tree = cryptarchia.tip_state().aged_commitments();
+                        let latest_tree = cryptarchia.tip_state().latest_commitments();
                         debug!("ticking for slot {}", u64::from(slot));
 
                         let Some(epoch_state) = cryptarchia.epoch_state_for_slot(slot) else {
                             error!("trying to propose a block for slot {} but epoch state is not available", u64::from(slot));
                             continue;
                         };
-                        if let Some(proof) = leader.build_proof_for(note_tree, epoch_state, slot, parent).await {
+                        if let Some(proof) = leader.build_proof_for(aged_tree, latest_tree, epoch_state, slot).await {
                             debug!("proposing block...");
                             // TODO: spawn as a separate task?
                             let block = Self::propose_block(
@@ -671,8 +663,8 @@ where
                             if let Some(block) = block {
                                 // apply our own block
                                 cryptarchia = Self::process_block_and_update_state(
-                                     cryptarchia,
-                                    &mut leader,
+                                    cryptarchia,
+                                    &leader,
                                     block.clone(),
 
                                     &mut previously_pruned_blocks,
@@ -893,7 +885,7 @@ where
     )]
     async fn process_block_and_update_state(
         mut cryptarchia: Cryptarchia<Online>,
-        leader: &mut Leader,
+        leader: &Leader,
         block: Block<ClPool::Item, DaPool::Item>,
         previously_pruned_blocks: &mut HashSet<HeaderId>,
         relays: &CryptarchiaConsensusRelays<
@@ -923,21 +915,14 @@ where
             >,
         >,
     ) -> Cryptarchia<Online> {
-        cryptarchia = Self::process_block(
-            cryptarchia,
-            leader,
-            block,
-            relays,
-            block_subscription_sender,
-        )
-        .await;
+        cryptarchia =
+            Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
 
         // This will modify `previously_pruned_blocks` to include blocks which are not
         // tracked by Cryptarchia anymore but have not been deleted from the persistence
         // layer.
         Self::prune_forks(
             &mut cryptarchia,
-            leader,
             relays.storage_adapter(),
             previously_pruned_blocks,
         )
@@ -963,10 +948,9 @@ where
     /// A [`Block`] is only added if it's valid
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
-    #[instrument(level = "debug", skip(cryptarchia, leader, relays))]
+    #[instrument(level = "debug", skip(cryptarchia, relays))]
     async fn process_block<State: CryptarchiaState>(
         mut cryptarchia: Cryptarchia<State>,
-        leader: &mut Leader,
         block: Block<ClPool::Item, DaPool::Item>,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
@@ -1005,9 +989,6 @@ where
 
         match cryptarchia.try_apply_header(header) {
             Ok(new_state) => {
-                // update leader
-                leader.follow_chain(header.parent(), id, header.leader_proof().nullifier());
-
                 // remove included content from mempool
                 mark_in_block(
                     relays.cl_mempool_relay().clone(),
@@ -1241,8 +1222,7 @@ where
         let lib_id = initial_state.lib;
         let mut cryptarchia =
             <Cryptarchia<Online>>::from_lib(lib_id, initial_state.lib_ledger_state, ledger_config);
-        let mut leader = Leader::new(
-            lib_id,
+        let leader = Leader::new(
             initial_state.lib_leader_notes.clone(),
             leader_config.nf_sk,
             ledger_config,
@@ -1255,14 +1235,8 @@ where
         let blocks = blocks.into_iter().skip(1);
 
         for block in blocks {
-            cryptarchia = Self::process_block(
-                cryptarchia,
-                &mut leader,
-                block,
-                relays,
-                block_subscription_sender,
-            )
-            .await;
+            cryptarchia =
+                Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
         }
 
         (cryptarchia, leader)
@@ -1280,20 +1254,10 @@ where
     /// next invocation of this function.
     async fn prune_forks(
         cryptarchia: &mut Cryptarchia<Online>,
-        leader: &mut Leader,
         storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
         prunable_blocks: &mut HashSet<HeaderId>,
     ) {
         let old_forks_pruned = cryptarchia.prune_old_forks().collect::<HashSet<_>>();
-        // And remove the notes of the pruned blocks from the leader state.
-        for old_fork_pruned in &old_forks_pruned {
-            if leader.prune_notes_at(old_fork_pruned) {
-                tracing::debug!(
-                    target: LOG_TARGET,
-                    "Leader proof for block {old_fork_pruned} removed from in-memory storage."
-                );
-            }
-        }
 
         // We try to delete both freshly pruned forks as well as old pruned blocks.
         match Self::delete_pruned_blocks_from_storage(
