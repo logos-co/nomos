@@ -13,7 +13,10 @@ use tracing::trace;
 use crate::{
     cover_traffic_2::SessionCoverTraffic,
     message::OutboundMessage,
-    message_scheduler::{round_info::RoundInfo, session_info::SessionInfo},
+    message_scheduler::{
+        round_info::{Round, RoundInfo},
+        session_info::SessionInfo,
+    },
     release_delayer::SessionProcessedMessageDelayer,
 };
 
@@ -84,10 +87,10 @@ pub struct MessageScheduler<SessionClock, Rng> {
     /// The module responsible for randomly generated cover messages, given the
     /// allowed session quota and accounting for data messages generated within
     /// the session.
-    cover_traffic: SessionCoverTraffic,
+    cover_traffic: SessionCoverTraffic<Box<dyn Stream<Item = Round>>>,
     /// The module responsible for delaying the release of processed messages
     /// that have not been fully decapsulated.
-    release_delayer: SessionProcessedMessageDelayer<Rng>,
+    release_delayer: SessionProcessedMessageDelayer<Box<dyn Stream<Item = Round>>, Rng>,
     /// The clock ticking at every round, that might result in new messages
     /// being emitted by this module, as per the specification.
     round_clock: Box<dyn Stream<Item = ()> + Unpin>,
@@ -130,9 +133,9 @@ where
 
         // We update session info on new sessions.
         match session_clock.poll_next_unpin(cx) {
-            Poll::Pending => {}
-            Poll::Ready(None) => return Poll::Ready(None),
             Poll::Ready(Some(new_session_info)) => {
+                // TODO: Update `round_clock` to be able to be cloned an passed to the
+                // sub-streams.
                 setup_new_session(
                     cover_traffic,
                     release_delayer,
@@ -141,6 +144,8 @@ where
                     &new_session_info,
                 );
             }
+            Poll::Ready(None) => return Poll::Ready(None),
+            Poll::Pending => {}
         }
 
         // We do not return anything if a new round has not elapsed.
