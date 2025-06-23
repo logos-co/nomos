@@ -18,20 +18,20 @@ use crate::{
 //
 // TODO: Implement [`BlendMessage`] trait for this type.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct EncapsulatedMessage<const MAX_ENCAPSULATIONS: usize> {
+pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
     /// A header that is not encapsulated.
     header: Header,
     /// A public header that is not encapsulated.
     public_header: PublicHeader,
     /// Encapsulated parts
-    encapsulated_part: EncapsulatedPart<MAX_ENCAPSULATIONS>,
+    encapsulated_part: EncapsulatedPart<ENCAPSULATION_COUNT>,
 }
 
-impl<const MAX_ENCAPSULATIONS: usize> EncapsulatedMessage<MAX_ENCAPSULATIONS> {
+impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> {
     /// Creates a new [`EncapsulatedMessage`] with the provided inputs and
     /// payload.
     pub fn new(
-        inputs: &EncapsulationInputs<MAX_ENCAPSULATIONS>,
+        inputs: &EncapsulationInputs<ENCAPSULATION_COUNT>,
         payload_type: PayloadType,
         payload_body: &[u8],
     ) -> Result<Self, Error> {
@@ -85,7 +85,7 @@ impl<const MAX_ENCAPSULATIONS: usize> EncapsulatedMessage<MAX_ENCAPSULATIONS> {
     pub fn decapsulate(
         self,
         private_key: &X25519PrivateKey,
-    ) -> Result<DecapsulationOutput<MAX_ENCAPSULATIONS>, Error> {
+    ) -> Result<DecapsulationOutput<ENCAPSULATION_COUNT>, Error> {
         // Derive the shared key.
         let shared_key =
             private_key.derive_shared_key(&self.public_header.signing_pubkey.derive_x25519());
@@ -109,25 +109,25 @@ impl<const MAX_ENCAPSULATIONS: usize> EncapsulatedMessage<MAX_ENCAPSULATIONS> {
 /// The output of [`EncapsulatedMessage::decapsulate`]
 #[expect(
     clippy::large_enum_variant,
-    reason = "Size difference between variants is not too large (small MAX_ENCAPSULATIONS)"
+    reason = "Size difference between variants is not too large (small ENCAPSULATION_COUNT)"
 )]
-pub enum DecapsulationOutput<const MAX_ENCAPSULATIONS: usize> {
-    Incompleted(EncapsulatedMessage<MAX_ENCAPSULATIONS>),
+pub enum DecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
+    Incompleted(EncapsulatedMessage<ENCAPSULATION_COUNT>),
     Completed(Payload),
 }
 
 /// Part of the message that should be encapsulated.
 #[derive(Clone, Serialize, Deserialize)]
-struct EncapsulatedPart<const MAX_ENCAPSULATIONS: usize> {
-    private_header: EncapsulatedPrivateHeader<MAX_ENCAPSULATIONS>,
+struct EncapsulatedPart<const ENCAPSULATION_COUNT: usize> {
+    private_header: EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
     payload: EncapsulatedPayload,
 }
 
-impl<const MAX_ENCAPSULATIONS: usize> EncapsulatedPart<MAX_ENCAPSULATIONS> {
+impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
     /// Initializes the encapsulated part as preparation for actual
     /// encapsulations.
     fn initialize(
-        inputs: &EncapsulationInputs<MAX_ENCAPSULATIONS>,
+        inputs: &EncapsulationInputs<ENCAPSULATION_COUNT>,
         payload_type: PayloadType,
         payload_body: &[u8],
     ) -> Result<Self, Error> {
@@ -172,7 +172,7 @@ impl<const MAX_ENCAPSULATIONS: usize> EncapsulatedPart<MAX_ENCAPSULATIONS> {
     fn decapsulate(
         self,
         key: &SharedKey,
-    ) -> Result<PartDecapsulationOutput<MAX_ENCAPSULATIONS>, Error> {
+    ) -> Result<PartDecapsulationOutput<ENCAPSULATION_COUNT>, Error> {
         match self.private_header.decapsulate(key)? {
             PrivateHeaderDecapsulationOutput::Incompleted((private_header, public_header)) => {
                 let payload = self.payload.decapsulate(key);
@@ -204,7 +204,7 @@ impl<const MAX_ENCAPSULATIONS: usize> EncapsulatedPart<MAX_ENCAPSULATIONS> {
 
     /// Returns the body that should be signed.
     fn signing_body(
-        private_header: &EncapsulatedPrivateHeader<MAX_ENCAPSULATIONS>,
+        private_header: &EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
         payload: &EncapsulatedPayload,
     ) -> Vec<u8> {
         private_header
@@ -217,23 +217,23 @@ impl<const MAX_ENCAPSULATIONS: usize> EncapsulatedPart<MAX_ENCAPSULATIONS> {
 /// The output of [`EncapsulatedPart::decapsulate`]
 #[expect(
     clippy::large_enum_variant,
-    reason = "Size difference between variants is not too large (small MAX_ENCAPSULATIONS)"
+    reason = "Size difference between variants is not too large (small ENCAPSULATION_COUNT)"
 )]
-enum PartDecapsulationOutput<const MAX_ENCAPSULATIONS: usize> {
-    Incompleted((EncapsulatedPart<MAX_ENCAPSULATIONS>, PublicHeader)),
+enum PartDecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
+    Incompleted((EncapsulatedPart<ENCAPSULATION_COUNT>, PublicHeader)),
     Completed(Payload),
 }
 
 /// An encapsulated private header, which is a set of encapsulated blending
 /// headers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct EncapsulatedPrivateHeader<const MAX_ENCAPSULATIONS: usize>(
-    #[serde(with = "BigArray")] [EncapsulatedBlendingHeader; MAX_ENCAPSULATIONS],
+struct EncapsulatedPrivateHeader<const ENCAPSULATION_COUNT: usize>(
+    #[serde(with = "BigArray")] [EncapsulatedBlendingHeader; ENCAPSULATION_COUNT],
 );
 
-impl<const MAX_ENCAPSULATIONS: usize> EncapsulatedPrivateHeader<MAX_ENCAPSULATIONS> {
+impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_COUNT> {
     /// Initializes the private header as preparation for actual encapsulations.
-    fn initialize(inputs: &EncapsulationInputs<MAX_ENCAPSULATIONS>) -> Self {
+    fn initialize(inputs: &EncapsulationInputs<ENCAPSULATION_COUNT>) -> Self {
         // Randomize the private header in the reconstructable way,
         // so that the corresponding signatures can be verified later.
         // Plus, encapsulate the last `inputs.len()` blending headers.
@@ -301,7 +301,7 @@ impl<const MAX_ENCAPSULATIONS: usize> EncapsulatedPrivateHeader<MAX_ENCAPSULATIO
     fn decapsulate(
         mut self,
         key: &SharedKey,
-    ) -> Result<PrivateHeaderDecapsulationOutput<MAX_ENCAPSULATIONS>, Error> {
+    ) -> Result<PrivateHeaderDecapsulationOutput<ENCAPSULATION_COUNT>, Error> {
         // Decrypt all blending headers
         self.0.iter_mut().for_each(|header| {
             header.decapsulate(key);
@@ -357,21 +357,21 @@ impl<const MAX_ENCAPSULATIONS: usize> EncapsulatedPrivateHeader<MAX_ENCAPSULATIO
     const fn first(&self) -> &EncapsulatedBlendingHeader {
         self.0
             .first()
-            .expect("private header always have MAX_ENCAPSULATIONS blending headers")
+            .expect("private header always have ENCAPSULATION_COUNT blending headers")
     }
 
     fn replace_first(&mut self, header: EncapsulatedBlendingHeader) {
         *self
             .0
             .first_mut()
-            .expect("private header always have MAX_ENCAPSULATIONS blending headers") = header;
+            .expect("private header always have ENCAPSULATION_COUNT blending headers") = header;
     }
 
     fn replace_last(&mut self, header: EncapsulatedBlendingHeader) {
         *self
             .0
             .last_mut()
-            .expect("private header always have MAX_ENCAPSULATIONS blending headers") = header;
+            .expect("private header always have ENCAPSULATION_COUNT blending headers") = header;
     }
 
     fn iter_bytes(&self) -> impl Iterator<Item = u8> + '_ {
@@ -382,9 +382,9 @@ impl<const MAX_ENCAPSULATIONS: usize> EncapsulatedPrivateHeader<MAX_ENCAPSULATIO
 }
 
 /// The output of [`EncapsulatedPrivateHeader::decapsulate`]
-enum PrivateHeaderDecapsulationOutput<const MAX_ENCAPSULATIONS: usize> {
-    Incompleted((EncapsulatedPrivateHeader<MAX_ENCAPSULATIONS>, PublicHeader)),
-    Completed((EncapsulatedPrivateHeader<MAX_ENCAPSULATIONS>, PublicHeader)),
+enum PrivateHeaderDecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
+    Incompleted((EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>, PublicHeader)),
+    Completed((EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>, PublicHeader)),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -446,14 +446,14 @@ mod tests {
         crypto::PROOF_OF_QUOTA_SIZE, input::EncapsulationInput, message::MAX_PAYLOAD_BODY_SIZE,
     };
 
-    const MAX_ENCAPSULATIONS: usize = 3;
+    const ENCAPSULATION_COUNT: usize = 3;
 
     #[test]
     fn encapsulate_and_decapsulate() {
         const PAYLOAD_BODY: &[u8] = b"hello";
 
         let (inputs, blend_node_enc_keys) = generate_inputs(2).unwrap();
-        let msg = EncapsulatedMessage::<MAX_ENCAPSULATIONS>::new(
+        let msg = EncapsulatedMessage::<ENCAPSULATION_COUNT>::new(
             &inputs,
             PayloadType::Data,
             PAYLOAD_BODY,
@@ -496,7 +496,7 @@ mod tests {
     fn payload_too_long() {
         let (inputs, _) = generate_inputs(1).unwrap();
         assert_eq!(
-            EncapsulatedMessage::<MAX_ENCAPSULATIONS>::new(
+            EncapsulatedMessage::<ENCAPSULATION_COUNT>::new(
                 &inputs,
                 PayloadType::Data,
                 &vec![0u8; MAX_PAYLOAD_BODY_SIZE + 1]
@@ -510,7 +510,7 @@ mod tests {
         cnt: usize,
     ) -> Result<
         (
-            EncapsulationInputs<MAX_ENCAPSULATIONS>,
+            EncapsulationInputs<ENCAPSULATION_COUNT>,
             Vec<X25519PrivateKey>,
         ),
         Error,

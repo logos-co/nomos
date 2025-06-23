@@ -4,13 +4,13 @@ use crate::{
 };
 
 /// A list of [`EncapsulationInput`]s.
-/// This ensures that the number of inputs is (0, `MAX_ENCAPSULATIONS`].
-pub struct EncapsulationInputs<const MAX_ENCAPSULATIONS: usize>(Box<[EncapsulationInput]>);
+/// This ensures that the number of inputs is (0, `ENCAPSULATION_COUNT`].
+pub struct EncapsulationInputs<const ENCAPSULATION_COUNT: usize>(Box<[EncapsulationInput]>);
 
-impl<const MAX_ENCAPSULATIONS: usize> EncapsulationInputs<MAX_ENCAPSULATIONS> {
+impl<const ENCAPSULATION_COUNT: usize> EncapsulationInputs<ENCAPSULATION_COUNT> {
     pub fn new(inputs: Box<[EncapsulationInput]>) -> Result<Self, Error> {
-        if inputs.len() > MAX_ENCAPSULATIONS {
-            return Err(Error::MaxEncapsulationsExceeded);
+        if inputs.len() > ENCAPSULATION_COUNT {
+            return Err(Error::EncapsulationCountExceeded);
         }
         if inputs.is_empty() {
             return Err(Error::EmptyEncapsulationInputs);
@@ -26,11 +26,11 @@ impl<const MAX_ENCAPSULATIONS: usize> EncapsulationInputs<MAX_ENCAPSULATIONS> {
         self.0.len()
     }
 
-    /// Returns `MAX_ENCAPSULATIONS` - [`Self::len`].
+    /// Returns `ENCAPSULATION_COUNT` - [`Self::len`].
     pub(crate) fn num_empty_slots(&self) -> usize {
-        MAX_ENCAPSULATIONS
+        ENCAPSULATION_COUNT
             .checked_sub(self.len())
-            .expect("len must be <= MAX_ENCAPSULATIONS")
+            .expect("len must be <= ENCAPSULATION_COUNT")
     }
 }
 
@@ -77,20 +77,20 @@ mod tests {
     use super::*;
     use crate::crypto::PROOF_OF_QUOTA_SIZE;
 
-    const MAX_ENCAPSULATIONS: usize = 3;
+    const ENCAPSULATION_COUNT: usize = 3;
 
     #[test]
     fn valid_encapsulation_inputs() {
         let inputs = generate_inputs(2).unwrap();
         assert_eq!(inputs.len(), 2);
-        assert_eq!(inputs.num_empty_slots(), MAX_ENCAPSULATIONS - 2);
+        assert_eq!(inputs.num_empty_slots(), ENCAPSULATION_COUNT - 2);
     }
 
     #[test]
-    fn max_encapsulations_exceeded() {
+    fn encapsulation_count_exceeded() {
         assert_eq!(
-            generate_inputs(MAX_ENCAPSULATIONS + 1).err(),
-            Some(Error::MaxEncapsulationsExceeded)
+            generate_inputs(ENCAPSULATION_COUNT + 1).err(),
+            Some(Error::EncapsulationCountExceeded)
         );
     }
 
@@ -102,7 +102,7 @@ mod tests {
         );
     }
 
-    fn generate_inputs(cnt: usize) -> Result<EncapsulationInputs<MAX_ENCAPSULATIONS>, Error> {
+    fn generate_inputs(cnt: usize) -> Result<EncapsulationInputs<ENCAPSULATION_COUNT>, Error> {
         EncapsulationInputs::new(
             std::iter::repeat_with(Ed25519PrivateKey::generate)
                 .take(cnt)

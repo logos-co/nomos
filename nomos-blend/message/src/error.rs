@@ -1,7 +1,7 @@
 #[derive(thiserror::Error, Debug, PartialEq, Eq)]
 pub enum Error {
-    #[error("Max encapsulations exceeded")]
-    MaxEncapsulationsExceeded,
+    #[error("Encapsulation count exceeded")]
+    EncapsulationCountExceeded,
     #[error("Empty encapsulation inputs")]
     EmptyEncapsulationInputs,
     #[error("Payload too large")]
