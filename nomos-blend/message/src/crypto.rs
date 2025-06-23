@@ -14,7 +14,7 @@ use serde_big_array::BigArray;
 
 pub const KEY_SIZE: usize = 32;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct Ed25519PrivateKey(ed25519_dalek::SigningKey);
 
 impl Ed25519PrivateKey {
@@ -41,6 +41,11 @@ impl Ed25519PrivateKey {
     #[must_use]
     pub fn derive_x25519(&self) -> X25519PrivateKey {
         self.0.to_scalar_bytes().into()
+    }
+
+    #[must_use]
+    pub fn to_bytes(&self) -> [u8; KEY_SIZE] {
+        self.0.to_bytes()
     }
 }
 

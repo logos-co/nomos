@@ -26,6 +26,7 @@ use nomos_blend::{
     },
     BlendOutgoingMessage,
 };
+use nomos_blend_message::crypto::Ed25519PrivateKey;
 use nomos_core::wire;
 use nomos_network::NetworkService;
 use nomos_utils::{
@@ -358,11 +359,12 @@ where
     BackendNodeId: Clone + Hash + Eq,
 {
     fn membership(&self) -> Membership<BackendNodeId> {
-        let local_signing_pubkey = self
-            .message_blend
-            .cryptographic_processor
-            .signing_private_key
-            .public_key();
+        let local_signing_pubkey = Ed25519PrivateKey::from(
+            self.message_blend
+                .cryptographic_processor
+                .signing_private_key,
+        )
+        .public_key();
         Membership::new(self.membership.clone(), &local_signing_pubkey)
     }
 }

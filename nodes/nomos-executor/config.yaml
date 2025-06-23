@@ -19,41 +19,7 @@ blend:
     conn_monitor: null
   message_blend:
     cryptographic_processor:
-      private_key:
-        [
-          50,
-          228,
-          181,
-          43,
-          120,
-          224,
-          232,
-          39,
-          63,
-          49,
-          226,
-          174,
-          8,
-          38,
-          208,
-          155,
-          3,
-          72,
-          212,
-          198,
-          104,
-          36,
-          175,
-          79,
-          81,
-          236,
-          78,
-          243,
-          56,
-          8,
-          34,
-          17,
-        ]
+      private_key: 32e4b52b78e0e8273f31e2ae0826d09b0348d4c66824af4f51ec4ef338082211
       num_blend_layers: 1
     temporal_processor:
       max_delay: "2.0"

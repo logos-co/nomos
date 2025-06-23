@@ -1,7 +1,8 @@
 use std::hash::Hash;
 
+use derivative::Derivative;
 use nomos_blend_message::{
-    crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection},
+    crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, X25519PrivateKey, KEY_SIZE},
     encap::{DecapsulationOutput, EncapsulatedMessage},
     input::{EncapsulationInput, EncapsulationInputs},
     Error, PayloadType,
@@ -9,6 +10,7 @@ use nomos_blend_message::{
 use nomos_core::wire;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use serde_with::{hex::Hex, serde_as};
 
 use crate::{membership::Membership, BlendOutgoingMessage};
 
@@ -18,13 +20,19 @@ const ENCAPSULATION_COUNT: usize = 3;
 /// messages for the message indistinguishability.
 pub struct CryptographicProcessor<NodeId, Rng> {
     settings: CryptographicProcessorSettings,
+    signing_private_key: Ed25519PrivateKey,
+    encryption_private_key: X25519PrivateKey,
     membership: Membership<NodeId>,
     rng: Rng,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde_as]
+#[derive(Clone, Derivative, Serialize, Deserialize)]
+#[derivative(Debug)]
 pub struct CryptographicProcessorSettings {
-    pub signing_private_key: Ed25519PrivateKey,
+    #[serde_as(as = "Hex")]
+    #[derivative(Debug = "ignore")]
+    pub signing_private_key: [u8; KEY_SIZE],
     pub num_blend_layers: usize,
 }
 
@@ -33,13 +41,17 @@ where
     NodeId: Hash + Eq,
     Rng: RngCore,
 {
-    pub const fn new(
+    pub fn new(
         settings: CryptographicProcessorSettings,
         membership: Membership<NodeId>,
         rng: Rng,
     ) -> Self {
+        let signing_private_key = Ed25519PrivateKey::from(settings.signing_private_key);
+        let encryption_private_key = signing_private_key.derive_x25519();
         Self {
             settings,
+            signing_private_key,
+            encryption_private_key,
             membership,
             rng,
         }
@@ -69,7 +81,7 @@ where
                 .iter()
                 .map(|blend_node_signing_key| {
                     EncapsulationInput::new(
-                        self.settings.signing_private_key.clone(),
+                        self.signing_private_key.clone(),
                         blend_node_signing_key,
                         ProofOfQuota::dummy(),
                         ProofOfSelection::dummy(),
@@ -86,7 +98,7 @@ where
 
     pub fn decapsulate_message(&self, message: &[u8]) -> Result<BlendOutgoingMessage, Error> {
         deserialize_encapsulated_message(message)?
-            .decapsulate(&self.settings.signing_private_key.derive_x25519())
+            .decapsulate(&self.encryption_private_key)
             .map(BlendOutgoingMessage::from)
     }
 }
