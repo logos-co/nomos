@@ -64,7 +64,6 @@ where
         // Dial the initial peers randomly selected
         membership
             .choose_remote_nodes(&mut rng, config.backend.peering_degree)
-            .iter()
             .for_each(|peer| {
                 if let Err(e) = swarm.dial(peer.address.clone()) {
                     tracing::error!("Failed to dial a peer: {e:?}");

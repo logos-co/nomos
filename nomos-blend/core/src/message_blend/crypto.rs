@@ -61,7 +61,6 @@ where
         let blend_node_signing_keys = self
             .membership
             .choose_remote_nodes(&mut self.rng, self.settings.num_blend_layers)
-            .iter()
             .map(|node| node.public_key.clone())
             .collect::<Vec<_>>();
 

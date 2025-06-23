@@ -45,8 +45,12 @@ impl<NodeId> Membership<NodeId> {
         }
     }
 
-    pub fn choose_remote_nodes<R: Rng>(&self, rng: &mut R, amount: usize) -> Vec<&Node<NodeId>> {
-        self.remote_nodes.choose_multiple(rng, amount).collect()
+    pub fn choose_remote_nodes<R: Rng>(
+        &self,
+        rng: &mut R,
+        amount: usize,
+    ) -> impl Iterator<Item = &Node<NodeId>> {
+        self.remote_nodes.choose_multiple(rng, amount)
     }
 
     pub const fn local_node(&self) -> &Node<NodeId> {
