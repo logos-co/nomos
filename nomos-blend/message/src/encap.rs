@@ -117,6 +117,8 @@ pub enum DecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
 }
 
 /// Part of the message that should be encapsulated.
+// TODO: Consider having `InitializedPart`
+// that just finished the initialization step and doesn't have `decapsulate` method.
 #[derive(Clone, Serialize, Deserialize)]
 struct EncapsulatedPart<const ENCAPSULATION_COUNT: usize> {
     private_header: EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
@@ -226,6 +228,8 @@ enum PartDecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
 
 /// An encapsulated private header, which is a set of encapsulated blending
 /// headers.
+// TODO: Consider having `InitializedPrivateHeader`
+// that just finished the initialization step and doesn't have `decapsulate` method.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct EncapsulatedPrivateHeader<const ENCAPSULATION_COUNT: usize>(
     #[serde(with = "BigArray")] [EncapsulatedBlendingHeader; ENCAPSULATION_COUNT],
@@ -388,6 +392,7 @@ enum PrivateHeaderDecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
 }
 
 /// A blending header encapsulated zero or more times.
+// TODO: Consider having `SerializedBlendingHeader` (not encapsulated).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct EncapsulatedBlendingHeader(Vec<u8>);
 
@@ -421,6 +426,7 @@ impl EncapsulatedBlendingHeader {
 }
 
 /// A payload encapsulated zero or more times.
+// TODO: Consider having `SerializedPayload` (not encapsulated).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct EncapsulatedPayload(Vec<u8>);
 
