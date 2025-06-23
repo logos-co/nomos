@@ -1,3 +1,5 @@
+#![cfg(feature = "axum")]
+
 use std::fmt::{Debug, Display};
 
 use axum::{extract::State, Json};
