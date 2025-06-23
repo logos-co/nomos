@@ -4,6 +4,15 @@ pub enum BlendOutgoingMessage {
     Outbound(OutboundMessage),
 }
 
+impl AsRef<[u8]> for BlendOutgoingMessage {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            Self::FullyUnwrapped(msg) => msg.as_ref(),
+            Self::Outbound(msg) => msg.as_ref(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FullyUnwrappedMessage(Vec<u8>);
 

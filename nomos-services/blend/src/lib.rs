@@ -13,19 +13,21 @@ use async_trait::async_trait;
 use backends::BlendBackend;
 use futures::{Stream, StreamExt as _};
 use network::NetworkAdapter;
-use nomos_blend_message::{sphinx::SphinxMessage, BlendMessage};
+use nomos_blend_message::{sphinx::SphinxMessage, BlendMessage, MessageUnwrapError};
 use nomos_blend_scheduling::{
-    cover_traffic::{CoverTraffic, CoverTrafficSettings, SessionInfo},
+    cover_traffic::{CoverTraffic, CoverTrafficSettings},
     membership::{Membership, Node},
     message::BlendOutgoingMessage,
     message_blend::{
         crypto::CryptographicProcessor, temporal::TemporalScheduler,
         CryptographicProcessorSettings, MessageBlendExt as _, MessageBlendSettings,
     },
+    message_scheduler::session_info::{Session, SessionInfo},
     persistent_transmission::{
         PersistentTransmissionExt as _, PersistentTransmissionSettings,
         PersistentTransmissionStream,
     },
+    UninitializedMessageScheduler,
 };
 use nomos_core::wire;
 use nomos_network::NetworkService;
@@ -46,6 +48,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use tokio::{sync::mpsc, time};
 use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
+use tracing::{debug, error};
 
 /// A blend service that sends messages to the blend network
 /// and broadcasts fully unwrapped messages through the [`NetworkService`].
@@ -174,6 +177,25 @@ where
                 .expect("Message from internal services should not fail to serialize")
         });
 
+        let mut message_scheduler = UninitializedMessageScheduler::new(
+            IntervalStream::new(time::interval(Duration::from_secs(
+                blend_config.timing_settings.rounds_per_session.get()
+                    * blend_config.timing_settings.round_duration.as_secs(),
+            )))
+            .enumerate()
+            .map(|(i, _)| SessionInfo {
+                session_number: Session::from(i.into()),
+                // TODO: Calculate right one
+                core_quota: 100,
+            }),
+            blend_config
+                .message_scheduler
+                .message_scheduler_settings(&blend_config.timing_settings),
+            rng,
+        )
+        .wait_next_session_start()
+        .await;
+
         status_updater.notify_ready();
         tracing::info!(
             "Service '{}' is ready.",
@@ -194,51 +216,120 @@ where
         // latest v1 of the spec.
         let mut scheduled_local_messages = HashSet::new();
         loop {
+            // We listen for:
+            // * 1) Local messages (i.e., block production messages)
+            //     * They are wrapped and broadcasted immediately.
+            // * 2) Blend Messages received by peers
+            //     * They are immediately re-broadcasted (minus the sender), processed, and
+            //       then either broadcasted publicly (if fully unwrapped), or scheduled for
+            //       the next release window
+            // * 3) Scheduler release rounds
+            //     * At each round, the scheduler can release a new set of messages, which
+            //       can include a cover message and/or the set of messages processed since
+            //       the last release window.
             tokio::select! {
-                Some(msg) = persistent_transmission_messages.next() => {
-                    let is_local_message = scheduled_local_messages.remove(&msg);
-                    backend.publish(msg).await;
-                    if is_local_message {
-                        cover_traffic.notify_of_new_data_message().await;
-                    }
-                }
-                // Already processed blend messages
-                Some(msg) = blend_messages.next() => {
-                    match msg {
-                        // If message is not fully unwrapped, forward the remaining layers to the next hop.
-                        BlendOutgoingMessage::Outbound(msg) => {
-                            if let Err(e) = persistent_sender.send(msg.into()) {
-                                tracing::error!("Error sending message to persistent stream: {e}");
-                            }
-                        }
-                        // If the message is fully unwrapped, broadcast it (unencrypted) to the rest of the network if it's not a cover message.
-                        BlendOutgoingMessage::FullyUnwrapped(msg) => {
-                            tracing::debug!("Processing a fully unwrapped message.");
-                            // TODO: Change deserialization logic to return the actual type of message to the service, instead of assuming that a failed deserialization can mean a cover message as well as a malformed message.
-                            match wire::deserialize::<NetworkMessage<Network::BroadcastSettings>>(msg.as_ref()) {
-                                Ok(msg) => {
-                                    // Message is a valid network message, broadcast it to the entire network.
-                                    network_adapter.broadcast(msg.message, msg.broadcast_settings).await;
-                                },
-                                _ => {
-                                    // Message failed to be deserialized. It means that it was either malformed, or a cover message.
-                                    tracing::debug!("Unrecognized message from blend backend. Either malformed or a cover message. Dropping.");
-                                }
-                            }
-                        }
-                    }
-                }
-                // Cover message scheduler has already randomized message generation, so as soon as a message is produced, it is published to the rest of the network.
-                Some(msg) = cover_traffic.next() => {
-                    let wrapped_message = cryptographic_processor.wrap_message(&msg)?;
-                    backend.publish(wrapped_message).await;
-                }
-                Some(msg) = local_messages.next() => {
-                    let Some(wrapped_message) = Self::wrap_and_send_to_persistent_transmission(&msg, &mut cryptographic_processor, &persistent_sender) else {
+                // Point 1.
+                Some(local_message) = local_messages.next() => {
+                    let Ok(wrapped_message) = cryptographic_processor.wrap_message(&local_message).inspect_err(|e| error!("Failed to wrap message: {local_message:?} with error {e:?}")) else {
                         continue;
                     };
-                    scheduled_local_messages.insert(wrapped_message);
+                    backend.send_to_all(wrapped_message).await;
+                    message_scheduler.notify_new_data_message();
                 }
+                // Point 2.
+                Some(incoming_blend_message) = blend_messages.next() => {
+                    match cryptographic_processor.unwrap_message(incoming_blend_message.as_ref()) {
+                        Ok((unwrapped_message, fully_unwrapped)) => {
+                            let message = if fully_unwrapped {
+                                BlendOutgoingMessage::FullyUnwrapped(unwrapped_message.into())
+                            } else {
+                                BlendOutgoingMessage::Outbound(unwrapped_message.into())
+                            };
+                        }
+                        Err(e @ MessageUnwrapError::NotAllowed) => {
+                            debug!("{e}");
+                        }
+                        Err(e) => {
+                            error!("Failed to unwrap message: {e}");
+                        }
+                    }
+                }
+            // Some(incoming_message) = blend_messages.next() => {
+            //             match incoming_message {
+            //                 // If message is not fully unwrapped, forward the remaining layers to the next hop and process it at the same time.
+            //                 BlendOutgoingMessage::Outbound(msg) => {
+            //                     if let Err(e) = persistent_sender.send(msg.into()) {
+            //                         tracing::error!("Error sending message to persistent stream: {e}");
+            //                     }
+            //                 }
+            //                 // If the message is fully unwrapped, broadcast it (unencrypted) to the rest of the network if it's not a cover message.
+            //                 BlendOutgoingMessage::FullyUnwrapped(msg) => {
+            //                     tracing::debug!("Processing a fully unwrapped message.");
+            //                     // TODO: Change deserialization logic to return the actual type of message to the service, instead of assuming that a failed deserialization can mean a cover message as well as a malformed message.
+            //                     match wire::deserialize::<NetworkMessage<Network::BroadcastSettings>>(msg.as_ref()) {
+            //                         Ok(msg) => {
+            //                             // Message is a valid network message, broadcast it to the entire network.
+            //                             network_adapter.broadcast(msg.message, msg.broadcast_settings).await;
+            //                         },
+            //                         _ => {
+            //                             // Message failed to be deserialized. It means that it was either malformed, or a cover message.
+            //                             tracing::debug!("Unrecognized message from blend backend. Either malformed or a cover message. Dropping.");
+            //                         }
+            //                     }
+            //                 }
+            //             }
+            //         }
+
+
+
+
+
+
+            //         Some(msg) = persistent_transmission_messages.next() => {
+            //             let is_local_message = scheduled_local_messages.remove(&msg);
+            //             backend.publish(msg).await;
+            //             if is_local_message {
+            //                 cover_traffic.notify_of_new_data_message().await;
+            //             }
+            //         }
+            //         // Already processed blend messages
+            //         Some(msg) = blend_messages.next() => {
+            //             match msg {
+            //                 // If message is not fully unwrapped, forward the remaining layers to the next hop.
+            //                 BlendOutgoingMessage::Outbound(msg) => {
+            //                     if let Err(e) = persistent_sender.send(msg.into()) {
+            //                         tracing::error!("Error sending message to persistent stream: {e}");
+            //                     }
+            //                 }
+            //                 // If the message is fully unwrapped, broadcast it (unencrypted) to the rest of the network if it's not a cover message.
+            //                 BlendOutgoingMessage::FullyUnwrapped(msg) => {
+            //                     tracing::debug!("Processing a fully unwrapped message.");
+            //                     // TODO: Change deserialization logic to return the actual type of message to the service, instead of assuming that a failed deserialization can mean a cover message as well as a malformed message.
+            //                     match wire::deserialize::<NetworkMessage<Network::BroadcastSettings>>(msg.as_ref()) {
+            //                         Ok(msg) => {
+            //                             // Message is a valid network message, broadcast it to the entire network.
+            //                             network_adapter.broadcast(msg.message, msg.broadcast_settings).await;
+            //                         },
+            //                         _ => {
+            //                             // Message failed to be deserialized. It means that it was either malformed, or a cover message.
+            //                             tracing::debug!("Unrecognized message from blend backend. Either malformed or a cover message. Dropping.");
+            //                         }
+            //                     }
+            //                 }
+            //             }
+            //         }
+            //         // Cover message scheduler has already randomized message generation, so as soon as a message is produced, it is published to the rest of the network.
+            //         Some(msg) = cover_traffic.next() => {
+            //             let wrapped_message = cryptographic_processor.wrap_message(&msg)?;
+            //             backend.publish(wrapped_message).await;
+            //         }
+            //         Some(msg) = local_messages.next() => {
+            //             let Some(wrapped_message) = Self::wrap_and_send_to_persistent_transmission(&msg, &mut cryptographic_processor, &persistent_sender) else {
+            //                 continue;
+            //             };
+            //             scheduled_local_messages.insert(wrapped_message);
+            //         }
+            //     }
             }
         }
     }
@@ -291,8 +382,8 @@ where
 pub struct BlendConfig<BackendSettings, BackendNodeId> {
     pub backend: BackendSettings,
     pub message_blend: MessageBlendSettings<SphinxMessage>,
-    pub persistent_transmission: PersistentTransmissionSettings,
     pub cover_traffic: CoverTrafficExtSettings,
+    pub message_scheduler: MessageSchedulerExt,
     #[serde(flatten)]
     pub timing_settings: TimingSettings,
     pub membership: Vec<Node<BackendNodeId, <SphinxMessage as BlendMessage>::PublicKey>>,
@@ -302,7 +393,7 @@ pub struct BlendConfig<BackendSettings, BackendNodeId> {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TimingSettings {
     pub rounds_per_session: NonZeroU64,
-    pub rounds_per_interval: NonZeroU64,
+    pub rounds_per_interval: NonZeroUsize,
     #[serde_as(as = "MinimalBoundedDuration<1, SECOND>")]
     pub round_duration: Duration,
     pub rounds_per_observation_window: NonZeroUsize,
@@ -354,6 +445,31 @@ impl CoverTrafficExtSettings {
             rounds_per_interval: timing_settings.rounds_per_interval,
             rounds_per_session: timing_settings.rounds_per_session,
             intervals_for_safety_buffer: self.intervals_for_safety_buffer,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct MessageSchedulerExt {
+    pub additional_safety_intervals: usize,
+    pub maximum_release_delay_in_rounds: NonZeroUsize,
+}
+
+impl MessageSchedulerExt {
+    pub fn message_scheduler_settings(
+        &self,
+        timing_settings: &TimingSettings,
+    ) -> nomos_blend_scheduling::message_scheduler::Settings {
+        nomos_blend_scheduling::message_scheduler::Settings {
+            additional_safety_intervals: self.additional_safety_intervals,
+            expected_intervals_per_session: NonZeroUsize::try_from(
+                timing_settings.rounds_per_session.get() as usize
+                    / timing_settings.rounds_per_interval.get(),
+            )
+            .expect("Calculated intervals per sessions cannot be zero."),
+            maximum_release_delay_in_rounds: self.maximum_release_delay_in_rounds,
+            round_duration: timing_settings.round_duration,
+            rounds_per_interval: timing_settings.rounds_per_interval,
         }
     }
 }
