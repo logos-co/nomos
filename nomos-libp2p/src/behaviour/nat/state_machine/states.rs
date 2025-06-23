@@ -10,41 +10,13 @@ impl super::State<Uninitialized> {
     }
 }
 
+/// Represents the initial state of the state machine. There is no known
+/// external address at this point.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Uninitialized(
     // Intentionally private so that this state cannot be constructed outside this module
     (),
 );
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TestIfPublic {
-    addr_to_test: Multiaddr,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TryMapAddress {
-    addr_to_map: Multiaddr,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TestIfMappedPublic {
-    addr_to_test: Multiaddr,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Public {
-    addr: Multiaddr,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MappedPublic {
-    addr: Multiaddr,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Private {
-    addr: Multiaddr,
-}
 
 impl Uninitialized {
     #[expect(
@@ -54,6 +26,13 @@ impl Uninitialized {
     pub const fn into_test_if_public(self, addr_to_test: Multiaddr) -> TestIfPublic {
         TestIfPublic { addr_to_test }
     }
+}
+
+/// We are aware of an external address candidate and we want to test if it is
+/// public.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestIfPublic {
+    addr_to_test: Multiaddr,
 }
 
 impl TestIfPublic {
@@ -72,6 +51,13 @@ impl TestIfPublic {
     pub const fn addr_to_test(&self) -> &Multiaddr {
         &self.addr_to_test
     }
+}
+
+/// The address of the node is known, but it is not publicly reachable. We want
+/// to map it to a publicly reachable address one the NAT-box.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TryMapAddress {
+    addr_to_map: Multiaddr,
 }
 
 impl TryMapAddress {
@@ -95,6 +81,14 @@ impl TryMapAddress {
     }
 }
 
+/// The address of the node is known, it is not publicly reachable, but it
+/// has been mapped to Internet-facing address on the NAT-box. We want to
+/// test if the outside address of the NAT-box is indeed publicly reachable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestIfMappedPublic {
+    addr_to_test: Multiaddr,
+}
+
 impl TestIfMappedPublic {
     pub fn into_mapped_public(self) -> MappedPublic {
         let Self { addr_to_test } = self;
@@ -111,6 +105,13 @@ impl TestIfMappedPublic {
     }
 }
 
+/// The address of the node is known, it is publicly reachable, and it has been
+/// confirmed by the `autonat` client.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Public {
+    addr: Multiaddr,
+}
+
 impl Public {
     pub fn into_test_if_public(self) -> TestIfPublic {
         let Self { addr } = self;
@@ -122,6 +123,14 @@ impl Public {
     }
 }
 
+/// The address of the node is known, it is not publicly reachable, but it has
+/// been mapped to a publicly reachable address on the NAT-box, which has been
+/// confirmed by the `autonat` client to be publicly reachable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MappedPublic {
+    addr: Multiaddr,
+}
+
 impl MappedPublic {
     pub fn into_test_if_public(self) -> TestIfPublic {
         let Self { addr } = self;
@@ -131,6 +140,13 @@ impl MappedPublic {
     pub const fn addr(&self) -> &Multiaddr {
         &self.addr
     }
+}
+
+/// The address of the node is known, it is not publicly reachable, and it has
+/// not been successfully mapped to a publicly reachable address on the NAT-box.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Private {
+    addr: Multiaddr,
 }
 
 impl Private {
