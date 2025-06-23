@@ -16,7 +16,7 @@ pub struct SessionReleaseDelayer<Rng> {
     maximum_release_delay_in_rounds: NonZeroUsize,
     /// The next scheduled round to release the queued messages.
     next_release_round: usize,
-    /// The random generator to select slots for message releasing.
+    /// The random generator to select rounds for message releasing.
     pub rng: Rng,
     /// The messages temporarily queued by the scheduler in between release
     /// rounds.

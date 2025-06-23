@@ -26,7 +26,7 @@ const LOG_TARGET: &str = "blend::scheduling";
 /// session info, to compute session-related components to pass to its
 /// constituent sub-streams.
 pub struct UninitializedMessageScheduler<SessionClock, Rng> {
-    /// The random generator to select slots for message releasing.
+    /// The random generator to select rounds for message releasing.
     rng: Rng,
     /// The input stream that ticks upon a session change.
     session_clock: SessionClock,
