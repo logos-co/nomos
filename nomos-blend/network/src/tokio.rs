@@ -9,9 +9,6 @@ pub use tokio_stream::StreamExt as _;
 
 use crate::IntervalStreamProvider;
 
-/// Number of rounds that the observation window lasts.
-const OBSERVATION_WINDOW_ROUNDS: u64 = 30;
-
 #[derive(Clone)]
 /// Provider of a stream of observation windows used by the Blend connection
 /// monitor to evaluate peers.
