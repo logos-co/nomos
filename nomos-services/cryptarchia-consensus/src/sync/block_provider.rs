@@ -202,3 +202,115 @@ where
         }
     }
 }
+
+#[cfg(test)]
+pub mod tests {
+    use std::num::NonZero;
+
+    use cryptarchia_engine::{Boostrapping, Config, Slot};
+
+    use super::*;
+
+    #[test]
+    fn test_compute_path() {
+        let mut cryptarchia = new_cryptarchia();
+
+        cryptarchia = cryptarchia
+            .receive_block([1; 32], [0; 32], Slot::from(1))
+            .expect("Failed to add block");
+
+        cryptarchia = cryptarchia
+            .receive_block([2; 32], [1; 32], Slot::from(2))
+            .expect("Failed to add block");
+
+        let branches = cryptarchia.branches();
+
+        let start_block = [1; 32];
+        let target_block = [2; 32];
+
+        let path = compute_path(branches, start_block, target_block, MAX_NUMBER_OF_BLOCKS).unwrap();
+
+        assert_eq!(path.len(), 2);
+    }
+
+    #[test]
+    fn test_compute_long_path() {
+        let mut cryptarchia = new_cryptarchia();
+
+        let limit = 100;
+
+        let mut parent = [0; 32];
+
+        for i in 1..=limit + 10 {
+            let id = [i as u8; 32];
+            cryptarchia = cryptarchia
+                .receive_block(id, parent, Slot::from(i as u64))
+                .expect("Failed to add block");
+
+            parent = id;
+        }
+
+        let branches = cryptarchia.branches();
+
+        let start_block = [1; 32];
+        let target_block = [limit as u8; 32];
+        let path = compute_path(branches, start_block, target_block, limit).unwrap();
+
+        assert_eq!(path.len(), limit);
+        assert_eq!(path.front().unwrap(), &start_block);
+        assert_eq!(path.back().unwrap(), &target_block);
+    }
+
+    #[test]
+    fn test_compute_path_unreachable_start() {
+        let cryptarchia = new_cryptarchia();
+
+        let start_block = [1; 32];
+        let target_block = [2; 32];
+
+        let branches = cryptarchia.branches();
+
+        let path = compute_path(branches, start_block, target_block, MAX_NUMBER_OF_BLOCKS);
+
+        assert!(matches!(
+            path,
+            Err(GetBlocksError::InvalidState(ref msg)) if msg.contains("Couldn't reach start_block")
+        ));
+    }
+
+    #[test]
+    fn test_compute_path_hits_genesis() {
+        let mut cryptarchia = new_cryptarchia();
+
+        cryptarchia = cryptarchia
+            .receive_block([3; 32], [0; 32], Slot::from(1))
+            .expect("Failed to add block");
+
+        let branches = cryptarchia.branches();
+
+        let start_block_not_existing = [2; 32];
+        let target_block = [3; 32];
+
+        let path = compute_path(
+            branches,
+            start_block_not_existing,
+            target_block,
+            MAX_NUMBER_OF_BLOCKS,
+        );
+
+        assert!(matches!(
+            path,
+            Err(GetBlocksError::InvalidState(ref msg)) if msg.contains("Genesis block reached")
+        ));
+    }
+
+    fn new_cryptarchia() -> cryptarchia_engine::Cryptarchia<[u8; 32], Boostrapping> {
+        <cryptarchia_engine::Cryptarchia<_, Boostrapping>>::from_lib(
+            [0; 32],
+            Config {
+                security_param: NonZero::new(1).unwrap(),
+                active_slot_coeff: 1.0,
+            },
+        )
+    }
+}
