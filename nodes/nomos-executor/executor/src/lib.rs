@@ -248,7 +248,7 @@ pub(crate) type SystemSigService = SystemSig<RuntimeServiceId>;
 
 #[cfg(feature = "testing")]
 type TestingApiService<RuntimeServiceId> =
-    nomos_api::ApiService<crate::api::testing::backend::TestAxumBackend, RuntimeServiceId>;
+    nomos_api::ApiService<api::testing::backend::TestAxumBackend, RuntimeServiceId>;
 
 #[derive_services]
 pub struct NomosExecutor {

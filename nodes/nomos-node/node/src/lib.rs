@@ -51,8 +51,6 @@ use overwatch::derive_services;
 use rand_chacha::ChaCha20Rng;
 use serde::{de::DeserializeOwned, Serialize};
 use subnetworks_assignations::versions::v1::FillFromNodeList;
-#[cfg(feature = "testing")]
-use tokio::runtime::Runtime;
 
 pub use crate::config::{Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs};
 use crate::{
@@ -226,7 +224,7 @@ type SystemSigService = SystemSig<RuntimeServiceId>;
 
 #[cfg(feature = "testing")]
 type TestingApiService<RuntimeServiceId> =
-    nomos_api::ApiService<crate::api::testing::backend::TestAxumBackend, RuntimeServiceId>;
+    nomos_api::ApiService<api::testing::backend::TestAxumBackend, RuntimeServiceId>;
 
 #[derive_services]
 pub struct Nomos {
