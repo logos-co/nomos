@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// A serializable representation of `AutoNAT` configuration options.
 /// When a value is None, the libp2p defaults are used.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
 pub struct Settings {
     /// How many candidates we will test at most.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -23,7 +23,7 @@ pub struct Settings {
     pub retest_successful_external_addresses_interval_millisecs: u64,
 }
 
-fn default_restest_interval_millisecs() -> u64 {
+const fn default_restest_interval_millisecs() -> u64 {
     60_000 // 1 minute
 }
 
@@ -45,7 +45,8 @@ impl Settings {
         config
     }
 
-    pub fn with_probe_interval_millisecs(mut self, millisecs: u64) -> Self {
+    #[must_use]
+    pub const fn with_probe_interval_millisecs(mut self, millisecs: u64) -> Self {
         self.probe_interval_millisecs = Some(millisecs);
         self
     }
