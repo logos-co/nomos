@@ -116,7 +116,7 @@ where
         // "dummy" containers that are soon replaced in the `setup_new_session`
         // function, which expects a `&mut` reference to those fields. The same function
         // is then called upon each new session tick.
-        let mut dummy_cover_traffic = SessionCoverTraffic::<RoundClock>::new(
+        let mut initial_cover_traffic = SessionCoverTraffic::<RoundClock>::new(
             crate::cover_traffic_2::Settings {
                 additional_safety_intervals: settings.additional_safety_intervals,
                 expected_intervals_per_session: settings.expected_intervals_per_session,
@@ -126,31 +126,31 @@ where
             &mut rng,
             Box::new(empty()) as RoundClock,
         );
-        let mut dummy_release_delayer = SessionProcessedMessageDelayer::<RoundClock, Rng>::new(
+        let mut initial_release_delayer = SessionProcessedMessageDelayer::<RoundClock, Rng>::new(
             crate::release_delayer::Settings {
                 maximum_release_delay_in_rounds: settings.maximum_release_delay_in_rounds,
             },
             rng.clone(),
             Box::new(empty()) as RoundClock,
         );
-        let mut dummy_round_clock = Box::new(empty()) as RoundClock;
-        let (mut dummy_round_clock_task_abort_handle, _) = AbortHandle::new_pair();
+        let mut initial_round_clock = Box::new(empty()) as RoundClock;
+        let (mut initial_round_clock_task_abort_handle, _) = AbortHandle::new_pair();
 
         setup_new_session(
-            &mut dummy_cover_traffic,
-            &mut dummy_release_delayer,
-            &mut dummy_round_clock,
-            &mut dummy_round_clock_task_abort_handle,
+            &mut initial_cover_traffic,
+            &mut initial_release_delayer,
+            &mut initial_round_clock,
+            &mut initial_round_clock_task_abort_handle,
             settings,
             rng,
             initial_session_info,
         );
 
         Self {
-            cover_traffic: dummy_cover_traffic,
-            release_delayer: dummy_release_delayer,
-            round_clock: dummy_round_clock,
-            round_clock_task_abort_handle: dummy_round_clock_task_abort_handle,
+            cover_traffic: initial_cover_traffic,
+            release_delayer: initial_release_delayer,
+            round_clock: initial_round_clock,
+            round_clock_task_abort_handle: initial_round_clock_task_abort_handle,
             session_clock,
             settings,
         }
@@ -177,7 +177,6 @@ impl<SessionClock, Rng> MessageScheduler<SessionClock, Rng> {
         release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng>,
         round_clock: RoundClock,
         session_clock: SessionClock,
-        settings: Settings,
     ) -> Self {
         Self {
             cover_traffic,
@@ -185,7 +184,8 @@ impl<SessionClock, Rng> MessageScheduler<SessionClock, Rng> {
             round_clock,
             round_clock_task_abort_handle: AbortHandle::new_pair().0,
             session_clock,
-            settings,
+            // These are not needed when all fields are provided as arguments.
+            settings: Settings::default(),
         }
     }
 }
@@ -282,4 +282,17 @@ pub struct Settings {
     pub maximum_release_delay_in_rounds: NonZeroUsize,
     pub round_duration: Duration,
     pub rounds_per_interval: NonZeroUsize,
+}
+
+#[cfg(test)]
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            additional_safety_intervals: 0,
+            expected_intervals_per_session: NonZeroUsize::try_from(1).unwrap(),
+            maximum_release_delay_in_rounds: NonZeroUsize::try_from(1).unwrap(),
+            round_duration: Duration::from_secs(1),
+            rounds_per_interval: NonZeroUsize::try_from(1).unwrap(),
+        }
+    }
 }
