@@ -1,9 +1,9 @@
-use core::num::NonZeroUsize;
-use std::{
-    collections::HashSet,
+use core::{
+    num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll},
 };
+use std::collections::HashSet;
 
 use futures::{Stream, StreamExt as _};
 use tracing::{debug, trace};
@@ -15,6 +15,7 @@ const LOG_TARGET: &str = "blend::scheduling::cover";
 /// A scheduler for cover messages that can yield a new cover message when
 /// polled, as per the specification.
 pub struct SessionCoverTraffic<RoundClock> {
+    /// The clock ticking at the beginning of each new round.
     round_clock: RoundClock,
     /// The pre-computed set of rounds that will result in a cover message
     /// generated.
@@ -111,10 +112,12 @@ where
             // Else, we skip emission and update the unprocessed data message counter.
             self.unprocessed_data_messages = new_unprocessed_data_messages;
             trace!(target: LOG_TARGET, "Skipping message emission because of override by data message.");
+            // Awake to trigger a new round clock tick.
             cx.waker().wake_by_ref();
             return Poll::Pending;
         }
         trace!(target: LOG_TARGET, "Not a pre-scheduled emission for round {new_round}.");
+        // Awake to trigger a new round clock tick.
         cx.waker().wake_by_ref();
         Poll::Pending
     }
@@ -138,7 +141,7 @@ where
         if scheduled_message_rounds.insert((random_round as u128).into()) {
             total_message_count -= 1;
         } else {
-            trace!(target: LOG_TARGET, "Random round generation generated an existing entry. Retrying...");
+            trace!(target: LOG_TARGET, "Random round generation yielded an already occupied round. Retrying...");
         }
     }
     scheduled_message_rounds
@@ -161,10 +164,8 @@ pub struct Settings {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashSet,
-        task::{Context, Poll},
-    };
+    use core::task::{Context, Poll};
+    use std::collections::HashSet;
 
     use futures::{io::empty, task::noop_waker_ref, StreamExt as _};
     use tokio_stream::iter;
