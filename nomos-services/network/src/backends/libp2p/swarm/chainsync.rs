@@ -6,6 +6,7 @@ use nomos_libp2p::{
     cryptarchia_sync::{ChainSyncError, HeaderId, SerialisedBlock},
     PeerId,
 };
+use rand::RngCore;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{backends::libp2p::swarm::SwarmHandler, message::ChainSyncEvent};
@@ -52,7 +53,7 @@ impl Debug for ChainSyncCommand {
     }
 }
 
-impl SwarmHandler {
+impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
     pub(super) fn handle_chainsync_command(&self, command: ChainSyncCommand) {
         match command {
             ChainSyncCommand::RequestTip { peer, reply_sender } => {

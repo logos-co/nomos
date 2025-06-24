@@ -11,6 +11,7 @@ use rand::{
     rngs::StdRng,
     SeedableRng as _,
 };
+use rand_chacha::ChaCha20Rng;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::{self, Sender};
 use tokio_stream::wrappers::BroadcastStream;
@@ -231,8 +232,9 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Mock {
     type Message = MockBackendMessage;
     type PubSubEvent = NetworkEvent;
     type ChainSyncEvent = ();
+    type Rng = ChaCha20Rng;
 
-    fn new(config: Self::Settings, _: OverwatchHandle<RuntimeServiceId>) -> Self {
+    fn new(config: Self::Settings, _: OverwatchHandle<RuntimeServiceId>, _: Self::Rng) -> Self {
         let (pubsub_events_tx, _) = broadcast::channel(BROADCAST_CHANNEL_BUF);
         let (chainsync_events_tx, _) = broadcast::channel(BROADCAST_CHANNEL_BUF);
 
@@ -348,6 +350,7 @@ mod tests {
         let mock = Arc::new(Mock::new(
             config,
             OverwatchHandle::<()>::new(tokio::runtime::Handle::current(), mpsc::channel(1).0),
+            ChaCha20Rng::from_entropy(),
         ));
         // run producer
         let task = Arc::clone(&mock);
