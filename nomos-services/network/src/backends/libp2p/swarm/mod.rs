@@ -276,22 +276,26 @@ mod tests {
         });
     }
 
-    fn create_swarm_config(port: u16) -> nomos_libp2p::SwarmConfig {
+    fn create_swarm_config(port: u16, is_boot: bool) -> nomos_libp2p::SwarmConfig {
         nomos_libp2p::SwarmConfig {
             host: Ipv4Addr::new(127, 0, 0, 1),
             port,
             node_key: nomos_libp2p::ed25519::SecretKey::generate(),
             gossipsub_config: nomos_libp2p::gossipsub::Config::default(),
-            kademlia_config: Some(nomos_libp2p::KademliaSettings::default()),
+            kademlia_config: Some(nomos_libp2p::KademliaSettings {
+                periodic_bootstrap_interval_secs: Some(1),
+                ..Default::default()
+            }),
             identify_config: Some(nomos_libp2p::IdentifySettings::default()),
-            autonat_client_config: None, // Assume that the node is public
+            autonat_client_config: is_boot
+                .then_some(nomos_libp2p::AutonatClientSettings::default()),
             protocol_name_env: ProtocolName::Unittest,
         }
     }
 
     fn create_libp2p_config(initial_peers: Vec<Multiaddr>, port: u16) -> Libp2pConfig {
         Libp2pConfig {
-            inner: create_swarm_config(port),
+            inner: create_swarm_config(port, !initial_peers.is_empty()),
             initial_peers,
         }
     }
