@@ -184,7 +184,6 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
                     &private_header,
                     &payload,
                 )?;
-                // The spec should be clarified on this.
                 Ok(PartDecapsulationOutput::Incompleted((
                     Self {
                         private_header,
