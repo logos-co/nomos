@@ -45,4 +45,3 @@ pub struct RoundInfo {
 }
 
 pub type RoundClock = Box<dyn Stream<Item = Round> + Unpin>;
-pub type SendRoundClock = Box<dyn Stream<Item = Round> + Unpin + Send>;

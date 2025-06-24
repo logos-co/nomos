@@ -164,8 +164,10 @@ pub struct Settings {
 
 #[cfg(test)]
 mod tests {
-    use core::num::NonZeroUsize;
-    use std::task::{Context, Poll};
+    use core::{
+        num::NonZeroUsize,
+        task::{Context, Poll},
+    };
 
     use futures::{io::empty, task::noop_waker_ref, StreamExt as _};
     use rand::SeedableRng as _;

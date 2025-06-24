@@ -7,7 +7,7 @@ use tokio::{
     time::interval,
 };
 use tokio_stream::wrappers::{BroadcastStream, IntervalStream};
-use tracing::trace;
+use tracing::{error, trace};
 
 use crate::{
     cover_traffic_2::SessionCoverTraffic,
@@ -37,7 +37,7 @@ pub(super) fn setup_new_session<Rng>(
 
     let mut new_round_clock = IntervalStream::new(interval(settings.round_duration))
         .enumerate()
-        .map(|(round, _)| (round as u128).into());
+        .map(|(round, _)| Some((round as u128).into()));
     let (round_clock_stream_sender, _) = channel(3);
     let round_clock_stream_sender_clone = round_clock_stream_sender.clone();
 
@@ -45,12 +45,12 @@ pub(super) fn setup_new_session<Rng>(
     let (new_abort_handle, new_abort_registration) = AbortHandle::new_pair();
     tokio::spawn(Abortable::new(
         async move {
-            loop {
-                let next_clock: Option<Round> = new_round_clock.next().await;
-                round_clock_stream_sender_clone
-                    .send(next_clock)
-                    .expect("Propagating round clock to consumers should not fail");
+            while let Some(new_round) = new_round_clock.next().await {
+                if let Err(send_error) = round_clock_stream_sender_clone.send(new_round) {
+                    error!(target: LOG_TARGET, "Failed to send round tick to consumers. Error: {send_error:?}");
+                }
             }
+            trace!(target: LOG_TARGET, "Round clock terminated.");
         },
         new_abort_registration,
     ));
@@ -63,13 +63,7 @@ pub(super) fn setup_new_session<Rng>(
     );
     *release_delayer =
         instantiate_new_message_delayer(rng, round_clock_stream_sender.subscribe(), &settings);
-    *round_clock = Box::new(
-        BroadcastStream::new(round_clock_stream_sender.subscribe()).map(|round| {
-            round
-                .expect("Round to be `Ok`.")
-                .expect("Round to be `Some`.")
-        }),
-    ) as RoundClock;
+    *round_clock = get_round_clock(round_clock_stream_sender.subscribe());
     *round_clock_task_abort_handle = new_abort_handle;
 }
 
@@ -95,13 +89,7 @@ where
             starting_quota,
         },
         rng,
-        Box::new(
-            BroadcastStream::new(round_clock_stream_receiver).map(|round| {
-                round
-                    .expect("Round to be `Ok`.")
-                    .expect("Round to be `Some`.")
-            }),
-        ) as RoundClock,
+        get_round_clock(round_clock_stream_receiver),
     )
 }
 
@@ -118,12 +106,14 @@ where
             maximum_release_delay_in_rounds: settings.maximum_release_delay_in_rounds,
         },
         rng,
-        Box::new(
-            BroadcastStream::new(round_clock_stream_receiver).map(|round| {
-                round
-                    .expect("Round to be `Ok`.")
-                    .expect("Round to be `Some`.")
-            }),
-        ) as RoundClock,
+        get_round_clock(round_clock_stream_receiver),
     )
+}
+
+fn get_round_clock(stream_receiver: Receiver<Option<Round>>) -> RoundClock {
+    Box::new(BroadcastStream::new(stream_receiver).map(|round| {
+        round
+            .expect("Round to be `Ok`.")
+            .expect("Round to be `Some`.")
+    })) as RoundClock
 }

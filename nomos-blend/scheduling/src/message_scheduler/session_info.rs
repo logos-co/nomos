@@ -38,4 +38,3 @@ pub struct SessionInfo {
 }
 
 pub type SessionClock = Box<dyn Stream<Item = SessionInfo> + Unpin>;
-pub type SendSessionClock = Box<dyn Stream<Item = SessionInfo> + Unpin + Send>;
