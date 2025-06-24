@@ -170,6 +170,24 @@ impl<SessionClock, Rng> MessageScheduler<SessionClock, Rng> {
     pub fn schedule_message(&mut self, message: OutboundMessage) {
         self.release_delayer.schedule_message(message);
     }
+
+    #[cfg(test)]
+    pub fn with_test_values(
+        cover_traffic: SessionCoverTraffic<RoundClock>,
+        release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng>,
+        round_clock: RoundClock,
+        session_clock: SessionClock,
+        settings: Settings,
+    ) -> Self {
+        Self {
+            cover_traffic,
+            release_delayer,
+            round_clock,
+            round_clock_task_abort_handle: AbortHandle::new_pair().0,
+            session_clock,
+            settings,
+        }
+    }
 }
 
 impl<SessionClock, Rng> Drop for MessageScheduler<SessionClock, Rng> {
