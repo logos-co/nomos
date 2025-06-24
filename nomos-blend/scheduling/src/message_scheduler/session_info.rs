@@ -3,6 +3,8 @@ use core::{
     fmt::{Display, Formatter},
 };
 
+use futures::Stream;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Session(u128);
 
@@ -34,3 +36,6 @@ pub struct SessionInfo {
     /// The identifier for the current session.
     pub session_number: Session,
 }
+
+pub type SessionClock = Box<dyn Stream<Item = SessionInfo> + Unpin>;
+pub type SendSessionClock = Box<dyn Stream<Item = SessionInfo> + Unpin + Send>;

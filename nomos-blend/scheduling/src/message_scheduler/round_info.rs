@@ -1,5 +1,9 @@
-use core::fmt;
-use std::fmt::{Display, Formatter};
+use core::{
+    fmt,
+    fmt::{Display, Formatter},
+};
+
+use futures::Stream;
 
 use crate::message::{CoverMessage, OutboundMessage};
 
@@ -7,7 +11,8 @@ use crate::message::{CoverMessage, OutboundMessage};
 pub struct Round(u128);
 
 impl Round {
-    pub fn inner(&self) -> u128 {
+    #[must_use]
+    pub const fn inner(&self) -> u128 {
         self.0
     }
 }
@@ -38,3 +43,6 @@ pub struct RoundInfo {
     /// The cover message to generate, if present.
     pub cover_message: Option<CoverMessage>,
 }
+
+pub type RoundClock = Box<dyn Stream<Item = Round> + Unpin>;
+pub type SendRoundClock = Box<dyn Stream<Item = Round> + Unpin + Send>;

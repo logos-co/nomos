@@ -85,7 +85,7 @@ impl<RoundClock, Rng> SessionProcessedMessageDelayer<RoundClock, Rng> {
     }
 
     /// Get a reference to the stored rng.
-    pub fn rng(&self) -> &Rng {
+    pub const fn rng(&self) -> &Rng {
         &self.rng
     }
 }
