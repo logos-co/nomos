@@ -38,13 +38,13 @@ type TestCases<'a> = Vec<(
     // Source line number for debugging
     u32,
     // Factory of the initial state of the state machine
-    Box<dyn Fn() -> Box<dyn OnEventTest>>,
+    Box<dyn Fn() -> Box<dyn OnEvent>>,
     // Expected transitions from the initial state
     Vec<(
         // Event that should cause the transition
         TestEvent<'a>,
         // Factory of the expected state after the transition
-        Box<dyn Fn() -> Box<dyn OnEventTest>>,
+        Box<dyn Fn() -> Box<dyn OnEvent>>,
         // Expected command that should be emitted by the state machine
         // If `None`, no command is expected
         Option<Command>,

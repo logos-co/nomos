@@ -151,6 +151,8 @@ impl Private {
 
 #[cfg(test)]
 pub mod test_utils {
+    use std::any::TypeId;
+
     use super::*;
     use crate::behaviour::nat::state_machine::{OnEvent, State};
 
@@ -167,17 +169,135 @@ pub mod test_utils {
     // PartialEq<&Box<dyn state_machine::OnEvent>>` is not implemented for `Box<dyn
     // OnEventTest>`
 
-    impl PartialEq<&Box<dyn OnEvent>> for Box<dyn OnEventTest> {
-        fn eq(&self, other: &&Box<dyn OnEvent>) -> bool {
-            self.box_eq(&**other as &dyn std::any::Any)
+    impl PartialEq<Box<dyn OnEvent>> for Box<dyn OnEvent> {
+        fn eq(&self, other: &Box<dyn OnEvent>) -> bool {
+            self.eq(&other)
         }
     }
 
-    impl PartialEq<Box<dyn OnEvent>> for Box<dyn OnEventTest> {
-        fn eq(&self, other: &Box<dyn OnEvent>) -> bool {
-            self.box_eq(&*other as &dyn std::any::Any)
+    // impl PartialEq<&Box<dyn OnEvent>> for Box<dyn OnEvent> {
+    impl PartialEq<&Box<dyn OnEvent>> for Box<dyn OnEvent> {
+        fn eq(&self, other: &&Box<dyn OnEvent>) -> bool {
+            let lhs = format!("{:?}", self);
+            let rhs = format!("{:?}", other);
+            eprintln!("Comparing: LHS: {}, RHS: {}", lhs, rhs);
+            lhs == rhs
+
+            // let lhs = self as &dyn std::any::Any;
+            // let rhs = &**other as &dyn std::any::Any;
+
+            // if downcast_compare::<State<Uninitialized>>(lhs, rhs) {
+            //     return true;
+            // }
+
+            // if downcast_compare::<State<TestIfPublic>>(lhs, rhs) {
+            //     return true;
+            // }
+
+            // if downcast_compare::<State<TryMapAddress>>(lhs, rhs) {
+            //     return true;
+            // }
+
+            // if downcast_compare::<State<TestIfMappedPublic>>(lhs, rhs) {
+            //     return true;
+            // }
+
+            // if downcast_compare::<State<Public>>(lhs, rhs) {
+            //     return true;
+            // }
+
+            // if downcast_compare::<State<MappedPublic>>(lhs, rhs) {
+            //     return true;
+            // }
+
+            // if downcast_compare::<State<Private>>(lhs, rhs) {
+            //     return true;
+            // }
+
+            // false
         }
     }
+
+    impl PartialEq<&Box<dyn OnEvent>> for Box<dyn OnEvent> {
+        fn eq(&self, other: &&Box<dyn OnEvent>) -> bool {
+            let lhs = self as &dyn std::any::Any;
+            let rhs = &**other as &dyn std::any::Any;
+
+            if downcast_compare::<State<Uninitialized>>(lhs, rhs) {
+                return true;
+            }
+
+            if downcast_compare::<State<TestIfPublic>>(lhs, rhs) {
+                return true;
+            }
+
+            if downcast_compare::<State<TryMapAddress>>(lhs, rhs) {
+                return true;
+            }
+
+            if downcast_compare::<State<TestIfMappedPublic>>(lhs, rhs) {
+                return true;
+            }
+
+            if downcast_compare::<State<Public>>(lhs, rhs) {
+                return true;
+            }
+
+            if downcast_compare::<State<MappedPublic>>(lhs, rhs) {
+                return true;
+            }
+
+            if downcast_compare::<State<Private>>(lhs, rhs) {
+                return true;
+            }
+
+            false
+        }
+    }
+
+    fn downcast_compare<T: PartialEq + Debug + 'static>(
+        lhs: &dyn std::any::Any,
+        rhs: &dyn std::any::Any,
+    ) -> bool {
+        eprintln!("L downcast_ref: {:?}", lhs.downcast_ref::<State<T>>());
+        eprintln!("R downcast_ref: {:?}", rhs.downcast_ref::<State<T>>());
+
+        let t_typeid = TypeId::of::<T>();
+        let lhs_typeid = lhs.type_id();
+        let rhs_typeid = rhs.type_id();
+
+        eprintln!(
+            "Comparing TypeId: lhs: {:?}, rhs: {:?}, T: {:?}",
+            lhs_typeid, rhs_typeid, t_typeid
+        );
+
+        if let (Some(lhs_state), Some(rhs_state)) = (
+            lhs.downcast_ref::<State<T>>(),
+            rhs.downcast_ref::<State<T>>(),
+        ) {
+            return lhs_state == rhs_state;
+        }
+
+        false
+    }
+
+    // impl PartialEq<Box<dyn OnEvent>> for Box<dyn OnEventTest> {
+    //     fn eq(&self, other: &Box<dyn OnEvent>) -> bool {
+    //         self.box_eq(&*other as &dyn std::any::Any)
+    //     }
+    // }
+
+    // impl PartialEq<&Box<dyn OnEvent>> for Box<dyn OnEventTest> {
+    //     fn eq(&self, other: &&Box<dyn OnEvent>) -> bool {
+    //         self.box_eq(&**other as &dyn std::any::Any)
+    //     }
+    // }
+
+    // impl PartialEq<Box<dyn OnEvent>> for Box<dyn OnEventTest> {
+    //     fn eq(&self, other: &Box<dyn OnEvent>) -> bool {
+    //         self.box_eq(&*other as &dyn std::any::Any)
+    //     }
+    // }
 
     // impl PartialEq<&'static dyn OnEvent> for &'static dyn OnEventTest {
     //     fn eq(&self, other: &&'static dyn OnEvent) -> bool {
@@ -202,12 +322,8 @@ pub mod test_utils {
         }
 
         fn box_eq(&self, other: &dyn core::any::Any) -> bool {
-            let other = unsafe { &*(other as *const dyn std::any::Any as *const Self) };
-            eprintln!("self {:#?} other {:#?}", self, other);
-
-            // other.downcast_ref::<Self>() == Some(self)
-
-            other == self
+            eprintln!("downcast_ref: {:?}", other.downcast_ref::<Self>());
+            other.downcast_ref::<Self>() == Some(self)
         }
     }
 
@@ -224,13 +340,13 @@ pub mod test_utils {
     }
 
     impl Uninitialized {
-        pub(crate) fn for_test() -> Box<dyn OnEventTest> {
+        pub(crate) fn for_test() -> Box<dyn OnEvent> {
             Box::new(State::<Self>::new())
         }
     }
 
     impl TestIfPublic {
-        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEventTest> {
+        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
             Box::new(State::<Self> {
                 state: Self { addr_to_test: addr },
             })
@@ -238,7 +354,7 @@ pub mod test_utils {
     }
 
     impl TryMapAddress {
-        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEventTest> {
+        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
             Box::new(State::<Self> {
                 state: Self { addr_to_map: addr },
             })
@@ -246,7 +362,7 @@ pub mod test_utils {
     }
 
     impl TestIfMappedPublic {
-        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEventTest> {
+        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
             Box::new(State::<Self> {
                 state: Self { addr_to_test: addr },
             })
@@ -254,7 +370,7 @@ pub mod test_utils {
     }
 
     impl Public {
-        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEventTest> {
+        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
             Box::new(State::<Self> {
                 state: Self { addr },
             })
@@ -262,7 +378,7 @@ pub mod test_utils {
     }
 
     impl MappedPublic {
-        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEventTest> {
+        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
             Box::new(State::<Self> {
                 state: Self { addr },
             })
@@ -270,7 +386,7 @@ pub mod test_utils {
     }
 
     impl Private {
-        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEventTest> {
+        pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
             Box::new(State::<Self> {
                 state: Self { addr },
             })
