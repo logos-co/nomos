@@ -38,10 +38,10 @@ pub(super) fn setup_new_session<Rng>(
     let mut new_round_clock = IntervalStream::new(interval(settings.round_duration))
         .enumerate()
         .map(|(round, _)| (round as u128).into());
-    let (round_clock_stream_sender, _) = channel(2);
+    let (round_clock_stream_sender, _) = channel(3);
     let round_clock_stream_sender_clone = round_clock_stream_sender.clone();
 
-    // Spawn a task that sends ticks to the broadcast channel
+    // Spawn a task that sends ticks to all the receiving streams.
     let (new_abort_handle, new_abort_registration) = AbortHandle::new_pair();
     tokio::spawn(Abortable::new(
         async move {
