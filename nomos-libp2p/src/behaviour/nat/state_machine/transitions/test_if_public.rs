@@ -80,7 +80,7 @@ mod tests {
         assert_eq!(rx.try_recv(), Ok(Command::MapAddress(ADDR.clone())));
     }
 
-    #[should_panic]
+    #[should_panic = "State<TestIfPublic>: Autonat client reported address /memory/1, but /memory/0 was expected"]
     #[test]
     fn address_mismatch_in_external_address_confirmed_event_causes_panic() {
         let (tx, _) = unbounded_channel();
@@ -90,7 +90,7 @@ mod tests {
         state_machine.on_test_event(event);
     }
 
-    #[should_panic]
+    #[should_panic = "State<TestIfPublic>: Autonat client reported address /memory/1, but /memory/0 was expected"]
     #[test]
     fn address_mismatch_in_autonat_failed_event_causes_panic() {
         let (tx, _) = unbounded_channel();

@@ -80,7 +80,7 @@ mod tests {
         assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
     }
 
-    #[should_panic]
+    #[should_panic = "State<TryMapAddress>: Address mapper reported failure for address /memory/1, but /memory/0 was expected"]
     #[test]
     fn address_mismatch_causes_panic() {
         let (tx, _) = unbounded_channel();
