@@ -15,8 +15,6 @@ use crate::{
 };
 
 /// An encapsulated message that is sent to the blend network.
-//
-// TODO: Implement [`BlendMessage`] trait for this type.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
     /// A header that is not encapsulated.
