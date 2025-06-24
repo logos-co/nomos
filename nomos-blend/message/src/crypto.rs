@@ -44,8 +44,8 @@ impl Ed25519PrivateKey {
     }
 
     #[must_use]
-    pub fn to_bytes(&self) -> [u8; KEY_SIZE] {
-        self.0.to_bytes()
+    pub fn as_bytes(&self) -> &[u8; KEY_SIZE] {
+        self.0.as_bytes()
     }
 }
 
@@ -64,11 +64,26 @@ impl Ed25519PublicKey {
     pub fn derive_x25519(&self) -> X25519PublicKey {
         self.0.to_montgomery().to_bytes().into()
     }
+
+    pub fn as_bytes(&self) -> &[u8; KEY_SIZE] {
+        self.0.as_bytes()
+    }
 }
 
 impl From<Ed25519PublicKey> for [u8; KEY_SIZE] {
     fn from(key: Ed25519PublicKey) -> Self {
         key.0.to_bytes()
+    }
+}
+
+impl TryFrom<[u8; KEY_SIZE]> for Ed25519PublicKey {
+    type Error = &'static str;
+
+    fn try_from(key: [u8; KEY_SIZE]) -> Result<Self, Self::Error> {
+        Ok(Self(
+            ed25519_dalek::VerifyingKey::from_bytes(&key)
+                .map_err(|_| "Invalid Ed25519 public key")?,
+        ))
     }
 }
 

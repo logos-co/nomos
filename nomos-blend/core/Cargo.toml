@@ -10,13 +10,14 @@ workspace = true
 [dependencies]
 derivative          = "2"
 futures             = "0.3"
+hex                 = "0.4"
 multiaddr           = "0.18"
 nomos-blend-message = { workspace = true }
 nomos-core          = { workspace = true }
 nomos-utils         = { workspace = true, features = ["serde", "time"] }
 rand                = "0.8"
 serde               = { version = "1.0", features = ["derive"] }
-serde_with          = { workspace = true, features = ["hex"] }
+serde_with          = { workspace = true }
 tokio               = { version = "1", features = ["macros", "sync", "time"] }
 tokio-stream        = "0.1"
 tracing             = { workspace = true }

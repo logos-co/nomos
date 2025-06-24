@@ -19,7 +19,7 @@ blend:
     conn_monitor: null
   message_blend:
     cryptographic_processor:
-      private_key: 32e4b52b78e0e8273f31e2ae0826d09b0348d4c66824af4f51ec4ef338082211
+      signing_private_key: 32e4b52b78e0e8273f31e2ae0826d09b0348d4c66824af4f51ec4ef338082211
       num_blend_layers: 1
     temporal_processor:
       max_delay: "2.0"
@@ -41,78 +41,10 @@ blend:
   membership:
     - id: 12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
       address: /ip4/127.0.0.1/udp/8720/quic-v1
-      public_key:
-        [
-          223,
-          150,
-          178,
-          168,
-          141,
-          122,
-          185,
-          2,
-          106,
-          243,
-          47,
-          123,
-          25,
-          177,
-          191,
-          26,
-          98,
-          228,
-          30,
-          221,
-          115,
-          72,
-          32,
-          173,
-          97,
-          21,
-          71,
-          88,
-          227,
-          209,
-          172,
-          43,
-        ]
+      public_key: cd81cab2112a1cf8e6d986d53c0ab6c740e3a82dc04e0a6497f62727969fa5fd
     - id: 12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
       address: /ip4/127.0.0.1/udp/8721/quic-v1
-      public_key:
-        [
-          37,
-          199,
-          27,
-          35,
-          154,
-          26,
-          211,
-          224,
-          115,
-          140,
-          24,
-          212,
-          236,
-          242,
-          184,
-          68,
-          129,
-          92,
-          174,
-          95,
-          123,
-          211,
-          166,
-          115,
-          228,
-          128,
-          209,
-          15,
-          197,
-          113,
-          247,
-          31,
-        ]
+      public_key: 92f041e26306548444400e88eefa622dc125a45f3e3119a04ba1ffe4946dd4e6
 da_network:
   backend:
     node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d
