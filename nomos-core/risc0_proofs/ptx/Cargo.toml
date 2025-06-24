@@ -123,13 +123,20 @@ unused_crate_dependencies = { level = "allow" } # Too many false positives espec
 unused_results            = { level = "allow" } # We have Clippy lints to warn on unused `must_use` results. This is too pedantic as it complains on EVERY unused result.
 
 # Lints which are allow-by-default but have been changed to "warn"
-redundant_imports     = { level = "warn" }
-redundant_lifetimes   = { level = "warn" }
-unused_extern_crates  = { level = "warn" }
-unused_import_braces  = { level = "warn" }
-unused_lifetimes      = { level = "warn" }
-unused_macro_rules    = { level = "warn" }
-unused_qualifications = { level = "warn" }
+impl_trait_redundant_captures = { level = "warn" }
+missing_unsafe_on_extern      = { level = "warn" }
+redundant_imports             = { level = "warn" }
+redundant_lifetimes           = { level = "warn" }
+single_use_lifetimes          = { level = "warn" }
+trivial_numeric_casts         = { level = "warn" }
+unsafe_attr_outside_unsafe    = { level = "warn" }
+unsafe_op_in_unsafe_fn        = { level = "warn" }
+unstable_features             = { level = "warn" }
+unused_extern_crates          = { level = "warn" }
+unused_import_braces          = { level = "warn" }
+unused_lifetimes              = { level = "warn" }
+unused_macro_rules            = { level = "warn" }
+unused_qualifications         = { level = "warn" }
 
 # TODO: Address these allow-by-default Rustc lints at some point by either allowing them permanently or enforce them, and move them to the relative section according to the decision.
 # When doing so, please update the same table for all crates that are not part of the workspace.
@@ -144,7 +151,6 @@ explicit_outlives_requirements               = { level = "allow" }
 ffi_unwind_calls                             = { level = "allow" }
 if_let_rescope                               = { level = "allow" }
 impl_trait_overcaptures                      = { level = "allow" }
-impl_trait_redundant_captures                = { level = "allow" }
 keyword-idents                               = { level = "allow" }
 keyword_idents_2018                          = { level = "allow" }
 keyword_idents_2024                          = { level = "allow" }
@@ -155,7 +161,6 @@ meta_variable_misuse                         = { level = "allow" }
 missing_copy_implementations                 = { level = "allow" }
 missing_debug_implementations                = { level = "allow" }
 missing_docs                                 = { level = "allow" }
-missing_unsafe_on_extern                     = { level = "allow" }
 non_ascii_idents                             = { level = "allow" }
 rust_2021_incompatible_closure_captures      = { level = "allow" }
 rust_2021_incompatible_or_patterns           = { level = "allow" }
@@ -164,15 +169,10 @@ rust_2021_prelude_collisions                 = { level = "allow" }
 rust_2024_guarded_string_incompatible_syntax = { level = "allow" }
 rust_2024_incompatible_pat                   = { level = "allow" }
 rust_2024_prelude_collisions                 = { level = "allow" }
-single_use_lifetimes                         = { level = "allow" }
 tail_expr_drop_order                         = { level = "allow" }
 trivial_casts                                = { level = "allow" }
-trivial_numeric_casts                        = { level = "allow" }
 unit_bindings                                = { level = "allow" }
 unnameable_types                             = { level = "allow" }
 unreachable_pub                              = { level = "allow" }
-unsafe_attr_outside_unsafe                   = { level = "allow" }
 unsafe_code                                  = { level = "allow" }
-unsafe_op_in_unsafe_fn                       = { level = "allow" }
-unstable_features                            = { level = "allow" }
 variant_size_differences                     = { level = "allow" }
