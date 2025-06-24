@@ -10,6 +10,7 @@ workspace = true
 [dependencies]
 blake2           = { default-features = false, version = "0.10" }
 cryptarchia-sync = { features = ["libp2p"], workspace = true }
+either           = { default-features = false, version = "1.13.0" }
 futures          = { default-features = false, version = "0.3" }
 hex              = { default-features = false, version = "0.4.3" }
 libp2p           = { features = ["autonat", "dns", "gossipsub", "identify", "kad", "macros", "quic", "secp256k1", "tokio"], workspace = true }
@@ -17,11 +18,10 @@ multiaddr        = { default-features = false, version = "0.18" }
 rand             = { default-features = false, version = "0.8" }
 serde            = { default-features = false, features = ["derive"], version = "1.0.166" }
 thiserror        = "1.0.40"
-tokio            = "1"
+tokio            = { features = ["macros", "time"], version = "1" }
 tracing          = { workspace = true }
 
 [dev-dependencies]
 libp2p-swarm-test    = { features = ["tokio"], version = "0.5.0" }
 serde_json           = { default-features = false, version = "1.0.99" }
-tokio                = { features = ["macros", "time"], version = "1" }
 tracing-subscriber   = { features = ["env-filter"], version = "0.3" }
