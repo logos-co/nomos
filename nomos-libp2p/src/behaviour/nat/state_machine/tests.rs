@@ -10,13 +10,19 @@ use crate::behaviour::nat::state_machine::states::{
 
 impl PartialEq for Box<dyn OnEvent> {
     fn eq(&self, other: &Self) -> bool {
-        self.box_eq(other.as_any())
+        // OnEvent derives from Debug, so we can compare them by their debug
+        // representation, which is sufficient for testing purposes. This way we
+        // can avoid implementing additional trait for comparing trait objects, which is
+        // more error prone.
+        let lhs = format!("{self:?}");
+        let rhs = format!("{other:?}");
+        lhs == rhs
     }
 }
 
 impl PartialEq<&Self> for Box<dyn OnEvent> {
     fn eq(&self, other: &&Self) -> bool {
-        self.box_eq(other.as_any())
+        self.eq(*other)
     }
 }
 
