@@ -100,6 +100,7 @@ where
             Poll::Ready(None) => return Poll::Ready(None),
             Poll::Pending => return Poll::Pending,
         };
+
         // If a new cover message is scheduled...
         if self.scheduled_message_rounds.remove(&new_round) {
             // Check if there's any unprocessed data message, and update the counter.

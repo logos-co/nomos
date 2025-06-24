@@ -1,5 +1,6 @@
-use core::{mem, num::NonZeroUsize};
-use std::{
+use core::{
+    mem,
+    num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -20,7 +21,8 @@ pub struct SessionProcessedMessageDelayer<RoundClock, Rng> {
     /// The next scheduled round to release the queued messages.
     next_release_round: Round,
     /// The random generator to select rounds for message releasing.
-    pub rng: Rng,
+    rng: Rng,
+    /// The clock ticking at the beginning of each new round.
     round_clock: RoundClock,
     /// The messages temporarily queued by the scheduler in between release
     /// rounds.
@@ -40,6 +42,7 @@ where
         round_clock: RoundClock,
     ) -> Self {
         debug!(target: LOG_TARGET, "Creating new release delayer with {maximum_release_delay_in_rounds} maximum delay (in rounds).");
+
         let next_release_round =
             schedule_next_release_round_offset(maximum_release_delay_in_rounds, &mut rng);
         Self {
@@ -49,51 +52,6 @@ where
             round_clock,
             unreleased_messages: Vec::new(),
         }
-    }
-}
-
-impl<RoundClock, Rng> Stream for SessionProcessedMessageDelayer<RoundClock, Rng>
-where
-    RoundClock: Stream<Item = Round> + Unpin,
-    Rng: rand::Rng + Unpin,
-{
-    type Item = Vec<OutboundMessage>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let Self {
-            maximum_release_delay_in_rounds,
-            next_release_round,
-            rng,
-            round_clock,
-            unreleased_messages,
-        } = &mut *self;
-
-        let new_round = match round_clock.poll_next_unpin(cx) {
-            Poll::Ready(Some(new_round)) => new_round,
-            Poll::Ready(None) => return Poll::Ready(None),
-            Poll::Pending => return Poll::Pending,
-        };
-
-        // If it's time to release messages...
-        if new_round == *next_release_round {
-            // Reset the next release round.
-            *next_release_round = Round::from(
-                new_round
-                    .inner()
-                    .checked_add(
-                        schedule_next_release_round_offset(*maximum_release_delay_in_rounds, rng)
-                            .get() as u128,
-                    )
-                    .expect("Overflow when scheduling next release round offset."),
-            );
-            // Return the unreleased messages and clear the buffer.
-            let messages = mem::take(unreleased_messages);
-            debug!(target: LOG_TARGET, "Round {new_round} is a release round.");
-            return Poll::Ready(Some(messages));
-        }
-        trace!(target: LOG_TARGET, "Round {new_round} is not a release round.");
-        cx.waker().wake_by_ref();
-        Poll::Pending
     }
 }
 
@@ -125,6 +83,28 @@ impl<RoundClock, Rng> SessionProcessedMessageDelayer<RoundClock, Rng> {
     pub fn schedule_message(&mut self, message: OutboundMessage) {
         self.unreleased_messages.push(message);
     }
+
+    /// Get a reference to the stored rng.
+    pub fn rng(&self) -> &Rng {
+        &self.rng
+    }
+}
+
+fn calculate_next_release_round<Rng>(
+    current_round: Round,
+    maximum_release_delay_in_rounds: NonZeroUsize,
+    rng: &mut Rng,
+) -> Round
+where
+    Rng: rand::Rng,
+{
+    let next_release_offset =
+        schedule_next_release_round_offset(maximum_release_delay_in_rounds, rng);
+    current_round
+        .inner()
+        .checked_add(next_release_offset.get() as u128)
+        .expect("Overflow when scheduling next release round offset.")
+        .into()
 }
 
 /// Calculates the random offset, in the range [1, `max`], from the current
@@ -138,6 +118,40 @@ where
 {
     NonZeroUsize::try_from(rng.gen_range(1..=maximum_release_delay_in_rounds.get()))
         .expect("Randomly generated offset should be strictly positive.")
+}
+
+impl<RoundClock, Rng> Stream for SessionProcessedMessageDelayer<RoundClock, Rng>
+where
+    RoundClock: Stream<Item = Round> + Unpin,
+    Rng: rand::Rng + Unpin,
+{
+    type Item = Vec<OutboundMessage>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let new_round = match self.round_clock.poll_next_unpin(cx) {
+            Poll::Ready(Some(new_round)) => new_round,
+            Poll::Ready(None) => return Poll::Ready(None),
+            Poll::Pending => return Poll::Pending,
+        };
+
+        // If it's time to release messages...
+        if new_round == self.next_release_round {
+            // Reset the next release round.
+            self.next_release_round = calculate_next_release_round(
+                new_round,
+                self.maximum_release_delay_in_rounds,
+                &mut self.rng,
+            );
+            // Return the unreleased messages and clear the buffer.
+            let messages = mem::take(&mut self.unreleased_messages);
+            debug!(target: LOG_TARGET, "Round {new_round} is a release round.");
+            return Poll::Ready(Some(messages));
+        }
+        trace!(target: LOG_TARGET, "Round {new_round} is not a release round.");
+        // Awake to trigger a new round clock tick.
+        cx.waker().wake_by_ref();
+        Poll::Pending
+    }
 }
 
 /// The settings to initialize the release delayer scheduler.
