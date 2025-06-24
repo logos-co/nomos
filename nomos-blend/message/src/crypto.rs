@@ -65,6 +65,7 @@ impl Ed25519PublicKey {
         self.0.to_montgomery().to_bytes().into()
     }
 
+    #[must_use]
     pub fn as_bytes(&self) -> &[u8; KEY_SIZE] {
         self.0.as_bytes()
     }
