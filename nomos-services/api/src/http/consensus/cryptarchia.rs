@@ -68,7 +68,6 @@ pub type Cryptarchia<
 >;
 
 pub async fn cryptarchia_info<
-    'a,
     Tx,
     SS,
     SamplingBackend,
@@ -83,7 +82,7 @@ pub async fn cryptarchia_info<
     RuntimeServiceId,
     const SIZE: usize,
 >(
-    handle: &'a OverwatchHandle<RuntimeServiceId>,
+    handle: &OverwatchHandle<RuntimeServiceId>,
 ) -> Result<CryptarchiaInfo, DynError>
 where
     Tx: Transaction + Eq + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
@@ -138,7 +137,6 @@ where
 }
 
 pub async fn cryptarchia_headers<
-    'a,
     Tx,
     SS,
     SamplingBackend,
@@ -153,7 +151,7 @@ pub async fn cryptarchia_headers<
     RuntimeServiceId,
     const SIZE: usize,
 >(
-    handle: &'a OverwatchHandle<RuntimeServiceId>,
+    handle: &OverwatchHandle<RuntimeServiceId>,
     from: Option<HeaderId>,
     to: Option<HeaderId>,
 ) -> Result<Vec<HeaderId>, DynError>
