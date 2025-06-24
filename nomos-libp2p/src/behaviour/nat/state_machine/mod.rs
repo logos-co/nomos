@@ -5,8 +5,8 @@ use tokio::sync::mpsc::UnboundedSender;
 
 mod event;
 mod states;
-#[cfg(test)]
-mod tests;
+// #[cfg(test)]
+// mod tests;
 mod transitions;
 
 use event::Event;

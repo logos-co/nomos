@@ -41,7 +41,7 @@ impl TestIfPublic {
         Public { addr: addr_to_test }
     }
 
-    pub fn into_try_address_mapping(self) -> TryMapAddress {
+    pub fn into_try_map_address(self) -> TryMapAddress {
         let Self { addr_to_test } = self;
         TryMapAddress {
             addr_to_map: addr_to_test,
