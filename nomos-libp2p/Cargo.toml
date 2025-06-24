@@ -9,6 +9,7 @@ workspace = true
 
 [dependencies]
 blake2 = { version = "0.10" }
+either = "1.13.0"
 cryptarchia-sync = { workspace = true, features = ["libp2p"] }
 futures = "0.3"
 hex = "0.4.3"
@@ -27,11 +28,10 @@ multiaddr = "0.18"
 rand = "0.8"
 serde = { version = "1.0.166", features = ["derive"] }
 thiserror = "1.0.40"
-tokio = "1"
+tokio = { version = "1", features = ["macros", "time"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
 libp2p-swarm-test  = { version = "0.5.0", features = ["tokio"] }
 serde_json         = "1.0.99"
-tokio              = { version = "1", features = ["macros", "time"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

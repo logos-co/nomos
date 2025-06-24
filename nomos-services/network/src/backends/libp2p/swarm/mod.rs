@@ -280,13 +280,22 @@ mod tests {
         });
     }
 
-    fn create_swarm_config(port: u16) -> nomos_libp2p::SwarmConfig {
+    fn create_swarm_config(port: u16, is_boot: bool) -> nomos_libp2p::SwarmConfig {
         nomos_libp2p::SwarmConfig {
             host: Ipv4Addr::LOCALHOST,
             port,
             node_key: nomos_libp2p::ed25519::SecretKey::generate(),
             gossipsub_config: nomos_libp2p::gossipsub::Config::default(),
-            kademlia_config: nomos_libp2p::KademliaSettings::default(),
+            // Use a tighter bootstrap interval for the first node if requested,
+            // otherwise fall back to defaults.
+            kademlia_config: if is_boot {
+                nomos_libp2p::KademliaSettings {
+                    periodic_bootstrap_interval_secs: Some(1),
+                    ..Default::default()
+                }
+            } else {
+                nomos_libp2p::KademliaSettings::default()
+            },
             identify_config: nomos_libp2p::IdentifySettings::default(),
             chain_sync_config: nomos_libp2p::cryptarchia_sync::Config::default(),
             autonat_client_config: nomos_libp2p::AutonatClientSettings::default(),
@@ -296,7 +305,7 @@ mod tests {
 
     fn create_libp2p_config(initial_peers: Vec<Multiaddr>, port: u16) -> Libp2pConfig {
         Libp2pConfig {
-            inner: create_swarm_config(port),
+            inner: create_swarm_config(port, !initial_peers.is_empty()),
             initial_peers,
         }
     }
