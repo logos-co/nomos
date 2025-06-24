@@ -91,7 +91,7 @@ impl<R: Clone + Send + RngCore + 'static> Behaviour<R> {
         );
 
         let autonat_server = autonat::v2::server::Behaviour::new(rng.clone());
-        let nat = nat::NatBehaviour::new(rng, autonat_client_config.to_libp2p_config());
+        let nat = nat::NatBehaviour::new(rng, Some(autonat_client_config.clone()));
 
         let chain_sync = cryptarchia_sync::Behaviour::new(chain_sync_config);
 
