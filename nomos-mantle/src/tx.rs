@@ -1,7 +1,4 @@
-use std::{
-    hash::{Hash, Hasher},
-    marker::PhantomData,
-};
+use std::marker::PhantomData;
 
 use blake2::Digest as _;
 use nomos_core::{tx::TransactionHasher, wire};
@@ -37,15 +34,6 @@ pub struct MantleTx {
     pub gas_price: Gas,
 }
 
-impl Hash for MantleTx {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(MANTLE_HASH_VERSION);
-        self.ops.hash(state);
-        self.gas_price.hash(state);
-        self.ledger_tx.hash(state);
-    }
-}
-
 impl GasPrice for MantleTx {
     fn gas_price<Constants: GasConstants>(&self) -> Gas {
         let ops_gas: Gas = self.ops.iter().map(GasPrice::gas_price::<Constants>).sum();
@@ -79,12 +67,6 @@ pub struct SignedMantleTx {
     pub mantle_tx: MantleTx,
     pub ops_profs: Vec<OpProof>,
     pub ledger_tx_proof: ZkSignature,
-}
-
-impl Hash for SignedMantleTx {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.mantle_tx.hash(state);
-    }
 }
 
 impl nomos_core::tx::Transaction for SignedMantleTx {

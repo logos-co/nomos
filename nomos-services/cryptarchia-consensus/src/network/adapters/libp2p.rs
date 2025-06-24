@@ -1,4 +1,4 @@
-use std::{hash::Hash, marker::PhantomData};
+use std::marker::PhantomData;
 
 use nomos_core::{block::Block, header::HeaderId, wire};
 use nomos_network::{
@@ -24,8 +24,8 @@ type Relay<T, RuntimeServiceId> =
 #[derive(Clone)]
 pub struct LibP2pAdapter<Tx, BlobCert, RuntimeServiceId>
 where
-    Tx: Clone + Eq + Hash,
-    BlobCert: Clone + Eq + Hash,
+    Tx: Clone + Eq,
+    BlobCert: Clone + Eq,
 {
     network_relay:
         OutboundRelay<<NetworkService<Libp2p, RuntimeServiceId> as ServiceData>::Message>,
@@ -40,8 +40,8 @@ pub struct LibP2pAdapterSettings {
 
 impl<Tx, BlobCert, RuntimeServiceId> LibP2pAdapter<Tx, BlobCert, RuntimeServiceId>
 where
-    Tx: Clone + Eq + Hash + Serialize,
-    BlobCert: Clone + Eq + Hash + Serialize,
+    Tx: Clone + Eq + Serialize,
+    BlobCert: Clone + Eq + Serialize,
 {
     async fn subscribe(relay: &Relay<Libp2p, RuntimeServiceId>, topic: &str) {
         if let Err((e, _)) = relay
@@ -59,8 +59,8 @@ where
 impl<Tx, BlobCert, RuntimeServiceId> NetworkAdapter<RuntimeServiceId>
     for LibP2pAdapter<Tx, BlobCert, RuntimeServiceId>
 where
-    Tx: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
-    BlobCert: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
+    Tx: Serialize + DeserializeOwned + Clone + Eq + Send + Sync + 'static,
+    BlobCert: Serialize + DeserializeOwned + Clone + Eq + Send + Sync + 'static,
 {
     type Backend = Libp2p;
     type Settings = LibP2pAdapterSettings;

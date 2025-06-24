@@ -17,7 +17,6 @@ bytes                  = { workspace = true }
 cl                     = { workspace = true }
 const-hex              = "1"
 cryptarchia-engine     = { workspace = true, features = ["serde"] }
-indexmap               = { version = "1.9", features = ["serde"] }
 nomos-ledger           = { workspace = true, features = ["serde"] }
 nomos_proof_statements = { workspace = true }
 nomos_risc0_proofs     = { path = "../risc0_proofs" }

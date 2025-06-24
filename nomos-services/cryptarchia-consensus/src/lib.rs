@@ -10,7 +10,6 @@ use core::fmt::Debug;
 use std::{
     collections::{BTreeSet, HashSet},
     fmt::Display,
-    hash::Hash,
     path::PathBuf,
     time::Duration,
 };
@@ -227,12 +226,12 @@ pub struct CryptarchiaConsensus<
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone,
-    ClPool::Item: Clone + Eq + Hash + Debug + 'static,
+    ClPool::Item: Clone + Eq + Debug + 'static,
     ClPool::Key: Debug + 'static,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     DaPool: RecoverableMempool<BlockId = HeaderId>,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPool::Item: Clone + Eq + Hash + Debug + 'static,
+    DaPool::Item: Clone + Eq + Debug + 'static,
     DaPool::Key: Debug + 'static,
     DaPool::Settings: Clone,
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
@@ -313,12 +312,12 @@ where
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone,
-    ClPool::Item: Clone + Eq + Hash + Debug,
+    ClPool::Item: Clone + Eq + Debug,
     ClPool::Key: Debug,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     DaPool: RecoverableMempool<BlockId = HeaderId>,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPool::Item: Clone + Eq + Hash + Debug,
+    DaPool::Item: Clone + Eq + Debug,
     DaPool::Key: Debug,
     DaPool::Settings: Clone,
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
@@ -423,7 +422,6 @@ where
         + Debug
         + Clone
         + Eq
-        + Hash
         + Serialize
         + DeserializeOwned
         + Send
@@ -446,7 +444,6 @@ where
         + Debug
         + Clone
         + Eq
-        + Hash
         + Serialize
         + DeserializeOwned
         + Send
@@ -765,7 +762,6 @@ where
         + Debug
         + Clone
         + Eq
-        + Hash
         + Serialize
         + DeserializeOwned
         + Send
@@ -781,7 +777,6 @@ where
         + Debug
         + Clone
         + Eq
-        + Hash
         + Serialize
         + DeserializeOwned
         + Send

@@ -1,7 +1,4 @@
-use std::{
-    fmt::{Debug, Display},
-    hash::Hash,
-};
+use std::fmt::{Debug, Display};
 
 use cryptarchia_consensus::{
     blend::adapters::libp2p::LibP2pAdapter as BlendAdapter,
@@ -89,16 +86,7 @@ pub async fn cryptarchia_info<
     handle: &'a OverwatchHandle<RuntimeServiceId>,
 ) -> Result<CryptarchiaInfo, DynError>
 where
-    Tx: Transaction
-        + Eq
-        + Clone
-        + Debug
-        + Hash
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
+    Tx: Transaction + Eq + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SS: StorageSerde + Send + Sync + 'static,
@@ -170,16 +158,7 @@ pub async fn cryptarchia_headers<
     to: Option<HeaderId>,
 ) -> Result<Vec<HeaderId>, DynError>
 where
-    Tx: Transaction
-        + Clone
-        + Debug
-        + Eq
-        + Hash
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
+    Tx: Transaction + Clone + Debug + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SS: StorageSerde + Send + Sync + 'static,

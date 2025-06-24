@@ -89,5 +89,5 @@ where
         id: HeaderId,
     ) -> Result<Option<Block<Tx, kzgrs_backend::dispersal::BlobInfo>>, crate::http::DynError>
     where
-        Tx: Serialize + DeserializeOwned + Clone + Eq + Hash;
+        Tx: Serialize + DeserializeOwned + Clone + Eq;
 }

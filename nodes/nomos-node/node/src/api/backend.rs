@@ -230,7 +230,6 @@ where
         + Clone
         + Debug
         + Eq
-        + Hash
         + Serialize
         + for<'de> Deserialize<'de>
         + Send

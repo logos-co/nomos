@@ -1,6 +1,5 @@
 use std::{
     fmt::{Debug, Display},
-    hash::Hash,
     marker::PhantomData,
 };
 
@@ -139,13 +138,13 @@ where
     BS::Settings: Send,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    ClPool::Item: Debug + Serialize + DeserializeOwned + Eq + Hash + Clone + Send + Sync + 'static,
+    ClPool::Item: Debug + Serialize + DeserializeOwned + Eq + Clone + Send + Sync + 'static,
     ClPool::Key: Debug + 'static,
     ClPool::Settings: Clone,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     DaPool: RecoverableMempool<BlockId = HeaderId>,
     DaPool::BlockId: Debug,
-    DaPool::Item: Debug + Serialize + DeserializeOwned + Eq + Hash + Clone + Send + Sync + 'static,
+    DaPool::Item: Debug + Serialize + DeserializeOwned + Eq + Clone + Send + Sync + 'static,
     DaPool::Key: Debug + 'static,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     DaPool::Settings: Clone,

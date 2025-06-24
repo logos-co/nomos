@@ -1,7 +1,5 @@
 pub mod adapters;
 
-use std::hash::Hash;
-
 use futures::Stream;
 use nomos_core::{block::Block, header::HeaderId};
 use nomos_network::{backends::NetworkBackend, message::ChainSyncEvent, NetworkService};
@@ -17,8 +15,8 @@ type BoxedStream<T> = Box<dyn Stream<Item = T> + Send + Sync + Unpin>;
 pub trait NetworkAdapter<RuntimeServiceId> {
     type Backend: NetworkBackend<RuntimeServiceId> + 'static;
     type Settings: Clone + 'static;
-    type Tx: Serialize + DeserializeOwned + Clone + Eq + Hash + 'static;
-    type BlobCertificate: Serialize + DeserializeOwned + Clone + Eq + Hash + 'static;
+    type Tx: Serialize + DeserializeOwned + Clone + Eq + 'static;
+    type BlobCertificate: Serialize + DeserializeOwned + Clone + Eq + 'static;
     type PeerId;
     async fn new(
         settings: Self::Settings,
