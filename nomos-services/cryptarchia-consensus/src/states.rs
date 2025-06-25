@@ -199,25 +199,22 @@ mod tests {
             .unwrap();
 
         // We configured `k = 2`, and since the canonical chain is 4-block long (blocks
-        // `0` to `4`), it means that all forks diverging from and before 2
-        // blocks in the past are considered prunable, which are blocks `4` and
-        // `5` belonging to the first fork from genesis, block `6` belonging to the
-        // second fork from genesis, and block `7` belonging to the fork from block
-        // `1`. Block `8` is excluded since it diverged from block `2` which is
-        // not yet finalized, as it is only 1 block past, which is less than the
-        // configured `k = 2`.
+        // `0` to `3`), it means that all forks diverging before 2
+        // blocks in the past are considered prunable.
+        // That is:
+        // - Blocks `3` and `4`, belonging to the first fork from genesis.
+        // - Block `6` belonging to the second fork from genesis.
+        // On the other hand:
+        // - Block `7` is not pruned since it diverged from block `1`, which is the LIB.
+        // - Block `8` is not pruned since it diverged from block `2`, which is 1 block
+        //   younger
+        // than LIB.
         assert_eq!(
             recovery_state
                 .prunable_blocks
                 .into_iter()
                 .collect::<HashSet<_>>(),
-            [
-                [4; 32].into(),
-                [5; 32].into(),
-                [6; 32].into(),
-                [7; 32].into()
-            ]
-            .into()
+            [[4; 32].into(), [5; 32].into(), [6; 32].into(),].into()
         );
 
         // Test when additional blocks are included.
@@ -242,7 +239,6 @@ mod tests {
                 [4; 32].into(),
                 [5; 32].into(),
                 [6; 32].into(),
-                [7; 32].into(),
                 [255; 32].into()
             ]
             .into()

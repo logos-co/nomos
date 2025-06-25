@@ -443,7 +443,7 @@ where
             // We calculate LCA once and store it in `ForkInfo` so it can be consumed
             // elsewhere without the need to re-calculate it.
             let lca = self.branches.lca(&local_chain, &fork);
-            (lca.length <= target_height).then_some(ForkDivergenceInfo { tip: fork, lca })
+            (lca.length < target_height).then_some(ForkDivergenceInfo { tip: fork, lca })
         }))
     }
 
@@ -801,12 +801,13 @@ pub mod tests {
 
     #[test]
     fn pruning_with_single_fork_old_enough() {
+        // Create a chain with 50 blocks (0 to 49).
         let chain_pre = create_canonical_chain(50.try_into().unwrap(), None)
-            // Add a fork from block 39
-            .receive_block([100; 32], hash(&39u64), 40.into())
+            // Add a fork from block 38
+            .receive_block([100; 32], hash(&38u64), 39.into())
             .expect("test block to be applied successfully.")
-            // Add a fork from block 40
-            .receive_block([101; 32], hash(&40u64), 41.into())
+            // Add a fork from block 39
+            .receive_block([101; 32], hash(&39u64), 40.into())
             .expect("test block to be applied successfully.")
             .online();
         let mut chain = chain_pre.clone();
@@ -825,15 +826,16 @@ pub mod tests {
 
     #[test]
     fn pruning_with_multiple_forks_old_enough() {
+        // Create a chain with 50 blocks (0 to 49).
         let chain_pre = create_canonical_chain(50.try_into().unwrap(), None)
-            // Add a first fork from block 39
-            .receive_block([100; 32], hash(&39u64), 40.into())
+            // Add a first fork from block 38
+            .receive_block([100; 32], hash(&38u64), 39.into())
             .expect("test block to be applied successfully.")
-            // Add a second fork from block 39
-            .receive_block([200; 32], hash(&39u64), 40.into())
+            // Add a second fork from block 38
+            .receive_block([200; 32], hash(&38u64), 39.into())
             .expect("test block to be applied successfully.")
-            // Add a fork from block 40
-            .receive_block([101; 32], hash(&40u64), 41.into())
+            // Add a fork from block 39
+            .receive_block([101; 32], hash(&39u64), 40.into())
             .expect("test block to be applied successfully.")
             .online();
         let mut chain = chain_pre.clone();
@@ -861,15 +863,16 @@ pub mod tests {
 
     #[test]
     fn pruning_fork_with_multiple_tips() {
+        // Create a chain with 50 blocks (0 to 49).
         let chain_pre = create_canonical_chain(50.try_into().unwrap(), None)
-            // Add a 2-block fork from block 39
-            .receive_block([100; 32], hash(&39u64), 40.into())
+            // Add a 2-block fork from block 38
+            .receive_block([100; 32], hash(&38u64), 39.into())
             .expect("test block to be applied successfully.")
-            .receive_block([101; 32], [100; 32], 41.into())
+            .receive_block([101; 32], [100; 32], 40.into())
             .expect("test block to be applied successfully.")
             // Add a second fork from the first divergent fork block, so that the fork has two
             // tips
-            .receive_block([200; 32], [100; 32], 42.into())
+            .receive_block([200; 32], [100; 32], 41.into())
             .expect("test block to be applied successfully.")
             .online();
         let mut chain = chain_pre.clone();
