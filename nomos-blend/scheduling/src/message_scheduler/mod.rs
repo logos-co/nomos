@@ -13,9 +13,8 @@ use tracing::trace;
 
 use crate::{
     cover_traffic_2::SessionCoverTraffic,
-    message::OutboundMessage,
     message_scheduler::{
-        round_info::{RoundClock, RoundInfo},
+        round_info::{ProcessedMessage, RoundClock, RoundInfo},
         session_info::SessionInfo,
         utils::setup_new_session,
     },
@@ -167,7 +166,7 @@ impl<SessionClock, Rng> MessageScheduler<SessionClock, Rng> {
 
     /// Add a new processed message to the release delayer component queue, for
     /// release during the next release window.
-    pub fn schedule_message(&mut self, message: OutboundMessage) {
+    pub fn schedule_message(&mut self, message: ProcessedMessage) {
         self.release_delayer.schedule_message(message);
     }
 
@@ -258,7 +257,7 @@ where
             // window.
             (cover_message_ready_output, processed_messages_ready_output) => {
                 let cover_message =
-                    (cover_message_ready_output == Poll::Ready(Some(()))).then(|| vec![].into());
+                    (cover_message_ready_output == Poll::Ready(Some(()))).then_some(());
                 let processed_messages = if let Poll::Ready(Some(processed_messages)) =
                     processed_messages_ready_output
                 {
@@ -268,7 +267,7 @@ where
                 };
                 Poll::Ready(Some(RoundInfo {
                     processed_messages,
-                    cover_message,
+                    cover_message_generation_flag: cover_message,
                 }))
             }
         }

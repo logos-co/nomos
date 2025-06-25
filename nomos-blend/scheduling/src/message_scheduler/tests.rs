@@ -11,9 +11,8 @@ use tokio_stream::iter;
 
 use crate::{
     cover_traffic_2::SessionCoverTraffic,
-    message::OutboundMessage,
     message_scheduler::{
-        round_info::{Round, RoundInfo},
+        round_info::{ProcessedMessage, Round, RoundInfo},
         session_info::SessionInfo,
         MessageScheduler,
     },
@@ -81,7 +80,7 @@ async fn cover_traffic_substream_ready() {
     assert_eq!(
         scheduler.poll_next_unpin(&mut cx),
         Poll::Ready(Some(RoundInfo {
-            cover_message: Some(vec![].into()),
+            cover_message_generation_flag: Some(()),
             processed_messages: vec![]
         }))
     );
@@ -104,7 +103,7 @@ async fn release_delayer_substream_ready() {
             0u128.into(),
             rng,
             Box::new(iter(rounds)),
-            vec![OutboundMessage::from(b"test".to_vec())],
+            vec![ProcessedMessage::Data(b"test".to_vec().into())],
         ),
         // Round clock (same as above)
         Box::new(iter(rounds)),
@@ -117,8 +116,8 @@ async fn release_delayer_substream_ready() {
     assert_eq!(
         scheduler.poll_next_unpin(&mut cx),
         Poll::Ready(Some(RoundInfo {
-            cover_message: None,
-            processed_messages: vec![OutboundMessage::from(b"test".to_vec())]
+            cover_message_generation_flag: None,
+            processed_messages: vec![ProcessedMessage::Data(b"test".to_vec().into())]
         }))
     );
 }
@@ -140,7 +139,7 @@ async fn both_substreams_ready() {
             0u128.into(),
             rng,
             Box::new(iter(rounds)),
-            vec![OutboundMessage::from(b"test".to_vec())],
+            vec![ProcessedMessage::Data(b"test".to_vec().into())],
         ),
         // Round clock (same as above)
         Box::new(iter(rounds)),
@@ -154,8 +153,8 @@ async fn both_substreams_ready() {
     assert_eq!(
         scheduler.poll_next_unpin(&mut cx),
         Poll::Ready(Some(RoundInfo {
-            cover_message: Some(vec![].into()),
-            processed_messages: vec![OutboundMessage::from(b"test".to_vec())]
+            cover_message_generation_flag: Some(()),
+            processed_messages: vec![ProcessedMessage::Data(b"test".to_vec().into())]
         }))
     );
 }
@@ -177,7 +176,7 @@ async fn round_change() {
             2u128.into(),
             rng,
             Box::new(iter(rounds)),
-            vec![OutboundMessage::from(b"test".to_vec())],
+            vec![ProcessedMessage::Data(b"test".to_vec().into())],
         ),
         // Round clock (same as above)
         Box::new(iter(rounds)),
@@ -193,7 +192,7 @@ async fn round_change() {
     assert_eq!(
         scheduler.poll_next_unpin(&mut cx),
         Poll::Ready(Some(RoundInfo {
-            cover_message: Some(vec![].into()),
+            cover_message_generation_flag: Some(()),
             processed_messages: vec![]
         }))
     );
@@ -202,8 +201,8 @@ async fn round_change() {
     assert_eq!(
         scheduler.poll_next_unpin(&mut cx),
         Poll::Ready(Some(RoundInfo {
-            cover_message: None,
-            processed_messages: vec![OutboundMessage::from(b"test".to_vec())]
+            cover_message_generation_flag: None,
+            processed_messages: vec![ProcessedMessage::Data(b"test".to_vec().into())]
         }))
     );
 }
@@ -225,7 +224,7 @@ async fn session_change() {
             rng,
             Box::new(iter(rounds)),
             // One unreleased message.
-            vec![b"test".to_vec().into()],
+            vec![ProcessedMessage::Data(b"test".to_vec().into())],
         ),
         // Round clock (same as above)
         Box::new(iter(rounds)),

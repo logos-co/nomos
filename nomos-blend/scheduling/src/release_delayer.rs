@@ -8,7 +8,7 @@ use core::{
 use futures::{Stream, StreamExt as _};
 use tracing::{debug, trace};
 
-use crate::{message::OutboundMessage, message_scheduler::round_info::Round};
+use crate::message_scheduler::round_info::{ProcessedMessage, Round};
 
 const LOG_TARGET: &str = "blend::scheduling::delay";
 
@@ -26,7 +26,7 @@ pub struct SessionProcessedMessageDelayer<RoundClock, Rng> {
     round_clock: RoundClock,
     /// The messages temporarily queued by the scheduler in between release
     /// rounds.
-    unreleased_messages: Vec<OutboundMessage>,
+    unreleased_messages: Vec<ProcessedMessage>,
 }
 
 impl<RoundClock, Rng> SessionProcessedMessageDelayer<RoundClock, Rng>
@@ -62,7 +62,7 @@ impl<RoundClock, Rng> SessionProcessedMessageDelayer<RoundClock, Rng> {
         next_release_round: Round,
         rng: Rng,
         round_clock: RoundClock,
-        unreleased_messages: Vec<OutboundMessage>,
+        unreleased_messages: Vec<ProcessedMessage>,
     ) -> Self {
         Self {
             maximum_release_delay_in_rounds,
@@ -74,13 +74,13 @@ impl<RoundClock, Rng> SessionProcessedMessageDelayer<RoundClock, Rng> {
     }
 
     #[cfg(test)]
-    pub fn unreleased_messages(&self) -> &[OutboundMessage] {
+    pub fn unreleased_messages(&self) -> &[ProcessedMessage] {
         &self.unreleased_messages
     }
 
     /// Add a new message to the queue to be released at the next release round
     /// along with any other queued message.
-    pub fn schedule_message(&mut self, message: OutboundMessage) {
+    pub fn schedule_message(&mut self, message: ProcessedMessage) {
         self.unreleased_messages.push(message);
     }
 
@@ -125,7 +125,7 @@ where
     RoundClock: Stream<Item = Round> + Unpin,
     Rng: rand::Rng + Unpin,
 {
-    type Item = Vec<OutboundMessage>;
+    type Item = Vec<ProcessedMessage>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let new_round = match self.round_clock.poll_next_unpin(cx) {
@@ -174,7 +174,10 @@ mod tests {
     use rand_chacha::ChaCha20Rng;
     use tokio_stream::iter;
 
-    use crate::{message::OutboundMessage, release_delayer::SessionProcessedMessageDelayer};
+    use crate::{
+        message_scheduler::round_info::ProcessedMessage,
+        release_delayer::SessionProcessedMessageDelayer,
+    };
 
     #[test]
     fn poll_none_on_unscheduled_round() {
@@ -216,13 +219,13 @@ mod tests {
             next_release_round: 1u128.into(),
             rng: ChaCha20Rng::from_entropy(),
             round_clock: iter([1u128]).map(Into::into),
-            unreleased_messages: vec![OutboundMessage::from(b"test".to_vec())],
+            unreleased_messages: vec![ProcessedMessage::Data(b"test".to_vec().into())],
         };
         let mut cx = Context::from_waker(noop_waker_ref());
 
         assert_eq!(
             delayer.poll_next_unpin(&mut cx),
-            Poll::Ready(Some(vec![OutboundMessage::from(b"test".to_vec())]))
+            Poll::Ready(Some(vec![ProcessedMessage::Data(b"test".to_vec().into())]))
         );
         // Check that next release round has been updated with an offset in the
         // expected range [1, 3], so the new value must be in the range [2, 4].
@@ -238,11 +241,11 @@ mod tests {
             round_clock: empty(),
             unreleased_messages: vec![],
         };
-        delayer.schedule_message(OutboundMessage::from(b"test".to_vec()));
+        delayer.schedule_message(ProcessedMessage::Data(b"test".to_vec().into()));
         // Check that the new message was added to the queue.
         assert_eq!(
             delayer.unreleased_messages,
-            vec![OutboundMessage::from(b"test".to_vec())]
+            vec![ProcessedMessage::Data(b"test".to_vec().into())]
         );
     }
 }

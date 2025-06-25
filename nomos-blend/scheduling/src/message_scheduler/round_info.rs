@@ -5,7 +5,7 @@ use core::{
 
 use futures::Stream;
 
-use crate::message::{CoverMessage, OutboundMessage};
+use crate::{DataMessage, EncapsulatedMessage};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Round(u128);
@@ -39,9 +39,28 @@ impl Display for Round {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoundInfo {
     /// The list of messages to be released.
-    pub processed_messages: Vec<OutboundMessage>,
-    /// The cover message to generate, if present.
-    pub cover_message: Option<CoverMessage>,
+    pub processed_messages: Vec<ProcessedMessage>,
+    /// Flag indicating (if `Some`) whether a new cover message should be
+    /// generated during this release round.
+    pub cover_message_generation_flag: Option<()>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ProcessedMessage {
+    Data(DataMessage),
+    Encapsulated(EncapsulatedMessage),
+}
+
+impl From<DataMessage> for ProcessedMessage {
+    fn from(value: DataMessage) -> Self {
+        Self::Data(value)
+    }
+}
+
+impl From<EncapsulatedMessage> for ProcessedMessage {
+    fn from(value: EncapsulatedMessage) -> Self {
+        Self::Encapsulated(value)
+    }
 }
 
 pub type RoundClock = Box<dyn Stream<Item = Round> + Unpin>;
