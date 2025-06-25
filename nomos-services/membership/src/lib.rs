@@ -48,6 +48,12 @@ pub enum MembershipMessage {
         service_type: nomos_sdp_core::ServiceType,
         result_sender: oneshot::Sender<Result<MembershipSnapshotStream, MembershipBackendError>>,
     },
+
+    // This should be used only for testing purposes
+    Update {
+        block_number: BlockNumber,
+        update_event: nomos_sdp_core::FinalizedBlockEvent,
+    },
 }
 
 pub struct MembershipService<Backend, Sdp, RuntimeServiceId>
@@ -218,6 +224,18 @@ where
                         );
                     }
                 }
+            }
+
+            MembershipMessage::Update {
+                block_number,
+                update_event,
+            } => {
+                tracing::debug!(
+                    "Received update for block number {}: {:?}",
+                    block_number,
+                    update_event
+                );
+                self.handle_sdp_update(update_event).await;
             }
         }
     }

@@ -130,7 +130,7 @@ impl DeclarationInfo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DeclarationState {
     Active,
     Inactive,
@@ -241,13 +241,13 @@ impl<Metadata> SdpMessage<Metadata> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FinalizedBlockEvent {
     pub block_number: BlockNumber,
     pub updates: Vec<FinalizedBlockEventUpdate>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FinalizedBlockEventUpdate {
     pub service_type: ServiceType,
     pub provider_id: ProviderId,

@@ -222,6 +222,10 @@ type StorageService = nomos_storage::StorageService<RocksBackend<Wire>, RuntimeS
 
 type SystemSigService = SystemSig<RuntimeServiceId>;
 
+#[cfg(feature = "testing")]
+type TestingApiService<RuntimeServiceId> =
+    nomos_api::ApiService<api::testing::backend::TestAxumBackend, RuntimeServiceId>;
+
 #[derive_services]
 pub struct Nomos {
     #[cfg(feature = "tracing")]
@@ -241,4 +245,7 @@ pub struct Nomos {
     http: ApiService,
     storage: StorageService,
     system_sig: SystemSigService,
+
+    #[cfg(feature = "testing")]
+    testing_http: TestingApiService<RuntimeServiceId>,
 }
