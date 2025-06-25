@@ -29,7 +29,7 @@ pub struct CryptographicProcessor<NodeId, Rng> {
 #[derivative(Debug)]
 pub struct CryptographicProcessorSettings {
     /// The non-ephemeral signing key corresponding to the public key
-    /// (provider_id) registered in the membership (SDP).
+    /// registered in the membership (SDP).
     #[serde(with = "ed25519_privkey_hex")]
     #[derivative(Debug = "ignore")]
     pub signing_private_key: Ed25519PrivateKey,
@@ -46,8 +46,8 @@ where
         membership: Membership<NodeId>,
         rng: Rng,
     ) -> Self {
-        /// Derive the non-ephemeral encryption key
-        /// from the non-ephemeral signing key.
+        // Derive the non-ephemeral encryption key
+        // from the non-ephemeral signing key.
         let encryption_private_key = settings.signing_private_key.derive_x25519();
         Self {
             settings,
@@ -70,7 +70,7 @@ where
         payload_type: PayloadType,
         payload: &[u8],
     ) -> Result<Vec<u8>, Error> {
-        /// Retrieve the non-ephemeral signing keys of the blend nodes
+        // Retrieve the non-ephemeral signing keys of the blend nodes
         let blend_node_signing_keys = self
             .membership
             .choose_remote_nodes(&mut self.rng, self.settings.num_blend_layers)
@@ -81,8 +81,8 @@ where
             blend_node_signing_keys
                 .iter()
                 .map(|blend_node_signing_key| {
-                    /// Generate an ephemeral signing key for each
-                    /// encapsulation.
+                    // Generate an ephemeral signing key for each
+                    // encapsulation.
                     let ephemeral_signing_key = Ed25519PrivateKey::generate();
                     EncapsulationInput::new(
                         ephemeral_signing_key,
