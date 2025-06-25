@@ -1,4 +1,4 @@
-use std::{collections::HashSet, marker::PhantomData, str::FromStr as _};
+use std::{collections::HashSet, marker::PhantomData};
 
 use futures::TryStreamExt as _;
 use nomos_core::{block::Block, header::HeaderId, wire};

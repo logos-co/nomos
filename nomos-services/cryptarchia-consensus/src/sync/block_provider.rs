@@ -1,4 +1,8 @@
-use std::collections::{HashSet, VecDeque};
+use std::{
+    collections::{HashSet, VecDeque},
+    fmt::Debug,
+    hash::Hash,
+};
 
 use bytes::Bytes;
 use cryptarchia_engine::{Branch, Branches, CryptarchiaState};
