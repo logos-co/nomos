@@ -156,9 +156,7 @@ jobs:
         id: risc0-clippy
         # We need to do this way since we can't use `--all-features` for crates outside of the workspace, so we need to lint each crate separately.
         run: |
-          cd ./nomos-core/cl
-          cargo clippy --all-targets --all-features
-          cd ../proof_statements
+          cd ./nomos-core/proof_statements
           cargo clippy --all-targets --all-features
           cd ../risc0_proofs
           cargo clippy --all-targets --all-features
