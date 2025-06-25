@@ -1,5 +1,6 @@
 use std::iter::repeat_n;
 
+use itertools::Itertools as _;
 use nomos_core::wire;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
@@ -178,8 +179,11 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
         match self.private_header.decapsulate(key)? {
             PrivateHeaderDecapsulationOutput::Incompleted((private_header, public_header)) => {
                 let payload = self.payload.decapsulate(key);
-                // TODO: public_header.signature.verify(private_header|payload)
-                // The spec should be clarified on this.
+                Self::verify_reconstructed_public_header(
+                    &public_header,
+                    &private_header,
+                    &payload,
+                )?;
                 Ok(PartDecapsulationOutput::Incompleted((
                     Self {
                         private_header,
@@ -188,10 +192,13 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
                     public_header,
                 )))
             }
-            PrivateHeaderDecapsulationOutput::Completed((_private_header, _public_header)) => {
+            PrivateHeaderDecapsulationOutput::Completed((private_header, public_header)) => {
                 let payload = self.payload.decapsulate(key);
-                // The spec should be clarified on this.
-                // TODO: public_header.signature.verify(private_header|payload)
+                Self::verify_reconstructed_public_header(
+                    &public_header,
+                    &private_header,
+                    &payload,
+                )?;
                 Ok(PartDecapsulationOutput::Completed(
                     payload.try_deserialize()?,
                 ))
@@ -202,6 +209,17 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
     /// Signs the encapsulated part using the provided key.
     fn sign(&self, key: &Ed25519PrivateKey) -> Signature {
         key.sign(&Self::signing_body(&self.private_header, &self.payload))
+    }
+
+    /// Verify the public header reconstructed when decapsulating the private
+    /// header.
+    fn verify_reconstructed_public_header(
+        public_header: &PublicHeader,
+        private_header: &EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
+        payload: &EncapsulatedPayload,
+    ) -> Result<(), Error> {
+        // Verify the signature in the reconstructed public header
+        public_header.verify_signature(&Self::signing_body(private_header, payload))
     }
 
     /// Returns the body that should be signed.
@@ -243,25 +261,30 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
         // Plus, encapsulate the last `inputs.len()` blending headers.
         //
         // BlendingHeaders[0]:       random
-        // BlendingHeaders[1]: X1(X0(pseudo_random(inputs[1])))
-        // BlendingHeaders[2]:    X0(pseudo_random(inputs[0])
+        // BlendingHeaders[1]: inputs[1](inputs[0](pseudo_random(inputs[1])))
+        // BlendingHeaders[2]:           inputs[0](pseudo_random(inputs[0])
         Self(
             inputs
                 .iter()
                 .map(|input| Some(&input.shared_key))
                 .chain(repeat_n(None, inputs.num_empty_slots()))
                 .rev()
-                .enumerate()
-                .map(|(i, rng_key)| {
+                .map(|rng_key| {
                     rng_key.map_or_else(
                         || EncapsulatedBlendingHeader::initialize(&BlendingHeader::random()),
                         |rng_key| {
                             let mut header = EncapsulatedBlendingHeader::initialize(
                                 &BlendingHeader::pseudo_random(rng_key.as_slice()),
                             );
-                            inputs.iter().take(i + 1).for_each(|input| {
-                                header.encapsulate(&input.shared_key);
-                            });
+                            // Encapsulate the blending header with the shared key of each input
+                            // until the shared key equal to the `rng_key` is encountered
+                            // (inclusive).
+                            inputs
+                                .iter()
+                                .take_while_inclusive(|&input| &input.shared_key != rng_key)
+                                .for_each(|input| {
+                                    header.encapsulate(&input.shared_key);
+                                });
                             header
                         },
                     )

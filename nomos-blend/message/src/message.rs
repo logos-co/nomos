@@ -41,6 +41,16 @@ pub struct PublicHeader {
     pub signature: Signature,
 }
 
+impl PublicHeader {
+    pub fn verify_signature(&self, body: &[u8]) -> Result<(), Error> {
+        if self.signing_pubkey.verify_signature(body, &self.signature) {
+            Ok(())
+        } else {
+            Err(Error::SignatureVerificationFailed)
+        }
+    }
+}
+
 /// A blending header that is fully decapsulated.
 /// This must be encapsulated when being sent to the blend network.
 #[derive(Debug, Clone, Serialize, Deserialize)]

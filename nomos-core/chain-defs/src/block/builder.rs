@@ -1,7 +1,4 @@
-use std::hash::Hash;
-
 use blake2::digest::Digest as _;
-use indexmap::IndexSet;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
@@ -39,8 +36,8 @@ pub struct BlockBuilder<Tx, Blob, TxSelector, BlobSelector> {
 
 impl<Tx, B, TxSelector, BlobSelector> BlockBuilder<Tx, B, TxSelector, BlobSelector>
 where
-    Tx: Transaction + Clone + Eq + Hash + Serialize + DeserializeOwned,
-    B: DispersedBlobInfo + Clone + Eq + Hash + Serialize + DeserializeOwned,
+    Tx: Transaction + Clone + Eq + Serialize + DeserializeOwned,
+    B: DispersedBlobInfo + Clone + Eq + Serialize + DeserializeOwned,
     TxSelector: TxSelect<Tx = Tx>,
     BlobSelector: BlobSelect<BlobId = B>,
 {
@@ -82,10 +79,8 @@ where
             blobs: Some(blobs),
         } = self
         {
-            let txs = tx_selector.select_tx_from(txs).collect::<IndexSet<_>>();
-            let blobs = blob_selector
-                .select_blob_from(blobs)
-                .collect::<IndexSet<_>>();
+            let txs = tx_selector.select_tx_from(txs).collect::<Vec<_>>();
+            let blobs = blob_selector.select_blob_from(blobs).collect::<Vec<_>>();
 
             let serialized_content = wire::serialize(&(&txs, &blobs)).unwrap();
             let content_size = u32::try_from(serialized_content.len()).map_err(|_| {

@@ -1,5 +1,6 @@
-use std::{hash::Hash, marker::PhantomData};
+use std::{collections::HashSet, marker::PhantomData};
 
+use futures::TryStreamExt as _;
 use nomos_core::{block::Block, header::HeaderId, wire};
 use nomos_network::{
     backends::libp2p::{ChainSyncCommand, Command, Libp2p, PeerId, PubSubCommand::Subscribe},
@@ -11,6 +12,7 @@ use overwatch::{
     DynError,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use tokio::sync::oneshot;
 use tokio_stream::{wrappers::errors::BroadcastStreamRecvError, StreamExt as _};
 
 use crate::{
@@ -24,8 +26,8 @@ type Relay<T, RuntimeServiceId> =
 #[derive(Clone)]
 pub struct LibP2pAdapter<Tx, BlobCert, RuntimeServiceId>
 where
-    Tx: Clone + Eq + Hash,
-    BlobCert: Clone + Eq + Hash,
+    Tx: Clone + Eq,
+    BlobCert: Clone + Eq,
 {
     network_relay:
         OutboundRelay<<NetworkService<Libp2p, RuntimeServiceId> as ServiceData>::Message>,
@@ -40,8 +42,8 @@ pub struct LibP2pAdapterSettings {
 
 impl<Tx, BlobCert, RuntimeServiceId> LibP2pAdapter<Tx, BlobCert, RuntimeServiceId>
 where
-    Tx: Clone + Eq + Hash + Serialize,
-    BlobCert: Clone + Eq + Hash + Serialize,
+    Tx: Clone + Eq + Serialize,
+    BlobCert: Clone + Eq + Serialize,
 {
     async fn subscribe(relay: &Relay<Libp2p, RuntimeServiceId>, topic: &str) {
         if let Err((e, _)) = relay
@@ -59,8 +61,8 @@ where
 impl<Tx, BlobCert, RuntimeServiceId> NetworkAdapter<RuntimeServiceId>
     for LibP2pAdapter<Tx, BlobCert, RuntimeServiceId>
 where
-    Tx: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
-    BlobCert: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
+    Tx: Serialize + DeserializeOwned + Clone + Eq + Send + Sync + 'static,
+    BlobCert: Serialize + DeserializeOwned + Clone + Eq + Send + Sync + 'static,
 {
     type Backend = Libp2p;
     type Settings = LibP2pAdapterSettings;
@@ -86,7 +88,7 @@ where
     async fn blocks_stream(
         &self,
     ) -> Result<BoxedStream<Block<Self::Tx, Self::BlobCertificate>>, DynError> {
-        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let (sender, receiver) = oneshot::channel();
         if let Err((e, _)) = self
             .network_relay
             .send(NetworkMsg::SubscribeToPubSub { sender })
@@ -116,7 +118,7 @@ where
     }
 
     async fn chainsync_events_stream(&self) -> Result<BoxedStream<ChainSyncEvent>, DynError> {
-        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let (sender, receiver) = oneshot::channel();
 
         if let Err((e, _)) = self
             .network_relay
@@ -135,8 +137,7 @@ where
     }
 
     async fn request_tip(&self, peer: Self::PeerId) -> Result<HeaderId, DynError> {
-        let (reply_sender, receiver) = tokio::sync::oneshot::channel();
-
+        let (reply_sender, receiver) = oneshot::channel();
         if let Err((e, _)) = self
             .network_relay
             .send(NetworkMsg::Process(Command::ChainSync(
@@ -149,5 +150,41 @@ where
 
         let result = receiver.await.map_err(|e| Box::new(e) as DynError)?;
         result.map_err(|e| Box::new(e) as DynError)
+    }
+
+    async fn request_blocks_from_peer(
+        &self,
+        peer: Self::PeerId,
+        target_block: HeaderId,
+        local_tip: HeaderId,
+        latest_immutable_block: HeaderId,
+        additional_blocks: HashSet<HeaderId>,
+    ) -> Result<BoxedStream<Result<Block<Self::Tx, Self::BlobCertificate>, DynError>>, DynError>
+    {
+        let (reply_sender, receiver) = oneshot::channel();
+        if let Err((e, _)) = self
+            .network_relay
+            .send(NetworkMsg::Process(Command::ChainSync(
+                ChainSyncCommand::DownloadBlocks {
+                    peer,
+                    target_block,
+                    local_tip,
+                    latest_immutable_block,
+                    additional_blocks,
+                    reply_sender,
+                },
+            )))
+            .await
+        {
+            return Err(Box::new(e));
+        }
+
+        let stream = receiver.await?;
+        let stream = stream.map_err(|e| Box::new(e) as DynError).map(|result| {
+            let block = result?;
+            wire::deserialize(&block).map_err(|e| Box::new(e) as DynError)
+        });
+
+        Ok(Box::new(stream))
     }
 }

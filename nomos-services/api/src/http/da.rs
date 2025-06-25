@@ -194,16 +194,7 @@ pub async fn get_range<
     range: Range<<V as metadata::Metadata>::Index>,
 ) -> Result<Vec<(<V as metadata::Metadata>::Index, Vec<DaShare>)>, DynError>
 where
-    Tx: Transaction
-        + Eq
-        + Clone
-        + Debug
-        + Hash
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
+    Tx: Transaction + Eq + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     C: DispersedBlobInfo<BlobId = [u8; 32]>

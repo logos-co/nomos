@@ -3,7 +3,6 @@ pub mod storage;
 
 use std::{
     fmt::{Debug, Display, Formatter},
-    hash::Hash,
     ops::Range,
     time::Duration,
 };
@@ -74,10 +73,10 @@ pub struct DataIndexerService<
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
-    ClPool::Item: Clone + Eq + Hash + Debug + 'static,
+    ClPool::Item: Clone + Eq + Debug + 'static,
     ClPool::Key: Debug + 'static,
     ClPool::Settings: Clone,
-    DaPool::Item: Metadata + Clone + Eq + Hash + Debug + 'static,
+    DaPool::Item: Metadata + Clone + Eq + Debug + 'static,
     DaPool::Key: Debug + 'static,
     DaPool::Settings: Clone,
     NetAdapter::Backend: 'static,
@@ -191,10 +190,10 @@ where
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
-    ClPool::Item: Clone + Eq + Hash + Debug + 'static,
+    ClPool::Item: Clone + Eq + Debug + 'static,
     ClPool::Key: Debug + 'static,
     ClPool::Settings: Clone,
-    DaPool::Item: Metadata + Clone + Eq + Hash + Debug + 'static,
+    DaPool::Item: Metadata + Clone + Eq + Debug + 'static,
     DaPool::Key: Debug + 'static,
     DaPool::Settings: Clone,
     NetAdapter::Backend: 'static,
@@ -287,10 +286,10 @@ where
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
-    ClPool::Item: Clone + Eq + Hash + Debug + 'static,
+    ClPool::Item: Clone + Eq + Debug + 'static,
     ClPool::Key: Debug + 'static,
     ClPool::Settings: Clone,
-    DaPool::Item: DispersedBlobInfo + Metadata + Clone + Eq + Hash + Debug + Sync + 'static,
+    DaPool::Item: DispersedBlobInfo + Metadata + Clone + Eq + Debug + Sync + 'static,
     <DaPool::Item as DispersedBlobInfo>::BlobId: AsRef<[u8]>,
     DaPool::Key: Debug + 'static,
     DaPool::Settings: Clone,
@@ -426,7 +425,6 @@ where
         + Debug
         + Clone
         + Eq
-        + Hash
         + Serialize
         + DeserializeOwned
         + Send
@@ -437,7 +435,6 @@ where
         + Debug
         + Clone
         + Eq
-        + Hash
         + Serialize
         + DeserializeOwned
         + Send

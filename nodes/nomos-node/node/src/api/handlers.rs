@@ -78,15 +78,7 @@ pub async fn cl_metrics<T, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
-    T: Transaction
-        + Clone
-        + Debug
-        + Hash
-        + Serialize
-        + for<'de> Deserialize<'de>
-        + Send
-        + Sync
-        + 'static,
+    T: Transaction + Clone + Debug + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
     <T as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     RuntimeServiceId:
@@ -108,7 +100,7 @@ pub async fn cl_status<T, RuntimeServiceId>(
     Json(items): Json<Vec<<T as Transaction>::Hash>>,
 ) -> Response
 where
-    T: Transaction + Clone + Debug + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Transaction + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
     <T as Transaction>::Hash: Serialize + DeserializeOwned + Ord + Debug + Send + Sync + 'static,
     RuntimeServiceId:
         Debug + Sync + Display + 'static + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
@@ -147,16 +139,7 @@ pub async fn cryptarchia_info<
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
-    Tx: Transaction
-        + Clone
-        + Eq
-        + Debug
-        + Hash
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
+    Tx: Transaction + Clone + Eq + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SS: StorageSerde + Send + Sync + 'static,
@@ -241,16 +224,7 @@ pub async fn cryptarchia_headers<
     Query(query): Query<CryptarchiaInfoQuery>,
 ) -> Response
 where
-    Tx: Transaction
-        + Eq
-        + Clone
-        + Debug
-        + Hash
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
+    Tx: Transaction + Eq + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SS: StorageSerde + Send + Sync + 'static,
@@ -381,16 +355,7 @@ pub async fn get_range<
     Json(GetRangeReq { app_id, range }): Json<GetRangeReq<V>>,
 ) -> Response
 where
-    Tx: Transaction
-        + Eq
-        + Clone
-        + Debug
-        + Hash
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
+    Tx: Transaction + Eq + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     C: DispersedBlobInfo<BlobId = [u8; 32]>
@@ -653,7 +618,7 @@ pub async fn block<S, HttpStorageAdapter, Tx, RuntimeServiceId>(
     Json(id): Json<HeaderId>,
 ) -> Response
 where
-    Tx: Serialize + DeserializeOwned + Clone + Eq + Hash,
+    Tx: Serialize + DeserializeOwned + Clone + Eq,
     S: StorageSerde + Send + Sync + 'static,
     HttpStorageAdapter: storage::StorageAdapter<S, RuntimeServiceId> + Send + Sync + 'static,
     <S as StorageSerde>::Error: Send + Sync,
@@ -917,7 +882,7 @@ pub async fn add_tx<Tx, RuntimeServiceId>(
     Json(tx): Json<Tx>,
 ) -> Response
 where
-    Tx: Transaction + Clone + Debug + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
+    Tx: Transaction + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     RuntimeServiceId: Debug

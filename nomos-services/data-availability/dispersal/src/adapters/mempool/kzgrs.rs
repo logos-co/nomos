@@ -1,4 +1,4 @@
-use std::{fmt::Debug, hash::Hash, marker::PhantomData};
+use std::{fmt::Debug, marker::PhantomData};
 
 use kzgrs_backend::dispersal::{self, BlobInfo};
 use nomos_core::{
@@ -36,7 +36,7 @@ pub struct KzgrsMempoolAdapter<
     DaPool: MemPool<BlockId = HeaderId>,
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
-    DaPool::Item: Clone + Eq + Hash + Debug + 'static,
+    DaPool::Item: Clone + Eq + Debug + 'static,
     DaPool::Key: Debug + 'static,
 {
     pub mempool_relay: MempoolRelay<DaPoolAdapter::Payload, DaPool::Item, DaPool::Key>,
@@ -82,7 +82,7 @@ where
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key, Payload = BlobInfo>,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug + Send,
-    DaPool::Item: Clone + Eq + Hash + Debug + Send + 'static,
+    DaPool::Item: Clone + Eq + Debug + Send + 'static,
     DaPool::Key: Debug + Send + 'static,
     DaPool::Settings: Clone,
     SamplingRng: SeedableRng + RngCore + Sync,

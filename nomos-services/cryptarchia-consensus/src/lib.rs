@@ -5,12 +5,12 @@ pub mod network;
 mod relays;
 mod states;
 pub mod storage;
+mod sync;
 
 use core::fmt::Debug;
 use std::{
     collections::{BTreeSet, HashSet},
     fmt::Display,
-    hash::Hash,
     path::PathBuf,
     time::Duration,
 };
@@ -59,6 +59,7 @@ use crate::{
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
     storage::{adapters::StorageAdapter, StorageAdapter as _},
+    sync::block_provider::BlockProvider,
 };
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
@@ -227,12 +228,12 @@ pub struct CryptarchiaConsensus<
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone,
-    ClPool::Item: Clone + Eq + Hash + Debug + 'static,
+    ClPool::Item: Clone + Eq + Debug + 'static,
     ClPool::Key: Debug + 'static,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     DaPool: RecoverableMempool<BlockId = HeaderId>,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPool::Item: Clone + Eq + Hash + Debug + 'static,
+    DaPool::Item: Clone + Eq + Debug + 'static,
     DaPool::Key: Debug + 'static,
     DaPool::Settings: Clone,
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
@@ -313,12 +314,12 @@ where
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone,
-    ClPool::Item: Clone + Eq + Hash + Debug,
+    ClPool::Item: Clone + Eq + Debug,
     ClPool::Key: Debug,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     DaPool: RecoverableMempool<BlockId = HeaderId>,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPool::Item: Clone + Eq + Hash + Debug,
+    DaPool::Item: Clone + Eq + Debug,
     DaPool::Key: Debug,
     DaPool::Settings: Clone,
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
@@ -423,7 +424,6 @@ where
         + Debug
         + Clone
         + Eq
-        + Hash
         + Serialize
         + DeserializeOwned
         + Send
@@ -446,7 +446,6 @@ where
         + Debug
         + Clone
         + Eq
-        + Hash
         + Serialize
         + DeserializeOwned
         + Send
@@ -583,6 +582,8 @@ where
 
         let mut incoming_blocks = network_adapter.blocks_stream().await?;
         let mut chainsync_events = network_adapter.chainsync_events_stream().await?;
+        let sync_blocks_provider: BlockProvider<_> =
+            BlockProvider::new(relays.storage_adapter().storage_relay.clone());
 
         let mut slot_timer = {
             let (sender, receiver) = oneshot::channel();
@@ -685,12 +686,7 @@ where
                     }
 
                     Some(event) = chainsync_events.next() => {
-                        if let ChainSyncEvent::ProvideTipRequest{reply_sender} = event {
-                            let tip = cryptarchia.tip();
-                            if let Err(e) = reply_sender.send(tip).await {
-                                error!("Failed to send tip header: {e}");
-                            }
-                        }
+                       Self::handle_chainsync_event(&cryptarchia, &sync_blocks_provider, event).await;
                     }
                 }
             }
@@ -765,7 +761,6 @@ where
         + Debug
         + Clone
         + Eq
-        + Hash
         + Serialize
         + DeserializeOwned
         + Send
@@ -781,7 +776,6 @@ where
         + Debug
         + Clone
         + Eq
-        + Hash
         + Serialize
         + DeserializeOwned
         + Send
@@ -1093,6 +1087,7 @@ where
                 }
             }
         }
+
         output
     }
 
@@ -1331,6 +1326,40 @@ where
             Ok(())
         } else {
             Err(errors)
+        }
+    }
+
+    async fn handle_chainsync_event<State>(
+        cryptarchia: &Cryptarchia<State>,
+        sync_blocks_provider: &BlockProvider<Storage>,
+        event: ChainSyncEvent,
+    ) where
+        State: CryptarchiaState + Send + Sync + 'static,
+    {
+        match event {
+            ChainSyncEvent::ProvideBlocksRequest {
+                target_block,
+                local_tip,
+                latest_immutable_block,
+                additional_blocks,
+                reply_sender,
+            } => {
+                let known_blocks = vec![local_tip, latest_immutable_block]
+                    .into_iter()
+                    .chain(additional_blocks.into_iter())
+                    .collect::<HashSet<_>>();
+
+                sync_blocks_provider
+                    .send_blocks(cryptarchia, target_block, &known_blocks, reply_sender)
+                    .await;
+            }
+            ChainSyncEvent::ProvideTipRequest { reply_sender } => {
+                let tip = cryptarchia.tip();
+                info!("Sending tip {tip}");
+                if let Err(e) = reply_sender.send(tip).await {
+                    error!("Failed to send tip header: {e}");
+                }
+            }
         }
     }
 }

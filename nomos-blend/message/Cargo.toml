@@ -12,6 +12,7 @@ blake2.workspace = true
 chacha20         = "0.9"
 cipher           = "0.4"
 ed25519-dalek    = { version = "2", features = ["rand_core", "serde"] }
+itertools        = "0.14"
 nomos-core       = { workspace = true }
 rand_chacha      = "0.3"
 serde            = { version = "1", features = ["derive"] }
