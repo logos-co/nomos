@@ -8,6 +8,8 @@ use rand::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::serde::ed25519_pubkey_hex;
+
 #[derive(Clone, Debug)]
 pub struct Membership<NodeId> {
     remote_nodes: Vec<Node<NodeId>>,
@@ -23,6 +25,7 @@ pub struct Node<Id> {
     /// A listening address
     pub address: Multiaddr,
     /// A public key used for the blend message encryption
+    #[serde(with = "ed25519_pubkey_hex")]
     pub public_key: Ed25519PublicKey,
 }
 
