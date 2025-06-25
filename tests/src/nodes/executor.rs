@@ -245,10 +245,18 @@ impl Executor {
             .header("Content-Type", "application/json")
             .body(json_body)
             .send()
-            .await?;
+            .await;
 
+        assert!(
+            !response.is_err(),
+            "❌ Failed to connect to testing endpoint {}.\n\
+         💡 The binary was likely built without the 'testing' feature.\n\
+         🔧 Try: cargo build --workspace --all-features",
+            self.testing_http_addr
+        );
+
+        let response = response.unwrap();
         response.error_for_status()?;
-
         Ok(())
     }
 }

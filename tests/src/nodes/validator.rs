@@ -10,6 +10,7 @@ use std::{
 use cryptarchia_consensus::{CryptarchiaInfo, CryptarchiaSettings};
 use cryptarchia_engine::time::SlotConfig;
 use kzgrs_backend::common::share::DaShare;
+use nomos_api::http::membership::MembershipUpdateRequest;
 use nomos_blend::{
     message_blend::{
         CryptographicProcessorSettings, MessageBlendSettings, TemporalSchedulerSettings,
@@ -213,16 +214,28 @@ impl Validator {
         &self,
         update_event: FinalizedBlockEvent,
     ) -> Result<(), reqwest::Error> {
+        let update_event = MembershipUpdateRequest { update_event };
+        let json_body = serde_json::to_string(&update_event).unwrap();
+
         let response = CLIENT
             .post(format!(
                 "http://{}{}",
-                self.testing_http_addr, UPDATE_MEMBERSHIP,
+                self.testing_http_addr, UPDATE_MEMBERSHIP
             ))
             .header("Content-Type", "application/json")
-            .body(serde_json::to_string(&update_event).unwrap())
+            .body(json_body)
             .send()
-            .await?;
+            .await;
 
+        assert!(
+            !response.is_err(),
+            "❌ Failed to connect to testing endpoint {}.\n\
+         💡 The binary was likely built without the 'testing' feature.\n\
+         🔧 Try: cargo build --workspace --all-features",
+            self.testing_http_addr
+        );
+
+        let response = response.unwrap();
         response.error_for_status()?;
         Ok(())
     }

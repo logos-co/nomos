@@ -5,7 +5,6 @@ use tests::topology::{Topology, TopologyConfig};
 
 #[tokio::test]
 async fn test_update_membership_http() {
-    // todo: change this test to more meaningful one with dissemination
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
     let provider_id = executor
