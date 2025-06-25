@@ -1,8 +1,5 @@
-#![cfg(feature = "axum")]
-
 use std::fmt::{Debug, Display};
 
-use axum::{extract::State, Json};
 use nomos_membership::{
     adapters::SdpAdapter, backends::MembershipBackend, MembershipMessage, MembershipService,
 };
@@ -16,8 +13,8 @@ pub struct MembershipUpdateRequest {
 }
 
 pub async fn update_membership_handler<Backend, Sdp, RuntimeServiceId>(
-    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
-    Json(payload): Json<MembershipUpdateRequest>,
+    handle: OverwatchHandle<RuntimeServiceId>,
+    payload: MembershipUpdateRequest,
 ) -> Result<(), DynError>
 where
     Backend: MembershipBackend + Send + Sync + 'static,
