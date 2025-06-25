@@ -53,8 +53,8 @@ pub fn create_consensus_configs(
 
     let utxos = sks
         .iter()
-        .map(|sk| Utxo {
-            note: Note::new(1, sk.to_public_key()),
+        .map(|_| Utxo {
+            note: Note::new(1, [0; 32].into()), // TODO: replace with proper public key
             tx_hash: [0; 32].into(),
             output_index: 0,
         })

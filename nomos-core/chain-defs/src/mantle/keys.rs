@@ -16,9 +16,8 @@ impl SecretKey {
     }
 
     #[must_use]
-    pub const fn to_public_key(&self) -> PublicKey {
-        // Placeholder for actual public key derivation logic
-        PublicKey([0; 32])
+    pub fn to_public_key(&self) -> PublicKey {
+        unimplemented!("Conversion from SecretKey to PublicKey is not implemented yet")
     }
 }
 
