@@ -61,12 +61,17 @@ impl Transaction for MantleTx {
     type Hash = TxHash;
 
     fn as_sign_bytes(&self) -> bytes::Bytes {
+        // constant and structure as defined in the Mantle specification:
+        // https://www.notion.so/Mantle-Specification-21c261aa09df810c8820fab1d78b53d9
+        const NOMOS_MANTLE_TXHASH_V1: &[u8] = b"NOMOS_MANTLE_TXHASH_V1";
+        const END_OPS: &[u8] = b"END_OPS";
+
         let mut buff = bytes::BytesMut::new();
-        buff.extend_from_slice(b"NOMOS_MANTLE_TXHASH_V1");
+        buff.extend_from_slice(NOMOS_MANTLE_TXHASH_V1);
         for op in &self.ops {
             buff.extend_from_slice(op.as_sign_bytes().as_ref());
         }
-        buff.extend_from_slice(b"END_OPS");
+        buff.extend_from_slice(END_OPS);
         buff.extend_from_slice(self.gas_price.to_le_bytes().as_ref());
         buff.extend_from_slice(self.ledger_tx.as_sign_bytes().as_ref());
         buff.freeze()

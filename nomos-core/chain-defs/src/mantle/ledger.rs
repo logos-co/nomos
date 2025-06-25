@@ -58,9 +58,13 @@ pub struct Utxo {
 impl Utxo {
     #[must_use]
     pub fn id(&self) -> NoteId {
+        // constants and structure as defined in the Mantle spec:
+        // https://www.notion.so/Mantle-Specification-21c261aa09df810c8820fab1d78b53d9
+        const NOMOS_NOTE_ID_V1: &[u8] = b"NOMOS_NOTE_ID_V1";
+
         let mut hasher = crate::crypto::Hasher::new();
 
-        hasher.update(b"NOMOS_UTXO_ID_V1");
+        hasher.update(NOMOS_NOTE_ID_V1);
         hasher.update(self.tx_hash.0);
         hasher.update(self.output_index.to_le_bytes());
         hasher.update(self.note.value.to_le_bytes());
@@ -79,13 +83,18 @@ impl Tx {
 
     #[must_use]
     pub fn as_sign_bytes(&self) -> Bytes {
-        let mut bytes = BytesMut::from("NOMOS_LEDGER_TXHASH_V1");
+        // constants and structure as defined in the Mantle spec:
+        // https://www.notion.so/Mantle-Specification-21c261aa09df810c8820fab1d78b53d9
+        const NOMOS_LEDGER_TXHASH_V1: &[u8] = b"NOMOS_LEDGER_TXHASH_V1";
+        const INOUT_SEP: &[u8] = b"INOUT_SEP";
+
+        let mut bytes = BytesMut::from(NOMOS_LEDGER_TXHASH_V1);
 
         for input in &self.inputs {
             bytes.extend(input.as_bytes());
         }
 
-        bytes.extend_from_slice(b"INOUT_SEP");
+        bytes.extend_from_slice(INOUT_SEP);
 
         for output in &self.outputs {
             bytes.extend_from_slice(output.to_bytes().as_ref());
