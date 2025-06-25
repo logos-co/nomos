@@ -78,12 +78,12 @@ impl From<Ed25519PublicKey> for [u8; KEY_SIZE] {
 }
 
 impl TryFrom<[u8; KEY_SIZE]> for Ed25519PublicKey {
-    type Error = &'static str;
+    type Error = String;
 
     fn try_from(key: [u8; KEY_SIZE]) -> Result<Self, Self::Error> {
         Ok(Self(
             ed25519_dalek::VerifyingKey::from_bytes(&key)
-                .map_err(|_| "Invalid Ed25519 public key")?,
+                .map_err(|_| "Invalid Ed25519 public key".to_owned())?,
         ))
     }
 }
