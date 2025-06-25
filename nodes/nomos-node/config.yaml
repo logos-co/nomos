@@ -283,7 +283,7 @@ cryptarchia:
     slot_duration: [2, 0]
     chain_start_time: [2025, 41, 9, 38, 29, 993653000, 0, 0, 0]
   leader_config:
-   utxos:
+    utxos:
     - tx_hash: '0000000000000000000000000000000000000000000000000000000000000000'
       output_index: 0
       note:

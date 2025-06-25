@@ -15,10 +15,7 @@ pub struct UtxoTree {
 
 // TODO: change to sparse computation
 fn note_id_leaves(utxos: &rpds::RedBlackTreeMapSync<NoteId, Note>) -> [MerkleLeaf; MAX_UTXOS] {
-    let note_id_bytes: Vec<Vec<u8>> = utxos
-        .iter()
-        .map(|(id, _utxo)| id.as_bytes().to_vec())
-        .collect();
+    let note_id_bytes: Vec<Vec<u8>> = utxos.keys().map(|id| id.as_bytes().to_vec()).collect();
     debug_assert!(note_id_bytes.is_sorted());
     merkle::padded_leaves::<MAX_UTXOS>(&note_id_bytes)
 }
@@ -45,11 +42,12 @@ impl UtxoTree {
 
     #[must_use]
     pub fn witness(&self, id: &NoteId) -> Option<Vec<PathNode>> {
-        let leaves = note_id_leaves(&self.utxos);
-        leaves
-            .binary_search(&id.0)
-            .ok()
-            .map(|idx| merkle::path(leaves, idx))
+        // TODO: this is back to O(n) complexity
+        let utxos = self.utxos.keys().copied().collect::<Vec<_>>();
+        debug_assert!(utxos.is_sorted());
+        let index = utxos.binary_search(id).ok()?;
+
+        Some(merkle::path(note_id_leaves(&self.utxos), index))
     }
 
     #[must_use]
