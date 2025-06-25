@@ -36,7 +36,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
 
     async fn request_blocks_from_peer(
         &self,
-        peer: String,
+        peer: Self::PeerId,
         target_block: HeaderId,
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,

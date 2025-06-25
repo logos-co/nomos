@@ -68,7 +68,7 @@ where
     type Settings = LibP2pAdapterSettings;
     type Tx = Tx;
     type BlobCertificate = BlobCert;
-    type PeerId = String;
+    type PeerId = PeerId;
 
     async fn new(settings: Self::Settings, network_relay: Relay<Libp2p, RuntimeServiceId>) -> Self {
         let relay = network_relay.clone();
@@ -137,8 +137,6 @@ where
     }
 
     async fn request_tip(&self, peer: Self::PeerId) -> Result<HeaderId, DynError> {
-        let peer = PeerId::from_str(&peer).map_err(|e| Box::new(e) as DynError)?;
-
         let (reply_sender, receiver) = oneshot::channel();
         if let Err((e, _)) = self
             .network_relay
@@ -163,8 +161,6 @@ where
         additional_blocks: HashSet<HeaderId>,
     ) -> Result<BoxedStream<Result<Block<Self::Tx, Self::BlobCertificate>, DynError>>, DynError>
     {
-        let peer = PeerId::from_str(&peer).map_err(|e| Box::new(e) as DynError)?;
-
         let (reply_sender, receiver) = oneshot::channel();
         if let Err((e, _)) = self
             .network_relay
