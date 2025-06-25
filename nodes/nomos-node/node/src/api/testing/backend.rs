@@ -9,6 +9,7 @@ use http::{
     HeaderValue,
 };
 use nomos_api::Backend;
+use nomos_http_api_common::paths::UPDATE_MEMBERSHIP;
 use nomos_membership::MembershipService as MembershipServiceTrait;
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
 use services_utils::wait_until_services_are_ready;
@@ -83,7 +84,7 @@ where
             )
             .layer(TraceLayer::new_for_http())
             .route(
-                "/api/test/membership/update",
+                UPDATE_MEMBERSHIP,
                 post(
                     update_membership::<
                         MembershipBackend,

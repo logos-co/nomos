@@ -7,14 +7,6 @@ use overwatch::overwatch::OverwatchHandle;
 
 use crate::make_request_and_return_response;
 
-#[utoipa::path(
-    post,
-    path = "/api/test/membership/update",  
-    responses(
-        (status = 200, description = "Membership updated successfully"),
-        (status = 500, description = "Internal server error", body = String),
-    )
-)]
 pub async fn update_membership<Backend, Sdp, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(payload): Json<MembershipUpdateRequest>,
@@ -30,6 +22,10 @@ where
         + 'static
         + overwatch::services::AsServiceId<MembershipService<Backend, Sdp, RuntimeServiceId>>,
 {
+    tracing::debug!(
+        "BUGHUTING: update_membership handler called with payload: {:?}",
+        payload
+    );
     make_request_and_return_response!(membership::update_membership_handler::<
         Backend,
         Sdp,

@@ -6,6 +6,7 @@ use std::{
 use axum::{http::HeaderValue, routing::post, Router, Server};
 use hyper::header::{CONTENT_TYPE, USER_AGENT};
 use nomos_api::Backend;
+use nomos_http_api_common::paths::UPDATE_MEMBERSHIP;
 use nomos_membership::MembershipService as MembershipServiceTrait;
 use nomos_node::{
     api::testing::handlers::update_membership,
@@ -82,7 +83,7 @@ where
             )
             .layer(TraceLayer::new_for_http())
             .route(
-                "/api/test/membership/update",
+                UPDATE_MEMBERSHIP,
                 post(
                     update_membership::<
                         MembershipBackend,
