@@ -231,34 +231,39 @@ pub mod tests {
         let path = compute_path(branches, start_block, target_block, MAX_NUMBER_OF_BLOCKS).unwrap();
 
         assert_eq!(path.len(), 2);
+        assert_eq!(path.front().unwrap(), &start_block);
+        assert_eq!(path.back().unwrap(), &target_block);
     }
 
     #[test]
     fn test_compute_long_path() {
         let mut cryptarchia = new_cryptarchia();
 
-        let limit = 100;
+        cryptarchia = cryptarchia
+            .receive_block([1; 32], [0; 32], Slot::from(1))
+            .expect("Failed to add block");
 
-        let mut parent = [0; 32];
+        cryptarchia = cryptarchia
+            .receive_block([2; 32], [1; 32], Slot::from(2))
+            .expect("Failed to add block");
 
-        for i in 1..=limit + 10 {
-            let id = [i as u8; 32];
-            cryptarchia = cryptarchia
-                .receive_block(id, parent, Slot::from(i as u64))
-                .expect("Failed to add block");
-
-            parent = id;
-        }
+        cryptarchia = cryptarchia
+            .receive_block([3; 32], [2; 32], Slot::from(3))
+            .expect("Failed to add block");
 
         let branches = cryptarchia.branches();
 
         let start_block = [1; 32];
-        let target_block = [limit as u8; 32];
+        let target_block = [3; 32];
+        let last_block_in_computed_path = [2; 32];
+
+        let limit = 2;
+
         let path = compute_path(branches, start_block, target_block, limit).unwrap();
 
         assert_eq!(path.len(), limit);
         assert_eq!(path.front().unwrap(), &start_block);
-        assert_eq!(path.back().unwrap(), &target_block);
+        assert_eq!(path.back().unwrap(), &last_block_in_computed_path);
     }
 
     #[test]
