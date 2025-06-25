@@ -248,10 +248,10 @@ impl Executor {
             .await;
 
         assert!(
-            !response.is_err(),
-            "❌ Failed to connect to testing endpoint {}.\n\
-         💡 The binary was likely built without the 'testing' feature.\n\
-         🔧 Try: cargo build --workspace --all-features",
+            response.is_ok(),
+            "Failed to connect to testing endpoint {}.\n\
+            The binary was likely built without the 'testing' feature.\n\
+            Try: cargo build --workspace --all-features",
             self.testing_http_addr
         );
 
