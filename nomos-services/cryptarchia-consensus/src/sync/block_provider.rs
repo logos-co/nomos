@@ -240,7 +240,7 @@ pub mod tests {
     }
 
     #[test]
-    fn test_compute_long_path() {
+    fn test_compute_path_limit_bounds() {
         let mut cryptarchia = new_cryptarchia();
 
         cryptarchia = cryptarchia
