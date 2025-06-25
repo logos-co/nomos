@@ -90,7 +90,7 @@ impl<R: Rng + Sync + Send> DaSamplingServiceBackend<R> for KzgrsSamplingBackend<
                 column_idx,
                 hex::encode(blob_id)
             );
-            ctx.subnets.insert(column_idx as SubnetworkId);
+            ctx.subnets.insert(column_idx);
 
             // sampling of this blob_id terminated successfully
             if ctx.subnets.len() == self.settings.num_samples as usize {
@@ -128,7 +128,7 @@ impl<R: Rng + Sync + Send> DaSamplingServiceBackend<R> for KzgrsSamplingBackend<
             return SamplingState::Terminated;
         }
 
-        let subnets: Vec<SubnetworkId> = (0..self.settings.num_subnets as SubnetworkId)
+        let subnets: Vec<SubnetworkId> = (0..self.settings.num_subnets)
             .choose_multiple(&mut self.rng, self.settings.num_samples.into());
 
         let ctx: SamplingContext = SamplingContext {
