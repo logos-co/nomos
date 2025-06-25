@@ -22,10 +22,6 @@ where
         + 'static
         + overwatch::services::AsServiceId<MembershipService<Backend, Sdp, RuntimeServiceId>>,
 {
-    tracing::debug!(
-        "BUGHUTING: update_membership handler called with payload: {:?}",
-        payload
-    );
     make_request_and_return_response!(membership::update_membership_handler::<
         Backend,
         Sdp,
