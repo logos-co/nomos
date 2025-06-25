@@ -5,6 +5,8 @@ use nomos_core::mantle::{
 // up to 2^14 commitments
 const MAX_UTXOS: usize = 1 << 14;
 
+type MerkleLeaf = [u8; 32];
+
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct UtxoTree {
@@ -12,7 +14,7 @@ pub struct UtxoTree {
 }
 
 // TODO: change to sparse computation
-fn note_id_leaves(utxos: &rpds::RedBlackTreeMapSync<NoteId, Note>) -> [[u8; 32]; MAX_UTXOS] {
+fn note_id_leaves(utxos: &rpds::RedBlackTreeMapSync<NoteId, Note>) -> [MerkleLeaf; MAX_UTXOS] {
     let note_id_bytes: Vec<Vec<u8>> = utxos
         .iter()
         .map(|(id, _utxo)| id.as_bytes().to_vec())
