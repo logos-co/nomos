@@ -111,11 +111,11 @@ impl From<DecapsulationOutput<ENCAPSULATION_COUNT>> for BlendOutgoingMessage {
     fn from(output: DecapsulationOutput<ENCAPSULATION_COUNT>) -> Self {
         match output {
             DecapsulationOutput::Incompleted(message) => {
-                Self::EncapsulatedMessage(serialize_encapsulated_message(&message))
+                Self::EncapsulatedMessage(serialize_encapsulated_message(&message).into())
             }
             DecapsulationOutput::Completed((payload_type, payload_body)) => match payload_type {
-                PayloadType::Cover => Self::CoverMessage(payload_body),
-                PayloadType::Data => Self::DataMessage(payload_body),
+                PayloadType::Cover => Self::CoverMessage(payload_body.into()),
+                PayloadType::Data => Self::DataMessage(payload_body.into()),
             },
         }
     }

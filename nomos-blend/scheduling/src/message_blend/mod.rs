@@ -21,8 +21,8 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use crate::{
     membership::Membership,
-    message::BlendOutgoingMessage,
     message_blend::{crypto::CryptographicProcessor, temporal::TemporalProcessorExt as _},
+    BlendOutgoingMessage,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
