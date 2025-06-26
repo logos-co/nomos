@@ -20,6 +20,8 @@ use crate::{
     BlendConfig,
 };
 
+const LOG_TARGET: &str = "blend::backend::libp2p";
+
 mod behaviour;
 pub mod settings;
 pub use settings::Libp2pBlendBackendSettings;
@@ -85,7 +87,7 @@ impl<RuntimeServiceId> BlendBackend<RuntimeServiceId> for Libp2pBlendBackend {
             .send(BlendSwarmMessage::Publish(msg))
             .await
         {
-            tracing::error!("Failed to send message to BlendSwarm: {e}");
+            tracing::error!(target: LOG_TARGET, "Failed to send message to BlendSwarm: {e}");
         }
     }
 

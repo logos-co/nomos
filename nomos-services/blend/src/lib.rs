@@ -40,6 +40,8 @@ use crate::{
     settings::BlendConfig,
 };
 
+const LOG_TARGET: &str = "blend::service";
+
 /// A blend service that sends messages to the blend network
 /// and broadcasts fully unwrapped messages through the [`NetworkService`].
 ///
@@ -153,6 +155,7 @@ where
 
         status_updater.notify_ready();
         tracing::info!(
+            target: LOG_TARGET,
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
@@ -208,7 +211,7 @@ async fn handle_local_data_message<
     let Ok(wrapped_message) = cryptographic_processor
         .encapsulate_data_message(&local_data_message)
         .inspect_err(|e| {
-            tracing::error!("Failed to wrap message: {e:?}");
+            tracing::error!(target: LOG_TARGET, "Failed to wrap message: {e:?}");
         })
     else {
         return;
@@ -235,26 +238,26 @@ fn handle_incoming_blend_message<NodeId, Rng, SessionClock, BroadcastSettings>(
 {
     match cryptographic_processor.decapsulate_message(blend_message) {
         Err(e @ (Error::DeserializationFailed | Error::ProofOfSelectionVerificationFailed)) => {
-            tracing::debug!("This node is not allowed to decapsulate this message: {e}");
+            tracing::debug!(target: LOG_TARGET,"This node is not allowed to decapsulate this message: {e}");
         }
         Err(e) => {
-            tracing::error!("Failed to unwrap message: {e}");
+            tracing::error!(target: LOG_TARGET,"Failed to unwrap message: {e}");
         }
         Ok(BlendOutgoingMessage::CoverMessage(_)) => {
-            tracing::info!("Discarding received cover message.");
+            tracing::info!(target: LOG_TARGET,"Discarding received cover message.");
         }
         Ok(BlendOutgoingMessage::EncapsulatedMessage(encapsulated_message)) => {
             scheduler.schedule_message(encapsulated_message.into());
         }
         Ok(BlendOutgoingMessage::DataMessage(serialized_data_message)) => {
-            tracing::debug!("Processing a fully decapsulated data message.");
+            tracing::debug!(target: LOG_TARGET,"Processing a fully decapsulated data message.");
             if let Ok(deserialized_network_message) = wire::deserialize::<
                 NetworkMessage<BroadcastSettings>,
             >(serialized_data_message.as_ref())
             {
                 scheduler.schedule_message(deserialized_network_message.into());
             } else {
-                tracing::debug!("Unrecognized data message from blend backend. Dropping.");
+                tracing::debug!(target: LOG_TARGET,"Unrecognized data message from blend backend. Dropping.");
             }
         }
     }
@@ -319,7 +322,7 @@ where
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     fn drop(&mut self) {
-        tracing::info!("Shutting down Blend backend");
+        tracing::info!(target: LOG_TARGET, "Shutting down Blend backend");
         self.backend.shutdown();
     }
 }
