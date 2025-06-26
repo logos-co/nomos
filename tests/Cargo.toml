@@ -75,3 +75,7 @@ path = "src/tests/mempool/api.rs"
 [[test]]
 name = "test_membership_api"
 path = "src/tests/membership/api.rs"
+
+[[test]]
+name = "test_membership_disperse"
+path = "src/tests/membership/disperse.rs"

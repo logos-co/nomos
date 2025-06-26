@@ -18,20 +18,37 @@ use crate::{
         validator::{create_validator_config, Validator},
     },
     topology::configs::{
-        api::create_api_configs,
-        blend::create_blend_configs,
-        consensus::{create_consensus_configs, ConsensusParams},
-        membership::create_membership_configs,
-        time::default_time_config,
+        api::{create_api_configs, GeneralApiConfig},
+        blend::{create_blend_configs, GeneralBlendConfig},
+        consensus::{create_consensus_configs, ConsensusParams, GeneralConsensusConfig},
+        da::GeneralDaConfig,
+        membership::{
+            create_empty_membership_configs, create_membership_configs, GeneralMembershipConfig,
+        },
+        network::GeneralNetworkConfig,
+        time::{default_time_config, GeneralTimeConfig},
+        tracing::GeneralTracingConfig,
     },
 };
 
 pub struct TopologyConfig {
-    n_validators: usize,
-    n_executors: usize,
-    consensus_params: ConsensusParams,
-    da_params: DaParams,
-    network_params: NetworkParams,
+    pub n_validators: usize,
+    pub n_executors: usize,
+    pub consensus_params: ConsensusParams,
+    pub da_params: DaParams,
+    pub network_params: NetworkParams,
+}
+
+#[derive(Clone)]
+pub struct NodeConfig {
+    pub consensus: Vec<GeneralConsensusConfig>,
+    pub da: Vec<GeneralDaConfig>,
+    pub network: Vec<GeneralNetworkConfig>,
+    pub blend: Vec<GeneralBlendConfig>,
+    pub api: Vec<GeneralApiConfig>,
+    pub tracing: Vec<GeneralTracingConfig>,
+    pub membership: Vec<GeneralMembershipConfig>,
+    pub time: GeneralTimeConfig,
 }
 
 impl TopologyConfig {
@@ -131,40 +148,100 @@ impl Topology {
         let tracing_configs = create_tracing_configs(&ids);
         let time_config = default_time_config();
 
-        let mut validators = Vec::new();
-        for i in 0..config.n_validators {
-            let config = create_validator_config(GeneralConfig {
-                consensus_config: consensus_configs[i].clone(),
-                da_config: da_configs[i].clone(),
-                network_config: network_configs[i].clone(),
-                blend_config: blend_configs[i].clone(),
-                api_config: api_configs[i].clone(),
-                tracing_config: tracing_configs[i].clone(),
-                time_config: time_config.clone(),
-                membership_config: membership_configs[i].clone(),
-            });
-            validators.push(Validator::spawn(config).await);
-        }
+        let node_config = NodeConfig {
+            consensus: consensus_configs,
+            da: da_configs,
+            network: network_configs,
+            blend: blend_configs,
+            api: api_configs,
+            tracing: tracing_configs,
+            membership: membership_configs,
+            time: time_config,
+        };
 
-        let mut executors = Vec::new();
-        for i in config.n_validators..n_participants {
-            let config = create_executor_config(GeneralConfig {
-                consensus_config: consensus_configs[i].clone(),
-                da_config: da_configs[i].clone(),
-                network_config: network_configs[i].clone(),
-                blend_config: blend_configs[i].clone(),
-                api_config: api_configs[i].clone(),
-                tracing_config: tracing_configs[i].clone(),
-                time_config: time_config.clone(),
-                membership_config: membership_configs[i].clone(),
-            });
-            executors.push(Executor::spawn(config).await);
-        }
+        let (validators, executors) =
+            Self::spawn_validators_executors(node_config, config.n_validators, config.n_executors)
+                .await;
 
         Self {
             validators,
             executors,
         }
+    }
+
+    pub async fn spawn_with_empty_membership(
+        config: TopologyConfig,
+        ids: &[[u8; 32]],
+        ports: &[u16],
+    ) -> Self {
+        let n_participants = config.n_validators + config.n_executors;
+
+        let consensus_configs = create_consensus_configs(ids, &config.consensus_params);
+        let da_configs = create_da_configs(ids, &config.da_params, ports);
+        let network_configs = create_network_configs(ids, &config.network_params);
+        let blend_configs = create_blend_configs(ids);
+        let api_configs = create_api_configs(ids);
+        let membership_configs = create_empty_membership_configs(n_participants);
+        let tracing_configs = create_tracing_configs(ids);
+        let time_config = default_time_config();
+
+        let node_config = NodeConfig {
+            consensus: consensus_configs,
+            da: da_configs,
+            network: network_configs,
+            blend: blend_configs,
+            api: api_configs,
+            tracing: tracing_configs,
+            membership: membership_configs,
+            time: time_config,
+        };
+
+        let (validators, executors) =
+            Self::spawn_validators_executors(node_config, config.n_validators, config.n_executors)
+                .await;
+
+        Self {
+            validators,
+            executors,
+        }
+    }
+
+    async fn spawn_validators_executors(
+        config: NodeConfig,
+        n_validators: usize,
+        n_executors: usize,
+    ) -> (Vec<Validator>, Vec<Executor>) {
+        let mut validators = Vec::new();
+        for i in 0..n_validators {
+            let config = create_validator_config(GeneralConfig {
+                consensus_config: config.consensus[i].clone(),
+                da_config: config.da[i].clone(),
+                network_config: config.network[i].clone(),
+                blend_config: config.blend[i].clone(),
+                api_config: config.api[i].clone(),
+                tracing_config: config.tracing[i].clone(),
+                time_config: config.time.clone(),
+                membership_config: config.membership[i].clone(),
+            });
+            validators.push(Validator::spawn(config).await);
+        }
+
+        let mut executors = Vec::new();
+        for i in n_validators..(n_validators + n_executors) {
+            let config = create_executor_config(GeneralConfig {
+                consensus_config: config.consensus[i].clone(),
+                da_config: config.da[i].clone(),
+                network_config: config.network[i].clone(),
+                blend_config: config.blend[i].clone(),
+                api_config: config.api[i].clone(),
+                tracing_config: config.tracing[i].clone(),
+                time_config: config.time.clone(),
+                membership_config: config.membership[i].clone(),
+            });
+            executors.push(Executor::spawn(config).await);
+        }
+
+        (validators, executors)
     }
 
     #[must_use]
