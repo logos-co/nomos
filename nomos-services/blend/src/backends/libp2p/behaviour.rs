@@ -16,28 +16,22 @@ pub(super) struct BlendBehaviour {
 impl BlendBehaviour {
     pub(super) fn new(config: &BlendConfig<Libp2pBlendBackendSettings, PeerId>) -> Self {
         let observation_window_interval_provider = ObservationWindowTokioIntervalProvider {
-            blending_ops_per_message: NonZeroU64::try_from(
-                config
-                    .message_blend
-                    .cryptographic_processor
-                    .num_blend_layers as u64,
-            )
-            .unwrap(),
+            blending_ops_per_message: NonZeroU64::try_from(config.crypto.num_blend_layers).unwrap(),
             maximal_delay_seconds: NonZeroU64::try_from(
-                config.message_blend.temporal_processor.max_delay.as_secs(),
+                0, // config.message_blend.temporal_processor.max_delay.as_secs(),
             )
             .unwrap(),
             membership_size: NonZeroUsize::try_from(config.membership().size()).unwrap(),
-            minimum_messages_coefficient: NonZeroUsize::try_from(
-                config.message_blend.minimum_messages_coefficient,
+            minimum_messages_coefficient: NonZeroU64::try_from(
+                // config.message_blend.minimum_messages_coefficient,
+                0,
             )
             .unwrap(),
-            normalization_constant: config.message_blend.normalization_constant,
-            round_duration_seconds: NonZeroU64::try_from(
-                config.timing_settings.round_duration.as_secs(),
-            )
-            .unwrap(),
-            rounds_per_observation_window: config.timing_settings.rounds_per_observation_window,
+            // normalization_constant: config.message_blend.normalization_constant,
+            normalization_constant: 1f64.try_into().unwrap(),
+            round_duration_seconds: NonZeroU64::try_from(config.time.round_duration.as_secs())
+                .unwrap(),
+            rounds_per_observation_window: config.time.rounds_per_observation_window,
         };
         Self {
             blend: nomos_blend_network::Behaviour::new(

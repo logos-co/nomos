@@ -1,9 +1,9 @@
 use core::{
-    num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll},
     time::Duration,
 };
+use std::{marker::PhantomData, num::NonZeroU64};
 
 use futures::{
     stream::{empty, AbortHandle},
@@ -12,9 +12,9 @@ use futures::{
 use tracing::trace;
 
 use crate::{
-    cover_traffic_2::SessionCoverTraffic,
+    cover_traffic::SessionCoverTraffic,
     message_scheduler::{
-        round_info::{ProcessedMessage, RoundClock, RoundInfo},
+        round_info::{RoundClock, RoundInfo},
         session_info::SessionInfo,
         utils::setup_new_session,
     },
@@ -33,37 +33,45 @@ const LOG_TARGET: &str = "blend::scheduling";
 /// A message scheduler waiting for the session stream to provide consumable
 /// session info, to compute session-related components to pass to its
 /// constituent sub-streams.
-pub struct UninitializedMessageScheduler<SessionClock, Rng> {
+pub struct UninitializedMessageScheduler<SessionClock, Rng, ProcessedMessage> {
     /// The random generator to select rounds for message releasing.
     rng: Rng,
     /// The input stream that ticks upon a session change.
     session_clock: SessionClock,
     /// The settings to initialize all the required sub-streams.
     settings: Settings,
+    _phantom: PhantomData<ProcessedMessage>,
 }
 
-impl<SessionClock, Rng> UninitializedMessageScheduler<SessionClock, Rng> {
+impl<SessionClock, Rng, ProcessedMessage>
+    UninitializedMessageScheduler<SessionClock, Rng, ProcessedMessage>
+{
     pub const fn new(session_clock: SessionClock, settings: Settings, rng: Rng) -> Self {
         Self {
             rng,
             session_clock,
             settings,
+            _phantom: PhantomData,
         }
     }
 }
 
-impl<SessionClock, Rng> UninitializedMessageScheduler<SessionClock, Rng>
+impl<SessionClock, Rng, ProcessedMessage>
+    UninitializedMessageScheduler<SessionClock, Rng, ProcessedMessage>
 where
     SessionClock: Stream<Item = SessionInfo> + Unpin,
     Rng: rand::Rng + Clone,
 {
     /// Waits until the provided [`SessionClock`] returns the first tick with
     /// the relevant session information.
-    pub async fn wait_next_session_start(self) -> MessageScheduler<SessionClock, Rng> {
+    pub async fn wait_next_session_start(
+        self,
+    ) -> MessageScheduler<SessionClock, Rng, ProcessedMessage> {
         let Self {
             rng,
             mut session_clock,
             settings,
+            ..
         } = self;
         // We wait until the provided session stream returns its first usable value,
         // which we use to initialize the scheduler.
@@ -82,14 +90,14 @@ where
 
 /// The initialized version of [`UninitializedMessageScheduler`] that is created
 /// after the session stream yields its first result.
-pub struct MessageScheduler<SessionClock, Rng> {
+pub struct MessageScheduler<SessionClock, Rng, ProcessedMessage> {
     /// The module responsible for randomly generated cover messages, given the
     /// allowed session quota and accounting for data messages generated within
     /// the session.
     cover_traffic: SessionCoverTraffic<RoundClock>,
     /// The module responsible for delaying the release of processed messages
     /// that have not been fully decapsulated.
-    release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng>,
+    release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
     /// The clock ticking at the beginning of each new round.
     round_clock: RoundClock,
     /// The abort handle to kill the round stream broadcaster at the beginning
@@ -101,7 +109,7 @@ pub struct MessageScheduler<SessionClock, Rng> {
     settings: Settings,
 }
 
-impl<SessionClock, Rng> MessageScheduler<SessionClock, Rng>
+impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, ProcessedMessage>
 where
     Rng: rand::Rng + Clone,
 {
@@ -116,7 +124,7 @@ where
         // function, which expects a `&mut` reference to those fields. The same function
         // is then called upon each new session tick.
         let mut initial_cover_traffic = SessionCoverTraffic::<RoundClock>::new(
-            crate::cover_traffic_2::Settings {
+            crate::cover_traffic::Settings {
                 additional_safety_intervals: settings.additional_safety_intervals,
                 expected_intervals_per_session: settings.expected_intervals_per_session,
                 rounds_per_interval: settings.rounds_per_interval,
@@ -125,13 +133,14 @@ where
             &mut rng,
             Box::new(empty()) as RoundClock,
         );
-        let mut initial_release_delayer = SessionProcessedMessageDelayer::<RoundClock, Rng>::new(
-            crate::release_delayer::Settings {
-                maximum_release_delay_in_rounds: settings.maximum_release_delay_in_rounds,
-            },
-            rng.clone(),
-            Box::new(empty()) as RoundClock,
-        );
+        let mut initial_release_delayer =
+            SessionProcessedMessageDelayer::<_, _, ProcessedMessage>::new(
+                crate::release_delayer::Settings {
+                    maximum_release_delay_in_rounds: settings.maximum_release_delay_in_rounds,
+                },
+                rng.clone(),
+                Box::new(empty()) as RoundClock,
+            );
         let mut initial_round_clock = Box::new(empty()) as RoundClock;
         let (mut initial_round_clock_task_abort_handle, _) = AbortHandle::new_pair();
 
@@ -156,7 +165,7 @@ where
     }
 }
 
-impl<SessionClock, Rng> MessageScheduler<SessionClock, Rng> {
+impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, ProcessedMessage> {
     /// Notify the cover message submodule that a new data message has been
     /// generated in this session, which will reduce the number of cover
     /// messages generated going forward.
@@ -173,7 +182,7 @@ impl<SessionClock, Rng> MessageScheduler<SessionClock, Rng> {
     #[cfg(test)]
     pub fn with_test_values(
         cover_traffic: SessionCoverTraffic<RoundClock>,
-        release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng>,
+        release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
         round_clock: RoundClock,
         session_clock: SessionClock,
     ) -> Self {
@@ -189,19 +198,23 @@ impl<SessionClock, Rng> MessageScheduler<SessionClock, Rng> {
     }
 }
 
-impl<SessionClock, Rng> Drop for MessageScheduler<SessionClock, Rng> {
+impl<SessionClock, Rng, ProcessedMessage> Drop
+    for MessageScheduler<SessionClock, Rng, ProcessedMessage>
+{
     fn drop(&mut self) {
         trace!(target: LOG_TARGET, "Dropping message scheduler.");
         self.round_clock_task_abort_handle.abort();
     }
 }
 
-impl<SessionClock, Rng> Stream for MessageScheduler<SessionClock, Rng>
+impl<SessionClock, Rng, ProcessedMessage> Stream
+    for MessageScheduler<SessionClock, Rng, ProcessedMessage>
 where
     SessionClock: Stream<Item = SessionInfo> + Unpin,
     Rng: rand::Rng + Clone + Unpin,
+    ProcessedMessage: Unpin,
 {
-    type Item = RoundInfo;
+    type Item = RoundInfo<ProcessedMessage>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Self {
@@ -276,11 +289,11 @@ where
 
 #[derive(Debug, Clone, Copy)]
 pub struct Settings {
-    pub additional_safety_intervals: usize,
-    pub expected_intervals_per_session: NonZeroUsize,
-    pub maximum_release_delay_in_rounds: NonZeroUsize,
+    pub additional_safety_intervals: u64,
+    pub expected_intervals_per_session: NonZeroU64,
+    pub maximum_release_delay_in_rounds: NonZeroU64,
     pub round_duration: Duration,
-    pub rounds_per_interval: NonZeroUsize,
+    pub rounds_per_interval: NonZeroU64,
 }
 
 #[cfg(test)]
@@ -288,10 +301,10 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             additional_safety_intervals: 0,
-            expected_intervals_per_session: NonZeroUsize::try_from(1).unwrap(),
-            maximum_release_delay_in_rounds: NonZeroUsize::try_from(1).unwrap(),
+            expected_intervals_per_session: NonZeroU64::try_from(1).unwrap(),
+            maximum_release_delay_in_rounds: NonZeroU64::try_from(1).unwrap(),
             round_duration: Duration::from_secs(1),
-            rounds_per_interval: NonZeroUsize::try_from(1).unwrap(),
+            rounds_per_interval: NonZeroU64::try_from(1).unwrap(),
         }
     }
 }

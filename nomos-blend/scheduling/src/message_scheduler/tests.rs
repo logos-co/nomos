@@ -1,5 +1,5 @@
 use core::{
-    num::NonZeroUsize,
+    num::NonZeroU64,
     task::{Context, Poll},
 };
 use std::collections::HashSet;
@@ -10,9 +10,9 @@ use rand_chacha::ChaCha20Rng;
 use tokio_stream::iter;
 
 use crate::{
-    cover_traffic_2::SessionCoverTraffic,
+    cover_traffic::SessionCoverTraffic,
     message_scheduler::{
-        round_info::{ProcessedMessage, Round, RoundInfo},
+        round_info::{Round, RoundInfo},
         session_info::SessionInfo,
         MessageScheduler,
     },
@@ -23,7 +23,7 @@ use crate::{
 async fn no_substream_ready() {
     let rng = ChaCha20Rng::from_entropy();
     let rounds = [Round::from(0)];
-    let mut scheduler = MessageScheduler::with_test_values(
+    let mut scheduler = MessageScheduler::<_, _, ()>::with_test_values(
         // Round `1` scheduled, tick will yield round `0`.
         SessionCoverTraffic::with_test_values(
             Box::new(iter(rounds)),
@@ -32,7 +32,7 @@ async fn no_substream_ready() {
         ),
         // Round `1` scheduled, tick will yield round `0`.
         SessionProcessedMessageDelayer::with_test_values(
-            NonZeroUsize::try_from(1).unwrap(),
+            NonZeroU64::try_from(1).unwrap(),
             1u128.into(),
             rng,
             Box::new(iter(rounds)),
@@ -54,7 +54,7 @@ async fn no_substream_ready() {
 async fn cover_traffic_substream_ready() {
     let rng = ChaCha20Rng::from_entropy();
     let rounds = [Round::from(0)];
-    let mut scheduler = MessageScheduler::with_test_values(
+    let mut scheduler = MessageScheduler::<_, _, ()>::with_test_values(
         // Round `0` scheduled, tick will yield round `0`.
         SessionCoverTraffic::with_test_values(
             Box::new(iter(rounds)),
@@ -63,7 +63,7 @@ async fn cover_traffic_substream_ready() {
         ),
         // Round `1` scheduled, tick will yield round `0`.
         SessionProcessedMessageDelayer::with_test_values(
-            NonZeroUsize::try_from(1).unwrap(),
+            NonZeroU64::try_from(1).unwrap(),
             1u128.into(),
             rng,
             Box::new(iter(rounds)),
@@ -90,7 +90,7 @@ async fn cover_traffic_substream_ready() {
 async fn release_delayer_substream_ready() {
     let rng = ChaCha20Rng::from_entropy();
     let rounds = [Round::from(0)];
-    let mut scheduler = MessageScheduler::with_test_values(
+    let mut scheduler = MessageScheduler::<_, _, ()>::with_test_values(
         // Round `1` scheduled, tick will yield round `0`.
         SessionCoverTraffic::with_test_values(
             Box::new(iter(rounds)),
@@ -99,11 +99,11 @@ async fn release_delayer_substream_ready() {
         ),
         // Round `0` scheduled, tick will yield round `0`.
         SessionProcessedMessageDelayer::with_test_values(
-            NonZeroUsize::try_from(1).unwrap(),
+            NonZeroU64::try_from(1).unwrap(),
             0u128.into(),
             rng,
             Box::new(iter(rounds)),
-            vec![ProcessedMessage::Data(b"test".to_vec().into())],
+            vec![()],
         ),
         // Round clock (same as above)
         Box::new(iter(rounds)),
@@ -117,7 +117,7 @@ async fn release_delayer_substream_ready() {
         scheduler.poll_next_unpin(&mut cx),
         Poll::Ready(Some(RoundInfo {
             cover_message_generation_flag: None,
-            processed_messages: vec![ProcessedMessage::Data(b"test".to_vec().into())]
+            processed_messages: vec![()]
         }))
     );
 }
@@ -126,7 +126,7 @@ async fn release_delayer_substream_ready() {
 async fn both_substreams_ready() {
     let rng = ChaCha20Rng::from_entropy();
     let rounds = [Round::from(0)];
-    let mut scheduler = MessageScheduler::with_test_values(
+    let mut scheduler = MessageScheduler::<_, _, ()>::with_test_values(
         // Round `0` scheduled, tick will yield round `0`.
         SessionCoverTraffic::with_test_values(
             Box::new(iter(rounds)),
@@ -135,11 +135,11 @@ async fn both_substreams_ready() {
         ),
         // Round `0` scheduled, tick will yield round `0`.
         SessionProcessedMessageDelayer::with_test_values(
-            NonZeroUsize::try_from(1).unwrap(),
+            NonZeroU64::try_from(1).unwrap(),
             0u128.into(),
             rng,
             Box::new(iter(rounds)),
-            vec![ProcessedMessage::Data(b"test".to_vec().into())],
+            vec![()],
         ),
         // Round clock (same as above)
         Box::new(iter(rounds)),
@@ -154,7 +154,7 @@ async fn both_substreams_ready() {
         scheduler.poll_next_unpin(&mut cx),
         Poll::Ready(Some(RoundInfo {
             cover_message_generation_flag: Some(()),
-            processed_messages: vec![ProcessedMessage::Data(b"test".to_vec().into())]
+            processed_messages: vec![()]
         }))
     );
 }
@@ -163,7 +163,7 @@ async fn both_substreams_ready() {
 async fn round_change() {
     let rng = ChaCha20Rng::from_entropy();
     let rounds = [Round::from(0), Round::from(1), Round::from(2)];
-    let mut scheduler = MessageScheduler::with_test_values(
+    let mut scheduler = MessageScheduler::<_, _, ()>::with_test_values(
         // Round `1` scheduled, tick will yield round `0` then round `1`, then round `2`.
         SessionCoverTraffic::with_test_values(
             Box::new(iter(rounds)),
@@ -172,11 +172,11 @@ async fn round_change() {
         ),
         // Round `2` scheduled, tick will yield round `0` then round `1`, then round `2`.
         SessionProcessedMessageDelayer::with_test_values(
-            NonZeroUsize::try_from(1).unwrap(),
+            NonZeroU64::try_from(1).unwrap(),
             2u128.into(),
             rng,
             Box::new(iter(rounds)),
-            vec![ProcessedMessage::Data(b"test".to_vec().into())],
+            vec![()],
         ),
         // Round clock (same as above)
         Box::new(iter(rounds)),
@@ -202,7 +202,7 @@ async fn round_change() {
         scheduler.poll_next_unpin(&mut cx),
         Poll::Ready(Some(RoundInfo {
             cover_message_generation_flag: None,
-            processed_messages: vec![ProcessedMessage::Data(b"test".to_vec().into())]
+            processed_messages: vec![()]
         }))
     );
 }
@@ -219,12 +219,12 @@ async fn session_change() {
             1,
         ),
         SessionProcessedMessageDelayer::with_test_values(
-            NonZeroUsize::try_from(1).unwrap(),
+            NonZeroU64::try_from(1).unwrap(),
             2u128.into(),
             rng,
             Box::new(iter(rounds)),
             // One unreleased message.
-            vec![ProcessedMessage::Data(b"test".to_vec().into())],
+            vec![()],
         ),
         // Round clock (same as above)
         Box::new(iter(rounds)),

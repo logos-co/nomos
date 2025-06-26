@@ -32,7 +32,7 @@ impl Display for Session {
 pub struct SessionInfo {
     /// The initial quota that the cover message scheduler will use to
     /// pre-compute the rounds to yield a new message.
-    pub core_quota: usize,
+    pub core_quota: u64,
     /// The identifier for the current session.
     pub session_number: Session,
 }

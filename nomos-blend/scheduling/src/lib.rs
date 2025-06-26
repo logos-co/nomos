@@ -1,11 +1,9 @@
-pub mod cover_traffic;
 pub mod membership;
 pub mod message_blend;
 pub mod message_scheduler;
-pub mod persistent_transmission;
 mod serde;
 
-mod cover_traffic_2;
+mod cover_traffic;
 mod release_delayer;
 
 pub use self::message_scheduler::UninitializedMessageScheduler;
@@ -15,6 +13,26 @@ pub enum BlendOutgoingMessage {
     CoverMessage(CoverMessage),
     DataMessage(DataMessage),
     EncapsulatedMessage(EncapsulatedMessage),
+}
+
+impl From<BlendOutgoingMessage> for Vec<u8> {
+    fn from(value: BlendOutgoingMessage) -> Self {
+        match value {
+            BlendOutgoingMessage::CoverMessage(m) => m.into(),
+            BlendOutgoingMessage::DataMessage(m) => m.into(),
+            BlendOutgoingMessage::EncapsulatedMessage(m) => m.into(),
+        }
+    }
+}
+
+impl AsRef<[u8]> for BlendOutgoingMessage {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            Self::CoverMessage(m) => m.as_ref(),
+            Self::DataMessage(m) => m.as_ref(),
+            Self::EncapsulatedMessage(m) => m.as_ref(),
+        }
+    }
 }
 
 impl From<CoverMessage> for BlendOutgoingMessage {

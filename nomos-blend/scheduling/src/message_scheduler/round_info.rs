@@ -5,8 +5,6 @@ use core::{
 
 use futures::Stream;
 
-use crate::{DataMessage, EncapsulatedMessage};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Round(u128);
 
@@ -37,7 +35,7 @@ impl Display for Round {
 
 /// Information can the message scheduler can yield when being polled.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RoundInfo {
+pub struct RoundInfo<ProcessedMessage> {
     /// The list of messages to be released.
     pub processed_messages: Vec<ProcessedMessage>,
     /// Flag indicating (if `Some`) whether a new cover message should be
@@ -45,22 +43,4 @@ pub struct RoundInfo {
     pub cover_message_generation_flag: Option<()>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ProcessedMessage {
-    Data(DataMessage),
-    Encapsulated(EncapsulatedMessage),
-}
-
-impl From<DataMessage> for ProcessedMessage {
-    fn from(value: DataMessage) -> Self {
-        Self::Data(value)
-    }
-}
-
-impl From<EncapsulatedMessage> for ProcessedMessage {
-    fn from(value: EncapsulatedMessage) -> Self {
-        Self::Encapsulated(value)
-    }
-}
-
-pub type RoundClock = Box<dyn Stream<Item = Round> + Unpin>;
+pub type RoundClock = Box<dyn Stream<Item = Round> + Send + Unpin>;

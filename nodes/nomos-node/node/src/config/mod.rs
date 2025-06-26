@@ -266,7 +266,7 @@ pub fn update_blend(
     }
 
     if let Some(num_blend_layers) = blend_num_blend_layers {
-        blend.message_blend.cryptographic_processor.num_blend_layers = num_blend_layers;
+        blend.crypto.num_blend_layers = num_blend_layers as u64;
     }
 
     Ok(())

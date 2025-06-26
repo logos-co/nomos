@@ -1,7 +1,8 @@
 use std::marker::PhantomData;
 
 use nomos_blend_service::{
-    backends::libp2p::Libp2pBlendBackend, network::NetworkAdapter, BlendService, ServiceMessage,
+    backends::libp2p::Libp2pBlendBackend, message::ServiceMessage, network::NetworkAdapter,
+    BlendService,
 };
 use nomos_core::{block::Block, wire};
 use overwatch::services::{relay::OutboundRelay, ServiceData};
@@ -63,10 +64,12 @@ where
     async fn blend(&self, block: Block<Self::Tx, Self::BlobCertificate>) {
         if let Err((e, msg)) = self
             .blend_relay
-            .send(ServiceMessage::Blend(nomos_blend_service::NetworkMessage {
-                message: wire::serialize(&NetworkMessage::Block(block)).unwrap(),
-                broadcast_settings: self.settings.broadcast_settings.clone(),
-            }))
+            .send(ServiceMessage::Blend(
+                nomos_blend_service::message::NetworkMessage {
+                    message: wire::serialize(&NetworkMessage::Block(block)).unwrap(),
+                    broadcast_settings: self.settings.broadcast_settings.clone(),
+                },
+            ))
             .await
         {
             tracing::error!("error sending message to blend network: {e}: {msg:?}",);

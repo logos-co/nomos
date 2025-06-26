@@ -5,12 +5,10 @@ use futures::{
     future::{AbortHandle, Abortable},
     Stream, StreamExt as _,
 };
-use libp2p::{identity::ed25519, Multiaddr, PeerId};
+use libp2p::PeerId;
 use nomos_blend_scheduling::membership::Membership;
-use nomos_libp2p::secret_key_serde;
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
-use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc};
 use tokio_stream::wrappers::BroadcastStream;
 
@@ -23,6 +21,8 @@ use crate::{
 };
 
 mod behaviour;
+pub mod settings;
+pub use settings::Libp2pBlendBackendSettings;
 mod swarm;
 
 /// A blend backend that uses the libp2p network stack.
@@ -30,16 +30,6 @@ pub struct Libp2pBlendBackend {
     swarm_task_abort_handle: AbortHandle,
     swarm_message_sender: mpsc::Sender<BlendSwarmMessage>,
     incoming_message_sender: broadcast::Sender<Vec<u8>>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Libp2pBlendBackendSettings {
-    pub listening_address: Multiaddr,
-    // A key for deriving PeerId and establishing secure connections (TLS 1.3 by QUIC)
-    #[serde(with = "secret_key_serde", default = "ed25519::SecretKey::generate")]
-    pub node_key: ed25519::SecretKey,
-    pub peering_degree: usize,
-    pub max_peering_degree: u32,
 }
 
 const CHANNEL_SIZE: usize = 64;
