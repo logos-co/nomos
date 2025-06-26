@@ -25,7 +25,7 @@ pub trait MembershipCreator: MembershipHandler {
 
 pub trait MembershipHandler {
     /// Subnetworks Id type
-    type NetworkId: Eq + Hash;
+    type NetworkId: Eq + Hash + Debug;
     /// Members Id type
     type Id: Debug;
 

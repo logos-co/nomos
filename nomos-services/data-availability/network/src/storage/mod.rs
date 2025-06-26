@@ -44,6 +44,7 @@ where
         let updated_membership = self.handler.membership().update(new_members);
         let assignations = updated_membership.subnetworks();
 
+        tracing::debug!("Updating membership at block {block_number} with {assignations:?}");
         self.handler.update(updated_membership);
         self.adapter.store(block_number, assignations);
     }
