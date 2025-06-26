@@ -97,10 +97,10 @@ impl<Rng> BlendSwarm<Rng> {
     fn handle_publish_swarm_message(&mut self, msg: &[u8]) {
         if let Err(e) = self.swarm.behaviour_mut().blend.publish(msg) {
             tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
-            tracing::info!(target: LOG_TARGET, counter.failed_outbound_messages = 1);
+            tracing::info!(counter.failed_outbound_messages = 1);
         } else {
-            tracing::info!(target: LOG_TARGET, counter.successful_outbound_messages = 1);
-            tracing::info!(target: LOG_TARGET, histogram.sent_data = msg.len() as u64);
+            tracing::info!(counter.successful_outbound_messages = 1);
+            tracing::info!(histogram.sent_data = msg.len() as u64);
         }
     }
 
@@ -114,10 +114,10 @@ impl<Rng> BlendSwarm<Rng> {
         let msg_size = msg.len();
         if let Err(e) = self.incoming_message_sender.send(msg) {
             tracing::error!(target: LOG_TARGET, "Failed to send incoming message to channel: {e}");
-            tracing::info!(target: LOG_TARGET, counter.failed_inbound_messages = 1);
+            tracing::info!(counter.failed_inbound_messages = 1);
         } else {
-            tracing::info!(target: LOG_TARGET, counter.successful_inbound_messages = 1);
-            tracing::info!(target: LOG_TARGET, histogram.received_data = msg_size as u64);
+            tracing::info!(counter.successful_inbound_messages = 1);
+            tracing::info!(histogram.received_data = msg_size as u64);
         }
     }
 }
@@ -156,7 +156,7 @@ where
             nomos_blend_network::Event::Error(e) => {
                 tracing::error!(target: LOG_TARGET, "Received error from blend network: {e:?}");
                 self.check_and_dial_new_peers();
-                tracing::info!(target: LOG_TARGET, counter.error = 1);
+                tracing::info!(counter.error = 1);
             }
         }
     }
@@ -181,7 +181,7 @@ where
             }
             _ => {
                 tracing::debug!(target: LOG_TARGET, "Received event from blend network: {event:?}");
-                tracing::info!(target: LOG_TARGET, counter.ignored_event = 1);
+                tracing::info!(counter.ignored_event = 1);
             }
         }
     }

@@ -21,6 +21,7 @@ pub struct NetworkMessage<BroadcastSettings> {
     pub broadcast_settings: BroadcastSettings,
 }
 
+#[derive(Debug)]
 pub enum ProcessedMessage<BroadcastSettings> {
     Network(NetworkMessage<BroadcastSettings>),
     Encapsulated(EncapsulatedMessage),

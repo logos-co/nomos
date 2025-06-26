@@ -34,6 +34,7 @@ use rand::{seq::SliceRandom as _, RngCore, SeedableRng as _};
 use rand_chacha::ChaCha12Rng;
 use serde::Deserialize;
 use services_utils::wait_until_services_are_ready;
+use tracing::debug;
 
 use crate::{
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
@@ -238,26 +239,26 @@ fn handle_incoming_blend_message<NodeId, Rng, SessionClock, BroadcastSettings>(
 {
     match cryptographic_processor.decapsulate_message(blend_message) {
         Err(e @ (Error::DeserializationFailed | Error::ProofOfSelectionVerificationFailed)) => {
-            tracing::debug!(target: LOG_TARGET,"This node is not allowed to decapsulate this message: {e}");
+            tracing::debug!(target: LOG_TARGET, "This node is not allowed to decapsulate this message: {e}");
         }
         Err(e) => {
-            tracing::error!(target: LOG_TARGET,"Failed to unwrap message: {e}");
+            tracing::error!(target: LOG_TARGET, "Failed to unwrap message: {e}");
         }
         Ok(BlendOutgoingMessage::CoverMessage(_)) => {
-            tracing::info!(target: LOG_TARGET,"Discarding received cover message.");
+            tracing::info!(target: LOG_TARGET, "Discarding received cover message.");
         }
         Ok(BlendOutgoingMessage::EncapsulatedMessage(encapsulated_message)) => {
             scheduler.schedule_message(encapsulated_message.into());
         }
         Ok(BlendOutgoingMessage::DataMessage(serialized_data_message)) => {
-            tracing::debug!(target: LOG_TARGET,"Processing a fully decapsulated data message.");
+            tracing::debug!(target: LOG_TARGET, "Processing a fully decapsulated data message.");
             if let Ok(deserialized_network_message) = wire::deserialize::<
                 NetworkMessage<BroadcastSettings>,
             >(serialized_data_message.as_ref())
             {
                 scheduler.schedule_message(deserialized_network_message.into());
             } else {
-                tracing::debug!(target: LOG_TARGET,"Unrecognized data message from blend backend. Dropping.");
+                tracing::debug!(target: LOG_TARGET, "Unrecognized data message from blend backend. Dropping.");
             }
         }
     }
@@ -311,9 +312,11 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
     }
     // TODO: If we send all of them in parallel, do we still need to shuffle them?
     processed_messages_relay_futures.shuffle(rng);
+    let total_message_count = processed_messages_relay_futures.len();
 
     // Release all messages concurrently, and wait for all of them to be sent.
     join_all(processed_messages_relay_futures).await;
+    debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
 }
 
 impl<Backend, Network, RuntimeServiceId> Drop for BlendService<Backend, Network, RuntimeServiceId>

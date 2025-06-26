@@ -1,15 +1,17 @@
 use core::{
+    fmt::Debug,
+    marker::PhantomData,
+    num::NonZeroU64,
     pin::Pin,
     task::{Context, Poll},
     time::Duration,
 };
-use std::{marker::PhantomData, num::NonZeroU64};
 
 use futures::{
     stream::{empty, AbortHandle},
     Stream, StreamExt as _,
 };
-use tracing::trace;
+use tracing::{info, trace};
 
 use crate::{
     cover_traffic::SessionCoverTraffic,
@@ -212,7 +214,7 @@ impl<SessionClock, Rng, ProcessedMessage> Stream
 where
     SessionClock: Stream<Item = SessionInfo> + Unpin,
     Rng: rand::Rng + Clone + Unpin,
-    ProcessedMessage: Unpin,
+    ProcessedMessage: Debug + Unpin,
 {
     type Item = RoundInfo<ProcessedMessage>;
 
@@ -278,10 +280,12 @@ where
                 } else {
                     vec![]
                 };
-                Poll::Ready(Some(RoundInfo {
+                let round_info = RoundInfo {
                     processed_messages,
                     cover_message_generation_flag: cover_message,
-                }))
+                };
+                info!(target: LOG_TARGET, "Emitting new round info {round_info:?}.");
+                Poll::Ready(Some(round_info))
             }
         }
     }
