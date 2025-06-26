@@ -44,6 +44,7 @@ impl CryptarchiaState for Boostrapping {
     where
         Id: Eq + Hash + Copy,
     {
+        // Return the current LIB as it is.
         cryptarchia.branches.lib
     }
 }
@@ -61,6 +62,7 @@ impl CryptarchiaState for Online {
     where
         Id: Eq + Hash + Copy,
     {
+        // Return the k-th deep block as the new LIB.
         cryptarchia
             .branches
             .nth_ancestor(
@@ -383,6 +385,8 @@ where
         Ok(new)
     }
 
+    /// Try to update the LIB.
+    /// LIB might not be updated depending on [`CryptarchiaState`].
     pub fn update_lib(&mut self) {
         self.branches.lib = <State as CryptarchiaState>::lib(&*self);
     }
