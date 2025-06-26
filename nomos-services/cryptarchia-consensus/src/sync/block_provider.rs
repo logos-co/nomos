@@ -221,11 +221,13 @@ pub mod tests {
 
         cryptarchia = cryptarchia
             .receive_block([1; 32], [0; 32], Slot::from(1))
-            .expect("Failed to add block");
+            .expect("Failed to add block")
+            .0;
 
         cryptarchia = cryptarchia
             .receive_block([2; 32], [1; 32], Slot::from(2))
-            .expect("Failed to add block");
+            .expect("Failed to add block")
+            .0;
 
         let branches = cryptarchia.branches();
 
@@ -245,15 +247,18 @@ pub mod tests {
 
         cryptarchia = cryptarchia
             .receive_block([1; 32], [0; 32], Slot::from(1))
-            .expect("Failed to add block");
+            .expect("Failed to add block")
+            .0;
 
         cryptarchia = cryptarchia
             .receive_block([2; 32], [1; 32], Slot::from(2))
-            .expect("Failed to add block");
+            .expect("Failed to add block")
+            .0;
 
         cryptarchia = cryptarchia
             .receive_block([3; 32], [2; 32], Slot::from(3))
-            .expect("Failed to add block");
+            .expect("Failed to add block")
+            .0;
 
         let branches = cryptarchia.branches();
 
@@ -293,7 +298,8 @@ pub mod tests {
 
         cryptarchia = cryptarchia
             .receive_block([3; 32], [0; 32], Slot::from(1))
-            .expect("Failed to add block");
+            .expect("Failed to add block")
+            .0;
 
         let branches = cryptarchia.branches();
 

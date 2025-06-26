@@ -1,6 +1,6 @@
 use std::{collections::HashSet, marker::PhantomData};
 
-use cryptarchia_engine::{CryptarchiaState, ForkDivergenceInfo};
+use cryptarchia_engine::CryptarchiaState;
 use nomos_core::{header::HeaderId, mantle::Utxo};
 use nomos_ledger::LedgerState;
 use overwatch::{services::state::ServiceState, DynError};
@@ -36,7 +36,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
     pub(crate) fn from_cryptarchia_and_unpruned_blocks<State: CryptarchiaState>(
         cryptarchia: &Cryptarchia<State>,
         leader: &Leader,
-        mut prunable_blocks: HashSet<HeaderId>,
+        prunable_blocks: HashSet<HeaderId>,
     ) -> Result<Self, DynError> {
         let lib = cryptarchia.consensus.lib_branch();
         let Some(lib_ledger_state) = cryptarchia.ledger.state(&lib.id()).cloned() else {
@@ -47,41 +47,13 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
         let lib_block_length = lib.length();
         let lib_leader_utxos = leader.utxos().to_vec();
 
-        // Retrieve the prunable forks from the cryptarchia engine.
-        let prunable_forks = {
-            let pruning_depth = cryptarchia
-                .consensus
-                .tip_branch()
-                .length()
-                .checked_sub(lib_block_length).expect("The LIB has a length greater than the tip of the canonical chain, something is corrupted");
-            cryptarchia
-                .consensus
-                .prunable_forks(pruning_depth)
-                .collect::<Vec<_>>()
-        };
-
-        // Merge all blocks from each prunable fork's tip up until (but excluding) the
-        // fork's LCA with the canonical chain.
-        for ForkDivergenceInfo { lca, tip } in prunable_forks {
-            let mut cursor = tip;
-            while cursor != lca {
-                prunable_blocks.insert(cursor.id());
-                cursor = cryptarchia
-                    .consensus
-                    .branches()
-                    .get(&cursor.parent())
-                    .copied()
-                    .expect("Fork block should have a parent.");
-            }
-        }
-
         Ok(Self {
             tip: cryptarchia.consensus.tip_branch().id(),
             lib: lib.id(),
             lib_ledger_state,
             lib_leader_utxos,
             lib_block_length,
-            prunable_blocks: prunable_blocks.into_iter().collect(),
+            prunable_blocks,
             _markers: PhantomData,
         })
     }
@@ -155,30 +127,38 @@ mod tests {
             cryptarchia = cryptarchia
                 .receive_block([1; 32].into(), genesis_header_id, 1.into())
                 .expect("Block 1 to be added successfully on top of block 0.")
+                .0
                 .receive_block([2; 32].into(), [1; 32].into(), 2.into())
                 .expect("Block 2 to be added successfully on top of block 1.")
+                .0
                 .receive_block([3; 32].into(), [2; 32].into(), 3.into())
-                .expect("Block 3 to be added successfully on top of block 2.");
+                .expect("Block 3 to be added successfully on top of block 2.")
+                .0;
             // Add a 2-block fork from genesis
             cryptarchia = cryptarchia
                 .receive_block([4; 32].into(), genesis_header_id, 1.into())
                 .expect("Block 4 to be added successfully on top of block 0.")
+                .0
                 .receive_block([5; 32].into(), [4; 32].into(), 2.into())
-                .expect("Block 5 to be added successfully on top of block 4.");
+                .expect("Block 5 to be added successfully on top of block 4.")
+                .0;
             // Add a second single-block fork from genesis
             cryptarchia = cryptarchia
                 .receive_block([6; 32].into(), genesis_header_id, 1.into())
-                .expect("Block 6 to be added successfully on top of block 0.");
+                .expect("Block 6 to be added successfully on top of block 0.")
+                .0;
             // Add a single-block fork from the block after genesis (block `1`)
             cryptarchia = cryptarchia
                 .receive_block([7; 32].into(), [1; 32].into(), 2.into())
-                .expect("Block 7 to be added successfully on top of block 1.");
+                .expect("Block 7 to be added successfully on top of block 1.")
+                .0;
             // Add a single-block fork from the second block after genesis (block `2`)
             cryptarchia = cryptarchia
                 .receive_block([8; 32].into(), [2; 32].into(), 3.into())
-                .expect("Block 8 to be added successfully on top of block 2.");
+                .expect("Block 8 to be added successfully on top of block 2.")
+                .0;
 
-            cryptarchia.online()
+            cryptarchia.online().0
         };
         // Empty ledger state.
         let ledger_state = nomos_ledger::Ledger::new(
@@ -202,49 +182,26 @@ mod tests {
             )
             .unwrap();
 
-        // We configured `k = 2`, and since the canonical chain is 4-block long (`b0` to
-        // `b3`), it means that all forks diverging before 2 blocks in the past
-        // are considered prunable.
-        // That is:
-        // - `b3` and `b4`, belonging to the first fork from genesis.
-        // - `b6` belonging to the second fork from genesis.
-        // On the other hand:
-        // - `b7` is not pruned since it diverged from `b1`, which is the LIB.
-        // - `b8` is not pruned since it diverged from `b2`, which is 1 block younger
-        //   than LIB.
-        assert_eq!(
-            recovery_state
-                .prunable_blocks
-                .into_iter()
-                .collect::<HashSet<_>>(),
-            [[4; 32].into(), [5; 32].into(), [6; 32].into(),].into()
-        );
+        assert_eq!(recovery_state.tip, cryptarchia_engine.tip());
+        assert_eq!(recovery_state.lib, cryptarchia_engine.lib());
+        assert!(recovery_state.prunable_blocks.is_empty());
 
         // Test when additional blocks are included.
+        let prunable_blocks: HashSet<HeaderId> = core::iter::once([255; 32].into()).collect();
         let recovery_state =
             CryptarchiaConsensusState::<(), (), (), ()>::from_cryptarchia_and_unpruned_blocks(
                 &Cryptarchia {
                     ledger: ledger_state,
-                    consensus: cryptarchia_engine,
+                    consensus: cryptarchia_engine.clone(),
                 },
                 &leader,
-                core::iter::once([255; 32].into()).collect(),
+                prunable_blocks.clone(),
             )
             .unwrap();
 
         // Result should be the same as above, with the addition of the new block
-        assert_eq!(
-            recovery_state
-                .prunable_blocks
-                .into_iter()
-                .collect::<HashSet<_>>(),
-            [
-                [4; 32].into(),
-                [5; 32].into(),
-                [6; 32].into(),
-                [255; 32].into()
-            ]
-            .into()
-        );
+        assert_eq!(recovery_state.tip, cryptarchia_engine.tip());
+        assert_eq!(recovery_state.lib, cryptarchia_engine.lib());
+        assert_eq!(recovery_state.prunable_blocks, prunable_blocks);
     }
 }
