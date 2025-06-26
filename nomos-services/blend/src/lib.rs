@@ -144,7 +144,8 @@ where
         // Yields new messages received via Blend peers.
         let mut blend_messages = backend.listen_to_incoming_messages();
 
-        // Yields whenever another service requires a message to be sent via Blend.
+        // Yields a new data message whenever another service requires a message to be
+        // sent via Blend.
         let mut local_data_messages = inbound_relay.map(|ServiceMessage::Blend(message)| {
             wire::serialize(&message)
                 .expect("Message from internal services should not fail to serialize")
@@ -185,6 +186,8 @@ where
 /// encapsulate its payload is performed. If encapsulation is successful, the
 /// message is sent over the Blend network and the Blend scheduler notified of
 /// the new message sent.
+/// These messages do not go through the Blend scheduler hence are not delayed,
+/// as per the spec.
 async fn handle_local_data_message<
     NodeId,
     Rng,
@@ -257,6 +260,14 @@ fn handle_incoming_blend_message<NodeId, Rng, SessionClock, BroadcastSettings>(
     }
 }
 
+/// Reacts to a new release tick as returned by the scheduler.
+///
+/// When that happens, the previously processed messages (both encapsulated and
+/// unencapsulated ones) as well as optionally a cover message are handled.
+/// For unencapsulated messages, they are broadcasted to the rest of the network
+/// using the configured network adapter. For encapsulated messages as well as
+/// the optional cover message, they are forwarded to the rest of the connected
+/// Blend peers.
 async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId>(
     RoundInfo {
         cover_message_generation_flag,
@@ -295,8 +306,10 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
             backend.publish(CoverMessage::from(cover_message).into()),
         ));
     }
+    // TODO: If we send all of them in parallel, do we still need to shuffle them?
     processed_messages_relay_futures.shuffle(rng);
 
+    // Release all messages concurrently, and wait for all of them to be sent.
     join_all(processed_messages_relay_futures).await;
 }
 
