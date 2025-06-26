@@ -146,7 +146,13 @@ mod tests {
                 cryptarchia_engine_config,
             );
 
-            // Add 3 more blocks to canonical chain. Blocks `0`, `1`, `2` and `3` represent
+            //      b4 - b5
+            //    /
+            // b0 - b1 - b2 - b3 == local chain tip
+            //    \    \    \
+            //      b6   b7   b8
+            //
+            // Add 3 more blocks to canonical chain. `b0`, `b1`, `b2`, and `b3` represent
             // the canonical chain now.
             cryptarchia = cryptarchia
                 .receive_block([1; 32].into(), genesis_header_id, 1.into())
@@ -198,17 +204,16 @@ mod tests {
             )
             .unwrap();
 
-        // We configured `k = 2`, and since the canonical chain is 4-block long (blocks
-        // `0` to `3`), it means that all forks diverging before 2
-        // blocks in the past are considered prunable.
+        // We configured `k = 2`, and since the canonical chain is 4-block long (`b0` to
+        // `b3`), it means that all forks diverging before 2 blocks in the past
+        // are considered prunable.
         // That is:
-        // - Blocks `3` and `4`, belonging to the first fork from genesis.
-        // - Block `6` belonging to the second fork from genesis.
+        // - `b3` and `b4`, belonging to the first fork from genesis.
+        // - `b6` belonging to the second fork from genesis.
         // On the other hand:
-        // - Block `7` is not pruned since it diverged from block `1`, which is the LIB.
-        // - Block `8` is not pruned since it diverged from block `2`, which is 1 block
-        //   younger
-        // than LIB.
+        // - `b7` is not pruned since it diverged from `b1`, which is the LIB.
+        // - `b8` is not pruned since it diverged from `b2`, which is 1 block younger
+        //   than LIB.
         assert_eq!(
             recovery_state
                 .prunable_blocks
