@@ -4,6 +4,9 @@ use std::{
 };
 
 use futures::{Stream, StreamExt as _};
+use tracing::debug;
+
+const LOG_TARGET: &str = "blend::network::conn_maintenance";
 
 /// Counts the number of messages received from a peer during
 /// an interval.
@@ -97,6 +100,7 @@ where
         } else {
             ConnectionMonitorOutput::Healthy
         };
+        debug!(target: LOG_TARGET, "Monitor clock. Received messages = {:#?}, expected range = {:#?}", self.current_window_message_count, self.expected_message_range);
         self.reset(new_expected_message_count_range);
         Poll::Ready(Some(outcome))
     }
