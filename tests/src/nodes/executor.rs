@@ -258,7 +258,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                     redundancy_parameter: 0,
                 },
                 delayer: MessageDelayerSettingsExt {
-                    maximum_release_delay_in_rounds: NonZeroU64::try_from(30u64)
+                    maximum_release_delay_in_rounds: NonZeroU64::try_from(3u64)
                         .expect("Maximum release delay between rounds cannot be zero."),
                 },
             },

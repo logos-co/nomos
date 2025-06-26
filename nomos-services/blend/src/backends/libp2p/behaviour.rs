@@ -17,7 +17,7 @@ impl BlendBehaviour {
     pub(super) fn new(config: &BlendConfig<Libp2pBlendBackendSettings, PeerId>) -> Self {
         let observation_window_interval_provider = ObservationWindowTokioIntervalProvider {
             blending_ops_per_message: config.crypto.num_blend_layers,
-            maximal_delay_seconds: config.scheduler.delayer.maximum_release_delay_in_rounds,
+            maximal_delay_rounds: config.scheduler.delayer.maximum_release_delay_in_rounds,
             membership_size: NonZeroU64::try_from(config.membership().size() as u64)
                 .expect("Membership size cannot be zero."),
             minimum_messages_coefficient: config.backend.minimum_messages_coefficient,

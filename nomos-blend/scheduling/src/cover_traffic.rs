@@ -80,11 +80,12 @@ impl<RoundClock> SessionCoverTraffic<RoundClock> {
 
     /// Notify the scheduler that a new data message has been emitted, which
     /// will affect the generation of the next scheduled cover message.
-    pub const fn notify_new_data_message(&mut self) {
+    pub fn notify_new_data_message(&mut self) {
         self.unprocessed_data_messages = self
             .unprocessed_data_messages
             .checked_add(1)
             .expect("Overflow when incrementing unprocessed data messages.");
+        debug!(target: LOG_TARGET, "New data message event registered. Unprocessed messages count: {}", self.unprocessed_data_messages);
     }
 }
 

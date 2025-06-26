@@ -13,7 +13,7 @@ use crate::IntervalStreamProvider;
 /// messages from the peer, as per the specification.
 pub struct ObservationWindowTokioIntervalProvider {
     pub round_duration_seconds: NonZeroU64,
-    pub maximal_delay_seconds: NonZeroU64,
+    pub maximal_delay_rounds: NonZeroU64,
     pub blending_ops_per_message: u64,
     pub normalization_constant: NonNegativeF64,
     pub membership_size: NonZeroU64,
@@ -24,7 +24,7 @@ pub struct ObservationWindowTokioIntervalProvider {
 impl ObservationWindowTokioIntervalProvider {
     fn calculate_expected_message_range(&self) -> RangeInclusive<u64> {
         // TODO: Remove unsafe arithmetic operations
-        let mu = ((self.maximal_delay_seconds.get() as f64
+        let mu = ((self.maximal_delay_rounds.get() as f64
             * self.blending_ops_per_message as f64
             * self.normalization_constant.get())
             / self.membership_size.get() as f64)

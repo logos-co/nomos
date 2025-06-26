@@ -171,7 +171,7 @@ impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, Pr
     /// Notify the cover message submodule that a new data message has been
     /// generated in this session, which will reduce the number of cover
     /// messages generated going forward.
-    pub const fn notify_new_data_message(&mut self) {
+    pub fn notify_new_data_message(&mut self) {
         self.cover_traffic.notify_new_data_message();
     }
 

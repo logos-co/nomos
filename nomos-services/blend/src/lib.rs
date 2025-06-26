@@ -34,7 +34,6 @@ use rand::{seq::SliceRandom as _, RngCore, SeedableRng as _};
 use rand_chacha::ChaCha12Rng;
 use serde::Deserialize;
 use services_utils::wait_until_services_are_ready;
-use tracing::debug;
 
 use crate::{
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
@@ -316,7 +315,7 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
 
     // Release all messages concurrently, and wait for all of them to be sent.
     join_all(processed_messages_relay_futures).await;
-    debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
+    tracing::debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
 }
 
 impl<Backend, Network, RuntimeServiceId> Drop for BlendService<Backend, Network, RuntimeServiceId>

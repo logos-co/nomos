@@ -85,6 +85,7 @@ impl<RoundClock, Rng, ProcessedMessage>
     /// along with any other queued message.
     pub fn schedule_message(&mut self, message: ProcessedMessage) {
         self.unreleased_messages.push(message);
+        debug!(target: LOG_TARGET, "New message scheduled. Pending message count: {}", self.unreleased_messages.len());
     }
 
     /// Get a reference to the stored rng.
