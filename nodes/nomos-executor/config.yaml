@@ -17,6 +17,8 @@ blend:
     peering_degree: 1
     max_peering_degree: 3
     conn_monitor: null
+    minimum_messages_coefficient: 3
+    normalization_constant: 1.03
   crypto:
     signing_private_key: 32e4b52b78e0e8273f31e2ae0826d09b0348d4c66824af4f51ec4ef338082211
     num_blend_layers: 1

@@ -1,4 +1,4 @@
-use std::str::FromStr as _;
+use std::{num::NonZeroU64, str::FromStr as _};
 
 use nomos_blend_message::crypto::Ed25519PrivateKey;
 use nomos_blend_scheduling::membership::Node;
@@ -37,6 +37,11 @@ pub fn create_blend_configs(ids: &[[u8; 32]]) -> Vec<GeneralBlendConfig> {
                     node_key,
                     peering_degree: 1,
                     max_peering_degree: 3,
+                    minimum_messages_coefficient: NonZeroU64::try_from(3)
+                        .expect("Minimum messages coefficient cannot be zero."),
+                    normalization_constant: 1.03f64
+                        .try_into()
+                        .expect("Normalization constant cannot be negative."),
                 },
                 private_key: Ed25519PrivateKey::generate(),
                 membership: Vec::new(),
