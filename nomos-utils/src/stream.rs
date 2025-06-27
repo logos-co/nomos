@@ -12,6 +12,7 @@ use tokio::{
     spawn,
     sync::broadcast::{channel, Receiver, Sender},
 };
+use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tracing::{error, trace};
 
 pub struct MultiConsumerStream<T, const CHANNEL_CAPACITY: usize> {
@@ -107,12 +108,105 @@ where
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.receiver.poll_next_unpin(cx) {
             Poll::Pending => Poll::Pending,
-            Poll::Ready(Some(Err(e))) => {
-                error!("Failed to poll underlying broadcast receiver with error {e:?}. Returning `Pending` and waiting for the next element.");
-                Poll::Pending
+            // In this case, since we're inside a loop, we will keep polling the channel until
+            // it returns a valid value.
+            Poll::Ready(Some(Err(BroadcastStreamRecvError::Lagged(behind)))) => {
+                error!("Failed to poll underlying broadcast receiver because lagging behind by {behind} values. Re-polling the channel to get the oldest available element...");
+                self.poll_next(cx)
             }
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Ready(Some(Ok(value))) => Poll::Ready(Some(value)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::{
+        task::{Context, Poll},
+        time::Duration,
+    };
+
+    use futures::{
+        stream::{empty, iter},
+        task::noop_waker_ref,
+        StreamExt as _,
+    };
+    use tokio::time::{interval_at, sleep, Instant};
+    use tokio_stream::wrappers::IntervalStream;
+
+    use crate::stream::MultiConsumerStream;
+
+    #[tokio::test]
+    async fn propagate_some() {
+        let broadcast_stream = MultiConsumerStream::from(iter([1u8, 2u8, 3u8]));
+        let mut consumer_1 = broadcast_stream.new_consumer();
+        let mut consumer_2 = broadcast_stream.new_consumer();
+
+        assert_eq!(consumer_1.next().await, Some(1u8));
+        assert_eq!(consumer_1.next().await, Some(2u8));
+        assert_eq!(consumer_1.next().await, Some(3u8));
+
+        assert_eq!(consumer_2.next().await, Some(1u8));
+        assert_eq!(consumer_2.next().await, Some(2u8));
+        assert_eq!(consumer_2.next().await, Some(3u8));
+    }
+
+    #[tokio::test]
+    async fn different_subscriber_timings() {
+        let interval = Duration::from_millis(100);
+        let input_stream = IntervalStream::new(interval_at(Instant::now() + interval, interval))
+            .enumerate()
+            .map(|(i, _)| i);
+        let broadcast_stream = MultiConsumerStream::from(input_stream);
+        let mut consumer_1 = broadcast_stream.new_consumer();
+
+        assert_eq!(consumer_1.next().await, Some(0usize));
+        assert_eq!(consumer_1.next().await, Some(1usize));
+
+        let mut consumer_2 = broadcast_stream.new_consumer();
+
+        assert_eq!(consumer_1.next().await, Some(2usize));
+        assert_eq!(consumer_2.next().await, Some(2usize));
+    }
+
+    #[tokio::test]
+    async fn handle_channel_closing() {
+        let broadcast_stream = MultiConsumerStream::from(empty::<()>());
+        let mut consumer_1 = broadcast_stream.new_consumer();
+        let mut consumer_2 = broadcast_stream.new_consumer();
+        let mut cx = Context::from_waker(noop_waker_ref());
+
+        drop(broadcast_stream);
+
+        // Wait for stream to be dropped and the sender channel to be closed.
+        sleep(Duration::from_millis(500)).await;
+
+        assert_eq!(consumer_1.poll_next_unpin(&mut cx), Poll::Ready(None));
+        assert_eq!(consumer_2.poll_next_unpin(&mut cx), Poll::Ready(None));
+    }
+
+    #[tokio::test]
+    async fn handle_channel_lagging() {
+        // Channel has capacity of `2`.
+        let broadcast_stream =
+            MultiConsumerStream::<_, 2>::new(iter([1u8, 10u8, 20u8, 30u8, 40u8]));
+
+        let mut consumer = broadcast_stream.new_consumer();
+        // Polling the stream will return the oldest available element, which is `30`.
+        assert_eq!(consumer.next().await, Some(30));
+        assert_eq!(consumer.next().await, Some(40));
+    }
+
+    #[tokio::test]
+    async fn handle_channel_empty() {
+        let broadcast_stream = MultiConsumerStream::from(empty::<()>());
+        let mut cx = Context::from_waker(noop_waker_ref());
+
+        // Wait for channel to be initialized
+        sleep(Duration::from_millis(500)).await;
+
+        let mut consumer = broadcast_stream.new_consumer();
+        assert_eq!(consumer.poll_next_unpin(&mut cx), Poll::Pending);
     }
 }
