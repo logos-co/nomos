@@ -10,7 +10,7 @@ use std::task::Waker;
 
 use futures::{stream::empty, FutureExt, Stream, StreamExt as _};
 use nomos_utils::stream::{
-    MultiConsumerStream, MultiConsumerStreamConsumer, RunningMultiConsumerStream,
+    MultiConsumerStream, MultiConsumerStreamConstructor, MultiConsumerStreamConsumer,
 };
 use tracing::{info, trace};
 
@@ -105,7 +105,7 @@ pub struct MessageScheduler<SessionClock, Rng, ProcessedMessage> {
     /// that have not been fully decapsulated.
     release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
     /// The clock ticking at the beginning of each new round.
-    round_clock_stream: RunningMultiConsumerStream<RoundClock, ROUND_STREAM_SIZE>,
+    round_clock_stream: MultiConsumerStream<RoundClock, ROUND_STREAM_SIZE>,
     round_clock_consumer: MultiConsumerStreamConsumer<<RoundClock as Stream>::Item>,
     /// The input stream that ticks upon a session change.
     session_clock: SessionClock,
@@ -147,8 +147,9 @@ where
                 rng.clone(),
                 Box::new(empty()) as RoundClock,
             );
-        let initial_round_clock =
-            MultiConsumerStream::<_, ROUND_STREAM_SIZE>::new(Box::new(empty()) as RoundClock);
+        let initial_round_clock = MultiConsumerStreamConstructor::<_, ROUND_STREAM_SIZE>::new(
+            Box::new(empty()) as RoundClock,
+        );
         let mut initial_round_clock_consumer = initial_round_clock.new_consumer();
         let mut initial_round_clock = initial_round_clock.wait_ready().await;
         let mut waker = None;
@@ -198,7 +199,8 @@ impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, Pr
         round_clock: RoundClock,
         session_clock: SessionClock,
     ) -> Self {
-        let multi_consumer_stream = MultiConsumerStream::<_, ROUND_STREAM_SIZE>::new(round_clock);
+        let multi_consumer_stream =
+            MultiConsumerStreamConstructor::<_, ROUND_STREAM_SIZE>::new(round_clock);
         let multi_consumer_stream_consumer = multi_consumer_stream.new_consumer();
         Self {
             cover_traffic,

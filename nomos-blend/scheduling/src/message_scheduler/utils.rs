@@ -2,7 +2,7 @@ use std::task::Waker;
 
 use futures::StreamExt as _;
 use nomos_utils::stream::{
-    MultiConsumerStream, MultiConsumerStreamConsumer, RunningMultiConsumerStream,
+    MultiConsumerStream, MultiConsumerStreamConstructor, MultiConsumerStreamConsumer,
 };
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
@@ -23,7 +23,7 @@ use crate::{
 pub(super) async fn setup_new_session<Rng, ProcessedMessage, const STREAM_SIZE: usize>(
     cover_traffic: &mut SessionCoverTraffic<RoundClock>,
     release_delayer: &mut SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
-    round_clock_stream: &mut RunningMultiConsumerStream<RoundClock, STREAM_SIZE>,
+    round_clock_stream: &mut MultiConsumerStream<RoundClock, STREAM_SIZE>,
     round_clock_consumer: &mut MultiConsumerStreamConsumer<Round>,
     settings: Settings,
     mut rng: Rng,
@@ -35,7 +35,7 @@ pub(super) async fn setup_new_session<Rng, ProcessedMessage, const STREAM_SIZE: 
 {
     trace!(target: LOG_TARGET, "New session {} started with session info: {new_session_info:?}", new_session_info.session_number);
 
-    let new_round_clock = MultiConsumerStream::new(Box::new(
+    let new_round_clock = MultiConsumerStreamConstructor::new(Box::new(
         IntervalStream::new(interval(settings.round_duration))
             .enumerate()
             .map(|(round, _)| (round as u128).into()),
