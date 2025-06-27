@@ -565,7 +565,7 @@ where
 
         // These are blocks that have been pruned by the cryptarchia engine but have not
         // yet been deleted from the storage layer.
-        let mut previously_pruned_blocks = self.initial_state.prunable_blocks.clone();
+        let mut storage_blocks_to_remove = self.initial_state.storage_blocks_to_remove.clone();
         let (mut cryptarchia, leader) = Self::initialize_cryptarchia(
             self.initial_state,
             ledger_config,
@@ -629,7 +629,7 @@ where
                             &leader,
                             block.clone(),
 
-                            &mut previously_pruned_blocks,
+                            &mut storage_blocks_to_remove,
                             &relays,
                             &self.block_subscription_sender,
                             self.service_resources_handle
@@ -668,7 +668,7 @@ where
                                     &leader,
                                     block.clone(),
 
-                                    &mut previously_pruned_blocks,
+                                    &mut storage_blocks_to_remove,
                                     &relays,
                                     &self.block_subscription_sender,
                                     self.service_resources_handle
@@ -881,7 +881,7 @@ where
         mut cryptarchia: Cryptarchia<Online>,
         leader: &Leader,
         block: Block<ClPool::Item, DaPool::Item>,
-        previously_pruned_blocks: &mut HashSet<HeaderId>,
+        storage_blocks_to_remove: &mut HashSet<HeaderId>,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
             BS,
@@ -918,14 +918,14 @@ where
         Self::prune_forks(
             &mut cryptarchia,
             relays.storage_adapter(),
-            previously_pruned_blocks,
+            storage_blocks_to_remove,
         )
         .await;
 
         match <Self as ServiceData>::State::from_cryptarchia_and_unpruned_blocks(
             &cryptarchia,
             leader,
-            previously_pruned_blocks.clone(),
+            storage_blocks_to_remove.clone(),
         ) {
             Ok(state) => {
                 state_updater.update(Some(state));
@@ -1240,35 +1240,37 @@ where
     /// Remove the in-memory storage of stale blocks from the cryptarchia engine
     /// and of stale `PoL` utxos from the `PoL` machinery.
     /// Furthermore, it attempts to remove the deleted block data from storage
-    /// as well, also including the blocks provided in `prunable_blocks` that
-    /// might belong to previous pruning operations and that failed for some
-    /// reason.
+    /// as well, also including the `storage_blocks_to_remove` that
+    /// might belong to previous pruning operations and that failed to be
+    /// removed from the storage for some reason.
     ///
     /// Any block that fails to be deleted from the storage layer is added to
-    /// the provided `prunable_blocks` parameter and will be picked up at the
-    /// next invocation of this function.
+    /// the provided `storage_blocks_to_remove` parameter and will be picked up
+    /// at the next invocation of this function.
     async fn prune_forks(
         cryptarchia: &mut Cryptarchia<Online>,
         storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
-        prunable_blocks: &mut HashSet<HeaderId>,
+        storage_blocks_to_remove: &mut HashSet<HeaderId>,
     ) {
-        let old_forks_pruned = cryptarchia.prune_old_forks().collect::<HashSet<_>>();
+        // Prune stale blocks from the cryptarchia engine.
+        let newly_pruned_blocks = cryptarchia.prune_old_forks().collect::<HashSet<_>>();
 
-        // We try to delete both freshly pruned forks as well as old pruned blocks.
+        // We try to delete both freshly pruned blocks as well as the blocks that
+        // were pruned in the past but failed to be deleted from storage.
         match Self::delete_pruned_blocks_from_storage(
-            old_forks_pruned
+            newly_pruned_blocks
                 .iter()
-                .chain(prunable_blocks.iter())
+                .chain(storage_blocks_to_remove.iter())
                 .copied(),
             storage_adapter,
         )
         .await
         {
             // All blocks, past and present, have been successfully deleted from storage.
-            Ok(()) => *prunable_blocks = HashSet::new(),
+            Ok(()) => *storage_blocks_to_remove = HashSet::new(),
             // We retain the blocks that failed to be deleted.
             Err(failed_blocks) => {
-                *prunable_blocks = failed_blocks
+                *storage_blocks_to_remove = failed_blocks
                     .into_iter()
                     .map(|(block_id, _)| block_id)
                     .collect();

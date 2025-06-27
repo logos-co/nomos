@@ -427,7 +427,7 @@ where
 
     /// Get an iterator over the prunable forks that diverged before
     /// the `max_div_depth`-th block from the current local chain tip.
-    pub fn prunable_forks(
+    fn prunable_forks(
         &self,
         max_div_depth: u64,
     ) -> impl Iterator<Item = ForkDivergenceInfo<Id>> + '_ {
