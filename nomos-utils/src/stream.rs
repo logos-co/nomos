@@ -18,7 +18,7 @@ use tokio::{
     },
     time::sleep,
 };
-use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
+use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 use tracing::error;
 
 pub struct MultiConsumerStreamConstructor<InputStream, const CHANNEL_CAPACITY: usize>
@@ -98,7 +98,7 @@ impl<InputStream, const CHANNEL_CAPACITY: usize>
 where
     InputStream: Stream,
 {
-    pub async fn wait_ready(self) -> MultiConsumerStream<InputStream> {
+    pub async fn start(self) -> MultiConsumerStream<InputStream> {
         self.channel_task_spawn_barrier.notified().await;
         self.ready_barrier.notify_one();
         // Introduce a very small artificial delay to allow the consumers to be set up
@@ -140,7 +140,8 @@ where
 }
 
 pub struct MultiConsumerStreamConsumer<T> {
-    receiver: tokio_stream::wrappers::BroadcastStream<T>,
+    receiver_channel: Receiver<T>,
+    receiver_stream: BroadcastStream<T>,
 }
 
 impl<T> From<Receiver<T>> for MultiConsumerStreamConsumer<T>
@@ -149,8 +150,19 @@ where
 {
     fn from(value: Receiver<T>) -> Self {
         Self {
-            receiver: value.into(),
+            receiver_channel: value.resubscribe(),
+            receiver_stream: value.into(),
         }
+    }
+}
+
+impl<T> Clone for MultiConsumerStreamConsumer<T>
+where
+    T: Clone + Send + 'static,
+{
+    fn clone(&self) -> Self {
+        let receiver_channel_clone = self.receiver_channel.resubscribe();
+        receiver_channel_clone.into()
     }
 }
 
@@ -161,7 +173,7 @@ where
     type Item = T;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.receiver.poll_next_unpin(cx) {
+        match self.receiver_stream.poll_next_unpin(cx) {
             Poll::Pending => Poll::Pending,
             // In this case, since we're inside a loop, we will keep polling the channel until
             // it returns a valid value.
@@ -192,7 +204,7 @@ mod tests {
         let broadcast_stream = MultiConsumerStreamConstructor::<_, 3>::from(iter([1u8, 2u8, 3u8]));
         let mut consumer_1 = broadcast_stream.new_consumer();
         let mut consumer_2 = broadcast_stream.new_consumer();
-        broadcast_stream.wait_ready().await;
+        broadcast_stream.start().await;
 
         assert_eq!(consumer_1.next().await, Some(1u8));
         assert_eq!(consumer_1.next().await, Some(2u8));
@@ -208,7 +220,7 @@ mod tests {
         let broadcast_stream = MultiConsumerStreamConstructor::<_, 1>::from(empty::<()>());
         let mut consumer_1 = broadcast_stream.new_consumer();
         let mut consumer_2 = broadcast_stream.new_consumer();
-        let new = broadcast_stream.wait_ready().await;
+        let new = broadcast_stream.start().await;
         let mut cx = Context::from_waker(noop_waker_ref());
 
         drop(new);
@@ -223,7 +235,7 @@ mod tests {
         let broadcast_stream =
             MultiConsumerStreamConstructor::<_, 2>::from(iter([1u8, 10u8, 20u8, 30u8, 40u8]));
         let mut consumer = broadcast_stream.new_consumer();
-        broadcast_stream.wait_ready().await;
+        broadcast_stream.start().await;
         // Polling the stream will return the oldest available element, which is `30`.
         assert_eq!(consumer.next().await, Some(30));
         assert_eq!(consumer.next().await, Some(40));
@@ -235,7 +247,7 @@ mod tests {
         let mut cx = Context::from_waker(noop_waker_ref());
 
         let mut consumer = broadcast_stream.new_consumer();
-        broadcast_stream.wait_ready().await;
+        broadcast_stream.start().await;
         assert_eq!(consumer.poll_next_unpin(&mut cx), Poll::Ready(None));
     }
 
@@ -245,7 +257,7 @@ mod tests {
         let mut cx = Context::from_waker(noop_waker_ref());
 
         let mut consumer: MultiConsumerStreamConsumer<()> = broadcast_stream.new_consumer();
-        broadcast_stream.wait_ready().await;
+        broadcast_stream.start().await;
         assert_eq!(consumer.poll_next_unpin(&mut cx), Poll::Pending);
     }
 }

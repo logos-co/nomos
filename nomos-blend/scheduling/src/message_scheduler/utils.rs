@@ -53,7 +53,7 @@ pub(super) async fn setup_new_session<Rng, ProcessedMessage, const STREAM_SIZE: 
         &settings,
     );
     *round_clock_consumer = new_round_clock.new_consumer();
-    *round_clock_stream = new_round_clock.wait_ready().await;
+    *round_clock_stream = new_round_clock.start().await;
     if let Some(waker) = waker.take() {
         waker.wake();
     }

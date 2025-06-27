@@ -92,7 +92,7 @@ where
     }
 }
 
-const ROUND_STREAM_SIZE: usize = 16;
+const ROUND_STREAM_SIZE: usize = 1;
 
 /// The initialized version of [`UninitializedMessageScheduler`] that is created
 /// after the session stream yields its first result.
@@ -151,7 +151,7 @@ where
             Box::new(empty()) as RoundClock,
         );
         let mut initial_round_clock_consumer = initial_round_clock.new_consumer();
-        let mut initial_round_clock = initial_round_clock.wait_ready().await;
+        let mut initial_round_clock = initial_round_clock.start().await;
         let mut waker = None;
 
         setup_new_session(
@@ -205,7 +205,7 @@ impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, Pr
         Self {
             cover_traffic,
             release_delayer,
-            round_clock_stream: multi_consumer_stream.wait_ready().await,
+            round_clock_stream: multi_consumer_stream.start().await,
             round_clock_consumer: multi_consumer_stream_consumer,
             session_clock,
             // These are not needed when all fields are provided as arguments.
