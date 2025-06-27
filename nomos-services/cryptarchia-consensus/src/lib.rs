@@ -117,16 +117,26 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
 
     /// Create a new [`Cryptarchia`] with the updated state.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    fn try_apply_header(&self, header: &Header) -> Result<Self, Error> {
+    fn try_apply_header(&self, header: &Header) -> Result<UpdatedCryptarchia<State>, Error> {
         let id = header.id();
         let parent = header.parent();
         let slot = header.slot();
         let ledger = self
             .ledger
             .try_update(id, parent, slot, header.leader_proof())?;
-        let consensus = self.consensus.receive_block(id, parent, slot)?;
+        let cryptarchia_engine::UpdatedCryptarchia {
+            cryptarchia: consensus,
+            pruned_blocks,
+        } = self.consensus.receive_block(id, parent, slot)?;
 
-        Ok(Self { ledger, consensus })
+        let mut cryptarchia = Self { ledger, consensus };
+        // Prune the ledger states of the pruned blocks.
+        cryptarchia.prune_ledger_states(&pruned_blocks);
+
+        Ok(UpdatedCryptarchia {
+            cryptarchia,
+            pruned_blocks,
+        })
     }
 
     fn epoch_state_for_slot(&self, slot: Slot) -> Option<&nomos_ledger::EpochState> {
@@ -142,23 +152,10 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
         }
     }
 
-    /// Prune the in-memory storage of forks older than or equal to the Last
-    /// Immutable Block (LIB).
-    ///
-    /// The old blocks are removed from the consensus engine and their state
-    /// removed from the ledger state.
-    pub fn prune_old_forks(&mut self) -> impl Iterator<Item = HeaderId> {
-        // We need to iterate once, then return the unconsumed iterator, so we need to
-        // collect first.
-        let lib_depth = self
-            .consensus
-            .tip_branch()
-            .length()
-            .checked_sub(self.consensus.lib_branch().length())
-            .expect("Canonical chain tip heigh must be higher than LIB height.");
-        let old_forks_pruned = self.consensus.prune_forks(lib_depth).collect::<Vec<_>>();
+    /// Remove the ledger states of the pruned blocks.
+    pub fn prune_ledger_states(&mut self, pruned_blocks: &HashSet<HeaderId>) {
         let mut pruned_states_count = 0usize;
-        for pruned_block in &old_forks_pruned {
+        for pruned_block in pruned_blocks {
             if self.ledger.prune_state_at(pruned_block) {
                 pruned_states_count = pruned_states_count.saturating_add(1);
             } else {
@@ -170,8 +167,29 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
             }
         }
         tracing::debug!(target: LOG_TARGET, "Pruned {pruned_states_count} old forks and their ledger states.");
+    }
+}
 
-        old_forks_pruned.into_iter()
+/// A wrapper around [`Cryptarchia`] that is updated after processing a block.
+/// If there were blocks pruned by [`Cryptarchia::consensus`],
+/// the corresponding ledger states are also pruned from
+/// [`Cryptarchia::ledger`].
+///
+/// This also contains the set of pruned blocks for post-processing,
+/// such as removing them from the storage layer.
+struct UpdatedCryptarchia<State> {
+    cryptarchia: Cryptarchia<State>,
+    pruned_blocks: HashSet<HeaderId>,
+}
+
+/// Convert a [`Cryptarchia`], which is not updated, to an
+/// [`UpdatedCryptarchia`].
+impl<State> From<Cryptarchia<State>> for UpdatedCryptarchia<State> {
+    fn from(cryptarchia: Cryptarchia<State>) -> Self {
+        Self {
+            cryptarchia,
+            pruned_blocks: HashSet::new(),
+        }
     }
 }
 
@@ -566,12 +584,25 @@ where
         // These are blocks that have been pruned by the cryptarchia engine but have not
         // yet been deleted from the storage layer.
         let mut storage_blocks_to_remove = self.initial_state.storage_blocks_to_remove.clone();
-        let (mut cryptarchia, leader) = Self::initialize_cryptarchia(
+
+        let (
+            UpdatedCryptarchia {
+                mut cryptarchia,
+                pruned_blocks,
+            },
+            leader,
+        ) = Self::initialize_cryptarchia(
             self.initial_state,
             ledger_config,
             leader_config,
             &relays,
             &self.block_subscription_sender,
+        )
+        .await;
+        Self::remove_pruned_blocks_from_storage(
+            &pruned_blocks,
+            relays.storage_adapter(),
+            &mut storage_blocks_to_remove,
         )
         .await;
 
@@ -878,7 +909,7 @@ where
         reason = "Internal function, settings are not Sync"
     )]
     async fn process_block_and_update_state(
-        mut cryptarchia: Cryptarchia<Online>,
+        cryptarchia: Cryptarchia<Online>,
         leader: &Leader,
         block: Block<ClPool::Item, DaPool::Item>,
         storage_blocks_to_remove: &mut HashSet<HeaderId>,
@@ -909,14 +940,16 @@ where
             >,
         >,
     ) -> Cryptarchia<Online> {
-        cryptarchia =
-            Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
+        let UpdatedCryptarchia {
+            cryptarchia,
+            pruned_blocks,
+        } = Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
 
-        // This will modify `previously_pruned_blocks` to include blocks which are not
+        // This will modify `storage_blocks_to_remove` to include blocks which are not
         // tracked by Cryptarchia anymore but have not been deleted from the persistence
         // layer.
-        Self::prune_forks(
-            &mut cryptarchia,
+        Self::remove_pruned_blocks_from_storage(
+            &pruned_blocks,
             relays.storage_adapter(),
             storage_blocks_to_remove,
         )
@@ -944,7 +977,7 @@ where
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(cryptarchia, relays))]
     async fn process_block<State: CryptarchiaState>(
-        mut cryptarchia: Cryptarchia<State>,
+        cryptarchia: Cryptarchia<State>,
         block: Block<ClPool::Item, DaPool::Item>,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
@@ -962,19 +995,19 @@ where
             RuntimeServiceId,
         >,
         block_broadcaster: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> Cryptarchia<State> {
+    ) -> UpdatedCryptarchia<State> {
         debug!("received proposal {:?}", block);
 
         let sampled_blobs = match get_sampled_blobs(relays.sampling_relay().clone()).await {
             Ok(sampled_blobs) => sampled_blobs,
             Err(error) => {
                 error!("Unable to retrieved sampled blobs: {error}");
-                return cryptarchia;
+                return cryptarchia.into();
             }
         };
         if !Self::validate_blocks_blobs(&block, &sampled_blobs) {
             error!("Invalid block: {block:?}");
-            return cryptarchia;
+            return cryptarchia.into();
         }
 
         // TODO: filter on time?
@@ -982,7 +1015,7 @@ where
         let id = header.id();
 
         match cryptarchia.try_apply_header(header) {
-            Ok(new_state) => {
+            Ok(updated_cryptarchia) => {
                 // remove included content from mempool
                 mark_in_block(
                     relays.cl_mempool_relay().clone(),
@@ -1015,7 +1048,7 @@ where
                     error!("Could not notify block to services {e}");
                 }
 
-                cryptarchia = new_state;
+                updated_cryptarchia
             }
             Err(
                 Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(parent))
@@ -1023,11 +1056,13 @@ where
             ) => {
                 debug!("missing parent {:?}", parent);
                 // TODO: request parent block
+                cryptarchia.into()
             }
-            Err(e) => debug!("invalid block {:?}: {e:?}", block),
+            Err(e) => {
+                debug!("invalid block {:?}: {e:?}", block);
+                cryptarchia.into()
+            }
         }
-
-        cryptarchia
     }
 
     #[expect(clippy::allow_attributes_without_reason)]
@@ -1213,7 +1248,7 @@ where
             RuntimeServiceId,
         >,
         block_subscription_sender: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> (Cryptarchia<Online>, Leader) {
+    ) -> (UpdatedCryptarchia<Online>, Leader) {
         let lib_id = initial_state.lib;
         let mut cryptarchia =
             <Cryptarchia<Online>>::from_lib(lib_id, initial_state.lib_ledger_state, ledger_config);
@@ -1229,33 +1264,38 @@ where
         // Skip LIB block since it's already applied
         let blocks = blocks.into_iter().skip(1);
 
+        let mut pruned_blocks = HashSet::new();
         for block in blocks {
-            cryptarchia =
+            let updated =
                 Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
+            cryptarchia = updated.cryptarchia;
+            pruned_blocks.extend(updated.pruned_blocks);
         }
 
-        (cryptarchia, leader)
+        (
+            UpdatedCryptarchia {
+                cryptarchia,
+                pruned_blocks,
+            },
+            leader,
+        )
     }
 
-    /// Remove the in-memory storage of stale blocks from the cryptarchia engine
-    /// and of stale `PoL` utxos from the `PoL` machinery.
-    /// Furthermore, it attempts to remove the deleted block data from storage
-    /// as well, also including the `storage_blocks_to_remove` that
-    /// might belong to previous pruning operations and that failed to be
-    /// removed from the storage for some reason.
+    /// Remove the pruned blocks from the storage layer.
+    ///
+    /// Also, this removes the `storage_blocks_to_remove` from the storage
+    /// layer. These blocks might belong to previous pruning operations and
+    /// that failed to be removed from the storage for some reason.
     ///
     /// Any block that fails to be deleted from the storage layer is added to
     /// the provided `storage_blocks_to_remove` parameter and will be picked up
     /// at the next invocation of this function.
-    async fn prune_forks(
-        cryptarchia: &mut Cryptarchia<Online>,
+    async fn remove_pruned_blocks_from_storage(
+        newly_pruned_blocks: &HashSet<HeaderId>,
         storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
         storage_blocks_to_remove: &mut HashSet<HeaderId>,
     ) {
-        // Prune stale blocks from the cryptarchia engine.
-        let newly_pruned_blocks = cryptarchia.prune_old_forks().collect::<HashSet<_>>();
-
-        // We try to delete both freshly pruned blocks as well as the blocks that
+        // We try to delete both newly pruned blocks as well as the blocks that
         // were pruned in the past but failed to be deleted from storage.
         match Self::delete_pruned_blocks_from_storage(
             newly_pruned_blocks
