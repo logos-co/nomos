@@ -3,7 +3,6 @@ use core::{
     pin::Pin,
     task::{Context, Poll},
 };
-use std::sync::Arc;
 
 use futures::{
     stream::{AbortHandle, Abortable},
@@ -11,13 +10,10 @@ use futures::{
 };
 use tokio::{
     spawn,
-    sync::{
-        broadcast::{channel, Sender},
-        Notify,
-    },
+    sync::broadcast::{channel, Sender},
 };
 use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
-use tracing::error;
+use tracing::{error, trace};
 
 /// A wrapper around a stream that allows to mak it multi-consumer.
 ///
@@ -96,16 +92,13 @@ where
             stream_item_sender,
         } = self;
 
-        let channel_task_spawn_barrier = Arc::new(Notify::new());
-        let channel_task_spawn_barrier_clone = Arc::clone(&channel_task_spawn_barrier);
-
         let stream_item_sender_clone = stream_item_sender.clone();
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
 
-        spawn(Abortable::new(
+        let _ = spawn(Abortable::new(
             async move {
                 // Notify the outer task that we are ready to produce values.
-                channel_task_spawn_barrier_clone.notify_waiters();
+                // channel_task_spawn_barrier_clone.notify_waiters();
                 while let Some(next) = input_stream.next().await {
                     let _ = stream_item_sender_clone.send(next).inspect_err(|e| {
                         error!("Failed to forward stream element to receivers. Error {e:?}");
@@ -113,9 +106,8 @@ where
                 }
             },
             abort_registration,
-        ));
-        // Wait until the inner stream is ready before returning to the caller.
-        channel_task_spawn_barrier.notified().await;
+        ))
+        .await;
 
         MultiConsumerStream { abort_handle }
     }
@@ -130,6 +122,7 @@ impl Drop for MultiConsumerStream {
     fn drop(&mut self) {
         self.abort_handle.abort();
         while !self.abort_handle.is_aborted() {}
+        trace!("MultiConsumerStream instance dropped.");
     }
 }
 

@@ -1,3 +1,5 @@
+use std::mem::replace;
+
 use futures::StreamExt as _;
 use nomos_utils::stream::{
     MultiConsumerStream, MultiConsumerStreamConstructor, MultiConsumerStreamConsumer,
@@ -53,7 +55,8 @@ pub(super) async fn setup_new_session<Rng, ProcessedMessage>(
         &settings,
     );
     *round_clock_consumer = new_round_clock.new_consumer();
-    *round_clock_stream = new_round_clock.start().await;
+    let old_stream = replace(round_clock_stream, new_round_clock.start().await);
+    drop(old_stream);
 }
 
 pub(super) fn instantiate_new_cover_scheduler<Rng>(
