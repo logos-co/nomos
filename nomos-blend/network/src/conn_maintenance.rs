@@ -4,6 +4,9 @@ use std::{
 };
 
 use futures::{Stream, StreamExt as _};
+use tracing::debug;
+
+const LOG_TARGET: &str = "blend::network::conn_maintenance";
 
 /// Counts the number of messages received from a peer during
 /// an interval.
@@ -12,9 +15,9 @@ use futures::{Stream, StreamExt as _};
 /// of expected messages for the new interval, which is then used by the monitor
 /// to evaluate the remote peer during the next observation window.
 pub struct ConnectionMonitor<ConnectionWindowClock> {
-    expected_message_range: Option<RangeInclusive<usize>>,
+    expected_message_range: Option<RangeInclusive<u64>>,
     connection_window_clock: ConnectionWindowClock,
-    current_window_message_count: usize,
+    current_window_message_count: u64,
 }
 
 /// A result of connection monitoring during an interval.
@@ -45,7 +48,7 @@ impl<ConnectionWindowClock> ConnectionMonitor<ConnectionWindowClock> {
             });
     }
 
-    const fn reset(&mut self, new_expected_message_count_range: RangeInclusive<usize>) {
+    const fn reset(&mut self, new_expected_message_count_range: RangeInclusive<u64>) {
         self.current_window_message_count = 0;
         self.expected_message_range = Some(new_expected_message_count_range);
     }
@@ -69,7 +72,7 @@ impl<ConnectionWindowClock> ConnectionMonitor<ConnectionWindowClock> {
 
 impl<ConnectionWindowClock> ConnectionMonitor<ConnectionWindowClock>
 where
-    ConnectionWindowClock: Stream<Item = RangeInclusive<usize>> + Unpin,
+    ConnectionWindowClock: Stream<Item = RangeInclusive<u64>> + Unpin,
 {
     /// Poll the connection monitor to check if the interval has elapsed.
     /// If the interval has elapsed, evaluate the peer's status,
@@ -97,6 +100,7 @@ where
         } else {
             ConnectionMonitorOutput::Healthy
         };
+        debug!(target: LOG_TARGET, "Monitor clock. Received messages = {:#?}, expected range = {:#?}", self.current_window_message_count, self.expected_message_range);
         self.reset(new_expected_message_count_range);
         Poll::Ready(Some(outcome))
     }

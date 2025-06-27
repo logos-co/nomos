@@ -10,7 +10,7 @@ use tokio_stream::wrappers::{BroadcastStream, IntervalStream};
 use tracing::{error, trace};
 
 use crate::{
-    cover_traffic_2::SessionCoverTraffic,
+    cover_traffic::SessionCoverTraffic,
     message_scheduler::{
         round_info::{Round, RoundClock},
         session_info::SessionInfo,
@@ -21,9 +21,9 @@ use crate::{
 
 /// Reset the sub-streams providing the new session info and the round clock at
 /// the beginning of a new session.
-pub(super) fn setup_new_session<Rng>(
+pub(super) fn setup_new_session<Rng, ProcessedMessage>(
     cover_traffic: &mut SessionCoverTraffic<RoundClock>,
-    release_delayer: &mut SessionProcessedMessageDelayer<RoundClock, Rng>,
+    release_delayer: &mut SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
     round_clock: &mut RoundClock,
     round_clock_task_abort_handle: &mut AbortHandle,
     settings: Settings,
@@ -76,13 +76,13 @@ pub(super) fn instantiate_new_cover_scheduler<Rng>(
     rng: &mut Rng,
     round_clock_stream_receiver: Receiver<Option<Round>>,
     settings: &Settings,
-    starting_quota: usize,
+    starting_quota: u64,
 ) -> SessionCoverTraffic<RoundClock>
 where
     Rng: rand::Rng,
 {
     SessionCoverTraffic::new(
-        crate::cover_traffic_2::Settings {
+        crate::cover_traffic::Settings {
             additional_safety_intervals: settings.additional_safety_intervals,
             expected_intervals_per_session: settings.expected_intervals_per_session,
             rounds_per_interval: settings.rounds_per_interval,
@@ -93,11 +93,11 @@ where
     )
 }
 
-pub(super) fn instantiate_new_message_delayer<Rng>(
+pub(super) fn instantiate_new_message_delayer<Rng, ProcessedMessage>(
     rng: Rng,
     round_clock_stream_receiver: Receiver<Option<Round>>,
     settings: &Settings,
-) -> SessionProcessedMessageDelayer<RoundClock, Rng>
+) -> SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>
 where
     Rng: rand::Rng,
 {

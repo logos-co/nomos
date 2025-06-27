@@ -1,23 +1,23 @@
 use core::{
     mem,
-    num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll},
 };
+use std::num::{NonZeroU128, NonZeroU64};
 
 use futures::{Stream, StreamExt as _};
 use tracing::{debug, trace};
 
-use crate::message_scheduler::round_info::{ProcessedMessage, Round};
+use crate::message_scheduler::round_info::Round;
 
 const LOG_TARGET: &str = "blend::scheduling::delay";
 
 /// A scheduler for delaying processed messages and batch them into release
 /// rounds, as per the specification.
-pub struct SessionProcessedMessageDelayer<RoundClock, Rng> {
+pub struct SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage> {
     /// The maximum delay, in terms of rounds, between two consecutive release
     /// rounds.
-    maximum_release_delay_in_rounds: NonZeroUsize,
+    maximum_release_delay_in_rounds: NonZeroU64,
     /// The next scheduled round to release the queued messages.
     next_release_round: Round,
     /// The random generator to select rounds for message releasing.
@@ -29,7 +29,8 @@ pub struct SessionProcessedMessageDelayer<RoundClock, Rng> {
     unreleased_messages: Vec<ProcessedMessage>,
 }
 
-impl<RoundClock, Rng> SessionProcessedMessageDelayer<RoundClock, Rng>
+impl<RoundClock, Rng, ProcessedMessage>
+    SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>
 where
     Rng: rand::Rng,
 {
@@ -47,7 +48,7 @@ where
             schedule_next_release_round_offset(maximum_release_delay_in_rounds, &mut rng);
         Self {
             maximum_release_delay_in_rounds,
-            next_release_round: (next_release_round.get() as u128).into(),
+            next_release_round: NonZeroU128::from(next_release_round).get().into(),
             rng,
             round_clock,
             unreleased_messages: Vec::new(),
@@ -55,10 +56,12 @@ where
     }
 }
 
-impl<RoundClock, Rng> SessionProcessedMessageDelayer<RoundClock, Rng> {
+impl<RoundClock, Rng, ProcessedMessage>
+    SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>
+{
     #[cfg(test)]
     pub const fn with_test_values(
-        maximum_release_delay_in_rounds: NonZeroUsize,
+        maximum_release_delay_in_rounds: NonZeroU64,
         next_release_round: Round,
         rng: Rng,
         round_clock: RoundClock,
@@ -82,6 +85,7 @@ impl<RoundClock, Rng> SessionProcessedMessageDelayer<RoundClock, Rng> {
     /// along with any other queued message.
     pub fn schedule_message(&mut self, message: ProcessedMessage) {
         self.unreleased_messages.push(message);
+        debug!(target: LOG_TARGET, "New message scheduled. Pending message count: {}", self.unreleased_messages.len());
     }
 
     /// Get a reference to the stored rng.
@@ -92,7 +96,7 @@ impl<RoundClock, Rng> SessionProcessedMessageDelayer<RoundClock, Rng> {
 
 fn calculate_next_release_round<Rng>(
     current_round: Round,
-    maximum_release_delay_in_rounds: NonZeroUsize,
+    maximum_release_delay_in_rounds: NonZeroU64,
     rng: &mut Rng,
 ) -> Round
 where
@@ -102,7 +106,7 @@ where
         schedule_next_release_round_offset(maximum_release_delay_in_rounds, rng);
     current_round
         .inner()
-        .checked_add(next_release_offset.get() as u128)
+        .checked_add(next_release_offset.get().into())
         .expect("Overflow when scheduling next release round offset.")
         .into()
 }
@@ -110,20 +114,22 @@ where
 /// Calculates the random offset, in the range [1, `max`], from the current
 /// round as the next release round.
 fn schedule_next_release_round_offset<Rng>(
-    maximum_release_delay_in_rounds: NonZeroUsize,
+    maximum_release_delay_in_rounds: NonZeroU64,
     rng: &mut Rng,
-) -> NonZeroUsize
+) -> NonZeroU64
 where
     Rng: rand::Rng,
 {
-    NonZeroUsize::try_from(rng.gen_range(1..=maximum_release_delay_in_rounds.get()))
+    NonZeroU64::try_from(rng.gen_range(1..=maximum_release_delay_in_rounds.get()))
         .expect("Randomly generated offset should be strictly positive.")
 }
 
-impl<RoundClock, Rng> Stream for SessionProcessedMessageDelayer<RoundClock, Rng>
+impl<RoundClock, Rng, ProcessedMessage> Stream
+    for SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>
 where
     RoundClock: Stream<Item = Round> + Unpin,
     Rng: rand::Rng + Unpin,
+    ProcessedMessage: Unpin,
 {
     type Item = Vec<ProcessedMessage>;
 
@@ -159,30 +165,25 @@ where
 pub struct Settings {
     /// The max number of rounds to wait between two release rounds, as per the
     /// specification.
-    pub maximum_release_delay_in_rounds: NonZeroUsize,
+    pub maximum_release_delay_in_rounds: NonZeroU64,
 }
 
 #[cfg(test)]
 mod tests {
-    use core::{
-        num::NonZeroUsize,
-        task::{Context, Poll},
-    };
+    use core::task::{Context, Poll};
+    use std::num::NonZeroU64;
 
     use futures::{io::empty, task::noop_waker_ref, StreamExt as _};
     use rand::SeedableRng as _;
     use rand_chacha::ChaCha20Rng;
     use tokio_stream::iter;
 
-    use crate::{
-        message_scheduler::round_info::ProcessedMessage,
-        release_delayer::SessionProcessedMessageDelayer,
-    };
+    use crate::release_delayer::SessionProcessedMessageDelayer;
 
     #[test]
     fn poll_none_on_unscheduled_round() {
-        let mut delayer = SessionProcessedMessageDelayer {
-            maximum_release_delay_in_rounds: NonZeroUsize::new(3).expect("Non-zero usize"),
+        let mut delayer = SessionProcessedMessageDelayer::<_, _, ()> {
+            maximum_release_delay_in_rounds: NonZeroU64::new(3).expect("Non-zero usize"),
             next_release_round: 1u128.into(),
             rng: ChaCha20Rng::from_entropy(),
             round_clock: iter([0u128]).map(Into::into),
@@ -197,8 +198,8 @@ mod tests {
 
     #[test]
     fn poll_empty_on_scheduled_round_with_empty_queue() {
-        let mut delayer = SessionProcessedMessageDelayer {
-            maximum_release_delay_in_rounds: NonZeroUsize::new(3).expect("Non-zero usize"),
+        let mut delayer = SessionProcessedMessageDelayer::<_, _, ()> {
+            maximum_release_delay_in_rounds: NonZeroU64::new(3).expect("Non-zero usize"),
             next_release_round: 1u128.into(),
             rng: ChaCha20Rng::from_entropy(),
             round_clock: iter([1u128]).map(Into::into),
@@ -214,18 +215,18 @@ mod tests {
 
     #[test]
     fn poll_non_empty_on_scheduled_round_with_non_empty_queue() {
-        let mut delayer = SessionProcessedMessageDelayer {
-            maximum_release_delay_in_rounds: NonZeroUsize::new(3).expect("Non-zero usize"),
+        let mut delayer = SessionProcessedMessageDelayer::<_, _, ()> {
+            maximum_release_delay_in_rounds: NonZeroU64::new(3).expect("Non-zero usize"),
             next_release_round: 1u128.into(),
             rng: ChaCha20Rng::from_entropy(),
             round_clock: iter([1u128]).map(Into::into),
-            unreleased_messages: vec![ProcessedMessage::Data(b"test".to_vec().into())],
+            unreleased_messages: vec![()],
         };
         let mut cx = Context::from_waker(noop_waker_ref());
 
         assert_eq!(
             delayer.poll_next_unpin(&mut cx),
-            Poll::Ready(Some(vec![ProcessedMessage::Data(b"test".to_vec().into())]))
+            Poll::Ready(Some(vec![()]))
         );
         // Check that next release round has been updated with an offset in the
         // expected range [1, 3], so the new value must be in the range [2, 4].
@@ -234,18 +235,15 @@ mod tests {
 
     #[test]
     fn add_message_to_queue() {
-        let mut delayer = SessionProcessedMessageDelayer {
-            maximum_release_delay_in_rounds: NonZeroUsize::new(3).expect("Non-zero usize"),
+        let mut delayer = SessionProcessedMessageDelayer::<_, _, bool> {
+            maximum_release_delay_in_rounds: NonZeroU64::new(3).expect("Non-zero usize"),
             next_release_round: 1u128.into(),
             rng: ChaCha20Rng::from_entropy(),
             round_clock: empty(),
             unreleased_messages: vec![],
         };
-        delayer.schedule_message(ProcessedMessage::Data(b"test".to_vec().into()));
+        delayer.schedule_message(true);
         // Check that the new message was added to the queue.
-        assert_eq!(
-            delayer.unreleased_messages,
-            vec![ProcessedMessage::Data(b"test".to_vec().into())]
-        );
+        assert_eq!(delayer.unreleased_messages, vec![true]);
     }
 }

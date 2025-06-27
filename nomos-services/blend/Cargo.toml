@@ -11,6 +11,7 @@ workspace = true
 async-trait            = "0.1"
 futures                = "0.3"
 libp2p                 = { workspace = true, features = ["ed25519"] }
+nomos-blend-message    = { workspace = true }
 nomos-blend-network    = { workspace = true, features = ["tokio"] }
 nomos-blend-scheduling = { workspace = true }
 nomos-core             = { workspace = true }

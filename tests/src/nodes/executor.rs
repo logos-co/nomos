@@ -1,6 +1,6 @@
 use std::{
     net::SocketAddr,
-    num::{NonZeroU64, NonZeroUsize},
+    num::NonZeroU64,
     ops::Range,
     path::PathBuf,
     process::{Child, Command, Stdio},
@@ -10,11 +10,9 @@ use std::{
 use cryptarchia_consensus::CryptarchiaSettings;
 use cryptarchia_engine::time::SlotConfig;
 use kzgrs_backend::common::share::DaShare;
-use nomos_blend_scheduling::{
-    message_blend::{
-        CryptographicProcessorSettings, MessageBlendSettings, TemporalSchedulerSettings,
-    },
-    persistent_transmission::PersistentTransmissionSettings,
+use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
+use nomos_blend_service::settings::{
+    CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt, TimingSettings,
 };
 use nomos_core::header::HeaderId;
 use nomos_da_dispersal::{
@@ -236,35 +234,33 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 initial_peers: config.network_config.initial_peers,
             },
         },
-        blend: nomos_blend_service::BlendConfig {
+        blend: nomos_blend_service::settings::BlendConfig {
             backend: config.blend_config.backend,
-            persistent_transmission: PersistentTransmissionSettings::default(),
-            message_blend: MessageBlendSettings {
-                cryptographic_processor: CryptographicProcessorSettings {
-                    signing_private_key: config.blend_config.private_key.clone(),
-                    num_blend_layers: 1,
-                },
-                temporal_processor: TemporalSchedulerSettings {
-                    max_delay: Duration::from_secs(2),
-                },
-                minimum_messages_coefficient: 3,
-                normalization_constant: 1.03f64.try_into().unwrap(),
+            crypto: CryptographicProcessorSettings {
+                signing_private_key: config.blend_config.private_key.clone(),
+                num_blend_layers: 1,
             },
-            cover_traffic: nomos_blend_service::CoverTrafficExtSettings {
-                message_frequency_per_round: NonNegativeF64::try_from(1f64)
-                    .expect("Message frequency per round cannot be negative."),
-                redundancy_parameter: 0,
-                intervals_for_safety_buffer: 100,
-            },
-            timing_settings: nomos_blend_service::TimingSettings {
+            time: TimingSettings {
                 round_duration: Duration::from_secs(1),
                 rounds_per_interval: NonZeroU64::try_from(30u64)
                     .expect("Rounds per interval cannot be zero."),
                 // (21,600 blocks * 30s per block) / 1s per round = 648,000 rounds
                 rounds_per_session: NonZeroU64::try_from(648_000u64)
                     .expect("Rounds per session cannot be zero."),
-                rounds_per_observation_window: NonZeroUsize::try_from(30usize)
+                rounds_per_observation_window: NonZeroU64::try_from(30u64)
                     .expect("Rounds per observation window cannot be zero."),
+            },
+            scheduler: SchedulerSettingsExt {
+                cover: CoverTrafficSettingsExt {
+                    intervals_for_safety_buffer: 100,
+                    message_frequency_per_round: NonNegativeF64::try_from(1f64)
+                        .expect("Message frequency per round cannot be negative."),
+                    redundancy_parameter: 0,
+                },
+                delayer: MessageDelayerSettingsExt {
+                    maximum_release_delay_in_rounds: NonZeroU64::try_from(3u64)
+                        .expect("Maximum release delay between rounds cannot be zero."),
+                },
             },
             membership: config.blend_config.membership,
         },
