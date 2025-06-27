@@ -218,6 +218,7 @@ impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, Pr
             MultiConsumerStreamConstructor::new(round_clock, channel_capacity);
         let multi_consumer_stream_consumer = multi_consumer_stream_constructor.new_consumer();
         Self {
+            channel_capacity,
             cover_traffic,
             release_delayer,
             round_clock_stream: multi_consumer_stream_constructor.start().await,

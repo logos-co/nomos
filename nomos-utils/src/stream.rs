@@ -207,7 +207,7 @@ mod tests {
     async fn handle_channel_lagging() {
         // Channel has capacity of `2`.
         let broadcast_stream =
-            MultiConsumerStreamConstructor::from(iter([1u8, 10u8, 20u8, 30u8, 40u8]));
+            MultiConsumerStreamConstructor::new(iter([1u8, 10u8, 20u8, 30u8, 40u8]), 2);
         let mut consumer = broadcast_stream.new_consumer();
         broadcast_stream.start().await;
         // Polling the stream will return the oldest available element, which is `30`.
