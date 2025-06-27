@@ -219,11 +219,12 @@ where
             return Err(Error::InvalidSlot(parent));
         }
 
-        // TODO: we do not automatically prune forks here at the moment, so it's not
-        // sufficient to check the header height.
-        // We might relax this check in the future and get closer to the
-        // Cryptarchia spec once we stabilize the pruning logic.
-        if !self.is_ancestor(self.lib(), parent_branch) {
+        // Check if the parent is not deeper than LIB by just checking heights,
+        // under the assumption that all forks diverged deeper than LIB have
+        // been already pruned when the LIB was updated.
+        // If the assumption is not true, this check must be replaced with
+        // `is_ancestor(lib, parent)`.
+        if parent_branch.length() < self.lib().length() {
             return Err(Error::ImmutableFork(parent));
         }
 
@@ -294,21 +295,6 @@ where
             current = &self.branches[&current.parent];
         }
         *current
-    }
-
-    fn is_ancestor(&self, a: &Branch<Id>, b: &Branch<Id>) -> bool {
-        let mut current = b;
-        if a.id == b.id {
-            return true; // `a` is the same as `b`
-        }
-        // Walk up the chain from `b` until we find `a` or reach the root
-        while current.parent != current.id && current.length > a.length {
-            if current.parent == a.id {
-                return true; // Found `a` in the chain
-            }
-            current = &self.branches[&current.parent];
-        }
-        false // `a` is not an ancestor of `b`
     }
 
     // Returns the min(n, A)-th ancestor of the provided block, where A is the
@@ -383,6 +369,15 @@ where
         parent: Id,
         slot: Slot,
     ) -> Result<UpdatedCryptarchia<Id, State>, Error<Id>> {
+        // TODO: Try to remove this by refactoring.
+        // Currently, the `Branches::apply_header` requires forks to be pruned
+        // beforehand, but pruning is triggered in `Self`.
+        // It may be worth trying to make this safer by leveraging type systems.
+        debug_assert!(
+            self.prunable_forks(self.lib_depth()).next().is_none(),
+            "All forks diverged deeper than LIB must be pruned before receiving a new block."
+        );
+
         let mut new: Self = self.clone();
         new.branches = new.branches.apply_header(id, parent, slot)?;
         new.local_chain = new.fork_choice();
@@ -604,58 +599,6 @@ pub mod tests {
             parent = new_block;
         }
         engine
-    }
-
-    #[test]
-    fn test_is_ancestor() {
-        // parent
-        // ├── child
-        // │   ├── grandchild
-        // │   └── granchild_2
-
-        let mut branches = super::Branches::from_lib([0; 32]);
-        let parent = [1; 32];
-        let child = [2; 32];
-        let grandchild = [3; 32];
-        let granchild_2: [u8; 32] = [4; 32];
-
-        branches = branches.apply_header(parent, [0; 32], 1.into()).unwrap();
-        branches = branches.apply_header(child, parent, 2.into()).unwrap();
-        branches = branches.apply_header(grandchild, child, 3.into()).unwrap();
-        branches = branches.apply_header(granchild_2, child, 4.into()).unwrap();
-
-        assert!(branches.is_ancestor(
-            branches.get(&parent).unwrap(),
-            branches.get(&child).unwrap()
-        ));
-        assert!(!branches.is_ancestor(
-            branches.get(&child).unwrap(),
-            branches.get(&parent).unwrap()
-        ));
-        assert!(branches.is_ancestor(
-            branches.get(&parent).unwrap(),
-            branches.get(&grandchild).unwrap()
-        ));
-        assert!(!branches.is_ancestor(
-            branches.get(&grandchild).unwrap(),
-            branches.get(&parent).unwrap()
-        ));
-        assert!(branches.is_ancestor(
-            branches.get(&child).unwrap(),
-            branches.get(&grandchild).unwrap()
-        ));
-        assert!(!branches.is_ancestor(
-            branches.get(&grandchild).unwrap(),
-            branches.get(&child).unwrap()
-        ));
-        assert!(branches.is_ancestor(
-            branches.get(&child).unwrap(),
-            branches.get(&granchild_2).unwrap()
-        ));
-        assert!(!branches.is_ancestor(
-            branches.get(&granchild_2).unwrap(),
-            branches.get(&child).unwrap()
-        ));
     }
 
     #[test]
