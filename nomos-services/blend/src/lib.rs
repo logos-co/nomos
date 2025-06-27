@@ -135,8 +135,8 @@ where
             _,
             _,
             ProcessedMessage<Network::BroadcastSettings>,
-            1,
         >::new(
+            1,
             blend_config.session_stream(),
             blend_config.scheduler_settings(),
             rng.clone(),

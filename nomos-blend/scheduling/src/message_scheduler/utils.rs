@@ -32,11 +32,14 @@ pub(super) async fn setup_new_session<Rng, ProcessedMessage>(
 {
     trace!(target: LOG_TARGET, "New session {} started with session info: {new_session_info:?}", new_session_info.session_number);
 
-    let new_round_clock = MultiConsumerStreamConstructor::<_, 1>::new(Box::new(
-        IntervalStream::new(interval(settings.round_duration))
-            .enumerate()
-            .map(|(round, _)| (round as u128).into()),
-    ) as RoundClock);
+    let new_round_clock = MultiConsumerStreamConstructor::new(
+        Box::new(
+            IntervalStream::new(interval(settings.round_duration))
+                .enumerate()
+                .map(|(round, _)| (round as u128).into()),
+        ) as RoundClock,
+        1,
+    );
 
     *cover_traffic = instantiate_new_cover_scheduler(
         &mut rng,

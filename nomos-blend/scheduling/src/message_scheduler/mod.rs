@@ -35,12 +35,8 @@ const LOG_TARGET: &str = "blend::scheduling";
 /// A message scheduler waiting for the session stream to provide consumable
 /// session info, to compute session-related components to pass to its
 /// constituent sub-streams.
-pub struct UninitializedMessageScheduler<
-    SessionClock,
-    Rng,
-    ProcessedMessage,
-    const CHANNEL_CAPACITY: usize,
-> {
+pub struct UninitializedMessageScheduler<SessionClock, Rng, ProcessedMessage> {
+    channel_capacity: usize,
     /// The random generator to select rounds for message releasing.
     rng: Rng,
     /// The input stream that ticks upon a session change.
@@ -50,11 +46,17 @@ pub struct UninitializedMessageScheduler<
     _phantom: PhantomData<ProcessedMessage>,
 }
 
-impl<SessionClock, Rng, ProcessedMessage, const CHANNEL_CAPACITY: usize>
-    UninitializedMessageScheduler<SessionClock, Rng, ProcessedMessage, CHANNEL_CAPACITY>
+impl<SessionClock, Rng, ProcessedMessage>
+    UninitializedMessageScheduler<SessionClock, Rng, ProcessedMessage>
 {
-    pub const fn new(session_clock: SessionClock, settings: Settings, rng: Rng) -> Self {
+    pub const fn new(
+        channel_capacity: usize,
+        session_clock: SessionClock,
+        settings: Settings,
+        rng: Rng,
+    ) -> Self {
         Self {
+            channel_capacity,
             rng,
             session_clock,
             settings,
@@ -63,8 +65,8 @@ impl<SessionClock, Rng, ProcessedMessage, const CHANNEL_CAPACITY: usize>
     }
 }
 
-impl<SessionClock, Rng, ProcessedMessage, const CHANNEL_CAPACITY: usize>
-    UninitializedMessageScheduler<SessionClock, Rng, ProcessedMessage, CHANNEL_CAPACITY>
+impl<SessionClock, Rng, ProcessedMessage>
+    UninitializedMessageScheduler<SessionClock, Rng, ProcessedMessage>
 where
     SessionClock: Stream<Item = SessionInfo> + Unpin,
     Rng: rand::Rng + Clone + Unpin,
@@ -76,6 +78,7 @@ where
         self,
     ) -> MessageScheduler<SessionClock, Rng, ProcessedMessage> {
         let Self {
+            channel_capacity,
             rng,
             mut session_clock,
             settings,
@@ -92,8 +95,14 @@ where
         }
         .await;
 
-        MessageScheduler::new::<CHANNEL_CAPACITY>(session_clock, first_session_info, rng, settings)
-            .await
+        MessageScheduler::new(
+            session_clock,
+            first_session_info,
+            rng,
+            settings,
+            channel_capacity,
+        )
+        .await
     }
 }
 
@@ -121,11 +130,12 @@ where
     Rng: rand::Rng + Clone + Unpin,
     ProcessedMessage: Unpin,
 {
-    async fn new<const CHANNEL_CAPACITY: usize>(
+    async fn new(
         session_clock: SessionClock,
         initial_session_info: SessionInfo,
         mut rng: Rng,
         settings: Settings,
+        channel_capacity: usize,
     ) -> Self {
         // To avoid duplication for the `setup_new_session` logic, we need to create
         // "dummy" containers that are soon replaced in the `setup_new_session`
@@ -149,9 +159,8 @@ where
                 rng.clone(),
                 Box::new(empty()) as RoundClock,
             );
-        let initial_round_clock = MultiConsumerStreamConstructor::<_, CHANNEL_CAPACITY>::new(
-            Box::new(empty()) as RoundClock,
-        );
+        let initial_round_clock =
+            MultiConsumerStreamConstructor::new(Box::new(empty()) as RoundClock, channel_capacity);
         let mut initial_round_clock_consumer = initial_round_clock.new_consumer();
         let mut initial_running_round_clock = initial_round_clock.start().await;
 
@@ -192,14 +201,15 @@ impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, Pr
     }
 
     #[cfg(test)]
-    pub async fn with_test_values<const CHANNEL_CAPACITY: usize>(
+    pub async fn with_test_values(
+        channel_capacity: usize,
         cover_traffic: SessionCoverTraffic<RoundClock>,
         release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
         round_clock: RoundClock,
         session_clock: SessionClock,
     ) -> Self {
         let multi_consumer_stream =
-            MultiConsumerStreamConstructor::<_, CHANNEL_CAPACITY>::new(round_clock);
+            MultiConsumerStreamConstructor::new(round_clock, channel_capacity);
         let multi_consumer_stream_consumer = multi_consumer_stream.new_consumer();
         Self {
             cover_traffic,

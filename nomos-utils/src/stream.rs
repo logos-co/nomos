@@ -19,7 +19,8 @@ use tokio::{
 use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 use tracing::error;
 
-pub struct MultiConsumerStreamConstructor<InputStream, const CHANNEL_CAPACITY: usize>
+/// A wrapper around a stream that allows for multiple consumers concurrently.
+pub struct MultiConsumerStreamConstructor<InputStream>
 where
     InputStream: Stream,
 {
@@ -27,13 +28,12 @@ where
     input_stream: InputStream,
 }
 
-impl<InputStream, const CHANNEL_CAPACITY: usize>
-    MultiConsumerStreamConstructor<InputStream, CHANNEL_CAPACITY>
+impl<InputStream> MultiConsumerStreamConstructor<InputStream>
 where
     InputStream: Stream<Item: Clone + Debug + Send> + Send + Unpin + 'static,
 {
-    pub fn new(input_stream: InputStream) -> Self {
-        let (stream_item_sender, _) = channel(CHANNEL_CAPACITY);
+    pub fn new(input_stream: InputStream, channel_capacity: usize) -> Self {
+        let (stream_item_sender, _) = channel(channel_capacity);
 
         Self {
             stream_item_sender,
@@ -42,8 +42,7 @@ where
     }
 }
 
-impl<InputStream, const CHANNEL_CAPACITY: usize>
-    MultiConsumerStreamConstructor<InputStream, CHANNEL_CAPACITY>
+impl<InputStream> MultiConsumerStreamConstructor<InputStream>
 where
     InputStream: Stream<Item: Clone + Send + 'static>,
 {
@@ -53,18 +52,18 @@ where
     }
 }
 
-impl<InputStream, const CHANNEL_CAPACITY: usize> From<InputStream>
-    for MultiConsumerStreamConstructor<InputStream, CHANNEL_CAPACITY>
+pub const DEFAULT_CHANNEL_CAPACITY: usize = 16;
+
+impl<InputStream> From<InputStream> for MultiConsumerStreamConstructor<InputStream>
 where
     InputStream: Stream<Item: Clone + Debug + Send> + Send + Unpin + 'static,
 {
     fn from(value: InputStream) -> Self {
-        Self::new(value)
+        Self::new(value, DEFAULT_CHANNEL_CAPACITY)
     }
 }
 
-impl<InputStream, const CHANNEL_CAPACITY: usize>
-    MultiConsumerStreamConstructor<InputStream, CHANNEL_CAPACITY>
+impl<InputStream> MultiConsumerStreamConstructor<InputStream>
 where
     InputStream: Stream<Item: Debug + Send> + Send + Unpin + 'static,
 {
@@ -171,7 +170,7 @@ mod tests {
 
     #[tokio::test]
     async fn propagate_some() {
-        let broadcast_stream = MultiConsumerStreamConstructor::<_, 3>::from(iter([1u8, 2u8, 3u8]));
+        let broadcast_stream = MultiConsumerStreamConstructor::from(iter([1u8, 2u8, 3u8]));
         let mut consumer_1 = broadcast_stream.new_consumer();
         let mut consumer_2 = broadcast_stream.new_consumer();
         broadcast_stream.start().await;
@@ -187,7 +186,7 @@ mod tests {
 
     #[tokio::test]
     async fn handle_channel_closing() {
-        let broadcast_stream = MultiConsumerStreamConstructor::<_, 1>::from(empty::<()>());
+        let broadcast_stream = MultiConsumerStreamConstructor::from(empty::<()>());
         let mut consumer_1 = broadcast_stream.new_consumer();
         let mut consumer_2 = broadcast_stream.new_consumer();
         let running_stream = broadcast_stream.start().await;
@@ -203,7 +202,7 @@ mod tests {
     async fn handle_channel_lagging() {
         // Channel has capacity of `2`.
         let broadcast_stream =
-            MultiConsumerStreamConstructor::<_, 2>::from(iter([1u8, 10u8, 20u8, 30u8, 40u8]));
+            MultiConsumerStreamConstructor::from(iter([1u8, 10u8, 20u8, 30u8, 40u8]));
         let mut consumer = broadcast_stream.new_consumer();
         broadcast_stream.start().await;
         // Polling the stream will return the oldest available element, which is `30`.
@@ -213,7 +212,7 @@ mod tests {
 
     #[tokio::test]
     async fn handle_channel_none() {
-        let broadcast_stream = MultiConsumerStreamConstructor::<_, 1>::from(empty::<()>());
+        let broadcast_stream = MultiConsumerStreamConstructor::from(empty::<()>());
         let mut cx = Context::from_waker(noop_waker_ref());
 
         let mut consumer = broadcast_stream.new_consumer();
@@ -223,7 +222,7 @@ mod tests {
 
     #[tokio::test]
     async fn handle_channel_empty() {
-        let broadcast_stream = MultiConsumerStreamConstructor::<_, 1>::from(pending());
+        let broadcast_stream = MultiConsumerStreamConstructor::from(pending());
         let mut cx = Context::from_waker(noop_waker_ref());
 
         let mut consumer: MultiConsumerStreamConsumer<()> = broadcast_stream.new_consumer();
