@@ -3,6 +3,11 @@ use core::{
     pin::Pin,
     task::{Context, Poll},
 };
+use std::{
+    ops::{Deref, DerefMut},
+    sync::Arc,
+    time::Duration,
+};
 
 use futures::{
     stream::{AbortHandle, Abortable},
@@ -10,7 +15,11 @@ use futures::{
 };
 use tokio::{
     spawn,
-    sync::broadcast::{channel, Receiver, Sender},
+    sync::{
+        broadcast::{channel, Receiver, Sender},
+        Notify,
+    },
+    time::sleep,
 };
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tracing::{error, trace};
@@ -21,6 +30,8 @@ where
 {
     stream_item_sender: Sender<InputStream::Item>,
     abort_handle: AbortHandle,
+    setup_barrier: Arc<Notify>,
+    second_barrier: Arc<Notify>,
 }
 
 impl<InputStream, const CHANNEL_CAPACITY: usize> MultiConsumerStream<InputStream, CHANNEL_CAPACITY>
@@ -32,9 +43,20 @@ where
         let sender_clone = stream_item_sender.clone();
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
 
+        let setup_barrier = Arc::new(Notify::new());
+        let setup_barrier_clone = Arc::clone(&setup_barrier);
+
+        let second_barrier = Arc::new(Notify::new());
+        let second_barrier_clone = Arc::clone(&second_barrier);
+
         spawn(Abortable::new(
             async move {
+                setup_barrier_clone.notify_one();
+                println!("Notified outer.");
+                second_barrier_clone.notified().await;
+                println!("Got notified by outer.");
                 while let Some(next) = stream.next().await {
+                    println!("Adding to queue.");
                     let _ = sender_clone.send(next).inspect_err(|e| {
                         error!("Failed to forward stream element to receivers. Error {e:?}");
                     });
@@ -46,7 +68,23 @@ where
         Self {
             stream_item_sender,
             abort_handle,
+            setup_barrier,
+            second_barrier,
         }
+    }
+
+    #[must_use]
+    pub fn new_consumer(&self) -> MultiConsumerStreamConsumer<InputStream::Item> {
+        self.stream_item_sender.subscribe().into()
+    }
+
+    pub async fn wait_ready(self) -> RunningMultiConsumerStream<InputStream, CHANNEL_CAPACITY> {
+        self.setup_barrier.notified().await;
+        println!("Got notified by inner.");
+        self.second_barrier.notify_one();
+        println!("Notified inner.");
+        sleep(Duration::from_micros(0)).await;
+        RunningMultiConsumerStream(self)
     }
 }
 
@@ -61,25 +99,21 @@ where
     }
 }
 
-impl<InputStream, const CHANNEL_CAPACITY: usize> MultiConsumerStream<InputStream, CHANNEL_CAPACITY>
+pub struct RunningMultiConsumerStream<InputStream, const CHANNEL_CAPACITY: usize>(
+    MultiConsumerStream<InputStream, CHANNEL_CAPACITY>,
+)
 where
-    InputStream: Stream<Item: Clone + Debug + Send + 'static> + Send + Unpin + 'static,
-{
-    #[must_use]
-    pub fn new_consumer(&self) -> MultiConsumerStreamConsumer<InputStream::Item> {
-        self.stream_item_sender.subscribe().into()
-    }
-}
+    InputStream: Stream;
 
 impl<InputStream, const CHANNEL_CAPACITY: usize> Drop
-    for MultiConsumerStream<InputStream, CHANNEL_CAPACITY>
+    for RunningMultiConsumerStream<InputStream, CHANNEL_CAPACITY>
 where
     InputStream: Stream,
 {
     fn drop(&mut self) {
         trace!("Dropping broadcast channel.");
-        self.abort_handle.abort();
-        while !self.abort_handle.is_aborted() {}
+        self.0.abort_handle.abort();
+        while !self.0.abort_handle.is_aborted() {}
     }
 }
 
@@ -127,20 +161,21 @@ mod tests {
     };
 
     use futures::{
-        stream::{empty, iter},
+        stream::{empty, iter, pending},
         task::noop_waker_ref,
         StreamExt as _,
     };
     use tokio::time::{interval_at, sleep, Instant};
     use tokio_stream::wrappers::IntervalStream;
 
-    use crate::stream::MultiConsumerStream;
+    use crate::stream::{MultiConsumerStream, MultiConsumerStreamConsumer};
 
     #[tokio::test]
     async fn propagate_some() {
         let broadcast_stream = MultiConsumerStream::from(iter([1u8, 2u8, 3u8]));
         let mut consumer_1 = broadcast_stream.new_consumer();
         let mut consumer_2 = broadcast_stream.new_consumer();
+        broadcast_stream.wait_ready().await;
 
         assert_eq!(consumer_1.next().await, Some(1u8));
         assert_eq!(consumer_1.next().await, Some(2u8));
@@ -152,34 +187,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn different_subscriber_timings() {
-        let interval = Duration::from_millis(100);
-        let input_stream = IntervalStream::new(interval_at(Instant::now() + interval, interval))
-            .enumerate()
-            .map(|(i, _)| i);
-        let broadcast_stream = MultiConsumerStream::from(input_stream);
-        let mut consumer_1 = broadcast_stream.new_consumer();
-
-        assert_eq!(consumer_1.next().await, Some(0usize));
-        assert_eq!(consumer_1.next().await, Some(1usize));
-
-        let mut consumer_2 = broadcast_stream.new_consumer();
-
-        assert_eq!(consumer_1.next().await, Some(2usize));
-        assert_eq!(consumer_2.next().await, Some(2usize));
-    }
-
-    #[tokio::test]
     async fn handle_channel_closing() {
         let broadcast_stream = MultiConsumerStream::from(empty::<()>());
         let mut consumer_1 = broadcast_stream.new_consumer();
         let mut consumer_2 = broadcast_stream.new_consumer();
+        let new = broadcast_stream.wait_ready().await;
         let mut cx = Context::from_waker(noop_waker_ref());
 
-        drop(broadcast_stream);
-
-        // Wait for stream to be dropped and the sender channel to be closed.
-        sleep(Duration::from_millis(500)).await;
+        drop(new);
 
         assert_eq!(consumer_1.poll_next_unpin(&mut cx), Poll::Ready(None));
         assert_eq!(consumer_2.poll_next_unpin(&mut cx), Poll::Ready(None));
@@ -190,22 +205,30 @@ mod tests {
         // Channel has capacity of `2`.
         let broadcast_stream =
             MultiConsumerStream::<_, 2>::new(iter([1u8, 10u8, 20u8, 30u8, 40u8]));
-
         let mut consumer = broadcast_stream.new_consumer();
+        broadcast_stream.wait_ready().await;
         // Polling the stream will return the oldest available element, which is `30`.
         assert_eq!(consumer.next().await, Some(30));
         assert_eq!(consumer.next().await, Some(40));
     }
 
     #[tokio::test]
-    async fn handle_channel_empty() {
+    async fn handle_channel_none() {
         let broadcast_stream = MultiConsumerStream::from(empty::<()>());
         let mut cx = Context::from_waker(noop_waker_ref());
 
-        // Wait for channel to be initialized
-        sleep(Duration::from_millis(500)).await;
-
         let mut consumer = broadcast_stream.new_consumer();
+        broadcast_stream.wait_ready().await;
+        assert_eq!(consumer.poll_next_unpin(&mut cx), Poll::Ready(None));
+    }
+
+    #[tokio::test]
+    async fn handle_channel_empty() {
+        let broadcast_stream = MultiConsumerStream::from(pending());
+        let mut cx = Context::from_waker(noop_waker_ref());
+
+        let mut consumer: MultiConsumerStreamConsumer<()> = broadcast_stream.new_consumer();
+        broadcast_stream.wait_ready().await;
         assert_eq!(consumer.poll_next_unpin(&mut cx), Poll::Pending);
     }
 }

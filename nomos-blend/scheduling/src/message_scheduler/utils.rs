@@ -1,5 +1,9 @@
+use std::task::Waker;
+
 use futures::StreamExt as _;
-use nomos_utils::stream::{MultiConsumerStream, MultiConsumerStreamConsumer};
+use nomos_utils::stream::{
+    MultiConsumerStream, MultiConsumerStreamConsumer, RunningMultiConsumerStream,
+};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 use tracing::trace;
@@ -16,16 +20,18 @@ use crate::{
 
 /// Reset the sub-streams providing the new session info and the round clock at
 /// the beginning of a new session.
-pub(super) fn setup_new_session<Rng, ProcessedMessage, const STREAM_SIZE: usize>(
+pub(super) async fn setup_new_session<Rng, ProcessedMessage, const STREAM_SIZE: usize>(
     cover_traffic: &mut SessionCoverTraffic<RoundClock>,
     release_delayer: &mut SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
-    round_clock_stream: &mut MultiConsumerStream<RoundClock, STREAM_SIZE>,
+    round_clock_stream: &mut RunningMultiConsumerStream<RoundClock, STREAM_SIZE>,
     round_clock_consumer: &mut MultiConsumerStreamConsumer<Round>,
     settings: Settings,
     mut rng: Rng,
     new_session_info: SessionInfo,
+    waker: &mut Option<Waker>,
 ) where
-    Rng: rand::Rng,
+    Rng: rand::Rng + Unpin,
+    ProcessedMessage: Unpin,
 {
     trace!(target: LOG_TARGET, "New session {} started with session info: {new_session_info:?}", new_session_info.session_number);
 
@@ -46,8 +52,11 @@ pub(super) fn setup_new_session<Rng, ProcessedMessage, const STREAM_SIZE: usize>
         Box::new(new_round_clock.new_consumer()) as RoundClock,
         &settings,
     );
-    *round_clock_stream = new_round_clock;
-    *round_clock_consumer = round_clock_stream.new_consumer();
+    *round_clock_consumer = new_round_clock.new_consumer();
+    *round_clock_stream = new_round_clock.wait_ready().await;
+    if let Some(waker) = waker.take() {
+        waker.wake();
+    }
 }
 
 pub(super) fn instantiate_new_cover_scheduler<Rng>(
