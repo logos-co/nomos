@@ -26,9 +26,9 @@ pub(super) async fn setup_new_session<Rng, ProcessedMessage>(
     settings: Settings,
     mut rng: Rng,
     new_session_info: SessionInfo,
+    new_channel_capacity: usize,
 ) where
-    Rng: rand::Rng + Unpin,
-    ProcessedMessage: Unpin,
+    Rng: rand::Rng,
 {
     trace!(target: LOG_TARGET, "New session {} started with session info: {new_session_info:?}", new_session_info.session_number);
 
@@ -38,7 +38,7 @@ pub(super) async fn setup_new_session<Rng, ProcessedMessage>(
                 .enumerate()
                 .map(|(round, _)| (round as u128).into()),
         ) as RoundClock,
-        1,
+        new_channel_capacity,
     );
 
     *cover_traffic = instantiate_new_cover_scheduler(

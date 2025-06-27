@@ -43,4 +43,4 @@ pub struct RoundInfo<ProcessedMessage> {
     pub cover_message_generation_flag: Option<()>,
 }
 
-pub type RoundClock = Box<dyn Stream<Item = Round> + Send + Unpin + 'static>;
+pub type RoundClock = Box<dyn Stream<Item = Round> + Send + Unpin>;
