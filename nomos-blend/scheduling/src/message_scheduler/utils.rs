@@ -1,5 +1,3 @@
-use std::task::Waker;
-
 use futures::StreamExt as _;
 use nomos_utils::stream::{
     MultiConsumerStream, MultiConsumerStreamConstructor, MultiConsumerStreamConsumer,
@@ -20,22 +18,21 @@ use crate::{
 
 /// Reset the sub-streams providing the new session info and the round clock at
 /// the beginning of a new session.
-pub(super) async fn setup_new_session<Rng, ProcessedMessage, const STREAM_SIZE: usize>(
+pub(super) async fn setup_new_session<Rng, ProcessedMessage>(
     cover_traffic: &mut SessionCoverTraffic<RoundClock>,
     release_delayer: &mut SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
-    round_clock_stream: &mut MultiConsumerStream<RoundClock, STREAM_SIZE>,
+    round_clock_stream: &mut MultiConsumerStream,
     round_clock_consumer: &mut MultiConsumerStreamConsumer<Round>,
     settings: Settings,
     mut rng: Rng,
     new_session_info: SessionInfo,
-    waker: &mut Option<Waker>,
 ) where
     Rng: rand::Rng + Unpin,
     ProcessedMessage: Unpin,
 {
     trace!(target: LOG_TARGET, "New session {} started with session info: {new_session_info:?}", new_session_info.session_number);
 
-    let new_round_clock = MultiConsumerStreamConstructor::new(Box::new(
+    let new_round_clock = MultiConsumerStreamConstructor::<_, 1>::new(Box::new(
         IntervalStream::new(interval(settings.round_duration))
             .enumerate()
             .map(|(round, _)| (round as u128).into()),
@@ -54,9 +51,6 @@ pub(super) async fn setup_new_session<Rng, ProcessedMessage, const STREAM_SIZE: 
     );
     *round_clock_consumer = new_round_clock.new_consumer();
     *round_clock_stream = new_round_clock.start().await;
-    if let Some(waker) = waker.take() {
-        waker.wake();
-    }
 }
 
 pub(super) fn instantiate_new_cover_scheduler<Rng>(

@@ -68,7 +68,7 @@ impl<InputStream, const CHANNEL_CAPACITY: usize>
 where
     InputStream: Stream<Item: Debug + Send> + Send + Unpin + 'static,
 {
-    pub async fn start(self) -> MultiConsumerStream<InputStream> {
+    pub async fn start(self) -> MultiConsumerStream {
         let Self {
             mut input_stream,
             stream_item_sender,
@@ -94,35 +94,15 @@ where
         ));
         channel_task_spawn_barrier.notified().await;
 
-        MultiConsumerStream {
-            stream_item_sender,
-            abort_handle,
-        }
+        MultiConsumerStream { abort_handle }
     }
 }
 
-pub struct MultiConsumerStream<InputStream>
-where
-    InputStream: Stream,
-{
-    stream_item_sender: Sender<InputStream::Item>,
+pub struct MultiConsumerStream {
     abort_handle: AbortHandle,
 }
 
-impl<InputStream> MultiConsumerStream<InputStream>
-where
-    InputStream: Stream<Item: Clone + Send + 'static>,
-{
-    #[must_use]
-    pub fn new_running_consumer(&self) -> MultiConsumerStreamConsumer<InputStream::Item> {
-        self.stream_item_sender.subscribe().into()
-    }
-}
-
-impl<InputStream> Drop for MultiConsumerStream<InputStream>
-where
-    InputStream: Stream,
-{
+impl Drop for MultiConsumerStream {
     fn drop(&mut self) {
         self.abort_handle.abort();
         while !self.abort_handle.is_aborted() {}
