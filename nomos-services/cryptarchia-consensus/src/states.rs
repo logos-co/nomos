@@ -18,7 +18,7 @@ pub struct CryptarchiaConsensusState<TxS, BxS, NetworkAdapterSettings, BlendAdap
     /// Set of blocks that have been pruned from the engine but have not yet
     /// been deleted from the persistence layer because of some unexpected
     /// error.
-    pub(crate) prunable_blocks: HashSet<HeaderId>,
+    pub(crate) storage_blocks_to_remove: HashSet<HeaderId>,
     // Only neededed for the service state trait
     _markers: PhantomData<(TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings)>,
 }
@@ -35,7 +35,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
     pub(crate) fn from_cryptarchia_and_unpruned_blocks<State: CryptarchiaState>(
         cryptarchia: &Cryptarchia<State>,
         leader: &Leader,
-        prunable_blocks: HashSet<HeaderId>,
+        storage_blocks_to_remove: HashSet<HeaderId>,
     ) -> Result<Self, DynError> {
         let lib = cryptarchia.consensus.lib_branch();
         let Some(lib_ledger_state) = cryptarchia.ledger.state(&lib.id()).cloned() else {
@@ -52,7 +52,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
             lib_ledger_state,
             lib_leader_utxos,
             lib_block_length,
-            prunable_blocks,
+            storage_blocks_to_remove,
             _markers: PhantomData,
         })
     }
@@ -74,7 +74,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> ServiceState
                 lib_ledger_state: settings.genesis_state.clone(),
                 lib_leader_utxos: settings.leader_config.utxos.clone(),
                 lib_block_length: 0,
-                prunable_blocks: HashSet::new(),
+                storage_blocks_to_remove: HashSet::new(),
                 _markers: PhantomData,
             }
         })
@@ -181,6 +181,6 @@ mod tests {
 
         assert_eq!(recovery_state.tip, cryptarchia_engine.tip());
         assert_eq!(recovery_state.lib, cryptarchia_engine.lib());
-        assert_eq!(recovery_state.prunable_blocks, pruned_blocks);
+        assert_eq!(recovery_state.storage_blocks_to_remove, pruned_blocks);
     }
 }
