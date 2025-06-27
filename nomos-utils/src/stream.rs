@@ -15,19 +15,19 @@ use tokio::{
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tracing::{error, trace};
 
-pub struct MultiConsumerStream<T, const CHANNEL_CAPACITY: usize> {
-    stream_item_sender: Sender<T>,
+pub struct MultiConsumerStream<InputStream, const CHANNEL_CAPACITY: usize>
+where
+    InputStream: Stream,
+{
+    stream_item_sender: Sender<InputStream::Item>,
     abort_handle: AbortHandle,
 }
 
-impl<T, const CHANNEL_CAPACITY: usize> MultiConsumerStream<T, CHANNEL_CAPACITY>
+impl<InputStream, const CHANNEL_CAPACITY: usize> MultiConsumerStream<InputStream, CHANNEL_CAPACITY>
 where
-    T: Clone + Debug + Send + 'static,
+    InputStream: Stream<Item: Clone + Debug + Send + 'static> + Send + Unpin + 'static,
 {
-    pub fn new<InputStream>(mut stream: InputStream) -> Self
-    where
-        InputStream: Stream<Item = T> + Send + Unpin + 'static,
-    {
+    pub fn new(mut stream: InputStream) -> Self {
         let (stream_item_sender, _) = channel(CHANNEL_CAPACITY);
         let sender_clone = stream_item_sender.clone();
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
@@ -50,34 +50,32 @@ where
     }
 }
 
-impl<T, const CHANNEL_CAPACITY: usize> MultiConsumerStream<T, CHANNEL_CAPACITY> {
-    // Will call `Drop`, which will abort the task.
-    pub fn close(self) {}
-}
-
 const DEFAULT_CHANNEL_CAPACITY: usize = 16;
 
-impl<InputStream, T> From<InputStream> for MultiConsumerStream<T, DEFAULT_CHANNEL_CAPACITY>
+impl<InputStream> From<InputStream> for MultiConsumerStream<InputStream, DEFAULT_CHANNEL_CAPACITY>
 where
-    InputStream: Stream<Item = T> + Send + Unpin + 'static,
-    T: Clone + Debug + Send + 'static,
+    InputStream: Stream<Item: Clone + Debug + Send + 'static> + Send + Unpin + 'static,
 {
     fn from(value: InputStream) -> Self {
         Self::new(value)
     }
 }
 
-impl<T, const CHANNEL_CAPACITY: usize> MultiConsumerStream<T, CHANNEL_CAPACITY>
+impl<InputStream, const CHANNEL_CAPACITY: usize> MultiConsumerStream<InputStream, CHANNEL_CAPACITY>
 where
-    T: Clone + Send + 'static,
+    InputStream: Stream<Item: Clone + Debug + Send + 'static> + Send + Unpin + 'static,
 {
     #[must_use]
-    pub fn new_consumer(&self) -> BroadcastStream<T> {
+    pub fn new_consumer(&self) -> BroadcastStream<InputStream::Item> {
         self.stream_item_sender.subscribe().into()
     }
 }
 
-impl<T, const CHANNEL_CAPACITY: usize> Drop for MultiConsumerStream<T, CHANNEL_CAPACITY> {
+impl<InputStream, const CHANNEL_CAPACITY: usize> Drop
+    for MultiConsumerStream<InputStream, CHANNEL_CAPACITY>
+where
+    InputStream: Stream,
+{
     fn drop(&mut self) {
         trace!("Dropping broadcast channel.");
         self.abort_handle.abort();
