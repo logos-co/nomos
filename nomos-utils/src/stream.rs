@@ -2,7 +2,6 @@ use core::{
     fmt::Debug,
     pin::Pin,
     task::{Context, Poll},
-    time::Duration,
 };
 use std::sync::Arc;
 
@@ -16,7 +15,6 @@ use tokio::{
         broadcast::{channel, Receiver, Sender},
         Notify,
     },
-    time::sleep,
 };
 use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 use tracing::error;
@@ -26,9 +24,7 @@ where
     InputStream: Stream,
 {
     stream_item_sender: Sender<InputStream::Item>,
-    abort_handle: AbortHandle,
-    channel_task_spawn_barrier: Arc<Notify>,
-    ready_barrier: Arc<Notify>,
+    input_stream: InputStream,
 }
 
 impl<InputStream, const CHANNEL_CAPACITY: usize>
@@ -36,38 +32,12 @@ impl<InputStream, const CHANNEL_CAPACITY: usize>
 where
     InputStream: Stream<Item: Clone + Debug + Send> + Send + Unpin + 'static,
 {
-    pub fn new(mut stream: InputStream) -> Self {
+    pub fn new(input_stream: InputStream) -> Self {
         let (stream_item_sender, _) = channel(CHANNEL_CAPACITY);
-        let stream_item_sender_clone = stream_item_sender.clone();
-        let (abort_handle, abort_registration) = AbortHandle::new_pair();
-
-        let channel_task_spawn_barrier = Arc::new(Notify::new());
-        let channel_task_spawn_barrier_clone = Arc::clone(&channel_task_spawn_barrier);
-
-        let ready_barrier = Arc::new(Notify::new());
-        let ready_barrier_clone = Arc::clone(&ready_barrier);
-
-        spawn(Abortable::new(
-            async move {
-                // Notify the `wait_ready` method that we are inside the async task.
-                channel_task_spawn_barrier_clone.notify_waiters();
-                // Wait for the `wait_ready` method to notify us that it's ready to consume
-                // stream messages.
-                ready_barrier_clone.notified().await;
-                while let Some(next) = stream.next().await {
-                    let _ = stream_item_sender_clone.send(next).inspect_err(|e| {
-                        error!("Failed to forward stream element to receivers. Error {e:?}");
-                    });
-                }
-            },
-            abort_registration,
-        ));
 
         Self {
             stream_item_sender,
-            abort_handle,
-            channel_task_spawn_barrier,
-            ready_barrier,
+            input_stream,
         }
     }
 }
@@ -96,17 +66,37 @@ where
 impl<InputStream, const CHANNEL_CAPACITY: usize>
     MultiConsumerStreamConstructor<InputStream, CHANNEL_CAPACITY>
 where
-    InputStream: Stream,
+    InputStream: Stream<Item: Debug + Send> + Send + Unpin + 'static,
 {
     pub async fn start(self) -> MultiConsumerStream<InputStream> {
-        self.channel_task_spawn_barrier.notified().await;
-        self.ready_barrier.notify_one();
-        // Introduce a very small artificial delay to allow the consumers to be set up
-        // before sending the stream items to them.
-        sleep(Duration::from_micros(0)).await;
+        let Self {
+            mut input_stream,
+            stream_item_sender,
+        } = self;
+
+        let channel_task_spawn_barrier = Arc::new(Notify::new());
+        let channel_task_spawn_barrier_clone = Arc::clone(&channel_task_spawn_barrier);
+
+        let stream_item_sender_clone = stream_item_sender.clone();
+        let (abort_handle, abort_registration) = AbortHandle::new_pair();
+
+        spawn(Abortable::new(
+            async move {
+                // Notify the `wait_ready` method that we are inside the async task.
+                channel_task_spawn_barrier_clone.notify_waiters();
+                while let Some(next) = input_stream.next().await {
+                    let _ = stream_item_sender_clone.send(next).inspect_err(|e| {
+                        error!("Failed to forward stream element to receivers. Error {e:?}");
+                    });
+                }
+            },
+            abort_registration,
+        ));
+        channel_task_spawn_barrier.notified().await;
+
         MultiConsumerStream {
-            stream_item_sender: self.stream_item_sender,
-            abort_handle: self.abort_handle,
+            stream_item_sender,
+            abort_handle,
         }
     }
 }
@@ -220,10 +210,10 @@ mod tests {
         let broadcast_stream = MultiConsumerStreamConstructor::<_, 1>::from(empty::<()>());
         let mut consumer_1 = broadcast_stream.new_consumer();
         let mut consumer_2 = broadcast_stream.new_consumer();
-        let new = broadcast_stream.start().await;
+        let running_stream = broadcast_stream.start().await;
         let mut cx = Context::from_waker(noop_waker_ref());
 
-        drop(new);
+        drop(running_stream);
 
         assert_eq!(consumer_1.poll_next_unpin(&mut cx), Poll::Ready(None));
         assert_eq!(consumer_2.poll_next_unpin(&mut cx), Poll::Ready(None));
