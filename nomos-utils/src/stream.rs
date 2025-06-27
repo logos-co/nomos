@@ -66,7 +66,7 @@ where
     InputStream: Stream<Item: Clone + Debug + Send + 'static> + Send + Unpin + 'static,
 {
     #[must_use]
-    pub fn new_consumer(&self) -> BroadcastStream<InputStream::Item> {
+    pub fn new_consumer(&self) -> MultiConsumerStreamConsumer<InputStream::Item> {
         self.stream_item_sender.subscribe().into()
     }
 }
@@ -79,14 +79,15 @@ where
     fn drop(&mut self) {
         trace!("Dropping broadcast channel.");
         self.abort_handle.abort();
+        while !self.abort_handle.is_aborted() {}
     }
 }
 
-pub struct BroadcastStream<T> {
+pub struct MultiConsumerStreamConsumer<T> {
     receiver: tokio_stream::wrappers::BroadcastStream<T>,
 }
 
-impl<T> From<Receiver<T>> for BroadcastStream<T>
+impl<T> From<Receiver<T>> for MultiConsumerStreamConsumer<T>
 where
     T: Clone + Send + 'static,
 {
@@ -97,7 +98,7 @@ where
     }
 }
 
-impl<T> Stream for BroadcastStream<T>
+impl<T> Stream for MultiConsumerStreamConsumer<T>
 where
     T: Clone + Send + 'static,
 {

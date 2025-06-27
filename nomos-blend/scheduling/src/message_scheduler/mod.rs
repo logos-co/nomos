@@ -7,10 +7,8 @@ use core::{
     time::Duration,
 };
 
-use futures::{
-    stream::{empty, AbortHandle},
-    Stream, StreamExt as _,
-};
+use futures::{stream::empty, Stream, StreamExt as _};
+use nomos_utils::stream::{MultiConsumerStream, MultiConsumerStreamConsumer};
 use tracing::{info, trace};
 
 use crate::{
@@ -90,6 +88,8 @@ where
     }
 }
 
+const ROUND_STREAM_SIZE: usize = 16;
+
 /// The initialized version of [`UninitializedMessageScheduler`] that is created
 /// after the session stream yields its first result.
 pub struct MessageScheduler<SessionClock, Rng, ProcessedMessage> {
@@ -101,10 +101,8 @@ pub struct MessageScheduler<SessionClock, Rng, ProcessedMessage> {
     /// that have not been fully decapsulated.
     release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
     /// The clock ticking at the beginning of each new round.
-    round_clock: RoundClock,
-    /// The abort handle to kill the round stream broadcaster at the beginning
-    /// of each new session.
-    round_clock_task_abort_handle: AbortHandle,
+    round_clock_stream: MultiConsumerStream<RoundClock, ROUND_STREAM_SIZE>,
+    round_clock_consumer: MultiConsumerStreamConsumer<<RoundClock as Stream>::Item>,
     /// The input stream that ticks upon a session change.
     session_clock: SessionClock,
     /// The settings to initialize all the required sub-streams.
@@ -143,14 +141,15 @@ where
                 rng.clone(),
                 Box::new(empty()) as RoundClock,
             );
-        let mut initial_round_clock = Box::new(empty()) as RoundClock;
-        let (mut initial_round_clock_task_abort_handle, _) = AbortHandle::new_pair();
+        let mut initial_round_clock =
+            MultiConsumerStream::<_, ROUND_STREAM_SIZE>::new(Box::new(empty()) as RoundClock);
+        let mut initial_round_clock_consumer = initial_round_clock.new_consumer();
 
         setup_new_session(
             &mut initial_cover_traffic,
             &mut initial_release_delayer,
             &mut initial_round_clock,
-            &mut initial_round_clock_task_abort_handle,
+            &mut initial_round_clock_consumer,
             settings,
             rng,
             initial_session_info,
@@ -159,8 +158,8 @@ where
         Self {
             cover_traffic: initial_cover_traffic,
             release_delayer: initial_release_delayer,
-            round_clock: initial_round_clock,
-            round_clock_task_abort_handle: initial_round_clock_task_abort_handle,
+            round_clock_stream: initial_round_clock,
+            round_clock_consumer: initial_round_clock_consumer,
             session_clock,
             settings,
         }
@@ -188,24 +187,17 @@ impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, Pr
         round_clock: RoundClock,
         session_clock: SessionClock,
     ) -> Self {
+        let multi_consumer_stream = MultiConsumerStream::<_, ROUND_STREAM_SIZE>::new(round_clock);
+        let multi_consumer_stream_consumer = multi_consumer_stream.new_consumer();
         Self {
             cover_traffic,
             release_delayer,
-            round_clock,
-            round_clock_task_abort_handle: AbortHandle::new_pair().0,
+            round_clock_stream: multi_consumer_stream,
+            round_clock_consumer: multi_consumer_stream_consumer,
             session_clock,
             // These are not needed when all fields are provided as arguments.
             settings: Settings::default(),
         }
-    }
-}
-
-impl<SessionClock, Rng, ProcessedMessage> Drop
-    for MessageScheduler<SessionClock, Rng, ProcessedMessage>
-{
-    fn drop(&mut self) {
-        trace!(target: LOG_TARGET, "Dropping message scheduler.");
-        self.round_clock_task_abort_handle.abort();
     }
 }
 
@@ -220,12 +212,12 @@ where
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Self {
-            round_clock_task_abort_handle,
             cover_traffic,
             release_delayer,
-            round_clock,
             settings,
             session_clock,
+            round_clock_stream,
+            round_clock_consumer,
         } = &mut *self;
         // We update session info on new sessions.
         let rng = release_delayer.rng().clone();
@@ -234,8 +226,8 @@ where
                 setup_new_session(
                     cover_traffic,
                     release_delayer,
-                    round_clock,
-                    round_clock_task_abort_handle,
+                    round_clock_stream,
+                    round_clock_consumer,
                     *settings,
                     rng,
                     new_session_info,
@@ -246,7 +238,7 @@ where
         }
 
         // We do not return anything if a new round has not elapsed.
-        let new_round = match round_clock.poll_next_unpin(cx) {
+        let new_round = match round_clock_consumer.poll_next_unpin(cx) {
             Poll::Pending => return Poll::Pending,
             Poll::Ready(None) => return Poll::Ready(None),
             Poll::Ready(Some(new_round)) => new_round,
