@@ -47,11 +47,30 @@ impl MembershipStorageAdapter<PeerId, SubnetworkId> for MockStorage {
         addressbooks.insert(block_number, addressbook);
     }
 
-    fn get(&self, block_number: BlockNumber) -> Option<Assignations<PeerId, SubnetworkId>> {
-        self.assignations
+    fn get(
+        &self,
+        block_number: BlockNumber,
+    ) -> Option<(
+        Assignations<PeerId, SubnetworkId>,
+        HashMap<PeerId, Multiaddr>,
+    )> {
+        let assignations = self
+            .assignations
             .lock()
             .unwrap()
             .get(&block_number)
-            .cloned()
+            .cloned();
+
+        let addressbook = self
+            .addressbooks
+            .lock()
+            .unwrap()
+            .get(&block_number)
+            .cloned();
+
+        match (assignations, addressbook) {
+            (Some(assignations), Some(addressbook)) => Some((assignations, addressbook)),
+            _ => None,
+        }
     }
 }

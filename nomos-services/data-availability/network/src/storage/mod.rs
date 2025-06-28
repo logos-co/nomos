@@ -19,7 +19,10 @@ pub trait MembershipStorageAdapter<Id, NetworkId> {
         assignations: Assignations<Id, NetworkId>,
         addressbook: HashMap<Id, Multiaddr>,
     );
-    fn get(&self, block_number: BlockNumber) -> Option<Assignations<Id, NetworkId>>;
+    fn get(
+        &self,
+        block_number: BlockNumber,
+    ) -> Option<(Assignations<Id, NetworkId>, HashMap<Id, Multiaddr>)>;
 }
 
 pub struct MembershipStorage<Adapter, Membership> {
@@ -55,7 +58,7 @@ where
     }
 
     pub fn get_historic_membership(&self, block_number: BlockNumber) -> Option<Membership> {
-        let assignations = self.adapter.get(block_number)?;
-        Some(self.handler.membership().init(assignations))
+        let (assignations, addressbook) = self.adapter.get(block_number)?;
+        Some(self.handler.membership().init(assignations, addressbook))
     }
 }
