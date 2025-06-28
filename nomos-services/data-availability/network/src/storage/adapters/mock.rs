@@ -11,18 +11,20 @@ pub struct MockStorageService;
 
 impl ServiceData for MockStorageService {
     type Settings = ();
-
     type State = NoState<()>;
-
     type StateOperator = ();
-
     type Message = ();
 }
 
 #[derive(Default)]
+struct StorageState {
+    assignations: HashMap<BlockNumber, Assignations<PeerId, SubnetworkId>>,
+    addressbooks: HashMap<BlockNumber, HashMap<PeerId, Multiaddr>>,
+}
+
+#[derive(Default)]
 pub struct MockStorage {
-    assignations: Mutex<HashMap<BlockNumber, Assignations<PeerId, SubnetworkId>>>,
-    addressbooks: Mutex<HashMap<BlockNumber, HashMap<PeerId, Multiaddr>>>,
+    state: Mutex<StorageState>,
 }
 
 impl MembershipStorageAdapter<PeerId, SubnetworkId> for MockStorage {
@@ -38,13 +40,9 @@ impl MembershipStorageAdapter<PeerId, SubnetworkId> for MockStorage {
         assignations: Assignations<PeerId, SubnetworkId>,
         addressbook: HashMap<PeerId, Multiaddr>,
     ) {
-        self.assignations
-            .lock()
-            .unwrap()
-            .insert(block_number, assignations);
-
-        let mut addressbooks = self.addressbooks.lock().unwrap();
-        addressbooks.insert(block_number, addressbook);
+        let mut state = self.state.lock().unwrap();
+        state.assignations.insert(block_number, assignations);
+        state.addressbooks.insert(block_number, addressbook);
     }
 
     fn get(
@@ -54,23 +52,14 @@ impl MembershipStorageAdapter<PeerId, SubnetworkId> for MockStorage {
         Assignations<PeerId, SubnetworkId>,
         HashMap<PeerId, Multiaddr>,
     )> {
-        let assignations = self
-            .assignations
-            .lock()
-            .unwrap()
-            .get(&block_number)
-            .cloned();
+        let (assignations, addressbook) = {
+            let state = self.state.lock().unwrap();
+            (
+                state.assignations.get(&block_number).cloned(),
+                state.addressbooks.get(&block_number).cloned(),
+            )
+        };
 
-        let addressbook = self
-            .addressbooks
-            .lock()
-            .unwrap()
-            .get(&block_number)
-            .cloned();
-
-        match (assignations, addressbook) {
-            (Some(assignations), Some(addressbook)) => Some((assignations, addressbook)),
-            _ => None,
-        }
+        assignations.zip(addressbook)
     }
 }
