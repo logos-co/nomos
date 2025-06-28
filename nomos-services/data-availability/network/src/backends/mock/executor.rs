@@ -159,4 +159,8 @@ impl MembershipHandler for MockMembership {
     ) -> subnetworks_assignations::SubnetworkAssignations<Self::NetworkId, Self::Id> {
         todo!()
     }
+
+    fn addressbook(&self) -> std::collections::HashMap<Self::Id, libp2p::Multiaddr> {
+        todo!()
+    }
 }

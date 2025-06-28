@@ -13,7 +13,12 @@ pub trait MembershipStorageAdapter<Id, NetworkId> {
 
     fn new(relay: OutboundRelay<<Self::StorageService as ServiceData>::Message>) -> Self;
 
-    fn store(&self, block_number: BlockNumber, assignations: Assignations<Id, NetworkId>);
+    fn store(
+        &self,
+        block_number: BlockNumber,
+        assignations: Assignations<Id, NetworkId>,
+        addressbook: HashMap<Id, Multiaddr>,
+    );
     fn get(&self, block_number: BlockNumber) -> Option<Assignations<Id, NetworkId>>;
 }
 
@@ -43,9 +48,10 @@ where
     ) {
         let updated_membership = self.handler.membership().update(new_members);
         let assignations = updated_membership.subnetworks();
+        let addressbook = updated_membership.addressbook();
 
         self.handler.update(updated_membership);
-        self.adapter.store(block_number, assignations);
+        self.adapter.store(block_number, assignations, addressbook);
     }
 
     pub fn get_historic_membership(&self, block_number: BlockNumber) -> Option<Membership> {

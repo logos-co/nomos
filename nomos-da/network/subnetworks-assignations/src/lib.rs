@@ -52,6 +52,8 @@ pub trait MembershipHandler {
 
     /// Returns all subnetworks with assigned members.
     fn subnetworks(&self) -> SubnetworkAssignations<Self::NetworkId, Self::Id>;
+
+    fn addressbook(&self) -> HashMap<Self::Id, Multiaddr>;
 }
 
 impl<T> MembershipHandler for Arc<T>
@@ -87,5 +89,9 @@ where
 
     fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
         self.as_ref().subnetworks()
+    }
+
+    fn addressbook(&self) -> HashMap<Self::Id, Multiaddr> {
+        self.as_ref().addressbook()
     }
 }

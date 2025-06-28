@@ -144,6 +144,10 @@ impl MembershipHandler for FillFromNodeList {
             })
             .collect()
     }
+
+    fn addressbook(&self) -> HashMap<Self::Id, Multiaddr> {
+        self.addressbook.clone()
+    }
 }
 
 #[cfg(test)]

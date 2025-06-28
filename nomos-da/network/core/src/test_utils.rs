@@ -75,6 +75,10 @@ impl MembershipHandler for AllNeighbours {
     fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
         HashMap::new()
     }
+
+    fn addressbook(&self) -> HashMap<Self::Id, libp2p::Multiaddr> {
+        self.addresses.lock().unwrap().clone()
+    }
 }
 
 pub fn new_swarm_in_memory<TBehavior>(

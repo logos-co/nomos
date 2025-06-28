@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Mutex};
 
-use libp2p::PeerId;
+use libp2p::{Multiaddr, PeerId};
 use nomos_core::block::BlockNumber;
 use nomos_da_network_core::SubnetworkId;
 use overwatch::services::{relay::OutboundRelay, state::NoState, ServiceData};
@@ -21,7 +21,8 @@ impl ServiceData for MockStorageService {
 
 #[derive(Default)]
 pub struct MockStorage {
-    storage: Mutex<HashMap<BlockNumber, Assignations<PeerId, SubnetworkId>>>,
+    assignations: Mutex<HashMap<BlockNumber, Assignations<PeerId, SubnetworkId>>>,
+    addressbooks: Mutex<HashMap<BlockNumber, HashMap<PeerId, Multiaddr>>>,
 }
 
 impl MembershipStorageAdapter<PeerId, SubnetworkId> for MockStorage {
@@ -31,12 +32,26 @@ impl MembershipStorageAdapter<PeerId, SubnetworkId> for MockStorage {
         Self::default()
     }
 
-    fn store(&self, block_number: BlockNumber, assignations: Assignations<PeerId, SubnetworkId>) {
-        let mut storage = self.storage.lock().unwrap();
-        storage.insert(block_number, assignations);
+    fn store(
+        &self,
+        block_number: BlockNumber,
+        assignations: Assignations<PeerId, SubnetworkId>,
+        addressbook: HashMap<PeerId, Multiaddr>,
+    ) {
+        self.assignations
+            .lock()
+            .unwrap()
+            .insert(block_number, assignations);
+
+        let mut addressbooks = self.addressbooks.lock().unwrap();
+        addressbooks.insert(block_number, addressbook);
     }
 
     fn get(&self, block_number: BlockNumber) -> Option<Assignations<PeerId, SubnetworkId>> {
-        self.storage.lock().unwrap().get(&block_number).cloned()
+        self.assignations
+            .lock()
+            .unwrap()
+            .get(&block_number)
+            .cloned()
     }
 }
