@@ -15,7 +15,11 @@ pub type SubnetworkAssignations<NetworkId, Id> = HashMap<NetworkId, HashSet<Id>>
 pub trait MembershipCreator: MembershipHandler {
     /// Initializes the underlying implementor with the provided members list.
     #[must_use]
-    fn init(&self, peer_addresses: HashMap<Self::NetworkId, HashSet<Self::Id>>) -> Self;
+    fn init(
+        &self,
+        peer_addresses: HashMap<Self::NetworkId, HashSet<Self::Id>>,
+        addressbook: HashMap<Self::Id, Multiaddr>,
+    ) -> Self;
 
     /// Creates a new instance of membership handler that combines previous
     /// members and new members.
@@ -52,6 +56,8 @@ pub trait MembershipHandler {
 
     /// Returns all subnetworks with assigned members.
     fn subnetworks(&self) -> SubnetworkAssignations<Self::NetworkId, Self::Id>;
+
+    fn addressbook(&self) -> HashMap<Self::Id, Multiaddr>;
 }
 
 impl<T> MembershipHandler for Arc<T>
@@ -87,5 +93,9 @@ where
 
     fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
         self.as_ref().subnetworks()
+    }
+
+    fn addressbook(&self) -> HashMap<Self::Id, Multiaddr> {
+        self.as_ref().addressbook()
     }
 }

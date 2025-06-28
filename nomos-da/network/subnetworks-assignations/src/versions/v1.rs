@@ -69,8 +69,30 @@ impl FillFromNodeList {
 }
 
 impl MembershipCreator for FillFromNodeList {
-    fn init(&self, _peer_addresses: HashMap<Self::NetworkId, HashSet<PeerId>>) -> Self {
-        todo!()
+    fn init(
+        &self,
+        peer_addresses: HashMap<Self::NetworkId, HashSet<PeerId>>,
+        addressbook: HashMap<PeerId, Multiaddr>,
+    ) -> Self {
+        // merge addressbook with the self.addressbook having priority
+        let mut merged_addressbook = addressbook;
+
+        for (peer_id, address) in &self.addressbook {
+            merged_addressbook.insert(*peer_id, address.clone());
+        }
+
+        let members: Vec<Self::Id> = peer_addresses
+            .values()
+            .flat_map(|peer_set| peer_set.iter())
+            .copied()
+            .collect();
+
+        Self {
+            assignations: Self::fill(&members, self.subnetwork_size, self.dispersal_factor),
+            subnetwork_size: self.subnetwork_size,
+            dispersal_factor: self.dispersal_factor,
+            addressbook: merged_addressbook,
+        }
     }
 
     fn update(&self, new_peer_addresses: HashMap<Self::Id, Multiaddr>) -> Self {
@@ -143,6 +165,10 @@ impl MembershipHandler for FillFromNodeList {
                 (network_id, member_set.clone())
             })
             .collect()
+    }
+
+    fn addressbook(&self) -> HashMap<Self::Id, Multiaddr> {
+        self.addressbook.clone()
     }
 }
 

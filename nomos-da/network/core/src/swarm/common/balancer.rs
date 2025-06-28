@@ -246,6 +246,10 @@ mod tests {
         fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
             unimplemented!()
         }
+
+        fn addressbook(&self) -> HashMap<Self::Id, libp2p::Multiaddr> {
+            unimplemented!()
+        }
     }
 
     #[tokio::test]

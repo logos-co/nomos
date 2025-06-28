@@ -123,6 +123,10 @@ impl MembershipHandler for FillWithOriginalReplication {
             })
             .collect()
     }
+
+    fn addressbook(&self) -> HashMap<Self::Id, Multiaddr> {
+        self.addressbook.clone()
+    }
 }
 
 #[cfg(test)]

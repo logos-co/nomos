@@ -65,4 +65,8 @@ where
     fn subnetworks(&self) -> SubnetworkAssignations<Self::NetworkId, Self::Id> {
         self.membership.load().subnetworks()
     }
+
+    fn addressbook(&self) -> std::collections::HashMap<Self::Id, libp2p::Multiaddr> {
+        self.membership.load().addressbook()
+    }
 }
