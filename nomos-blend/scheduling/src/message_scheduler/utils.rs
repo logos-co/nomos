@@ -1,20 +1,12 @@
-use std::mem::replace;
-
+use fork_stream::StreamExt;
 use futures::StreamExt as _;
-use nomos_utils::stream::{
-    MultiConsumerStream, MultiConsumerStreamConstructor, MultiConsumerStreamConsumer,
-};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 use tracing::trace;
 
 use crate::{
     cover_traffic::SessionCoverTraffic,
-    message_scheduler::{
-        round_info::{Round, RoundClock},
-        session_info::SessionInfo,
-        Settings, LOG_TARGET,
-    },
+    message_scheduler::{round_info::RoundClock, session_info::SessionInfo, Settings, LOG_TARGET},
     release_delayer::SessionProcessedMessageDelayer,
 };
 
@@ -23,40 +15,34 @@ use crate::{
 pub(super) async fn setup_new_session<Rng, ProcessedMessage>(
     cover_traffic: &mut SessionCoverTraffic<RoundClock>,
     release_delayer: &mut SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
-    round_clock_stream: &mut MultiConsumerStream,
-    round_clock_consumer: &mut MultiConsumerStreamConsumer<Round>,
+    round_clock: &mut RoundClock,
     settings: Settings,
     mut rng: Rng,
     new_session_info: SessionInfo,
-    new_channel_capacity: usize,
 ) where
     Rng: rand::Rng,
 {
     trace!(target: LOG_TARGET, "New session {} started with session info: {new_session_info:?}", new_session_info.session_number);
 
-    let new_round_clock = MultiConsumerStreamConstructor::new(
-        Box::new(
-            IntervalStream::new(interval(settings.round_duration))
-                .enumerate()
-                .map(|(round, _)| (round as u128).into()),
-        ) as RoundClock,
-        new_channel_capacity,
-    );
+    let new_round_clock = Box::new(
+        IntervalStream::new(interval(settings.round_duration))
+            .enumerate()
+            .map(|(round, _)| (round as u128).into()),
+    ) as RoundClock;
+    let traffic_fork = new_round_clock.fork();
 
     *cover_traffic = instantiate_new_cover_scheduler(
         &mut rng,
-        Box::new(new_round_clock.new_consumer()) as RoundClock,
+        Box::new(traffic_fork.clone()) as RoundClock,
         &settings,
         new_session_info.core_quota,
     );
     *release_delayer = instantiate_new_message_delayer(
         rng,
-        Box::new(new_round_clock.new_consumer()) as RoundClock,
+        Box::new(traffic_fork.clone()) as RoundClock,
         &settings,
     );
-    *round_clock_consumer = new_round_clock.new_consumer();
-    let old_stream = replace(round_clock_stream, new_round_clock.start().await);
-    drop(old_stream);
+    *round_clock = Box::new(traffic_fork) as RoundClock;
 }
 
 pub(super) fn instantiate_new_cover_scheduler<Rng>(

@@ -8,9 +8,6 @@ use core::{
 };
 
 use futures::{stream::empty, FutureExt as _, Stream, StreamExt as _};
-use nomos_utils::stream::{
-    MultiConsumerStream, MultiConsumerStreamConstructor, MultiConsumerStreamConsumer,
-};
 use tracing::{info, trace};
 
 use crate::{
@@ -36,9 +33,6 @@ const LOG_TARGET: &str = "blend::scheduling";
 /// session info, to compute session-related components to pass to its
 /// constituent sub-streams.
 pub struct UninitializedMessageScheduler<SessionClock, Rng, ProcessedMessage> {
-    /// The capacity of the underlying broadcast channel for the sub-streams to
-    /// consume.
-    channel_capacity: usize,
     /// The random generator to select rounds for message releasing.
     rng: Rng,
     /// The input stream that ticks upon a session change.
@@ -51,14 +45,8 @@ pub struct UninitializedMessageScheduler<SessionClock, Rng, ProcessedMessage> {
 impl<SessionClock, Rng, ProcessedMessage>
     UninitializedMessageScheduler<SessionClock, Rng, ProcessedMessage>
 {
-    pub const fn new(
-        channel_capacity: usize,
-        session_clock: SessionClock,
-        settings: Settings,
-        rng: Rng,
-    ) -> Self {
+    pub const fn new(session_clock: SessionClock, settings: Settings, rng: Rng) -> Self {
         Self {
-            channel_capacity,
             rng,
             session_clock,
             settings,
@@ -79,7 +67,6 @@ where
         self,
     ) -> MessageScheduler<SessionClock, Rng, ProcessedMessage> {
         let Self {
-            channel_capacity,
             rng,
             mut session_clock,
             settings,
@@ -96,23 +83,13 @@ where
         }
         .await;
 
-        MessageScheduler::new(
-            session_clock,
-            first_session_info,
-            rng,
-            settings,
-            channel_capacity,
-        )
-        .await
+        MessageScheduler::new(session_clock, first_session_info, rng, settings).await
     }
 }
 
 /// The initialized version of [`UninitializedMessageScheduler`] that is created
 /// after the session stream yields its first result.
 pub struct MessageScheduler<SessionClock, Rng, ProcessedMessage> {
-    /// The capacity of the broadcast queue that is used to communicate with all
-    /// sub-streams.
-    channel_capacity: usize,
     /// The module responsible for randomly generated cover messages, given the
     /// allowed session quota and accounting for data messages generated within
     /// the session.
@@ -120,10 +97,8 @@ pub struct MessageScheduler<SessionClock, Rng, ProcessedMessage> {
     /// The module responsible for delaying the release of processed messages
     /// that have not been fully decapsulated.
     release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
-    /// The multi-consumer stream to send to each sub-stream.
-    round_clock_stream: MultiConsumerStream,
-    /// A consumer instance of the multi-consumer round clock stream.
-    round_clock_consumer: MultiConsumerStreamConsumer<<RoundClock as Stream>::Item>,
+    /// The multi-consumer stream forked on each sub-stream.
+    round_clock: RoundClock,
     /// The input stream that ticks upon a session change.
     session_clock: SessionClock,
     /// The settings to initialize all the required sub-streams.
@@ -139,7 +114,6 @@ where
         initial_session_info: SessionInfo,
         mut rng: Rng,
         settings: Settings,
-        channel_capacity: usize,
     ) -> Self {
         // To avoid duplication for the `setup_new_session` logic, we need to create
         // "dummy" containers that are soon replaced in the `setup_new_session`
@@ -163,29 +137,22 @@ where
                 rng.clone(),
                 Box::new(empty()) as RoundClock,
             );
-        let initial_round_clock_constructor =
-            MultiConsumerStreamConstructor::new(Box::new(empty()) as RoundClock, channel_capacity);
-        let mut initial_round_clock_consumer = initial_round_clock_constructor.new_consumer();
-        let mut initial_running_round_clock = initial_round_clock_constructor.start().await;
+        let mut round_clock = Box::new(empty()) as RoundClock;
 
         setup_new_session(
             &mut initial_cover_traffic,
             &mut initial_release_delayer,
-            &mut initial_running_round_clock,
-            &mut initial_round_clock_consumer,
+            &mut round_clock,
             settings,
             rng,
             initial_session_info,
-            channel_capacity,
         )
         .await;
 
         Self {
-            channel_capacity,
             cover_traffic: initial_cover_traffic,
             release_delayer: initial_release_delayer,
-            round_clock_stream: initial_running_round_clock,
-            round_clock_consumer: initial_round_clock_consumer,
+            round_clock,
             session_clock,
             settings,
         }
@@ -208,22 +175,16 @@ impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, Pr
 
     #[cfg(test)]
     pub async fn with_test_values(
-        channel_capacity: usize,
         cover_traffic: SessionCoverTraffic<RoundClock>,
         release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
         round_clock: RoundClock,
         session_clock: SessionClock,
     ) -> Self {
-        let multi_consumer_stream_constructor =
-            MultiConsumerStreamConstructor::new(round_clock, channel_capacity);
-        let multi_consumer_stream_consumer = multi_consumer_stream_constructor.new_consumer();
         Self {
-            channel_capacity,
             cover_traffic,
             release_delayer,
-            round_clock_stream: multi_consumer_stream_constructor.start().await,
-            round_clock_consumer: multi_consumer_stream_consumer,
             session_clock,
+            round_clock,
             // These are not needed when all fields are provided as arguments.
             settings: Settings::default(),
         }
@@ -241,13 +202,11 @@ where
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Self {
-            channel_capacity,
             cover_traffic,
             release_delayer,
             settings,
             session_clock,
-            round_clock_stream,
-            round_clock_consumer,
+            round_clock,
         } = &mut *self;
         // We update session info on new sessions.
         let rng = release_delayer.rng().clone();
@@ -260,12 +219,10 @@ where
                 if Box::pin(setup_new_session(
                     cover_traffic,
                     release_delayer,
-                    round_clock_stream,
-                    round_clock_consumer,
+                    round_clock,
                     *settings,
                     rng,
                     new_session_info,
-                    *channel_capacity,
                 ))
                 .poll_unpin(cx)
                 .is_pending()
@@ -278,7 +235,7 @@ where
         }
 
         // We do not return anything if a new round has not elapsed.
-        let new_round = match round_clock_consumer.poll_next_unpin(cx) {
+        let new_round = match round_clock.poll_next_unpin(cx) {
             Poll::Pending => return Poll::Pending,
             Poll::Ready(None) => return Poll::Ready(None),
             Poll::Ready(Some(new_round)) => new_round,

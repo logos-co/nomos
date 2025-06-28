@@ -24,7 +24,6 @@ async fn no_substream_ready() {
     let rng = ChaCha20Rng::from_entropy();
     let rounds = [Round::from(0)];
     let mut scheduler = MessageScheduler::<_, _, ()>::with_test_values(
-        rounds.len(),
         // Round `1` scheduled, tick will yield round `0`.
         SessionCoverTraffic::with_test_values(
             Box::new(iter(rounds)),
@@ -57,7 +56,6 @@ async fn cover_traffic_substream_ready() {
     let rng = ChaCha20Rng::from_entropy();
     let rounds = [Round::from(0)];
     let mut scheduler = MessageScheduler::<_, _, ()>::with_test_values(
-        rounds.len(),
         // Round `0` scheduled, tick will yield round `0`.
         SessionCoverTraffic::with_test_values(
             Box::new(iter(rounds)),
@@ -95,7 +93,6 @@ async fn release_delayer_substream_ready() {
     let rng = ChaCha20Rng::from_entropy();
     let rounds = [Round::from(0)];
     let mut scheduler = MessageScheduler::<_, _, ()>::with_test_values(
-        rounds.len(),
         // Round `1` scheduled, tick will yield round `0`.
         SessionCoverTraffic::with_test_values(
             Box::new(iter(rounds)),
@@ -133,7 +130,6 @@ async fn both_substreams_ready() {
     let rng = ChaCha20Rng::from_entropy();
     let rounds = [Round::from(0)];
     let mut scheduler = MessageScheduler::<_, _, ()>::with_test_values(
-        rounds.len(),
         // Round `0` scheduled, tick will yield round `0`.
         SessionCoverTraffic::with_test_values(
             Box::new(iter(rounds)),
@@ -172,7 +168,6 @@ async fn round_change() {
     let rng = ChaCha20Rng::from_entropy();
     let rounds = [Round::from(0), Round::from(1), Round::from(2)];
     let mut scheduler = MessageScheduler::<_, _, ()>::with_test_values(
-        rounds.len(),
         // Round `1` scheduled, tick will yield round `0` then round `1`, then round `2`.
         SessionCoverTraffic::with_test_values(
             Box::new(iter(rounds)),
@@ -222,7 +217,6 @@ async fn session_change() {
     let rng = ChaCha20Rng::from_entropy();
     let rounds = [Round::from(0)];
     let mut scheduler = MessageScheduler::with_test_values(
-        rounds.len(),
         SessionCoverTraffic::with_test_values(
             Box::new(iter(rounds)),
             HashSet::from_iter([1u128.into()]),
