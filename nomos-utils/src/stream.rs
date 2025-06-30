@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use futures::{Stream, StreamExt as _};
 
 #[async_trait]
-pub trait IntoWrappedType<WrappedType>: Stream + Sized + Unpin
+pub trait StreamExt<WrappedType>: Stream + Sized + Unpin
 where
     WrappedType: InstantiateInnerType<Self, WrappedTypeInit: Send + 'static>,
 {
@@ -24,7 +24,7 @@ where
 }
 
 #[async_trait]
-impl<S, WrappedType> IntoWrappedType<WrappedType> for S
+impl<S, WrappedType> StreamExt<WrappedType> for S
 where
     S: Stream + Sized + Unpin,
     WrappedType: InstantiateInnerType<S, WrappedTypeInit: Send + 'static>,
@@ -48,7 +48,7 @@ mod tests {
     use futures::Stream;
     use tokio_stream::iter;
 
-    use crate::stream::{InstantiateInnerType, IntoWrappedType as _};
+    use crate::stream::{InstantiateInnerType, StreamExt as _};
 
     struct TestStruct(bool);
 
