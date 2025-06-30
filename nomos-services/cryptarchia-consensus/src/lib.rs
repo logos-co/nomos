@@ -1,4 +1,5 @@
 pub mod blend;
+mod ibd;
 mod leadership;
 mod messages;
 pub mod network;
@@ -55,6 +56,7 @@ use tracing::{debug, error, info, instrument, span, Level};
 use tracing_futures::Instrument as _;
 
 use crate::{
+    ibd::InitialBlockDownload,
     leadership::Leader,
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
@@ -113,6 +115,10 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
 
     const fn lib(&self) -> HeaderId {
         self.consensus.lib()
+    }
+
+    pub(crate) fn has_block(&self, id: &HeaderId) -> bool {
+        self.consensus.branches().get(id).is_some()
     }
 
     /// Create a new [`Cryptarchia`] with the updated state.
@@ -563,10 +569,13 @@ where
             .notifier()
             .get_updated_settings();
 
+        // TODO: Select the fork choice rule
+        // https://www.notion.so/Cryptarchia-v1-Bootstrapping-Synchronization-1fd261aa09df81ac94b5fb6a4eff32a6?source=copy_link#1fd261aa09df81299066c768c56a06f1
+
         // These are blocks that have been pruned by the cryptarchia engine but have not
         // yet been deleted from the storage layer.
         let mut previously_pruned_blocks = self.initial_state.prunable_blocks.clone();
-        let (mut cryptarchia, leader) = Self::initialize_cryptarchia(
+        let (cryptarchia, leader) = Self::initialize_cryptarchia(
             self.initial_state,
             ledger_config,
             leader_config,
@@ -577,6 +586,36 @@ where
 
         let network_adapter =
             NetAdapter::new(network_adapter_settings, relays.network_relay().clone()).await;
+
+        // Run IBD (Initial Block Download)
+        let mut cryptarchia = InitialBlockDownload::<
+            Online,
+            BlendAdapter,
+            BS,
+            ClPool,
+            ClPoolAdapter,
+            DaPool,
+            DaPoolAdapter,
+            NetAdapter,
+            SamplingBackend,
+            SamplingNetworkAdapter,
+            SamplingRng,
+            SamplingStorage,
+            Storage,
+            TxS,
+            DaVerifierBackend,
+            DaVerifierNetwork,
+            DaVerifierStorage,
+            TimeBackend,
+            ApiAdapter,
+            RuntimeServiceId,
+        >::run(cryptarchia, network_adapter.clone(), &relays)
+        .await
+        .unwrap();
+
+        // TODO: Start the prolonged bootstrap period.
+        // https://www.notion.so/Cryptarchia-v1-Bootstrapping-Synchronization-1fd261aa09df81ac94b5fb6a4eff32a6?source=copy_link#1fd261aa09df8162be49e5aa02199378
+
         let tx_selector = TxS::new(transaction_selector_settings);
         let blob_selector = BS::new(blob_selector_settings);
 
@@ -909,8 +948,14 @@ where
             >,
         >,
     ) -> Cryptarchia<Online> {
-        cryptarchia =
-            Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
+        cryptarchia = Self::process_block(
+            cryptarchia,
+            block,
+            relays,
+            Some(block_subscription_sender),
+            false,
+        )
+        .await;
 
         // This will modify `previously_pruned_blocks` to include blocks which are not
         // tracked by Cryptarchia anymore but have not been deleted from the persistence
@@ -943,7 +988,7 @@ where
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(cryptarchia, relays))]
-    async fn process_block<State: CryptarchiaState>(
+    pub(crate) async fn process_block<State: CryptarchiaState>(
         mut cryptarchia: Cryptarchia<State>,
         block: Block<ClPool::Item, DaPool::Item>,
         relays: &CryptarchiaConsensusRelays<
@@ -961,20 +1006,24 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-        block_broadcaster: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
+        block_broadcaster: Option<&broadcast::Sender<Block<ClPool::Item, DaPool::Item>>>,
+        // TODO: do sampling only for recent blocks within DA availability period
+        skip_sampling: bool,
     ) -> Cryptarchia<State> {
         debug!("received proposal {:?}", block);
 
-        let sampled_blobs = match get_sampled_blobs(relays.sampling_relay().clone()).await {
-            Ok(sampled_blobs) => sampled_blobs,
-            Err(error) => {
-                error!("Unable to retrieved sampled blobs: {error}");
+        if !skip_sampling {
+            let sampled_blobs = match get_sampled_blobs(relays.sampling_relay().clone()).await {
+                Ok(sampled_blobs) => sampled_blobs,
+                Err(error) => {
+                    error!("Unable to retrieved sampled blobs: {error}");
+                    return cryptarchia;
+                }
+            };
+            if !Self::validate_blocks_blobs(&block, &sampled_blobs) {
+                error!("Invalid block: {block:?}");
                 return cryptarchia;
             }
-        };
-        if !Self::validate_blocks_blobs(&block, &sampled_blobs) {
-            error!("Invalid block: {block:?}");
-            return cryptarchia;
         }
 
         // TODO: filter on time?
@@ -997,11 +1046,13 @@ where
                 )
                 .await;
 
-                mark_blob_in_block(
-                    relays.sampling_relay().clone(),
-                    block.blobs().map(DispersedBlobInfo::blob_id).collect(),
-                )
-                .await;
+                if !skip_sampling {
+                    mark_blob_in_block(
+                        relays.sampling_relay().clone(),
+                        block.blobs().map(DispersedBlobInfo::blob_id).collect(),
+                    )
+                    .await;
+                }
 
                 if let Err(e) = relays
                     .storage_adapter()
@@ -1011,8 +1062,10 @@ where
                     error!("Could not store block {e}");
                 }
 
-                if let Err(e) = block_broadcaster.send(block) {
-                    error!("Could not notify block to services {e}");
+                if let Some(block_broadcaster) = block_broadcaster {
+                    if let Err(e) = block_broadcaster.send(block) {
+                        error!("Could not notify block to services {e}");
+                    }
                 }
 
                 cryptarchia = new_state;
@@ -1230,8 +1283,14 @@ where
         let blocks = blocks.into_iter().skip(1);
 
         for block in blocks {
-            cryptarchia =
-                Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
+            cryptarchia = Self::process_block(
+                cryptarchia,
+                block,
+                relays,
+                Some(block_subscription_sender),
+                true,
+            )
+            .await;
         }
 
         (cryptarchia, leader)

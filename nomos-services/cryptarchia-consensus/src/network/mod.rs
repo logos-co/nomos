@@ -1,6 +1,6 @@
 pub mod adapters;
 
-use std::collections::HashSet;
+use std::{collections::HashSet, fmt::Debug};
 
 use futures::Stream;
 use nomos_core::{block::Block, header::HeaderId};
@@ -19,7 +19,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
     type Settings: Clone + 'static;
     type Tx: Serialize + DeserializeOwned + Clone + Eq + 'static;
     type BlobCertificate: Serialize + DeserializeOwned + Clone + Eq + 'static;
-    type PeerId;
+    type PeerId: Debug + Clone + Sync + Send;
     async fn new(
         settings: Self::Settings,
         network_relay: OutboundRelay<
@@ -42,4 +42,6 @@ pub trait NetworkAdapter<RuntimeServiceId> {
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
     ) -> Result<BoxedStream<Result<Block<Self::Tx, Self::BlobCertificate>, DynError>>, DynError>;
+
+    async fn connected_peers(&self) -> Result<HashSet<Self::PeerId>, DynError>;
 }

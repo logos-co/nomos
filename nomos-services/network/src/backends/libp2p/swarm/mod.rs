@@ -13,7 +13,10 @@ macro_rules! log_error {
     };
 }
 
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+};
 
 use nomos_libp2p::{
     behaviour::BehaviourEvent,
@@ -189,6 +192,15 @@ impl SwarmHandler {
                     n_pending_connections: counters.num_pending(),
                 };
                 log_error!(reply.send(info));
+            }
+            NetworkCommand::ConnectedPeers { reply } => {
+                log_error!(reply.send(
+                    self.swarm
+                        .swarm()
+                        .connected_peers()
+                        .copied()
+                        .collect::<HashSet<_>>()
+                ));
             }
         }
     }
