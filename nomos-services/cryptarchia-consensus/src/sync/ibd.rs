@@ -209,9 +209,11 @@ where
         //
         // TODO: Currently, getting connected peers from network service
         // because `initial_peers` are configured for the network service.
-        // Consider moving the `initial_peers` to the consensus service settings
-        // and renaming it to `ibd_peers`.
+        // However, it’s unclear whether the initial peers were empty or just
+        // unreachable. So, consider moving the `initial_peers` to the consensus
+        // service settings and renaming it to `ibd_peers`.
         // Then, try to connect to the `ibd_peers` here.
+        // If none of them is connected, return an error.
         let peers = network_adapter.connected_peers().await?;
         tracing::info!(
             target: LOG_TARGET,
