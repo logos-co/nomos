@@ -42,4 +42,6 @@ pub trait NetworkAdapter<RuntimeServiceId> {
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
     ) -> Result<BoxedStream<Result<Block<Self::Tx, Self::BlobCertificate>, DynError>>, DynError>;
+
+    async fn connected_peers(&self) -> Result<HashSet<Self::PeerId>, DynError>;
 }

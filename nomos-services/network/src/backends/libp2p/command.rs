@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use nomos_libp2p::{Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
@@ -8,7 +10,12 @@ pub use crate::backends::libp2p::swarm::{ChainSyncCommand, DiscoveryCommand, Pub
 #[non_exhaustive]
 pub enum NetworkCommand {
     Connect(Dial),
-    Info { reply: oneshot::Sender<Libp2pInfo> },
+    Info {
+        reply: oneshot::Sender<Libp2pInfo>,
+    },
+    ConnectedPeers {
+        reply: oneshot::Sender<HashSet<PeerId>>,
+    },
 }
 
 #[derive(Debug)]

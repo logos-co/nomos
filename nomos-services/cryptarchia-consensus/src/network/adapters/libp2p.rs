@@ -3,7 +3,9 @@ use std::{collections::HashSet, marker::PhantomData};
 use futures::TryStreamExt as _;
 use nomos_core::{block::Block, header::HeaderId, wire};
 use nomos_network::{
-    backends::libp2p::{ChainSyncCommand, Command, Libp2p, PeerId, PubSubCommand::Subscribe},
+    backends::libp2p::{
+        ChainSyncCommand, Command, Libp2p, NetworkCommand, PeerId, PubSubCommand::Subscribe,
+    },
     message::{ChainSyncEvent, NetworkMsg},
     NetworkService,
 };
@@ -186,5 +188,20 @@ where
         });
 
         Ok(Box::new(stream))
+    }
+
+    async fn connected_peers(&self) -> Result<HashSet<Self::PeerId>, DynError> {
+        let (sender, receiver) = oneshot::channel();
+        if let Err((e, _)) = self
+            .network_relay
+            .send(NetworkMsg::Process(Command::Network(
+                NetworkCommand::ConnectedPeers { reply: sender },
+            )))
+            .await
+        {
+            return Err(Box::new(e));
+        }
+
+        receiver.await.map_err(|e| Box::new(e) as DynError)
     }
 }
