@@ -1008,11 +1008,11 @@ where
         >,
         block_broadcaster: Option<&broadcast::Sender<Block<ClPool::Item, DaPool::Item>>>,
         // TODO: do sampling only for recent blocks within DA availability period
-        skip_sampling: bool,
+        skip_sampled_blob_validation: bool,
     ) -> Cryptarchia<State> {
         debug!("received proposal {:?}", block);
 
-        if !skip_sampling {
+        if !skip_sampled_blob_validation {
             let sampled_blobs = match get_sampled_blobs(relays.sampling_relay().clone()).await {
                 Ok(sampled_blobs) => sampled_blobs,
                 Err(error) => {
@@ -1046,13 +1046,11 @@ where
                 )
                 .await;
 
-                if !skip_sampling {
-                    mark_blob_in_block(
-                        relays.sampling_relay().clone(),
-                        block.blobs().map(DispersedBlobInfo::blob_id).collect(),
-                    )
-                    .await;
-                }
+                mark_blob_in_block(
+                    relays.sampling_relay().clone(),
+                    block.blobs().map(DispersedBlobInfo::blob_id).collect(),
+                )
+                .await;
 
                 if let Err(e) = relays
                     .storage_adapter()
