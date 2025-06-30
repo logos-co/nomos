@@ -6,6 +6,7 @@ mod relays;
 mod states;
 pub mod storage;
 mod sync;
+mod wrapper;
 
 use core::fmt::Debug;
 use std::{
@@ -15,7 +16,7 @@ use std::{
     time::Duration,
 };
 
-use cryptarchia_engine::{CryptarchiaState, Online, Slot};
+use cryptarchia_engine::{Boostrapping, CryptarchiaState, Online, Slot};
 use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
@@ -59,7 +60,11 @@ use crate::{
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
     storage::{adapters::StorageAdapter, StorageAdapter as _},
-    sync::{block_provider::BlockProvider, ibd::InitialBlockDownload},
+    sync::{
+        block_provider::BlockProvider, fork_choice::select_fork_choice_rule,
+        ibd::InitialBlockDownload,
+    },
+    wrapper::CryptarchiaWrapper,
 };
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
@@ -176,6 +181,15 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
         tracing::debug!(target: LOG_TARGET, "Pruned {pruned_states_count} old forks and their ledger states.");
 
         old_forks_pruned.into_iter()
+    }
+}
+
+impl Cryptarchia<Boostrapping> {
+    pub(crate) fn online(self) -> Cryptarchia<Online> {
+        Cryptarchia {
+            ledger: self.ledger,
+            consensus: self.consensus.online(),
+        }
     }
 }
 
@@ -558,6 +572,7 @@ where
             config: ledger_config,
             transaction_selector_settings,
             blob_selector_settings,
+            genesis_id,
             leader_config,
             network_adapter_settings,
             blend_adapter_settings,
@@ -568,14 +583,12 @@ where
             .notifier()
             .get_updated_settings();
 
-        // TODO: Select the fork choice rule
-        // https://www.notion.so/Cryptarchia-v1-Bootstrapping-Synchronization-1fd261aa09df81ac94b5fb6a4eff32a6?source=copy_link#1fd261aa09df81299066c768c56a06f1
-
         // These are blocks that have been pruned by the cryptarchia engine but have not
         // yet been deleted from the storage layer.
         let mut previously_pruned_blocks = self.initial_state.prunable_blocks.clone();
         let (cryptarchia, leader) = Self::initialize_cryptarchia(
             self.initial_state,
+            genesis_id,
             ledger_config,
             leader_config,
             &relays,
@@ -588,7 +601,6 @@ where
 
         // Run IBD (Initial Block Download)
         let mut cryptarchia = InitialBlockDownload::<
-            Online,
             BlendAdapter,
             BS,
             ClPool,
@@ -855,8 +867,8 @@ where
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
-    fn process_message<State: CryptarchiaState>(
-        cryptarchia: &Cryptarchia<State>,
+    fn process_message(
+        cryptarchia: &CryptarchiaWrapper,
         block_channel: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
         msg: ConsensusMsg<Block<ClPool::Item, DaPool::Item>>,
     ) {
@@ -865,12 +877,10 @@ where
                 let info = CryptarchiaInfo {
                     tip: cryptarchia.tip(),
                     slot: cryptarchia
-                        .ledger
                         .state(&cryptarchia.tip())
                         .expect("tip state not available")
                         .slot(),
                     height: cryptarchia
-                        .consensus
                         .branches()
                         .get(&cryptarchia.tip())
                         .expect("tip branch not available")
@@ -896,7 +906,7 @@ where
                 let mut res = Vec::new();
                 let mut cur = from;
 
-                let branches = cryptarchia.consensus.branches();
+                let branches = cryptarchia.branches();
                 while let Some(h) = branches.get(&cur) {
                     res.push(h.id());
                     // limit the response size
@@ -921,7 +931,7 @@ where
         reason = "Internal function, settings are not Sync"
     )]
     async fn process_block_and_update_state(
-        mut cryptarchia: Cryptarchia<Online>,
+        mut cryptarchia: CryptarchiaWrapper,
         leader: &Leader,
         block: Block<ClPool::Item, DaPool::Item>,
         previously_pruned_blocks: &mut HashSet<HeaderId>,
@@ -951,7 +961,7 @@ where
                 >,
             >,
         >,
-    ) -> Cryptarchia<Online> {
+    ) -> CryptarchiaWrapper {
         cryptarchia =
             Self::process_block(cryptarchia, block, relays, block_subscription_sender, false).await;
 
@@ -986,8 +996,8 @@ where
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(cryptarchia, relays))]
-    pub(crate) async fn process_block<State: CryptarchiaState>(
-        mut cryptarchia: Cryptarchia<State>,
+    pub(crate) async fn process_block(
+        mut cryptarchia: CryptarchiaWrapper,
         block: Block<ClPool::Item, DaPool::Item>,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
@@ -1007,7 +1017,7 @@ where
         block_broadcaster: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
         // TODO: do sampling only for recent blocks within DA availability period
         skip_sampled_blob_validation: bool,
-    ) -> Cryptarchia<State> {
+    ) -> CryptarchiaWrapper {
         debug!("received proposal {:?}", block);
 
         if !skip_sampled_blob_validation {
@@ -1242,6 +1252,7 @@ where
             NetAdapter::Settings,
             BlendAdapter::Settings,
         >,
+        genesis_id: HeaderId,
         ledger_config: nomos_ledger::Config,
         leader_config: LeaderConfig,
         relays: &CryptarchiaConsensusRelays<
@@ -1260,10 +1271,17 @@ where
             RuntimeServiceId,
         >,
         block_subscription_sender: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> (Cryptarchia<Online>, Leader) {
+    ) -> (CryptarchiaWrapper, Leader) {
         let lib_id = initial_state.lib;
-        let mut cryptarchia =
-            <Cryptarchia<Online>>::from_lib(lib_id, initial_state.lib_ledger_state, ledger_config);
+        // Init `Cryptarchia<Bootstrap>` from the LIB stored in the `initial_state`,
+        let cryptarchia = <Cryptarchia<Boostrapping>>::from_lib(
+            lib_id,
+            initial_state.lib_ledger_state,
+            ledger_config,
+        );
+        // Select the fork choice rule as defined in the bootstrap spec.
+        let mut cryptarchia = select_fork_choice_rule(cryptarchia, genesis_id);
+
         let leader = Leader::new(
             initial_state.lib_leader_utxos.clone(),
             leader_config.sk,
@@ -1296,11 +1314,11 @@ where
     /// the provided `prunable_blocks` parameter and will be picked up at the
     /// next invocation of this function.
     async fn prune_forks(
-        cryptarchia: &mut Cryptarchia<Online>,
+        cryptarchia: &mut CryptarchiaWrapper,
         storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
         prunable_blocks: &mut HashSet<HeaderId>,
     ) {
-        let old_forks_pruned = cryptarchia.prune_old_forks().collect::<HashSet<_>>();
+        let old_forks_pruned = cryptarchia.prune_old_forks();
 
         // We try to delete both freshly pruned forks as well as old pruned blocks.
         match Self::delete_pruned_blocks_from_storage(
@@ -1377,13 +1395,11 @@ where
         }
     }
 
-    async fn handle_chainsync_event<State>(
-        cryptarchia: &Cryptarchia<State>,
+    async fn handle_chainsync_event(
+        cryptarchia: &CryptarchiaWrapper,
         sync_blocks_provider: &BlockProvider<Storage>,
         event: ChainSyncEvent,
-    ) where
-        State: CryptarchiaState + Send + Sync + 'static,
-    {
+    ) {
         match event {
             ChainSyncEvent::ProvideBlocksRequest {
                 target_block,

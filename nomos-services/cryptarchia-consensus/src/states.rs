@@ -1,12 +1,12 @@
 use std::{collections::HashSet, marker::PhantomData};
 
-use cryptarchia_engine::{CryptarchiaState, ForkDivergenceInfo};
+use cryptarchia_engine::ForkDivergenceInfo;
 use nomos_core::{header::HeaderId, mantle::Utxo};
 use nomos_ledger::LedgerState;
 use overwatch::{services::state::ServiceState, DynError};
 use serde::{Deserialize, Serialize};
 
-use crate::{leadership::Leader, Cryptarchia, CryptarchiaSettings, Error};
+use crate::{leadership::Leader, wrapper::CryptarchiaWrapper, CryptarchiaSettings, Error};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CryptarchiaConsensusState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> {
@@ -33,13 +33,13 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
     /// engine (hence not tracked anymore) but that should be deleted from the
     /// persistence layer, which are added to the prunable blocks belonging to
     /// old enough forks as returned by the cryptarchia engine.
-    pub(crate) fn from_cryptarchia_and_unpruned_blocks<State: CryptarchiaState>(
-        cryptarchia: &Cryptarchia<State>,
+    pub(crate) fn from_cryptarchia_and_unpruned_blocks(
+        cryptarchia: &CryptarchiaWrapper,
         leader: &Leader,
         mut prunable_blocks: HashSet<HeaderId>,
     ) -> Result<Self, DynError> {
-        let lib = cryptarchia.consensus.lib_branch();
-        let Some(lib_ledger_state) = cryptarchia.ledger.state(&lib.id()).cloned() else {
+        let lib = cryptarchia.lib_branch();
+        let Some(lib_ledger_state) = cryptarchia.state(&lib.id()).cloned() else {
             return Err(DynError::from(
                 "Ledger state associated with LIB not found, something is corrupted",
             ));
@@ -50,14 +50,10 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
         // Retrieve the prunable forks from the cryptarchia engine.
         let prunable_forks = {
             let pruning_depth = cryptarchia
-                .consensus
                 .tip_branch()
                 .length()
                 .checked_sub(lib_block_length).expect("The LIB has a length greater than the tip of the canonical chain, something is corrupted");
-            cryptarchia
-                .consensus
-                .prunable_forks(pruning_depth)
-                .collect::<Vec<_>>()
+            cryptarchia.prunable_forks(pruning_depth)
         };
 
         // Merge all blocks from each prunable fork's tip up until (but excluding) the
@@ -67,7 +63,6 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
             while cursor != lca {
                 prunable_blocks.insert(cursor.id());
                 cursor = cryptarchia
-                    .consensus
                     .branches()
                     .get(&cursor.parent())
                     .copied()
@@ -76,7 +71,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
         }
 
         Ok(Self {
-            tip: cryptarchia.consensus.tip_branch().id(),
+            tip: cryptarchia.tip_branch().id(),
             lib: lib.id(),
             lib_ledger_state,
             lib_leader_utxos,
@@ -117,6 +112,7 @@ mod tests {
     use cryptarchia_engine::Boostrapping;
 
     use super::*;
+    use crate::Cryptarchia;
 
     #[test]
     fn save_prunable_forks() {
@@ -193,10 +189,10 @@ mod tests {
         // Test when no additional blocks are included.
         let recovery_state =
             CryptarchiaConsensusState::<(), (), (), ()>::from_cryptarchia_and_unpruned_blocks(
-                &Cryptarchia {
+                &CryptarchiaWrapper::Online(Cryptarchia {
                     ledger: ledger_state.clone(),
                     consensus: cryptarchia_engine.clone(),
-                },
+                }),
                 &leader,
                 HashSet::new(),
             )
@@ -223,10 +219,10 @@ mod tests {
         // Test when additional blocks are included.
         let recovery_state =
             CryptarchiaConsensusState::<(), (), (), ()>::from_cryptarchia_and_unpruned_blocks(
-                &Cryptarchia {
+                &CryptarchiaWrapper::Online(Cryptarchia {
                     ledger: ledger_state,
                     consensus: cryptarchia_engine,
-                },
+                }),
                 &leader,
                 core::iter::once([255; 32].into()).collect(),
             )
