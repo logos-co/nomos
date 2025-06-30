@@ -283,6 +283,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                         },
                 },
             recovery_file: PathBuf::from("./recovery/cryptarchia.json"),
+            prolonged_bootstrap_period: Duration::from_secs(1),
         },
         da_network: DaNetworkConfig {
             backend: DaNetworkExecutorBackendSettings {

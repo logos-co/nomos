@@ -95,4 +95,11 @@ impl CryptarchiaWrapper {
             Self::Online(c) => c.consensus.prunable_forks(max_div_depth).collect(),
         }
     }
+
+    pub fn online(self) -> Self {
+        match self {
+            Self::Bootstrapping(c) => Self::Online(c.online()),
+            Self::Online(_) => self,
+        }
+    }
 }

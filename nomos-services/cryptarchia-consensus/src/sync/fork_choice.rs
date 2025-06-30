@@ -1,4 +1,8 @@
+use std::time::Duration;
+
 use cryptarchia_engine::Boostrapping;
+use tokio::time::interval;
+use tokio_stream::{adapters::Take, wrappers::IntervalStream, StreamExt};
 
 use crate::{wrapper::CryptarchiaWrapper, Cryptarchia};
 
@@ -18,4 +22,15 @@ pub fn select_fork_choice_rule(cryptarchia: Cryptarchia<Boostrapping>) -> Crypta
     // https://www.notion.so/Cryptarchia-v1-Bootstrapping-Synchronization-1fd261aa09df81ac94b5fb6a4eff32a6?source=copy_link#1fd261aa09df81e38821d6911f78dba3
 
     CryptarchiaWrapper::Online(cryptarchia.online())
+}
+
+pub fn new_prolonged_bootstrap_timer(
+    cryptarchia: &CryptarchiaWrapper,
+    period: Duration,
+) -> Take<IntervalStream> {
+    let period = match cryptarchia {
+        CryptarchiaWrapper::Bootstrapping(_) => period,
+        CryptarchiaWrapper::Online(_) => Duration::ZERO,
+    };
+    IntervalStream::new(interval(period)).take(1)
 }

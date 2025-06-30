@@ -61,7 +61,8 @@ use crate::{
     states::CryptarchiaConsensusState,
     storage::{adapters::StorageAdapter, StorageAdapter as _},
     sync::{
-        block_provider::BlockProvider, fork_choice::select_fork_choice_rule,
+        block_provider::BlockProvider,
+        fork_choice::{new_prolonged_bootstrap_timer, select_fork_choice_rule},
         ibd::InitialBlockDownload,
     },
     wrapper::CryptarchiaWrapper,
@@ -193,6 +194,7 @@ impl Cryptarchia<Boostrapping> {
     }
 }
 
+#[serde_with::serde_as]
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings> {
     #[serde(default)]
@@ -206,6 +208,10 @@ pub struct CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendAdapterSetti
     pub network_adapter_settings: NetworkAdapterSettings,
     pub blend_adapter_settings: BlendAdapterSettings,
     pub recovery_file: PathBuf,
+    #[serde_as(
+        as = "nomos_utils::bounded_duration::MinimalBoundedDuration<0, nomos_utils::bounded_duration::SECOND>"
+    )]
+    pub prolonged_bootstrap_period: Duration,
 }
 
 impl<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings> FileBackendSettings
@@ -575,6 +581,7 @@ where
             leader_config,
             network_adapter_settings,
             blend_adapter_settings,
+            prolonged_bootstrap_period,
             ..
         } = self
             .service_resources_handle
@@ -622,8 +629,9 @@ where
         .await
         .unwrap();
 
-        // TODO: Start the prolonged bootstrap period.
-        // https://www.notion.so/Cryptarchia-v1-Bootstrapping-Synchronization-1fd261aa09df81ac94b5fb6a4eff32a6?source=copy_link#1fd261aa09df8162be49e5aa02199378
+        // Create the Prolonged Bootstrap timer
+        let mut prolonged_bootstrap_timer =
+            new_prolonged_bootstrap_timer(&cryptarchia, prolonged_bootstrap_period);
 
         let tx_selector = TxS::new(transaction_selector_settings);
         let blob_selector = BS::new(blob_selector_settings);
@@ -735,6 +743,14 @@ where
 
                     Some(event) = chainsync_events.next() => {
                        Self::handle_chainsync_event(&cryptarchia, &sync_blocks_provider, event).await;
+                    }
+
+                    Some(_) = prolonged_bootstrap_timer.next() => {
+                        tracing::info!(
+                            target: LOG_TARGET,
+                            "Prolonged bootstrap period ended, switching to the Online fork choice rule."
+                        );
+                        cryptarchia = cryptarchia.online();
                     }
                 }
             }
