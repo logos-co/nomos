@@ -1,11 +1,10 @@
+use std::io;
+
 use futures::{AsyncReadExt as _, AsyncWriteExt as _};
 use libp2p::{Stream, StreamProtocol};
 
 pub mod core;
 pub use core::CoreToCoreBlendConnectionHandler;
-use std::io;
-pub mod edge;
-pub use edge::CoreToEdgeBlendConnectionHandler;
 
 const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/nomos/blend/0.1.0");
 
