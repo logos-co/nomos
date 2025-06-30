@@ -19,9 +19,9 @@ workspace = true
 [dependencies]
 async-trait              = "0.1"
 bytes                    = { workspace = true }
+chain-service            = { workspace = true, features = ["libp2p"] }
 clap                     = { version = "4", features = ["derive", "env"] }
 color-eyre               = "0.6.0"
-cryptarchia-consensus    = { workspace = true, features = ["libp2p"] }
 futures                  = "0.3"
 hex                      = "0.4.3"
 http                     = "0.2.9"

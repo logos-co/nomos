@@ -6,7 +6,7 @@ The following is a list of all [Overwatch](https://github.com/logos-co/Overwatch
 |---------------------------------------|----------------------------------------------|
 | API                                   | `nomos-services/api`                         |
 | Blend                                 | `nomos-services/blend`                       |
-| CryptarchiaConsensus                  | `nomos-services/cryptarchia-consensus`       |
+| CryptarchiaConsensus                  | `nomos-services/chain-service`       |
 | DataAvailability - Dispersal          | `nomos-services/data-availability/dispersal` |
 | DataAvailability - Indexer            | `nomos-services/data-availability/indexer`   |
 | DataAvailability - Network            | `nomos-services/data-availability/network`   |

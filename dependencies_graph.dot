@@ -10,7 +10,7 @@ digraph {
     8 [ label = "kzgrs-backend" shape = box]
     9 [ label = "kzgrs" shape = box]
     10 [ label = "nomos-api" shape = box]
-    11 [ label = "cryptarchia-consensus" shape = box]
+    11 [ label = "chain-service" shape = box]
     12 [ label = "nomos-blend-service" shape = box]
     13 [ label = "nomos-blend-message" shape = box]
     14 [ label = "nomos-blend-network" shape = box]
