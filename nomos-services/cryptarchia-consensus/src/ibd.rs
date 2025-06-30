@@ -196,7 +196,16 @@ where
             RuntimeServiceId,
         >,
     ) -> Result<Cryptarchia<CryptarchiaState>, DynError> {
+        // Run IBD only when a set of IBD peers are configured.
+        // Return an error if none of them are not available.
+        //
+        // TODO: Currently, getting connected peers from network service
+        // because `initial_peers` are configured for the network service.
+        // Consider moving the `initial_peers` to the consensus service settings
+        // by renaming it to `ibd_peers`.
+        // Then, try to connect to the `ibd_peers` here.
         let peers = network_adapter.connected_peers().await?;
+
         // TODO: Run with multiple peers in parallel.
         // For now, we run with the first peer only for easy debugging.
         if let Some(peer) = peers.iter().next() {
