@@ -15,15 +15,14 @@ use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{
-    blend, network::NetworkAdapter, relays::CryptarchiaConsensusRelays, Cryptarchia,
-    CryptarchiaConsensus,
+    blend, network::NetworkAdapter, relays::CryptarchiaConsensusRelays,
+    wrapper::CryptarchiaWrapper, CryptarchiaConsensus,
 };
 
 const LOG_TARGET: &str = "cryptarchia::service::sync::ibd";
 
 #[expect(clippy::type_complexity, reason = "amount of generics.")]
 pub struct InitialBlockDownload<
-    CryptarchiaState,
     BlendAdapter,
     BS,
     ClPool,
@@ -45,7 +44,6 @@ pub struct InitialBlockDownload<
     RuntimeServiceId,
 > {
     _phantom: std::marker::PhantomData<(
-        CryptarchiaState,
         BlendAdapter,
         BS,
         ClPool,
@@ -69,7 +67,6 @@ pub struct InitialBlockDownload<
 }
 
 impl<
-        CryptarchiaState,
         BlendAdapter,
         BS,
         ClPool,
@@ -91,7 +88,6 @@ impl<
         RuntimeServiceId,
     >
     InitialBlockDownload<
-        CryptarchiaState,
         BlendAdapter,
         BS,
         ClPool,
@@ -113,7 +109,6 @@ impl<
         RuntimeServiceId,
     >
 where
-    CryptarchiaState: cryptarchia_engine::CryptarchiaState,
     BlendAdapter: blend::BlendAdapter<RuntimeServiceId> + Clone + Send + Sync + 'static,
     BlendAdapter::Settings: Send,
     NetAdapter: NetworkAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = DaPool::Item>
@@ -186,7 +181,7 @@ where
         reason = "CryptarchiaConsensusRelays amount of generics."
     )]
     pub async fn run(
-        mut cryptarchia: Cryptarchia<CryptarchiaState>,
+        mut cryptarchia: CryptarchiaWrapper,
         network_adapter: NetAdapter,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
@@ -203,7 +198,7 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-    ) -> Result<Cryptarchia<CryptarchiaState>, DynError> {
+    ) -> Result<CryptarchiaWrapper, DynError> {
         // Run IBD only when a set of IBD peers are configured.
         // Return an error if none of them are not available.
         //
@@ -237,7 +232,7 @@ where
     )]
     async fn run_with_peer(
         peer: NetAdapter::PeerId,
-        mut cryptarchia: Cryptarchia<CryptarchiaState>,
+        mut cryptarchia: CryptarchiaWrapper,
         network_adapter: NetAdapter,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
@@ -254,7 +249,7 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-    ) -> Result<Cryptarchia<CryptarchiaState>, DynError> {
+    ) -> Result<CryptarchiaWrapper, DynError> {
         let mut latest_downloaded_block: Option<HeaderId> = None;
         loop {
             // Request the latest tip from the peer for each iteration

@@ -5,7 +5,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use cryptarchia_engine::{Branch, Branches, CryptarchiaState};
+use cryptarchia_engine::{Branch, Branches};
 use futures::{future, stream, stream::BoxStream, StreamExt as _, TryStreamExt as _};
 use nomos_core::{block::Block, header::HeaderId, wire};
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageMsg};
@@ -15,7 +15,7 @@ use thiserror::Error;
 use tokio::sync::{mpsc::Sender, oneshot};
 use tracing::{error, info};
 
-use crate::{relays::StorageRelay, Cryptarchia};
+use crate::{relays::StorageRelay, wrapper::CryptarchiaWrapper};
 
 const MAX_NUMBER_OF_BLOCKS: usize = 1000;
 
@@ -48,14 +48,13 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
     /// a known block towards the `target_block`, in parent-to-child order.
     /// The stream yields blocks one by one and terminates early if an error
     /// is encountered.
-    pub async fn send_blocks<State, Tx, BlobCertificate>(
+    pub async fn send_blocks<Tx, BlobCertificate>(
         &self,
-        cryptarchia: &Cryptarchia<State>,
+        cryptarchia: &CryptarchiaWrapper,
         target_block: HeaderId,
         known_blocks: &HashSet<HeaderId>,
         reply_sender: Sender<BoxStream<'static, Result<Bytes, DynError>>>,
     ) where
-        State: CryptarchiaState + Send + Sync + 'static,
         <Storage as StorageChainApi>::Block: TryInto<Block<Tx, BlobCertificate>>,
         Tx: Serialize + Clone + Eq + 'static,
         BlobCertificate: Serialize + Clone + Eq + 'static,
@@ -66,9 +65,7 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
             known_blocks={known_blocks:?},"
         );
 
-        let Some(start_block) =
-            max_lca(cryptarchia.consensus.branches(), target_block, known_blocks)
-        else {
+        let Some(start_block) = max_lca(cryptarchia.branches(), target_block, known_blocks) else {
             Self::send_error(
                 "Failed to find LCA for target block and known blocks".to_owned(),
                 reply_sender,
@@ -81,7 +78,7 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
         info!("Starting to send blocks from {start_block:?} to {target_block:?}");
 
         let Ok(path) = compute_path(
-            cryptarchia.consensus.branches(),
+            cryptarchia.branches(),
             start_block,
             target_block,
             MAX_NUMBER_OF_BLOCKS,

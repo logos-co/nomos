@@ -169,7 +169,7 @@ pub struct Branch<Id> {
     length: u64,
 }
 
-impl<Id: Copy> Branch<Id> {
+impl<Id: Copy + PartialEq> Branch<Id> {
     pub const fn id(&self) -> Id {
         self.id
     }
@@ -181,6 +181,9 @@ impl<Id: Copy> Branch<Id> {
     }
     pub const fn length(&self) -> u64 {
         self.length
+    }
+    pub fn is_genesis(&self) -> bool {
+        self.id == self.parent
     }
 }
 
