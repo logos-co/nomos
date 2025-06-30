@@ -202,9 +202,14 @@ where
         // TODO: Currently, getting connected peers from network service
         // because `initial_peers` are configured for the network service.
         // Consider moving the `initial_peers` to the consensus service settings
-        // by renaming it to `ibd_peers`.
+        // and renaming it to `ibd_peers`.
         // Then, try to connect to the `ibd_peers` here.
         let peers = network_adapter.connected_peers().await?;
+        println!(
+            "Initial Block Download: Found {} connected peers: {:?}",
+            peers.len(),
+            peers
+        );
 
         // TODO: Run with multiple peers in parallel.
         // For now, we run with the first peer only for easy debugging.
@@ -240,6 +245,7 @@ where
         loop {
             // Request the latest tip from the peer for each iteration
             let tip = network_adapter.request_tip(peer.clone()).await?;
+            println!("IBD: Tip received from peer {peer:?}: {tip:?}");
 
             // Download blocks from the peer up to the tip.
             // The tip may not be reached because of the response limit set by the peer.
@@ -258,6 +264,7 @@ where
 
             while let Some(result) = block_stream.next().await {
                 let block = result?;
+                println!("IBD: Block received from peer {peer:?}: {block:?}");
                 latest_downloaded_block = Some(block.header().id());
                 // TODO: Abort downloading if `process_block` returns an error.
                 // This requires refactoring of the `process_block` method to return a `Result`.
@@ -288,6 +295,7 @@ where
 
             // If the tip has been downloaded and applied, downloading is complete.
             if cryptarchia.has_block(&tip) {
+                println!("IBD: Tip finally received from peer {peer:?} and applied to the block tree: {tip:?}");
                 return Ok(cryptarchia);
             }
         }
