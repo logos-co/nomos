@@ -1,4 +1,4 @@
-use futures::{AsyncReadExt, AsyncWriteExt};
+use futures::{AsyncReadExt as _, AsyncWriteExt as _};
 use libp2p::{Stream, StreamProtocol};
 
 pub mod core;
