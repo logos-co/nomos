@@ -19,7 +19,10 @@ use sha2::{Digest as _, Sha256};
 use crate::{
     conn_maintenance::ConnectionMonitor,
     error::Error,
-    handler::{BlendConnectionHandler, FromBehaviour, ToBehaviour},
+    handler::{
+        core::{FromBehaviour, ToBehaviour},
+        CoreToCoreBlendConnectionHandler,
+    },
 };
 
 /// A [`NetworkBehaviour`]:
@@ -161,8 +164,8 @@ where
 {
     fn create_connection_handler(
         &self,
-    ) -> BlendConnectionHandler<ObservationWindowClockProvider::IntervalStream> {
-        BlendConnectionHandler::new(ConnectionMonitor::new(
+    ) -> CoreToCoreBlendConnectionHandler<ObservationWindowClockProvider::IntervalStream> {
+        CoreToCoreBlendConnectionHandler::new(ConnectionMonitor::new(
             self.observation_window_clock_provider.interval_stream(),
         ))
     }
@@ -173,7 +176,8 @@ where
     ObservationWindowClockProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {
-    type ConnectionHandler = BlendConnectionHandler<ObservationWindowClockProvider::IntervalStream>;
+    type ConnectionHandler =
+        CoreToCoreBlendConnectionHandler<ObservationWindowClockProvider::IntervalStream>;
     type ToSwarm = Event;
 
     fn handle_established_inbound_connection(
