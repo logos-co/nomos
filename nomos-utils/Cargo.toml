@@ -8,7 +8,9 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
+async-trait = { version = "0.1.88", optional = true }
 const-hex   = "1"
+futures     = { version = "0.3.31", optional = true }
 humantime   = { version = "2.1", optional = true }
 rand        = "0.8"
 rand_chacha = "0.3"
@@ -17,7 +19,10 @@ serde_with  = { workspace = true, optional = true }
 time        = { version = "0.3", optional = true, features = ["serde-human-readable"] }
 
 [features]
-time = ["dep:humantime", "dep:serde_with", "dep:time", "serde"]
+stream = ["dep:async-trait", "dep:futures"]
+time   = ["dep:humantime", "dep:serde_with", "dep:time", "serde"]
 
 [dev-dependencies]
-serde_json = "1.0"
+serde_json   = "1.0"
+tokio        = { version = "1.45.1", features = ["macros", "rt"] }
+tokio-stream = { version = "0.1.17" }
