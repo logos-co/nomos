@@ -1,4 +1,4 @@
-use fork_stream::StreamExt;
+use fork_stream::StreamExt as _;
 use futures::StreamExt as _;
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
@@ -12,7 +12,7 @@ use crate::{
 
 /// Reset the sub-streams providing the new session info and the round clock at
 /// the beginning of a new session.
-pub(super) async fn setup_new_session<Rng, ProcessedMessage>(
+pub(super) fn setup_new_session<Rng, ProcessedMessage>(
     cover_traffic: &mut SessionCoverTraffic<RoundClock>,
     release_delayer: &mut SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
     round_clock: &mut RoundClock,
@@ -29,20 +29,20 @@ pub(super) async fn setup_new_session<Rng, ProcessedMessage>(
             .enumerate()
             .map(|(round, _)| (round as u128).into()),
     ) as RoundClock;
-    let traffic_fork = new_round_clock.fork();
+    let round_clock_fork = new_round_clock.fork();
 
     *cover_traffic = instantiate_new_cover_scheduler(
         &mut rng,
-        Box::new(traffic_fork.clone()) as RoundClock,
+        Box::new(round_clock_fork.clone()) as RoundClock,
         &settings,
         new_session_info.core_quota,
     );
     *release_delayer = instantiate_new_message_delayer(
         rng,
-        Box::new(traffic_fork.clone()) as RoundClock,
+        Box::new(round_clock_fork.clone()) as RoundClock,
         &settings,
     );
-    *round_clock = Box::new(traffic_fork) as RoundClock;
+    *round_clock = Box::new(round_clock_fork) as RoundClock;
 }
 
 pub(super) fn instantiate_new_cover_scheduler<Rng>(

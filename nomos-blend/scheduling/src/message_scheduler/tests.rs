@@ -42,8 +42,7 @@ async fn no_substream_ready() {
         Box::new(iter(rounds)),
         // Session clock. Pending so we don't overwrite the test setup.
         Box::new(pending()),
-    )
-    .await;
+    );
     let mut cx = Context::from_waker(noop_waker_ref());
 
     // We poll for round 0, which returns `Pending`, as per the default scheduler
@@ -74,8 +73,7 @@ async fn cover_traffic_substream_ready() {
         Box::new(iter(rounds)),
         // Session clock. Pending so we don't overwrite the test setup.
         Box::new(pending()),
-    )
-    .await;
+    );
     let mut cx = Context::from_waker(noop_waker_ref());
 
     // Poll for round 0, which should return a cover message.
@@ -111,8 +109,7 @@ async fn release_delayer_substream_ready() {
         Box::new(iter(rounds)),
         // Session clock. Pending so we don't overwrite the test setup.
         Box::new(pending()),
-    )
-    .await;
+    );
     let mut cx = Context::from_waker(noop_waker_ref());
 
     // Poll for round 0, which should return the processed messages.
@@ -148,8 +145,7 @@ async fn both_substreams_ready() {
         Box::new(iter(rounds)),
         // Session clock. Pending so we don't overwrite the test setup.
         Box::new(pending()),
-    )
-    .await;
+    );
     let mut cx = Context::from_waker(noop_waker_ref());
 
     // Poll for round 0, which should return the processed messages and a cover
@@ -186,8 +182,7 @@ async fn round_change() {
         Box::new(iter(rounds)),
         // Session clock. Pending so we don't overwrite the test setup.
         Box::new(pending()),
-    )
-    .await;
+    );
     let mut cx = Context::from_waker(noop_waker_ref());
 
     // Poll for round `0`, which should return `Pending`.
@@ -238,8 +233,7 @@ async fn session_change() {
             core_quota: 1,
             session_number: 0u128.into(),
         }])),
-    )
-    .await;
+    );
     assert_eq!(scheduler.cover_traffic.unprocessed_data_messages(), 1);
     assert_eq!(scheduler.release_delayer.unreleased_messages().len(), 1);
     let mut cx = Context::from_waker(noop_waker_ref());

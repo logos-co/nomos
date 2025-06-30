@@ -7,7 +7,7 @@ use core::{
     time::Duration,
 };
 
-use futures::{stream::empty, FutureExt as _, Stream, StreamExt as _};
+use futures::{stream::empty, Stream, StreamExt as _};
 use tracing::{info, trace};
 
 use crate::{
@@ -83,7 +83,7 @@ where
         }
         .await;
 
-        MessageScheduler::new(session_clock, first_session_info, rng, settings).await
+        MessageScheduler::new(session_clock, first_session_info, rng, settings)
     }
 }
 
@@ -109,7 +109,7 @@ impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, Pr
 where
     Rng: rand::Rng + Clone,
 {
-    async fn new(
+    fn new(
         session_clock: SessionClock,
         initial_session_info: SessionInfo,
         mut rng: Rng,
@@ -137,22 +137,21 @@ where
                 rng.clone(),
                 Box::new(empty()) as RoundClock,
             );
-        let mut round_clock = Box::new(empty()) as RoundClock;
+        let mut initial_round_clock = Box::new(empty()) as RoundClock;
 
         setup_new_session(
             &mut initial_cover_traffic,
             &mut initial_release_delayer,
-            &mut round_clock,
+            &mut initial_round_clock,
             settings,
             rng,
             initial_session_info,
-        )
-        .await;
+        );
 
         Self {
             cover_traffic: initial_cover_traffic,
             release_delayer: initial_release_delayer,
-            round_clock,
+            round_clock: initial_round_clock,
             session_clock,
             settings,
         }
@@ -174,7 +173,7 @@ impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, Pr
     }
 
     #[cfg(test)]
-    pub async fn with_test_values(
+    pub fn with_test_values(
         cover_traffic: SessionCoverTraffic<RoundClock>,
         release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
         round_clock: RoundClock,
@@ -183,8 +182,8 @@ impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, Pr
         Self {
             cover_traffic,
             release_delayer,
-            session_clock,
             round_clock,
+            session_clock,
             // These are not needed when all fields are provided as arguments.
             settings: Settings::default(),
         }
@@ -204,31 +203,22 @@ where
         let Self {
             cover_traffic,
             release_delayer,
+            round_clock,
             settings,
             session_clock,
-            round_clock,
         } = &mut *self;
         // We update session info on new sessions.
         let rng = release_delayer.rng().clone();
         match session_clock.poll_next_unpin(cx) {
             Poll::Ready(Some(new_session_info)) => {
-                // If there's a new session, wait until the new session components have been
-                // initialized before moving on to polling the next sub-streams.
-                // The session setup function will take care of awakening the waker once it
-                // completes.
-                if Box::pin(setup_new_session(
+                setup_new_session(
                     cover_traffic,
                     release_delayer,
                     round_clock,
                     *settings,
                     rng,
                     new_session_info,
-                ))
-                .poll_unpin(cx)
-                .is_pending()
-                {
-                    return Poll::Pending;
-                }
+                );
             }
             Poll::Ready(None) => return Poll::Ready(None),
             Poll::Pending => {}

@@ -101,6 +101,7 @@ tests                    = { path = "./tests" }
 blake2           = "0.10"
 bytes            = "1.3"
 cached           = { version = "0.55.1", default-features = false }
+fork_stream      = "0.1.0"
 libp2p           = "0.55"
 libp2p-stream    = "0.3.0-alpha"
 overwatch        = { git = "https://github.com/logos-co/Overwatch", rev = "f5a9902" }
