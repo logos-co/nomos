@@ -19,6 +19,7 @@ use crate::{
     CryptarchiaConsensus,
 };
 
+#[expect(clippy::type_complexity, reason = "amount of generics.")]
 pub struct InitialBlockDownload<
     CryptarchiaState,
     BlendAdapter,
@@ -177,6 +178,10 @@ where
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
+    #[expect(
+        clippy::type_complexity,
+        reason = "CryptarchiaConsensusRelays amount of generics."
+    )]
     pub async fn run(
         mut cryptarchia: Cryptarchia<CryptarchiaState>,
         network_adapter: NetAdapter,
@@ -221,6 +226,10 @@ where
         Ok(cryptarchia)
     }
 
+    #[expect(
+        clippy::type_complexity,
+        reason = "CryptarchiaConsensusRelays amount of generics."
+    )]
     async fn run_with_peer(
         peer: NetAdapter::PeerId,
         mut cryptarchia: Cryptarchia<CryptarchiaState>,
