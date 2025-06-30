@@ -404,7 +404,7 @@ where
     SamplingBackend::Settings: Clone + Send + Sync,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send,
     SamplingNetwork::Settings: Send + Sync,
-    SamplingNetwork::Membership: MembershipHandler + Clone,
+    SamplingNetwork::Membership: MembershipHandler + Clone + 'static,
     SamplingRng: Rng + SeedableRng + Send,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,
     VerifierBackend:

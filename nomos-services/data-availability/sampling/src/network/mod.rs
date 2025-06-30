@@ -13,12 +13,13 @@ use overwatch::{
     services::{relay::OutboundRelay, ServiceData},
     DynError,
 };
+use subnetworks_assignations::MembershipHandler;
 
 #[async_trait::async_trait]
 pub trait NetworkAdapter<RuntimeServiceId> {
     type Backend: NetworkBackend<RuntimeServiceId> + Send + 'static;
     type Settings: Clone;
-    type Membership;
+    type Membership: MembershipHandler;
     type Storage;
     type MembershipAdapter;
 

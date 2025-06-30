@@ -42,8 +42,9 @@ pub struct Libp2pNetworkAdapter<
         + 'static,
     MembershipServiceAdapter: MembershipAdapter,
 {
-    outbound_relay:
-        OutboundRelay<DaNetworkMsg<DaNetworkExecutorBackend<Membership>, RuntimeServiceId>>,
+    outbound_relay: OutboundRelay<
+        DaNetworkMsg<DaNetworkExecutorBackend<Membership>, Membership, RuntimeServiceId>,
+    >,
     _phantom: PhantomData<(RuntimeServiceId, MembershipServiceAdapter, StorageAdapter)>,
 }
 

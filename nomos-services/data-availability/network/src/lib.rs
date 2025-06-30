@@ -23,28 +23,46 @@ use overwatch::{
 };
 use serde::{Deserialize, Serialize};
 use storage::{MembershipStorage, MembershipStorageAdapter};
-use subnetworks_assignations::{MembershipCreator, MembershipHandler};
+use subnetworks_assignations::{MembershipCreator, MembershipHandler, SubnetworkAssignations};
 use tokio::sync::oneshot;
 use tokio_stream::StreamExt as _;
 
 use crate::membership::{handler::DaMembershipHandler, MembershipAdapter};
 
-pub enum DaNetworkMsg<Backend: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> {
+pub enum DaNetworkMsg<Backend, Membership, RuntimeServiceId>
+where
+    Backend: NetworkBackend<RuntimeServiceId>,
+    Membership: MembershipHandler,
+{
     Process(Backend::Message),
     Subscribe {
         kind: Backend::EventKind,
         sender: oneshot::Sender<Pin<Box<dyn Stream<Item = Backend::NetworkEvent> + Send>>>,
     },
+
+    SubnetworksAtBlock {
+        block_number: BlockNumber,
+        sender: oneshot::Sender<SubnetworkAssignations<Membership::NetworkId, Membership::Id>>,
+    },
 }
 
-impl<Backend: NetworkBackend<RuntimeServiceId>, RuntimeServiceId> Debug
-    for DaNetworkMsg<Backend, RuntimeServiceId>
+impl<Backend, Membership, RuntimeServiceId> Debug
+    for DaNetworkMsg<Backend, Membership, RuntimeServiceId>
+where
+    Backend: NetworkBackend<RuntimeServiceId>,
+    Membership: MembershipHandler,
 {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Process(msg) => write!(fmt, "DaNetworkMsg::Process({msg:?})"),
             Self::Subscribe { kind, .. } => {
                 write!(fmt, "DaNetworkMsg::Subscribe{{ kind: {kind:?}}}")
+            }
+            Self::SubnetworksAtBlock { block_number, .. } => {
+                write!(
+                    fmt,
+                    "DaNetworkMsg::SubnetworksAtBlock{{ block_number: {block_number} }}"
+                )
             }
         }
     }
@@ -67,12 +85,15 @@ where
 }
 
 pub struct NetworkService<
-    Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
+    Backend,
     Membership,
     MembershipServiceAdapter,
     StorageAdapter,
     RuntimeServiceId,
-> {
+> where
+    Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
+    Membership: MembershipHandler,
+{
     backend: Backend,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     membership: DaMembershipHandler<Membership>,
@@ -92,13 +113,7 @@ pub struct NetworkState<
     phantom: PhantomData<(Membership, MembershipServiceAdapter, StorageAdapter)>,
 }
 
-impl<
-        Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
-        Membership,
-        MembershipServiceAdapter,
-        StorageAdapter,
-        RuntimeServiceId,
-    > ServiceData
+impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId> ServiceData
     for NetworkService<
         Backend,
         Membership,
@@ -106,6 +121,9 @@ impl<
         StorageAdapter,
         RuntimeServiceId,
     >
+where
+    Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
+    Membership: MembershipHandler,
 {
     type Settings = NetworkConfig<Backend, Membership, RuntimeServiceId>;
     type State = NetworkState<
@@ -116,7 +134,7 @@ impl<
         RuntimeServiceId,
     >;
     type StateOperator = NoOperator<Self::State>;
-    type Message = DaNetworkMsg<Backend, RuntimeServiceId>;
+    type Message = DaNetworkMsg<Backend, Membership, RuntimeServiceId>;
 }
 
 #[async_trait]
@@ -134,7 +152,7 @@ where
         + Send
         + 'static,
     Backend::State: Send + Sync,
-    Membership: MembershipCreator + MembershipHandler + Clone + Send + Sync + 'static,
+    Membership: MembershipCreator + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync,
     Membership::NetworkId: Send,
     MembershipServiceAdapter: MembershipAdapter<Id = Membership::Id> + Send + Sync + 'static,
@@ -214,7 +232,7 @@ where
         loop {
             tokio::select! {
                 Some(msg) = inbound_relay.recv() => {
-                    Self::handle_network_service_message(msg, backend).await;
+                    Self::handle_network_service_message(msg, backend, &membership_storage).await;
                 }
                 Some((block_number, providers)) = stream.next() => {
                     Self::handle_membership_update(block_number, providers, &membership_storage);
@@ -234,6 +252,7 @@ impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServi
     >
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
+    Membership: MembershipHandler,
 {
     fn drop(&mut self) {
         self.backend.shutdown();
@@ -255,8 +274,9 @@ where
     Membership: MembershipCreator + Clone + Send + Sync + 'static,
 {
     async fn handle_network_service_message(
-        msg: DaNetworkMsg<Backend, RuntimeServiceId>,
+        msg: DaNetworkMsg<Backend, Membership, RuntimeServiceId>,
         backend: &mut Backend,
+        membership_storage: &MembershipStorage<StorageAdapter, Membership>,
     ) {
         match msg {
             DaNetworkMsg::Process(msg) => {
@@ -272,6 +292,26 @@ where
                         "client hung up before a subscription handle could be established"
                     );
                 }),
+            DaNetworkMsg::SubnetworksAtBlock {
+                block_number,
+                sender,
+            } => {
+                if let Some(membership) = membership_storage.get_historic_membership(block_number) {
+                    let assignations = membership.subnetworks();
+                    sender.send(assignations).unwrap_or_else(|_| {
+                        tracing::warn!(
+                            "client hung up before a subnetwork assignations handle could be established"
+                        );
+                    });
+                } else {
+                    tracing::warn!("No membership found for block number {block_number}");
+                    sender.send(SubnetworkAssignations::default()).unwrap_or_else(|_| {
+                        tracing::warn!(
+                            "client hung up before a subnetwork assignations handle could be established"
+                        );
+                    });
+                }
+            }
         }
     }
 

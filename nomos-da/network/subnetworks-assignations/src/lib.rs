@@ -29,9 +29,9 @@ pub trait MembershipCreator: MembershipHandler {
 
 pub trait MembershipHandler {
     /// Subnetworks Id type
-    type NetworkId: Eq + Hash;
+    type NetworkId: Eq + Hash + Send + Sync + 'static;
     /// Members Id type
-    type Id: Debug;
+    type Id: Debug + Send + Sync + 'static;
 
     /// Returns the set of `NetworksIds` an id is a member of
     fn membership(&self, id: &Self::Id) -> HashSet<Self::NetworkId>;

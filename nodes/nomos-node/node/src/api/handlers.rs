@@ -465,7 +465,7 @@ pub async fn block_peer<
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::Message: MonitorMessageFactory,
-    Membership: MembershipHandler + Clone,
+    Membership: MembershipHandler + Clone + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -511,7 +511,7 @@ pub async fn unblock_peer<
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::Message: MonitorMessageFactory,
-    Membership: MembershipHandler + Clone,
+    Membership: MembershipHandler + Clone + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -555,7 +555,7 @@ pub async fn blacklisted_peers<
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::Message: MonitorMessageFactory,
-    Membership: MembershipHandler + Clone,
+    Membership: MembershipHandler + Clone + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -801,7 +801,7 @@ pub async fn balancer_stats<
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::Message: BalancerMessageFactory,
-    Membership: MembershipHandler + Clone,
+    Membership: MembershipHandler + Clone + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -845,7 +845,7 @@ pub async fn monitor_stats<
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::Message: MonitorMessageFactory,
-    Membership: MembershipHandler + Clone,
+    Membership: MembershipHandler + Clone + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
