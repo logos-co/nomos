@@ -587,35 +587,46 @@ where
             NetAdapter::new(network_adapter_settings, relays.network_relay().clone()).await;
 
         // Run IBD (Initial Block Download)
-        let mut cryptarchia = InitialBlockDownload::<
-            Online,
-            BlendAdapter,
-            BS,
-            ClPool,
-            ClPoolAdapter,
-            DaPool,
-            DaPoolAdapter,
-            NetAdapter,
-            SamplingBackend,
-            SamplingNetworkAdapter,
-            SamplingRng,
-            SamplingStorage,
-            Storage,
-            TxS,
-            DaVerifierBackend,
-            DaVerifierNetwork,
-            DaVerifierStorage,
-            TimeBackend,
-            ApiAdapter,
-            RuntimeServiceId,
-        >::run(
-            cryptarchia,
-            network_adapter.clone(),
-            &relays,
-            &self.block_subscription_sender,
-        )
-        .await
-        .unwrap();
+        let mut cryptarchia = {
+            match InitialBlockDownload::<
+                Online,
+                BlendAdapter,
+                BS,
+                ClPool,
+                ClPoolAdapter,
+                DaPool,
+                DaPoolAdapter,
+                NetAdapter,
+                SamplingBackend,
+                SamplingNetworkAdapter,
+                SamplingRng,
+                SamplingStorage,
+                Storage,
+                TxS,
+                DaVerifierBackend,
+                DaVerifierNetwork,
+                DaVerifierStorage,
+                TimeBackend,
+                ApiAdapter,
+                RuntimeServiceId,
+            >::run(
+                cryptarchia,
+                network_adapter.clone(),
+                &relays,
+                &self.block_subscription_sender,
+            )
+            .await
+            {
+                Ok(cryptarchia) => cryptarchia,
+                Err(e) => {
+                    tracing::error!(
+                        target: LOG_TARGET,
+                        "InitialBlockDownload failed: {e}"
+                    );
+                    return Err(e);
+                }
+            }
+        };
 
         // TODO: Start the prolonged bootstrap period.
         // https://www.notion.so/Cryptarchia-v1-Bootstrapping-Synchronization-1fd261aa09df81ac94b5fb6a4eff32a6?source=copy_link#1fd261aa09df8162be49e5aa02199378
