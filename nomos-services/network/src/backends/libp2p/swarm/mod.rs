@@ -190,6 +190,10 @@ impl SwarmHandler {
                 };
                 log_error!(reply.send(info));
             }
+            NetworkCommand::ConnectedPeers { reply } => {
+                let connected_peers = self.swarm.swarm().connected_peers().copied().collect();
+                log_error!(reply.send(connected_peers));
+            }
         }
     }
 

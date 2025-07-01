@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use libp2p::{kad::QueryId, Multiaddr, PeerId, StreamProtocol};
+use libp2p::{
+    kad::{PeerInfo, QueryId},
+    Multiaddr, PeerId, StreamProtocol,
+};
 
 use crate::Swarm;
 
@@ -23,5 +26,9 @@ impl Swarm {
 
     pub fn kademlia_routing_table_dump(&mut self) -> HashMap<u32, Vec<PeerId>> {
         self.swarm.behaviour_mut().kademlia_routing_table_dump()
+    }
+
+    pub fn kademlia_discovered_peers(&mut self) -> Vec<PeerInfo> {
+        self.swarm.behaviour_mut().kademlia_discovered_peers()
     }
 }
