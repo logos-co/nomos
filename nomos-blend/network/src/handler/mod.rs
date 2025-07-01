@@ -6,7 +6,7 @@ use libp2p::{Stream, StreamProtocol};
 pub mod core;
 pub use core::CoreToCoreBlendConnectionHandler;
 pub mod edge;
-pub use edge::CoreToEdgeBlendConnectionHandler;
+//pub use edge::CoreToEdgeBlendConnectionHandler;
 
 const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/nomos/blend/0.1.0");
 

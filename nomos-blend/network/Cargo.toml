@@ -9,6 +9,7 @@ workspace = true
 
 [dependencies]
 cached                 = { workspace = true }
+either                 = "1.15.0"
 futures                = "0.3.30"
 libp2p                 = { workspace = true }
 nomos-blend-message    = { workspace = true }

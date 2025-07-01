@@ -1,4 +1,4 @@
-use std::num::NonZeroU64;
+use std::{num::NonZeroU64, time::Duration};
 
 use libp2p::{allow_block_list::BlockedPeers, connection_limits::ConnectionLimits, PeerId};
 use nomos_blend_network::ObservationWindowTokioIntervalProvider;
@@ -39,6 +39,8 @@ impl BlendBehaviour {
                     seen_message_cache_size: 1_944_000,
                 },
                 observation_window_interval_provider,
+                config.membership(),
+                Duration::from_secs(5),
             ),
             limits: libp2p::connection_limits::Behaviour::new(
                 ConnectionLimits::default()
