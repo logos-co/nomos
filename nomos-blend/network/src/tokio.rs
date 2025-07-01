@@ -89,45 +89,19 @@ mod test {
     #[tokio::test]
     async fn behaviour() {
         // Initialize two swarms that support the blend protocol.
-        let (nodes, keypairs) = nodes(2, 8090);
-        let nodes = nodes.collect::<Vec<_>>();
-        let mut nodes_clone = nodes.clone();
-        let mut keypairs = keypairs.collect::<Vec<_>>();
-        let node1_addr = nodes_clone.remove(0).address;
-        let keypair = keypairs.remove(0);
+        let (mut nodes, mut keypairs) = nodes(2, 8090);
+        let node1_addr = nodes.next().unwrap().address;
         let mut swarm1 = new_blend_swarm(
-            keypair.clone(),
+            keypairs.next().unwrap(),
             node1_addr.clone(),
             Duration::from_secs(5),
             None,
-            Membership::new(
-                nodes.clone(),
-                &keypair
-                    .public()
-                    .try_into_ed25519()
-                    .unwrap()
-                    .to_bytes()
-                    .try_into()
-                    .unwrap(),
-            ),
         );
-        let node2_addr = nodes_clone.remove(0).address;
-        let keypair = keypairs.remove(0);
         let mut swarm2 = new_blend_swarm(
-            keypair.clone(),
-            node2_addr,
+            keypairs.next().unwrap(),
+            nodes.next().unwrap().address,
             Duration::from_secs(5),
             None,
-            Membership::new(
-                nodes.clone(),
-                &keypair
-                    .public()
-                    .try_into_ed25519()
-                    .unwrap()
-                    .to_bytes()
-                    .try_into()
-                    .unwrap(),
-            ),
         );
         swarm2.dial(node1_addr).unwrap();
 
@@ -169,30 +143,14 @@ mod test {
     #[tokio::test]
     async fn peer_not_support_blend_protocol() {
         // Only swarm2 supports the blend protocol.
-        let (nodes, keypairs) = nodes(2, 8190);
-        let nodes = nodes.collect::<Vec<_>>();
-        let mut nodes_clone = nodes.clone();
-        let mut keypairs = keypairs.collect::<Vec<_>>();
-        let node1_addr = nodes_clone.remove(0).address;
-        let keypair = keypairs.remove(0);
-        let mut swarm1 = new_dummy_swarm(keypair, node1_addr.clone());
-        let node2_addr = nodes_clone.remove(0).address;
-        let keypair = keypairs.remove(0);
+        let (mut nodes, mut keypairs) = nodes(2, 8190);
+        let node1_addr = nodes.next().unwrap().address;
+        let mut swarm1 = new_dummy_swarm(keypairs.next().unwrap(), node1_addr.clone());
         let mut swarm2 = new_blend_swarm(
-            keypair.clone(),
-            node2_addr,
+            keypairs.next().unwrap(),
+            nodes.next().unwrap().address,
             Duration::from_secs(5),
             None,
-            Membership::new(
-                nodes.clone(),
-                &keypair
-                    .public()
-                    .try_into_ed25519()
-                    .unwrap()
-                    .to_bytes()
-                    .try_into()
-                    .unwrap(),
-            ),
         );
         swarm2.dial(node1_addr).unwrap();
 
@@ -219,45 +177,19 @@ mod test {
     #[tokio::test]
     async fn detect_spammy_peer() {
         // Init two swarms with connection monitoring enabled.
-        let (nodes, keypairs) = nodes(2, 8290);
-        let nodes = nodes.collect::<Vec<_>>();
-        let mut nodes_clone = nodes.clone();
-        let mut keypairs = keypairs.collect::<Vec<_>>();
-        let node1_addr = nodes_clone.remove(0).address;
-        let keypair = keypairs.remove(0);
+        let (mut nodes, mut keypairs) = nodes(2, 8290);
+        let node1_addr = nodes.next().unwrap().address;
         let mut swarm1 = new_blend_swarm(
-            keypair.clone(),
+            keypairs.next().unwrap(),
             node1_addr.clone(),
             Duration::from_secs(5),
             Some(0..=0),
-            Membership::new(
-                nodes.clone(),
-                &keypair
-                    .public()
-                    .try_into_ed25519()
-                    .unwrap()
-                    .to_bytes()
-                    .try_into()
-                    .unwrap(),
-            ),
         );
-        let node2_addr = nodes_clone.remove(0).address;
-        let keypair = keypairs.remove(0);
         let mut swarm2 = new_blend_swarm(
-            keypair.clone(),
-            node2_addr,
+            keypairs.next().unwrap(),
+            nodes.next().unwrap().address,
             Duration::from_secs(5),
             Some(0..=0),
-            Membership::new(
-                nodes.clone(),
-                &keypair
-                    .public()
-                    .try_into_ed25519()
-                    .unwrap()
-                    .to_bytes()
-                    .try_into()
-                    .unwrap(),
-            ),
         );
         swarm2.dial(node1_addr).unwrap();
 
@@ -309,45 +241,19 @@ mod test {
     #[tokio::test]
     async fn detect_unhealthy_peer() {
         // Init two swarms with connection monitoring enabled.
-        let (nodes, keypairs) = nodes(2, 8390);
-        let nodes = nodes.collect::<Vec<_>>();
-        let mut nodes_clone = nodes.clone();
-        let mut keypairs = keypairs.collect::<Vec<_>>();
-        let node1_addr = nodes_clone.remove(0).address;
-        let keypair = keypairs.remove(0);
+        let (mut nodes, mut keypairs) = nodes(2, 8390);
+        let node1_addr = nodes.next().unwrap().address;
         let mut swarm1 = new_blend_swarm(
-            keypair.clone(),
+            keypairs.next().unwrap(),
             node1_addr.clone(),
             Duration::from_secs(5),
             Some(1..=1),
-            Membership::new(
-                nodes.clone(),
-                &keypair
-                    .public()
-                    .try_into_ed25519()
-                    .unwrap()
-                    .to_bytes()
-                    .try_into()
-                    .unwrap(),
-            ),
         );
-        let node2_addr = nodes_clone.remove(0).address;
-        let keypair = keypairs.remove(0);
         let mut swarm2 = new_blend_swarm(
-            keypair.clone(),
-            node2_addr,
+            keypairs.next().unwrap(),
+            nodes.next().unwrap().address,
             Duration::from_secs(5),
             Some(1..=1),
-            Membership::new(
-                nodes,
-                &keypair
-                    .public()
-                    .try_into_ed25519()
-                    .unwrap()
-                    .to_bytes()
-                    .try_into()
-                    .unwrap(),
-            ),
         );
         swarm2.dial(node1_addr).unwrap();
 
