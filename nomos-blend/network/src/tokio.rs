@@ -301,6 +301,7 @@ mod test {
         expected_duration: Duration,
         expected_message_range: Option<RangeInclusive<u64>>,
         membership_info: Membership<PeerId>,
+        timeout: Duration,
     ) -> Swarm<Behaviour<TestTokioIntervalStreamProvider>> {
         new_swarm_with_behaviour(
             keypair,
@@ -316,7 +317,7 @@ mod test {
                     expected_message_range.unwrap_or(0..=u64::MAX),
                 ),
                 membership_info,
-                Duration::from_secs(5),
+                timeout,
             ),
         )
     }
