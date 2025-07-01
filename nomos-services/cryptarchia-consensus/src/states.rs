@@ -85,7 +85,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> ServiceState
 mod tests {
     use std::num::NonZero;
 
-    use cryptarchia_engine::{Boostrapping, UpdatedCryptarchia};
+    use cryptarchia_engine::Boostrapping;
 
     use super::*;
 
@@ -107,10 +107,7 @@ mod tests {
             consensus_config: cryptarchia_engine_config,
         };
 
-        let UpdatedCryptarchia {
-            cryptarchia: cryptarchia_engine,
-            pruned_blocks,
-        } = {
+        let (cryptarchia_engine, pruned_blocks) = {
             // Boostrapping mode since we are pursposefully adding old forks to test the
             // recovery mechanism.
             let mut cryptarchia = cryptarchia_engine::Cryptarchia::<_, Boostrapping>::from_lib(
@@ -129,36 +126,36 @@ mod tests {
             cryptarchia = cryptarchia
                 .receive_block([1; 32].into(), genesis_header_id, 1.into())
                 .expect("Block 1 to be added successfully on top of block 0.")
-                .cryptarchia
+                .0
                 .receive_block([2; 32].into(), [1; 32].into(), 2.into())
                 .expect("Block 2 to be added successfully on top of block 1.")
-                .cryptarchia
+                .0
                 .receive_block([3; 32].into(), [2; 32].into(), 3.into())
                 .expect("Block 3 to be added successfully on top of block 2.")
-                .cryptarchia;
+                .0;
             // Add a 2-block fork from genesis
             cryptarchia = cryptarchia
                 .receive_block([4; 32].into(), genesis_header_id, 1.into())
                 .expect("Block 4 to be added successfully on top of block 0.")
-                .cryptarchia
+                .0
                 .receive_block([5; 32].into(), [4; 32].into(), 2.into())
                 .expect("Block 5 to be added successfully on top of block 4.")
-                .cryptarchia;
+                .0;
             // Add a second single-block fork from genesis
             cryptarchia = cryptarchia
                 .receive_block([6; 32].into(), genesis_header_id, 1.into())
                 .expect("Block 6 to be added successfully on top of block 0.")
-                .cryptarchia;
+                .0;
             // Add a single-block fork from the block after genesis (block `1`)
             cryptarchia = cryptarchia
                 .receive_block([7; 32].into(), [1; 32].into(), 2.into())
                 .expect("Block 7 to be added successfully on top of block 1.")
-                .cryptarchia;
+                .0;
             // Add a single-block fork from the second block after genesis (block `2`)
             cryptarchia = cryptarchia
                 .receive_block([8; 32].into(), [2; 32].into(), 3.into())
                 .expect("Block 8 to be added successfully on top of block 2.")
-                .cryptarchia;
+                .0;
 
             cryptarchia.online()
         };
