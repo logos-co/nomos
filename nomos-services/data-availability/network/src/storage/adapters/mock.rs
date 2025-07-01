@@ -63,7 +63,7 @@ impl MembershipStorageAdapter<PeerId, SubnetworkId> for MockStorage {
         assignations.zip(addressbook)
     }
 
-    fn prune_old_states(&self) {
+    fn prune(&self) {
         todo!()
     }
 }
