@@ -1,11 +1,9 @@
 use std::num::NonZero;
 
-use cl::{NoteWitness, NullifierSecret};
 use cryptarchia_consensus::LeaderConfig;
 use cryptarchia_engine::EpochConfig;
-use nomos_core::staking::NMO_UNIT;
+use nomos_core::mantle::{keys::SecretKey, Note, Utxo};
 use nomos_ledger::LedgerState;
-use rand::thread_rng;
 
 #[derive(Clone)]
 pub struct ConsensusParams {
@@ -44,24 +42,24 @@ pub fn create_consensus_configs(
     ids: &[[u8; 32]],
     consensus_params: &ConsensusParams,
 ) -> Vec<GeneralConsensusConfig> {
-    let notes = std::iter::repeat_with(|| NoteWitness::basic(1, NMO_UNIT, &mut thread_rng()))
-        .take(ids.len())
-        .collect::<Vec<_>>();
-
     let sks = ids
         .iter()
         .map(|&id| {
             let mut sk = [0; 16];
             sk.copy_from_slice(&id[0..16]);
-            NullifierSecret(sk)
+            SecretKey::from(sk)
         })
         .collect::<Vec<_>>();
 
-    // no commitments for now, proofs are not checked anyway
-    let genesis_state = LedgerState::from_commitments(
-        notes.iter().zip(&sks).map(|(n, sk)| n.commit(sk.commit())),
-        (ids.len() as u32).into(),
-    );
+    let utxos = sks
+        .iter()
+        .map(|_| Utxo {
+            note: Note::new(1, [0; 32].into()), // TODO: replace with proper public key
+            tx_hash: [0; 32].into(),
+            output_index: 0,
+        })
+        .collect::<Vec<_>>();
+    let genesis_state = LedgerState::from_utxos(utxos.clone());
     let ledger_config = nomos_ledger::Config {
         epoch_config: EpochConfig {
             epoch_stake_distribution_stabilization: NonZero::new(3).unwrap(),
@@ -74,13 +72,13 @@ pub fn create_consensus_configs(
         },
     };
 
-    notes
+    utxos
         .into_iter()
         .zip(sks)
-        .map(|(note, nf_sk)| GeneralConsensusConfig {
+        .map(|(utxo, sk)| GeneralConsensusConfig {
             leader_config: LeaderConfig {
-                notes: vec![note],
-                nf_sk,
+                utxos: vec![utxo],
+                sk,
             },
             ledger_config,
             genesis_state: genesis_state.clone(),

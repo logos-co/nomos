@@ -251,7 +251,7 @@ where
         id: HeaderId,
     ) -> Result<Option<Block<Tx, kzgrs_backend::dispersal::BlobInfo>>, crate::http::DynError>
     where
-        Tx: Serialize + DeserializeOwned + Clone + Eq + Hash,
+        Tx: Serialize + DeserializeOwned + Clone + Eq,
     {
         let key: [u8; 32] = id.into();
         let (msg, receiver) = StorageMsg::new_load_message(Bytes::copy_from_slice(&key));

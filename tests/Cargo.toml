@@ -10,7 +10,6 @@ workspace = true
 
 [dependencies]
 blst                     = { version = "0.3.11" }
-cl                       = { workspace = true }
 common-http-client       = { workspace = true }
 cryptarchia-consensus    = { workspace = true }
 cryptarchia-engine       = { workspace = true, features = ["serde"] }
@@ -20,8 +19,8 @@ futures-util             = "0.3.31"
 hex                      = "0.4.3"
 kzgrs-backend            = { workspace = true }
 nomos-api                = { workspace = true }
-nomos-blend              = { workspace = true }
 nomos-blend-message      = { workspace = true }
+nomos-blend-scheduling   = { workspace = true }
 nomos-blend-service      = { workspace = true, features = ["libp2p"] }
 nomos-core               = { workspace = true }
 nomos-da-dispersal       = { workspace = true }
@@ -34,7 +33,6 @@ nomos-executor           = { workspace = true, default-features = false, feature
 nomos-http-api-common    = { workspace = true }
 nomos-ledger             = { workspace = true, features = ["serde"] }
 nomos-libp2p             = { workspace = true }
-nomos-mantle-core        = { workspace = true }
 nomos-membership         = { workspace = true }
 nomos-mempool            = { workspace = true, features = ["libp2p", "mock"] }
 nomos-network            = { workspace = true, features = ["libp2p"] }
@@ -54,7 +52,6 @@ tempfile                 = "3"
 time                     = "0.3"
 tokio                    = "1"
 tracing                  = { workspace = true }
-x25519-dalek             = { version = "2", features = ["getrandom", "static_secrets"] }
 
 [[test]]
 name = "test_cryptarchia_happy_path"

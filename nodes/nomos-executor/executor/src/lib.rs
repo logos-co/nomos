@@ -7,7 +7,7 @@ use nomos_blend_service::{
     backends::libp2p::Libp2pBlendBackend as BlendBackend,
     network::libp2p::Libp2pAdapter as BlendNetworkAdapter,
 };
-use nomos_core::da::blob::info::DispersedBlobInfo;
+use nomos_core::{da::blob::info::DispersedBlobInfo, mantle::SignedMantleTx};
 use nomos_da_dispersal::{
     adapters::{
         mempool::kzgrs::KzgrsMempoolAdapter,
@@ -29,7 +29,6 @@ use nomos_da_verifier::{
     network::adapters::executor::Libp2pAdapter as VerifierNetworkAdapter,
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
-use nomos_mantle_core::tx::SignedMantleTx;
 use nomos_mempool::backend::mockpool::MockPool;
 #[cfg(feature = "tracing")]
 use nomos_node::Tracing;

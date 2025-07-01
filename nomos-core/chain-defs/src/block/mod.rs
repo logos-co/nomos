@@ -1,10 +1,7 @@
 pub mod builder;
 
-use core::hash::Hash;
-
 use ::serde::{de::DeserializeOwned, Deserialize, Serialize};
 use bytes::Bytes;
-use indexmap::IndexSet;
 
 use crate::{header::Header, wire};
 
@@ -14,13 +11,13 @@ pub type BlockNumber = u64;
 
 /// A block
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Block<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> {
+pub struct Block<Tx: Clone + Eq, BlobCertificate: Clone + Eq> {
     header: Header,
-    cl_transactions: IndexSet<Tx>,
-    bl_blobs: IndexSet<BlobCertificate>,
+    cl_transactions: Vec<Tx>,
+    bl_blobs: Vec<BlobCertificate>,
 }
 
-impl<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> Block<Tx, BlobCertificate> {
+impl<Tx: Clone + Eq, BlobCertificate: Clone + Eq> Block<Tx, BlobCertificate> {
     #[must_use]
     pub const fn header(&self) -> &Header {
         &self.header
@@ -36,8 +33,8 @@ impl<Tx: Clone + Eq + Hash, BlobCertificate: Clone + Eq + Hash> Block<Tx, BlobCe
 }
 
 impl<
-        Tx: Clone + Eq + Hash + Serialize + DeserializeOwned,
-        BlobCertificate: Clone + Eq + Hash + Serialize + DeserializeOwned,
+        Tx: Clone + Eq + Serialize + DeserializeOwned,
+        BlobCertificate: Clone + Eq + Serialize + DeserializeOwned,
     > Block<Tx, BlobCertificate>
 {
     /// Encode block into bytes
@@ -52,19 +49,19 @@ impl<
     }
 
     #[must_use]
-    pub fn cl_transactions_len(&self) -> usize {
+    pub const fn cl_transactions_len(&self) -> usize {
         self.cl_transactions.len()
     }
 
     #[must_use]
-    pub fn bl_blobs_len(&self) -> usize {
+    pub const fn bl_blobs_len(&self) -> usize {
         self.bl_blobs.len()
     }
 }
 
 impl<
-        Tx: Clone + Eq + Hash + Serialize + DeserializeOwned,
-        BlobCertificate: Clone + Eq + Hash + Serialize + DeserializeOwned,
+        Tx: Clone + Eq + Serialize + DeserializeOwned,
+        BlobCertificate: Clone + Eq + Serialize + DeserializeOwned,
     > TryFrom<Bytes> for Block<Tx, BlobCertificate>
 {
     type Error = wire::Error;
@@ -75,8 +72,8 @@ impl<
 }
 
 impl<
-        Tx: Clone + Eq + Hash + Serialize + DeserializeOwned,
-        BlobCertificate: Clone + Eq + Hash + Serialize + DeserializeOwned,
+        Tx: Clone + Eq + Serialize + DeserializeOwned,
+        BlobCertificate: Clone + Eq + Serialize + DeserializeOwned,
     > TryFrom<Block<Tx, BlobCertificate>> for Bytes
 {
     type Error = wire::Error;

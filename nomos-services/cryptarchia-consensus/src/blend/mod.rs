@@ -1,7 +1,5 @@
 pub mod adapters;
 
-use std::hash::Hash;
-
 use nomos_blend_service::{backends::BlendBackend, network::NetworkAdapter, BlendService};
 use nomos_core::block::Block;
 use overwatch::services::{relay::OutboundRelay, ServiceData};
@@ -12,8 +10,8 @@ pub trait BlendAdapter<RuntimeServiceId> {
     type Settings: Clone + 'static;
     type Backend: BlendBackend<RuntimeServiceId> + 'static;
     type Network: NetworkAdapter<RuntimeServiceId> + 'static;
-    type Tx: Serialize + DeserializeOwned + Clone + Eq + Hash + 'static;
-    type BlobCertificate: Serialize + DeserializeOwned + Clone + Eq + Hash + 'static;
+    type Tx: Serialize + DeserializeOwned + Clone + Eq + 'static;
+    type BlobCertificate: Serialize + DeserializeOwned + Clone + Eq + 'static;
     async fn new(
         settings: Self::Settings,
         blend_relay: OutboundRelay<

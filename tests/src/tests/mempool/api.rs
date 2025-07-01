@@ -1,5 +1,5 @@
 use common_http_client::CommonHttpClient;
-use nomos_mantle_core::tx::{MantleTx, SignedMantleTx};
+use nomos_core::mantle::{ledger::Tx as LedgerTx, MantleTx, SignedMantleTx};
 use reqwest::Url;
 use tests::topology::{Topology, TopologyConfig};
 
@@ -19,7 +19,7 @@ async fn test_post_mantle_tx() {
 
     let mantle_tx = MantleTx {
         ops: Vec::new(),
-        ledger_tx: std::marker::PhantomData,
+        ledger_tx: LedgerTx::new(vec![], vec![]),
         gas_price: 0,
     };
 

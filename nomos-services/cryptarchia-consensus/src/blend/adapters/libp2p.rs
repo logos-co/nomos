@@ -1,7 +1,8 @@
-use std::{hash::Hash, marker::PhantomData};
+use std::marker::PhantomData;
 
 use nomos_blend_service::{
-    backends::libp2p::Libp2pBlendBackend, network::NetworkAdapter, BlendService, ServiceMessage,
+    backends::libp2p::Libp2pBlendBackend, message::ServiceMessage, network::NetworkAdapter,
+    BlendService,
 };
 use nomos_core::{block::Block, wire};
 use overwatch::services::{relay::OutboundRelay, ServiceData};
@@ -14,8 +15,8 @@ pub struct LibP2pAdapter<Network, Tx, BlobCert, RuntimeServiceId>
 where
     Network: NetworkAdapter<RuntimeServiceId>,
     Network::BroadcastSettings: Clone,
-    Tx: Clone + Eq + Hash,
-    BlobCert: Clone + Eq + Hash,
+    Tx: Clone + Eq,
+    BlobCert: Clone + Eq,
 {
     settings: LibP2pAdapterSettings<Network::BroadcastSettings>,
     blend_relay: OutboundRelay<
@@ -31,8 +32,8 @@ impl<Network, Tx, BlobCert, RuntimeServiceId> BlendAdapter<RuntimeServiceId>
 where
     Network: NetworkAdapter<RuntimeServiceId> + 'static,
     Network::BroadcastSettings: Clone,
-    Tx: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
-    BlobCert: Serialize + DeserializeOwned + Clone + Eq + Hash + Send + Sync + 'static,
+    Tx: Serialize + DeserializeOwned + Clone + Eq + Send + Sync + 'static,
+    BlobCert: Serialize + DeserializeOwned + Clone + Eq + Send + Sync + 'static,
 {
     type Settings = LibP2pAdapterSettings<Network::BroadcastSettings>;
     type Backend = Libp2pBlendBackend;
@@ -63,10 +64,12 @@ where
     async fn blend(&self, block: Block<Self::Tx, Self::BlobCertificate>) {
         if let Err((e, msg)) = self
             .blend_relay
-            .send(ServiceMessage::Blend(nomos_blend_service::NetworkMessage {
-                message: wire::serialize(&NetworkMessage::Block(block)).unwrap(),
-                broadcast_settings: self.settings.broadcast_settings.clone(),
-            }))
+            .send(ServiceMessage::Blend(
+                nomos_blend_service::message::NetworkMessage {
+                    message: wire::serialize(&NetworkMessage::Block(block)).unwrap(),
+                    broadcast_settings: self.settings.broadcast_settings.clone(),
+                },
+            ))
             .await
         {
             tracing::error!("error sending message to blend network: {e}: {msg:?}",);

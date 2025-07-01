@@ -30,7 +30,7 @@ where
         + Sync
         + 'static,
     A::Settings: Send + Sync,
-    Item: Clone + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static + Hash,
+    Item: Clone + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     Key: Clone + Debug + Ord + Hash + Send + Serialize + for<'de> Deserialize<'de> + 'static,
     RuntimeServiceId: Debug
         + Sync
@@ -78,7 +78,7 @@ where
     A: NetworkAdapter<RuntimeServiceId, Backend = N, Key = Key> + Send + Sync + 'static,
     A::Payload: DispersedBlobInfo + Into<Item> + Debug,
     A::Settings: Send + Sync,
-    Item: Clone + Debug + Send + Sync + 'static + Hash + Serialize + for<'de> Deserialize<'de>,
+    Item: Clone + Debug + Send + Sync + 'static + Serialize + for<'de> Deserialize<'de>,
     Key: Clone + Debug + Ord + Hash + Send + Serialize + for<'de> Deserialize<'de> + 'static,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = Key> + Send,
     SamplingBackend::BlobId: Debug,

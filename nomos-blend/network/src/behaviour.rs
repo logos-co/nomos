@@ -157,7 +157,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
 
 impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider>
 where
-    ObservationWindowClockProvider: IntervalStreamProvider<IntervalItem = RangeInclusive<usize>>,
+    ObservationWindowClockProvider: IntervalStreamProvider<IntervalItem = RangeInclusive<u64>>,
 {
     fn create_connection_handler(
         &self,
@@ -170,7 +170,7 @@ where
 
 impl<ObservationWindowClockProvider> NetworkBehaviour for Behaviour<ObservationWindowClockProvider>
 where
-    ObservationWindowClockProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<usize>>
+    ObservationWindowClockProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {
     type ConnectionHandler = BlendConnectionHandler<ObservationWindowClockProvider::IntervalStream>;

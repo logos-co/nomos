@@ -1,5 +1,5 @@
 use futures::{Stream, StreamExt as _};
-use nomos_core::tx::mock::{MockTransaction, MockTxId};
+use nomos_core::mantle::mock::{MockTransaction, MockTxId};
 use nomos_network::{
     backends::mock::{Mock, MockBackendMessage, MockContentTopic, MockMessage, NetworkEvent},
     message::NetworkMsg,

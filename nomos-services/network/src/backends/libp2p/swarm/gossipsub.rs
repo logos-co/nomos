@@ -62,7 +62,7 @@ impl SwarmHandler {
 
         match self.swarm.broadcast(&topic, message.to_vec()) {
             Ok(id) => {
-                tracing::debug!("broadcasted message with id: {id} tp topic: {topic}");
+                tracing::debug!("Broadcasted message with id: {id} to topic: {topic}");
                 // self-notification because libp2p doesn't do it
                 if self.swarm.is_subscribed(&topic) {
                     log_error!(self.pubsub_messages_tx.send(gossipsub::Message {

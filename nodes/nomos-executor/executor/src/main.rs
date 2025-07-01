@@ -1,10 +1,9 @@
 use clap::Parser;
 use color_eyre::eyre::{eyre, Result};
-use nomos_core::da::blob::info::DispersedBlobInfo;
+use nomos_core::{da::blob::info::DispersedBlobInfo, mantle::SignedMantleTx};
 use nomos_executor::{
     config::Config as ExecutorConfig, NomosExecutor, NomosExecutorServiceSettings,
 };
-use nomos_mantle_core::tx::SignedMantleTx;
 use nomos_mempool::tx::settings::TxMempoolSettings;
 use nomos_node::{
     config::BlendArgs, BlobInfo, CryptarchiaArgs, DaMempoolSettings, HttpArgs, LogArgs,

@@ -17,136 +17,30 @@ blend:
     peering_degree: 1
     max_peering_degree: 3
     conn_monitor: null
-  message_blend:
-    cryptographic_processor:
-      private_key:
-        [
-          50,
-          228,
-          181,
-          43,
-          120,
-          224,
-          232,
-          39,
-          63,
-          49,
-          226,
-          174,
-          8,
-          38,
-          208,
-          155,
-          3,
-          72,
-          212,
-          198,
-          104,
-          36,
-          175,
-          79,
-          81,
-          236,
-          78,
-          243,
-          56,
-          8,
-          34,
-          17,
-        ]
-      num_blend_layers: 1
-    temporal_processor:
-      max_delay: "2.0"
     minimum_messages_coefficient: 3
     normalization_constant: 1.03
-  persistent_transmission:
-    max_emission_frequency: 1.0
-    drop_message_probability: 0.5
-  cover_traffic:
+  crypto:
+    signing_private_key: 32e4b52b78e0e8273f31e2ae0826d09b0348d4c66824af4f51ec4ef338082211
+    num_blend_layers: 1
+  time:
+    # 21,600 blocks * 30s per block * 1s per round = 648,000 rounds
+    rounds_per_session: 648000
+    rounds_per_interval: 30
+    round_duration: [1, 0]
+    # Defined in the spec
+    rounds_per_observation_window: 30
+  scheduler:
+    intervals_for_safety_buffer: 100
     message_frequency_per_round: 1.0
     redundancy_parameter: 0
-    intervals_for_safety_buffer: 100
-  # 21,600 blocks * 30s per block * 1s per round = 648,000 rounds
-  rounds_per_session: 648000
-  rounds_per_interval: 30
-  round_duration: [1, 0]
-  # Defined in the spec
-  rounds_per_observation_window: 30
+    maximum_release_delay_in_rounds: 3
   membership:
     - id: 12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
       address: /ip4/127.0.0.1/udp/8720/quic-v1
-      public_key:
-        [
-          223,
-          150,
-          178,
-          168,
-          141,
-          122,
-          185,
-          2,
-          106,
-          243,
-          47,
-          123,
-          25,
-          177,
-          191,
-          26,
-          98,
-          228,
-          30,
-          221,
-          115,
-          72,
-          32,
-          173,
-          97,
-          21,
-          71,
-          88,
-          227,
-          209,
-          172,
-          43,
-        ]
+      public_key: cd81cab2112a1cf8e6d986d53c0ab6c740e3a82dc04e0a6497f62727969fa5fd
     - id: 12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
       address: /ip4/127.0.0.1/udp/8721/quic-v1
-      public_key:
-        [
-          37,
-          199,
-          27,
-          35,
-          154,
-          26,
-          211,
-          224,
-          115,
-          140,
-          24,
-          212,
-          236,
-          242,
-          184,
-          68,
-          129,
-          92,
-          174,
-          95,
-          123,
-          211,
-          166,
-          115,
-          228,
-          128,
-          209,
-          15,
-          197,
-          113,
-          247,
-          31,
-        ]
+      public_key: 92f041e26306548444400e88eefa622dc125a45f3e3119a04ba1ffe4946dd4e6
 da_network:
   backend:
     validator_settings:
@@ -268,112 +162,11 @@ cryptarchia:
       active_slot_coeff: 0.9
   genesis_id: 0x0000000000000000000000000000000000000000000000000000000000000000
   genesis_state:
-    commitments:
-      commitments:
-        - [
-            18,
-            138,
-            113,
-            123,
-            169,
-            28,
-            11,
-            155,
-            180,
-            170,
-            199,
-            144,
-            209,
-            228,
-            189,
-            186,
-            233,
-            190,
-            225,
-            239,
-            98,
-            148,
-            68,
-            14,
-            87,
-            134,
-            241,
-            118,
-            13,
-            67,
-            236,
-            111,
-          ]
-        - [
-            199,
-            52,
-            183,
-            239,
-            142,
-            16,
-            112,
-            114,
-            62,
-            250,
-            93,
-            82,
-            160,
-            72,
-            22,
-            131,
-            30,
-            118,
-            45,
-            143,
-            60,
-            212,
-            120,
-            133,
-            150,
-            240,
-            190,
-            138,
-            220,
-            189,
-            174,
-            88,
-          ]
-      roots:
-        - [
-            126,
-            154,
-            239,
-            90,
-            153,
-            165,
-            51,
-            3,
-            184,
-            100,
-            215,
-            93,
-            150,
-            98,
-            185,
-            151,
-            31,
-            236,
-            170,
-            227,
-            105,
-            179,
-            206,
-            36,
-            29,
-            176,
-            11,
-            92,
-            44,
-            191,
-            195,
-            97,
-          ]
-    nullifiers: []
+    utxos:
+      utxos:
+        03b2d3b8a925adcb25eb686b92db7f21a75f0e0f7c93da95b383f0fd35279e48:
+          value: 1
+          pk: '0000000000000000000000000000000000000000000000000000000000000000'
     nonce:
       [
         0,
@@ -447,10 +240,12 @@ cryptarchia:
           0,
           0,
         ]
-      commitments:
-        commitments: []
-        roots: []
-      total_stake: 2
+      utxos:
+        utxos:
+          03b2d3b8a925adcb25eb686b92db7f21a75f0e0f7c93da95b383f0fd35279e48:
+            value: 1
+            pk: '0000000000000000000000000000000000000000000000000000000000000000'
+      total_stake: 1
     epoch_state:
       epoch: 0
       nonce:
@@ -488,158 +283,23 @@ cryptarchia:
           0,
           0,
         ]
-      commitments:
-        commitments: []
-        roots: []
-      total_stake: 2
+      utxos:
+        utxos:
+          03b2d3b8a925adcb25eb686b92db7f21a75f0e0f7c93da95b383f0fd35279e48:
+            value: 1
+            pk: '0000000000000000000000000000000000000000000000000000000000000000'
+      total_stake: 1
   time:
     slot_duration: [2, 0]
     chain_start_time: [2025, 41, 9, 38, 29, 993653000, 0, 0, 0]
   leader_config:
-    notes:
-      - value: 1
-        unit:
-          [
-            67,
-            50,
-            140,
-            228,
-            181,
-            204,
-            226,
-            242,
-            254,
-            193,
-            239,
-            51,
-            237,
-            68,
-            36,
-            126,
-            124,
-            227,
-            60,
-            112,
-            223,
-            195,
-            146,
-            236,
-            5,
-            21,
-            42,
-            215,
-            48,
-            122,
-            25,
-            195,
-          ]
-        covenant:
-          [
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-          ]
-        state:
-          [
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-          ]
-        nonce:
-          [
-            46,
-            19,
-            159,
-            151,
-            211,
-            245,
-            243,
-            202,
-            164,
-            166,
-            78,
-            25,
-            90,
-            19,
-            136,
-            83,
-            221,
-            112,
-            51,
-            191,
-            29,
-            136,
-            79,
-            247,
-            45,
-            145,
-            18,
-            195,
-            89,
-            179,
-            100,
-            189,
-          ]
-    nf_sk:
-      [234, 30, 29, 204, 49, 97, 43, 210, 9, 135, 240, 23, 240, 202, 67, 92]
+    utxos:
+    - tx_hash: '0000000000000000000000000000000000000000000000000000000000000000'
+      output_index: 0
+      note:
+        value: 1
+        pk: '0000000000000000000000000000000000000000000000000000000000000000'
+    sk: 3cf3335017304dcfce45124a0633829f
   network_adapter_settings:
     topic: /cryptarchia/proto
   blend_adapter_settings:
