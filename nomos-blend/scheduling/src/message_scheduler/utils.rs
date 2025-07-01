@@ -1,21 +1,12 @@
-use futures::{
-    stream::{AbortHandle, Abortable},
-    StreamExt as _,
-};
-use tokio::{
-    sync::broadcast::{channel, Receiver},
-    time::interval,
-};
-use tokio_stream::wrappers::{BroadcastStream, IntervalStream};
-use tracing::{error, trace};
+use fork_stream::StreamExt as _;
+use futures::StreamExt as _;
+use tokio::time::interval;
+use tokio_stream::wrappers::IntervalStream;
+use tracing::trace;
 
 use crate::{
     cover_traffic::SessionCoverTraffic,
-    message_scheduler::{
-        round_info::{Round, RoundClock},
-        session_info::SessionInfo,
-        Settings, LOG_TARGET,
-    },
+    message_scheduler::{round_info::RoundClock, session_info::SessionInfo, Settings, LOG_TARGET},
     release_delayer::SessionProcessedMessageDelayer,
 };
 
@@ -25,7 +16,6 @@ pub(super) fn setup_new_session<Rng, ProcessedMessage>(
     cover_traffic: &mut SessionCoverTraffic<RoundClock>,
     release_delayer: &mut SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
     round_clock: &mut RoundClock,
-    round_clock_task_abort_handle: &mut AbortHandle,
     settings: Settings,
     mut rng: Rng,
     new_session_info: SessionInfo,
@@ -33,48 +23,31 @@ pub(super) fn setup_new_session<Rng, ProcessedMessage>(
     Rng: rand::Rng,
 {
     trace!(target: LOG_TARGET, "New session {} started with session info: {new_session_info:?}", new_session_info.session_number);
-    kill_round_clock(round_clock_task_abort_handle);
 
-    let mut new_round_clock = IntervalStream::new(interval(settings.round_duration))
-        .enumerate()
-        .map(|(round, _)| Some((round as u128).into()));
-    let (round_clock_stream_sender, _) = channel(3);
-    let round_clock_stream_sender_clone = round_clock_stream_sender.clone();
-
-    // Spawn a task that sends ticks to all the receiving streams.
-    let (new_abort_handle, new_abort_registration) = AbortHandle::new_pair();
-    tokio::spawn(Abortable::new(
-        async move {
-            while let Some(new_round) = new_round_clock.next().await {
-                if let Err(send_error) = round_clock_stream_sender_clone.send(new_round) {
-                    error!(target: LOG_TARGET, "Failed to send round tick to consumers. Error: {send_error:?}");
-                }
-            }
-            trace!(target: LOG_TARGET, "Round clock terminated.");
-        },
-        new_abort_registration,
-    ));
+    let new_round_clock = Box::new(
+        IntervalStream::new(interval(settings.round_duration))
+            .enumerate()
+            .map(|(round, _)| (round as u128).into()),
+    ) as RoundClock;
+    let round_clock_fork = new_round_clock.fork();
 
     *cover_traffic = instantiate_new_cover_scheduler(
         &mut rng,
-        round_clock_stream_sender.subscribe(),
+        Box::new(round_clock_fork.clone()) as RoundClock,
         &settings,
         new_session_info.core_quota,
     );
-    *release_delayer =
-        instantiate_new_message_delayer(rng, round_clock_stream_sender.subscribe(), &settings);
-    *round_clock = get_round_clock(round_clock_stream_sender.subscribe());
-    *round_clock_task_abort_handle = new_abort_handle;
-}
-
-pub(super) fn kill_round_clock(round_clock_abort_handle: &AbortHandle) {
-    round_clock_abort_handle.abort();
-    while !round_clock_abort_handle.is_aborted() {}
+    *release_delayer = instantiate_new_message_delayer(
+        rng,
+        Box::new(round_clock_fork.clone()) as RoundClock,
+        &settings,
+    );
+    *round_clock = Box::new(round_clock_fork) as RoundClock;
 }
 
 pub(super) fn instantiate_new_cover_scheduler<Rng>(
     rng: &mut Rng,
-    round_clock_stream_receiver: Receiver<Option<Round>>,
+    round_clock: RoundClock,
     settings: &Settings,
     starting_quota: u64,
 ) -> SessionCoverTraffic<RoundClock>
@@ -89,13 +62,13 @@ where
             starting_quota,
         },
         rng,
-        get_round_clock(round_clock_stream_receiver),
+        round_clock,
     )
 }
 
 pub(super) fn instantiate_new_message_delayer<Rng, ProcessedMessage>(
     rng: Rng,
-    round_clock_stream_receiver: Receiver<Option<Round>>,
+    round_clock: RoundClock,
     settings: &Settings,
 ) -> SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>
 where
@@ -106,14 +79,6 @@ where
             maximum_release_delay_in_rounds: settings.maximum_release_delay_in_rounds,
         },
         rng,
-        get_round_clock(round_clock_stream_receiver),
+        round_clock,
     )
-}
-
-fn get_round_clock(stream_receiver: Receiver<Option<Round>>) -> RoundClock {
-    Box::new(BroadcastStream::new(stream_receiver).map(|round| {
-        round
-            .expect("Round to be `Ok`.")
-            .expect("Round to be `Some`.")
-    })) as RoundClock
 }

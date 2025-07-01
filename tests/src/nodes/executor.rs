@@ -10,6 +10,7 @@ use std::{
 use cryptarchia_consensus::CryptarchiaSettings;
 use cryptarchia_engine::time::SlotConfig;
 use kzgrs_backend::common::share::DaShare;
+use nomos_api::http::membership::MembershipUpdateRequest;
 use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
 use nomos_blend_service::settings::{
     CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt, TimingSettings,
@@ -42,10 +43,11 @@ use nomos_da_verifier::{
 use nomos_executor::{api::backend::AxumBackendSettings, config::Config};
 use nomos_http_api_common::paths::{
     CL_METRICS, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER, DA_GET_RANGE,
-    DA_MONITOR_STATS, DA_UNBLOCK_PEER,
+    DA_MONITOR_STATS, DA_UNBLOCK_PEER, UPDATE_MEMBERSHIP,
 };
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{config::mempool::MempoolConfig, RocksBackendSettings};
+use nomos_sdp_core::FinalizedBlockEvent;
 use nomos_time::{
     backends::{ntp::async_client::NTPClientSettings, NtpTimeBackendSettings},
     TimeServiceSettings,
@@ -57,13 +59,15 @@ use tempfile::NamedTempFile;
 
 use super::{create_tempdir, persist_tempdir, GetRangeReq, CLIENT};
 use crate::{
-    adjust_timeout, nodes::LOGS_PREFIX, topology::configs::GeneralConfig, IS_DEBUG_TRACING,
+    adjust_timeout, get_available_port, nodes::LOGS_PREFIX, topology::configs::GeneralConfig,
+    IS_DEBUG_TRACING,
 };
 
 const BIN_PATH: &str = "../target/debug/nomos-executor";
 
 pub struct Executor {
     addr: SocketAddr,
+    testing_http_addr: SocketAddr,
     tempdir: tempfile::TempDir,
     child: Child,
     config: Config,
@@ -116,6 +120,7 @@ impl Executor {
             .unwrap();
         let node = Self {
             addr: config.http.backend_settings.address,
+            testing_http_addr: config.testing_http.backend_settings.address,
             child,
             tempdir: dir,
             config,
@@ -222,11 +227,45 @@ impl Executor {
             .await
             .unwrap()
     }
+
+    pub async fn update_membership(
+        &self,
+        update_event: FinalizedBlockEvent,
+    ) -> Result<(), reqwest::Error> {
+        let update_event = MembershipUpdateRequest { update_event };
+        let json_body = serde_json::to_string(&update_event).unwrap();
+
+        let response = CLIENT
+            .post(format!(
+                "http://{}{}",
+                self.testing_http_addr, UPDATE_MEMBERSHIP
+            ))
+            .header("Content-Type", "application/json")
+            .body(json_body)
+            .send()
+            .await;
+
+        assert!(
+            response.is_ok(),
+            "Failed to connect to testing endpoint {}.\n\
+            The binary was likely built without the 'testing' feature.\n\
+            Try: cargo build --workspace --all-features",
+            self.testing_http_addr
+        );
+
+        let response = response.unwrap();
+        response.error_for_status()?;
+        Ok(())
+    }
 }
 
 #[must_use]
 #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
 pub fn create_executor_config(config: GeneralConfig) -> Config {
+    let testing_http_address = format!("127.0.0.1:{}", get_available_port())
+        .parse()
+        .unwrap();
+
     Config {
         network: NetworkConfig {
             backend: Libp2pConfig {
@@ -373,5 +412,13 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         },
         membership: config.membership_config.service_settings,
         sdp: (),
+
+        testing_http: nomos_api::ApiServiceSettings {
+            backend_settings: AxumBackendSettings {
+                address: testing_http_address,
+                cors_origins: vec![],
+            },
+            request_timeout: None,
+        },
     }
 }

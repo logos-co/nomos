@@ -29,7 +29,7 @@ pub trait MembershipCreator: MembershipHandler {
 
 pub trait MembershipHandler {
     /// Subnetworks Id type
-    type NetworkId: Eq + Hash + Send + Sync + 'static;
+    type NetworkId: Eq + Debug + Hash + Send + Sync + 'static;
     /// Members Id type
     type Id: Debug + Send + Sync + 'static;
 

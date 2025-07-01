@@ -53,6 +53,7 @@ where
         let assignations = updated_membership.subnetworks();
         let addressbook = updated_membership.addressbook();
 
+        tracing::debug!("Updating membership at block {block_number} with {assignations:?}");
         self.handler.update(updated_membership);
         self.adapter.store(block_number, assignations, addressbook);
     }

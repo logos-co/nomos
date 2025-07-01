@@ -1,8 +1,9 @@
 use core::{
+    num::NonZeroU64,
     pin::Pin,
     task::{Context, Poll},
 };
-use std::{collections::HashSet, num::NonZeroU64};
+use std::collections::HashSet;
 
 use futures::{Stream, StreamExt as _};
 use tracing::{debug, trace};
@@ -137,6 +138,13 @@ where
 {
     let mut scheduled_message_rounds = HashSet::with_capacity(total_message_count);
     trace!(target: LOG_TARGET, "Generating {total_message_count} cover message slots.");
+    // We are running a loop that assumes the sample space is larger than the number
+    // of items we need to generate. If this assumption is not enforced, we end up
+    // in a infinite loop.
+    assert!(
+        total_round_count >= total_message_count as u64,
+        "Cannot generate more messages than the available sample space. Total rounds to sample from {total_round_count}. Total messages to generate {total_message_count}."
+    );
 
     while total_message_count > 0 {
         let random_round = rng.gen_range(0..total_round_count);

@@ -7,10 +7,7 @@ use core::{
     time::Duration,
 };
 
-use futures::{
-    stream::{empty, AbortHandle},
-    Stream, StreamExt as _,
-};
+use futures::{stream::empty, Stream, StreamExt as _};
 use tracing::{info, trace};
 
 use crate::{
@@ -100,11 +97,8 @@ pub struct MessageScheduler<SessionClock, Rng, ProcessedMessage> {
     /// The module responsible for delaying the release of processed messages
     /// that have not been fully decapsulated.
     release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
-    /// The clock ticking at the beginning of each new round.
+    /// The multi-consumer stream forked on each sub-stream.
     round_clock: RoundClock,
-    /// The abort handle to kill the round stream broadcaster at the beginning
-    /// of each new session.
-    round_clock_task_abort_handle: AbortHandle,
     /// The input stream that ticks upon a session change.
     session_clock: SessionClock,
     /// The settings to initialize all the required sub-streams.
@@ -144,13 +138,11 @@ where
                 Box::new(empty()) as RoundClock,
             );
         let mut initial_round_clock = Box::new(empty()) as RoundClock;
-        let (mut initial_round_clock_task_abort_handle, _) = AbortHandle::new_pair();
 
         setup_new_session(
             &mut initial_cover_traffic,
             &mut initial_release_delayer,
             &mut initial_round_clock,
-            &mut initial_round_clock_task_abort_handle,
             settings,
             rng,
             initial_session_info,
@@ -160,7 +152,6 @@ where
             cover_traffic: initial_cover_traffic,
             release_delayer: initial_release_delayer,
             round_clock: initial_round_clock,
-            round_clock_task_abort_handle: initial_round_clock_task_abort_handle,
             session_clock,
             settings,
         }
@@ -192,20 +183,10 @@ impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, Pr
             cover_traffic,
             release_delayer,
             round_clock,
-            round_clock_task_abort_handle: AbortHandle::new_pair().0,
             session_clock,
             // These are not needed when all fields are provided as arguments.
             settings: Settings::default(),
         }
-    }
-}
-
-impl<SessionClock, Rng, ProcessedMessage> Drop
-    for MessageScheduler<SessionClock, Rng, ProcessedMessage>
-{
-    fn drop(&mut self) {
-        trace!(target: LOG_TARGET, "Dropping message scheduler.");
-        self.round_clock_task_abort_handle.abort();
     }
 }
 
@@ -220,7 +201,6 @@ where
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Self {
-            round_clock_task_abort_handle,
             cover_traffic,
             release_delayer,
             round_clock,
@@ -235,7 +215,6 @@ where
                     cover_traffic,
                     release_delayer,
                     round_clock,
-                    round_clock_task_abort_handle,
                     *settings,
                     rng,
                     new_session_info,

@@ -80,3 +80,30 @@ pub fn create_membership_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<General
 
     ids.iter().map(|_| config.clone()).collect()
 }
+
+#[must_use]
+pub fn create_empty_membership_configs(n_participants: usize) -> Vec<GeneralMembershipConfig> {
+    let mut membership_configs = vec![];
+
+    let settings_per_service = HashMap::from([(
+        ServiceType::DataAvailability,
+        MembershipBackendServiceSettings {
+            historical_block_delta: 8,
+        },
+    )]);
+
+    for _ in 0..n_participants {
+        membership_configs.push(GeneralMembershipConfig {
+            service_settings: MembershipServiceSettings {
+                backend: MockMembershipBackendSettings {
+                    settings_per_service: settings_per_service.clone(),
+                    initial_membership: HashMap::new(),
+                    initial_locators_mapping: HashMap::new(),
+                    latest_block_number: 0,
+                },
+            },
+        });
+    }
+
+    membership_configs
+}

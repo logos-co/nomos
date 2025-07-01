@@ -235,6 +235,10 @@ where
                     Self::handle_network_service_message(msg, backend, &membership_storage).await;
                 }
                 Some((block_number, providers)) = stream.next() => {
+                    tracing::debug!(
+                        "Received membership update for block {}: {:?}",
+                        block_number, providers
+                    );
                     Self::handle_membership_update(block_number, providers, &membership_storage);
                 }
             }

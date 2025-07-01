@@ -9,6 +9,7 @@ workspace = true
 
 [dependencies]
 derivative          = "2"
+fork_stream         = { workspace = true }
 futures             = "0.3"
 hex                 = "0.4"
 multiaddr           = "0.18"

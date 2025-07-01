@@ -206,14 +206,18 @@ pub type CryptarchiaService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> 
     >;
 
 pub type MembershipService<RuntimeServiceId> = nomos_membership::MembershipService<
-    MockMembershipBackend,
-    LedgerSdpAdapter<
-        SdpLedger<LedgerDeclarationAdapter, LedgerServicesAdapter, Metadata>,
-        LedgerDeclarationAdapter,
-        LedgerServicesAdapter,
-        Metadata,
-        RuntimeServiceId,
-    >,
+    MembershipBackend,
+    MembershipSdp<RuntimeServiceId>,
+    RuntimeServiceId,
+>;
+
+pub type MembershipBackend = MockMembershipBackend;
+
+pub type MembershipSdp<RuntimeServiceId> = LedgerSdpAdapter<
+    SdpLedger<LedgerDeclarationAdapter, LedgerServicesAdapter, Metadata>,
+    LedgerDeclarationAdapter,
+    LedgerServicesAdapter,
+    Metadata,
     RuntimeServiceId,
 >;
 
