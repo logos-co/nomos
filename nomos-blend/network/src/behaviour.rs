@@ -241,6 +241,7 @@ where
         _: Endpoint,
         _: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
+        // We assume remote is a core node, for now.
         Ok(Either::Left(
             self.create_connection_handler_for_remote_core(),
         ))
