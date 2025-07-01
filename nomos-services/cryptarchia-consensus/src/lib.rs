@@ -182,8 +182,8 @@ struct UpdatedCryptarchia<State> {
     pruned_blocks: HashSet<HeaderId>,
 }
 
-/// Convert a [`Cryptarchia`], which is not updated, to an
-/// [`UpdatedCryptarchia`].
+/// Wraps a [`Cryptarchia`] into an [`UpdatedCryptarchia`] without performing
+/// any update. This sets the [`UpdatedCryptarchia::pruned_blocks`] to empty.
 impl<State> From<Cryptarchia<State>> for UpdatedCryptarchia<State> {
     fn from(cryptarchia: Cryptarchia<State>) -> Self {
         Self {
