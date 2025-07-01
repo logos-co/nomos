@@ -13,6 +13,7 @@ use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend};
 use overwatch::DynError;
 use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use tokio::sync::broadcast;
 
 use crate::{
     blend, network::NetworkAdapter, relays::CryptarchiaConsensusRelays, Cryptarchia,
@@ -203,17 +204,18 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
+        block_subscription_sender: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> Result<Cryptarchia<CryptarchiaState>, DynError> {
         // Run IBD only when a set of IBD peers are configured.
         // Return an error if none of them are not available.
         //
         // TODO: Currently, getting connected peers from network service
-        // because `initial_peers` are configured for the network service.
-        // However, it’s unclear whether the initial peers were empty or just
-        // unreachable. So, consider moving the `initial_peers` to the consensus
-        // service settings and renaming it to `ibd_peers`.
-        // Then, try to connect to the `ibd_peers` here.
-        // If none of them is connected, return an error.
+        //       because `initial_peers` are configured for the network service.
+        //       However, it’s unclear whether the initial peers were empty or just
+        //       unreachable. So, consider moving the `initial_peers` to the consensus
+        //       service settings and renaming it to `ibd_peers`.
+        //       Then, try to connect to the `ibd_peers` here.
+        //       If none of them is connected, return an error.
         let peers = network_adapter.connected_peers().await?;
         tracing::info!(
             target: LOG_TARGET,
@@ -222,10 +224,16 @@ where
         );
 
         // TODO: Run with multiple peers in parallel.
-        // For now, we run with the first peer only for easy debugging.
+        //       For now, we run with the first peer only for easy debugging.
         if let Some(peer) = peers.iter().next() {
-            cryptarchia =
-                Self::run_with_peer(peer.clone(), cryptarchia, network_adapter, relays).await?;
+            cryptarchia = Self::run_with_peer(
+                peer.clone(),
+                cryptarchia,
+                network_adapter,
+                relays,
+                block_subscription_sender,
+            )
+            .await?;
         }
 
         Ok(cryptarchia)
@@ -254,6 +262,7 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
+        block_subscription_sender: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
     ) -> Result<Cryptarchia<CryptarchiaState>, DynError> {
         let mut latest_downloaded_block: Option<HeaderId> = None;
         loop {
@@ -288,29 +297,30 @@ where
                 latest_downloaded_block = Some(block.header().id());
                 // TODO: Abort downloading if `process_block` returns an error.
                 // This requires refactoring of the `process_block` method to return a `Result`.
-                cryptarchia =
-                    CryptarchiaConsensus::<
-                        NetAdapter,
-                        BlendAdapter,
-                        ClPool,
-                        ClPoolAdapter,
-                        DaPool,
-                        DaPoolAdapter,
-                        TxS,
-                        BS,
-                        Storage,
-                        SamplingBackend,
-                        SamplingNetworkAdapter,
-                        SamplingRng,
-                        SamplingStorage,
-                        DaVerifierBackend,
-                        DaVerifierNetwork,
-                        DaVerifierStorage,
-                        TimeBackend,
-                        ApiAdapter,
-                        RuntimeServiceId,
-                    >::process_block(cryptarchia, block, relays, None, true)
-                    .await;
+                cryptarchia = CryptarchiaConsensus::<
+                    NetAdapter,
+                    BlendAdapter,
+                    ClPool,
+                    ClPoolAdapter,
+                    DaPool,
+                    DaPoolAdapter,
+                    TxS,
+                    BS,
+                    Storage,
+                    SamplingBackend,
+                    SamplingNetworkAdapter,
+                    SamplingRng,
+                    SamplingStorage,
+                    DaVerifierBackend,
+                    DaVerifierNetwork,
+                    DaVerifierStorage,
+                    TimeBackend,
+                    ApiAdapter,
+                    RuntimeServiceId,
+                >::process_block(
+                    cryptarchia, block, relays, block_subscription_sender, true
+                )
+                .await;
             }
 
             // If the tip has been downloaded and applied, downloading is complete.

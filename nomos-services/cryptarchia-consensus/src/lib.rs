@@ -608,7 +608,12 @@ where
             TimeBackend,
             ApiAdapter,
             RuntimeServiceId,
-        >::run(cryptarchia, network_adapter.clone(), &relays)
+        >::run(
+            cryptarchia,
+            network_adapter.clone(),
+            &relays,
+            &self.block_subscription_sender,
+        )
         .await
         .unwrap();
 
@@ -947,14 +952,8 @@ where
             >,
         >,
     ) -> Cryptarchia<Online> {
-        cryptarchia = Self::process_block(
-            cryptarchia,
-            block,
-            relays,
-            Some(block_subscription_sender),
-            false,
-        )
-        .await;
+        cryptarchia =
+            Self::process_block(cryptarchia, block, relays, block_subscription_sender, false).await;
 
         // This will modify `previously_pruned_blocks` to include blocks which are not
         // tracked by Cryptarchia anymore but have not been deleted from the persistence
@@ -1005,7 +1004,7 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-        block_broadcaster: Option<&broadcast::Sender<Block<ClPool::Item, DaPool::Item>>>,
+        block_broadcaster: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
         // TODO: do sampling only for recent blocks within DA availability period
         skip_sampled_blob_validation: bool,
     ) -> Cryptarchia<State> {
@@ -1059,10 +1058,8 @@ where
                     error!("Could not store block {e}");
                 }
 
-                if let Some(block_broadcaster) = block_broadcaster {
-                    if let Err(e) = block_broadcaster.send(block) {
-                        error!("Could not notify block to services {e}");
-                    }
+                if let Err(e) = block_broadcaster.send(block) {
+                    error!("Could not notify block to services {e}");
                 }
 
                 cryptarchia = new_state;
@@ -1280,14 +1277,9 @@ where
         let blocks = blocks.into_iter().skip(1);
 
         for block in blocks {
-            cryptarchia = Self::process_block(
-                cryptarchia,
-                block,
-                relays,
-                Some(block_subscription_sender),
-                false,
-            )
-            .await;
+            cryptarchia =
+                Self::process_block(cryptarchia, block, relays, block_subscription_sender, false)
+                    .await;
         }
 
         (cryptarchia, leader)
