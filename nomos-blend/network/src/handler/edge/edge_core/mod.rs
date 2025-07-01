@@ -15,35 +15,118 @@ use libp2p::{
     StreamProtocol,
 };
 
-use crate::handler::send_msg;
+use crate::handler::{
+    edge::edge_core::{
+        dropped::DroppedState, message_set::MessageSetState, ready_to_send::ReadyToSendState,
+        sending::SendingState, starting::StartingState,
+    },
+    send_msg,
+};
+
+mod dropped;
+mod message_set;
+mod ready_to_send;
+mod sending;
+mod starting;
 
 const LOG_TARGET: &str = "blend::libp2p::handler::edge-core";
 
 type MessageSendFuture = Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>>;
 
-enum ReadyToSendState {
-    OnlyOutboundStreamSet(<ReadyUpgrade<StreamProtocol> as OutboundUpgradeSend>::Output),
-    MessageAndOutboundStreamSet(
-        Vec<u8>,
-        <ReadyUpgrade<StreamProtocol> as OutboundUpgradeSend>::Output,
-    ),
+enum ConnectionState {
+    Starting(StartingState),
+    MessageSet(MessageSetState),
+    ReadyToSend(ReadyToSendState),
+    Sending(SendingState),
+    Dropped(DroppedState),
 }
 
-enum ConnectionState {
-    Starting,
-    MessageSet {
-        message: Vec<u8>,
-        waker: Option<Waker>,
-    },
-    ReadyToSend {
-        state: ReadyToSendState,
-        waker: Option<Waker>,
-    },
-    Sending {
-        message: Vec<u8>,
-        outbound_message_send_future: MessageSendFuture,
-    },
-    Dropped(Option<&'static str>),
+impl ConnectionState {
+    fn on_behaviour_event(self, event: FromBehaviour) -> Self {
+        match self {
+            Self::Starting(s) => s.on_behaviour_event(event),
+            Self::MessageSet(s) => s.on_behaviour_event(event),
+            Self::ReadyToSend(s) => s.on_behaviour_event(event),
+            Self::Sending(s) => s.on_behaviour_event(event),
+            Self::Dropped(s) => s.on_behaviour_event(event),
+        }
+    }
+
+    fn on_connection_event(
+        self,
+        event: ConnectionEvent<
+            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::InboundProtocol,
+            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
+            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::InboundOpenInfo,
+            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
+        >,
+    ) -> Self {
+        match self {
+            Self::Starting(s) => s.on_connection_event(event),
+            Self::MessageSet(s) => s.on_connection_event(event),
+            Self::ReadyToSend(s) => s.on_connection_event(event),
+            Self::Sending(s) => s.on_connection_event(event),
+            Self::Dropped(s) => s.on_connection_event(event),
+        }
+    }
+
+    fn poll(
+        self,
+        cx: &mut Context<'_>,
+    ) -> (
+        Poll<
+            ConnectionHandlerEvent<
+                <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
+                <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
+                ToBehaviour,
+            >,
+        >,
+        ConnectionState,
+    ) {
+        match self {
+            Self::Starting(s) => s.poll(cx),
+            Self::MessageSet(s) => s.poll(cx),
+            Self::ReadyToSend(s) => s.poll(cx),
+            Self::Sending(s) => s.poll(cx),
+            Self::Dropped(s) => s.poll(cx),
+        }
+    }
+}
+
+trait StateTrait: Into<ConnectionState> {
+    fn on_behaviour_event(self, _event: FromBehaviour) -> ConnectionState {
+        self.into()
+    }
+
+    fn on_connection_event(
+        self,
+        event: ConnectionEvent<
+            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::InboundProtocol,
+            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
+            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::InboundOpenInfo,
+            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
+        >,
+    ) -> ConnectionState {
+        if let ConnectionEvent::DialUpgradeError(error) = event {
+            tracing::trace!(target: LOG_TARGET, "Outbound upgrade error: {error:?}");
+            return DroppedState { error_message: "Outbound upgrade error." } .into();
+        }
+        self.into()
+    }
+
+    fn poll(
+        self,
+        cx: &mut Context<'_>,
+    ) -> (
+        Poll<
+            ConnectionHandlerEvent<
+                <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
+                <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
+                ToBehaviour,
+            >,
+        >,
+        ConnectionState,
+    );
 }
 
 pub struct EdgeToCoreBlendConnectionHandler {
@@ -51,9 +134,9 @@ pub struct EdgeToCoreBlendConnectionHandler {
 }
 
 impl EdgeToCoreBlendConnectionHandler {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            state: Some(ConnectionState::Starting),
+            state: Some(StartingState.into()),
         }
     }
 }
@@ -85,35 +168,8 @@ impl ConnectionHandler for EdgeToCoreBlendConnectionHandler {
     }
 
     fn on_behaviour_event(&mut self, event: Self::FromBehaviour) {
-        let FromBehaviour::Message(message_to_send) = event;
         let state = self.state.take().expect("Inconsistent state");
-
-        match state {
-            ConnectionState::Starting => {
-                self.state = Some(ConnectionState::MessageSet {
-                    message: message_to_send,
-                    waker: None,
-                });
-            }
-            ConnectionState::ReadyToSend {
-                state: ReadyToSendState::OnlyOutboundStreamSet(outgoing_stream),
-                waker,
-            } => {
-                self.state = Some(ConnectionState::ReadyToSend {
-                    state: ReadyToSendState::MessageAndOutboundStreamSet(
-                        message_to_send,
-                        outgoing_stream,
-                    ),
-                    waker: None,
-                });
-                if let Some(waker) = waker {
-                    waker.wake();
-                }
-            }
-            _ => {
-                tracing::debug!(target: LOG_TARGET, "Received a new `Message` event from behaviour when only a single message can be sent.");
-            }
-        }
+        self.state = Some(state.on_behaviour_event(event));
     }
 
     #[expect(deprecated, reason = "Self::InboundOpenInfo is deprecated")]
@@ -126,53 +182,8 @@ impl ConnectionHandler for EdgeToCoreBlendConnectionHandler {
             Self::OutboundOpenInfo,
         >,
     ) {
-        match event {
-            ConnectionEvent::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
-                protocol: outgoing_stream,
-                ..
-            }) => {
-                tracing::debug!(target: LOG_TARGET, "Fully negotiated outbound connection. Initializing outgoing stream.");
-                let state = self.state.take().expect("Inconsistent state");
-
-                match state {
-                    ConnectionState::Starting => {
-                        self.state = Some(ConnectionState::ReadyToSend {
-                            state: ReadyToSendState::OnlyOutboundStreamSet(outgoing_stream),
-                            waker: None,
-                        });
-                    }
-                    ConnectionState::MessageSet { message, waker } => {
-                        self.state = Some(ConnectionState::ReadyToSend {
-                            state: ReadyToSendState::MessageAndOutboundStreamSet(
-                                message,
-                                outgoing_stream,
-                            ),
-                            waker: None,
-                        });
-                        if let Some(waker) = waker {
-                            waker.wake();
-                        }
-                    }
-                    _ => {
-                        tracing::trace!(target: LOG_TARGET, "Outbound channel negotiated with an inconsistent internal state.");
-                    }
-                }
-            }
-            ConnectionEvent::DialUpgradeError(error) => {
-                tracing::trace!(target: LOG_TARGET, "Outbound upgrade error: {error:?}");
-                let old_state = self.state.take().expect("Inconsistent state");
-                self.state = Some(ConnectionState::Dropped(Some("DialUpgradeError")));
-                if let ConnectionState::MessageSet {
-                    waker: Some(waker), ..
-                } = old_state
-                {
-                    waker.wake();
-                }
-            }
-            event => {
-                tracing::trace!(target: LOG_TARGET, "Ignoring connection event {event:?}");
-            }
-        }
+        let state = self.state.take().expect("Inconsistent state");
+        self.state = Some(state.on_connection_event(event));
     }
 
     #[expect(
@@ -187,6 +198,11 @@ impl ConnectionHandler for EdgeToCoreBlendConnectionHandler {
         ConnectionHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::ToBehaviour>,
     > {
         let state = self.state.take().expect("Inconsistent state");
+
+        let (poll_result, new_state) = state.poll(cx);
+        self.state = Some(new_state);
+
+        poll_result
 
         match state {
             ConnectionState::Starting => Poll::Pending,

@@ -1,0 +1,69 @@
+use core::task::{Context, Poll};
+
+use futures::FutureExt as _;
+use libp2p::swarm::{ConnectionHandler, ConnectionHandlerEvent};
+
+use crate::handler::{
+    edge::core_edge::{
+        dropped::DroppedState, ConnectionState, MessageReceiveFuture, StateTrait, TimerFuture,
+        ToBehaviour, LOG_TARGET,
+    },
+    CoreToEdgeBlendConnectionHandler,
+};
+
+pub struct ReceivingState {
+    pub timeout_timer: TimerFuture,
+    pub incoming_message: MessageReceiveFuture,
+}
+
+impl From<ReceivingState> for ConnectionState {
+    fn from(value: ReceivingState) -> Self {
+        Self::Receiving(value)
+    }
+}
+
+impl StateTrait for ReceivingState {
+    fn poll(
+        mut self,
+        cx: &mut Context<'_>,
+    ) -> (
+        Poll<
+            ConnectionHandlerEvent<
+                <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
+                <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
+                ToBehaviour,
+            >,
+        >,
+        ConnectionState,
+    ) {
+        let Poll::Pending = self.timeout_timer.poll_unpin(cx) else {
+            tracing::debug!(target: LOG_TARGET, "Timeout reached without completing the reception of the message. Closing the connection.");
+            return (
+                Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                    ToBehaviour::FailedReception,
+                )),
+                DroppedState.into(),
+            );
+        };
+        let Poll::Ready(message_receive_result) = self.incoming_message.poll_unpin(cx) else {
+            return (Poll::Pending, self.into());
+        };
+        match message_receive_result {
+            Err(error) => {
+                tracing::error!("Failed to receive message. Error {error:?}");
+                (
+                    Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                        ToBehaviour::FailedReception,
+                    )),
+                    DroppedState.into(),
+                )
+            }
+            Ok(message) => (
+                Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                    ToBehaviour::Message(message),
+                )),
+                DroppedState.into(),
+            ),
+        }
+    }
+}
