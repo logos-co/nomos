@@ -624,12 +624,12 @@ where
                         Self::log_received_block(&block);
 
                         // Process the received block and update the cryptarchia state.
-                        cryptarchia = Self::process_block_and_update_state(
+                        (cryptarchia, storage_blocks_to_remove) = Self::process_block_and_update_state(
                             cryptarchia,
                             &leader,
                             block.clone(),
 
-                            &mut storage_blocks_to_remove,
+                            &storage_blocks_to_remove,
                             &relays,
                             &self.block_subscription_sender,
                             self.service_resources_handle
@@ -663,12 +663,12 @@ where
 
                             if let Some(block) = block {
                                 // apply our own block
-                                cryptarchia = Self::process_block_and_update_state(
+                                (cryptarchia, storage_blocks_to_remove) = Self::process_block_and_update_state(
                                     cryptarchia,
                                     &leader,
                                     block.clone(),
 
-                                    &mut storage_blocks_to_remove,
+                                    &storage_blocks_to_remove,
                                     &relays,
                                     &self.block_subscription_sender,
                                     self.service_resources_handle
@@ -881,7 +881,7 @@ where
         mut cryptarchia: Cryptarchia<Online>,
         leader: &Leader,
         block: Block<ClPool::Item, DaPool::Item>,
-        storage_blocks_to_remove: &mut HashSet<HeaderId>,
+        storage_blocks_to_remove: &HashSet<HeaderId>,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
             BS,
@@ -908,14 +908,14 @@ where
                 >,
             >,
         >,
-    ) -> Cryptarchia<Online> {
+    ) -> (Cryptarchia<Online>, HashSet<HeaderId>) {
         cryptarchia =
             Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
 
         // This will modify `previously_pruned_blocks` to include blocks which are not
         // tracked by Cryptarchia anymore but have not been deleted from the persistence
         // layer.
-        Self::prune_forks(
+        let storage_blocks_to_remove = Self::prune_forks(
             &mut cryptarchia,
             relays.storage_adapter(),
             storage_blocks_to_remove,
@@ -935,7 +935,7 @@ where
             }
         }
 
-        cryptarchia
+        (cryptarchia, storage_blocks_to_remove)
     }
 
     /// Try to add a [`Block`] to [`Cryptarchia`].
@@ -1244,14 +1244,13 @@ where
     /// might belong to previous pruning operations and that failed to be
     /// removed from the storage for some reason.
     ///
-    /// Any block that fails to be deleted from the storage layer is added to
-    /// the provided `storage_blocks_to_remove` parameter and will be picked up
-    /// at the next invocation of this function.
+    /// This function returns any block that fails to be deleted from the
+    /// storage layer.
     async fn prune_forks(
         cryptarchia: &mut Cryptarchia<Online>,
         storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
-        storage_blocks_to_remove: &mut HashSet<HeaderId>,
-    ) {
+        storage_blocks_to_remove: &HashSet<HeaderId>,
+    ) -> HashSet<HeaderId> {
         // Prune stale blocks from the cryptarchia engine.
         let newly_pruned_blocks = cryptarchia.prune_old_forks().collect::<HashSet<_>>();
 
@@ -1267,14 +1266,12 @@ where
         .await
         {
             // All blocks, past and present, have been successfully deleted from storage.
-            Ok(()) => *storage_blocks_to_remove = HashSet::new(),
+            Ok(()) => HashSet::new(),
             // We retain the blocks that failed to be deleted.
-            Err(failed_blocks) => {
-                *storage_blocks_to_remove = failed_blocks
-                    .into_iter()
-                    .map(|(block_id, _)| block_id)
-                    .collect();
-            }
+            Err(failed_blocks) => failed_blocks
+                .into_iter()
+                .map(|(block_id, _)| block_id)
+                .collect(),
         }
     }
 
