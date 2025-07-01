@@ -21,6 +21,14 @@ const LOG_TARGET: &str = "blend::libp2p::handler::edge-core";
 
 type MessageSendFuture = Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>>;
 
+enum ReadyToSendState {
+    OnlyOutboundStreamSet(<ReadyUpgrade<StreamProtocol> as OutboundUpgradeSend>::Output),
+    MessageAndOutboundStreamSet(
+        Vec<u8>,
+        <ReadyUpgrade<StreamProtocol> as OutboundUpgradeSend>::Output,
+    ),
+}
+
 enum ConnectionState {
     Starting,
     MessageSet {
@@ -28,8 +36,7 @@ enum ConnectionState {
         waker: Option<Waker>,
     },
     ReadyToSend {
-        message: Option<Vec<u8>>,
-        outgoing_stream: Option<<ReadyUpgrade<StreamProtocol> as OutboundUpgradeSend>::Output>,
+        state: ReadyToSendState,
         waker: Option<Waker>,
     },
     Sending {
@@ -41,6 +48,14 @@ enum ConnectionState {
 
 pub struct EdgeToCoreBlendConnectionHandler {
     state: Option<ConnectionState>,
+}
+
+impl EdgeToCoreBlendConnectionHandler {
+    pub const fn new() -> Self {
+        Self {
+            state: Some(ConnectionState::Starting),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -71,10 +86,7 @@ impl ConnectionHandler for EdgeToCoreBlendConnectionHandler {
 
     fn on_behaviour_event(&mut self, event: Self::FromBehaviour) {
         let FromBehaviour::Message(message_to_send) = event;
-        let Some(state) = self.state.take() else {
-            self.state = Some(ConnectionState::Dropped(Some("Inconsistent state")));
-            return;
-        };
+        let state = self.state.take().expect("Inconsistent state");
 
         match state {
             ConnectionState::Starting => {
@@ -84,19 +96,14 @@ impl ConnectionHandler for EdgeToCoreBlendConnectionHandler {
                 });
             }
             ConnectionState::ReadyToSend {
-                message: None,
-                outgoing_stream,
+                state: ReadyToSendState::OnlyOutboundStreamSet(outgoing_stream),
                 waker,
             } => {
-                let Some(outgoing_stream) = outgoing_stream else {
-                    self.state = Some(ConnectionState::Dropped(Some(
-                        "Outgoing stream should be set.",
-                    )));
-                    return;
-                };
                 self.state = Some(ConnectionState::ReadyToSend {
-                    message: Some(message_to_send),
-                    outgoing_stream: Some(outgoing_stream),
+                    state: ReadyToSendState::MessageAndOutboundStreamSet(
+                        message_to_send,
+                        outgoing_stream,
+                    ),
                     waker: None,
                 });
                 if let Some(waker) = waker {
@@ -125,23 +132,21 @@ impl ConnectionHandler for EdgeToCoreBlendConnectionHandler {
                 ..
             }) => {
                 tracing::debug!(target: LOG_TARGET, "Fully negotiated outbound connection. Initializing outgoing stream.");
-                let Some(state) = self.state.take() else {
-                    self.state = Some(ConnectionState::Dropped(Some("Inconsistent state")));
-                    return;
-                };
+                let state = self.state.take().expect("Inconsistent state");
 
                 match state {
                     ConnectionState::Starting => {
                         self.state = Some(ConnectionState::ReadyToSend {
-                            message: None,
-                            outgoing_stream: Some(outgoing_stream),
+                            state: ReadyToSendState::OnlyOutboundStreamSet(outgoing_stream),
                             waker: None,
                         });
                     }
                     ConnectionState::MessageSet { message, waker } => {
                         self.state = Some(ConnectionState::ReadyToSend {
-                            message: Some(message),
-                            outgoing_stream: Some(outgoing_stream),
+                            state: ReadyToSendState::MessageAndOutboundStreamSet(
+                                message,
+                                outgoing_stream,
+                            ),
                             waker: None,
                         });
                         if let Some(waker) = waker {
@@ -155,11 +160,11 @@ impl ConnectionHandler for EdgeToCoreBlendConnectionHandler {
             }
             ConnectionEvent::DialUpgradeError(error) => {
                 tracing::trace!(target: LOG_TARGET, "Outbound upgrade error: {error:?}");
-                let old_state = self.state.take();
+                let old_state = self.state.take().expect("Inconsistent state");
                 self.state = Some(ConnectionState::Dropped(Some("DialUpgradeError")));
-                if let Some(ConnectionState::MessageSet {
+                if let ConnectionState::MessageSet {
                     waker: Some(waker), ..
-                }) = old_state
+                } = old_state
                 {
                     waker.wake();
                 }
@@ -181,11 +186,7 @@ impl ConnectionHandler for EdgeToCoreBlendConnectionHandler {
     ) -> Poll<
         ConnectionHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::ToBehaviour>,
     > {
-        let Some(state) = self.state.take() else {
-            self.state = Some(ConnectionState::Dropped(Some("Inconsistent state")));
-            cx.waker().wake_by_ref();
-            return Poll::Pending;
-        };
+        let state = self.state.take().expect("Inconsistent state");
 
         match state {
             ConnectionState::Starting => Poll::Pending,
@@ -205,32 +206,20 @@ impl ConnectionHandler for EdgeToCoreBlendConnectionHandler {
                 });
                 Poll::Pending
             }
-            ConnectionState::ReadyToSend {
-                message,
-                outgoing_stream,
-                ..
-            } => match (message, outgoing_stream) {
-                (None, None) => {
-                    self.state = Some(ConnectionState::Dropped(Some(
-                        "State is inconsistent. One between message and stream should be set.",
-                    )));
-                    cx.waker().wake_by_ref();
-                    Poll::Pending
-                }
-                (Some(message), Some(stream)) => {
-                    self.state = Some(ConnectionState::Sending {
-                        message: message.clone(),
-                        outbound_message_send_future: Box::pin(
-                            send_msg(stream, message).map_ok(|_| ()),
-                        ),
+            ConnectionState::ReadyToSend { state, .. } => match state {
+                ReadyToSendState::OnlyOutboundStreamSet(outgoing_stream) => {
+                    self.state = Some(ConnectionState::ReadyToSend {
+                        state: ReadyToSendState::OnlyOutboundStreamSet(outgoing_stream),
+                        waker: Some(cx.waker().clone()),
                     });
                     Poll::Pending
                 }
-                (message, outgoing_stream) => {
-                    self.state = Some(ConnectionState::ReadyToSend {
-                        message,
-                        outgoing_stream,
-                        waker: Some(cx.waker().clone()),
+                ReadyToSendState::MessageAndOutboundStreamSet(message, outgoing_stream) => {
+                    self.state = Some(ConnectionState::Sending {
+                        message: message.clone(),
+                        outbound_message_send_future: Box::pin(
+                            send_msg(outgoing_stream, message).map_ok(|_| ()),
+                        ),
                     });
                     Poll::Pending
                 }

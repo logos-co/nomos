@@ -25,10 +25,12 @@ type TimerFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
 type MessageReceiveFuture = Pin<Box<dyn Future<Output = Result<Vec<u8>, io::Error>> + Send>>;
 
 enum ConnectionState {
-    Starting,
+    Starting {
+        connection_timeout: Duration,
+    },
     ReadyToReceive {
-        timeout_timer: Option<TimerFuture>,
-        incoming_stream: Option<<ReadyUpgrade<StreamProtocol> as InboundUpgradeSend>::Output>,
+        timeout_timer: TimerFuture,
+        incoming_stream: <ReadyUpgrade<StreamProtocol> as InboundUpgradeSend>::Output,
     },
     Receiving {
         timeout_timer: TimerFuture,
@@ -38,15 +40,13 @@ enum ConnectionState {
 }
 
 pub struct CoreToEdgeBlendConnectionHandler {
-    timeout: Duration,
-    state: ConnectionState,
+    state: Option<ConnectionState>,
 }
 
 impl CoreToEdgeBlendConnectionHandler {
     pub const fn new(connection_timeout: Duration) -> Self {
         Self {
-            timeout: connection_timeout,
-            state: ConnectionState::Starting,
+            state: Some(ConnectionState::Starting { connection_timeout }),
         }
     }
 }
@@ -89,19 +89,21 @@ impl ConnectionHandler for CoreToEdgeBlendConnectionHandler {
                 ..
             }) => {
                 tracing::debug!(target: LOG_TARGET, "Fully negotiated inbound connection. Starting timer and initializing incoming stream.");
-                let ConnectionState::Starting = self.state else {
+                let state = self.state.take().expect("Inconsistent state");
+
+                let ConnectionState::Starting { connection_timeout } = state else {
                     tracing::trace!(target: LOG_TARGET, "Connection handler not in the expected `Starting` state.");
-                    self.state = ConnectionState::Dropped;
+                    self.state = Some(ConnectionState::Dropped);
                     return;
                 };
-                self.state = ConnectionState::ReadyToReceive {
-                    timeout_timer: Some(Box::pin(sleep(self.timeout))),
-                    incoming_stream: Some(incoming_stream),
-                };
+                self.state = Some(ConnectionState::ReadyToReceive {
+                    timeout_timer: Box::pin(sleep(connection_timeout)),
+                    incoming_stream,
+                });
             }
             ConnectionEvent::ListenUpgradeError(error) => {
                 tracing::trace!(target: LOG_TARGET, "Inbound upgrade error: {error:?}");
-                self.state = ConnectionState::Dropped;
+                self.state = Some(ConnectionState::Dropped);
             }
             event => {
                 tracing::trace!(target: LOG_TARGET, "Ignoring connection event {event:?}");
@@ -120,49 +122,36 @@ impl ConnectionHandler for CoreToEdgeBlendConnectionHandler {
     ) -> Poll<
         ConnectionHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::ToBehaviour>,
     > {
-        let Self { state, .. } = self;
+        let state = self.state.take().expect("Inconsistent state");
 
         match state {
-            ConnectionState::Starting | ConnectionState::Dropped => Poll::Pending,
+            ConnectionState::Starting { .. } | ConnectionState::Dropped => Poll::Pending,
             ConnectionState::ReadyToReceive {
-                timeout_timer,
+                mut timeout_timer,
                 incoming_stream,
             } => {
-                let Some(mut timeout_timer) = timeout_timer.take() else {
-                    tracing::error!(target: LOG_TARGET, "Timeout for connection should be set.");
-                    return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                        ToBehaviour::FailedReception,
-                    ));
-                };
-                let Some(incoming_stream) = incoming_stream.take() else {
-                    tracing::error!(target: LOG_TARGET, "Incoming stream should be set.");
-                    return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                        ToBehaviour::FailedReception,
-                    ));
-                };
-
                 let Poll::Pending = timeout_timer.poll_unpin(cx) else {
                     tracing::debug!(target: LOG_TARGET, "Timeout reached without starting the reception of the message. Closing the connection.");
-                    *state = ConnectionState::Dropped;
+                    self.state = Some(ConnectionState::Dropped);
                     return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                         ToBehaviour::FailedReception,
                     ));
                 };
-                *state = ConnectionState::Receiving {
+                self.state = Some(ConnectionState::Receiving {
                     timeout_timer,
                     incoming_message: Box::pin(
                         recv_msg(incoming_stream).map_ok(|(_, message)| message),
                     ),
-                };
+                });
                 Poll::Pending
             }
             ConnectionState::Receiving {
-                timeout_timer,
-                incoming_message,
+                mut timeout_timer,
+                mut incoming_message,
             } => {
                 let Poll::Pending = timeout_timer.poll_unpin(cx) else {
                     tracing::debug!(target: LOG_TARGET, "Timeout reached without completing the reception of the message. Closing the connection.");
-                    *state = ConnectionState::Dropped;
+                    self.state = Some(ConnectionState::Dropped);
                     return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                         ToBehaviour::FailedReception,
                     ));
