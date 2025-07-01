@@ -28,7 +28,7 @@ use crate::{
 /// A [`NetworkBehaviour`]:
 /// - forwards messages to all connected peers with deduplication.
 /// - receives messages from all connected peers.
-pub struct Behaviour<ObservationWindowClockProvider, SessionClock> {
+pub struct Behaviour<ObservationWindowClockProvider> {
     negotiated_peers: HashMap<PeerId, NegotiatedPeerState>,
     /// Queue of events to yield to the swarm.
     events: VecDeque<ToSwarm<Event, FromBehaviour>>,
@@ -42,9 +42,6 @@ pub struct Behaviour<ObservationWindowClockProvider, SessionClock> {
     //       because keys and nullifiers are valid during a single session.
     seen_message_cache: SizedCache<Vec<u8>, ()>,
     observation_window_clock_provider: ObservationWindowClockProvider,
-    // TODO: Add latest session info, and then instantiate the right connection handler depending
-    // on the other node.
-    session_clock: SessionClock,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -71,14 +68,11 @@ pub enum Event {
     Error(Error),
 }
 
-impl<ObservationWindowClockProvider, SessionClock>
-    Behaviour<ObservationWindowClockProvider, SessionClock>
-{
+impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     #[must_use]
     pub fn new(
         config: &Config,
         observation_window_clock_provider: ObservationWindowClockProvider,
-        session_clock: SessionClock,
     ) -> Self {
         let duplicate_cache = SizedCache::with_size(config.seen_message_cache_size);
         Self {
@@ -87,7 +81,6 @@ impl<ObservationWindowClockProvider, SessionClock>
             waker: None,
             seen_message_cache: duplicate_cache,
             observation_window_clock_provider,
-            session_clock,
         }
     }
 
@@ -165,8 +158,7 @@ impl<ObservationWindowClockProvider, SessionClock>
     }
 }
 
-impl<ObservationWindowClockProvider, SessionClock>
-    Behaviour<ObservationWindowClockProvider, SessionClock>
+impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider>
 where
     ObservationWindowClockProvider: IntervalStreamProvider<IntervalItem = RangeInclusive<u64>>,
 {

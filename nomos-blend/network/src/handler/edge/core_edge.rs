@@ -89,6 +89,11 @@ impl ConnectionHandler for CoreToEdgeBlendConnectionHandler {
                 ..
             }) => {
                 tracing::debug!(target: LOG_TARGET, "Fully negotiated inbound connection. Starting timer and initializing incoming stream.");
+                let ConnectionState::Starting = self.state else {
+                    tracing::trace!(target: LOG_TARGET, "Connection handler not in the expected `Starting` state.");
+                    self.state = ConnectionState::Dropped;
+                    return;
+                };
                 self.state = ConnectionState::ReadyToReceive {
                     timeout_timer: Some(Box::pin(sleep(self.timeout))),
                     incoming_stream: Some(incoming_stream),
@@ -106,7 +111,7 @@ impl ConnectionHandler for CoreToEdgeBlendConnectionHandler {
 
     #[expect(
         clippy::cognitive_complexity,
-        reason = "Will refactor this probably by moving the methods to `ConnectinoState` itself."
+        reason = "Will refactor this probably by moving the methods to `ConnectionState` itself."
     )]
     #[expect(deprecated, reason = "Self::InboundOpenInfo is deprecated")]
     fn poll(
@@ -163,9 +168,7 @@ impl ConnectionHandler for CoreToEdgeBlendConnectionHandler {
                     ));
                 };
                 let Poll::Ready(message_receive_result) = incoming_message.poll_unpin(cx) else {
-                    return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                        ToBehaviour::FailedReception,
-                    ));
+                    return Poll::Pending;
                 };
                 match message_receive_result {
                     Err(error) => {
