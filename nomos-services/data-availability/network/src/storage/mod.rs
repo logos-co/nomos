@@ -23,6 +23,8 @@ pub trait MembershipStorageAdapter<Id, NetworkId> {
         &self,
         block_number: BlockNumber,
     ) -> Option<(Assignations<Id, NetworkId>, HashMap<Id, Multiaddr>)>;
+
+    fn prune_old_states(&self);
 }
 
 pub struct MembershipStorage<Adapter, Membership> {
