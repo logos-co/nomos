@@ -466,6 +466,8 @@ where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::Message: MonitorMessageFactory,
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
+    Membership::Id: Send + Sync + 'static,
+    Membership::NetworkId: Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -512,6 +514,8 @@ where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::Message: MonitorMessageFactory,
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
+    Membership::Id: Send + Sync + 'static,
+    Membership::NetworkId: Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -556,6 +560,8 @@ where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::Message: MonitorMessageFactory,
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
+    Membership::Id: Send + Sync + 'static,
+    Membership::NetworkId: Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -802,6 +808,8 @@ where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::Message: BalancerMessageFactory,
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
+    Membership::Id: Send + Sync + 'static,
+    Membership::NetworkId: Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -846,6 +854,8 @@ where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::Message: MonitorMessageFactory,
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
+    Membership::Id: Send + Sync + 'static,
+    Membership::NetworkId: Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
