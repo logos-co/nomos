@@ -586,6 +586,46 @@ where
         let network_adapter =
             NetAdapter::new(network_adapter_settings, relays.network_relay().clone()).await;
 
+        let tx_selector = TxS::new(transaction_selector_settings);
+        let blob_selector = BS::new(blob_selector_settings);
+
+        let mut incoming_blocks = network_adapter.blocks_stream().await?;
+        let mut chainsync_events = network_adapter.chainsync_events_stream().await?;
+        let sync_blocks_provider: BlockProvider<_> =
+            BlockProvider::new(relays.storage_adapter().storage_relay.clone());
+
+        let mut slot_timer = {
+            let (sender, receiver) = oneshot::channel();
+            relays
+                .time_relay()
+                .send(TimeServiceMessage::Subscribe { sender })
+                .await
+                .expect("Request time subscription to time service should succeed");
+            receiver.await?
+        };
+
+        let blend_adapter =
+            BlendAdapter::new(blend_adapter_settings, relays.blend_relay().clone()).await;
+
+        self.service_resources_handle.status_updater.notify_ready();
+        info!(
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
+
+        wait_until_services_are_ready!(
+            &self.service_resources_handle.overwatch_handle,
+            Some(Duration::from_secs(60)),
+            NetworkService<_, _>,
+            BlendService<_, _, _>,
+            TxMempoolService<_, _, _>,
+            DaMempoolService<_, _, _, _, _, _, _, _, _, _, _>,
+            DaSamplingService<_, _, _, _, _, _, _, _, _>,
+            StorageService<_, _>,
+            TimeService<_, _>
+        )
+        .await?;
+
         // Run IBD (Initial Block Download)
         let mut cryptarchia = {
             match InitialBlockDownload::<
@@ -630,46 +670,6 @@ where
 
         // TODO: Start the prolonged bootstrap period.
         // https://www.notion.so/Cryptarchia-v1-Bootstrapping-Synchronization-1fd261aa09df81ac94b5fb6a4eff32a6?source=copy_link#1fd261aa09df8162be49e5aa02199378
-
-        let tx_selector = TxS::new(transaction_selector_settings);
-        let blob_selector = BS::new(blob_selector_settings);
-
-        let mut incoming_blocks = network_adapter.blocks_stream().await?;
-        let mut chainsync_events = network_adapter.chainsync_events_stream().await?;
-        let sync_blocks_provider: BlockProvider<_> =
-            BlockProvider::new(relays.storage_adapter().storage_relay.clone());
-
-        let mut slot_timer = {
-            let (sender, receiver) = oneshot::channel();
-            relays
-                .time_relay()
-                .send(TimeServiceMessage::Subscribe { sender })
-                .await
-                .expect("Request time subscription to time service should succeed");
-            receiver.await?
-        };
-
-        let blend_adapter =
-            BlendAdapter::new(blend_adapter_settings, relays.blend_relay().clone()).await;
-
-        self.service_resources_handle.status_updater.notify_ready();
-        info!(
-            "Service '{}' is ready.",
-            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
-        );
-
-        wait_until_services_are_ready!(
-            &self.service_resources_handle.overwatch_handle,
-            Some(Duration::from_secs(60)),
-            NetworkService<_, _>,
-            BlendService<_, _, _>,
-            TxMempoolService<_, _, _>,
-            DaMempoolService<_, _, _, _, _, _, _, _, _, _, _>,
-            DaSamplingService<_, _, _, _, _, _, _, _, _>,
-            StorageService<_, _>,
-            TimeService<_, _>
-        )
-        .await?;
 
         let async_loop = async {
             loop {
