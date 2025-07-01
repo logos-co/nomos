@@ -1,4 +1,4 @@
-use std::{hash::Hash, marker::PhantomData};
+use std::marker::PhantomData;
 
 use nomos_core::{block::Block, header::HeaderId};
 use nomos_storage::{
@@ -27,8 +27,8 @@ where
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block:
         TryFrom<Block<Tx, BlobCertificate>> + TryInto<Block<Tx, BlobCertificate>>,
-    Tx: Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
-    BlobCertificate: Clone + Eq + Hash + Serialize + DeserializeOwned + Send + Sync + 'static,
+    Tx: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
+    BlobCertificate: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     type Backend = Storage;
     type Block = Block<Tx, BlobCertificate>;

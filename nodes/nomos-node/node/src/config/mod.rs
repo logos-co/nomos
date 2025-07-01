@@ -1,13 +1,12 @@
 use std::{
     net::{IpAddr, SocketAddr, ToSocketAddrs as _},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
-use cl::{Nonce, NoteWitness, NullifierSecret};
-use clap::{Parser, ValueEnum};
+use clap::{builder::OsStr, Parser, ValueEnum};
 use color_eyre::eyre::{eyre, Result};
 use hex::FromHex as _;
-use nomos_core::{proofs::covenant::CovenantProof, staking::NMO_UNIT};
+use nomos_core::mantle::{Note, Utxo};
 use nomos_libp2p::{ed25519::SecretKey, Multiaddr};
 use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 use nomos_tracing::logging::{gelf::GelfConfig, local::FileConfig};
@@ -25,6 +24,67 @@ use crate::{
 };
 
 pub mod mempool;
+#[cfg(test)]
+mod tests;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+pub struct CliArgs {
+    /// Path for a yaml-encoded network config file
+    config: PathBuf,
+    /// Dry-run flag. If active, the binary will try to deserialize the config
+    /// file and then exit.
+    #[clap(long = "check-config", action)]
+    check_config_only: bool,
+    /// Overrides log config.
+    #[clap(flatten)]
+    log: LogArgs,
+    /// Overrides network config.
+    #[clap(flatten)]
+    network: NetworkArgs,
+    /// Overrides blend config.
+    #[clap(flatten)]
+    blend: BlendArgs,
+    /// Overrides http config.
+    #[clap(flatten)]
+    http: HttpArgs,
+    #[clap(flatten)]
+    cryptarchia: CryptarchiaArgs,
+    #[clap(flatten)]
+    da: DaArgs,
+}
+
+impl CliArgs {
+    #[must_use]
+    pub fn config_path(&self) -> &Path {
+        &self.config
+    }
+
+    /// If flags the blend service group to start if either all service groups
+    /// are flagged to start or the blend service group is.
+    #[must_use]
+    pub const fn dry_run(&self) -> bool {
+        self.check_config_only
+    }
+
+    #[must_use]
+    pub const fn must_blend_service_group_start(&self) -> bool {
+        self.must_all_service_groups_start() || self.blend.start_blend_at_boot
+    }
+
+    /// If flags the DA service group to start if either all service groups are
+    /// flagged to start or the DA service group is.
+    #[must_use]
+    pub const fn must_da_service_group_start(&self) -> bool {
+        self.must_all_service_groups_start() || self.da.start_da_at_boot
+    }
+
+    /// If no "start" flag is explicitly set for any service group, then all
+    /// service groups are flagged to start.
+    const fn must_all_service_groups_start(&self) -> bool {
+        !self.blend.start_blend_at_boot && !self.da.start_da_at_boot
+    }
+}
 
 #[derive(ValueEnum, Clone, Debug, Default)]
 pub enum LoggerLayerType {
@@ -35,18 +95,41 @@ pub enum LoggerLayerType {
     Stderr,
 }
 
+impl From<LoggerLayerType> for OsStr {
+    fn from(value: LoggerLayerType) -> Self {
+        match value {
+            LoggerLayerType::Gelf => "Gelf".into(),
+            LoggerLayerType::File => "File".into(),
+            LoggerLayerType::Stderr => "Stderr".into(),
+            LoggerLayerType::Stdout => "Stdout".into(),
+        }
+    }
+}
+
 #[derive(Parser, Debug, Clone)]
 pub struct LogArgs {
     /// Address for the Gelf backend
-    #[clap(long = "log-addr", env = "LOG_ADDR", required_if_eq("backend", "Gelf"))]
+    #[clap(
+        long = "log-addr",
+        env = "LOG_ADDR",
+        required_if_eq("backend", LoggerLayerType::Gelf)
+    )]
     log_addr: Option<String>,
 
     /// Directory for the File backend
-    #[clap(long = "log-dir", env = "LOG_DIR", required_if_eq("backend", "File"))]
+    #[clap(
+        long = "log-dir",
+        env = "LOG_DIR",
+        required_if_eq("backend", LoggerLayerType::File)
+    )]
     directory: Option<PathBuf>,
 
     /// Prefix for the File backend
-    #[clap(long = "log-path", env = "LOG_PATH", required_if_eq("backend", "File"))]
+    #[clap(
+        long = "log-path",
+        env = "LOG_PATH",
+        required_if_eq("backend", LoggerLayerType::File)
+    )]
     prefix: Option<PathBuf>,
 
     /// Backend type
@@ -84,6 +167,8 @@ pub struct BlendArgs {
 
     #[clap(long = "blend-num-blend-layers", env = "BLEND_NUM_BLEND_LAYERS")]
     blend_num_blend_layers: Option<usize>,
+    #[clap(long = "blend-service-group", action)]
+    start_blend_at_boot: bool,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -98,25 +183,32 @@ pub struct HttpArgs {
 #[derive(Parser, Debug, Clone)]
 pub struct CryptarchiaArgs {
     #[clap(
-        long = "consensus-note-sk",
-        env = "CONSENSUS_NOTE_SK",
-        requires("note_value")
+        long = "consensus-utxo-sk",
+        env = "CONSENSUS_UTXO_SK",
+        requires = "value"
     )]
-    note_secret_key: Option<String>,
+    pub secret_key: Option<String>,
 
     #[clap(
-        long = "consensus-note-value",
-        env = "CONSENSUS_NOTE_VALUE",
-        requires("note_secret_key")
+        long = "consensus-utxo-value",
+        env = "CONSENSUS_UTXO_VALUE",
+        requires = "secret_key"
     )]
-    note_value: Option<u32>,
+    value: Option<u64>,
 
     #[clap(
-        long = "consensus-note-nonce",
-        env = "CONSENSUS_NOTE_NONCE",
-        requires("note_value")
+        long = "consensus-utxo-txhash",
+        env = "CONSENSUS_UTXO_TXHASH",
+        requires = "value"
     )]
-    note_nonce: Option<String>,
+    tx_hash: Option<String>,
+
+    #[clap(
+        long = "consensus-utxo-output-index",
+        env = "CONSENSUS_UTXO_OUTPUT_INDEX",
+        requires = "value"
+    )]
+    output_index: Option<usize>,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -126,6 +218,12 @@ pub struct TimeArgs {
 
     #[clap(long = "consensus-slot-duration", env = "CONSENSUS_SLOT_DURATION")]
     slot_duration: Option<u64>,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct DaArgs {
+    #[clap(long = "da-service-group", action)]
+    start_da_at_boot: bool,
 }
 
 #[derive(Deserialize, Debug, Clone, Serialize)]
@@ -150,14 +248,15 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn update_from_args(
-        mut self,
-        log_args: LogArgs,
-        network_args: NetworkArgs,
-        blend_args: BlendArgs,
-        http_args: HttpArgs,
-        cryptarchia_args: CryptarchiaArgs,
-    ) -> Result<Self> {
+    pub fn update_from_args(mut self, args: CliArgs) -> Result<Self> {
+        let CliArgs {
+            log: log_args,
+            http: http_args,
+            network: network_args,
+            blend: blend_args,
+            cryptarchia: cryptarchia_args,
+            ..
+        } = args;
         update_tracing(&mut self.tracing, log_args)?;
         update_network::<RuntimeServiceId>(&mut self.network, network_args)?;
         update_blend(&mut self.blend, blend_args)?;
@@ -251,6 +350,7 @@ pub fn update_blend(
         blend_addr,
         blend_node_key,
         blend_num_blend_layers,
+        ..
     } = blend_args;
 
     if let Some(addr) = blend_addr {
@@ -263,7 +363,7 @@ pub fn update_blend(
     }
 
     if let Some(num_blend_layers) = blend_num_blend_layers {
-        blend.message_blend.cryptographic_processor.num_blend_layers = num_blend_layers;
+        blend.crypto.num_blend_layers = num_blend_layers as u64;
     }
 
     Ok(())
@@ -294,26 +394,29 @@ pub fn update_cryptarchia_consensus(
     consensus_args: CryptarchiaArgs,
 ) -> Result<()> {
     let CryptarchiaArgs {
-        note_secret_key,
-        note_value,
-        note_nonce,
+        secret_key,
+        value,
+        tx_hash,
+        output_index,
     } = consensus_args;
 
-    if let (Some(value), Some(nonce)) = (note_value, note_nonce) {
-        let nonce = Nonce::from_bytes(<[u8; 32]>::from_hex(nonce)?);
-        cryptarchia.leader_config.notes.push(NoteWitness::new(
-            value.into(),
-            NMO_UNIT,
-            CovenantProof::nop_constraint(),
-            [0; 32],
-            nonce,
-        ));
-    }
+    let (Some(secret_key), Some(value), Some(tx_hash), Some(output_index)) =
+        (secret_key, value, tx_hash, output_index)
+    else {
+        return Ok(());
+    };
 
-    if let Some(sk) = note_secret_key {
-        let sk = <[u8; 16]>::from_hex(sk)?;
-        cryptarchia.leader_config.nf_sk = NullifierSecret::from_bytes(sk);
-    }
+    let sk = nomos_core::mantle::keys::SecretKey::from(<[u8; 16]>::from_hex(secret_key)?);
+    cryptarchia.leader_config.sk = sk;
+
+    let pk = sk.to_public_key();
+
+    let tx_hash = <[u8; 32]>::from_hex(tx_hash)?;
+    cryptarchia.leader_config.utxos.push(Utxo {
+        tx_hash: tx_hash.into(),
+        output_index,
+        note: Note { value, pk },
+    });
 
     Ok(())
 }

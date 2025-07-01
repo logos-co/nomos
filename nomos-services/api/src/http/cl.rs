@@ -1,7 +1,7 @@
-use core::{fmt::Debug, hash::Hash};
+use core::fmt::Debug;
 use std::fmt::Display;
 
-use nomos_core::{header::HeaderId, tx::Transaction};
+use nomos_core::{header::HeaderId, mantle::Transaction};
 use nomos_mempool::{
     backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
     tx::service::openapi::Status, MempoolMetrics, MempoolMsg, TxMempoolService,
@@ -22,15 +22,7 @@ pub async fn cl_mempool_metrics<T, RuntimeServiceId>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
 ) -> Result<MempoolMetrics, super::DynError>
 where
-    T: Transaction
-        + Clone
-        + Debug
-        + Hash
-        + Serialize
-        + for<'de> Deserialize<'de>
-        + Send
-        + Sync
-        + 'static,
+    T: Transaction + Clone + Debug + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
     <T as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     RuntimeServiceId: Debug + Sync + Display + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
@@ -56,15 +48,7 @@ pub async fn cl_mempool_status<T, RuntimeServiceId>(
     items: Vec<<T as Transaction>::Hash>,
 ) -> Result<Vec<Status<HeaderId>>, super::DynError>
 where
-    T: Transaction
-        + Clone
-        + Debug
-        + Hash
-        + Serialize
-        + for<'de> Deserialize<'de>
-        + Send
-        + Sync
-        + 'static,
+    T: Transaction + Clone + Debug + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
     <T as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     RuntimeServiceId: Debug + Sync + Display + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,

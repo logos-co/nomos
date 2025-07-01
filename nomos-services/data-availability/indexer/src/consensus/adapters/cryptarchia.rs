@@ -10,8 +10,8 @@ use crate::consensus::ConsensusAdapter;
 
 pub struct CryptarchiaConsensusAdapter<Tx, C>
 where
-    Tx: Clone + Eq + std::hash::Hash,
-    C: Clone + Eq + std::hash::Hash,
+    Tx: Clone + Eq,
+    C: Clone + Eq,
 {
     consensus_relay: OutboundRelay<ConsensusMsg<Block<Tx, C>>>,
 }
@@ -19,8 +19,8 @@ where
 #[async_trait::async_trait]
 impl<Tx, C> ConsensusAdapter for CryptarchiaConsensusAdapter<Tx, C>
 where
-    Tx: Clone + Eq + std::hash::Hash + Send + Sync + 'static + std::fmt::Debug,
-    C: Clone + Eq + std::hash::Hash + Send + Sync + 'static + std::fmt::Debug,
+    Tx: Clone + Eq + Send + Sync + 'static + std::fmt::Debug,
+    C: Clone + Eq + Send + Sync + 'static + std::fmt::Debug,
 {
     type Tx = Tx;
     type Cert = C;

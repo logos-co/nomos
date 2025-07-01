@@ -5,12 +5,12 @@ pub mod network;
 mod relays;
 mod states;
 pub mod storage;
+mod sync;
 
 use core::fmt::Debug;
 use std::{
     collections::{BTreeSet, HashSet},
     fmt::Display,
-    hash::Hash,
     path::PathBuf,
     time::Duration,
 };
@@ -24,8 +24,8 @@ use nomos_core::{
     block::{builder::BlockBuilder, Block},
     da::blob::{info::DispersedBlobInfo, metadata::Metadata as BlobMetadata, BlobSelect},
     header::{Builder, Header, HeaderId},
+    mantle::{Transaction, TxSelect},
     proofs::leader_proof::Risc0LeaderProof,
-    tx::{Transaction, TxSelect},
 };
 use nomos_da_sampling::{
     backend::DaSamplingServiceBackend, DaSamplingService, DaSamplingServiceMsg,
@@ -59,6 +59,7 @@ use crate::{
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
     storage::{adapters::StorageAdapter, StorageAdapter as _},
+    sync::block_provider::BlockProvider,
 };
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
@@ -227,12 +228,12 @@ pub struct CryptarchiaConsensus<
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone,
-    ClPool::Item: Clone + Eq + Hash + Debug + 'static,
+    ClPool::Item: Clone + Eq + Debug + 'static,
     ClPool::Key: Debug + 'static,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     DaPool: RecoverableMempool<BlockId = HeaderId>,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPool::Item: Clone + Eq + Hash + Debug + 'static,
+    DaPool::Item: Clone + Eq + Debug + 'static,
     DaPool::Key: Debug + 'static,
     DaPool::Settings: Clone,
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
@@ -313,12 +314,12 @@ where
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone,
-    ClPool::Item: Clone + Eq + Hash + Debug,
+    ClPool::Item: Clone + Eq + Debug,
     ClPool::Key: Debug,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     DaPool: RecoverableMempool<BlockId = HeaderId>,
     DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    DaPool::Item: Clone + Eq + Hash + Debug,
+    DaPool::Item: Clone + Eq + Debug,
     DaPool::Key: Debug,
     DaPool::Settings: Clone,
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
@@ -423,7 +424,6 @@ where
         + Debug
         + Clone
         + Eq
-        + Hash
         + Serialize
         + DeserializeOwned
         + Send
@@ -446,7 +446,6 @@ where
         + Debug
         + Clone
         + Eq
-        + Hash
         + Serialize
         + DeserializeOwned
         + Send
@@ -566,7 +565,7 @@ where
 
         // These are blocks that have been pruned by the cryptarchia engine but have not
         // yet been deleted from the storage layer.
-        let mut previously_pruned_blocks = self.initial_state.prunable_blocks.clone();
+        let mut storage_blocks_to_remove = self.initial_state.storage_blocks_to_remove.clone();
         let (mut cryptarchia, leader) = Self::initialize_cryptarchia(
             self.initial_state,
             ledger_config,
@@ -583,6 +582,8 @@ where
 
         let mut incoming_blocks = network_adapter.blocks_stream().await?;
         let mut chainsync_events = network_adapter.chainsync_events_stream().await?;
+        let sync_blocks_provider: BlockProvider<_> =
+            BlockProvider::new(relays.storage_adapter().storage_relay.clone());
 
         let mut slot_timer = {
             let (sender, receiver) = oneshot::channel();
@@ -623,12 +624,12 @@ where
                         Self::log_received_block(&block);
 
                         // Process the received block and update the cryptarchia state.
-                        cryptarchia = Self::process_block_and_update_state(
+                        (cryptarchia, storage_blocks_to_remove) = Self::process_block_and_update_state(
                             cryptarchia,
                             &leader,
                             block.clone(),
 
-                            &mut previously_pruned_blocks,
+                            &storage_blocks_to_remove,
                             &relays,
                             &self.block_subscription_sender,
                             self.service_resources_handle
@@ -662,12 +663,12 @@ where
 
                             if let Some(block) = block {
                                 // apply our own block
-                                cryptarchia = Self::process_block_and_update_state(
+                                (cryptarchia, storage_blocks_to_remove) = Self::process_block_and_update_state(
                                     cryptarchia,
                                     &leader,
                                     block.clone(),
 
-                                    &mut previously_pruned_blocks,
+                                    &storage_blocks_to_remove,
                                     &relays,
                                     &self.block_subscription_sender,
                                     self.service_resources_handle
@@ -685,12 +686,7 @@ where
                     }
 
                     Some(event) = chainsync_events.next() => {
-                        if let ChainSyncEvent::ProvideTipRequest{reply_sender} = event {
-                            let tip = cryptarchia.tip();
-                            if let Err(e) = reply_sender.send(tip).await {
-                                error!("Failed to send tip header: {e}");
-                            }
-                        }
+                       Self::handle_chainsync_event(&cryptarchia, &sync_blocks_provider, event).await;
                     }
                 }
             }
@@ -765,7 +761,6 @@ where
         + Debug
         + Clone
         + Eq
-        + Hash
         + Serialize
         + DeserializeOwned
         + Send
@@ -781,7 +776,6 @@ where
         + Debug
         + Clone
         + Eq
-        + Hash
         + Serialize
         + DeserializeOwned
         + Send
@@ -887,7 +881,7 @@ where
         mut cryptarchia: Cryptarchia<Online>,
         leader: &Leader,
         block: Block<ClPool::Item, DaPool::Item>,
-        previously_pruned_blocks: &mut HashSet<HeaderId>,
+        storage_blocks_to_remove: &HashSet<HeaderId>,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
             BS,
@@ -914,24 +908,24 @@ where
                 >,
             >,
         >,
-    ) -> Cryptarchia<Online> {
+    ) -> (Cryptarchia<Online>, HashSet<HeaderId>) {
         cryptarchia =
             Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
 
         // This will modify `previously_pruned_blocks` to include blocks which are not
         // tracked by Cryptarchia anymore but have not been deleted from the persistence
         // layer.
-        Self::prune_forks(
+        let storage_blocks_to_remove = Self::prune_forks(
             &mut cryptarchia,
             relays.storage_adapter(),
-            previously_pruned_blocks,
+            storage_blocks_to_remove,
         )
         .await;
 
         match <Self as ServiceData>::State::from_cryptarchia_and_unpruned_blocks(
             &cryptarchia,
             leader,
-            previously_pruned_blocks.clone(),
+            storage_blocks_to_remove.clone(),
         ) {
             Ok(state) => {
                 state_updater.update(Some(state));
@@ -941,7 +935,7 @@ where
             }
         }
 
-        cryptarchia
+        (cryptarchia, storage_blocks_to_remove)
     }
 
     /// Try to add a [`Block`] to [`Cryptarchia`].
@@ -1093,6 +1087,7 @@ where
                 }
             }
         }
+
         output
     }
 
@@ -1223,8 +1218,8 @@ where
         let mut cryptarchia =
             <Cryptarchia<Online>>::from_lib(lib_id, initial_state.lib_ledger_state, ledger_config);
         let leader = Leader::new(
-            initial_state.lib_leader_notes.clone(),
-            leader_config.nf_sk,
+            initial_state.lib_leader_utxos.clone(),
+            leader_config.sk,
             ledger_config,
         );
 
@@ -1243,41 +1238,40 @@ where
     }
 
     /// Remove the in-memory storage of stale blocks from the cryptarchia engine
-    /// and of stale `PoL` notes from the `PoL` machinery.
+    /// and of stale `PoL` utxos from the `PoL` machinery.
     /// Furthermore, it attempts to remove the deleted block data from storage
-    /// as well, also including the blocks provided in `prunable_blocks` that
-    /// might belong to previous pruning operations and that failed for some
-    /// reason.
+    /// as well, also including the `storage_blocks_to_remove` that
+    /// might belong to previous pruning operations and that failed to be
+    /// removed from the storage for some reason.
     ///
-    /// Any block that fails to be deleted from the storage layer is added to
-    /// the provided `prunable_blocks` parameter and will be picked up at the
-    /// next invocation of this function.
+    /// This function returns any block that fails to be deleted from the
+    /// storage layer.
     async fn prune_forks(
         cryptarchia: &mut Cryptarchia<Online>,
         storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
-        prunable_blocks: &mut HashSet<HeaderId>,
-    ) {
-        let old_forks_pruned = cryptarchia.prune_old_forks().collect::<HashSet<_>>();
+        storage_blocks_to_remove: &HashSet<HeaderId>,
+    ) -> HashSet<HeaderId> {
+        // Prune stale blocks from the cryptarchia engine.
+        let newly_pruned_blocks = cryptarchia.prune_old_forks().collect::<HashSet<_>>();
 
-        // We try to delete both freshly pruned forks as well as old pruned blocks.
+        // We try to delete both freshly pruned blocks as well as the blocks that
+        // were pruned in the past but failed to be deleted from storage.
         match Self::delete_pruned_blocks_from_storage(
-            old_forks_pruned
+            newly_pruned_blocks
                 .iter()
-                .chain(prunable_blocks.iter())
+                .chain(storage_blocks_to_remove.iter())
                 .copied(),
             storage_adapter,
         )
         .await
         {
             // All blocks, past and present, have been successfully deleted from storage.
-            Ok(()) => *prunable_blocks = HashSet::new(),
+            Ok(()) => HashSet::new(),
             // We retain the blocks that failed to be deleted.
-            Err(failed_blocks) => {
-                *prunable_blocks = failed_blocks
-                    .into_iter()
-                    .map(|(block_id, _)| block_id)
-                    .collect();
-            }
+            Err(failed_blocks) => failed_blocks
+                .into_iter()
+                .map(|(block_id, _)| block_id)
+                .collect(),
         }
     }
 
@@ -1331,6 +1325,40 @@ where
             Ok(())
         } else {
             Err(errors)
+        }
+    }
+
+    async fn handle_chainsync_event<State>(
+        cryptarchia: &Cryptarchia<State>,
+        sync_blocks_provider: &BlockProvider<Storage>,
+        event: ChainSyncEvent,
+    ) where
+        State: CryptarchiaState + Send + Sync + 'static,
+    {
+        match event {
+            ChainSyncEvent::ProvideBlocksRequest {
+                target_block,
+                local_tip,
+                latest_immutable_block,
+                additional_blocks,
+                reply_sender,
+            } => {
+                let known_blocks = vec![local_tip, latest_immutable_block]
+                    .into_iter()
+                    .chain(additional_blocks.into_iter())
+                    .collect::<HashSet<_>>();
+
+                sync_blocks_provider
+                    .send_blocks(cryptarchia, target_block, &known_blocks, reply_sender)
+                    .await;
+            }
+            ChainSyncEvent::ProvideTipRequest { reply_sender } => {
+                let tip = cryptarchia.tip();
+                info!("Sending tip {tip}");
+                if let Err(e) = reply_sender.send(tip).await {
+                    error!("Failed to send tip header: {e}");
+                }
+            }
         }
     }
 }

@@ -399,42 +399,43 @@ where
         &self.local_chain
     }
 
-    /// Prune all blocks that are included in forks that diverged at or before
-    /// the `depth`th block from the current local chain.
-    ///
-    /// For example, if the tip of the canonical chain is at height 10 (i.e., 11
-    /// blocks long), calling `self.prune_forks(10)` will remove any forks
-    /// stemming from the genesis block, with height `0`, which is the 10th
-    /// block in the past.
-    ///
-    /// This function does not apply any particular logic when evaluating forks
-    /// other than the height at which they diverged from the local
-    /// canonical chain.
-    ///
+    /// Prune all blocks that are included in forks that diverged before
+    /// the `max_div_depth`-th block from the current local chain tip.
     /// It returns the block IDs that were part of the pruned forks.
-    pub fn prune_forks(&mut self, depth: u64) -> impl Iterator<Item = Id> + '_ {
+    ///
+    /// For example,
+    /// Given a block tree:
+    ///               b6
+    ///             /
+    /// G - b1 - b2 - b3 - b4 - b5 == local chain tip
+    ///                  \
+    ///                    b7
+    /// Calling `prune_forks(2)` will remove `b6` because it is diverged from
+    /// `b2`, which is deeper than the 2nd block `b3` from the local chain tip.
+    /// The `b7` is not removed since it is diverged from `b3`.
+    pub fn prune_forks(&mut self, max_div_depth: u64) -> impl Iterator<Item = Id> + '_ {
         #[expect(
             clippy::needless_collect,
             reason = "We need to collect since we cannot borrow both immutably (in `self.prunable_forks`) and mutably (in `self.prune_fork`) at the same time."
         )]
         // Collect prunable forks first to avoid borrowing issues
-        let forks: Vec<_> = self.prunable_forks(depth).collect();
+        let forks: Vec<_> = self.prunable_forks(max_div_depth).collect();
         forks
             .into_iter()
             .flat_map(move |prunable_fork_info| self.prune_fork(&prunable_fork_info))
     }
 
-    /// Get an iterator over the forks that can be pruned given the provided
-    /// depth.
-    ///
-    /// This means that all forks that diverged from the canonical chain at or
-    /// before the provided `depth` height are returned.
-    pub fn prunable_forks(&self, depth: u64) -> impl Iterator<Item = ForkDivergenceInfo<Id>> + '_ {
+    /// Get an iterator over the prunable forks that diverged before
+    /// the `max_div_depth`-th block from the current local chain tip.
+    fn prunable_forks(
+        &self,
+        max_div_depth: u64,
+    ) -> impl Iterator<Item = ForkDivergenceInfo<Id>> + '_ {
         let local_chain = self.local_chain;
-        let Some(target_height) = local_chain.length.checked_sub(depth) else {
+        let Some(deepest_div_block) = local_chain.length.checked_sub(max_div_depth) else {
             tracing::debug!(
                 target: LOG_TARGET,
-                "No prunable fork, the canonical chain is not longer than the provided depth. Canonical chain length: {}, provided depth: {}", local_chain.length, depth
+                "No prunable fork, the canonical chain is not longer than the provided depth. Canonical chain length: {}, provided max_div_depth: {}", local_chain.length, max_div_depth
             );
             return Box::new(core::iter::empty())
                 as Box<dyn Iterator<Item = ForkDivergenceInfo<Id>>>;
@@ -443,7 +444,8 @@ where
             // We calculate LCA once and store it in `ForkInfo` so it can be consumed
             // elsewhere without the need to re-calculate it.
             let lca = self.branches.lca(&local_chain, &fork);
-            (lca.length <= target_height).then_some(ForkDivergenceInfo { tip: fork, lca })
+            // If the fork is diverged deeper than `deepest_div_block`, it's prunable.
+            (lca.length < deepest_div_block).then_some(ForkDivergenceInfo { tip: fork, lca })
         }))
     }
 
@@ -801,12 +803,16 @@ pub mod tests {
 
     #[test]
     fn pruning_with_single_fork_old_enough() {
+        // Create a chain with 50 blocks (0 to 49).
         let chain_pre = create_canonical_chain(50.try_into().unwrap(), None)
+            // Add a fork from block 38
+            .receive_block([100; 32], hash(&38u64), 39.into())
+            .expect("test block to be applied successfully.")
             // Add a fork from block 39
-            .receive_block([100; 32], hash(&39u64), 40.into())
+            .receive_block([101; 32], hash(&39u64), 40.into())
             .expect("test block to be applied successfully.")
             // Add a fork from block 40
-            .receive_block([101; 32], hash(&40u64), 41.into())
+            .receive_block([102; 32], hash(&40u64), 41.into())
             .expect("test block to be applied successfully.")
             .online();
         let mut chain = chain_pre.clone();
@@ -816,24 +822,32 @@ pub mod tests {
         assert!(chain_pre.branches.branches.contains_key(&[100; 32]));
         assert!(!chain.branches.tips.contains(&[100; 32]));
         assert!(!chain.branches.branches.contains_key(&[100; 32]));
-        // Fork at block 40 was not pruned.
+        // Fork at block 39 was not pruned because it is diverged
+        // at the 10th block from the local chain tip.
         assert!(chain_pre.branches.tips.contains(&[101; 32]));
         assert!(chain_pre.branches.branches.contains_key(&[101; 32]));
         assert!(chain.branches.tips.contains(&[101; 32]));
         assert!(chain.branches.branches.contains_key(&[101; 32]));
+        // Fork at block 40 was not pruned because it is diverged
+        // after the 10th block from the local chain tip.
+        assert!(chain_pre.branches.tips.contains(&[102; 32]));
+        assert!(chain_pre.branches.branches.contains_key(&[102; 32]));
+        assert!(chain.branches.tips.contains(&[102; 32]));
+        assert!(chain.branches.branches.contains_key(&[102; 32]));
     }
 
     #[test]
     fn pruning_with_multiple_forks_old_enough() {
+        // Create a chain with 50 blocks (0 to 49).
         let chain_pre = create_canonical_chain(50.try_into().unwrap(), None)
-            // Add a first fork from block 39
-            .receive_block([100; 32], hash(&39u64), 40.into())
+            // Add a first fork from block 38
+            .receive_block([100; 32], hash(&38u64), 39.into())
             .expect("test block to be applied successfully.")
-            // Add a second fork from block 39
-            .receive_block([200; 32], hash(&39u64), 40.into())
+            // Add a second fork from block 38
+            .receive_block([200; 32], hash(&38u64), 39.into())
             .expect("test block to be applied successfully.")
-            // Add a fork from block 40
-            .receive_block([101; 32], hash(&40u64), 41.into())
+            // Add a fork from block 39
+            .receive_block([101; 32], hash(&39u64), 40.into())
             .expect("test block to be applied successfully.")
             .online();
         let mut chain = chain_pre.clone();
@@ -842,12 +856,12 @@ pub mod tests {
             pruned_blocks.collect::<HashSet<_>>(),
             [[100; 32], [200; 32]].into()
         );
-        // First fork at block 39 was pruned.
+        // First fork at block 38 was pruned.
         assert!(chain_pre.branches.tips.contains(&[100; 32]));
         assert!(chain_pre.branches.branches.contains_key(&[100; 32]));
         assert!(!chain.branches.tips.contains(&[100; 32]));
         assert!(!chain.branches.branches.contains_key(&[100; 32]));
-        // Second fork at block 39 was pruned.
+        // Second fork at block 38 was pruned.
         assert!(chain_pre.branches.tips.contains(&[200; 32]));
         assert!(chain_pre.branches.branches.contains_key(&[200; 32]));
         assert!(!chain.branches.tips.contains(&[200; 32]));
@@ -861,15 +875,16 @@ pub mod tests {
 
     #[test]
     fn pruning_fork_with_multiple_tips() {
+        // Create a chain with 50 blocks (0 to 49).
         let chain_pre = create_canonical_chain(50.try_into().unwrap(), None)
-            // Add a 2-block fork from block 39
-            .receive_block([100; 32], hash(&39u64), 40.into())
+            // Add a 2-block fork from block 38
+            .receive_block([100; 32], hash(&38u64), 39.into())
             .expect("test block to be applied successfully.")
-            .receive_block([101; 32], [100; 32], 41.into())
+            .receive_block([101; 32], [100; 32], 40.into())
             .expect("test block to be applied successfully.")
             // Add a second fork from the first divergent fork block, so that the fork has two
             // tips
-            .receive_block([200; 32], [100; 32], 42.into())
+            .receive_block([200; 32], [100; 32], 41.into())
             .expect("test block to be applied successfully.")
             .online();
         let mut chain = chain_pre.clone();

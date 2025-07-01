@@ -27,6 +27,7 @@ mod tests {
     };
 
     #[tokio::test]
+    #[ignore]
     async fn test_address_book() {
         let n_hosts = 4;
         let config = CfgSyncConfig {

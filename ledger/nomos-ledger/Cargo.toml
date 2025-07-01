@@ -8,11 +8,10 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-blake2 = "0.10"
-# TODO: we only need types definition from this crate
-cl                     = { workspace = true }
+blake2                 = "0.10"
 cryptarchia-engine     = { workspace = true }
 crypto-bigint          = "0.5"
+nomos-core             = { workspace = true }
 nomos-utils            = { workspace = true, optional = true, features = ["serde"] }
 nomos_proof_statements = { workspace = true }
 rand                   = "0.8.5"

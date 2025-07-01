@@ -1,11 +1,10 @@
 use std::{collections::HashMap, error::Error, fmt::Debug, marker::PhantomData};
 
 use async_trait::async_trait;
-use nomos_core::block::BlockNumber;
 
 use crate::{
-    ActiveMessage, DeclarationId, DeclarationInfo, DeclarationMessage, EventType, Nonce,
-    ProviderId, SdpMessage, ServiceParameters, ServiceType, WithdrawMessage,
+    ActiveMessage, BlockNumber, DeclarationId, DeclarationInfo, DeclarationMessage, EventType,
+    Nonce, ProviderId, SdpMessage, ServiceParameters, ServiceType, WithdrawMessage,
     state::{ProviderStateError, TransientDeclarationState},
 };
 

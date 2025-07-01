@@ -7,8 +7,8 @@ use overwatch::services::relay::OutboundRelay;
 
 #[async_trait::async_trait]
 pub trait ConsensusAdapter {
-    type Tx: Clone + Eq + std::hash::Hash;
-    type Cert: Clone + Eq + std::hash::Hash;
+    type Tx: Clone + Eq;
+    type Cert: Clone + Eq;
 
     async fn new(consensus_relay: OutboundRelay<ConsensusMsg<Block<Self::Tx, Self::Cert>>>)
         -> Self;

@@ -128,7 +128,7 @@ pub enum ToBehaviour {
 
 impl<ConnectionWindowClock> ConnectionHandler for BlendConnectionHandler<ConnectionWindowClock>
 where
-    ConnectionWindowClock: futures::Stream<Item = RangeInclusive<usize>> + Unpin + Send + 'static,
+    ConnectionWindowClock: futures::Stream<Item = RangeInclusive<u64>> + Unpin + Send + 'static,
 {
     type FromBehaviour = FromBehaviour;
     type ToBehaviour = ToBehaviour;

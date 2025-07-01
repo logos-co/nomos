@@ -8,7 +8,7 @@ version = "0.1.0"
 risc0-build = "2.0.0"
 
 [package.metadata.risc0]
-methods = ["bundle_balance", "covenant_nop", "proof_of_leadership", "ptx"]
+methods = ["proof_of_leadership"]
 
 [package.metadata.cargo-machete]
 # False positives.

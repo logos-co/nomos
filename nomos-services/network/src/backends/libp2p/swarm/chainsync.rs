@@ -1,16 +1,15 @@
 use std::{collections::HashSet, fmt::Debug};
 
-use futures::stream::BoxStream;
 use nomos_libp2p::{
     cryptarchia_sync,
-    cryptarchia_sync::{ChainSyncError, HeaderId, SerialisedBlock},
+    cryptarchia_sync::{BoxedStream, ChainSyncError, HeaderId, SerialisedBlock},
     PeerId,
 };
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 
 use crate::{backends::libp2p::swarm::SwarmHandler, message::ChainSyncEvent};
 
-type SerialisedBlockStream = BoxStream<'static, Result<SerialisedBlock, ChainSyncError>>;
+type SerialisedBlockStream = BoxedStream<Result<SerialisedBlock, ChainSyncError>>;
 
 pub enum ChainSyncCommand {
     RequestTip {
@@ -23,7 +22,7 @@ pub enum ChainSyncCommand {
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
-        reply_sender: mpsc::Sender<SerialisedBlockStream>,
+        reply_sender: oneshot::Sender<SerialisedBlockStream>,
     },
 }
 
