@@ -1,26 +1,19 @@
 use core::{
     future::Future,
     pin::Pin,
-    task::{Context, Poll, Waker},
+    task::{Context, Poll},
 };
 use std::io;
 
-use futures::{FutureExt as _, TryFutureExt as _};
 use libp2p::{
     core::upgrade::{DeniedUpgrade, ReadyUpgrade},
-    swarm::{
-        handler::{ConnectionEvent, FullyNegotiatedOutbound, OutboundUpgradeSend},
-        ConnectionHandler, ConnectionHandlerEvent, SubstreamProtocol,
-    },
+    swarm::{ConnectionHandler, ConnectionHandlerEvent, SubstreamProtocol},
     StreamProtocol,
 };
 
-use crate::handler::{
-    edge::edge_core::{
-        dropped::DroppedState, message_set::MessageSetState, ready_to_send::ReadyToSendState,
-        sending::SendingState, starting::StartingState,
-    },
-    send_msg,
+use crate::handler::edge::edge_core::{
+    dropped::DroppedState, message_set::MessageSetState, ready_to_send::ReadyToSendState,
+    sending::SendingState, starting::StartingState,
 };
 
 mod dropped;
@@ -32,6 +25,25 @@ mod starting;
 const LOG_TARGET: &str = "blend::libp2p::handler::edge-core";
 
 type MessageSendFuture = Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>>;
+#[expect(deprecated, reason = "Self::InboundOpenInfo is deprecated")]
+type PollResult<T> = (
+    Poll<
+        ConnectionHandlerEvent<
+            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
+            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
+            ToBehaviour,
+        >,
+    >,
+    T,
+);
+#[expect(deprecated, reason = "Self::InboundOpenInfo is deprecated")]
+type ConnectionEvent<'a> = libp2p::swarm::handler::ConnectionEvent<
+    'a,
+    <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::InboundProtocol,
+    <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
+    <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::InboundOpenInfo,
+    <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
+>;
 
 enum ConnectionState {
     Starting(StartingState),
@@ -52,15 +64,7 @@ impl ConnectionState {
         }
     }
 
-    fn on_connection_event(
-        self,
-        event: ConnectionEvent<
-            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::InboundProtocol,
-            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
-            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::InboundOpenInfo,
-            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
-        >,
-    ) -> Self {
+    fn on_connection_event(self, event: ConnectionEvent) -> Self {
         match self {
             Self::Starting(s) => s.on_connection_event(event),
             Self::MessageSet(s) => s.on_connection_event(event),
@@ -70,19 +74,7 @@ impl ConnectionState {
         }
     }
 
-    fn poll(
-        self,
-        cx: &mut Context<'_>,
-    ) -> (
-        Poll<
-            ConnectionHandlerEvent<
-                <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
-                <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
-                ToBehaviour,
-            >,
-        >,
-        ConnectionState,
-    ) {
+    fn poll(self, cx: &mut Context<'_>) -> PollResult<Self> {
         match self {
             Self::Starting(s) => s.poll(cx),
             Self::MessageSet(s) => s.poll(cx),
@@ -98,35 +90,18 @@ trait StateTrait: Into<ConnectionState> {
         self.into()
     }
 
-    fn on_connection_event(
-        self,
-        event: ConnectionEvent<
-            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::InboundProtocol,
-            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
-            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::InboundOpenInfo,
-            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
-        >,
-    ) -> ConnectionState {
+    fn on_connection_event(self, event: ConnectionEvent) -> ConnectionState {
         if let ConnectionEvent::DialUpgradeError(error) = event {
             tracing::trace!(target: LOG_TARGET, "Outbound upgrade error: {error:?}");
-            return DroppedState { error_message: "Outbound upgrade error." } .into();
+            return DroppedState {
+                error_message: Some("Outbound upgrade error."),
+            }
+            .into();
         }
         self.into()
     }
 
-    fn poll(
-        self,
-        cx: &mut Context<'_>,
-    ) -> (
-        Poll<
-            ConnectionHandlerEvent<
-                <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
-                <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
-                ToBehaviour,
-            >,
-        >,
-        ConnectionState,
-    );
+    fn poll(self, cx: &mut Context<'_>) -> PollResult<ConnectionState>;
 }
 
 pub struct EdgeToCoreBlendConnectionHandler {
@@ -172,24 +147,11 @@ impl ConnectionHandler for EdgeToCoreBlendConnectionHandler {
         self.state = Some(state.on_behaviour_event(event));
     }
 
-    #[expect(deprecated, reason = "Self::InboundOpenInfo is deprecated")]
-    fn on_connection_event(
-        &mut self,
-        event: ConnectionEvent<
-            Self::InboundProtocol,
-            Self::OutboundProtocol,
-            Self::InboundOpenInfo,
-            Self::OutboundOpenInfo,
-        >,
-    ) {
+    fn on_connection_event(&mut self, event: ConnectionEvent) {
         let state = self.state.take().expect("Inconsistent state");
         self.state = Some(state.on_connection_event(event));
     }
 
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "Will refactor this probably by moving the methods to `ConnectionState` itself."
-    )]
     #[expect(deprecated, reason = "Self::InboundOpenInfo is deprecated")]
     fn poll(
         &mut self,
@@ -203,63 +165,5 @@ impl ConnectionHandler for EdgeToCoreBlendConnectionHandler {
         self.state = Some(new_state);
 
         poll_result
-
-        match state {
-            ConnectionState::Starting => Poll::Pending,
-            ConnectionState::Dropped(maybe_error_message) => match maybe_error_message {
-                Some(error_message) => {
-                    self.state = Some(ConnectionState::Dropped(None));
-                    Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                        ToBehaviour::SendError(error_message),
-                    ))
-                }
-                None => Poll::Pending,
-            },
-            ConnectionState::MessageSet { message, .. } => {
-                self.state = Some(ConnectionState::MessageSet {
-                    message,
-                    waker: Some(cx.waker().clone()),
-                });
-                Poll::Pending
-            }
-            ConnectionState::ReadyToSend { state, .. } => match state {
-                ReadyToSendState::OnlyOutboundStreamSet(outgoing_stream) => {
-                    self.state = Some(ConnectionState::ReadyToSend {
-                        state: ReadyToSendState::OnlyOutboundStreamSet(outgoing_stream),
-                        waker: Some(cx.waker().clone()),
-                    });
-                    Poll::Pending
-                }
-                ReadyToSendState::MessageAndOutboundStreamSet(message, outgoing_stream) => {
-                    self.state = Some(ConnectionState::Sending {
-                        message: message.clone(),
-                        outbound_message_send_future: Box::pin(
-                            send_msg(outgoing_stream, message).map_ok(|_| ()),
-                        ),
-                    });
-                    Poll::Pending
-                }
-            },
-            ConnectionState::Sending {
-                message,
-                mut outbound_message_send_future,
-            } => {
-                let Poll::Ready(message_send_result) = outbound_message_send_future.poll_unpin(cx)
-                else {
-                    return Poll::Pending;
-                };
-                if let Err(error) = message_send_result {
-                    tracing::error!("Failed to send message. Error {error:?}");
-                    self.state = Some(ConnectionState::Dropped(Some("Failed to send message.")));
-                    cx.waker().wake_by_ref();
-                    Poll::Pending
-                } else {
-                    self.state = Some(ConnectionState::Dropped(None));
-                    Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                        ToBehaviour::MessageSuccess(message),
-                    ))
-                }
-            }
-        }
     }
 }

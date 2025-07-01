@@ -1,16 +1,10 @@
-use std::task::{Context, Poll, Waker};
+use core::task::{Context, Poll, Waker};
 
-use libp2p::swarm::{
-    handler::{ConnectionEvent, FullyNegotiatedOutbound},
-    ConnectionHandler, ConnectionHandlerEvent,
-};
+use libp2p::swarm::handler::FullyNegotiatedOutbound;
 
-use crate::handler::edge::{
-    edge_core::{
-        ready_to_send::{InternalState, ReadyToSendState},
-        ConnectionState, StateTrait, ToBehaviour, LOG_TARGET,
-    },
-    EdgeToCoreBlendConnectionHandler,
+use crate::handler::edge::edge_core::{
+    ready_to_send::{InternalState, ReadyToSendState},
+    ConnectionEvent, ConnectionState, PollResult, StateTrait, LOG_TARGET,
 };
 
 pub struct MessageSetState {
@@ -25,15 +19,7 @@ impl From<MessageSetState> for ConnectionState {
 }
 
 impl StateTrait for MessageSetState {
-    fn on_connection_event(
-        mut self,
-        event: ConnectionEvent<
-            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::InboundProtocol,
-            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
-            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::InboundOpenInfo,
-            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
-        >,
-    ) -> ConnectionState {
+    fn on_connection_event(self, event: ConnectionEvent) -> ConnectionState {
         match event {
             ConnectionEvent::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
                 protocol: outbound_stream,
@@ -51,26 +37,21 @@ impl StateTrait for MessageSetState {
                 }
                 updated_self.into()
             }
-            event => {
-                tracing::trace!(target: LOG_TARGET, "Ignoring connection event {event:?}");
+            unprocessed_event => {
+                tracing::trace!(target: LOG_TARGET, "Ignoring connection event {unprocessed_event:?}");
                 self.into()
             }
         }
     }
 
-    fn poll(
-        self,
-        cx: &mut Context<'_>,
-    ) -> (
-        Poll<
-            ConnectionHandlerEvent<
-                <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
-                <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
-                ToBehaviour,
-            >,
-        >,
-        ConnectionState,
-    ) {
-        unimplemented!()
+    fn poll(self, cx: &mut Context<'_>) -> PollResult<ConnectionState> {
+        (
+            Poll::Pending,
+            Self {
+                message: self.message,
+                waker: Some(cx.waker().clone()),
+            }
+            .into(),
+        )
     }
 }

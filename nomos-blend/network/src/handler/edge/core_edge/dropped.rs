@@ -1,11 +1,6 @@
 use core::task::{Context, Poll};
 
-use libp2p::swarm::{ConnectionHandler, ConnectionHandlerEvent};
-
-use crate::handler::{
-    edge::core_edge::{ConnectionState, StateTrait, ToBehaviour},
-    CoreToEdgeBlendConnectionHandler,
-};
+use crate::handler::edge::core_edge::{ConnectionState, PollResult, StateTrait};
 
 pub struct DroppedState;
 
@@ -16,19 +11,7 @@ impl From<DroppedState> for ConnectionState {
 }
 
 impl StateTrait for DroppedState {
-    fn poll(
-        self,
-        _cx: &mut Context<'_>,
-    ) -> (
-        Poll<
-            ConnectionHandlerEvent<
-                <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
-                <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
-                ToBehaviour,
-            >,
-        >,
-        ConnectionState,
-    ) {
+    fn poll(self, _cx: &mut Context<'_>) -> PollResult<ConnectionState> {
         (Poll::Pending, self.into())
     }
 }

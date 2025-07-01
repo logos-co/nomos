@@ -1,9 +1,8 @@
-use std::{
-    collections::VecDeque,
-    io,
+use core::{
     ops::RangeInclusive,
     task::{Context, Poll, Waker},
 };
+use std::{collections::VecDeque, io};
 
 use futures::{future::BoxFuture, FutureExt as _};
 use libp2p::{

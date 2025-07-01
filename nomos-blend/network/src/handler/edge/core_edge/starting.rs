@@ -3,18 +3,12 @@ use core::{
     time::Duration,
 };
 
-use libp2p::swarm::{
-    handler::{ConnectionEvent, FullyNegotiatedInbound},
-    ConnectionHandler, ConnectionHandlerEvent,
-};
+use libp2p::swarm::handler::FullyNegotiatedInbound;
 use tokio::time::sleep;
 
-use crate::handler::{
-    edge::core_edge::{
-        dropped::DroppedState, ready_to_receive::ReadyToReceiveState, ConnectionState, StateTrait,
-        ToBehaviour, LOG_TARGET,
-    },
-    CoreToEdgeBlendConnectionHandler,
+use crate::handler::edge::core_edge::{
+    dropped::DroppedState, ready_to_receive::ReadyToReceiveState, ConnectionEvent, ConnectionState,
+    PollResult, StateTrait, LOG_TARGET,
 };
 
 pub struct StartingState {
@@ -28,15 +22,7 @@ impl From<StartingState> for ConnectionState {
 }
 
 impl StateTrait for StartingState {
-    fn on_connection_event(
-        self,
-        event: ConnectionEvent<
-            <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::InboundProtocol,
-            <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
-            <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::InboundOpenInfo,
-            <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
-        >,
-    ) -> ConnectionState {
+    fn on_connection_event(self, event: ConnectionEvent) -> ConnectionState {
         match event {
             ConnectionEvent::FullyNegotiatedInbound(FullyNegotiatedInbound {
                 protocol: inbound_stream,
@@ -50,26 +36,14 @@ impl StateTrait for StartingState {
                 tracing::trace!(target: LOG_TARGET, "Inbound upgrade error: {error:?}");
                 DroppedState.into()
             }
-            _ => {
-                tracing::trace!(target: LOG_TARGET, "Ignoring connection event {event:?}");
+            unprocessed_event => {
+                tracing::trace!(target: LOG_TARGET, "Ignoring connection event {unprocessed_event:?}");
                 self.into()
             }
         }
     }
 
-    fn poll(
-        self,
-        _cx: &mut Context<'_>,
-    ) -> (
-        Poll<
-            ConnectionHandlerEvent<
-                <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
-                <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
-                ToBehaviour,
-            >,
-        >,
-        ConnectionState,
-    ) {
+    fn poll(self, _cx: &mut Context<'_>) -> PollResult<ConnectionState> {
         (Poll::Pending, self.into())
     }
 }

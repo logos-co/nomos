@@ -1,14 +1,11 @@
-use std::task::{Context, Poll};
+use core::task::{Context, Poll};
 
-use libp2p::swarm::{ConnectionHandler, ConnectionHandlerEvent};
+use libp2p::swarm::ConnectionHandlerEvent;
 
-use crate::handler::edge::{
-    edge_core::{ConnectionState, StateTrait, ToBehaviour},
-    EdgeToCoreBlendConnectionHandler,
-};
+use crate::handler::edge::edge_core::{ConnectionState, PollResult, StateTrait, ToBehaviour};
 
 pub struct DroppedState {
-    pub error_message: &'static str,
+    pub error_message: Option<&'static str>,
 }
 
 impl From<DroppedState> for ConnectionState {
@@ -18,19 +15,15 @@ impl From<DroppedState> for ConnectionState {
 }
 
 impl StateTrait for DroppedState {
-    fn poll(
-        self,
-        cx: &mut Context<'_>,
-    ) -> (
-        Poll<
-            ConnectionHandlerEvent<
-                <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
-                <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
-                ToBehaviour,
-            >,
-        >,
-        ConnectionState,
-    ) {
-        unimplemented!()
+    fn poll(mut self, _cx: &mut Context<'_>) -> PollResult<ConnectionState> {
+        let Some(error_message) = self.error_message.take() else {
+            return (Poll::Pending, self.into());
+        };
+        (
+            Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                ToBehaviour::SendError(error_message),
+            )),
+            self.into(),
+        )
     }
 }

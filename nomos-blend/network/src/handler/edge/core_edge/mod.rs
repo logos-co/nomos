@@ -8,9 +8,7 @@ use std::io;
 
 use libp2p::{
     core::upgrade::{DeniedUpgrade, ReadyUpgrade},
-    swarm::{
-        handler::ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, SubstreamProtocol,
-    },
+    swarm::{ConnectionHandler, ConnectionHandlerEvent, SubstreamProtocol},
     StreamProtocol,
 };
 
@@ -31,6 +29,25 @@ const LOG_TARGET: &str = "blend::libp2p::handler::core-edge";
 
 type TimerFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
 type MessageReceiveFuture = Pin<Box<dyn Future<Output = Result<Vec<u8>, io::Error>> + Send>>;
+#[expect(deprecated, reason = "Self::InboundOpenInfo is deprecated")]
+type PollResult<T> = (
+    Poll<
+        ConnectionHandlerEvent<
+            <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
+            <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
+            ToBehaviour,
+        >,
+    >,
+    T,
+);
+#[expect(deprecated, reason = "Self::InboundOpenInfo is deprecated")]
+type ConnectionEvent<'a> = libp2p::swarm::handler::ConnectionEvent<
+    'a,
+    <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::InboundProtocol,
+    <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
+    <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::InboundOpenInfo,
+    <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
+>;
 
 pub enum ConnectionState {
     Starting(StartingState),
@@ -40,15 +57,7 @@ pub enum ConnectionState {
 }
 
 impl ConnectionState {
-    fn on_connection_event(
-        self,
-        event: ConnectionEvent<
-            <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::InboundProtocol,
-            <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
-            <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::InboundOpenInfo,
-            <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
-        >,
-    ) -> Self {
+    fn on_connection_event(self, event: ConnectionEvent) -> Self {
         match self {
             Self::Starting(s) => s.on_connection_event(event),
             Self::ReadyToReceive(s) => s.on_connection_event(event),
@@ -57,19 +66,7 @@ impl ConnectionState {
         }
     }
 
-    fn poll(
-        self,
-        cx: &mut Context<'_>,
-    ) -> (
-        Poll<
-            ConnectionHandlerEvent<
-                <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
-                <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
-                ToBehaviour,
-            >,
-        >,
-        ConnectionState,
-    ) {
+    fn poll(self, cx: &mut Context<'_>) -> PollResult<Self> {
         match self {
             Self::Starting(s) => s.poll(cx),
             Self::ReadyToReceive(s) => s.poll(cx),
@@ -80,15 +77,7 @@ impl ConnectionState {
 }
 
 trait StateTrait: Into<ConnectionState> {
-    fn on_connection_event(
-        self,
-        event: ConnectionEvent<
-            <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::InboundProtocol,
-            <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
-            <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::InboundOpenInfo,
-            <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
-        >,
-    ) -> ConnectionState {
+    fn on_connection_event(self, event: ConnectionEvent) -> ConnectionState {
         if let ConnectionEvent::ListenUpgradeError(error) = event {
             tracing::trace!(target: LOG_TARGET, "Inbound upgrade error: {error:?}");
             return DroppedState.into();
@@ -96,19 +85,7 @@ trait StateTrait: Into<ConnectionState> {
         self.into()
     }
 
-    fn poll(
-        self,
-        cx: &mut Context<'_>,
-    ) -> (
-        Poll<
-            ConnectionHandlerEvent<
-                <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
-                <CoreToEdgeBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
-                ToBehaviour,
-            >,
-        >,
-        ConnectionState,
-    );
+    fn poll(self, cx: &mut Context<'_>) -> PollResult<ConnectionState>;
 }
 
 pub struct CoreToEdgeBlendConnectionHandler {
@@ -145,16 +122,7 @@ impl ConnectionHandler for CoreToEdgeBlendConnectionHandler {
 
     fn on_behaviour_event(&mut self, _event: Self::FromBehaviour) {}
 
-    #[expect(deprecated, reason = "Self::InboundOpenInfo is deprecated")]
-    fn on_connection_event(
-        &mut self,
-        event: ConnectionEvent<
-            Self::InboundProtocol,
-            Self::OutboundProtocol,
-            Self::InboundOpenInfo,
-            Self::OutboundOpenInfo,
-        >,
-    ) {
+    fn on_connection_event(&mut self, event: ConnectionEvent) {
         let state = self.state.take().expect("Inconsistent state");
         self.state = Some(state.on_connection_event(event));
     }
