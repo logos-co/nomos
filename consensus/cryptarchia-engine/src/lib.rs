@@ -386,21 +386,21 @@ where
         let mut new: Self = self.clone();
         new.branches = new.branches.apply_header(id, parent, slot)?;
         new.local_chain = new.fork_choice();
-        let pruned_blocks = new.update_lib().collect();
+        let pruned_blocks = new.update_lib();
         Ok(UpdatedCryptarchia {
             cryptarchia: new,
             pruned_blocks,
         })
     }
 
-    fn update_lib(&mut self) -> impl Iterator<Item = Id> + '_ {
+    fn update_lib(&mut self) -> HashSet<Id> {
         let new_lib = <State as CryptarchiaState>::lib(&*self);
         // Trigger pruning only if the LIB has changed.
         if self.branches.lib == new_lib {
-            Box::new(core::iter::empty()) as Box<dyn Iterator<Item = Id>>
+            HashSet::new()
         } else {
             self.branches.lib = new_lib;
-            Box::new(self.prune_forks(self.lib_depth()))
+            self.prune_forks(self.lib_depth()).collect()
         }
     }
 
@@ -536,7 +536,7 @@ where
             _state: std::marker::PhantomData,
         };
         // Update the LIB to the current local chain's tip
-        let pruned_blocks = new.update_lib().collect();
+        let pruned_blocks = new.update_lib();
         UpdatedCryptarchia {
             cryptarchia: new,
             pruned_blocks,
