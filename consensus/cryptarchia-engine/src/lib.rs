@@ -132,8 +132,8 @@ where
 /// Whenever a new block is received, it performs the fork choice rule
 /// and update the LIB if needed (depending on [`CryptarchiaState`]).
 ///
-/// This guarantees that only blocks descending from the LIB are accepted.
-/// by proactively pruning forks that diverged before the LIB.
+/// This guarantees that only blocks descending from the LIB are accepted,
+/// by proactively pruning forks that are diverged before the LIB.
 #[derive(Clone, Debug)]
 pub struct Cryptarchia<Id, State: ?Sized> {
     /// Blocks that are ancestors of the [`Self::lib`].
