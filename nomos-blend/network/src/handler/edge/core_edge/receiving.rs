@@ -1,4 +1,4 @@
-use core::task::{Context, Poll};
+use core::task::{Context, Poll, Waker};
 
 use futures::FutureExt as _;
 use libp2p::swarm::ConnectionHandlerEvent;
@@ -20,7 +20,16 @@ pub struct ReceivingState {
 }
 
 impl ReceivingState {
-    pub fn new(timeout_timer: TimerFuture, incoming_message: MessageReceiveFuture) -> Self {
+    pub fn new(
+        timeout_timer: TimerFuture,
+        incoming_message: MessageReceiveFuture,
+        waker: Option<Waker>,
+    ) -> Self {
+        // We wake here since the future to receive the message must be polled once to
+        // start making any progress.
+        if let Some(waker) = waker {
+            waker.wake();
+        }
         Self {
             incoming_message,
             timeout_timer,
@@ -42,11 +51,9 @@ impl StateTrait for ReceivingState {
     fn poll(mut self, cx: &mut Context<'_>) -> PollResult<ConnectionState> {
         let Poll::Pending = self.timeout_timer.poll_unpin(cx) else {
             tracing::debug!(target: LOG_TARGET, "Timeout reached without completing the reception of the message. Closing the connection.");
-            // We wake here because we want the new error to be consumed.
-            cx.waker().wake_by_ref();
             return (
                 Poll::Pending,
-                DroppedState::new(Some(FailureReason::Timeout)).into(),
+                DroppedState::new(Some(FailureReason::Timeout), Some(cx.waker().clone())).into(),
             );
         };
         let Poll::Ready(message_receive_result) = self.incoming_message.poll_unpin(cx) else {
@@ -57,21 +64,19 @@ impl StateTrait for ReceivingState {
         match message_receive_result {
             Err(error) => {
                 tracing::error!(target: LOG_TARGET, "Failed to receive message. Error {error:?}");
-                // We wake here because we want the new error to be consumed.
-                cx.waker().wake_by_ref();
                 (
                     Poll::Pending,
-                    DroppedState::new(Some(FailureReason::MessageStream)).into(),
+                    DroppedState::new(Some(FailureReason::MessageStream), Some(cx.waker().clone()))
+                        .into(),
                 )
             }
             Ok(message) => {
-                // We don't wake here since we return `Poll::Ready`.
                 tracing::trace!(target: LOG_TARGET, "Message received successfully. Transitioning from `Receiving` to `Dropped`.");
                 (
                     Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                         ToBehaviour::Message(message),
                     )),
-                    DroppedState::new(None).into(),
+                    DroppedState::new(None, Some(cx.waker().clone())).into(),
                 )
             }
         }

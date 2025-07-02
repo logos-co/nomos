@@ -38,14 +38,11 @@ impl StateTrait for MessageSetState {
                 protocol: outbound_stream,
                 ..
             }) => {
+                tracing::trace!(target: LOG_TARGET, "Transitioning from `MessageSet` to `ReadyToSend`.");
                 let updated_self = ReadyToSendState::new(
                     InternalState::MessageAndOutboundStreamSet(self.message, outbound_stream),
+                    self.waker.take(),
                 );
-                tracing::trace!(target: LOG_TARGET, "Transitioning from `MessageSet` to `ReadyToSend`.");
-                // We wake here because we want new state to be polled to make progress.
-                if let Some(waker) = self.waker.take() {
-                    waker.wake();
-                }
                 updated_self.into()
             }
             unprocessed_event => {

@@ -1,4 +1,4 @@
-use core::task::{Context, Poll};
+use core::task::{Context, Poll, Waker};
 
 use libp2p::swarm::ConnectionHandlerEvent;
 
@@ -13,8 +13,18 @@ pub struct DroppedState {
 }
 
 impl DroppedState {
-    pub const fn new(error: Option<FailureReason>) -> Self {
-        Self { error }
+    pub fn new(error: Option<FailureReason>, waker: Option<Waker>) -> Self {
+        let Some(error_to_consume) = error else {
+            // No need to wake if we don't have an error to report.
+            return Self { error: None };
+        };
+        // We wake here because we want the new error to be consumed.
+        if let Some(waker) = waker {
+            waker.wake();
+        }
+        Self {
+            error: Some(error_to_consume),
+        }
     }
 }
 

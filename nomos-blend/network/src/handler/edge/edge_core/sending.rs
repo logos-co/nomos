@@ -1,4 +1,4 @@
-use core::task::{Context, Poll};
+use core::task::{Context, Poll, Waker};
 
 use futures::FutureExt as _;
 use libp2p::swarm::ConnectionHandlerEvent;
@@ -18,7 +18,15 @@ pub struct SendingState {
 }
 
 impl SendingState {
-    pub fn new(message: Vec<u8>, outbound_message_send_future: MessageSendFuture) -> Self {
+    pub fn new(
+        message: Vec<u8>,
+        outbound_message_send_future: MessageSendFuture,
+        waker: Option<Waker>,
+    ) -> Self {
+        // We wake because we want to poll the message sending future to make progress.
+        if let Some(waker) = waker {
+            waker.wake();
+        }
         Self {
             message,
             outbound_message_send_future,
@@ -43,20 +51,18 @@ impl StateTrait for SendingState {
         };
         if let Err(error) = message_send_result {
             tracing::error!(target: LOG_TARGET, "Failed to send message. Error {error:?}");
-            // We wake here because we want the new error to be consumed.
-            cx.waker().wake_by_ref();
             (
                 Poll::Pending,
-                DroppedState::new(Some(FailureReason::MessageStream)).into(),
+                DroppedState::new(Some(FailureReason::MessageStream), Some(cx.waker().clone()))
+                    .into(),
             )
         } else {
             tracing::trace!(target: LOG_TARGET, "Message sent successfully. Transitioning from `Sending` to `Dropped`.");
-            // We return `Ready`, no need to awake.
             (
                 Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                     ToBehaviour::MessageSuccess(self.message),
                 )),
-                DroppedState::new(None).into(),
+                DroppedState::new(None, Some(cx.waker().clone())).into(),
             )
         }
     }

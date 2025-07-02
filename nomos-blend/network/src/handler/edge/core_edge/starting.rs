@@ -48,24 +48,16 @@ impl StateTrait for StartingState {
                 ..
             }) => {
                 tracing::trace!(target: LOG_TARGET, "Transitioning from `Starting` to `ReadyToReceive`.");
-                // We wake here because we want the timeout to be polled in order to be
-                // started.
-                if let Some(waker) = self.waker.take() {
-                    waker.wake();
-                }
                 ReadyToReceiveState::new(
                     Box::pin(Delay::new(self.connection_timeout)),
                     inbound_stream,
+                    self.waker.take(),
                 )
                 .into()
             }
             ConnectionEvent::ListenUpgradeError(error) => {
                 tracing::trace!(target: LOG_TARGET, "Inbound upgrade error: {error:?}");
-                // We wake here because we want the new error to be consumed.
-                if let Some(waker) = self.waker.take() {
-                    waker.wake();
-                }
-                DroppedState::new(Some(FailureReason::UpgradeError)).into()
+                DroppedState::new(Some(FailureReason::UpgradeError), self.waker.take()).into()
             }
             unprocessed_event => {
                 tracing::trace!(target: LOG_TARGET, "Ignoring connection event {unprocessed_event:?}");

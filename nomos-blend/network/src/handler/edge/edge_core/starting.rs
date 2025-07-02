@@ -60,18 +60,14 @@ impl StateTrait for StartingState {
             ConnectionEvent::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
                 protocol: outbound_stream,
                 ..
-            }) => {
-                // We don't awake here since the new state does not progress on its own and
-                // relies on the event from the behavior that sets the message to send.
-                ReadyToSendState::new(InternalState::OnlyOutboundStreamSet(outbound_stream)).into()
-            }
+            }) => ReadyToSendState::new(
+                InternalState::OnlyOutboundStreamSet(outbound_stream),
+                self.waker.take(),
+            )
+            .into(),
             ConnectionEvent::DialUpgradeError(error) => {
                 tracing::trace!(target: LOG_TARGET, "Outbound upgrade error: {error:?}");
-                // We wake here because we want the new error to be consumed.
-                if let Some(waker) = self.waker.take() {
-                    waker.wake();
-                }
-                DroppedState::new(Some(FailureReason::UpgradeError)).into()
+                DroppedState::new(Some(FailureReason::UpgradeError), self.waker.take()).into()
             }
             unprocessed_event => {
                 tracing::trace!(target: LOG_TARGET, "Ignoring connection event {unprocessed_event:?}");

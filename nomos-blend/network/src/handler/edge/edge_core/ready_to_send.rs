@@ -21,8 +21,15 @@ pub struct ReadyToSendState {
 }
 
 impl ReadyToSendState {
-    pub const fn new(state: InternalState) -> Self {
-        Self { state, waker: None }
+    pub fn new(state: InternalState, waker: Option<Waker>) -> Self {
+        // If we are being created with a full, ready state, we wake to start the
+        // sending process.
+        if let InternalState::MessageAndOutboundStreamSet(_, _) = state {
+            if let Some(waker) = &waker {
+                waker.wake_by_ref();
+            }
+        }
+        Self { state, waker }
     }
 }
 
@@ -46,7 +53,7 @@ pub enum InternalState {
 impl StateTrait for ReadyToSendState {
     // When the message is specified, the internal state is updated, ready to be
     // polled by the swarm to make progress.
-    fn on_behaviour_event(self, event: FromBehaviour) -> ConnectionState {
+    fn on_behaviour_event(mut self, event: FromBehaviour) -> ConnectionState {
         // Specifying a second message won't have any effect, since the connection
         // handler allows a single message to be sent to a core node per connection.
         let InternalState::OnlyOutboundStreamSet(inbound_stream) = self.state else {
@@ -56,13 +63,9 @@ impl StateTrait for ReadyToSendState {
 
         let updated_self = Self {
             state: InternalState::MessageAndOutboundStreamSet(new_message, inbound_stream),
-            waker: None,
+            waker: self.waker.take(),
         };
         tracing::trace!(target: LOG_TARGET, "Transitioning internal state from `OnlyOutboundStreamSet` to `MessageAndOutboundStreamSet`.");
-        // We wake here because we want this state to be polled again to make progress.
-        if let Some(waker) = self.waker {
-            waker.wake();
-        }
         updated_self.into()
     }
 
@@ -80,13 +83,12 @@ impl StateTrait for ReadyToSendState {
                 .into(),
             ),
             InternalState::MessageAndOutboundStreamSet(message, outbound_stream) => {
+                tracing::trace!(target: LOG_TARGET, "Transitioning from `ReadyToSend` to `Sending`.");
                 let sending_state = SendingState::new(
                     message.clone(),
                     Box::pin(send_msg(outbound_stream, message).map_ok(|_| ())),
+                    Some(cx.waker().clone()),
                 );
-                tracing::trace!(target: LOG_TARGET, "Transitioning from `ReadyToSend` to `Sending`.");
-                // We wake for the sending future to be polled and started.
-                cx.waker().wake_by_ref();
                 (Poll::Pending, sending_state.into())
             }
         }
