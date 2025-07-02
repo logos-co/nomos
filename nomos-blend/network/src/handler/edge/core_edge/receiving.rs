@@ -41,12 +41,15 @@ impl StateTrait for ReceivingState {
                     DroppedState::new(Some(FailureReason::MessageStream)).into(),
                 )
             }
-            Ok(message) => (
-                Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                    ToBehaviour::Message(message),
-                )),
-                DroppedState::new(None).into(),
-            ),
+            Ok(message) => {
+                tracing::trace!(target: LOG_TARGET, "Message received successfully. Transitioning from `Receiving` to `Dropped`.");
+                (
+                    Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                        ToBehaviour::Message(message),
+                    )),
+                    DroppedState::new(None).into(),
+                )
+            }
         }
     }
 }

@@ -8,7 +8,7 @@ use libp2p::swarm::{dial_opts::DialOpts, ListenError, SwarmEvent};
 use tokio::time::sleep;
 
 use crate::handler::{
-    edge::{self, core_edge::FailureReason},
+    edge,
     tests::{core_edge::core_receiver_swarm, edge_core::edge_sender_swarm},
 };
 
@@ -184,7 +184,8 @@ async fn sender_timeout() {
                 }
             }
 
-            // We stop after verifying that the connection was established.
+            // We stop after verifying that the connection was established, so by not
+            // polling the swarm any longer we don't do anything with the connection.
             if !edge_loop_done {
                 let edge_node_event = edge_node.poll_next_unpin(&mut cx);
                 if let Poll::Ready(Some(SwarmEvent::ConnectionEstablished { peer_id, .. })) =
@@ -204,9 +205,10 @@ async fn sender_timeout() {
     }
     .await;
 
-    // Now, the next event we should get is the failure due to timeout.
+    // The next event we should get from the core swarm is a failure due to
+    // timeout.
     let Some(SwarmEvent::Behaviour(edge::core_edge::ToBehaviour::FailedReception(
-        FailureReason::Timeout,
+        edge::core_edge::FailureReason::Timeout,
     ))) = core_node.next().await
     else {
         panic!("Returned different error than expected (timeout)");

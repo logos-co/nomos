@@ -42,7 +42,7 @@ impl StateTrait for SendingState {
                 DroppedState::new(Some(FailureReason::MessageStream)).into(),
             )
         } else {
-            tracing::trace!(target: LOG_TARGET, "Transitioning from `Sending` to `Dropped`.");
+            tracing::trace!(target: LOG_TARGET, "Message sent successfully. Transitioning from `Sending` to `Dropped`.");
             (
                 Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                     ToBehaviour::MessageSuccess(self.message),
