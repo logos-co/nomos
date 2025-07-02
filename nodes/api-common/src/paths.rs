@@ -17,3 +17,6 @@ pub const STORAGE_BLOCK: &str = "/storage/block";
 pub const MEMPOOL_ADD_TX: &str = "/mempool/add/tx";
 pub const MEMPOOL_ADD_BLOB_INFO: &str = "/mempool/add/blobinfo";
 pub const DISPERSE_DATA: &str = "/disperse-data";
+
+// testing paths
+pub const UPDATE_MEMBERSHIP: &str = "/test/membership/update";

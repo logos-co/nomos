@@ -2,7 +2,7 @@ use std::{collections::HashSet, time::Duration};
 
 use futures::StreamExt as _;
 use libp2p::{identity::Keypair, PeerId, Swarm, SwarmBuilder};
-use nomos_blend::membership::Membership;
+use nomos_blend_scheduling::membership::Membership;
 use nomos_libp2p::{ed25519, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
@@ -10,7 +10,7 @@ use tokio::sync::{broadcast, mpsc};
 use crate::{
     backends::libp2p::{
         behaviour::{BlendBehaviour, BlendBehaviourEvent},
-        Libp2pBlendBackendSettings,
+        Libp2pBlendBackendSettings, LOG_TARGET,
     },
     BlendConfig,
 };
@@ -66,7 +66,7 @@ where
             .choose_remote_nodes(&mut rng, config.backend.peering_degree)
             .for_each(|peer| {
                 if let Err(e) = swarm.dial(peer.address.clone()) {
-                    tracing::error!("Failed to dial a peer: {e:?}");
+                    tracing::error!(target: LOG_TARGET, "Failed to dial a peer: {e:?}");
                 }
             });
 
@@ -96,7 +96,7 @@ impl<Rng> BlendSwarm<Rng> {
     )]
     fn handle_publish_swarm_message(&mut self, msg: &[u8]) {
         if let Err(e) = self.swarm.behaviour_mut().blend.publish(msg) {
-            tracing::error!("Failed to publish message to blend network: {e:?}");
+            tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
             tracing::info!(counter.failed_outbound_messages = 1);
         } else {
             tracing::info!(counter.successful_outbound_messages = 1);
@@ -113,7 +113,7 @@ impl<Rng> BlendSwarm<Rng> {
 
         let msg_size = msg.len();
         if let Err(e) = self.incoming_message_sender.send(msg) {
-            tracing::error!("Failed to send incoming message to channel: {e}");
+            tracing::error!(target: LOG_TARGET, "Failed to send incoming message to channel: {e}");
             tracing::info!(counter.failed_inbound_messages = 1);
         } else {
             tracing::info!(counter.successful_inbound_messages = 1);
@@ -154,7 +154,7 @@ where
                 Self::handle_healthy_peer(peer_id);
             }
             nomos_blend_network::Event::Error(e) => {
-                tracing::error!("Received error from blend network: {e:?}");
+                tracing::error!(target: LOG_TARGET, "Received error from blend network: {e:?}");
                 self.check_and_dial_new_peers();
                 tracing::info!(counter.error = 1);
             }
@@ -172,6 +172,7 @@ where
                 ..
             } => {
                 tracing::error!(
+                    target: LOG_TARGET,
                     "Connection closed: peer:{}, conn_id:{}",
                     peer_id,
                     connection_id
@@ -179,25 +180,25 @@ where
                 self.check_and_dial_new_peers();
             }
             _ => {
-                tracing::debug!("Received event from blend network: {event:?}");
+                tracing::debug!(target: LOG_TARGET, "Received event from blend network: {event:?}");
                 tracing::info!(counter.ignored_event = 1);
             }
         }
     }
 
     fn handle_spammy_peer(&mut self, peer_id: PeerId) {
-        tracing::debug!("Peer {} is spammy", peer_id);
+        tracing::debug!(target: LOG_TARGET, "Peer {} is spammy", peer_id);
         self.swarm.behaviour_mut().blocked_peers.block_peer(peer_id);
         self.check_and_dial_new_peers();
     }
 
     fn handle_unhealthy_peer(&mut self, peer_id: PeerId) {
-        tracing::debug!("Peer {} is unhealthy", peer_id);
+        tracing::debug!(target: LOG_TARGET, "Peer {} is unhealthy", peer_id);
         self.check_and_dial_new_peers();
     }
 
     fn handle_healthy_peer(peer_id: PeerId) {
-        tracing::debug!("Peer {} is healthy", peer_id);
+        tracing::debug!(target: LOG_TARGET, "Peer {} is healthy", peer_id);
     }
 
     /// Dial new peers, if necessary, to maintain the peering degree.
@@ -225,7 +226,7 @@ where
             .iter()
             .for_each(|peer| {
                 if let Err(e) = self.swarm.dial(peer.address.clone()) {
-                    tracing::error!("Failed to dial a peer: {e:?}");
+                    tracing::error!(target: LOG_TARGET, "Failed to dial a peer: {e:?}");
                 }
             });
     }

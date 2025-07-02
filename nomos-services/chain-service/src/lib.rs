@@ -558,8 +558,7 @@ where
 
         // These are blocks that have been pruned by the cryptarchia engine but have not
         // yet been deleted from the storage layer.
-        let mut storage_blocks_to_remove = self.initial_state.storage_blocks_to_remove.clone();
-
+        let storage_blocks_to_remove = self.initial_state.storage_blocks_to_remove.clone();
         let (mut cryptarchia, pruned_blocks, leader) = Self::initialize_cryptarchia(
             self.initial_state,
             ledger_config,
@@ -568,10 +567,10 @@ where
             &self.block_subscription_sender,
         )
         .await;
-        Self::remove_pruned_blocks_from_storage(
+        let mut storage_blocks_to_remove = Self::remove_pruned_blocks_from_storage(
             &pruned_blocks,
             relays.storage_adapter(),
-            &mut storage_blocks_to_remove,
+            &storage_blocks_to_remove,
         )
         .await;
 
@@ -624,12 +623,11 @@ where
                         Self::log_received_block(&block);
 
                         // Process the received block and update the cryptarchia state.
-                        cryptarchia = Self::process_block_and_update_state(
+                        (cryptarchia, storage_blocks_to_remove) = Self::process_block_and_update_state(
                             cryptarchia,
                             &leader,
                             block.clone(),
-
-                            &mut storage_blocks_to_remove,
+                            &storage_blocks_to_remove,
                             &relays,
                             &self.block_subscription_sender,
                             self.service_resources_handle
@@ -663,12 +661,11 @@ where
 
                             if let Some(block) = block {
                                 // apply our own block
-                                cryptarchia = Self::process_block_and_update_state(
+                                (cryptarchia, storage_blocks_to_remove) = Self::process_block_and_update_state(
                                     cryptarchia,
                                     &leader,
                                     block.clone(),
-
-                                    &mut storage_blocks_to_remove,
+                                    &storage_blocks_to_remove,
                                     &relays,
                                     &self.block_subscription_sender,
                                     self.service_resources_handle
@@ -881,7 +878,7 @@ where
         cryptarchia: Cryptarchia<Online>,
         leader: &Leader,
         block: Block<ClPool::Item, DaPool::Item>,
-        storage_blocks_to_remove: &mut HashSet<HeaderId>,
+        storage_blocks_to_remove: &HashSet<HeaderId>,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
             BS,
@@ -908,14 +905,11 @@ where
                 >,
             >,
         >,
-    ) -> Cryptarchia<Online> {
+    ) -> (Cryptarchia<Online>, HashSet<HeaderId>) {
         let (cryptarchia, pruned_blocks) =
             Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
 
-        // This will modify `storage_blocks_to_remove` to include blocks which are not
-        // tracked by Cryptarchia anymore but have not been deleted from the persistence
-        // layer.
-        Self::remove_pruned_blocks_from_storage(
+        let storage_blocks_to_remove = Self::remove_pruned_blocks_from_storage(
             &pruned_blocks,
             relays.storage_adapter(),
             storage_blocks_to_remove,
@@ -935,7 +929,7 @@ where
             }
         }
 
-        cryptarchia
+        (cryptarchia, storage_blocks_to_remove)
     }
 
     /// Try to add a [`Block`] to [`Cryptarchia`].
@@ -1248,14 +1242,13 @@ where
     /// layer. These blocks might belong to previous pruning operations and
     /// that failed to be removed from the storage for some reason.
     ///
-    /// Any block that fails to be deleted from the storage layer is added to
-    /// the provided `storage_blocks_to_remove` parameter and will be picked up
-    /// at the next invocation of this function.
+    /// This function returns any block that fails to be deleted from the
+    /// storage layer.
     async fn remove_pruned_blocks_from_storage(
         newly_pruned_blocks: &PrunedBlocks<HeaderId>,
         storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
-        storage_blocks_to_remove: &mut HashSet<HeaderId>,
-    ) {
+        storage_blocks_to_remove: &HashSet<HeaderId>,
+    ) -> HashSet<HeaderId> {
         // We try to delete both newly pruned blocks as well as the blocks that
         // were pruned in the past but failed to be deleted from storage.
         match Self::delete_pruned_blocks_from_storage(
@@ -1268,14 +1261,12 @@ where
         .await
         {
             // All blocks, past and present, have been successfully deleted from storage.
-            Ok(()) => *storage_blocks_to_remove = HashSet::new(),
+            Ok(()) => HashSet::new(),
             // We retain the blocks that failed to be deleted.
-            Err(failed_blocks) => {
-                *storage_blocks_to_remove = failed_blocks
-                    .into_iter()
-                    .map(|(block_id, _)| block_id)
-                    .collect();
-            }
+            Err(failed_blocks) => failed_blocks
+                .into_iter()
+                .map(|(block_id, _)| block_id)
+                .collect(),
         }
     }
 

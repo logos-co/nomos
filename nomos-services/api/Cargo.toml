@@ -15,7 +15,7 @@ instrumentation = []
 [dependencies]
 async-trait              = "0.1"
 bytes                    = { workspace = true }
-cryptarchia-consensus    = { workspace = true, features = ["libp2p"] }
+chain-service            = { workspace = true, features = ["libp2p"] }
 futures                  = "0.3.31"
 kzgrs-backend            = { workspace = true }
 nomos-blend-service      = { workspace = true, features = ["libp2p"] }
@@ -27,8 +27,10 @@ nomos-da-network-service = { workspace = true }
 nomos-da-sampling        = { workspace = true, features = ["rocksdb-backend"] }
 nomos-da-verifier        = { workspace = true, features = ["libp2p", "rocksdb-backend"] }
 nomos-libp2p             = { workspace = true }
+nomos-membership         = { workspace = true }
 nomos-mempool            = { workspace = true, features = ["libp2p", "mock", "openapi"] }
 nomos-network            = { workspace = true }
+nomos-sdp-core           = { workspace = true }
 nomos-storage            = { workspace = true, features = ["rocksdb-backend"] }
 nomos-time               = { workspace = true }
 overwatch                = { workspace = true }

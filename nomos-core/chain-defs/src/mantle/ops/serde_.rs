@@ -14,7 +14,7 @@ where
 }
 
 #[derive(Deserialize)]
-struct WireOpDes<Inner> {
+struct WireOpDe<Inner> {
     // #[expect(dead_code, reason = "Op codes are just used for deserialization")]
     pub opcode: u8,
     pub payload: Inner,
@@ -41,7 +41,7 @@ impl<'de, const CODE: u8, Inner: Deserialize<'de>> Deserialize<'de> for WireOp<C
     where
         D: Deserializer<'de>,
     {
-        let op = WireOpDes::<Inner>::deserialize(deserializer)?.payload;
+        let op = WireOpDe::<Inner>::deserialize(deserializer)?.payload;
         Ok(Self { op })
     }
 }
@@ -60,7 +60,7 @@ pub fn serialize_op_variant<const CODE: u8, Op: Serialize, S: Serializer>(
 pub fn deserialize_op_variant<'de, const CODE: u8, Op: Deserialize<'de>, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Op, D::Error> {
-    let op = WireOpDes::<Op>::deserialize(deserializer)?;
+    let op = WireOpDe::<Op>::deserialize(deserializer)?;
     if op.opcode != CODE {
         return Err(serde::de::Error::custom(format!(
             "Invalid opcode {} for type {}",

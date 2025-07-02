@@ -17,27 +17,23 @@ blend:
     peering_degree: 1
     max_peering_degree: 3
     conn_monitor: null
-  message_blend:
-    cryptographic_processor:
-      signing_private_key: 32e4b52b78e0e8273f31e2ae0826d09b0348d4c66824af4f51ec4ef338082211
-      num_blend_layers: 1
-    temporal_processor:
-      max_delay: "2.0"
     minimum_messages_coefficient: 3
     normalization_constant: 1.03
-  persistent_transmission:
-    max_emission_frequency: 1.0
-    drop_message_probability: 0.5
-  cover_traffic:
+  crypto:
+    signing_private_key: 32e4b52b78e0e8273f31e2ae0826d09b0348d4c66824af4f51ec4ef338082211
+    num_blend_layers: 1
+  time:
+    # 21,600 blocks * 30s per block * 1s per round = 648,000 rounds
+    rounds_per_session: 648000
+    rounds_per_interval: 30
+    round_duration: [1, 0]
+    # Defined in the spec
+    rounds_per_observation_window: 30
+  scheduler:
+    intervals_for_safety_buffer: 100
     message_frequency_per_round: 1.0
     redundancy_parameter: 0
-    intervals_for_safety_buffer: 100
-  # 21,600 blocks * 30s per block * 1s per round = 648,000 rounds
-  rounds_per_session: 648000
-  rounds_per_interval: 30
-  round_duration: [1, 0]
-  # Defined in the spec
-  rounds_per_observation_window: 30
+    maximum_release_delay_in_rounds: 3
   membership:
     - id: 12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
       address: /ip4/127.0.0.1/udp/8720/quic-v1
