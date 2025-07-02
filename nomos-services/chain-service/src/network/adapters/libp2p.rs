@@ -204,6 +204,7 @@ where
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
     ) -> Result<BoxedStream<Result<Self::Block, DynError>>, DynError> {
+        use tokio::time::{timeout, Duration};
         let (reply_sender, receiver) = oneshot::channel();
         if let Err((e, _)) = self
             .network_relay
@@ -222,7 +223,9 @@ where
             return Err(Box::new(e));
         }
 
-        let stream = receiver.await?;
+        // Add a timeout for awaiting the stream from the peer
+        let stream = timeout(Duration::from_secs(10), receiver).await
+            .map_err(|_| "Timeout waiting for block stream from peer".to_string())??;
         let stream = stream.map_err(|e| Box::new(e) as DynError).map(|result| {
             let block = result?;
             wire::deserialize(&block).map_err(|e| Box::new(e) as DynError)
@@ -232,15 +235,14 @@ where
     }
 
     /// Attempts to open a stream of blocks from a locally known block to the
-    /// orphan block.
-    async fn request_missing_blocks_for_orphan(
+    /// target_block block.
+    async fn request_blocks_from_peers(
         &self,
-        orphan_block: HeaderId,
+        target_block: HeaderId,
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
-    ) -> Result<BoxedStream<Result<Block<Self::Tx, Self::BlobCertificate>, DynError>>, DynError>
-    {
+    ) -> Result<BoxedStream<Result<Self::Block, DynError>>, DynError> {
         let connected_peers = Self::get_connected_peers(&self.network_relay).await?;
 
         // All peers we know about, including those that are not connected.
@@ -253,11 +255,12 @@ where
         );
 
         for peer in peers_to_request {
+            debug!("Requesting orphan parents from peer: {peer}");
             match self
                 .request_blocks_from_peer(
                     peer,
                     // as the target block
-                    orphan_block,
+                    target_block,
                     local_tip,
                     latest_immutable_block,
                     additional_blocks.clone(),

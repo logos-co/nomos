@@ -139,7 +139,10 @@ where
         &self,
         path: Vec<HeaderId>,
     ) -> BoxStream<'static, Result<Bytes, DynError>> {
+        info!("Creating block stream from path: {path:?}");
         let storage = self.storage_relay.clone();
+
+        let path = path.into_iter().skip(1).collect::<Vec<_>>();
 
         let stream = stream::iter(path)
             .then(move |id| {

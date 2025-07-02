@@ -6,7 +6,7 @@ use crate::{
     libp2p::{
         errors::{ChainSyncError, ChainSyncErrorKind, DynError},
         packing::unpack_from_reader,
-        utils::send_message,
+        utils::{close_stream, send_message},
     },
     messages::{DownloadBlocksResponse, GetTipResponse, RequestMessage, SerialisedBlock},
 };
@@ -51,14 +51,20 @@ impl Provider {
         peer_id: PeerId,
         mut libp2p_stream: Libp2pStream,
     ) -> Result<(), ChainSyncError> {
-        let stream = reply_receiver.recv().await.ok_or_else(|| ChainSyncError {
-            peer: peer_id,
-            kind: ChainSyncErrorKind::ChannelReceiveError(
-                "Failed to receive blocks stream from channel".to_owned(),
-            ),
-        })?;
+        let stream = match reply_receiver.recv().await {
+            Some(s) => s,
+            None => {
+                let _ = close_stream(peer_id, libp2p_stream).await;
+                return Err(ChainSyncError {
+                    peer: peer_id,
+                    kind: ChainSyncErrorKind::ChannelReceiveError(
+                        "Failed to receive blocks stream from channel".to_owned(),
+                    ),
+                });
+            }
+        };
 
-        stream
+        let result = stream
             .map_err(|e| ChainSyncError {
                 peer: peer_id,
                 kind: ChainSyncErrorKind::ReceivingBlocksError(format!(
@@ -70,11 +76,16 @@ impl Provider {
                 send_message(peer_id, stream, &message).await?;
                 Ok(stream)
             })
-            .await?;
+            .await;
+
+        if let Err(e) = result {
+            let _ = close_stream(peer_id, libp2p_stream).await;
+            return Err(e);
+        }
 
         let request = DownloadBlocksResponse::NoMoreBlocks;
-        send_message(peer_id, &mut libp2p_stream, &request).await?;
-
-        Ok(())
+        let send_result = send_message(peer_id, &mut libp2p_stream, &request).await;
+        let _ = close_stream(peer_id, libp2p_stream).await;
+        send_result
     }
 }
