@@ -232,15 +232,14 @@ where
     }
 
     /// Attempts to open a stream of blocks from a locally known block to the
-    /// orphan block.
-    async fn request_missing_blocks_for_orphan(
+    /// target_block block.
+    async fn request_blocks_from_peers(
         &self,
-        orphan_block: HeaderId,
+        target_block: HeaderId,
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
-    ) -> Result<BoxedStream<Result<Block<Self::Tx, Self::BlobCertificate>, DynError>>, DynError>
-    {
+    ) -> Result<BoxedStream<Result<Self::Block, DynError>>, DynError> {
         let connected_peers = Self::get_connected_peers(&self.network_relay).await?;
 
         // All peers we know about, including those that are not connected.
@@ -257,7 +256,7 @@ where
                 .request_blocks_from_peer(
                     peer,
                     // as the target block
-                    orphan_block,
+                    target_block,
                     local_tip,
                     latest_immutable_block,
                     additional_blocks.clone(),
