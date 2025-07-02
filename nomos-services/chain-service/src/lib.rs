@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 
-use cryptarchia_engine::{CryptarchiaState, Online, Slot};
+use cryptarchia_engine::{CryptarchiaState, Online, PrunedBlocks, Slot};
 use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
@@ -117,26 +117,20 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
 
     /// Create a new [`Cryptarchia`] with the updated state.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    fn try_apply_header(&self, header: &Header) -> Result<UpdatedCryptarchia<State>, Error> {
+    fn try_apply_header(&self, header: &Header) -> Result<(Self, PrunedBlocks<HeaderId>), Error> {
         let id = header.id();
         let parent = header.parent();
         let slot = header.slot();
         let ledger = self
             .ledger
             .try_update(id, parent, slot, header.leader_proof())?;
-        let cryptarchia_engine::UpdatedCryptarchia {
-            cryptarchia: consensus,
-            pruned_blocks,
-        } = self.consensus.receive_block(id, parent, slot)?;
+        let (consensus, pruned_blocks) = self.consensus.receive_block(id, parent, slot)?;
 
         let mut cryptarchia = Self { ledger, consensus };
         // Prune the ledger states of the pruned blocks.
         cryptarchia.prune_ledger_states(&pruned_blocks);
 
-        Ok(UpdatedCryptarchia {
-            cryptarchia,
-            pruned_blocks,
-        })
+        Ok((cryptarchia, pruned_blocks))
     }
 
     fn epoch_state_for_slot(&self, slot: Slot) -> Option<&nomos_ledger::EpochState> {
@@ -152,8 +146,12 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
         }
     }
 
-    /// Remove the ledger states of the pruned blocks.
-    pub fn prune_ledger_states(&mut self, pruned_blocks: &HashSet<HeaderId>) {
+    /// Remove the ledger states associated with blocks that have been pruned by
+    /// the [`cryptarchia_engine::Cryptarchia`].
+    ///
+    /// Details on which blocks are pruned can be found in the
+    /// [`cryptarchia_engine::Cryptarchia::receive_block`].
+    fn prune_ledger_states(&mut self, pruned_blocks: &PrunedBlocks<HeaderId>) {
         let mut pruned_states_count = 0usize;
         for pruned_block in pruned_blocks {
             if self.ledger.prune_state_at(pruned_block) {
@@ -167,29 +165,6 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
             }
         }
         tracing::debug!(target: LOG_TARGET, "Pruned {pruned_states_count} old forks and their ledger states.");
-    }
-}
-
-/// A wrapper around [`Cryptarchia`] that is updated after processing a block.
-/// If there were blocks pruned by [`Cryptarchia::consensus`],
-/// the corresponding ledger states are also pruned from
-/// [`Cryptarchia::ledger`].
-///
-/// This also contains the set of pruned blocks for post-processing,
-/// such as removing them from the storage layer.
-struct UpdatedCryptarchia<State> {
-    cryptarchia: Cryptarchia<State>,
-    pruned_blocks: HashSet<HeaderId>,
-}
-
-/// Convert a [`Cryptarchia`], which is not updated, to an
-/// [`UpdatedCryptarchia`].
-impl<State> From<Cryptarchia<State>> for UpdatedCryptarchia<State> {
-    fn from(cryptarchia: Cryptarchia<State>) -> Self {
-        Self {
-            cryptarchia,
-            pruned_blocks: HashSet::new(),
-        }
     }
 }
 
@@ -583,15 +558,8 @@ where
 
         // These are blocks that have been pruned by the cryptarchia engine but have not
         // yet been deleted from the storage layer.
-        let mut storage_blocks_to_remove = self.initial_state.storage_blocks_to_remove.clone();
-
-        let (
-            UpdatedCryptarchia {
-                mut cryptarchia,
-                pruned_blocks,
-            },
-            leader,
-        ) = Self::initialize_cryptarchia(
+        let storage_blocks_to_remove = self.initial_state.storage_blocks_to_remove.clone();
+        let (mut cryptarchia, pruned_blocks, leader) = Self::initialize_cryptarchia(
             self.initial_state,
             ledger_config,
             leader_config,
@@ -599,10 +567,10 @@ where
             &self.block_subscription_sender,
         )
         .await;
-        Self::remove_pruned_blocks_from_storage(
+        let mut storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
             &pruned_blocks,
+            &storage_blocks_to_remove,
             relays.storage_adapter(),
-            &mut storage_blocks_to_remove,
         )
         .await;
 
@@ -655,12 +623,11 @@ where
                         Self::log_received_block(&block);
 
                         // Process the received block and update the cryptarchia state.
-                        cryptarchia = Self::process_block_and_update_state(
+                        (cryptarchia, storage_blocks_to_remove) = Self::process_block_and_update_state(
                             cryptarchia,
                             &leader,
                             block.clone(),
-
-                            &mut storage_blocks_to_remove,
+                            &storage_blocks_to_remove,
                             &relays,
                             &self.block_subscription_sender,
                             self.service_resources_handle
@@ -694,12 +661,11 @@ where
 
                             if let Some(block) = block {
                                 // apply our own block
-                                cryptarchia = Self::process_block_and_update_state(
+                                (cryptarchia, storage_blocks_to_remove) = Self::process_block_and_update_state(
                                     cryptarchia,
                                     &leader,
                                     block.clone(),
-
-                                    &mut storage_blocks_to_remove,
+                                    &storage_blocks_to_remove,
                                     &relays,
                                     &self.block_subscription_sender,
                                     self.service_resources_handle
@@ -912,7 +878,7 @@ where
         cryptarchia: Cryptarchia<Online>,
         leader: &Leader,
         block: Block<ClPool::Item, DaPool::Item>,
-        storage_blocks_to_remove: &mut HashSet<HeaderId>,
+        storage_blocks_to_remove: &HashSet<HeaderId>,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
             BS,
@@ -939,19 +905,14 @@ where
                 >,
             >,
         >,
-    ) -> Cryptarchia<Online> {
-        let UpdatedCryptarchia {
-            cryptarchia,
-            pruned_blocks,
-        } = Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
+    ) -> (Cryptarchia<Online>, HashSet<HeaderId>) {
+        let (cryptarchia, pruned_blocks) =
+            Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
 
-        // This will modify `storage_blocks_to_remove` to include blocks which are not
-        // tracked by Cryptarchia anymore but have not been deleted from the persistence
-        // layer.
-        Self::remove_pruned_blocks_from_storage(
+        let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
             &pruned_blocks,
-            relays.storage_adapter(),
             storage_blocks_to_remove,
+            relays.storage_adapter(),
         )
         .await;
 
@@ -968,7 +929,7 @@ where
             }
         }
 
-        cryptarchia
+        (cryptarchia, storage_blocks_to_remove)
     }
 
     /// Try to add a [`Block`] to [`Cryptarchia`].
@@ -995,19 +956,19 @@ where
             RuntimeServiceId,
         >,
         block_broadcaster: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> UpdatedCryptarchia<State> {
+    ) -> (Cryptarchia<State>, PrunedBlocks<HeaderId>) {
         debug!("received proposal {:?}", block);
 
         let sampled_blobs = match get_sampled_blobs(relays.sampling_relay().clone()).await {
             Ok(sampled_blobs) => sampled_blobs,
             Err(error) => {
                 error!("Unable to retrieved sampled blobs: {error}");
-                return cryptarchia.into();
+                return (cryptarchia, PrunedBlocks::new());
             }
         };
         if !Self::validate_blocks_blobs(&block, &sampled_blobs) {
             error!("Invalid block: {block:?}");
-            return cryptarchia.into();
+            return (cryptarchia, PrunedBlocks::new());
         }
 
         // TODO: filter on time?
@@ -1015,7 +976,7 @@ where
         let id = header.id();
 
         match cryptarchia.try_apply_header(header) {
-            Ok(updated_cryptarchia) => {
+            Ok((cryptarchia, pruned_blocks)) => {
                 // remove included content from mempool
                 mark_in_block(
                     relays.cl_mempool_relay().clone(),
@@ -1048,7 +1009,7 @@ where
                     error!("Could not notify block to services {e}");
                 }
 
-                updated_cryptarchia
+                return (cryptarchia, pruned_blocks);
             }
             Err(
                 Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(parent))
@@ -1056,13 +1017,13 @@ where
             ) => {
                 debug!("missing parent {:?}", parent);
                 // TODO: request parent block
-                cryptarchia.into()
             }
             Err(e) => {
                 debug!("invalid block {:?}: {e:?}", block);
-                cryptarchia.into()
             }
         }
+
+        (cryptarchia, PrunedBlocks::new())
     }
 
     #[expect(clippy::allow_attributes_without_reason)]
@@ -1248,7 +1209,7 @@ where
             RuntimeServiceId,
         >,
         block_subscription_sender: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> (UpdatedCryptarchia<Online>, Leader) {
+    ) -> (Cryptarchia<Online>, PrunedBlocks<HeaderId>, Leader) {
         let lib_id = initial_state.lib;
         let mut cryptarchia =
             <Cryptarchia<Online>>::from_lib(lib_id, initial_state.lib_ledger_state, ledger_config);
@@ -1264,74 +1225,63 @@ where
         // Skip LIB block since it's already applied
         let blocks = blocks.into_iter().skip(1);
 
-        let mut pruned_blocks = HashSet::new();
+        let mut pruned_blocks = PrunedBlocks::new();
         for block in blocks {
-            let updated =
+            let (new_cryptarchia, new_pruned_blocks) =
                 Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
-            cryptarchia = updated.cryptarchia;
-            pruned_blocks.extend(updated.pruned_blocks);
+            cryptarchia = new_cryptarchia;
+            pruned_blocks.extend(new_pruned_blocks);
         }
 
-        (
-            UpdatedCryptarchia {
-                cryptarchia,
-                pruned_blocks,
-            },
-            leader,
-        )
+        (cryptarchia, pruned_blocks, leader)
     }
 
     /// Remove the pruned blocks from the storage layer.
     ///
-    /// Also, this removes the `storage_blocks_to_remove` from the storage
+    /// Also, this removes the `additional_blocks` from the storage
     /// layer. These blocks might belong to previous pruning operations and
     /// that failed to be removed from the storage for some reason.
     ///
-    /// Any block that fails to be deleted from the storage layer is added to
-    /// the provided `storage_blocks_to_remove` parameter and will be picked up
-    /// at the next invocation of this function.
-    async fn remove_pruned_blocks_from_storage(
-        newly_pruned_blocks: &HashSet<HeaderId>,
+    /// This function returns any block that fails to be deleted from the
+    /// storage layer.
+    async fn delete_pruned_blocks_from_storage(
+        pruned_blocks: &PrunedBlocks<HeaderId>,
+        additional_blocks: &HashSet<HeaderId>,
         storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
-        storage_blocks_to_remove: &mut HashSet<HeaderId>,
-    ) {
-        // We try to delete both newly pruned blocks as well as the blocks that
-        // were pruned in the past but failed to be deleted from storage.
-        match Self::delete_pruned_blocks_from_storage(
-            newly_pruned_blocks
+    ) -> HashSet<HeaderId> {
+        match Self::delete_blocks_from_storage(
+            pruned_blocks
                 .iter()
-                .chain(storage_blocks_to_remove.iter())
+                .chain(additional_blocks.iter())
                 .copied(),
             storage_adapter,
         )
         .await
         {
-            // All blocks, past and present, have been successfully deleted from storage.
-            Ok(()) => *storage_blocks_to_remove = HashSet::new(),
+            // No blocks failed to be deleted.
+            Ok(()) => HashSet::new(),
             // We retain the blocks that failed to be deleted.
-            Err(failed_blocks) => {
-                *storage_blocks_to_remove = failed_blocks
-                    .into_iter()
-                    .map(|(block_id, _)| block_id)
-                    .collect();
-            }
+            Err(failed_blocks) => failed_blocks
+                .into_iter()
+                .map(|(block_id, _)| block_id)
+                .collect(),
         }
     }
 
-    /// Send a bulk deletion request to the storage adapter.
+    /// Send a bulk blocks deletion request to the storage adapter.
     ///
     /// If no request fails, the method returns `Ok()`.
     /// If any request fails, the header ID and the generated error for each
     /// failing request are collected and returned as part of the `Err`
     /// result.
-    async fn delete_pruned_blocks_from_storage<Headers>(
-        pruned_block_headers: Headers,
+    async fn delete_blocks_from_storage<Headers>(
+        block_headers: Headers,
         storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
     ) -> Result<(), Vec<(HeaderId, DynError)>>
     where
         Headers: Iterator<Item = HeaderId> + Send,
     {
-        let blocks_to_delete = pruned_block_headers.collect::<Vec<_>>();
+        let blocks_to_delete = block_headers.collect::<Vec<_>>();
         let block_deletion_outcomes = blocks_to_delete.iter().copied().zip(
             storage_adapter
                 .remove_blocks(blocks_to_delete.iter().copied())

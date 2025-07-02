@@ -7,8 +7,8 @@ use std::{
     time::Duration,
 };
 
+use chain_service::{network::NetworkAdapter, CryptarchiaConsensus};
 use consensus::ConsensusAdapter;
-use cryptarchia_consensus::{network::NetworkAdapter, CryptarchiaConsensus};
 use futures::StreamExt as _;
 use nomos_core::{
     block::Block,
@@ -64,7 +64,7 @@ pub struct DataIndexerService<
     Share: 'static,
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Settings: Send,
-    BlendAdapter: cryptarchia_consensus::blend::BlendAdapter<RuntimeServiceId>,
+    BlendAdapter: chain_service::blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
@@ -181,7 +181,7 @@ where
     Share: 'static,
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Settings: Send,
-    BlendAdapter: cryptarchia_consensus::blend::BlendAdapter<RuntimeServiceId>,
+    BlendAdapter: chain_service::blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
@@ -277,7 +277,7 @@ where
     Share: Send + Sync + 'static,
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Settings: Send,
-    BlendAdapter: cryptarchia_consensus::blend::BlendAdapter<RuntimeServiceId>,
+    BlendAdapter: chain_service::blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
@@ -408,7 +408,7 @@ where
     Share: Debug + Send + Sync,
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Settings: Send,
-    BlendAdapter: cryptarchia_consensus::blend::BlendAdapter<RuntimeServiceId>,
+    BlendAdapter: chain_service::blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     ClPool: RecoverableMempool<BlockId = HeaderId>,

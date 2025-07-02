@@ -1,20 +1,19 @@
 use std::{
     net::SocketAddr,
-    num::{NonZeroU64, NonZeroUsize},
+    num::NonZeroU64,
     ops::Range,
     path::PathBuf,
     process::{Child, Command, Stdio},
     time::Duration,
 };
 
-use cryptarchia_consensus::{CryptarchiaInfo, CryptarchiaSettings};
+use chain_service::{CryptarchiaInfo, CryptarchiaSettings};
 use cryptarchia_engine::time::SlotConfig;
 use kzgrs_backend::common::share::DaShare;
-use nomos_blend::{
-    message_blend::{
-        CryptographicProcessorSettings, MessageBlendSettings, TemporalSchedulerSettings,
-    },
-    persistent_transmission::PersistentTransmissionSettings,
+use nomos_api::http::membership::MembershipUpdateRequest;
+use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
+use nomos_blend_service::settings::{
+    CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt, TimingSettings,
 };
 use nomos_core::{block::Block, mantle::SignedMantleTx};
 use nomos_da_indexer::{
@@ -36,7 +35,7 @@ use nomos_da_verifier::{
 };
 use nomos_http_api_common::paths::{
     CL_METRICS, CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_RANGE,
-    DA_MONITOR_STATS, STORAGE_BLOCK,
+    DA_MONITOR_STATS, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
 };
 use nomos_mempool::MempoolMetrics;
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
@@ -44,6 +43,7 @@ use nomos_node::{
     api::backend::AxumBackendSettings, config::mempool::MempoolConfig, BlobInfo, Config, HeaderId,
     RocksBackendSettings,
 };
+use nomos_sdp_core::FinalizedBlockEvent;
 use nomos_time::{
     backends::{ntp::async_client::NTPClientSettings, NtpTimeBackendSettings},
     TimeServiceSettings,
@@ -56,7 +56,8 @@ use tempfile::NamedTempFile;
 
 use super::{create_tempdir, persist_tempdir, GetRangeReq, CLIENT};
 use crate::{
-    adjust_timeout, nodes::LOGS_PREFIX, topology::configs::GeneralConfig, IS_DEBUG_TRACING,
+    adjust_timeout, get_available_port, nodes::LOGS_PREFIX, topology::configs::GeneralConfig,
+    IS_DEBUG_TRACING,
 };
 
 const BIN_PATH: &str = "../target/debug/nomos-node";
@@ -68,6 +69,7 @@ pub enum Pool {
 
 pub struct Validator {
     addr: SocketAddr,
+    testing_http_addr: SocketAddr,
     tempdir: tempfile::TempDir,
     child: Child,
     config: Config,
@@ -120,6 +122,7 @@ impl Validator {
             .unwrap();
         let node = Self {
             addr: config.http.backend_settings.address,
+            testing_http_addr: config.testing_http.backend_settings.address,
             child,
             tempdir: dir,
             config,
@@ -204,6 +207,36 @@ impl Validator {
             .unwrap()
     }
 
+    pub async fn update_membership(
+        &self,
+        update_event: FinalizedBlockEvent,
+    ) -> Result<(), reqwest::Error> {
+        let update_event = MembershipUpdateRequest { update_event };
+        let json_body = serde_json::to_string(&update_event).unwrap();
+
+        let response = CLIENT
+            .post(format!(
+                "http://{}{}",
+                self.testing_http_addr, UPDATE_MEMBERSHIP
+            ))
+            .header("Content-Type", "application/json")
+            .body(json_body)
+            .send()
+            .await;
+
+        assert!(
+            response.is_ok(),
+            "Failed to connect to testing endpoint {}.\n\
+            The binary was likely built without the 'testing' feature.\n\
+            Try: cargo build --workspace --all-features",
+            self.testing_http_addr
+        );
+
+        let response = response.unwrap();
+        response.error_for_status()?;
+        Ok(())
+    }
+
     // not async so that we can use this in `Drop`
     #[must_use]
     pub fn get_logs_from_file(&self) -> String {
@@ -274,6 +307,10 @@ impl Validator {
 #[must_use]
 #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
 pub fn create_validator_config(config: GeneralConfig) -> Config {
+    let testing_http_address = format!("127.0.0.1:{}", get_available_port())
+        .parse()
+        .unwrap();
+
     let da_policy_settings = config.da_config.policy_settings;
     Config {
         network: NetworkConfig {
@@ -282,35 +319,33 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 initial_peers: config.network_config.initial_peers,
             },
         },
-        blend: nomos_blend_service::BlendConfig {
+        blend: nomos_blend_service::settings::BlendConfig {
             backend: config.blend_config.backend,
-            persistent_transmission: PersistentTransmissionSettings::default(),
-            message_blend: MessageBlendSettings {
-                cryptographic_processor: CryptographicProcessorSettings {
-                    signing_private_key: config.blend_config.private_key.clone(),
-                    num_blend_layers: 1,
-                },
-                temporal_processor: TemporalSchedulerSettings {
-                    max_delay: Duration::from_secs(2),
-                },
-                minimum_messages_coefficient: 3,
-                normalization_constant: 1.03f64.try_into().unwrap(),
+            crypto: CryptographicProcessorSettings {
+                signing_private_key: config.blend_config.private_key.clone(),
+                num_blend_layers: 1,
             },
-            cover_traffic: nomos_blend_service::CoverTrafficExtSettings {
-                message_frequency_per_round: NonNegativeF64::try_from(1f64)
-                    .expect("Message frequency per round cannot be negative."),
-                redundancy_parameter: 0,
-                intervals_for_safety_buffer: 100,
-            },
-            timing_settings: nomos_blend_service::TimingSettings {
+            time: TimingSettings {
                 round_duration: Duration::from_secs(1),
                 rounds_per_interval: NonZeroU64::try_from(30u64)
                     .expect("Rounds per interval cannot be zero."),
                 // (21,600 blocks * 30s per block) / 1s per round = 648,000 rounds
                 rounds_per_session: NonZeroU64::try_from(648_000u64)
                     .expect("Rounds per session cannot be zero."),
-                rounds_per_observation_window: NonZeroUsize::try_from(30usize)
+                rounds_per_observation_window: NonZeroU64::try_from(30u64)
                     .expect("Rounds per observation window cannot be zero."),
+            },
+            scheduler: SchedulerSettingsExt {
+                cover: CoverTrafficSettingsExt {
+                    intervals_for_safety_buffer: 100,
+                    message_frequency_per_round: NonNegativeF64::try_from(1f64)
+                        .expect("Message frequency per round cannot be negative."),
+                    redundancy_parameter: 0,
+                },
+                delayer: MessageDelayerSettingsExt {
+                    maximum_release_delay_in_rounds: NonZeroU64::try_from(3u64)
+                        .expect("Maximum release delay between rounds cannot be zero."),
+                },
             },
             membership: config.blend_config.membership,
         },
@@ -322,16 +357,14 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
             transaction_selector_settings: (),
             blob_selector_settings: (),
             network_adapter_settings:
-                cryptarchia_consensus::network::adapters::libp2p::LibP2pAdapterSettings {
+                chain_service::network::adapters::libp2p::LibP2pAdapterSettings {
                     topic: String::from(nomos_node::CONSENSUS_TOPIC),
                 },
-            blend_adapter_settings:
-                cryptarchia_consensus::blend::adapters::libp2p::LibP2pAdapterSettings {
-                    broadcast_settings:
-                        nomos_blend_service::network::libp2p::Libp2pBroadcastSettings {
-                            topic: String::from(nomos_node::CONSENSUS_TOPIC),
-                        },
+            blend_adapter_settings: chain_service::blend::adapters::libp2p::LibP2pAdapterSettings {
+                broadcast_settings: nomos_blend_service::network::libp2p::Libp2pBroadcastSettings {
+                    topic: String::from(nomos_node::CONSENSUS_TOPIC),
                 },
+            },
             recovery_file: PathBuf::from("./recovery/cryptarchia.json"),
         },
         da_network: DaNetworkConfig {
@@ -417,5 +450,13 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         },
         membership: config.membership_config.service_settings,
         sdp: (),
+
+        testing_http: nomos_api::ApiServiceSettings {
+            backend_settings: AxumBackendSettings {
+                address: testing_http_address,
+                cors_origins: vec![],
+            },
+            request_timeout: None,
+        },
     }
 }

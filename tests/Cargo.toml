@@ -10,8 +10,8 @@ workspace = true
 
 [dependencies]
 blst                     = { version = "0.3.11" }
+chain-service            = { workspace = true }
 common-http-client       = { workspace = true }
-cryptarchia-consensus    = { workspace = true }
 cryptarchia-engine       = { workspace = true, features = ["serde"] }
 executor-http-client     = { workspace = true }
 futures                  = "0.3"
@@ -19,8 +19,8 @@ futures-util             = "0.3.31"
 hex                      = "0.4.3"
 kzgrs-backend            = { workspace = true }
 nomos-api                = { workspace = true }
-nomos-blend              = { workspace = true }
 nomos-blend-message      = { workspace = true }
+nomos-blend-scheduling   = { workspace = true }
 nomos-blend-service      = { workspace = true, features = ["libp2p"] }
 nomos-core               = { workspace = true }
 nomos-da-dispersal       = { workspace = true }
@@ -29,14 +29,14 @@ nomos-da-network-core    = { workspace = true }
 nomos-da-network-service = { workspace = true }
 nomos-da-sampling        = { workspace = true }
 nomos-da-verifier        = { workspace = true }
-nomos-executor           = { workspace = true, default-features = false, features = ["tracing"] }
+nomos-executor           = { workspace = true, default-features = false, features = ["testing", "tracing"] }
 nomos-http-api-common    = { workspace = true }
 nomos-ledger             = { workspace = true, features = ["serde"] }
 nomos-libp2p             = { workspace = true }
 nomos-membership         = { workspace = true }
 nomos-mempool            = { workspace = true, features = ["libp2p", "mock"] }
 nomos-network            = { workspace = true, features = ["libp2p"] }
-nomos-node               = { workspace = true, default-features = false }
+nomos-node               = { workspace = true, default-features = false, features = ["testing"] }
 nomos-sdp-core           = { workspace = true }
 nomos-time               = { workspace = true }
 nomos-tracing            = { workspace = true }
@@ -68,3 +68,11 @@ path = "src/tests/da/api.rs"
 [[test]]
 name = "test_mempool_api"
 path = "src/tests/mempool/api.rs"
+
+[[test]]
+name = "test_membership_api"
+path = "src/tests/membership/api.rs"
+
+[[test]]
+name = "test_membership_disperse"
+path = "src/tests/membership/disperse.rs"

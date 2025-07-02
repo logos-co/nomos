@@ -10,7 +10,7 @@ workspace = true
 [dependencies]
 axum                     = { version = "0.6" }
 clap                     = { version = "4", features = ["derive"] }
-nomos-blend              = { workspace = true }
+nomos-blend-scheduling   = { workspace = true }
 nomos-da-dispersal       = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-executor           = { workspace = true }
