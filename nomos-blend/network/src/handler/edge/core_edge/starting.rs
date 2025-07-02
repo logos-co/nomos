@@ -1,5 +1,5 @@
 use core::{
-    task::{Context, Poll},
+    task::{Context, Poll, Waker},
     time::Duration,
 };
 
@@ -8,11 +8,21 @@ use tokio::time::sleep;
 
 use crate::handler::edge::core_edge::{
     dropped::DroppedState, ready_to_receive::ReadyToReceiveState, ConnectionEvent, ConnectionState,
-    PollResult, StateTrait, LOG_TARGET,
+    FailureReason, PollResult, StateTrait, LOG_TARGET,
 };
 
 pub struct StartingState {
-    pub connection_timeout: Duration,
+    connection_timeout: Duration,
+    waker: Option<Waker>,
+}
+
+impl StartingState {
+    pub const fn new(connection_timeout: Duration) -> Self {
+        Self {
+            connection_timeout,
+            waker: None,
+        }
+    }
 }
 
 impl From<StartingState> for ConnectionState {
@@ -22,19 +32,27 @@ impl From<StartingState> for ConnectionState {
 }
 
 impl StateTrait for StartingState {
-    fn on_connection_event(self, event: ConnectionEvent) -> ConnectionState {
+    fn on_connection_event(mut self, event: ConnectionEvent) -> ConnectionState {
         match event {
             ConnectionEvent::FullyNegotiatedInbound(FullyNegotiatedInbound {
                 protocol: inbound_stream,
                 ..
-            }) => ReadyToReceiveState {
-                timeout_timer: Box::pin(sleep(self.connection_timeout)),
-                inbound_stream,
+            }) => {
+                tracing::trace!(target: LOG_TARGET, "Transitioning from `Starting` to `ReadyToReceive`.");
+                // We awake because the new state has the timeout future which must be polled
+                // once.
+                if let Some(waker) = self.waker.take() {
+                    waker.wake();
+                }
+                ReadyToReceiveState::new(Box::pin(sleep(self.connection_timeout)), inbound_stream)
+                    .into()
             }
-            .into(),
             ConnectionEvent::ListenUpgradeError(error) => {
                 tracing::trace!(target: LOG_TARGET, "Inbound upgrade error: {error:?}");
-                DroppedState.into()
+                if let Some(waker) = self.waker.take() {
+                    waker.wake();
+                }
+                DroppedState::new(Some(FailureReason::UpgradeError)).into()
             }
             unprocessed_event => {
                 tracing::trace!(target: LOG_TARGET, "Ignoring connection event {unprocessed_event:?}");
@@ -43,7 +61,8 @@ impl StateTrait for StartingState {
         }
     }
 
-    fn poll(self, _cx: &mut Context<'_>) -> PollResult<ConnectionState> {
+    fn poll(mut self, cx: &mut Context<'_>) -> PollResult<ConnectionState> {
+        self.waker = Some(cx.waker().clone());
         (Poll::Pending, self.into())
     }
 }

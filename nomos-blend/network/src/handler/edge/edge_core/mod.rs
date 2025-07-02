@@ -1,3 +1,8 @@
+#![allow(
+    dead_code,
+    reason = "At the moment this is only used in tests. This lint will go away once we integrate this connection handler."
+)]
+
 use core::{
     future::Future,
     pin::Pin,
@@ -90,14 +95,7 @@ trait StateTrait: Into<ConnectionState> {
         self.into()
     }
 
-    fn on_connection_event(self, event: ConnectionEvent) -> ConnectionState {
-        if let ConnectionEvent::DialUpgradeError(error) = event {
-            tracing::trace!(target: LOG_TARGET, "Outbound upgrade error: {error:?}");
-            return DroppedState {
-                error_message: Some("Outbound upgrade error."),
-            }
-            .into();
-        }
+    fn on_connection_event(self, _event: ConnectionEvent) -> ConnectionState {
         self.into()
     }
 
@@ -110,8 +108,9 @@ pub struct EdgeToCoreBlendConnectionHandler {
 
 impl EdgeToCoreBlendConnectionHandler {
     pub fn new() -> Self {
+        tracing::trace!(target: LOG_TARGET, "Initializing edge->core connection handler.");
         Self {
-            state: Some(StartingState.into()),
+            state: Some(StartingState::new().into()),
         }
     }
 }
@@ -122,11 +121,21 @@ pub enum FromBehaviour {
     Message(Vec<u8>),
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum FailureReason {
+    UpgradeError,
+    MessageStream,
+}
+
 #[derive(Debug)]
 pub enum ToBehaviour {
     /// Notify the behaviour that the message was sent successfully.
     MessageSuccess(Vec<u8>),
-    SendError(&'static str),
+    #[expect(
+        dead_code,
+        reason = "At the moment this is only used in tests. This lint will go away once we integrate this connection handler."
+    )]
+    SendError(FailureReason),
 }
 
 impl ConnectionHandler for EdgeToCoreBlendConnectionHandler {

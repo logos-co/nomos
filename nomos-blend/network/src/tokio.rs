@@ -96,12 +96,16 @@ mod test {
             node1_addr.clone(),
             Duration::from_secs(5),
             None,
+            None,
+            Duration::from_secs(1),
         );
         let mut swarm2 = new_blend_swarm(
             keypairs.next().unwrap(),
             nodes.next().unwrap().address,
             Duration::from_secs(5),
             None,
+            None,
+            Duration::from_secs(1),
         );
         swarm2.dial(node1_addr).unwrap();
 
@@ -151,6 +155,8 @@ mod test {
             nodes.next().unwrap().address,
             Duration::from_secs(5),
             None,
+            None,
+            Duration::from_secs(1),
         );
         swarm2.dial(node1_addr).unwrap();
 
@@ -184,12 +190,16 @@ mod test {
             node1_addr.clone(),
             Duration::from_secs(5),
             Some(0..=0),
+            None,
+            Duration::from_secs(1),
         );
         let mut swarm2 = new_blend_swarm(
             keypairs.next().unwrap(),
             nodes.next().unwrap().address,
             Duration::from_secs(5),
             Some(0..=0),
+            None,
+            Duration::from_secs(1),
         );
         swarm2.dial(node1_addr).unwrap();
 
@@ -248,12 +258,16 @@ mod test {
             node1_addr.clone(),
             Duration::from_secs(5),
             Some(1..=1),
+            None,
+            Duration::from_secs(1),
         );
         let mut swarm2 = new_blend_swarm(
             keypairs.next().unwrap(),
             nodes.next().unwrap().address,
             Duration::from_secs(5),
             Some(1..=1),
+            None,
+            Duration::from_secs(1),
         );
         swarm2.dial(node1_addr).unwrap();
 
@@ -300,7 +314,7 @@ mod test {
         addr: Multiaddr,
         expected_duration: Duration,
         expected_message_range: Option<RangeInclusive<u64>>,
-        membership_info: Membership<PeerId>,
+        membership_info: Option<Membership<PeerId>>,
         timeout: Duration,
     ) -> Swarm<Behaviour<TestTokioIntervalStreamProvider>> {
         new_swarm_with_behaviour(

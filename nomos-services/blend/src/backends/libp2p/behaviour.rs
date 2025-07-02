@@ -39,8 +39,8 @@ impl BlendBehaviour {
                     seen_message_cache_size: 1_944_000,
                 },
                 observation_window_interval_provider,
-                config.membership(),
-                Duration::from_secs(5),
+                Some(config.membership()),
+                Duration::from_secs(1),
             ),
             limits: libp2p::connection_limits::Behaviour::new(
                 ConnectionLimits::default()

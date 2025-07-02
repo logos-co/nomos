@@ -8,8 +8,17 @@ use crate::handler::edge::edge_core::{
 };
 
 pub struct MessageSetState {
-    pub message: Vec<u8>,
-    pub waker: Option<Waker>,
+    message: Vec<u8>,
+    waker: Option<Waker>,
+}
+
+impl MessageSetState {
+    pub const fn new(message: Vec<u8>) -> Self {
+        Self {
+            message,
+            waker: None,
+        }
+    }
 }
 
 impl From<MessageSetState> for ConnectionState {
@@ -19,20 +28,17 @@ impl From<MessageSetState> for ConnectionState {
 }
 
 impl StateTrait for MessageSetState {
-    fn on_connection_event(self, event: ConnectionEvent) -> ConnectionState {
+    fn on_connection_event(mut self, event: ConnectionEvent) -> ConnectionState {
         match event {
             ConnectionEvent::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
                 protocol: outbound_stream,
                 ..
             }) => {
-                let updated_self = ReadyToSendState {
-                    state: InternalState::MessageAndOutboundStreamSet(
-                        self.message,
-                        outbound_stream,
-                    ),
-                    waker: None,
-                };
-                if let Some(waker) = self.waker {
+                let updated_self = ReadyToSendState::new(
+                    InternalState::MessageAndOutboundStreamSet(self.message, outbound_stream),
+                );
+                tracing::trace!(target: LOG_TARGET, "Transitioning from `MessageSet` to `ReadyToSend`.");
+                if let Some(waker) = self.waker.take() {
                     waker.wake();
                 }
                 updated_self.into()
@@ -44,14 +50,8 @@ impl StateTrait for MessageSetState {
         }
     }
 
-    fn poll(self, cx: &mut Context<'_>) -> PollResult<ConnectionState> {
-        (
-            Poll::Pending,
-            Self {
-                message: self.message,
-                waker: Some(cx.waker().clone()),
-            }
-            .into(),
-        )
+    fn poll(mut self, cx: &mut Context<'_>) -> PollResult<ConnectionState> {
+        self.waker = Some(cx.waker().clone());
+        (Poll::Pending, self.into())
     }
 }

@@ -4,8 +4,8 @@ use futures::FutureExt as _;
 use libp2p::swarm::ConnectionHandlerEvent;
 
 use crate::handler::edge::core_edge::{
-    dropped::DroppedState, ConnectionState, MessageReceiveFuture, PollResult, StateTrait,
-    TimerFuture, ToBehaviour, LOG_TARGET,
+    dropped::DroppedState, ConnectionState, FailureReason, MessageReceiveFuture, PollResult,
+    StateTrait, TimerFuture, ToBehaviour, LOG_TARGET,
 };
 
 pub struct ReceivingState {
@@ -23,11 +23,10 @@ impl StateTrait for ReceivingState {
     fn poll(mut self, cx: &mut Context<'_>) -> PollResult<ConnectionState> {
         let Poll::Pending = self.timeout_timer.poll_unpin(cx) else {
             tracing::debug!(target: LOG_TARGET, "Timeout reached without completing the reception of the message. Closing the connection.");
+            cx.waker().wake_by_ref();
             return (
-                Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                    ToBehaviour::FailedReception,
-                )),
-                DroppedState.into(),
+                Poll::Pending,
+                DroppedState::new(Some(FailureReason::Timeout)).into(),
             );
         };
         let Poll::Ready(message_receive_result) = self.incoming_message.poll_unpin(cx) else {
@@ -35,19 +34,18 @@ impl StateTrait for ReceivingState {
         };
         match message_receive_result {
             Err(error) => {
-                tracing::error!("Failed to receive message. Error {error:?}");
+                tracing::error!(target: LOG_TARGET, "Failed to receive message. Error {error:?}");
+                cx.waker().wake_by_ref();
                 (
-                    Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                        ToBehaviour::FailedReception,
-                    )),
-                    DroppedState.into(),
+                    Poll::Pending,
+                    DroppedState::new(Some(FailureReason::MessageStream)).into(),
                 )
             }
             Ok(message) => (
                 Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                     ToBehaviour::Message(message),
                 )),
-                DroppedState.into(),
+                DroppedState::new(None).into(),
             ),
         }
     }

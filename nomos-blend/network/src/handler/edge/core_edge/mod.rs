@@ -77,11 +77,7 @@ impl ConnectionState {
 }
 
 trait StateTrait: Into<ConnectionState> {
-    fn on_connection_event(self, event: ConnectionEvent) -> ConnectionState {
-        if let ConnectionEvent::ListenUpgradeError(error) = event {
-            tracing::trace!(target: LOG_TARGET, "Inbound upgrade error: {error:?}");
-            return DroppedState.into();
-        }
+    fn on_connection_event(self, _event: ConnectionEvent) -> ConnectionState {
         self.into()
     }
 
@@ -94,17 +90,25 @@ pub struct CoreToEdgeBlendConnectionHandler {
 
 impl CoreToEdgeBlendConnectionHandler {
     pub fn new(connection_timeout: Duration) -> Self {
+        tracing::trace!(target: LOG_TARGET, "Initializing core->edge connection handler with timeout duration {connection_timeout:?}.");
         Self {
-            state: Some(StartingState { connection_timeout }.into()),
+            state: Some(StartingState::new(connection_timeout).into()),
         }
     }
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum FailureReason {
+    Timeout,
+    MessageStream,
+    UpgradeError,
 }
 
 #[derive(Debug)]
 pub enum ToBehaviour {
     /// A message has been received from the connection.
     Message(Vec<u8>),
-    FailedReception,
+    FailedReception(FailureReason),
 }
 
 impl ConnectionHandler for CoreToEdgeBlendConnectionHandler {

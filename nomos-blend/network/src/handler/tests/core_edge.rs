@@ -4,7 +4,7 @@ use core::{
 };
 use std::collections::VecDeque;
 
-use futures::StreamExt;
+use futures::StreamExt as _;
 use libp2p::{
     core::{transport::PortUse, Endpoint},
     swarm::{

@@ -47,7 +47,7 @@ pub struct Behaviour<ObservationWindowClockProvider> {
     seen_message_cache: SizedCache<Vec<u8>, ()>,
     observation_window_clock_provider: ObservationWindowClockProvider,
     // TODO: Replace with the session stream
-    current_membership: Membership<PeerId>,
+    current_membership: Option<Membership<PeerId>>,
     timeout_duration: Duration,
 }
 
@@ -80,7 +80,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     pub fn new(
         config: &Config,
         observation_window_clock_provider: ObservationWindowClockProvider,
-        current_membership: Membership<PeerId>,
+        current_membership: Option<Membership<PeerId>>,
         timeout_duration: Duration,
     ) -> Self {
         let duplicate_cache = SizedCache::with_size(config.seen_message_cache_size);
@@ -226,7 +226,14 @@ where
         _: &Multiaddr,
         _: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        Ok(if self.current_membership.contains_remote(&peer_id) {
+        // If no membership if provided (for tests), then we assume all peers are core
+        // nodes.
+        let Some(membership) = &self.current_membership else {
+            return Ok(Either::Left(
+                self.create_connection_handler_for_remote_core(),
+            ));
+        };
+        Ok(if membership.contains_remote(&peer_id) {
             Either::Left(self.create_connection_handler_for_remote_core())
         } else {
             Either::Right(self.create_connection_handler_for_remote_edge())
@@ -341,8 +348,8 @@ where
                 core_edge::ToBehaviour::Message(new_message) => {
                     self.handle_received_message(new_message, None);
                 }
-                core_edge::ToBehaviour::FailedReception => {
-                    tracing::trace!("An attempt was made from an edge node to send a message to us, but the attempt failed.");
+                core_edge::ToBehaviour::FailedReception(reason) => {
+                    tracing::trace!("An attempt was made from an edge node to send a message to us, but the attempt failed. Error reason: {reason:?}");
                 }
             },
         }

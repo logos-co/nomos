@@ -8,7 +8,7 @@ use libp2p::swarm::{dial_opts::DialOpts, ListenError, SwarmEvent};
 use tokio::time::sleep;
 
 use crate::handler::{
-    edge,
+    edge::{self, core_edge::FailureReason},
     tests::{core_edge::core_receiver_swarm, edge_core::edge_sender_swarm},
 };
 
@@ -155,4 +155,60 @@ async fn message_sending() {
         }
     }
     .await;
+}
+
+#[test_log::test(tokio::test)]
+async fn sender_timeout() {
+    let (mut edge_node, _) = edge_sender_swarm().await;
+    let (mut core_node, core_node_address) = core_receiver_swarm(Duration::from_secs(1)).await;
+    let core_node_peer_id = *core_node.local_peer_id();
+    let edge_node_peer_id = *edge_node.local_peer_id();
+
+    edge_node
+        .dial(DialOpts::from(core_node_address))
+        .expect("Failed to connect to core node.");
+
+    let mut core_loop_done = false;
+    let mut edge_loop_done = false;
+    let mut cx = Context::from_waker(noop_waker_ref());
+    async {
+        loop {
+            if !core_loop_done {
+                let core_node_event = core_node.poll_next_unpin(&mut cx);
+                if let Poll::Ready(Some(SwarmEvent::ConnectionEstablished { peer_id, .. })) =
+                    core_node_event
+                {
+                    if peer_id == edge_node_peer_id {
+                        core_loop_done = true;
+                    }
+                }
+            }
+
+            // We stop after verifying that the connection was established.
+            if !edge_loop_done {
+                let edge_node_event = edge_node.poll_next_unpin(&mut cx);
+                if let Poll::Ready(Some(SwarmEvent::ConnectionEstablished { peer_id, .. })) =
+                    edge_node_event
+                {
+                    if peer_id == core_node_peer_id {
+                        edge_loop_done = true;
+                    }
+                }
+            }
+
+            if core_loop_done && edge_loop_done {
+                break;
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
+    }
+    .await;
+
+    // Now, the next event we should get is the failure due to timeout.
+    let Some(SwarmEvent::Behaviour(edge::core_edge::ToBehaviour::FailedReception(
+        FailureReason::Timeout,
+    ))) = core_node.next().await
+    else {
+        panic!("Returned different error than expected (timeout)");
+    };
 }

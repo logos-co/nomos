@@ -5,14 +5,20 @@ use libp2p::{core::upgrade::ReadyUpgrade, swarm::handler::OutboundUpgradeSend, S
 
 use crate::handler::{
     edge::edge_core::{
-        sending::SendingState, ConnectionState, FromBehaviour, PollResult, StateTrait,
+        sending::SendingState, ConnectionState, FromBehaviour, PollResult, StateTrait, LOG_TARGET,
     },
     send_msg,
 };
 
 pub struct ReadyToSendState {
-    pub state: InternalState,
-    pub waker: Option<Waker>,
+    state: InternalState,
+    waker: Option<Waker>,
+}
+
+impl ReadyToSendState {
+    pub const fn new(state: InternalState) -> Self {
+        Self { state, waker: None }
+    }
 }
 
 impl From<ReadyToSendState> for ConnectionState {
@@ -40,6 +46,7 @@ impl StateTrait for ReadyToSendState {
             state: InternalState::MessageAndOutboundStreamSet(new_message, inbound_stream),
             waker: None,
         };
+        tracing::trace!(target: LOG_TARGET, "Transitioning internal state from `OnlyOutboundStreamSet` to `MessageAndOutboundStreamSet`.");
         if let Some(waker) = self.waker {
             waker.wake();
         }
@@ -57,12 +64,11 @@ impl StateTrait for ReadyToSendState {
                 .into(),
             ),
             InternalState::MessageAndOutboundStreamSet(message, outbound_stream) => {
-                let sending_state = SendingState {
-                    message: message.clone(),
-                    outbound_message_send_future: Box::pin(
-                        send_msg(outbound_stream, message).map_ok(|_| ()),
-                    ),
-                };
+                let sending_state = SendingState::new(
+                    message.clone(),
+                    Box::pin(send_msg(outbound_stream, message).map_ok(|_| ())),
+                );
+                tracing::trace!(target: LOG_TARGET, "Transitioning from `ReadyToSend` to `Sending`.");
                 cx.waker().wake_by_ref();
                 (Poll::Pending, sending_state.into())
             }

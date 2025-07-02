@@ -1,8 +1,20 @@
 use core::task::{Context, Poll};
 
-use crate::handler::edge::core_edge::{ConnectionState, PollResult, StateTrait};
+use libp2p::swarm::ConnectionHandlerEvent;
 
-pub struct DroppedState;
+use crate::handler::edge::core_edge::{
+    ConnectionState, FailureReason, PollResult, StateTrait, ToBehaviour,
+};
+
+pub struct DroppedState {
+    error: Option<FailureReason>,
+}
+
+impl DroppedState {
+    pub const fn new(error: Option<FailureReason>) -> Self {
+        Self { error }
+    }
+}
 
 impl From<DroppedState> for ConnectionState {
     fn from(value: DroppedState) -> Self {
@@ -11,7 +23,15 @@ impl From<DroppedState> for ConnectionState {
 }
 
 impl StateTrait for DroppedState {
-    fn poll(self, _cx: &mut Context<'_>) -> PollResult<ConnectionState> {
-        (Poll::Pending, self.into())
+    fn poll(mut self, _cx: &mut Context<'_>) -> PollResult<ConnectionState> {
+        let poll_result = self.error.take().map_or_else(
+            || Poll::Pending,
+            |error| {
+                Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                    ToBehaviour::FailedReception(error),
+                ))
+            },
+        );
+        (poll_result, self.into())
     }
 }
