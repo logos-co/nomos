@@ -43,7 +43,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
         additional_blocks: HashSet<HeaderId>,
     ) -> Result<BoxedStream<Result<Block<Self::Tx, Self::BlobCertificate>, DynError>>, DynError>;
 
-    async fn request_missing_blocks_for_orphan(
+    async fn request_blocks_from_peers(
         &self,
         target_block: HeaderId,
         local_tip: HeaderId,
