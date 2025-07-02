@@ -5,7 +5,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use cryptarchia_engine::{Branch, Branches, CryptarchiaState};
+use cryptarchia_engine::{Branch, CryptarchiaState};
 use futures::{future, stream, stream::BoxStream, StreamExt as _, TryStreamExt as _};
 use nomos_core::{block::Block, header::HeaderId, wire};
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageMsg};
@@ -66,9 +66,7 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
             known_blocks={known_blocks:?},"
         );
 
-        let Some(start_block) =
-            max_lca(cryptarchia.consensus.branches(), target_block, known_blocks)
-        else {
+        let Some(start_block) = max_lca(&cryptarchia.consensus, target_block, known_blocks) else {
             Self::send_error(
                 "Failed to find LCA for target block and known blocks".to_owned(),
                 reply_sender,
@@ -81,7 +79,7 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
         info!("Starting to send blocks from {start_block:?} to {target_block:?}");
 
         let Ok(path) = compute_path(
-            cryptarchia.consensus.branches(),
+            &cryptarchia.consensus,
             start_block,
             target_block,
             MAX_NUMBER_OF_BLOCKS,
@@ -149,25 +147,28 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
     }
 }
 
-fn max_lca<Id>(branches: &Branches<Id>, target_block: Id, known_blocks: &HashSet<Id>) -> Option<Id>
+fn max_lca<Id, State: CryptarchiaState>(
+    cryptarchia: &cryptarchia_engine::Cryptarchia<Id, State>,
+    target_block: Id,
+    known_blocks: &HashSet<Id>,
+) -> Option<Id>
 where
     Id: Hash + Eq + Copy + Debug,
 {
-    let target_branch = branches.get(&target_block)?;
+    let target_branch = cryptarchia.get(&target_block)?;
 
     known_blocks
         .iter()
         .filter_map(|known| {
-            branches
-                .get(known)
-                .map(|known_branch| branches.lca(known_branch, target_branch))
+            let known_branch = cryptarchia.get(known)?;
+            cryptarchia.lca(known_branch, target_branch)
         })
         .max_by_key(Branch::length)
         .map(|b| b.id())
 }
 
-fn compute_path<Id>(
-    branches: &Branches<Id>,
+fn compute_path<Id, State: CryptarchiaState>(
+    cryptarchia: &cryptarchia_engine::Cryptarchia<Id, State>,
     start_block: Id,
     target_block: Id,
     limit: usize,
@@ -189,7 +190,7 @@ where
             return Ok(path);
         }
 
-        match branches.get(&current).map(Branch::parent) {
+        match cryptarchia.get(&current).map(Branch::parent) {
             Some(parent) => {
                 if parent == current {
                     return Err(GetBlocksError::InvalidState(format!(
@@ -229,12 +230,16 @@ pub mod tests {
             .expect("Failed to add block")
             .0;
 
-        let branches = cryptarchia.branches();
-
         let start_block = [1; 32];
         let target_block = [2; 32];
 
-        let path = compute_path(branches, start_block, target_block, MAX_NUMBER_OF_BLOCKS).unwrap();
+        let path = compute_path(
+            &cryptarchia,
+            start_block,
+            target_block,
+            MAX_NUMBER_OF_BLOCKS,
+        )
+        .unwrap();
 
         assert_eq!(path.len(), 2);
         assert_eq!(path.front().unwrap(), &start_block);
@@ -260,15 +265,13 @@ pub mod tests {
             .expect("Failed to add block")
             .0;
 
-        let branches = cryptarchia.branches();
-
         let start_block = [1; 32];
         let target_block = [3; 32];
         let last_block_in_computed_path = [2; 32];
 
         let limit = 2;
 
-        let path = compute_path(branches, start_block, target_block, limit).unwrap();
+        let path = compute_path(&cryptarchia, start_block, target_block, limit).unwrap();
 
         assert_eq!(path.len(), limit);
         assert_eq!(path.front().unwrap(), &start_block);
@@ -282,9 +285,12 @@ pub mod tests {
         let start_block = [1; 32];
         let target_block = [2; 32];
 
-        let branches = cryptarchia.branches();
-
-        let path = compute_path(branches, start_block, target_block, MAX_NUMBER_OF_BLOCKS);
+        let path = compute_path(
+            &cryptarchia,
+            start_block,
+            target_block,
+            MAX_NUMBER_OF_BLOCKS,
+        );
 
         assert!(matches!(
             path,
@@ -301,13 +307,11 @@ pub mod tests {
             .expect("Failed to add block")
             .0;
 
-        let branches = cryptarchia.branches();
-
         let start_block_not_existing = [2; 32];
         let target_block = [3; 32];
 
         let path = compute_path(
-            branches,
+            &cryptarchia,
             start_block_not_existing,
             target_block,
             MAX_NUMBER_OF_BLOCKS,
