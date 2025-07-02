@@ -235,10 +235,10 @@ where
     }
 
     /// Attempts to open a stream of blocks from a locally known block to the
-    /// orphan block.
-    async fn request_missing_blocks_for_orphan(
+    /// target_block block.
+    async fn request_blocks_from_peers(
         &self,
-        orphan_block: HeaderId,
+        target_block: HeaderId,
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
@@ -260,7 +260,7 @@ where
                 .request_blocks_from_peer(
                     peer,
                     // as the target block
-                    orphan_block,
+                    target_block,
                     local_tip,
                     latest_immutable_block,
                     additional_blocks.clone(),
