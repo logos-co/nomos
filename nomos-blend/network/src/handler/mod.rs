@@ -8,6 +8,9 @@ pub use core::CoreToCoreBlendConnectionHandler;
 pub mod edge;
 //pub use edge::CoreToEdgeBlendConnectionHandler;
 
+#[cfg(test)]
+mod tests;
+
 const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/nomos/blend/0.1.0");
 
 /// Write a message to the stream
