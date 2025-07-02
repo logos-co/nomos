@@ -11,6 +11,7 @@ workspace = true
 cached                 = { workspace = true }
 either                 = "1.15.0"
 futures                = "0.3.30"
+futures-timer          = { version = "3.0.3" }
 libp2p                 = { workspace = true }
 nomos-blend-message    = { workspace = true }
 nomos-blend-scheduling = { workspace = true }

@@ -3,8 +3,8 @@ use core::{
     time::Duration,
 };
 
+use futures_timer::Delay;
 use libp2p::swarm::handler::FullyNegotiatedInbound;
-use tokio::time::sleep;
 
 use crate::handler::edge::core_edge::{
     dropped::DroppedState, ready_to_receive::ReadyToReceiveState, ConnectionEvent, ConnectionState,
@@ -44,8 +44,11 @@ impl StateTrait for StartingState {
                 if let Some(waker) = self.waker.take() {
                     waker.wake();
                 }
-                ReadyToReceiveState::new(Box::pin(sleep(self.connection_timeout)), inbound_stream)
-                    .into()
+                ReadyToReceiveState::new(
+                    Box::pin(Delay::new(self.connection_timeout)),
+                    inbound_stream,
+                )
+                .into()
             }
             ConnectionEvent::ListenUpgradeError(error) => {
                 tracing::trace!(target: LOG_TARGET, "Inbound upgrade error: {error:?}");
