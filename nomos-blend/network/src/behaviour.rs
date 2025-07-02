@@ -46,9 +46,9 @@ pub struct Behaviour<ObservationWindowClockProvider> {
     //       because keys and nullifiers are valid during a single session.
     seen_message_cache: SizedCache<Vec<u8>, ()>,
     observation_window_clock_provider: ObservationWindowClockProvider,
-    // TODO: Replace with the session stream
+    // TODO: Replace with the session stream and make this a non-Option
     current_membership: Option<Membership<PeerId>>,
-    timeout_duration: Duration,
+    edge_node_connection_duration: Duration,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -81,7 +81,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         config: &Config,
         observation_window_clock_provider: ObservationWindowClockProvider,
         current_membership: Option<Membership<PeerId>>,
-        timeout_duration: Duration,
+        edge_node_connection_duration: Duration,
     ) -> Self {
         let duplicate_cache = SizedCache::with_size(config.seen_message_cache_size);
         Self {
@@ -91,7 +91,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             seen_message_cache: duplicate_cache,
             observation_window_clock_provider,
             current_membership,
-            timeout_duration,
+            edge_node_connection_duration,
         }
     }
 
@@ -204,7 +204,7 @@ where
     }
 
     fn create_connection_handler_for_remote_edge(&self) -> CoreToEdgeBlendConnectionHandler {
-        CoreToEdgeBlendConnectionHandler::new(self.timeout_duration)
+        CoreToEdgeBlendConnectionHandler::new(self.edge_node_connection_duration)
     }
 }
 
@@ -226,7 +226,7 @@ where
         _: &Multiaddr,
         _: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        // If no membership if provided (for tests), then we assume all peers are core
+        // If no membership is provided (for tests), then we assume all peers are core
         // nodes.
         let Some(membership) = &self.current_membership else {
             return Ok(Either::Left(
@@ -243,15 +243,27 @@ where
     fn handle_established_outbound_connection(
         &mut self,
         _: ConnectionId,
-        _: PeerId,
+        peer_id: PeerId,
         _: &Multiaddr,
         _: Endpoint,
         _: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        // We assume remote is a core node, for now.
-        Ok(Either::Left(
-            self.create_connection_handler_for_remote_core(),
-        ))
+        // If no membership is provided (for tests), then we assume all peers are core
+        // nodes.
+        let Some(membership) = &self.current_membership else {
+            return Ok(Either::Left(
+                self.create_connection_handler_for_remote_core(),
+            ));
+        };
+        if membership.contains_remote(&peer_id) {
+            Ok(Either::Left(
+                self.create_connection_handler_for_remote_core(),
+            ))
+        } else {
+            Err(ConnectionDenied::new(
+                "No outbound stream is expected toward edge nodes.",
+            ))
+        }
     }
 
     /// Informs the behaviour about an event from the [`Swarm`].
@@ -345,6 +357,9 @@ where
                 }
             },
             Either::Right(event) => match event {
+                // We "shuffle" together messages received from core and edge nodes.
+                // The difference is that for messages received by edge nodes, we forward them to
+                // all connected core nodes.
                 core_edge::ToBehaviour::Message(new_message) => {
                     self.handle_received_message(new_message, None);
                 }

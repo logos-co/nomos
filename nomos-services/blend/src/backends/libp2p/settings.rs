@@ -1,3 +1,4 @@
+use core::time::Duration;
 use std::num::NonZeroU64;
 
 use libp2p::Multiaddr;
@@ -18,4 +19,5 @@ pub struct Libp2pBlendBackendSettings {
     pub max_peering_degree: u32,
     pub minimum_messages_coefficient: NonZeroU64,
     pub normalization_constant: NonNegativeF64,
+    pub edge_node_connection_timeout: Duration,
 }

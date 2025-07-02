@@ -1,3 +1,4 @@
+use core::time::Duration;
 use std::{num::NonZeroU64, str::FromStr as _};
 
 use nomos_blend_message::crypto::Ed25519PrivateKey;
@@ -42,6 +43,7 @@ pub fn create_blend_configs(ids: &[[u8; 32]]) -> Vec<GeneralBlendConfig> {
                     normalization_constant: 1.03f64
                         .try_into()
                         .expect("Normalization constant cannot be negative."),
+                    edge_node_connection_timeout: Duration::from_secs(1),
                 },
                 private_key: Ed25519PrivateKey::generate(),
                 membership: Vec::new(),

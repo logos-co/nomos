@@ -81,6 +81,7 @@ where
             .choose_multiple(rng, amount)
     }
 
+    // TODO: Change internal structure to a hashset/hashmap for O(1) lookup.
     pub fn contains_remote(&self, node_id: &NodeId) -> bool {
         self.remote_nodes.iter().any(|n| n.id == *node_id)
     }
