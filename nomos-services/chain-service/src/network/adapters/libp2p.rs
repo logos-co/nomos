@@ -14,7 +14,7 @@ use overwatch::{
     services::{relay::OutboundRelay, ServiceData},
     DynError,
 };
-use rand::{seq::index::sample, thread_rng};
+use rand::{prelude::IteratorRandom as _, thread_rng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::sync::oneshot;
 use tokio_stream::{wrappers::errors::BroadcastStreamRecvError, StreamExt as _};
@@ -250,7 +250,7 @@ where
         let discovered_peers = Self::get_discovered_peers(&self.network_relay).await?;
 
         let peers_to_request = choose_peers_to_request_download(
-            connected_peers,
+            &connected_peers,
             &discovered_peers,
             MAX_PEERS_TO_TRY_FOR_ORPHAN_DOWNLOAD,
         );
@@ -288,40 +288,25 @@ where
 /// Returned the list of `PeerId` with discovered peers appearing before
 /// connected ones(if any).
 fn choose_peers_to_request_download<PeerId>(
-    connected_peers: HashSet<PeerId>,
+    connected_peers: &HashSet<PeerId>,
     discovered_peers: &HashSet<PeerId>,
     max: usize,
 ) -> Vec<PeerId>
 where
     PeerId: Clone + Eq + Hash + Copy + Debug,
 {
-    let discovered_only: Vec<_> = discovered_peers
-        .difference(&connected_peers)
+    let mut selected = discovered_peers
+        .difference(connected_peers)
         .copied()
-        .collect();
-
-    // Use Vec to keep not connected in front
-    let mut selected = Vec::new();
-
-    let discovered_only_max_to_use = discovered_only.len().min(max);
-
-    if discovered_only_max_to_use > 0 {
-        let indexes = sample(
-            &mut thread_rng(),
-            discovered_only.len(),
-            discovered_only_max_to_use,
-        );
-        selected.extend(indexes.into_iter().map(|i| discovered_only[i]));
-    }
+        .choose_multiple(&mut thread_rng(), max);
 
     let remaining = max.saturating_sub(selected.len());
-    let remaining_available = remaining.min(connected_peers.len());
-
-    if remaining_available > 0 {
-        let connected_vec: Vec<_> = connected_peers.into_iter().collect();
-
-        let indexes = sample(&mut thread_rng(), connected_vec.len(), remaining_available);
-        selected.extend(indexes.into_iter().map(|i| connected_vec[i]));
+    if remaining > 0 {
+        selected.extend(
+            connected_peers
+                .iter()
+                .choose_multiple(&mut thread_rng(), remaining),
+        );
     }
 
     selected
@@ -339,7 +324,7 @@ mod tests {
         let connected = HashSet::from_iter(vec![[1; 32], [2; 32]]);
         let discovered = HashSet::from_iter(vec![[3; 32], [4; 32], [5; 32]]);
 
-        let result = choose_peers_to_request_download(connected, &discovered, MAX);
+        let result = choose_peers_to_request_download(&connected, &discovered, MAX);
 
         assert_eq!(result.len(), 3);
         assert!(result.contains(&[3; 32]));
@@ -352,7 +337,7 @@ mod tests {
         let connected = HashSet::from_iter(vec![[1; 32], [2; 32], [3; 32]]);
         let discovered = HashSet::new();
 
-        let result = choose_peers_to_request_download(connected.clone(), &discovered, MAX);
+        let result = choose_peers_to_request_download(&connected, &discovered, MAX);
 
         assert_eq!(result.len(), connected.len());
     }
@@ -362,7 +347,7 @@ mod tests {
         let connected = HashSet::from_iter(vec![[1; 32], [2; 32], [3; 32]]);
         let discovered = HashSet::from_iter(vec![[4; 32]]);
 
-        let result = choose_peers_to_request_download(connected, &discovered, MAX);
+        let result = choose_peers_to_request_download(&connected, &discovered, MAX);
 
         assert_eq!(result.len(), MAX);
         assert!(result.contains(&[4; 32]));
@@ -373,7 +358,7 @@ mod tests {
         let connected = (0..=MAX).map(|id| [id; 32]).collect::<HashSet<_>>();
         let discovered = HashSet::new();
 
-        let result = choose_peers_to_request_download(connected, &discovered, MAX);
+        let result = choose_peers_to_request_download(&connected, &discovered, MAX);
         assert_eq!(result.len(), MAX);
     }
 }
