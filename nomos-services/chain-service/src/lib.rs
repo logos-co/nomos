@@ -567,10 +567,10 @@ where
             &self.block_subscription_sender,
         )
         .await;
-        let mut storage_blocks_to_remove = Self::remove_pruned_blocks_from_storage(
+        let mut storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
             &pruned_blocks,
-            relays.storage_adapter(),
             &storage_blocks_to_remove,
+            relays.storage_adapter(),
         )
         .await;
 
@@ -909,10 +909,10 @@ where
         let (cryptarchia, pruned_blocks) =
             Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
 
-        let storage_blocks_to_remove = Self::remove_pruned_blocks_from_storage(
+        let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
             &pruned_blocks,
-            relays.storage_adapter(),
             storage_blocks_to_remove,
+            relays.storage_adapter(),
         )
         .await;
 
@@ -1238,29 +1238,27 @@ where
 
     /// Remove the pruned blocks from the storage layer.
     ///
-    /// Also, this removes the `storage_blocks_to_remove` from the storage
+    /// Also, this removes the `additional_blocks` from the storage
     /// layer. These blocks might belong to previous pruning operations and
     /// that failed to be removed from the storage for some reason.
     ///
     /// This function returns any block that fails to be deleted from the
     /// storage layer.
-    async fn remove_pruned_blocks_from_storage(
-        newly_pruned_blocks: &PrunedBlocks<HeaderId>,
+    async fn delete_pruned_blocks_from_storage(
+        pruned_blocks: &PrunedBlocks<HeaderId>,
+        additional_blocks: &HashSet<HeaderId>,
         storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
-        storage_blocks_to_remove: &HashSet<HeaderId>,
     ) -> HashSet<HeaderId> {
-        // We try to delete both newly pruned blocks as well as the blocks that
-        // were pruned in the past but failed to be deleted from storage.
-        match Self::delete_pruned_blocks_from_storage(
-            newly_pruned_blocks
+        match Self::delete_blocks_from_storage(
+            pruned_blocks
                 .iter()
-                .chain(storage_blocks_to_remove.iter())
+                .chain(additional_blocks.iter())
                 .copied(),
             storage_adapter,
         )
         .await
         {
-            // All blocks, past and present, have been successfully deleted from storage.
+            // No blocks failed to be deleted.
             Ok(()) => HashSet::new(),
             // We retain the blocks that failed to be deleted.
             Err(failed_blocks) => failed_blocks
@@ -1270,20 +1268,20 @@ where
         }
     }
 
-    /// Send a bulk deletion request to the storage adapter.
+    /// Send a bulk blocks deletion request to the storage adapter.
     ///
     /// If no request fails, the method returns `Ok()`.
     /// If any request fails, the header ID and the generated error for each
     /// failing request are collected and returned as part of the `Err`
     /// result.
-    async fn delete_pruned_blocks_from_storage<Headers>(
-        pruned_block_headers: Headers,
+    async fn delete_blocks_from_storage<Headers>(
+        block_headers: Headers,
         storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
     ) -> Result<(), Vec<(HeaderId, DynError)>>
     where
         Headers: Iterator<Item = HeaderId> + Send,
     {
-        let blocks_to_delete = pruned_block_headers.collect::<Vec<_>>();
+        let blocks_to_delete = block_headers.collect::<Vec<_>>();
         let block_deletion_outcomes = blocks_to_delete.iter().copied().zip(
             storage_adapter
                 .remove_blocks(blocks_to_delete.iter().copied())
