@@ -373,9 +373,12 @@ where
         }
     }
 
-    /// Process a block and returns a [`UpdatedCryptarchia`] that contains
-    /// an updated [`Cryptarchia`] instance
-    /// and the blocks pruned while processing the provided block.
+    /// Create a new [`Cryptarchia`] instance with the updated state
+    /// after applying the given block.
+    ///
+    /// Also returns [`PrunedBlocks`] if the LIB is updated and forks
+    /// that diverged before the new LIB are pruned.
+    /// Otherwise, an empty [`PrunedBlocks`] is returned.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
     pub fn receive_block(
         &self,
@@ -390,6 +393,14 @@ where
         Ok((new, pruned_blocks))
     }
 
+    /// Attempts to update the LIB.
+    /// Whether the LIB is actually updated or not depends on the
+    /// current [`CryptarchiaState`].
+    ///
+    /// If the LIB is updated, forks that diverged before the new LIB
+    /// are pruned, and the blocks of the pruned forks are returned.
+    /// as [`PrunedBlocks`].
+    /// Otherwise, an empty [`PrunedBlocks`] is returned.
     fn update_lib(&mut self) -> PrunedBlocks<Id> {
         let new_lib = <State as CryptarchiaState>::lib(&*self);
         // Trigger pruning only if the LIB has changed.

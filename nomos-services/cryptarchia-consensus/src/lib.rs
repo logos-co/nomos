@@ -146,8 +146,12 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
         }
     }
 
-    /// Remove the ledger states of the pruned blocks.
-    pub fn prune_ledger_states(&mut self, pruned_blocks: &PrunedBlocks<HeaderId>) {
+    /// Remove the ledger states associated with blocks that have been pruned by
+    /// the [`cryptarchia_engine::Cryptarchia`].
+    ///
+    /// Details on which blocks are pruned can be found in the
+    /// [`cryptarchia_engine::Cryptarchia::receive_block`].
+    fn prune_ledger_states(&mut self, pruned_blocks: &PrunedBlocks<HeaderId>) {
         let mut pruned_states_count = 0usize;
         for pruned_block in pruned_blocks {
             if self.ledger.prune_state_at(pruned_block) {
