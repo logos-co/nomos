@@ -8,8 +8,12 @@ use crate::handler::edge::edge_core::{
     StateTrait, ToBehaviour, LOG_TARGET,
 };
 
+/// State representing the moment in which a new message is being sent to the
+/// peer.
 pub struct SendingState {
+    /// The message being sent.
     message: Vec<u8>,
+    /// The sending future.
     outbound_message_send_future: MessageSendFuture,
 }
 
@@ -29,13 +33,17 @@ impl From<SendingState> for ConnectionState {
 }
 
 impl StateTrait for SendingState {
+    /// If the sending future completes, we return either the success event to
+    /// the behaviour, or move to the `Dropped` state with the generated error.
     fn poll(mut self, cx: &mut Context<'_>) -> PollResult<ConnectionState> {
         let Poll::Ready(message_send_result) = self.outbound_message_send_future.poll_unpin(cx)
         else {
+            // No wake since the future will wake the waker.
             return (Poll::Pending, self.into());
         };
         if let Err(error) = message_send_result {
             tracing::error!(target: LOG_TARGET, "Failed to send message. Error {error:?}");
+            // We wake here because we want the new error to be consumed.
             cx.waker().wake_by_ref();
             (
                 Poll::Pending,
@@ -43,6 +51,7 @@ impl StateTrait for SendingState {
             )
         } else {
             tracing::trace!(target: LOG_TARGET, "Message sent successfully. Transitioning from `Sending` to `Dropped`.");
+            // We return `Ready`, no need to awake.
             (
                 Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                     ToBehaviour::MessageSuccess(self.message),

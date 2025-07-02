@@ -11,8 +11,13 @@ use crate::handler::edge::core_edge::{
     FailureReason, PollResult, StateTrait, LOG_TARGET,
 };
 
+/// Entrypoint to start receiving a single message from an edge node.
 pub struct StartingState {
+    /// Time after which the connection will be closed. It is started as soon as
+    /// the inbound stream is negotiated.
     connection_timeout: Duration,
+    /// The waker to wake when we need to force a new round of polling to
+    /// progress the state machine.
     waker: Option<Waker>,
 }
 
@@ -32,6 +37,10 @@ impl From<StartingState> for ConnectionState {
 }
 
 impl StateTrait for StartingState {
+    // Moves the state machine to `ReadyToReceive` upon receiving a
+    // `FullyNegotiatedInbound`. In case of `ListenUpgradeError`, the state machine
+    // is moved to the `DroppedState` state (the last state), with the relative
+    // error.
     fn on_connection_event(mut self, event: ConnectionEvent) -> ConnectionState {
         match event {
             ConnectionEvent::FullyNegotiatedInbound(FullyNegotiatedInbound {
@@ -39,8 +48,8 @@ impl StateTrait for StartingState {
                 ..
             }) => {
                 tracing::trace!(target: LOG_TARGET, "Transitioning from `Starting` to `ReadyToReceive`.");
-                // We awake because the new state has the timeout future which must be polled
-                // once.
+                // We wake here because we want the timeout to be polled in order to be
+                // started.
                 if let Some(waker) = self.waker.take() {
                     waker.wake();
                 }
@@ -52,6 +61,7 @@ impl StateTrait for StartingState {
             }
             ConnectionEvent::ListenUpgradeError(error) => {
                 tracing::trace!(target: LOG_TARGET, "Inbound upgrade error: {error:?}");
+                // We wake here because we want the new error to be consumed.
                 if let Some(waker) = self.waker.take() {
                     waker.wake();
                 }
@@ -59,11 +69,13 @@ impl StateTrait for StartingState {
             }
             unprocessed_event => {
                 tracing::trace!(target: LOG_TARGET, "Ignoring connection event {unprocessed_event:?}");
+                // We don't need to wake since nothing really happened here.
                 self.into()
             }
         }
     }
 
+    // No state machine changes in here.
     fn poll(mut self, cx: &mut Context<'_>) -> PollResult<ConnectionState> {
         self.waker = Some(cx.waker().clone());
         (Poll::Pending, self.into())
