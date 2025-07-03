@@ -34,7 +34,7 @@ impl DeclarationsRepository for LedgerDeclarationAdapter {
 
     async fn check_nonce(
         &self,
-        _provider_id: nomos_sdp_core::ProviderId,
+        _declaration_id: nomos_sdp_core::DeclarationId,
         _nonce: nomos_sdp_core::Nonce,
     ) -> Result<(), DeclarationsRepositoryError> {
         todo!()

@@ -161,7 +161,7 @@ mod tests {
     use nomos_core::block::BlockNumber;
     use nomos_sdp_core::{
         DeclarationId, DeclarationInfo, DeclarationMessage, DeclarationState, FinalizedBlockEvent,
-        FinalizedBlockEventUpdate, Locator, ProviderId, RewardAddress, ServiceType,
+        FinalizedBlockEventUpdate, Locator, ProviderId, ServiceType, ZkPublicKey,
     };
 
     use super::{
@@ -192,7 +192,7 @@ mod tests {
                 service_type: ServiceType::DataAvailability,
                 locators: Vec::new(),
                 provider_id: create_provider_id(seed),
-                reward_address: RewardAddress([0; 32]),
+                zk_id: ZkPublicKey([0; 32]),
             },
         )
     }
@@ -213,14 +213,14 @@ mod tests {
         let locators = (0..num_locators)
             .map(|i| create_locator(seed + i as u8))
             .collect();
-        let reward_address = RewardAddress([0; 32]);
+        let zk_id = ZkPublicKey([0; 32]);
 
         DeclarationInfo {
             id: create_declaration_id(seed),
             provider_id: create_provider_id(seed),
             service: service_type,
             locators,
-            reward_address,
+            zk_id,
             created: 0,
             active: Some(1),
             withdrawn: None,
