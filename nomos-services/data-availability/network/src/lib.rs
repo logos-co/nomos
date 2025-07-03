@@ -308,6 +308,8 @@ where
                         );
                     });
                 } else {
+                    // todo: handle errors properly when the usage of this function is known
+                    // now we are just logging and returning an empty assignations
                     tracing::warn!("No membership found for block number {block_number}");
                     sender.send(SubnetworkAssignations::default()).unwrap_or_else(|_| {
                         tracing::warn!(
