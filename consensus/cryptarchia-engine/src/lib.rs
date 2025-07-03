@@ -348,7 +348,7 @@ where
     ) -> Result<(Self, PrunedBlocks<Id>), Error<Id>> {
         // Check if the block is a descendant of the LIB,
         // by checking if parent.height >= LIB.height.
-        // This works because all forks diverged before LIB has been pruned.
+        // This works because all forks diverged before LIB have been pruned.
         let parent_branch = self
             .branches
             .get(&parent)
