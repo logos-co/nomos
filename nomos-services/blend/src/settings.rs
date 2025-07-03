@@ -95,17 +95,17 @@ impl TimingSettings {
     }
 }
 
-impl<BackendSettings, BackendNodeId> BlendConfig<BackendSettings, BackendNodeId>
+impl<BackendSettings, NodeId> BlendConfig<BackendSettings, NodeId>
 where
-    BackendNodeId: Clone,
+    NodeId: Clone,
 {
-    pub(super) fn membership(&self) -> Membership<BackendNodeId> {
+    pub(super) fn membership(&self) -> Membership<NodeId> {
         let local_signing_pubkey = self.crypto.signing_private_key.public_key();
         Membership::new(self.membership.clone(), &local_signing_pubkey)
     }
 }
 
-impl<BackendSettings, BackendNodeId> BlendConfig<BackendSettings, BackendNodeId> {
+impl<BackendSettings, NodeId> BlendConfig<BackendSettings, NodeId> {
     pub(super) fn session_stream(&self) -> impl Stream<Item = SessionInfo> {
         let membership_size = self.membership.len() + 1;
         let static_quota_for_membership =

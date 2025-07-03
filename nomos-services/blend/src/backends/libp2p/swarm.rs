@@ -128,6 +128,7 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
 impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng>
 where
     Rng: RngCore,
+    SessionStream: Stream<Item = Membership<PeerId>> + Unpin,
 {
     pub(super) async fn run(mut self) {
         loop {
@@ -137,6 +138,10 @@ where
                 }
                 Some(event) = self.swarm.next() => {
                     self.handle_event(event);
+                }
+                Some(new_session_info) = self.session_stream.next() => {
+                    self.latest_session_info = new_session_info;
+                    // TODO: Perform the session transition logic
                 }
             }
         }

@@ -84,8 +84,8 @@ where
         + Clone
         + Debug
         + Display
-        + Send
         + Sync
+        + Send
         + 'static,
 {
     fn init(
