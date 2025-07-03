@@ -202,13 +202,11 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
         let assignations_key = key_bytes(DA_ASSIGNATIONS_PREFIX, block_bytes);
         let addressbook_key = key_bytes(DA_ADDRESSBOOK_PREFIX, block_bytes);
 
-        // Load both pieces of data
         let assignations_bytes = self.load(&assignations_key).await?;
         let addressbook_bytes = self.load(&addressbook_key).await?;
 
         match (assignations_bytes, addressbook_bytes) {
             (Some(assignations_data), Some(addressbook_data)) => {
-                // Deserialize both - follow existing pattern with unwrap_or_else
                 let assignations = SerdeOp::deserialize::<
                     HashMap<Self::NetworkId, HashSet<Self::Id>>,
                 >(assignations_data)
@@ -237,7 +235,6 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
                 Ok((assignations, addressbook))
             }
             (None, None) => {
-                // No data found for this block number
                 debug!("No membership data found for block {}", block_number);
                 Ok((HashMap::new(), HashMap::new()))
             }
