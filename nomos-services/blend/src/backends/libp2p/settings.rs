@@ -1,3 +1,4 @@
+use core::time::Duration;
 use std::num::NonZeroU64;
 
 use libp2p::Multiaddr;
@@ -6,6 +7,7 @@ use nomos_utils::math::NonNegativeF64;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde_with::serde_as]
 pub struct Libp2pBlendBackendSettings {
     pub listening_address: Multiaddr,
     // A key for deriving PeerId and establishing secure connections (TLS 1.3 by QUIC)
@@ -18,4 +20,8 @@ pub struct Libp2pBlendBackendSettings {
     pub max_peering_degree: u32,
     pub minimum_messages_coefficient: NonZeroU64,
     pub normalization_constant: NonNegativeF64,
+    #[serde_as(
+        as = "nomos_utils::bounded_duration::MinimalBoundedDuration<1, nomos_utils::bounded_duration::SECOND>"
+    )]
+    pub edge_node_connection_timeout: Duration,
 }

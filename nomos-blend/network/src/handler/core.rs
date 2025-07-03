@@ -1,11 +1,10 @@
-use std::{
-    collections::VecDeque,
-    io,
+use core::{
     ops::RangeInclusive,
     task::{Context, Poll, Waker},
 };
+use std::{collections::VecDeque, io};
 
-use futures::{future::BoxFuture, AsyncReadExt as _, AsyncWriteExt as _, FutureExt as _};
+use futures::{future::BoxFuture, FutureExt as _};
 use libp2p::{
     core::upgrade::ReadyUpgrade,
     swarm::{
@@ -17,7 +16,10 @@ use libp2p::{
     Stream, StreamProtocol,
 };
 
-use crate::conn_maintenance::{ConnectionMonitor, ConnectionMonitorOutput};
+use crate::{
+    conn_maintenance::{ConnectionMonitor, ConnectionMonitorOutput},
+    handler::{recv_msg, send_msg, PROTOCOL_NAME},
+};
 
 // Metrics
 const VALUE_FULLY_NEGOTIATED_INBOUND: &str = "fully_negotiated_inbound";
@@ -25,9 +27,7 @@ const VALUE_FULLY_NEGOTIATED_OUTBOUND: &str = "fully_negotiated_outbound";
 const VALUE_DIAL_UPGRADE_ERROR: &str = "dial_upgrade_error";
 const VALUE_IGNORED: &str = "ignored";
 
-const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/nomos/blend/0.1.0");
-
-pub struct BlendConnectionHandler<ConnectionWindowClock> {
+pub struct CoreToCoreBlendConnectionHandler<ConnectionWindowClock> {
     inbound_substream: Option<InboundSubstreamState>,
     outbound_substream: Option<OutboundSubstreamState>,
     outbound_msgs: VecDeque<Vec<u8>>,
@@ -57,7 +57,7 @@ enum OutboundSubstreamState {
     Dropped,
 }
 
-impl<ConnectionWindowClock> BlendConnectionHandler<ConnectionWindowClock> {
+impl<ConnectionWindowClock> CoreToCoreBlendConnectionHandler<ConnectionWindowClock> {
     pub const fn new(monitor: ConnectionMonitor<ConnectionWindowClock>) -> Self {
         Self {
             inbound_substream: None,
@@ -126,7 +126,8 @@ pub enum ToBehaviour {
     IOError(io::Error),
 }
 
-impl<ConnectionWindowClock> ConnectionHandler for BlendConnectionHandler<ConnectionWindowClock>
+impl<ConnectionWindowClock> ConnectionHandler
+    for CoreToCoreBlendConnectionHandler<ConnectionWindowClock>
 where
     ConnectionWindowClock: futures::Stream<Item = RangeInclusive<u64>> + Unpin + Send + 'static,
 {
@@ -361,32 +362,4 @@ where
         tracing::info!(counter.connection_event = 1, event = event_name);
         self.try_wake();
     }
-}
-
-/// Write a message to the stream
-async fn send_msg(mut stream: Stream, msg: Vec<u8>) -> io::Result<Stream> {
-    let msg_len: u16 = msg.len().try_into().map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!(
-                "Message length is too big. Got {}, expected {}",
-                msg.len(),
-                size_of::<u16>()
-            ),
-        )
-    })?;
-    stream.write_all(msg_len.to_be_bytes().as_ref()).await?;
-    stream.write_all(&msg).await?;
-    stream.flush().await?;
-    Ok(stream)
-}
-/// Read a message from the stream
-async fn recv_msg(mut stream: Stream) -> io::Result<(Stream, Vec<u8>)> {
-    let mut msg_len = [0; size_of::<u16>()];
-    stream.read_exact(&mut msg_len).await?;
-    let msg_len = u16::from_be_bytes(msg_len) as usize;
-
-    let mut buf = vec![0; msg_len];
-    stream.read_exact(&mut buf).await?;
-    Ok((stream, buf))
 }

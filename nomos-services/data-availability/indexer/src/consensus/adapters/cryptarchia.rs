@@ -1,4 +1,4 @@
-use cryptarchia_consensus::ConsensusMsg;
+use chain_service::ConsensusMsg;
 use futures::Stream;
 use nomos_core::block::Block;
 use overwatch::services::relay::OutboundRelay;

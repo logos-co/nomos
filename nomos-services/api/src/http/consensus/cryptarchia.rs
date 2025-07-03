@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 
-use cryptarchia_consensus::{
+use chain_service::{
     blend::adapters::libp2p::LibP2pAdapter as BlendAdapter,
     network::adapters::libp2p::LibP2pAdapter as ConsensusNetworkAdapter, ConsensusMsg,
     CryptarchiaConsensus, CryptarchiaInfo,

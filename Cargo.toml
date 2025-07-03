@@ -25,7 +25,7 @@ members = [
   "nomos-sdp",
   "nomos-services/api",
   "nomos-services/blend",
-  "nomos-services/cryptarchia-consensus",
+  "nomos-services/chain-service",
   "nomos-services/data-availability/dispersal",
   "nomos-services/data-availability/indexer",
   "nomos-services/data-availability/network",
@@ -52,9 +52,9 @@ resolver = "2"
 # Internal
 bundler                  = { path = "./nomos-bundler" }
 cfgsync                  = { path = "./testnet/cfgsync" }
+chain-service            = { path = "./nomos-services/chain-service" }
 cl                       = { path = "./nomos-core/cl" }
 common-http-client       = { path = "./nodes/nomos-node/http-client" }
-cryptarchia-consensus    = { path = "./nomos-services/cryptarchia-consensus" }
 cryptarchia-engine       = { path = "./consensus/cryptarchia-engine" }
 cryptarchia-sync         = { path = "./consensus/cryptarchia-sync" }
 executor-http-client     = { path = "./nodes/nomos-executor/http-client" }

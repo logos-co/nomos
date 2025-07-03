@@ -153,6 +153,7 @@ where
         + 'static,
     Backend::State: Send + Sync,
     Membership: MembershipCreator + Clone + Send + Sync + 'static,
+    Membership: MembershipCreator + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync,
     Membership::NetworkId: Send,
     MembershipServiceAdapter: MembershipAdapter<Id = Membership::Id> + Send + Sync + 'static,
@@ -300,6 +301,8 @@ where
                 block_number,
                 sender,
             } => {
+                // todo: handle errors properly when the usage of this function is known
+                // now we are just logging and returning an empty assignations
                 if let Some(membership) = membership_storage
                     .get_historic_membership(block_number)
                     .await

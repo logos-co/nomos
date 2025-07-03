@@ -2,9 +2,11 @@ use std::{
     collections::{HashMap, VecDeque},
     ops::RangeInclusive,
     task::{Context, Poll, Waker},
+    time::Duration,
 };
 
 use cached::{Cached as _, SizedCache};
+use either::Either;
 use futures::Stream;
 use libp2p::{
     core::{transport::PortUse, Endpoint},
@@ -14,12 +16,17 @@ use libp2p::{
     },
     Multiaddr, PeerId,
 };
+use nomos_blend_scheduling::membership::Membership;
 use sha2::{Digest as _, Sha256};
 
 use crate::{
     conn_maintenance::ConnectionMonitor,
     error::Error,
-    handler::{BlendConnectionHandler, FromBehaviour, ToBehaviour},
+    handler::{
+        core::{FromBehaviour, ToBehaviour},
+        edge::{core_edge, CoreToEdgeBlendConnectionHandler},
+        CoreToCoreBlendConnectionHandler,
+    },
 };
 
 /// A [`NetworkBehaviour`]:
@@ -28,7 +35,7 @@ use crate::{
 pub struct Behaviour<ObservationWindowClockProvider> {
     negotiated_peers: HashMap<PeerId, NegotiatedPeerState>,
     /// Queue of events to yield to the swarm.
-    events: VecDeque<ToSwarm<Event, FromBehaviour>>,
+    events: VecDeque<ToSwarm<Event, Either<FromBehaviour, ()>>>,
     /// Waker that handles polling
     waker: Option<Waker>,
     /// An LRU cache for storing seen messages (based on their ID). This
@@ -39,6 +46,9 @@ pub struct Behaviour<ObservationWindowClockProvider> {
     //       because keys and nullifiers are valid during a single session.
     seen_message_cache: SizedCache<Vec<u8>, ()>,
     observation_window_clock_provider: ObservationWindowClockProvider,
+    // TODO: Replace with the session stream and make this a non-Option
+    current_membership: Option<Membership<PeerId>>,
+    edge_node_connection_duration: Duration,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -70,6 +80,8 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     pub fn new(
         config: &Config,
         observation_window_clock_provider: ObservationWindowClockProvider,
+        current_membership: Option<Membership<PeerId>>,
+        edge_node_connection_duration: Duration,
     ) -> Self {
         let duplicate_cache = SizedCache::with_size(config.seen_message_cache_size);
         Self {
@@ -78,6 +90,8 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             waker: None,
             seen_message_cache: duplicate_cache,
             observation_window_clock_provider,
+            current_membership,
+            edge_node_connection_duration,
         }
     }
 
@@ -121,7 +135,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
                 self.events.push_back(ToSwarm::NotifyHandler {
                     peer_id: *peer_id,
                     handler: NotifyHandler::Any,
-                    event: FromBehaviour::Message(message.to_vec()),
+                    event: Either::Left(FromBehaviour::Message(message.to_vec())),
                 });
                 num_peers += 1;
             });
@@ -153,18 +167,44 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             waker.wake();
         }
     }
+
+    fn handle_received_message(&mut self, message: Vec<u8>, from: Option<PeerId>) {
+        // Add the message to the cache. If it was already seen, ignore it.
+        if self
+            .seen_message_cache
+            .cache_set(Self::message_id(&message), ())
+            .is_some()
+        {
+            return;
+        }
+
+        // Forward the message immediately to the rest of connected peers
+        // without any processing for the fast propagation.
+        if let Err(e) = self.forward_message(&message, from) {
+            tracing::error!("Failed to forward message: {e:?}");
+        }
+
+        // Notify the swarm about the received message,
+        // so that it can be processed by the core protocol module.
+        self.events
+            .push_back(ToSwarm::GenerateEvent(Event::Message(message)));
+    }
 }
 
 impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider>
 where
     ObservationWindowClockProvider: IntervalStreamProvider<IntervalItem = RangeInclusive<u64>>,
 {
-    fn create_connection_handler(
+    fn create_connection_handler_for_remote_core(
         &self,
-    ) -> BlendConnectionHandler<ObservationWindowClockProvider::IntervalStream> {
-        BlendConnectionHandler::new(ConnectionMonitor::new(
+    ) -> CoreToCoreBlendConnectionHandler<ObservationWindowClockProvider::IntervalStream> {
+        CoreToCoreBlendConnectionHandler::new(ConnectionMonitor::new(
             self.observation_window_clock_provider.interval_stream(),
         ))
+    }
+
+    fn create_connection_handler_for_remote_edge(&self) -> CoreToEdgeBlendConnectionHandler {
+        CoreToEdgeBlendConnectionHandler::new(self.edge_node_connection_duration)
     }
 }
 
@@ -173,28 +213,57 @@ where
     ObservationWindowClockProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {
-    type ConnectionHandler = BlendConnectionHandler<ObservationWindowClockProvider::IntervalStream>;
+    type ConnectionHandler = Either<
+        CoreToCoreBlendConnectionHandler<ObservationWindowClockProvider::IntervalStream>,
+        CoreToEdgeBlendConnectionHandler,
+    >;
     type ToSwarm = Event;
 
     fn handle_established_inbound_connection(
         &mut self,
         _: ConnectionId,
-        _: PeerId,
+        peer_id: PeerId,
         _: &Multiaddr,
         _: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        Ok(self.create_connection_handler())
+        // If no membership is provided (for tests), then we assume all peers are core
+        // nodes.
+        let Some(membership) = &self.current_membership else {
+            return Ok(Either::Left(
+                self.create_connection_handler_for_remote_core(),
+            ));
+        };
+        Ok(if membership.contains_remote(&peer_id) {
+            Either::Left(self.create_connection_handler_for_remote_core())
+        } else {
+            Either::Right(self.create_connection_handler_for_remote_edge())
+        })
     }
 
     fn handle_established_outbound_connection(
         &mut self,
         _: ConnectionId,
-        _: PeerId,
+        peer_id: PeerId,
         _: &Multiaddr,
         _: Endpoint,
         _: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        Ok(self.create_connection_handler())
+        // If no membership is provided (for tests), then we assume all peers are core
+        // nodes.
+        let Some(membership) = &self.current_membership else {
+            return Ok(Either::Left(
+                self.create_connection_handler_for_remote_core(),
+            ));
+        };
+        if membership.contains_remote(&peer_id) {
+            Ok(Either::Left(
+                self.create_connection_handler_for_remote_core(),
+            ))
+        } else {
+            Err(ConnectionDenied::new(
+                "No outbound stream is expected toward edge nodes.",
+            ))
+        }
     }
 
     /// Informs the behaviour about an event from the [`Swarm`].
@@ -232,76 +301,72 @@ where
         event: THandlerOutEvent<Self>,
     ) {
         match event {
-            // A message was forwarded from the peer.
-            ToBehaviour::Message(message) => {
-                // Add the message to the cache. If it was already seen, ignore it.
-                if self
-                    .seen_message_cache
-                    .cache_set(Self::message_id(&message), ())
-                    .is_some()
-                {
-                    return;
+            Either::Left(event) => match event {
+                // A message was forwarded from the peer.
+                ToBehaviour::Message(message) => {
+                    self.handle_received_message(message, Some(peer_id));
                 }
-
-                // Forward the message immediately to the rest of connected peers
-                // without any processing for the fast propagation.
-                if let Err(e) = self.forward_message(&message, Some(peer_id)) {
-                    tracing::error!("Failed to forward message: {e:?}");
+                // The inbound/outbound connection was fully negotiated by the peer,
+                // which means that the peer supports the blend protocol.
+                ToBehaviour::FullyNegotiatedInbound | ToBehaviour::FullyNegotiatedOutbound => {
+                    self.negotiated_peers
+                        .insert(peer_id, NegotiatedPeerState::Healthy);
                 }
-
-                // Notify the swarm about the received message,
-                // so that it can be processed by the core protocol module.
-                self.events
-                    .push_back(ToSwarm::GenerateEvent(Event::Message(message)));
-            }
-            // The inbound/outbound connection was fully negotiated by the peer,
-            // which means that the peer supports the blend protocol.
-            ToBehaviour::FullyNegotiatedInbound | ToBehaviour::FullyNegotiatedOutbound => {
-                self.negotiated_peers
-                    .insert(peer_id, NegotiatedPeerState::Healthy);
-            }
-            ToBehaviour::DialUpgradeError(_) => {
-                self.negotiated_peers.remove(&peer_id);
-            }
-            ToBehaviour::SpammyPeer => {
-                // Notify swarm only if it's the first occurrence.
-                if self.negotiated_peers.remove(&peer_id).is_some() {
-                    tracing::debug!("Peer {:?} has been detected as spammy", peer_id);
-                    self.events
-                        .push_back(ToSwarm::GenerateEvent(Event::SpammyPeer(peer_id)));
+                ToBehaviour::DialUpgradeError(_) => {
+                    self.negotiated_peers.remove(&peer_id);
                 }
-            }
-            ToBehaviour::UnhealthyPeer => {
-                // Notify swarm only if it's the first transition into the unhealthy state.
-                let previous_state = self
-                    .negotiated_peers
-                    .insert(peer_id, NegotiatedPeerState::Unhealthy);
-                if matches!(previous_state, None | Some(NegotiatedPeerState::Healthy)) {
-                    tracing::debug!("Peer {:?} has been detected as unhealthy", peer_id);
-                    self.events
-                        .push_back(ToSwarm::GenerateEvent(Event::UnhealthyPeer(peer_id)));
+                ToBehaviour::SpammyPeer => {
+                    // Notify swarm only if it's the first occurrence.
+                    if self.negotiated_peers.remove(&peer_id).is_some() {
+                        tracing::debug!("Peer {:?} has been detected as spammy", peer_id);
+                        self.events
+                            .push_back(ToSwarm::GenerateEvent(Event::SpammyPeer(peer_id)));
+                    }
                 }
-            }
-            ToBehaviour::HealthyPeer => {
-                // Notify swarm only if it's the first transition into the healthy state.
-                let previous_state = self
-                    .negotiated_peers
-                    .insert(peer_id, NegotiatedPeerState::Healthy);
-                if matches!(previous_state, None | Some(NegotiatedPeerState::Unhealthy)) {
-                    tracing::debug!("Peer {:?} has been detected as healthy", peer_id);
-                    self.events
-                        .push_back(ToSwarm::GenerateEvent(Event::HealthyPeer(peer_id)));
+                ToBehaviour::UnhealthyPeer => {
+                    // Notify swarm only if it's the first transition into the unhealthy state.
+                    let previous_state = self
+                        .negotiated_peers
+                        .insert(peer_id, NegotiatedPeerState::Unhealthy);
+                    if matches!(previous_state, None | Some(NegotiatedPeerState::Healthy)) {
+                        tracing::debug!("Peer {:?} has been detected as unhealthy", peer_id);
+                        self.events
+                            .push_back(ToSwarm::GenerateEvent(Event::UnhealthyPeer(peer_id)));
+                    }
                 }
-            }
-            ToBehaviour::IOError(error) => {
-                self.negotiated_peers.remove(&peer_id);
-                self.events
-                    .push_back(ToSwarm::GenerateEvent(Event::Error(Error::PeerIOError {
-                        error,
-                        peer_id,
-                        connection_id,
-                    })));
-            }
+                ToBehaviour::HealthyPeer => {
+                    // Notify swarm only if it's the first transition into the healthy state.
+                    let previous_state = self
+                        .negotiated_peers
+                        .insert(peer_id, NegotiatedPeerState::Healthy);
+                    if matches!(previous_state, None | Some(NegotiatedPeerState::Unhealthy)) {
+                        tracing::debug!("Peer {:?} has been detected as healthy", peer_id);
+                        self.events
+                            .push_back(ToSwarm::GenerateEvent(Event::HealthyPeer(peer_id)));
+                    }
+                }
+                ToBehaviour::IOError(error) => {
+                    self.negotiated_peers.remove(&peer_id);
+                    self.events.push_back(ToSwarm::GenerateEvent(Event::Error(
+                        Error::PeerIOError {
+                            error,
+                            peer_id,
+                            connection_id,
+                        },
+                    )));
+                }
+            },
+            Either::Right(event) => match event {
+                // We "shuffle" together messages received from core and edge nodes.
+                // The difference is that for messages received by edge nodes, we forward them to
+                // all connected core nodes.
+                core_edge::ToBehaviour::Message(new_message) => {
+                    self.handle_received_message(new_message, None);
+                }
+                core_edge::ToBehaviour::FailedReception(reason) => {
+                    tracing::trace!("An attempt was made from an edge node to send a message to us, but the attempt failed. Error reason: {reason:?}");
+                }
+            },
         }
 
         self.try_wake();

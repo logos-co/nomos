@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use cryptarchia_consensus::{CryptarchiaInfo, CryptarchiaSettings};
+use chain_service::{CryptarchiaInfo, CryptarchiaSettings};
 use cryptarchia_engine::time::SlotConfig;
 use kzgrs_backend::common::share::DaShare;
 use nomos_api::http::membership::MembershipUpdateRequest;
@@ -357,16 +357,14 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
             transaction_selector_settings: (),
             blob_selector_settings: (),
             network_adapter_settings:
-                cryptarchia_consensus::network::adapters::libp2p::LibP2pAdapterSettings {
+                chain_service::network::adapters::libp2p::LibP2pAdapterSettings {
                     topic: String::from(nomos_node::CONSENSUS_TOPIC),
                 },
-            blend_adapter_settings:
-                cryptarchia_consensus::blend::adapters::libp2p::LibP2pAdapterSettings {
-                    broadcast_settings:
-                        nomos_blend_service::network::libp2p::Libp2pBroadcastSettings {
-                            topic: String::from(nomos_node::CONSENSUS_TOPIC),
-                        },
+            blend_adapter_settings: chain_service::blend::adapters::libp2p::LibP2pAdapterSettings {
+                broadcast_settings: nomos_blend_service::network::libp2p::Libp2pBroadcastSettings {
+                    topic: String::from(nomos_node::CONSENSUS_TOPIC),
                 },
+            },
             recovery_file: PathBuf::from("./recovery/cryptarchia.json"),
         },
         da_network: DaNetworkConfig {

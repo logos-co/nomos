@@ -77,8 +77,8 @@ pub type DaIndexer<
     IndexerStorageAdapter<SS, V, DaStorageConverter>,
     CryptarchiaConsensusAdapter<Tx, V>,
     // Cryptarchia specific, should be the same as in `Cryptarchia` type above.
-    cryptarchia_consensus::network::adapters::libp2p::LibP2pAdapter<Tx, V, RuntimeServiceId>,
-    cryptarchia_consensus::blend::adapters::libp2p::LibP2pAdapter<
+    chain_service::network::adapters::libp2p::LibP2pAdapter<Tx, V, RuntimeServiceId>,
+    chain_service::blend::adapters::libp2p::LibP2pAdapter<
         BlendNetworkAdapter<RuntimeServiceId>,
         Tx,
         V,

@@ -1,4 +1,4 @@
-use cryptarchia_consensus::CryptarchiaConsensus;
+use chain_service::CryptarchiaConsensus;
 use kzgrs_backend::{
     common::share::DaShare,
     dispersal::{BlobInfo, Metadata},
@@ -51,12 +51,12 @@ pub type DaIndexerService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> =
         >,
         CryptarchiaConsensusAdapter<SignedMantleTx, BlobInfo>,
         // Cryptarchia specific, should be the same as in `Cryptarchia` type above.
-        cryptarchia_consensus::network::adapters::libp2p::LibP2pAdapter<
+        chain_service::network::adapters::libp2p::LibP2pAdapter<
             SignedMantleTx,
             BlobInfo,
             RuntimeServiceId,
         >,
-        cryptarchia_consensus::blend::adapters::libp2p::LibP2pAdapter<
+        chain_service::blend::adapters::libp2p::LibP2pAdapter<
             nomos_blend_service::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
             SignedMantleTx,
             BlobInfo,
@@ -159,12 +159,12 @@ pub type DaMempoolService<DaSamplingNetwork, VerifierNetwork, RuntimeServiceId> 
 
 pub type CryptarchiaService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> =
     CryptarchiaConsensus<
-        cryptarchia_consensus::network::adapters::libp2p::LibP2pAdapter<
+        chain_service::network::adapters::libp2p::LibP2pAdapter<
             SignedMantleTx,
             BlobInfo,
             RuntimeServiceId,
         >,
-        cryptarchia_consensus::blend::adapters::libp2p::LibP2pAdapter<
+        chain_service::blend::adapters::libp2p::LibP2pAdapter<
             nomos_blend_service::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
             SignedMantleTx,
             BlobInfo,
