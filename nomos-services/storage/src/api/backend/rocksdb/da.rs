@@ -239,12 +239,10 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
                 Ok((HashMap::new(), HashMap::new()))
             }
             _ => {
-                // Partial data - log error but return what we can
                 error!(
                 "Inconsistent membership data for block {}: missing assignations or addressbook", 
                 block_number
             );
-                // Return empty maps like we do for missing data
                 Ok((HashMap::new(), HashMap::new()))
             }
         }
