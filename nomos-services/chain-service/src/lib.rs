@@ -825,6 +825,7 @@ where
                         .slot(),
                     height: cryptarchia
                         .consensus
+                        .branches()
                         .get(&cryptarchia.tip())
                         .expect("tip branch not available")
                         .length(),
@@ -849,7 +850,8 @@ where
                 let mut res = Vec::new();
                 let mut cur = from;
 
-                while let Some(h) = cryptarchia.consensus.get(&cur) {
+                let branches = cryptarchia.consensus.branches();
+                while let Some(h) = branches.get(&cur) {
                     res.push(h.id());
                     // limit the response size
                     if cur == to || cur == cryptarchia.lib() || res.len() >= HEADERS_LIMIT {
