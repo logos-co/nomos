@@ -322,7 +322,7 @@ mod tests {
         pub fn add_declaration(
             &mut self,
             provider_id: ProviderId,
-            reward_address: RewardAddress,
+            zk_id: ZkPublicKey,
             service_type: ServiceType,
             locators: Vec<Locator>,
             should_pass: bool,
@@ -332,7 +332,7 @@ mod tests {
                     service_type,
                     locators,
                     provider_id,
-                    reward_address,
+                    zk_id,
                 }),
                 should_pass,
             ));
@@ -378,7 +378,7 @@ mod tests {
 
     // Block Operation, short for better formatting.
     enum BOp {
-        Dec(ProviderId, RewardAddress, ServiceType, Vec<Locator>),
+        Dec(ProviderId, ZkPublicKey, ServiceType, Vec<Locator>),
         Act(ProviderId, DeclarationId, ServiceType),
         Wit(ProviderId, DeclarationId, ServiceType),
     }
@@ -386,15 +386,13 @@ mod tests {
     impl BOp {
         fn declaration_id(&self) -> DeclarationId {
             match self {
-                Self::Dec(provider_id, reward_address, service_type, locators) => {
-                    DeclarationMessage {
-                        service_type: *service_type,
-                        locators: locators.clone(),
-                        provider_id: *provider_id,
-                        reward_address: *reward_address,
-                    }
-                    .declaration_id()
+                Self::Dec(provider_id, zk_id, service_type, locators) => DeclarationMessage {
+                    service_type: *service_type,
+                    locators: locators.clone(),
+                    provider_id: *provider_id,
+                    zk_id: *zk_id,
                 }
+                .declaration_id(),
                 Self::Act(_, _, _) => panic!(),
                 Self::Wit(_, _, _) => panic!(),
             }
@@ -411,8 +409,8 @@ mod tests {
                 let mut block = MockBlock::default();
                 for (op, should_pass) in ops {
                     match op {
-                        BOp::Dec(pid, reward_addr, service, locators) => {
-                            block.add_declaration(pid, reward_addr, service, locators, should_pass);
+                        BOp::Dec(pid, zk_id, service, locators) => {
+                            block.add_declaration(pid, zk_id, service, locators, should_pass);
                         }
                         BOp::Act(pid, did, service) => {
                             block.add_activity(pid, did, service, should_pass);
@@ -530,12 +528,12 @@ mod tests {
     async fn test_process_declare_message() {
         let (mut ledger, _, _) = setup_ledger();
         let provider_id = ProviderId([0u8; 32]);
-        let reward_address = RewardAddress([0u8; 32]);
+        let zk_id = ZkPublicKey([0u8; 32]);
         let declaration_message = DeclarationMessage {
             service_type: ServiceType::BlendNetwork,
             locators: vec![],
             provider_id,
-            reward_address,
+            zk_id,
         };
 
         let result = ledger
@@ -553,12 +551,12 @@ mod tests {
     async fn test_process_activity_message() {
         let (mut ledger, declaration_repo, _) = setup_ledger();
         let provider_id = ProviderId([0u8; 32]);
-        let reward_address = RewardAddress([0u8; 32]);
+        let zk_id = ZkPublicKey([0u8; 32]);
         let declaration_message = DeclarationMessage {
             service_type: ServiceType::BlendNetwork,
             locators: vec![],
             provider_id,
-            reward_address,
+            zk_id,
         };
         let declaration_id = declaration_message.declaration_id();
 
@@ -592,13 +590,13 @@ mod tests {
     async fn test_process_withdraw_message() {
         let (mut ledger, declaration_repo, _) = setup_ledger();
         let provider_id = ProviderId([0u8; 32]);
-        let reward_address = RewardAddress([0u8; 32]);
+        let zk_id = ZkPublicKey([0u8; 32]);
 
         let declaration_message = DeclarationMessage {
             service_type: ServiceType::BlendNetwork,
             locators: vec![],
             provider_id,
-            reward_address,
+            zk_id,
         };
         let declaration_id = declaration_message.declaration_id();
 
@@ -631,12 +629,12 @@ mod tests {
     async fn test_duplicate_declaration() {
         let (mut ledger, _, _) = setup_ledger();
         let provider_id = ProviderId([0u8; 32]);
-        let reward_address = RewardAddress([0u8; 32]);
+        let zk_id = ZkPublicKey([0u8; 32]);
         let declaration_message = DeclarationMessage {
             service_type: ServiceType::BlendNetwork,
             locators: vec![],
             provider_id,
-            reward_address,
+            zk_id,
         };
 
         let result1 = ledger
@@ -655,10 +653,10 @@ mod tests {
         let (mut ledger, declarations_repo, _) = setup_ledger();
         let pid = ProviderId([0; 32]);
         let locators = vec![Locator(multiaddr!(Ip4([1, 2, 3, 4]), Udp(5678u16)))];
-        let reward_addr = RewardAddress([1; 32]);
+        let zk_id = ZkPublicKey([1; 32]);
 
-        let declaration_a = BOp::Dec(pid, reward_addr, St::BlendNetwork, locators.clone());
-        let declaration_b = BOp::Dec(pid, reward_addr, St::DataAvailability, locators.clone());
+        let declaration_a = BOp::Dec(pid, zk_id, St::BlendNetwork, locators.clone());
+        let declaration_b = BOp::Dec(pid, zk_id, St::DataAvailability, locators.clone());
         let d1 = declaration_a.declaration_id();
         let d2 = declaration_b.declaration_id();
 
@@ -703,7 +701,7 @@ mod tests {
                 withdrawn: Some(30),
                 service: ServiceType::BlendNetwork,
                 locators: locators.clone(),
-                reward_address: reward_addr,
+                zk_id,
             }
         );
 
@@ -718,7 +716,7 @@ mod tests {
                 withdrawn: Some(30),
                 service: ServiceType::DataAvailability,
                 locators,
-                reward_address: reward_addr,
+                zk_id,
             }
         );
     }
@@ -729,10 +727,10 @@ mod tests {
         let p1 = ProviderId([0; 32]);
         let p2 = ProviderId([1; 32]);
         let locators = vec![Locator(multiaddr!(Ip4([1, 2, 3, 4]), Udp(5678u16)))];
-        let reward_addr = RewardAddress([1; 32]);
+        let zk_id = ZkPublicKey([1; 32]);
 
-        let declaration_a = BOp::Dec(p1, reward_addr, St::BlendNetwork, locators.clone());
-        let declaration_b = BOp::Dec(p2, reward_addr, St::DataAvailability, locators.clone());
+        let declaration_a = BOp::Dec(p1, zk_id, St::BlendNetwork, locators.clone());
+        let declaration_b = BOp::Dec(p2, zk_id, St::DataAvailability, locators.clone());
         let d1 = declaration_a.declaration_id();
         let d2 = declaration_b.declaration_id();
 
@@ -778,7 +776,7 @@ mod tests {
                 withdrawn: None,
                 service: ServiceType::BlendNetwork,
                 locators: locators.clone(),
-                reward_address: reward_addr,
+                zk_id,
             }
         );
 
@@ -793,7 +791,7 @@ mod tests {
                 withdrawn: None,
                 service: ServiceType::DataAvailability,
                 locators,
-                reward_address: reward_addr,
+                zk_id,
             }
         );
     }

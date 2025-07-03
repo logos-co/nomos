@@ -100,7 +100,7 @@ pub struct ActivityId(pub [u8; 32]);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct RewardAddress(pub [u8; 32]);
+pub struct ZkPublicKey(pub [u8; 32]);
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct DeclarationInfo {
@@ -108,7 +108,7 @@ pub struct DeclarationInfo {
     pub provider_id: ProviderId,
     pub service: ServiceType,
     pub locators: Vec<Locator>,
-    pub reward_address: RewardAddress,
+    pub zk_id: ZkPublicKey,
     pub created: BlockNumber,
     pub active: Option<BlockNumber>,
     pub withdrawn: Option<BlockNumber>,
@@ -122,7 +122,7 @@ impl DeclarationInfo {
             provider_id: msg.provider_id,
             service: msg.service_type,
             locators: msg.locators,
-            reward_address: msg.reward_address,
+            zk_id: msg.zk_id,
             created,
             active: None,
             withdrawn: None,
@@ -142,7 +142,7 @@ pub struct DeclarationMessage {
     pub service_type: ServiceType,
     pub locators: Vec<Locator>,
     pub provider_id: ProviderId,
-    pub reward_address: RewardAddress,
+    pub zk_id: ZkPublicKey,
 }
 
 impl DeclarationMessage {
@@ -159,7 +159,7 @@ impl DeclarationMessage {
         for locator in &self.locators {
             hasher.update(locator.0.as_ref());
         }
-        hasher.update(self.reward_address.0);
+        hasher.update(self.zk_id.0);
 
         DeclarationId(hasher.finalize().into())
     }
