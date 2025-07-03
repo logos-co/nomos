@@ -66,8 +66,16 @@ where
             .await
     }
 
-    pub async fn get_historic_membership(&self, block_number: BlockNumber) -> Option<Membership> {
-        let (assignations, addressbook) = self.adapter.get(block_number).await.unwrap()?;
-        Some(self.handler.membership().init(assignations, addressbook))
+    pub async fn get_historic_membership(
+        &self,
+        block_number: BlockNumber,
+    ) -> Result<Option<Membership>, DynError> {
+        if let Some((assignations, addressbook)) = self.adapter.get(block_number).await? {
+            return Ok(Some(
+                self.handler.membership().init(assignations, addressbook),
+            ));
+        }
+
+        Ok(None)
     }
 }

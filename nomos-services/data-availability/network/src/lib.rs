@@ -303,6 +303,12 @@ where
                 if let Some(membership) = membership_storage
                     .get_historic_membership(block_number)
                     .await
+                    .unwrap_or_else(|e| {
+                        tracing::error!(
+                            "Failed to get historic membership for block {block_number}: {e}"
+                        );
+                        None
+                    })
                 {
                     let assignations = membership.subnetworks();
                     sender.send(assignations).unwrap_or_else(|_| {
