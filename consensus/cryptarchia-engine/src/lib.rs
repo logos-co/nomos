@@ -25,7 +25,7 @@ pub trait CryptarchiaState: Copy + Debug {
     fn fork_choice<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Branch<Id>
     where
         Id: Eq + Hash + Copy;
-    fn lib<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Id
+    fn lib<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Branch<Id>
     where
         Id: Eq + Hash + Copy;
 }
@@ -40,11 +40,11 @@ impl CryptarchiaState for Boostrapping {
         maxvalid_bg(cryptarchia.local_chain, &cryptarchia.branches, k, s)
     }
 
-    fn lib<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Id
+    fn lib<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Branch<Id>
     where
         Id: Eq + Hash + Copy,
     {
-        cryptarchia.branches.lib
+        cryptarchia.lib
     }
 }
 
@@ -57,17 +57,14 @@ impl CryptarchiaState for Online {
         maxvalid_mc(cryptarchia.local_chain, &cryptarchia.branches, k)
     }
 
-    fn lib<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Id
+    fn lib<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Branch<Id>
     where
         Id: Eq + Hash + Copy,
     {
-        cryptarchia
-            .branches
-            .nth_ancestor(
-                &cryptarchia.local_chain,
-                cryptarchia.config.security_param.get().into(),
-            )
-            .id()
+        cryptarchia.branches.nth_ancestor(
+            &cryptarchia.local_chain,
+            cryptarchia.config.security_param.get().into(),
+        )
     }
 }
 
@@ -125,6 +122,7 @@ where
 #[derive(Clone, Debug)]
 pub struct Cryptarchia<Id, State: ?Sized> {
     local_chain: Branch<Id>,
+    lib: Branch<Id>,
     branches: Branches<Id>,
     config: Config,
     // Just a marker to indicate whether the node is bootstrapping or online.
@@ -147,7 +145,6 @@ where
 pub struct Branches<Id> {
     branches: HashMap<Id, Branch<Id>>,
     tips: HashSet<Id>,
-    lib: Id,
 }
 
 impl<Id> PartialEq for Branches<Id>
@@ -155,7 +152,7 @@ where
     Id: Eq + Hash,
 {
     fn eq(&self, other: &Self) -> bool {
-        self.branches == other.branches && self.tips == other.tips && self.lib == other.lib
+        self.branches == other.branches && self.tips == other.tips
     }
 }
 
@@ -188,23 +185,19 @@ impl<Id> Branches<Id>
 where
     Id: Eq + Hash + Copy,
 {
-    pub fn from_lib(lib: Id) -> Self {
+    pub fn new(id: Id) -> Self {
         let mut branches = HashMap::new();
         branches.insert(
-            lib,
+            id,
             Branch {
-                id: lib,
-                parent: lib,
+                id,
+                parent: id,
                 slot: 0.into(),
                 length: 0,
             },
         );
-        let tips = HashSet::from([lib]);
-        Self {
-            branches,
-            tips,
-            lib,
-        }
+        let tips = HashSet::from([id]);
+        Self { branches, tips }
     }
 
     /// Create a new [`Branches`] instance with the updated state.
@@ -217,14 +210,6 @@ where
 
         if parent_branch.slot > slot {
             return Err(Error::InvalidSlot(parent));
-        }
-
-        // TODO: we do not automatically prune forks here at the moment, so it's not
-        // sufficient to check the header height.
-        // We might relax this check in the future and get closer to the
-        // Cryptarchia spec once we stabilize the pruning logic.
-        if !self.is_ancestor(self.lib(), parent_branch) {
-            return Err(Error::ImmutableFork(parent));
         }
 
         let length = parent_branch
@@ -248,11 +233,7 @@ where
             },
         );
 
-        Ok(Self {
-            branches,
-            tips,
-            lib: self.lib,
-        })
+        Ok(Self { branches, tips })
     }
 
     pub fn branches(&self) -> impl Iterator<Item = Branch<Id>> + '_ {
@@ -296,21 +277,6 @@ where
         *current
     }
 
-    fn is_ancestor(&self, a: &Branch<Id>, b: &Branch<Id>) -> bool {
-        let mut current = b;
-        if a.id == b.id {
-            return true; // `a` is the same as `b`
-        }
-        // Walk up the chain from `b` until we find `a` or reach the root
-        while current.parent != current.id && current.length > a.length {
-            if current.parent == a.id {
-                return true; // Found `a` in the chain
-            }
-            current = &self.branches[&current.parent];
-        }
-        false // `a` is not an ancestor of `b`
-    }
-
     // Returns the min(n, A)-th ancestor of the provided block, where A is the
     // number of ancestors of this block.
     fn nth_ancestor(&self, branch: &Branch<Id>, mut n: u64) -> Branch<Id> {
@@ -324,10 +290,6 @@ where
             }
         }
         *current
-    }
-
-    fn lib(&self) -> &Branch<Id> {
-        &self.branches[&self.lib]
     }
 }
 
@@ -360,14 +322,12 @@ where
     State: CryptarchiaState + Copy,
 {
     pub fn from_lib(id: Id, config: Config) -> Self {
+        let branches = Branches::new(id);
+        let branch = *branches.get(&id).expect("Branch for id must exist");
         Self {
-            branches: Branches::from_lib(id),
-            local_chain: Branch {
-                id,
-                length: 0,
-                parent: id,
-                slot: 0.into(),
-            },
+            branches,
+            local_chain: branch,
+            lib: branch,
             config,
             _state: std::marker::PhantomData,
         }
@@ -386,6 +346,17 @@ where
         parent: Id,
         slot: Slot,
     ) -> Result<(Self, PrunedBlocks<Id>), Error<Id>> {
+        // Check if the block is a descendant of the LIB,
+        // by checking if parent.height >= LIB.height.
+        // This works because all forks diverged before LIB has been pruned.
+        let parent_branch = self
+            .branches
+            .get(&parent)
+            .ok_or(Error::ParentMissing(parent))?;
+        if parent_branch.length() < self.lib.length() {
+            return Err(Error::ImmutableFork(parent));
+        }
+
         let mut new: Self = self.clone();
         new.branches = new.branches.apply_header(id, parent, slot)?;
         new.local_chain = new.fork_choice();
@@ -404,10 +375,10 @@ where
     fn update_lib(&mut self) -> PrunedBlocks<Id> {
         let new_lib = <State as CryptarchiaState>::lib(&*self);
         // Trigger pruning only if the LIB has changed.
-        if self.branches.lib == new_lib {
+        if self.lib.id() == new_lib.id() {
             PrunedBlocks::new()
         } else {
-            self.branches.lib = new_lib;
+            self.lib = new_lib;
             self.prune_forks(self.lib_depth()).collect()
         }
     }
@@ -515,7 +486,7 @@ where
     /// Get the latest immutable block (LIB) in the chain. No re-orgs past this
     /// point are allowed.
     pub const fn lib(&self) -> Id {
-        self.branches.lib
+        self.lib.id()
     }
 
     pub fn lib_branch(&self) -> &Branch<Id> {
@@ -539,6 +510,7 @@ where
     pub fn online(self) -> (Cryptarchia<Id, Online>, PrunedBlocks<Id>) {
         let mut new = Cryptarchia {
             local_chain: self.local_chain,
+            lib: self.lib,
             branches: self.branches.clone(),
             config: self.config,
             _state: std::marker::PhantomData,
@@ -559,7 +531,7 @@ pub mod tests {
     };
 
     use super::{maxvalid_bg, Boostrapping, Cryptarchia, Error, Slot};
-    use crate::Config;
+    use crate::{Config, Online};
 
     #[must_use]
     pub const fn config() -> Config {
@@ -607,63 +579,11 @@ pub mod tests {
     }
 
     #[test]
-    fn test_is_ancestor() {
-        // parent
-        // ├── child
-        // │   ├── grandchild
-        // │   └── granchild_2
-
-        let mut branches = super::Branches::from_lib([0; 32]);
-        let parent = [1; 32];
-        let child = [2; 32];
-        let grandchild = [3; 32];
-        let granchild_2: [u8; 32] = [4; 32];
-
-        branches = branches.apply_header(parent, [0; 32], 1.into()).unwrap();
-        branches = branches.apply_header(child, parent, 2.into()).unwrap();
-        branches = branches.apply_header(grandchild, child, 3.into()).unwrap();
-        branches = branches.apply_header(granchild_2, child, 4.into()).unwrap();
-
-        assert!(branches.is_ancestor(
-            branches.get(&parent).unwrap(),
-            branches.get(&child).unwrap()
-        ));
-        assert!(!branches.is_ancestor(
-            branches.get(&child).unwrap(),
-            branches.get(&parent).unwrap()
-        ));
-        assert!(branches.is_ancestor(
-            branches.get(&parent).unwrap(),
-            branches.get(&grandchild).unwrap()
-        ));
-        assert!(!branches.is_ancestor(
-            branches.get(&grandchild).unwrap(),
-            branches.get(&parent).unwrap()
-        ));
-        assert!(branches.is_ancestor(
-            branches.get(&child).unwrap(),
-            branches.get(&grandchild).unwrap()
-        ));
-        assert!(!branches.is_ancestor(
-            branches.get(&grandchild).unwrap(),
-            branches.get(&child).unwrap()
-        ));
-        assert!(branches.is_ancestor(
-            branches.get(&child).unwrap(),
-            branches.get(&granchild_2).unwrap()
-        ));
-        assert!(!branches.is_ancestor(
-            branches.get(&granchild_2).unwrap(),
-            branches.get(&child).unwrap()
-        ));
-    }
-
-    #[test]
     fn test_slot_increasing() {
         // parent
         // └── child
 
-        let mut branches = super::Branches::from_lib([0; 32]);
+        let mut branches = super::Branches::new([0; 32]);
         let parent = [1; 32];
         let child = [2; 32];
 
@@ -681,17 +601,19 @@ pub mod tests {
         // |    └── b2
         // └── b3
 
-        let mut branches = super::Branches::from_lib([0; 32]);
+        let mut engine = Cryptarchia::<_, Online>::from_lib([0; 32], config_with(1));
         let b1 = [1; 32];
         let lib = [2; 32];
         let b2 = [3; 32];
         let b3 = [4; 32];
-        branches = branches.apply_header(b1, [0; 32], 1.into()).unwrap();
-        branches = branches.apply_header(lib, b1, 2.into()).unwrap();
-        branches.lib = lib; // Set the LIB to b2
-        branches = branches.apply_header(b2, lib, 3.into()).unwrap();
+        engine = engine.receive_block(b1, [0; 32], 1.into()).unwrap().0;
+        engine = engine.receive_block(lib, b1, 2.into()).unwrap().0;
+        // By adding `b2`, we expect that the LIB is updated to `lib`,
+        // since Cryptarchia is in Online state.
+        engine = engine.receive_block(b2, lib, 3.into()).unwrap().0;
+        // Adding `b3` diverged from `b1` which is before the LIB.
         assert!(matches!(
-            branches.apply_header(b3, b1, 4.into()),
+            engine.receive_block(b3, b1, 4.into()),
             Err(Error::ImmutableFork(_))
         ));
     }
