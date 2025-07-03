@@ -153,7 +153,6 @@ where
         + 'static,
     Backend::State: Send + Sync,
     Membership: MembershipCreator + Clone + Send + Sync + 'static,
-    Membership: MembershipCreator + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync,
     Membership::NetworkId: Send,
     MembershipServiceAdapter: MembershipAdapter<Id = Membership::Id> + Send + Sync + 'static,
