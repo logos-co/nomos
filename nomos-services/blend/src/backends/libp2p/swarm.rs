@@ -32,7 +32,6 @@ pub(super) struct BlendSwarm<SessionStream, Rng> {
 
 impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng>
 where
-    SessionStream: Stream<Item = Membership<PeerId>>,
     Rng: RngCore,
 {
     pub(super) fn new(
