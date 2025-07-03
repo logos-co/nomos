@@ -12,14 +12,13 @@ use crate::BlendConfig;
 
 /// A trait for blend backends that send messages to the blend network.
 #[async_trait::async_trait]
-pub trait BlendBackend<RuntimeServiceId> {
+pub trait BlendBackend<NodeId, RuntimeServiceId> {
     type Settings: Clone + Debug + Send + Sync + 'static;
-    type NodeId: Clone + Debug + Send + Sync + 'static;
 
     fn new<R>(
-        service_config: BlendConfig<Self::Settings, Self::NodeId>,
+        service_config: BlendConfig<Self::Settings, NodeId>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-        membership: Membership<Self::NodeId>,
+        session_stream: Pin<Box<dyn Stream<Item = Membership<NodeId>> + Send>>,
         rng: R,
     ) -> Self
     where

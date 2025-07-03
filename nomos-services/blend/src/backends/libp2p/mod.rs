@@ -37,14 +37,13 @@ pub struct Libp2pBlendBackend {
 const CHANNEL_SIZE: usize = 64;
 
 #[async_trait]
-impl<RuntimeServiceId> BlendBackend<RuntimeServiceId> for Libp2pBlendBackend {
+impl<RuntimeServiceId> BlendBackend<PeerId, RuntimeServiceId> for Libp2pBlendBackend {
     type Settings = Libp2pBlendBackendSettings;
-    type NodeId = PeerId;
 
     fn new<Rng>(
-        config: BlendConfig<Self::Settings, Self::NodeId>,
+        config: BlendConfig<Self::Settings, PeerId>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-        membership: Membership<Self::NodeId>,
+        session_stream: Pin<Box<dyn Stream<Item = Membership<PeerId>> + Send>>,
         rng: Rng,
     ) -> Self
     where
@@ -55,7 +54,7 @@ impl<RuntimeServiceId> BlendBackend<RuntimeServiceId> for Libp2pBlendBackend {
 
         let swarm = BlendSwarm::new(
             config,
-            membership,
+            session_stream,
             rng,
             swarm_message_receiver,
             incoming_message_sender.clone(),
