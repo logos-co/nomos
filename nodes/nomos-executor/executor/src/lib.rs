@@ -29,6 +29,7 @@ use nomos_da_verifier::{
     network::adapters::executor::Libp2pAdapter as VerifierNetworkAdapter,
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
+use nomos_libp2p::PeerId;
 use nomos_mempool::backend::mockpool::MockPool;
 #[cfg(feature = "tracing")]
 use nomos_node::Tracing;
@@ -48,6 +49,7 @@ pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, R
 
 pub(crate) type BlendService = nomos_blend_service::BlendService<
     BlendBackend,
+    PeerId,
     BlendNetworkAdapter<RuntimeServiceId>,
     RuntimeServiceId,
 >;

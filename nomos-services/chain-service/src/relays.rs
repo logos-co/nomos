@@ -258,7 +258,12 @@ where
             + 'static
             + AsServiceId<NetworkService<NetworkAdapter::Backend, RuntimeServiceId>>
             + AsServiceId<
-                BlendService<BlendAdapter::Backend, BlendAdapter::Network, RuntimeServiceId>,
+                BlendService<
+                    BlendAdapter::Backend,
+                    BlendAdapter::NodeId,
+                    BlendAdapter::Network,
+                    RuntimeServiceId,
+                >,
             >
             + AsServiceId<TxMempoolService<ClPoolAdapter, ClPool, RuntimeServiceId>>
             + AsServiceId<
@@ -300,7 +305,7 @@ where
 
         let blend_relay = service_resources_handle
             .overwatch_handle
-            .relay::<BlendService<_, _, _>>()
+            .relay::<BlendService<_, _, _, _>>()
             .await
             .expect(
                 "Relay connection with nomos_blend_service::BlendService should

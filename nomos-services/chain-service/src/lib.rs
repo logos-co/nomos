@@ -475,7 +475,14 @@ where
         + 'static
         + AsServiceId<Self>
         + AsServiceId<NetworkService<NetAdapter::Backend, RuntimeServiceId>>
-        + AsServiceId<BlendService<BlendAdapter::Backend, BlendAdapter::Network, RuntimeServiceId>>
+        + AsServiceId<
+            BlendService<
+                BlendAdapter::Backend,
+                BlendAdapter::NodeId,
+                BlendAdapter::Network,
+                RuntimeServiceId,
+            >,
+        >
         + AsServiceId<TxMempoolService<ClPoolAdapter, ClPool, RuntimeServiceId>>
         + AsServiceId<
             DaMempoolService<
@@ -607,7 +614,7 @@ where
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
             NetworkService<_, _>,
-            BlendService<_, _, _>,
+            BlendService<_, _, _, _>,
             TxMempoolService<_, _, _>,
             DaMempoolService<_, _, _, _, _, _, _, _, _, _, _>,
             DaSamplingService<_, _, _, _, _, _, _, _, _>,
