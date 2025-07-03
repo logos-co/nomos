@@ -5,7 +5,9 @@ use std::{
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use nomos_core::header::HeaderId;
+use libp2p_identity::PeerId;
+use multiaddr::Multiaddr;
+use nomos_core::{block::BlockNumber, header::HeaderId};
 use thiserror::Error;
 
 use super::{StorageBackend, StorageSerde, StorageTransaction};
@@ -119,6 +121,8 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
     type Share = Bytes;
     type Commitments = Bytes;
     type ShareIndex = [u8; 2];
+    type Id = u16;
+    type NetworkId = PeerId;
 
     async fn get_light_share(
         &mut self,
@@ -163,6 +167,28 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
         &mut self,
         _blob_id: Self::BlobId,
     ) -> Result<Option<Vec<Self::Share>>, Self::Error> {
+        unimplemented!()
+    }
+
+    async fn store_assignations(
+        &mut self,
+        _block_number: BlockNumber,
+        _assignations: HashMap<Self::NetworkId, HashSet<Self::Id>>,
+        _addressbook: HashMap<Self::Id, Multiaddr>,
+    ) -> Result<(), Self::Error> {
+        unimplemented!()
+    }
+
+    async fn get_assignations(
+        &mut self,
+        _block_number: BlockNumber,
+    ) -> Result<
+        (
+            HashMap<Self::NetworkId, HashSet<Self::Id>>,
+            HashMap<Self::Id, Multiaddr>,
+        ),
+        Self::Error,
+    > {
         unimplemented!()
     }
 }

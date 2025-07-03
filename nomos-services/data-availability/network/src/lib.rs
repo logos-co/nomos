@@ -239,7 +239,7 @@ where
                         "Received membership update for block {}: {:?}",
                         block_number, providers
                     );
-                    Self::handle_membership_update(block_number, providers, &membership_storage);
+                    Self::handle_membership_update(block_number, providers, &membership_storage).await;
                 }
             }
         }
@@ -300,7 +300,10 @@ where
                 block_number,
                 sender,
             } => {
-                if let Some(membership) = membership_storage.get_historic_membership(block_number) {
+                if let Some(membership) = membership_storage
+                    .get_historic_membership(block_number)
+                    .await
+                {
                     let assignations = membership.subnetworks();
                     sender.send(assignations).unwrap_or_else(|_| {
                         tracing::warn!(
@@ -319,12 +322,17 @@ where
         }
     }
 
-    fn handle_membership_update(
-        block_numnber: BlockNumber,
+    async fn handle_membership_update(
+        block_number: BlockNumber,
         update: HashMap<<Membership as MembershipHandler>::Id, Multiaddr>,
         storage: &MembershipStorage<StorageAdapter, Membership>,
     ) {
-        storage.update(block_numnber, update);
+        storage
+            .update(block_number, update)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::error!("Failed to update membership at block {block_number}: {e}");
+            });
     }
 }
 
