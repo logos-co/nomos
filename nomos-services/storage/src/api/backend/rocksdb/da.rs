@@ -20,8 +20,8 @@ pub const DA_VID_KEY_PREFIX: &str = "da/vid/";
 pub const DA_BLOB_SHARES_INDEX_PREFIX: &str = concat!("da/verified/", "si");
 pub const DA_SHARED_COMMITMENTS_PREFIX: &str = concat!("da/verified/", "sc");
 pub const DA_SHARE_PREFIX: &str = concat!("da/verified/", "bl");
-pub const DA_ASSIGNATIONS_PREFIX: &str = concat!("da/membership/", "assignations");
-pub const DA_ADDRESSBOOK_PREFIX: &str = concat!("da/membership/", "addressbook");
+pub const DA_ASSIGNATIONS_PREFIX: &str = concat!("da/membership/", "as");
+pub const DA_ADDRESSBOOK_PREFIX: &str = concat!("da/membership/", "ad");
 
 #[async_trait]
 impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBackend<SerdeOp> {
