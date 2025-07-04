@@ -66,8 +66,8 @@ impl Swarm {
             .with_behaviour(|keypair| {
                 Behaviour::new(
                     gossipsub_config,
-                    kademlia_config.clone(),
-                    identify_config,
+                    &kademlia_config,
+                    &identify_config,
                     config.protocol_name_env,
                     keypair.public(),
                 )
@@ -79,17 +79,15 @@ impl Swarm {
         let listen_addr = multiaddr(config.host, config.port);
         swarm.listen_on(listen_addr.clone())?;
 
-        // if kademlia is enabled and is not in client mode then it is operating in a
+        // if kademlia is not in client mode then it is operating in a
         // server mode
-        if let Some(kademlia_config) = &kademlia_config {
-            if !kademlia_config.client_mode {
-                // libp2p2-kad server mode is implicitly enabled
-                // by adding external addressess
-                // <https://github.com/libp2p/rust-libp2p/blob/master/protocols/kad/CHANGELOG.md#0440>
-                let external_addr = listen_addr.with(Protocol::P2p(peer_id));
-                swarm.add_external_address(external_addr.clone());
-                tracing::info!("Added external address: {}", external_addr);
-            }
+        if !kademlia_config.client_mode {
+            // libp2p2-kad server mode is implicitly enabled
+            // by adding external addressess
+            // <https://github.com/libp2p/rust-libp2p/blob/master/protocols/kad/CHANGELOG.md#0440>
+            let external_addr = listen_addr.with(Protocol::P2p(peer_id));
+            swarm.add_external_address(external_addr.clone());
+            tracing::info!("Added external address: {}", external_addr);
         }
 
         Ok(Self { swarm })
