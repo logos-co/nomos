@@ -2,7 +2,7 @@ use std::{marker::PhantomData, path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use rocksdb::{Error, Options, DB};
+use rocksdb::{Direction, Error, IteratorMode, Options, DB};
 use serde::{Deserialize, Serialize};
 
 use super::{StorageBackend, StorageSerde, StorageTransaction};
@@ -127,11 +127,31 @@ where
         prefix: &[u8],
     ) -> Result<Vec<Bytes>, <Self as StorageBackend>::Error> {
         let mut values = Vec::new();
-        let iter = self.rocks.prefix_iterator(prefix);
+
+        // NOTE: RocksDB has `prefix_iterator`, which sets `set_prefix_same_as_start`
+        // to `true`. However, it works only if prefix_extractor is non-null for the
+        // column family.
+        // https://docs.rs/rocksdb/latest/rocksdb/struct.ReadOptions.html#method.set_prefix_same_as_start
+        //
+        // Since the column family is Optional in our
+        // `RocksBackendSettings` and we don't configure any prefix extractor,
+        // the `prefix_iterator` works like a regular iterator, which doesn't check
+        // any upper bound.
+        //
+        // Thus, we use the regular iterator instead for clarity, and check the
+        // upper bound manually.
+        let iter = self
+            .rocks
+            .iterator(IteratorMode::From(prefix, Direction::Forward));
 
         for item in iter {
             match item {
-                Ok((_key, value)) => {
+                Ok((key, value)) => {
+                    // Since the iterator proceeds without an upper bound,
+                    // we have to manually check for the prefix.
+                    if !key.starts_with(prefix) {
+                        break;
+                    }
                     values.push(Bytes::from(value.to_vec()));
                 }
                 Err(e) => return Err(e), // Return the error if one occurs
@@ -189,6 +209,35 @@ mod test {
         assert_eq!(removed_value, Some(value.as_bytes().into()));
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_load_prefix() {
+        let mut backend = RocksBackend::<NoStorageSerde>::new(RocksBackendSettings {
+            db_path: TempDir::new().unwrap().path().to_path_buf(),
+            read_only: false,
+            column_family: None,
+        })
+        .unwrap();
+
+        let prefix = b"foo/";
+
+        // No data yet in the backend
+        assert!(backend.load_prefix(prefix).await.unwrap().is_empty());
+
+        // No data with the prefix
+        backend.store("boo/0".into(), "boo0".into()).await.unwrap();
+        backend.store("zoo/0".into(), "zoo0".into()).await.unwrap();
+        assert!(backend.load_prefix(prefix).await.unwrap().is_empty());
+
+        // Two data with the prefix
+        // (Inserting in mixed order to test the sorted scan).
+        backend.store("foo/7".into(), "foo7".into()).await.unwrap();
+        backend.store("foo/0".into(), "foo0".into()).await.unwrap();
+        assert_eq!(
+            backend.load_prefix(prefix).await.unwrap(),
+            vec![Bytes::from("foo0"), Bytes::from("foo7")]
+        );
     }
 
     #[tokio::test]
