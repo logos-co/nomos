@@ -63,8 +63,7 @@ impl MappingProtocol for UpnpProtocol {
                 0,
                 "libp2p UPnP mapping",
             )
-            .await
-            .map_err(|e| AddressMapperError::PortMappingFailed(e.to_string()))?;
+            .await?;
 
         let port = mapped_port;
         let external_addr = format!("/ip4/{external_ip}/tcp/{port}");
