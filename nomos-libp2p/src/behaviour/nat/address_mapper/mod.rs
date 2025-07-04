@@ -100,33 +100,34 @@ impl NetworkBehaviour for AddressMapperBehaviour {
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         self.waker = Some(cx.waker().clone());
 
-        if let Some(mut mapping_future) = self.mapping_future.take() {
-            match mapping_future.as_mut().poll(cx) {
-                Poll::Ready(Ok(external_addr)) => {
-                    info!("Successfully mapped to external address: {}", external_addr);
+        let Some(mut mapping_future) = self.mapping_future.take() else {
+            return Poll::Pending;
+        };
 
-                    return Poll::Ready(ToSwarm::GenerateEvent(Event::NewExternalMappedAddress(
-                        external_addr,
-                    )));
-                }
-                Poll::Ready(Err(error)) => {
-                    warn!("Failed to map address: {}", error);
+        match mapping_future.as_mut().poll(cx) {
+            Poll::Ready(Ok(external_addr)) => {
+                info!("Successfully mapped to external address: {}", external_addr);
 
-                    let failed_addr = self
-                        .original_address
-                        .take()
-                        .expect("Original address must be set");
+                Poll::Ready(ToSwarm::GenerateEvent(Event::NewExternalMappedAddress(
+                    external_addr,
+                )))
+            }
+            Poll::Ready(Err(error)) => {
+                warn!("Failed to map address: {}", error);
 
-                    return Poll::Ready(ToSwarm::GenerateEvent(Event::AddressMappingFailed(
-                        failed_addr,
-                    )));
-                }
-                Poll::Pending => {
-                    self.mapping_future = Some(mapping_future);
-                }
+                let failed_addr = self
+                    .original_address
+                    .take()
+                    .expect("Original address must be set");
+
+                Poll::Ready(ToSwarm::GenerateEvent(Event::AddressMappingFailed(
+                    failed_addr,
+                )))
+            }
+            Poll::Pending => {
+                self.mapping_future = Some(mapping_future);
+                Poll::Pending
             }
         }
-
-        Poll::Pending
     }
 }
