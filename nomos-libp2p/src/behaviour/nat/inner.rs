@@ -22,7 +22,8 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::{
     behaviour::nat::{
-        address_mapper::{self, AddressMapperBehaviour},
+        address_mapper,
+        address_mapper::AddressMapperBehaviour,
         state_machine::{Command, StateMachine},
     },
     AutonatClientSettings,
