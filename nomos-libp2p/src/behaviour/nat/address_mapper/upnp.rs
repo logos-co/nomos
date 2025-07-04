@@ -12,22 +12,16 @@ use crate::behaviour::nat::address_mapper::{
 };
 
 pub struct UpnpProtocol {
-    gateway: Option<Gateway<Tokio>>,
-    gateway_external_ip: Option<IpAddr>,
-}
-
-impl UpnpProtocol {
-    pub const fn new() -> Self {
-        Self {
-            gateway: None,
-            gateway_external_ip: None,
-        }
-    }
+    gateway: Gateway<Tokio>,
+    gateway_external_ip: IpAddr,
 }
 
 #[async_trait::async_trait]
 impl MappingProtocol for UpnpProtocol {
-    async fn initialize(&mut self) -> Result<(), AddressMapperError> {
+    async fn initialize() -> Result<Box<Self>, AddressMapperError>
+    where
+        Self: Sized,
+    {
         let gateway = igd_next::aio::tokio::search_gateway(SearchOptions::default()).await?;
 
         let gateway_external_ip = gateway
@@ -35,26 +29,19 @@ impl MappingProtocol for UpnpProtocol {
             .await
             .map_err(|e| AddressMapperError::ExternalIpFailed(e.to_string()))?;
 
-        self.gateway = Some(gateway);
-        self.gateway_external_ip = Some(gateway_external_ip);
+        tracing::info!("UPnP gateway found: {gateway_external_ip}");
 
-        Ok(())
+        Ok(Box::new(Self {
+            gateway,
+            gateway_external_ip,
+        }))
     }
 
     async fn map_address(&mut self, address: &Multiaddr) -> Result<Multiaddr, AddressMapperError> {
-        let gateway = self
-            .gateway
-            .as_mut()
-            .ok_or(AddressMapperError::GatewayNotInitialized)?;
-
-        let external_ip = self
-            .gateway_external_ip
-            .ok_or(AddressMapperError::GatewayNotInitialized)?;
-
         let internal_address = multiaddr_to_socketaddr(address)?;
         let mapped_port = internal_address.port();
 
-        gateway
+        self.gateway
             .add_port(
                 PortMappingProtocol::TCP,
                 // Request the same port as the internal address
@@ -66,7 +53,7 @@ impl MappingProtocol for UpnpProtocol {
             .await?;
 
         let port = mapped_port;
-        let external_addr = format!("/ip4/{external_ip}/tcp/{port}");
+        let external_addr = format!("/ip4/{}/tcp/{port}", self.gateway_external_ip);
 
         tracing::info!("Successfully added UPnP mapping: {external_addr}");
 

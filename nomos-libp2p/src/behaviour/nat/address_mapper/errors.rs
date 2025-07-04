@@ -2,9 +2,6 @@ use thiserror::Error;
 
 #[derive(Error, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AddressMapperError {
-    #[error("UPnP gateway not initialized")]
-    GatewayNotInitialized,
-
     #[error("Failed to discover gateway: {0}")]
     GatewayDiscoveryFailed(String),
 
