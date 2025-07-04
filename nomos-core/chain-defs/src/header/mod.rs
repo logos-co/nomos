@@ -147,6 +147,19 @@ impl From<HeaderId> for [u8; 32] {
     }
 }
 
+impl TryFrom<&[u8]> for HeaderId {
+    type Error = ();
+
+    fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
+        if slice.len() != 32 {
+            return Err(());
+        }
+        let mut id = [0u8; 32];
+        id.copy_from_slice(slice);
+        Ok(Self::from(id))
+    }
+}
+
 impl From<[u8; 32]> for ContentId {
     fn from(id: [u8; 32]) -> Self {
         Self(id)
