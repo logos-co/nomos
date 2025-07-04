@@ -14,9 +14,6 @@ pub enum AddressMapperError {
     #[error("No IP address found in multiaddr")]
     NoIpAddress,
 
-    #[error("No TCP port found in multiaddr")]
-    NoTcpPort,
-
     #[error("Channel send error")]
     ChannelSendError,
 

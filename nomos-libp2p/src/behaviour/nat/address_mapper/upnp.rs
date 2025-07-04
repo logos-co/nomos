@@ -11,6 +11,8 @@ use crate::behaviour::nat::address_mapper::{
     errors::AddressMapperError, protocol::MappingProtocol,
 };
 
+type AddressWithProtocol = (SocketAddr, PortMappingProtocol);
+
 pub struct UpnpProtocol {
     gateway: Gateway<Tokio>,
     gateway_external_ip: IpAddr,
@@ -38,12 +40,12 @@ impl MappingProtocol for UpnpProtocol {
     }
 
     async fn map_address(&mut self, address: &Multiaddr) -> Result<Multiaddr, AddressMapperError> {
-        let internal_address = multiaddr_to_socketaddr(address)?;
+        let (internal_address, protocol) = multiaddr_to_socketaddr(address)?;
         let mapped_port = internal_address.port();
 
         self.gateway
             .add_port(
-                PortMappingProtocol::TCP,
+                protocol,
                 // Request the same port as the internal address
                 mapped_port,
                 internal_address,
@@ -61,23 +63,24 @@ impl MappingProtocol for UpnpProtocol {
     }
 }
 
-fn multiaddr_to_socketaddr(addr: &Multiaddr) -> Result<SocketAddr, AddressMapperError> {
-    let ip = addr
-        .iter()
-        .find_map(|protocol| match protocol {
-            Protocol::Ip4(addr) => Some(IpAddr::V4(addr)),
-            Protocol::Ip6(addr) => Some(IpAddr::V6(addr)),
-            _ => None,
-        })
-        .ok_or(AddressMapperError::NoIpAddress)?;
+fn multiaddr_to_socketaddr(addr: &Multiaddr) -> Result<AddressWithProtocol, AddressMapperError> {
+    let Some(ip) = addr.iter().find_map(|protocol| match protocol {
+        Protocol::Ip4(addr) => Some(IpAddr::V4(addr)),
+        Protocol::Ip6(addr) => Some(IpAddr::V6(addr)),
+        _ => None,
+    }) else {
+        return Err(AddressMapperError::NoIpAddress);
+    };
 
-    let port = addr
-        .iter()
-        .find_map(|protocol| match protocol {
-            Protocol::Tcp(p) => Some(p),
-            _ => None,
-        })
-        .ok_or(AddressMapperError::NoTcpPort)?;
+    let Some((port, protocol)) = addr.iter().find_map(|protocol| match protocol {
+        Protocol::Tcp(port) => Some((port, PortMappingProtocol::TCP)),
+        Protocol::Udp(port) => Some((port, PortMappingProtocol::UDP)),
+        _ => None,
+    }) else {
+        return Err(AddressMapperError::MultiaddrParseError(
+            "No TCP or UDP port found in multiaddr".to_owned(),
+        ));
+    };
 
-    Ok(SocketAddr::new(ip, port))
+    Ok((SocketAddr::new(ip, port), protocol))
 }
