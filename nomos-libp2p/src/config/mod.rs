@@ -39,16 +39,14 @@ pub struct SwarmConfig {
     pub protocol_name_env: ProtocolName,
 
     /// Kademlia config
-    /// When a value is None, kademlia is disabled.
     /// Note: Kademlia requires identify or another identity protocol to be
     /// enabled.
     #[serde(default)]
-    pub kademlia_config: Option<kademlia::Settings>,
+    pub kademlia_config: kademlia::Settings,
 
     /// Identify config
-    /// When a value is None, identify is disabled.
     #[serde(default)]
-    pub identify_config: Option<identify::Settings>,
+    pub identify_config: identify::Settings,
 }
 
 impl Default for SwarmConfig {
@@ -59,8 +57,8 @@ impl Default for SwarmConfig {
             node_key: ed25519::SecretKey::generate(),
             gossipsub_config: libp2p::gossipsub::Config::default(),
             protocol_name_env: ProtocolName::default(),
-            kademlia_config: None,
-            identify_config: None,
+            kademlia_config: kademlia::Settings::default(),
+            identify_config: identify::Settings::default(),
         }
     }
 }

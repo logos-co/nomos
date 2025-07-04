@@ -6,11 +6,7 @@
 use std::error::Error;
 
 use cryptarchia_sync::ChainSyncError;
-use libp2p::{
-    identity, kad,
-    swarm::{behaviour::toggle::Toggle, NetworkBehaviour},
-    PeerId,
-};
+use libp2p::{identity, kad, swarm::NetworkBehaviour, PeerId};
 use thiserror::Error;
 
 use crate::{
@@ -38,16 +34,16 @@ pub enum BehaviourError {
 pub struct Behaviour {
     pub(crate) gossipsub: libp2p::gossipsub::Behaviour,
     // todo: support persistent store if needed
-    pub(crate) kademlia: Toggle<kad::Behaviour<kad::store::MemoryStore>>,
-    pub(crate) identify: Toggle<libp2p::identify::Behaviour>,
+    pub(crate) kademlia: kad::Behaviour<kad::store::MemoryStore>,
+    pub(crate) identify: libp2p::identify::Behaviour,
     pub(crate) chain_sync: cryptarchia_sync::Behaviour,
 }
 
 impl Behaviour {
     pub(crate) fn new(
         gossipsub_config: libp2p::gossipsub::Config,
-        kad_config: Option<KademliaSettings>,
-        identify_config: Option<IdentifySettings>,
+        kad_config: &KademliaSettings,
+        identify_config: &IdentifySettings,
         protocol_name: ProtocolName,
         public_key: identity::PublicKey,
     ) -> Result<Self, Box<dyn Error>> {
@@ -61,24 +57,14 @@ impl Behaviour {
                 .build()?,
         )?;
 
-        let identify = identify_config.map_or_else(
-            || Toggle::from(None),
-            |identify_config| {
-                Toggle::from(Some(libp2p::identify::Behaviour::new(
-                    identify_config.to_libp2p_config(public_key, protocol_name),
-                )))
-            },
+        let identify = libp2p::identify::Behaviour::new(
+            identify_config.to_libp2p_config(public_key, protocol_name),
         );
 
-        let kademlia = kad_config.map_or_else(
-            || Toggle::from(None),
-            |kad_config| {
-                Toggle::from(Some(kad::Behaviour::with_config(
-                    peer_id,
-                    kad::store::MemoryStore::new(peer_id),
-                    kad_config.to_libp2p_config(protocol_name),
-                )))
-            },
+        let kademlia = kad::Behaviour::with_config(
+            peer_id,
+            kad::store::MemoryStore::new(peer_id),
+            kad_config.to_libp2p_config(protocol_name),
         );
 
         let chain_sync = cryptarchia_sync::Behaviour::default();
