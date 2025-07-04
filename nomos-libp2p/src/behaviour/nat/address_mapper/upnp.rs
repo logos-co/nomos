@@ -23,7 +23,11 @@ impl MappingProtocol for UpnpProtocol {
         Self: Sized,
     {
         let gateway = igd_next::aio::tokio::search_gateway(SearchOptions::default()).await?;
-        let gateway_external_ip = gateway.get_external_ip().await?;
+
+        let gateway_external_ip = gateway
+            .get_external_ip()
+            .await
+            .map_err(|e| AddressMapperError::ExternalIpFailed(e.to_string()))?;
 
         tracing::info!("UPnP gateway found: {gateway_external_ip}");
 
