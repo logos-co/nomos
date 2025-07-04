@@ -42,7 +42,7 @@ pub(crate) trait TimeTag {
     fn inner() -> char;
 }
 
-pub struct BoundTag<const TAG: char> {}
+pub struct BoundTag<const TAG: char>;
 impl<const TAG: char> TimeTag for BoundTag<TAG> {
     fn inner() -> char {
         TAG
