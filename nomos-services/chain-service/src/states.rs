@@ -171,6 +171,10 @@ mod tests {
         let leader = Leader::new(vec![], [0; 16].into(), ledger_config);
 
         // Build [`CryptarchiaConsensusState`] with the pruned blocks.
+        let pruned_stale_blocks = pruned_blocks
+            .stale_blocks()
+            .copied()
+            .collect::<HashSet<_>>();
         let recovery_state =
             CryptarchiaConsensusState::<(), (), (), ()>::from_cryptarchia_and_unpruned_blocks(
                 &Cryptarchia {
@@ -178,12 +182,12 @@ mod tests {
                     consensus: cryptarchia_engine.clone(),
                 },
                 &leader,
-                pruned_blocks.clone(),
+                pruned_stale_blocks.clone(),
             )
             .unwrap();
 
         assert_eq!(recovery_state.tip, cryptarchia_engine.tip());
         assert_eq!(recovery_state.lib, cryptarchia_engine.lib());
-        assert_eq!(recovery_state.storage_blocks_to_remove, pruned_blocks);
+        assert_eq!(recovery_state.storage_blocks_to_remove, pruned_stale_blocks);
     }
 }

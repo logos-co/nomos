@@ -66,6 +66,8 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
             known_blocks={known_blocks:?},"
         );
 
+        // TODO: Handle cases where blocks have been pruned from the engine
+        //       and are available only in storage.
         let Some(start_block) =
             max_lca(cryptarchia.consensus.branches(), target_block, known_blocks)
         else {
