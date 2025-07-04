@@ -268,7 +268,7 @@ impl From<WithdrawnState> for TransientDeclarationState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DeclarationMessage, ProviderId, RewardAddress, ServiceType};
+    use crate::{DeclarationMessage, ProviderId, ServiceType, ZkPublicKey};
 
     const fn default_service_params() -> ServiceParameters {
         ServiceParameters {
@@ -281,13 +281,13 @@ mod tests {
 
     const fn default_declaration_message() -> DeclarationMessage {
         let provider_id = ProviderId([0; 32]);
-        let reward_address = RewardAddress([0; 32]);
+        let zk_id = ZkPublicKey([0; 32]);
 
         DeclarationMessage {
             service_type: ServiceType::BlendNetwork,
             locators: vec![],
             provider_id,
-            reward_address,
+            zk_id,
         }
     }
 

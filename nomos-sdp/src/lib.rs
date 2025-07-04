@@ -51,7 +51,7 @@ pub enum ServiceType {
     ExecutorNetwork,
 }
 
-pub type Nonce = [u8; 16];
+pub type Nonce = u64;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct ProviderId(pub [u8; 32]);
@@ -100,7 +100,7 @@ pub struct ActivityId(pub [u8; 32]);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct RewardAddress(pub [u8; 32]);
+pub struct ZkPublicKey(pub [u8; 32]);
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct DeclarationInfo {
@@ -108,7 +108,7 @@ pub struct DeclarationInfo {
     pub provider_id: ProviderId,
     pub service: ServiceType,
     pub locators: Vec<Locator>,
-    pub reward_address: RewardAddress,
+    pub zk_id: ZkPublicKey,
     pub created: BlockNumber,
     pub active: Option<BlockNumber>,
     pub withdrawn: Option<BlockNumber>,
@@ -122,7 +122,7 @@ impl DeclarationInfo {
             provider_id: msg.provider_id,
             service: msg.service_type,
             locators: msg.locators,
-            reward_address: msg.reward_address,
+            zk_id: msg.zk_id,
             created,
             active: None,
             withdrawn: None,
@@ -142,7 +142,7 @@ pub struct DeclarationMessage {
     pub service_type: ServiceType,
     pub locators: Vec<Locator>,
     pub provider_id: ProviderId,
-    pub reward_address: RewardAddress,
+    pub zk_id: ZkPublicKey,
 }
 
 impl DeclarationMessage {
@@ -154,12 +154,15 @@ impl DeclarationMessage {
             ServiceType::ExecutorNetwork => "EX",
         };
 
+        // From the
+        // [spec](https://www.notion.so/nomos-tech/Service-Declaration-Protocol-Specification-1fd261aa09df819ca9f8eb2bdfd4ec1dw):
+        // declaration_id = Hash(service||provider_id||zk_id||locators)
         hasher.update(service.as_bytes());
         hasher.update(self.provider_id.0);
+        hasher.update(self.zk_id.0);
         for locator in &self.locators {
             hasher.update(locator.0.as_ref());
         }
-        hasher.update(self.reward_address.0);
 
         DeclarationId(hasher.finalize().into())
     }
@@ -168,28 +171,14 @@ impl DeclarationMessage {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct WithdrawMessage {
     pub declaration_id: DeclarationId,
-    pub service_type: ServiceType,
-    pub provider_id: ProviderId,
     pub nonce: Nonce,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct ActiveMessage<Metadata> {
     pub declaration_id: DeclarationId,
-    pub service_type: ServiceType,
-    pub provider_id: ProviderId,
     pub nonce: Nonce,
     pub metadata: Option<Metadata>,
-}
-
-impl<Metadata> ActiveMessage<Metadata> {
-    pub fn activity_id(&self) -> ActivityId {
-        let mut hasher = Blake2b::new();
-        hasher.update(self.declaration_id.0);
-        hasher.update(self.provider_id.0);
-        hasher.update(self.nonce);
-        ActivityId(hasher.finalize().into())
-    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -214,29 +203,11 @@ pub enum SdpMessage<Metadata> {
 
 impl<Metadata> SdpMessage<Metadata> {
     #[must_use]
-    pub const fn provider_id(&self) -> ProviderId {
-        match self {
-            Self::Declare(message) => message.provider_id,
-            Self::Activity(message) => message.provider_id,
-            Self::Withdraw(message) => message.provider_id,
-        }
-    }
-
-    #[must_use]
     pub fn declaration_id(&self) -> DeclarationId {
         match self {
             Self::Declare(message) => message.declaration_id(),
             Self::Activity(message) => message.declaration_id,
             Self::Withdraw(message) => message.declaration_id,
-        }
-    }
-
-    #[must_use]
-    pub const fn service_type(&self) -> ServiceType {
-        match self {
-            Self::Declare(message) => message.service_type,
-            Self::Activity(message) => message.service_type,
-            Self::Withdraw(message) => message.service_type,
         }
     }
 }
