@@ -29,6 +29,7 @@ pub enum StorageMsg<Backend: StorageBackend> {
     },
     LoadPrefix {
         prefix: Bytes,
+        from: Option<Bytes>,
         reply_channel: tokio::sync::oneshot::Sender<Vec<Bytes>>,
     },
     Store {
@@ -138,8 +139,8 @@ impl<Backend: StorageBackend> Debug for StorageMsg<Backend> {
             Self::Load { key, .. } => {
                 write!(f, "Load {{ {key:?} }}")
             }
-            Self::LoadPrefix { prefix, .. } => {
-                write!(f, "LoadPrefix {{ {prefix:?} }}")
+            Self::LoadPrefix { prefix, from, .. } => {
+                write!(f, "LoadPrefix {{ {prefix:?}, {from:?} }}")
             }
             Self::Store { key, value } => {
                 write!(f, "Store {{ {key:?}, {value:?}}}")
@@ -185,8 +186,9 @@ where
             }
             StorageMsg::LoadPrefix {
                 prefix,
+                from,
                 reply_channel,
-            } => Self::handle_load_prefix(backend, prefix, reply_channel).await,
+            } => Self::handle_load_prefix(backend, prefix, from, reply_channel).await,
             StorageMsg::Store { key, value } => Self::handle_store(backend, key, value).await,
             StorageMsg::Remove { key, reply_channel } => {
                 Self::handle_remove(backend, key, reply_channel).await
@@ -222,10 +224,11 @@ where
     async fn handle_load_prefix(
         backend: &mut Backend,
         prefix: Bytes,
+        from: Option<Bytes>,
         reply_channel: tokio::sync::oneshot::Sender<Vec<Bytes>>,
     ) -> Result<(), StorageServiceError> {
         let result: Vec<Bytes> = backend
-            .load_prefix(&prefix)
+            .load_prefix(&prefix, from.as_ref().map(|b| b.as_ref()))
             .await
             .map_err(|e| StorageServiceError::BackendError(e.into()))?;
         reply_channel

@@ -64,6 +64,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for MockStora
     async fn load_prefix(
         &mut self,
         _key: &[u8],
+        _from: Option<&[u8]>,
     ) -> Result<Vec<Bytes>, <Self as StorageBackend>::Error> {
         unimplemented!()
     }

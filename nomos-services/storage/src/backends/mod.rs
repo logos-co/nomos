@@ -53,6 +53,7 @@ pub trait StorageBackend: StorageBackendApi + Sized {
     async fn load_prefix(
         &mut self,
         prefix: &[u8],
+        from: Option<&[u8]>,
     ) -> Result<Vec<Bytes>, <Self as StorageBackend>::Error>;
     async fn remove(
         &mut self,

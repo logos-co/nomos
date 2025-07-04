@@ -2,7 +2,7 @@ use std::{marker::PhantomData, path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use rocksdb::{Error, Options, DB};
+use rocksdb::{Direction, Error, IteratorMode, Options, DB};
 use serde::{Deserialize, Serialize};
 
 use super::{StorageBackend, StorageSerde, StorageTransaction};
@@ -125,13 +125,23 @@ where
     async fn load_prefix(
         &mut self,
         prefix: &[u8],
+        from: Option<&[u8]>,
     ) -> Result<Vec<Bytes>, <Self as StorageBackend>::Error> {
         let mut values = Vec::new();
-        let iter = self.rocks.prefix_iterator(prefix);
+        let start_key = match from {
+            Some(from) => &[prefix, from].concat(),
+            None => prefix,
+        };
+        let iter = self
+            .rocks
+            .iterator(IteratorMode::From(start_key, Direction::Forward));
 
         for item in iter {
             match item {
-                Ok((_key, value)) => {
+                Ok((key, value)) => {
+                    if !key.starts_with(prefix) {
+                        break;
+                    }
                     values.push(Bytes::from(value.to_vec()));
                 }
                 Err(e) => return Err(e), // Return the error if one occurs
