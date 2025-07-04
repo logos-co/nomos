@@ -1,6 +1,6 @@
 # BUILD IMAGE ---------------------------------------------------------
 
-FROM rust:1.87.0-slim-bookworm AS builder
+FROM rust:1.88.0-slim-bookworm AS builder
 
 # Install dependencies needed for building RocksDB and etcd.
 RUN apt-get update && apt-get install -yq \
@@ -29,8 +29,8 @@ RUN git clone https://github.com/risc0/risc0.git && \
 FROM rust:1.87.0-slim-bookworm AS final
 
 LABEL maintainer="romanzac@status.im" \
-      source="https://github.com/logos-co/nomos" \
-      description="Nomos testnet debug image"
+    source="https://github.com/logos-co/nomos" \
+    description="Nomos testnet debug image"
 
 COPY --from=builder /usr/local/cargo /usr/local/cargo
 COPY --from=builder /root/.risc0 /root/.risc0

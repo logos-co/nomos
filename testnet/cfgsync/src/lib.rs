@@ -27,7 +27,7 @@ mod tests {
     };
 
     #[tokio::test]
-    #[ignore]
+    #[ignore = "Ignored until mantle related configuration is settled"]
     async fn test_address_book() {
         let n_hosts = 4;
         let config = CfgSyncConfig {

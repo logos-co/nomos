@@ -104,6 +104,7 @@ missing_assert_message      = { level = "allow" }
 missing_errors_doc          = { level = "allow" }
 missing_panics_doc          = { level = "allow" }
 pattern_type_mismatch       = { level = "allow" }
+redundant_test_prefix       = { level = "allow" }
 ref_patterns                = { level = "allow" }
 renamed_function_params     = { level = "allow" }
 same_name_method            = { level = "allow" }

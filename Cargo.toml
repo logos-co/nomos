@@ -1,6 +1,6 @@
 [workspace]
 # Make sure any excluded crates are still clipped in our CI. Also, make sure they use the same Clippy and rustc lints we specify in this file down below.
-exclude = ["nomos-core/cl", "nomos-core/proof_statements", "nomos-core/risc0_proofs"]
+exclude = ["nomos-core/proof_statements", "nomos-core/risc0_proofs"]
 members = [
   "consensus/cryptarchia-engine",
   "consensus/cryptarchia-sync",
@@ -53,7 +53,6 @@ resolver = "2"
 bundler                  = { path = "./nomos-bundler" }
 cfgsync                  = { path = "./testnet/cfgsync" }
 chain-service            = { path = "./nomos-services/chain-service" }
-cl                       = { path = "./nomos-core/cl" }
 common-http-client       = { path = "./nodes/nomos-node/http-client" }
 cryptarchia-engine       = { path = "./consensus/cryptarchia-engine" }
 cryptarchia-sync         = { path = "./consensus/cryptarchia-sync" }
@@ -199,6 +198,7 @@ missing_assert_message      = { level = "allow" }
 missing_errors_doc          = { level = "allow" }
 missing_panics_doc          = { level = "allow" }
 pattern_type_mismatch       = { level = "allow" }
+redundant_test_prefix       = { level = "allow" }
 ref_patterns                = { level = "allow" }
 renamed_function_params     = { level = "allow" }
 same_name_method            = { level = "allow" }
