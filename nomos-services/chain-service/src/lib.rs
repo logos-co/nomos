@@ -127,8 +127,8 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
         let (consensus, pruned_blocks) = self.consensus.receive_block(id, parent, slot)?;
 
         let mut cryptarchia = Self { ledger, consensus };
-        // Prune the ledger states of the pruned blocks.
-        cryptarchia.prune_ledger_states(&pruned_blocks);
+        // Prune the ledger states of all the pruned blocks.
+        cryptarchia.prune_ledger_states(pruned_blocks.all());
 
         Ok((cryptarchia, pruned_blocks))
     }
@@ -151,16 +151,16 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
     ///
     /// Details on which blocks are pruned can be found in the
     /// [`cryptarchia_engine::Cryptarchia::receive_block`].
-    fn prune_ledger_states(&mut self, pruned_blocks: &PrunedBlocks<HeaderId>) {
+    fn prune_ledger_states<'a>(&'a mut self, blocks: impl Iterator<Item = &'a HeaderId>) {
         let mut pruned_states_count = 0usize;
-        for pruned_block in pruned_blocks {
-            if self.ledger.prune_state_at(pruned_block) {
+        for block in blocks {
+            if self.ledger.prune_state_at(block) {
                 pruned_states_count = pruned_states_count.saturating_add(1);
             } else {
                 tracing::error!(
                    target: LOG_TARGET,
                     "Failed to prune ledger state for block {:?} which should exist.",
-                    pruned_block
+                    block
                 );
             }
         }
@@ -575,7 +575,7 @@ where
         )
         .await;
         let mut storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
-            &pruned_blocks,
+            pruned_blocks.stale_blocks().copied(),
             &storage_blocks_to_remove,
             relays.storage_adapter(),
         )
@@ -917,7 +917,7 @@ where
             Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
 
         let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
-            &pruned_blocks,
+            pruned_blocks.stale_blocks().copied(),
             storage_blocks_to_remove,
             relays.storage_adapter(),
         )
@@ -1237,7 +1237,7 @@ where
             let (new_cryptarchia, new_pruned_blocks) =
                 Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
             cryptarchia = new_cryptarchia;
-            pruned_blocks.extend(new_pruned_blocks);
+            pruned_blocks.extend(&new_pruned_blocks);
         }
 
         (cryptarchia, pruned_blocks, leader)
@@ -1252,15 +1252,12 @@ where
     /// This function returns any block that fails to be deleted from the
     /// storage layer.
     async fn delete_pruned_blocks_from_storage(
-        pruned_blocks: &PrunedBlocks<HeaderId>,
+        pruned_blocks: impl Iterator<Item = HeaderId> + Send,
         additional_blocks: &HashSet<HeaderId>,
         storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
     ) -> HashSet<HeaderId> {
         match Self::delete_blocks_from_storage(
-            pruned_blocks
-                .iter()
-                .chain(additional_blocks.iter())
-                .copied(),
+            pruned_blocks.chain(additional_blocks.iter().copied()),
             storage_adapter,
         )
         .await
