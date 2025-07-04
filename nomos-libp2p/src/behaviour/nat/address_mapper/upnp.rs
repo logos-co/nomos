@@ -6,6 +6,7 @@ use igd_next::{
 };
 use libp2p::Multiaddr;
 use multiaddr::Protocol;
+use tracing::info;
 
 use crate::behaviour::nat::address_mapper::{
     errors::AddressMapperError, protocol::MappingProtocol,
@@ -27,7 +28,7 @@ impl MappingProtocol for UpnpProtocol {
         let gateway = igd_next::aio::tokio::search_gateway(SearchOptions::default()).await?;
         let gateway_external_ip = gateway.get_external_ip().await?;
 
-        tracing::info!("UPnP gateway found: {gateway_external_ip}");
+        info!("UPnP gateway found: {gateway_external_ip}");
 
         Ok(Box::new(Self {
             gateway,
@@ -35,8 +36,11 @@ impl MappingProtocol for UpnpProtocol {
         }))
     }
 
-    async fn map_address(&mut self, address: &Multiaddr) -> Result<Multiaddr, AddressMapperError> {
-        let (internal_address, protocol) = multiaddr_to_socketaddr(address)?;
+    async fn map_address(
+        &mut self,
+        address_to_map: &Multiaddr,
+    ) -> Result<Multiaddr, AddressMapperError> {
+        let (internal_address, protocol) = multiaddr_to_socketaddr(address_to_map)?;
         let mapped_port = internal_address.port();
 
         self.gateway
@@ -50,12 +54,11 @@ impl MappingProtocol for UpnpProtocol {
             )
             .await?;
 
-        let port = mapped_port;
-        let external_addr = format!("/ip4/{}/tcp/{port}", self.gateway_external_ip);
+        let external_addr = external_address(self.gateway_external_ip, address_to_map);
 
-        tracing::info!("Successfully added UPnP mapping: {external_addr}");
+        info!("Successfully added UPnP mapping: {external_addr}");
 
-        Ok(external_addr.parse()?)
+        Ok(external_addr)
     }
 }
 
@@ -79,4 +82,17 @@ fn multiaddr_to_socketaddr(addr: &Multiaddr) -> Result<AddressWithProtocol, Addr
     };
 
     Ok((SocketAddr::new(ip, port), protocol))
+}
+
+/// Replace the IP in the Multiaddr with an external IP address.
+/// Port is not changed.
+fn external_address(external_address: IpAddr, internal_address: &Multiaddr) -> Multiaddr {
+    let addr = match external_address {
+        IpAddr::V4(ip) => Protocol::Ip4(ip),
+        IpAddr::V6(ip) => Protocol::Ip6(ip),
+    };
+
+    internal_address
+        .replace(0, |_| Some(addr))
+        .expect("multiaddr should be valid")
 }
