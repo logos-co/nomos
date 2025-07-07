@@ -9,7 +9,7 @@ use tokio::time::Interval;
 
 pub enum SamplingState {
     WaitingCommitments,
-    Init(Vec<SubnetworkId>),
+    Init,
     Tracking,
     Terminated,
 }

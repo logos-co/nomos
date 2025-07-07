@@ -44,7 +44,6 @@ use crate::{
 pub enum ExecutorDaNetworkMessage<BalancerStats, MonitorStats> {
     /// Kickstart a network sapling
     RequestSample {
-        subnetwork_id: SubnetworkId,
         blob_id: BlobId,
     },
     RequestDispersal {
@@ -90,7 +89,7 @@ where
     task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     verifier_replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     executor_replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
-    sampling_request_channel: UnboundedSender<(SubnetworkId, BlobId)>,
+    sampling_request_channel: UnboundedSender<BlobId>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
     verifying_broadcast_receiver: broadcast::Receiver<DaShare>,
     dispersal_broadcast_receiver: broadcast::Receiver<DispersalExecutorEvent>,
@@ -221,12 +220,9 @@ where
     #[instrument(skip_all)]
     async fn process(&self, msg: Self::Message) {
         match msg {
-            ExecutorDaNetworkMessage::RequestSample {
-                subnetwork_id,
-                blob_id,
-            } => {
+            ExecutorDaNetworkMessage::RequestSample { blob_id } => {
                 info_with_id!(&blob_id, "RequestSample");
-                handle_sample_request(&self.sampling_request_channel, subnetwork_id, blob_id).await;
+                handle_sample_request(&self.sampling_request_channel, blob_id).await;
             }
             ExecutorDaNetworkMessage::RequestDispersal {
                 subnetwork_id,

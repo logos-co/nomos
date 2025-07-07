@@ -43,18 +43,13 @@ macro_rules! adapter_for {
             async fn start_sampling(
                 &mut self,
                 blob_id: BlobId,
-                subnets: &[SubnetworkId],
             ) -> Result<(), DynError> {
-                for id in subnets {
-                    let subnetwork_id = id;
-                    self.network_relay
-                        .send(DaNetworkMsg::Process($DaNetworkMessage::RequestSample {
-                            blob_id,
-                            subnetwork_id: *subnetwork_id,
-                        }))
-                        .await
-                        .expect("RequestSample message should have been sent")
-                }
+                self.network_relay
+                    .send(DaNetworkMsg::Process($DaNetworkMessage::RequestSample {
+                        blob_id,
+                    }))
+                    .await
+                    .expect("RequestSample message should have been sent");
                 Ok(())
             }
 

@@ -39,7 +39,6 @@ where
         kind: Backend::EventKind,
         sender: oneshot::Sender<Pin<Box<dyn Stream<Item = Backend::NetworkEvent> + Send>>>,
     },
-
     SubnetworksAtBlock {
         block_number: BlockNumber,
         sender: oneshot::Sender<SubnetworkAssignations<Membership::NetworkId, Membership::Id>>,

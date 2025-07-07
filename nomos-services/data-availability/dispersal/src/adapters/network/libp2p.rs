@@ -61,23 +61,13 @@ where
     StorageAdapter: Sync,
     RuntimeServiceId: Sync,
 {
-    async fn start_sampling(
-        &self,
-        blob_id: BlobId,
-        subnets: &[SubnetworkId],
-    ) -> Result<(), DynError> {
-        for id in subnets {
-            let subnetwork_id = id;
-            self.outbound_relay
-                .send(DaNetworkMsg::Process(
-                    ExecutorDaNetworkMessage::RequestSample {
-                        blob_id,
-                        subnetwork_id: *subnetwork_id,
-                    },
-                ))
-                .await
-                .expect("RequestSample message should have been sent");
-        }
+    async fn start_sampling(&self, blob_id: BlobId) -> Result<(), DynError> {
+        self.outbound_relay
+            .send(DaNetworkMsg::Process(
+                ExecutorDaNetworkMessage::RequestSample { blob_id },
+            ))
+            .await
+            .expect("RequestSample message should have been sent");
         Ok(())
     }
 }
@@ -184,7 +174,7 @@ where
             .await
             .map_err(|(error, _)| error)?;
 
-        self.start_sampling(blob_id, subnets).await?;
+        self.start_sampling(blob_id).await?;
 
         let stream = stream_receiver.await.map_err(Box::new)?;
 
@@ -230,7 +220,7 @@ where
                 () = tokio::time::sleep(cooldown) => {
                     if !pending_subnets.is_empty() {
                         let retry_subnets: Vec<_> = pending_subnets.iter().copied().collect();
-                        self.start_sampling(blob_id, &retry_subnets).await?;
+                        self.start_sampling(blob_id).await?;
                     }
                 }
             }

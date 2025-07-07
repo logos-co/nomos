@@ -196,8 +196,7 @@ where
     ) {
         match msg {
             DaSamplingServiceMsg::TriggerSampling { blob_id } => {
-                if let SamplingState::Init(sampling_subnets) = sampler.init_sampling(blob_id).await
-                {
+                if let SamplingState::Init = sampler.init_sampling(blob_id).await {
                     info_with_id!(blob_id, "InitSampling");
                     if let Some(commitments) =
                         Self::request_commitments(storage_adapter, api_adapter, blob_id).await
@@ -210,10 +209,7 @@ where
                         return;
                     }
 
-                    if let Err(e) = network_adapter
-                        .start_sampling(blob_id, &sampling_subnets)
-                        .await
-                    {
+                    if let Err(e) = network_adapter.start_sampling(blob_id).await {
                         // we can short circuit the failure from the beginning
                         sampler.handle_sampling_error(blob_id).await;
                         error_with_id!(blob_id, "Error sampling for BlobId: {blob_id:?}: {e}");

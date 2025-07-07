@@ -137,7 +137,7 @@ impl<R: Rng + Sync + Send> DaSamplingServiceBackend<R> for KzgrsSamplingBackend<
             commitment: None,
         };
         self.pending_sampling_blobs.insert(blob_id, ctx);
-        SamplingState::Init(subnets)
+        SamplingState::Init
     }
 
     fn prune(&mut self) {
@@ -193,7 +193,7 @@ mod test {
         let blob_id = BlobId::default();
         let state = backend.init_sampling(blob_id).await;
 
-        if let SamplingState::Init(subnets) = state {
+        if let SamplingState::Init = state {
             let unique_subnet_ids: HashSet<_> = subnets.iter().copied().collect();
 
             assert_eq!(

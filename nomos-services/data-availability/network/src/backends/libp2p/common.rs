@@ -147,14 +147,11 @@ pub(crate) async fn handle_validator_events_stream(
 }
 
 pub(crate) async fn handle_sample_request(
-    sampling_request_channel: &UnboundedSender<(SubnetworkId, BlobId)>,
-    subnetwork_id: SubnetworkId,
+    sampling_request_channel: &UnboundedSender<BlobId>,
     blob_id: BlobId,
 ) {
-    if let Err(SendError((subnetwork_id, blob_id))) =
-        sampling_request_channel.send((subnetwork_id, blob_id))
-    {
-        error!("Error requesting sample for subnetwork id : {subnetwork_id}, blob_id: {blob_id:?}");
+    if let Err(SendError(blob_id)) = sampling_request_channel.send(blob_id) {
+        error!("Error requesting samples for blob_id: {blob_id:?}");
     }
 }
 

@@ -44,7 +44,6 @@ where
 {
     /// Kickstart a network sapling
     RequestSample {
-        subnetwork_id: SubnetworkId,
         blob_id: BlobId,
     },
     MonitorRequest(ConnectionMonitorCommand<MonitorStats>),
@@ -74,7 +73,7 @@ pub enum DaNetworkEvent {
 pub struct DaNetworkValidatorBackend<Membership> {
     task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
-    sampling_request_channel: UnboundedSender<(SubnetworkId, BlobId)>,
+    sampling_request_channel: UnboundedSender<BlobId>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
@@ -179,12 +178,9 @@ where
     #[instrument(skip_all)]
     async fn process(&self, msg: Self::Message) {
         match msg {
-            DaNetworkMessage::RequestSample {
-                subnetwork_id,
-                blob_id,
-            } => {
+            DaNetworkMessage::RequestSample { blob_id } => {
                 info_with_id!(&blob_id, "RequestSample");
-                handle_sample_request(&self.sampling_request_channel, subnetwork_id, blob_id).await;
+                handle_sample_request(&self.sampling_request_channel, blob_id).await;
             }
             DaNetworkMessage::MonitorRequest(command) => {
                 match command.peer_id() {

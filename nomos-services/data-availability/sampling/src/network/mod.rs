@@ -35,11 +35,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
         >,
     ) -> Self;
 
-    async fn start_sampling(
-        &mut self,
-        blob_id: BlobId,
-        subnets: &[SubnetworkId],
-    ) -> Result<(), DynError>;
+    async fn start_sampling(&mut self, blob_id: BlobId) -> Result<(), DynError>;
     async fn listen_to_sampling_messages(
         &self,
     ) -> Result<Pin<Box<dyn Stream<Item = SamplingEvent> + Send>>, DynError>;

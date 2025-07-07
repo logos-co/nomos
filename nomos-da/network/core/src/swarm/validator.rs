@@ -167,7 +167,7 @@ where
         self.swarm.listen_on(address)
     }
 
-    pub fn sample_request_channel(&mut self) -> UnboundedSender<(Membership::NetworkId, BlobId)> {
+    pub fn sample_request_channel(&mut self) -> UnboundedSender<BlobId> {
         self.swarm
             .behaviour()
             .sampling_behaviour()
