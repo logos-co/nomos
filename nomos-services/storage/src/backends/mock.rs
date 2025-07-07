@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     marker::PhantomData,
+    num::NonZeroUsize,
 };
 
 use async_trait::async_trait;
@@ -64,6 +65,9 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for MockStora
     async fn load_prefix(
         &mut self,
         _key: &[u8],
+        _start_key: Option<&[u8]>,
+        _end_key: Option<&[u8]>,
+        _limit: Option<NonZeroUsize>,
     ) -> Result<Vec<Bytes>, <Self as StorageBackend>::Error> {
         unimplemented!()
     }
