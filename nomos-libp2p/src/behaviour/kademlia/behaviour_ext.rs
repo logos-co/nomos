@@ -35,28 +35,21 @@ impl Behaviour {
         self.kademlia.get_closest_peers(peer_id)
     }
 
-    pub(crate) fn kademlia_discovered_peers(&mut self) -> Vec<PeerInfo> {
-        let Some(kademlia) = self.kademlia.as_mut() else {
-            tracing::error!("kademlia is not enabled");
-            return Vec::new();
-        };
-
+    pub(crate) fn kademlia_discovered_peers(&mut self) -> impl Iterator<Item = PeerInfo> + use<'_> {
         // get all buckets and in each buket, peers with addresses
-        kademlia
-            .kbuckets()
-            .flat_map(|bucket| {
-                bucket
-                    .iter()
-                    .filter_map(|entry| {
-                        let peer_id = *entry.node.key.preimage();
-                        let addresses: Vec<_> = entry.node.value.iter().cloned().collect();
-                        (!addresses.is_empty()).then_some(PeerInfo {
-                            peer_id,
-                            addrs: addresses,
-                        })
+        self.kademlia.kbuckets().flat_map(|bucket| {
+            bucket
+                .iter()
+                .filter_map(|entry| {
+                    let peer_id = *entry.node.key.preimage();
+                    let addresses: Vec<_> = entry.node.value.iter().cloned().collect();
+
+                    (!addresses.is_empty()).then_some(PeerInfo {
+                        peer_id,
+                        addrs: addresses,
                     })
-                    .collect::<Vec<_>>()
-            })
-            .collect()
+                })
+                .collect::<Vec<_>>()
+        })
     }
 }

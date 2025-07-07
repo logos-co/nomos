@@ -28,7 +28,7 @@ impl Swarm {
         self.swarm.behaviour_mut().kademlia_routing_table_dump()
     }
 
-    pub fn kademlia_discovered_peers(&mut self) -> Vec<PeerInfo> {
+    pub fn kademlia_discovered_peers(&mut self) -> impl Iterator<Item = PeerInfo> + use<'_> {
         self.swarm.behaviour_mut().kademlia_discovered_peers()
     }
 }

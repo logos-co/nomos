@@ -62,7 +62,6 @@ impl SwarmHandler {
                 let discovered_peers = self
                     .swarm
                     .kademlia_discovered_peers()
-                    .into_iter()
                     .map(|peer_info| peer_info.peer_id)
                     .collect::<HashSet<_>>();
 
