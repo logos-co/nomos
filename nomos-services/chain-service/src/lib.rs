@@ -566,7 +566,7 @@ where
 
         let mut incoming_blocks = network_adapter.blocks_stream().await?;
         let mut chainsync_events = network_adapter.chainsync_events_stream().await?;
-        let sync_blocks_provider: BlockProvider<_> =
+        let sync_blocks_provider: BlockProvider<_, _, _, _> =
             BlockProvider::new(relays.storage_adapter().storage_relay.clone());
 
         let mut slot_timer = {
@@ -1303,7 +1303,7 @@ where
 
     async fn handle_chainsync_event<State>(
         cryptarchia: &Cryptarchia<State>,
-        sync_blocks_provider: &BlockProvider<Storage>,
+        sync_blocks_provider: &BlockProvider<Storage, State, TxS::Tx, BS::BlobId>,
         event: ChainSyncEvent,
     ) where
         State: CryptarchiaState + Send + Sync + 'static,
