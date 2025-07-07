@@ -45,6 +45,7 @@ members = [
   "nomos-utils",
   "testnet/cfgsync",
   "tests",
+  "utxotree",
 ]
 resolver = "2"
 
