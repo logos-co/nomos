@@ -1,6 +1,6 @@
 use std::{collections::HashSet, fmt::Debug, hash::Hash, marker::PhantomData};
 
-use futures::TryStreamExt as _;
+use futures::{future::select_ok, FutureExt as _, TryStreamExt as _};
 use nomos_core::{block::Block, header::HeaderId, wire};
 use nomos_network::{
     backends::libp2p::{
@@ -18,7 +18,6 @@ use rand::{prelude::IteratorRandom as _, thread_rng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::sync::oneshot;
 use tokio_stream::{wrappers::errors::BroadcastStreamRecvError, StreamExt as _};
-use tracing::debug;
 
 use crate::{
     messages::NetworkMessage,
@@ -255,9 +254,10 @@ where
             MAX_PEERS_TO_TRY_FOR_ORPHAN_DOWNLOAD,
         );
 
-        for peer in peers_to_request {
-            match self
-                .request_blocks_from_peer(
+        let request_futures: Vec<_> = peers_to_request
+            .into_iter()
+            .map(|peer| {
+                self.request_blocks_from_peer(
                     peer,
                     // as the target block
                     target_block,
@@ -265,19 +265,11 @@ where
                     latest_immutable_block,
                     additional_blocks.clone(),
                 )
-                .await
-            {
-                Ok(stream) => {
-                    debug!("Requested orphan parents from peer: {peer}");
-                    return Ok(stream);
-                }
-                Err(err) => {
-                    tracing::warn!("Failed to request orphan parents from peer {peer}: {err}");
-                }
-            }
-        }
+                .boxed()
+            })
+            .collect();
 
-        Err("Failed to request orphan parents from any peer".into())
+        select_ok(request_futures).await.map(|(stream, _)| stream)
     }
 }
 
@@ -314,7 +306,6 @@ where
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
     const MAX: usize = MAX_PEERS_TO_TRY_FOR_ORPHAN_DOWNLOAD;
