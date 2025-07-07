@@ -19,6 +19,9 @@ pub enum AddressMapperError {
 
     #[error("Multiaddr parse error: {0}")]
     MultiaddrParseError(String),
+
+    #[error("Mapping already in progress")]
+    MappingAlreadyInProgress,
 }
 
 impl From<igd_next::SearchError> for AddressMapperError {

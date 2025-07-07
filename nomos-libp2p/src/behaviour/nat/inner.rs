@@ -19,6 +19,7 @@ use libp2p::{
 };
 use rand::RngCore;
 use tokio::sync::mpsc::UnboundedReceiver;
+use tracing::error;
 
 use crate::{
     behaviour::nat::{
@@ -199,7 +200,9 @@ impl<R: RngCore + 'static> NetworkBehaviour for InnerNatBehaviour<R> {
                     .fuse();
                 }
                 Command::MapAddress(addr) => {
-                    self.address_mapper_behaviour.try_map_address(addr);
+                    if let Err(e) = self.address_mapper_behaviour.try_map_address(addr) {
+                        error!("Failed to start address mapping: {e}");
+                    }
                 }
                 Command::NewExternalAddrCandidate(addr) => {
                     return Poll::Ready(ToSwarm::NewExternalAddrCandidate(addr));

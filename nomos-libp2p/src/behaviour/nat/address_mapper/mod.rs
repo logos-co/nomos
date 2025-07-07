@@ -36,14 +36,18 @@ pub struct AddressMapperBehaviour {
 }
 
 impl AddressMapperBehaviour {
-    pub fn try_map_address(&mut self, address: Multiaddr) {
-        if self.mapping_future.is_none() {
-            self.start_mapping(address);
-
-            if let Some(waker) = &self.waker {
-                waker.wake_by_ref();
-            }
+    pub fn try_map_address(&mut self, address: Multiaddr) -> Result<(), AddressMapperError> {
+        if self.mapping_future.is_some() {
+            return Err(AddressMapperError::MappingAlreadyInProgress);
         }
+
+        self.start_mapping(address);
+
+        if let Some(waker) = &self.waker {
+            waker.wake_by_ref();
+        }
+
+        Ok(())
     }
 
     fn start_mapping(&mut self, address: Multiaddr) {
