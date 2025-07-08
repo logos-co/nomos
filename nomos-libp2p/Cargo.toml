@@ -8,11 +8,13 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
+async-trait      = { default-features = false, version = "0.1.88" }
 blake2           = { default-features = false, version = "0.10" }
 cryptarchia-sync = { features = ["libp2p"], workspace = true }
 either           = { default-features = false, version = "1.13.0" }
 futures          = { default-features = false, version = "0.3" }
 hex              = { default-features = false, version = "0.4.3" }
+igd-next         = { features = ["aio_tokio", "tokio"], version = "0.16.1" }
 libp2p           = { features = ["autonat", "dns", "gossipsub", "identify", "kad", "macros", "quic", "secp256k1", "tokio"], workspace = true }
 multiaddr        = { default-features = false, version = "0.18" }
 rand             = { default-features = false, version = "0.8" }
