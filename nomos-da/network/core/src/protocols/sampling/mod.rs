@@ -124,8 +124,8 @@ mod test {
         });
         tokio::time::sleep(Duration::from_secs(2)).await;
         for i in 0..MSG_COUNT {
-            request_sender_1.send((0, [i as u8; 32])).unwrap();
-            request_sender_2.send((0, [i as u8; 32])).unwrap();
+            request_sender_1.send([i as u8; 32]).unwrap();
+            request_sender_2.send([i as u8; 32]).unwrap();
         }
 
         let res1 = t1.await.unwrap();

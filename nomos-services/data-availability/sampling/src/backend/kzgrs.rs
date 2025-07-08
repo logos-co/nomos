@@ -243,7 +243,7 @@ mod test {
         assert!(sampler.get_validated_blobs().await.is_empty());
 
         // start sampling for b1
-        let SamplingState::Init(subnets_to_sample) = sampler.init_sampling(b1).await else {
+        let SamplingState::Init = sampler.init_sampling(b1).await else {
             panic!("unexpected return value")
         };
         assert!(subnets_to_sample.len() == subnet_num);

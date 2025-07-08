@@ -65,7 +65,7 @@ impl MembershipHandler for AllNeighbours {
     }
 
     fn last_subnetwork_id(&self) -> Self::NetworkId {
-        0
+        1
     }
 
     fn get_address(&self, peer_id: &PeerId) -> Option<libp2p::Multiaddr> {
