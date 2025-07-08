@@ -85,7 +85,7 @@ pub struct DaSamplingService<
     ApiAdapter,
     RuntimeServiceId,
 > where
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng>,
+    SamplingBackend: DaSamplingServiceBackend,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId>,
     SamplingRng: Rng,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId>,
@@ -128,7 +128,7 @@ impl<
         RuntimeServiceId,
     >
 where
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng>,
+    SamplingBackend: DaSamplingServiceBackend,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId>,
     SamplingRng: Rng,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId>,
@@ -169,7 +169,6 @@ impl<
     >
 where
     SamplingBackend: DaSamplingServiceBackend<
-            SamplingRng,
             BlobId = BlobId,
             Share = DaShare,
             SharesCommitments = DaSharesCommitments,
@@ -355,7 +354,7 @@ impl<
         RuntimeServiceId,
     >
 where
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng>,
+    SamplingBackend: DaSamplingServiceBackend,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId>,
     SamplingRng: Rng,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId>,
@@ -392,7 +391,6 @@ impl<
     >
 where
     SamplingBackend: DaSamplingServiceBackend<
-            SamplingRng,
             BlobId = BlobId,
             Share = DaShare,
             SharesCommitments = DaSharesCommitments,
@@ -481,8 +479,8 @@ where
 
         let api_adapter = ApiAdapter::new(api_adapter_settings);
 
-        let rng = SamplingRng::from_entropy();
-        let mut sampler = SamplingBackend::new(sampling_settings, rng);
+        let _rng = SamplingRng::from_entropy();
+        let mut sampler = SamplingBackend::new(sampling_settings);
         let mut next_prune_tick = sampler.prune_interval();
 
         service_resources_handle.status_updater.notify_ready();

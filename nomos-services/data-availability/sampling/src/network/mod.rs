@@ -4,7 +4,6 @@ use std::pin::Pin;
 
 use futures::Stream;
 use nomos_core::da::BlobId;
-use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
     backends::{libp2p::common::SamplingEvent, NetworkBackend},
     NetworkService,

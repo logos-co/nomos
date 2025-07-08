@@ -17,7 +17,6 @@ use nomos_da_network_core::{
         validator::ValidatorEventsStream, DAConnectionMonitorSettings, DAConnectionPolicySettings,
         ReplicationConfig,
     },
-    SubnetworkId,
 };
 use nomos_libp2p::{ed25519, secret_key_serde, Multiaddr};
 use serde::{Deserialize, Serialize};
