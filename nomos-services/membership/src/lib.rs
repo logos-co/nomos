@@ -164,6 +164,10 @@ where
     Sdp: SdpAdapter,
     Backend::Settings: Clone,
 {
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "TODO: Address this at some point"
+    )]
     async fn handle_message(&mut self, msg: MembershipMessage) {
         match msg {
             MembershipMessage::GetSnapshotAt {

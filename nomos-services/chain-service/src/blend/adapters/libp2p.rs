@@ -5,6 +5,7 @@ use nomos_blend_service::{
     BlendService,
 };
 use nomos_core::{block::Block, wire};
+use nomos_network::backends::libp2p::PeerId;
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -20,7 +21,7 @@ where
 {
     settings: LibP2pAdapterSettings<Network::BroadcastSettings>,
     blend_relay: OutboundRelay<
-        <BlendService<Libp2pBlendBackend, Network, RuntimeServiceId> as ServiceData>::Message,
+        <BlendService<Libp2pBlendBackend, PeerId, Network, RuntimeServiceId> as ServiceData>::Message,
     >,
     _tx: PhantomData<Tx>,
     _blob_cert: PhantomData<BlobCert>,
@@ -40,11 +41,12 @@ where
     type Network = Network;
     type Tx = Tx;
     type BlobCertificate = BlobCert;
+    type NodeId = PeerId;
 
     async fn new(
         settings: Self::Settings,
         blend_relay: OutboundRelay<
-            <BlendService<Self::Backend, Self::Network, RuntimeServiceId> as ServiceData>::Message,
+            <BlendService<Self::Backend, Self::NodeId, Self::Network, RuntimeServiceId> as ServiceData>::Message,
         >,
     ) -> Self {
         // this wait seems to be helpful in some cases since we give the time

@@ -246,6 +246,10 @@ where
         handle_replication_event(&self.validation_events_sender, event).await;
     }
 
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "TODO: Address this at some point"
+    )]
     async fn handle_behaviour_event(
         &mut self,
         event: ValidatorBehaviourEvent<

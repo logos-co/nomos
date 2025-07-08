@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 use libp2p::{kad::QueryId, Multiaddr, PeerId, StreamProtocol};
 
-use crate::{behaviour::BehaviourError, Swarm};
+use crate::Swarm;
 
 impl Swarm {
-    pub fn get_closest_peers(&mut self, peer_id: PeerId) -> Result<QueryId, BehaviourError> {
+    pub fn get_closest_peers(&mut self, peer_id: PeerId) -> QueryId {
         self.swarm
             .behaviour_mut()
             .kademlia_get_closest_peers(peer_id)

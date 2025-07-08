@@ -126,6 +126,10 @@ impl<
         RuntimeServiceId: Send + Sync + 'static,
     > SdpService<Backend, DeclarationAdapter, ServicesAdapter, Metadata, RuntimeServiceId>
 {
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "TODO: Address this at some point"
+    )]
     async fn handle_sdp_message(&mut self, msg: SdpMessage<Backend>) {
         match msg {
             SdpMessage::Process {

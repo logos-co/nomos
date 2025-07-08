@@ -32,6 +32,7 @@ use nomos_da_verifier::{
     network::adapters::validator::Libp2pAdapter as VerifierNetworkAdapter,
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
+use nomos_libp2p::PeerId;
 pub use nomos_mempool::{
     da::settings::DaMempoolSettings,
     network::adapters::libp2p::{
@@ -88,6 +89,7 @@ pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, R
 
 pub(crate) type BlendService = nomos_blend_service::BlendService<
     BlendBackend,
+    PeerId,
     BlendNetworkAdapter<RuntimeServiceId>,
     RuntimeServiceId,
 >;

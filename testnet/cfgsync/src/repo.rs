@@ -81,11 +81,7 @@ impl ConfigRepo {
             println!("All hosts have announced their IPs");
 
             let mut waiting_hosts = self.waiting_hosts.lock().unwrap();
-            let hosts = waiting_hosts
-                .iter()
-                .map(|(host, _)| host)
-                .cloned()
-                .collect();
+            let hosts = waiting_hosts.keys().cloned().collect();
 
             let configs = create_node_configs(
                 &self.consensus_params,
