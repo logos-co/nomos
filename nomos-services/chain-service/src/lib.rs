@@ -1,4 +1,5 @@
 pub mod blend;
+mod bootstrap;
 mod leadership;
 mod messages;
 pub mod network;
@@ -15,7 +16,7 @@ use std::{
     time::Duration,
 };
 
-use cryptarchia_engine::{CryptarchiaState, Online, PrunedBlocks, Slot};
+use cryptarchia_engine::{Boostrapping, CryptarchiaState, Online, PrunedBlocks, Slot};
 use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
@@ -37,7 +38,7 @@ use nomos_mempool::{
 };
 use nomos_network::{message::ChainSyncEvent, NetworkService};
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageService};
-use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
+use nomos_time::{EpochSlotTickStream, SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
     services::{relay::OutboundRelay, state::StateUpdater, AsServiceId, ServiceCore, ServiceData},
     DynError, OpaqueServiceResourcesHandle,
@@ -50,12 +51,21 @@ use services_utils::{
     wait_until_services_are_ready,
 };
 use thiserror::Error;
-use tokio::sync::{broadcast, oneshot};
-use tracing::{debug, error, info, instrument, span, Level};
+use tokio::{
+    sync::{broadcast, oneshot},
+    time::Instant,
+};
+use tracing::{debug, error, info, instrument, span, Level, Span};
 use tracing_futures::Instrument as _;
 
+pub use crate::bootstrap::config::BootstrapConfig;
 use crate::{
+    bootstrap::{
+        cryptarchia::InitialCryptarchia,
+        ibd::{IbdCompletedCryptarchia, InitialBlockDownload},
+    },
     leadership::Leader,
+    network::BoxedStream,
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
     storage::{adapters::StorageAdapter, StorageAdapter as _},
@@ -168,6 +178,19 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
     }
 }
 
+impl Cryptarchia<Boostrapping> {
+    fn online(self) -> (Cryptarchia<Online>, PrunedBlocks<HeaderId>) {
+        let (consensus, pruned_blocks) = self.consensus.online();
+        (
+            Cryptarchia {
+                ledger: self.ledger,
+                consensus,
+            },
+            pruned_blocks,
+        )
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings> {
     #[serde(default)]
@@ -181,6 +204,7 @@ pub struct CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendAdapterSetti
     pub network_adapter_settings: NetworkAdapterSettings,
     pub blend_adapter_settings: BlendAdapterSettings,
     pub recovery_file: PathBuf,
+    pub bootstrap: BootstrapConfig,
 }
 
 impl<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings> FileBackendSettings
@@ -551,11 +575,13 @@ where
 
         let CryptarchiaSettings {
             config: ledger_config,
+            genesis_id,
             transaction_selector_settings,
             blob_selector_settings,
             leader_config,
             network_adapter_settings,
             blend_adapter_settings,
+            bootstrap: bootstrap_config,
             ..
         } = self
             .service_resources_handle
@@ -566,15 +592,16 @@ where
         // These are blocks that have been pruned by the cryptarchia engine but have not
         // yet been deleted from the storage layer.
         let storage_blocks_to_remove = self.initial_state.storage_blocks_to_remove.clone();
-        let (mut cryptarchia, pruned_blocks, leader) = Self::initialize_cryptarchia(
-            self.initial_state,
-            ledger_config,
-            leader_config,
-            &relays,
-            &self.block_subscription_sender,
-        )
-        .await;
-        let mut storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
+        let (cryptarchia, pruned_blocks, leader) = self
+            .initialize_cryptarchia(
+                genesis_id,
+                &bootstrap_config,
+                ledger_config,
+                leader_config,
+                &relays,
+            )
+            .await;
+        let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
             &pruned_blocks,
             &storage_blocks_to_remove,
             relays.storage_adapter(),
@@ -586,12 +613,12 @@ where
         let tx_selector = TxS::new(transaction_selector_settings);
         let blob_selector = BS::new(blob_selector_settings);
 
-        let mut incoming_blocks = network_adapter.blocks_stream().await?;
-        let mut chainsync_events = network_adapter.chainsync_events_stream().await?;
+        let incoming_blocks = network_adapter.blocks_stream().await?;
+        let chainsync_events = network_adapter.chainsync_events_stream().await?;
         let sync_blocks_provider: BlockProvider<_> =
             BlockProvider::new(relays.storage_adapter().storage_relay.clone());
 
-        let mut slot_timer = {
+        let slot_timer = {
             let (sender, receiver) = oneshot::channel();
             relays
                 .time_relay()
@@ -623,92 +650,61 @@ where
         )
         .await?;
 
-        let async_loop = async {
-            loop {
-                tokio::select! {
-                    Some(block) = incoming_blocks.next() => {
-                        Self::log_received_block(&block);
+        // Run IBD (Initial Block Download).
+        let cryptarchia = InitialBlockDownload::run(cryptarchia, network_adapter).await;
 
-                        // Process the received block and update the cryptarchia state.
-                        (cryptarchia, storage_blocks_to_remove) = Self::process_block_and_update_state(
-                            cryptarchia,
-                            &leader,
-                            block.clone(),
-                            &storage_blocks_to_remove,
-                            &relays,
-                            &self.block_subscription_sender,
-                            self.service_resources_handle
-                                        .state_updater.clone()
-                        ).await;
-
-                        info!(counter.consensus_processed_blocks = 1);
-                    }
-
-                    Some(SlotTick { slot, .. }) = slot_timer.next() => {
-                        let parent = cryptarchia.tip();
-                        let aged_tree = cryptarchia.tip_state().aged_commitments();
-                        let latest_tree = cryptarchia.tip_state().latest_commitments();
-                        debug!("ticking for slot {}", u64::from(slot));
-
-                        let Some(epoch_state) = cryptarchia.epoch_state_for_slot(slot) else {
-                            error!("trying to propose a block for slot {} but epoch state is not available", u64::from(slot));
-                            continue;
-                        };
-                        if let Some(proof) = leader.build_proof_for(aged_tree, latest_tree, epoch_state, slot).await {
-                            debug!("proposing block...");
-                            // TODO: spawn as a separate task?
-                            let block = Self::propose_block(
-                                parent,
-                                slot,
-                                proof,
-                                tx_selector.clone(),
-                                blob_selector.clone(),
-                                &relays
-                            ).await;
-
-                            if let Some(block) = block {
-                                // apply our own block
-                                (cryptarchia, storage_blocks_to_remove) = Self::process_block_and_update_state(
-                                    cryptarchia,
-                                    &leader,
-                                    block.clone(),
-                                    &storage_blocks_to_remove,
-                                    &relays,
-                                    &self.block_subscription_sender,
-                                    self.service_resources_handle
-                                        .state_updater.clone()
-                                        ,
-                                )
-                                .await;
-                                blend_adapter.blend(block).await;
-                            }
-                        }
-                    }
-
-                    Some(msg) = self.service_resources_handle.inbound_relay.next() => {
-                        Self::process_message(&cryptarchia, &self.block_subscription_sender, msg);
-                    }
-
-                    Some(event) = chainsync_events.next() => {
-                       Self::handle_chainsync_event(&cryptarchia, &sync_blocks_provider, event).await;
-                    }
-                }
+        // Run the service loop.
+        match cryptarchia {
+            IbdCompletedCryptarchia::Bootstrapping(cryptarchia) => {
+                self.run_bootstrap_cryptarchia(
+                    &bootstrap_config,
+                    cryptarchia,
+                    leader,
+                    storage_blocks_to_remove,
+                    incoming_blocks,
+                    slot_timer,
+                    &relays,
+                    tx_selector,
+                    blob_selector,
+                    blend_adapter,
+                    chainsync_events,
+                    sync_blocks_provider,
+                )
+                .instrument(span())
+                .await;
             }
-        };
-
-        // It sucks to use `CRYPTARCHIA_ID` when we have `<RuntimeServiceId as
-        // AsServiceId<Self>>::SERVICE_ID`.
-        // Somehow it just does not let us use it.
-        //
-        // Hypothesis:
-        // 1. Probably related to too many generics.
-        // 2. It seems `span` requires a `const` string literal.
-        async_loop
-            .instrument(span!(Level::TRACE, CRYPTARCHIA_ID))
-            .await;
+            IbdCompletedCryptarchia::Online(cryptarchia) => {
+                self.run_online_cryptarchia(
+                    cryptarchia,
+                    leader,
+                    storage_blocks_to_remove,
+                    incoming_blocks,
+                    slot_timer,
+                    &relays,
+                    tx_selector,
+                    blob_selector,
+                    blend_adapter,
+                    chainsync_events,
+                    sync_blocks_provider,
+                )
+                .instrument(span())
+                .await;
+            }
+        }
 
         Ok(())
     }
+}
+
+fn span() -> Span {
+    // It sucks to use `CRYPTARCHIA_ID` when we have `<RuntimeServiceId as
+    // AsServiceId<Self>>::SERVICE_ID`.
+    // Somehow it just does not let us use it.
+    //
+    // Hypothesis:
+    // 1. Probably related to too many generics.
+    // 2. It seems `span` requires a `const` string literal.
+    span!(Level::TRACE, CRYPTARCHIA_ID)
 }
 
 impl<
@@ -755,9 +751,13 @@ impl<
     >
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Clone + Send + Sync + 'static,
-    NetAdapter::Settings: Send,
-    BlendAdapter: blend::BlendAdapter<RuntimeServiceId> + Clone + Send + Sync + 'static,
-    BlendAdapter::Settings: Send,
+    NetAdapter::Settings: Send + Sync + 'static,
+    BlendAdapter: blend::BlendAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = DaPool::Item>
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+    BlendAdapter::Settings: Send + Sync + 'static,
     ClPool: RecoverableMempool<BlockId = HeaderId> + Send + Sync + 'static,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone + Send + Sync + 'static,
@@ -794,9 +794,9 @@ where
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key> + Send + Sync + 'static,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     TxS: TxSelect<Tx = ClPool::Item> + Clone + Send + Sync + 'static,
-    TxS::Settings: Send,
+    TxS::Settings: Send + Sync + 'static,
     BS: BlobSelect<BlobId = DaPool::Item> + Clone + Send + Sync + 'static,
-    BS::Settings: Send,
+    BS::Settings: Send + Sync + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block:
         TryFrom<Block<ClPool::Item, DaPool::Item>> + TryInto<Block<ClPool::Item, DaPool::Item>>,
@@ -816,6 +816,314 @@ where
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
+    /// Runs [`Cryptarchia<Boostrapping>`].
+    /// - Handles incoming blocks.
+    /// - Proposes new blocks.
+    /// - Handles inbound service messages.
+    /// - Switches to [`Cryptarchia<Online>`] after the prolonged bootstrap
+    ///   period has passed.
+    ///
+    /// Unlike [`Cryptarchia<Online>`], it doesn't handle chain sync requests.
+    #[expect(
+        clippy::type_complexity,
+        reason = "CryptarchiaConsensusRelays amount of generics."
+    )]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "TODO: Address this at some point."
+    )]
+    async fn run_bootstrap_cryptarchia(
+        mut self,
+        config: &BootstrapConfig,
+        mut cryptarchia: Cryptarchia<Boostrapping>,
+        leader: Leader,
+        mut storage_blocks_to_remove: HashSet<HeaderId>,
+        mut incoming_blocks: BoxedStream<Block<ClPool::Item, DaPool::Item>>,
+        mut slot_timer: EpochSlotTickStream,
+        relays: &CryptarchiaConsensusRelays<
+            BlendAdapter,
+            BS,
+            ClPool,
+            ClPoolAdapter,
+            DaPool,
+            DaPoolAdapter,
+            NetAdapter,
+            SamplingBackend,
+            SamplingRng,
+            Storage,
+            TxS,
+            DaVerifierBackend,
+            RuntimeServiceId,
+        >,
+        tx_selector: TxS,
+        blob_selector: BS,
+        blend_adapter: BlendAdapter,
+        chainsync_events: BoxedStream<ChainSyncEvent>,
+        sync_blocks_provider: BlockProvider<Storage>,
+    ) {
+        // Start the timer for Prelonged Bootstrap Period.
+        let mut prolonged_bootstrap_timer = Box::pin(tokio::time::sleep_until(
+            Instant::now() + config.prolonged_bootstrap_period,
+        ));
+
+        loop {
+            tokio::select! {
+                () = &mut prolonged_bootstrap_timer => {
+                    info!("Prolonged Bootstrap Period has passed. Switching to Online.");
+                    break;
+                }
+
+                Some(block) = incoming_blocks.next() => {
+                    (cryptarchia, storage_blocks_to_remove) = self.handle_incoming_block(
+                        cryptarchia,
+                        &leader,
+                        block.clone(),
+                        storage_blocks_to_remove,
+                        relays,
+                    ).await;
+                }
+
+                Some(SlotTick { slot, .. }) = slot_timer.next() => {
+                    (cryptarchia, storage_blocks_to_remove) = self.handle_new_slot(
+                        slot,
+                        cryptarchia,
+                        &leader,
+                        storage_blocks_to_remove,
+                        relays,
+                        tx_selector.clone(),
+                        blob_selector.clone(),
+                        &blend_adapter
+                    ).await;
+                }
+
+                Some(msg) = self.service_resources_handle.inbound_relay.next() => {
+                    Self::process_message(&cryptarchia, &self.block_subscription_sender, msg);
+                }
+            }
+        }
+
+        // Switch to Online mode.
+        let (cryptarchia, pruned_blocks) = cryptarchia.online();
+        storage_blocks_to_remove.extend(&pruned_blocks);
+        self.run_online_cryptarchia(
+            cryptarchia,
+            leader,
+            storage_blocks_to_remove,
+            incoming_blocks,
+            slot_timer,
+            relays,
+            tx_selector,
+            blob_selector,
+            blend_adapter,
+            chainsync_events,
+            sync_blocks_provider,
+        )
+        .await;
+    }
+
+    /// Runs [`Cryptarchia<Online>`].
+    /// - Handles incoming blocks.
+    /// - Proposes new blocks.
+    /// - Handles inbound service messages.
+    /// - Handles chain sync requests.
+    #[expect(
+        clippy::type_complexity,
+        reason = "CryptarchiaConsensusRelays amount of generics."
+    )]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "TODO: Address this at some point."
+    )]
+    async fn run_online_cryptarchia(
+        mut self,
+        mut cryptarchia: Cryptarchia<Online>,
+        leader: Leader,
+        mut storage_blocks_to_remove: HashSet<HeaderId>,
+        mut incoming_blocks: BoxedStream<Block<ClPool::Item, DaPool::Item>>,
+        mut slot_timer: EpochSlotTickStream,
+        relays: &CryptarchiaConsensusRelays<
+            BlendAdapter,
+            BS,
+            ClPool,
+            ClPoolAdapter,
+            DaPool,
+            DaPoolAdapter,
+            NetAdapter,
+            SamplingBackend,
+            SamplingRng,
+            Storage,
+            TxS,
+            DaVerifierBackend,
+            RuntimeServiceId,
+        >,
+        tx_selector: TxS,
+        blob_selector: BS,
+        blend_adapter: BlendAdapter,
+        mut chainsync_events: BoxedStream<ChainSyncEvent>,
+        sync_blocks_provider: BlockProvider<Storage>,
+    ) {
+        loop {
+            tokio::select! {
+                Some(block) = incoming_blocks.next() => {
+                    (cryptarchia, storage_blocks_to_remove) = self.handle_incoming_block(
+                        cryptarchia,
+                        &leader,
+                        block.clone(),
+                        storage_blocks_to_remove,
+                        relays,
+                    ).await;
+                }
+
+                Some(SlotTick { slot, .. }) = slot_timer.next() => {
+                    (cryptarchia, storage_blocks_to_remove) = self.handle_new_slot(
+                        slot,
+                        cryptarchia,
+                        &leader,
+                        storage_blocks_to_remove,
+                        relays,
+                        tx_selector.clone(),
+                        blob_selector.clone(),
+                        &blend_adapter
+                    ).await;
+                }
+
+                Some(event) = chainsync_events.next() => {
+                       Self::handle_chainsync_event(&cryptarchia, &sync_blocks_provider, event).await;
+                    }
+
+                Some(msg) = self.service_resources_handle.inbound_relay.next() => {
+                    Self::process_message(&cryptarchia, &self.block_subscription_sender, msg);
+                }
+            }
+        }
+    }
+
+    /// Handle an incoming block received from the network.
+    #[expect(
+        clippy::type_complexity,
+        reason = "CryptarchiaConsensusRelays amount of generics."
+    )]
+    async fn handle_incoming_block<State: CryptarchiaState>(
+        &self,
+        cryptarchia: Cryptarchia<State>,
+        leader: &Leader,
+        block: Block<ClPool::Item, DaPool::Item>,
+        storage_blocks_to_remove: HashSet<HeaderId>,
+        relays: &CryptarchiaConsensusRelays<
+            BlendAdapter,
+            BS,
+            ClPool,
+            ClPoolAdapter,
+            DaPool,
+            DaPoolAdapter,
+            NetAdapter,
+            SamplingBackend,
+            SamplingRng,
+            Storage,
+            TxS,
+            DaVerifierBackend,
+            RuntimeServiceId,
+        >,
+    ) -> (Cryptarchia<State>, HashSet<HeaderId>) {
+        Self::log_received_block(&block);
+
+        // Process the received block and update the cryptarchia state.
+        let (cryptarchia, storage_blocks_to_remove) = Self::process_block_and_update_state(
+            cryptarchia,
+            leader,
+            block.clone(),
+            &storage_blocks_to_remove,
+            relays,
+            &self.block_subscription_sender,
+            self.service_resources_handle.state_updater.clone(),
+        )
+        .await;
+
+        info!(counter.consensus_processed_blocks = 1);
+        (cryptarchia, storage_blocks_to_remove)
+    }
+
+    /// Handle a new slot tick by proposing a new block if the `leader` is
+    /// eligible,
+    #[expect(
+        clippy::type_complexity,
+        reason = "CryptarchiaConsensusRelays amount of generics."
+    )]
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "TODO: Address this at some point."
+    )]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "TODO: Address this at some point."
+    )]
+    async fn handle_new_slot<State: CryptarchiaState>(
+        &self,
+        slot: Slot,
+        cryptarchia: Cryptarchia<State>,
+        leader: &Leader,
+        storage_blocks_to_remove: HashSet<HeaderId>,
+        relays: &CryptarchiaConsensusRelays<
+            BlendAdapter,
+            BS,
+            ClPool,
+            ClPoolAdapter,
+            DaPool,
+            DaPoolAdapter,
+            NetAdapter,
+            SamplingBackend,
+            SamplingRng,
+            Storage,
+            TxS,
+            DaVerifierBackend,
+            RuntimeServiceId,
+        >,
+        tx_selector: TxS,
+        blob_selector: BS,
+        blend_adapter: &BlendAdapter,
+    ) -> (Cryptarchia<State>, HashSet<HeaderId>) {
+        let parent = cryptarchia.tip();
+        let aged_tree = cryptarchia.tip_state().aged_commitments();
+        let latest_tree = cryptarchia.tip_state().latest_commitments();
+        debug!("ticking for slot {}", u64::from(slot));
+
+        let Some(epoch_state) = cryptarchia.epoch_state_for_slot(slot) else {
+            error!(
+                "trying to propose a block for slot {} but epoch state is not available",
+                u64::from(slot)
+            );
+            return (cryptarchia, storage_blocks_to_remove);
+        };
+
+        if let Some(proof) = leader
+            .build_proof_for(aged_tree, latest_tree, epoch_state, slot)
+            .await
+        {
+            debug!("proposing block...");
+            // TODO: spawn as a separate task?
+            let block =
+                Self::propose_block(parent, slot, proof, tx_selector, blob_selector, relays).await;
+
+            if let Some(block) = block {
+                // apply our own block
+                let (cryptarchia, storage_blocks_to_remove) = Self::process_block_and_update_state(
+                    cryptarchia,
+                    leader,
+                    block.clone(),
+                    &storage_blocks_to_remove,
+                    relays,
+                    &self.block_subscription_sender,
+                    self.service_resources_handle.state_updater.clone(),
+                )
+                .await;
+                blend_adapter.blend(block).await;
+                return (cryptarchia, storage_blocks_to_remove);
+            }
+        }
+
+        (cryptarchia, storage_blocks_to_remove)
+    }
+
     fn process_message<State: CryptarchiaState>(
         cryptarchia: &Cryptarchia<State>,
         block_channel: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
@@ -877,12 +1185,8 @@ where
         clippy::type_complexity,
         reason = "CryptarchiaConsensusState and CryptarchiaConsensusRelays amount of generics."
     )]
-    #[expect(
-        clippy::future_not_send,
-        reason = "Internal function, settings are not Sync"
-    )]
-    async fn process_block_and_update_state(
-        cryptarchia: Cryptarchia<Online>,
+    async fn process_block_and_update_state<State: CryptarchiaState>(
+        cryptarchia: Cryptarchia<State>,
         leader: &Leader,
         block: Block<ClPool::Item, DaPool::Item>,
         storage_blocks_to_remove: &HashSet<HeaderId>,
@@ -912,7 +1216,7 @@ where
                 >,
             >,
         >,
-    ) -> (Cryptarchia<Online>, HashSet<HeaderId>) {
+    ) -> (Cryptarchia<State>, HashSet<HeaderId>) {
         let (cryptarchia, pruned_blocks) =
             Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
 
@@ -1192,12 +1496,9 @@ where
         reason = "CryptarchiaConsensusState and CryptarchiaConsensusRelays amount of generics."
     )]
     async fn initialize_cryptarchia(
-        initial_state: CryptarchiaConsensusState<
-            TxS::Settings,
-            BS::Settings,
-            NetAdapter::Settings,
-            BlendAdapter::Settings,
-        >,
+        &self,
+        genesis_id: HeaderId,
+        bootstrap_config: &BootstrapConfig,
         ledger_config: nomos_ledger::Config,
         leader_config: LeaderConfig,
         relays: &CryptarchiaConsensusRelays<
@@ -1215,32 +1516,85 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-        block_subscription_sender: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> (Cryptarchia<Online>, PrunedBlocks<HeaderId>, Leader) {
-        let lib_id = initial_state.lib;
-        let mut cryptarchia =
-            <Cryptarchia<Online>>::from_lib(lib_id, initial_state.lib_ledger_state, ledger_config);
+    ) -> (InitialCryptarchia, PrunedBlocks<HeaderId>, Leader) {
+        let lib_id = self.initial_state.lib;
+        let cryptarchia = InitialCryptarchia::new(
+            lib_id,
+            self.initial_state.lib_ledger_state.clone(),
+            ledger_config,
+            genesis_id,
+            bootstrap_config,
+        );
         let leader = Leader::new(
-            initial_state.lib_leader_utxos.clone(),
+            self.initial_state.lib_leader_utxos.clone(),
             leader_config.sk,
             ledger_config,
         );
 
         let blocks =
-            Self::get_blocks_in_range(lib_id, initial_state.tip, relays.storage_adapter()).await;
+            Self::get_blocks_in_range(lib_id, self.initial_state.tip, relays.storage_adapter())
+                .await;
 
         // Skip LIB block since it's already applied
         let blocks = blocks.into_iter().skip(1);
 
+        // Process blocks
+        match cryptarchia {
+            InitialCryptarchia::Bootstrapping(cryptarchia) => {
+                let (cryptarchia, pruned_blocks) =
+                    self.process_blocks(blocks, cryptarchia, relays).await;
+                (
+                    InitialCryptarchia::Bootstrapping(cryptarchia),
+                    pruned_blocks,
+                    leader,
+                )
+            }
+            InitialCryptarchia::Online(cryptarchia) => {
+                let (cryptarchia, pruned_blocks) =
+                    self.process_blocks(blocks, cryptarchia, relays).await;
+                (
+                    InitialCryptarchia::Online(cryptarchia),
+                    pruned_blocks,
+                    leader,
+                )
+            }
+        }
+    }
+
+    /// Try to add multiple [`Block`]s to [`Cryptarchia`].
+    #[expect(
+        clippy::type_complexity,
+        reason = "CryptarchiaConsensusRelays amount of generics."
+    )]
+    async fn process_blocks<State: CryptarchiaState>(
+        &self,
+        blocks: impl Iterator<Item = Block<ClPool::Item, DaPool::Item>>,
+        mut cryptarchia: Cryptarchia<State>,
+        relays: &CryptarchiaConsensusRelays<
+            BlendAdapter,
+            BS,
+            ClPool,
+            ClPoolAdapter,
+            DaPool,
+            DaPoolAdapter,
+            NetAdapter,
+            SamplingBackend,
+            SamplingRng,
+            Storage,
+            TxS,
+            DaVerifierBackend,
+            RuntimeServiceId,
+        >,
+    ) -> (Cryptarchia<State>, PrunedBlocks<HeaderId>) {
         let mut pruned_blocks = PrunedBlocks::new();
         for block in blocks {
             let (new_cryptarchia, new_pruned_blocks) =
-                Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
+                Self::process_block(cryptarchia, block, relays, &self.block_subscription_sender)
+                    .await;
             cryptarchia = new_cryptarchia;
             pruned_blocks.extend(new_pruned_blocks);
         }
-
-        (cryptarchia, pruned_blocks, leader)
+        (cryptarchia, pruned_blocks)
     }
 
     /// Remove the pruned blocks from the storage layer.

@@ -21,6 +21,7 @@ nomos-mempool          = { workspace = true }
 nomos-network          = { workspace = true }
 nomos-storage          = { workspace = true }
 nomos-time             = { workspace = true }
+nomos-utils            = { workspace = true }
 nomos_proof_statements = { workspace = true }
 overwatch              = { workspace = true }
 rand                   = "0.8"
