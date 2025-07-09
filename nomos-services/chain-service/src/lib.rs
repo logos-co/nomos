@@ -16,6 +16,7 @@ use std::{
 };
 
 use cryptarchia_engine::{CryptarchiaState, Online, PrunedBlocks, Slot};
+use cryptarchia_sync::GetTipResponse;
 use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
@@ -1353,9 +1354,13 @@ where
                     .await;
             }
             ChainSyncEvent::ProvideTipRequest { reply_sender } => {
-                let tip = cryptarchia.tip();
-                info!("Sending tip {tip}");
-                if let Err(e) = reply_sender.send(tip).await {
+                let tip = cryptarchia.consensus.tip_branch();
+                let response = GetTipResponse {
+                    id: tip.id(),
+                    slot: tip.slot(),
+                };
+                info!("Sending tip response: {response:?}");
+                if let Err(e) = reply_sender.send(response).await {
                     error!("Failed to send tip header: {e}");
                 }
             }

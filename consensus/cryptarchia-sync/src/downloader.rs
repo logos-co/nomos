@@ -1,7 +1,6 @@
 use futures::stream;
 use libp2p::PeerId;
 use libp2p_stream::Control;
-use nomos_core::header::HeaderId;
 use tokio::sync::oneshot;
 use tracing::error;
 
@@ -21,7 +20,7 @@ impl Downloader {
     pub async fn send_tip_request(
         peer_id: PeerId,
         control: &mut Control,
-        reply_sender: oneshot::Sender<Result<HeaderId, ChainSyncError>>,
+        reply_sender: oneshot::Sender<Result<GetTipResponse, ChainSyncError>>,
     ) -> Result<TipRequestStream, ChainSyncError> {
         let mut stream = open_stream(peer_id, control).await?;
 
@@ -55,15 +54,11 @@ impl Downloader {
             reply_channel,
         } = request_stream;
 
-        let tip_response = match unpack_from_reader::<GetTipResponse, _>(&mut stream).await {
-            Ok(GetTipResponse { tip }) => Ok(tip),
-            Err(e) => {
-                error!("Failed to receive tip from peer {peer_id}: {e}");
-                Err(ChainSyncError::from((peer_id, e)))
-            }
-        };
+        let response = unpack_from_reader::<GetTipResponse, _>(&mut stream)
+            .await
+            .map_err(|e| ChainSyncError::from((peer_id, e)));
 
-        if let Err(e) = reply_channel.send(tip_response) {
+        if let Err(e) = reply_channel.send(response) {
             error!("Failed to send tip response to peer {peer_id}: {e:?}");
         }
 

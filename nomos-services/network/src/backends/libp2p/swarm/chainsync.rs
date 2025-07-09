@@ -2,7 +2,7 @@ use std::{collections::HashSet, fmt::Debug};
 
 use nomos_libp2p::{
     cryptarchia_sync,
-    cryptarchia_sync::{BoxedStream, ChainSyncError, HeaderId, SerialisedBlock},
+    cryptarchia_sync::{BoxedStream, ChainSyncError, GetTipResponse, HeaderId, SerialisedBlock},
     PeerId,
 };
 use tokio::sync::oneshot;
@@ -14,7 +14,7 @@ type SerialisedBlockStream = BoxedStream<Result<SerialisedBlock, ChainSyncError>
 pub enum ChainSyncCommand {
     RequestTip {
         peer: PeerId,
-        reply_sender: oneshot::Sender<Result<HeaderId, ChainSyncError>>,
+        reply_sender: oneshot::Sender<Result<GetTipResponse, ChainSyncError>>,
     },
     DownloadBlocks {
         peer: PeerId,

@@ -2,6 +2,7 @@ pub mod adapters;
 
 use std::collections::HashSet;
 
+use cryptarchia_sync::GetTipResponse;
 use futures::Stream;
 use nomos_core::{block::Block, header::HeaderId};
 use nomos_network::{backends::NetworkBackend, message::ChainSyncEvent, NetworkService};
@@ -32,7 +33,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
 
     async fn chainsync_events_stream(&self) -> Result<BoxedStream<ChainSyncEvent>, DynError>;
 
-    async fn request_tip(&self, peer: Self::PeerId) -> Result<HeaderId, DynError>;
+    async fn request_tip(&self, peer: Self::PeerId) -> Result<GetTipResponse, DynError>;
 
     async fn request_blocks_from_peer(
         &self,

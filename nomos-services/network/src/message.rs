@@ -3,6 +3,7 @@ use std::{collections::HashSet, fmt::Debug};
 use bytes::Bytes;
 use futures::stream::BoxStream;
 use nomos_core::header::HeaderId;
+use nomos_libp2p::cryptarchia_sync::GetTipResponse;
 use overwatch::DynError;
 use tokio::sync::{mpsc::Sender, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
@@ -44,6 +45,6 @@ pub enum ChainSyncEvent {
     },
     ProvideTipRequest {
         /// Channel to send the latest tip to the service.
-        reply_sender: Sender<HeaderId>,
+        reply_sender: Sender<GetTipResponse>,
     },
 }

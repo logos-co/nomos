@@ -1,6 +1,5 @@
 use futures::{stream::BoxStream, TryStreamExt as _};
 use libp2p::{PeerId, Stream as Libp2pStream};
-use nomos_core::header::HeaderId;
 use tokio::sync::mpsc;
 
 use crate::{
@@ -29,18 +28,17 @@ impl Provider {
     }
 
     pub async fn provide_tip(
-        mut reply_receiver: mpsc::Receiver<HeaderId>,
+        mut reply_receiver: mpsc::Receiver<GetTipResponse>,
         peer_id: PeerId,
         mut libp2p_stream: Libp2pStream,
     ) -> Result<(), ChainSyncError> {
-        let tip = reply_receiver.recv().await.ok_or_else(|| ChainSyncError {
+        let response = reply_receiver.recv().await.ok_or_else(|| ChainSyncError {
             peer: peer_id,
             kind: ChainSyncErrorKind::ChannelReceiveError(
                 "Failed to receive tip from channel".to_owned(),
             ),
         })?;
 
-        let response = GetTipResponse { tip };
         send_message(peer_id, &mut libp2p_stream, &response).await?;
 
         Ok(())

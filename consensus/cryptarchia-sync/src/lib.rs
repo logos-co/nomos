@@ -8,5 +8,5 @@ mod utils;
 
 pub use behaviour::{Behaviour, BoxedStream, Event};
 pub use errors::{ChainSyncError, ChainSyncErrorKind};
-pub use messages::{DownloadBlocksRequest, SerialisedBlock};
+pub use messages::{DownloadBlocksRequest, GetTipResponse, SerialisedBlock};
 pub use nomos_core::header::HeaderId;
