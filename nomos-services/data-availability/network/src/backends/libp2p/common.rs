@@ -11,7 +11,7 @@ use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::sampling::{
         self,
-        behaviour::{BehaviourSampleReq, BehaviourSampleRes, SamplingError},
+        behaviour::{BehaviourSampleReq, BehaviourSampleRes, SamplingError, SubnetsConfig},
     },
     swarm::{
         validator::ValidatorEventsStream, DAConnectionMonitorSettings, DAConnectionPolicySettings,
@@ -39,6 +39,8 @@ pub struct DaNetworkBackendSettings {
     pub balancer_interval: Duration,
     pub redial_cooldown: Duration,
     pub replication_settings: ReplicationConfig,
+    pub subnets_settings: SubnetsConfig,
+    pub refresh_interval: Duration,
 }
 
 /// Sampling events coming from da network

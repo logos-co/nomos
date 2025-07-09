@@ -97,6 +97,7 @@ impl CfgSyncConfig {
             balancer_interval: self.balancer_interval,
             redial_cooldown: Duration::ZERO,
             replication_settings: self.replication_settings,
+            subnets_refresh_interval: Duration::from_secs(30),
         }
     }
 

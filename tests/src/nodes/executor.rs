@@ -24,7 +24,10 @@ use nomos_da_indexer::{
     storage::adapters::rocksdb::RocksAdapterSettings as IndexerStorageAdapterSettings,
     IndexerSettings,
 };
-use nomos_da_network_core::swarm::{BalancerStats, MonitorStats};
+use nomos_da_network_core::{
+    protocols::sampling::behaviour::SubnetsConfig,
+    swarm::{BalancerStats, MonitorStats},
+};
 use nomos_da_network_service::{
     backends::libp2p::{
         common::DaNetworkBackendSettings, executor::DaNetworkExecutorBackendSettings,
@@ -331,6 +334,10 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                     balancer_interval: config.da_config.balancer_interval,
                     redial_cooldown: config.da_config.redial_cooldown,
                     replication_settings: config.da_config.replication_settings,
+                    subnets_settings: SubnetsConfig {
+                        num_of_subnets: config.da_config.num_samples as usize,
+                    },
+                    refresh_interval: config.da_config.subnets_refresh_interval,
                 },
                 num_subnets: config.da_config.num_subnets,
             },

@@ -357,6 +357,7 @@ mod cfgsync_tests {
                     seen_message_cache_size: 0,
                     seen_message_ttl: Duration::ZERO,
                 },
+                subnets_refresh_interval: Duration::from_secs(1),
             },
             &TracingSettings {
                 logger: LoggerLayer::None,

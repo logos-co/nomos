@@ -23,8 +23,9 @@ use subnetworks_assignations::MembershipHandler;
 use tokio::{
     sync::{broadcast, mpsc::UnboundedSender, oneshot},
     task::JoinHandle,
+    time,
 };
-use tokio_stream::wrappers::{BroadcastStream, UnboundedReceiverStream};
+use tokio_stream::wrappers::{BroadcastStream, IntervalStream, UnboundedReceiverStream};
 use tracing::instrument;
 
 use crate::{
@@ -123,6 +124,14 @@ where
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Self::Membership,
     ) -> Self {
+        // TODO: If there is no requirement to subscribe to block number events in chain
+        // service, and an approximate duration is enough for sampling to hold
+        // temporal connections - remove this message.
+        let subnet_refresh_signal = Box::pin(
+            IntervalStream::new(time::interval(config.validator_settings.refresh_interval))
+                .map(|_| ()),
+        );
+
         let keypair = libp2p::identity::Keypair::from(ed25519::Keypair::from(
             config.validator_settings.node_key.clone(),
         ));
@@ -134,6 +143,8 @@ where
             config.validator_settings.balancer_interval,
             config.validator_settings.redial_cooldown,
             config.validator_settings.replication_settings,
+            config.validator_settings.subnets_settings,
+            subnet_refresh_signal,
         );
         let address = config.validator_settings.listening_address;
         // put swarm to listen at the specified configuration address

@@ -2,7 +2,6 @@ use std::{
     collections::{HashMap, VecDeque},
     pin::Pin,
     task::{Context, Poll, Waker},
-    time::Duration,
 };
 
 use either::Either;
@@ -32,13 +31,11 @@ use nomos_da_messages::{
     sampling,
 };
 use rand::seq::IteratorRandom as _;
+use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 use thiserror::Error;
-use tokio::{
-    sync::mpsc::{self, UnboundedSender},
-    time,
-};
-use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
+use tokio::sync::mpsc::{self, UnboundedSender};
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::error;
 
 use crate::{protocol::SAMPLING_PROTOCOL, SubnetworkId};
@@ -284,6 +281,7 @@ type SampleFutureSuccess = (PeerId, SampleStreamResponse, SampleStream);
 type SampleFutureError = (SamplingError, Option<SampleStream>);
 type SamplingStreamFuture = BoxFuture<'static, Result<SampleFutureSuccess, SampleFutureError>>;
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SubnetsConfig {
     /// Number of unique subnets that samples should be taken from when sampling
     /// a blob.
@@ -329,7 +327,12 @@ where
     Membership: MembershipHandler + 'static,
     Membership::NetworkId: Send,
 {
-    pub fn new(local_peer_id: PeerId, membership: Membership) -> Self {
+    pub fn new(
+        local_peer_id: PeerId,
+        membership: Membership,
+        subnets_config: SubnetsConfig,
+        refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
+    ) -> Self {
         let stream_behaviour = libp2p_stream::Behaviour::new();
         let mut control = stream_behaviour.new_control();
 
@@ -345,9 +348,7 @@ where
         let (samples_request_sender, receiver) = mpsc::unbounded_channel();
         let samples_request_stream = UnboundedReceiverStream::new(receiver).boxed();
 
-        let subnets_config = SubnetsConfig { num_of_subnets: 20 };
-        let subnet_refresh_signal =
-            Box::pin(IntervalStream::new(time::interval(Duration::from_secs(1))).map(|_| ()));
+        let subnet_refresh_signal = Box::pin(refresh_signal);
 
         Self {
             local_peer_id,

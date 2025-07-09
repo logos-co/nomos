@@ -43,6 +43,7 @@ pub struct DaParams {
     pub balancer_interval: Duration,
     pub redial_cooldown: Duration,
     pub replication_settings: ReplicationConfig,
+    pub subnets_refresh_interval: Duration,
 }
 
 impl Default for DaParams {
@@ -78,6 +79,7 @@ impl Default for DaParams {
                 seen_message_cache_size: 1000,
                 seen_message_ttl: Duration::from_secs(3600),
             },
+            subnets_refresh_interval: Duration::from_secs(5),
         }
     }
 }
@@ -102,6 +104,7 @@ pub struct GeneralDaConfig {
     pub balancer_interval: Duration,
     pub redial_cooldown: Duration,
     pub replication_settings: ReplicationConfig,
+    pub subnets_refresh_interval: Duration,
 }
 
 #[must_use]
@@ -166,6 +169,7 @@ pub fn create_da_configs(
                 balancer_interval: da_params.balancer_interval,
                 redial_cooldown: da_params.redial_cooldown,
                 replication_settings: da_params.replication_settings,
+                subnets_refresh_interval: da_params.subnets_refresh_interval,
             }
         })
         .collect()
