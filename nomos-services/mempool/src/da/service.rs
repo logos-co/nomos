@@ -20,7 +20,6 @@ use overwatch::{
     services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},
     OpaqueServiceResourcesHandle,
 };
-use rand::Rng;
 use services_utils::{
     overwatch::{
         recovery::operators::RecoveryBackend as RecoveryBackendTrait, JsonFileBackend,
@@ -43,7 +42,6 @@ pub type DaMempoolService<
     Pool,
     DaSamplingBackend,
     DaSamplingNetwork,
-    DaSamplingRng,
     DaSamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
@@ -66,7 +64,6 @@ pub type DaMempoolService<
     >,
     DaSamplingBackend,
     DaSamplingNetwork,
-    DaSamplingRng,
     DaSamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
@@ -83,7 +80,6 @@ pub struct GenericDaMempoolService<
     RecoveryBackend,
     DaSamplingBackend,
     DaSamplingNetwork,
-    DaSamplingRng,
     DaSamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
@@ -106,7 +102,6 @@ pub struct GenericDaMempoolService<
         RecoveryBackend,
         DaSamplingBackend,
         DaSamplingNetwork,
-        DaSamplingRng,
         DaSamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -120,7 +115,6 @@ impl<
         RecoveryBackend,
         DaSamplingBackend,
         DaSamplingNetwork,
-        DaSamplingRng,
         DaSamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -134,7 +128,6 @@ impl<
         RecoveryBackend,
         DaSamplingBackend,
         DaSamplingNetwork,
-        DaSamplingRng,
         DaSamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -167,7 +160,6 @@ impl<
         RecoveryBackend,
         DaSamplingBackend,
         DaSamplingNetwork,
-        DaSamplingRng,
         DaSamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -181,7 +173,6 @@ impl<
         RecoveryBackend,
         DaSamplingBackend,
         DaSamplingNetwork,
-        DaSamplingRng,
         DaSamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -207,7 +198,6 @@ impl<
         RecoveryBackend,
         DaSamplingBackend,
         DaSamplingNetwork,
-        DaSamplingRng,
         DaSamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -221,7 +211,6 @@ impl<
         RecoveryBackend,
         DaSamplingBackend,
         DaSamplingNetwork,
-        DaSamplingRng,
         DaSamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -241,10 +230,9 @@ where
     NetworkAdapter::Key: Clone,
     NetworkAdapter::Settings: Clone + Send + Sync + 'static,
     RecoveryBackend: RecoveryBackendTrait + Send,
-    DaSamplingBackend: DaSamplingServiceBackend<DaSamplingRng, BlobId = NetworkAdapter::Key> + Send,
+    DaSamplingBackend: DaSamplingServiceBackend<BlobId = NetworkAdapter::Key> + Send,
     DaSamplingBackend::BlobId: Send + 'static,
     DaSamplingNetwork: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send,
-    DaSamplingRng: Rng + Send,
     DaSamplingStorage: DaStorageAdapter<RuntimeServiceId> + Send,
     DaVerifierBackend: Send,
     DaVerifierNetwork: Send,
@@ -261,7 +249,6 @@ where
             DaSamplingService<
                 DaSamplingBackend,
                 DaSamplingNetwork,
-                DaSamplingRng,
                 DaSamplingStorage,
                 DaVerifierBackend,
                 DaVerifierNetwork,
@@ -302,7 +289,7 @@ where
         let sampling_relay = self
             .service_resources_handle
             .overwatch_handle
-            .relay::<DaSamplingService<_, _, _, _, _, _, _, _, _>>()
+            .relay::<DaSamplingService<_, _, _, _, _, _, _, _>>()
             .await
             .expect("Relay connection with SamplingService should succeed");
 
@@ -329,7 +316,7 @@ where
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
             NetworkService<_, _>,
-            DaSamplingService<_, _, _, _, _, _, _, _, _>
+            DaSamplingService<_, _, _, _, _, _, _, _>
         )
         .await?;
 
@@ -358,7 +345,6 @@ impl<
         RecoveryBackend,
         DaSamplingBackend,
         DaSamplingNetwork,
-        DaSamplingRng,
         DaSamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -372,7 +358,6 @@ impl<
         RecoveryBackend,
         DaSamplingBackend,
         DaSamplingNetwork,
-        DaSamplingRng,
         DaSamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
