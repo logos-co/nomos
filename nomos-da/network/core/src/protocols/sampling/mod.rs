@@ -14,6 +14,7 @@ mod test {
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
     use crate::{
+        addressbook::AddressBookHandler,
         protocols::sampling::behaviour::{BehaviourSampleRes, SamplingBehaviour, SamplingEvent},
         test_utils::{new_swarm_in_memory, AllNeighbours},
         SubnetworkId,
@@ -26,6 +27,7 @@ mod test {
             mut swarm: Swarm<
                 SamplingBehaviour<
                     impl MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
+                    impl AddressBookHandler + 'static,
                 >,
             >,
         ) -> Vec<[u8; 32]> {
@@ -71,11 +73,7 @@ mod test {
             }
         }
 
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .compact()
-            .with_writer(TestWriter::default())
-            .try_init();
+        setup_tracing();
         let k1 = Keypair::generate_ed25519();
         let k2 = Keypair::generate_ed25519();
 
@@ -86,25 +84,31 @@ mod test {
         let p2_id = rand::thread_rng().gen::<u64>();
         let p2_address: Multiaddr = format!("/memory/{p2_id}").parse().unwrap();
 
-        let neighbours_p1 = AllNeighbours::default();
-        neighbours_p1.add_neighbour(PeerId::from_public_key(&k1.public()));
-        neighbours_p1.add_neighbour(PeerId::from_public_key(&k2.public()));
-        let p1_addresses = vec![(PeerId::from_public_key(&k2.public()), p2_address.clone())];
-        neighbours_p1.update_addresses(p1_addresses);
+        let neighbours_p1 = setup_neighbours(
+            PeerId::from_public_key(&k1.public()),
+            PeerId::from_public_key(&k2.public()),
+            p2_address.clone(),
+        );
 
-        let neighbours_p2 = AllNeighbours::default();
-        neighbours_p2.add_neighbour(PeerId::from_public_key(&k1.public()));
-        neighbours_p2.add_neighbour(PeerId::from_public_key(&k2.public()));
-        let p2_addresses = vec![(PeerId::from_public_key(&k1.public()), p1_address.clone())];
-        neighbours_p2.update_addresses(p2_addresses);
+        let neighbours_p2 = setup_neighbours(
+            PeerId::from_public_key(&k2.public()),
+            PeerId::from_public_key(&k1.public()),
+            p1_address.clone(),
+        );
 
-        let p1_behavior =
-            SamplingBehaviour::new(PeerId::from_public_key(&k1.public()), neighbours_p1.clone());
+        let p1_behavior = SamplingBehaviour::new(
+            PeerId::from_public_key(&k1.public()),
+            neighbours_p1.clone(),
+            neighbours_p1.clone(),
+        );
 
         let mut p1 = new_swarm_in_memory(&k1, p1_behavior);
 
-        let p2_behavior =
-            SamplingBehaviour::new(PeerId::from_public_key(&k2.public()), neighbours_p1.clone());
+        let p2_behavior = SamplingBehaviour::new(
+            PeerId::from_public_key(&k2.public()),
+            neighbours_p2.clone(),
+            neighbours_p2.clone(),
+        );
         let mut p2 = new_swarm_in_memory(&k2, p2_behavior);
 
         let request_sender_1 = p1.behaviour().sample_request_channel();
@@ -131,5 +135,25 @@ mod test {
         let res1 = t1.await.unwrap();
         let res2 = t2.await.unwrap();
         assert_eq!(res1, res2);
+    }
+
+    fn setup_neighbours(
+        my_id: PeerId,
+        other_id: PeerId,
+        other_address: Multiaddr,
+    ) -> AllNeighbours {
+        let neighbours = AllNeighbours::default();
+        neighbours.add_neighbour(my_id);
+        neighbours.add_neighbour(other_id);
+        neighbours.update_addresses(vec![(other_id, other_address)]);
+        neighbours
+    }
+
+    fn setup_tracing() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .compact()
+            .with_writer(TestWriter::default())
+            .try_init();
     }
 }

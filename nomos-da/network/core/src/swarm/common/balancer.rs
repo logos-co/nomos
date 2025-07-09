@@ -239,15 +239,7 @@ mod tests {
             self.last_subnet_id as u16
         }
 
-        fn get_address(&self, _peer_id: &PeerId) -> Option<libp2p::Multiaddr> {
-            unimplemented!()
-        }
-
         fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
-            unimplemented!()
-        }
-
-        fn addressbook(&self) -> HashMap<Self::Id, libp2p::Multiaddr> {
             unimplemented!()
         }
     }
