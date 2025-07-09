@@ -12,35 +12,15 @@ pub struct FillFromNodeList {
     assignations: Vec<HashSet<PeerId>>,
     subnetwork_size: usize,
     dispersal_factor: usize,
-    addressbook: HashMap<PeerId, Multiaddr>,
 }
 
 impl FillFromNodeList {
     #[must_use]
-    pub fn new(
-        peers: &[PeerId],
-        addressbook: HashMap<PeerId, Multiaddr>,
-        subnetwork_size: usize,
-        dispersal_factor: usize,
-    ) -> Self {
+    pub fn new(peers: &[PeerId], subnetwork_size: usize, dispersal_factor: usize) -> Self {
         Self {
             assignations: Self::fill(peers, subnetwork_size, dispersal_factor),
             subnetwork_size,
             dispersal_factor,
-            addressbook,
-        }
-    }
-
-    #[must_use]
-    pub fn clone_with_different_addressbook(
-        &self,
-        addressbook: HashMap<PeerId, Multiaddr>,
-    ) -> Self {
-        Self {
-            assignations: self.assignations.clone(),
-            subnetwork_size: self.subnetwork_size,
-            dispersal_factor: self.dispersal_factor,
-            addressbook,
         }
     }
 
@@ -69,18 +49,7 @@ impl FillFromNodeList {
 }
 
 impl MembershipCreator for FillFromNodeList {
-    fn init(
-        &self,
-        peer_addresses: HashMap<Self::NetworkId, HashSet<PeerId>>,
-        addressbook: HashMap<PeerId, Multiaddr>,
-    ) -> Self {
-        // merge addressbook with the self.addressbook having priority
-        let mut merged_addressbook = addressbook;
-
-        for (peer_id, address) in &self.addressbook {
-            merged_addressbook.insert(*peer_id, address.clone());
-        }
-
+    fn init(&self, peer_addresses: HashMap<Self::NetworkId, HashSet<PeerId>>) -> Self {
         let members: Vec<Self::Id> = peer_addresses
             .values()
             .flat_map(|peer_set| peer_set.iter())
@@ -91,26 +60,17 @@ impl MembershipCreator for FillFromNodeList {
             assignations: Self::fill(&members, self.subnetwork_size, self.dispersal_factor),
             subnetwork_size: self.subnetwork_size,
             dispersal_factor: self.dispersal_factor,
-            addressbook: merged_addressbook,
         }
     }
 
     fn update(&self, new_peer_addresses: HashMap<Self::Id, Multiaddr>) -> Self {
         // todo: implement incremental update
-        // for now we just add the new addresses to the addressbook
-        // and re-fill the assignations
-        let mut addressbook = self.addressbook.clone();
-        for (peer_id, address) in &new_peer_addresses {
-            addressbook.insert(*peer_id, address.clone());
-        }
-
         let members: Vec<Self::Id> = new_peer_addresses.keys().copied().collect();
 
         Self {
             assignations: Self::fill(&members, self.subnetwork_size, self.dispersal_factor),
             subnetwork_size: self.subnetwork_size,
             dispersal_factor: self.dispersal_factor,
-            addressbook,
         }
     }
 }
@@ -152,10 +112,6 @@ impl MembershipHandler for FillFromNodeList {
         self.subnetwork_size.saturating_sub(1) as u16
     }
 
-    fn get_address(&self, peer_id: &Self::Id) -> Option<Multiaddr> {
-        self.addressbook.get(peer_id).cloned()
-    }
-
     fn subnetworks(&self) -> SubnetworkAssignations<Self::NetworkId, Self::Id> {
         self.assignations
             .iter()
@@ -166,16 +122,10 @@ impl MembershipHandler for FillFromNodeList {
             })
             .collect()
     }
-
-    fn addressbook(&self) -> HashMap<Self::Id, Multiaddr> {
-        self.addressbook.clone()
-    }
 }
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
-
     use libp2p_identity::PeerId;
 
     use crate::versions::v1::FillFromNodeList;
@@ -185,12 +135,7 @@ mod test {
         let nodes: Vec<_> = std::iter::repeat_with(PeerId::random).take(100).collect();
         let dispersal_factor = 2;
         let subnetwork_size = 1024;
-        let distribution = FillFromNodeList::new(
-            &nodes,
-            HashMap::default(),
-            subnetwork_size,
-            dispersal_factor,
-        );
+        let distribution = FillFromNodeList::new(&nodes, subnetwork_size, dispersal_factor);
         assert_eq!(distribution.assignations.len(), subnetwork_size);
         for subnetwork in &distribution.assignations {
             assert_eq!(subnetwork.len(), dispersal_factor);

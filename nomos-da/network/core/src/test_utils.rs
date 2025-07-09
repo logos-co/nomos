@@ -68,16 +68,8 @@ impl MembershipHandler for AllNeighbours {
         0
     }
 
-    fn get_address(&self, peer_id: &PeerId) -> Option<libp2p::Multiaddr> {
-        self.addresses.lock().unwrap().get(peer_id).cloned()
-    }
-
     fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
         HashMap::new()
-    }
-
-    fn addressbook(&self) -> HashMap<Self::Id, libp2p::Multiaddr> {
-        self.addresses.lock().unwrap().clone()
     }
 }
 

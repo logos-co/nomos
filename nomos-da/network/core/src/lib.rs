@@ -1,8 +1,10 @@
+pub mod addressbook;
 pub mod behaviour;
 pub mod maintenance;
 pub mod protocol;
 pub mod protocols;
 pub mod swarm;
+
 #[cfg(test)]
 pub mod test_utils;
 
