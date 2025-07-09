@@ -1,7 +1,6 @@
 #[cfg(feature = "libp2p")]
 mod libp2p;
 mod messages;
-mod packing;
 
 #[cfg(feature = "libp2p")]
 pub use libp2p::{

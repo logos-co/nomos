@@ -8,6 +8,7 @@ use crate::{
     libp2p::{
         behaviour::{BlocksRequestStream, BoxedStream, TipRequestStream},
         errors::{ChainSyncError, ChainSyncErrorKind},
+        packing::unpack_from_reader,
         utils,
         utils::{open_stream, send_message},
     },
@@ -15,7 +16,6 @@ use crate::{
         DownloadBlocksRequest, DownloadBlocksResponse, GetTipResponse, RequestMessage,
         SerialisedBlock,
     },
-    packing::unpack_from_reader,
 };
 
 pub struct Downloader;

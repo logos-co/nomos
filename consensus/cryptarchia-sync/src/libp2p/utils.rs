@@ -3,10 +3,7 @@ use libp2p::{PeerId, Stream};
 use libp2p_stream::Control;
 use serde::Serialize;
 
-use crate::{
-    libp2p::{behaviour::SYNC_PROTOCOL, errors::ChainSyncError},
-    packing::pack_to_writer,
-};
+use crate::libp2p::{behaviour::SYNC_PROTOCOL, errors::ChainSyncError, packing::pack_to_writer};
 
 pub async fn send_message<M: Serialize + Sync>(
     peer_id: PeerId,

@@ -5,10 +5,10 @@ use tokio::sync::mpsc;
 use crate::{
     libp2p::{
         errors::{ChainSyncError, ChainSyncErrorKind, DynError},
+        packing::unpack_from_reader,
         utils::send_message,
     },
     messages::{DownloadBlocksResponse, GetTipResponse, RequestMessage, SerialisedBlock},
-    packing::unpack_from_reader,
 };
 
 pub const MAX_ADDITIONAL_BLOCKS: usize = 5;
