@@ -88,10 +88,7 @@ impl<Item> Node<Item> {
 
     // size of the full subtree
     const fn capacity(&self) -> usize {
-        match self {
-            Self::Inner { height, .. } | Self::Empty { height } => 1 << *height,
-            Self::Leaf { .. } => 1,
-        }
+        1 << self.height()
     }
 
     const fn height(&self) -> usize {
