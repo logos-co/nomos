@@ -47,7 +47,6 @@ use nomos_node::{
 };
 use nomos_storage::{api::da, backends::StorageSerde, StorageService};
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
-use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use subnetworks_assignations::MembershipHandler;
@@ -93,7 +92,6 @@ pub struct AxumBackend<
     Metadata,
     SamplingBackend,
     SamplingNetworkAdapter,
-    SamplingRng,
     SamplingStorage,
     TimeBackend,
     ApiAdapter,
@@ -123,7 +121,6 @@ pub struct AxumBackend<
         Metadata,
         SamplingBackend,
         SamplingNetworkAdapter,
-        SamplingRng,
         SamplingStorage,
         TimeBackend,
         ApiAdapter,
@@ -165,7 +162,6 @@ impl<
         Metadata,
         SamplingBackend,
         SamplingNetworkAdapter,
-        SamplingRng,
         SamplingStorage,
         TimeBackend,
         ApiAdapter,
@@ -193,7 +189,6 @@ impl<
         Metadata,
         SamplingBackend,
         SamplingNetworkAdapter,
-        SamplingRng,
         SamplingStorage,
         TimeBackend,
         ApiAdapter,
@@ -290,11 +285,8 @@ where
         + 'static,
     DispersalMempoolAdapter: DaMempoolAdapter + Send + 'static,
     Metadata: DeserializeOwned + metadata::Metadata + Debug + Send + 'static,
-    SamplingRng: SeedableRng + RngCore + Send + 'static,
-    SamplingBackend: DaSamplingServiceBackend<
-            SamplingRng,
-            BlobId = <DaVerifiedBlobInfo as DispersedBlobInfo>::BlobId,
-        > + Send
+    SamplingBackend: DaSamplingServiceBackend<BlobId = <DaVerifiedBlobInfo as DispersedBlobInfo>::BlobId>
+        + Send
         + 'static,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -327,7 +319,6 @@ where
                 DaStorageSerializer,
                 SamplingBackend,
                 SamplingNetworkAdapter,
-                SamplingRng,
                 SamplingStorage,
                 DaVerifierBackend,
                 DaVerifierNetwork,
@@ -356,7 +347,6 @@ where
                 DaStorageSerializer,
                 SamplingBackend,
                 SamplingNetworkAdapter,
-                SamplingRng,
                 SamplingStorage,
                 DaVerifierBackend,
                 DaVerifierNetwork,
@@ -404,7 +394,6 @@ where
                 MockPool<HeaderId, DaVerifiedBlobInfo, DaVerifiedBlobInfo::BlobId>,
                 SamplingBackend,
                 SamplingNetworkAdapter,
-                SamplingRng,
                 SamplingStorage,
                 DaVerifierBackend,
                 DaVerifierNetwork,
@@ -444,14 +433,14 @@ where
         wait_until_services_are_ready!(
             &overwatch_handle,
             Some(Duration::from_secs(60)),
-            Cryptarchia<_, _, _, _, _, _, _, _, _, _, _, _, SIZE>,
+            Cryptarchia<_, _, _, _, _, _, _, _, _, _, _, SIZE>,
             DaVerifier<_, _, _, _, _, _>,
-            DaIndexer<_, _, _, _, _, _, _, _, _, _, _, _, _, _, SIZE>,
+            DaIndexer<_, _, _, _, _, _, _, _, _, _, _, _, _, SIZE>,
             nomos_da_network_service::NetworkService<_, _, _, _,_>,
             nomos_network::NetworkService<_, _>,
             DaStorageService<_, _>,
             TxMempoolService<_, _, _>,
-            DaMempoolService<_, _, _, _, _, _, _, _, _, _, _>,
+            DaMempoolService<_, _, _, _, _, _, _, _, _, _>,
             DaDispersal<_, _, _, _, _, _>
         )
         .await
@@ -497,7 +486,6 @@ where
                         DaStorageSerializer,
                         SamplingBackend,
                         SamplingNetworkAdapter,
-                        SamplingRng,
                         SamplingStorage,
                         DaVerifierBackend,
                         DaVerifierNetwork,
@@ -517,7 +505,6 @@ where
                         DaStorageSerializer,
                         SamplingBackend,
                         SamplingNetworkAdapter,
-                        SamplingRng,
                         SamplingStorage,
                         DaVerifierBackend,
                         DaVerifierNetwork,
@@ -553,7 +540,6 @@ where
                         DaStorageSerializer,
                         SamplingBackend,
                         SamplingNetworkAdapter,
-                        SamplingRng,
                         SamplingStorage,
                         DaVerifierBackend,
                         DaVerifierNetwork,
@@ -617,7 +603,6 @@ where
                         DaVerifiedBlobInfo,
                         SamplingBackend,
                         SamplingNetworkAdapter,
-                        SamplingRng,
                         SamplingStorage,
                         DaVerifierBackend,
                         DaVerifierNetwork,

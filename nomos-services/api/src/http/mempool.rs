@@ -12,7 +12,6 @@ use nomos_mempool::{
 };
 use nomos_network::backends::NetworkBackend;
 use overwatch::{services::AsServiceId, DynError};
-use rand::{RngCore, SeedableRng};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
@@ -61,7 +60,6 @@ pub async fn add_blob_info<
     Key,
     SamplingBackend,
     SamplingAdapter,
-    SamplingRng,
     SamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
@@ -80,12 +78,11 @@ where
     A::Settings: Send + Sync,
     Item: Clone + Debug + Send + Sync + 'static + Serialize + for<'de> Deserialize<'de>,
     Key: Clone + Debug + Ord + Hash + Send + Serialize + for<'de> Deserialize<'de> + 'static,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = Key> + Send,
+    SamplingBackend: DaSamplingServiceBackend<BlobId = Key> + Send,
     SamplingBackend::BlobId: Debug,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::Settings: Clone,
     SamplingAdapter: DaSamplingNetworkAdapter<RuntimeServiceId> + Send,
-    SamplingRng: SeedableRng + RngCore + Send,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
     DaVerifierBackend: VerifierBackend + Send + 'static,
@@ -102,7 +99,6 @@ where
                 MockPool<HeaderId, Item, Key>,
                 SamplingBackend,
                 SamplingAdapter,
-                SamplingRng,
                 SamplingStorage,
                 DaVerifierBackend,
                 DaVerifierNetwork,

@@ -24,7 +24,6 @@ use nomos_sdp::adapters::{
 use nomos_sdp_core::ledger::SdpLedger;
 use nomos_storage::backends::rocksdb::RocksBackend;
 use nomos_time::backends::NtpTimeBackend;
-use rand_chacha::ChaCha20Rng;
 
 use crate::{NomosDaMembership, Wire, MB16};
 
@@ -77,9 +76,8 @@ pub type DaIndexerService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> =
         nomos_core::mantle::select::FillSize<MB16, SignedMantleTx>,
         nomos_core::da::blob::select::FillSize<MB16, BlobInfo>,
         RocksBackend<Wire>,
-        KzgrsSamplingBackend<ChaCha20Rng>,
+        KzgrsSamplingBackend,
         SamplingAdapter,
-        ChaCha20Rng,
         nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<
             DaShare,
             Wire,
@@ -111,9 +109,8 @@ pub type DaVerifierService<VerifierAdapter, RuntimeServiceId> =
 
 pub type DaSamplingService<SamplingAdapter, VerifierNetworkAdapter, RuntimeServiceId> =
     nomos_da_sampling::DaSamplingService<
-        KzgrsSamplingBackend<ChaCha20Rng>,
+        KzgrsSamplingBackend,
         SamplingAdapter,
-        ChaCha20Rng,
         nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<
             DaShare,
             Wire,
@@ -138,9 +135,8 @@ pub type DaMempoolService<DaSamplingNetwork, VerifierNetwork, RuntimeServiceId> 
             RuntimeServiceId,
         >,
         MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
-        KzgrsSamplingBackend<ChaCha20Rng>,
+        KzgrsSamplingBackend,
         DaSamplingNetwork,
-        ChaCha20Rng,
         nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<
             DaShare,
             Wire,
@@ -185,9 +181,8 @@ pub type CryptarchiaService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> 
         nomos_core::mantle::select::FillSize<MB16, SignedMantleTx>,
         nomos_core::da::blob::select::FillSize<MB16, BlobInfo>,
         RocksBackend<Wire>,
-        KzgrsSamplingBackend<ChaCha20Rng>,
+        KzgrsSamplingBackend,
         SamplingAdapter,
-        ChaCha20Rng,
         nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<
             DaShare,
             Wire,

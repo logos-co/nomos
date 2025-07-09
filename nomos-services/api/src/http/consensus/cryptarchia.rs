@@ -21,7 +21,6 @@ use nomos_mempool::{
 };
 use nomos_storage::backends::{rocksdb::RocksBackend, StorageSerde};
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
-use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::sync::oneshot;
 
@@ -32,7 +31,6 @@ pub type Cryptarchia<
     SS,
     SamplingBackend,
     SamplingNetworkAdapter,
-    SamplingRng,
     SamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
@@ -57,7 +55,6 @@ pub type Cryptarchia<
     RocksBackend<SS>,
     SamplingBackend,
     SamplingNetworkAdapter,
-    SamplingRng,
     SamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
@@ -72,7 +69,6 @@ pub async fn cryptarchia_info<
     SS,
     SamplingBackend,
     SamplingNetworkAdapter,
-    SamplingRng,
     SamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
@@ -89,8 +85,7 @@ where
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SS: StorageSerde + Send + Sync + 'static,
-    SamplingRng: SeedableRng + RngCore,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = BlobId> + Send,
+    SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
@@ -114,7 +109,6 @@ where
                 SS,
                 SamplingBackend,
                 SamplingNetworkAdapter,
-                SamplingRng,
                 SamplingStorage,
                 DaVerifierBackend,
                 DaVerifierNetwork,
@@ -141,7 +135,6 @@ pub async fn cryptarchia_headers<
     SS,
     SamplingBackend,
     SamplingNetworkAdapter,
-    SamplingRng,
     SamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
@@ -160,8 +153,7 @@ where
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SS: StorageSerde + Send + Sync + 'static,
-    SamplingRng: SeedableRng + RngCore,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = BlobId> + Send,
+    SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
@@ -185,7 +177,6 @@ where
                 SS,
                 SamplingBackend,
                 SamplingNetworkAdapter,
-                SamplingRng,
                 SamplingStorage,
                 DaVerifierBackend,
                 DaVerifierNetwork,

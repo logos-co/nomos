@@ -30,7 +30,6 @@ use overwatch::{
     },
     DynError, OpaqueServiceResourcesHandle,
 };
-use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use storage::DaStorageAdapter;
@@ -52,7 +51,6 @@ pub struct DataIndexerService<
     ConsensusStorage,
     SamplingBackend,
     SamplingNetworkAdapter,
-    SamplingRng,
     SamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
@@ -86,8 +84,7 @@ pub struct DataIndexerService<
     BS::Settings: Send,
     DaStorage: DaStorageAdapter<RuntimeServiceId, Info = DaPool::Item, Share = Share>,
     ConsensusStorage: StorageBackend + Send + Sync + 'static,
-    SamplingRng: SeedableRng + RngCore,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
+    SamplingBackend: DaSamplingServiceBackend<BlobId = DaPool::Key> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
@@ -144,7 +141,6 @@ impl<
         ConsensusStorage,
         SamplingBackend,
         SamplingNetworkAdapter,
-        SamplingRng,
         SamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -168,7 +164,6 @@ impl<
         ConsensusStorage,
         SamplingBackend,
         SamplingNetworkAdapter,
-        SamplingRng,
         SamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -203,8 +198,7 @@ where
     BS::Settings: Send,
     DaStorage: DaStorageAdapter<RuntimeServiceId, Info = DaPool::Item, Share = Share>,
     ConsensusStorage: StorageBackend + Send + Sync + 'static,
-    SamplingRng: SeedableRng + RngCore,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
+    SamplingBackend: DaSamplingServiceBackend<BlobId = DaPool::Key> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
@@ -240,7 +234,6 @@ impl<
         ConsensusStorage,
         SamplingBackend,
         SamplingNetworkAdapter,
-        SamplingRng,
         SamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -264,7 +257,6 @@ impl<
         ConsensusStorage,
         SamplingBackend,
         SamplingNetworkAdapter,
-        SamplingRng,
         SamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -301,8 +293,7 @@ where
     BS::Settings: Send,
     DaStorage: DaStorageAdapter<RuntimeServiceId, Info = DaPool::Item, Share = Share> + Sync,
     ConsensusStorage: StorageBackend + Send + Sync + 'static,
-    SamplingRng: SeedableRng + RngCore,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
+    SamplingBackend: DaSamplingServiceBackend<BlobId = DaPool::Key> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
@@ -371,7 +362,6 @@ impl<
         ConsensusStorage,
         SamplingBackend,
         SamplingNetworkAdapter,
-        SamplingRng,
         SamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -395,7 +385,6 @@ impl<
         ConsensusStorage,
         SamplingBackend,
         SamplingNetworkAdapter,
-        SamplingRng,
         SamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -455,8 +444,7 @@ where
     DaStorage::Settings: Clone + Send + Sync + 'static,
     ConsensusStorage: StorageBackend + Send + Sync + 'static,
     Consensus: ConsensusAdapter<Tx = ClPool::Item, Cert = DaPool::Item> + Send + Sync,
-    SamplingRng: SeedableRng + RngCore,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
+    SamplingBackend: DaSamplingServiceBackend<BlobId = DaPool::Key> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
@@ -488,7 +476,6 @@ where
                 ConsensusStorage,
                 SamplingBackend,
                 SamplingNetworkAdapter,
-                SamplingRng,
                 SamplingStorage,
                 DaVerifierBackend,
                 DaVerifierNetwork,
@@ -516,8 +503,7 @@ where
 
         let consensus_relay = service_resources_handle
             .overwatch_handle
-            .relay::<CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _>>(
-            )
+            .relay::<CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _>>()
             .await
             .expect("Relay connection with ConsensusService should succeed");
         let storage_relay = service_resources_handle
@@ -540,7 +526,7 @@ where
             &service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
             StorageService<_, _>,
-            CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _>
+            CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _>
         )
         .await?;
 

@@ -49,7 +49,6 @@ use nomos_time::backends::NtpTimeBackend;
 #[cfg(feature = "tracing")]
 pub use nomos_tracing_service::Tracing;
 use overwatch::derive_services;
-use rand_chacha::ChaCha20Rng;
 use serde::{de::DeserializeOwned, Serialize};
 use subnetworks_assignations::versions::v1::FillFromNodeList;
 
@@ -203,14 +202,13 @@ pub(crate) type ApiService = nomos_api::ApiService<
         SignedMantleTx,
         Wire,
         DaStorageConverter,
-        KzgrsSamplingBackend<ChaCha20Rng>,
+        KzgrsSamplingBackend,
         nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
             NomosDaMembership,
             DaMembershipAdapter<RuntimeServiceId>,
             DaMembershipStorage,
             RuntimeServiceId,
         >,
-        ChaCha20Rng,
         SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
         NtpTimeBackend,
         HttApiAdapter<NomosDaMembership>,

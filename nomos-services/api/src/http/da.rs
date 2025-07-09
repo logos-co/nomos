@@ -48,7 +48,6 @@ use nomos_storage::{
     backends::{rocksdb::RocksBackend, StorageSerde},
 };
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
-use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
@@ -62,7 +61,6 @@ pub type DaIndexer<
     SS,
     SamplingBackend,
     SamplingNetworkAdapter,
-    SamplingRng,
     SamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
@@ -93,7 +91,6 @@ pub type DaIndexer<
     RocksBackend<SS>,
     SamplingBackend,
     SamplingNetworkAdapter,
-    SamplingRng,
     SamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
@@ -179,7 +176,6 @@ pub async fn get_range<
     SS,
     SamplingBackend,
     SamplingNetworkAdapter,
-    SamplingRng,
     SamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
@@ -224,8 +220,7 @@ where
         AsRef<[u8]> + Serialize + DeserializeOwned + Clone + PartialOrd + Send + Sync,
     SS: StorageSerde + Send + Sync + 'static,
     <SS as StorageSerde>::Error: Error + Send + Sync,
-    SamplingRng: SeedableRng + RngCore,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = BlobId> + Send,
+    SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
@@ -251,7 +246,6 @@ where
                 SS,
                 SamplingBackend,
                 SamplingNetworkAdapter,
-                SamplingRng,
                 SamplingStorage,
                 DaVerifierBackend,
                 DaVerifierNetwork,

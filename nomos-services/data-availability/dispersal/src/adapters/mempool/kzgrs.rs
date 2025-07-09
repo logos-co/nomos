@@ -12,7 +12,6 @@ use nomos_mempool::{
     DaMempoolService, MempoolMsg,
 };
 use overwatch::services::{relay::OutboundRelay, ServiceData};
-use rand::{RngCore, SeedableRng};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
@@ -25,7 +24,6 @@ pub struct KzgrsMempoolAdapter<
     DaPool,
     SamplingBackend,
     SamplingNetworkAdapter,
-    SamplingRng,
     SamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
@@ -40,12 +38,7 @@ pub struct KzgrsMempoolAdapter<
     DaPool::Key: Debug + 'static,
 {
     pub mempool_relay: MempoolRelay<DaPoolAdapter::Payload, DaPool::Item, DaPool::Key>,
-    _phantom: PhantomData<(
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingRng,
-        SamplingStorage,
-    )>,
+    _phantom: PhantomData<(SamplingBackend, SamplingNetworkAdapter, SamplingStorage)>,
     _phantom2: PhantomData<(DaVerifierBackend, DaVerifierNetwork, DaVerifierStorage)>,
     _phantom3: PhantomData<ApiAdapter>,
 }
@@ -56,7 +49,6 @@ impl<
         DaPool,
         SamplingBackend,
         SamplingNetworkAdapter,
-        SamplingRng,
         SamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -69,7 +61,6 @@ impl<
         DaPool,
         SamplingBackend,
         SamplingNetworkAdapter,
-        SamplingRng,
         SamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -85,8 +76,7 @@ where
     DaPool::Item: Clone + Eq + Debug + Send + 'static,
     DaPool::Key: Debug + Send + 'static,
     DaPool::Settings: Clone,
-    SamplingRng: SeedableRng + RngCore + Sync,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send + Sync,
+    SamplingBackend: DaSamplingServiceBackend<BlobId = DaPool::Key> + Send + Sync,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
@@ -105,7 +95,6 @@ where
         DaPool,
         SamplingBackend,
         SamplingNetworkAdapter,
-        SamplingRng,
         SamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,

@@ -219,7 +219,6 @@ where
                 }
                 () = tokio::time::sleep(cooldown) => {
                     if !pending_subnets.is_empty() {
-                        let retry_subnets: Vec<_> = pending_subnets.iter().copied().collect();
                         self.start_sampling(blob_id).await?;
                     }
                 }

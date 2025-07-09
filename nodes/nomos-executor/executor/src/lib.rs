@@ -40,7 +40,6 @@ use nomos_node::{
 };
 use nomos_time::backends::NtpTimeBackend;
 use overwatch::derive_services;
-use rand_chacha::ChaCha20Rng;
 
 #[cfg(feature = "tracing")]
 pub(crate) type TracingService = Tracing<RuntimeServiceId>;
@@ -57,14 +56,13 @@ pub(crate) type BlendService = nomos_blend_service::BlendService<
 type DispersalMempoolAdapter = KzgrsMempoolAdapter<
     MempoolNetworkAdapter<BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId, RuntimeServiceId>,
     MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
-    KzgrsSamplingBackend<ChaCha20Rng>,
+    KzgrsSamplingBackend,
     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
         RuntimeServiceId,
     >,
-    ChaCha20Rng,
     SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
     KzgrsDaVerifier,
     VerifierNetworkAdapter<
@@ -225,14 +223,13 @@ pub(crate) type ApiService = nomos_api::ApiService<
         >,
         DispersalMempoolAdapter,
         kzgrs_backend::dispersal::Metadata,
-        KzgrsSamplingBackend<ChaCha20Rng>,
+        KzgrsSamplingBackend,
         nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
             NomosDaMembership,
             DaMembershipAdapter<RuntimeServiceId>,
             DaMembershipStorage,
             RuntimeServiceId,
         >,
-        ChaCha20Rng,
         SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
         NtpTimeBackend,
         HttApiAdapter<NomosDaMembership>,
