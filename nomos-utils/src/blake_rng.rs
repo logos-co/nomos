@@ -1,8 +1,8 @@
-use blake2::{digest::consts::U64, Blake2b, Digest as _};
+use blake2::{Blake2b512, Digest as _};
 use rand::{RngCore, SeedableRng};
 
 const OUTPUT_SIZE: usize = 64;
-type Hasher = Blake2b<U64>;
+type Hasher = Blake2b512;
 
 #[derive(Clone)]
 pub struct BlakeRngSeed([u8; OUTPUT_SIZE]);
