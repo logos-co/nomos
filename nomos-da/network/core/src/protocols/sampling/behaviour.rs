@@ -563,7 +563,7 @@ impl<Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'sta
         blob_id: BlobId,
         control: &Control,
     ) {
-        for (subnetwork_id, peer) in sampling_peers.iter() {
+        for (subnetwork_id, peer) in sampling_peers {
             // If its connected means we are already working on some other sample, enqueue
             // message, stream behaviour will dial peer if connection is not
             // present.
@@ -846,7 +846,7 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
         self.waker = Some(cx.waker().clone());
 
         // Check if a new set of subnets and peers need to be selected.
-        if let Poll::Ready(Some(())) = subnet_refresh_signal.poll_next_unpin(cx) {
+        if subnet_refresh_signal.poll_next_unpin(cx) == Poll::Ready(Some(())) {
             Self::refresh_subnets(*local_peer_id, subnets_config, membership, sampling_peers);
         }
 

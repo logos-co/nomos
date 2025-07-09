@@ -73,6 +73,10 @@ impl<Membership> ExecutorSwarm<Membership>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
 {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Swarm contains a lot of behaviours"
+    )]
     pub fn new(
         key: Keypair,
         membership: Membership,

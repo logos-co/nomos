@@ -89,7 +89,6 @@ pub struct DaSamplingService<
     ApiAdapter: ApiAdapterTrait,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    #[expect(clippy::type_complexity, reason = "No other way around this for now.")]
     _phantom: PhantomData<(
         SamplingBackend,
         SamplingNetwork,
@@ -185,7 +184,7 @@ where
     ) {
         match msg {
             DaSamplingServiceMsg::TriggerSampling { blob_id } => {
-                if let SamplingState::Init = sampler.init_sampling(blob_id).await {
+                if matches!(sampler.init_sampling(blob_id).await, SamplingState::Init) {
                     info_with_id!(blob_id, "InitSampling");
                     if let Some(commitments) =
                         Self::request_commitments(storage_adapter, api_adapter, blob_id).await
