@@ -54,7 +54,7 @@ pub struct ValidatorEventsStream {
 pub struct ValidatorSwarm<Membership, Addressbook>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + 'static,
-    Addressbook: AddressBookHandler + Clone + Send + 'static,
+    Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
 {
     swarm: Swarm<
         ValidatorBehaviour<
@@ -79,7 +79,7 @@ pub struct SwarmSettings {
 impl<Membership, Addressbook> ValidatorSwarm<Membership, Addressbook>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
-    Addressbook: AddressBookHandler + Clone + Send + 'static,
+    Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
 {
     pub fn new(
         key: Keypair,

@@ -10,7 +10,6 @@ use libp2p::PeerId;
 use log::error;
 use nomos_core::da::BlobId;
 use nomos_da_network_core::{
-    addressbook::AddressBookHandler,
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::dispersal::executor::behaviour::DispersalExecutorEvent,
     swarm::{executor::ExecutorSwarm, validator::SwarmSettings, BalancerStats, MonitorStats},
@@ -38,6 +37,7 @@ use crate::{
         NetworkBackend,
     },
     membership::handler::DaMembershipHandler,
+    DaAddressBook,
 };
 
 /// Message that the backend replies to
@@ -84,10 +84,9 @@ pub struct DaNetworkExecutorBackendSettings {
 /// Internally uses a libp2p swarm composed of the [`ExecutorBehaviour`]
 /// It forwards network messages to the corresponding subscription
 /// channels/streams
-pub struct DaNetworkExecutorBackend<Membership, AddressBook>
+pub struct DaNetworkExecutorBackend<Membership>
 where
     Membership: MembershipHandler,
-    AddressBook: AddressBookHandler,
 {
     task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     verifier_replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
@@ -100,12 +99,11 @@ where
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
     _membership: PhantomData<Membership>,
-    _addressbook: PhantomData<AddressBook>,
 }
 
 #[async_trait::async_trait]
-impl<Membership, Addressbook, RuntimeServiceId> NetworkBackend<Addressbook, RuntimeServiceId>
-    for DaNetworkExecutorBackend<Membership, Addressbook>
+impl<Membership, RuntimeServiceId> NetworkBackend<RuntimeServiceId>
+    for DaNetworkExecutorBackend<Membership>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -114,7 +112,6 @@ where
         + Sync
         + 'static,
     BalancerStats: Debug + Serialize + Send + Sync + 'static,
-    Addressbook: AddressBookHandler + Clone + Send + Sync + 'static,
 {
     type Settings = DaNetworkExecutorBackendSettings;
     type State = NoState<Self::Settings>;
@@ -122,12 +119,13 @@ where
     type EventKind = DaNetworkEventKind;
     type NetworkEvent = DaNetworkEvent;
     type Membership = DaMembershipHandler<Membership>;
+    type AddressBook = DaAddressBook;
 
     fn new(
         config: Self::Settings,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Self::Membership,
-        addressbook: Addressbook,
+        addressbook: Self::AddressBook,
     ) -> Self {
         let keypair = libp2p::identity::Keypair::from(ed25519::Keypair::from(
             config.validator_settings.node_key.clone(),
@@ -211,7 +209,6 @@ where
             balancer_command_sender,
             monitor_command_sender,
             _membership: PhantomData,
-            _addressbook: PhantomData,
         }
     }
 

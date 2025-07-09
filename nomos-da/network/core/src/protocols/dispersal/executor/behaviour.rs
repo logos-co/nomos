@@ -350,7 +350,7 @@ where
 impl<Membership, Addressbook> DispersalExecutorBehaviour<Membership, Addressbook>
 where
     Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
-    Addressbook: AddressBookHandler + 'static,
+    Addressbook: AddressBookHandler<Id = PeerId> + 'static,
 {
     /// Schedule a new task for sending the blob, if stream is not available
     /// queue messages for later processing.
@@ -563,7 +563,7 @@ impl<Membership, Addressbook> NetworkBehaviour
     for DispersalExecutorBehaviour<Membership, Addressbook>
 where
     Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
-    Addressbook: AddressBookHandler + 'static,
+    Addressbook: AddressBookHandler<Id = PeerId> + 'static,
 {
     type ConnectionHandler = Either<
         <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler,

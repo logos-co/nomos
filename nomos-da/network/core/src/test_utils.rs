@@ -74,7 +74,9 @@ impl MembershipHandler for AllNeighbours {
 }
 
 impl AddressBookHandler for AllNeighbours {
-    fn get_address(&self, peer_id: &PeerId) -> Option<libp2p::Multiaddr> {
+    type Id = PeerId;
+
+    fn get_address(&self, peer_id: &Self::Id) -> Option<libp2p::Multiaddr> {
         self.addresses.lock().unwrap().get(peer_id).cloned()
     }
 }

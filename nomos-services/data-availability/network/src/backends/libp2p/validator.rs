@@ -8,7 +8,6 @@ use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;
 use nomos_core::da::BlobId;
 use nomos_da_network_core::{
-    addressbook,
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     swarm::{
         validator::{SwarmSettings, ValidatorSwarm},
@@ -38,6 +37,7 @@ use crate::{
         NetworkBackend,
     },
     membership::handler::DaMembershipHandler,
+    DaAddressBook,
 };
 
 /// Message that the backend replies to
@@ -75,7 +75,7 @@ pub enum DaNetworkEvent {
 /// Internally uses a libp2p swarm composed of the [`ValidatorBehaviour`]
 /// It forwards network messages to the corresponding subscription
 /// channels/streams
-pub struct DaNetworkValidatorBackend<Membership, Addressbook> {
+pub struct DaNetworkValidatorBackend<Membership> {
     task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     sampling_request_channel: UnboundedSender<(SubnetworkId, BlobId)>,
@@ -84,12 +84,11 @@ pub struct DaNetworkValidatorBackend<Membership, Addressbook> {
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
     verifying_broadcast_receiver: broadcast::Receiver<DaShare>,
     _membership: PhantomData<Membership>,
-    _addressbook: PhantomData<Addressbook>,
 }
 
 #[async_trait::async_trait]
-impl<Membership, AddressBook, RuntimeServiceId> NetworkBackend<AddressBook, RuntimeServiceId>
-    for DaNetworkValidatorBackend<Membership, AddressBook>
+impl<Membership, RuntimeServiceId> NetworkBackend<RuntimeServiceId>
+    for DaNetworkValidatorBackend<Membership>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -98,7 +97,6 @@ where
         + Sync
         + 'static,
     BalancerStats: Debug + Serialize + Send + Sync + 'static,
-    AddressBook: addressbook::AddressBookHandler + Clone + Send + Sync + 'static,
 {
     type Settings = DaNetworkBackendSettings;
     type State = NoState<Self::Settings>;
@@ -106,12 +104,13 @@ where
     type EventKind = DaNetworkEventKind;
     type NetworkEvent = DaNetworkEvent;
     type Membership = DaMembershipHandler<Membership>;
+    type AddressBook = DaAddressBook;
 
     fn new(
         config: Self::Settings,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Self::Membership,
-        addressbook: AddressBook,
+        addressbook: Self::AddressBook,
     ) -> Self {
         let keypair =
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
@@ -173,7 +172,6 @@ where
             sampling_broadcast_receiver,
             verifying_broadcast_receiver,
             _membership: PhantomData,
-            _addressbook: PhantomData,
         }
     }
 

@@ -92,7 +92,7 @@ where
 impl<Balancer, Addressbook> NetworkBehaviour for ConnectionBalancerBehaviour<Balancer, Addressbook>
 where
     Balancer: ConnectionBalancer + 'static,
-    Addressbook: AddressBookHandler + 'static,
+    Addressbook: AddressBookHandler<Id = PeerId> + 'static,
 {
     type ConnectionHandler = dummy::ConnectionHandler;
     type ToSwarm = Infallible;

@@ -27,7 +27,7 @@ mod test {
             mut swarm: Swarm<
                 SamplingBehaviour<
                     impl MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
-                    impl AddressBookHandler + 'static,
+                    impl AddressBookHandler<Id = PeerId> + 'static,
                 >,
             >,
         ) -> Vec<[u8; 32]> {

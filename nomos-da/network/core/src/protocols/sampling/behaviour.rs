@@ -519,7 +519,7 @@ where
 impl<Membership, Addressbook> SamplingBehaviour<Membership, Addressbook>
 where
     Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
-    Addressbook: AddressBookHandler + 'static,
+    Addressbook: AddressBookHandler<Id = PeerId> + 'static,
 {
     /// Schedule a new task for sample the blob, if stream is not available
     /// queue messages for later processing.
@@ -711,7 +711,7 @@ where
 impl<Membership, Addressbook> NetworkBehaviour for SamplingBehaviour<Membership, Addressbook>
 where
     Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
-    Addressbook: AddressBookHandler + 'static,
+    Addressbook: AddressBookHandler<Id = PeerId> + 'static,
 {
     type ConnectionHandler = Either<
         <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler,

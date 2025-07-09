@@ -58,15 +58,7 @@ where
         self.membership.load().last_subnetwork_id()
     }
 
-    fn get_address(&self, peer_id: &libp2p::PeerId) -> Option<libp2p::Multiaddr> {
-        self.membership.load().get_address(peer_id)
-    }
-
     fn subnetworks(&self) -> SubnetworkAssignations<Self::NetworkId, Self::Id> {
         self.membership.load().subnetworks()
-    }
-
-    fn addressbook(&self) -> std::collections::HashMap<Self::Id, libp2p::Multiaddr> {
-        self.membership.load().addressbook()
     }
 }

@@ -3,7 +3,7 @@ use std::pin::Pin;
 use futures::{Stream, StreamExt as _};
 use kzgrs_backend::common::{build_blob_id, share::DaShare};
 use libp2p::PeerId;
-use nomos_da_network_core::SubnetworkId;
+use nomos_da_network_core::{addressbook::mock::MockAddressBook, SubnetworkId};
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
 use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
@@ -67,21 +67,20 @@ pub struct MockExecutorBackend {
 }
 
 #[async_trait::async_trait]
-impl<Addressbook, RuntimeServiceId> NetworkBackend<Addressbook, RuntimeServiceId>
-    for MockExecutorBackend
-{
+impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend {
     type Settings = MockConfig;
     type State = NoState<MockConfig>;
     type Message = Command;
     type EventKind = EventKind;
     type NetworkEvent = Event;
     type Membership = MockMembership;
+    type AddressBook = MockAddressBook;
 
     fn new(
         config: Self::Settings,
         _: OverwatchHandle<RuntimeServiceId>,
         _membership: Self::Membership,
-        _addressbook: Addressbook,
+        _addressbook: Self::AddressBook,
     ) -> Self {
         let (commands_tx, _) = mpsc::channel(BUFFER_SIZE);
         let (events_tx, _) = broadcast::channel(BUFFER_SIZE);
