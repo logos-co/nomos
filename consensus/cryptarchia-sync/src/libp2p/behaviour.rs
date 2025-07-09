@@ -21,11 +21,12 @@ use tokio::sync::{mpsc, mpsc::Sender, oneshot};
 use tracing::{debug, error};
 
 use crate::{
-    downloader::Downloader,
-    errors::{ChainSyncError, ChainSyncErrorKind, DynError},
-    messages::{DownloadBlocksRequest, GetTipResponse, RequestMessage},
-    provider::{Provider, ReceivingRequestStream, MAX_ADDITIONAL_BLOCKS},
-    SerialisedBlock,
+    libp2p::{
+        downloader::Downloader,
+        errors::{ChainSyncError, ChainSyncErrorKind, DynError},
+        provider::{Provider, ReceivingRequestStream, MAX_ADDITIONAL_BLOCKS},
+    },
+    messages::{DownloadBlocksRequest, GetTipResponse, RequestMessage, SerialisedBlock},
 };
 
 /// Cryptarchia networking protocol for synchronizing blocks.
@@ -557,9 +558,12 @@ mod tests {
     use tokio::sync::oneshot;
 
     use crate::{
-        behaviour::{BoxedStream, ChainSyncErrorKind, MAX_INCOMING_REQUESTS},
-        provider::MAX_ADDITIONAL_BLOCKS,
-        Behaviour, ChainSyncError, Event, GetTipResponse, SerialisedBlock,
+        libp2p::{
+            behaviour::{Behaviour, BoxedStream, Event, MAX_INCOMING_REQUESTS},
+            errors::{ChainSyncError, ChainSyncErrorKind},
+            provider::MAX_ADDITIONAL_BLOCKS,
+        },
+        messages::{GetTipResponse, SerialisedBlock},
     };
 
     #[tokio::test]

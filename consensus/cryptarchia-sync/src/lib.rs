@@ -1,12 +1,12 @@
-mod behaviour;
-mod downloader;
-mod errors;
+#[cfg(feature = "libp2p")]
+mod libp2p;
 mod messages;
 mod packing;
-mod provider;
-mod utils;
 
-pub use behaviour::{Behaviour, BoxedStream, Event};
-pub use errors::{ChainSyncError, ChainSyncErrorKind};
+#[cfg(feature = "libp2p")]
+pub use libp2p::{
+    behaviour::{Behaviour, BoxedStream, Event},
+    errors::{ChainSyncError, ChainSyncErrorKind},
+};
 pub use messages::{DownloadBlocksRequest, GetTipResponse, SerialisedBlock};
 pub use nomos_core::header::HeaderId;

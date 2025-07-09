@@ -1,10 +1,7 @@
 use std::{collections::HashSet, fmt::Debug};
 
-use nomos_libp2p::{
-    cryptarchia_sync,
-    cryptarchia_sync::{BoxedStream, ChainSyncError, GetTipResponse, HeaderId, SerialisedBlock},
-    PeerId,
-};
+use cryptarchia_sync::{BoxedStream, ChainSyncError, GetTipResponse, HeaderId, SerialisedBlock};
+use nomos_libp2p::PeerId;
 use tokio::sync::oneshot;
 
 use crate::{backends::libp2p::swarm::SwarmHandler, message::ChainSyncEvent};

@@ -3,10 +3,12 @@ use libp2p::{PeerId, Stream as Libp2pStream};
 use tokio::sync::mpsc;
 
 use crate::{
-    errors::{ChainSyncError, ChainSyncErrorKind, DynError},
+    libp2p::{
+        errors::{ChainSyncError, ChainSyncErrorKind, DynError},
+        utils::send_message,
+    },
     messages::{DownloadBlocksResponse, GetTipResponse, RequestMessage, SerialisedBlock},
     packing::unpack_from_reader,
-    utils::send_message,
 };
 
 pub const MAX_ADDITIONAL_BLOCKS: usize = 5;

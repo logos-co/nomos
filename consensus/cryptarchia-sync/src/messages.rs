@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
+use bytes::Bytes;
 use cryptarchia_engine::Slot;
-use libp2p::bytes::Bytes;
 use nomos_core::header::HeaderId;
 use serde::{Deserialize, Serialize};
 
