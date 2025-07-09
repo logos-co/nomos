@@ -23,57 +23,57 @@ mod test {
         SubnetworkId,
     };
 
+    async fn test_sampling_swarm(
+        mut swarm: Swarm<
+            SamplingBehaviour<
+                impl MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
+            >,
+        >,
+        msg_count: usize,
+    ) -> Vec<[u8; 32]> {
+        let mut res = vec![];
+        loop {
+            match swarm.next().await {
+                None => {}
+                Some(SwarmEvent::Behaviour(SamplingEvent::IncomingSample {
+                    request_receiver,
+                    response_sender,
+                })) => {
+                    debug!("Received request");
+                    // spawn here because otherwise we block polling
+                    tokio::spawn(request_receiver);
+                    response_sender
+                        .send(BehaviourSampleRes::SamplingSuccess {
+                            blob_id: Default::default(),
+                            subnetwork_id: Default::default(),
+                            share: Box::new(DaLightShare {
+                                column: Column(vec![]),
+                                share_idx: 0,
+                                combined_column_proof: Proof::default(),
+                            }),
+                        })
+                        .unwrap();
+                }
+                Some(SwarmEvent::Behaviour(SamplingEvent::SamplingSuccess { blob_id, .. })) => {
+                    debug!("Received response");
+                    res.push(blob_id);
+                }
+                Some(SwarmEvent::Behaviour(SamplingEvent::SamplingError { error })) => {
+                    debug!("Error during sampling: {error}");
+                }
+                Some(event) => {
+                    debug!("{event:?}");
+                }
+            }
+            if res.len() == msg_count {
+                break res;
+            }
+        }
+    }
+
     #[tokio::test]
     async fn test_sampling_two_peers() {
         const MSG_COUNT: usize = 10;
-        async fn test_sampling_swarm(
-            mut swarm: Swarm<
-                SamplingBehaviour<
-                    impl MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
-                >,
-            >,
-        ) -> Vec<[u8; 32]> {
-            let mut res = vec![];
-            loop {
-                match swarm.next().await {
-                    None => {}
-                    Some(SwarmEvent::Behaviour(SamplingEvent::IncomingSample {
-                        request_receiver,
-                        response_sender,
-                    })) => {
-                        debug!("Received request");
-                        // spawn here because otherwise we block polling
-                        tokio::spawn(request_receiver);
-                        response_sender
-                            .send(BehaviourSampleRes::SamplingSuccess {
-                                blob_id: Default::default(),
-                                subnetwork_id: Default::default(),
-                                share: Box::new(DaLightShare {
-                                    column: Column(vec![]),
-                                    share_idx: 0,
-                                    combined_column_proof: Proof::default(),
-                                }),
-                            })
-                            .unwrap();
-                    }
-                    Some(SwarmEvent::Behaviour(SamplingEvent::SamplingSuccess {
-                        blob_id, ..
-                    })) => {
-                        debug!("Received response");
-                        res.push(blob_id);
-                    }
-                    Some(SwarmEvent::Behaviour(SamplingEvent::SamplingError { error })) => {
-                        debug!("Error during sampling: {error}");
-                    }
-                    Some(event) => {
-                        debug!("{event:?}");
-                    }
-                }
-                if res.len() == MSG_COUNT {
-                    break res;
-                }
-            }
-        }
 
         let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env())
@@ -127,12 +127,12 @@ mod test {
         let t1 = tokio::spawn(async move {
             p1.listen_on(p1_address).unwrap();
             time::sleep(Duration::from_secs(1)).await;
-            test_sampling_swarm(p1).await
+            test_sampling_swarm(p1, MSG_COUNT).await
         });
         let t2 = tokio::spawn(async move {
             p2.listen_on(p2_address).unwrap();
             time::sleep(Duration::from_secs(1)).await;
-            test_sampling_swarm(p2).await
+            test_sampling_swarm(p2, MSG_COUNT).await
         });
         time::sleep(Duration::from_secs(2)).await;
         for i in 0..MSG_COUNT {

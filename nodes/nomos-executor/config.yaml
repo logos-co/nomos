@@ -68,6 +68,11 @@ da_network:
       replication_settings:
         seen_message_cache_size: 1000
         seen_message_ttl: "3600.0"
+      subnets_settings:
+        num_of_subnets: 20
+      refresh_interval:
+        secs: 30
+        nanos: 0
     num_subnets: 2
   membership:
     assignations:
