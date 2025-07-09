@@ -10,7 +10,7 @@ use subnetworks_assignations::MembershipHandler;
 use super::Debug;
 
 #[async_trait::async_trait]
-pub trait NetworkBackend<RuntimeServiceId> {
+pub trait NetworkBackend<AddressBook, RuntimeServiceId> {
     type Settings: Clone + Debug + Send + Sync + 'static;
     type State: ServiceState<Settings = Self::Settings> + Clone + Send + Sync;
     type Message: Debug + Send + Sync + 'static;
@@ -22,6 +22,7 @@ pub trait NetworkBackend<RuntimeServiceId> {
         config: Self::Settings,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Self::Membership,
+        addressbook: AddressBook,
     ) -> Self;
     fn shutdown(&mut self);
     async fn process(&self, msg: Self::Message);

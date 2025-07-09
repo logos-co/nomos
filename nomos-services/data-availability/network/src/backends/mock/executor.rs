@@ -67,7 +67,9 @@ pub struct MockExecutorBackend {
 }
 
 #[async_trait::async_trait]
-impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend {
+impl<Addressbook, RuntimeServiceId> NetworkBackend<Addressbook, RuntimeServiceId>
+    for MockExecutorBackend
+{
     type Settings = MockConfig;
     type State = NoState<MockConfig>;
     type Message = Command;
@@ -79,6 +81,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
         config: Self::Settings,
         _: OverwatchHandle<RuntimeServiceId>,
         _membership: Self::Membership,
+        _addressbook: Addressbook,
     ) -> Self {
         let (commands_tx, _) = mpsc::channel(BUFFER_SIZE);
         let (events_tx, _) = broadcast::channel(BUFFER_SIZE);
@@ -150,17 +153,9 @@ impl MembershipHandler for MockMembership {
         todo!()
     }
 
-    fn get_address(&self, _peer_id: &PeerId) -> Option<libp2p::Multiaddr> {
-        todo!()
-    }
-
     fn subnetworks(
         &self,
     ) -> subnetworks_assignations::SubnetworkAssignations<Self::NetworkId, Self::Id> {
-        todo!()
-    }
-
-    fn addressbook(&self) -> std::collections::HashMap<Self::Id, libp2p::Multiaddr> {
         todo!()
     }
 }

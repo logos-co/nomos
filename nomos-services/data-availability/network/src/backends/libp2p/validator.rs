@@ -8,8 +8,12 @@ use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;
 use nomos_core::da::BlobId;
 use nomos_da_network_core::{
+    addressbook,
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
-    swarm::{validator::ValidatorSwarm, BalancerStats, MonitorStats},
+    swarm::{
+        validator::{SwarmSettings, ValidatorSwarm},
+        BalancerStats, MonitorStats,
+    },
     SubnetworkId,
 };
 use nomos_libp2p::ed25519;
@@ -71,7 +75,7 @@ pub enum DaNetworkEvent {
 /// Internally uses a libp2p swarm composed of the [`ValidatorBehaviour`]
 /// It forwards network messages to the corresponding subscription
 /// channels/streams
-pub struct DaNetworkValidatorBackend<Membership> {
+pub struct DaNetworkValidatorBackend<Membership, Addressbook> {
     task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     sampling_request_channel: UnboundedSender<(SubnetworkId, BlobId)>,
@@ -80,11 +84,12 @@ pub struct DaNetworkValidatorBackend<Membership> {
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
     verifying_broadcast_receiver: broadcast::Receiver<DaShare>,
     _membership: PhantomData<Membership>,
+    _addressbook: PhantomData<Addressbook>,
 }
 
 #[async_trait::async_trait]
-impl<Membership, RuntimeServiceId> NetworkBackend<RuntimeServiceId>
-    for DaNetworkValidatorBackend<Membership>
+impl<Membership, AddressBook, RuntimeServiceId> NetworkBackend<AddressBook, RuntimeServiceId>
+    for DaNetworkValidatorBackend<Membership, AddressBook>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -93,6 +98,7 @@ where
         + Sync
         + 'static,
     BalancerStats: Debug + Serialize + Send + Sync + 'static,
+    AddressBook: addressbook::AddressBookHandler + Clone + Send + Sync + 'static,
 {
     type Settings = DaNetworkBackendSettings;
     type State = NoState<Self::Settings>;
@@ -105,17 +111,21 @@ where
         config: Self::Settings,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Self::Membership,
+        addressbook: AddressBook,
     ) -> Self {
         let keypair =
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
         let (mut validator_swarm, validator_events_stream) = ValidatorSwarm::new(
             keypair,
             membership,
-            config.policy_settings,
-            config.monitor_settings,
-            config.balancer_interval,
-            config.redial_cooldown,
-            config.replication_settings,
+            addressbook,
+            SwarmSettings {
+                policy_settings: config.policy_settings.clone(),
+                monitor_settings: config.monitor_settings.clone(),
+                balancer_interval: config.balancer_interval,
+                redial_cooldown: config.redial_cooldown,
+                replication_config: config.replication_settings,
+            },
         );
         let address = config.listening_address;
         // put swarm to listen at the specified configuration address
@@ -163,6 +173,7 @@ where
             sampling_broadcast_receiver,
             verifying_broadcast_receiver,
             _membership: PhantomData,
+            _addressbook: PhantomData,
         }
     }
 
