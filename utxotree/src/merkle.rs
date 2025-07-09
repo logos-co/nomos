@@ -6,7 +6,6 @@ use std::{
 use digest::Digest;
 use rpds::Queue;
 
-pub type Blake2b256 = blake2::Blake2b<digest::typenum::U32>;
 const EMPTY_VALUE: [u8; 32] = [0; 32];
 
 fn empty_subtree_root<Hash: Digest<OutputSize = digest::typenum::U32>>(height: usize) -> [u8; 32] {
@@ -200,7 +199,7 @@ impl<Item: AsRef<[u8]>> Node<Item> {
 /// bounded by the number of items, allowing for efficient and simple proof of
 /// memberships for Proof of Leadership.
 #[derive(Debug, Clone)]
-pub struct DynamicMerkleTree<Item, Hash = Blake2b256> {
+pub struct DynamicMerkleTree<Item, Hash> {
     root: Arc<Node<Item>>,
     holes: Queue<usize>,
     _hash: PhantomData<Hash>,
@@ -269,12 +268,8 @@ impl<Item: AsRef<[u8]>, Hash: Digest<OutputSize = digest::typenum::U32>>
 
 #[cfg(test)]
 mod tests {
-    use blake2::Blake2b;
-    use digest::typenum::U32;
-
     use super::*;
-
-    type TestHash = Blake2b<U32>;
+    type TestHash = blake2::Blake2b<digest::typenum::U32>;
 
     #[test]
     fn test_empty_tree() {

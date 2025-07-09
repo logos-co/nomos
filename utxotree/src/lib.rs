@@ -1,12 +1,12 @@
 mod merkle;
 
-use blake2::Digest;
-use merkle::{Blake2b256, DynamicMerkleTree};
+use digest::Digest;
+use merkle::DynamicMerkleTree;
 use rpds::HashTrieMap;
 use thiserror::Error;
 
 #[derive(Debug, Clone)]
-pub struct UtxoTree<Key, Item, F, Hash = Blake2b256>
+pub struct UtxoTree<Key, Item, F, Hash>
 where
     Key: std::hash::Hash + Eq,
 {
@@ -90,16 +90,17 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    type TestHash = blake2::Blake2b<digest::typenum::U32>;
 
     #[test]
     fn test_empty_tree() {
-        let tree: UtxoTree<String, (), _, Blake2b256> = UtxoTree::new(|_item: &()| String::new());
+        let tree: UtxoTree<String, (), _, TestHash> = UtxoTree::new(|_item: &()| String::new());
         assert_eq!(tree.size(), 0);
     }
 
     #[test]
     fn test_single_insert() {
-        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, Blake2b256> =
+        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, TestHash> =
             UtxoTree::new(|item: &Vec<u8>| item.clone());
         let item = b"test_item".to_vec();
         let (tree_with_item, _pos) = tree.insert(item);
@@ -111,7 +112,7 @@ mod tests {
 
     #[test]
     fn test_multiple_inserts() {
-        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, Blake2b256> =
+        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, TestHash> =
             UtxoTree::new(|item: &Vec<u8>| item.clone());
 
         let items = [b"item1".to_vec(), b"item2".to_vec(), b"item3".to_vec()];
@@ -129,7 +130,7 @@ mod tests {
 
     #[test]
     fn test_remove_existing_item() {
-        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, Blake2b256> =
+        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, TestHash> =
             UtxoTree::new(|item: &Vec<u8>| item.clone());
 
         let item = b"test_item".to_vec();
@@ -146,7 +147,7 @@ mod tests {
 
     #[test]
     fn test_remove_non_existing_item() {
-        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, Blake2b256> =
+        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, TestHash> =
             UtxoTree::new(|item: &Vec<u8>| item.clone());
 
         let item = b"test_item".to_vec();
@@ -159,7 +160,7 @@ mod tests {
 
     #[test]
     fn test_remove_from_empty_tree() {
-        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, Blake2b256> =
+        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, TestHash> =
             UtxoTree::new(|item: &Vec<u8>| item.clone());
 
         let key = b"any_key".to_vec();
@@ -169,7 +170,7 @@ mod tests {
 
     #[test]
     fn test_structural_sharing() {
-        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, Blake2b256> =
+        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, TestHash> =
             UtxoTree::new(|item: &Vec<u8>| item.clone());
 
         let item1 = b"item1".to_vec();
@@ -185,7 +186,7 @@ mod tests {
 
     #[test]
     fn test_root_changes_with_operations() {
-        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, Blake2b256> =
+        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, TestHash> =
             UtxoTree::new(|item: &Vec<u8>| item.clone());
 
         let empty_root = tree.root();
@@ -204,9 +205,9 @@ mod tests {
 
     #[test]
     fn test_deterministic_root() {
-        let tree1: UtxoTree<Vec<u8>, Vec<u8>, _, Blake2b256> =
+        let tree1: UtxoTree<Vec<u8>, Vec<u8>, _, TestHash> =
             UtxoTree::new(|item: &Vec<u8>| item.clone());
-        let tree2: UtxoTree<Vec<u8>, Vec<u8>, _, Blake2b256> =
+        let tree2: UtxoTree<Vec<u8>, Vec<u8>, _, TestHash> =
             UtxoTree::new(|item: &Vec<u8>| item.clone());
 
         let items = vec![b"item1".to_vec(), b"item2".to_vec(), b"item3".to_vec()];
@@ -232,7 +233,7 @@ mod tests {
             data: String,
         }
 
-        let tree: UtxoTree<Vec<u8>, TestItem, _, Blake2b256> =
+        let tree: UtxoTree<Vec<u8>, TestItem, _, TestHash> =
             UtxoTree::new(|item: &TestItem| item.id.to_be_bytes().to_vec());
 
         let item = TestItem {
@@ -254,7 +255,7 @@ mod tests {
 
     #[test]
     fn test_mixed_operations() {
-        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, Blake2b256> =
+        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, TestHash> =
             UtxoTree::new(|item: &Vec<u8>| item.clone());
 
         let mut current_tree = tree;
@@ -284,9 +285,9 @@ mod tests {
 
     #[test]
     fn test_empty_tree_root_consistency() {
-        let tree1: UtxoTree<Vec<u8>, Vec<u8>, _, Blake2b256> =
+        let tree1: UtxoTree<Vec<u8>, Vec<u8>, _, TestHash> =
             UtxoTree::new(|item: &Vec<u8>| item.clone());
-        let tree2: UtxoTree<Vec<u8>, Vec<u8>, _, Blake2b256> =
+        let tree2: UtxoTree<Vec<u8>, Vec<u8>, _, TestHash> =
             UtxoTree::new(|item: &Vec<u8>| item.clone());
 
         assert_eq!(tree1.root(), tree2.root());
@@ -294,7 +295,7 @@ mod tests {
 
     #[test]
     fn test_position_tracking() {
-        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, Blake2b256> =
+        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, TestHash> =
             UtxoTree::new(|item: &Vec<u8>| item.clone());
 
         let items = vec![b"item1".to_vec(), b"item2".to_vec(), b"item3".to_vec()];
@@ -312,7 +313,7 @@ mod tests {
 
     #[test]
     fn test_large_tree_operations() {
-        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, Blake2b256> =
+        let tree: UtxoTree<Vec<u8>, Vec<u8>, _, TestHash> =
             UtxoTree::new(|item: &Vec<u8>| item.clone());
 
         let mut current_tree = tree;
