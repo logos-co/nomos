@@ -1,19 +1,10 @@
-use rand::{Rng as _, SeedableRng as _};
-use rand_chacha::ChaCha20Rng;
+use rand::{Rng as _, RngCore};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct FisherYatesShuffle {
-    pub entropy: [u8; 32],
-}
+pub struct FisherYates;
 
-impl FisherYatesShuffle {
-    #[must_use]
-    pub const fn new(entropy: [u8; 32]) -> Self {
-        Self { entropy }
-    }
-
-    pub fn shuffle<T: Clone>(elements: &mut [T], entropy: [u8; 32]) {
-        let mut rng = ChaCha20Rng::from_seed(entropy);
+impl FisherYates {
+    pub fn shuffle<R: RngCore, T: Clone>(elements: &mut [T], rng: &mut R) {
         // Implementation of fisher yates shuffling
         // https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle
         for i in (1..elements.len()).rev() {
