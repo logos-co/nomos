@@ -18,12 +18,12 @@ use url::Url;
 use crate::api::ApiAdapter;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ApiAdapterSettings<Membership> {
-    pub membership: Membership,
+pub struct ApiAdapterSettings {
     pub api_port: u16,
     pub is_secure: bool,
 }
 
+#[derive(Clone)]
 pub struct HttApiAdapter<Membership> {
     pub client: CommonHttpClient,
     pub membership: Membership,
@@ -69,14 +69,16 @@ where
         + Sync
         + 'static,
 {
-    type Settings = ApiAdapterSettings<Membership>;
+    type Settings = ApiAdapterSettings;
     type Share = DaShare;
     type BlobId = BlobId;
     type Commitments = DaSharesCommitments;
-    fn new(settings: Self::Settings) -> Self {
+    type Membership = Membership;
+
+    fn new(settings: Self::Settings, membership: Membership) -> Self {
         Self {
             client: CommonHttpClient::new(None),
-            membership: settings.membership,
+            membership,
             api_port: settings.api_port,
             protocol: if settings.is_secure {
                 "https".to_owned()

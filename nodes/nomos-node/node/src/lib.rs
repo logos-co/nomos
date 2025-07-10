@@ -18,9 +18,8 @@ pub use nomos_core::{
     wire,
 };
 pub use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBackend;
-use nomos_da_network_service::storage::adapters::mock::MockStorage;
+use nomos_da_network_service::{api::http::HttApiAdapter, storage::adapters::mock::MockStorage};
 use nomos_da_sampling::{
-    api::http::HttApiAdapter,
     backend::kzgrs::KzgrsSamplingBackend,
     network::adapters::validator::Libp2pAdapter as SamplingLibp2pAdapter,
     storage::adapters::rocksdb::{
@@ -80,6 +79,7 @@ impl StorageSerde for Wire {
 /// Membership used by the DA Network service.
 pub type NomosDaMembership = FillFromNodeList;
 pub type DaMembershipStorage = MockStorage;
+pub type DaNetworkApiAdapter = HttApiAdapter<NomosDaMembership>;
 
 #[cfg(feature = "tracing")]
 pub(crate) type TracingService = Tracing<RuntimeServiceId>;
@@ -98,12 +98,14 @@ pub(crate) type DaIndexerService = generic_services::DaIndexerService<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     VerifierNetworkAdapter<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     RuntimeServiceId,
@@ -114,6 +116,7 @@ pub(crate) type DaVerifierService = generic_services::DaVerifierService<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     RuntimeServiceId,
@@ -124,12 +127,14 @@ pub(crate) type DaSamplingService = generic_services::DaSamplingService<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     VerifierNetworkAdapter<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     RuntimeServiceId,
@@ -140,6 +145,7 @@ pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
     NomosDaMembership,
     DaMembershipAdapter<RuntimeServiceId>,
     DaMembershipStorage,
+    DaNetworkApiAdapter,
     RuntimeServiceId,
 >;
 
@@ -150,12 +156,14 @@ pub(crate) type DaMempoolService = generic_services::DaMempoolService<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     VerifierNetworkAdapter<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     RuntimeServiceId,
@@ -166,12 +174,14 @@ pub(crate) type CryptarchiaService = generic_services::CryptarchiaService<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     VerifierNetworkAdapter<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     RuntimeServiceId,
@@ -196,6 +206,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
             NomosDaMembership,
             DaMembershipAdapter<RuntimeServiceId>,
             DaMembershipStorage,
+            DaNetworkApiAdapter,
             RuntimeServiceId,
         >,
         VerifierStorageAdapter<DaShare, Wire, DaStorageConverter>,
@@ -207,11 +218,12 @@ pub(crate) type ApiService = nomos_api::ApiService<
             NomosDaMembership,
             DaMembershipAdapter<RuntimeServiceId>,
             DaMembershipStorage,
+            DaNetworkApiAdapter,
             RuntimeServiceId,
         >,
         SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
         NtpTimeBackend,
-        HttApiAdapter<NomosDaMembership>,
+        DaNetworkApiAdapter,
         ApiStorageAdapter<Wire, RuntimeServiceId>,
         MB16,
     >,

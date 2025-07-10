@@ -5,6 +5,7 @@ use std::pin::Pin;
 use futures::Stream;
 use nomos_core::da::BlobId;
 use nomos_da_network_service::{
+    api::ApiAdapter,
     backends::{libp2p::common::SamplingEvent, NetworkBackend},
     NetworkService,
 };
@@ -21,6 +22,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
     type Membership: MembershipHandler;
     type Storage;
     type MembershipAdapter;
+    type ApiAdapter: ApiAdapter;
 
     async fn new(
         network_relay: OutboundRelay<
@@ -29,6 +31,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
                 Self::Membership,
                 Self::MembershipAdapter,
                 Self::Storage,
+                Self::ApiAdapter,
                 RuntimeServiceId,
             > as ServiceData>::Message,
         >,

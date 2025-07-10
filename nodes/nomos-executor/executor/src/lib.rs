@@ -16,9 +16,10 @@ use nomos_da_dispersal::{
     backend::kzgrs::DispersalKZGRSBackend,
     DispersalService,
 };
-use nomos_da_network_service::backends::libp2p::executor::DaNetworkExecutorBackend;
+use nomos_da_network_service::{
+    api::http::HttApiAdapter, backends::libp2p::executor::DaNetworkExecutorBackend,
+};
 use nomos_da_sampling::{
-    api::http::HttApiAdapter,
     backend::kzgrs::KzgrsSamplingBackend,
     storage::adapters::rocksdb::{
         converter::DaStorageConverter, RocksAdapter as SamplingStorageAdapter,
@@ -35,8 +36,8 @@ use nomos_mempool::backend::mockpool::MockPool;
 use nomos_node::Tracing;
 use nomos_node::{
     generic_services::{DaMembershipAdapter, MembershipService, SdpService},
-    BlobInfo, DaMembershipStorage, HeaderId, MempoolNetworkAdapter, NetworkBackend,
-    NomosDaMembership, RocksBackend, SystemSig, Wire, MB16,
+    BlobInfo, DaMembershipStorage, DaNetworkApiAdapter, HeaderId, MempoolNetworkAdapter,
+    NetworkBackend, NomosDaMembership, RocksBackend, SystemSig, Wire, MB16,
 };
 use nomos_time::backends::NtpTimeBackend;
 use overwatch::derive_services;
@@ -61,6 +62,7 @@ type DispersalMempoolAdapter = KzgrsMempoolAdapter<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
@@ -69,10 +71,10 @@ type DispersalMempoolAdapter = KzgrsMempoolAdapter<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     VerifierStorageAdapter<DaShare, Wire, DaStorageConverter>,
-    HttApiAdapter<NomosDaMembership>,
     RuntimeServiceId,
 >;
 pub(crate) type DaDispersalService = DispersalService<
@@ -81,6 +83,7 @@ pub(crate) type DaDispersalService = DispersalService<
             NomosDaMembership,
             DaMembershipAdapter<RuntimeServiceId>,
             DaMembershipStorage,
+            DaNetworkApiAdapter,
             RuntimeServiceId,
         >,
         DispersalMempoolAdapter,
@@ -89,6 +92,7 @@ pub(crate) type DaDispersalService = DispersalService<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     DispersalMempoolAdapter,
@@ -102,12 +106,14 @@ pub(crate) type DaIndexerService = nomos_node::generic_services::DaIndexerServic
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     VerifierNetworkAdapter<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     RuntimeServiceId,
@@ -118,6 +124,7 @@ pub(crate) type DaVerifierService = nomos_node::generic_services::DaVerifierServ
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     RuntimeServiceId,
@@ -128,12 +135,14 @@ pub(crate) type DaSamplingService = nomos_node::generic_services::DaSamplingServ
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     nomos_da_verifier::network::adapters::executor::Libp2pAdapter<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     RuntimeServiceId,
@@ -144,6 +153,7 @@ pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
     NomosDaMembership,
     DaMembershipAdapter<RuntimeServiceId>,
     DaMembershipStorage,
+    DaNetworkApiAdapter,
     RuntimeServiceId,
 >;
 
@@ -154,12 +164,14 @@ pub(crate) type DaMempoolService = nomos_node::generic_services::DaMempoolServic
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     VerifierNetworkAdapter<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     RuntimeServiceId,
@@ -170,12 +182,14 @@ pub(crate) type CryptarchiaService = nomos_node::generic_services::CryptarchiaSe
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     VerifierNetworkAdapter<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
+        DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
     RuntimeServiceId,
@@ -200,6 +214,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
             NomosDaMembership,
             DaMembershipAdapter<RuntimeServiceId>,
             DaMembershipStorage,
+            DaNetworkApiAdapter,
             RuntimeServiceId,
         >,
         VerifierStorageAdapter<DaShare, Wire, DaStorageConverter>,
@@ -211,6 +226,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
                 NomosDaMembership,
                 DaMembershipAdapter<RuntimeServiceId>,
                 DaMembershipStorage,
+                DaNetworkApiAdapter,
                 RuntimeServiceId,
             >,
             DispersalMempoolAdapter,
@@ -219,6 +235,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
             NomosDaMembership,
             DaMembershipAdapter<RuntimeServiceId>,
             DaMembershipStorage,
+            DaNetworkApiAdapter,
             RuntimeServiceId,
         >,
         DispersalMempoolAdapter,
@@ -228,6 +245,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
             NomosDaMembership,
             DaMembershipAdapter<RuntimeServiceId>,
             DaMembershipStorage,
+            DaNetworkApiAdapter,
             RuntimeServiceId,
         >,
         SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,

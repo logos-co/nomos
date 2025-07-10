@@ -11,8 +11,7 @@ use nomos_core::{
 use nomos_da_indexer::consensus::adapters::cryptarchia::CryptarchiaConsensusAdapter;
 use nomos_da_network_service::membership::adapters::service::MembershipServiceAdapter;
 use nomos_da_sampling::{
-    api::http::HttApiAdapter, backend::kzgrs::KzgrsSamplingBackend,
-    storage::adapters::rocksdb::converter::DaStorageConverter,
+    backend::kzgrs::KzgrsSamplingBackend, storage::adapters::rocksdb::converter::DaStorageConverter,
 };
 use nomos_da_verifier::backend::kzgrs::KzgrsDaVerifier;
 use nomos_membership::{adapters::sdp::LedgerSdpAdapter, backends::mock::MockMembershipBackend};
@@ -25,7 +24,7 @@ use nomos_sdp_core::ledger::SdpLedger;
 use nomos_storage::backends::rocksdb::RocksBackend;
 use nomos_time::backends::NtpTimeBackend;
 
-use crate::{NomosDaMembership, Wire, MB16};
+use crate::{Wire, MB16};
 
 pub type TxMempoolService<RuntimeServiceId> = nomos_mempool::TxMempoolService<
     nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
@@ -91,7 +90,6 @@ pub type DaIndexerService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> =
             DaStorageConverter,
         >,
         NtpTimeBackend,
-        HttApiAdapter<NomosDaMembership>,
         RuntimeServiceId,
     >;
 
@@ -123,7 +121,6 @@ pub type DaSamplingService<SamplingAdapter, VerifierNetworkAdapter, RuntimeServi
             Wire,
             DaStorageConverter,
         >,
-        HttApiAdapter<NomosDaMembership>,
         RuntimeServiceId,
     >;
 
@@ -149,7 +146,6 @@ pub type DaMempoolService<DaSamplingNetwork, VerifierNetwork, RuntimeServiceId> 
             Wire,
             DaStorageConverter,
         >,
-        HttApiAdapter<NomosDaMembership>,
         RuntimeServiceId,
     >;
 
@@ -196,7 +192,6 @@ pub type CryptarchiaService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> 
             DaStorageConverter,
         >,
         NtpTimeBackend,
-        HttApiAdapter<NomosDaMembership>,
         RuntimeServiceId,
     >;
 

@@ -199,7 +199,6 @@ where
         DaVerifierNetwork,
         DaVerifierStorage,
         TimeBackend,
-        ApiAdapter,
     >(
         service_resources_handle: &OpaqueServiceResourcesHandle<
             CryptarchiaConsensus<
@@ -219,7 +218,6 @@ where
                 DaVerifierNetwork,
                 DaVerifierStorage,
                 TimeBackend,
-                ApiAdapter,
                 RuntimeServiceId,
             >,
             RuntimeServiceId,
@@ -243,7 +241,6 @@ where
         DaVerifierNetwork::Settings: Clone,
         TimeBackend: TimeBackendTrait,
         TimeBackend::Settings: Clone + Send + Sync,
-        ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
         RuntimeServiceId: Debug
             + Sync
             + Send
@@ -269,7 +266,6 @@ where
                     DaVerifierBackend,
                     DaVerifierNetwork,
                     DaVerifierStorage,
-                    ApiAdapter,
                     RuntimeServiceId,
                 >,
             >
@@ -281,7 +277,6 @@ where
                     DaVerifierBackend,
                     DaVerifierNetwork,
                     DaVerifierStorage,
-                    ApiAdapter,
                     RuntimeServiceId,
                 >,
             >
@@ -311,13 +306,13 @@ where
 
         let da_mempool_relay = service_resources_handle
             .overwatch_handle
-            .relay::<DaMempoolService<_, _, _, _, _, _, _, _, _, _>>()
+            .relay::<DaMempoolService<_, _, _, _, _, _, _, _, _>>()
             .await
             .expect("Relay connection with DA MemPoolService should succeed");
 
         let sampling_relay = service_resources_handle
             .overwatch_handle
-            .relay::<DaSamplingService<_, _, _, _, _, _, _, _>>()
+            .relay::<DaSamplingService<_, _, _, _, _, _, _>>()
             .await
             .expect("Relay connection with SamplingService should succeed");
 

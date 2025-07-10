@@ -1,4 +1,3 @@
-pub mod api;
 pub mod backend;
 pub mod network;
 pub mod storage;
@@ -41,8 +40,6 @@ use tokio::sync::oneshot;
 use tokio_stream::StreamExt as _;
 use tracing::{error, instrument};
 
-use crate::api::ApiAdapter as ApiAdapterTrait;
-
 type VerifierRelay<DaVerifierBackend> = OutboundRelay<
     DaVerifierMsg<
         <<DaVerifierBackend as DaVerifier>::DaShare as Share>::SharesCommitments,
@@ -68,9 +65,8 @@ pub enum DaSamplingServiceMsg<BlobId> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DaSamplingServiceSettings<BackendSettings, ApiAdapterSettings> {
+pub struct DaSamplingServiceSettings<BackendSettings> {
     pub sampling_settings: BackendSettings,
-    pub api_adapter_settings: ApiAdapterSettings,
 }
 
 pub struct DaSamplingService<
@@ -80,13 +76,11 @@ pub struct DaSamplingService<
     VerifierBackend,
     VerifierNetwork,
     VerifierStorage,
-    ApiAdapter,
     RuntimeServiceId,
 > where
     SamplingBackend: DaSamplingServiceBackend,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId>,
-    ApiAdapter: ApiAdapterTrait,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     _phantom: PhantomData<(
@@ -96,7 +90,6 @@ pub struct DaSamplingService<
         VerifierBackend,
         VerifierNetwork,
         VerifierStorage,
-        ApiAdapter,
     )>,
 }
 
@@ -107,7 +100,6 @@ impl<
         VerifierBackend,
         VerifierNetwork,
         VerifierStorage,
-        ApiAdapter,
         RuntimeServiceId,
     >
     DaSamplingService<
@@ -117,14 +109,12 @@ impl<
         VerifierBackend,
         VerifierNetwork,
         VerifierStorage,
-        ApiAdapter,
         RuntimeServiceId,
     >
 where
     SamplingBackend: DaSamplingServiceBackend,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId>,
-    ApiAdapter: ApiAdapterTrait,
 {
     #[must_use]
     pub const fn new(
@@ -144,7 +134,6 @@ impl<
         VerifierBackend,
         VerifierNetwork,
         VerifierStorage,
-        ApiAdapter,
         RuntimeServiceId,
     >
     DaSamplingService<
@@ -154,7 +143,6 @@ impl<
         VerifierBackend,
         VerifierNetwork,
         VerifierStorage,
-        ApiAdapter,
         RuntimeServiceId,
     >
 where
@@ -167,19 +155,12 @@ where
     SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,
     VerifierBackend: VerifierBackendTrait<DaShare = DaShare>,
-    ApiAdapter: ApiAdapterTrait<
-            Share = SamplingBackend::Share,
-            BlobId = SamplingBackend::BlobId,
-            Commitments = SamplingBackend::SharesCommitments,
-        > + Sync,
-    ApiAdapter::Settings: Clone + Send,
 {
     #[instrument(skip_all)]
     async fn handle_service_message(
         msg: <Self as ServiceData>::Message,
         network_adapter: &mut SamplingNetwork,
         storage_adapter: &SamplingStorage,
-        api_adapter: &ApiAdapter,
         sampler: &mut SamplingBackend,
     ) {
         match msg {
@@ -187,7 +168,7 @@ where
                 if matches!(sampler.init_sampling(blob_id).await, SamplingState::Init) {
                     info_with_id!(blob_id, "InitSampling");
                     if let Some(commitments) =
-                        Self::request_commitments(storage_adapter, api_adapter, blob_id).await
+                        Self::request_commitments(storage_adapter, blob_id).await
                     {
                         info_with_id!(blob_id, "Got commitments");
                         sampler.add_commitments(&blob_id, commitments);
@@ -282,7 +263,6 @@ where
 
     async fn request_commitments(
         storage_adapter: &SamplingStorage,
-        api_request: &ApiAdapter,
         blob_id: SamplingBackend::BlobId,
     ) -> Option<DaSharesCommitments> {
         // First try to get from storage which most of the time should be the case
@@ -292,9 +272,9 @@ where
 
         // Fall back to API request
         let (reply_sender, reply_channel) = oneshot::channel();
-        if let Err(e) = api_request.request_commitments(blob_id, reply_sender).await {
-            error!("Error sending request to API backend: {e}");
-        }
+        // if let Err(e) = api_request.request_commitments(blob_id, reply_sender).await
+        // {     error!("Error sending request to API backend: {e}");
+        // }
 
         reply_channel.await.ok().flatten()
     }
@@ -327,7 +307,6 @@ impl<
         VerifierBackend,
         VerifierNetwork,
         VerifierStorage,
-        ApiAdapter,
         RuntimeServiceId,
     > ServiceData
     for DaSamplingService<
@@ -337,16 +316,14 @@ impl<
         VerifierBackend,
         VerifierNetwork,
         VerifierStorage,
-        ApiAdapter,
         RuntimeServiceId,
     >
 where
     SamplingBackend: DaSamplingServiceBackend,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId>,
-    ApiAdapter: ApiAdapterTrait,
 {
-    type Settings = DaSamplingServiceSettings<SamplingBackend::Settings, ApiAdapter::Settings>;
+    type Settings = DaSamplingServiceSettings<SamplingBackend::Settings>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = DaSamplingServiceMsg<SamplingBackend::BlobId>;
@@ -360,7 +337,6 @@ impl<
         VerifierBackend,
         VerifierNetwork,
         VerifierStorage,
-        ApiAdapter,
         RuntimeServiceId,
     > ServiceCore<RuntimeServiceId>
     for DaSamplingService<
@@ -370,7 +346,6 @@ impl<
         VerifierBackend,
         VerifierNetwork,
         VerifierStorage,
-        ApiAdapter,
         RuntimeServiceId,
     >
 where
@@ -397,13 +372,6 @@ where
         + 'static,
     VerifierNetwork::MembershipAdapter: MembershipAdapter,
     VerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send,
-    ApiAdapter: ApiAdapterTrait<
-            Share = SamplingBackend::Share,
-            BlobId = SamplingBackend::BlobId,
-            Commitments = SamplingBackend::SharesCommitments,
-        > + Send
-        + Sync,
-    ApiAdapter::Settings: Clone + Send + Sync,
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<
             NetworkService<
@@ -411,6 +379,7 @@ where
                 SamplingNetwork::Membership,
                 VerifierNetwork::MembershipAdapter,
                 VerifierNetwork::Storage,
+                VerifierNetwork::ApiAdapter,
                 RuntimeServiceId,
             >,
         > + AsServiceId<StorageService<SamplingStorage::Backend, RuntimeServiceId>>
@@ -434,17 +403,14 @@ where
             mut service_resources_handle,
             ..
         } = self;
-        let DaSamplingServiceSettings {
-            sampling_settings,
-            api_adapter_settings,
-        } = service_resources_handle
+        let DaSamplingServiceSettings { sampling_settings } = service_resources_handle
             .settings_handle
             .notifier()
             .get_updated_settings();
 
         let network_relay = service_resources_handle
             .overwatch_handle
-            .relay::<NetworkService<_, _, _, _, _>>()
+            .relay::<NetworkService<_, _, _, _, _, _>>()
             .await?;
         let mut network_adapter = SamplingNetwork::new(network_relay).await;
         let mut sampling_message_stream = network_adapter.listen_to_sampling_messages().await?;
@@ -460,8 +426,6 @@ where
             .relay::<DaVerifierService<_, _, _, _>>()
             .await?;
 
-        let api_adapter = ApiAdapter::new(api_adapter_settings);
-
         let mut sampler = SamplingBackend::new(sampling_settings);
         let mut next_prune_tick = sampler.prune_interval();
 
@@ -474,7 +438,7 @@ where
         wait_until_services_are_ready!(
             &service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
-            NetworkService<_, _, _, _,_>,
+            NetworkService<_, _, _, _,_, _>,
             StorageService<_, _>,
             DaVerifierService<_, _, _, _>
         )
@@ -483,7 +447,7 @@ where
         loop {
             tokio::select! {
                 Some(service_message) = service_resources_handle.inbound_relay.recv() => {
-                    Self::handle_service_message(service_message, &mut network_adapter,  &storage_adapter, &api_adapter, &mut sampler).await;
+                    Self::handle_service_message(service_message, &mut network_adapter,  &storage_adapter,  &mut sampler).await;
                 }
                 Some(sampling_message) = sampling_message_stream.next() => {
                     Self::handle_sampling_message(sampling_message, &mut sampler, &storage_adapter, &verifier_relay).await;

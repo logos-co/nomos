@@ -1,3 +1,4 @@
+pub mod api;
 pub mod backends;
 pub mod membership;
 pub mod storage;
@@ -12,8 +13,9 @@ use std::{
 use async_trait::async_trait;
 use backends::NetworkBackend;
 use futures::Stream;
+use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p::Multiaddr;
-use nomos_core::block::BlockNumber;
+use nomos_core::{block::BlockNumber, da::BlobId};
 use overwatch::{
     services::{
         state::{NoOperator, ServiceState},
@@ -27,7 +29,10 @@ use subnetworks_assignations::{MembershipCreator, MembershipHandler, SubnetworkA
 use tokio::sync::oneshot;
 use tokio_stream::StreamExt as _;
 
-use crate::membership::{handler::DaMembershipHandler, MembershipAdapter};
+use crate::{
+    api::ApiAdapter as ApiAdapterTrait,
+    membership::{handler::DaMembershipHandler, MembershipAdapter},
+};
 
 pub enum DaNetworkMsg<Backend, Membership, RuntimeServiceId>
 where
@@ -68,13 +73,23 @@ where
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct NetworkConfig<Backend: NetworkBackend<RuntimeServiceId>, Membership, RuntimeServiceId> {
+pub struct NetworkConfig<
+    Backend: NetworkBackend<RuntimeServiceId>,
+    Membership,
+    ApiAdapterSettings,
+    RuntimeServiceId,
+> {
     pub backend: Backend::Settings,
     pub membership: Membership,
+    pub api_adapter_settings: ApiAdapterSettings,
 }
 
-impl<Backend: NetworkBackend<RuntimeServiceId>, Membership, RuntimeServiceId> Debug
-    for NetworkConfig<Backend, Membership, RuntimeServiceId>
+impl<
+        Backend: NetworkBackend<RuntimeServiceId>,
+        Membership,
+        ApiAdapterSettings,
+        RuntimeServiceId,
+    > Debug for NetworkConfig<Backend, Membership, ApiAdapterSettings, RuntimeServiceId>
 where
     Membership: Clone + Debug,
 {
@@ -88,10 +103,12 @@ pub struct NetworkService<
     Membership,
     MembershipServiceAdapter,
     StorageAdapter,
+    ApiAdapter,
     RuntimeServiceId,
 > where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Membership: MembershipHandler,
+    ApiAdapter: ApiAdapterTrait,
 {
     backend: Backend,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
@@ -104,32 +121,48 @@ pub struct NetworkState<
     Membership,
     MembershipServiceAdapter,
     StorageAdapter,
+    ApiAdapter,
     RuntimeServiceId,
 > where
     Backend: NetworkBackend<RuntimeServiceId>,
 {
     backend: Backend::State,
-    phantom: PhantomData<(Membership, MembershipServiceAdapter, StorageAdapter)>,
+    phantom: PhantomData<(
+        Membership,
+        MembershipServiceAdapter,
+        ApiAdapter,
+        StorageAdapter,
+    )>,
 }
 
-impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId> ServiceData
+impl<
+        Backend,
+        Membership,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        ApiAdapter,
+        RuntimeServiceId,
+    > ServiceData
     for NetworkService<
         Backend,
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
+        ApiAdapter,
         RuntimeServiceId,
     >
 where
     Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
     Membership: MembershipHandler,
+    ApiAdapter: ApiAdapterTrait,
 {
-    type Settings = NetworkConfig<Backend, Membership, RuntimeServiceId>;
+    type Settings = NetworkConfig<Backend, Membership, ApiAdapter::Settings, RuntimeServiceId>;
     type State = NetworkState<
         Backend,
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
+        ApiAdapter,
         RuntimeServiceId,
     >;
     type StateOperator = NoOperator<Self::State>;
@@ -137,13 +170,20 @@ where
 }
 
 #[async_trait]
-impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
-    ServiceCore<RuntimeServiceId>
+impl<
+        Backend,
+        Membership,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        ApiAdapter,
+        RuntimeServiceId,
+    > ServiceCore<RuntimeServiceId>
     for NetworkService<
         Backend,
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
+        ApiAdapter,
         RuntimeServiceId,
     >
 where
@@ -162,6 +202,15 @@ where
         + Send
         + Sync
         + 'static,
+    ApiAdapter: ApiAdapterTrait<
+            Share = DaShare,
+            BlobId = BlobId,
+            Commitments = DaSharesCommitments,
+            Membership = Membership,
+        > + Send
+        + Sync
+        + 'static,
+    ApiAdapter::Settings: Clone + Send + Sync,
     <MembershipServiceAdapter::MembershipService as ServiceData>::Message: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self>
         + Clone
@@ -245,25 +294,48 @@ where
     }
 }
 
-impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId> Drop
+impl<
+        Backend,
+        Membership,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        ApiAdapter,
+        RuntimeServiceId,
+    > Drop
     for NetworkService<
         Backend,
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
+        ApiAdapter,
         RuntimeServiceId,
     >
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Membership: MembershipHandler,
+    ApiAdapter: ApiAdapterTrait,
 {
     fn drop(&mut self) {
         self.backend.shutdown();
     }
 }
 
-impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
-    NetworkService<Backend, Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
+impl<
+        Backend,
+        Membership,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        ApiAdapter,
+        RuntimeServiceId,
+    >
+    NetworkService<
+        Backend,
+        Membership,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        ApiAdapter,
+        RuntimeServiceId,
+    >
 where
     StorageAdapter: MembershipStorageAdapter<
             <Membership as MembershipHandler>::Id,
@@ -272,6 +344,15 @@ where
         + Sync,
 
     Membership::Id: Send + Sync,
+    ApiAdapter: ApiAdapterTrait<
+            Share = DaShare,
+            BlobId = BlobId,
+            Commitments = DaSharesCommitments,
+            Membership = Membership,
+        > + Send
+        + Sync
+        + 'static,
+    ApiAdapter::Settings: Clone + Send,
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::State: Send + Sync,
     Membership: MembershipCreator + Clone + Send + Sync + 'static,
@@ -329,15 +410,21 @@ where
     }
 }
 
-impl<Backend: NetworkBackend<RuntimeServiceId>, Membership, RuntimeServiceId> Clone
-    for NetworkConfig<Backend, Membership, RuntimeServiceId>
+impl<
+        Backend: NetworkBackend<RuntimeServiceId>,
+        Membership,
+        ApiAdapterSettings,
+        RuntimeServiceId,
+    > Clone for NetworkConfig<Backend, Membership, ApiAdapterSettings, RuntimeServiceId>
 where
     Membership: Clone,
+    ApiAdapterSettings: Clone,
 {
     fn clone(&self) -> Self {
         Self {
             backend: self.backend.clone(),
             membership: self.membership.clone(),
+            api_adapter_settings: self.api_adapter_settings.clone(),
         }
     }
 }
@@ -347,6 +434,7 @@ impl<
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
+        ApiAdapter,
         RuntimeServiceId,
     > Clone
     for NetworkState<
@@ -354,6 +442,7 @@ impl<
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
+        ApiAdapter,
         RuntimeServiceId,
     >
 {
@@ -370,6 +459,7 @@ impl<
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
+        ApiAdapter,
         RuntimeServiceId,
     > ServiceState
     for NetworkState<
@@ -377,12 +467,14 @@ impl<
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
+        ApiAdapter,
         RuntimeServiceId,
     >
 where
     Membership: Clone,
+    ApiAdapter: ApiAdapterTrait,
 {
-    type Settings = NetworkConfig<Backend, Membership, RuntimeServiceId>;
+    type Settings = NetworkConfig<Backend, Membership, ApiAdapter::Settings, RuntimeServiceId>;
     type Error = <Backend::State as ServiceState>::Error;
 
     fn from_settings(settings: &Self::Settings) -> Result<Self, Self::Error> {

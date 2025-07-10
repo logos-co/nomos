@@ -26,6 +26,7 @@ use nomos_da_indexer::{
 };
 use nomos_da_network_core::{maintenance::monitor::ConnectionMonitorCommand, SubnetworkId};
 use nomos_da_network_service::{
+    api::ApiAdapter as ApiAdapterTrait,
     backends::{
         libp2p::{executor::ExecutorDaNetworkMessage, validator::DaNetworkMessage},
         NetworkBackend,
@@ -66,7 +67,6 @@ pub type DaIndexer<
     DaVerifierNetwork,
     DaVerifierStorage,
     TimeBackend,
-    ApiAdapter,
     RuntimeServiceId,
     const SIZE: usize,
 > = DataIndexerService<
@@ -96,7 +96,6 @@ pub type DaIndexer<
     DaVerifierNetwork,
     DaVerifierStorage,
     TimeBackend,
-    ApiAdapter,
     RuntimeServiceId,
 >;
 
@@ -130,8 +129,21 @@ pub type DaDispersal<
     RuntimeServiceId,
 >;
 
-pub type DaNetwork<Backend, Membership, MembershipAdapter, StorageAdapter, RuntimeServiceId> =
-    NetworkService<Backend, Membership, MembershipAdapter, StorageAdapter, RuntimeServiceId>;
+pub type DaNetwork<
+    Backend,
+    Membership,
+    MembershipAdapter,
+    StorageAdapter,
+    ApiAdapter,
+    RuntimeServiceId,
+> = NetworkService<
+    Backend,
+    Membership,
+    MembershipAdapter,
+    StorageAdapter,
+    ApiAdapter,
+    RuntimeServiceId,
+>;
 
 pub async fn add_share<A, S, N, VB, SS, DaStorageConverter, RuntimeServiceId>(
     handle: &OverwatchHandle<RuntimeServiceId>,
@@ -181,7 +193,6 @@ pub async fn get_range<
     DaVerifierNetwork,
     DaVerifierStorage,
     TimeBackend,
-    ApiAdapter,
     RuntimeServiceId,
     const SIZE: usize,
 >(
@@ -233,7 +244,6 @@ where
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -251,7 +261,6 @@ where
                 DaVerifierNetwork,
                 DaVerifierStorage,
                 TimeBackend,
-                ApiAdapter,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -334,7 +343,14 @@ where
     .await?
 }
 
-pub async fn block_peer<Backend, Membership, MembershipAdapter, StorageAdapter, RuntimeServiceId>(
+pub async fn block_peer<
+    Backend,
+    Membership,
+    MembershipAdapter,
+    StorageAdapter,
+    ApiAdapter,
+    RuntimeServiceId,
+>(
     handle: &OverwatchHandle<RuntimeServiceId>,
     peer_id: PeerId,
 ) -> Result<bool, DynError>
@@ -344,6 +360,7 @@ where
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync + 'static,
     Membership::NetworkId: Send + Sync + 'static,
+    ApiAdapter: ApiAdapterTrait + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -354,6 +371,7 @@ where
                 Membership,
                 MembershipAdapter,
                 StorageAdapter,
+                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -374,6 +392,7 @@ pub async fn unblock_peer<
     Membership,
     MembershipAdapter,
     StorageAdapter,
+    ApiAdapter,
     RuntimeServiceId,
 >(
     handle: &OverwatchHandle<RuntimeServiceId>,
@@ -385,6 +404,7 @@ where
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync + 'static,
     Membership::NetworkId: Send + Sync + 'static,
+    ApiAdapter: ApiAdapterTrait + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -395,6 +415,7 @@ where
                 Membership,
                 MembershipAdapter,
                 StorageAdapter,
+                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -419,6 +440,7 @@ pub async fn blacklisted_peers<
     Membership,
     MembershipAdapter,
     StorageAdapter,
+    ApiAdapter,
     RuntimeServiceId,
 >(
     handle: &OverwatchHandle<RuntimeServiceId>,
@@ -429,6 +451,7 @@ where
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync + 'static,
     Membership::NetworkId: Send + Sync + 'static,
+    ApiAdapter: ApiAdapterTrait + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -439,6 +462,7 @@ where
                 Membership,
                 MembershipAdapter,
                 StorageAdapter,
+                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -463,6 +487,7 @@ pub async fn balancer_stats<
     Membership,
     MembershipAdapter,
     StorageAdapter,
+    ApiAdapter,
     RuntimeServiceId,
 >(
     handle: &OverwatchHandle<RuntimeServiceId>,
@@ -473,6 +498,7 @@ where
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync + 'static,
     Membership::NetworkId: Send + Sync + 'static,
+    ApiAdapter: ApiAdapterTrait + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -483,6 +509,7 @@ where
                 Membership,
                 MembershipAdapter,
                 StorageAdapter,
+                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -507,6 +534,7 @@ pub async fn monitor_stats<
     Membership,
     MembershipAdapter,
     StorageAdapter,
+    ApiAdapter,
     RuntimeServiceId,
 >(
     handle: &OverwatchHandle<RuntimeServiceId>,
@@ -517,6 +545,7 @@ where
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync + 'static,
     Membership::NetworkId: Send + Sync + 'static,
+    ApiAdapter: ApiAdapterTrait + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -527,6 +556,7 @@ where
                 Membership,
                 MembershipAdapter,
                 StorageAdapter,
+                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,

@@ -1,7 +1,7 @@
 pub mod adapters;
 
 use futures::Stream;
-use nomos_da_network_service::{backends::NetworkBackend, NetworkService};
+use nomos_da_network_service::{api::ApiAdapter, backends::NetworkBackend, NetworkService};
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 use subnetworks_assignations::MembershipHandler;
 
@@ -13,6 +13,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
     type Membership: MembershipHandler + Clone;
     type Storage;
     type MembershipAdapter;
+    type ApiAdapter: ApiAdapter;
 
     async fn new(
         settings: Self::Settings,
@@ -22,6 +23,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
                 Self::Membership,
                 Self::MembershipAdapter,
                 Self::Storage,
+                Self::ApiAdapter,
                 RuntimeServiceId,
             > as ServiceData>::Message,
         >,

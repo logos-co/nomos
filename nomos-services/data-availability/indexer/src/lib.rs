@@ -56,7 +56,6 @@ pub struct DataIndexerService<
     DaVerifierNetwork,
     DaVerifierStorage,
     TimeBackend,
-    ApiAdapter,
     RuntimeServiceId,
 > where
     Share: 'static,
@@ -97,7 +96,6 @@ pub struct DataIndexerService<
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
 }
@@ -146,7 +144,6 @@ impl<
         DaVerifierNetwork,
         DaVerifierStorage,
         TimeBackend,
-        ApiAdapter,
         RuntimeServiceId,
     > ServiceData
     for DataIndexerService<
@@ -169,7 +166,6 @@ impl<
         DaVerifierNetwork,
         DaVerifierStorage,
         TimeBackend,
-        ApiAdapter,
         RuntimeServiceId,
     >
 where
@@ -211,7 +207,6 @@ where
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
     type Settings = IndexerSettings<DaStorage::Settings>;
     type State = NoState<Self::Settings>;
@@ -239,7 +234,6 @@ impl<
         DaVerifierNetwork,
         DaVerifierStorage,
         TimeBackend,
-        ApiAdapter,
         RuntimeServiceId,
     >
     DataIndexerService<
@@ -262,7 +256,6 @@ impl<
         DaVerifierNetwork,
         DaVerifierStorage,
         TimeBackend,
-        ApiAdapter,
         RuntimeServiceId,
     >
 where
@@ -306,7 +299,6 @@ where
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
     #[instrument(skip_all)]
     async fn handle_new_block(
@@ -367,7 +359,6 @@ impl<
         DaVerifierNetwork,
         DaVerifierStorage,
         TimeBackend,
-        ApiAdapter,
         RuntimeServiceId,
     > ServiceCore<RuntimeServiceId>
     for DataIndexerService<
@@ -390,7 +381,6 @@ impl<
         DaVerifierNetwork,
         DaVerifierStorage,
         TimeBackend,
-        ApiAdapter,
         RuntimeServiceId,
     >
 where
@@ -457,7 +447,6 @@ where
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -481,7 +470,6 @@ where
                 DaVerifierNetwork,
                 DaVerifierStorage,
                 TimeBackend,
-                ApiAdapter,
                 RuntimeServiceId,
             >,
         > + AsServiceId<StorageService<DaStorage::Backend, RuntimeServiceId>>
@@ -503,7 +491,7 @@ where
 
         let consensus_relay = service_resources_handle
             .overwatch_handle
-            .relay::<CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _>>()
+            .relay::<CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _>>()
             .await
             .expect("Relay connection with ConsensusService should succeed");
         let storage_relay = service_resources_handle
@@ -526,7 +514,7 @@ where
             &service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
             StorageService<_, _>,
-            CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _>
+            CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _>
         )
         .await?;
 

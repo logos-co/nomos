@@ -85,6 +85,9 @@ da_network:
     addressbook:
       12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir: /ip4/127.0.0.1/udp/8717/quic-v1/p2p/12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
       12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh: /ip4/127.0.0.1/udp/8716/quic-v1/p2p/12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
+  api_adapter_settings:
+    api_port: 8722
+    is_secure: false
 da_dispersal:
   backend:
     encoder_settings:
@@ -124,20 +127,6 @@ da_sampling:
   network_adapter_settings: null
   storage_adapter_settings:
     blob_storage_directory: ./
-  api_adapter_settings:
-    api_port: 8722
-    is_secure: false
-    membership:
-      assignations:
-        - - 12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
-          - 12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
-        - - 12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
-          - 12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
-      subnetwork_size: 2
-      dispersal_factor: 2
-      addressbook:
-        12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir: /ip4/127.0.0.1/udp/8717/quic-v1/p2p/12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
-        12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh: /ip4/127.0.0.1/udp/8716/quic-v1/p2p/12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
 http:
   backend_settings:
     address: 127.0.0.1:8722

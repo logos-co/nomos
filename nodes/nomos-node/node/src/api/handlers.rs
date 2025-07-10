@@ -28,7 +28,9 @@ use nomos_core::{
 use nomos_da_messages::http::da::{
     DASharesCommitmentsRequest, DaSamplingRequest, GetRangeReq, GetSharesRequest,
 };
-use nomos_da_network_service::{backends::NetworkBackend, NetworkService};
+use nomos_da_network_service::{
+    api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend, NetworkService,
+};
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_da_verifier::backend::VerifierBackend;
 use nomos_http_api_common::paths;
@@ -130,7 +132,6 @@ pub async fn cryptarchia_info<
     DaVerifierNetwork,
     DaVerifierStorage,
     TimeBackend,
-    ApiAdapter,
     RuntimeServiceId,
     const SIZE: usize,
 >(
@@ -154,7 +155,6 @@ where
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -170,7 +170,6 @@ where
                 DaVerifierNetwork,
                 DaVerifierStorage,
                 TimeBackend,
-                ApiAdapter,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -186,7 +185,6 @@ where
         DaVerifierNetwork,
         DaVerifierStorage,
         TimeBackend,
-        ApiAdapter,
         RuntimeServiceId,
         SIZE,
     >(&handle))
@@ -210,7 +208,6 @@ pub async fn cryptarchia_headers<
     DaVerifierNetwork,
     DaVerifierStorage,
     TimeBackend,
-    ApiAdapter,
     RuntimeServiceId,
     const SIZE: usize,
 >(
@@ -235,7 +232,6 @@ where
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -251,7 +247,6 @@ where
                 DaVerifierNetwork,
                 DaVerifierStorage,
                 TimeBackend,
-                ApiAdapter,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -268,7 +263,6 @@ where
         DaVerifierNetwork,
         DaVerifierStorage,
         TimeBackend,
-        ApiAdapter,
         RuntimeServiceId,
         SIZE,
     >(&handle, from, to))
@@ -337,7 +331,6 @@ pub async fn get_range<
     DaVerifierNetwork,
     DaVerifierStorage,
     TimeBackend,
-    ApiAdapter,
     RuntimeServiceId,
     const SIZE: usize,
 >(
@@ -388,7 +381,6 @@ where
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -406,7 +398,6 @@ where
                 DaVerifierNetwork,
                 DaVerifierStorage,
                 TimeBackend,
-                ApiAdapter,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -424,7 +415,6 @@ where
         DaVerifierNetwork,
         DaVerifierStorage,
         TimeBackend,
-        ApiAdapter,
         RuntimeServiceId,
         SIZE,
     >(&handle, app_id, range))
@@ -443,6 +433,7 @@ pub async fn block_peer<
     Membership,
     MembershipAdapter,
     MembershipStorage,
+    ApiAdapter,
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
@@ -454,6 +445,7 @@ where
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync + 'static,
     Membership::NetworkId: Send + Sync + 'static,
+    ApiAdapter: ApiAdapterTrait + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -464,6 +456,7 @@ where
                 Membership,
                 MembershipAdapter,
                 MembershipStorage,
+                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -473,6 +466,7 @@ where
         Membership,
         MembershipAdapter,
         MembershipStorage,
+        ApiAdapter,
         RuntimeServiceId,
     >(&handle, peer_id))
 }
@@ -491,6 +485,7 @@ pub async fn unblock_peer<
     Membership,
     MembershipAdapter,
     MembershipStorage,
+    ApiAdapter,
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
@@ -502,6 +497,7 @@ where
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync + 'static,
     Membership::NetworkId: Send + Sync + 'static,
+    ApiAdapter: ApiAdapterTrait + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -512,6 +508,7 @@ where
                 Membership,
                 MembershipAdapter,
                 MembershipStorage,
+                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -521,6 +518,7 @@ where
         Membership,
         MembershipAdapter,
         MembershipStorage,
+        ApiAdapter,
         RuntimeServiceId,
     >(&handle, peer_id))
 }
@@ -538,6 +536,7 @@ pub async fn blacklisted_peers<
     Membership,
     MembershipAdapter,
     MembershipStorage,
+    ApiAdapter,
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
@@ -548,6 +547,7 @@ where
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync + 'static,
     Membership::NetworkId: Send + Sync + 'static,
+    ApiAdapter: ApiAdapterTrait + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -558,6 +558,7 @@ where
                 Membership,
                 MembershipAdapter,
                 MembershipStorage,
+                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -567,6 +568,7 @@ where
         Membership,
         MembershipAdapter,
         MembershipStorage,
+        ApiAdapter,
         RuntimeServiceId,
     >(&handle))
 }
@@ -786,6 +788,7 @@ pub async fn balancer_stats<
     Membership,
     MembershipAdapter,
     MembershipStorage,
+    ApiAdapter,
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
@@ -796,6 +799,7 @@ where
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync + 'static,
     Membership::NetworkId: Send + Sync + 'static,
+    ApiAdapter: ApiAdapterTrait + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -806,6 +810,7 @@ where
                 Membership,
                 MembershipAdapter,
                 MembershipStorage,
+                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -815,6 +820,7 @@ where
         Membership,
         MembershipAdapter,
         MembershipStorage,
+        ApiAdapter,
         RuntimeServiceId,
     >(&handle))
 }
@@ -832,6 +838,7 @@ pub async fn monitor_stats<
     Membership,
     MembershipAdapter,
     MembershipStorage,
+    ApiAdapter,
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
@@ -842,6 +849,7 @@ where
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync + 'static,
     Membership::NetworkId: Send + Sync + 'static,
+    ApiAdapter: ApiAdapterTrait + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -852,6 +860,7 @@ where
                 Membership,
                 MembershipAdapter,
                 MembershipStorage,
+                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -861,6 +870,7 @@ where
         Membership,
         MembershipAdapter,
         MembershipStorage,
+        ApiAdapter,
         RuntimeServiceId,
     >(&handle))
 }
@@ -918,7 +928,6 @@ pub async fn add_blob_info<
     DaVerifierBackend,
     DaVerifierNetwork,
     DaVerifierStorage,
-    ApiAdapter,
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
@@ -948,7 +957,6 @@ where
     DaVerifierBackend::Settings: Clone,
     DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
-    ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -963,7 +971,6 @@ where
                 DaVerifierBackend,
                 DaVerifierNetwork,
                 DaVerifierStorage,
-                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -979,7 +986,6 @@ where
         DaVerifierBackend,
         DaVerifierNetwork,
         DaVerifierStorage,
-        ApiAdapter,
         RuntimeServiceId,
     >(&handle, blob_info, DispersedBlobInfo::blob_id))
 }

@@ -64,7 +64,6 @@ pub async fn add_blob_info<
     DaVerifierBackend,
     DaVerifierNetwork,
     DaVerifierStorage,
-    ApiAdapter,
     RuntimeServiceId,
 >(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
@@ -89,7 +88,6 @@ where
     DaVerifierBackend::Settings: Clone,
     DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
-    ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -103,7 +101,6 @@ where
                 DaVerifierBackend,
                 DaVerifierNetwork,
                 DaVerifierStorage,
-                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,

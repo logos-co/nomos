@@ -36,7 +36,6 @@ pub type Cryptarchia<
     DaVerifierNetwork,
     DaVerifierStorage,
     TimeBackend,
-    ApiAdapter,
     RuntimeServiceId,
     const SIZE: usize,
 > = CryptarchiaConsensus<
@@ -60,7 +59,6 @@ pub type Cryptarchia<
     DaVerifierNetwork,
     DaVerifierStorage,
     TimeBackend,
-    ApiAdapter,
     RuntimeServiceId,
 >;
 
@@ -74,7 +72,6 @@ pub async fn cryptarchia_info<
     DaVerifierNetwork,
     DaVerifierStorage,
     TimeBackend,
-    ApiAdapter,
     RuntimeServiceId,
     const SIZE: usize,
 >(
@@ -98,7 +95,6 @@ where
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -114,7 +110,6 @@ where
                 DaVerifierNetwork,
                 DaVerifierStorage,
                 TimeBackend,
-                ApiAdapter,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -140,7 +135,6 @@ pub async fn cryptarchia_headers<
     DaVerifierNetwork,
     DaVerifierStorage,
     TimeBackend,
-    ApiAdapter,
     RuntimeServiceId,
     const SIZE: usize,
 >(
@@ -166,7 +160,6 @@ where
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -182,7 +175,6 @@ where
                 DaVerifierNetwork,
                 DaVerifierStorage,
                 TimeBackend,
-                ApiAdapter,
                 RuntimeServiceId,
                 SIZE,
             >,
