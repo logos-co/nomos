@@ -102,7 +102,7 @@ macro_rules! adapter_for {
                     })
                     .await
                     .expect("RequestCommitments message should have been sent");
-                reply_receiver.await.map_err(|_| "Failed to receive commitments reply".into())
+                reply_receiver.await.map_err(DynError::from)
             }
         }
     }
