@@ -1012,6 +1012,14 @@ where
                     error!("Could not store block {e}");
                 }
 
+                if let Err(e) = relays
+                    .storage_adapter()
+                    .store_immutable_block_ids(pruned_blocks.immutable_blocks().copied())
+                    .await
+                {
+                    error!("Could not store immutable block IDs: {e}");
+                }
+
                 if let Err(e) = block_broadcaster.send(block) {
                     error!("Could not notify block to services {e}");
                 }

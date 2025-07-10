@@ -2,10 +2,12 @@ use std::{
     collections::{HashMap, HashSet},
     marker::PhantomData,
     num::NonZeroUsize,
+    ops::RangeInclusive,
 };
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use cryptarchia_engine::Slot;
 use nomos_core::header::HeaderId;
 use thiserror::Error;
 
@@ -112,6 +114,29 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for MockStor
         &mut self,
         _header_id: HeaderId,
     ) -> Result<Option<Self::Block>, Self::Error> {
+        unimplemented!()
+    }
+
+    async fn store_immutable_block_id(
+        &mut self,
+        _slot: Slot,
+        _header_id: HeaderId,
+    ) -> Result<(), Self::Error> {
+        unimplemented!()
+    }
+
+    async fn get_immutable_block_id(
+        &mut self,
+        _slot: Slot,
+    ) -> Result<Option<HeaderId>, Self::Error> {
+        unimplemented!()
+    }
+
+    async fn scan_immutable_block_ids(
+        &mut self,
+        _slot_range: RangeInclusive<Slot>,
+        _limit: NonZeroUsize,
+    ) -> Result<Vec<HeaderId>, Self::Error> {
         unimplemented!()
     }
 }
