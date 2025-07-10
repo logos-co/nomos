@@ -271,7 +271,7 @@ where
         }
 
         // Fall back to API request
-        let (reply_sender, reply_channel) = oneshot::channel();
+        let (_reply_sender, reply_channel) = oneshot::channel();
         // if let Err(e) = api_request.request_commitments(blob_id, reply_sender).await
         // {     error!("Error sending request to API backend: {e}");
         // }
