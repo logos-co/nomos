@@ -9,13 +9,13 @@ pub struct BlakeRngSeed([u8; OUTPUT_SIZE]);
 
 impl Default for BlakeRngSeed {
     fn default() -> Self {
-        BlakeRngSeed([0; OUTPUT_SIZE])
+        Self([0; OUTPUT_SIZE])
     }
 }
 
 impl From<[u8; OUTPUT_SIZE]> for BlakeRngSeed {
     fn from(seed: [u8; OUTPUT_SIZE]) -> Self {
-        BlakeRngSeed(seed)
+        Self(seed)
     }
 }
 
@@ -42,7 +42,7 @@ impl IntoIterator for BlakeRngSeed {
 pub struct BlakeRng(Box<dyn Iterator<Item = u8>>);
 
 impl BlakeRng {
-    fn with_seed(seed: BlakeRngSeed) -> BlakeRng {
+    fn with_seed(seed: BlakeRngSeed) -> Self {
         let iter = std::iter::repeat(seed).enumerate().flat_map(|(i, seed)| {
             let mut hasher = Hasher::new();
             hasher.update(seed);
@@ -84,7 +84,7 @@ impl RngCore for BlakeRng {
     }
 
     fn fill_bytes(&mut self, dst: &mut [u8]) {
-        self.fill_bytes_(dst)
+        self.fill_bytes_(dst);
     }
 }
 
