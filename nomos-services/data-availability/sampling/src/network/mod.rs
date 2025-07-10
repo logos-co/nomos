@@ -3,6 +3,7 @@ pub mod adapters;
 use std::pin::Pin;
 
 use futures::Stream;
+use kzgrs_backend::common::share::DaSharesCommitments;
 use nomos_core::da::BlobId;
 use nomos_da_network_service::{
     api::ApiAdapter,
@@ -41,4 +42,9 @@ pub trait NetworkAdapter<RuntimeServiceId> {
     async fn listen_to_sampling_messages(
         &self,
     ) -> Result<Pin<Box<dyn Stream<Item = SamplingEvent> + Send>>, DynError>;
+
+    async fn get_commitments(
+        &self,
+        blob_id: BlobId,
+    ) -> Result<Option<DaSharesCommitments>, DynError>;
 }

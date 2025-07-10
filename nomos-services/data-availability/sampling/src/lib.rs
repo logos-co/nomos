@@ -152,7 +152,7 @@ where
             SharesCommitments = DaSharesCommitments,
         > + Send,
     SamplingBackend::Settings: Clone,
-    SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send,
+    SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send + Sync,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,
     VerifierBackend: VerifierBackendTrait<DaShare = DaShare>,
 {
@@ -168,7 +168,7 @@ where
                 if matches!(sampler.init_sampling(blob_id).await, SamplingState::Init) {
                     info_with_id!(blob_id, "InitSampling");
                     if let Some(commitments) =
-                        Self::request_commitments(storage_adapter, blob_id).await
+                        Self::request_commitments(storage_adapter, network_adapter, blob_id).await
                     {
                         info_with_id!(blob_id, "Got commitments");
                         sampler.add_commitments(&blob_id, commitments);
@@ -263,6 +263,7 @@ where
 
     async fn request_commitments(
         storage_adapter: &SamplingStorage,
+        network_adapter: &SamplingNetwork,
         blob_id: SamplingBackend::BlobId,
     ) -> Option<DaSharesCommitments> {
         // First try to get from storage which most of the time should be the case
@@ -271,12 +272,11 @@ where
         }
 
         // Fall back to API request
-        let (_reply_sender, reply_channel) = oneshot::channel();
-        // if let Err(e) = api_request.request_commitments(blob_id, reply_sender).await
-        // {     error!("Error sending request to API backend: {e}");
-        // }
-
-        reply_channel.await.ok().flatten()
+        network_adapter
+            .get_commitments(blob_id)
+            .await
+            .ok()
+            .flatten()
     }
 
     async fn verify_blob(
@@ -355,7 +355,7 @@ where
             SharesCommitments = DaSharesCommitments,
         > + Send,
     SamplingBackend::Settings: Clone + Send + Sync,
-    SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send,
+    SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send + Sync,
     SamplingNetwork::Settings: Send + Sync,
     SamplingNetwork::Membership: MembershipHandler + Clone + 'static,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,

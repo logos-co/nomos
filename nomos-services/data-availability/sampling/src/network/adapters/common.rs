@@ -89,6 +89,21 @@ macro_rules! adapter_for {
                     })
                     .map_err(|error| Box::new(error) as DynError)
             }
+
+            async fn get_commitments(
+                &self,
+                blob_id: BlobId,
+            ) -> Result<Option<DaSharesCommitments>, DynError> {
+                let (sender, reply_receiver) = oneshot::channel();
+                self.network_relay
+                    .send(DaNetworkMsg::GetCommitments {
+                        blob_id,
+                        sender,
+                    })
+                    .await
+                    .expect("RequestCommitments message should have been sent");
+                reply_receiver.await.map_err(|_| "Failed to receive commitments reply".into())
+            }
         }
     }
 }
