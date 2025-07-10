@@ -34,7 +34,7 @@ use crate::{
     membership::{handler::DaMembershipHandler, MembershipAdapter},
 };
 
-pub enum DaNetworkMsg<Backend, Membership, RuntimeServiceId>
+pub enum DaNetworkMsg<Backend, Membership, Commitments, RuntimeServiceId>
 where
     Backend: NetworkBackend<RuntimeServiceId>,
     Membership: MembershipHandler,
@@ -48,10 +48,14 @@ where
         block_number: BlockNumber,
         sender: oneshot::Sender<SubnetworkAssignations<Membership::NetworkId, Membership::Id>>,
     },
+    GetCommitments {
+        blob_id: BlobId,
+        sender: oneshot::Sender<Option<Commitments>>,
+    },
 }
 
-impl<Backend, Membership, RuntimeServiceId> Debug
-    for DaNetworkMsg<Backend, Membership, RuntimeServiceId>
+impl<Backend, Membership, Commitments, RuntimeServiceId> Debug
+    for DaNetworkMsg<Backend, Membership, Commitments, RuntimeServiceId>
 where
     Backend: NetworkBackend<RuntimeServiceId>,
     Membership: MembershipHandler,
@@ -66,6 +70,12 @@ where
                 write!(
                     fmt,
                     "DaNetworkMsg::SubnetworksAtBlock{{ block_number: {block_number} }}"
+                )
+            }
+            Self::GetCommitments { blob_id, .. } => {
+                write!(
+                    fmt,
+                    "DaNetworkMsg::GetCommitments{{ blob_id: {blob_id:?} }}"
                 )
             }
         }
@@ -113,6 +123,7 @@ pub struct NetworkService<
     backend: Backend,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     membership: DaMembershipHandler<Membership>,
+    api_adapter: ApiAdapter,
     phantom: PhantomData<MembershipServiceAdapter>,
 }
 
@@ -166,7 +177,7 @@ where
         RuntimeServiceId,
     >;
     type StateOperator = NoOperator<Self::State>;
-    type Message = DaNetworkMsg<Backend, Membership, RuntimeServiceId>;
+    type Message = DaNetworkMsg<Backend, Membership, DaSharesCommitments, RuntimeServiceId>;
 }
 
 #[async_trait]
@@ -206,7 +217,7 @@ where
             Share = DaShare,
             BlobId = BlobId,
             Commitments = DaSharesCommitments,
-            Membership = Membership,
+            Membership = DaMembershipHandler<Membership>,
         > + Send
         + Sync
         + 'static,
@@ -230,6 +241,8 @@ where
             .get_updated_settings();
 
         let membership = DaMembershipHandler::new(settings.membership);
+        let api_adapter =
+            ApiAdapter::new(settings.api_adapter_settings.clone(), membership.clone());
 
         Ok(Self {
             backend: <Backend as NetworkBackend<RuntimeServiceId>>::new(
@@ -239,6 +252,7 @@ where
             ),
             service_resources_handle,
             membership,
+            api_adapter,
             phantom: PhantomData,
         })
     }
@@ -254,6 +268,7 @@ where
                 },
             ref mut backend,
             ref membership,
+            ref api_adapter,
             ..
         } = self;
 
@@ -280,7 +295,7 @@ where
         loop {
             tokio::select! {
                 Some(msg) = inbound_relay.recv() => {
-                    Self::handle_network_service_message(msg, backend, &membership_storage).await;
+                    Self::handle_network_service_message(msg, backend, &membership_storage, api_adapter).await;
                 }
                 Some((block_number, providers)) = stream.next() => {
                     tracing::debug!(
@@ -344,23 +359,18 @@ where
         + Sync,
 
     Membership::Id: Send + Sync,
-    ApiAdapter: ApiAdapterTrait<
-            Share = DaShare,
-            BlobId = BlobId,
-            Commitments = DaSharesCommitments,
-            Membership = Membership,
-        > + Send
-        + Sync
-        + 'static,
+    ApiAdapter:
+        ApiAdapterTrait<BlobId = BlobId, Commitments = DaSharesCommitments> + Send + Sync + 'static,
     ApiAdapter::Settings: Clone + Send,
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::State: Send + Sync,
     Membership: MembershipCreator + Clone + Send + Sync + 'static,
 {
     async fn handle_network_service_message(
-        msg: DaNetworkMsg<Backend, Membership, RuntimeServiceId>,
+        msg: DaNetworkMsg<Backend, Membership, DaSharesCommitments, RuntimeServiceId>,
         backend: &mut Backend,
         membership_storage: &MembershipStorage<StorageAdapter, Membership>,
+        api_adapter: &ApiAdapter,
     ) {
         match msg {
             DaNetworkMsg::Process(msg) => {
@@ -396,6 +406,11 @@ where
                             "client hung up before a subnetwork assignations handle could be established"
                         );
                     });
+                }
+            }
+            DaNetworkMsg::GetCommitments { blob_id, sender } => {
+                if let Err(e) = api_adapter.request_commitments(blob_id, sender).await {
+                    tracing::error!("Failed to request commitments: {e}");
                 }
             }
         }

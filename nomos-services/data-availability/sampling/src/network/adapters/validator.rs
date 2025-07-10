@@ -13,7 +13,7 @@ use nomos_da_network_service::{
             DaNetworkEvent, DaNetworkEventKind, DaNetworkMessage, DaNetworkValidatorBackend,
         },
     },
-    membership::MembershipAdapter,
+    membership::{handler::DaMembershipHandler, MembershipAdapter},
     DaNetworkMsg, NetworkService,
 };
 use overwatch::{

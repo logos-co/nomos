@@ -1,7 +1,7 @@
 use std::{collections::HashSet, fmt::Debug, marker::PhantomData, pin::Pin, time::Duration};
 
 use futures::{stream::BoxStream, Stream, StreamExt as _};
-use kzgrs_backend::common::share::DaShare;
+use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use nomos_core::da::BlobId;
 use nomos_da_network_core::{
     protocols::{
@@ -46,7 +46,12 @@ pub struct Libp2pNetworkAdapter<
     ApiAdapter: ApiAdapterTrait,
 {
     outbound_relay: OutboundRelay<
-        DaNetworkMsg<DaNetworkExecutorBackend<Membership>, Membership, RuntimeServiceId>,
+        DaNetworkMsg<
+            DaNetworkExecutorBackend<Membership>,
+            Membership,
+            DaSharesCommitments,
+            RuntimeServiceId,
+        >,
     >,
     _phantom: PhantomData<(
         RuntimeServiceId,

@@ -31,7 +31,7 @@ macro_rules! adapter_for {
                     Share = DaShare,
                     BlobId = BlobId,
                     Commitments = DaSharesCommitments,
-                    Membership = Membership,
+                    Membership = DaMembershipHandler<Membership>,
                 > + Clone
                 + Send
                 + Sync
