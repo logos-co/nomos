@@ -8,7 +8,7 @@ use overwatch::services::{relay::OutboundRelay, ServiceData};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::oneshot;
 
-use crate::storage::StorageAdapter as StorageAdapterTrait;
+use crate::storage::{StorageAdapter as StorageAdapterTrait, StorageAdapterExt};
 
 pub struct StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
 where
@@ -21,7 +21,8 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Storage, Tx, BlobCertificate, RuntimeServiceId> StorageAdapterTrait<RuntimeServiceId>
+impl<Storage, Tx, BlobCertificate, RuntimeServiceId>
+    StorageAdapterTrait<Tx, BlobCertificate, RuntimeServiceId>
     for StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync + 'static,
@@ -31,7 +32,6 @@ where
     BlobCertificate: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     type Backend = Storage;
-    type Block = Block<Tx, BlobCertificate>;
 
     async fn new(
         storage_relay: OutboundRelay<
@@ -45,7 +45,7 @@ where
         }
     }
 
-    async fn get_block(&self, header_id: &HeaderId) -> Option<Self::Block> {
+    async fn get_block(&self, header_id: &HeaderId) -> Option<Block<Tx, BlobCertificate>> {
         let (sender, receiver) = oneshot::channel();
 
         self.storage_relay
@@ -67,7 +67,7 @@ where
     async fn store_block(
         &self,
         header_id: HeaderId,
-        block: Self::Block,
+        block: Block<Tx, BlobCertificate>,
     ) -> Result<(), overwatch::DynError> {
         let block = block
             .try_into()
@@ -84,7 +84,7 @@ where
     async fn remove_block(
         &self,
         header_id: HeaderId,
-    ) -> Result<Option<Self::Block>, overwatch::DynError> {
+    ) -> Result<Option<Block<Tx, BlobCertificate>>, overwatch::DynError> {
         let (sender, receiver) = oneshot::channel();
 
         self.storage_relay
@@ -105,4 +105,16 @@ where
 
         Ok(Some(deserialized_block))
     }
+}
+
+impl<Storage, Tx, BlobCertificate, RuntimeServiceId>
+    StorageAdapterExt<Tx, BlobCertificate, RuntimeServiceId>
+    for StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
+where
+    Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Block:
+        TryFrom<Block<Tx, BlobCertificate>> + TryInto<Block<Tx, BlobCertificate>>,
+    Tx: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
+    BlobCertificate: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
+{
 }
