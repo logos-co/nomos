@@ -1322,7 +1322,12 @@ where
                     .collect::<HashSet<_>>();
 
                 sync_blocks_provider
-                    .send_blocks(cryptarchia, target_block, &known_blocks, reply_sender)
+                    .send_blocks(
+                        &cryptarchia.consensus,
+                        target_block,
+                        &known_blocks,
+                        reply_sender,
+                    )
                     .await;
             }
             ChainSyncEvent::ProvideTipRequest { reply_sender } => {
