@@ -3,14 +3,17 @@ pub mod adapters;
 use std::collections::HashSet;
 
 use futures::{future::join_all, StreamExt as _};
-use nomos_core::header::HeaderId;
+use nomos_core::{block::Block, header::HeaderId};
 use nomos_storage::{backends::StorageBackend, StorageService};
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 
 #[async_trait::async_trait]
-pub trait StorageAdapter<RuntimeServiceId> {
+pub trait StorageAdapter<Tx, BlobCertificate, RuntimeServiceId>
+where
+    Tx: Clone + Eq + Send,
+    BlobCertificate: Clone + Eq + Send,
+{
     type Backend: StorageBackend + Send + Sync + 'static;
-    type Block: Send;
 
     async fn new(
         network_relay: OutboundRelay<
@@ -24,12 +27,12 @@ pub trait StorageAdapter<RuntimeServiceId> {
     /// # Returns
     ///
     /// The block with the given header id. If no block is found, returns None.
-    async fn get_block(&self, key: &HeaderId) -> Option<Self::Block>;
+    async fn get_block(&self, key: &HeaderId) -> Option<Block<Tx, BlobCertificate>>;
 
     async fn store_block(
         &self,
         header_id: HeaderId,
-        block: Self::Block,
+        block: Block<Tx, BlobCertificate>,
     ) -> Result<(), overwatch::DynError>;
 
     /// Remove a block from the storage layer.
@@ -40,7 +43,7 @@ pub trait StorageAdapter<RuntimeServiceId> {
     async fn remove_block(
         &self,
         header_id: HeaderId,
-    ) -> Result<Option<Self::Block>, overwatch::DynError>;
+    ) -> Result<Option<Block<Tx, BlobCertificate>>, overwatch::DynError>;
 
     /// Remove a batch of blocks from the storage layer.
     ///
@@ -51,7 +54,7 @@ pub trait StorageAdapter<RuntimeServiceId> {
     async fn remove_blocks<Headers>(
         &self,
         header_ids: Headers,
-    ) -> impl Iterator<Item = Result<Option<Self::Block>, overwatch::DynError>>
+    ) -> impl Iterator<Item = Result<Option<Block<Tx, BlobCertificate>>, overwatch::DynError>>
     where
         Headers: Iterator<Item = HeaderId> + Send,
     {
@@ -64,7 +67,12 @@ pub trait StorageAdapter<RuntimeServiceId> {
 const LOG_TARGET: &str = "cryptarchia::service::storage";
 
 #[async_trait::async_trait]
-pub trait StorageAdapterExt<RuntimeServiceId>: StorageAdapter<RuntimeServiceId> {
+pub trait StorageAdapterExt<Tx, BlobCertificate, RuntimeServiceId>:
+    StorageAdapter<Tx, BlobCertificate, RuntimeServiceId>
+where
+    Tx: Clone + Eq + Send,
+    BlobCertificate: Clone + Eq + Send,
+{
     /// Deletes multiple blocks from storage,
     /// and returns the header IDs of the blocks that failed to be deleted.
     async fn remove_blocks_and_collect_failures(
@@ -124,7 +132,11 @@ pub trait StorageAdapterExt<RuntimeServiceId>: StorageAdapter<RuntimeServiceId> 
     /// If no blocks are found, returns an empty vector.
     /// If any of the [`HeaderId`]s are invalid, returns an error with the first
     /// invalid header id.
-    async fn get_blocks_in_range(&self, from: HeaderId, to: HeaderId) -> Vec<Self::Block> {
+    async fn get_blocks_in_range(
+        &self,
+        from: HeaderId,
+        to: HeaderId,
+    ) -> Vec<Block<Tx, BlobCertificate>> {
         // Due to the blocks traversal order, this yields `to..from` order
         let blocks = futures::stream::unfold(to, |header_id| async move {
             if header_id == from {
@@ -133,7 +145,7 @@ pub trait StorageAdapterExt<RuntimeServiceId>: StorageAdapter<RuntimeServiceId> 
                 let block = self.get_block(&header_id).await.unwrap_or_else(|| {
                     panic!("Could not retrieve block {to} from storage during recovery")
                 });
-                let parent_header_id = Self::parent_id(&block);
+                let parent_header_id = block.header().parent();
                 Some((block, parent_header_id))
             }
         });
@@ -142,6 +154,4 @@ pub trait StorageAdapterExt<RuntimeServiceId>: StorageAdapter<RuntimeServiceId> 
         // order
         blocks.collect::<Vec<_>>().await.into_iter().rev().collect()
     }
-
-    fn parent_id(block: &Self::Block) -> HeaderId;
 }

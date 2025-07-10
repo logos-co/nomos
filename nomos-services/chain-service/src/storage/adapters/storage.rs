@@ -21,7 +21,8 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Storage, Tx, BlobCertificate, RuntimeServiceId> StorageAdapterTrait<RuntimeServiceId>
+impl<Storage, Tx, BlobCertificate, RuntimeServiceId>
+    StorageAdapterTrait<Tx, BlobCertificate, RuntimeServiceId>
     for StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync + 'static,
@@ -31,7 +32,6 @@ where
     BlobCertificate: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     type Backend = Storage;
-    type Block = Block<Tx, BlobCertificate>;
 
     async fn new(
         storage_relay: OutboundRelay<
@@ -45,7 +45,7 @@ where
         }
     }
 
-    async fn get_block(&self, header_id: &HeaderId) -> Option<Self::Block> {
+    async fn get_block(&self, header_id: &HeaderId) -> Option<Block<Tx, BlobCertificate>> {
         let (sender, receiver) = oneshot::channel();
 
         self.storage_relay
@@ -67,7 +67,7 @@ where
     async fn store_block(
         &self,
         header_id: HeaderId,
-        block: Self::Block,
+        block: Block<Tx, BlobCertificate>,
     ) -> Result<(), overwatch::DynError> {
         let block = block
             .try_into()
@@ -84,7 +84,7 @@ where
     async fn remove_block(
         &self,
         header_id: HeaderId,
-    ) -> Result<Option<Self::Block>, overwatch::DynError> {
+    ) -> Result<Option<Block<Tx, BlobCertificate>>, overwatch::DynError> {
         let (sender, receiver) = oneshot::channel();
 
         self.storage_relay
@@ -107,7 +107,8 @@ where
     }
 }
 
-impl<Storage, Tx, BlobCertificate, RuntimeServiceId> StorageAdapterExt<RuntimeServiceId>
+impl<Storage, Tx, BlobCertificate, RuntimeServiceId>
+    StorageAdapterExt<Tx, BlobCertificate, RuntimeServiceId>
     for StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync + 'static,
@@ -116,7 +117,4 @@ where
     Tx: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
     BlobCertificate: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
-    fn parent_id(block: &Self::Block) -> HeaderId {
-        block.header().parent()
-    }
 }
