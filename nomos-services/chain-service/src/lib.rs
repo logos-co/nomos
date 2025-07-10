@@ -824,6 +824,8 @@ where
     ///   period has passed.
     ///
     /// Unlike [`Cryptarchia<Online>`], it doesn't handle chain sync requests.
+    /// TODO: Reject chain sync requests explicitly, so that requesters aren't
+    ///       blocked for a long time.
     #[expect(
         clippy::type_complexity,
         reason = "CryptarchiaConsensusRelays amount of generics."
