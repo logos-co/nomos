@@ -10,12 +10,10 @@ workspace = true
 [dependencies]
 async-trait              = "0.1"
 bytes                    = { workspace = true }
-common-http-client       = { workspace = true }
 futures                  = "0.3"
 hex                      = "0.4.3"
 kzgrs-backend            = { workspace = true }
 libp2p-identity          = { version = "0.2" }
-multiaddr                = "0.18"
 nomos-core               = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-da-network-service = { workspace = true }
@@ -30,7 +28,6 @@ subnetworks-assignations = { workspace = true }
 tokio                    = { version = "1", features = ["macros", "sync"] }
 tokio-stream             = "0.1.15"
 tracing                  = { workspace = true }
-url                      = "2.5.4"
 
 [dev-dependencies]
 kzgrs = { workspace = true }
