@@ -35,6 +35,10 @@ tracing                = { workspace = true }
 tracing-futures        = "0.2"
 utoipa                 = { version = "4.0", optional = true }
 
+[dev-dependencies]
+kzgrs-backend = { workspace = true }
+tempfile      = "3.20.0"
+
 [features]
 default = []
 libp2p  = ["nomos-blend-service/libp2p", "nomos-network/libp2p"]

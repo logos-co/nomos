@@ -357,7 +357,7 @@ where
             .scan_immutable_block_ids(start_block_slot..=target_block_slot, limit)
             .await?;
 
-        if storage_path.len() >= limit.get() {
+        if storage_path.len() >= limit.get() || storage_path.last() == Some(&target_block) {
             return Ok(storage_path);
         }
 
@@ -498,6 +498,445 @@ where
             .map_err(|_| GetBlocksError::SendError("Failed to send error stream".to_owned()))
         {
             error!("Failed to send error stream: {e}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZero;
+
+    use cryptarchia_engine::{Boostrapping, Config};
+    use futures::StreamExt as _;
+    use kzgrs_backend::dispersal::BlobInfo;
+    use nomos_core::{
+        block::builder::BlockBuilder,
+        da::blob::select::FillSize as BlobFillSize,
+        header::Builder,
+        mantle::{select::FillSize as TxFillSize, SignedMantleTx},
+    };
+    use nomos_proof_statements::leadership::{LeaderPrivate, LeaderPublic};
+    use nomos_storage::{
+        backends::{
+            rocksdb::{RocksBackend, RocksBackendSettings},
+            StorageSerde,
+        },
+        StorageService,
+    };
+    use overwatch::{derive_services, overwatch::OverwatchRunner};
+    use serde::de::DeserializeOwned;
+    use tempfile::TempDir;
+    use tokio::{runtime::Handle, sync::mpsc};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_only_engine_path() {
+        let mut env = TestEnv::new().await;
+
+        let ids = env.setup_chain_with_blocks(10).await;
+        let known_blocks = HashSet::from([ids[1], ids[3], ids[6]]);
+        let target_block = *ids.last().unwrap();
+
+        // Should start from the most recent known block (ids[6])
+        let expected = ids[6..=9].to_vec();
+        env.retrieve_and_validate_blocks(target_block, &known_blocks, &expected)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn test_only_storage_path() {
+        let env = TestEnv::new().await;
+
+        let ids = env.create_storage_only_blocks(8).await;
+
+        let known_blocks = HashSet::from([ids[2]]);
+        let target_block = ids[6];
+        let expected = ids[2..=6].to_vec();
+
+        env.retrieve_and_validate_blocks(target_block, &known_blocks, &expected)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn test_storage_to_engine_hybrid_path() {
+        let mut env = TestEnv::new().await;
+
+        let storage_blocks = env.create_storage_only_blocks(5).await;
+        let engine_blocks = env.create_engine_only_blocks(3).await;
+
+        let known_blocks = HashSet::from([storage_blocks[2]]);
+        let target_block = engine_blocks[1];
+
+        let expected = vec![
+            storage_blocks[2],
+            storage_blocks[3],
+            storage_blocks[4],
+            engine_blocks[0],
+            engine_blocks[1],
+        ];
+
+        env.retrieve_and_validate_blocks(target_block, &known_blocks, &expected)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn test_error_target_not_found() {
+        let mut env = TestEnv::new().await;
+        let ids = env.setup_chain_with_blocks(5).await;
+
+        let known_blocks = HashSet::from([ids[0]]);
+        let fake_target = HeaderId::from([99u8; 32]);
+
+        env.test_error_scenario(fake_target, &known_blocks, "BlockNotFound")
+            .await;
+    }
+
+    #[tokio::test]
+    async fn test_error_known_blocks_not_found() {
+        let mut env = TestEnv::new().await;
+        let ids = env.setup_chain_with_blocks(5).await;
+
+        let fake_known = HashSet::from([HeaderId::from([98u8; 32]), HeaderId::from([97u8; 32])]);
+        let target_block = ids[4];
+
+        env.test_error_scenario(target_block, &fake_known, "StartBlockNotFound")
+            .await;
+    }
+
+    #[tokio::test]
+    async fn test_error_all_blocks_nonexistent() {
+        let env = TestEnv::new().await;
+
+        let fake_target_block = HeaderId::from([88u8; 32]);
+        let known_blocks = HashSet::from([HeaderId::from([99u8; 32])]);
+
+        env.test_error_scenario(fake_target_block, &known_blocks, "StartBlockNotFound")
+            .await;
+    }
+
+    #[tokio::test]
+    async fn test_path_length_limit() {
+        let mut env = TestEnv::new().await;
+
+        let long_chain = env.setup_chain_with_blocks(MAX_NUMBER_OF_BLOCKS + 1).await;
+
+        let known_blocks = HashSet::from([long_chain[0]]);
+        let target_block = *long_chain.last().unwrap();
+
+        let retrieved_blocks = env
+            .retrieve_blocks_from_provider(target_block, &known_blocks)
+            .await;
+
+        assert_eq!(
+            retrieved_blocks.len(),
+            MAX_NUMBER_OF_BLOCKS,
+            "Retrieved blocks should not exceed MAX_NUMBER_OF_BLOCKS"
+        );
+    }
+
+    pub struct Wire;
+
+    impl StorageSerde for Wire {
+        type Error = wire::Error;
+
+        fn serialize<T: Serialize>(value: T) -> Bytes {
+            wire::serialize(&value).unwrap().into()
+        }
+
+        fn deserialize<T: DeserializeOwned>(buff: Bytes) -> Result<T, Self::Error> {
+            wire::deserialize(&buff)
+        }
+    }
+
+    #[derive_services]
+    pub struct TestServices {
+        pub storage: StorageService<RocksBackend<Wire>, RuntimeServiceId>,
+    }
+
+    struct TestEnv {
+        service: overwatch::overwatch::Overwatch<RuntimeServiceId>,
+        storage_relay: StorageRelay<RocksBackend<Wire>>,
+        cryptarchia: cryptarchia_engine::Cryptarchia<HeaderId, Boostrapping>,
+        proof: nomos_core::proofs::leader_proof::Risc0LeaderProof,
+        provider: BlockProvider<RocksBackend<Wire>, Boostrapping, SignedMantleTx, BlobInfo>,
+    }
+
+    impl TestEnv {
+        async fn new() -> Self {
+            let (service, storage_relay) = Self::setup_storage().await;
+            let cryptarchia = Self::new_cryptarchia(HeaderId::from([0; 32]));
+            let proof = Self::make_test_proof();
+            let provider = BlockProvider::new(storage_relay.clone());
+
+            Self {
+                service,
+                storage_relay,
+                cryptarchia,
+                proof,
+                provider,
+            }
+        }
+
+        async fn setup_storage() -> (
+            overwatch::overwatch::Overwatch<RuntimeServiceId>,
+            StorageRelay<RocksBackend<Wire>>,
+        ) {
+            let temp_path = TempDir::new().unwrap();
+            let service = OverwatchRunner::<TestServices>::run(
+                TestServicesServiceSettings {
+                    storage: RocksBackendSettings {
+                        db_path: temp_path.path().to_path_buf(),
+                        read_only: false,
+                        column_family: None,
+                    },
+                },
+                Some(Handle::current()),
+            )
+            .unwrap();
+
+            let service_ids = service.handle().retrieve_service_ids().await.unwrap();
+            service
+                .handle()
+                .start_service_sequence(service_ids)
+                .await
+                .unwrap();
+
+            let storage_relay = service
+                .handle()
+                .relay::<StorageService<RocksBackend<Wire>, RuntimeServiceId>>()
+                .await
+                .expect("Relay connection with StorageService should succeed");
+
+            (service, storage_relay)
+        }
+
+        fn create_block_sequence(
+            &self,
+            count: usize,
+            slot_offset: u64,
+        ) -> Vec<(Block<SignedMantleTx, BlobInfo>, HeaderId, HeaderId, Slot)> {
+            let mut blocks = Vec::new();
+            let mut prev_header = HeaderId::from([0u8; 32]);
+
+            for i in 0..count {
+                let slot = Slot::from(slot_offset + i as u64);
+                let block = self.build_block_with_parent(prev_header, slot);
+                let header_id = block.header().id();
+
+                blocks.push((block, header_id, prev_header, slot));
+                prev_header = header_id;
+            }
+
+            blocks
+        }
+
+        async fn setup_chain_with_blocks(&mut self, count: usize) -> Vec<HeaderId> {
+            let blocks = self.create_block_sequence(count, 0);
+            let mut ids = Vec::new();
+
+            for (block, header_id, prev_header, slot) in blocks {
+                self.add_block(&block, header_id, prev_header, slot).await;
+                ids.push(header_id);
+            }
+
+            ids
+        }
+
+        async fn create_storage_only_blocks(&self, count: usize) -> Vec<HeaderId> {
+            let blocks = self.create_block_sequence(count, 0);
+            let mut ids = Vec::new();
+
+            for (block, header_id, _prev_header, slot) in blocks {
+                self.store_block_in_storage(&block, header_id, slot).await;
+                ids.push(header_id);
+            }
+
+            ids
+        }
+
+        async fn create_engine_only_blocks(&mut self, count: usize) -> Vec<HeaderId> {
+            let blocks = self.create_block_sequence(count, 100);
+            let mut ids = Vec::new();
+
+            for (i, (block, header_id, prev_header, slot)) in blocks.iter().enumerate() {
+                if i == 0 {
+                    self.cryptarchia = Self::new_cryptarchia(*header_id);
+                }
+
+                if i > 0 {
+                    self.cryptarchia = self
+                        .cryptarchia
+                        .receive_block(*header_id, *prev_header, *slot)
+                        .expect("Failed to add block to cryptarchia")
+                        .0;
+                }
+
+                // Store in storage but NOT as immutable storage
+                self.store_block_only(block, *header_id).await;
+                ids.push(*header_id);
+            }
+
+            ids
+        }
+
+        fn build_block_with_parent(
+            &self,
+            prev_header: HeaderId,
+            slot: Slot,
+        ) -> Block<SignedMantleTx, BlobInfo> {
+            BlockBuilder::new(
+                TxFillSize::<1, SignedMantleTx>::new(),
+                BlobFillSize::<1, BlobInfo>::new(),
+                Builder::new(prev_header, slot, self.proof.clone()),
+            )
+            .with_transactions(vec![].into_iter())
+            .with_blobs_info(vec![].into_iter())
+            .build()
+            .expect("Block should be built successfully")
+        }
+
+        async fn add_block(
+            &mut self,
+            block: &Block<SignedMantleTx, BlobInfo>,
+            header_id: HeaderId,
+            prev_header: HeaderId,
+            slot: Slot,
+        ) {
+            self.cryptarchia = self
+                .cryptarchia
+                .receive_block(header_id, prev_header, slot)
+                .expect("Failed to add block to cryptarchia")
+                .0;
+
+            self.store_block_in_storage(block, header_id, slot).await;
+        }
+
+        async fn store_block_only(
+            &self,
+            block: &Block<SignedMantleTx, BlobInfo>,
+            header_id: HeaderId,
+        ) {
+            let store_result: Result<_, _> = block.clone().try_into();
+            self.storage_relay
+                .send(StorageMsg::store_block_request(
+                    header_id,
+                    store_result.unwrap(),
+                ))
+                .await
+                .expect("Failed to store block");
+        }
+
+        async fn store_block_in_storage(
+            &self,
+            block: &Block<SignedMantleTx, BlobInfo>,
+            header_id: HeaderId,
+            slot: Slot,
+        ) {
+            // Store block
+            self.store_block_only(block, header_id).await;
+
+            // Mark as immutable
+            self.storage_relay
+                .send(StorageMsg::store_immutable_block_id_request(
+                    slot, header_id,
+                ))
+                .await
+                .expect("Failed to store immutable block id");
+        }
+
+        async fn retrieve_blocks_from_provider(
+            &self,
+            target_block: HeaderId,
+            known_blocks: &HashSet<HeaderId>,
+        ) -> Vec<HeaderId> {
+            let (tx, mut rx) = mpsc::channel(1);
+
+            self.provider
+                .send_blocks(&self.cryptarchia, target_block, known_blocks, tx)
+                .await;
+
+            let mut blocks = Vec::new();
+            if let Some(mut stream) = rx.recv().await {
+                while let Some(res) = stream.next().await {
+                    if let Ok(bytes) = res {
+                        let block: Block<SignedMantleTx, BlobInfo> =
+                            wire::deserialize(&bytes).unwrap();
+                        blocks.push(block.header().id());
+                    } else {
+                        break;
+                    }
+                }
+            }
+            blocks
+        }
+
+        async fn retrieve_and_validate_blocks(
+            &self,
+            target_block: HeaderId,
+            known_blocks: &HashSet<HeaderId>,
+            expected_blocks: &[HeaderId],
+        ) {
+            let retrieved_blocks = self
+                .retrieve_blocks_from_provider(target_block, known_blocks)
+                .await;
+
+            assert_eq!(
+                retrieved_blocks, expected_blocks,
+                "Retrieved blocks should match expected blocks in order"
+            );
+        }
+
+        async fn test_error_scenario(
+            &self,
+            target_block: HeaderId,
+            known_blocks: &HashSet<HeaderId>,
+            expected_error_type: &str,
+        ) {
+            let (tx, mut rx) = mpsc::channel(1);
+            self.provider
+                .send_blocks(&self.cryptarchia, target_block, known_blocks, tx)
+                .await;
+
+            let error_occurred = if let Some(mut stream) = rx.recv().await {
+                (stream.next().await).is_some_and(|result| result.is_err())
+            } else {
+                false
+            };
+
+            assert!(
+                error_occurred,
+                "Expected {expected_error_type} error but operation succeeded",
+            );
+        }
+
+        fn make_test_proof() -> nomos_core::proofs::leader_proof::Risc0LeaderProof {
+            let public_inputs = LeaderPublic::new(
+                [1u8; 32], [2u8; 32], [3u8; 32], [4u8; 32], 0u64, 0.05f64, 1000u64,
+            );
+            let private_inputs = LeaderPrivate {
+                value: 100,
+                note_id: [5u8; 32],
+                sk: [6u8; 16],
+            };
+            nomos_core::proofs::leader_proof::Risc0LeaderProof::prove(
+                public_inputs,
+                &private_inputs,
+                risc0_zkvm::default_prover().as_ref(),
+            )
+            .expect("Proof generation should succeed")
+        }
+
+        fn new_cryptarchia(
+            lib: HeaderId,
+        ) -> cryptarchia_engine::Cryptarchia<HeaderId, Boostrapping> {
+            <cryptarchia_engine::Cryptarchia<_, Boostrapping>>::from_lib(
+                lib,
+                Config {
+                    security_param: NonZero::new(1).unwrap(),
+                    active_slot_coeff: 1.0,
+                },
+            )
         }
     }
 }
