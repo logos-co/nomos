@@ -1,14 +1,20 @@
-pub mod utxotree;
-
 use cryptarchia_engine::{Epoch, Slot};
 use nomos_core::{
     crypto::{Digest as _, Hasher},
-    mantle::{Utxo, Value},
+    mantle::{NoteId, Utxo, Value},
     proofs::leader_proof,
 };
 use nomos_proof_statements::leadership::LeaderPublic;
-use utxotree::UtxoTree;
 
+#[derive(Clone, Debug, Copy, Eq, PartialEq, Hash)]
+pub struct UtxoIdExtractor;
+impl utxotree::KeyExtractor<Utxo, NoteId> for UtxoIdExtractor {
+    fn extract(utxo: &Utxo) -> NoteId {
+        utxo.id()
+    }
+}
+
+pub type UtxoTree = utxotree::UtxoTree<NoteId, Utxo, UtxoIdExtractor, Hasher>;
 use super::{Config, LedgerError};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -234,7 +240,7 @@ impl LedgerState {
         let total_stake = utxos
             .utxos()
             .iter()
-            .map(|(_, note)| note.value)
+            .map(|(_, (utxo, _))| utxo.note.value)
             .sum::<Value>();
         Self {
             utxos: utxos.clone(),
@@ -431,7 +437,7 @@ pub mod tests {
         // spendable commitments and test epoch snapshotting is by doing this
         // manually
         let mut block_state = ledger.states[&id].clone().cryptarchia_ledger;
-        block_state.utxos = block_state.utxos.insert(utxo_add);
+        block_state.utxos = block_state.utxos.insert(utxo_add).0;
         ledger.states.insert(id, full_ledger_state(block_state));
         id
     }

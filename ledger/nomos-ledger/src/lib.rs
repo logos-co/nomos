@@ -10,7 +10,7 @@ use std::{collections::HashMap, hash::Hash};
 
 pub use config::Config;
 use cryptarchia::LedgerState as CryptarchiaLedger;
-pub use cryptarchia::{utxotree::UtxoTree, EpochState};
+pub use cryptarchia::{EpochState, UtxoTree};
 use cryptarchia_engine::Slot;
 use nomos_core::{mantle::Utxo, proofs::leader_proof};
 use thiserror::Error;

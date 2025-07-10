@@ -43,7 +43,7 @@ digraph {
     41 [ label = "cfgsync" shape = box]
     42 [ label = "tests" shape = box]
     43 [ label = "utxotree" shape = box]
-    0 -> 1 [ style = dotted]
+git    0 -> 1 [ style = dotted]
     2 -> 3 [ ]
     3 -> 0 [ ]
     3 -> 4 [ ]
