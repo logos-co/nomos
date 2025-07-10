@@ -77,10 +77,29 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for RocksBac
 
     async fn scan_immutable_block_ids(
         &mut self,
-        _slot_range: RangeInclusive<Slot>,
-        _limit: NonZeroUsize,
+        slot_range: RangeInclusive<Slot>,
+        limit: NonZeroUsize,
     ) -> Result<Vec<HeaderId>, Self::Error> {
-        todo!("implement this by updating load_prefix to accept more arguments")
+        let start_key = slot_range.start().to_be_bytes();
+        let end_key = slot_range.end().to_be_bytes();
+        let result = self
+            .load_prefix(
+                IMMUTABLE_BLOCK_PREFIX.as_ref(),
+                Some(&start_key),
+                Some(&end_key),
+                Some(limit),
+            )
+            .await?;
+
+        result
+            .into_iter()
+            .map(|bytes| {
+                bytes
+                    .as_ref()
+                    .try_into()
+                    .map_err(|()| Error::InconsistentValueFormat(bytes))
+            })
+            .collect::<Result<Vec<HeaderId>, Error>>()
     }
 }
 
