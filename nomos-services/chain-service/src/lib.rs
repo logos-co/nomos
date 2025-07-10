@@ -3,6 +3,7 @@ mod bootstrap;
 mod leadership;
 mod messages;
 pub mod network;
+mod processor;
 mod relays;
 mod states;
 pub mod storage;
@@ -41,7 +42,7 @@ use nomos_network::{message::ChainSyncEvent, NetworkService};
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageService};
 use nomos_time::{EpochSlotTickStream, SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
-    services::{relay::OutboundRelay, state::StateUpdater, AsServiceId, ServiceCore, ServiceData},
+    services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},
     DynError, OpaqueServiceResourcesHandle,
 };
 use rand::{RngCore, SeedableRng};
@@ -67,9 +68,10 @@ use crate::{
     },
     leadership::Leader,
     network::BoxedStream,
+    processor::BlockProcessor,
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
-    storage::{adapters::StorageAdapter, StorageAdapter as _},
+    storage::{adapters::StorageAdapter, StorageAdapterExt as _},
     sync::block_provider::BlockProvider,
 };
 
@@ -590,6 +592,14 @@ where
             .notifier()
             .get_updated_settings();
 
+        let storage = relays.storage_adapter();
+        let block_processor = BlockProcessor::new(
+            storage,
+            &relays,
+            self.block_subscription_sender.clone(),
+            self.service_resources_handle.state_updater.clone(),
+        );
+
         // These are blocks that have been pruned by the cryptarchia engine but have not
         // yet been deleted from the storage layer.
         let storage_blocks_to_remove = self.initial_state.storage_blocks_to_remove.clone();
@@ -599,15 +609,18 @@ where
                 &bootstrap_config,
                 ledger_config,
                 leader_config,
-                &relays,
+                &block_processor,
+                storage,
             )
             .await;
-        let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
-            &pruned_blocks,
-            &storage_blocks_to_remove,
-            relays.storage_adapter(),
-        )
-        .await;
+        let storage_blocks_to_remove = storage
+            .remove_blocks_and_collect_failures(
+                pruned_blocks
+                    .iter()
+                    .chain(storage_blocks_to_remove.iter())
+                    .copied(),
+            )
+            .await;
 
         let network_adapter =
             NetAdapter::new(network_adapter_settings, relays.network_relay().clone()).await;
@@ -665,6 +678,7 @@ where
                     incoming_blocks,
                     slot_timer,
                     &relays,
+                    &block_processor,
                     tx_selector,
                     blob_selector,
                     blend_adapter,
@@ -682,6 +696,7 @@ where
                     incoming_blocks,
                     slot_timer,
                     &relays,
+                    &block_processor,
                     tx_selector,
                     blob_selector,
                     blend_adapter,
@@ -858,6 +873,22 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
+        block_processor: &BlockProcessor<
+            '_,
+            BlendAdapter,
+            BS,
+            ClPool,
+            ClPoolAdapter,
+            DaPool,
+            DaPoolAdapter,
+            NetAdapter,
+            SamplingBackend,
+            SamplingRng,
+            Storage,
+            TxS,
+            DaVerifierBackend,
+            RuntimeServiceId,
+        >,
         tx_selector: TxS,
         blob_selector: BS,
         blend_adapter: BlendAdapter,
@@ -882,7 +913,7 @@ where
                         &leader,
                         block.clone(),
                         storage_blocks_to_remove,
-                        relays,
+                        block_processor,
                     ).await;
                 }
 
@@ -893,6 +924,7 @@ where
                         &leader,
                         storage_blocks_to_remove,
                         relays,
+                        block_processor,
                         tx_selector.clone(),
                         blob_selector.clone(),
                         &blend_adapter
@@ -915,6 +947,7 @@ where
             incoming_blocks,
             slot_timer,
             relays,
+            block_processor,
             tx_selector,
             blob_selector,
             blend_adapter,
@@ -959,6 +992,22 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
+        block_processor: &BlockProcessor<
+            '_,
+            BlendAdapter,
+            BS,
+            ClPool,
+            ClPoolAdapter,
+            DaPool,
+            DaPoolAdapter,
+            NetAdapter,
+            SamplingBackend,
+            SamplingRng,
+            Storage,
+            TxS,
+            DaVerifierBackend,
+            RuntimeServiceId,
+        >,
         tx_selector: TxS,
         blob_selector: BS,
         blend_adapter: BlendAdapter,
@@ -973,7 +1022,7 @@ where
                         &leader,
                         block.clone(),
                         storage_blocks_to_remove,
-                        relays,
+                        block_processor,
                     ).await;
                 }
 
@@ -984,6 +1033,7 @@ where
                         &leader,
                         storage_blocks_to_remove,
                         relays,
+                        block_processor,
                         tx_selector.clone(),
                         blob_selector.clone(),
                         &blend_adapter
@@ -1006,13 +1056,14 @@ where
         clippy::type_complexity,
         reason = "CryptarchiaConsensusRelays amount of generics."
     )]
-    async fn handle_incoming_block<State: CryptarchiaState>(
+    async fn handle_incoming_block<State>(
         &self,
         cryptarchia: Cryptarchia<State>,
         leader: &Leader,
         block: Block<ClPool::Item, DaPool::Item>,
         storage_blocks_to_remove: HashSet<HeaderId>,
-        relays: &CryptarchiaConsensusRelays<
+        block_processor: &BlockProcessor<
+            '_,
             BlendAdapter,
             BS,
             ClPool,
@@ -1027,20 +1078,21 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-    ) -> (Cryptarchia<State>, HashSet<HeaderId>) {
+    ) -> (Cryptarchia<State>, HashSet<HeaderId>)
+    where
+        State: CryptarchiaState + Send,
+    {
         Self::log_received_block(&block);
 
         // Process the received block and update the cryptarchia state.
-        let (cryptarchia, storage_blocks_to_remove) = Self::process_block_and_update_state(
-            cryptarchia,
-            leader,
-            block.clone(),
-            &storage_blocks_to_remove,
-            relays,
-            &self.block_subscription_sender,
-            self.service_resources_handle.state_updater.clone(),
-        )
-        .await;
+        let (cryptarchia, storage_blocks_to_remove) = block_processor
+            .process_block_and_update_service_state(
+                cryptarchia,
+                leader,
+                block.clone(),
+                &storage_blocks_to_remove,
+            )
+            .await;
 
         info!(counter.consensus_processed_blocks = 1);
         (cryptarchia, storage_blocks_to_remove)
@@ -1060,7 +1112,7 @@ where
         clippy::too_many_arguments,
         reason = "TODO: Address this at some point."
     )]
-    async fn handle_new_slot<State: CryptarchiaState>(
+    async fn handle_new_slot<State>(
         &self,
         slot: Slot,
         cryptarchia: Cryptarchia<State>,
@@ -1081,10 +1133,29 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
+        block_processor: &BlockProcessor<
+            '_,
+            BlendAdapter,
+            BS,
+            ClPool,
+            ClPoolAdapter,
+            DaPool,
+            DaPoolAdapter,
+            NetAdapter,
+            SamplingBackend,
+            SamplingRng,
+            Storage,
+            TxS,
+            DaVerifierBackend,
+            RuntimeServiceId,
+        >,
         tx_selector: TxS,
         blob_selector: BS,
         blend_adapter: &BlendAdapter,
-    ) -> (Cryptarchia<State>, HashSet<HeaderId>) {
+    ) -> (Cryptarchia<State>, HashSet<HeaderId>)
+    where
+        State: CryptarchiaState + Send,
+    {
         let parent = cryptarchia.tip();
         let aged_tree = cryptarchia.tip_state().aged_commitments();
         let latest_tree = cryptarchia.tip_state().latest_commitments();
@@ -1109,16 +1180,14 @@ where
 
             if let Some(block) = block {
                 // apply our own block
-                let (cryptarchia, storage_blocks_to_remove) = Self::process_block_and_update_state(
-                    cryptarchia,
-                    leader,
-                    block.clone(),
-                    &storage_blocks_to_remove,
-                    relays,
-                    &self.block_subscription_sender,
-                    self.service_resources_handle.state_updater.clone(),
-                )
-                .await;
+                let (cryptarchia, storage_blocks_to_remove) = block_processor
+                    .process_block_and_update_service_state(
+                        cryptarchia,
+                        leader,
+                        block.clone(),
+                        &storage_blocks_to_remove,
+                    )
+                    .await;
                 blend_adapter.blend(block).await;
                 return (cryptarchia, storage_blocks_to_remove);
             }
@@ -1184,162 +1253,6 @@ where
         }
     }
 
-    #[expect(
-        clippy::type_complexity,
-        reason = "CryptarchiaConsensusState and CryptarchiaConsensusRelays amount of generics."
-    )]
-    async fn process_block_and_update_state<State: CryptarchiaState>(
-        cryptarchia: Cryptarchia<State>,
-        leader: &Leader,
-        block: Block<ClPool::Item, DaPool::Item>,
-        storage_blocks_to_remove: &HashSet<HeaderId>,
-        relays: &CryptarchiaConsensusRelays<
-            BlendAdapter,
-            BS,
-            ClPool,
-            ClPoolAdapter,
-            DaPool,
-            DaPoolAdapter,
-            NetAdapter,
-            SamplingBackend,
-            SamplingRng,
-            Storage,
-            TxS,
-            DaVerifierBackend,
-            RuntimeServiceId,
-        >,
-        block_subscription_sender: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-        state_updater: StateUpdater<
-            Option<
-                CryptarchiaConsensusState<
-                    TxS::Settings,
-                    BS::Settings,
-                    NetAdapter::Settings,
-                    BlendAdapter::Settings,
-                >,
-            >,
-        >,
-    ) -> (Cryptarchia<State>, HashSet<HeaderId>) {
-        let (cryptarchia, pruned_blocks) =
-            Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
-
-        let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
-            &pruned_blocks,
-            storage_blocks_to_remove,
-            relays.storage_adapter(),
-        )
-        .await;
-
-        match <Self as ServiceData>::State::from_cryptarchia_and_unpruned_blocks(
-            &cryptarchia,
-            leader,
-            storage_blocks_to_remove.clone(),
-        ) {
-            Ok(state) => {
-                state_updater.update(Some(state));
-            }
-            Err(e) => {
-                error!(target: LOG_TARGET, "Failed to update state: {}", e);
-            }
-        }
-
-        (cryptarchia, storage_blocks_to_remove)
-    }
-
-    /// Try to add a [`Block`] to [`Cryptarchia`].
-    /// A [`Block`] is only added if it's valid
-    #[expect(clippy::allow_attributes_without_reason)]
-    #[expect(clippy::type_complexity)]
-    #[instrument(level = "debug", skip(cryptarchia, relays))]
-    async fn process_block<State: CryptarchiaState>(
-        cryptarchia: Cryptarchia<State>,
-        block: Block<ClPool::Item, DaPool::Item>,
-        relays: &CryptarchiaConsensusRelays<
-            BlendAdapter,
-            BS,
-            ClPool,
-            ClPoolAdapter,
-            DaPool,
-            DaPoolAdapter,
-            NetAdapter,
-            SamplingBackend,
-            SamplingRng,
-            Storage,
-            TxS,
-            DaVerifierBackend,
-            RuntimeServiceId,
-        >,
-        block_broadcaster: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> (Cryptarchia<State>, PrunedBlocks<HeaderId>) {
-        debug!("received proposal {:?}", block);
-
-        let sampled_blobs = match get_sampled_blobs(relays.sampling_relay().clone()).await {
-            Ok(sampled_blobs) => sampled_blobs,
-            Err(error) => {
-                error!("Unable to retrieved sampled blobs: {error}");
-                return (cryptarchia, PrunedBlocks::new());
-            }
-        };
-        if !Self::validate_blocks_blobs(&block, &sampled_blobs) {
-            error!("Invalid block: {block:?}");
-            return (cryptarchia, PrunedBlocks::new());
-        }
-
-        // TODO: filter on time?
-        let header = block.header();
-        let id = header.id();
-
-        match cryptarchia.try_apply_header(header) {
-            Ok((cryptarchia, pruned_blocks)) => {
-                // remove included content from mempool
-                mark_in_block(
-                    relays.cl_mempool_relay().clone(),
-                    block.transactions().map(Transaction::hash),
-                    id,
-                )
-                .await;
-                mark_in_block(
-                    relays.da_mempool_relay().clone(),
-                    block.blobs().map(DispersedBlobInfo::blob_id),
-                    id,
-                )
-                .await;
-
-                mark_blob_in_block(
-                    relays.sampling_relay().clone(),
-                    block.blobs().map(DispersedBlobInfo::blob_id).collect(),
-                )
-                .await;
-
-                if let Err(e) = relays
-                    .storage_adapter()
-                    .store_block(header.id(), block.clone())
-                    .await
-                {
-                    error!("Could not store block {e}");
-                }
-
-                if let Err(e) = block_broadcaster.send(block) {
-                    error!("Could not notify block to services {e}");
-                }
-
-                return (cryptarchia, pruned_blocks);
-            }
-            Err(
-                Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(parent))
-                | Error::Consensus(cryptarchia_engine::Error::ParentMissing(parent)),
-            ) => {
-                debug!("missing parent {:?}", parent);
-                // TODO: request parent block
-            }
-            Err(e) => {
-                debug!("invalid block {:?}: {e:?}", block);
-            }
-        }
-
-        (cryptarchia, PrunedBlocks::new())
-    }
-
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(tx_selector, blob_selector, relays))]
@@ -1401,16 +1314,6 @@ where
         output
     }
 
-    fn validate_blocks_blobs(
-        block: &Block<ClPool::Item, DaPool::Item>,
-        sampled_blobs_ids: &BTreeSet<DaPool::Key>,
-    ) -> bool {
-        let validated_blobs = block
-            .blobs()
-            .all(|blob| sampled_blobs_ids.contains(&blob.blob_id()));
-        validated_blobs
-    }
-
     fn log_received_block(block: &Block<ClPool::Item, DaPool::Item>) {
         let content_size = block.header().content_size();
         let transactions = block.cl_transactions_len();
@@ -1427,54 +1330,6 @@ where
             transactions = transactions,
             blobs = blobs
         );
-    }
-
-    /// Retrieves the blocks in the range from `from` to `to` from the storage.
-    /// Both `from` and `to` are included in the range.
-    /// This is implemented here, and not as a method of `StorageAdapter`, to
-    /// simplify the panic and error message handling.
-    ///
-    /// # Panics
-    ///
-    /// Panics if any of the blocks in the range are not found in the storage.
-    ///
-    /// # Parameters
-    ///
-    /// * `from` - The header id of the first block in the range. Must be a
-    ///   valid header.
-    /// * `to` - The header id of the last block in the range. Must be a valid
-    ///   header.
-    ///
-    /// # Returns
-    ///
-    /// A vector of blocks in the range from `from` to `to`.
-    /// If no blocks are found, returns an empty vector.
-    /// If any of the [`HeaderId`]s are invalid, returns an error with the first
-    /// invalid header id.
-    async fn get_blocks_in_range(
-        from: HeaderId,
-        to: HeaderId,
-        storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
-    ) -> Vec<Block<ClPool::Item, DaPool::Item>> {
-        // Due to the blocks traversal order, this yields `to..from` order
-        let blocks = futures::stream::unfold(to, |header_id| async move {
-            if header_id == from {
-                None
-            } else {
-                let block = storage_adapter
-                    .get_block(&header_id)
-                    .await
-                    .unwrap_or_else(|| {
-                        panic!("Could not retrieve block {to} from storage during recovery")
-                    });
-                let parent_header_id = block.header().parent();
-                Some((block, parent_header_id))
-            }
-        });
-
-        // To avoid confusion, the order is reversed so it fits the natural `from..to`
-        // order
-        blocks.collect::<Vec<_>>().await.into_iter().rev().collect()
     }
 
     /// Initialize cryptarchia
@@ -1504,7 +1359,8 @@ where
         bootstrap_config: &BootstrapConfig,
         ledger_config: nomos_ledger::Config,
         leader_config: LeaderConfig,
-        relays: &CryptarchiaConsensusRelays<
+        block_processor: &BlockProcessor<
+            '_,
             BlendAdapter,
             BS,
             ClPool,
@@ -1519,6 +1375,7 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
+        storage: &StorageAdapter<Storage, ClPool::Item, DaPool::Item, RuntimeServiceId>,
     ) -> (InitialCryptarchia, PrunedBlocks<HeaderId>, Leader) {
         let lib_id = self.initial_state.lib;
         let cryptarchia = InitialCryptarchia::new(
@@ -1534,9 +1391,9 @@ where
             ledger_config,
         );
 
-        let blocks =
-            Self::get_blocks_in_range(lib_id, self.initial_state.tip, relays.storage_adapter())
-                .await;
+        let blocks = storage
+            .get_blocks_in_range(lib_id, self.initial_state.tip)
+            .await;
 
         // Skip LIB block since it's already applied
         let blocks = blocks.into_iter().skip(1);
@@ -1544,8 +1401,9 @@ where
         // Process blocks
         match cryptarchia {
             InitialCryptarchia::Bootstrapping(cryptarchia) => {
-                let (cryptarchia, pruned_blocks) =
-                    self.process_blocks(blocks, cryptarchia, relays).await;
+                let (cryptarchia, pruned_blocks) = self
+                    .process_blocks(blocks, cryptarchia, block_processor)
+                    .await;
                 (
                     InitialCryptarchia::Bootstrapping(cryptarchia),
                     pruned_blocks,
@@ -1553,8 +1411,9 @@ where
                 )
             }
             InitialCryptarchia::Online(cryptarchia) => {
-                let (cryptarchia, pruned_blocks) =
-                    self.process_blocks(blocks, cryptarchia, relays).await;
+                let (cryptarchia, pruned_blocks) = self
+                    .process_blocks(blocks, cryptarchia, block_processor)
+                    .await;
                 (
                     InitialCryptarchia::Online(cryptarchia),
                     pruned_blocks,
@@ -1569,11 +1428,12 @@ where
         clippy::type_complexity,
         reason = "CryptarchiaConsensusRelays amount of generics."
     )]
-    async fn process_blocks<State: CryptarchiaState>(
+    async fn process_blocks<State>(
         &self,
         blocks: impl Iterator<Item = Block<ClPool::Item, DaPool::Item>>,
         mut cryptarchia: Cryptarchia<State>,
-        relays: &CryptarchiaConsensusRelays<
+        block_processor: &BlockProcessor<
+            '_,
             BlendAdapter,
             BS,
             ClPool,
@@ -1588,101 +1448,18 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-    ) -> (Cryptarchia<State>, PrunedBlocks<HeaderId>) {
+    ) -> (Cryptarchia<State>, PrunedBlocks<HeaderId>)
+    where
+        State: CryptarchiaState + Send,
+    {
         let mut pruned_blocks = PrunedBlocks::new();
         for block in blocks {
             let (new_cryptarchia, new_pruned_blocks) =
-                Self::process_block(cryptarchia, block, relays, &self.block_subscription_sender)
-                    .await;
+                block_processor.process_block(cryptarchia, block).await;
             cryptarchia = new_cryptarchia;
             pruned_blocks.extend(new_pruned_blocks);
         }
         (cryptarchia, pruned_blocks)
-    }
-
-    /// Remove the pruned blocks from the storage layer.
-    ///
-    /// Also, this removes the `additional_blocks` from the storage
-    /// layer. These blocks might belong to previous pruning operations and
-    /// that failed to be removed from the storage for some reason.
-    ///
-    /// This function returns any block that fails to be deleted from the
-    /// storage layer.
-    async fn delete_pruned_blocks_from_storage(
-        pruned_blocks: &PrunedBlocks<HeaderId>,
-        additional_blocks: &HashSet<HeaderId>,
-        storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
-    ) -> HashSet<HeaderId> {
-        match Self::delete_blocks_from_storage(
-            pruned_blocks
-                .iter()
-                .chain(additional_blocks.iter())
-                .copied(),
-            storage_adapter,
-        )
-        .await
-        {
-            // No blocks failed to be deleted.
-            Ok(()) => HashSet::new(),
-            // We retain the blocks that failed to be deleted.
-            Err(failed_blocks) => failed_blocks
-                .into_iter()
-                .map(|(block_id, _)| block_id)
-                .collect(),
-        }
-    }
-
-    /// Send a bulk blocks deletion request to the storage adapter.
-    ///
-    /// If no request fails, the method returns `Ok()`.
-    /// If any request fails, the header ID and the generated error for each
-    /// failing request are collected and returned as part of the `Err`
-    /// result.
-    async fn delete_blocks_from_storage<Headers>(
-        block_headers: Headers,
-        storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
-    ) -> Result<(), Vec<(HeaderId, DynError)>>
-    where
-        Headers: Iterator<Item = HeaderId> + Send,
-    {
-        let blocks_to_delete = block_headers.collect::<Vec<_>>();
-        let block_deletion_outcomes = blocks_to_delete.iter().copied().zip(
-            storage_adapter
-                .remove_blocks(blocks_to_delete.iter().copied())
-                .await,
-        );
-
-        let errors: Vec<_> = block_deletion_outcomes
-            .filter_map(|(block_id, outcome)| match outcome {
-                Ok(Some(_)) => {
-                    tracing::debug!(
-                        target: LOG_TARGET,
-                        "Block {block_id:#?} successfully deleted from storage."
-                    );
-                    None
-                }
-                Ok(None) => {
-                    tracing::trace!(
-                        target: LOG_TARGET,
-                        "Block {block_id:#?} was not found in storage."
-                    );
-                    None
-                }
-                Err(e) => {
-                    tracing::error!(
-                        target: LOG_TARGET,
-                        "Error deleting block {block_id:#?} from storage: {e}."
-                    );
-                    Some((block_id, e))
-                }
-            })
-            .collect();
-
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
-        }
     }
 
     async fn handle_chainsync_event<State>(

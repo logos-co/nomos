@@ -8,7 +8,7 @@ use overwatch::services::{relay::OutboundRelay, ServiceData};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::oneshot;
 
-use crate::storage::StorageAdapter as StorageAdapterTrait;
+use crate::storage::{StorageAdapter as StorageAdapterTrait, StorageAdapterExt};
 
 pub struct StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
 where
@@ -104,5 +104,19 @@ where
             .map_err(|_| "Failed to convert block to storage format.")?;
 
         Ok(Some(deserialized_block))
+    }
+}
+
+impl<Storage, Tx, BlobCertificate, RuntimeServiceId> StorageAdapterExt<RuntimeServiceId>
+    for StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
+where
+    Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Block:
+        TryFrom<Block<Tx, BlobCertificate>> + TryInto<Block<Tx, BlobCertificate>>,
+    Tx: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
+    BlobCertificate: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
+{
+    fn parent_id(block: &Self::Block) -> HeaderId {
+        block.header().parent()
     }
 }
