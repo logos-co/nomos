@@ -94,14 +94,15 @@ mod tests {
 
     use super::*;
 
+    const M: usize = 2;
+
     fn nistrs_rng<Rng: SeedableRng + RngCore>(seed: Rng::Seed) {
         let mut rng = Rng::from_seed(seed);
 
-        let mut buffer = [0u8; 1000000];
-        const M: usize = 2;
+        let mut buffer = vec![0u8; 1_000_000];
         rng.fill_bytes(&mut buffer);
 
-        let data = BitsData::from_binary(buffer.to_vec());
+        let data = BitsData::from_binary(buffer);
 
         let approximate_entropy_test_result = approximate_entropy_test(&data, M);
         assert!(approximate_entropy_test_result.0);
