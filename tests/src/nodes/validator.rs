@@ -369,6 +369,10 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 },
             },
             recovery_file: PathBuf::from("./recovery/cryptarchia.json"),
+            bootstrap: chain_service::BootstrapConfig {
+                prolonged_bootstrap_period: Duration::from_secs(3),
+                force_bootstrap: false,
+            },
         },
         da_network: DaNetworkConfig {
             backend: DaNetworkBackendSettings {

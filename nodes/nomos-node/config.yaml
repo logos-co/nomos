@@ -302,6 +302,9 @@ cryptarchia:
     broadcast_settings:
       topic: /cryptarchia/proto
   recovery_file: ./recovery/cryptarchia.json
+  bootstrap:
+    prolonged_bootstrap_period: [86400, 0]
+    force_bootstrap: false
 storage:
   db_path: nomos_db
   read_only: false
