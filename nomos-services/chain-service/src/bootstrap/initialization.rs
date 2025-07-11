@@ -1,8 +1,9 @@
 use cryptarchia_engine::{Boostrapping, Online};
 use nomos_core::header::HeaderId;
 use nomos_ledger::LedgerState;
+use serde::{Deserialize, Serialize};
 
-use crate::{bootstrap::config::BootstrapConfig, Cryptarchia};
+use crate::Cryptarchia;
 
 /// A wrapper that initializes [`Cryptarchia`] by selecting the appropriate
 /// initial [`cryptarchia_engine::CryptarchiaState`].
@@ -20,7 +21,7 @@ impl InitialCryptarchia {
     /// - If the node is starting with LIB set to the genesis or a checkpoint.
     /// - If the node is restarting after being offline longer than the offline
     ///   grace period.
-    /// - If the [`BootstrapConfig::force_bootstrap`] is true.
+    /// - If the [`InitializationConfig::force_bootstrap`] is true.
     ///
     /// Otherwise, the [`cryptarchia_engine::Online`] fork choice rule is
     /// selected.
@@ -29,7 +30,7 @@ impl InitialCryptarchia {
         lib_ledger_state: LedgerState,
         ledger_config: nomos_ledger::Config,
         genesis_id: HeaderId,
-        config: &BootstrapConfig,
+        config: &InitializationConfig,
     ) -> Self {
         if lib == genesis_id || config.force_bootstrap {
             return Self::Bootstrapping(Cryptarchia::from_lib(
@@ -52,9 +53,14 @@ impl InitialCryptarchia {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct InitializationConfig {
+    pub force_bootstrap: bool,
+}
+
 #[cfg(test)]
 mod tests {
-    use std::{iter::empty, num::NonZero, time::Duration};
+    use std::{iter::empty, num::NonZero};
 
     use super::*;
 
@@ -66,8 +72,7 @@ mod tests {
             LedgerState::from_utxos(empty()),
             ledger_config(),
             genesis_id,
-            &BootstrapConfig {
-                prolonged_bootstrap_period: Duration::from_secs(1),
+            &InitializationConfig {
                 force_bootstrap: false,
             },
         );
@@ -82,8 +87,7 @@ mod tests {
             LedgerState::from_utxos(empty()),
             ledger_config(),
             genesis_id,
-            &BootstrapConfig {
-                prolonged_bootstrap_period: Duration::from_secs(1),
+            &InitializationConfig {
                 force_bootstrap: false,
             },
         );
@@ -98,8 +102,7 @@ mod tests {
             LedgerState::from_utxos(empty()),
             ledger_config(),
             genesis_id,
-            &BootstrapConfig {
-                prolonged_bootstrap_period: Duration::from_secs(1),
+            &InitializationConfig {
                 force_bootstrap: true,
             },
         );

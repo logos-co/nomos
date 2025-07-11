@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     net::SocketAddr,
     num::NonZeroU64,
     ops::Range,
@@ -321,8 +322,13 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             },
             recovery_file: PathBuf::from("./recovery/cryptarchia.json"),
             bootstrap: chain_service::BootstrapConfig {
+                initialization: chain_service::InitializationConfig {
+                    force_bootstrap: false,
+                },
+                ibd: chain_service::IbdConfig {
+                    peers: HashSet::new(),
+                },
                 prolonged_bootstrap_period: Duration::from_secs(3),
-                force_bootstrap: false,
             },
         },
         da_network: DaNetworkConfig {
