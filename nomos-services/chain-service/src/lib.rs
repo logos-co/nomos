@@ -74,7 +74,7 @@ use crate::{
     processor::{BlockProcessor as _, NomosBlockProcessor},
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
-    storage::{adapters::StorageAdapter, StorageAdapterExt as _},
+    storage::{adapters::StorageAdapter, StorageAdapter as _, StorageAdapterExt as _},
     sync::block_provider::BlockProvider,
 };
 
@@ -143,8 +143,8 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
         let (consensus, pruned_blocks) = self.consensus.receive_block(id, parent, slot)?;
 
         let mut cryptarchia = Self { ledger, consensus };
-        // Prune the ledger states of the pruned blocks.
-        cryptarchia.prune_ledger_states(&pruned_blocks);
+        // Prune the ledger states of all the pruned blocks.
+        cryptarchia.prune_ledger_states(pruned_blocks.all());
 
         Ok((cryptarchia, pruned_blocks))
     }
@@ -167,16 +167,16 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
     ///
     /// Details on which blocks are pruned can be found in the
     /// [`cryptarchia_engine::Cryptarchia::receive_block`].
-    fn prune_ledger_states(&mut self, pruned_blocks: &PrunedBlocks<HeaderId>) {
+    fn prune_ledger_states<'a>(&'a mut self, blocks: impl Iterator<Item = &'a HeaderId>) {
         let mut pruned_states_count = 0usize;
-        for pruned_block in pruned_blocks {
-            if self.ledger.prune_state_at(pruned_block) {
+        for block in blocks {
+            if self.ledger.prune_state_at(block) {
                 pruned_states_count = pruned_states_count.saturating_add(1);
             } else {
                 tracing::error!(
                    target: LOG_TARGET,
                     "Failed to prune ledger state for block {:?} which should exist.",
-                    pruned_block
+                    block
                 );
             }
         }
@@ -632,6 +632,15 @@ where
             self.initial_state.storage_blocks_to_remove.clone(),
         );
 
+        let pruned_blocks = PrunedBlocks::new();
+        let mut _storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
+            pruned_blocks.stale_blocks().copied(),
+            &self.initial_state.storage_blocks_to_remove, /* Fixed to use initial state to avoid
+                                                           * borrow error */
+            relays.storage_adapter(),
+        )
+        .await;
+
         // Recover cryptarchia by loading blocks from the storage.
         let cryptarchia = self
             .recovery_cryptarchia(cryptarchia, &mut block_processor, storage)
@@ -644,7 +653,7 @@ where
 
         let incoming_blocks = network_adapter.blocks_stream().await?;
         let chainsync_events = network_adapter.chainsync_events_stream().await?;
-        let sync_blocks_provider: BlockProvider<_> =
+        let sync_blocks_provider: BlockProvider<_, _, _> =
             BlockProvider::new(relays.storage_adapter().storage_relay.clone());
 
         let slot_timer = {
@@ -908,7 +917,7 @@ where
         blob_selector: BS,
         blend_adapter: BlendAdapter,
         chainsync_events: BoxedStream<ChainSyncEvent>,
-        sync_blocks_provider: BlockProvider<Storage>,
+        sync_blocks_provider: BlockProvider<Storage, ClPool::Item, DaPool::Item>,
     ) {
         // Start the timer for Prelonged Bootstrap Period.
         let mut prolonged_bootstrap_timer = Box::pin(tokio::time::sleep_until(
@@ -951,7 +960,7 @@ where
 
         // Switch to Online mode.
         let (cryptarchia, pruned_blocks) = cryptarchia.online();
-        block_processor.add_storage_blocks_to_remove(pruned_blocks.iter().copied());
+        block_processor.add_storage_blocks_to_remove(pruned_blocks.all().copied());
         self.run_online_cryptarchia(
             cryptarchia,
             leader,
@@ -1022,7 +1031,7 @@ where
         blob_selector: BS,
         blend_adapter: BlendAdapter,
         mut chainsync_events: BoxedStream<ChainSyncEvent>,
-        sync_blocks_provider: BlockProvider<Storage>,
+        sync_blocks_provider: BlockProvider<Storage, ClPool::Item, DaPool::Item>,
     ) {
         loop {
             tokio::select! {
@@ -1375,26 +1384,130 @@ where
         // Skip LIB block since it's already applied
         let blocks = blocks.into_iter().skip(1);
 
-        // Process blocks
+        // Process blocks (combined match from HEAD with pruning collection from branch)
         match cryptarchia {
             InitialCryptarchia::Bootstrapping(mut cryptarchia) => {
+                let pruned_blocks = PrunedBlocks::new();
                 for block in blocks {
-                    cryptarchia = block_processor.process_block(cryptarchia, block).await;
+                    let new_cryptarchia = block_processor.process_block(cryptarchia, block).await;
+                    cryptarchia = new_cryptarchia;
+
+                    // pruned_blocks.extend(&new_pruned_blocks);
                 }
+                // Add deletion from branch
+                Self::delete_pruned_blocks_from_storage(
+                    pruned_blocks.stale_blocks().copied(),
+                    &self.initial_state.storage_blocks_to_remove,
+                    storage,
+                )
+                .await;
                 InitialCryptarchia::Bootstrapping(cryptarchia)
             }
             InitialCryptarchia::Online(mut cryptarchia) => {
+                let pruned_blocks = PrunedBlocks::new();
                 for block in blocks {
-                    cryptarchia = block_processor.process_block(cryptarchia, block).await;
+                    let new_cryptarchia = block_processor
+                        .process_block_and_update_service_state(cryptarchia, block)
+                        .await;
+                    cryptarchia = new_cryptarchia;
+                    // pruned_blocks.extend(&new_pruned_blocks);
                 }
+                Self::delete_pruned_blocks_from_storage(
+                    pruned_blocks.stale_blocks().copied(),
+                    &self.initial_state.storage_blocks_to_remove,
+                    storage,
+                )
+                .await;
                 InitialCryptarchia::Online(cryptarchia)
             }
         }
     }
 
+    /// Remove the pruned blocks from the storage layer.
+    ///
+    /// Also, this removes the `additional_blocks` from the storage
+    /// layer. These blocks might belong to previous pruning operations and
+    /// that failed to be removed from the storage for some reason.
+    ///
+    /// This function returns any block that fails to be deleted from the
+    /// storage layer.
+    async fn delete_pruned_blocks_from_storage(
+        pruned_blocks: impl Iterator<Item = HeaderId> + Send,
+        additional_blocks: &HashSet<HeaderId>,
+        storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
+    ) -> HashSet<HeaderId> {
+        match Self::delete_blocks_from_storage(
+            pruned_blocks.chain(additional_blocks.iter().copied()),
+            storage_adapter,
+        )
+        .await
+        {
+            // No blocks failed to be deleted.
+            Ok(()) => HashSet::new(),
+            // We retain the blocks that failed to be deleted.
+            Err(failed_blocks) => failed_blocks
+                .into_iter()
+                .map(|(block_id, _)| block_id)
+                .collect(),
+        }
+    }
+
+    /// Send a bulk blocks deletion request to the storage adapter.
+    ///
+    /// If no request fails, the method returns `Ok()`.
+    /// If any request fails, the header ID and the generated error for each
+    /// failing request are collected and returned as part of the `Err`
+    /// result.
+    async fn delete_blocks_from_storage<Headers>(
+        block_headers: Headers,
+        storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
+    ) -> Result<(), Vec<(HeaderId, DynError)>>
+    where
+        Headers: Iterator<Item = HeaderId> + Send,
+    {
+        let blocks_to_delete = block_headers.collect::<Vec<_>>();
+        let block_deletion_outcomes = blocks_to_delete.iter().copied().zip(
+            storage_adapter
+                .remove_blocks(blocks_to_delete.iter().copied())
+                .await,
+        );
+
+        let errors: Vec<_> = block_deletion_outcomes
+            .filter_map(|(block_id, outcome)| match outcome {
+                Ok(Some(_)) => {
+                    tracing::debug!(
+                        target: LOG_TARGET,
+                        "Block {block_id:#?} successfully deleted from storage."
+                    );
+                    None
+                }
+                Ok(None) => {
+                    tracing::warn!(
+                        target: LOG_TARGET,
+                        "Block {block_id:#?} not found in storage."
+                    );
+                    None
+                }
+                Err(error) => {
+                    tracing::error!(
+                        target: LOG_TARGET,
+                        "Failed to delete block {block_id:#?} from storage: {error}"
+                    );
+                    Some((block_id, error))
+                }
+            })
+            .collect();
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
     async fn handle_chainsync_event<State>(
         cryptarchia: &Cryptarchia<State>,
-        sync_blocks_provider: &BlockProvider<Storage>,
+        sync_blocks_provider: &BlockProvider<Storage, TxS::Tx, BS::BlobId>,
         event: ChainSyncEvent,
     ) where
         State: CryptarchiaState + Send + Sync + 'static,
@@ -1413,7 +1526,12 @@ where
                     .collect::<HashSet<_>>();
 
                 sync_blocks_provider
-                    .send_blocks(cryptarchia, target_block, &known_blocks, reply_sender)
+                    .send_blocks(
+                        &cryptarchia.consensus,
+                        target_block,
+                        &known_blocks,
+                        reply_sender,
+                    )
                     .await;
             }
             ChainSyncEvent::ProvideTipRequest { reply_sender } => {

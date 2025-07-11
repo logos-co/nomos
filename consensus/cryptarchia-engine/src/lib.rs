@@ -124,7 +124,11 @@ where
 
 #[derive(Clone, Debug)]
 pub struct Cryptarchia<Id, State: ?Sized> {
+    /// Tip of the local chain.
     local_chain: Branch<Id>,
+    /// All branches descending from the LIB.
+    /// All blocks deeper than the LIB are automatically pruned.
+    /// All forks diverged before the LIB are automatically pruned.
     branches: Branches<Id>,
     config: Config,
     // Just a marker to indicate whether the node is bootstrapping or online.
@@ -219,14 +223,6 @@ where
             return Err(Error::InvalidSlot(parent));
         }
 
-        // TODO: we do not automatically prune forks here at the moment, so it's not
-        // sufficient to check the header height.
-        // We might relax this check in the future and get closer to the
-        // Cryptarchia spec once we stabilize the pruning logic.
-        if !self.is_ancestor(self.lib(), parent_branch) {
-            return Err(Error::ImmutableFork(parent));
-        }
-
         let length = parent_branch
             .length
             .checked_add(1)
@@ -296,21 +292,6 @@ where
         *current
     }
 
-    fn is_ancestor(&self, a: &Branch<Id>, b: &Branch<Id>) -> bool {
-        let mut current = b;
-        if a.id == b.id {
-            return true; // `a` is the same as `b`
-        }
-        // Walk up the chain from `b` until we find `a` or reach the root
-        while current.parent != current.id && current.length > a.length {
-            if current.parent == a.id {
-                return true; // Found `a` in the chain
-            }
-            current = &self.branches[&current.parent];
-        }
-        false // `a` is not an ancestor of `b`
-    }
-
     // Returns the min(n, A)-th ancestor of the provided block, where A is the
     // number of ancestors of this block.
     fn nth_ancestor(&self, branch: &Branch<Id>, mut n: u64) -> Branch<Id> {
@@ -325,10 +306,6 @@ where
         }
         *current
     }
-
-    fn lib(&self) -> &Branch<Id> {
-        &self.branches[&self.lib]
-    }
 }
 
 #[derive(Debug, Clone, Error)]
@@ -338,8 +315,6 @@ pub enum Error<Id> {
     ParentMissing(Id),
     #[error("Orphan proof has was not found in the ledger: {0:?}, can't import it")]
     OrphanMissing(Id),
-    #[error("Attempting to fork immutable history at {0:?}")]
-    ImmutableFork(Id),
     #[error("Invalid slot for block {0:?}, parent slot is greater than child slot")]
     InvalidSlot(Id),
 }
@@ -408,7 +383,12 @@ where
             PrunedBlocks::new()
         } else {
             self.branches.lib = new_lib;
-            self.prune_forks(self.lib_depth()).collect()
+            PrunedBlocks {
+                // TODO: Eliminate the need of `lib_depth` by refactoring `prune_stale_forks`,
+                //       similar as `prune_immutable_blocks`.
+                stale_blocks: self.prune_stale_forks(self.lib_depth()).collect(),
+                immutable_blocks: self.prune_immutable_blocks().collect(),
+            }
         }
     }
 
@@ -438,7 +418,7 @@ where
     /// Calling `prune_forks(2)` will remove `b6` because it is diverged from
     /// `b2`, which is deeper than the 2nd block `b3` from the local chain tip.
     /// The `b7` is not removed since it is diverged from `b3`.
-    fn prune_forks(&mut self, max_div_depth: u64) -> impl Iterator<Item = Id> + '_ {
+    fn prune_stale_forks(&mut self, max_div_depth: u64) -> impl Iterator<Item = Id> + '_ {
         #[expect(
             clippy::needless_collect,
             reason = "We need to collect since we cannot borrow both immutably (in `self.prunable_forks`) and mutably (in `self.prune_fork`) at the same time."
@@ -508,6 +488,17 @@ where
         removed_blocks
     }
 
+    /// Prunes all immutable blocks (excluding LIB) that are deeper than LIB,
+    /// and returns the slots and IDs of the pruned blocks.
+    fn prune_immutable_blocks(&mut self) -> impl Iterator<Item = (Slot, Id)> + '_ {
+        let mut block = self.lib_branch().parent;
+        std::iter::from_fn(move || {
+            self.branches.branches.remove(&block).map(|branch| {
+                block = branch.parent;
+                (branch.slot, branch.id)
+            })
+        })
+    }
     pub const fn branches(&self) -> &Branches<Id> {
         &self.branches
     }
@@ -549,7 +540,60 @@ where
     }
 }
 
-pub type PrunedBlocks<Id> = HashSet<Id>;
+/// Represents blocks that have been pruned because they are no longer needed
+/// for future block validations.
+pub struct PrunedBlocks<Id> {
+    /// Blocks from the stale forks diverged before the LIB.
+    stale_blocks: HashSet<Id>,
+    /// Immutable blocks that were deeper than the LIB,
+    /// excluding the LIB itself.
+    immutable_blocks: Vec<(Slot, Id)>,
+}
+
+impl<Id> Default for PrunedBlocks<Id> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<Id> PrunedBlocks<Id> {
+    /// Creates an empty instance of [`PrunedBlocks`].
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            stale_blocks: HashSet::new(),
+            immutable_blocks: Vec::new(),
+        }
+    }
+
+    /// Returns an iterator over all pruned blocks, both stale and immutable.
+    pub fn all(&self) -> impl Iterator<Item = &Id> + '_ {
+        self.stale_blocks
+            .iter()
+            .chain(self.immutable_blocks.iter().map(|(_, id)| id))
+    }
+
+    /// Returns an iterator over pruned stale blocks.
+    pub fn stale_blocks(&self) -> impl Iterator<Item = &Id> + '_ {
+        self.stale_blocks.iter()
+    }
+
+    /// Returns an iterator over pruned immutable blocks.
+    pub fn immutable_blocks(&self) -> impl Iterator<Item = &(Slot, Id)> + '_ {
+        self.immutable_blocks.iter()
+    }
+}
+
+impl<Id> PrunedBlocks<Id>
+where
+    Id: Eq + Hash + Copy,
+{
+    /// Extends the current instance with another [`PrunedBlocks`].
+    pub fn extend(&mut self, other: &Self) {
+        self.stale_blocks.extend(other.stale_blocks.iter());
+        self.immutable_blocks.extend(other.immutable_blocks.iter());
+    }
+}
 
 #[cfg(test)]
 pub mod tests {
@@ -593,7 +637,7 @@ pub mod tests {
         length: NonZero<u64>,
         c: Option<Config>,
     ) -> Cryptarchia<[u8; 32], Boostrapping> {
-        let mut engine = Cryptarchia::from_lib([0; 32], c.unwrap_or_else(config));
+        let mut engine = Cryptarchia::from_lib(hash(&0u64), c.unwrap_or_else(config));
         let mut parent = engine.lib();
         for i in 1..length.get() {
             let new_block = hash(&i);
@@ -607,67 +651,17 @@ pub mod tests {
     }
 
     #[test]
-    fn test_is_ancestor() {
-        // parent
-        // ├── child
-        // │   ├── grandchild
-        // │   └── granchild_2
-
-        let mut branches = super::Branches::from_lib([0; 32]);
-        let parent = [1; 32];
-        let child = [2; 32];
-        let grandchild = [3; 32];
-        let granchild_2: [u8; 32] = [4; 32];
-
-        branches = branches.apply_header(parent, [0; 32], 1.into()).unwrap();
-        branches = branches.apply_header(child, parent, 2.into()).unwrap();
-        branches = branches.apply_header(grandchild, child, 3.into()).unwrap();
-        branches = branches.apply_header(granchild_2, child, 4.into()).unwrap();
-
-        assert!(branches.is_ancestor(
-            branches.get(&parent).unwrap(),
-            branches.get(&child).unwrap()
-        ));
-        assert!(!branches.is_ancestor(
-            branches.get(&child).unwrap(),
-            branches.get(&parent).unwrap()
-        ));
-        assert!(branches.is_ancestor(
-            branches.get(&parent).unwrap(),
-            branches.get(&grandchild).unwrap()
-        ));
-        assert!(!branches.is_ancestor(
-            branches.get(&grandchild).unwrap(),
-            branches.get(&parent).unwrap()
-        ));
-        assert!(branches.is_ancestor(
-            branches.get(&child).unwrap(),
-            branches.get(&grandchild).unwrap()
-        ));
-        assert!(!branches.is_ancestor(
-            branches.get(&grandchild).unwrap(),
-            branches.get(&child).unwrap()
-        ));
-        assert!(branches.is_ancestor(
-            branches.get(&child).unwrap(),
-            branches.get(&granchild_2).unwrap()
-        ));
-        assert!(!branches.is_ancestor(
-            branches.get(&granchild_2).unwrap(),
-            branches.get(&child).unwrap()
-        ));
-    }
-
-    #[test]
     fn test_slot_increasing() {
         // parent
         // └── child
 
-        let mut branches = super::Branches::from_lib([0; 32]);
-        let parent = [1; 32];
-        let child = [2; 32];
+        let mut branches = super::Branches::from_lib(hash(&0u64));
+        let parent = hash(&1u64);
+        let child = hash(&2u64);
 
-        branches = branches.apply_header(parent, [0; 32], 2.into()).unwrap();
+        branches = branches
+            .apply_header(parent, hash(&0u64), 2.into())
+            .unwrap();
         assert!(matches!(
             branches.apply_header(child, parent, 1.into()),
             Err(Error::InvalidSlot(_))
@@ -676,30 +670,34 @@ pub mod tests {
 
     #[test]
     fn test_immutable_fork() {
-        // b1
-        // └── LIB
-        // |    └── b2
-        // └── b3
+        // b0(LIB) - b1 - b2
+        let cryptarchia = create_canonical_chain(3.try_into().unwrap(), Some(config_with(1)));
 
-        let mut branches = super::Branches::from_lib([0; 32]);
-        let b1 = [1; 32];
-        let lib = [2; 32];
-        let b2 = [3; 32];
-        let b3 = [4; 32];
-        branches = branches.apply_header(b1, [0; 32], 1.into()).unwrap();
-        branches = branches.apply_header(lib, b1, 2.into()).unwrap();
-        branches.lib = lib; // Set the LIB to b2
-        branches = branches.apply_header(b2, lib, 3.into()).unwrap();
+        // Switch to Online to update LIB and trigger pruning.
+        // b1(LIB) - b2
+        let (cryptarchia, pruned_blocks) = cryptarchia.online();
+        assert_eq!(cryptarchia.lib(), hash(&1u64));
+        assert_eq!(
+            pruned_blocks.immutable_blocks,
+            vec![(0.into(), hash(&0u64))]
+        );
+
+        // Try to add a fork from b0, but it should fail with `Error::MissingParent`.
+        //   pruned
+        //   ||
+        // (b0 --) b1(LIB) - b2
+        //     \
+        //      b3
         assert!(matches!(
-            branches.apply_header(b3, b1, 4.into()),
-            Err(Error::ImmutableFork(_))
+            cryptarchia.receive_block(hash(&3u64), hash(&0u64), 1.into()),
+            Err(Error::ParentMissing(_)),
         ));
     }
 
     #[test]
     fn test_fork_choice() {
         // TODO: use cryptarchia
-        let mut engine = <Cryptarchia<_, Boostrapping>>::from_lib([0; 32], config());
+        let mut engine = <Cryptarchia<_, Boostrapping>>::from_lib(hash(&0u64), config());
         // by setting a low k we trigger the density choice rule, and the shorter chain
         // is denser after the fork
         engine.config.security_param = NonZero::new(10).unwrap();
@@ -778,7 +776,7 @@ pub mod tests {
 
     #[test]
     fn test_getters() {
-        let engine = <Cryptarchia<_, Boostrapping>>::from_lib([0; 32], config());
+        let engine = <Cryptarchia<_, Boostrapping>>::from_lib(hash(&0u64), config());
         let id_0 = engine.lib();
 
         // Get branch directly from HashMap
@@ -799,7 +797,7 @@ pub mod tests {
 
         assert_eq!(slot + 10u64, Slot::from(10));
 
-        let id_100 = [100; 32];
+        let id_100 = hash(&100u64);
 
         assert!(
             branches.get(&id_100).is_none(),
@@ -811,203 +809,319 @@ pub mod tests {
     // canonical chain length.
     #[test]
     fn pruning_too_back_in_time() {
-        // Create a chain with 50 blocks (0 to 49) with k=51.
+        // Create a chain with 50+1 blocks with k=51.
+        // b0(LIB) - b1 - ... - b49
+        //         \
+        //          b100
         let (cryptarchia, pruned_blocks) =
             create_canonical_chain(50.try_into().unwrap(), Some(config_with(51)))
                 // Add a fork from genesis block
-                .receive_block([100; 32], [0; 32], 1.into())
+                .receive_block(hash(&100u64), hash(&0u64), 1.into())
                 .expect("test block to be applied successfully.");
-        // No block is pruned during Boostrapping.
-        assert!(pruned_blocks.is_empty());
+        // No block was pruned during Boostrapping.
+        assert!(pruned_blocks.all().next().is_none());
 
         // Switch to Online to update LIB and trigger pruning.
+        // b0(LIB) - b1 - ... - b49
+        //         \
+        //           b100
         let (cryptarchia, pruned_blocks) = cryptarchia.online();
+        assert_eq!(cryptarchia.lib(), hash(&0u64));
 
-        // But, no block is pruned because `security_param` is
+        // But, no block was pruned because `security_param` is
         // greater than local chain length.
-        assert!(pruned_blocks.is_empty());
-        assert!(cryptarchia.branches.tips.contains(&[100; 32]));
-        assert!(cryptarchia.branches.branches.contains_key(&[100; 32]));
+        assert!(pruned_blocks.all().next().is_none());
+        assert!(cryptarchia.branches.tips.contains(&hash(&100u64)));
+        assert!(cryptarchia.branches.branches.contains_key(&hash(&100u64)));
     }
 
     #[test]
-    fn pruning_with_no_fork_old_enough() {
-        // Create a chain with 50 blocks (0 to 49) with k=10.
+    fn pruning_with_no_stale_fork() {
+        // Create a chain with 50 blocks with k=10.
+        // b0(LIB) - b1 - ... b39 - b40 - ... - b49
+        //                              \
+        //                               b100
         let (cryptarchia, pruned_blocks) =
             create_canonical_chain(50.try_into().unwrap(), Some(config_with(10)))
-                // Add a fork from block 40, which is shallower than LIB
-                .receive_block([100; 32], hash(&40u64), 41.into())
+                .receive_block(hash(&100u64), hash(&40u64), 41.into())
                 .expect("test block to be applied successfully.");
-        // No block is pruned during Boostrapping.
-        assert!(pruned_blocks.is_empty());
+        // No block was pruned during Boostrapping.
+        assert!(pruned_blocks.all().next().is_none());
 
         // Switch to Online to update LIB and trigger pruning.
+        // b0 - b1 - ... b39(LIB) - b40 - ... - b49
+        //                              \
+        //                               b100
         let (cryptarchia, pruned_blocks) = cryptarchia.online();
+        assert_eq!(cryptarchia.lib(), hash(&39u64));
 
-        // But, no block is pruned.
-        assert!(pruned_blocks.is_empty());
-        assert!(cryptarchia.branches.tips.contains(&[100; 32]));
-        assert!(cryptarchia.branches.branches.contains_key(&[100; 32]));
+        // But, b100 was not pruned.
+        assert!(pruned_blocks.stale_blocks.is_empty());
+        assert!(cryptarchia.branches.tips.contains(&hash(&100u64)));
+        assert!(cryptarchia.branches.branches.contains_key(&hash(&100u64)));
+
+        // Immutable blocks (excluding LIB) were pruned.
+        assert_eq!(
+            pruned_blocks.immutable_blocks,
+            (0..=38u64)
+                .rev()
+                .map(|i| (i.into(), hash(&i)))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
     fn pruning_with_no_forks() {
-        let (_, pruned_blocks) =
+        // Create an Online chain with 50 blocks with k=1.
+        // b0 - b1 - ... - b48(LIB) - b49
+        let (cryptarchia, pruned_blocks) =
             create_canonical_chain(50.try_into().unwrap(), Some(config_with(1))).online();
-        assert!(pruned_blocks.is_empty());
+        assert_eq!(cryptarchia.lib(), hash(&48u64));
+
+        // There were no stale forks.
+        assert!(pruned_blocks.stale_blocks.is_empty());
+
+        // Immutable blocks (excluding LIB) were pruned.
+        assert_eq!(
+            pruned_blocks.immutable_blocks,
+            (0..=47u64)
+                .rev()
+                .map(|i| (i.into(), hash(&i)))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
-    fn pruning_with_single_fork_old_enough() {
-        // Create a chain with 50 blocks (0 to 49) with k=10.
+    fn pruning_with_single_stale_fork() {
+        // Create a chain with 50+3 blocks with k=10.
+        // b0(LIB) - b1 - ... - b38 - b39 - b40 - ... - b49
+        //                          \     \     \
+        //                           b100  b101  b102
         let (cryptarchia, pruned_blocks) =
             create_canonical_chain(50.try_into().unwrap(), Some(config_with(10)))
-                // Add a fork from block 38, deeper than LIB
-                .receive_block([100; 32], hash(&38u64), 39.into())
+                .receive_block(hash(&100u64), hash(&38u64), 39.into())
                 .expect("test block to be applied successfully.")
                 .0
-                // Add a fork from block 39 (LIB)
-                .receive_block([101; 32], hash(&39u64), 40.into())
+                .receive_block(hash(&101u64), hash(&39u64), 40.into())
                 .expect("test block to be applied successfully.")
                 .0
-                // Add a fork from block 40, shallower than LIB
-                .receive_block([102; 32], hash(&40u64), 41.into())
+                .receive_block(hash(&102u64), hash(&40u64), 41.into())
                 .expect("test block to be applied successfully.");
-        // No block is pruned during Boostrapping.
-        assert!(pruned_blocks.is_empty());
+        // No block was pruned during Boostrapping.
+        assert!(pruned_blocks.all().next().is_none());
 
         // Switch to Online to update LIB and trigger pruning.
+        // b0 - b1 - ... - b38 - b39(LIB) - b40 - ... - b49
+        //                     \          \     \
+        //                      b100       b101  b102
         let (cryptarchia, pruned_blocks) = cryptarchia.online();
+        assert_eq!(cryptarchia.lib(), hash(&39u64));
 
-        // A fork from block 38 is pruned.
-        assert_eq!(pruned_blocks, [[100; 32]].into());
-        assert!(!cryptarchia.branches.tips.contains(&[100; 32]));
-        assert!(!cryptarchia.branches.branches.contains_key(&[100; 32]));
-        // Fork at block 39 was not pruned because it is diverged
-        // at the 10th block (LIB) from the local chain tip.
-        assert!(cryptarchia.branches.tips.contains(&[101; 32]));
-        assert!(cryptarchia.branches.branches.contains_key(&[101; 32]));
-        // Fork at block 40 was not pruned because it is diverged
-        // after the 10th block (LIB) from the local chain tip.
-        assert!(cryptarchia.branches.tips.contains(&[102; 32]));
-        assert!(cryptarchia.branches.branches.contains_key(&[102; 32]));
+        // A fork from b38 was pruned.
+        assert_eq!(pruned_blocks.stale_blocks, [hash(&100u64)].into());
+        assert!(!cryptarchia.branches.tips.contains(&hash(&100u64)));
+        assert!(!cryptarchia.branches.branches.contains_key(&hash(&100u64)));
+
+        // Other forks were not pruned
+        assert!(cryptarchia.branches.tips.contains(&hash(&101u64)));
+        assert!(cryptarchia.branches.branches.contains_key(&hash(&101u64)));
+        assert!(cryptarchia.branches.tips.contains(&hash(&102u64)));
+        assert!(cryptarchia.branches.branches.contains_key(&hash(&102u64)));
+
+        // Immutable blocks (excluding LIB) were pruned.
+        assert_eq!(
+            pruned_blocks.immutable_blocks,
+            (0..=38u64)
+                .rev()
+                .map(|i| (i.into(), hash(&i)))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
-    fn pruning_with_multiple_forks_old_enough() {
-        // Create a chain with 50 blocks (0 to 49) with k=10.
+    fn pruning_with_multiple_stale_forks() {
+        // Create a chain with 50+3 blocks with k=10.
+        //                          b200
+        //                          /
+        // b0(LIB) - b1 - ... - b38 - b39 - b40 - ... - b49
+        //                          \     \
+        //                           b100  b101
         let (cryptarchia, pruned_blocks) =
             create_canonical_chain(50.try_into().unwrap(), Some(config_with(10)))
-                // Add a first fork from block 38
-                .receive_block([100; 32], hash(&38u64), 39.into())
+                .receive_block(hash(&100u64), hash(&38u64), 39.into())
                 .expect("test block to be applied successfully.")
                 .0
-                // Add a second fork from block 38
-                .receive_block([200; 32], hash(&38u64), 39.into())
+                .receive_block(hash(&200u64), hash(&38u64), 39.into())
                 .expect("test block to be applied successfully.")
                 .0
-                // Add a fork from block 39
-                .receive_block([101; 32], hash(&39u64), 40.into())
+                .receive_block(hash(&101u64), hash(&39u64), 40.into())
                 .expect("test block to be applied successfully.");
-        // No block is pruned during Boostrapping.
-        assert!(pruned_blocks.is_empty());
+        // No block was pruned during Boostrapping.
+        assert!(pruned_blocks.all().next().is_none());
 
         // Switch to Online to update LIB and trigger pruning.
+        //                      b200
+        //                     /
+        // b0 - b1 - ... - b38 - b39(LIB) - b40 - ... - b49
+        //                     \          \
+        //                      b100       b101
         let (cryptarchia, pruned_blocks) = cryptarchia.online();
+        assert_eq!(cryptarchia.lib(), hash(&39u64));
 
-        assert_eq!(pruned_blocks, [[100; 32], [200; 32]].into());
-        // First fork at block 38 was pruned.
-        assert!(!cryptarchia.branches.tips.contains(&[100; 32]));
-        assert!(!cryptarchia.branches.branches.contains_key(&[100; 32]));
-        // Second fork at block 38 was pruned.
-        assert!(!cryptarchia.branches.tips.contains(&[200; 32]));
-        assert!(!cryptarchia.branches.branches.contains_key(&[200; 32]));
-        // Fork at block 40 was not pruned.
-        assert!(cryptarchia.branches.tips.contains(&[101; 32]));
-        assert!(cryptarchia.branches.branches.contains_key(&[101; 32]));
+        // Two forks (b100 and b200) from b38 were pruned.
+        assert_eq!(
+            pruned_blocks.stale_blocks,
+            [hash(&100u64), hash(&200u64)].into()
+        );
+        assert!(!cryptarchia.branches.tips.contains(&hash(&100u64)));
+        assert!(!cryptarchia.branches.branches.contains_key(&hash(&100u64)));
+        assert!(!cryptarchia.branches.tips.contains(&hash(&200u64)));
+        assert!(!cryptarchia.branches.branches.contains_key(&hash(&200u64)));
+
+        // Fork at b39 was not pruned.
+        assert!(cryptarchia.branches.tips.contains(&hash(&101u64)));
+        assert!(cryptarchia.branches.branches.contains_key(&hash(&101u64)));
+
+        // Immutable blocks (excluding LIB) were pruned.
+        assert_eq!(
+            pruned_blocks.immutable_blocks,
+            (0..=38u64)
+                .rev()
+                .map(|i| (i.into(), hash(&i)))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
-    fn pruning_fork_with_multiple_tips() {
-        // Create a chain with 50 blocks (0 to 49) with k=10.
+    fn pruning_stale_fork_with_multiple_tips() {
+        // Create a chain with 50+3 blocks with k=10.
+        // b0(LIB) - b1 - ... - b38 - b39 - ... - b49
+        //                          \
+        //                           b100 - b101
+        //                                \
+        //                                  b200
         let (cryptarchia, pruned_blocks) =
             create_canonical_chain(50.try_into().unwrap(), Some(config_with(10)))
-                // Add a 2-block fork from block 38
-                .receive_block([100; 32], hash(&38u64), 39.into())
+                .receive_block(hash(&100u64), hash(&38u64), 39.into())
                 .expect("test block to be applied successfully.")
                 .0
-                .receive_block([101; 32], [100; 32], 40.into())
+                .receive_block(hash(&101u64), hash(&100u64), 40.into())
                 .expect("test block to be applied successfully.")
                 .0
-                // Add a second fork from the first divergent fork block, so that the fork has two
-                // tips
-                .receive_block([200; 32], [100; 32], 41.into())
+                .receive_block(hash(&200u64), hash(&100u64), 41.into())
                 .expect("test block to be applied successfully.");
-        // No block is pruned during Boostrapping.
-        assert!(pruned_blocks.is_empty());
+        // No block was pruned during Boostrapping.
+        assert!(pruned_blocks.all().next().is_none());
 
         // Switch to Online to update LIB and trigger pruning.
+        // b0 - b1 - ... - b38 - b39(LIB) - ... - b49
+        //                     \
+        //                      b100 - b101
+        //                           \
+        //                             b200
         let (cryptarchia, pruned_blocks) = cryptarchia.online();
+        assert_eq!(cryptarchia.lib(), hash(&39u64));
 
-        assert_eq!(pruned_blocks, [[100; 32], [101; 32], [200; 32]].into());
-        // First fork was pruned entirely (both tips were removed).
-        assert!(!cryptarchia.branches.tips.contains(&[101; 32]));
-        assert!(!cryptarchia.branches.branches.contains_key(&[100; 32]));
-        assert!(!cryptarchia.branches.branches.contains_key(&[101; 32]));
-        // Second fork was pruned.
-        assert!(!cryptarchia.branches.tips.contains(&[200; 32]));
-        assert!(!cryptarchia.branches.branches.contains_key(&[200; 32]));
+        // All the stale forks (b100, b101 and b200) were pruned.
+        assert_eq!(
+            pruned_blocks.stale_blocks,
+            [hash(&100u64), hash(&101u64), hash(&200u64)].into()
+        );
+        assert!(!cryptarchia.branches.tips.contains(&hash(&101u64)));
+        assert!(!cryptarchia.branches.branches.contains_key(&hash(&100u64)));
+        assert!(!cryptarchia.branches.branches.contains_key(&hash(&101u64)));
+        assert!(!cryptarchia.branches.tips.contains(&hash(&200u64)));
+        assert!(!cryptarchia.branches.branches.contains_key(&hash(&200u64)));
+
+        // Immutable blocks (excluding LIB) were pruned.
+        assert_eq!(
+            pruned_blocks.immutable_blocks,
+            (0..=38u64)
+                .rev()
+                .map(|i| (i.into(), hash(&i)))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
     fn pruning_forks_when_receive_block() {
-        // Create an Online chain with 10 blocks (0 to 9) with k=2.
+        // Create an Online chain with 10 blocks with k=2.
+        // b0 - b1 - ... - b7(LIB) - b8 - b9
         let (cryptarchia, pruned_blocks) =
             create_canonical_chain(10.try_into().unwrap(), Some(config_with(2))).online();
-        // No block is pruned since no fork existed.
-        assert!(pruned_blocks.is_empty());
+        assert_eq!(cryptarchia.lib(), hash(&7u64));
+        // There were no stale forks
+        assert!(pruned_blocks.stale_blocks.is_empty());
+        // Immutable blocks (excluding LIB) were pruned.
+        assert_eq!(
+            pruned_blocks.immutable_blocks,
+            (0..=6u64)
+                .rev()
+                .map(|i| (i.into(), hash(&i)))
+                .collect::<Vec<_>>()
+        );
 
         // Add a fork at the LIB
+        // b7(LIB) - b8 - b9
+        //         \
+        //          b100
         let (cryptarchia, pruned_blocks) = cryptarchia
             .receive_block(
-                [100; 32],
+                hash(&100u64),
                 cryptarchia.lib(),
                 cryptarchia.lib_branch().slot + 1,
             )
             .expect("test block to be applied successfully.");
+        assert_eq!(cryptarchia.lib(), hash(&7u64));
         // No block is pruned since LIB was not updated.
-        assert!(pruned_blocks.is_empty());
-        assert!(cryptarchia.branches.tips.contains(&[100; 32]));
-        assert!(cryptarchia.branches.branches.contains_key(&[100; 32]));
+        assert!(pruned_blocks.all().next().is_none());
+        assert!(cryptarchia.branches.tips.contains(&hash(&100u64)));
+        assert!(cryptarchia.branches.branches.contains_key(&hash(&100u64)));
 
         // Add a fork after than LIB
+        // b7(LIB) - b8 - b9
+        //         \    \
+        //          b100 b101
         let (cryptarchia, pruned_blocks) = cryptarchia
             .receive_block(
-                [101; 32],
+                hash(&101u64),
                 cryptarchia.tip_branch().parent,
                 cryptarchia.tip_branch().slot,
             )
             .expect("test block to be applied successfully.");
-        // No block is pruned since LIB was not updated.
-        assert!(pruned_blocks.is_empty());
-        assert!(cryptarchia.branches.tips.contains(&[101; 32]));
-        assert!(cryptarchia.branches.branches.contains_key(&[101; 32]));
+        assert_eq!(cryptarchia.lib(), hash(&7u64));
+        // No block was pruned since LIB was not updated.
+        assert!(pruned_blocks.all().next().is_none());
+        assert!(cryptarchia.branches.tips.contains(&hash(&100u64)));
+        assert!(cryptarchia.branches.branches.contains_key(&hash(&100u64)));
+        assert!(cryptarchia.branches.tips.contains(&hash(&101u64)));
+        assert!(cryptarchia.branches.branches.contains_key(&hash(&101u64)));
 
         // Add a block to the tip to update the LIB.
+        // b7 - b8(LIB) - b9 - b102
+        //    \         \
+        //     b100      b101
         let (cryptarchia, pruned_blocks) = cryptarchia
             .receive_block(
-                [102; 32],
+                hash(&102u64),
                 cryptarchia.tip(),
                 cryptarchia.tip_branch().slot + 1,
             )
             .expect("test block to be applied successfully.");
-        // One fork is pruned since LIB is updated.
-        assert_eq!(pruned_blocks, [[100; 32]].into());
-        assert!(!cryptarchia.branches.tips.contains(&[100; 32]));
-        assert!(!cryptarchia.branches.branches.contains_key(&[100; 32]));
-        assert!(cryptarchia.branches.tips.contains(&[101; 32]));
-        assert!(cryptarchia.branches.branches.contains_key(&[101; 32]));
-        assert!(cryptarchia.branches.tips.contains(&[102; 32]));
-        assert!(cryptarchia.branches.branches.contains_key(&[102; 32]));
+        assert_eq!(cryptarchia.lib(), hash(&8u64));
+        // One fork (b100) was pruned since LIB was updated.
+        assert_eq!(pruned_blocks.stale_blocks, [hash(&100u64)].into());
+        assert!(!cryptarchia.branches.tips.contains(&hash(&100u64)));
+        assert!(!cryptarchia.branches.branches.contains_key(&hash(&100u64)));
+        // b101 and b102 were not pruned.
+        assert!(cryptarchia.branches.tips.contains(&hash(&101u64)));
+        assert!(cryptarchia.branches.branches.contains_key(&hash(&101u64)));
+        assert!(cryptarchia.branches.tips.contains(&hash(&102u64)));
+        assert!(cryptarchia.branches.branches.contains_key(&hash(&102u64)));
+        // Immutable blocks (excluding LIB) were pruned.
+        assert_eq!(
+            pruned_blocks.immutable_blocks,
+            vec![(7.into(), hash(&7u64))]
+        );
     }
 }

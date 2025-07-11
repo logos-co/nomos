@@ -8,15 +8,16 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-async-trait = "0.1"
-bytes       = { workspace = true }
-nomos-core  = { workspace = true }
-overwatch   = { workspace = true }
-rocksdb     = { version = "0.22", optional = true }
-serde       = { version = "1.0", features = ["derive"] }
-thiserror   = "1.0"
-tokio       = { version = "1", features = ["macros", "sync"] }
-tracing     = { workspace = true }
+async-trait        = "0.1"
+bytes              = { workspace = true }
+cryptarchia-engine = { workspace = true }
+nomos-core         = { workspace = true }
+overwatch          = { workspace = true }
+rocksdb            = { version = "0.22", optional = true }
+serde              = { version = "1.0", features = ["derive"] }
+thiserror          = "1.0"
+tokio              = { version = "1", features = ["macros", "sync"] }
+tracing            = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

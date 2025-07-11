@@ -298,7 +298,7 @@ where
                     error!("Could not notify block to services {e}");
                 }
 
-                self.storage_blocks_to_remove.extend(&pruned_blocks);
+                self.storage_blocks_to_remove.extend(pruned_blocks.all());
                 return cryptarchia;
             }
             Err(
