@@ -9,6 +9,7 @@ use std::{
 
 use libp2p::Multiaddr;
 use libp2p_identity::PeerId;
+pub type SubnetworkId = u16;
 
 pub type SubnetworkAssignations<NetworkId, Id> = HashMap<NetworkId, HashSet<Id>>;
 
