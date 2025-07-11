@@ -1,20 +1,12 @@
 use cryptarchia_engine::{Epoch, Slot};
 use nomos_core::{
     crypto::{Digest as _, Hasher},
-    mantle::{NoteId, Utxo, Value},
+    mantle::{Note, NoteId, Utxo, Value},
     proofs::leader_proof,
 };
 use nomos_proof_statements::leadership::LeaderPublic;
 
-#[derive(Clone, Debug, Copy, Eq, PartialEq, Hash)]
-pub struct UtxoIdExtractor;
-impl utxotree::KeyExtractor<Utxo, NoteId> for UtxoIdExtractor {
-    fn extract(utxo: &Utxo) -> NoteId {
-        utxo.id()
-    }
-}
-
-pub type UtxoTree = utxotree::UtxoTree<NoteId, Utxo, UtxoIdExtractor, Hasher>;
+pub type UtxoTree = utxotree::UtxoTree<NoteId, Note, Hasher>;
 use super::{Config, LedgerError};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -236,11 +228,14 @@ impl LedgerState {
     }
 
     pub fn from_utxos(utxos: impl IntoIterator<Item = Utxo>) -> Self {
-        let utxos = utxos.into_iter().collect::<UtxoTree>();
+        let utxos = utxos
+            .into_iter()
+            .map(|utxo| (utxo.id(), utxo.note))
+            .collect::<UtxoTree>();
         let total_stake = utxos
             .utxos()
             .iter()
-            .map(|(_, (utxo, _))| utxo.note.value)
+            .map(|(_, (note, _))| note.value)
             .sum::<Value>();
         Self {
             utxos: utxos.clone(),
@@ -282,7 +277,6 @@ pub mod tests {
 
     use cryptarchia_engine::EpochConfig;
     use crypto_bigint::U256;
-    use nomos_core::mantle::Note;
     use rand::{thread_rng, RngCore as _};
 
     use super::*;
@@ -328,7 +322,7 @@ pub mod tests {
             .unwrap();
         let config = ledger.config();
         let id = make_id(parent, slot, utxo);
-        let proof = generate_proof(&ledger_state, utxo, slot, config);
+        let proof = generate_proof(&ledger_state, &utxo, slot, config);
         *ledger = ledger.try_update(id, parent, slot, &proof)?;
         Ok(id)
     }
@@ -345,7 +339,7 @@ pub mod tests {
     // produce a proof for a note
     fn generate_proof(
         ledger_state: &LedgerState,
-        utxo: Utxo,
+        utxo: &Utxo,
         slot: Slot,
         config: &Config,
     ) -> DummyProof {
@@ -353,13 +347,13 @@ pub mod tests {
         let aged_tree = ledger_state.aged_commitments();
 
         DummyProof(LeaderPublic::new(
-            if aged_tree.contains(&utxo) {
+            if aged_tree.contains(&utxo.id()) {
                 aged_tree.root()
             } else {
                 println!("Note not found in latest commitments, using zero root");
                 [0; 32]
             },
-            if latest_tree.contains(&utxo) {
+            if latest_tree.contains(&utxo.id()) {
                 latest_tree.root()
             } else {
                 println!("Note not found in latest commitments, using zero root");
@@ -391,20 +385,24 @@ pub mod tests {
     #[must_use]
     pub fn genesis_state(utxos: &[Utxo]) -> LedgerState {
         let total_stake = utxos.iter().map(|u| u.note.value).sum();
+        let utxos = utxos
+            .iter()
+            .map(|utxo| (utxo.id(), utxo.note))
+            .collect::<UtxoTree>();
         LedgerState {
-            utxos: utxos.iter().copied().collect(),
+            utxos: utxos.clone(),
             nonce: [0; 32],
             slot: 0.into(),
             next_epoch_state: EpochState {
                 epoch: 1.into(),
                 nonce: [0; 32],
-                utxos: utxos.iter().copied().collect(),
+                utxos: utxos.clone(),
                 total_stake,
             },
             epoch_state: EpochState {
                 epoch: 0.into(),
                 nonce: [0; 32],
-                utxos: utxos.iter().copied().collect(),
+                utxos,
                 total_stake,
             },
         }
@@ -437,7 +435,7 @@ pub mod tests {
         // spendable commitments and test epoch snapshotting is by doing this
         // manually
         let mut block_state = ledger.states[&id].clone().cryptarchia_ledger;
-        block_state.utxos = block_state.utxos.insert(utxo_add).0;
+        block_state.utxos = block_state.utxos.insert(utxo_add.id(), utxo_add.note).0;
         ledger.states.insert(id, full_ledger_state(block_state));
         id
     }
