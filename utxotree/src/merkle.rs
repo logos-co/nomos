@@ -3,10 +3,10 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use crate::{CompressedUtxoTree, KeyExtractor};
-
 use digest::Digest;
 use rpds::RedBlackTreeSetSync;
+
+use crate::{CompressedUtxoTree, KeyExtractor};
 
 const EMPTY_VALUE: [u8; 32] = [0; 32];
 
@@ -274,8 +274,10 @@ impl<Item: AsRef<[u8]>, Hash: Digest<OutputSize = digest::typenum::U32>>
                 tree = tree.insert_hole(current_pos);
                 current_pos += 1;
             }
-            
-            tree.root = tree.root.insert_at::<Hash>(*pos, <F as KeyExtractor<_, _>>::extract(item));
+
+            tree.root = tree
+                .root
+                .insert_at::<Hash>(*pos, <F as KeyExtractor<_, _>>::extract(item));
             current_pos = *pos + 1;
         }
         tree
@@ -315,11 +317,12 @@ where
     }
 }
 
-impl<Item, Hash> Eq for DynamicMerkleTree<Item, Hash> 
-where 
+impl<Item, Hash> Eq for DynamicMerkleTree<Item, Hash>
+where
     Item: AsRef<[u8]> + Eq,
     Hash: Digest<OutputSize = digest::typenum::U32>,
-{}
+{
+}
 
 #[cfg(feature = "serde")]
 pub mod serde {
@@ -511,28 +514,28 @@ mod tests {
     #[test]
     fn test_smallest_hole_selection() {
         let tree: DynamicMerkleTree<Vec<u8>, TestHash> = DynamicMerkleTree::new();
-        
+
         // Insert items at positions 0, 1, 2, 3, 4
         let (tree, _) = tree.insert(b"a".to_vec());
         let (tree, _) = tree.insert(b"b".to_vec());
         let (tree, _) = tree.insert(b"c".to_vec());
         let (tree, _) = tree.insert(b"d".to_vec());
         let (tree, _) = tree.insert(b"e".to_vec());
-        
+
         // Remove items at positions 3, 1, 4 (creating holes in that order)
         let tree = tree.remove(3);
         let tree = tree.remove(1);
         let tree = tree.remove(4);
-        
+
         // Now we have holes at positions 1, 3, 4
         // The smallest hole should be selected first (position 1)
         let (tree, index1) = tree.insert(b"x".to_vec());
         assert_eq!(index1, 1, "Should select smallest hole first");
-        
+
         // Next insertion should use the next smallest hole (position 3)
         let (tree, index2) = tree.insert(b"y".to_vec());
         assert_eq!(index2, 3, "Should select next smallest hole");
-        
+
         // Final insertion should use the last hole (position 4)
         let (_, index3) = tree.insert(b"z".to_vec());
         assert_eq!(index3, 4, "Should select remaining hole");
