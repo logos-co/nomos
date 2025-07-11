@@ -13,6 +13,7 @@ use core::fmt::Debug;
 use std::{
     collections::{BTreeSet, HashSet},
     fmt::Display,
+    hash::Hash,
     path::PathBuf,
     time::Duration,
 };
@@ -60,11 +61,13 @@ use tokio::{
 use tracing::{debug, error, info, instrument, span, Level, Span};
 use tracing_futures::Instrument as _;
 
-pub use crate::bootstrap::config::BootstrapConfig;
+pub use crate::bootstrap::{
+    config::BootstrapConfig, ibd::IbdConfig, initialization::InitializationConfig,
+};
 use crate::{
     bootstrap::{
-        cryptarchia::InitialCryptarchia,
         ibd::{IbdCompletedCryptarchia, InitialBlockDownload},
+        initialization::InitialCryptarchia,
     },
     leadership::Leader,
     network::BoxedStream,
@@ -195,7 +198,10 @@ impl Cryptarchia<Boostrapping> {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings> {
+pub struct CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings, PeerId>
+where
+    PeerId: Clone + Eq + Hash,
+{
     #[serde(default)]
     pub transaction_selector_settings: Ts,
     #[serde(default)]
@@ -207,11 +213,13 @@ pub struct CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendAdapterSetti
     pub network_adapter_settings: NetworkAdapterSettings,
     pub blend_adapter_settings: BlendAdapterSettings,
     pub recovery_file: PathBuf,
-    pub bootstrap: BootstrapConfig,
+    pub bootstrap: BootstrapConfig<PeerId>,
 }
 
-impl<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings> FileBackendSettings
-    for CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings>
+impl<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings, PeerId> FileBackendSettings
+    for CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings, PeerId>
+where
+    PeerId: Clone + Eq + Hash,
 {
     fn recovery_file(&self) -> &PathBuf {
         &self.recovery_file
@@ -243,6 +251,7 @@ pub struct CryptarchiaConsensus<
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Backend: 'static,
     NetAdapter::Settings: Send,
+    NetAdapter::PeerId: Clone + Eq + Hash,
     BlendAdapter: blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
@@ -329,6 +338,7 @@ impl<
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Settings: Send,
+    NetAdapter::PeerId: Clone + Eq + Hash,
     BlendAdapter: blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
@@ -370,12 +380,14 @@ where
         BS::Settings,
         NetAdapter::Settings,
         BlendAdapter::Settings,
+        NetAdapter::PeerId,
     >;
     type State = CryptarchiaConsensusState<
         TxS::Settings,
         BS::Settings,
         NetAdapter::Settings,
         BlendAdapter::Settings,
+        NetAdapter::PeerId,
     >;
     type StateOperator = RecoveryOperator<JsonFileBackend<Self::State, Self::Settings>>;
     type Message = ConsensusMsg<Block<ClPool::Item, DaPool::Item>>;
@@ -431,6 +443,7 @@ where
         + Sync
         + 'static,
     NetAdapter::Settings: Send + Sync + 'static,
+    NetAdapter::PeerId: Clone + Eq + Hash + Send + Sync,
     BlendAdapter: blend::BlendAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = DaPool::Item>
         + Clone
         + Send
@@ -598,7 +611,7 @@ where
             self.initial_state.lib_ledger_state.clone(),
             ledger_config,
             genesis_id,
-            &bootstrap_config,
+            &bootstrap_config.initialization,
         );
         let leader = Leader::new(
             self.initial_state.lib_leader_utxos.clone(),
@@ -667,7 +680,9 @@ where
         .await?;
 
         // Run IBD (Initial Block Download).
-        let cryptarchia = InitialBlockDownload::run(cryptarchia, network_adapter).await;
+        let cryptarchia = InitialBlockDownload::new(bootstrap_config.ibd.clone())
+            .run(cryptarchia, network_adapter, &mut block_processor)
+            .await?;
 
         // Run the service loop.
         match cryptarchia {
@@ -768,6 +783,7 @@ impl<
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Clone + Send + Sync + 'static,
     NetAdapter::Settings: Send + Sync + 'static,
+    NetAdapter::PeerId: Clone + Eq + Hash + Send + Sync,
     BlendAdapter: blend::BlendAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = DaPool::Item>
         + Clone
         + Send
@@ -852,7 +868,7 @@ where
     )]
     async fn run_bootstrap_cryptarchia(
         mut self,
-        config: &BootstrapConfig,
+        config: &BootstrapConfig<NetAdapter::PeerId>,
         mut cryptarchia: Cryptarchia<Boostrapping>,
         leader: &Leader,
         mut incoming_blocks: BoxedStream<Block<ClPool::Item, DaPool::Item>>,

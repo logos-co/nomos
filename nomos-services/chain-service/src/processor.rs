@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeSet, HashSet},
     fmt::Debug,
+    hash::Hash,
 };
 
 use nomos_blend_service::network::NetworkAdapter as BlendNetworkAdapter;
@@ -113,6 +114,7 @@ pub struct NomosBlockProcessor<
                 BS::Settings,
                 NetworkAdapter::Settings,
                 BlendAdapter::Settings,
+                NetworkAdapter::PeerId,
             >,
         >,
     >,
@@ -191,6 +193,7 @@ where
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
     NetworkAdapter::Settings: Send + Sync,
+    NetworkAdapter::PeerId: Clone + Eq + Hash + Send + Sync,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -220,7 +223,7 @@ where
             .remove_blocks_and_collect_failures(self.storage_blocks_to_remove.iter().copied())
             .await;
 
-        match CryptarchiaConsensusState::<_, _, _, _>::from_cryptarchia_and_unpruned_blocks(
+        match CryptarchiaConsensusState::<_, _, _, _, _>::from_cryptarchia_and_unpruned_blocks(
             &cryptarchia,
             self.leader,
             self.storage_blocks_to_remove.clone(),
@@ -385,6 +388,7 @@ where
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
     NetworkAdapter::Settings: Send + Sync,
+    NetworkAdapter::PeerId: Clone + Eq + Hash + Send + Sync,
     SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -426,6 +430,7 @@ where
                     BS::Settings,
                     NetworkAdapter::Settings,
                     BlendAdapter::Settings,
+                    NetworkAdapter::PeerId,
                 >,
             >,
         >,

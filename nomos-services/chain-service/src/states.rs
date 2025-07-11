@@ -1,4 +1,4 @@
-use std::{collections::HashSet, marker::PhantomData};
+use std::{collections::HashSet, hash::Hash, marker::PhantomData};
 
 use cryptarchia_engine::CryptarchiaState;
 use nomos_core::{header::HeaderId, mantle::Utxo};
@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use crate::{leadership::Leader, Cryptarchia, CryptarchiaSettings, Error};
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CryptarchiaConsensusState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> {
+pub struct CryptarchiaConsensusState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, PeerId>
+{
     pub tip: HeaderId,
     pub lib: HeaderId,
     pub lib_ledger_state: LedgerState,
@@ -20,11 +21,17 @@ pub struct CryptarchiaConsensusState<TxS, BxS, NetworkAdapterSettings, BlendAdap
     /// error.
     pub(crate) storage_blocks_to_remove: HashSet<HeaderId>,
     // Only neededed for the service state trait
-    _markers: PhantomData<(TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings)>,
+    _markers: PhantomData<(
+        TxS,
+        BxS,
+        NetworkAdapterSettings,
+        BlendAdapterSettings,
+        PeerId,
+    )>,
 }
 
-impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
-    CryptarchiaConsensusState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
+impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, PeerId>
+    CryptarchiaConsensusState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, PeerId>
 {
     /// Re-create the [`CryptarchiaConsensusState`]
     /// given the cryptarchia engine, ledger state, and the leader details.
@@ -58,10 +65,13 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
     }
 }
 
-impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> ServiceState
-    for CryptarchiaConsensusState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
+impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, PeerId> ServiceState
+    for CryptarchiaConsensusState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, PeerId>
+where
+    PeerId: Clone + Eq + Hash,
 {
-    type Settings = CryptarchiaSettings<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>;
+    type Settings =
+        CryptarchiaSettings<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, PeerId>;
     type Error = Error;
 
     fn from_settings(
@@ -172,7 +182,7 @@ mod tests {
 
         // Build [`CryptarchiaConsensusState`] with the pruned blocks.
         let recovery_state =
-            CryptarchiaConsensusState::<(), (), (), ()>::from_cryptarchia_and_unpruned_blocks(
+            CryptarchiaConsensusState::<(), (), (), (), ()>::from_cryptarchia_and_unpruned_blocks(
                 &Cryptarchia {
                     ledger: ledger_state,
                     consensus: cryptarchia_engine.clone(),
