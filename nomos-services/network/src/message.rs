@@ -1,6 +1,7 @@
 use std::{collections::HashSet, fmt::Debug};
 
 use bytes::Bytes;
+use cryptarchia_sync::GetTipResponse;
 use futures::stream::BoxStream;
 use nomos_core::header::HeaderId;
 use overwatch::DynError;
@@ -44,6 +45,6 @@ pub enum ChainSyncEvent {
     },
     ProvideTipRequest {
         /// Channel to send the latest tip to the service.
-        reply_sender: Sender<HeaderId>,
+        reply_sender: Sender<GetTipResponse>,
     },
 }

@@ -9,7 +9,7 @@ workspace = true
 
 [dependencies]
 blake2 = { version = "0.10" }
-cryptarchia-sync = { workspace = true }
+cryptarchia-sync = { workspace = true, features = ["libp2p"] }
 futures = "0.3"
 hex = "0.4.3"
 libp2p = { workspace = true, features = [

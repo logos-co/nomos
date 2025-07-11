@@ -21,11 +21,12 @@ use tokio::sync::{mpsc, mpsc::Sender, oneshot};
 use tracing::{debug, error};
 
 use crate::{
-    downloader::Downloader,
-    errors::{ChainSyncError, ChainSyncErrorKind, DynError},
-    messages::{DownloadBlocksRequest, RequestMessage},
-    provider::{Provider, ReceivingRequestStream, MAX_ADDITIONAL_BLOCKS},
-    SerialisedBlock,
+    libp2p::{
+        downloader::Downloader,
+        errors::{ChainSyncError, ChainSyncErrorKind, DynError},
+        provider::{Provider, ReceivingRequestStream, MAX_ADDITIONAL_BLOCKS},
+    },
+    messages::{DownloadBlocksRequest, GetTipResponse, RequestMessage, SerialisedBlock},
 };
 
 /// Cryptarchia networking protocol for synchronizing blocks.
@@ -79,14 +80,14 @@ impl BlocksRequestStream {
 pub struct TipRequestStream {
     pub peer_id: PeerId,
     pub stream: Libp2pStream,
-    pub reply_channel: oneshot::Sender<Result<HeaderId, ChainSyncError>>,
+    pub reply_channel: oneshot::Sender<Result<GetTipResponse, ChainSyncError>>,
 }
 
 impl TipRequestStream {
     pub const fn new(
         peer_id: PeerId,
         stream: Stream,
-        reply_channel: oneshot::Sender<Result<HeaderId, ChainSyncError>>,
+        reply_channel: oneshot::Sender<Result<GetTipResponse, ChainSyncError>>,
     ) -> Self {
         Self {
             peer_id,
@@ -112,7 +113,7 @@ pub enum Event {
     },
     ProvideTipsRequest {
         /// Channel to send the latest tip to the service.
-        reply_sender: Sender<HeaderId>,
+        reply_sender: Sender<GetTipResponse>,
     },
 }
 
@@ -196,7 +197,7 @@ impl Behaviour {
     pub fn request_tip(
         &self,
         peer_id: PeerId,
-        reply_sender: oneshot::Sender<Result<HeaderId, ChainSyncError>>,
+        reply_sender: oneshot::Sender<Result<GetTipResponse, ChainSyncError>>,
     ) -> Result<(), ChainSyncError> {
         if !self.connected_peers.contains(&peer_id) {
             return Err(ChainSyncError {
@@ -548,6 +549,7 @@ impl NetworkBehaviour for Behaviour {
 mod tests {
     use std::{collections::HashSet, iter, time::Duration};
 
+    use cryptarchia_engine::Slot;
     use futures::StreamExt as _;
     use libp2p::{bytes::Bytes, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
     use libp2p_swarm_test::SwarmExt as _;
@@ -556,9 +558,12 @@ mod tests {
     use tokio::sync::oneshot;
 
     use crate::{
-        behaviour::{BoxedStream, ChainSyncErrorKind, MAX_INCOMING_REQUESTS},
-        provider::MAX_ADDITIONAL_BLOCKS,
-        Behaviour, ChainSyncError, Event, SerialisedBlock,
+        libp2p::{
+            behaviour::{Behaviour, BoxedStream, Event, MAX_INCOMING_REQUESTS},
+            errors::{ChainSyncError, ChainSyncErrorKind},
+            provider::MAX_ADDITIONAL_BLOCKS,
+        },
+        messages::{GetTipResponse, SerialisedBlock},
     };
 
     #[tokio::test]
@@ -652,8 +657,9 @@ mod tests {
 
         tokio::spawn(async move { downloader_swarm.loop_on_next().await });
 
-        let tip = receiver.await.unwrap();
-        assert_eq!(tip.unwrap(), HeaderId::from([0; 32]));
+        let response = receiver.await.unwrap().unwrap();
+        assert_eq!(response.id, HeaderId::from([0; 32]));
+        assert_eq!(response.slot, Slot::from(0));
     }
 
     async fn start_provider_and_downloader(blocks_count: usize) -> (Swarm<Behaviour>, PeerId) {
@@ -671,7 +677,13 @@ mod tests {
         tokio::spawn(async move {
             while let Some(event) = provider_swarm.next().await {
                 if let SwarmEvent::Behaviour(Event::ProvideTipsRequest { reply_sender }) = event {
-                    reply_sender.send([0; 32].into()).await.unwrap();
+                    reply_sender
+                        .send(GetTipResponse {
+                            id: [0; 32].into(),
+                            slot: Slot::from(0),
+                        })
+                        .await
+                        .unwrap();
                     continue;
                 }
                 if let SwarmEvent::Behaviour(Event::ProvideBlocksRequest { reply_sender, .. }) =
@@ -733,7 +745,7 @@ mod tests {
     fn request_tip(
         downloader_swarm: &mut Swarm<Behaviour>,
         peer_id: PeerId,
-    ) -> oneshot::Receiver<Result<HeaderId, ChainSyncError>> {
+    ) -> oneshot::Receiver<Result<GetTipResponse, ChainSyncError>> {
         let (tx, rx) = oneshot::channel();
         downloader_swarm
             .behaviour_mut()

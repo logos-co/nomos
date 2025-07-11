@@ -1,5 +1,6 @@
 use std::{collections::HashSet, marker::PhantomData};
 
+use cryptarchia_sync::GetTipResponse;
 use futures::TryStreamExt as _;
 use nomos_core::{block::Block, header::HeaderId, wire};
 use nomos_network::{
@@ -136,7 +137,7 @@ where
         })))
     }
 
-    async fn request_tip(&self, peer: Self::PeerId) -> Result<HeaderId, DynError> {
+    async fn request_tip(&self, peer: Self::PeerId) -> Result<GetTipResponse, DynError> {
         let (reply_sender, receiver) = oneshot::channel();
         if let Err((e, _)) = self
             .network_relay
