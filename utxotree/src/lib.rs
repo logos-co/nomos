@@ -126,7 +126,8 @@ where
         self.items.contains_key(key).then_some(())
     }
 
-    #[must_use] pub fn compressed(&self) -> CompressedUtxoTree<Item>
+    #[must_use]
+    pub fn compressed(&self) -> CompressedUtxoTree<Item>
     where
         Item: Clone,
     {
@@ -176,7 +177,7 @@ where
     }
 }
 
-impl<Key, Item, F, Hash>  From<CompressedUtxoTree<Item>> for UtxoTree<Key, Item, F, Hash>
+impl<Key, Item, F, Hash> From<CompressedUtxoTree<Item>> for UtxoTree<Key, Item, F, Hash>
 where
     Key: AsRef<[u8]> + Clone + std::hash::Hash + Eq,
     Hash: Digest<OutputSize = digest::typenum::U32>,
@@ -186,10 +187,14 @@ where
     fn from(compressed: CompressedUtxoTree<Item>) -> Self {
         Self {
             merkle: DynamicMerkleTree::from_compressed_tree::<Item, F>(&compressed),
-            items: compressed.items.iter().map(|(pos, item)| {
-                let key = F::extract(item);
-                (key, (item.clone(), *pos))
-            }).collect(),
+            items: compressed
+                .items
+                .iter()
+                .map(|(pos, item)| {
+                    let key = F::extract(item);
+                    (key, (item.clone(), *pos))
+                })
+                .collect(),
             item_to_key: PhantomData,
         }
     }
@@ -204,6 +209,7 @@ pub struct CompressedUtxoTree<Item> {
 mod serde {
     use digest::Digest;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
     use crate::KeyExtractor;
 
     impl<Key, Item, F, Hash> Serialize for super::UtxoTree<Key, Item, F, Hash>
@@ -240,9 +246,10 @@ mod serde {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use quickcheck::{Arbitrary, Gen};
     use quickcheck_macros::quickcheck;
+
+    use super::*;
     type TestHash = blake2::Blake2b<digest::typenum::U32>;
 
     #[derive(Clone, Debug)]
@@ -458,8 +465,6 @@ mod tests {
         assert_eq!(current_tree.size(), num_items / 2);
     }
 
-    
-
     impl Arbitrary for UtxoTree<Vec<u8>, Vec<u8>, IdentityKeyExtractor, TestHash> {
         fn arbitrary(g: &mut Gen) -> Self {
             let num_items = usize::arbitrary(g) % 2 + 1; // 1-1000 items
@@ -469,7 +474,7 @@ mod tests {
                 .collect::<Vec<_>>();
 
             for item in &items {
-               tree = tree.insert(item.clone()).0;
+                tree = tree.insert(item.clone()).0;
             }
 
             // Remove some items randomly
@@ -484,7 +489,9 @@ mod tests {
     }
 
     #[quickcheck]
-    fn test_compress_recover_roundtrip(test_tree: UtxoTree<Vec<u8>, Vec<u8>, IdentityKeyExtractor, TestHash>) -> bool {
+    fn test_compress_recover_roundtrip(
+        test_tree: UtxoTree<Vec<u8>, Vec<u8>, IdentityKeyExtractor, TestHash>,
+    ) -> bool {
         let original_tree = test_tree;
 
         // Compress the tree
@@ -493,6 +500,6 @@ mod tests {
         // Recover the tree from compressed format
         let recovered_tree: UtxoTree<_, _, _, _> = compressed.into();
 
-        recovered_tree == original_tree 
+        recovered_tree == original_tree
     }
 }
