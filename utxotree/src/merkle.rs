@@ -6,7 +6,7 @@ use std::{
 use digest::Digest;
 use rpds::RedBlackTreeSetSync;
 
-use crate::{CompressedUtxoTree, KeyExtractor};
+use crate::CompressedUtxoTree;
 
 const EMPTY_VALUE: [u8; 32] = [0; 32];
 
@@ -265,24 +265,6 @@ impl<Item: AsRef<[u8]>, Hash: Digest<OutputSize = digest::typenum::U32>>
         }
     }
 
-    pub fn from_compressed_tree<T, F: KeyExtractor<T, Item>>(comp: &CompressedUtxoTree<T>) -> Self {
-        let mut tree = Self::new();
-        let mut current_pos = 0;
-        for (pos, item) in &comp.items {
-            while current_pos < *pos {
-                // Insert a hole for the missing position
-                tree = tree.insert_hole(current_pos);
-                current_pos += 1;
-            }
-
-            tree.root = tree
-                .root
-                .insert_at::<Hash>(*pos, <F as KeyExtractor<_, _>>::extract(item));
-            current_pos = *pos + 1;
-        }
-        tree
-    }
-
     // This is only for maintaining holes information when recovering
     // the tree from a compressed format, should not be used otherwise.
     fn insert_hole(&self, index: usize) -> Self {
@@ -304,6 +286,26 @@ impl<Item: AsRef<[u8]>, Hash: Digest<OutputSize = digest::typenum::U32>>
             holes,
             _hash: PhantomData,
         }
+    }
+}
+
+impl<Item: AsRef<[u8]> + Clone, Hash: Digest<OutputSize = digest::typenum::U32>>
+    DynamicMerkleTree<Item, Hash>
+{
+    pub(crate) fn from_compressed_tree<T>(comp: &CompressedUtxoTree<Item, T>) -> Self {
+        let mut tree = Self::new();
+        let mut current_pos = 0;
+        for (pos, (key, _)) in &comp.items {
+            while current_pos < *pos {
+                // Insert a hole for the missing position
+                tree = tree.insert_hole(current_pos);
+                current_pos += 1;
+            }
+
+            tree.root = tree.root.insert_at::<Hash>(*pos, key.clone());
+            current_pos = *pos + 1;
+        }
+        tree
     }
 }
 
