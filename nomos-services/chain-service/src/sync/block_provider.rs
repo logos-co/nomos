@@ -175,7 +175,7 @@ where
             .find_optimal_start_block(cryptarchia, known_blocks, &target_info)
             .await?;
 
-        self.compute_path_from_endpoints(cryptarchia, start_info, target_info)
+        self.compute_path_between_endpoints(cryptarchia, start_info, target_info)
             .await
     }
 
@@ -205,10 +205,11 @@ where
     }
 
     /// Finds the optimal starting block from the given [`known_blocks`]
-    /// for building a block stream that leads to the [`target_block`].
+    /// for building a block stream that leads to the target block
+    /// indicated by [`target_info`].
     ///
     /// This function first tries to find the optimal starting block
-    /// from the engine, if the [`target_block`] and some of the
+    /// from the engine, if the target block and some of the
     /// [`known_blocks`] are present in the engine.
     /// If not, it returns the most recent block among the [`known_blocks`]
     /// stored as immutable blocks in the storage.
@@ -226,18 +227,18 @@ where
     ) -> Result<BlockInfo, GetBlocksError> {
         if target_info.location == BlockLocation::Engine {
             if let Some(start_info) =
-                Self::find_engine_lca_start(cryptarchia, known_blocks, target_info)?
+                Self::find_optimal_start_block_from_engine(cryptarchia, known_blocks, target_info)?
             {
                 return Ok(start_info);
             }
         }
 
-        self.find_storage_start(known_blocks)
+        self.find_optimal_start_block_from_storage(known_blocks)
             .await?
             .ok_or(GetBlocksError::StartBlockNotFound)
     }
 
-    fn find_engine_lca_start(
+    fn find_optimal_start_block_from_engine(
         cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId, State>,
         known_blocks: &HashSet<HeaderId>,
         target_info: &BlockInfo,
@@ -258,7 +259,7 @@ where
         Ok(None)
     }
 
-    async fn find_storage_start(
+    async fn find_optimal_start_block_from_storage(
         &self,
         known_blocks: &HashSet<HeaderId>,
     ) -> Result<Option<BlockInfo>, GetBlocksError> {
@@ -276,7 +277,7 @@ where
         Ok(None)
     }
 
-    async fn compute_path_from_endpoints(
+    async fn compute_path_between_endpoints(
         &self,
         cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId, State>,
         start_info: BlockInfo,
