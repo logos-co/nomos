@@ -68,7 +68,7 @@ use crate::{
     },
     leadership::Leader,
     network::BoxedStream,
-    processor::BlockProcessor,
+    processor::{BlockProcessor as _, NomosBlockProcessor},
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
     storage::{adapters::StorageAdapter, StorageAdapterExt as _},
@@ -592,34 +592,36 @@ where
             .notifier()
             .get_updated_settings();
 
+        // Initialize cryptarchia and leader.
+        let cryptarchia = InitialCryptarchia::new(
+            self.initial_state.lib,
+            self.initial_state.lib_ledger_state.clone(),
+            ledger_config,
+            genesis_id,
+            &bootstrap_config,
+        );
+        let leader = Leader::new(
+            self.initial_state.lib_leader_utxos.clone(),
+            leader_config.sk,
+            ledger_config,
+        );
+
+        // Create a block processor.
         let storage = relays.storage_adapter();
-        let block_processor = BlockProcessor::new(
+        let mut block_processor = NomosBlockProcessor::new(
             storage,
             &relays,
             self.block_subscription_sender.clone(),
             self.service_resources_handle.state_updater.clone(),
+            &leader,
+            // These are blocks that have been pruned by the cryptarchia engine but have not
+            // yet been deleted from the storage layer.
+            self.initial_state.storage_blocks_to_remove.clone(),
         );
 
-        // These are blocks that have been pruned by the cryptarchia engine but have not
-        // yet been deleted from the storage layer.
-        let storage_blocks_to_remove = self.initial_state.storage_blocks_to_remove.clone();
-        let (cryptarchia, pruned_blocks, leader) = self
-            .initialize_cryptarchia(
-                genesis_id,
-                &bootstrap_config,
-                ledger_config,
-                leader_config,
-                &block_processor,
-                storage,
-            )
-            .await;
-        let storage_blocks_to_remove = storage
-            .remove_blocks_and_collect_failures(
-                pruned_blocks
-                    .iter()
-                    .chain(storage_blocks_to_remove.iter())
-                    .copied(),
-            )
+        // Recover cryptarchia by loading blocks from the storage.
+        let cryptarchia = self
+            .recovery_cryptarchia(cryptarchia, &mut block_processor, storage)
             .await;
 
         let network_adapter =
@@ -673,12 +675,11 @@ where
                 self.run_bootstrap_cryptarchia(
                     &bootstrap_config,
                     cryptarchia,
-                    leader,
-                    storage_blocks_to_remove,
+                    &leader,
                     incoming_blocks,
                     slot_timer,
                     &relays,
-                    &block_processor,
+                    &mut block_processor,
                     tx_selector,
                     blob_selector,
                     blend_adapter,
@@ -691,12 +692,11 @@ where
             IbdCompletedCryptarchia::Online(cryptarchia) => {
                 self.run_online_cryptarchia(
                     cryptarchia,
-                    leader,
-                    storage_blocks_to_remove,
+                    &leader,
                     incoming_blocks,
                     slot_timer,
                     &relays,
-                    &block_processor,
+                    &mut block_processor,
                     tx_selector,
                     blob_selector,
                     blend_adapter,
@@ -854,8 +854,7 @@ where
         mut self,
         config: &BootstrapConfig,
         mut cryptarchia: Cryptarchia<Boostrapping>,
-        leader: Leader,
-        mut storage_blocks_to_remove: HashSet<HeaderId>,
+        leader: &Leader,
         mut incoming_blocks: BoxedStream<Block<ClPool::Item, DaPool::Item>>,
         mut slot_timer: EpochSlotTickStream,
         relays: &CryptarchiaConsensusRelays<
@@ -873,7 +872,7 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-        block_processor: &BlockProcessor<
+        block_processor: &mut NomosBlockProcessor<
             '_,
             BlendAdapter,
             BS,
@@ -908,21 +907,18 @@ where
                 }
 
                 Some(block) = incoming_blocks.next() => {
-                    (cryptarchia, storage_blocks_to_remove) = self.handle_incoming_block(
+                    cryptarchia = self.handle_incoming_block(
                         cryptarchia,
-                        &leader,
                         block.clone(),
-                        storage_blocks_to_remove,
                         block_processor,
                     ).await;
                 }
 
                 Some(SlotTick { slot, .. }) = slot_timer.next() => {
-                    (cryptarchia, storage_blocks_to_remove) = self.handle_new_slot(
+                    cryptarchia = self.handle_new_slot(
                         slot,
                         cryptarchia,
-                        &leader,
-                        storage_blocks_to_remove,
+                        leader,
                         relays,
                         block_processor,
                         tx_selector.clone(),
@@ -939,11 +935,10 @@ where
 
         // Switch to Online mode.
         let (cryptarchia, pruned_blocks) = cryptarchia.online();
-        storage_blocks_to_remove.extend(&pruned_blocks);
+        block_processor.add_storage_blocks_to_remove(pruned_blocks.iter().copied());
         self.run_online_cryptarchia(
             cryptarchia,
             leader,
-            storage_blocks_to_remove,
             incoming_blocks,
             slot_timer,
             relays,
@@ -973,8 +968,7 @@ where
     async fn run_online_cryptarchia(
         mut self,
         mut cryptarchia: Cryptarchia<Online>,
-        leader: Leader,
-        mut storage_blocks_to_remove: HashSet<HeaderId>,
+        leader: &Leader,
         mut incoming_blocks: BoxedStream<Block<ClPool::Item, DaPool::Item>>,
         mut slot_timer: EpochSlotTickStream,
         relays: &CryptarchiaConsensusRelays<
@@ -992,7 +986,7 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-        block_processor: &BlockProcessor<
+        block_processor: &mut NomosBlockProcessor<
             '_,
             BlendAdapter,
             BS,
@@ -1017,21 +1011,18 @@ where
         loop {
             tokio::select! {
                 Some(block) = incoming_blocks.next() => {
-                    (cryptarchia, storage_blocks_to_remove) = self.handle_incoming_block(
+                    cryptarchia = self.handle_incoming_block(
                         cryptarchia,
-                        &leader,
                         block.clone(),
-                        storage_blocks_to_remove,
                         block_processor,
                     ).await;
                 }
 
                 Some(SlotTick { slot, .. }) = slot_timer.next() => {
-                    (cryptarchia, storage_blocks_to_remove) = self.handle_new_slot(
+                    cryptarchia = self.handle_new_slot(
                         slot,
                         cryptarchia,
-                        &leader,
-                        storage_blocks_to_remove,
+                        leader,
                         relays,
                         block_processor,
                         tx_selector.clone(),
@@ -1059,10 +1050,8 @@ where
     async fn handle_incoming_block<State>(
         &self,
         cryptarchia: Cryptarchia<State>,
-        leader: &Leader,
         block: Block<ClPool::Item, DaPool::Item>,
-        storage_blocks_to_remove: HashSet<HeaderId>,
-        block_processor: &BlockProcessor<
+        block_processor: &mut NomosBlockProcessor<
             '_,
             BlendAdapter,
             BS,
@@ -1078,24 +1067,19 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-    ) -> (Cryptarchia<State>, HashSet<HeaderId>)
+    ) -> Cryptarchia<State>
     where
         State: CryptarchiaState + Send,
     {
         Self::log_received_block(&block);
 
         // Process the received block and update the cryptarchia state.
-        let (cryptarchia, storage_blocks_to_remove) = block_processor
-            .process_block_and_update_service_state(
-                cryptarchia,
-                leader,
-                block.clone(),
-                &storage_blocks_to_remove,
-            )
+        let cryptarchia = block_processor
+            .process_block_and_update_service_state(cryptarchia, block)
             .await;
 
         info!(counter.consensus_processed_blocks = 1);
-        (cryptarchia, storage_blocks_to_remove)
+        cryptarchia
     }
 
     /// Handle a new slot tick by proposing a new block if the `leader` is
@@ -1117,7 +1101,6 @@ where
         slot: Slot,
         cryptarchia: Cryptarchia<State>,
         leader: &Leader,
-        storage_blocks_to_remove: HashSet<HeaderId>,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
             BS,
@@ -1133,7 +1116,7 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-        block_processor: &BlockProcessor<
+        block_processor: &mut NomosBlockProcessor<
             '_,
             BlendAdapter,
             BS,
@@ -1152,7 +1135,7 @@ where
         tx_selector: TxS,
         blob_selector: BS,
         blend_adapter: &BlendAdapter,
-    ) -> (Cryptarchia<State>, HashSet<HeaderId>)
+    ) -> Cryptarchia<State>
     where
         State: CryptarchiaState + Send,
     {
@@ -1166,7 +1149,7 @@ where
                 "trying to propose a block for slot {} but epoch state is not available",
                 u64::from(slot)
             );
-            return (cryptarchia, storage_blocks_to_remove);
+            return cryptarchia;
         };
 
         if let Some(proof) = leader
@@ -1180,20 +1163,15 @@ where
 
             if let Some(block) = block {
                 // apply our own block
-                let (cryptarchia, storage_blocks_to_remove) = block_processor
-                    .process_block_and_update_service_state(
-                        cryptarchia,
-                        leader,
-                        block.clone(),
-                        &storage_blocks_to_remove,
-                    )
+                let cryptarchia = block_processor
+                    .process_block_and_update_service_state(cryptarchia, block.clone())
                     .await;
                 blend_adapter.blend(block).await;
-                return (cryptarchia, storage_blocks_to_remove);
+                return cryptarchia;
             }
         }
 
-        (cryptarchia, storage_blocks_to_remove)
+        cryptarchia
     }
 
     fn process_message<State: CryptarchiaState>(
@@ -1353,13 +1331,10 @@ where
         clippy::type_complexity,
         reason = "CryptarchiaConsensusState and CryptarchiaConsensusRelays amount of generics."
     )]
-    async fn initialize_cryptarchia(
+    async fn recovery_cryptarchia(
         &self,
-        genesis_id: HeaderId,
-        bootstrap_config: &BootstrapConfig,
-        ledger_config: nomos_ledger::Config,
-        leader_config: LeaderConfig,
-        block_processor: &BlockProcessor<
+        cryptarchia: InitialCryptarchia,
+        block_processor: &mut NomosBlockProcessor<
             '_,
             BlendAdapter,
             BS,
@@ -1376,23 +1351,9 @@ where
             RuntimeServiceId,
         >,
         storage: &StorageAdapter<Storage, ClPool::Item, DaPool::Item, RuntimeServiceId>,
-    ) -> (InitialCryptarchia, PrunedBlocks<HeaderId>, Leader) {
-        let lib_id = self.initial_state.lib;
-        let cryptarchia = InitialCryptarchia::new(
-            lib_id,
-            self.initial_state.lib_ledger_state.clone(),
-            ledger_config,
-            genesis_id,
-            bootstrap_config,
-        );
-        let leader = Leader::new(
-            self.initial_state.lib_leader_utxos.clone(),
-            leader_config.sk,
-            ledger_config,
-        );
-
+    ) -> InitialCryptarchia {
         let blocks = storage
-            .get_blocks_in_range(lib_id, self.initial_state.tip)
+            .get_blocks_in_range(cryptarchia.lib(), self.initial_state.tip)
             .await;
 
         // Skip LIB block since it's already applied
@@ -1400,66 +1361,19 @@ where
 
         // Process blocks
         match cryptarchia {
-            InitialCryptarchia::Bootstrapping(cryptarchia) => {
-                let (cryptarchia, pruned_blocks) = self
-                    .process_blocks(blocks, cryptarchia, block_processor)
-                    .await;
-                (
-                    InitialCryptarchia::Bootstrapping(cryptarchia),
-                    pruned_blocks,
-                    leader,
-                )
+            InitialCryptarchia::Bootstrapping(mut cryptarchia) => {
+                for block in blocks {
+                    cryptarchia = block_processor.process_block(cryptarchia, block).await;
+                }
+                InitialCryptarchia::Bootstrapping(cryptarchia)
             }
-            InitialCryptarchia::Online(cryptarchia) => {
-                let (cryptarchia, pruned_blocks) = self
-                    .process_blocks(blocks, cryptarchia, block_processor)
-                    .await;
-                (
-                    InitialCryptarchia::Online(cryptarchia),
-                    pruned_blocks,
-                    leader,
-                )
+            InitialCryptarchia::Online(mut cryptarchia) => {
+                for block in blocks {
+                    cryptarchia = block_processor.process_block(cryptarchia, block).await;
+                }
+                InitialCryptarchia::Online(cryptarchia)
             }
         }
-    }
-
-    /// Try to add multiple [`Block`]s to [`Cryptarchia`].
-    #[expect(
-        clippy::type_complexity,
-        reason = "CryptarchiaConsensusRelays amount of generics."
-    )]
-    async fn process_blocks<State>(
-        &self,
-        blocks: impl Iterator<Item = Block<ClPool::Item, DaPool::Item>>,
-        mut cryptarchia: Cryptarchia<State>,
-        block_processor: &BlockProcessor<
-            '_,
-            BlendAdapter,
-            BS,
-            ClPool,
-            ClPoolAdapter,
-            DaPool,
-            DaPoolAdapter,
-            NetAdapter,
-            SamplingBackend,
-            SamplingRng,
-            Storage,
-            TxS,
-            DaVerifierBackend,
-            RuntimeServiceId,
-        >,
-    ) -> (Cryptarchia<State>, PrunedBlocks<HeaderId>)
-    where
-        State: CryptarchiaState + Send,
-    {
-        let mut pruned_blocks = PrunedBlocks::new();
-        for block in blocks {
-            let (new_cryptarchia, new_pruned_blocks) =
-                block_processor.process_block(cryptarchia, block).await;
-            cryptarchia = new_cryptarchia;
-            pruned_blocks.extend(new_pruned_blocks);
-        }
-        (cryptarchia, pruned_blocks)
     }
 
     async fn handle_chainsync_event<State>(

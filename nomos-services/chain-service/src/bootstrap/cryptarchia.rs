@@ -43,6 +43,13 @@ impl InitialCryptarchia {
 
         Self::Online(Cryptarchia::from_lib(lib, lib_ledger_state, ledger_config))
     }
+
+    pub fn lib(&self) -> HeaderId {
+        match self {
+            Self::Bootstrapping(cryptarchia) => cryptarchia.consensus.lib_branch().id(),
+            Self::Online(cryptarchia) => cryptarchia.consensus.lib_branch().id(),
+        }
+    }
 }
 
 #[cfg(test)]
