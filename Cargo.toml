@@ -96,6 +96,7 @@ nomos_proof_statements   = { path = "./nomos-core/proof_statements" }
 services-utils           = { path = "./nomos-services/utils" }
 subnetworks-assignations = { path = "./nomos-da/network/subnetworks-assignations" }
 tests                    = { path = "./tests" }
+utxotree                 = { path = "./utxotree" }
 
 # External
 blake2           = "0.10"

@@ -21,6 +21,18 @@ impl NoteId {
     }
 }
 
+impl AsRef<[u8; 32]> for NoteId {
+    fn as_ref(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl AsRef<[u8]> for NoteId {
+    fn as_ref(&self) -> &[u8] {
+        &self.0[..]
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub struct Note {
     pub value: Value,

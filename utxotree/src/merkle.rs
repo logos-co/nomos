@@ -4,7 +4,9 @@ use std::{
 };
 
 use digest::Digest;
-use rpds::Queue;
+use rpds::RedBlackTreeSetSync;
+
+use crate::CompressedUtxoTree;
 
 const EMPTY_VALUE: [u8; 32] = [0; 32];
 
@@ -23,6 +25,7 @@ fn empty_subtree_root<Hash: Digest<OutputSize = digest::typenum::U32>>(height: u
     })[height]
 }
 
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Node<Item> {
     Inner {
@@ -198,7 +201,7 @@ impl<Item: AsRef<[u8]>> Node<Item> {
 #[derive(Debug, Clone)]
 pub struct DynamicMerkleTree<Item, Hash> {
     root: Arc<Node<Item>>,
-    holes: Queue<usize>,
+    holes: RedBlackTreeSetSync<usize>,
     _hash: PhantomData<Hash>,
 }
 
@@ -206,7 +209,7 @@ impl<Item: AsRef<[u8]>, Hash: Digest<OutputSize = digest::typenum::U32>>
     DynamicMerkleTree<Item, Hash>
 {
     pub fn new() -> Self {
-        let holes = Queue::new().enqueue(0);
+        let holes = RedBlackTreeSetSync::new_sync();
         Self {
             root: Arc::new(Node::Empty { height: 31 }),
             holes,
@@ -224,9 +227,9 @@ impl<Item: AsRef<[u8]>, Hash: Digest<OutputSize = digest::typenum::U32>>
             "max capacity reached, cannot insert more items"
         );
 
-        let (holes, index) = self.holes.peek().map_or_else(
+        let (holes, index) = self.holes.first().map_or_else(
             || (self.holes.clone(), self.root.size()),
-            |hole| (self.holes.dequeue().unwrap(), *hole),
+            |hole| (self.holes.remove(hole), *hole),
         );
 
         let root = self.root.insert_at::<Hash>(index, item);
@@ -244,7 +247,7 @@ impl<Item: AsRef<[u8]>, Hash: Digest<OutputSize = digest::typenum::U32>>
         assert!(index < self.root.capacity(), "Index out of bounds");
 
         let root = self.root.remove_at::<Hash>(index);
-        let holes = self.holes.enqueue(index);
+        let holes = self.holes.insert(index);
         Self {
             root,
             holes,
@@ -259,6 +262,118 @@ impl<Item: AsRef<[u8]>, Hash: Digest<OutputSize = digest::typenum::U32>>
                 panic!("Cannot get root from a leaf node, expected an inner node or empty node");
             }
             Node::Empty { .. } => empty_subtree_root::<Hash>(self.root.height()),
+        }
+    }
+
+    // This is only for maintaining holes information when recovering
+    // the tree from a compressed format, should not be used otherwise.
+    fn insert_hole(&self, index: usize) -> Self {
+        assert!(
+            index < self.root.capacity(),
+            "Index out of bounds for inserting an empty node"
+        );
+
+        let holes = self.holes.insert(index);
+        let root = self
+            .root
+            .insert_or_modify::<Hash, _>(index, |node| match node {
+                Node::Empty { .. } => Node::Leaf { item: None },
+                _ => panic!("Cannot insert a hole into a non-empty/non-leaf node"),
+            });
+
+        Self {
+            root,
+            holes,
+            _hash: PhantomData,
+        }
+    }
+}
+
+impl<Item: AsRef<[u8]> + Clone, Hash: Digest<OutputSize = digest::typenum::U32>>
+    DynamicMerkleTree<Item, Hash>
+{
+    pub(crate) fn from_compressed_tree<T>(comp: &CompressedUtxoTree<Item, T>) -> Self {
+        let mut tree = Self::new();
+        let mut current_pos = 0;
+        for (pos, (key, _)) in &comp.items {
+            while current_pos < *pos {
+                // Insert a hole for the missing position
+                tree = tree.insert_hole(current_pos);
+                current_pos += 1;
+            }
+
+            tree.root = tree.root.insert_at::<Hash>(*pos, key.clone());
+            current_pos = *pos + 1;
+        }
+        tree
+    }
+}
+
+impl<Item, Hash> PartialEq for DynamicMerkleTree<Item, Hash>
+where
+    Item: AsRef<[u8]> + PartialEq,
+    Hash: Digest<OutputSize = digest::typenum::U32>,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.root() == other.root()
+    }
+}
+
+impl<Item, Hash> Eq for DynamicMerkleTree<Item, Hash>
+where
+    Item: AsRef<[u8]> + Eq,
+    Hash: Digest<OutputSize = digest::typenum::U32>,
+{
+}
+
+#[cfg(feature = "serde")]
+pub mod serde {
+    use std::{marker::PhantomData, sync::Arc};
+
+    use rpds::RedBlackTreeSetSync;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeStruct as _};
+
+    #[derive(Deserialize)]
+    pub struct DynamicMerkleTree<Item> {
+        root: Arc<super::Node<Item>>,
+        holes: RedBlackTreeSetSync<usize>,
+    }
+
+    impl<Item, Hash> From<DynamicMerkleTree<Item>> for super::DynamicMerkleTree<Item, Hash> {
+        fn from(tree: DynamicMerkleTree<Item>) -> Self {
+            Self {
+                root: tree.root,
+                holes: tree.holes,
+                _hash: PhantomData,
+            }
+        }
+    }
+
+    impl<Item, Hash> Serialize for super::DynamicMerkleTree<Item, Hash>
+    where
+        Item: Serialize,
+    {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            let mut state = serializer.serialize_struct("DynamicMerkleTree", 2)?;
+            state.serialize_field("root", &self.root)?;
+            state.serialize_field("holes", &self.holes)?;
+            state.end()
+        }
+    }
+
+    impl<'de, Item, Hash> Deserialize<'de> for super::DynamicMerkleTree<Item, Hash>
+    where
+        Item: Deserialize<'de>,
+    {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            let raw: DynamicMerkleTree<Item> = Deserialize::deserialize(deserializer)?;
+            Ok(raw.into())
         }
     }
 }
@@ -396,5 +511,35 @@ mod tests {
         let tree4 = tree2.remove(0);
         assert_eq!(tree4.size(), 0);
         assert_eq!(tree2.size(), 1);
+    }
+
+    #[test]
+    fn test_smallest_hole_selection() {
+        let tree: DynamicMerkleTree<Vec<u8>, TestHash> = DynamicMerkleTree::new();
+
+        // Insert items at positions 0, 1, 2, 3, 4
+        let (tree, _) = tree.insert(b"a".to_vec());
+        let (tree, _) = tree.insert(b"b".to_vec());
+        let (tree, _) = tree.insert(b"c".to_vec());
+        let (tree, _) = tree.insert(b"d".to_vec());
+        let (tree, _) = tree.insert(b"e".to_vec());
+
+        // Remove items at positions 3, 1, 4 (creating holes in that order)
+        let tree = tree.remove(3);
+        let tree = tree.remove(1);
+        let tree = tree.remove(4);
+
+        // Now we have holes at positions 1, 3, 4
+        // The smallest hole should be selected first (position 1)
+        let (tree, index1) = tree.insert(b"x".to_vec());
+        assert_eq!(index1, 1, "Should select smallest hole first");
+
+        // Next insertion should use the next smallest hole (position 3)
+        let (tree, index2) = tree.insert(b"y".to_vec());
+        assert_eq!(index2, 3, "Should select next smallest hole");
+
+        // Final insertion should use the last hole (position 4)
+        let (_, index3) = tree.insert(b"z".to_vec());
+        assert_eq!(index3, 4, "Should select remaining hole");
     }
 }

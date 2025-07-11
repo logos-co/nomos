@@ -173,9 +173,9 @@ cryptarchia:
   genesis_state:
     cryptarchia_ledger:
       utxos:
-        utxos:
-          03b2d3b8a925adcb25eb686b92db7f21a75f0e0f7c93da95b383f0fd35279e48:
-            value: 1
+        0:
+          - '03b2d3b8a925adcb25eb686b92db7f21a75f0e0f7c93da95b383f0fd35279e48'
+          - value: 1
             pk: '0000000000000000000000000000000000000000000000000000000000000000'
       nonce:
         [
@@ -251,9 +251,9 @@ cryptarchia:
             0,
           ]
         utxos:
-          utxos:
-            03b2d3b8a925adcb25eb686b92db7f21a75f0e0f7c93da95b383f0fd35279e48:
-              value: 1
+          0:
+            - '03b2d3b8a925adcb25eb686b92db7f21a75f0e0f7c93da95b383f0fd35279e48'
+            - value: 1
               pk: '0000000000000000000000000000000000000000000000000000000000000000'
         total_stake: 1
       epoch_state:
@@ -294,9 +294,9 @@ cryptarchia:
             0,
           ]
         utxos:
-          utxos:
-            03b2d3b8a925adcb25eb686b92db7f21a75f0e0f7c93da95b383f0fd35279e48:
-              value: 1
+          0:
+            - '03b2d3b8a925adcb25eb686b92db7f21a75f0e0f7c93da95b383f0fd35279e48'
+            - value: 1
               pk: '0000000000000000000000000000000000000000000000000000000000000000'
         total_stake: 1
     mantle_ledger: ~
@@ -305,11 +305,11 @@ cryptarchia:
     chain_start_time: [2025, 41, 9, 38, 29, 993653000, 0, 0, 0]
   leader_config:
     utxos:
-    - tx_hash: '0000000000000000000000000000000000000000000000000000000000000000'
-      output_index: 0
-      note:
-        value: 1
-        pk: '0000000000000000000000000000000000000000000000000000000000000000'
+      - tx_hash: '0000000000000000000000000000000000000000000000000000000000000000'
+        output_index: 0
+        note:
+          value: 1
+          pk: '0000000000000000000000000000000000000000000000000000000000000000'
     sk: 3cf3335017304dcfce45124a0633829f
   network_adapter_settings:
     topic: /cryptarchia/proto
