@@ -388,6 +388,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 replication_settings: config.da_config.replication_settings,
                 subnets_settings: SubnetsConfig {
                     num_of_subnets: config.da_config.num_samples as usize,
+                    retry_limit: config.da_config.retry_subnets_limit,
                 },
                 refresh_interval: config.da_config.subnets_refresh_interval,
             },

@@ -69,6 +69,7 @@ da_network:
       seen_message_ttl: "3600.0"
     subnets_settings:
       num_of_subnets: 20
+      retry_limit: 5
     refresh_interval:
       secs: 30
       nanos: 0

@@ -1,4 +1,5 @@
 pub mod behaviour;
+mod connections;
 
 #[cfg(test)]
 mod test {
@@ -105,7 +106,10 @@ mod test {
         let p1_behavior = SamplingBehaviour::new(
             PeerId::from_public_key(&k1.public()),
             neighbours_p1.clone(),
-            SubnetsConfig { num_of_subnets: 1 },
+            SubnetsConfig {
+                num_of_subnets: 1,
+                retry_limit: 1,
+            },
             Box::pin(IntervalStream::new(time::interval(Duration::from_secs(1))).map(|_| ())),
         );
 
@@ -114,7 +118,10 @@ mod test {
         let p2_behavior = SamplingBehaviour::new(
             PeerId::from_public_key(&k2.public()),
             neighbours_p1.clone(),
-            SubnetsConfig { num_of_subnets: 1 },
+            SubnetsConfig {
+                num_of_subnets: 1,
+                retry_limit: 1,
+            },
             Box::pin(IntervalStream::new(time::interval(Duration::from_secs(1))).map(|_| ())),
         );
         let mut p2 = new_swarm_in_memory(&k2, p2_behavior);
