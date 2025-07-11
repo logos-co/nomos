@@ -57,7 +57,7 @@ use tracing_futures::Instrument as _;
 
 use crate::{
     leadership::Leader,
-    processor::BlockProcessor,
+    processor::{BlockProcessor as _, NomosBlockProcessor},
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
     storage::{adapters::StorageAdapter, StorageAdapterExt as _},
@@ -565,32 +565,34 @@ where
             .notifier()
             .get_updated_settings();
 
+        // Initialize cryptarchia and leader.
+        let cryptarchia = <Cryptarchia<Online>>::from_lib(
+            self.initial_state.lib,
+            self.initial_state.lib_ledger_state.clone(),
+            ledger_config,
+        );
+        let leader = Leader::new(
+            self.initial_state.lib_leader_utxos.clone(),
+            leader_config.sk,
+            ledger_config,
+        );
+
+        // Create a block processor.
         let storage = relays.storage_adapter();
-        let block_processor = BlockProcessor::new(
+        let mut block_processor = NomosBlockProcessor::new(
             storage,
             &relays,
             self.block_subscription_sender.clone(),
             self.service_resources_handle.state_updater.clone(),
+            &leader,
+            // These are blocks that have been pruned by the cryptarchia engine but have not
+            // yet been deleted from the storage layer.
+            self.initial_state.storage_blocks_to_remove.clone(),
         );
 
-        // These are blocks that have been pruned by the cryptarchia engine but have not
-        // yet been deleted from the storage layer.
-        let storage_blocks_to_remove = self.initial_state.storage_blocks_to_remove.clone();
-        let (mut cryptarchia, pruned_blocks, leader) = Self::initialize_cryptarchia(
-            self.initial_state,
-            ledger_config,
-            leader_config,
-            &block_processor,
-            storage,
-        )
-        .await;
-        let mut storage_blocks_to_remove = storage
-            .remove_blocks_and_collect_failures(
-                pruned_blocks
-                    .iter()
-                    .chain(storage_blocks_to_remove.iter())
-                    .copied(),
-            )
+        // Recover cryptarchia by loading blocks from the storage.
+        let mut cryptarchia = self
+            .recovery_cryptarchia(cryptarchia, &mut block_processor, storage)
             .await;
 
         let network_adapter =
@@ -642,11 +644,9 @@ where
                         Self::log_received_block(&block);
 
                         // Process the received block and update the cryptarchia state.
-                        (cryptarchia, storage_blocks_to_remove) = block_processor.process_block_and_update_service_state(
+                        cryptarchia = block_processor.process_block_and_update_service_state(
                             cryptarchia,
-                            &leader,
                             block.clone(),
-                            &storage_blocks_to_remove,
                         ).await;
 
                         info!(counter.consensus_processed_blocks = 1);
@@ -676,11 +676,9 @@ where
 
                             if let Some(block) = block {
                                 // apply our own block
-                                (cryptarchia, storage_blocks_to_remove) = block_processor.process_block_and_update_service_state(
+                                cryptarchia = block_processor.process_block_and_update_service_state(
                                     cryptarchia,
-                                    &leader,
                                     block.clone(),
-                                    &storage_blocks_to_remove,
                                 )
                                 .await;
                                 blend_adapter.blend(block).await;
@@ -976,16 +974,10 @@ where
         clippy::type_complexity,
         reason = "CryptarchiaConsensusState and CryptarchiaConsensusRelays amount of generics."
     )]
-    async fn initialize_cryptarchia(
-        initial_state: CryptarchiaConsensusState<
-            TxS::Settings,
-            BS::Settings,
-            NetAdapter::Settings,
-            BlendAdapter::Settings,
-        >,
-        ledger_config: nomos_ledger::Config,
-        leader_config: LeaderConfig,
-        block_processor: &BlockProcessor<
+    async fn recovery_cryptarchia<State>(
+        &self,
+        mut cryptarchia: Cryptarchia<State>,
+        block_processor: &mut NomosBlockProcessor<
             '_,
             BlendAdapter,
             BS,
@@ -1002,30 +994,22 @@ where
             RuntimeServiceId,
         >,
         storage: &StorageAdapter<Storage, ClPool::Item, DaPool::Item, RuntimeServiceId>,
-    ) -> (Cryptarchia<Online>, PrunedBlocks<HeaderId>, Leader) {
-        let lib_id = initial_state.lib;
-        let mut cryptarchia =
-            <Cryptarchia<Online>>::from_lib(lib_id, initial_state.lib_ledger_state, ledger_config);
-        let leader = Leader::new(
-            initial_state.lib_leader_utxos.clone(),
-            leader_config.sk,
-            ledger_config,
-        );
-
-        let blocks = storage.get_blocks_in_range(lib_id, initial_state.tip).await;
+    ) -> Cryptarchia<State>
+    where
+        State: CryptarchiaState + Send,
+    {
+        let blocks = storage
+            .get_blocks_in_range(cryptarchia.lib(), self.initial_state.tip)
+            .await;
 
         // Skip LIB block since it's already applied
         let blocks = blocks.into_iter().skip(1);
 
-        let mut pruned_blocks = PrunedBlocks::new();
+        // Process blocks
         for block in blocks {
-            let (new_cryptarchia, new_pruned_blocks) =
-                block_processor.process_block(cryptarchia, block).await;
-            cryptarchia = new_cryptarchia;
-            pruned_blocks.extend(new_pruned_blocks);
+            cryptarchia = block_processor.process_block(cryptarchia, block).await;
         }
-
-        (cryptarchia, pruned_blocks, leader)
+        cryptarchia
     }
 
     async fn handle_chainsync_event<State>(
