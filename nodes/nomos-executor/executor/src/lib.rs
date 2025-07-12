@@ -16,9 +16,7 @@ use nomos_da_dispersal::{
     backend::kzgrs::DispersalKZGRSBackend,
     DispersalService,
 };
-use nomos_da_network_service::{
-    api::http::HttApiAdapter, backends::libp2p::executor::DaNetworkExecutorBackend,
-};
+use nomos_da_network_service::backends::libp2p::executor::DaNetworkExecutorBackend;
 use nomos_da_sampling::{
     backend::kzgrs::KzgrsSamplingBackend,
     storage::adapters::rocksdb::{
@@ -250,7 +248,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
         >,
         SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
         NtpTimeBackend,
-        HttApiAdapter<NomosDaMembership>,
+        DaNetworkApiAdapter,
         ApiStorageAdapter<Wire, RuntimeServiceId>,
         MB16,
     >,
