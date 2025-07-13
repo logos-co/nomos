@@ -74,6 +74,7 @@ pub struct SwarmSettings {
     pub balancer_interval: Duration,
     pub redial_cooldown: Duration,
     pub replication_config: ReplicationConfig,
+    pub subnets_config: SubnetsConfig,
 }
 
 impl<Membership, Addressbook> ValidatorSwarm<Membership, Addressbook>
@@ -84,7 +85,6 @@ where
     pub fn new(
         key: Keypair,
         membership: Membership,
-<<<<<<< HEAD
         addressbook: Addressbook,
         SwarmSettings {
             policy_settings,
@@ -92,16 +92,9 @@ where
             balancer_interval,
             redial_cooldown,
             replication_config,
+            subnets_config,
         }: SwarmSettings,
-=======
-        policy_settings: DAConnectionPolicySettings,
-        monitor_settings: DAConnectionMonitorSettings,
-        balancer_interval: Duration,
-        redial_cooldown: Duration,
-        replication_config: ReplicationConfig,
-        subnets_config: SubnetsConfig,
         refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
->>>>>>> master
     ) -> (Self, ValidatorEventsStream) {
         let (sampling_events_sender, sampling_events_receiver) = unbounded_channel();
         let (validation_events_sender, validation_events_receiver) = unbounded_channel();

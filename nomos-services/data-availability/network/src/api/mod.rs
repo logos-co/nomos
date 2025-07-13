@@ -12,8 +12,13 @@ pub trait ApiAdapter {
     type BlobId;
     type Commitments;
     type Membership;
+    type AddressBook;
 
-    fn new(settings: Self::Settings, membership: Self::Membership) -> Self;
+    fn new(
+        settings: Self::Settings,
+        membership: Self::Membership,
+        addressbook: Self::AddressBook,
+    ) -> Self;
     async fn request_commitments(
         &self,
         request: Self::BlobId,

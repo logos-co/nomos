@@ -148,9 +148,9 @@ where
                 balancer_interval: config.validator_settings.balancer_interval,
                 redial_cooldown: config.validator_settings.redial_cooldown,
                 replication_config: config.validator_settings.replication_settings,
-            config.validator_settings.subnets_settings,
-            subnet_refresh_signal,
+                subnets_config: config.validator_settings.subnets_settings,
             },
+            subnet_refresh_signal,
         );
         let address = config.validator_settings.listening_address;
         // put swarm to listen at the specified configuration address

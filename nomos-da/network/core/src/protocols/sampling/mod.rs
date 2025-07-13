@@ -17,14 +17,10 @@ mod test {
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
     use crate::{
-<<<<<<< HEAD
         addressbook::AddressBookHandler,
-        protocols::sampling::behaviour::{BehaviourSampleRes, SamplingBehaviour, SamplingEvent},
-=======
         protocols::sampling::behaviour::{
             BehaviourSampleRes, SamplingBehaviour, SamplingEvent, SubnetsConfig,
         },
->>>>>>> master
         test_utils::{new_swarm_in_memory, AllNeighbours},
         SubnetworkId,
     };
@@ -33,6 +29,7 @@ mod test {
         mut swarm: Swarm<
             SamplingBehaviour<
                 impl MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
+                impl AddressBookHandler<Id = PeerId> + 'static,
             >,
         >,
         msg_count: usize,
@@ -80,60 +77,12 @@ mod test {
     #[tokio::test]
     async fn test_sampling_two_peers() {
         const MSG_COUNT: usize = 10;
-<<<<<<< HEAD
-        async fn test_sampling_swarm(
-            mut swarm: Swarm<
-                SamplingBehaviour<
-                    impl MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
-                    impl AddressBookHandler<Id = PeerId> + 'static,
-                >,
-            >,
-        ) -> Vec<[u8; 32]> {
-            let mut res = vec![];
-            loop {
-                match swarm.next().await {
-                    None => {}
-                    Some(SwarmEvent::Behaviour(SamplingEvent::IncomingSample {
-                        request_receiver,
-                        response_sender,
-                    })) => {
-                        debug!("Received request");
-                        // spawn here because otherwise we block polling
-                        tokio::spawn(request_receiver);
-                        response_sender
-                            .send(BehaviourSampleRes::SamplingSuccess {
-                                blob_id: Default::default(),
-                                subnetwork_id: Default::default(),
-                                share: Box::new(DaLightShare {
-                                    column: Column(vec![]),
-                                    share_idx: 0,
-                                    combined_column_proof: Proof::default(),
-                                }),
-                            })
-                            .unwrap();
-                    }
-                    Some(SwarmEvent::Behaviour(SamplingEvent::SamplingSuccess {
-                        blob_id, ..
-                    })) => {
-                        debug!("Received response");
-                        res.push(blob_id);
-                    }
-                    Some(SwarmEvent::Behaviour(SamplingEvent::SamplingError { error })) => {
-                        debug!("Error during sampling: {error}");
-                    }
-                    Some(event) => {
-                        debug!("{event:?}");
-                    }
-                }
-                if res.len() == MSG_COUNT {
-                    break res;
-                }
-            }
-        }
-=======
->>>>>>> master
 
-        setup_tracing();
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .compact()
+            .with_writer(TestWriter::default())
+            .try_init();
         let k1 = Keypair::generate_ed25519();
         let k2 = Keypair::generate_ed25519();
 
@@ -144,47 +93,40 @@ mod test {
         let p2_id = rand::thread_rng().gen::<u64>();
         let p2_address: Multiaddr = format!("/memory/{p2_id}").parse().unwrap();
 
-        let neighbours_p1 = setup_neighbours(
-            PeerId::from_public_key(&k1.public()),
-            PeerId::from_public_key(&k2.public()),
-            p2_address.clone(),
-        );
+        let neighbours_p1 = AllNeighbours::default();
+        neighbours_p1.add_neighbour(PeerId::from_public_key(&k1.public()));
+        neighbours_p1.add_neighbour(PeerId::from_public_key(&k2.public()));
+        let p1_addresses = vec![(PeerId::from_public_key(&k2.public()), p2_address.clone())];
+        neighbours_p1.update_addresses(p1_addresses);
 
-        let neighbours_p2 = setup_neighbours(
-            PeerId::from_public_key(&k2.public()),
-            PeerId::from_public_key(&k1.public()),
-            p1_address.clone(),
-        );
+        let neighbours_p2 = AllNeighbours::default();
+        neighbours_p2.add_neighbour(PeerId::from_public_key(&k1.public()));
+        neighbours_p2.add_neighbour(PeerId::from_public_key(&k2.public()));
+        let p2_addresses = vec![(PeerId::from_public_key(&k1.public()), p1_address.clone())];
+        neighbours_p2.update_addresses(p2_addresses);
 
         let p1_behavior = SamplingBehaviour::new(
             PeerId::from_public_key(&k1.public()),
             neighbours_p1.clone(),
-<<<<<<< HEAD
             neighbours_p1.clone(),
-=======
             SubnetsConfig {
                 num_of_subnets: 1,
                 retry_limit: 1,
             },
             Box::pin(IntervalStream::new(time::interval(Duration::from_secs(1))).map(|_| ())),
->>>>>>> master
         );
 
         let mut p1 = new_swarm_in_memory(&k1, p1_behavior);
 
         let p2_behavior = SamplingBehaviour::new(
             PeerId::from_public_key(&k2.public()),
-<<<<<<< HEAD
             neighbours_p2.clone(),
             neighbours_p2.clone(),
-=======
-            neighbours_p1.clone(),
             SubnetsConfig {
                 num_of_subnets: 1,
                 retry_limit: 1,
             },
             Box::pin(IntervalStream::new(time::interval(Duration::from_secs(1))).map(|_| ())),
->>>>>>> master
         );
         let mut p2 = new_swarm_in_memory(&k2, p2_behavior);
 
@@ -212,25 +154,5 @@ mod test {
         let res1 = t1.await.unwrap();
         let res2 = t2.await.unwrap();
         assert_eq!(res1, res2);
-    }
-
-    fn setup_neighbours(
-        my_id: PeerId,
-        other_id: PeerId,
-        other_address: Multiaddr,
-    ) -> AllNeighbours {
-        let neighbours = AllNeighbours::default();
-        neighbours.add_neighbour(my_id);
-        neighbours.add_neighbour(other_id);
-        neighbours.update_addresses(vec![(other_id, other_address)]);
-        neighbours
-    }
-
-    fn setup_tracing() {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .compact()
-            .with_writer(TestWriter::default())
-            .try_init();
     }
 }

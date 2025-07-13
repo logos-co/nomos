@@ -67,21 +67,17 @@ where
     ) -> Self {
         let peer_id = PeerId::from_public_key(&key.public());
         Self {
-<<<<<<< HEAD
-            sampling: SamplingBehaviour::new(peer_id, membership.clone(), addressbook.clone()),
             executor_dispersal: DispersalExecutorBehaviour::new(
                 membership.clone(),
                 addressbook.clone(),
             ),
-=======
             sampling: SamplingBehaviour::new(
                 peer_id,
                 membership.clone(),
+                addressbook.clone(),
                 subnets_config,
                 refresh_signal,
             ),
-            executor_dispersal: DispersalExecutorBehaviour::new(membership.clone()),
->>>>>>> master
             validator_dispersal: DispersalValidatorBehaviour::new(membership.clone()),
             replication: ReplicationBehaviour::new(replication_config, peer_id, membership),
             balancer: ConnectionBalancerBehaviour::new(balancer, addressbook),

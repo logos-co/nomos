@@ -77,14 +77,9 @@ where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
     Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
 {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "Swarm contains a lot of behaviours"
-    )]
     pub fn new(
         key: Keypair,
         membership: Membership,
-<<<<<<< HEAD
         addressbook: Addressbook,
         SwarmSettings {
             policy_settings,
@@ -92,16 +87,9 @@ where
             balancer_interval,
             redial_cooldown,
             replication_config,
+            subnets_config,
         }: SwarmSettings,
-=======
-        policy_settings: DAConnectionPolicySettings,
-        monitor_settings: DAConnectionMonitorSettings,
-        balancer_interval: Duration,
-        redial_cooldown: Duration,
-        replication_config: ReplicationConfig,
-        subnets_config: SubnetsConfig,
         refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
->>>>>>> master
     ) -> (Self, ExecutorEventsStream) {
         let (sampling_events_sender, sampling_events_receiver) = unbounded_channel();
         let (validation_events_sender, validation_events_receiver) = unbounded_channel();

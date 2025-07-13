@@ -6,7 +6,7 @@ use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p_identity::PeerId;
 use multiaddr::Multiaddr;
 use nomos_core::da::BlobId;
-use nomos_da_network_core::SubnetworkId;
+use nomos_da_network_core::{addressbook::AddressBookHandler, SubnetworkId};
 use overwatch::DynError;
 use rand::prelude::IteratorRandom as _;
 use serde::{Deserialize, Serialize};
@@ -24,14 +24,15 @@ pub struct ApiAdapterSettings {
 }
 
 #[derive(Clone)]
-pub struct HttApiAdapter<Membership> {
+pub struct HttApiAdapter<Membership, AddressBook> {
     pub client: CommonHttpClient,
     pub membership: Membership,
+    pub addressbook: AddressBook,
     pub api_port: u16,
     pub protocol: String,
 }
 
-impl<Membership> HttApiAdapter<Membership>
+impl<Membership, AddressBook> HttApiAdapter<Membership, AddressBook>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -39,13 +40,14 @@ where
         + Send
         + Sync
         + 'static,
+    AddressBook: AddressBookHandler<Id = PeerId> + Clone + Debug + Send + Sync + 'static,
 {
     fn random_peer_address(&self) -> Option<Url> {
         let peer_address = self
             .membership
             .members()
             .iter()
-            .filter_map(|peer| self.membership.get_address(peer))
+            .filter_map(|peer| self.addressbook.get_address(peer))
             .choose(&mut rand::thread_rng())?;
 
         let host = get_ip_from_multiaddr(&peer_address)?;
@@ -60,7 +62,7 @@ where
 }
 
 #[async_trait]
-impl<Membership> ApiAdapter for HttApiAdapter<Membership>
+impl<Membership, AddressBook> ApiAdapter for HttApiAdapter<Membership, AddressBook>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -68,17 +70,20 @@ where
         + Send
         + Sync
         + 'static,
+    AddressBook: AddressBookHandler<Id = PeerId> + Clone + Debug + Send + Sync + 'static,
 {
     type Settings = ApiAdapterSettings;
     type Share = DaShare;
     type BlobId = BlobId;
     type Commitments = DaSharesCommitments;
     type Membership = Membership;
+    type AddressBook = AddressBook;
 
-    fn new(settings: Self::Settings, membership: Membership) -> Self {
+    fn new(settings: Self::Settings, membership: Membership, addressbook: AddressBook) -> Self {
         Self {
             client: CommonHttpClient::new(None),
             membership,
+            addressbook,
             api_port: settings.api_port,
             protocol: if settings.is_secure {
                 "https".to_owned()

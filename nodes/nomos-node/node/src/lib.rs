@@ -17,6 +17,7 @@ pub use nomos_core::{
     mantle::{select::FillSize as FillSizeWithTx, Transaction},
     wire,
 };
+use nomos_da_network_core::addressbook::mock::MockAddressBook;
 pub use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBackend;
 use nomos_da_network_service::{
     api::http::HttApiAdapter, membership::handler::DaMembershipHandler,
@@ -82,7 +83,8 @@ impl StorageSerde for Wire {
 /// Membership used by the DA Network service.
 pub type NomosDaMembership = FillFromNodeList;
 pub type DaMembershipStorage = MockStorage;
-pub type DaNetworkApiAdapter = HttApiAdapter<DaMembershipHandler<NomosDaMembership>>;
+pub type DaNetworkApiAdapter =
+    HttApiAdapter<DaMembershipHandler<NomosDaMembership>, MockAddressBook>;
 
 #[cfg(feature = "tracing")]
 pub(crate) type TracingService = Tracing<RuntimeServiceId>;

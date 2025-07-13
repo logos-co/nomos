@@ -130,9 +130,9 @@ where
                 balancer_interval: config.balancer_interval,
                 redial_cooldown: config.redial_cooldown,
                 replication_config: config.replication_settings,
-            config.subnets_settings,
-            subnet_refresh_signal,
+                subnets_config: config.subnets_settings,
             },
+            subnet_refresh_signal,
         );
         let address = config.listening_address;
         // put swarm to listen at the specified configuration address

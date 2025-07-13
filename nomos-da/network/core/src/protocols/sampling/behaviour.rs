@@ -38,12 +38,8 @@ use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{error, warn};
 
-<<<<<<< HEAD
-use crate::{addressbook::AddressBookHandler, protocol::SAMPLING_PROTOCOL, SubnetworkId};
-=======
 use super::connections::Connections;
-use crate::{protocol::SAMPLING_PROTOCOL, SubnetworkId};
->>>>>>> master
+use crate::{addressbook::AddressBookHandler, protocol::SAMPLING_PROTOCOL, SubnetworkId};
 
 #[derive(Debug, Error)]
 pub enum SamplingError {
@@ -346,13 +342,10 @@ where
     to_close: VecDeque<SampleStream>,
     /// Subnetworks membership information
     membership: Membership,
-<<<<<<< HEAD
     /// Addressbook used for getting addresses of peers
     addressbook: Addressbook,
-=======
     /// Peers that were selected for
     sampling_peers: HashMap<SubnetworkId, PeerId>,
->>>>>>> master
     /// Hook of pending samples channel
     samples_request_sender: UnboundedSender<BlobId>,
     /// Pending samples stream
@@ -375,16 +368,13 @@ where
     Membership::NetworkId: Send,
     Addressbook: AddressBookHandler + 'static,
 {
-<<<<<<< HEAD
-    pub fn new(local_peer_id: PeerId, membership: Membership, addressbook: Addressbook) -> Self {
-=======
     pub fn new(
         local_peer_id: PeerId,
         membership: Membership,
+        addressbook: Addressbook,
         subnets_config: SubnetsConfig,
         refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
     ) -> Self {
->>>>>>> master
         let stream_behaviour = libp2p_stream::Behaviour::new();
         let mut control = stream_behaviour.new_control();
 
@@ -414,12 +404,8 @@ where
             to_retry,
             to_close,
             membership,
-<<<<<<< HEAD
             addressbook,
-
-=======
             sampling_peers,
->>>>>>> master
             samples_request_sender,
             samples_request_stream,
             subnets_config,

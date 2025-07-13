@@ -224,6 +224,7 @@ where
             BlobId = BlobId,
             Commitments = DaSharesCommitments,
             Membership = DaMembershipHandler<Membership>,
+            AddressBook = DaAddressBook,
         > + Send
         + Sync
         + 'static,
@@ -247,9 +248,13 @@ where
             .get_updated_settings();
 
         let membership = DaMembershipHandler::new(settings.membership);
-        let api_adapter =
-            ApiAdapter::new(settings.api_adapter_settings.clone(), membership.clone());
-        let addressbook = MockAddressBook::default();
+        let addressbook = DaAddressBook::default();
+
+        let api_adapter = ApiAdapter::new(
+            settings.api_adapter_settings.clone(),
+            membership.clone(),
+            addressbook.clone(),
+        );
 
         Ok(Self {
             backend: <Backend as NetworkBackend<RuntimeServiceId>>::new(
