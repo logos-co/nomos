@@ -120,8 +120,8 @@ mod test {
 
         let p2_behavior = SamplingBehaviour::new(
             PeerId::from_public_key(&k2.public()),
-            neighbours_p1.clone(),
-            neighbours_p1.clone(),
+            neighbours_p2.clone(),
+            neighbours_p2.clone(),
             SubnetsConfig {
                 num_of_subnets: 1,
                 retry_limit: 1,
