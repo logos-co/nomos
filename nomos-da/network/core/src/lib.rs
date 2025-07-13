@@ -1,3 +1,4 @@
+pub mod addressbook;
 #[expect(
     clippy::too_many_arguments,
     reason = "Behaviours needs configuration passed for multiple protocols"

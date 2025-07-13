@@ -9,7 +9,10 @@ use libp2p::PeerId;
 use nomos_core::da::BlobId;
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
-    swarm::{validator::ValidatorSwarm, BalancerStats, MonitorStats},
+    swarm::{
+        validator::{SwarmSettings, ValidatorSwarm},
+        BalancerStats, MonitorStats,
+    },
     SubnetworkId,
 };
 use nomos_libp2p::ed25519;
@@ -35,6 +38,7 @@ use crate::{
         NetworkBackend,
     },
     membership::handler::DaMembershipHandler,
+    DaAddressbook,
 };
 
 /// Message that the backend replies to
@@ -100,11 +104,13 @@ where
     type EventKind = DaNetworkEventKind;
     type NetworkEvent = DaNetworkEvent;
     type Membership = DaMembershipHandler<Membership>;
+    type Addressbook = DaAddressbook;
 
     fn new(
         config: Self::Settings,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Self::Membership,
+        addressbook: Self::Addressbook,
     ) -> Self {
         // TODO: If there is no requirement to subscribe to block number events in chain
         // service, and an approximate duration is enough for sampling to hold
@@ -117,12 +123,15 @@ where
         let (mut validator_swarm, validator_events_stream) = ValidatorSwarm::new(
             keypair,
             membership,
-            config.policy_settings,
-            config.monitor_settings,
-            config.balancer_interval,
-            config.redial_cooldown,
-            config.replication_settings,
-            config.subnets_settings,
+            addressbook,
+            SwarmSettings {
+                policy_settings: config.policy_settings,
+                monitor_settings: config.monitor_settings,
+                balancer_interval: config.balancer_interval,
+                redial_cooldown: config.redial_cooldown,
+                replication_settings: config.replication_settings,
+                subnets_settings: config.subnets_settings,
+            },
             subnet_refresh_signal,
         );
         let address = config.listening_address;

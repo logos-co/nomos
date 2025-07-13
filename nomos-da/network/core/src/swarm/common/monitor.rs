@@ -394,7 +394,7 @@ mod tests {
             monitor_settings,
             DAConnectionPolicy::new(
                 policy_settings,
-                FillFromNodeList::new(&[PeerId::random()], HashMap::default(), 0, 0),
+                FillFromNodeList::new(&[PeerId::random()], 0, 0),
                 peer_id,
             ),
         )

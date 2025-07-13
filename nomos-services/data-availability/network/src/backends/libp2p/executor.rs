@@ -12,7 +12,7 @@ use nomos_core::da::BlobId;
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::dispersal::executor::behaviour::DispersalExecutorEvent,
-    swarm::{executor::ExecutorSwarm, BalancerStats, MonitorStats},
+    swarm::{executor::ExecutorSwarm, validator::SwarmSettings, BalancerStats, MonitorStats},
     SubnetworkId,
 };
 use nomos_libp2p::ed25519;
@@ -38,6 +38,7 @@ use crate::{
         NetworkBackend,
     },
     membership::handler::DaMembershipHandler,
+    DaAddressbook,
 };
 
 /// Message that the backend replies to
@@ -118,11 +119,13 @@ where
     type EventKind = DaNetworkEventKind;
     type NetworkEvent = DaNetworkEvent;
     type Membership = DaMembershipHandler<Membership>;
+    type Addressbook = DaAddressbook;
 
     fn new(
         config: Self::Settings,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Self::Membership,
+        addressbook: Self::Addressbook,
     ) -> Self {
         // TODO: If there is no requirement to subscribe to block number events in chain
         // service, and an approximate duration is enough for sampling to hold
@@ -138,12 +141,15 @@ where
         let (mut executor_swarm, executor_events_stream) = ExecutorSwarm::new(
             keypair,
             membership,
-            config.validator_settings.policy_settings.clone(),
-            config.validator_settings.monitor_settings.clone(),
-            config.validator_settings.balancer_interval,
-            config.validator_settings.redial_cooldown,
-            config.validator_settings.replication_settings,
-            config.validator_settings.subnets_settings,
+            addressbook,
+            SwarmSettings {
+                policy_settings: config.validator_settings.policy_settings,
+                monitor_settings: config.validator_settings.monitor_settings,
+                balancer_interval: config.validator_settings.balancer_interval,
+                redial_cooldown: config.validator_settings.redial_cooldown,
+                replication_settings: config.validator_settings.replication_settings,
+                subnets_settings: config.validator_settings.subnets_settings,
+            },
             subnet_refresh_signal,
         );
         let address = config.validator_settings.listening_address;

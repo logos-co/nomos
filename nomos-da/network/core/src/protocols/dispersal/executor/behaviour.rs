@@ -31,7 +31,7 @@ use tokio::sync::{mpsc, mpsc::UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::error;
 
-use crate::{protocol::DISPERSAL_PROTOCOL, SubnetworkId};
+use crate::{addressbook::AddressBookHandler, protocol::DISPERSAL_PROTOCOL, SubnetworkId};
 
 #[derive(Debug, Error)]
 pub enum DispersalError {
@@ -167,7 +167,11 @@ type StreamHandlerFuture = BoxFuture<'static, Result<StreamHandlerFutureSuccess,
 ///
 /// It takes care of sending blobs to different subnetworks.
 /// Bubbles up events with the success or error when dispersing
-pub struct DispersalExecutorBehaviour<Membership: MembershipHandler> {
+pub struct DispersalExecutorBehaviour<Membership, Addressbook>
+where
+    Membership: MembershipHandler,
+    Addressbook: AddressBookHandler,
+{
     /// Underlying stream behaviour
     stream_behaviour: libp2p_stream::Behaviour,
     /// Pending running tasks (one task per stream)
@@ -176,6 +180,8 @@ pub struct DispersalExecutorBehaviour<Membership: MembershipHandler> {
     idle_streams: HashMap<PeerId, DispersalStream>,
     /// Subnetworks membership information
     membership: Membership,
+    /// Address book handler to get addresses of peers
+    addressbook: Addressbook,
     /// Pending blobs that need to be dispersed by `PeerId`
     to_disperse: HashMap<PeerId, VecDeque<(Membership::NetworkId, DaShare)>>,
     /// Pending blobs from disconnected networks
@@ -198,12 +204,13 @@ pub struct DispersalExecutorBehaviour<Membership: MembershipHandler> {
     waker: Option<Waker>,
 }
 
-impl<Membership> DispersalExecutorBehaviour<Membership>
+impl<Membership, Addressbook> DispersalExecutorBehaviour<Membership, Addressbook>
 where
     Membership: MembershipHandler + 'static,
     Membership::NetworkId: Send,
+    Addressbook: AddressBookHandler + 'static,
 {
-    pub fn new(membership: Membership) -> Self {
+    pub fn new(membership: Membership, addressbook: Addressbook) -> Self {
         let stream_behaviour = libp2p_stream::Behaviour::new();
         let tasks = FuturesUnordered::new();
         let to_disperse = HashMap::new();
@@ -226,6 +233,7 @@ where
             stream_behaviour,
             tasks,
             membership,
+            addressbook,
             to_disperse,
             disconnected_pending_shares,
             connected_peers,
@@ -339,8 +347,10 @@ where
     }
 }
 
-impl<Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static>
-    DispersalExecutorBehaviour<Membership>
+impl<Membership, Addressbook> DispersalExecutorBehaviour<Membership, Addressbook>
+where
+    Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
+    Addressbook: AddressBookHandler<Id = PeerId> + 'static,
 {
     /// Schedule a new task for sending the blob, if stream is not available
     /// queue messages for later processing.
@@ -536,7 +546,7 @@ impl<Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'sta
             // Attach a known peer address if possible.
             if let Some(address) = opts
                 .get_peer_id()
-                .and_then(|peer_id: PeerId| self.membership.get_address(&peer_id))
+                .and_then(|peer_id: PeerId| self.addressbook.get_address(&peer_id))
             {
                 opts = DialOpts::peer_id(opts.get_peer_id().unwrap())
                     .addresses(vec![address])
@@ -549,8 +559,11 @@ impl<Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'sta
     }
 }
 
-impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> NetworkBehaviour
-    for DispersalExecutorBehaviour<M>
+impl<Membership, Addressbook> NetworkBehaviour
+    for DispersalExecutorBehaviour<Membership, Addressbook>
+where
+    Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
+    Addressbook: AddressBookHandler<Id = PeerId> + 'static,
 {
     type ConnectionHandler = Either<
         <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler,

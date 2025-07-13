@@ -19,7 +19,7 @@ use tests::{
         api::GeneralApiConfig,
         blend::create_blend_configs,
         consensus::{create_consensus_configs, ConsensusParams},
-        da::{create_da_configs, DaParams, GeneralDaConfig},
+        da::{create_da_configs, DaParams},
         membership::GeneralMembershipConfig,
         network::{create_network_configs, NetworkParams},
         time::default_time_config,
@@ -104,7 +104,6 @@ pub fn create_node_configs(
 
     // Rebuild DA address lists.
     let host_network_init_peers = update_network_init_peers(&hosts);
-    let host_da_peer_addresses = update_da_peer_addresses(hosts.clone(), da_configs.clone());
     let host_blend_membership =
         update_blend_membership(hosts.clone(), blend_configs[0].membership.clone());
 
@@ -114,9 +113,6 @@ pub fn create_node_configs(
 
         // DA Libp2p network config.
         let mut da_config = da_configs[i].clone();
-        da_config.membership = da_config
-            .membership
-            .clone_with_different_addressbook(host_da_peer_addresses.clone());
         da_config.listening_address = Multiaddr::from_str(&format!(
             "/ip4/0.0.0.0/udp/{}/quic-v1",
             host.da_network_port,
@@ -169,25 +165,6 @@ fn update_network_init_peers(hosts: &[Host]) -> Vec<Multiaddr> {
     hosts
         .iter()
         .map(|h| multiaddr(h.ip, h.network_port))
-        .collect()
-}
-
-fn update_da_peer_addresses(
-    hosts: Vec<Host>,
-    da_configs: Vec<GeneralDaConfig>,
-) -> HashMap<PeerId, Multiaddr> {
-    da_configs
-        .into_iter()
-        .zip(hosts)
-        .map(|(config, host)| {
-            let new_multiaddr = Multiaddr::from_str(&format!(
-                "/ip4/{}/udp/{}/quic-v1",
-                host.ip, host.da_network_port,
-            ))
-            .unwrap();
-
-            (config.peer_id, new_multiaddr)
-        })
         .collect()
 }
 
@@ -310,16 +287,14 @@ mod cfgsync_tests {
     use nomos_da_network_core::swarm::{
         DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
     };
-    use nomos_libp2p::{ed25519, libp2p, Multiaddr, PeerId, Protocol};
+    use nomos_libp2p::{Multiaddr, Protocol};
     use nomos_tracing_service::{
         FilterLayer, LoggerLayer, MetricsLayer, TracingLayer, TracingSettings,
     };
-    use subnetworks_assignations::MembershipHandler as _;
-    use tests::topology::configs::{consensus::ConsensusParams, da::DaParams, GeneralConfig};
+    use tests::topology::configs::{consensus::ConsensusParams, da::DaParams};
     use tracing::Level;
 
     use super::{create_node_configs, Host, HostKind};
-    use crate::tests::extract_ip;
 
     #[test]
     fn basic_ip_list() {
@@ -378,26 +353,7 @@ mod cfgsync_tests {
             assert_eq!(network_port, host.network_port);
             assert_eq!(da_network_port, host.da_network_port);
             assert_eq!(blend_port, host.blend_port);
-
-            check_da_membership(host.ip, config);
         }
-    }
-
-    pub fn check_da_membership(my_ip: Ipv4Addr, config: &GeneralConfig) {
-        let key = libp2p::identity::Keypair::from(ed25519::Keypair::from(
-            config.da_config.node_key.clone(),
-        ));
-        let my_peer_id = PeerId::from_public_key(&key.public());
-        let my_multiaddr = config
-            .da_config
-            .membership
-            .get_address(&my_peer_id)
-            .unwrap();
-        let my_multiaddr_ip = extract_ip(&my_multiaddr).unwrap();
-        assert_eq!(
-            my_ip, my_multiaddr_ip,
-            "DA membership ip doesn't match host ip"
-        );
     }
 
     fn extract_port(multiaddr: &Multiaddr) -> u16 {

@@ -17,6 +17,7 @@ mod test {
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
     use crate::{
+        addressbook::AddressBookHandler,
         protocols::sampling::behaviour::{
             BehaviourSampleRes, SamplingBehaviour, SamplingEvent, SubnetsConfig,
         },
@@ -28,6 +29,7 @@ mod test {
         mut swarm: Swarm<
             SamplingBehaviour<
                 impl MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
+                impl AddressBookHandler<Id = PeerId> + 'static,
             >,
         >,
         msg_count: usize,
@@ -106,6 +108,7 @@ mod test {
         let p1_behavior = SamplingBehaviour::new(
             PeerId::from_public_key(&k1.public()),
             neighbours_p1.clone(),
+            neighbours_p1.clone(),
             SubnetsConfig {
                 num_of_subnets: 1,
                 retry_limit: 1,
@@ -117,6 +120,7 @@ mod test {
 
         let p2_behavior = SamplingBehaviour::new(
             PeerId::from_public_key(&k2.public()),
+            neighbours_p1.clone(),
             neighbours_p1.clone(),
             SubnetsConfig {
                 num_of_subnets: 1,

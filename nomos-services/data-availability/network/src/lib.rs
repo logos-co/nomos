@@ -14,8 +14,9 @@ use async_trait::async_trait;
 use backends::NetworkBackend;
 use futures::Stream;
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
-use libp2p::Multiaddr;
+use libp2p::{Multiaddr, PeerId};
 use nomos_core::{block::BlockNumber, da::BlobId};
+use nomos_da_network_core::addressbook::{mock::MockAddressBook, AddressBookMut as _};
 use overwatch::{
     services::{
         state::{NoOperator, ServiceState},
@@ -33,6 +34,8 @@ use crate::{
     api::ApiAdapter as ApiAdapterTrait,
     membership::{handler::DaMembershipHandler, MembershipAdapter},
 };
+
+pub type DaAddressbook = MockAddressBook;
 
 pub enum DaNetworkMsg<Backend, Membership, Commitments, RuntimeServiceId>
 where
@@ -123,6 +126,7 @@ pub struct NetworkService<
     backend: Backend,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     membership: DaMembershipHandler<Membership>,
+    addressbook: DaAddressbook,
     api_adapter: ApiAdapter,
     phantom: PhantomData<MembershipServiceAdapter>,
 }
@@ -198,11 +202,14 @@ impl<
         RuntimeServiceId,
     >
 where
-    Backend: NetworkBackend<RuntimeServiceId, Membership = DaMembershipHandler<Membership>>
-        + Send
+    Backend: NetworkBackend<
+            RuntimeServiceId,
+            Membership = DaMembershipHandler<Membership>,
+            Addressbook = DaAddressbook,
+        > + Send
         + 'static,
     Backend::State: Send + Sync,
-    Membership: MembershipCreator + Clone + Send + Sync + 'static,
+    Membership: MembershipCreator<Id = PeerId> + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync,
     Membership::NetworkId: Send,
     MembershipServiceAdapter: MembershipAdapter<Id = Membership::Id> + Send + Sync + 'static,
@@ -218,6 +225,7 @@ where
             BlobId = BlobId,
             Commitments = DaSharesCommitments,
             Membership = DaMembershipHandler<Membership>,
+            Addressbook = DaAddressbook,
         > + Send
         + Sync
         + 'static,
@@ -241,17 +249,24 @@ where
             .get_updated_settings();
 
         let membership = DaMembershipHandler::new(settings.membership);
-        let api_adapter =
-            ApiAdapter::new(settings.api_adapter_settings.clone(), membership.clone());
+        let addressbook = DaAddressbook::default();
+
+        let api_adapter = ApiAdapter::new(
+            settings.api_adapter_settings.clone(),
+            membership.clone(),
+            addressbook.clone(),
+        );
 
         Ok(Self {
             backend: <Backend as NetworkBackend<RuntimeServiceId>>::new(
                 settings.backend,
                 service_resources_handle.overwatch_handle.clone(),
                 membership.clone(),
+                addressbook.clone(),
             ),
             service_resources_handle,
             membership,
+            addressbook,
             api_adapter,
             phantom: PhantomData,
         })
@@ -269,6 +284,7 @@ where
             ref mut backend,
             ref membership,
             ref api_adapter,
+            ref addressbook,
             ..
         } = self;
 
@@ -302,7 +318,7 @@ where
                         "Received membership update for block {}: {:?}",
                         block_number, providers
                     );
-                    Self::handle_membership_update(block_number, providers, &membership_storage);
+                    Self::handle_membership_update(block_number, providers, &membership_storage, addressbook);
                 }
             }
         }
@@ -358,13 +374,12 @@ where
         > + Send
         + Sync,
 
-    Membership::Id: Send + Sync,
     ApiAdapter:
         ApiAdapterTrait<BlobId = BlobId, Commitments = DaSharesCommitments> + Send + Sync + 'static,
     ApiAdapter::Settings: Clone + Send,
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::State: Send + Sync,
-    Membership: MembershipCreator + Clone + Send + Sync + 'static,
+    Membership: MembershipCreator<Id = PeerId> + Clone + Send + Sync + 'static,
 {
     async fn handle_network_service_message(
         msg: DaNetworkMsg<Backend, Membership, DaSharesCommitments, RuntimeServiceId>,
@@ -417,11 +432,16 @@ where
     }
 
     fn handle_membership_update(
-        block_numnber: BlockNumber,
-        update: HashMap<<Membership as MembershipHandler>::Id, Multiaddr>,
+        block_number: BlockNumber,
+        update: HashMap<Membership::Id, Multiaddr>,
         storage: &MembershipStorage<StorageAdapter, Membership>,
+        addressbook: &DaAddressbook,
     ) {
-        storage.update(block_numnber, update);
+        storage.update(block_number, update.clone());
+        // since addressbook access is different then membership (get address vs
+        // snapshots) addressbook real implementation would have storage inside
+        // for update and get address
+        addressbook.update(update);
     }
 }
 

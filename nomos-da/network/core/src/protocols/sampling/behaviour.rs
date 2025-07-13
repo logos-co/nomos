@@ -39,7 +39,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{error, warn};
 
 use super::connections::Connections;
-use crate::{protocol::SAMPLING_PROTOCOL, SubnetworkId};
+use crate::{addressbook::AddressBookHandler, protocol::SAMPLING_PROTOCOL, SubnetworkId};
 
 #[derive(Debug, Error)]
 pub enum SamplingError {
@@ -319,7 +319,11 @@ pub struct SubnetsConfig {
 
 /// Executor sampling protocol
 /// Takes care of sending and replying sampling requests
-pub struct SamplingBehaviour<Membership: MembershipHandler> {
+pub struct SamplingBehaviour<Membership, Addressbook>
+where
+    Membership: MembershipHandler,
+    Addressbook: AddressBookHandler,
+{
     /// Self peer id
     local_peer_id: PeerId,
     /// Underlying stream behaviour
@@ -338,6 +342,8 @@ pub struct SamplingBehaviour<Membership: MembershipHandler> {
     to_close: VecDeque<SampleStream>,
     /// Subnetworks membership information
     membership: Membership,
+    /// Addressbook used for getting addresses of peers
+    addressbook: Addressbook,
     /// Peers that were selected for
     sampling_peers: HashMap<SubnetworkId, PeerId>,
     /// Hook of pending samples channel
@@ -356,14 +362,16 @@ pub struct SamplingBehaviour<Membership: MembershipHandler> {
     waker: Option<Waker>,
 }
 
-impl<Membership> SamplingBehaviour<Membership>
+impl<Membership, Addressbook> SamplingBehaviour<Membership, Addressbook>
 where
     Membership: MembershipHandler + 'static,
     Membership::NetworkId: Send,
+    Addressbook: AddressBookHandler + 'static,
 {
     pub fn new(
         local_peer_id: PeerId,
         membership: Membership,
+        addressbook: Addressbook,
         subnets_config: SubnetsConfig,
         refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
     ) -> Self {
@@ -396,6 +404,7 @@ where
             to_retry,
             to_close,
             membership,
+            addressbook,
             sampling_peers,
             samples_request_sender,
             samples_request_stream,
@@ -569,8 +578,10 @@ where
     }
 }
 
-impl<Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static>
-    SamplingBehaviour<Membership>
+impl<Membership, Addressbook> SamplingBehaviour<Membership, Addressbook>
+where
+    Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
+    Addressbook: AddressBookHandler<Id = PeerId> + 'static,
 {
     /// Schedule a new task for sample the blob, if stream is not available
     /// queue messages for later processing.
@@ -818,8 +829,10 @@ impl<Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'sta
     }
 }
 
-impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> NetworkBehaviour
-    for SamplingBehaviour<M>
+impl<Membership, Addressbook> NetworkBehaviour for SamplingBehaviour<Membership, Addressbook>
+where
+    Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
+    Addressbook: AddressBookHandler<Id = PeerId> + 'static,
 {
     type ConnectionHandler = Either<
         <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler,
@@ -930,7 +943,7 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
             // attach known peer address if possible
             if let Some(address) = opts
                 .get_peer_id()
-                .and_then(|peer_id: PeerId| self.membership.get_address(&peer_id))
+                .and_then(|peer_id: PeerId| self.addressbook.get_address(&peer_id))
             {
                 opts = DialOpts::peer_id(opts.get_peer_id().unwrap())
                     .addresses(vec![address])
