@@ -11,13 +11,12 @@ use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::sampling::{
         self,
-        behaviour::{BehaviourSampleReq, BehaviourSampleRes, SamplingError},
+        behaviour::{BehaviourSampleReq, BehaviourSampleRes, SamplingError, SubnetsConfig},
     },
     swarm::{
         validator::ValidatorEventsStream, DAConnectionMonitorSettings, DAConnectionPolicySettings,
         ReplicationConfig,
     },
-    SubnetworkId,
 };
 use nomos_libp2p::{ed25519, secret_key_serde, Multiaddr};
 use serde::{Deserialize, Serialize};
@@ -40,6 +39,8 @@ pub struct DaNetworkBackendSettings {
     pub balancer_interval: Duration,
     pub redial_cooldown: Duration,
     pub replication_settings: ReplicationConfig,
+    pub subnets_settings: SubnetsConfig,
+    pub refresh_interval: Duration,
 }
 
 /// Sampling events coming from da network
@@ -147,14 +148,11 @@ pub(crate) async fn handle_validator_events_stream(
 }
 
 pub(crate) async fn handle_sample_request(
-    sampling_request_channel: &UnboundedSender<(SubnetworkId, BlobId)>,
-    subnetwork_id: SubnetworkId,
+    sampling_request_channel: &UnboundedSender<BlobId>,
     blob_id: BlobId,
 ) {
-    if let Err(SendError((subnetwork_id, blob_id))) =
-        sampling_request_channel.send((subnetwork_id, blob_id))
-    {
-        error!("Error requesting sample for subnetwork id : {subnetwork_id}, blob_id: {blob_id:?}");
+    if let Err(SendError(blob_id)) = sampling_request_channel.send(blob_id) {
+        error!("Error requesting samples for blob_id: {blob_id:?}");
     }
 }
 

@@ -4,6 +4,7 @@ pub mod backends;
 use std::{
     fmt::{Debug, Display, Formatter},
     marker::PhantomData,
+    num::NonZeroUsize,
 };
 
 use async_trait::async_trait;
@@ -29,6 +30,9 @@ pub enum StorageMsg<Backend: StorageBackend> {
     },
     LoadPrefix {
         prefix: Bytes,
+        start_key: Option<Bytes>,
+        end_key: Option<Bytes>,
+        limit: Option<NonZeroUsize>,
         reply_channel: tokio::sync::oneshot::Sender<Vec<Bytes>>,
     },
     Store {
@@ -138,8 +142,17 @@ impl<Backend: StorageBackend> Debug for StorageMsg<Backend> {
             Self::Load { key, .. } => {
                 write!(f, "Load {{ {key:?} }}")
             }
-            Self::LoadPrefix { prefix, .. } => {
-                write!(f, "LoadPrefix {{ {prefix:?} }}")
+            Self::LoadPrefix {
+                prefix,
+                start_key,
+                end_key,
+                limit,
+                ..
+            } => {
+                write!(
+                    f,
+                    "LoadPrefix {{ {prefix:?} {start_key:?}, {end_key:?}, limit: {limit:?} }}"
+                )
             }
             Self::Store { key, value } => {
                 write!(f, "Store {{ {key:?}, {value:?}}}")
@@ -185,8 +198,14 @@ where
             }
             StorageMsg::LoadPrefix {
                 prefix,
+                start_key,
+                end_key,
+                limit,
                 reply_channel,
-            } => Self::handle_load_prefix(backend, prefix, reply_channel).await,
+            } => {
+                Self::handle_load_prefix(backend, prefix, start_key, end_key, limit, reply_channel)
+                    .await
+            }
             StorageMsg::Store { key, value } => Self::handle_store(backend, key, value).await,
             StorageMsg::Remove { key, reply_channel } => {
                 Self::handle_remove(backend, key, reply_channel).await
@@ -222,10 +241,13 @@ where
     async fn handle_load_prefix(
         backend: &mut Backend,
         prefix: Bytes,
+        start_key: Option<Bytes>,
+        end_key: Option<Bytes>,
+        limit: Option<NonZeroUsize>,
         reply_channel: tokio::sync::oneshot::Sender<Vec<Bytes>>,
     ) -> Result<(), StorageServiceError> {
         let result: Vec<Bytes> = backend
-            .load_prefix(&prefix)
+            .load_prefix(&prefix, start_key.as_deref(), end_key.as_deref(), limit)
             .await
             .map_err(|e| StorageServiceError::BackendError(e.into()))?;
         reply_channel

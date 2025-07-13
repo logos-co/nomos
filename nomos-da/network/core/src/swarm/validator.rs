@@ -24,7 +24,7 @@ use crate::{
     protocols::{
         dispersal::validator::behaviour::DispersalEvent,
         replication::behaviour::{ReplicationConfig, ReplicationEvent},
-        sampling::behaviour::SamplingEvent,
+        sampling::behaviour::{SamplingEvent, SubnetsConfig},
     },
     swarm::{
         common::{
@@ -84,6 +84,7 @@ where
     pub fn new(
         key: Keypair,
         membership: Membership,
+<<<<<<< HEAD
         addressbook: Addressbook,
         SwarmSettings {
             policy_settings,
@@ -92,6 +93,15 @@ where
             redial_cooldown,
             replication_config,
         }: SwarmSettings,
+=======
+        policy_settings: DAConnectionPolicySettings,
+        monitor_settings: DAConnectionMonitorSettings,
+        balancer_interval: Duration,
+        redial_cooldown: Duration,
+        replication_config: ReplicationConfig,
+        subnets_config: SubnetsConfig,
+        refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
+>>>>>>> master
     ) -> (Self, ValidatorEventsStream) {
         let (sampling_events_sender, sampling_events_receiver) = unbounded_channel();
         let (validation_events_sender, validation_events_receiver) = unbounded_channel();
@@ -128,6 +138,8 @@ where
                     monitor,
                     redial_cooldown,
                     replication_config,
+                    subnets_config,
+                    refresh_signal,
                 ),
                 sampling_events_sender,
                 validation_events_sender,
@@ -146,6 +158,8 @@ where
         monitor: ConnectionMonitor<Membership>,
         redial_cooldown: Duration,
         replication_config: ReplicationConfig,
+        subnets_config: SubnetsConfig,
+        refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
     ) -> Swarm<
         ValidatorBehaviour<
             ConnectionBalancer<Membership>,
@@ -166,6 +180,8 @@ where
                     monitor,
                     redial_cooldown,
                     replication_config,
+                    subnets_config,
+                    refresh_signal,
                 )
             })
             .expect("Validator behaviour should build")
@@ -187,7 +203,7 @@ where
         self.swarm.listen_on(address)
     }
 
-    pub fn sample_request_channel(&mut self) -> UnboundedSender<(Membership::NetworkId, BlobId)> {
+    pub fn sample_request_channel(&mut self) -> UnboundedSender<BlobId> {
         self.swarm
             .behaviour()
             .sampling_behaviour()

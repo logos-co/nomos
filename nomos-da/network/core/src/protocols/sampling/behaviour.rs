@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
+    pin::Pin,
     task::{Context, Poll, Waker},
 };
 
@@ -17,8 +18,8 @@ use kzgrs_backend::common::{share::DaLightShare, ShareIndex};
 use libp2p::{
     core::{transport::PortUse, Endpoint},
     swarm::{
-        dial_opts::DialOpts, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler,
-        THandlerInEvent, THandlerOutEvent, ToSwarm,
+        dial_opts::DialOpts, ConnectionDenied, ConnectionId, DialFailure, FromSwarm,
+        NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
     },
     Multiaddr, PeerId, Stream,
 };
@@ -29,13 +30,20 @@ use nomos_da_messages::{
     packing::{pack_to_writer, unpack_from_reader},
     sampling,
 };
+use rand::{rngs::ThreadRng, seq::IteratorRandom as _};
+use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 use thiserror::Error;
-use tokio::sync::{mpsc, mpsc::UnboundedSender};
+use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::error;
+use tracing::{error, warn};
 
+<<<<<<< HEAD
 use crate::{addressbook::AddressBookHandler, protocol::SAMPLING_PROTOCOL, SubnetworkId};
+=======
+use super::connections::Connections;
+use crate::{protocol::SAMPLING_PROTOCOL, SubnetworkId};
+>>>>>>> master
 
 #[derive(Debug, Error)]
 pub enum SamplingError {
@@ -78,6 +86,17 @@ pub enum SamplingError {
     },
     #[error("Canceled response: {error}")]
     ResponseChannel { error: Canceled, peer_id: PeerId },
+    #[error("Peer {peer_id} sent share for subnet {received} instead of {expected}")]
+    MismatchSubnetwork {
+        expected: SubnetworkId,
+        received: SubnetworkId,
+        peer_id: PeerId,
+    },
+    #[error("Failed to dial peers in {subnetwork_id} for blob {blob_id:?}")]
+    NoSubnetworkPeers {
+        blob_id: BlobId,
+        subnetwork_id: SubnetworkId,
+    },
 }
 
 impl SamplingError {
@@ -91,7 +110,9 @@ impl SamplingError {
             | Self::RequestChannel { peer_id, .. }
             | Self::ResponseChannel { peer_id, .. }
             | Self::InvalidBlobId { peer_id, .. }
+            | Self::MismatchSubnetwork { peer_id, .. }
             | Self::BlobNotFound { peer_id, .. } => Some(peer_id),
+            Self::NoSubnetworkPeers { .. } => None,
         }
     }
 
@@ -171,6 +192,22 @@ impl Clone for SamplingError {
                 blob_id: blob_id.clone(),
                 subnetwork_id: *subnetwork_id,
             },
+            Self::MismatchSubnetwork {
+                expected,
+                received,
+                peer_id,
+            } => Self::MismatchSubnetwork {
+                expected: *expected,
+                received: *received,
+                peer_id: *peer_id,
+            },
+            Self::NoSubnetworkPeers {
+                blob_id,
+                subnetwork_id,
+            } => Self::NoSubnetworkPeers {
+                blob_id: *blob_id,
+                subnetwork_id: *subnetwork_id,
+            },
         }
     }
 }
@@ -240,6 +277,18 @@ pub enum SamplingEvent {
     },
 }
 
+impl SamplingEvent {
+    #[must_use]
+    pub const fn no_subnetwork_peers_err(blob_id: BlobId, subnetwork_id: SubnetworkId) -> Self {
+        Self::SamplingError {
+            error: SamplingError::NoSubnetworkPeers {
+                blob_id,
+                subnetwork_id,
+            },
+        }
+    }
+}
+
 /// Auxiliary struct that binds a stream with the corresponding `PeerId`
 struct SampleStream {
     stream: Stream,
@@ -262,6 +311,16 @@ type SampleFutureSuccess = (PeerId, SampleStreamResponse, SampleStream);
 type SampleFutureError = (SamplingError, Option<SampleStream>);
 type SamplingStreamFuture = BoxFuture<'static, Result<SampleFutureSuccess, SampleFutureError>>;
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SubnetsConfig {
+    /// Number of unique subnets that samples should be taken from when sampling
+    /// a blob.
+    pub num_of_subnets: usize,
+    /// Numer of connection attemps to the peers in a subnetwork, if previous
+    /// connection attempt failed.
+    pub retry_limit: usize,
+}
+
 /// Executor sampling protocol
 /// Takes care of sending and replying sampling requests
 pub struct SamplingBehaviour<Membership, Addressbook>
@@ -281,16 +340,31 @@ where
     stream_tasks: FuturesUnordered<SamplingStreamFuture>,
     /// Pending blobs that need to be sampled from `PeerId`
     to_sample: HashMap<PeerId, VecDeque<(Membership::NetworkId, BlobId)>>,
+    /// Queue of blobs that still needs a peer for sampling.
+    to_retry: VecDeque<(Membership::NetworkId, BlobId)>,
     /// Sample streams that has no tasks and should be closed.
     to_close: VecDeque<SampleStream>,
     /// Subnetworks membership information
     membership: Membership,
+<<<<<<< HEAD
     /// Addressbook used for getting addresses of peers
     addressbook: Addressbook,
+=======
+    /// Peers that were selected for
+    sampling_peers: HashMap<SubnetworkId, PeerId>,
+>>>>>>> master
     /// Hook of pending samples channel
-    samples_request_sender: UnboundedSender<(Membership::NetworkId, BlobId)>,
+    samples_request_sender: UnboundedSender<BlobId>,
     /// Pending samples stream
-    samples_request_stream: BoxStream<'static, (Membership::NetworkId, BlobId)>,
+    samples_request_stream: BoxStream<'static, BlobId>,
+    /// Subnets sampling config that is used when picking new subnetwork peers.
+    subnets_config: SubnetsConfig,
+    /// Refresh signal stream that triggers the subnetwork list refresh in
+    /// sampling baheviour.
+    subnet_refresh_signal: Pin<Box<dyn futures::Stream<Item = ()> + Send>>,
+    /// Pending subnetwork connections for randomly selected peers after refresh
+    /// interval.
+    connections: Connections,
     /// Waker for sampling polling
     waker: Option<Waker>,
 }
@@ -301,7 +375,16 @@ where
     Membership::NetworkId: Send,
     Addressbook: AddressBookHandler + 'static,
 {
+<<<<<<< HEAD
     pub fn new(local_peer_id: PeerId, membership: Membership, addressbook: Addressbook) -> Self {
+=======
+    pub fn new(
+        local_peer_id: PeerId,
+        membership: Membership,
+        subnets_config: SubnetsConfig,
+        refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
+    ) -> Self {
+>>>>>>> master
         let stream_behaviour = libp2p_stream::Behaviour::new();
         let mut control = stream_behaviour.new_control();
 
@@ -311,10 +394,16 @@ where
 
         let stream_tasks = FuturesUnordered::new();
         let to_sample = HashMap::new();
+        let to_retry = VecDeque::new();
         let to_close = VecDeque::new();
 
+        let sampling_peers = HashMap::new();
         let (samples_request_sender, receiver) = mpsc::unbounded_channel();
         let samples_request_stream = UnboundedReceiverStream::new(receiver).boxed();
+
+        let subnet_refresh_signal = Box::pin(refresh_signal);
+        let connections = Connections::new(subnets_config.retry_limit);
+
         Self {
             local_peer_id,
             stream_behaviour,
@@ -322,12 +411,20 @@ where
             control,
             stream_tasks,
             to_sample,
+            to_retry,
             to_close,
             membership,
+<<<<<<< HEAD
             addressbook,
 
+=======
+            sampling_peers,
+>>>>>>> master
             samples_request_sender,
             samples_request_stream,
+            subnets_config,
+            subnet_refresh_signal,
+            connections,
             waker: None,
         }
     }
@@ -345,7 +442,7 @@ where
     }
 
     /// Get a hook to the sender channel of the sample events
-    pub fn sample_request_channel(&self) -> UnboundedSender<(Membership::NetworkId, BlobId)> {
+    pub fn sample_request_channel(&self) -> UnboundedSender<BlobId> {
         self.samples_request_sender.clone()
     }
 
@@ -469,33 +566,11 @@ where
         Ok((peer_id, SampleStreamResponse::Reader, stream))
     }
 
-    /// Handle outgoing stream
-    /// Schedule a new task if its available or drop the stream if not
-    fn schedule_outgoing_stream_task(
-        stream_tasks: &FuturesUnordered<SamplingStreamFuture>,
-        to_sample: &mut HashMap<PeerId, VecDeque<(SubnetworkId, BlobId)>>,
-        to_close: &mut VecDeque<SampleStream>,
-        stream: SampleStream,
-    ) {
-        let peer_id = stream.peer_id;
-
-        // If there is a pending task schedule next one
-        if let Some((subnetwork_id, blob_id)) =
-            to_sample.get_mut(&peer_id).and_then(VecDeque::pop_front)
-        {
-            let sample_request = sampling::SampleRequest::new(blob_id, subnetwork_id);
-            stream_tasks.push(Self::stream_sample(stream, sample_request).boxed());
-        } else {
-            // if not pop stream from connected ones
-            to_close.push_back(stream);
-        }
-    }
-
     /// Schedule an incoming stream to be replied
     /// Creates the necessary channels so requests can be replied from outside
     /// of this behaviour from whoever that takes the channels
     fn schedule_incoming_stream_task(
-        stream_tasks: &FuturesUnordered<SamplingStreamFuture>,
+        &self,
         sample_stream: SampleStream,
     ) -> (Receiver<BehaviourSampleReq>, Sender<BehaviourSampleRes>) {
         let (request_sender, request_receiver) = oneshot::channel();
@@ -504,7 +579,8 @@ where
             request_sender,
             response_receiver,
         };
-        stream_tasks.push(Self::handle_incoming_stream(sample_stream, channel).boxed());
+        self.stream_tasks
+            .push(Self::handle_incoming_stream(sample_stream, channel).boxed());
         // Scheduled a task, lets poll again.
         (request_receiver, response_sender)
     }
@@ -523,44 +599,33 @@ where
 {
     /// Schedule a new task for sample the blob, if stream is not available
     /// queue messages for later processing.
-    fn sample(
-        local_peer_id: PeerId,
-        stream_tasks: &FuturesUnordered<SamplingStreamFuture>,
-        membership: &Membership,
-        subnetwork_id: SubnetworkId,
-        blob_id: BlobId,
-        control: &Control,
-    ) {
-        let members = membership.members_of(&subnetwork_id);
-        // TODO: peer selection for sampling should be randomly selected (?) filtering
-        // ourselves currently we assume optimal setup which is one peer per
-        // blob
-        let peer = members
-            .iter()
-            .filter(|&id| id != &local_peer_id)
-            .copied()
-            .next()
-            .expect("At least a single node should be a member of the subnetwork");
-        // If its connected means we are already working on some other sample, enqueue
-        // message, stream behaviour will dial peer if connection is not
-        // present.
-        let control = control.clone();
-        let sample_request = sampling::SampleRequest::new(blob_id, subnetwork_id);
-        let with_dial_task: SamplingStreamFuture = async move {
-            // If we don't have an existing connection to the peer, this will immediately
-            // return `ConnectionReset` io error. To handle that, we need to queue
-            // `sample_request` for a peer and try again when the connection is
-            // established.
-            let stream = Self::open_stream(peer, control)
-                .await
-                .map_err(|err| (err, None))?;
-            Self::stream_sample(stream, sample_request).await
+    fn sample(&mut self, blob_id: BlobId) {
+        for (subnetwork_id, peer_id) in &self.sampling_peers {
+            let subnetwork_id = *subnetwork_id;
+            let peer_id = *peer_id;
+            let control = self.control.clone();
+            // If its connected means we are already working on some other sample, enqueue
+            // message, stream behaviour will dial peer if connection is not
+            // present.
+            let sample_request = sampling::SampleRequest::new(blob_id, subnetwork_id);
+            let with_dial_task: SamplingStreamFuture = async move {
+                // If we don't have an existing connection to the peer, this will immediately
+                // return `ConnectionReset` io error. To handle that, we need to queue
+                // `sample_request` for a peer and try again when the connection is
+                // established.
+                let stream = Self::open_stream(peer_id, control)
+                    .await
+                    .map_err(|err| (err, None))?;
+                Self::stream_sample(stream, sample_request).await
+            }
+            .boxed();
+            self.stream_tasks.push(with_dial_task);
+            self.connections
+                .register_pending_peer(peer_id, subnetwork_id);
         }
-        .boxed();
-        stream_tasks.push(with_dial_task);
     }
 
-    fn try_sample(&mut self, peer_id: PeerId) {
+    fn try_peer_sample(&mut self, peer_id: PeerId) {
         if let Some((subnetwork_id, blob_id)) = self
             .to_sample
             .get_mut(&peer_id)
@@ -577,6 +642,79 @@ where
             .boxed();
             self.stream_tasks.push(open_stream_task);
             self.try_wake();
+        }
+    }
+
+    fn try_subnetwork_sample(&mut self, blob_id: BlobId, subnetwork_id: SubnetworkId) {
+        if self.connections.should_retry(subnetwork_id) {
+            let mut rng = rand::thread_rng();
+            if let Some(peer_id) = self.pick_subnetwork_peer(subnetwork_id, &mut rng) {
+                let control = self.control.clone();
+                let sample_request = sampling::SampleRequest::new(blob_id, subnetwork_id);
+                let open_stream_task: SamplingStreamFuture = async move {
+                    let stream = Self::open_stream(peer_id, control)
+                        .await
+                        .map_err(|err| (err, None))?;
+                    Self::stream_sample(stream, sample_request).await
+                }
+                .boxed();
+                self.stream_tasks.push(open_stream_task);
+                self.sampling_peers.insert(subnetwork_id, peer_id);
+            } else {
+                warn!("Subnetwork {subnetwork_id} has no peers");
+            }
+        }
+    }
+
+    fn refresh_subnets(&mut self) {
+        // Previously selected subnetworks and their peers won't be used anymore.
+        self.sampling_peers.clear();
+        self.connections.clear();
+
+        let mut rng = rand::thread_rng();
+        let subnets: Vec<SubnetworkId> = (0..self.membership.last_subnetwork_id())
+            .choose_multiple(&mut rng, self.subnets_config.num_of_subnets);
+
+        // Chosing a random peer for a subnetwork, even if previously selected peer for
+        // different subnetwork might also be a member of another subnetwork.
+        for subnetwork_id in subnets {
+            if let Some(peer_id) = self.pick_subnetwork_peer(subnetwork_id, &mut rng) {
+                self.sampling_peers.insert(subnetwork_id, peer_id);
+            } else {
+                warn!("Subnetwork {subnetwork_id} has no peers");
+            }
+        }
+    }
+
+    fn pick_subnetwork_peer(
+        &self,
+        subnetwork_id: SubnetworkId,
+        rng: &mut ThreadRng,
+    ) -> Option<PeerId> {
+        let candidates = self.membership.members_of(&subnetwork_id);
+        candidates
+            .into_iter()
+            .filter(|peer| *peer != self.local_peer_id)
+            .choose(rng)
+    }
+
+    /// Handle outgoing stream
+    /// Schedule a new task if its available or drop the stream if not
+    fn schedule_outgoing_stream_task(&mut self, stream: SampleStream) {
+        let peer_id = stream.peer_id;
+
+        // If there is a pending task schedule next one
+        if let Some((subnetwork_id, blob_id)) = self
+            .to_sample
+            .get_mut(&peer_id)
+            .and_then(VecDeque::pop_front)
+        {
+            let sample_request = sampling::SampleRequest::new(blob_id, subnetwork_id);
+            self.stream_tasks
+                .push(Self::stream_sample(stream, sample_request).boxed());
+        } else {
+            // if not pop stream from connected ones
+            self.to_close.push_back(stream);
         }
     }
 
@@ -606,24 +744,22 @@ where
     }
 
     fn handle_stream_response(
+        &mut self,
         peer_id: PeerId,
-        stream_tasks: &FuturesUnordered<SamplingStreamFuture>,
-        to_sample: &mut HashMap<PeerId, VecDeque<(SubnetworkId, BlobId)>>,
-        to_close: &mut VecDeque<SampleStream>,
         stream_response: SampleStreamResponse,
         stream: SampleStream,
     ) -> Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
         match stream_response {
             SampleStreamResponse::Writer(sample_response) => {
                 // Handle the free stream then return the response.
-                Self::schedule_outgoing_stream_task(stream_tasks, to_sample, to_close, stream);
+                self.schedule_outgoing_stream_task(stream);
                 Self::handle_sample_response(*sample_response, peer_id)
             }
             SampleStreamResponse::Reader => {
                 // Writer might be hoping to send to this stream another request, wait
                 // until the writer closes the stream.
                 let (request_receiver, response_sender) =
-                    Self::schedule_incoming_stream_task(stream_tasks, stream);
+                    self.schedule_incoming_stream_task(stream);
                 Poll::Ready(ToSwarm::GenerateEvent(SamplingEvent::IncomingSample {
                     request_receiver,
                     response_sender,
@@ -633,8 +769,7 @@ where
     }
 
     fn handle_stream_error(
-        to_sample: &mut HashMap<PeerId, VecDeque<(SubnetworkId, BlobId)>>,
-        to_close: &mut VecDeque<SampleStream>,
+        &mut self,
         error: SamplingError,
         maybe_stream: Option<SampleStream>,
     ) -> Option<Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>>> {
@@ -642,20 +777,29 @@ where
             SamplingError::Io {
                 error,
                 peer_id,
-                message,
+                message: Some(message),
             } if error.kind() == std::io::ErrorKind::ConnectionReset => {
+                // Propagate error for blob_id if retry limit is reached.
+                if !self.connections.should_retry(message.share_idx) {
+                    return Some(Poll::Ready(ToSwarm::GenerateEvent(
+                        SamplingEvent::no_subnetwork_peers_err(message.blob_id, message.share_idx),
+                    )));
+                }
+                // Dial to peer failed, shoul requeue to different peer.
+                if self.connections.should_requeue(peer_id) {
+                    self.to_retry
+                        .push_back((message.share_idx, message.blob_id));
+                }
                 // Connection reset with the attached message comes from the stream that we've
                 // tried to write to - if connection reset happens during the write it's most
                 // likely because we didn't have the connection to peer or peer closed stream on
                 // it's end because it stopped waiting for messages through this stream.
-                if let Some(peer_queue) = to_sample.get_mut(&peer_id) {
-                    if let Some(m) = message {
-                        peer_queue.push_back((m.share_idx, m.blob_id));
-                    }
+                if let Some(peer_queue) = self.to_sample.get_mut(&peer_id) {
+                    peer_queue.push_back((message.share_idx, message.blob_id));
                 }
                 // Stream is useless if connection was reset.
                 if let Some(stream) = maybe_stream {
-                    to_close.push_back(stream);
+                    self.to_close.push_back(stream);
                 }
                 None
             }
@@ -665,13 +809,13 @@ where
                 // Eof is actually expected and is proper signal about remote closing the
                 // stream. Do not propagate and continue execution of behaviour poll method.
                 if let Some(stream) = maybe_stream {
-                    to_close.push_back(stream);
+                    self.to_close.push_back(stream);
                 }
                 None
             }
             error => {
                 if let Some(stream) = maybe_stream {
-                    to_close.push_back(stream);
+                    self.to_close.push_back(stream);
                 }
                 Some(Poll::Ready(ToSwarm::GenerateEvent(
                     SamplingEvent::SamplingError { error },
@@ -681,26 +825,17 @@ where
     }
 
     fn poll_stream_tasks(
+        &mut self,
         cx: &mut Context<'_>,
-        stream_tasks: &mut FuturesUnordered<SamplingStreamFuture>,
-        to_sample: &mut HashMap<PeerId, VecDeque<(SubnetworkId, BlobId)>>,
-        to_close: &mut VecDeque<SampleStream>,
     ) -> Option<Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>>> {
-        if let Poll::Ready(Some(future_result)) = stream_tasks.poll_next_unpin(cx) {
+        if let Poll::Ready(Some(future_result)) = self.stream_tasks.poll_next_unpin(cx) {
             cx.waker().wake_by_ref();
             match future_result {
                 Ok((peer_id, stream_response, stream)) => {
-                    return Some(Self::handle_stream_response(
-                        peer_id,
-                        stream_tasks,
-                        to_sample,
-                        to_close,
-                        stream_response,
-                        stream,
-                    ));
+                    return Some(self.handle_stream_response(peer_id, stream_response, stream));
                 }
                 Err((error, maybe_stream)) => {
-                    return Self::handle_stream_error(to_sample, to_close, error, maybe_stream);
+                    return self.handle_stream_error(error, maybe_stream);
                 }
             }
         }
@@ -745,7 +880,8 @@ where
         if !self.membership.is_allowed(&peer) {
             return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
         }
-        self.try_sample(peer);
+        self.connections.register_connect(peer);
+        self.try_peer_sample(peer);
         self.stream_behaviour
             .handle_established_outbound_connection(
                 connection_id,
@@ -758,6 +894,13 @@ where
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm) {
+        if let FromSwarm::DialFailure(DialFailure {
+            peer_id: Some(peer_id),
+            ..
+        }) = event
+        {
+            self.connections.register_disconnect(peer_id);
+        }
         self.stream_behaviour.on_swarm_event(event);
     }
 
@@ -776,39 +919,27 @@ where
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
-        let Self {
-            local_peer_id,
-            stream_tasks,
-            samples_request_stream,
-            incoming_streams,
-            membership,
-            to_sample,
-            to_close,
-            control,
-            ..
-        } = self;
-
         self.waker = Some(cx.waker().clone());
 
+        // Check if a new set of subnets and peers need to be selected.
+        if self.subnet_refresh_signal.poll_next_unpin(cx) == Poll::Ready(Some(())) {
+            self.refresh_subnets();
+        }
+
         // poll pending outgoing samples
-        if let Poll::Ready(Some((subnetwork_id, blob_id))) =
-            samples_request_stream.poll_next_unpin(cx)
-        {
-            Self::sample(
-                *local_peer_id,
-                stream_tasks,
-                membership,
-                subnetwork_id,
-                blob_id,
-                control,
-            );
+        if let Poll::Ready(Some(blob_id)) = self.samples_request_stream.poll_next_unpin(cx) {
+            self.sample(blob_id);
+        }
+
+        if let Some((subnetwork_id, blob_id)) = self.to_retry.pop_front() {
+            self.try_subnetwork_sample(blob_id, subnetwork_id);
         }
 
         // poll incoming streams
-        if let Poll::Ready(Some((peer_id, stream))) = incoming_streams.poll_next_unpin(cx) {
+        if let Poll::Ready(Some((peer_id, stream))) = self.incoming_streams.poll_next_unpin(cx) {
             let sample_stream = SampleStream { stream, peer_id };
             let (request_receiver, response_sender) =
-                Self::schedule_incoming_stream_task(stream_tasks, sample_stream);
+                self.schedule_incoming_stream_task(sample_stream);
             cx.waker().wake_by_ref();
             return Poll::Ready(ToSwarm::GenerateEvent(SamplingEvent::IncomingSample {
                 request_receiver,
@@ -817,7 +948,7 @@ where
         }
 
         // poll stream tasks
-        if let Some(result) = Self::poll_stream_tasks(cx, stream_tasks, to_sample, to_close) {
+        if let Some(result) = self.poll_stream_tasks(cx) {
             return result;
         }
 
@@ -839,9 +970,9 @@ where
         }
 
         // Discard stream, if still pending pushback to close later.
-        if let Some(mut stream) = to_close.pop_front() {
+        if let Some(mut stream) = self.to_close.pop_front() {
             if stream.stream.close().poll_unpin(cx).is_pending() {
-                to_close.push_back(stream);
+                self.to_close.push_back(stream);
                 cx.waker().wake_by_ref();
             }
         }

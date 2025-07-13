@@ -4,7 +4,7 @@ pub mod mock;
 #[cfg(feature = "rocksdb-backend")]
 pub mod rocksdb;
 
-use std::error::Error;
+use std::{error::Error, num::NonZeroUsize};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -53,6 +53,9 @@ pub trait StorageBackend: StorageBackendApi + Sized {
     async fn load_prefix(
         &mut self,
         prefix: &[u8],
+        start_key: Option<&[u8]>,
+        end_key: Option<&[u8]>,
+        limit: Option<NonZeroUsize>,
     ) -> Result<Vec<Bytes>, <Self as StorageBackend>::Error>;
     async fn remove(
         &mut self,

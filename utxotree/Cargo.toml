@@ -1,0 +1,16 @@
+[package]
+edition           = "2024"
+license.workspace = true
+name              = "utxotree"
+version           = "0.1.0"
+
+[dependencies]
+digest    = "0.10"
+rpds      = "1"
+thiserror = "1.0"
+
+[dev-dependencies]
+blake2 = "0.10"
+
+[lints]
+workspace = true

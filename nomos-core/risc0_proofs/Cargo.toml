@@ -5,7 +5,7 @@ name    = "nomos_risc0_proofs"
 version = "0.1.0"
 
 [build-dependencies]
-risc0-build = "2.0.0"
+risc0-build = "2.2.0"
 
 [package.metadata.risc0]
 methods = ["proof_of_leadership"]

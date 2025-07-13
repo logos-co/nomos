@@ -1,6 +1,9 @@
 pub mod fisheryates;
 pub mod math;
 
+#[cfg(feature = "blake2")]
+pub mod blake_rng;
+
 #[cfg(feature = "time")]
 pub mod bounded_duration;
 

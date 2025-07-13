@@ -4,6 +4,7 @@ macro_rules! adapter_for {
             Membership,
             MembershipServiceAdapter,
             StorageAdapter,
+            ApiAdapter,
             RuntimeServiceId,
         > where
             Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
@@ -13,6 +14,7 @@ macro_rules! adapter_for {
                 + Sync
                 + 'static,
             MembershipServiceAdapter: MembershipAdapter,
+            ApiAdapter: ApiAdapterTrait,
         {
             network_relay: OutboundRelay<
                 <NetworkService<
@@ -20,6 +22,7 @@ macro_rules! adapter_for {
                     Membership,
                     MembershipServiceAdapter,
                     StorageAdapter,
+                    ApiAdapter,
                     RuntimeServiceId,
                 > as ServiceData>::Message,
             >,
@@ -27,12 +30,18 @@ macro_rules! adapter_for {
         }
 
         #[async_trait::async_trait]
-        impl<Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
-            NetworkAdapter<RuntimeServiceId>
+        impl<
+                Membership,
+                MembershipServiceAdapter,
+                StorageAdapter,
+                ApiAdapter,
+                RuntimeServiceId,
+            > NetworkAdapter<RuntimeServiceId>
             for Libp2pAdapter<
                 Membership,
                 MembershipServiceAdapter,
                 StorageAdapter,
+                ApiAdapter,
                 RuntimeServiceId,
             >
         where
@@ -43,6 +52,15 @@ macro_rules! adapter_for {
                 + Sync
                 + 'static,
             MembershipServiceAdapter: MembershipAdapter,
+            ApiAdapter: ApiAdapterTrait<
+                    Share = DaShare,
+                    BlobId = BlobId,
+                    Commitments = DaSharesCommitments,
+                    Membership = DaMembershipHandler<Membership>,
+                > + Clone
+                + Send
+                + Sync
+                + 'static,
         {
             type Backend = $DaNetworkBackend<Membership>;
             type Settings = ();
@@ -50,6 +68,7 @@ macro_rules! adapter_for {
             type Membership = Membership;
             type Storage = StorageAdapter;
             type MembershipAdapter = MembershipServiceAdapter;
+            type ApiAdapter = ApiAdapter;
 
             async fn new(
                 _settings: Self::Settings,
@@ -59,6 +78,7 @@ macro_rules! adapter_for {
                         Self::Membership,
                         Self::MembershipAdapter,
                         Self::Storage,
+                        Self::ApiAdapter,
                         RuntimeServiceId,
                     > as ServiceData>::Message,
                 >,

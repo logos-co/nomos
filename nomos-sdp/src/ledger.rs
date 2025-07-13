@@ -4,7 +4,7 @@ use async_trait::async_trait;
 
 use crate::{
     ActiveMessage, BlockNumber, DeclarationId, DeclarationInfo, DeclarationMessage, EventType,
-    Nonce, ProviderId, SdpMessage, ServiceParameters, ServiceType, WithdrawMessage,
+    Nonce, SdpMessage, ServiceParameters, ServiceType, WithdrawMessage,
     state::{ProviderStateError, TransientDeclarationState},
 };
 
@@ -25,7 +25,7 @@ pub trait DeclarationsRepository {
     -> Result<(), DeclarationsRepositoryError>;
     async fn check_nonce(
         &self,
-        provider_id: ProviderId,
+        declaration_id: DeclarationId,
         nonce: Nonce,
     ) -> Result<(), DeclarationsRepositoryError>;
 }
@@ -127,21 +127,11 @@ where
     ) -> Result<TransientDeclarationState, SdpLedgerError> {
         // Check if state can transition before marking as active.
         let pending_state = current_state.try_into_active(block_number, EventType::Activity)?;
-        let provider_id = active_message.provider_id;
         let declaration_id = active_message.declaration_id;
-        let service_type = active_message.service_type;
 
         self.declaration_repo
-            .check_nonce(provider_id, active_message.nonce)
+            .check_nonce(declaration_id, active_message.nonce)
             .await?;
-
-        // One declaration is for one service only, allow marking active only for the
-        // service that provider is providing.
-        if let Ok(declaration) = self.declaration_repo.get(declaration_id).await {
-            if declaration.service != service_type {
-                return Err(SdpLedgerError::IncorrectServiceType(service_type));
-            }
-        }
 
         Ok(pending_state)
     }
@@ -158,23 +148,80 @@ where
             EventType::Withdrawal,
             &service_params,
         )?;
-        let provider_id = withdraw_message.provider_id;
         let declaration_id = withdraw_message.declaration_id;
-        let service_type = withdraw_message.service_type;
 
         self.declaration_repo
-            .check_nonce(provider_id, withdraw_message.nonce)
+            .check_nonce(declaration_id, withdraw_message.nonce)
             .await?;
 
-        // One declaration is for one service only, allow marking withdrawn only for the
-        // service that provider is providing.
-        if let Ok(declaration) = self.declaration_repo.get(declaration_id).await {
-            if declaration.service != service_type {
-                return Err(SdpLedgerError::IncorrectServiceType(service_type));
-            }
-        }
-
         Ok(pending_state)
+    }
+
+    async fn get_current_state(
+        &self,
+        block_number: BlockNumber,
+        message: &SdpMessage<Metadata>,
+    ) -> Result<(TransientDeclarationState, ServiceParameters), SdpLedgerError> {
+        let declaration_id = message.declaration_id();
+
+        let maybe_pending_state = self
+            .pending_declarations
+            .get(&block_number)
+            .and_then(|states| states.get(&declaration_id));
+        let maybe_declaration_info = self.declaration_repo.get(declaration_id).await;
+
+        let (current_state, service_params) = if let Some(declaration_info) = maybe_pending_state {
+            let service_params = self
+                .services_repo
+                .get_parameters(declaration_info.service)
+                .await?;
+            (
+                TransientDeclarationState::try_from_info(
+                    block_number,
+                    declaration_info.clone(),
+                    &service_params,
+                )?,
+                service_params,
+            )
+        } else {
+            match (maybe_declaration_info, &message) {
+                (Ok(declaration_info), _) => {
+                    let service_params = self
+                        .services_repo
+                        .get_parameters(declaration_info.service)
+                        .await?;
+                    (
+                        TransientDeclarationState::try_from_info(
+                            block_number,
+                            declaration_info,
+                            &service_params,
+                        )?,
+                        service_params,
+                    )
+                }
+                (
+                    Err(DeclarationsRepositoryError::DeclarationNotFound(_)),
+                    SdpMessage::Declare(message),
+                ) => {
+                    let declaration_info = DeclarationInfo::new(block_number, message.clone());
+                    let service_params = self
+                        .services_repo
+                        .get_parameters(declaration_info.service)
+                        .await?;
+                    (
+                        TransientDeclarationState::try_from_info(
+                            block_number,
+                            declaration_info,
+                            &service_params,
+                        )?,
+                        service_params,
+                    )
+                }
+                (Err(err), _) => return Err(SdpLedgerError::DeclarationsRepository(err)),
+            }
+        };
+
+        Ok((current_state, service_params))
     }
 
     pub async fn process_sdp_message(
@@ -183,46 +230,8 @@ where
         message: SdpMessage<Metadata>,
     ) -> Result<(), SdpLedgerError> {
         let declaration_id = message.declaration_id();
-        let service_type = message.service_type();
-
-        let maybe_pending_state = self
-            .pending_declarations
-            .get(&block_number)
-            .and_then(|states| states.get(&declaration_id));
-        let maybe_declaration_info = self.declaration_repo.get(declaration_id).await;
-        let service_params = self.services_repo.get_parameters(service_type).await?;
-
-        let current_state = if let Some(declaration_info) = maybe_pending_state {
-            TransientDeclarationState::try_from_info(
-                block_number,
-                declaration_info.clone(),
-                &service_params,
-            )?
-        } else {
-            match (maybe_declaration_info, &message) {
-                (Ok(declaration_info), _) => TransientDeclarationState::try_from_info(
-                    block_number,
-                    declaration_info,
-                    &service_params,
-                )?,
-                (
-                    Err(DeclarationsRepositoryError::DeclarationNotFound(_)),
-                    SdpMessage::Declare(message),
-                ) => {
-                    let declaration_info = DeclarationInfo::new(block_number, message.clone());
-                    TransientDeclarationState::try_from_info(
-                        block_number,
-                        declaration_info,
-                        &service_params,
-                    )?
-                }
-                (Err(err), _) => return Err(SdpLedgerError::DeclarationsRepository(err)),
-            }
-        };
-
-        if current_state.declaration_id() != declaration_id {
-            return Err(SdpLedgerError::WrongDeclarationId);
-        }
+        let (current_state, service_params) =
+            self.get_current_state(block_number, &message).await?;
 
         let pending_state = match message {
             SdpMessage::Declare(declaration_message) => {
@@ -322,7 +331,7 @@ mod tests {
         pub fn add_declaration(
             &mut self,
             provider_id: ProviderId,
-            reward_address: RewardAddress,
+            zk_id: ZkPublicKey,
             service_type: ServiceType,
             locators: Vec<Locator>,
             should_pass: bool,
@@ -332,7 +341,7 @@ mod tests {
                     service_type,
                     locators,
                     provider_id,
-                    reward_address,
+                    zk_id,
                 }),
                 should_pass,
             ));
@@ -340,17 +349,15 @@ mod tests {
 
         pub fn add_activity(
             &mut self,
-            provider_id: ProviderId,
+            _provider_id: ProviderId,
             declaration_id: DeclarationId,
-            service_type: ServiceType,
+            _service_type: ServiceType,
             should_pass: bool,
         ) {
             self.messages.push((
                 SdpMessage::Activity(ActiveMessage {
                     declaration_id,
-                    service_type,
-                    provider_id,
-                    nonce: [0u8; 16],
+                    nonce: 1,
                     metadata: None,
                 }),
                 should_pass,
@@ -359,17 +366,15 @@ mod tests {
 
         pub fn add_withdraw(
             &mut self,
-            provider_id: ProviderId,
+            _provider_id: ProviderId,
             declaration_id: DeclarationId,
-            service_type: ServiceType,
+            _service_type: ServiceType,
             should_pass: bool,
         ) {
             self.messages.push((
                 SdpMessage::Withdraw(WithdrawMessage {
                     declaration_id,
-                    service_type,
-                    provider_id,
-                    nonce: [0u8; 16],
+                    nonce: 2,
                 }),
                 should_pass,
             ));
@@ -378,7 +383,7 @@ mod tests {
 
     // Block Operation, short for better formatting.
     enum BOp {
-        Dec(ProviderId, RewardAddress, ServiceType, Vec<Locator>),
+        Dec(ProviderId, ZkPublicKey, ServiceType, Vec<Locator>),
         Act(ProviderId, DeclarationId, ServiceType),
         Wit(ProviderId, DeclarationId, ServiceType),
     }
@@ -386,15 +391,13 @@ mod tests {
     impl BOp {
         fn declaration_id(&self) -> DeclarationId {
             match self {
-                Self::Dec(provider_id, reward_address, service_type, locators) => {
-                    DeclarationMessage {
-                        service_type: *service_type,
-                        locators: locators.clone(),
-                        provider_id: *provider_id,
-                        reward_address: *reward_address,
-                    }
-                    .declaration_id()
+                Self::Dec(provider_id, zk_id, service_type, locators) => DeclarationMessage {
+                    service_type: *service_type,
+                    locators: locators.clone(),
+                    provider_id: *provider_id,
+                    zk_id: *zk_id,
                 }
+                .declaration_id(),
                 Self::Act(_, _, _) => panic!(),
                 Self::Wit(_, _, _) => panic!(),
             }
@@ -411,8 +414,8 @@ mod tests {
                 let mut block = MockBlock::default();
                 for (op, should_pass) in ops {
                     match op {
-                        BOp::Dec(pid, reward_addr, service, locators) => {
-                            block.add_declaration(pid, reward_addr, service, locators, should_pass);
+                        BOp::Dec(pid, zk_id, service, locators) => {
+                            block.add_declaration(pid, zk_id, service, locators, should_pass);
                         }
                         BOp::Act(pid, did, service) => {
                             block.add_activity(pid, did, service, should_pass);
@@ -466,7 +469,7 @@ mod tests {
 
         async fn check_nonce(
             &self,
-            _provider_id: ProviderId,
+            _declaration_id: DeclarationId,
             _nonce: Nonce,
         ) -> Result<(), DeclarationsRepositoryError> {
             Ok(())
@@ -530,12 +533,12 @@ mod tests {
     async fn test_process_declare_message() {
         let (mut ledger, _, _) = setup_ledger();
         let provider_id = ProviderId([0u8; 32]);
-        let reward_address = RewardAddress([0u8; 32]);
+        let zk_id = ZkPublicKey([0u8; 32]);
         let declaration_message = DeclarationMessage {
             service_type: ServiceType::BlendNetwork,
             locators: vec![],
             provider_id,
-            reward_address,
+            zk_id,
         };
 
         let result = ledger
@@ -553,12 +556,12 @@ mod tests {
     async fn test_process_activity_message() {
         let (mut ledger, declaration_repo, _) = setup_ledger();
         let provider_id = ProviderId([0u8; 32]);
-        let reward_address = RewardAddress([0u8; 32]);
+        let zk_id = ZkPublicKey([0u8; 32]);
         let declaration_message = DeclarationMessage {
             service_type: ServiceType::BlendNetwork,
             locators: vec![],
             provider_id,
-            reward_address,
+            zk_id,
         };
         let declaration_id = declaration_message.declaration_id();
 
@@ -572,9 +575,7 @@ mod tests {
 
         let active_message = ActiveMessage {
             declaration_id,
-            service_type: ServiceType::BlendNetwork,
-            provider_id,
-            nonce: [0; 16],
+            nonce: 1,
             metadata: None,
         };
 
@@ -592,13 +593,13 @@ mod tests {
     async fn test_process_withdraw_message() {
         let (mut ledger, declaration_repo, _) = setup_ledger();
         let provider_id = ProviderId([0u8; 32]);
-        let reward_address = RewardAddress([0u8; 32]);
+        let zk_id = ZkPublicKey([0u8; 32]);
 
         let declaration_message = DeclarationMessage {
             service_type: ServiceType::BlendNetwork,
             locators: vec![],
             provider_id,
-            reward_address,
+            zk_id,
         };
         let declaration_id = declaration_message.declaration_id();
 
@@ -612,9 +613,7 @@ mod tests {
 
         let withdraw_message = WithdrawMessage {
             declaration_id,
-            service_type: ServiceType::BlendNetwork,
-            provider_id,
-            nonce: [0; 16],
+            nonce: 1,
         };
 
         let result = ledger
@@ -631,12 +630,12 @@ mod tests {
     async fn test_duplicate_declaration() {
         let (mut ledger, _, _) = setup_ledger();
         let provider_id = ProviderId([0u8; 32]);
-        let reward_address = RewardAddress([0u8; 32]);
+        let zk_id = ZkPublicKey([0u8; 32]);
         let declaration_message = DeclarationMessage {
             service_type: ServiceType::BlendNetwork,
             locators: vec![],
             provider_id,
-            reward_address,
+            zk_id,
         };
 
         let result1 = ledger
@@ -655,10 +654,10 @@ mod tests {
         let (mut ledger, declarations_repo, _) = setup_ledger();
         let pid = ProviderId([0; 32]);
         let locators = vec![Locator(multiaddr!(Ip4([1, 2, 3, 4]), Udp(5678u16)))];
-        let reward_addr = RewardAddress([1; 32]);
+        let zk_id = ZkPublicKey([1; 32]);
 
-        let declaration_a = BOp::Dec(pid, reward_addr, St::BlendNetwork, locators.clone());
-        let declaration_b = BOp::Dec(pid, reward_addr, St::DataAvailability, locators.clone());
+        let declaration_a = BOp::Dec(pid, zk_id, St::BlendNetwork, locators.clone());
+        let declaration_b = BOp::Dec(pid, zk_id, St::DataAvailability, locators.clone());
         let d1 = declaration_a.declaration_id();
         let d2 = declaration_b.declaration_id();
 
@@ -703,7 +702,7 @@ mod tests {
                 withdrawn: Some(30),
                 service: ServiceType::BlendNetwork,
                 locators: locators.clone(),
-                reward_address: reward_addr,
+                zk_id,
             }
         );
 
@@ -718,7 +717,7 @@ mod tests {
                 withdrawn: Some(30),
                 service: ServiceType::DataAvailability,
                 locators,
-                reward_address: reward_addr,
+                zk_id,
             }
         );
     }
@@ -729,10 +728,10 @@ mod tests {
         let p1 = ProviderId([0; 32]);
         let p2 = ProviderId([1; 32]);
         let locators = vec![Locator(multiaddr!(Ip4([1, 2, 3, 4]), Udp(5678u16)))];
-        let reward_addr = RewardAddress([1; 32]);
+        let zk_id = ZkPublicKey([1; 32]);
 
-        let declaration_a = BOp::Dec(p1, reward_addr, St::BlendNetwork, locators.clone());
-        let declaration_b = BOp::Dec(p2, reward_addr, St::DataAvailability, locators.clone());
+        let declaration_a = BOp::Dec(p1, zk_id, St::BlendNetwork, locators.clone());
+        let declaration_b = BOp::Dec(p2, zk_id, St::DataAvailability, locators.clone());
         let d1 = declaration_a.declaration_id();
         let d2 = declaration_b.declaration_id();
 
@@ -743,10 +742,12 @@ mod tests {
             (
                 30,
                 vec![
+                    // Withdrawing service that pid1 declared. If different provider sends such
+                    // withdrawal message - the Op signature verification should fail, but it's
+                    // checked in a different layer, before passing message to the ledger.
+                    (BOp::Wit(p1, d1, St::BlendNetwork), true),
                     // Withdrawing service that pid2 declared.
-                    (BOp::Wit(p1, d2, St::BlendNetwork), false),
-                    // Withdrawing service that pid1 declared.
-                    (BOp::Wit(p2, d1, St::DataAvailability), false),
+                    (BOp::Wit(p2, d2, St::DataAvailability), true),
                 ],
             ),
         ]
@@ -775,10 +776,10 @@ mod tests {
                 id: d1,
                 created: 0,
                 active: Some(10),
-                withdrawn: None,
+                withdrawn: Some(30),
                 service: ServiceType::BlendNetwork,
                 locators: locators.clone(),
-                reward_address: reward_addr,
+                zk_id,
             }
         );
 
@@ -790,10 +791,10 @@ mod tests {
                 id: d2,
                 created: 0,
                 active: Some(20),
-                withdrawn: None,
+                withdrawn: Some(30),
                 service: ServiceType::DataAvailability,
                 locators,
-                reward_address: reward_addr,
+                zk_id,
             }
         );
     }

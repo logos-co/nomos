@@ -1,17 +1,19 @@
 use std::{fmt::Debug, pin::Pin};
 
 use futures::{Stream, StreamExt as _};
+use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p_identity::PeerId;
 use nomos_core::da::BlobId;
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
+    api::ApiAdapter as ApiAdapterTrait,
     backends::libp2p::{
         common::SamplingEvent,
         executor::{
             DaNetworkEvent, DaNetworkEventKind, DaNetworkExecutorBackend, ExecutorDaNetworkMessage,
         },
     },
-    membership::MembershipAdapter,
+    membership::{handler::DaMembershipHandler, MembershipAdapter},
     DaNetworkMsg, NetworkService,
 };
 use overwatch::{

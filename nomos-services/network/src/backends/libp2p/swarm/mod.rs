@@ -279,8 +279,8 @@ mod tests {
             port,
             node_key: nomos_libp2p::ed25519::SecretKey::generate(),
             gossipsub_config: nomos_libp2p::gossipsub::Config::default(),
-            kademlia_config: Some(nomos_libp2p::KademliaSettings::default()),
-            identify_config: Some(nomos_libp2p::IdentifySettings::default()),
+            kademlia_config: nomos_libp2p::KademliaSettings::default(),
+            identify_config: nomos_libp2p::IdentifySettings::default(),
             protocol_name_env: ProtocolName::Unittest,
         }
     }

@@ -48,7 +48,6 @@ nomos-time               = { workspace = true, features = ["ntp", "serde"] }
 nomos-tracing            = { workspace = true }
 nomos-tracing-service    = { workspace = true }
 overwatch                = { workspace = true }
-rand_chacha              = "0.3"
 serde                    = "1"
 serde_yaml               = "0.9"
 services-utils           = { workspace = true }
@@ -63,7 +62,6 @@ utoipa-swagger-ui = { version = "4.0" }
 # axum related dependencies
 axum       = { version = "0.6" }
 hyper      = { version = "0.14", features = ["full"] }
-rand       = "0.8"
 time       = "0.3"
 tower-http = { version = "0.4", features = ["cors", "trace"] }
 

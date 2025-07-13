@@ -12,7 +12,7 @@ use crate::{
     protocols::{
         dispersal::validator::behaviour::DispersalValidatorBehaviour,
         replication::behaviour::{ReplicationBehaviour, ReplicationConfig},
-        sampling::behaviour::SamplingBehaviour,
+        sampling::behaviour::{SamplingBehaviour, SubnetsConfig},
     },
 };
 
@@ -57,10 +57,21 @@ where
         monitor: Monitor,
         redial_cooldown: Duration,
         replication_config: ReplicationConfig,
+        subnets_config: SubnetsConfig,
+        refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
     ) -> Self {
         let peer_id = PeerId::from_public_key(&key.public());
         Self {
+<<<<<<< HEAD
             sampling: SamplingBehaviour::new(peer_id, membership.clone(), addressbook.clone()),
+=======
+            sampling: SamplingBehaviour::new(
+                peer_id,
+                membership.clone(),
+                subnets_config,
+                refresh_signal,
+            ),
+>>>>>>> master
             dispersal: DispersalValidatorBehaviour::new(membership.clone()),
             replication: ReplicationBehaviour::new(replication_config, peer_id, membership),
             balancer: ConnectionBalancerBehaviour::new(balancer, addressbook),

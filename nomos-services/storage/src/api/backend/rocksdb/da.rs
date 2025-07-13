@@ -43,7 +43,9 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
         blob_id: Self::BlobId,
     ) -> Result<Option<Vec<Self::Share>>, Self::Error> {
         let shares_prefix_key = key_bytes(DA_SHARE_PREFIX, blob_id.as_ref());
-        let shares_bytes = self.load_prefix(&shares_prefix_key).await?;
+        let shares_bytes = self
+            .load_prefix(&shares_prefix_key, None, None, None)
+            .await?;
         if shares_bytes.is_empty() {
             return Ok(None);
         }

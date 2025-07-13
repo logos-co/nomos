@@ -12,15 +12,14 @@ use std::{
 
 use futures::StreamExt as _;
 use nomos_da_sampling::{
-    api::ApiAdapter, backend::DaSamplingServiceBackend, storage::DaStorageAdapter,
-    DaSamplingService, DaSamplingServiceMsg,
+    backend::DaSamplingServiceBackend, storage::DaStorageAdapter, DaSamplingService,
+    DaSamplingServiceMsg,
 };
 use nomos_network::{message::BackendNetworkMsg, NetworkService};
 use overwatch::{
     services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},
     OpaqueServiceResourcesHandle,
 };
-use rand::Rng;
 use services_utils::{
     overwatch::{
         recovery::operators::RecoveryBackend as RecoveryBackendTrait, JsonFileBackend,
@@ -43,12 +42,10 @@ pub type DaMempoolService<
     Pool,
     DaSamplingBackend,
     DaSamplingNetwork,
-    DaSamplingRng,
     DaSamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
     DaVerifierStorage,
-    DaApiAdapter,
     RuntimeServiceId,
 > = GenericDaMempoolService<
     Pool,
@@ -66,12 +63,10 @@ pub type DaMempoolService<
     >,
     DaSamplingBackend,
     DaSamplingNetwork,
-    DaSamplingRng,
     DaSamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
     DaVerifierStorage,
-    DaApiAdapter,
     RuntimeServiceId,
 >;
 
@@ -83,12 +78,10 @@ pub struct GenericDaMempoolService<
     RecoveryBackend,
     DaSamplingBackend,
     DaSamplingNetwork,
-    DaSamplingRng,
     DaSamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
     DaVerifierStorage,
-    DaApiAdapter,
     RuntimeServiceId,
 > where
     Pool: RecoverableMempool,
@@ -106,7 +99,6 @@ pub struct GenericDaMempoolService<
         RecoveryBackend,
         DaSamplingBackend,
         DaSamplingNetwork,
-        DaSamplingRng,
         DaSamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
@@ -120,12 +112,10 @@ impl<
         RecoveryBackend,
         DaSamplingBackend,
         DaSamplingNetwork,
-        DaSamplingRng,
         DaSamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
         DaVerifierStorage,
-        DaApiAdapter,
         RuntimeServiceId,
     >
     GenericDaMempoolService<
@@ -134,12 +124,10 @@ impl<
         RecoveryBackend,
         DaSamplingBackend,
         DaSamplingNetwork,
-        DaSamplingRng,
         DaSamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
         DaVerifierStorage,
-        DaApiAdapter,
         RuntimeServiceId,
     >
 where
@@ -167,12 +155,10 @@ impl<
         RecoveryBackend,
         DaSamplingBackend,
         DaSamplingNetwork,
-        DaSamplingRng,
         DaSamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
         DaVerifierStorage,
-        DaApiAdapter,
         RuntimeServiceId,
     > ServiceData
     for GenericDaMempoolService<
@@ -181,12 +167,10 @@ impl<
         RecoveryBackend,
         DaSamplingBackend,
         DaSamplingNetwork,
-        DaSamplingRng,
         DaSamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
         DaVerifierStorage,
-        DaApiAdapter,
         RuntimeServiceId,
     >
 where
@@ -207,12 +191,10 @@ impl<
         RecoveryBackend,
         DaSamplingBackend,
         DaSamplingNetwork,
-        DaSamplingRng,
         DaSamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
         DaVerifierStorage,
-        DaApiAdapter,
         RuntimeServiceId,
     > ServiceCore<RuntimeServiceId>
     for GenericDaMempoolService<
@@ -221,12 +203,10 @@ impl<
         RecoveryBackend,
         DaSamplingBackend,
         DaSamplingNetwork,
-        DaSamplingRng,
         DaSamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
         DaVerifierStorage,
-        DaApiAdapter,
         RuntimeServiceId,
     >
 where
@@ -241,15 +221,13 @@ where
     NetworkAdapter::Key: Clone,
     NetworkAdapter::Settings: Clone + Send + Sync + 'static,
     RecoveryBackend: RecoveryBackendTrait + Send,
-    DaSamplingBackend: DaSamplingServiceBackend<DaSamplingRng, BlobId = NetworkAdapter::Key> + Send,
+    DaSamplingBackend: DaSamplingServiceBackend<BlobId = NetworkAdapter::Key> + Send,
     DaSamplingBackend::BlobId: Send + 'static,
     DaSamplingNetwork: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send,
-    DaSamplingRng: Rng + Send,
     DaSamplingStorage: DaStorageAdapter<RuntimeServiceId> + Send,
     DaVerifierBackend: Send,
     DaVerifierNetwork: Send,
     DaVerifierStorage: Send,
-    DaApiAdapter: ApiAdapter + Send,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -261,12 +239,10 @@ where
             DaSamplingService<
                 DaSamplingBackend,
                 DaSamplingNetwork,
-                DaSamplingRng,
                 DaSamplingStorage,
                 DaVerifierBackend,
                 DaVerifierNetwork,
                 DaVerifierStorage,
-                DaApiAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -302,7 +278,7 @@ where
         let sampling_relay = self
             .service_resources_handle
             .overwatch_handle
-            .relay::<DaSamplingService<_, _, _, _, _, _, _, _, _>>()
+            .relay::<DaSamplingService<_, _, _, _, _, _, _>>()
             .await
             .expect("Relay connection with SamplingService should succeed");
 
@@ -329,7 +305,7 @@ where
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
             NetworkService<_, _>,
-            DaSamplingService<_, _, _, _, _, _, _, _, _>
+            DaSamplingService<_, _, _, _, _, _, _>
         )
         .await?;
 
@@ -358,12 +334,10 @@ impl<
         RecoveryBackend,
         DaSamplingBackend,
         DaSamplingNetwork,
-        DaSamplingRng,
         DaSamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
         DaVerifierStorage,
-        DaApiAdapter,
         RuntimeServiceId,
     >
     GenericDaMempoolService<
@@ -372,12 +346,10 @@ impl<
         RecoveryBackend,
         DaSamplingBackend,
         DaSamplingNetwork,
-        DaSamplingRng,
         DaSamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
         DaVerifierStorage,
-        DaApiAdapter,
         RuntimeServiceId,
     >
 where

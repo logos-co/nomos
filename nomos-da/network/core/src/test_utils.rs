@@ -65,7 +65,7 @@ impl MembershipHandler for AllNeighbours {
     }
 
     fn last_subnetwork_id(&self) -> Self::NetworkId {
-        0
+        1
     }
 
     fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {

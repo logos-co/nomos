@@ -11,7 +11,9 @@ pub trait ApiAdapter {
     type Share;
     type BlobId;
     type Commitments;
-    fn new(settings: Self::Settings) -> Self;
+    type Membership;
+
+    fn new(settings: Self::Settings, membership: Self::Membership) -> Self;
     async fn request_commitments(
         &self,
         request: Self::BlobId,
