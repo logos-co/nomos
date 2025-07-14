@@ -1,10 +1,10 @@
 use cryptarchia_engine::{Epoch, Slot};
 use nomos_core::{
     crypto::{Digest as _, Hasher},
-    mantle::{Note, NoteId, Utxo, Value},
-    proofs::leader_proof,
+    mantle::{gas::GasConstants, AuthenticatedMantleTx, Note, NoteId, Utxo, Value},
+    proofs::{leader_proof, zksig::ZkSignatureProof as _},
 };
-use nomos_proof_statements::leadership::LeaderPublic;
+use nomos_proof_statements::{leadership::LeaderPublic, zksig::ZkSignaturePublic};
 
 pub type UtxoTree = utxotree::UtxoTree<NoteId, Note, Hasher>;
 use super::{Config, LedgerError};
@@ -188,6 +188,57 @@ impl LedgerState {
             .update_nonce(proof.entropy(), slot))
     }
 
+    pub fn try_apply_tx<Id, Constants: GasConstants>(
+        mut self,
+        tx: impl AuthenticatedMantleTx,
+    ) -> Result<(Self, Value), LedgerError<Id>> {
+        let mut balance: u64 = 0;
+        let mut pks: Vec<[u8; 32]> = vec![];
+        let ledger_tx = &tx.mantle_tx().ledger_tx;
+        for input in &ledger_tx.inputs {
+            let note;
+            (self.utxos, note) = self
+                .utxos
+                .remove(input)
+                .map_err(|_| LedgerError::InvalidNote(*input))?;
+            balance = balance
+                .checked_add(note.value)
+                .ok_or(LedgerError::Overflow)?;
+            pks.push(note.pk.into());
+        }
+
+        if !tx.ledger_tx_proof().verify(&ZkSignaturePublic {
+            pks,
+            tx_hash: tx.hash().into(),
+        }) {
+            return Err(LedgerError::InvalidProof);
+        }
+
+        for (i, output) in ledger_tx.outputs.iter().enumerate() {
+            balance = balance
+                .checked_sub(output.value)
+                .ok_or(LedgerError::InsufficientBalance)?;
+            self.utxos = self
+                .utxos
+                .insert(
+                    Utxo {
+                        tx_hash: tx.hash(),
+                        output_index: i,
+                        note: *output,
+                    }
+                    .id(),
+                    *output,
+                )
+                .0;
+        }
+
+        balance = balance
+            .checked_sub(tx.gas_cost::<Constants>())
+            .ok_or(LedgerError::InsufficientBalance)?;
+
+        Ok((self, balance))
+    }
+
     fn update_nonce(self, contrib: [u8; 32], slot: Slot) -> Self {
         // constants and structure as defined in the Mantle spec:
         // https://www.notion.so/Cryptarchia-v1-Protocol-Specification-21c261aa09df810cb85eff1c76e5798c
@@ -277,6 +328,7 @@ pub mod tests {
 
     use cryptarchia_engine::EpochConfig;
     use crypto_bigint::U256;
+    use nomos_core::mantle::{gas::MainnetGasConstants, SignedMantleTx};
     use rand::{thread_rng, RngCore as _};
 
     use super::*;
@@ -323,7 +375,13 @@ pub mod tests {
         let config = ledger.config();
         let id = make_id(parent, slot, utxo);
         let proof = generate_proof(&ledger_state, &utxo, slot, config);
-        *ledger = ledger.try_update(id, parent, slot, &proof)?;
+        *ledger = ledger.try_update::<_, MainnetGasConstants>(
+            id,
+            parent,
+            slot,
+            &proof,
+            std::iter::empty::<&SignedMantleTx>(),
+        )?;
         Ok(id)
     }
 

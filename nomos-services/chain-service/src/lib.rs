@@ -25,7 +25,7 @@ use nomos_core::{
     block::{builder::BlockBuilder, Block},
     da::blob::{info::DispersedBlobInfo, metadata::Metadata as BlobMetadata, BlobSelect},
     header::{Builder, Header, HeaderId},
-    mantle::{Transaction, TxSelect},
+    mantle::{gas::MainnetGasConstants, SignedMantleTx, Transaction, TxSelect},
     proofs::leader_proof::Risc0LeaderProof,
 };
 use nomos_da_sampling::{
@@ -121,9 +121,13 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
         let id = header.id();
         let parent = header.parent();
         let slot = header.slot();
-        let ledger = self
-            .ledger
-            .try_update(id, parent, slot, header.leader_proof())?;
+        let ledger = self.ledger.try_update::<_, MainnetGasConstants>(
+            id,
+            parent,
+            slot,
+            header.leader_proof(),
+            std::iter::empty::<&SignedMantleTx>(),
+        )?;
         let (consensus, pruned_blocks) = self.consensus.receive_block(id, parent, slot)?;
 
         let mut cryptarchia = Self { ledger, consensus };

@@ -12,7 +12,10 @@ pub use config::Config;
 use cryptarchia::LedgerState as CryptarchiaLedger;
 pub use cryptarchia::{EpochState, UtxoTree};
 use cryptarchia_engine::Slot;
-use nomos_core::{mantle::Utxo, proofs::leader_proof};
+use nomos_core::{
+    mantle::{gas::GasConstants, AuthenticatedMantleTx, NoteId, Utxo},
+    proofs::leader_proof,
+};
 use thiserror::Error;
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
@@ -23,6 +26,12 @@ pub enum LedgerError<Id> {
     ParentNotFound(Id),
     #[error("Invalid leader proof")]
     InvalidProof,
+    #[error("Invalid note: {0:?}")]
+    InvalidNote(NoteId),
+    #[error("Insufficient balance")]
+    InsufficientBalance,
+    #[error("Overflow while calculating balance")]
+    Overflow,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -44,22 +53,27 @@ where
 
     /// Create a new [`Ledger`] with the updated state.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    pub fn try_update<LeaderProof>(
+    pub fn try_update<LeaderProof, Constants>(
         &self,
         id: Id,
         parent_id: Id,
         slot: Slot,
         proof: &LeaderProof,
+        txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
     ) -> Result<Self, LedgerError<Id>>
     where
         LeaderProof: leader_proof::LeaderProof,
+        Constants: GasConstants,
     {
         let parent_state = self
             .states
             .get(&parent_id)
             .ok_or(LedgerError::ParentNotFound(parent_id))?;
 
-        let new_state = parent_state.clone().try_update(slot, proof, &self.config)?;
+        let new_state =
+            parent_state
+                .clone()
+                .try_update::<_, _, Constants>(slot, proof, txs, &self.config)?;
 
         let mut states = self.states.clone();
         states.insert(id, new_state);
@@ -103,17 +117,19 @@ pub struct LedgerState {
 }
 
 impl LedgerState {
-    fn try_update<LeaderProof, Id>(
+    fn try_update<LeaderProof, Id, Constants>(
         self,
         slot: Slot,
         proof: &LeaderProof,
+        txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
         config: &Config,
     ) -> Result<Self, LedgerError<Id>>
     where
         LeaderProof: leader_proof::LeaderProof,
+        Constants: GasConstants,
     {
         self.try_apply_header(slot, proof, config)?
-            .try_apply_contents()
+            .try_apply_contents::<_, Constants>(txs)
     }
 
     /// Apply header-related changed to the ledger state. These include
@@ -138,15 +154,17 @@ impl LedgerState {
         })
     }
 
-    #[expect(
-        clippy::missing_const_for_fn,
-        clippy::unnecessary_wraps,
-        reason = "placehoder method"
-    )]
-    fn try_apply_contents<Id>(self) -> Result<Self, LedgerError<Id>> {
-        // In the current implementation, we don't have any contents to apply.
-        // If we had transactions or other contents, this would be the place to apply
-        // them.
+    /// Apply the contents of an update to the ledger state.
+    fn try_apply_contents<Id, Constants: GasConstants>(
+        mut self,
+        txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
+    ) -> Result<Self, LedgerError<Id>> {
+        for tx in txs {
+            let _balance;
+            (self.cryptarchia_ledger, _balance) =
+                self.cryptarchia_ledger.try_apply_tx::<_, Constants>(tx)?;
+            // TODO: mantle ops
+        }
         Ok(self)
     }
 
