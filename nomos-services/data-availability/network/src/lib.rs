@@ -1,3 +1,4 @@
+pub mod addressbook;
 pub mod api;
 pub mod backends;
 pub mod membership;
@@ -16,7 +17,7 @@ use futures::Stream;
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p::{Multiaddr, PeerId};
 use nomos_core::{block::BlockNumber, da::BlobId};
-use nomos_da_network_core::addressbook::{mock::MockAddressBook, AddressBookMut as _};
+use nomos_da_network_core::addressbook::AddressBookMut as _;
 use overwatch::{
     services::{
         state::{NoOperator, ServiceState},
@@ -31,6 +32,7 @@ use tokio::sync::oneshot;
 use tokio_stream::StreamExt as _;
 
 use crate::{
+    addressbook::mock::MockAddressBook,
     api::ApiAdapter as ApiAdapterTrait,
     membership::{handler::DaMembershipHandler, MembershipAdapter},
 };

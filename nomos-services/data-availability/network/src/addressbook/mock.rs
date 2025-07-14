@@ -4,8 +4,7 @@ use std::{
 };
 
 use libp2p::{Multiaddr, PeerId};
-
-use crate::addressbook::{AddressBookHandler, AddressBookMut};
+use nomos_da_network_core::addressbook::{AddressBookHandler, AddressBookMut};
 
 #[derive(Default, Debug, Clone)]
 pub struct MockAddressBook {

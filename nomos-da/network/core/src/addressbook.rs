@@ -1,5 +1,3 @@
-pub mod mock;
-
 use std::{collections::HashMap, fmt::Debug};
 
 use libp2p::Multiaddr;
