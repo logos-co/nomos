@@ -5,6 +5,12 @@ pub trait GasCost {
     fn gas_cost<Constants: GasConstants>(&self) -> Gas;
 }
 
+impl<T: GasCost> GasCost for &T {
+    fn gas_cost<Constants: GasConstants>(&self) -> Gas {
+        T::gas_cost::<Constants>(self)
+    }
+}
+
 pub trait GasConstants {
     /// Verify the proof of ownership and relative balance.
     const LEDGER_TX: Gas;
