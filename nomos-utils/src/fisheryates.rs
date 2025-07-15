@@ -13,12 +13,12 @@ impl FisherYates {
         }
     }
 
-    pub fn sample<'e, R: RngCore, T: Ord + 'e>(
-        elements: impl IntoIterator<Item = &'e T>,
+    pub fn sample<R: RngCore, T: Ord>(
+        elements: impl IntoIterator<Item = T>,
         sample_size: usize,
         rng: &mut R,
-    ) -> impl Iterator<Item = &'e T> {
-        let mut elements: Vec<&T> = elements.into_iter().collect();
+    ) -> impl Iterator<Item = T> {
+        let mut elements: Vec<T> = elements.into_iter().collect();
         elements.sort();
         Self::shuffle(&mut elements, rng);
 
