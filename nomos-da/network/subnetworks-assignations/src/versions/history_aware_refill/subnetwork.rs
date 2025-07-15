@@ -1,26 +1,11 @@
 use std::{cmp::Ordering, collections::BTreeSet};
 
-use nomos_sdp_core::DeclarationId;
-
-use crate::SubnetworkId;
-
-#[derive(PartialEq, Eq)]
-struct Participant {
-    participation: usize,
-    declaration_id: DeclarationId,
-}
-
-impl PartialOrd for Participant {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        (self.participation, self.declaration_id)
-            .partial_cmp(&(other.participation, other.declaration_id))
-    }
-}
+use crate::{versions::history_aware_refill::participant::Participant, SubnetworkId};
 
 #[derive(Eq)]
-struct Subnetwork {
-    participants: BTreeSet<Participant>,
-    subnetwork_id: SubnetworkId,
+pub(super) struct Subnetwork {
+    pub participants: BTreeSet<Participant>,
+    pub subnetwork_id: SubnetworkId,
 }
 
 impl PartialEq for Subnetwork {
