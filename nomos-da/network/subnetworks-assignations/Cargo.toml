@@ -1,19 +1,20 @@
 [package]
 edition = "2021"
 license = { workspace = true }
-name    = "subnetworks-assignations"
+name = "subnetworks-assignations"
 version = "0.1.0"
 
 [lints]
 workspace = true
 
 [dependencies]
-libp2p          = { version = "0.55", default-features = false }
+counter = "0.6"
+libp2p = { version = "0.55", default-features = false }
 libp2p-identity = { version = "0.2", features = ["peerid", "serde"] }
-nomos-sdp-core  = { workspace = true }
-nomos-utils     = { workspace = true }
-rand            = { workspace = true }
-serde           = "1"
+nomos-sdp-core = { workspace = true }
+nomos-utils = { workspace = true }
+rand = { workspace = true }
+serde = "1"
 
 [dev-dependencies]
 libp2p-identity = { version = "0.2", features = ["rand"] }

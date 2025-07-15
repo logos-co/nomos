@@ -1,10 +1,12 @@
 use std::{cmp::Ordering, collections::BTreeSet};
 
-use crate::{versions::history_aware_refill::participant::Participant, SubnetworkId};
+use nomos_sdp_core::DeclarationId;
+
+use crate::SubnetworkId;
 
 #[derive(Eq)]
 pub(super) struct Subnetwork {
-    pub participants: BTreeSet<Participant>,
+    pub participants: BTreeSet<DeclarationId>,
     pub subnetwork_id: SubnetworkId,
 }
 
