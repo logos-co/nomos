@@ -1,6 +1,6 @@
 use std::{
     cmp::{Ordering, Reverse},
-    collections::{BTreeSet, BinaryHeap},
+    collections::{BTreeSet, BinaryHeap, HashSet},
 };
 
 use counter::Counter;
@@ -62,8 +62,8 @@ impl HistoryAwareRefill {
         unreachable!("It should never reach this state unless not catching invariants before hand");
     }
 
-    fn balance_subnetwork_shrink<'a, Rng: RngCore>(
-        subnetworks: impl IntoIterator<Item = &'a mut Subnetwork>,
+    fn balance_subnetwork_shrink<'s, Rng: RngCore>(
+        subnetworks: impl IntoIterator<Item = &'s mut Subnetwork>,
         rng: &mut Rng,
     ) {
         let mut subnetworks: Vec<_> = subnetworks.into_iter().collect();
@@ -191,7 +191,7 @@ impl HistoryAwareRefill {
         rng: &mut Rng,
     ) -> Assignations {
         assert!(
-            new_nodes_list.len() < replication_factor,
+            new_nodes_list.len() > replication_factor,
             "The network size is smaller than the replication factor"
         );
         // The algorithm works as follows:
@@ -280,5 +280,81 @@ impl HistoryAwareRefill {
             .into_iter()
             .map(|subnetwork| subnetwork.participants)
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rand::rng;
+
+    use super::*;
+
+    const SUBNETWORK_SIZE: usize = 2048;
+    const REPLICATION_FACTOR: usize = 3;
+
+    fn assert_assignations(
+        assignations: &Assignations,
+        nodes: &[DeclarationId],
+        replication_factor: usize,
+    ) {
+        assert_eq!(
+            assignations.iter().flatten().collect::<HashSet<_>>().len(),
+            nodes.len(),
+            "Only active nodes should be assigned"
+        );
+        assert!(
+            assignations
+                .iter()
+                .map(BTreeSet::len)
+                .all(|len| len >= replication_factor),
+            "Subnetworks should be filled up to the replication factor"
+        );
+        assert!(
+            assignations.iter().map(BTreeSet::len).max().unwrap()
+                - assignations.iter().map(BTreeSet::len).min().unwrap()
+                <= 1,
+            "Subnetwork size variant should not be bigger than 1",
+        );
+        let sizes = assignations
+            .iter()
+            .flatten()
+            .collect::<Counter<_>>()
+            .values()
+            .copied()
+            .collect::<HashSet<usize>>();
+        assert!(
+            sizes.len() <= 2,
+            "Nodes should be assigned uniformly to subnetworks"
+        );
+    }
+    fn test_single_with(subnetwork_size: usize, replication_factor: usize, network_size: usize) {
+        let mut rng = rng();
+        let nodes: Vec<DeclarationId> = std::iter::repeat_with(|| {
+            let mut buff = [0u8; 32];
+            rng.fill_bytes(&mut buff);
+            DeclarationId(buff)
+        })
+        .take(network_size)
+        .collect();
+
+        let previous_nodes: Vec<BTreeSet<DeclarationId>> =
+            std::iter::repeat_with(BTreeSet::<DeclarationId>::new)
+                .take(subnetwork_size)
+                .collect();
+
+        let assignations = HistoryAwareRefill::calculate_subnetwork_assignations(
+            &nodes,
+            previous_nodes,
+            replication_factor,
+            &mut rng,
+        );
+        assert_assignations(&assignations, &nodes, replication_factor);
+    }
+
+    #[test]
+    fn test_single_network_sizes() {
+        for &size in &[100, 500, 1000, 10000, 100_000] {
+            test_single_with(SUBNETWORK_SIZE, REPLICATION_FACTOR, size);
+        }
     }
 }

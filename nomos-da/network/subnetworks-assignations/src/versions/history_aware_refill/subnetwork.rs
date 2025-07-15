@@ -31,13 +31,6 @@ impl PartialOrd for Subnetwork {
 }
 
 impl Subnetwork {
-    const fn new(subnetwork_id: SubnetworkId) -> Self {
-        Self {
-            participants: BTreeSet::new(),
-            subnetwork_id,
-        }
-    }
-
     pub fn len(&self) -> usize {
         self.participants.len()
     }
