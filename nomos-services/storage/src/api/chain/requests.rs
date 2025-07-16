@@ -1,4 +1,4 @@
-use std::{fmt::Display, num::NonZeroUsize, ops::RangeInclusive};
+use std::{collections::BTreeMap, fmt::Display, num::NonZeroUsize, ops::RangeInclusive};
 
 use cryptarchia_engine::Slot;
 use nomos_core::header::HeaderId;
@@ -23,9 +23,8 @@ pub enum ChainApiRequest<Backend: StorageBackend> {
         header_id: HeaderId,
         response_tx: Sender<Option<Backend::Block>>,
     },
-    StoreImmutableBlockId {
-        slot: Slot,
-        header_id: HeaderId,
+    StoreImmutableBlockIds {
+        ids: BTreeMap<Slot, HeaderId>,
     },
     GetImmutableBlockId {
         slot: Slot,
@@ -55,8 +54,8 @@ where
                 header_id,
                 response_tx,
             } => handle_remove_block(backend, header_id, response_tx).await,
-            Self::StoreImmutableBlockId { slot, header_id } => {
-                handle_store_immutable_block_id(backend, slot, header_id).await
+            Self::StoreImmutableBlockIds { ids: block_ids } => {
+                handle_store_immutable_block_ids(backend, block_ids).await
             }
             Self::GetImmutableBlockId { slot, response_tx } => {
                 handle_get_immutable_block_id(backend, slot, response_tx).await
@@ -123,13 +122,12 @@ where
         })
 }
 
-async fn handle_store_immutable_block_id<Backend: StorageBackend>(
+async fn handle_store_immutable_block_ids<Backend: StorageBackend>(
     backend: &mut Backend,
-    slot: Slot,
-    header_id: HeaderId,
+    ids: BTreeMap<Slot, HeaderId>,
 ) -> Result<(), StorageServiceError> {
     backend
-        .store_immutable_block_id(slot, header_id)
+        .store_immutable_block_ids(ids)
         .await
         .map_err(|e| StorageServiceError::BackendError(e.into()))
 }
@@ -212,12 +210,9 @@ impl<Api: StorageBackend> StorageMsg<Api> {
     }
 
     #[must_use]
-    pub const fn store_immutable_block_id_request(slot: Slot, header_id: HeaderId) -> Self {
+    pub const fn store_immutable_block_ids_request(ids: BTreeMap<Slot, HeaderId>) -> Self {
         Self::Api {
-            request: StorageApiRequest::Chain(ChainApiRequest::StoreImmutableBlockId {
-                slot,
-                header_id,
-            }),
+            request: StorageApiRequest::Chain(ChainApiRequest::StoreImmutableBlockIds { ids }),
         }
     }
 

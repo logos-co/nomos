@@ -984,11 +984,7 @@ where
 
                 if let Err(e) = relays
                     .storage_adapter()
-                    .store_immutable_block_ids(
-                        pruned_blocks
-                            .immutable_blocks()
-                            .map(|(slot, id)| (*slot, *id)),
-                    )
+                    .store_immutable_block_ids(pruned_blocks.immutable_blocks().clone())
                     .await
                 {
                     error!("Could not store immutable block IDs: {e}");

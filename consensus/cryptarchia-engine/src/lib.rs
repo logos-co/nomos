@@ -579,8 +579,9 @@ impl<Id> PrunedBlocks<Id> {
     }
 
     /// Returns an iterator over pruned immutable blocks in slot order.
-    pub fn immutable_blocks(&self) -> impl Iterator<Item = (&Slot, &Id)> + '_ {
-        self.immutable_blocks.iter()
+    #[must_use]
+    pub const fn immutable_blocks(&self) -> &BTreeMap<Slot, Id> {
+        &self.immutable_blocks
     }
 }
 

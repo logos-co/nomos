@@ -1,9 +1,10 @@
-use std::{num::NonZeroUsize, ops::RangeInclusive};
+use std::{collections::BTreeMap, num::NonZeroUsize, ops::RangeInclusive};
 
 use async_trait::async_trait;
 use bytes::Bytes;
 use cryptarchia_engine::Slot;
 use nomos_core::header::HeaderId;
+use rocksdb::WriteBatch;
 
 use crate::{
     api::{
@@ -44,16 +45,23 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for RocksBac
         self.remove(&key).await.map_err(Into::into)
     }
 
-    async fn store_immutable_block_id(
+    async fn store_immutable_block_ids(
         &mut self,
-        slot: Slot,
-        header_id: HeaderId,
+        ids: BTreeMap<Slot, HeaderId>,
     ) -> Result<(), Self::Error> {
-        let key = key_bytes(IMMUTABLE_BLOCK_PREFIX, slot.to_be_bytes());
-        let header_id: [u8; 32] = header_id.into();
-        self.store(key, Bytes::copy_from_slice(&header_id))
-            .await
-            .map_err(Into::into)
+        let txn = self.txn(move |db| {
+            let mut batch = WriteBatch::default();
+            for (slot, header_id) in ids {
+                let key = key_bytes(IMMUTABLE_BLOCK_PREFIX, slot.to_be_bytes());
+                let header_id: [u8; 32] = header_id.into();
+                batch.put(key, Bytes::copy_from_slice(&header_id));
+            }
+            db.write(batch)?;
+            Ok(None)
+        });
+        let _ = self.execute(txn).await?;
+
+        Ok(())
     }
 
     async fn get_immutable_block_id(
@@ -73,5 +81,40 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for RocksBac
         _limit: NonZeroUsize,
     ) -> Result<Vec<HeaderId>, Self::Error> {
         todo!("implement this by updating load_prefix to accept more arguments")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::TempDir;
+
+    use super::*;
+    use crate::backends::{rocksdb::RocksBackendSettings, testing::NoStorageSerde};
+
+    #[tokio::test]
+    async fn store_immutable_block_ids() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut backend = RocksBackend::<NoStorageSerde>::new(RocksBackendSettings {
+            db_path: temp_dir.path().to_path_buf(),
+            read_only: false,
+            column_family: None,
+        })
+        .unwrap();
+
+        backend
+            .store_immutable_block_ids(
+                [(0.into(), [0u8; 32].into()), (1.into(), [1u8; 32].into())].into(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            backend.get_immutable_block_id(0.into()).await.unwrap(),
+            Some([0u8; 32].into())
+        );
+        assert_eq!(
+            backend.get_immutable_block_id(1.into()).await.unwrap(),
+            Some([1u8; 32].into())
+        );
     }
 }

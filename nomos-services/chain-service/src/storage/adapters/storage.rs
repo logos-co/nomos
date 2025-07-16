@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{collections::BTreeMap, marker::PhantomData};
 
 use cryptarchia_engine::Slot;
 use nomos_core::{block::Block, header::HeaderId};
@@ -109,16 +109,12 @@ where
 
     async fn store_immutable_block_ids(
         &self,
-        blocks: impl Iterator<Item = (Slot, HeaderId)> + Send,
+        blocks: BTreeMap<Slot, HeaderId>,
     ) -> Result<(), overwatch::DynError> {
-        for (slot, header_id) in blocks {
-            self.storage_relay
-                .send(StorageMsg::store_immutable_block_id_request(
-                    slot, header_id,
-                ))
-                .await
-                .map_err(|_| "Failed to send store_immutable_block_id request to storage relay")?;
-        }
+        self.storage_relay
+            .send(StorageMsg::store_immutable_block_ids_request(blocks))
+            .await
+            .map_err(|_| "Failed to send store_immutable_block_id request to storage relay")?;
         Ok(())
     }
 }

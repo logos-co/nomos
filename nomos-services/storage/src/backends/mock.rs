@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     marker::PhantomData,
     num::NonZeroUsize,
     ops::RangeInclusive,
@@ -117,10 +117,9 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for MockStor
         unimplemented!()
     }
 
-    async fn store_immutable_block_id(
+    async fn store_immutable_block_ids(
         &mut self,
-        _slot: Slot,
-        _header_id: HeaderId,
+        _ids: BTreeMap<Slot, HeaderId>,
     ) -> Result<(), Self::Error> {
         unimplemented!()
     }
