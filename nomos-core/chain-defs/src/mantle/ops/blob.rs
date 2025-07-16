@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+pub(crate) const DA_COLUMNS: u64 = 1024;
+pub(crate) const DA_ELEMENT_SIZE: u64 = 32;
+
 use crate::mantle::{
-    gas::{Gas, GasConstants, GasPrice},
+    gas::Gas,
     ops::{ChannelId, Ed25519PublicKey},
     tx::TxHash,
 };
@@ -13,15 +16,7 @@ pub struct BlobOp {
     pub channel: ChannelId,
     pub blob: BlobId,
     pub blob_size: u64,
+    pub da_storage_gas_price: Gas,
     pub after_tx: Option<TxHash>,
     pub signer: Ed25519PublicKey,
-}
-
-impl GasPrice for BlobOp {
-    fn gas_price<Constants: GasConstants>(&self) -> Gas {
-        let ordered = u64::from(self.after_tx.is_some());
-        Constants::BLOB_BASE_GAS
-            + Constants::BLOB_BYTE_GAS * self.blob_size
-            + Constants::BLOB_ORDERING_GAS * ordered
-    }
 }

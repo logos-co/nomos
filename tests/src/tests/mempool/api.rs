@@ -20,7 +20,8 @@ async fn test_post_mantle_tx() {
     let mantle_tx = MantleTx {
         ops: Vec::new(),
         ledger_tx: LedgerTx::new(vec![], vec![]),
-        gas_price: 0,
+        storage_gas_price: 0,
+        execution_gas_price: 0,
     };
 
     let signed_tx = SignedMantleTx {

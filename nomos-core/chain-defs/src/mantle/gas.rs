@@ -1,59 +1,49 @@
-pub type Gas = u64;
+pub type Gas = crate::mantle::ledger::Value;
 
-pub trait GasPrice {
-    fn gas_price<Constants: GasConstants>(&self) -> Gas;
+pub trait GasCost {
+    /// Returns the gas cost of this operation.
+    fn gas_cost<Constants: GasConstants>(&self) -> Gas;
 }
 
 pub trait GasConstants {
     /// Verify the proof of ownership and relative balance.
-    const TX_BASE_GAS: Gas;
-
-    /// Check note identifiers existence and if they are spendable. Remove note
-    /// identifiers from the set.
-    const INPUT_GAS: Gas;
-
-    /// Add note identifiers to the set and store the associated witness.
-    const OUTPUT_GAS: Gas;
+    const LEDGER_TX: Gas;
 
     /// Verify the inscription signature.
-    const INSCRIBE_BASE_GAS: Gas;
-
-    /// Gas per inscription byte.
-    const INSCRIBE_BYTE_GAS: Gas;
-
-    /// Additional cost if this inscription is ordered.
-    const INSCRIBE_ORDERING_GAS: Gas;
+    const CHANNEL_INSCRIBE: Gas;
 
     /// Verify blob availability and signature.
-    const BLOB_BASE_GAS: Gas;
+    const CHANNEL_BLOB_BASE: Gas;
 
     /// Store the message in a blob.
-    const BLOB_BYTE_GAS: Gas;
-
-    /// Additional cost if this blob is ordered.
-    const BLOB_ORDERING_GAS: Gas;
+    const CHANNEL_BLOB_SIZED: Gas;
 
     /// Verify the administrator signature.
-    const SET_CHANNEL_KEYS_BASE_GAS: Gas;
-
-    /// Gas per byte for key.
-    const SET_CHANNEL_KEY_BYTE_GAS: Gas;
+    const CHANNEL_SET_KEYS: Gas;
 
     /// Verify the proof of ownership.
-    const DECLARE_BASE_GAS: Gas;
-
-    /// Cost of declaration scales with number of locators
-    const DECLARE_LOCATOR_GAS: Gas;
+    const SDP_DECLARE: Gas;
 
     /// Verify the proof of ownership.
-    const WITHDRAW_BASE_GAS: Gas;
+    const SDP_WITHDRAW: Gas;
 
     /// Store the active message.
-    const ACTIVE_BASE_GAS: Gas;
-
-    /// Store the message on the ledger and process it.
-    const ACTIVE_BYTE_GAS: Gas;
+    const SDP_ACTIVE: Gas;
 
     /// Consume a reward ticket.
-    const CLAIM_BASE_GAS: Gas;
+    const LEADER_CLAIM: Gas;
+}
+
+pub struct MainnetGasConstants;
+
+impl GasConstants for MainnetGasConstants {
+    const LEDGER_TX: Gas = 2705;
+    const CHANNEL_INSCRIBE: Gas = 22;
+    const CHANNEL_BLOB_BASE: Gas = 800;
+    const CHANNEL_BLOB_SIZED: Gas = 100;
+    const CHANNEL_SET_KEYS: Gas = 22;
+    const SDP_DECLARE: Gas = 2727;
+    const SDP_WITHDRAW: Gas = 2705;
+    const SDP_ACTIVE: Gas = 2705;
+    const LEADER_CLAIM: Gas = 1150;
 }

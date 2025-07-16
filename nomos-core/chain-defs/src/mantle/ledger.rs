@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     crypto::Digest as _,
-    mantle::{keys::PublicKey, tx::TxHash, Transaction, TransactionHasher},
+    mantle::{gas::GasConstants, keys::PublicKey, tx::TxHash, Transaction, TransactionHasher},
     utils::serde_bytes_newtype,
 };
 
@@ -122,6 +122,11 @@ impl Tx {
             output_index: index,
             note: *note,
         })
+    }
+
+    #[must_use]
+    pub const fn execution_gas<Constants: GasConstants>(&self) -> u64 {
+        Constants::LEDGER_TX
     }
 }
 

@@ -12,9 +12,9 @@ mod wire;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{
-    gas::{Gas, GasConstants, GasPrice},
+    gas::{Gas, GasConstants},
     ops::{
-        blob::BlobOp,
+        blob::{BlobOp, DA_COLUMNS, DA_ELEMENT_SIZE},
         channel_keys::SetChannelKeysOp,
         inscribe::InscriptionOp,
         leader_claim::LeaderClaimOp,
@@ -91,21 +91,6 @@ impl<'de> Deserialize<'de> for Op {
     }
 }
 
-impl GasPrice for Op {
-    fn gas_price<Constants: GasConstants>(&self) -> Gas {
-        match self {
-            Self::Inscribe(op) => op.gas_price::<Constants>(),
-            Self::Blob(op) => op.gas_price::<Constants>(),
-            Self::SetChannelKeys(op) => op.gas_price::<Constants>(),
-            Self::Native(op) => op.gas_price::<Constants>(),
-            Self::SDPDeclare(op) => op.gas_price::<Constants>(),
-            Self::SDPWithdraw(op) => op.gas_price::<Constants>(),
-            Self::SDPActive(op) => op.gas_price::<Constants>(),
-            Self::LeaderClaim(op) => op.gas_price::<Constants>(),
-        }
-    }
-}
-
 impl Op {
     #[must_use]
     pub const fn opcode(&self) -> u8 {
@@ -127,6 +112,35 @@ impl Op {
         buff.extend_from_slice(&[self.opcode()]);
         // TODO: add ops payload
         buff.freeze()
+    }
+
+    #[must_use] pub fn execution_gas<Constants: GasConstants>(&self) -> Gas {
+        match self {
+            Self::Inscribe(_) => Constants::CHANNEL_INSCRIBE,
+            Self::Blob(BlobOp { blob_size, .. }) => {
+                let sample_size = blob_size / (DA_COLUMNS * DA_ELEMENT_SIZE);
+                Constants::CHANNEL_BLOB_BASE + Constants::CHANNEL_BLOB_SIZED * sample_size
+            }
+            Self::SetChannelKeys(_) => Constants::CHANNEL_SET_KEYS,
+            Self::Native(_) => Gas::MAX,
+            Self::SDPDeclare(_) => Constants::SDP_DECLARE,
+            Self::SDPWithdraw(_) => Constants::SDP_WITHDRAW,
+            Self::SDPActive(_) => Constants::SDP_ACTIVE,
+            Self::LeaderClaim(_) => Constants::LEADER_CLAIM,
+        }
+    }
+
+    #[must_use] pub fn da_gas_cost(&self) -> Gas {
+        if let Self::Blob(BlobOp {
+            blob_size,
+            da_storage_gas_price,
+            ..
+        }) = self
+        {
+            da_storage_gas_price * blob_size
+        } else {
+            0
+        }
     }
 }
 
@@ -150,6 +164,7 @@ mod tests {
             channel: 0,
             blob: [0; 32],
             blob_size: 0,
+            da_storage_gas_price: 0,
             after_tx: None,
             signer: [0; 32],
         });
@@ -172,6 +187,7 @@ mod tests {
             channel: 0,
             blob: [0; 32],
             blob_size: 0,
+            da_storage_gas_price: 0,
             after_tx: None,
             signer: [0; 32],
         };

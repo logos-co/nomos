@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::mantle::gas::{Gas, GasConstants, GasPrice};
 
 pub type RewardsRoot = [u8; 32];
 pub type VoucherNullifier = [u8; 32];
@@ -11,8 +10,3 @@ pub struct LeaderClaimOp {
     pub voucher_nullifier: VoucherNullifier,
 }
 
-impl GasPrice for LeaderClaimOp {
-    fn gas_price<Constants: GasConstants>(&self) -> Gas {
-        Constants::CLAIM_BASE_GAS
-    }
-}
