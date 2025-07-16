@@ -16,11 +16,16 @@ pub enum SamplingError {
         error: std::io::Error,
         message: Option<sampling::SampleRequest>,
     },
-    #[error("Dispersal response error: {error:?}")]
-    Protocol {
+    #[error("Share response error: {error:?}")]
+    Share {
         subnetwork_id: SubnetworkId,
         peer_id: PeerId,
-        error: sampling::SampleError,
+        error: sampling::ShareError,
+    },
+    #[error("Commitments response error: {error:?}")]
+    Commitments {
+        peer_id: PeerId,
+        error: sampling::CommitmentsError,
     },
     #[error("Error opening stream [{peer_id}]: {error}")]
     OpenStream {
@@ -67,7 +72,8 @@ impl SamplingError {
     pub const fn peer_id(&self) -> Option<&PeerId> {
         match self {
             Self::Io { peer_id, .. }
-            | Self::Protocol { peer_id, .. }
+            | Self::Share { peer_id, .. }
+            | Self::Commitments { peer_id, .. }
             | Self::OpenStream { peer_id, .. }
             | Self::Deserialize { peer_id, .. }
             | Self::RequestChannel { peer_id, .. }
@@ -84,7 +90,7 @@ impl SamplingError {
         match self {
             Self::BlobNotFound { blob_id, .. } => blob_id.as_slice().try_into().ok(),
             Self::Deserialize { blob_id, .. } => Some(blob_id),
-            Self::Protocol { error, .. } => Some(&error.blob_id),
+            Self::Share { error, .. } => Some(&error.blob_id),
             _ => None,
         }
     }
@@ -102,12 +108,16 @@ impl Clone for SamplingError {
                 error: std::io::Error::new(error.kind(), error.to_string()),
                 message: *message,
             },
-            Self::Protocol {
+            Self::Share {
                 subnetwork_id,
                 peer_id,
                 error,
-            } => Self::Protocol {
+            } => Self::Share {
                 subnetwork_id: *subnetwork_id,
+                peer_id: *peer_id,
+                error: error.clone(),
+            },
+            Self::Commitments { peer_id, error } => Self::Commitments {
                 peer_id: *peer_id,
                 error: error.clone(),
             },

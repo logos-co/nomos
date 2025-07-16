@@ -70,9 +70,16 @@ pub enum BehaviourSampleRes {
         subnetwork_id: SubnetworkId,
         share: Box<DaLightShare>,
     },
+    CommitmentsSuccess {
+        blob_id: BlobId,
+        commitments: Box<DaSharesCommitments>,
+    },
     SampleNotFound {
         blob_id: BlobId,
         subnetwork_id: SubnetworkId,
+    },
+    CommitmentsNotFound {
+        blob_id: BlobId,
     },
 }
 
@@ -82,15 +89,26 @@ impl From<BehaviourSampleRes> for sampling::SampleResponse {
             BehaviourSampleRes::SamplingSuccess { share, blob_id, .. } => {
                 Self::Share(common::LightShare::new(blob_id, *share))
             }
+            BehaviourSampleRes::CommitmentsSuccess {
+                blob_id,
+                commitments,
+            } => Self::Commitments(common::Commitments::new(blob_id, *commitments)),
             BehaviourSampleRes::SampleNotFound {
                 blob_id,
                 subnetwork_id,
-            } => Self::Error(sampling::SampleError::new(
+            } => Self::Error(sampling::SampleError::new_share(
                 blob_id,
                 subnetwork_id,
                 sampling::SampleErrorType::NotFound,
                 "Sample not found",
             )),
+            BehaviourSampleRes::CommitmentsNotFound { blob_id } => {
+                Self::Error(sampling::SampleError::new_commitments(
+                    blob_id,
+                    sampling::SampleErrorType::NotFound,
+                    "Commitments not found",
+                ))
+            }
         }
     }
 }
@@ -108,10 +126,6 @@ pub enum SamplingEvent {
         commitments: Box<DaSharesCommitments>,
     },
     IncomingSample {
-        request_receiver: Receiver<BehaviourSampleReq>,
-        response_sender: Sender<BehaviourSampleRes>,
-    },
-    CommitmentsRequest {
         request_receiver: Receiver<BehaviourSampleReq>,
         response_sender: Sender<BehaviourSampleRes>,
     },

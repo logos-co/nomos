@@ -28,12 +28,13 @@ use tokio::{
 use tokio_stream::wrappers::{BroadcastStream, IntervalStream, UnboundedReceiverStream};
 use tracing::instrument;
 
+use super::common::CommitmentsEvent;
 use crate::{
     backends::{
         libp2p::common::{
-            handle_balancer_command, handle_monitor_command, handle_sample_request,
-            handle_validator_events_stream, DaNetworkBackendSettings, SamplingEvent,
-            BROADCAST_CHANNEL_SIZE,
+            handle_balancer_command, handle_commitments_request, handle_monitor_command,
+            handle_sample_request, handle_validator_events_stream, DaNetworkBackendSettings,
+            SamplingEvent, BROADCAST_CHANNEL_SIZE,
         },
         NetworkBackend,
     },
@@ -46,6 +47,9 @@ use crate::{
 pub enum ExecutorDaNetworkMessage<BalancerStats, MonitorStats> {
     /// Kickstart a network sapling
     RequestSample {
+        blob_id: BlobId,
+    },
+    RequestCommitments {
         blob_id: BlobId,
     },
     RequestDispersal {
@@ -62,6 +66,7 @@ pub enum ExecutorDaNetworkMessage<BalancerStats, MonitorStats> {
 #[derive(Debug)]
 pub enum DaNetworkEventKind {
     Sampling,
+    Commitments,
     Verifying,
     Dispersal,
 }
@@ -70,6 +75,7 @@ pub enum DaNetworkEventKind {
 #[derive(Debug)]
 pub enum DaNetworkEvent {
     Sampling(SamplingEvent),
+    Commitments(CommitmentsEvent),
     Verifying(Box<DaShare>),
     Dispersal(DispersalExecutorEvent),
 }
@@ -92,7 +98,9 @@ where
     verifier_replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     executor_replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     sampling_request_channel: UnboundedSender<BlobId>,
+    commitments_request_channel: UnboundedSender<BlobId>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
+    commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
     verifying_broadcast_receiver: broadcast::Receiver<DaShare>,
     dispersal_broadcast_receiver: broadcast::Receiver<DispersalExecutorEvent>,
     dispersal_shares_sender: UnboundedSender<(Membership::NetworkId, DaShare)>,
@@ -162,6 +170,7 @@ where
             });
 
         let sampling_request_channel = executor_swarm.sample_request_channel();
+        let commitments_request_channel = executor_swarm.commitments_request_channel();
         let dispersal_shares_sender = executor_swarm.dispersal_shares_channel();
         let balancer_command_sender = executor_swarm.balancer_command_channel();
         let monitor_command_sender = executor_swarm.monitor_command_channel();
@@ -176,6 +185,8 @@ where
 
         let (sampling_broadcast_sender, sampling_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
+        let (commitments_broadcast_sender, commitments_broadcast_receiver) =
+            broadcast::channel(BROADCAST_CHANNEL_SIZE);
         let (verifying_broadcast_sender, verifying_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
         let (dispersal_broadcast_sender, dispersal_broadcast_receiver) =
@@ -188,6 +199,7 @@ where
                 handle_validator_events_stream(
                     executor_events_stream.validator_events_stream,
                     sampling_broadcast_sender,
+                    commitments_broadcast_sender,
                     verifying_broadcast_sender,
                 ),
                 verifier_replies_task_abort_registration,
@@ -212,7 +224,9 @@ where
             verifier_replies_task,
             executor_replies_task,
             sampling_request_channel,
+            commitments_request_channel,
             sampling_broadcast_receiver,
+            commitments_broadcast_receiver,
             verifying_broadcast_receiver,
             dispersal_broadcast_receiver,
             dispersal_shares_sender,
@@ -240,6 +254,10 @@ where
             ExecutorDaNetworkMessage::RequestSample { blob_id } => {
                 info_with_id!(&blob_id, "RequestSample");
                 handle_sample_request(&self.sampling_request_channel, blob_id).await;
+            }
+            ExecutorDaNetworkMessage::RequestCommitments { blob_id } => {
+                info_with_id!(&blob_id, "RequestSample");
+                handle_commitments_request(&self.commitments_request_channel, blob_id).await;
             }
             ExecutorDaNetworkMessage::RequestDispersal {
                 subnetwork_id,
@@ -280,6 +298,11 @@ where
                 BroadcastStream::new(self.sampling_broadcast_receiver.resubscribe())
                     .filter_map(|event| async { event.ok() })
                     .map(Self::NetworkEvent::Sampling),
+            ),
+            DaNetworkEventKind::Commitments => Box::pin(
+                BroadcastStream::new(self.commitments_broadcast_receiver.resubscribe())
+                    .filter_map(|event| async { event.ok() })
+                    .map(Self::NetworkEvent::Commitments),
             ),
             DaNetworkEventKind::Verifying => Box::pin(
                 BroadcastStream::new(self.verifying_broadcast_receiver.resubscribe())

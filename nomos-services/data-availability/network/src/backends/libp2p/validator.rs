@@ -28,6 +28,7 @@ use tokio::{
 use tokio_stream::wrappers::{BroadcastStream, IntervalStream};
 use tracing::instrument;
 
+use super::common::CommitmentsEvent;
 use crate::{
     backends::{
         libp2p::common::{
@@ -61,6 +62,7 @@ where
 #[derive(Debug)]
 pub enum DaNetworkEventKind {
     Sampling,
+    Commitments,
     Verifying,
 }
 
@@ -68,6 +70,7 @@ pub enum DaNetworkEventKind {
 #[derive(Debug)]
 pub enum DaNetworkEvent {
     Sampling(SamplingEvent),
+    Commitments(CommitmentsEvent),
     Verifying(Box<DaShare>),
 }
 
@@ -82,6 +85,7 @@ pub struct DaNetworkValidatorBackend<Membership> {
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
+    commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
     verifying_broadcast_receiver: broadcast::Receiver<DaShare>,
     _membership: PhantomData<Membership>,
 }
@@ -156,6 +160,8 @@ where
         );
         let (sampling_broadcast_sender, sampling_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
+        let (commitments_broadcast_sender, commitments_broadcast_receiver) =
+            broadcast::channel(BROADCAST_CHANNEL_SIZE);
         let (verifying_broadcast_sender, verifying_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
         let (replies_task_abort_handle, replies_task_abort_registration) = AbortHandle::new_pair();
@@ -165,6 +171,7 @@ where
                 handle_validator_events_stream(
                     validator_events_stream,
                     sampling_broadcast_sender,
+                    commitments_broadcast_sender,
                     verifying_broadcast_sender,
                 ),
                 replies_task_abort_registration,
@@ -178,6 +185,7 @@ where
             balancer_command_sender,
             monitor_command_sender,
             sampling_broadcast_receiver,
+            commitments_broadcast_receiver,
             verifying_broadcast_receiver,
             _membership: PhantomData,
         }
@@ -227,6 +235,11 @@ where
                 BroadcastStream::new(self.sampling_broadcast_receiver.resubscribe())
                     .filter_map(|event| async { event.ok() })
                     .map(Self::NetworkEvent::Sampling),
+            ),
+            DaNetworkEventKind::Commitments => Box::pin(
+                BroadcastStream::new(self.commitments_broadcast_receiver.resubscribe())
+                    .filter_map(|event| async { event.ok() })
+                    .map(Self::NetworkEvent::Commitments),
             ),
             DaNetworkEventKind::Verifying => Box::pin(
                 BroadcastStream::new(self.verifying_broadcast_receiver.resubscribe())

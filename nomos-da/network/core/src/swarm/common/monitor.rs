@@ -87,8 +87,7 @@ impl From<&SamplingEvent> for MonitorEvent {
         match event {
             SamplingEvent::SamplingSuccess { .. }
             | SamplingEvent::IncomingSample { .. }
-            | SamplingEvent::CommitmentsSuccess { .. }
-            | SamplingEvent::CommitmentsRequest { .. } => Self::Noop,
+            | SamplingEvent::CommitmentsSuccess { .. } => Self::Noop,
             SamplingEvent::SamplingError { error } => match error {
                 // Only map Io or OpenStreamError to Self
                 &SamplingError::Io { .. } | &SamplingError::OpenStream { .. } => {

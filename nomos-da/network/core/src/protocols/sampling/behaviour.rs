@@ -59,7 +59,7 @@ where
     /// Pending sampling stream tasks
     stream_tasks: FuturesUnordered<SamplingStreamFuture>,
     /// Pending blobs that need to be sampled from `PeerId`
-    to_sample: HashMap<PeerId, VecDeque<(Membership::NetworkId, BlobId)>>,
+    to_sample: HashMap<PeerId, VecDeque<sampling::SampleRequest>>,
     /// Queue of blobs that still needs a peer for sampling.
     to_retry: VecDeque<(Membership::NetworkId, BlobId)>,
     /// Sample streams that has no tasks and should be closed.
@@ -164,9 +164,14 @@ where
         Ok(SampleStream { stream, peer_id })
     }
 
-    /// Get a hook to the sender channel of the sample events
+    /// Get a hook to the sender channel of the share events
     pub fn sample_request_channel(&self) -> UnboundedSender<BlobId> {
         self.shares_request_sender.clone()
+    }
+
+    /// Get a hook to the sender channel of the commitments events
+    pub fn commitments_request_channel(&self) -> UnboundedSender<BlobId> {
+        self.commitments_request_sender.clone()
     }
 
     /// Schedule an incoming stream to be replied
@@ -210,7 +215,7 @@ where
             // If its connected means we are already working on some other sample, enqueue
             // message, stream behaviour will dial peer if connection is not
             // present.
-            let sample_request = sampling::SampleRequest::new(blob_id, subnetwork_id);
+            let sample_request = sampling::SampleRequest::new_share(blob_id, subnetwork_id);
             let with_dial_task: SamplingStreamFuture = async move {
                 // If we don't have an existing connection to the peer, this will immediately
                 // return `ConnectionReset` io error. To handle that, we need to queue
@@ -255,7 +260,6 @@ where
             .and_then(VecDeque::pop_front)
         {
             let control = self.control.clone();
-            let sample_request = sampling::SampleRequest::new(blob_id, subnetwork_id);
             let open_stream_task: SamplingStreamFuture = async move {
                 let stream = Self::open_stream(peer_id, control)
                     .await
@@ -273,7 +277,7 @@ where
             let mut rng = rand::thread_rng();
             if let Some(peer_id) = self.pick_subnetwork_peer(subnetwork_id, &mut rng) {
                 let control = self.control.clone();
-                let sample_request = sampling::SampleRequest::new(blob_id, subnetwork_id);
+                let sample_request = sampling::SampleRequest::new_share(blob_id, subnetwork_id);
                 let open_stream_task: SamplingStreamFuture = async move {
                     let stream = Self::open_stream(peer_id, control)
                         .await
@@ -327,12 +331,11 @@ where
         let peer_id = stream.peer_id;
 
         // If there is a pending task schedule next one
-        if let Some((subnetwork_id, blob_id)) = self
+        if let Some(sample_request) = self
             .to_sample
             .get_mut(&peer_id)
             .and_then(VecDeque::pop_front)
         {
-            let sample_request = sampling::SampleRequest::new(blob_id, subnetwork_id);
             self.stream_tasks
                 .push(streams::stream_sample(stream, sample_request).boxed());
         } else {
@@ -347,13 +350,18 @@ where
         peer_id: PeerId,
     ) -> Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
         match sample_response {
-            sampling::SampleResponse::Error(error) => {
+            sampling::SampleResponse::Error(sampling::SampleError::Share(error)) => {
                 Poll::Ready(ToSwarm::GenerateEvent(SamplingEvent::SamplingError {
-                    error: SamplingError::Protocol {
+                    error: SamplingError::Share {
                         subnetwork_id: error.column_idx,
                         error,
                         peer_id,
                     },
+                }))
+            }
+            sampling::SampleResponse::Error(sampling::SampleError::Commitments(error)) => {
+                Poll::Ready(ToSwarm::GenerateEvent(SamplingEvent::SamplingError {
+                    error: SamplingError::Commitments { error, peer_id },
                 }))
             }
             sampling::SampleResponse::Share(share) => {
@@ -385,7 +393,7 @@ where
                 Self::handle_sample_response(*sample_response, peer_id)
             }
             SampleStreamResponse::Reader => {
-                // Writer might be hoping to send to this stream another request, wait
+                // Writer might behoping to send to this stream another request, wait
                 // until the writer closes the stream.
                 let (request_receiver, response_sender) =
                     self.schedule_incoming_stream_task(stream);
@@ -406,7 +414,7 @@ where
             SamplingError::Io {
                 error,
                 peer_id,
-                message: Some(message),
+                message: Some(sampling::SampleRequest::Share(message)),
             } if error.kind() == std::io::ErrorKind::ConnectionReset => {
                 // Propagate error for blob_id if retry limit is reached.
                 if !self.connections.should_retry(message.share_idx) {
@@ -414,7 +422,7 @@ where
                         SamplingEvent::no_subnetwork_peers_err(message.blob_id, message.share_idx),
                     )));
                 }
-                // Dial to peer failed, shoul requeue to different peer.
+                // Dial to peer failed, should requeue to different peer.
                 if self.connections.should_requeue(peer_id) {
                     self.to_retry
                         .push_back((message.share_idx, message.blob_id));
@@ -424,7 +432,7 @@ where
                 // likely because we didn't have the connection to peer or peer closed stream on
                 // it's end because it stopped waiting for messages through this stream.
                 if let Some(peer_queue) = self.to_sample.get_mut(&peer_id) {
-                    peer_queue.push_back((message.share_idx, message.blob_id));
+                    peer_queue.push_back(sampling::SampleRequest::Share(message));
                 }
                 // Stream is useless if connection was reset.
                 if let Some(stream) = maybe_stream {

@@ -59,7 +59,6 @@ pub async fn stream_sample(
         }
     };
 
-    // `blob_id` should always be a 32bytes hash
     Ok((peer_id, SampleStreamResponse::Writer(response), stream))
 }
 

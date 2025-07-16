@@ -203,6 +203,13 @@ where
             .sample_request_channel()
     }
 
+    pub fn commitments_request_channel(&mut self) -> UnboundedSender<BlobId> {
+        self.swarm
+            .behaviour()
+            .sampling_behaviour()
+            .commitments_request_channel()
+    }
+
     pub fn balancer_command_channel(
         &mut self,
     ) -> UnboundedSender<ConnectionBalancerCommand<BalancerStats>> {
