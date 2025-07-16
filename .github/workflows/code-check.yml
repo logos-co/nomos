@@ -210,7 +210,7 @@ jobs:
         with:
           command: test
           # We don't test benches as they take 6h+, leading to a timeout
-          args: --all --lib --bins --tests --examples --all-features -- --nocapture
+          args: --all --lib --bins --tests --examples --all-features
       - name: Update Cargo cache
         if: success() || failure()
         uses: ./.github/actions/update-cargo-cache
