@@ -98,7 +98,8 @@ impl CfgSyncConfig {
             redial_cooldown: Duration::ZERO,
             replication_settings: self.replication_settings,
             subnets_refresh_interval: Duration::from_secs(30),
-            retry_subnets_limit: 1,
+            retry_shares_limit: 1,
+            retry_commitments_limit: 1,
         }
     }
 

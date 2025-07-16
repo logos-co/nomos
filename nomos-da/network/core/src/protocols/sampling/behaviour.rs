@@ -41,6 +41,8 @@ use tracing::{error, warn};
 use super::connections::Connections;
 use crate::{addressbook::AddressBookHandler, protocol::SAMPLING_PROTOCOL, SubnetworkId};
 
+type AttemptNumber = usize;
+
 #[derive(Debug, Error)]
 pub enum SamplingError {
     #[error("Stream disconnected: {error}")]
@@ -314,7 +316,10 @@ pub struct SubnetsConfig {
     pub num_of_subnets: usize,
     /// Numer of connection attemps to the peers in a subnetwork, if previous
     /// connection attempt failed.
-    pub retry_limit: usize,
+    pub shares_retry_limit: usize,
+    /// Number of attemts for retrieving commitments from a random sampling
+    /// peers that are selected for connections.
+    pub commitments_retry_limit: usize,
 }
 
 /// Executor sampling protocol
@@ -346,10 +351,16 @@ where
     addressbook: Addressbook,
     /// Peers that were selected for
     sampling_peers: HashMap<SubnetworkId, PeerId>,
-    /// Hook of pending samples channel
-    samples_request_sender: UnboundedSender<BlobId>,
-    /// Pending samples stream
-    samples_request_stream: BoxStream<'static, BlobId>,
+    /// Pending samples for shares sender
+    shares_request_sender: UnboundedSender<BlobId>,
+    /// Pending samples for shares stream
+    shares_request_stream: BoxStream<'static, BlobId>,
+    /// Pending samples for commitments sender
+    commitments_request_sender: UnboundedSender<BlobId>,
+    /// Pending samples for commitments stream
+    commitments_request_stream: BoxStream<'static, BlobId>,
+    /// Commitments that are waiting for response and the attemt count
+    commitments_requests: HashMap<BlobId, AttemptNumber>,
     /// Subnets sampling config that is used when picking new subnetwork peers.
     subnets_config: SubnetsConfig,
     /// Refresh signal stream that triggers the subnetwork list refresh in
@@ -388,11 +399,15 @@ where
         let to_close = VecDeque::new();
 
         let sampling_peers = HashMap::new();
-        let (samples_request_sender, receiver) = mpsc::unbounded_channel();
-        let samples_request_stream = UnboundedReceiverStream::new(receiver).boxed();
+        let (shares_request_sender, receiver) = mpsc::unbounded_channel();
+        let shares_request_stream = UnboundedReceiverStream::new(receiver).boxed();
+
+        let (commitments_request_sender, receiver) = mpsc::unbounded_channel();
+        let commitments_request_stream = UnboundedReceiverStream::new(receiver).boxed();
+        let commitments_requests = HashMap::new();
 
         let subnet_refresh_signal = Box::pin(refresh_signal);
-        let connections = Connections::new(subnets_config.retry_limit);
+        let connections = Connections::new(subnets_config.shares_retry_limit);
 
         Self {
             local_peer_id,
@@ -406,8 +421,11 @@ where
             membership,
             addressbook,
             sampling_peers,
-            samples_request_sender,
-            samples_request_stream,
+            shares_request_sender,
+            shares_request_stream,
+            commitments_request_sender,
+            commitments_request_stream,
+            commitments_requests,
             subnets_config,
             subnet_refresh_signal,
             connections,
@@ -429,7 +447,7 @@ where
 
     /// Get a hook to the sender channel of the sample events
     pub fn sample_request_channel(&self) -> UnboundedSender<BlobId> {
-        self.samples_request_sender.clone()
+        self.shares_request_sender.clone()
     }
 
     /// Task for handling streams, one message at a time
@@ -585,7 +603,7 @@ where
 {
     /// Schedule a new task for sample the blob, if stream is not available
     /// queue messages for later processing.
-    fn sample(&mut self, blob_id: BlobId) {
+    fn sample_share(&mut self, blob_id: BlobId) {
         for (subnetwork_id, peer_id) in &self.sampling_peers {
             let subnetwork_id = *subnetwork_id;
             let peer_id = *peer_id;
@@ -611,8 +629,28 @@ where
         }
     }
 
-    fn try_peer_sample(&mut self, peer_id: PeerId) {
-        if let Some((subnetwork_id, blob_id)) = self
+    fn sample_commitments(&mut self, blob_id: BlobId) {
+        if let Some((_, peer_id)) = &self.sampling_peers.iter().choose(&mut rand::thread_rng()) {
+            let peer_id = **peer_id;
+            let control = self.control.clone();
+            let sample_request = sampling::SampleRequest::new_commitments(blob_id);
+            let with_dial_task: SamplingStreamFuture = async move {
+                let stream = Self::open_stream(peer_id, control)
+                    .await
+                    .map_err(|err| (err, None))?;
+                Self::stream_sample(stream, sample_request).await
+            }
+            .boxed();
+            self.commitments_requests
+                .entry(blob_id)
+                .and_modify(|count| *count += 1)
+                .or_insert(1);
+            self.stream_tasks.push(with_dial_task);
+        }
+    }
+
+    fn try_peer_sample_share(&mut self, peer_id: PeerId) {
+        if let Some(sample_request) = self
             .to_sample
             .get_mut(&peer_id)
             .and_then(VecDeque::pop_front)
@@ -631,7 +669,7 @@ where
         }
     }
 
-    fn try_subnetwork_sample(&mut self, blob_id: BlobId, subnetwork_id: SubnetworkId) {
+    fn try_subnetwork_sample_share(&mut self, blob_id: BlobId, subnetwork_id: SubnetworkId) {
         if self.connections.should_retry(subnetwork_id) {
             let mut rng = rand::thread_rng();
             if let Some(peer_id) = self.pick_subnetwork_peer(subnetwork_id, &mut rng) {
@@ -867,7 +905,7 @@ where
             return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
         }
         self.connections.register_connect(peer);
-        self.try_peer_sample(peer);
+        self.try_peer_sample_share(peer);
         self.stream_behaviour
             .handle_established_outbound_connection(
                 connection_id,
@@ -912,13 +950,18 @@ where
             self.refresh_subnets();
         }
 
-        // poll pending outgoing samples
-        if let Poll::Ready(Some(blob_id)) = self.samples_request_stream.poll_next_unpin(cx) {
-            self.sample(blob_id);
+        // poll pending outgoing samples for shares
+        if let Poll::Ready(Some(blob_id)) = self.shares_request_stream.poll_next_unpin(cx) {
+            self.sample_share(blob_id);
+        }
+
+        // poll pending outgoing samples for commitments
+        if let Poll::Ready(Some(blob_id)) = self.commitments_request_stream.poll_next_unpin(cx) {
+            self.sample_commitments(blob_id);
         }
 
         if let Some((subnetwork_id, blob_id)) = self.to_retry.pop_front() {
-            self.try_subnetwork_sample(blob_id, subnetwork_id);
+            self.try_subnetwork_sample_share(blob_id, subnetwork_id);
         }
 
         // poll incoming streams

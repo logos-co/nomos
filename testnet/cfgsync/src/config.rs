@@ -333,7 +333,8 @@ mod cfgsync_tests {
                     seen_message_ttl: Duration::ZERO,
                 },
                 subnets_refresh_interval: Duration::from_secs(1),
-                retry_subnets_limit: 1,
+                retry_shares_limit: 1,
+                retry_commitments_limit: 1,
             },
             &TracingSettings {
                 logger: LoggerLayer::None,

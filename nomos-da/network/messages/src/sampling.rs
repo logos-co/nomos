@@ -47,6 +47,11 @@ impl SampleRequest {
     pub const fn new(blob_id: BlobId, share_idx: ShareIndex) -> Self {
         Self { blob_id, share_idx }
     }
+
+    #[must_use]
+    pub const fn new_commitments(blob_id: BlobId) -> Self {
+        Self::Commitments(SampleCommitments { blob_id })
+    }
 }
 
 #[repr(C)]
