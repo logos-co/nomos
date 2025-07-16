@@ -93,12 +93,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for RocksBac
 
         result
             .into_iter()
-            .map(|bytes| {
-                bytes
-                    .as_ref()
-                    .try_into()
-                    .map_err(|()| Error::InconsistentValueFormat(bytes))
-            })
+            .map(|bytes| bytes.as_ref().try_into().map_err(Into::into))
             .collect::<Result<Vec<HeaderId>, Error>>()
     }
 }
