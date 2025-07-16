@@ -927,6 +927,7 @@ where
                         .get(&cryptarchia.tip())
                         .expect("tip branch not available")
                         .length(),
+                    mode: *cryptarchia.consensus.state(),
                 };
                 tx.send(info).unwrap_or_else(|e| {
                     error!("Could not send consensus info through channel: {:?}", e);
@@ -1532,6 +1533,7 @@ pub struct CryptarchiaInfo {
     pub tip: HeaderId,
     pub slot: Slot,
     pub height: u64,
+    pub mode: cryptarchia_engine::State,
 }
 
 async fn get_mempool_contents<Payload, Item, Key>(

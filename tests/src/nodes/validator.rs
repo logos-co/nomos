@@ -1,5 +1,6 @@
 use std::{
     collections::HashSet,
+    future::Future,
     net::SocketAddr,
     num::NonZeroU64,
     ops::Range,
@@ -55,6 +56,7 @@ use nomos_tracing_service::LoggerLayer;
 use nomos_utils::math::NonNegativeF64;
 use reqwest::Url;
 use tempfile::NamedTempFile;
+use tokio::time::Timeout;
 
 use super::{create_tempdir, persist_tempdir, GetRangeReq, CLIENT};
 use crate::{
@@ -92,50 +94,48 @@ impl Drop for Validator {
 }
 
 impl Validator {
-    pub async fn spawn(mut config: Config) -> Self {
+    pub fn spawn(mut config: Config) -> Timeout<impl Future<Output = Self>> {
         let dir = create_tempdir().unwrap();
-        let mut file = NamedTempFile::new().unwrap();
-        let config_path = file.path().to_owned();
 
-        if !*IS_DEBUG_TRACING {
-            // setup logging so that we can intercept it later in testing
-            config.tracing.logger = LoggerLayer::File(FileConfig {
-                directory: dir.path().to_owned(),
-                prefix: Some(LOGS_PREFIX.into()),
-            });
-        }
+        tokio::time::timeout(adjust_timeout(Duration::from_secs(10)), async move {
+            let mut file = NamedTempFile::new().unwrap();
+            let config_path = file.path().to_owned();
 
-        config.storage.db_path = dir.path().join("db");
-        dir.path().clone_into(
-            &mut config
-                .da_verifier
-                .storage_adapter_settings
-                .blob_storage_directory,
-        );
-        dir.path()
-            .clone_into(&mut config.da_indexer.storage.blob_storage_directory);
+            if !*IS_DEBUG_TRACING {
+                // setup logging so that we can intercept it later in testing
+                config.tracing.logger = LoggerLayer::File(FileConfig {
+                    directory: dir.path().to_owned(),
+                    prefix: Some(LOGS_PREFIX.into()),
+                });
+            }
 
-        serde_yaml::to_writer(&mut file, &config).unwrap();
-        let child = Command::new(std::env::current_dir().unwrap().join(BIN_PATH))
-            .arg(&config_path)
-            .current_dir(dir.path())
-            .stdout(Stdio::inherit())
-            .spawn()
-            .unwrap();
-        let node = Self {
-            addr: config.http.backend_settings.address,
-            testing_http_addr: config.testing_http.backend_settings.address,
-            child,
-            tempdir: dir,
-            config,
-        };
-        tokio::time::timeout(adjust_timeout(Duration::from_secs(10)), async {
+            config.storage.db_path = dir.path().join("db");
+            dir.path().clone_into(
+                &mut config
+                    .da_verifier
+                    .storage_adapter_settings
+                    .blob_storage_directory,
+            );
+            dir.path()
+                .clone_into(&mut config.da_indexer.storage.blob_storage_directory);
+
+            serde_yaml::to_writer(&mut file, &config).unwrap();
+            let child = Command::new(std::env::current_dir().unwrap().join(BIN_PATH))
+                .arg(&config_path)
+                .current_dir(dir.path())
+                .stdout(Stdio::inherit())
+                .spawn()
+                .unwrap();
+            let node = Self {
+                addr: config.http.backend_settings.address,
+                testing_http_addr: config.testing_http.backend_settings.address,
+                child,
+                tempdir: dir,
+                config,
+            };
             node.wait_online().await;
+            node
         })
-        .await
-        .unwrap();
-
-        node
     }
 
     async fn get(&self, path: &str) -> reqwest::Result<reqwest::Response> {
@@ -370,7 +370,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
             },
             recovery_file: PathBuf::from("./recovery/cryptarchia.json"),
             bootstrap: chain_service::BootstrapConfig {
-                prolonged_bootstrap_period: Duration::from_secs(3),
+                prolonged_bootstrap_period: config.bootstrapping_config.prolonged_bootstrap_period,
                 force_bootstrap: false,
                 ibd: chain_service::IbdConfig {
                     peers: HashSet::new(),
