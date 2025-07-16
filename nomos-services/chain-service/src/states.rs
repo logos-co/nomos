@@ -68,7 +68,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, PeerId>
 impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, PeerId> ServiceState
     for CryptarchiaConsensusState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, PeerId>
 where
-    PeerId: Clone + Eq + Hash,
+    PeerId: Copy + Eq + Hash,
 {
     type Settings =
         CryptarchiaSettings<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings, PeerId>;

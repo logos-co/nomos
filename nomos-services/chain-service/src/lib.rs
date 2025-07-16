@@ -251,7 +251,7 @@ pub struct CryptarchiaConsensus<
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Backend: 'static,
     NetAdapter::Settings: Send,
-    NetAdapter::PeerId: Clone + Eq + Hash,
+    NetAdapter::PeerId: Copy + Eq + Hash,
     BlendAdapter: blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
@@ -338,7 +338,7 @@ impl<
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Settings: Send,
-    NetAdapter::PeerId: Clone + Eq + Hash,
+    NetAdapter::PeerId: Copy + Eq + Hash,
     BlendAdapter: blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
@@ -443,7 +443,7 @@ where
         + Sync
         + 'static,
     NetAdapter::Settings: Send + Sync + 'static,
-    NetAdapter::PeerId: Clone + Eq + Hash + Send + Sync,
+    NetAdapter::PeerId: Copy + Eq + Hash + Send + Sync,
     BlendAdapter: blend::BlendAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = DaPool::Item>
         + Clone
         + Send
@@ -783,7 +783,7 @@ impl<
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Clone + Send + Sync + 'static,
     NetAdapter::Settings: Send + Sync + 'static,
-    NetAdapter::PeerId: Clone + Eq + Hash + Send + Sync,
+    NetAdapter::PeerId: Copy + Eq + Hash + Send + Sync,
     BlendAdapter: blend::BlendAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = DaPool::Item>
         + Clone
         + Send

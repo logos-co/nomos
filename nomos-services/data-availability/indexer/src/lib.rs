@@ -409,7 +409,7 @@ where
     Share: Debug + Send + Sync,
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Settings: Send,
-    NetAdapter::PeerId: Clone + Eq + Hash,
+    NetAdapter::PeerId: Copy + Eq + Hash,
     BlendAdapter: chain_service::blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,

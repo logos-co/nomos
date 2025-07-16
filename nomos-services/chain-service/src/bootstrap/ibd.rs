@@ -17,7 +17,7 @@ use crate::{
 pub struct InitialBlockDownload<NetAdapter, RuntimeServiceId>
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
-    NetAdapter::PeerId: Clone + Eq + Hash,
+    NetAdapter::PeerId: Copy + Eq + Hash,
 {
     config: IbdConfig<NetAdapter::PeerId>,
 }
@@ -27,7 +27,7 @@ where
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Send + Sync,
     NetAdapter::Settings: Send + Sync,
     NetAdapter::Block: BlockTrait,
-    NetAdapter::PeerId: Clone + Eq + Hash + Send + Sync,
+    NetAdapter::PeerId: Copy + Eq + Hash + Send + Sync,
     RuntimeServiceId: Send + Sync,
 {
     /// Creates a [`InitialBlockDownload`] with the given config.
@@ -75,7 +75,7 @@ where
         //       https://github.com/logos-co/nomos/issues/1455
         match self.config.peers.iter().next() {
             Some(peer) => self
-                .download_from_peer(cryptarchia, network_adapter, peer.clone(), block_processor)
+                .download_from_peer(cryptarchia, network_adapter, *peer, block_processor)
                 .await
                 .map_err(|(_, e)| e),
             None => Ok(cryptarchia),
@@ -104,7 +104,7 @@ where
         // Repeat until the peer's tip is reached.
         loop {
             // Each time, set `target` to the most recent peer's tip.
-            match network_adapter.request_tip(peer.clone()).await {
+            match network_adapter.request_tip(peer).await {
                 Err(e) => {
                     return Err((cryptarchia, IbdError::ErrorFromBlockProvider(e)));
                 }
@@ -119,7 +119,7 @@ where
                         .download_stream(
                             cryptarchia,
                             &network_adapter,
-                            peer.clone(),
+                            peer,
                             target,
                             latest_downloaded_block,
                             block_processor,
