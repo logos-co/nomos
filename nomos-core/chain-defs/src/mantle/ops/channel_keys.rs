@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::mantle::{
-    ops::{ChannelId, Ed25519PublicKey},
-};
+use crate::mantle::ops::{ChannelId, Ed25519PublicKey};
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct SetChannelKeysOp {

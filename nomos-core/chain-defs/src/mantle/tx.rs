@@ -100,8 +100,8 @@ impl Transaction for SignedMantleTx {
 impl SignedMantleTx {
     fn serialized_size(&self) -> u64 {
         use bincode::Options as _;
-        // TODO: we need a more universal size estimation, but that means complete control over serialization
-        // which requires a rework of the wire module
+        // TODO: we need a more universal size estimation, but that means complete
+        // control over serialization which requires a rework of the wire module
         crate::wire::bincode::OPTIONS
             .serialized_size(&self)
             .expect("Failed to serialize signed mantle tx")

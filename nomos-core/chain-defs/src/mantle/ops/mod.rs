@@ -114,7 +114,8 @@ impl Op {
         buff.freeze()
     }
 
-    #[must_use] pub fn execution_gas<Constants: GasConstants>(&self) -> Gas {
+    #[must_use]
+    pub fn execution_gas<Constants: GasConstants>(&self) -> Gas {
         match self {
             Self::Inscribe(_) => Constants::CHANNEL_INSCRIBE,
             Self::Blob(BlobOp { blob_size, .. }) => {
@@ -130,7 +131,8 @@ impl Op {
         }
     }
 
-    #[must_use] pub fn da_gas_cost(&self) -> Gas {
+    #[must_use]
+    pub fn da_gas_cost(&self) -> Gas {
         if let Self::Blob(BlobOp {
             blob_size,
             da_storage_gas_price,
