@@ -53,7 +53,7 @@ pub fn create_general_configs(n_nodes: usize) -> Vec<GeneralConfig> {
 
     let consensus_params = ConsensusParams::default_for_participants(n_nodes);
     let consensus_configs = consensus::create_consensus_configs(&ids, &consensus_params);
-    let bootstrap_config = bootstrap::create_bootstrap_configs(&ids, Duration::from_secs(240));
+    let bootstrap_config = bootstrap::create_bootstrap_configs(&ids, Duration::from_secs(30));
     let network_configs = network::create_network_configs(&ids, &NetworkParams::default());
     let da_configs = da::create_da_configs(&ids, &DaParams::default(), &ports);
     let api_configs = api::create_api_configs(&ids);
