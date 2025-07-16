@@ -192,7 +192,7 @@ impl HistoryAwareRefill {
         rng: &mut Rng,
     ) -> Assignations {
         assert!(
-            new_nodes_list.len() > replication_factor,
+            new_nodes_list.len() >= replication_factor,
             "The network size is smaller than the replication factor"
         );
         // The algorithm works as follows:
@@ -286,12 +286,13 @@ impl HistoryAwareRefill {
 
 #[cfg(test)]
 mod tests {
-    use rand::{rng, seq::IteratorRandom as _};
+    use rand::{rng, seq::IteratorRandom as _, Rng};
 
     use super::*;
 
     const SUBNETWORK_SIZE: usize = 2048;
-    const REPLICATION_FACTOR: usize = 3;
+    const REPLICATION_FACTOR: usize = 5;
+    const MIN_NETWORK_SIZE: usize = 40;
 
     fn assert_assignations(
         assignations: &Assignations,
@@ -420,6 +421,98 @@ mod tests {
 
         for network_size in [300, 500, 1000, 10000, 100_000] {
             new_nodes = expand_nodes(&new_nodes, network_size - nodes.len()).collect();
+            let third_networks_size = new_nodes.len() / 3;
+            mutate_nodes(&mut new_nodes, third_networks_size);
+            assignations = HistoryAwareRefill::calculate_subnetwork_assignations(
+                &new_nodes,
+                assignations,
+                REPLICATION_FACTOR,
+                &mut rng,
+            );
+            assert_assignations(&assignations, &new_nodes, REPLICATION_FACTOR);
+        }
+    }
+
+    #[test]
+    fn test_evolving_decreasing_network() {
+        let mut rng = rng();
+
+        let nodes: Vec<DeclarationId> = std::iter::repeat_with(|| {
+            let mut buff = [0u8; 32];
+            rng.fill_bytes(&mut buff);
+            DeclarationId(buff)
+        })
+        .take(100_000)
+        .collect();
+
+        let mut assignations: Vec<BTreeSet<DeclarationId>> = std::iter::repeat_with(BTreeSet::new)
+            .take(SUBNETWORK_SIZE)
+            .collect();
+
+        assignations = HistoryAwareRefill::calculate_subnetwork_assignations(
+            &nodes,
+            assignations,
+            REPLICATION_FACTOR,
+            &mut rng,
+        );
+        assert_assignations(&assignations, &nodes, REPLICATION_FACTOR);
+
+        let mut new_nodes = nodes.clone();
+
+        for network_size in [10000, 1000, 500, 300] {
+            new_nodes = shrink_nodes(&new_nodes, network_size).collect();
+            let third_networks_size = new_nodes.len() / 3;
+            mutate_nodes(&mut new_nodes, third_networks_size);
+            assignations = HistoryAwareRefill::calculate_subnetwork_assignations(
+                &new_nodes,
+                assignations,
+                REPLICATION_FACTOR,
+                &mut rng,
+            );
+            assert_assignations(&assignations, &new_nodes, REPLICATION_FACTOR);
+        }
+    }
+
+    #[test]
+    fn test_random_increasing_or_decreasing_network() {
+        let mut rng = rng();
+
+        let nodes: Vec<DeclarationId> = std::iter::repeat_with(|| {
+            let mut buff = [0u8; 32];
+            rng.fill_bytes(&mut buff);
+            DeclarationId(buff)
+        })
+        .take(100_000)
+        .collect();
+
+        let mut assignations: Vec<BTreeSet<DeclarationId>> = std::iter::repeat_with(BTreeSet::new)
+            .take(SUBNETWORK_SIZE)
+            .collect();
+
+        assignations = HistoryAwareRefill::calculate_subnetwork_assignations(
+            &nodes,
+            assignations,
+            REPLICATION_FACTOR,
+            &mut rng,
+        );
+        assert_assignations(&assignations, &nodes, REPLICATION_FACTOR);
+
+        let mut new_nodes = nodes.clone();
+        let mut network_size = new_nodes.len();
+        for _ in 0..100 {
+            if rng.random_bool(0.5) {
+                // shrinking
+                network_size = (MIN_NETWORK_SIZE..network_size)
+                    .choose_stable(&mut rng)
+                    .unwrap();
+                new_nodes = shrink_nodes(&new_nodes, network_size).collect();
+            } else {
+                // growing
+                network_size = (network_size..network_size + 1000)
+                    .choose_stable(&mut rng)
+                    .unwrap();
+                new_nodes = expand_nodes(&new_nodes, network_size - new_nodes.len()).collect();
+            }
             let third_networks_size = new_nodes.len() / 3;
             mutate_nodes(&mut new_nodes, third_networks_size);
             assignations = HistoryAwareRefill::calculate_subnetwork_assignations(
