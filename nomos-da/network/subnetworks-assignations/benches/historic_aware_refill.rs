@@ -1,7 +1,6 @@
 use std::collections::BTreeSet;
 
 use divan::{black_box, counter::ItemsCount, Bencher};
-use nomos_sdp_core::DeclarationId;
 use nomos_utils::blake_rng::BlakeRng;
 use rand::{prelude::IteratorRandom, RngCore, SeedableRng};
 use subnetworks_assignations::versions::history_aware_refill::HistoryAwareRefill;
@@ -9,22 +8,23 @@ fn main() {
     divan::main();
 }
 
+type BenchId = [u8; 32];
 const REPLICATION_FACTOR: usize = 5;
 #[divan::bench(args = [100, 1000, 10000, 100_000], sample_count = 10, sample_size = 10)]
 fn compute_static_size_subnetwork_assignations(bencher: Bencher, network_size: usize) {
     bencher
         .with_inputs(|| {
             let mut rng = BlakeRng::from_seed([33; 64].into());
-            let nodes: Vec<DeclarationId> = std::iter::repeat_with(|| {
+            let nodes: Vec<BenchId> = std::iter::repeat_with(|| {
                 let mut buff = [0u8; 32];
                 rng.fill_bytes(&mut buff);
-                DeclarationId(buff)
+                buff
             })
             .take(network_size)
             .collect();
 
-            let previous_nodes: Vec<BTreeSet<DeclarationId>> =
-                std::iter::repeat_with(BTreeSet::<DeclarationId>::new)
+            let previous_nodes: Vec<BTreeSet<BenchId>> =
+                std::iter::repeat_with(BTreeSet::<BenchId>::new)
                     .take(network_size)
                     .collect();
             (rng, nodes, previous_nodes)
@@ -50,16 +50,16 @@ fn compute_growing_size_subnetwork_assignations(
     bencher
         .with_inputs(|| {
             let mut rng = BlakeRng::from_seed([33; 64].into());
-            let nodes: Vec<DeclarationId> = std::iter::repeat_with(|| {
+            let nodes: Vec<BenchId> = std::iter::repeat_with(|| {
                 let mut buff = [0u8; 32];
                 rng.fill_bytes(&mut buff);
-                DeclarationId(buff)
+                buff
             })
             .take(network_size)
             .collect();
 
-            let previous_nodes: Vec<BTreeSet<DeclarationId>> =
-                std::iter::repeat_with(BTreeSet::<DeclarationId>::new)
+            let previous_nodes: Vec<BTreeSet<BenchId>> =
+                std::iter::repeat_with(BTreeSet::<BenchId>::new)
                     .take(network_size)
                     .collect();
 
@@ -78,7 +78,7 @@ fn compute_growing_size_subnetwork_assignations(
                         let mut rng = rand::rng();
                         let mut buff = [0u8; 32];
                         rng.fill_bytes(&mut buff);
-                        DeclarationId(buff)
+                        buff
                     })
                     .take(growing_size - network_size),
                 )
@@ -107,16 +107,16 @@ fn compute_shrinking_size_subnetwork_assignations(
     bencher
         .with_inputs(|| {
             let mut rng = BlakeRng::from_seed([33; 64].into());
-            let nodes: Vec<DeclarationId> = std::iter::repeat_with(|| {
+            let nodes: Vec<BenchId> = std::iter::repeat_with(|| {
                 let mut buff = [0u8; 32];
                 rng.fill_bytes(&mut buff);
-                DeclarationId(buff)
+                buff
             })
             .take(network_size)
             .collect();
 
-            let previous_nodes: Vec<BTreeSet<DeclarationId>> =
-                std::iter::repeat_with(BTreeSet::<DeclarationId>::new)
+            let previous_nodes: Vec<BTreeSet<BenchId>> =
+                std::iter::repeat_with(BTreeSet::<BenchId>::new)
                     .take(network_size)
                     .collect();
 

@@ -1,10 +1,10 @@
 use std::{
     cmp::{Ordering, Reverse},
-    collections::{BTreeSet, BinaryHeap, HashSet},
+    collections::{BTreeSet, BinaryHeap},
+    hash::Hash,
 };
 
 use counter::Counter;
-use nomos_sdp_core::DeclarationId;
 use nomos_utils::fisheryates::FisherYates;
 use participant::Participant;
 use rand::RngCore;
@@ -15,13 +15,13 @@ use crate::SubnetworkId;
 mod participant;
 mod subnetwork;
 
-type Assignations = Vec<BTreeSet<DeclarationId>>;
+type Assignations<Id> = Vec<BTreeSet<Id>>;
 
 // Minimum binary heap as by default is ordered as a max heap
-type Subnetworks<'s> = BinaryHeap<Reverse<&'s mut Subnetwork>>;
+type Subnetworks<'s, Id> = BinaryHeap<Reverse<&'s mut Subnetwork<Id>>>;
 
 // Minimum binary heap as by default is ordered as a max heap
-type Participants<'p> = BinaryHeap<Reverse<&'p mut Participant>>;
+type Participants<'p, Id> = BinaryHeap<Reverse<&'p mut Participant<Id>>>;
 
 pub struct HistoryAwareRefill;
 
@@ -44,10 +44,13 @@ impl HistoryAwareRefill {
             .all(|participation| participation >= average_participation)
     }
 
-    fn heap_pop_next_for_subnetwork<'o>(
-        subnetwork: &Subnetwork,
-        participants: &mut Participants<'o>,
-    ) -> &'o mut Participant {
+    fn heap_pop_next_for_subnetwork<'o, Id>(
+        subnetwork: &Subnetwork<Id>,
+        participants: &mut Participants<'o, Id>,
+    ) -> &'o mut Participant<Id>
+    where
+        Id: Ord,
+    {
         let mut poped = BinaryHeap::new();
         while let Some(Reverse(participant)) = participants.pop() {
             if !subnetwork
@@ -62,10 +65,16 @@ impl HistoryAwareRefill {
         unreachable!("It should never reach this state unless not catching invariants before hand");
     }
 
-    fn balance_subnetwork_shrink<'s, Rng: RngCore>(
-        subnetworks: impl IntoIterator<Item = &'s mut Subnetwork>,
+    #[expect(
+        single_use_lifetimes,
+        reason = "It is actually necessary when using with impl parameters"
+    )]
+    fn balance_subnetwork_shrink<'s, Id, Rng: RngCore>(
+        subnetworks: impl IntoIterator<Item = &'s mut Subnetwork<Id>>,
         rng: &mut Rng,
-    ) {
+    ) where
+        for<'id> Id: Ord + Copy + 'id,
+    {
         let mut subnetworks: Vec<_> = subnetworks.into_iter().collect();
         let first = 0usize;
         let last = subnetworks.len() - 1;
@@ -88,7 +97,7 @@ impl HistoryAwareRefill {
                 .get_disjoint_mut([last, first])
                 .expect("subnetworks set is never less than 2");
 
-            let diff: Vec<DeclarationId> = FisherYates::sample(
+            let diff: Vec<Id> = FisherYates::sample(
                 max.participants.difference(&min.participants),
                 diff_count,
                 rng,
@@ -103,12 +112,14 @@ impl HistoryAwareRefill {
         }
     }
 
-    fn balance_subnetwork_grow<'i, Rng: RngCore>(
-        subnetworks: impl IntoIterator<Item = &'i mut Subnetwork>,
-        participants: impl IntoIterator<Item = &'i mut Participant>,
+    fn balance_subnetwork_grow<'i, Id, Rng: RngCore>(
+        subnetworks: impl IntoIterator<Item = &'i mut Subnetwork<Id>>,
+        participants: impl IntoIterator<Item = &'i mut Participant<Id>>,
         average_participation: usize,
         rng: &mut Rng,
-    ) {
+    ) where
+        for<'id> Id: Ord + 'id,
+    {
         let mut subnetworks: Vec<_> = subnetworks.into_iter().collect();
         subnetworks.sort();
         let mut participants: Vec<_> = participants.into_iter().collect();
@@ -151,14 +162,16 @@ impl HistoryAwareRefill {
         }
     }
 
-    fn fill_subnetworks<'i>(
-        participants: impl IntoIterator<Item = &'i mut Participant>,
-        subnetworks: impl IntoIterator<Item = &'i mut Subnetwork>,
+    fn fill_subnetworks<'i, Id>(
+        participants: impl IntoIterator<Item = &'i mut Participant<Id>>,
+        subnetworks: impl IntoIterator<Item = &'i mut Subnetwork<Id>>,
         average_participation: usize,
         replication_factor: usize,
-    ) {
-        let mut participants: Participants = participants.into_iter().map(Reverse).collect();
-        let mut subnetworks: Subnetworks = subnetworks.into_iter().map(Reverse).collect();
+    ) where
+        for<'id> Id: Ord + Copy + 'id,
+    {
+        let mut participants: Participants<Id> = participants.into_iter().map(Reverse).collect();
+        let mut subnetworks: Subnetworks<Id> = subnetworks.into_iter().map(Reverse).collect();
         loop {
             let subnetworks_filled_up_to_replication_factor =
                 Self::subnetworks_filled_up_to_replication_factor(
@@ -185,12 +198,16 @@ impl HistoryAwareRefill {
         }
     }
 
-    pub fn calculate_subnetwork_assignations<Rng: RngCore>(
-        new_nodes_list: &[DeclarationId],
-        previous_subnets: Assignations,
+    pub fn calculate_subnetwork_assignations<Id, Rng>(
+        new_nodes_list: &[Id],
+        previous_subnets: Assignations<Id>,
         replication_factor: usize,
         rng: &mut Rng,
-    ) -> Assignations {
+    ) -> Assignations<Id>
+    where
+        for<'id> Id: Ord + Copy + Hash + 'id,
+        Rng: RngCore,
+    {
         assert!(
             new_nodes_list.len() >= replication_factor,
             "The network size is smaller than the replication factor"
@@ -231,13 +248,13 @@ impl HistoryAwareRefill {
         let unavailable_nodes: BTreeSet<_> =
             previous_nodes.difference(&new_nodes).copied().collect();
 
-        let active_assignations: Assignations = previous_subnets
+        let active_assignations: Assignations<Id> = previous_subnets
             .into_iter()
             .map(|subnet| subnet.difference(&unavailable_nodes).copied().collect())
             .collect();
 
         let assigned_count: Counter<_> = active_assignations.iter().flatten().collect();
-        let mut available_nodes: Vec<Participant> = new_nodes
+        let mut available_nodes: Vec<Participant<Id>> = new_nodes
             .iter()
             .map(|id| Participant {
                 participation: assigned_count.get(id).copied().unwrap_or_default(),
@@ -245,7 +262,7 @@ impl HistoryAwareRefill {
             })
             .collect();
 
-        let mut subnetworks: Vec<Subnetwork> = active_assignations
+        let mut subnetworks: Vec<Subnetwork<Id>> = active_assignations
             .into_iter()
             .enumerate()
             .map(|(subnetwork_id, participants)| Subnetwork {
@@ -286,7 +303,9 @@ impl HistoryAwareRefill {
 
 #[cfg(test)]
 mod tests {
-    use rand::{rng, rngs::SmallRng, seq::IteratorRandom as _, Rng, SeedableRng};
+    use std::collections::HashSet;
+
+    use rand::{rng, rngs::SmallRng, seq::IteratorRandom as _, Rng as _, SeedableRng as _};
 
     use super::*;
 
@@ -294,9 +313,11 @@ mod tests {
     const REPLICATION_FACTOR: usize = 5;
     const MIN_NETWORK_SIZE: usize = 40;
 
+    #[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Copy, Clone, Debug)]
+    struct TestId([u8; 32]);
     fn assert_assignations(
-        assignations: &Assignations,
-        nodes: &[DeclarationId],
+        assignations: &Assignations<TestId>,
+        nodes: &[TestId],
         replication_factor: usize,
     ) {
         assert_eq!(
@@ -325,35 +346,29 @@ mod tests {
         );
     }
 
-    fn mutate_nodes(nodes: &mut [DeclarationId], count: usize) {
+    fn mutate_nodes(nodes: &mut [TestId], count: usize) {
         assert!(count <= nodes.len());
         let mut rng = rng();
         for i in (0..nodes.len()).choose_multiple(&mut rng, count) {
             let mut buff = [0u8; 32];
             rng.fill_bytes(&mut buff);
-            nodes[i] = DeclarationId(buff);
+            nodes[i] = TestId(buff);
         }
     }
 
-    fn expand_nodes(
-        nodes: &[DeclarationId],
-        count: usize,
-    ) -> impl Iterator<Item = DeclarationId> + '_ {
+    fn expand_nodes(nodes: &[TestId], count: usize) -> impl Iterator<Item = TestId> + '_ {
         nodes.iter().copied().chain(
             std::iter::repeat_with(|| {
                 let mut rng = rng();
                 let mut buff = [0u8; 32];
                 rng.fill_bytes(&mut buff);
-                DeclarationId(buff)
+                TestId(buff)
             })
             .take(count),
         )
     }
 
-    fn shrink_nodes(
-        nodes: &[DeclarationId],
-        count: usize,
-    ) -> impl Iterator<Item = DeclarationId> + '_ {
+    fn shrink_nodes(nodes: &[TestId], count: usize) -> impl Iterator<Item = TestId> + '_ {
         let mut rng = rng();
         nodes
             .iter()
@@ -367,19 +382,18 @@ mod tests {
         replication_factor: usize,
         network_size: usize,
         rng: &mut Rng,
-    ) -> Assignations {
-        let nodes: Vec<DeclarationId> = std::iter::repeat_with(|| {
+    ) -> Assignations<TestId> {
+        let nodes: Vec<TestId> = std::iter::repeat_with(|| {
             let mut buff = [0u8; 32];
             rng.fill_bytes(&mut buff);
-            DeclarationId(buff)
+            TestId(buff)
         })
         .take(network_size)
         .collect();
 
-        let previous_nodes: Vec<BTreeSet<DeclarationId>> =
-            std::iter::repeat_with(BTreeSet::<DeclarationId>::new)
-                .take(subnetwork_size)
-                .collect();
+        let previous_nodes: Vec<BTreeSet<TestId>> = std::iter::repeat_with(BTreeSet::<TestId>::new)
+            .take(subnetwork_size)
+            .collect();
 
         let assignations = HistoryAwareRefill::calculate_subnetwork_assignations(
             &nodes,
@@ -403,15 +417,15 @@ mod tests {
     fn test_evolving_increasing_network() {
         let mut rng = rng();
 
-        let nodes: Vec<DeclarationId> = std::iter::repeat_with(|| {
+        let nodes: Vec<TestId> = std::iter::repeat_with(|| {
             let mut buff = [0u8; 32];
             rng.fill_bytes(&mut buff);
-            DeclarationId(buff)
+            TestId(buff)
         })
         .take(100)
         .collect();
 
-        let mut assignations: Vec<BTreeSet<DeclarationId>> = std::iter::repeat_with(BTreeSet::new)
+        let mut assignations: Vec<BTreeSet<TestId>> = std::iter::repeat_with(BTreeSet::new)
             .take(SUBNETWORK_SIZE)
             .collect();
 
@@ -443,15 +457,15 @@ mod tests {
     fn test_evolving_decreasing_network() {
         let mut rng = rng();
 
-        let nodes: Vec<DeclarationId> = std::iter::repeat_with(|| {
+        let nodes: Vec<TestId> = std::iter::repeat_with(|| {
             let mut buff = [0u8; 32];
             rng.fill_bytes(&mut buff);
-            DeclarationId(buff)
+            TestId(buff)
         })
         .take(100_000)
         .collect();
 
-        let mut assignations: Vec<BTreeSet<DeclarationId>> = std::iter::repeat_with(BTreeSet::new)
+        let mut assignations: Vec<BTreeSet<TestId>> = std::iter::repeat_with(BTreeSet::new)
             .take(SUBNETWORK_SIZE)
             .collect();
 
@@ -483,15 +497,15 @@ mod tests {
     fn test_random_increasing_or_decreasing_network() {
         let mut rng = rng();
 
-        let nodes: Vec<DeclarationId> = std::iter::repeat_with(|| {
+        let nodes: Vec<TestId> = std::iter::repeat_with(|| {
             let mut buff = [0u8; 32];
             rng.fill_bytes(&mut buff);
-            DeclarationId(buff)
+            TestId(buff)
         })
         .take(100_000)
         .collect();
 
-        let mut assignations: Vec<BTreeSet<DeclarationId>> = std::iter::repeat_with(BTreeSet::new)
+        let mut assignations: Vec<BTreeSet<TestId>> = std::iter::repeat_with(BTreeSet::new)
             .take(SUBNETWORK_SIZE)
             .collect();
 
