@@ -66,9 +66,8 @@ where
 {
     type Backend = Libp2p;
     type Settings = LibP2pAdapterSettings;
-    type Tx = Tx;
-    type BlobCertificate = BlobCert;
     type PeerId = PeerId;
+    type Block = Block<Tx, BlobCert>;
 
     async fn new(settings: Self::Settings, network_relay: Relay<Libp2p, RuntimeServiceId>) -> Self {
         let relay = network_relay.clone();
@@ -85,9 +84,7 @@ where
         }
     }
 
-    async fn blocks_stream(
-        &self,
-    ) -> Result<BoxedStream<Block<Self::Tx, Self::BlobCertificate>>, DynError> {
+    async fn blocks_stream(&self) -> Result<BoxedStream<Self::Block>, DynError> {
         let (sender, receiver) = oneshot::channel();
         if let Err((e, _)) = self
             .network_relay
@@ -159,8 +156,7 @@ where
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
-    ) -> Result<BoxedStream<Result<Block<Self::Tx, Self::BlobCertificate>, DynError>>, DynError>
-    {
+    ) -> Result<BoxedStream<Result<Self::Block, DynError>>, DynError> {
         let (reply_sender, receiver) = oneshot::channel();
         if let Err((e, _)) = self
             .network_relay

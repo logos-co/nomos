@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -yq \
 
 RUN cargo install cargo-binstall --locked
 RUN cargo install rzup --version 0.4.1 --locked
-RUN rzup install cargo-risczero 2.2.0
+RUN rzup install cargo-risczero 2.3.0
 RUN rzup install rust 1.88.0
 
 RUN cargo build --release
