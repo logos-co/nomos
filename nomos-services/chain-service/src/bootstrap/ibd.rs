@@ -163,7 +163,7 @@ where
         // Request a block stream from the peer.
         match network_adapter
             .request_blocks_from_peer(
-                peer.clone(),
+                peer,
                 target,
                 cryptarchia.tip(),
                 cryptarchia.lib(),
