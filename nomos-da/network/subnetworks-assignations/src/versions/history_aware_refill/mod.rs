@@ -286,7 +286,7 @@ impl HistoryAwareRefill {
 
 #[cfg(test)]
 mod tests {
-    use rand::{rng, seq::IteratorRandom as _, Rng};
+    use rand::{rng, rngs::SmallRng, seq::IteratorRandom as _, Rng, SeedableRng};
 
     use super::*;
 
@@ -362,8 +362,12 @@ mod tests {
             .into_iter()
     }
 
-    fn test_single_with(subnetwork_size: usize, replication_factor: usize, network_size: usize) {
-        let mut rng = rng();
+    fn test_single_with<Rng: RngCore>(
+        subnetwork_size: usize,
+        replication_factor: usize,
+        network_size: usize,
+        rng: &mut Rng,
+    ) -> Assignations {
         let nodes: Vec<DeclarationId> = std::iter::repeat_with(|| {
             let mut buff = [0u8; 32];
             rng.fill_bytes(&mut buff);
@@ -381,15 +385,17 @@ mod tests {
             &nodes,
             previous_nodes,
             replication_factor,
-            &mut rng,
+            rng,
         );
         assert_assignations(&assignations, &nodes, replication_factor);
+        assignations
     }
 
     #[test]
     fn test_single_network_sizes() {
         for &size in &[100, 500, 1000, 10000, 100_000] {
-            test_single_with(SUBNETWORK_SIZE, REPLICATION_FACTOR, size);
+            let mut rng = rng();
+            test_single_with(SUBNETWORK_SIZE, REPLICATION_FACTOR, size, &mut rng);
         }
     }
 
@@ -523,5 +529,16 @@ mod tests {
             );
             assert_assignations(&assignations, &new_nodes, REPLICATION_FACTOR);
         }
+    }
+
+    #[test]
+    fn deterministic_assignations() {
+        let assignations: Vec<_> = std::iter::repeat_with(|| {
+            let mut rng = SmallRng::seed_from_u64(0);
+            test_single_with(SUBNETWORK_SIZE, REPLICATION_FACTOR, 100, &mut rng)
+        })
+        .take(10)
+        .collect();
+        assert!(assignations.iter().all(|a| a == &assignations[0]));
     }
 }
