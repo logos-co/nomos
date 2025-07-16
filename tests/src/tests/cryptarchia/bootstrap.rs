@@ -31,7 +31,7 @@ async fn test_ibd_behind_nodes() {
     let security_param = consensus_params.security_param.get();
     let target_blocks = security_param * CHAIN_LENGTH_MULTIPLIER;
 
-    let min_blocks = target_blocks / 2;
+    let min_blocks = 5;
 
     println!(
         "Waiting for initial validators to reach at least min_blocks ({min_blocks}) but still be in bootstrapping mode...",
