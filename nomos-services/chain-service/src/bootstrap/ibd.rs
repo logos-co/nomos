@@ -209,6 +209,7 @@ where
                     let id = block.id();
                     // TODO: Refactor `BlockProcessor` to return a result (e.g. invalid block),
                     //       so that we can stop downloading early on error.
+                    //       https://github.com/logos-co/nomos/issues/1456
                     cryptarchia = block_processor
                         .process_block_and_update_service_state(cryptarchia, block)
                         .await;
