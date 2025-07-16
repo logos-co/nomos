@@ -106,7 +106,7 @@ mod tests {
     use crate::backends::{rocksdb::RocksBackendSettings, testing::NoStorageSerde};
 
     #[tokio::test]
-    async fn store_immutable_block_ids() {
+    async fn immutable_block_ids() {
         let temp_dir = TempDir::new().unwrap();
         let mut backend = RocksBackend::<NoStorageSerde>::new(RocksBackendSettings {
             db_path: temp_dir.path().to_path_buf(),
@@ -115,6 +115,7 @@ mod tests {
         })
         .unwrap();
 
+        // Store
         backend
             .store_immutable_block_ids(
                 [(0.into(), [0u8; 32].into()), (1.into(), [1u8; 32].into())].into(),
@@ -122,6 +123,7 @@ mod tests {
             .await
             .unwrap();
 
+        // Get
         assert_eq!(
             backend.get_immutable_block_id(0.into()).await.unwrap(),
             Some([0u8; 32].into())
@@ -129,6 +131,48 @@ mod tests {
         assert_eq!(
             backend.get_immutable_block_id(1.into()).await.unwrap(),
             Some([1u8; 32].into())
+        );
+
+        // Scan
+        assert_eq!(
+            backend
+                .scan_immutable_block_ids(
+                    RangeInclusive::new(0.into(), 1.into()),
+                    NonZeroUsize::new(2).unwrap()
+                )
+                .await
+                .unwrap(),
+            vec![[0u8; 32].into(), [1u8; 32].into()]
+        );
+        assert_eq!(
+            backend
+                .scan_immutable_block_ids(
+                    RangeInclusive::new(0.into(), 1.into()),
+                    NonZeroUsize::new(1).unwrap()
+                )
+                .await
+                .unwrap(),
+            vec![[0u8; 32].into()]
+        );
+        assert_eq!(
+            backend
+                .scan_immutable_block_ids(
+                    RangeInclusive::new(0.into(), 0.into()),
+                    NonZeroUsize::new(2).unwrap()
+                )
+                .await
+                .unwrap(),
+            vec![[0u8; 32].into()]
+        );
+        assert_eq!(
+            backend
+                .scan_immutable_block_ids(
+                    RangeInclusive::new(1.into(), 2.into()),
+                    NonZeroUsize::new(2).unwrap()
+                )
+                .await
+                .unwrap(),
+            vec![[1u8; 32].into()]
         );
     }
 }
