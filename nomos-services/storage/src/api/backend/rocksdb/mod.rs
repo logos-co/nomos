@@ -1,4 +1,4 @@
-use bytes::Bytes;
+use nomos_core::header;
 
 use crate::{
     api::StorageBackendApi,
@@ -15,6 +15,6 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackendApi for RocksB
 pub enum Error {
     #[error("RocksDB error: {0}")]
     RocksDbError(#[from] rocksdb::Error),
-    #[error("Inconsistent value format: {0:?}")]
-    InconsistentValueFormat(Bytes),
+    #[error("Block header error: {0}")]
+    BlockHeaderError(#[from] header::Error),
 }

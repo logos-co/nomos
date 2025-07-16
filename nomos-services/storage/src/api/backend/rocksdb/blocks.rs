@@ -63,12 +63,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for RocksBac
         let key = key_bytes(IMMUTABLE_BLOCK_PREFIX, slot.to_be_bytes());
         self.load(&key)
             .await?
-            .map(|bytes| {
-                bytes
-                    .as_ref()
-                    .try_into()
-                    .map_err(|()| Error::InconsistentValueFormat(bytes))
-            })
+            .map(|bytes| bytes.as_ref().try_into().map_err(Into::into))
             .transpose()
     }
 

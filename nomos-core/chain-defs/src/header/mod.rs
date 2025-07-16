@@ -148,11 +148,11 @@ impl From<HeaderId> for [u8; 32] {
 }
 
 impl TryFrom<&[u8]> for HeaderId {
-    type Error = ();
+    type Error = Error;
 
     fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
         if slice.len() != 32 {
-            return Err(());
+            return Err(Error::InvalidHeaderIdSize(slice.len()));
         }
         let mut id = [0u8; 32];
         id.copy_from_slice(slice);
@@ -177,6 +177,12 @@ display_hex_bytes_newtype!(ContentId);
 
 serde_bytes_newtype!(HeaderId, 32);
 serde_bytes_newtype!(ContentId, 32);
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("Invalid header id size: {0}")]
+    InvalidHeaderIdSize(usize),
+}
 
 #[test]
 fn test_serde() {
