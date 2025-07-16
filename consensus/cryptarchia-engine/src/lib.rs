@@ -799,12 +799,12 @@ pub mod tests {
     // canonical chain length.
     #[test]
     fn pruning_too_back_in_time() {
-        // Create a chain with 50+1 blocks with k=51.
+        // Create a chain with 50+1 blocks with k=50.
         // b0(LIB) - b1 - ... - b49
         //         \
         //          b100
         let (cryptarchia, pruned_blocks) =
-            create_canonical_chain(50.try_into().unwrap(), Some(config_with(51)))
+            create_canonical_chain(50.try_into().unwrap(), Some(config_with(50)))
                 // Add a fork from genesis block
                 .receive_block(hash(&100u64), hash(&0u64), 1.into())
                 .expect("test block to be applied successfully.");
@@ -823,6 +823,25 @@ pub mod tests {
         assert!(pruned_blocks.all().next().is_none());
         assert!(cryptarchia.branches.tips.contains(&hash(&100u64)));
         assert!(cryptarchia.branches.branches.contains_key(&hash(&100u64)));
+
+        // Add two new blocks to the local honest chain,
+        // and check if the LIB is updated and blocks are pruned.
+        let (cryptarchia, pruned_blocks) = cryptarchia
+            .receive_block(hash(&50u64), hash(&49u64), 50.into())
+            .expect("test block to be applied successfully.")
+            .0
+            .receive_block(hash(&51u64), hash(&50u64), 51.into())
+            .expect("test block to be applied successfully.");
+        // The LIB was updated to b1.
+        assert_eq!(cryptarchia.lib(), hash(&1u64));
+        // The stale fork b100 was pruned.
+        assert_eq!(pruned_blocks.stale_blocks, [hash(&100u64)].into());
+        assert!(!cryptarchia.branches.tips.contains(&hash(&100u64)));
+        assert!(!cryptarchia.branches.branches.contains_key(&hash(&100u64)));
+        // The immutable block b0 was pruned.
+        assert_eq!(pruned_blocks.immutable_blocks, [hash(&0u64)].into());
+        assert!(!cryptarchia.branches.tips.contains(&hash(&0u64)));
+        assert!(!cryptarchia.branches.branches.contains_key(&hash(&0u64)));
     }
 
     #[test]
