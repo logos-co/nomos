@@ -970,7 +970,7 @@ where
                     (cryptarchia, storage_blocks_to_remove) = self.handle_incoming_block(
                         cryptarchia,
                         &leader,
-                        block.clone(),
+                        block,
                         storage_blocks_to_remove,
                         relays,
                     ).await;
