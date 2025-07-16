@@ -8,7 +8,7 @@ pub mod config;
 pub mod time;
 
 use core::{fmt::Debug, hash::Hash};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub use config::*;
 use thiserror::Error;
@@ -547,7 +547,7 @@ pub struct PrunedBlocks<Id> {
     stale_blocks: HashSet<Id>,
     /// Immutable blocks that were deeper than the LIB,
     /// excluding the LIB itself.
-    immutable_blocks: Vec<(Slot, Id)>,
+    immutable_blocks: BTreeMap<Slot, Id>,
 }
 
 impl<Id> Default for PrunedBlocks<Id> {
@@ -562,7 +562,7 @@ impl<Id> PrunedBlocks<Id> {
     pub fn new() -> Self {
         Self {
             stale_blocks: HashSet::new(),
-            immutable_blocks: Vec::new(),
+            immutable_blocks: BTreeMap::new(),
         }
     }
 
@@ -570,7 +570,7 @@ impl<Id> PrunedBlocks<Id> {
     pub fn all(&self) -> impl Iterator<Item = &Id> + '_ {
         self.stale_blocks
             .iter()
-            .chain(self.immutable_blocks.iter().map(|(_, id)| id))
+            .chain(self.immutable_blocks.values())
     }
 
     /// Returns an iterator over pruned stale blocks.
@@ -578,8 +578,8 @@ impl<Id> PrunedBlocks<Id> {
         self.stale_blocks.iter()
     }
 
-    /// Returns an iterator over pruned immutable blocks.
-    pub fn immutable_blocks(&self) -> impl Iterator<Item = &(Slot, Id)> + '_ {
+    /// Returns an iterator over pruned immutable blocks in slot order.
+    pub fn immutable_blocks(&self) -> impl Iterator<Item = (&Slot, &Id)> + '_ {
         self.immutable_blocks.iter()
     }
 }
@@ -679,7 +679,7 @@ pub mod tests {
         assert_eq!(cryptarchia.lib(), hash(&1u64));
         assert_eq!(
             pruned_blocks.immutable_blocks,
-            vec![(0.into(), hash(&0u64))]
+            [(0.into(), hash(&0u64))].into(),
         );
 
         // Try to add a fork from b0, but it should fail with `Error::MissingParent`.
@@ -849,7 +849,10 @@ pub mod tests {
         assert!(!cryptarchia.branches.tips.contains(&hash(&100u64)));
         assert!(!cryptarchia.branches.branches.contains_key(&hash(&100u64)));
         // The immutable block b0 was pruned.
-        assert_eq!(pruned_blocks.immutable_blocks, [hash(&0u64)].into());
+        assert_eq!(
+            pruned_blocks.immutable_blocks,
+            [(0.into(), hash(&0u64))].into()
+        );
         assert!(!cryptarchia.branches.tips.contains(&hash(&0u64)));
         assert!(!cryptarchia.branches.branches.contains_key(&hash(&0u64)));
     }
@@ -882,10 +885,7 @@ pub mod tests {
         // Immutable blocks (excluding LIB) were pruned.
         assert_eq!(
             pruned_blocks.immutable_blocks,
-            (0..=38u64)
-                .rev()
-                .map(|i| (i.into(), hash(&i)))
-                .collect::<Vec<_>>()
+            (0..=38u64).rev().map(|i| (i.into(), hash(&i))).collect()
         );
     }
 
@@ -903,10 +903,7 @@ pub mod tests {
         // Immutable blocks (excluding LIB) were pruned.
         assert_eq!(
             pruned_blocks.immutable_blocks,
-            (0..=47u64)
-                .rev()
-                .map(|i| (i.into(), hash(&i)))
-                .collect::<Vec<_>>()
+            (0..=47u64).rev().map(|i| (i.into(), hash(&i))).collect()
         );
     }
 
@@ -950,10 +947,7 @@ pub mod tests {
         // Immutable blocks (excluding LIB) were pruned.
         assert_eq!(
             pruned_blocks.immutable_blocks,
-            (0..=38u64)
-                .rev()
-                .map(|i| (i.into(), hash(&i)))
-                .collect::<Vec<_>>()
+            (0..=38u64).rev().map(|i| (i.into(), hash(&i))).collect()
         );
     }
 
@@ -1004,10 +998,7 @@ pub mod tests {
         // Immutable blocks (excluding LIB) were pruned.
         assert_eq!(
             pruned_blocks.immutable_blocks,
-            (0..=38u64)
-                .rev()
-                .map(|i| (i.into(), hash(&i)))
-                .collect::<Vec<_>>()
+            (0..=38u64).rev().map(|i| (i.into(), hash(&i))).collect()
         );
     }
 
@@ -1055,10 +1046,7 @@ pub mod tests {
         // Immutable blocks (excluding LIB) were pruned.
         assert_eq!(
             pruned_blocks.immutable_blocks,
-            (0..=38u64)
-                .rev()
-                .map(|i| (i.into(), hash(&i)))
-                .collect::<Vec<_>>()
+            (0..=38u64).rev().map(|i| (i.into(), hash(&i))).collect()
         );
     }
 
@@ -1074,10 +1062,7 @@ pub mod tests {
         // Immutable blocks (excluding LIB) were pruned.
         assert_eq!(
             pruned_blocks.immutable_blocks,
-            (0..=6u64)
-                .rev()
-                .map(|i| (i.into(), hash(&i)))
-                .collect::<Vec<_>>()
+            (0..=6u64).rev().map(|i| (i.into(), hash(&i))).collect()
         );
 
         // Add a fork at the LIB
@@ -1140,7 +1125,7 @@ pub mod tests {
         // Immutable blocks (excluding LIB) were pruned.
         assert_eq!(
             pruned_blocks.immutable_blocks,
-            vec![(7.into(), hash(&7u64))]
+            [(7.into(), hash(&7u64))].into(),
         );
     }
 }
