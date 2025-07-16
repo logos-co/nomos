@@ -12,8 +12,8 @@ use subnetwork::Subnetwork;
 
 use crate::SubnetworkId;
 
-pub mod participant;
-pub mod subnetwork;
+mod participant;
+mod subnetwork;
 
 type Assignations = Vec<BTreeSet<DeclarationId>>;
 
