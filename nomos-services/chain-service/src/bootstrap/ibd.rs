@@ -71,7 +71,8 @@ where
         CryptarchiaState: cryptarchia_engine::CryptarchiaState + Send,
         BlockProcessor: processor::BlockProcessor<Block = NetAdapter::Block> + Send + Sync,
     {
-        // TODO: Download from multiple peers
+        // TODO: Download from multiple peers.
+        //       https://github.com/logos-co/nomos/issues/1455
         match self.config.peers.iter().next() {
             Some(peer) => self
                 .download_from_peer(cryptarchia, network_adapter, peer.clone(), block_processor)
