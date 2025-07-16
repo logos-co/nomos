@@ -1,4 +1,4 @@
-use futures::AsyncWriteExt;
+use futures::AsyncWriteExt as _;
 use libp2p::{PeerId, Stream};
 use nomos_da_messages::{
     packing::{pack_to_writer, unpack_from_reader},

@@ -114,28 +114,7 @@ pub(crate) async fn handle_validator_events_stream(
         // safe set: https://docs.rs/tokio/latest/tokio/macro.select.html#cancellation-safety
         tokio::select! {
             Some(sampling_event) = StreamExt::next(&mut sampling_events_receiver) => {
-                match sampling_event {
-                    sampling::SamplingEvent::SamplingSuccess{ blob_id, light_share , .. } => {
-                        if let Err(e) = sampling_broadcast_sender.send(SamplingEvent::SamplingSuccess {blob_id, light_share}){
-                            error!("Error in internal broadcast of sampling success: {e:?}");
-                        }
-                    }
-                    sampling::SamplingEvent::CommitmentsSuccess { blob_id, commitments } => {
-                        if let Err(e) = commitments_broadcast_sender.send(CommitmentsEvent::CommitmentsSuccess {blob_id, commitments}){
-                            error!("Error in internal broadcast of sampling success: {e:?}");
-                        }
-                    }
-                    sampling::SamplingEvent::IncomingSample{request_receiver, response_sender} => {
-                        handle_request(
-                            &sampling_broadcast_sender,
-                            &commitments_broadcast_sender,
-                            request_receiver,
-                            response_sender
-                        ).await;
-                    }
-                    sampling::SamplingEvent::SamplingError { error  } => {
-                        handle_error(&sampling_broadcast_sender, &commitments_broadcast_sender, error).await;
-                    }}
+                handle_event(&sampling_broadcast_sender, &commitments_broadcast_sender, sampling_event).await;
             }
             Some(da_share) = StreamExt::next(&mut validation_events_receiver) => {
                 if let Err(error) = validation_broadcast_sender.send(da_share) {
@@ -146,7 +125,60 @@ pub(crate) async fn handle_validator_events_stream(
     }
 }
 
-async fn handle_error(
+async fn handle_event(
+    sampling_broadcast_sender: &broadcast::Sender<SamplingEvent>,
+    commitments_broadcast_sender: &broadcast::Sender<CommitmentsEvent>,
+    sampling_event: sampling::SamplingEvent,
+) {
+    match sampling_event {
+        sampling::SamplingEvent::SamplingSuccess {
+            blob_id,
+            light_share,
+            ..
+        } => {
+            if let Err(e) = sampling_broadcast_sender.send(SamplingEvent::SamplingSuccess {
+                blob_id,
+                light_share,
+            }) {
+                error!("Error in internal broadcast of sampling success: {e:?}");
+            }
+        }
+        sampling::SamplingEvent::CommitmentsSuccess {
+            blob_id,
+            commitments,
+        } => {
+            if let Err(e) =
+                commitments_broadcast_sender.send(CommitmentsEvent::CommitmentsSuccess {
+                    blob_id,
+                    commitments,
+                })
+            {
+                error!("Error in internal broadcast of sampling success: {e:?}");
+            }
+        }
+        sampling::SamplingEvent::IncomingSample {
+            request_receiver,
+            response_sender,
+        } => {
+            handle_request(
+                sampling_broadcast_sender,
+                commitments_broadcast_sender,
+                request_receiver,
+                response_sender,
+            )
+            .await;
+        }
+        sampling::SamplingEvent::SamplingError { error } => {
+            handle_error(
+                sampling_broadcast_sender,
+                commitments_broadcast_sender,
+                error,
+            );
+        }
+    }
+}
+
+fn handle_error(
     sampling_broadcast_sender: &broadcast::Sender<SamplingEvent>,
     commitments_broadcast_sender: &broadcast::Sender<CommitmentsEvent>,
     error: SamplingError,
@@ -184,7 +216,7 @@ async fn handle_request(
                 response_sender,
                 blob_id,
             )
-            .await
+            .await;
         }
         Err(e) => {
             error!("Request receiver was closed: {e}");
@@ -192,6 +224,7 @@ async fn handle_request(
     }
 }
 
+#[expect(clippy::cognitive_complexity, reason = "share flow in one place")]
 async fn handle_incoming_share_request(
     sampling_broadcast_sender: &broadcast::Sender<SamplingEvent>,
     response_sender: Sender<BehaviourSampleRes>,
@@ -236,6 +269,7 @@ async fn handle_incoming_share_request(
     }
 }
 
+#[expect(clippy::cognitive_complexity, reason = "commitments flow in one place")]
 async fn handle_incoming_commitments_request(
     commitments_broadcast_sender: &broadcast::Sender<CommitmentsEvent>,
     response_sender: Sender<BehaviourSampleRes>,
@@ -252,13 +286,13 @@ async fn handle_incoming_commitments_request(
     }
 
     if let Some(maybe_share) = commitments_response_receiver.recv().await {
-        let result = match maybe_share {
-            Some(commitments) => BehaviourSampleRes::CommitmentsSuccess {
+        let result = maybe_share.map_or(
+            BehaviourSampleRes::CommitmentsNotFound { blob_id },
+            |commitments| BehaviourSampleRes::CommitmentsSuccess {
                 blob_id,
                 commitments: Box::new(commitments),
             },
-            None => BehaviourSampleRes::CommitmentsNotFound { blob_id },
-        };
+        );
 
         if response_sender.send(result).is_err() {
             error!("Error sending commitments response");
