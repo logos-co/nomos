@@ -24,7 +24,7 @@ use crate::{
     protocols::{
         dispersal::validator::behaviour::DispersalEvent,
         replication::behaviour::{ReplicationConfig, ReplicationEvent},
-        sampling::behaviour::{SamplingEvent, SubnetsConfig},
+        sampling::{SamplingEvent, SubnetsConfig},
     },
     swarm::{
         common::{

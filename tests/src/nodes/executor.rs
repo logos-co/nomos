@@ -25,7 +25,7 @@ use nomos_da_indexer::{
     IndexerSettings,
 };
 use nomos_da_network_core::{
-    protocols::sampling::behaviour::SubnetsConfig,
+    protocols::sampling::SubnetsConfig,
     swarm::{BalancerStats, MonitorStats},
 };
 use nomos_da_network_service::{

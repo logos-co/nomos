@@ -26,7 +26,7 @@ use crate::{
             executor::behaviour::DispersalExecutorEvent, validator::behaviour::DispersalEvent,
         },
         replication::behaviour::{ReplicationConfig, ReplicationEvent},
-        sampling::behaviour::{SamplingEvent, SubnetsConfig},
+        sampling::{SamplingEvent, SubnetsConfig},
     },
     swarm::{
         common::{
@@ -377,5 +377,9 @@ where
                 }
             }
         }
+    }
+
+    pub fn strong_count(&self) -> usize {
+        self.sampling_events_sender.strong_count()
     }
 }

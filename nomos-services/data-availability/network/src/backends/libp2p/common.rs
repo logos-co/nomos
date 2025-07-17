@@ -10,8 +10,7 @@ use nomos_core::da::BlobId;
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::sampling::{
-        self,
-        behaviour::{BehaviourSampleReq, BehaviourSampleRes, SamplingError, SubnetsConfig},
+        self, errors::SamplingError, BehaviourSampleReq, BehaviourSampleRes, SubnetsConfig,
     },
     swarm::{
         validator::ValidatorEventsStream, DAConnectionMonitorSettings, DAConnectionPolicySettings,
@@ -95,13 +94,13 @@ pub(crate) async fn handle_validator_events_stream(
         tokio::select! {
             Some(sampling_event) = StreamExt::next(&mut sampling_events_receiver) => {
                 match sampling_event {
-                    sampling::behaviour::SamplingEvent::SamplingSuccess{ blob_id, light_share , .. } => {
+                    sampling::SamplingEvent::SamplingSuccess{ blob_id, light_share , .. } => {
                         if let Err(e) = sampling_broadcast_sender.send(SamplingEvent::SamplingSuccess {blob_id, light_share}){
                             error!("Error in internal broadcast of sampling success: {e:?}");
                         }
                     }
-                    sampling::behaviour::SamplingEvent::IncomingSample{request_receiver, response_sender} => {
-                        if let Ok(BehaviourSampleReq { blob_id, share_idx }) = request_receiver.await {
+                    sampling::SamplingEvent::IncomingSample{request_receiver, response_sender} => {
+                        if let Ok(BehaviourSampleReq::Share { blob_id, share_idx }) = request_receiver.await {
                             let (sampling_response_sender, mut sampling_response_receiver) = mpsc::channel(1);
 
                             if let Err(e) = sampling_broadcast_sender
@@ -132,7 +131,13 @@ pub(crate) async fn handle_validator_events_stream(
                             }
                         }
                     }
-                    sampling::behaviour::SamplingEvent::SamplingError{ error  } => {
+                    sampling::SamplingEvent::CommitmentsSuccess { blob_id, commitments } => {
+                        //
+                    }
+                    sampling::SamplingEvent::CommitmentsRequest {request_receiver, response_sender} => {
+                        //
+                    }
+                    sampling::SamplingEvent::SamplingError { error  } => {
                         if let Err(e) = sampling_broadcast_sender.send(SamplingEvent::SamplingError {error}) {
                             error!{"Error in internal broadcast of sampling error: {e:?}"};
                         }

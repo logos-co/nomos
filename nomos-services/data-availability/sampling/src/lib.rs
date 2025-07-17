@@ -14,7 +14,7 @@ use backend::{DaSamplingServiceBackend, SamplingState};
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use network::NetworkAdapter;
 use nomos_core::da::{blob::Share, BlobId, DaVerifier};
-use nomos_da_network_core::protocols::sampling::behaviour::SamplingError;
+use nomos_da_network_core::protocols::sampling::errors::SamplingError;
 use nomos_da_network_service::{
     backends::libp2p::common::SamplingEvent, membership::MembershipAdapter,
     storage::MembershipStorageAdapter, NetworkService,

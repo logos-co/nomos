@@ -21,7 +21,7 @@ use crate::{
             },
         },
         replication::behaviour::{ReplicationError, ReplicationEvent},
-        sampling::behaviour::{SamplingError, SamplingEvent},
+        sampling::{errors::SamplingError, SamplingEvent},
     },
 };
 
@@ -85,9 +85,10 @@ impl From<&ReplicationEvent> for MonitorEvent {
 impl From<&SamplingEvent> for MonitorEvent {
     fn from(event: &SamplingEvent) -> Self {
         match event {
-            SamplingEvent::SamplingSuccess { .. } | SamplingEvent::IncomingSample { .. } => {
-                Self::Noop
-            }
+            SamplingEvent::SamplingSuccess { .. }
+            | SamplingEvent::IncomingSample { .. }
+            | SamplingEvent::CommitmentsSuccess { .. }
+            | SamplingEvent::CommitmentsRequest { .. } => Self::Noop,
             SamplingEvent::SamplingError { error } => match error {
                 // Only map Io or OpenStreamError to Self
                 &SamplingError::Io { .. } | &SamplingError::OpenStream { .. } => {
