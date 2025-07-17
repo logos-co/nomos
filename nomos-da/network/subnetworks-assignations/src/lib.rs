@@ -21,7 +21,7 @@ pub trait MembershipCreator: MembershipHandler {
     /// Creates a new instance of membership handler that combines previous
     /// members and new members.
     #[must_use]
-    fn update<Rng: RngCore>(&self, new_peer_addresses: HashSet<Self::Id>, rng: &mut Rng) -> Self;
+    fn update<Rng: RngCore>(&self, new_peers: HashSet<Self::Id>, rng: &mut Rng) -> Self;
 }
 
 pub trait MembershipHandler {
