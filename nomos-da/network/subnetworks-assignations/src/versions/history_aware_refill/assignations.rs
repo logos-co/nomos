@@ -11,7 +11,7 @@ use rand::RngCore;
 use super::{participant::Participant, subnetwork::Subnetwork};
 use crate::{MembershipCreator, MembershipHandler, SubnetworkAssignations, SubnetworkId};
 
-type Assignations<Id> = Vec<BTreeSet<Id>>;
+pub(crate) type Assignations<Id> = Vec<BTreeSet<Id>>;
 
 // Minimum binary heap as by default is ordered as a max heap
 type Subnetworks<'s, Id> = BinaryHeap<Reverse<&'s mut Subnetwork<Id>>>;
