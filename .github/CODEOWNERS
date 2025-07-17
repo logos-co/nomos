@@ -1,6 +1,6 @@
 # Consensus
 /consensus/ @zeegomo @youngjoon-lee
-/nomos-services/cryptarchia-consensus @zeegomo @youngjoon-lee
+/nomos-services/chain-service @zeegomo @youngjoon-lee
 
 # Mantle
 /ledger/ @zeegomo @danielSanchezQ
