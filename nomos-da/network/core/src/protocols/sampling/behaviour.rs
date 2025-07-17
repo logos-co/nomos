@@ -234,8 +234,7 @@ where
     }
 
     fn sample_commitments(&mut self, blob_id: BlobId) {
-        if let Some((_, peer_id)) = &self.sampling_peers.iter().choose(&mut rand::thread_rng()) {
-            let peer_id = **peer_id;
+        if let Some((_, &peer_id)) = &self.sampling_peers.iter().choose(&mut rand::thread_rng()) {
             let control = self.control.clone();
             let sample_request = sampling::SampleRequest::new_commitments(blob_id);
             let with_dial_task: SamplingStreamFuture = async move {
