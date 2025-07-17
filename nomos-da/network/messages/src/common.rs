@@ -1,4 +1,4 @@
-use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
+use kzgrs_backend::common::share::{DaLightShare, DaShare};
 use nomos_core::da::BlobId;
 use serde::{Deserialize, Serialize};
 
@@ -26,20 +26,6 @@ pub struct LightShare {
 impl LightShare {
     #[must_use]
     pub const fn new(blob_id: BlobId, data: DaLightShare) -> Self {
-        Self { blob_id, data }
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct Commitments {
-    pub blob_id: BlobId,
-    pub data: DaSharesCommitments,
-}
-
-impl Commitments {
-    #[must_use]
-    pub const fn new(blob_id: BlobId, data: DaSharesCommitments) -> Self {
         Self { blob_id, data }
     }
 }

@@ -89,10 +89,9 @@ impl From<BehaviourSampleRes> for sampling::SampleResponse {
             BehaviourSampleRes::SamplingSuccess { share, blob_id, .. } => {
                 Self::Share(common::LightShare::new(blob_id, *share))
             }
-            BehaviourSampleRes::CommitmentsSuccess {
-                blob_id,
-                commitments,
-            } => Self::Commitments(common::Commitments::new(blob_id, *commitments)),
+            BehaviourSampleRes::CommitmentsSuccess { commitments, .. } => {
+                Self::Commitments(*commitments)
+            }
             BehaviourSampleRes::SampleNotFound {
                 blob_id,
                 subnetwork_id,

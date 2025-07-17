@@ -372,8 +372,8 @@ where
             }
             sampling::SampleResponse::Commitments(commitments) => {
                 Poll::Ready(ToSwarm::GenerateEvent(SamplingEvent::CommitmentsSuccess {
-                    blob_id: commitments.blob_id,
-                    commitments: Box::new(commitments.data),
+                    blob_id: commitments.blob_id(),
+                    commitments: Box::new(commitments),
                 }))
             }
         }

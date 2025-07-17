@@ -1,8 +1,8 @@
-use kzgrs_backend::common::ShareIndex;
+use kzgrs_backend::common::{share::DaSharesCommitments, ShareIndex};
 use nomos_core::da::BlobId;
 use serde::{Deserialize, Serialize};
 
-use crate::common::{Commitments, LightShare};
+use crate::common::LightShare;
 
 #[repr(C)]
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -98,6 +98,6 @@ impl SampleRequest {
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum SampleResponse {
     Share(LightShare),
-    Commitments(Commitments),
+    Commitments(DaSharesCommitments),
     Error(SampleError),
 }
