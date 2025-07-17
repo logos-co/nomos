@@ -32,6 +32,8 @@ pub enum LedgerError<Id> {
     InsufficientBalance,
     #[error("Overflow while calculating balance")]
     Overflow,
+    #[error("Zero value note")]
+    ZeroValueNote,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -198,5 +200,100 @@ impl LedgerState {
     #[must_use]
     pub const fn aged_commitments(&self) -> &UtxoTree {
         self.cryptarchia_ledger.aged_commitments()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use cryptarchia::tests::{config, generate_proof, utxo};
+    use nomos_core::{
+        mantle::{
+            gas::MainnetGasConstants, ledger::Tx as LedgerTx, MantleTx, Note, SignedMantleTx,
+            Transaction as _,
+        },
+        proofs::zksig::DummyZkSignature,
+    };
+
+    use super::*;
+
+    type HeaderId = [u8; 32];
+
+    fn create_tx(inputs: Vec<NoteId>, outputs: Vec<Note>) -> SignedMantleTx {
+        let ledger_tx = LedgerTx::new(inputs, outputs);
+        let mantle_tx = MantleTx {
+            ops: vec![],
+            ledger_tx,
+            execution_gas_price: 1,
+            storage_gas_price: 1,
+        };
+        SignedMantleTx {
+            mantle_tx,
+            ops_profs: vec![],
+            ledger_tx_proof: DummyZkSignature::prove(
+                nomos_core::proofs::zksig::ZkSignaturePublic {
+                    pks: vec![],
+                    tx_hash: [0; 32],
+                },
+            ),
+        }
+    }
+
+    fn create_test_ledger() -> (Ledger<HeaderId>, HeaderId, Utxo) {
+        let utxo = utxo();
+        let genesis_state = LedgerState::from_utxos([utxo]);
+        let ledger = Ledger::new([0; 32], genesis_state, config());
+        (ledger, [0; 32], utxo)
+    }
+
+    #[test]
+    fn test_ledger_creation() {
+        let (ledger, genesis_id, utxo) = create_test_ledger();
+
+        let state = ledger.state(&genesis_id).unwrap();
+        assert!(state.latest_commitments().contains(&utxo.id()));
+        assert_eq!(state.slot(), 0.into());
+    }
+
+    #[test]
+    fn test_ledger_try_update_with_transaction() {
+        let (ledger, genesis_id, utxo) = create_test_ledger();
+
+        let output_note = Note::new(
+            utxo.note.value - MainnetGasConstants::LEDGER_TX,
+            [1; 32].into(),
+        );
+        let tx = create_tx(vec![utxo.id()], vec![output_note]);
+
+        // Create a dummy proof (using same structure as in cryptarchia tests)
+
+        let proof = generate_proof(
+            &ledger.state(&genesis_id).unwrap().cryptarchia_ledger,
+            &utxo,
+            Slot::from(1u64),
+            &ledger.config,
+        );
+
+        let new_id = [1; 32];
+        let new_ledger = ledger
+            .try_update::<_, MainnetGasConstants>(
+                new_id,
+                genesis_id,
+                Slot::from(1u64),
+                &proof,
+                std::iter::once(&tx),
+            )
+            .unwrap();
+
+        // Verify the transaction was applied
+        let new_state = new_ledger.state(&new_id).unwrap();
+        assert!(!new_state.latest_commitments().contains(&utxo.id()));
+
+        // Verify output was created
+        let output_utxo = Utxo {
+            tx_hash: tx.hash(),
+            output_index: 0,
+            note: output_note,
+        };
+        assert!(new_state.latest_commitments().contains(&output_utxo.id()));
     }
 }
