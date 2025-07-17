@@ -9,10 +9,9 @@ workspace = true
 
 [dependencies]
 counter         = "0.6"
-libp2p          = { version = "0.55", default-features = false }
 libp2p-identity = { version = "0.2", features = ["peerid", "serde"] }
 nomos-utils     = { workspace = true }
-rand            = { workspace = true }
+rand            = { workspace = true, features = ["std_rng"] }
 serde           = "1"
 
 [dev-dependencies]

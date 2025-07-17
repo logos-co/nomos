@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use divan::{black_box, counter::ItemsCount, Bencher};
 use nomos_utils::blake_rng::BlakeRng;
-use rand::{prelude::IteratorRandom as _, RngCore as _, SeedableRng as _};
+use rand::{prelude::IteratorRandom as _, thread_rng, RngCore as _, SeedableRng as _};
 use subnetworks_assignations::versions::history_aware_refill::HistoryAwareRefill;
 fn main() {
     divan::main();
@@ -75,7 +75,7 @@ fn compute_growing_size_subnetwork_assignations(
                 .copied()
                 .chain(
                     std::iter::repeat_with(|| {
-                        let mut rng = rand::rng();
+                        let mut rng = thread_rng();
                         let mut buff = [0u8; 32];
                         rng.fill_bytes(&mut buff);
                         buff

@@ -305,7 +305,7 @@ impl HistoryAwareRefill {
 mod tests {
     use std::collections::HashSet;
 
-    use rand::{rng, rngs::SmallRng, seq::IteratorRandom as _, Rng as _, SeedableRng as _};
+    use rand::{rngs::SmallRng, seq::IteratorRandom as _, thread_rng, SeedableRng as _};
 
     use super::*;
 
@@ -348,7 +348,7 @@ mod tests {
 
     fn mutate_nodes(nodes: &mut [TestId], count: usize) {
         assert!(count <= nodes.len());
-        let mut rng = rng();
+        let mut rng = thread_rng();
         for i in (0..nodes.len()).choose_multiple(&mut rng, count) {
             let mut buff = [0u8; 32];
             rng.fill_bytes(&mut buff);
@@ -359,7 +359,7 @@ mod tests {
     fn expand_nodes(nodes: &[TestId], count: usize) -> impl Iterator<Item = TestId> + '_ {
         nodes.iter().copied().chain(
             std::iter::repeat_with(|| {
-                let mut rng = rng();
+                let mut rng = thread_rng();
                 let mut buff = [0u8; 32];
                 rng.fill_bytes(&mut buff);
                 TestId(buff)
@@ -369,7 +369,7 @@ mod tests {
     }
 
     fn shrink_nodes(nodes: &[TestId], count: usize) -> impl Iterator<Item = TestId> + '_ {
-        let mut rng = rng();
+        let mut rng = thread_rng();
         nodes
             .iter()
             .copied()
@@ -408,14 +408,14 @@ mod tests {
     #[test]
     fn test_single_network_sizes() {
         for &size in &[100, 500, 1000, 10000, 100_000] {
-            let mut rng = rng();
+            let mut rng = thread_rng();
             test_single_with(SUBNETWORK_SIZE, REPLICATION_FACTOR, size, &mut rng);
         }
     }
 
     #[test]
     fn test_evolving_increasing_network() {
-        let mut rng = rng();
+        let mut rng = thread_rng();
 
         let nodes: Vec<TestId> = std::iter::repeat_with(|| {
             let mut buff = [0u8; 32];
@@ -455,7 +455,7 @@ mod tests {
 
     #[test]
     fn test_evolving_decreasing_network() {
-        let mut rng = rng();
+        let mut rng = thread_rng();
 
         let nodes: Vec<TestId> = std::iter::repeat_with(|| {
             let mut buff = [0u8; 32];
@@ -495,7 +495,7 @@ mod tests {
 
     #[test]
     fn test_random_increasing_or_decreasing_network() {
-        let mut rng = rng();
+        let mut rng = thread_rng();
 
         let nodes: Vec<TestId> = std::iter::repeat_with(|| {
             let mut buff = [0u8; 32];
@@ -520,7 +520,7 @@ mod tests {
         let mut new_nodes = nodes.clone();
         let mut network_size = new_nodes.len();
         for _ in 0..100 {
-            if rng.random_bool(0.5) {
+            if *[true, false].iter().choose(&mut rng).unwrap() {
                 // shrinking
                 network_size = (MIN_NETWORK_SIZE..network_size)
                     .choose_stable(&mut rng)

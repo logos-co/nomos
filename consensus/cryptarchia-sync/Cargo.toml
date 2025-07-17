@@ -11,7 +11,7 @@ futures            = "0.3"
 libp2p             = { workspace = true, features = ["quic", "tokio", "yamux"], optional = true }
 libp2p-stream      = { workspace = true, optional = true }
 nomos-core         = { workspace = true }
-rand               = "0.9"
+rand               = { workspace = true }
 serde              = { version = "1", features = ["derive"] }
 thiserror          = "1"
 tokio              = { version = "1", features = ["macros", "rt", "sync"] }

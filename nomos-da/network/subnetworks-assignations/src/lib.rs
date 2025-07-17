@@ -7,7 +7,7 @@ use std::{
     sync::Arc,
 };
 
-use libp2p::Multiaddr;
+use rand::RngCore;
 
 pub type SubnetworkId = u16;
 
@@ -16,12 +16,12 @@ pub type SubnetworkAssignations<NetworkId, Id> = HashMap<NetworkId, HashSet<Id>>
 pub trait MembershipCreator: MembershipHandler {
     /// Initializes the underlying implementor with the provided members list.
     #[must_use]
-    fn init(&self, peer_addresses: HashMap<Self::NetworkId, HashSet<Self::Id>>) -> Self;
+    fn init(&self, peer_addresses: SubnetworkAssignations<Self::NetworkId, Self::Id>) -> Self;
 
     /// Creates a new instance of membership handler that combines previous
     /// members and new members.
     #[must_use]
-    fn update(&self, new_peer_addresses: HashMap<Self::Id, Multiaddr>) -> Self;
+    fn update<Rng: RngCore>(&self, new_peer_addresses: HashSet<Self::Id>, rng: &mut Rng) -> Self;
 }
 
 pub trait MembershipHandler {

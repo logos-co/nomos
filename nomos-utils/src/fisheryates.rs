@@ -8,7 +8,7 @@ impl FisherYates {
         // Implementation of fisher yates shuffling
         // https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle
         for i in (1..elements.len()).rev() {
-            let j = rng.random_range(0..=i);
+            let j = rng.gen_range(0..=i);
             elements.swap(i, j);
         }
     }

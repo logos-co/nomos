@@ -439,7 +439,7 @@ where
         storage: &MembershipStorage<StorageAdapter, Membership>,
         addressbook: &DaAddressbook,
     ) {
-        storage.update(block_number, update.clone());
+        storage.update(block_number, update.keys().copied().collect());
         // since addressbook access is different then membership (get address vs
         // snapshots) addressbook real implementation would have storage inside
         // for update and get address

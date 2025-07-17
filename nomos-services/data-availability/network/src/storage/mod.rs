@@ -1,9 +1,9 @@
 pub mod adapters;
-use std::collections::HashMap;
+use std::collections::HashSet;
 
-use libp2p::Multiaddr;
 use nomos_core::block::BlockNumber;
 use overwatch::services::{relay::OutboundRelay, ServiceData};
+use rand::thread_rng;
 use subnetworks_assignations::{MembershipCreator, MembershipHandler};
 
 use crate::membership::{handler::DaMembershipHandler, Assignations};
@@ -38,12 +38,11 @@ where
         Self { adapter, handler }
     }
 
-    pub fn update(
-        &self,
-        block_number: BlockNumber,
-        new_members: HashMap<Membership::Id, Multiaddr>,
-    ) {
-        let updated_membership = self.handler.membership().update(new_members);
+    pub fn update(&self, block_number: BlockNumber, new_members: HashSet<Membership::Id>) {
+        let updated_membership = self
+            .handler
+            .membership()
+            .update(new_members, &mut thread_rng());
         let assignations = updated_membership.subnetworks();
 
         tracing::debug!("Updating membership at block {block_number} with {assignations:?}");

@@ -22,5 +22,5 @@ time = ["dep:humantime", "dep:serde_with", "dep:time", "serde"]
 
 [dev-dependencies]
 nistrs      = "0.1.2"
-rand_chacha = "0.9"
+rand_chacha = "0.3"
 serde_json  = "1.0"

@@ -1,7 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
-use libp2p::Multiaddr;
 use libp2p_identity::PeerId;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
 use crate::{MembershipCreator, MembershipHandler, SubnetworkAssignations};
@@ -49,7 +49,7 @@ impl FillFromNodeList {
 }
 
 impl MembershipCreator for FillFromNodeList {
-    fn init(&self, peer_addresses: HashMap<Self::NetworkId, HashSet<PeerId>>) -> Self {
+    fn init(&self, peer_addresses: SubnetworkAssignations<Self::NetworkId, PeerId>) -> Self {
         let members: Vec<Self::Id> = peer_addresses
             .values()
             .flat_map(|peer_set| peer_set.iter())
@@ -63,9 +63,9 @@ impl MembershipCreator for FillFromNodeList {
         }
     }
 
-    fn update(&self, new_peer_addresses: HashMap<Self::Id, Multiaddr>) -> Self {
+    fn update<Rng: RngCore>(&self, new_peer_addresses: HashSet<Self::Id>, _: &mut Rng) -> Self {
         // todo: implement incremental update
-        let members: Vec<Self::Id> = new_peer_addresses.keys().copied().collect();
+        let members: Vec<Self::Id> = new_peer_addresses.into_iter().collect();
 
         Self {
             assignations: Self::fill(&members, self.subnetwork_size, self.dispersal_factor),
