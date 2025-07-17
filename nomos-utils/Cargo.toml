@@ -8,13 +8,15 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-blake2     = { version = "0.10", optional = true }
-const-hex  = "1"
-humantime  = { version = "2.1", optional = true }
-rand       = { workspace = true }
-serde      = { version = "1.0", optional = true, features = ["derive"] }
-serde_with = { workspace = true, optional = true }
-time       = { version = "0.3", optional = true, features = ["serde-human-readable"] }
+async-trait = "0.1"
+blake2      = { version = "0.10", optional = true }
+const-hex   = "1"
+humantime   = { version = "2.1", optional = true }
+overwatch   = { workspace = true }
+rand        = { workspace = true }
+serde       = { version = "1.0", optional = true, features = ["derive"] }
+serde_with  = { workspace = true, optional = true }
+time        = { version = "0.3", optional = true, features = ["serde-human-readable"] }
 
 [features]
 rng  = ["blake2"]
