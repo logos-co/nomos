@@ -1,5 +1,5 @@
-use blake2::{digest::crypto_common::rand_core::Error, Blake2b512, Digest as _};
-use rand::{RngCore, SeedableRng};
+use blake2::{Blake2b512, Digest as _};
+use rand::{Error, RngCore, SeedableRng};
 
 const OUTPUT_SIZE: usize = 64;
 type Hasher = Blake2b512;
