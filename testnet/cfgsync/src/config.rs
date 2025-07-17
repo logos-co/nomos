@@ -5,12 +5,12 @@ use std::{
 };
 
 use nomos_blend_scheduling::membership::Node;
+use nomos_core::sdp::{Locator, ServiceType};
 use nomos_libp2p::{ed25519, multiaddr, Multiaddr, PeerId};
 use nomos_membership::{
     backends::{mock::MockMembershipBackendSettings, MembershipBackendServiceSettings},
     MembershipServiceSettings,
 };
-use nomos_core::sdp::{Locator, ServiceType};
 use nomos_tracing_service::{LoggerLayer, MetricsLayer, TracingLayer, TracingSettings};
 use rand::{thread_rng, Rng as _};
 use tests::{

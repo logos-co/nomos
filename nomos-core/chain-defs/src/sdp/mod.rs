@@ -146,6 +146,7 @@ pub struct DeclarationMessage {
 }
 
 impl DeclarationMessage {
+    #[must_use]
     pub fn declaration_id(&self) -> DeclarationId {
         let mut hasher = Blake2b::new();
         let service = match self.service_type {
