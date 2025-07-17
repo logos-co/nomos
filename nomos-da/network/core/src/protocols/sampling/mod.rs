@@ -288,8 +288,8 @@ mod test {
         );
         let mut p2 = new_swarm_in_memory(&k2, p2_behavior);
 
-        let request_sender_1 = p1.behaviour().sample_request_channel();
-        let request_sender_2 = p2.behaviour().sample_request_channel();
+        let request_sender_1 = p1.behaviour().shares_request_channel();
+        let request_sender_2 = p2.behaviour().shares_request_channel();
         let _p1_address = p1_address.clone();
         let _p2_address = p2_address.clone();
 

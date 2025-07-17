@@ -115,6 +115,7 @@ pub struct DaSharesCommitments {
 }
 
 impl DaSharesCommitments {
+    #[must_use]
     pub fn blob_id(&self) -> BlobId {
         build_blob_id(&self.rows_commitments)
     }
