@@ -9,8 +9,10 @@ use adapters::SdpAdapter;
 use async_trait::async_trait;
 use backends::{MembershipBackend, MembershipBackendError};
 use futures::{Stream, StreamExt as _};
-use nomos_core::block::BlockNumber;
-use nomos_sdp_core::{Locator, ProviderId};
+use nomos_core::{
+    block::BlockNumber,
+    sdp::{Locator, ProviderId},
+};
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -42,17 +44,17 @@ pub enum MembershipMessage {
     GetSnapshotAt {
         reply_channel: oneshot::Sender<Result<MembershipProviders, MembershipBackendError>>,
         block_number: BlockNumber,
-        service_type: nomos_sdp_core::ServiceType,
+        service_type: nomos_core::sdp::ServiceType,
     },
     Subscribe {
-        service_type: nomos_sdp_core::ServiceType,
+        service_type: nomos_core::sdp::ServiceType,
         result_sender: oneshot::Sender<Result<MembershipSnapshotStream, MembershipBackendError>>,
     },
 
     // This should be used only for testing purposes
     Update {
         block_number: BlockNumber,
-        update_event: nomos_sdp_core::FinalizedBlockEvent,
+        update_event: nomos_core::sdp::FinalizedBlockEvent,
     },
 }
 
@@ -65,7 +67,7 @@ where
     backend: Backend,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     subscribe_channels:
-        HashMap<nomos_sdp_core::ServiceType, broadcast::Sender<MembershipProviders>>,
+        HashMap<nomos_core::sdp::ServiceType, broadcast::Sender<MembershipProviders>>,
 }
 
 impl<Backend, Sdp, RuntimeServiceId> ServiceData
@@ -244,7 +246,7 @@ where
         }
     }
 
-    async fn handle_sdp_update(&mut self, sdp_msg: nomos_sdp_core::FinalizedBlockEvent) {
+    async fn handle_sdp_update(&mut self, sdp_msg: nomos_core::sdp::FinalizedBlockEvent) {
         match self.backend.update(sdp_msg).await {
             Ok(snapshot) => {
                 // The list of all providers for each updated service type is sent to

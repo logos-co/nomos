@@ -10,7 +10,7 @@ use nomos_membership::{
     backends::{mock::MockMembershipBackendSettings, MembershipBackendServiceSettings},
     MembershipServiceSettings,
 };
-use nomos_sdp_core::{Locator, ServiceType};
+use nomos_core::sdp::{Locator, ServiceType};
 use nomos_tracing_service::{LoggerLayer, MetricsLayer, TracingLayer, TracingSettings};
 use rand::{thread_rng, Rng as _};
 use tests::{

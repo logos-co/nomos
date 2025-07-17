@@ -11,6 +11,7 @@ workspace = true
 axum                   = { version = "0.6" }
 clap                   = { version = "4", features = ["derive"] }
 nomos-blend-scheduling = { workspace = true }
+nomos-core             = { workspace = true }
 nomos-da-dispersal     = { workspace = true }
 nomos-da-network-core  = { workspace = true }
 nomos-executor         = { workspace = true }

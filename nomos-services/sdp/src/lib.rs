@@ -4,10 +4,9 @@ pub mod backends;
 use std::{fmt::Display, pin::Pin};
 
 use async_trait::async_trait;
-use backends::{SdpBackend, SdpBackendError};
+use backends::{SdpBackend, SdpBackendError, ServicesRepository};
 use futures::{Stream, StreamExt as _};
-use nomos_core::block::BlockNumber;
-use nomos_sdp_core::{ledger, FinalizedBlockEvent};
+use nomos_core::{block::BlockNumber, sdp::FinalizedBlockEvent};
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -83,8 +82,8 @@ where
         + Send
         + Sync
         + 'static,
-    DeclarationAdapter: ledger::DeclarationsRepository + SdpDeclarationAdapter + Send + Sync,
-    ServicesAdapter: ledger::ServicesRepository + SdpServicesAdapter + Send + Sync,
+    DeclarationAdapter: SdpDeclarationAdapter + Send + Sync,
+    ServicesAdapter: ServicesRepository + SdpServicesAdapter + Send + Sync,
     Metadata: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + Sync + 'static,
 {

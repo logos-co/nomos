@@ -1,10 +1,12 @@
 use async_trait::async_trait;
-use nomos_sdp_core::ledger;
+use nomos_core::sdp;
+
+use crate::backends::{ServicesRepository, ServicesRepositoryError};
 
 #[derive(Debug, Clone)]
 pub struct LedgerServicesAdapter;
 
-pub trait SdpServicesAdapter: ledger::ServicesRepository {
+pub trait SdpServicesAdapter: ServicesRepository {
     fn new() -> Self;
 }
 impl SdpServicesAdapter for LedgerServicesAdapter {
@@ -14,11 +16,11 @@ impl SdpServicesAdapter for LedgerServicesAdapter {
 }
 
 #[async_trait]
-impl ledger::ServicesRepository for LedgerServicesAdapter {
+impl ServicesRepository for LedgerServicesAdapter {
     async fn get_parameters(
         &self,
-        _service_type: nomos_sdp_core::ServiceType,
-    ) -> Result<nomos_sdp_core::ServiceParameters, ledger::ServicesRepositoryError> {
+        _service_type: sdp::ServiceType,
+    ) -> Result<sdp::ServiceParameters, ServicesRepositoryError> {
         todo!()
     }
 }

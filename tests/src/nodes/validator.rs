@@ -15,7 +15,7 @@ use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
 use nomos_blend_service::settings::{
     CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt, TimingSettings,
 };
-use nomos_core::{block::Block, mantle::SignedMantleTx};
+use nomos_core::{block::Block, mantle::SignedMantleTx, sdp::FinalizedBlockEvent};
 use nomos_da_indexer::{
     storage::adapters::rocksdb::RocksAdapterSettings as IndexerStorageAdapterSettings,
     IndexerSettings,
@@ -44,7 +44,6 @@ use nomos_node::{
     api::backend::AxumBackendSettings, config::mempool::MempoolConfig, BlobInfo, Config, HeaderId,
     RocksBackendSettings,
 };
-use nomos_sdp_core::FinalizedBlockEvent;
 use nomos_time::{
     backends::{ntp::async_client::NTPClientSettings, NtpTimeBackendSettings},
     TimeServiceSettings,

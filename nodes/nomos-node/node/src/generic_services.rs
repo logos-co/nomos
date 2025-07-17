@@ -16,11 +16,13 @@ use nomos_da_sampling::{
 use nomos_da_verifier::backend::kzgrs::KzgrsDaVerifier;
 use nomos_membership::{adapters::sdp::LedgerSdpAdapter, backends::mock::MockMembershipBackend};
 use nomos_mempool::backend::mockpool::MockPool;
-use nomos_sdp::adapters::{
-    declaration::repository::LedgerDeclarationAdapter,
-    services::services_repository::LedgerServicesAdapter,
+use nomos_sdp::{
+    adapters::{
+        declaration::repository::LedgerDeclarationAdapter,
+        services::services_repository::LedgerServicesAdapter,
+    },
+    backends::ledger::SdpLedger,
 };
-use nomos_sdp_core::ledger::SdpLedger;
 use nomos_storage::backends::rocksdb::RocksBackend;
 use nomos_time::backends::NtpTimeBackend;
 

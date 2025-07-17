@@ -15,7 +15,7 @@ use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
 use nomos_blend_service::settings::{
     CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt, TimingSettings,
 };
-use nomos_core::header::HeaderId;
+use nomos_core::{header::HeaderId, sdp::FinalizedBlockEvent};
 use nomos_da_dispersal::{
     backend::kzgrs::{DispersalKZGRSBackendSettings, EncoderSettings},
     DispersalServiceSettings,
@@ -48,7 +48,6 @@ use nomos_http_api_common::paths::{
 };
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{config::mempool::MempoolConfig, RocksBackendSettings};
-use nomos_sdp_core::FinalizedBlockEvent;
 use nomos_time::{
     backends::{ntp::async_client::NTPClientSettings, NtpTimeBackendSettings},
     TimeServiceSettings,

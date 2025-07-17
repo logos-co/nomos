@@ -1,4 +1,4 @@
-mod state;
+pub mod state;
 
 use std::{collections::BTreeSet, hash::Hash};
 
@@ -146,7 +146,7 @@ pub struct DeclarationMessage {
 }
 
 impl DeclarationMessage {
-    fn declaration_id(&self) -> DeclarationId {
+    pub fn declaration_id(&self) -> DeclarationId {
         let mut hasher = Blake2b::new();
         let service = match self.service_type {
             ServiceType::BlendNetwork => "BN",
