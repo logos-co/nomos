@@ -524,7 +524,7 @@ mod tests {
                 // shrinking
                 network_size = (MIN_NETWORK_SIZE..network_size)
                     .choose_stable(&mut rng)
-                    .unwrap();
+                    .unwrap_or(MIN_NETWORK_SIZE);
                 new_nodes = shrink_nodes(&new_nodes, network_size).collect();
             } else {
                 // growing
