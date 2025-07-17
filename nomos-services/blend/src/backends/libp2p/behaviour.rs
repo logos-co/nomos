@@ -39,16 +39,18 @@ impl BlendBehaviour {
                     seen_message_cache_size: 1_944_000,
                 },
                 observation_window_interval_provider,
+                config.backend.local_peer_id(),
                 Some(config.membership()),
                 config.backend.edge_node_connection_timeout,
             ),
             limits: libp2p::connection_limits::Behaviour::new(
+                // We don't set `max_established_per_peer` here
+                // because the [`nomos_blend_network::Behaviour`] closes duplicate connections
+                // by comparing the peer IDs, as per spec.
                 ConnectionLimits::default()
                     .with_max_established(Some(config.backend.max_peering_degree))
                     .with_max_established_incoming(Some(config.backend.max_peering_degree))
-                    .with_max_established_outgoing(Some(config.backend.max_peering_degree))
-                    // Blend protocol restricts the number of connections per peer to 1.
-                    .with_max_established_per_peer(Some(1)),
+                    .with_max_established_outgoing(Some(config.backend.max_peering_degree)),
             ),
             blocked_peers: libp2p::allow_block_list::Behaviour::default(),
         }

@@ -33,7 +33,8 @@ use crate::{
 /// - forwards messages to all connected peers with deduplication.
 /// - receives messages from all connected peers.
 pub struct Behaviour<ObservationWindowClockProvider> {
-    negotiated_peers: HashMap<PeerId, NegotiatedPeerState>,
+    local_peer_id: PeerId,
+    negotiated_peers: HashMap<PeerId, NegotiatedPeer>,
     /// Queue of events to yield to the swarm.
     events: VecDeque<ToSwarm<Event, Either<FromBehaviour, ()>>>,
     /// Waker that handles polling
@@ -49,6 +50,12 @@ pub struct Behaviour<ObservationWindowClockProvider> {
     // TODO: Replace with the session stream and make this a non-Option
     current_membership: Option<Membership<PeerId>>,
     edge_node_connection_duration: Duration,
+}
+
+struct NegotiatedPeer {
+    peer_id: PeerId,
+    connection_id: ConnectionId,
+    state: NegotiatedPeerState,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -80,11 +87,13 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     pub fn new(
         config: &Config,
         observation_window_clock_provider: ObservationWindowClockProvider,
+        local_peer_id: PeerId,
         current_membership: Option<Membership<PeerId>>,
         edge_node_connection_duration: Duration,
     ) -> Self {
         let duplicate_cache = SizedCache::with_size(config.seen_message_cache_size);
         Self {
+            local_peer_id,
             negotiated_peers: HashMap::new(),
             events: VecDeque::new(),
             waker: None,
@@ -129,12 +138,12 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             // message we are forwarding).
             .filter(|(peer_id, _)| (excluded_peer != Some(**peer_id)))
             // Exclude from the list of candidate peers any peer that is not in a healthy state.
-            .filter(|(_, peer_state)| **peer_state == NegotiatedPeerState::Healthy)
-            .for_each(|(peer_id, _)| {
-                tracing::debug!("Registering event for peer {:?} to send msg", peer_id);
+            .filter(|(_, peer)| peer.state == NegotiatedPeerState::Healthy)
+            .for_each(|(_, peer)| {
+                tracing::debug!("Registering event for peer {:?} to send msg", peer.peer_id);
                 self.events.push_back(ToSwarm::NotifyHandler {
-                    peer_id: *peer_id,
-                    handler: NotifyHandler::Any,
+                    peer_id: peer.peer_id,
+                    handler: NotifyHandler::One(peer.connection_id),
                     event: Either::Left(FromBehaviour::Message(message.to_vec())),
                 });
                 num_peers += 1;
@@ -158,7 +167,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     pub fn num_healthy_peers(&self) -> usize {
         self.negotiated_peers
             .values()
-            .filter(|state| **state == NegotiatedPeerState::Healthy)
+            .filter(|peer| peer.state == NegotiatedPeerState::Healthy)
             .count()
     }
 
@@ -188,6 +197,36 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         // so that it can be processed by the core protocol module.
         self.events
             .push_back(ToSwarm::GenerateEvent(Event::Message(message)));
+    }
+
+    /// If a connection with the given [`peer_id`] already exists,
+    /// this funtion either denies the connection or removes the existing one,
+    /// depending on the peer IDs and the connection direction (inbound or
+    /// outbound).
+    ///
+    /// If the new connection should be rejected,
+    /// [`ConnectionDeniedError::DuplicateConnection`] is returned.
+    /// If the existing connection should be dropped,
+    /// it is removed from the [`Self::negotiated_peers`] and [`Ok`] is
+    /// returned. If no existing connection is found, [`Ok`] is returned.
+    fn remove_duplicate_connection(
+        &mut self,
+        peer_id: PeerId,
+        is_outbound: bool,
+    ) -> Result<(), ConnectionDeniedError> {
+        if !self.negotiated_peers.contains_key(&peer_id) {
+            return Ok(());
+        }
+
+        let prioritize_new = (self.local_peer_id > peer_id) == is_outbound;
+        if prioritize_new {
+            // Remove the existing one.
+            self.negotiated_peers.remove(&peer_id);
+            Ok(())
+        } else {
+            // Deny the new connection.
+            Err(ConnectionDeniedError::DuplicateConnection)
+        }
     }
 }
 
@@ -226,6 +265,9 @@ where
         _: &Multiaddr,
         _: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
+        self.remove_duplicate_connection(peer_id, false)
+            .map_err(ConnectionDenied::new)?;
+
         // If no membership is provided (for tests), then we assume all peers are core
         // nodes.
         let Some(membership) = &self.current_membership else {
@@ -248,6 +290,9 @@ where
         _: Endpoint,
         _: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
+        self.remove_duplicate_connection(peer_id, true)
+            .map_err(ConnectionDenied::new)?;
+
         // If no membership is provided (for tests), then we assume all peers are core
         // nodes.
         let Some(membership) = &self.current_membership else {
@@ -261,7 +306,7 @@ where
             ))
         } else {
             Err(ConnectionDenied::new(
-                "No outbound stream is expected toward edge nodes.",
+                ConnectionDeniedError::OutboundConnTowardEdgeNodeNotAllowed,
             ))
         }
     }
@@ -309,8 +354,14 @@ where
                 // The inbound/outbound connection was fully negotiated by the peer,
                 // which means that the peer supports the blend protocol.
                 ToBehaviour::FullyNegotiatedInbound | ToBehaviour::FullyNegotiatedOutbound => {
-                    self.negotiated_peers
-                        .insert(peer_id, NegotiatedPeerState::Healthy);
+                    self.negotiated_peers.insert(
+                        peer_id,
+                        NegotiatedPeer {
+                            peer_id,
+                            connection_id,
+                            state: NegotiatedPeerState::Healthy,
+                        },
+                    );
                 }
                 ToBehaviour::DialUpgradeError(_) => {
                     self.negotiated_peers.remove(&peer_id);
@@ -327,7 +378,15 @@ where
                     // Notify swarm only if it's the first transition into the unhealthy state.
                     let previous_state = self
                         .negotiated_peers
-                        .insert(peer_id, NegotiatedPeerState::Unhealthy);
+                        .insert(
+                            peer_id,
+                            NegotiatedPeer {
+                                peer_id,
+                                connection_id,
+                                state: NegotiatedPeerState::Unhealthy,
+                            },
+                        )
+                        .map(|peer| peer.state);
                     if matches!(previous_state, None | Some(NegotiatedPeerState::Healthy)) {
                         tracing::debug!("Peer {:?} has been detected as unhealthy", peer_id);
                         self.events
@@ -338,7 +397,15 @@ where
                     // Notify swarm only if it's the first transition into the healthy state.
                     let previous_state = self
                         .negotiated_peers
-                        .insert(peer_id, NegotiatedPeerState::Healthy);
+                        .insert(
+                            peer_id,
+                            NegotiatedPeer {
+                                peer_id,
+                                connection_id,
+                                state: NegotiatedPeerState::Healthy,
+                            },
+                        )
+                        .map(|peer| peer.state);
                     if matches!(previous_state, None | Some(NegotiatedPeerState::Unhealthy)) {
                         tracing::debug!("Peer {:?} has been detected as healthy", peer_id);
                         self.events
@@ -391,4 +458,83 @@ pub trait IntervalStreamProvider {
     type IntervalItem;
 
     fn interval_stream(&self) -> Self::IntervalStream;
+}
+
+#[derive(Debug, thiserror::Error, PartialEq)]
+enum ConnectionDeniedError {
+    #[error("Denying a duplicate connection")]
+    DuplicateConnection,
+    #[error("Outbound connection toward edge node is not allowed")]
+    OutboundConnTowardEdgeNodeNotAllowed,
+}
+
+#[cfg(test)]
+mod tests {
+    use libp2p::multihash::Multihash;
+
+    use super::*;
+
+    #[test]
+    fn remove_duplicate_connection() {
+        let peer1 = peer_id(0);
+        let local = peer_id(1);
+        let peer2 = peer_id(2);
+        assert!(peer1 < local && local < peer2);
+
+        let mut behaviour = Behaviour::new(
+            &Config {
+                seen_message_cache_size: 1,
+            },
+            (),
+            local,
+            None,
+            Duration::from_secs(1),
+        );
+
+        // If there is no existing connection, `Ok` is returned.
+        assert_eq!(behaviour.remove_duplicate_connection(peer1, false), Ok(()));
+        assert_eq!(behaviour.remove_duplicate_connection(peer1, true), Ok(()));
+
+        // Add connections to the peer1 and peer2.
+        behaviour.negotiated_peers.insert(
+            peer1,
+            NegotiatedPeer {
+                peer_id: peer1,
+                connection_id: ConnectionId::new_unchecked(0),
+                state: NegotiatedPeerState::Healthy,
+            },
+        );
+        behaviour.negotiated_peers.insert(
+            peer2,
+            NegotiatedPeer {
+                peer_id: peer2,
+                connection_id: ConnectionId::new_unchecked(0),
+                state: NegotiatedPeerState::Healthy,
+            },
+        );
+
+        // An inbound connection from peer1 must be denied because peer1 < local.
+        assert_eq!(
+            behaviour.remove_duplicate_connection(peer1, false),
+            Err(ConnectionDeniedError::DuplicateConnection)
+        );
+        // An outbound connection to peer1 must not be denied,
+        // and the existing connection must be removed because peer1 < local.
+        assert_eq!(behaviour.remove_duplicate_connection(peer1, true), Ok(()));
+        assert!(!behaviour.negotiated_peers.contains_key(&peer1));
+
+        // An outbound connection to peer2 must be denied because local < peer2.
+        assert_eq!(
+            behaviour.remove_duplicate_connection(peer2, true),
+            Err(ConnectionDeniedError::DuplicateConnection)
+        );
+        // An inbound connection from peer2 must not be denied,
+        // and the existing connection must be removed, because local < peer2.
+        assert_eq!(behaviour.remove_duplicate_connection(peer2, false), Ok(()));
+        assert!(!behaviour.negotiated_peers.contains_key(&peer2));
+    }
+
+    fn peer_id(index: u8) -> PeerId {
+        PeerId::from_multihash(Multihash::wrap(0, &[index; 42]).unwrap()).unwrap()
+    }
 }

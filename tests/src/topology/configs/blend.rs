@@ -4,11 +4,7 @@ use std::{num::NonZeroU64, str::FromStr as _};
 use nomos_blend_message::crypto::Ed25519PrivateKey;
 use nomos_blend_scheduling::membership::Node;
 use nomos_blend_service::backends::libp2p::Libp2pBlendBackendSettings;
-use nomos_libp2p::{
-    ed25519::{self, Keypair as Ed25519Keypair},
-    identity::Keypair,
-    Multiaddr, PeerId,
-};
+use nomos_libp2p::{ed25519, Multiaddr, PeerId};
 
 use crate::get_available_port;
 
@@ -63,9 +59,7 @@ fn blend_nodes(configs: &[GeneralBlendConfig]) -> Vec<Node<PeerId>> {
     configs
         .iter()
         .map(|config| Node {
-            id: PeerId::from_public_key(
-                &Keypair::from(Ed25519Keypair::from(config.backend.node_key.clone())).public(),
-            ),
+            id: config.backend.local_peer_id(),
             address: config.backend.listening_address.clone(),
             public_key: config.private_key.public_key(),
         })

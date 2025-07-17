@@ -317,6 +317,7 @@ mod test {
         membership_info: Option<Membership<PeerId>>,
         timeout: Duration,
     ) -> Swarm<Behaviour<TestTokioIntervalStreamProvider>> {
+        let local_peer_id = PeerId::from_public_key(&keypair.public());
         new_swarm_with_behaviour(
             keypair,
             addr,
@@ -330,6 +331,7 @@ mod test {
                     // to not having a monitor at all.
                     expected_message_range.unwrap_or(0..=u64::MAX),
                 ),
+                local_peer_id,
                 membership_info,
                 timeout,
             ),

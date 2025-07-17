@@ -17,6 +17,7 @@ nomos-blend-message    = { workspace = true }
 nomos-blend-scheduling = { workspace = true }
 nomos-utils            = { workspace = true, optional = true }
 sha2                   = "0.10"
+thiserror              = "2"
 tokio                  = { version = "1", features = ["time"], optional = true }
 tokio-stream           = { version = "0.1", optional = true }
 tracing                = { workspace = true }
