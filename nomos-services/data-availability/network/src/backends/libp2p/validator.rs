@@ -81,7 +81,7 @@ pub enum DaNetworkEvent {
 pub struct DaNetworkValidatorBackend<Membership> {
     task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
-    sampling_request_channel: UnboundedSender<BlobId>,
+    shares_request_channel: UnboundedSender<BlobId>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
@@ -147,7 +147,7 @@ where
                 panic!("Error listening on DA network with address {address}: {e}")
             });
 
-        let sampling_request_channel = validator_swarm.sample_request_channel();
+        let shares_request_channel = validator_swarm.shares_request_channel();
         let balancer_command_sender = validator_swarm.balancer_command_channel();
         let monitor_command_sender = validator_swarm.monitor_command_channel();
 
@@ -181,7 +181,7 @@ where
         Self {
             task,
             replies_task,
-            sampling_request_channel,
+            shares_request_channel,
             balancer_command_sender,
             monitor_command_sender,
             sampling_broadcast_receiver,
@@ -206,7 +206,7 @@ where
         match msg {
             DaNetworkMessage::RequestSample { blob_id } => {
                 info_with_id!(&blob_id, "RequestSample");
-                handle_sample_request(&self.sampling_request_channel, blob_id).await;
+                handle_sample_request(&self.shares_request_channel, blob_id).await;
             }
             DaNetworkMessage::MonitorRequest(command) => {
                 match command.peer_id() {

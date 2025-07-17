@@ -165,7 +165,7 @@ where
     }
 
     /// Get a hook to the sender channel of the share events
-    pub fn sample_request_channel(&self) -> UnboundedSender<BlobId> {
+    pub fn shares_request_channel(&self) -> UnboundedSender<BlobId> {
         self.shares_request_sender.clone()
     }
 

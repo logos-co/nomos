@@ -97,7 +97,7 @@ where
     task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     verifier_replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     executor_replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
-    sampling_request_channel: UnboundedSender<BlobId>,
+    shares_request_channel: UnboundedSender<BlobId>,
     commitments_request_channel: UnboundedSender<BlobId>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
     commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
@@ -169,7 +169,7 @@ where
                 panic!("Error listening on DA network with address {address}: {e}")
             });
 
-        let sampling_request_channel = executor_swarm.sample_request_channel();
+        let shares_request_channel = executor_swarm.shares_request_channel();
         let commitments_request_channel = executor_swarm.commitments_request_channel();
         let dispersal_shares_sender = executor_swarm.dispersal_shares_channel();
         let balancer_command_sender = executor_swarm.balancer_command_channel();
@@ -223,7 +223,7 @@ where
             task,
             verifier_replies_task,
             executor_replies_task,
-            sampling_request_channel,
+            shares_request_channel,
             commitments_request_channel,
             sampling_broadcast_receiver,
             commitments_broadcast_receiver,
@@ -253,7 +253,7 @@ where
         match msg {
             ExecutorDaNetworkMessage::RequestSample { blob_id } => {
                 info_with_id!(&blob_id, "RequestSample");
-                handle_sample_request(&self.sampling_request_channel, blob_id).await;
+                handle_sample_request(&self.shares_request_channel, blob_id).await;
             }
             ExecutorDaNetworkMessage::RequestCommitments { blob_id } => {
                 info_with_id!(&blob_id, "RequestSample");
