@@ -1,4 +1,4 @@
-pub type SDPDeclareOp = nomos_sdp_core::DeclarationMessage;
-pub type SDPWithdrawOp = nomos_sdp_core::WithdrawMessage;
+pub type SDPDeclareOp = crate::sdp::DeclarationMessage;
+pub type SDPWithdrawOp = crate::sdp::WithdrawMessage;
 // TODO: Abstract metadata
-pub type SDPActiveOp = nomos_sdp_core::ActiveMessage<Vec<u8>>;
+pub type SDPActiveOp = crate::sdp::ActiveMessage<Vec<u8>>;

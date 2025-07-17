@@ -22,7 +22,6 @@ members = [
   "nomos-da/network/messages",
   "nomos-da/network/subnetworks-assignations",
   "nomos-libp2p",
-  "nomos-sdp",
   "nomos-services/api",
   "nomos-services/blend",
   "nomos-services/chain-service",
@@ -85,7 +84,6 @@ nomos-mempool            = { path = "./nomos-services/mempool" }
 nomos-network            = { path = "./nomos-services/network" }
 nomos-node               = { path = "./nodes/nomos-node/node", default-features = false }
 nomos-sdp                = { path = "./nomos-services/sdp" }
-nomos-sdp-core           = { path = "./nomos-sdp" }
 nomos-storage            = { path = "./nomos-services/storage" }
 nomos-system-sig         = { path = "./nomos-services/system-sig" }
 nomos-time               = { path = "./nomos-services/time" }

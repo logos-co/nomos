@@ -17,7 +17,7 @@ bytes                  = { workspace = true }
 const-hex              = "1"
 cryptarchia-engine     = { workspace = true, features = ["serde"] }
 hex                    = { version = "0.4" }
-nomos-sdp-core         = { workspace = true }
+multiaddr              = "0.18"
 nomos_proof_statements = { workspace = true }
 nomos_risc0_proofs     = { path = "../risc0_proofs" }
 risc0-zkvm             = { workspace = true }

@@ -21,7 +21,6 @@ nomos-core               = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-libp2p             = { workspace = true }
 nomos-membership         = { workspace = true }
-nomos-sdp-core           = { workspace = true }
 nomos-tracing            = { workspace = true }
 overwatch                = { workspace = true }
 rand                     = "0.8.5"

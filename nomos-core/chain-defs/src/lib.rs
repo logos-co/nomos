@@ -4,5 +4,6 @@ pub mod da;
 pub mod header;
 pub mod mantle;
 pub mod proofs;
+pub mod sdp;
 pub mod utils;
 pub mod wire;

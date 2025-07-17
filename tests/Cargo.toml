@@ -37,7 +37,6 @@ nomos-membership         = { workspace = true }
 nomos-mempool            = { workspace = true, features = ["libp2p", "mock"] }
 nomos-network            = { workspace = true, features = ["libp2p"] }
 nomos-node               = { workspace = true, default-features = false, features = ["testing"] }
-nomos-sdp-core           = { workspace = true }
 nomos-time               = { workspace = true }
 nomos-tracing            = { workspace = true }
 nomos-tracing-service    = { workspace = true }
