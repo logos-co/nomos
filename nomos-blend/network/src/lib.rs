@@ -5,7 +5,6 @@ use libp2p::{Stream, StreamProtocol};
 
 pub mod core;
 pub mod edge;
-mod error;
 #[cfg(test)]
 mod tests;
 

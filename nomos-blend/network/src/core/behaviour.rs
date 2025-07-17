@@ -19,17 +19,14 @@ use libp2p::{
 use nomos_blend_scheduling::membership::Membership;
 use sha2::{Digest as _, Sha256};
 
-use super::handler::core_edge;
-use crate::{
-    core::{
-        conn_maintenance::ConnectionMonitor,
-        handler::{
-            core::{FromBehaviour, ToBehaviour},
-            core_edge::CoreToEdgeBlendConnectionHandler,
-            CoreToCoreBlendConnectionHandler,
-        },
+use super::{handler::core_edge, Error};
+use crate::core::{
+    conn_maintenance::ConnectionMonitor,
+    handler::{
+        core::{FromBehaviour, ToBehaviour},
+        core_edge::CoreToEdgeBlendConnectionHandler,
+        CoreToCoreBlendConnectionHandler,
     },
-    error::Error,
 };
 
 /// A [`NetworkBehaviour`]:

@@ -67,10 +67,7 @@ mod test {
     use nomos_blend_scheduling::membership::{Membership, Node};
     use tokio::select;
 
-    use crate::{
-        core::{behaviour::Config, Behaviour, Event, IntervalStreamProvider},
-        error::Error,
-    };
+    use crate::core::{behaviour::Config, Behaviour, Error, Event, IntervalStreamProvider};
 
     struct TestTokioIntervalStreamProvider(Duration, RangeInclusive<u64>);
 
