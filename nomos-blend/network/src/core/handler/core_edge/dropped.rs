@@ -2,7 +2,7 @@ use core::task::{Context, Poll, Waker};
 
 use libp2p::swarm::ConnectionHandlerEvent;
 
-use crate::handler::edge::edge_core::{
+use crate::core::handler::core_edge::{
     ConnectionState, FailureReason, PollResult, StateTrait, ToBehaviour,
 };
 
@@ -39,11 +39,13 @@ impl StateTrait for DroppedState {
     // After an error is consumed or if no error is to be consumed, the state
     // machine will indefinitely return `Poll::Pending` every time it is polled.
     fn poll(mut self, _cx: &mut Context<'_>) -> PollResult<ConnectionState> {
+        // If we return `Poll::Pending` it's because we're being polled more than
+        // necessary, so we don't wake the waker here.
         let poll_result = self.error.take().map_or_else(
             || Poll::Pending,
             |error| {
                 Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                    ToBehaviour::SendError(error),
+                    ToBehaviour::FailedReception(error),
                 ))
             },
         );

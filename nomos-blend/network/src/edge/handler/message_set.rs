@@ -2,7 +2,7 @@ use core::task::{Context, Poll, Waker};
 
 use libp2p::swarm::handler::FullyNegotiatedOutbound;
 
-use crate::handler::edge::edge_core::{
+use crate::edge::handler::{
     ready_to_send::{InternalState, ReadyToSendState},
     ConnectionEvent, ConnectionState, PollResult, StateTrait, LOG_TARGET,
 };

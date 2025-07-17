@@ -16,7 +16,7 @@ use libp2p::{
     StreamProtocol,
 };
 
-use crate::handler::edge::edge_core::{
+use crate::edge::handler::{
     dropped::DroppedState, message_set::MessageSetState, ready_to_send::ReadyToSendState,
     sending::SendingState, starting::StartingState,
 };
@@ -27,7 +27,7 @@ mod ready_to_send;
 mod sending;
 mod starting;
 
-const LOG_TARGET: &str = "blend::libp2p::handler::edge-core";
+const LOG_TARGET: &str = "blend::network::edge::handler";
 
 type MessageSendFuture = Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>>;
 #[expect(deprecated, reason = "Self::InboundOpenInfo is deprecated")]
@@ -115,6 +115,12 @@ impl EdgeToCoreBlendConnectionHandler {
     }
 }
 
+impl Default for EdgeToCoreBlendConnectionHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug)]
 pub enum FromBehaviour {
     /// Send a message to the other side of the connection.
@@ -131,10 +137,7 @@ pub enum FailureReason {
 pub enum ToBehaviour {
     /// Notify the behaviour that the message was sent successfully.
     MessageSuccess(Vec<u8>),
-    #[expect(
-        dead_code,
-        reason = "At the moment this is only used in tests. This lint will go away once we integrate this connection handler."
-    )]
+    /// Notify the behaviour that the message could not be sent.
     SendError(FailureReason),
 }
 
