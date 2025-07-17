@@ -1,7 +1,7 @@
 use std::{collections::HashSet, fmt::Debug, hash::Hash, marker::PhantomData};
 
 use cryptarchia_sync::GetTipResponse;
-use futures::TryStreamExt as _;
+use futures::{future::select_ok, FutureExt as _, TryStreamExt as _};
 use nomos_core::{block::Block, header::HeaderId, wire};
 use nomos_network::{
     backends::libp2p::{
@@ -251,29 +251,30 @@ where
             MAX_PEERS_TO_TRY_FOR_ORPHAN_DOWNLOAD,
         );
 
-        for peer in peers_to_request {
-            match self
-                .request_blocks_from_peer(
-                    peer,
-                    // as the target block
-                    target_block,
-                    local_tip,
-                    latest_immutable_block,
-                    additional_blocks.clone(),
-                )
-                .await
-            {
-                Ok(stream) => {
-                    debug!("Requested orphan parents from peer: {peer}");
-                    return Ok(stream);
-                }
-                Err(err) => {
-                    tracing::warn!("Failed to request orphan parents from peer {peer}: {err}");
-                }
-            }
-        }
+        let requests = peers_to_request
+            .into_iter()
+            .map(|peer| {
+                let additional_blocks = additional_blocks.clone();
+                async move {
+                    let stream = self
+                        .request_blocks_from_peer(
+                            peer,
+                            target_block,
+                            local_tip,
+                            latest_immutable_block,
+                            additional_blocks,
+                        )
+                        .await?;
 
-        Err("Failed to request orphan parents from any peer".into())
+                    debug!("Requested orphan parents from peer: {peer}");
+
+                    Ok(stream)
+                }
+                .boxed()
+            })
+            .collect::<Vec<_>>();
+
+        select_ok(requests).await.map(|(stream, _)| stream)
     }
 }
 
