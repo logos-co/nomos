@@ -218,7 +218,7 @@ mod tests {
 
     type HeaderId = [u8; 32];
 
-    fn create_tx(inputs: Vec<NoteId>, outputs: Vec<Note>) -> SignedMantleTx {
+    fn create_tx(inputs: Vec<NoteId>, outputs: Vec<Note>, pks: Vec<[u8; 32]>) -> SignedMantleTx {
         let ledger_tx = LedgerTx::new(inputs, outputs);
         let mantle_tx = MantleTx {
             ops: vec![],
@@ -227,14 +227,14 @@ mod tests {
             storage_gas_price: 1,
         };
         SignedMantleTx {
-            mantle_tx,
             ops_profs: vec![],
             ledger_tx_proof: DummyZkSignature::prove(
                 nomos_core::proofs::zksig::ZkSignaturePublic {
-                    pks: vec![],
-                    tx_hash: [0; 32],
+                    pks,
+                    tx_hash: mantle_tx.hash().into(),
                 },
             ),
+            mantle_tx,
         }
     }
 
@@ -258,11 +258,9 @@ mod tests {
     fn test_ledger_try_update_with_transaction() {
         let (ledger, genesis_id, utxo) = create_test_ledger();
 
-        let output_note = Note::new(
-            utxo.note.value - MainnetGasConstants::LEDGER_TX,
-            [1; 32].into(),
-        );
-        let tx = create_tx(vec![utxo.id()], vec![output_note]);
+        let output_note = Note::new(1, [1; 32].into());
+        let pk = [0; 32];
+        let tx = create_tx(vec![utxo.id()], vec![output_note], vec![pk]);
 
         // Create a dummy proof (using same structure as in cryptarchia tests)
 
