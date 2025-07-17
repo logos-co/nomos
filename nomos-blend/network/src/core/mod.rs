@@ -1,4 +1,4 @@
-pub(crate) mod behaviour;
+mod behaviour;
 mod conn_maintenance;
 mod error;
 pub(crate) mod handler;

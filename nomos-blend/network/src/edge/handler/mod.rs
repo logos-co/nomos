@@ -135,6 +135,9 @@ pub enum FailureReason {
 
 #[derive(Debug)]
 pub enum ToBehaviour {
+    /// Notify the behaviour that the connection handler is ready to send a
+    /// message.
+    ReadyToSend,
     /// Notify the behaviour that the message was sent successfully.
     MessageSuccess(Vec<u8>),
     /// Notify the behaviour that the message could not be sent.

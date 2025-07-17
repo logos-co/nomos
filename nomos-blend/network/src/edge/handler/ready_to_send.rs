@@ -1,8 +1,13 @@
 use core::task::{Context, Poll, Waker};
 
 use futures::TryFutureExt as _;
-use libp2p::{core::upgrade::ReadyUpgrade, swarm::handler::OutboundUpgradeSend, StreamProtocol};
+use libp2p::{
+    core::upgrade::ReadyUpgrade,
+    swarm::{handler::OutboundUpgradeSend, ConnectionHandlerEvent},
+    StreamProtocol,
+};
 
+use super::ToBehaviour;
 use crate::{
     edge::handler::{
         sending::SendingState, ConnectionState, FromBehaviour, PollResult, StateTrait, LOG_TARGET,
@@ -24,7 +29,7 @@ impl ReadyToSendState {
     pub fn new(state: InternalState, waker: Option<Waker>) -> Self {
         // If we are being created with a full, ready state, we wake to start the
         // sending process.
-        if let InternalState::MessageAndOutboundStreamSet(_, _) = state {
+        if let InternalState::MessageAndOutboundStreamSet { .. } = state {
             if let Some(waker) = &waker {
                 waker.wake_by_ref();
             }
@@ -41,13 +46,37 @@ impl From<ReadyToSendState> for ConnectionState {
 
 pub enum InternalState {
     // Only the outbound stream has been negotiated.
-    OnlyOutboundStreamSet(<ReadyUpgrade<StreamProtocol> as OutboundUpgradeSend>::Output),
+    OnlyOutboundStreamSet {
+        stream: <ReadyUpgrade<StreamProtocol> as OutboundUpgradeSend>::Output,
+        /// Used when this state is polled, to remember whether
+        /// [`NotifyBehaviour`] has been requested to inform that it's
+        /// ready to send a message.
+        notify_behaviour_requested: bool,
+    },
     // The outbound stream has been negotiated and there is a message to send to the other side of
     // the connection.
-    MessageAndOutboundStreamSet(
-        Vec<u8>,
-        <ReadyUpgrade<StreamProtocol> as OutboundUpgradeSend>::Output,
-    ),
+    MessageAndOutboundStreamSet {
+        message: Vec<u8>,
+        stream: <ReadyUpgrade<StreamProtocol> as OutboundUpgradeSend>::Output,
+    },
+}
+
+impl InternalState {
+    pub(crate) const fn only_outbound_stream_set(
+        stream: <ReadyUpgrade<StreamProtocol> as OutboundUpgradeSend>::Output,
+    ) -> Self {
+        Self::OnlyOutboundStreamSet {
+            stream,
+            notify_behaviour_requested: false,
+        }
+    }
+
+    pub(crate) const fn message_and_outbound_stream_set(
+        message: Vec<u8>,
+        stream: <ReadyUpgrade<StreamProtocol> as OutboundUpgradeSend>::Output,
+    ) -> Self {
+        Self::MessageAndOutboundStreamSet { message, stream }
+    }
 }
 
 impl StateTrait for ReadyToSendState {
@@ -56,13 +85,13 @@ impl StateTrait for ReadyToSendState {
     fn on_behaviour_event(mut self, event: FromBehaviour) -> ConnectionState {
         // Specifying a second message won't have any effect, since the connection
         // handler allows a single message to be sent to a core node per connection.
-        let InternalState::OnlyOutboundStreamSet(inbound_stream) = self.state else {
+        let InternalState::OnlyOutboundStreamSet { stream, .. } = self.state else {
             return self.into();
         };
-        let FromBehaviour::Message(new_message) = event;
+        let FromBehaviour::Message(message) = event;
 
         let updated_self = Self {
-            state: InternalState::MessageAndOutboundStreamSet(new_message, inbound_stream),
+            state: InternalState::MessageAndOutboundStreamSet { message, stream },
             waker: self.waker.take(),
         };
         tracing::trace!(target: LOG_TARGET, "Transitioning internal state from `OnlyOutboundStreamSet` to `MessageAndOutboundStreamSet`.");
@@ -71,22 +100,48 @@ impl StateTrait for ReadyToSendState {
 
     // If the state contains the message to be sent, it moves to the `Sending`
     // state, and starts the sending future.
+    // Otherwise, notify the behaviour only once that it is ready to send a message.
     fn poll(self, cx: &mut Context<'_>) -> PollResult<ConnectionState> {
         match self.state {
-            InternalState::OnlyOutboundStreamSet(outbound_stream) => (
-                // No message has been specified yet, we idle.
-                Poll::Pending,
-                Self {
-                    state: InternalState::OnlyOutboundStreamSet(outbound_stream),
-                    waker: Some(cx.waker().clone()),
+            InternalState::OnlyOutboundStreamSet {
+                stream,
+                notify_behaviour_requested,
+            } => {
+                if notify_behaviour_requested {
+                    // No message has been specified yet, we idle.
+                    (
+                        Poll::Pending,
+                        Self::new(
+                            InternalState::OnlyOutboundStreamSet {
+                                stream,
+                                notify_behaviour_requested,
+                            },
+                            Some(cx.waker().clone()),
+                        )
+                        .into(),
+                    )
+                } else {
+                    // Notify the behaviour that the connection handler is ready to send a message.
+                    (
+                        Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                            ToBehaviour::ReadyToSend,
+                        )),
+                        Self::new(
+                            InternalState::OnlyOutboundStreamSet {
+                                stream,
+                                notify_behaviour_requested: true,
+                            },
+                            Some(cx.waker().clone()),
+                        )
+                        .into(),
+                    )
                 }
-                .into(),
-            ),
-            InternalState::MessageAndOutboundStreamSet(message, outbound_stream) => {
+            }
+            InternalState::MessageAndOutboundStreamSet { message, stream } => {
                 tracing::trace!(target: LOG_TARGET, "Transitioning from `ReadyToSend` to `Sending`.");
                 let sending_state = SendingState::new(
                     message.clone(),
-                    Box::pin(send_msg(outbound_stream, message).map_ok(|_| ())),
+                    Box::pin(send_msg(stream, message).map_ok(|_| ())),
                     Some(cx.waker().clone()),
                 );
                 (Poll::Pending, sending_state.into())

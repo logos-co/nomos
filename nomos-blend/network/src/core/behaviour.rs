@@ -47,6 +47,7 @@ pub struct Behaviour<ObservationWindowClockProvider> {
     seen_message_cache: SizedCache<Vec<u8>, ()>,
     observation_window_clock_provider: ObservationWindowClockProvider,
     // TODO: Replace with the session stream and make this a non-Option
+    //       https://github.com/logos-co/nomos/issues/1462
     current_membership: Option<Membership<PeerId>>,
     edge_node_connection_duration: Duration,
 }

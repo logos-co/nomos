@@ -40,7 +40,7 @@ impl StateTrait for MessageSetState {
             }) => {
                 tracing::trace!(target: LOG_TARGET, "Transitioning from `MessageSet` to `ReadyToSend`.");
                 let updated_self = ReadyToSendState::new(
-                    InternalState::MessageAndOutboundStreamSet(self.message, outbound_stream),
+                    InternalState::message_and_outbound_stream_set(self.message, outbound_stream),
                     self.waker.take(),
                 );
                 updated_self.into()
