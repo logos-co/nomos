@@ -9,7 +9,10 @@ use nomos_core::{
     mantle::{SignedMantleTx, Transaction},
 };
 use nomos_da_indexer::consensus::adapters::cryptarchia::CryptarchiaConsensusAdapter;
-use nomos_da_network_service::membership::adapters::service::MembershipServiceAdapter;
+use nomos_da_network_service::{
+    membership::adapters::service::MembershipServiceAdapter,
+    storage::adapters::rocksdb::RocksAdapter,
+};
 use nomos_da_sampling::{
     backend::kzgrs::KzgrsSamplingBackend, storage::adapters::rocksdb::converter::DaStorageConverter,
 };
@@ -232,3 +235,6 @@ pub type SdpService<RuntimeServiceId> = nomos_sdp::SdpService<
     Metadata,
     RuntimeServiceId,
 >;
+
+pub type DaMembershipStorageGeneric<RuntimeServiceId> =
+    RocksAdapter<RocksBackend<Wire>, RuntimeServiceId>;

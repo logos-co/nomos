@@ -215,10 +215,7 @@ where
     Membership::Id: Send + Sync,
     Membership::NetworkId: Send,
     MembershipServiceAdapter: MembershipAdapter<Id = Membership::Id> + Send + Sync + 'static,
-    StorageAdapter: MembershipStorageAdapter<
-            <Membership as MembershipHandler>::Id,
-            <Membership as MembershipHandler>::NetworkId,
-        > + Default
+    StorageAdapter: MembershipStorageAdapter<PeerId, <Membership as MembershipHandler>::NetworkId>
         + Send
         + Sync
         + 'static,
@@ -239,7 +236,8 @@ where
         + Send
         + Sync
         + Debug
-        + AsServiceId<MembershipServiceAdapter::MembershipService>,
+        + AsServiceId<MembershipServiceAdapter::MembershipService>
+        + AsServiceId<StorageAdapter::StorageService>,
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
@@ -294,7 +292,11 @@ where
             .relay::<MembershipServiceAdapter::MembershipService>()
             .await?;
 
-        let storage_adapter = StorageAdapter::default();
+        let storage_service_relay = overwatch_handle
+            .relay::<StorageAdapter::StorageService>()
+            .await?;
+
+        let storage_adapter = StorageAdapter::new(storage_service_relay);
         let membership_storage = MembershipStorage::new(storage_adapter, membership.clone());
 
         let membership_service_adapter = MembershipServiceAdapter::new(membership_service_relay);
