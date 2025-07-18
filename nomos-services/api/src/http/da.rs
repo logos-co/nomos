@@ -6,7 +6,7 @@ use std::{
 };
 
 use kzgrs_backend::common::share::DaShare;
-use nomos_blend_service::network::libp2p::Libp2pAdapter as BlendNetworkAdapter;
+use nomos_blend_service::core::network::libp2p::Libp2pAdapter as BlendNetworkAdapter;
 use nomos_core::{
     da::{
         blob::{info::DispersedBlobInfo, metadata, select::FillSize as FillSizeWithBlobs, Share},
