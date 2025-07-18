@@ -7,7 +7,7 @@ use libp2p::{
     StreamProtocol,
 };
 
-use super::ToBehaviour;
+use super::{dropped::DroppedState, ToBehaviour};
 use crate::{
     edge::handler::{
         sending::SendingState, ConnectionState, FromBehaviour, PollResult, StateTrait, LOG_TARGET,
@@ -88,14 +88,21 @@ impl StateTrait for ReadyToSendState {
         let InternalState::OnlyOutboundStreamSet { stream, .. } = self.state else {
             return self.into();
         };
-        let FromBehaviour::Message(message) = event;
 
-        let updated_self = Self {
-            state: InternalState::MessageAndOutboundStreamSet { message, stream },
-            waker: self.waker.take(),
-        };
-        tracing::trace!(target: LOG_TARGET, "Transitioning internal state from `OnlyOutboundStreamSet` to `MessageAndOutboundStreamSet`.");
-        updated_self.into()
+        match event {
+            FromBehaviour::Message(message) => {
+                let updated_self = Self {
+                    state: InternalState::MessageAndOutboundStreamSet { message, stream },
+                    waker: self.waker.take(),
+                };
+                tracing::trace!(target: LOG_TARGET, "Transitioning internal state from `OnlyOutboundStreamSet` to `MessageAndOutboundStreamSet`.");
+                updated_self.into()
+            }
+            FromBehaviour::DropSubstream => {
+                tracing::trace!(target: LOG_TARGET, "Transitioning to DroppedState as requested by behaviour");
+                DroppedState::new(None, self.waker.take()).into()
+            }
+        }
     }
 
     // If the state contains the message to be sent, it moves to the `Sending`

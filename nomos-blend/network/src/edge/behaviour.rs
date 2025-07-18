@@ -138,16 +138,28 @@ where
     }
 
     /// Schedules sending a message to the peer that is connected.
-    fn schedule_send_message(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
-        if let Some(message) = self.pending_messages.pop_front() {
-            println!("SCHEDULE SEND MESSAGE");
-            self.events.push_back(ToSwarm::NotifyHandler {
-                peer_id,
-                handler: NotifyHandler::One(connection_id),
-                event: FromBehaviour::Message(message),
-            });
-            self.try_wake();
-        }
+    /// Returns `true` if there was a message to send, `false` otherwise.
+    fn schedule_send_message(&mut self, peer_id: PeerId, connection_id: ConnectionId) -> bool {
+        let Some(message) = self.pending_messages.pop_front() else {
+            return false;
+        };
+        self.events.push_back(ToSwarm::NotifyHandler {
+            peer_id,
+            handler: NotifyHandler::One(connection_id),
+            event: FromBehaviour::Message(message),
+        });
+        self.try_wake();
+        true
+    }
+
+    /// Schedules dropping the stream for the given peer and connection ID.
+    fn schedule_drop_substream(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
+        self.events.push_back(ToSwarm::NotifyHandler {
+            peer_id,
+            handler: NotifyHandler::One(connection_id),
+            event: FromBehaviour::DropSubstream,
+        });
+        self.try_wake();
     }
 
     /// Schedules a [`EventToSwarm`] to be sent to the swarm.
@@ -228,7 +240,10 @@ where
         match event {
             ToBehaviour::ReadyToSend => {
                 self.remove_requested_dials(peer_id, connection_id);
-                self.schedule_send_message(peer_id, connection_id);
+                if !self.schedule_send_message(peer_id, connection_id) {
+                    // No message to schedule. Drop the substream.
+                    self.schedule_drop_substream(peer_id, connection_id);
+                }
             }
             ToBehaviour::MessageSuccess(message) => {
                 self.schedule_event_to_swarm(EventToSwarm::MessageSuccess(message));
