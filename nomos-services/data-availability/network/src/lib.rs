@@ -215,10 +215,7 @@ where
     Membership::Id: Send + Sync,
     Membership::NetworkId: Send,
     MembershipServiceAdapter: MembershipAdapter<Id = Membership::Id> + Send + Sync + 'static,
-    StorageAdapter: MembershipStorageAdapter<
-            <Membership as MembershipHandler>::Id,
-            <Membership as MembershipHandler>::NetworkId,
-        > + Default
+    StorageAdapter: MembershipStorageAdapter<PeerId, <Membership as MembershipHandler>::NetworkId>
         + Send
         + Sync
         + 'static,
@@ -239,7 +236,8 @@ where
         + Send
         + Sync
         + Debug
-        + AsServiceId<MembershipServiceAdapter::MembershipService>,
+        + AsServiceId<MembershipServiceAdapter::MembershipService>
+        + AsServiceId<StorageAdapter::StorageService>,
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
@@ -294,7 +292,11 @@ where
             .relay::<MembershipServiceAdapter::MembershipService>()
             .await?;
 
-        let storage_adapter = StorageAdapter::default();
+        let storage_service_relay = overwatch_handle
+            .relay::<StorageAdapter::StorageService>()
+            .await?;
+
+        let storage_adapter = StorageAdapter::new(storage_service_relay);
         let membership_storage = MembershipStorage::new(storage_adapter, membership.clone());
 
         let membership_service_adapter = MembershipServiceAdapter::new(membership_service_relay);
@@ -320,7 +322,7 @@ where
                         "Received membership update for block {}: {:?}",
                         block_number, providers
                     );
-                    Self::handle_membership_update(block_number, providers, &membership_storage, addressbook);
+                    Self::handle_membership_update(block_number, providers, &membership_storage, addressbook).await;
                 }
             }
         }
@@ -407,7 +409,18 @@ where
                 block_number,
                 sender,
             } => {
-                if let Some(membership) = membership_storage.get_historic_membership(block_number) {
+                // todo: handle errors properly when the usage of this function is known
+                // now we are just logging and returning an empty assignations
+                if let Some(membership) = membership_storage
+                    .get_historic_membership(block_number)
+                    .await
+                    .unwrap_or_else(|e| {
+                        tracing::error!(
+                            "Failed to get historic membership for block {block_number}: {e}"
+                        );
+                        None
+                    })
+                {
                     let assignations = membership.subnetworks();
                     sender.send(assignations).unwrap_or_else(|_| {
                         tracing::warn!(
@@ -415,8 +428,6 @@ where
                         );
                     });
                 } else {
-                    // todo: handle errors properly when the usage of this function is known
-                    // now we are just logging and returning an empty assignations
                     tracing::warn!("No membership found for block number {block_number}");
                     sender.send(SubnetworkAssignations::default()).unwrap_or_else(|_| {
                         tracing::warn!(
@@ -433,13 +444,18 @@ where
         }
     }
 
-    fn handle_membership_update(
+    async fn handle_membership_update(
         block_number: BlockNumber,
         update: HashMap<Membership::Id, Multiaddr>,
         storage: &MembershipStorage<StorageAdapter, Membership>,
         addressbook: &DaAddressbook,
     ) {
-        storage.update(block_number, update.keys().copied().collect());
+        storage
+            .update(block_number, update.keys().copied().collect())
+            .await
+            .unwrap_or_else(|e| {
+                tracing::error!("Failed to update membership at block {block_number}: {e}");
+            });
         // since addressbook access is different then membership (get address vs
         // snapshots) addressbook real implementation would have storage inside
         // for update and get address

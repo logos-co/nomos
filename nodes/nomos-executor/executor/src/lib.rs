@@ -33,15 +33,19 @@ use nomos_mempool::backend::mockpool::MockPool;
 #[cfg(feature = "tracing")]
 use nomos_node::Tracing;
 use nomos_node::{
-    generic_services::{DaMembershipAdapter, MembershipService, SdpService},
-    BlobInfo, DaMembershipStorage, DaNetworkApiAdapter, HeaderId, MempoolNetworkAdapter,
-    NetworkBackend, NomosDaMembership, RocksBackend, SystemSig, Wire, MB16,
+    generic_services::{
+        DaMembershipAdapter, DaMembershipStorageGeneric, MembershipService, SdpService,
+    },
+    BlobInfo, DaNetworkApiAdapter, HeaderId, MempoolNetworkAdapter, NetworkBackend,
+    NomosDaMembership, RocksBackend, SystemSig, Wire, MB16,
 };
 use nomos_time::backends::NtpTimeBackend;
 use overwatch::derive_services;
 
 #[cfg(feature = "tracing")]
 pub(crate) type TracingService = Tracing<RuntimeServiceId>;
+
+type DaMembershipStorage = DaMembershipStorageGeneric<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
