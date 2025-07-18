@@ -133,8 +133,7 @@ pub fn create_da_configs(
         listening_addresses.push(listening_address);
     }
 
-    let membership =
-        NomosDaMembership::new(&[], da_params.subnetwork_size, da_params.dispersal_factor);
+    let membership = NomosDaMembership::new(da_params.subnetwork_size, da_params.dispersal_factor);
 
     ids.iter()
         .zip(node_keys)
