@@ -1,6 +1,7 @@
 pub mod backend;
 pub mod da;
 pub mod network;
+pub mod processor;
 pub mod tx;
 pub mod verify;
 

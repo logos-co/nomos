@@ -23,6 +23,7 @@ nomos-core            = { workspace = true }
 nomos-da-network-core = { workspace = true }
 nomos-da-sampling     = { workspace = true }
 nomos-network         = { workspace = true }
+nomos-utils           = { workspace = true }
 overwatch             = { workspace = true }
 rand                  = { workspace = true }
 serde                 = { version = "1.0", features = ["derive"] }

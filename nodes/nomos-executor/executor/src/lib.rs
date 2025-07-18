@@ -38,6 +38,7 @@ use nomos_node::{
     NetworkBackend, NomosDaMembership, RocksBackend, SystemSig, Wire, MB16,
 };
 use nomos_time::backends::NtpTimeBackend;
+use nomos_utils::noop_service::NoService;
 use overwatch::derive_services;
 
 #[cfg(feature = "tracing")]
@@ -284,7 +285,7 @@ pub struct NomosExecutor {
     http: ApiService,
     storage: StorageService,
     system_sig: SystemSigService,
-
+    no_service: NoService,
     #[cfg(feature = "testing")]
     testing_http: TestingApiService<RuntimeServiceId>,
 }

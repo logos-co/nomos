@@ -224,7 +224,7 @@ where
     BlockId: Ord + Copy,
 {
     type Error = Infallible;
-    type Settings = TxMempoolSettings<(), ()>;
+    type Settings = TxMempoolSettings<(), (), ()>;
 
     fn from_settings(_settings: &Self::Settings) -> Result<Self, Self::Error> {
         Ok(<Self as MemPool>::new(()))

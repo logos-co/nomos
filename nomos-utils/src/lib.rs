@@ -1,5 +1,6 @@
 pub mod fisheryates;
 pub mod math;
+pub mod noop_service;
 
 #[cfg(feature = "blake2")]
 pub mod blake_rng;
