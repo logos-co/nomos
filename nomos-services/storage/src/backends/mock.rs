@@ -148,8 +148,8 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
     type Share = Bytes;
     type Commitments = Bytes;
     type ShareIndex = [u8; 2];
-    type Id = u16;
-    type NetworkId = PeerId;
+    type Id = PeerId;
+    type NetworkId = u16;
 
     async fn get_light_share(
         &mut self,
