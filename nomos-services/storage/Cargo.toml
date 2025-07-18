@@ -12,7 +12,6 @@ async-trait        = "0.1"
 bytes              = { workspace = true }
 cryptarchia-engine = { workspace = true }
 libp2p-identity    = { version = "0.2", features = ["peerid", "serde"] }
-multiaddr          = { version = "0.18" }
 nomos-core         = { workspace = true }
 overwatch          = { workspace = true }
 rocksdb            = { version = "0.22", optional = true }
