@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     task::{Context, Poll, Waker},
 };
 
@@ -27,6 +27,8 @@ const LOG_TARGET: &str = "blend::network::edge::behaviour";
 pub struct Behaviour<Rng> {
     /// Queue of events to yield to the swarm.
     events: VecDeque<ToSwarm<EventToSwarm, FromBehaviour>>,
+    /// Dials that are not yet established and negotiated.
+    requested_dials: HashSet<(PeerId, ConnectionId)>,
     /// Pending messages to be sent once a new connection is established.
     pending_messages: VecDeque<Vec<u8>>,
     /// Waker that handles polling
@@ -54,9 +56,10 @@ where
     Rng: RngCore,
 {
     #[must_use]
-    pub const fn new(current_membership: Option<Membership<PeerId>>, rng: Rng) -> Self {
+    pub fn new(current_membership: Option<Membership<PeerId>>, rng: Rng) -> Self {
         Self {
             events: VecDeque::new(),
+            requested_dials: HashSet::new(),
             pending_messages: VecDeque::new(),
             waker: None,
             current_membership,
@@ -85,14 +88,53 @@ where
             .next()
             .ok_or(Error::NoPeers)?;
 
-        self.events.push_back(ToSwarm::Dial {
-            opts: DialOpts::peer_id(node.id)
-                .condition(PeerCondition::DisconnectedAndNotDialing)
-                .addresses(vec![node.address.clone()])
-                .build(),
-        });
+        // Create a new DialOpts until it doesn't exist in the `requested_dials`.
+        let opts = {
+            loop {
+                let opts = DialOpts::peer_id(node.id)
+                    .condition(PeerCondition::DisconnectedAndNotDialing)
+                    .addresses(vec![node.address.clone()])
+                    .build();
+                if self.requested_dials.insert((node.id, opts.connection_id())) {
+                    break opts;
+                }
+            }
+        };
+
+        self.events.push_back(ToSwarm::Dial { opts });
         self.try_wake();
         Ok(())
+    }
+
+    /// Removes a dial request for the given peer and connection ID.
+    fn remove_requested_dials(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
+        self.requested_dials.remove(&(peer_id, connection_id));
+    }
+
+    fn handle_dial_failure(&mut self, failure: DialFailure) {
+        // Check if the dial was requested by this behaviour.
+        if let Some(peer_id) = failure.peer_id {
+            if self
+                .requested_dials
+                .remove(&(peer_id, failure.connection_id))
+            {
+                // This dial was requested by this behaviour.
+                // Request another dialing to a random node.
+                tracing::debug!(
+                    target: LOG_TARGET,
+                    "DialFailure:{failure:?}: Requesting another dialing..."
+                );
+                if let Err(e) = self.schedule_dial_random_node() {
+                    tracing::error!(target: LOG_TARGET, "Failed to request dialing to a random node: {e:?}");
+                }
+                return;
+            }
+        }
+
+        tracing::trace!(
+            target: LOG_TARGET,
+            "DialFailure:{failure:?} but not requested by this behaviour. Ignoring..",
+        );
     }
 
     /// Schedules sending a message to the peer that is connected.
@@ -170,13 +212,8 @@ where
 
     /// Informs the behaviour about an event from the [`Swarm`].
     fn on_swarm_event(&mut self, event: FromSwarm) {
-        if let FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) = event {
-            tracing::debug!(
-                    "Failed to dial to peer:{peer_id:?}, error:{error:?}. Requesting another dialing..."
-                );
-            if let Err(e) = self.schedule_dial_random_node() {
-                tracing::error!(target: LOG_TARGET, "Failed to request dialing to a random node: {e:?}");
-            }
+        if let FromSwarm::DialFailure(failure) = event {
+            self.handle_dial_failure(failure);
         }
     }
 
@@ -190,6 +227,7 @@ where
     ) {
         match event {
             ToBehaviour::ReadyToSend => {
+                self.remove_requested_dials(peer_id, connection_id);
                 self.schedule_send_message(peer_id, connection_id);
             }
             ToBehaviour::MessageSuccess(message) => {
