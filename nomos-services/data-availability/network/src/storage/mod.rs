@@ -1,9 +1,11 @@
 pub mod adapters;
 use std::collections::HashSet;
 
+use blake2::{digest::Update as BlakeUpdate, Blake2b512, Digest as _};
 use nomos_core::block::BlockNumber;
+use nomos_utils::blake_rng::BlakeRng;
 use overwatch::services::{relay::OutboundRelay, ServiceData};
-use rand::thread_rng;
+use rand::SeedableRng as _;
 use subnetworks_assignations::{MembershipCreator, MembershipHandler};
 
 use crate::membership::{handler::DaMembershipHandler, Assignations};
@@ -39,10 +41,11 @@ where
     }
 
     pub fn update(&self, block_number: BlockNumber, new_members: HashSet<Membership::Id>) {
-        let updated_membership = self
-            .handler
-            .membership()
-            .update(new_members, &mut thread_rng());
+        let mut hasher = Blake2b512::default();
+        BlakeUpdate::update(&mut hasher, block_number.to_le_bytes().as_slice());
+        let seed: [u8; 64] = hasher.finalize().into();
+        let mut rng = BlakeRng::from_seed(seed.into());
+        let updated_membership = self.handler.membership().update(new_members, &mut rng);
         let assignations = updated_membership.subnetworks();
 
         tracing::debug!("Updating membership at block {block_number} with {assignations:?}");
