@@ -146,21 +146,21 @@ where
         }
     }
 
-    fn handle_blend_behaviour_event(&mut self, blend_event: nomos_blend_network::Event) {
+    fn handle_blend_behaviour_event(&mut self, blend_event: nomos_blend_network::core::Event) {
         match blend_event {
-            nomos_blend_network::Event::Message(msg) => {
+            nomos_blend_network::core::Event::Message(msg) => {
                 self.handle_blend_message(msg);
             }
-            nomos_blend_network::Event::SpammyPeer(peer_id) => {
+            nomos_blend_network::core::Event::SpammyPeer(peer_id) => {
                 self.handle_spammy_peer(peer_id);
             }
-            nomos_blend_network::Event::UnhealthyPeer(peer_id) => {
+            nomos_blend_network::core::Event::UnhealthyPeer(peer_id) => {
                 self.handle_unhealthy_peer(peer_id);
             }
-            nomos_blend_network::Event::HealthyPeer(peer_id) => {
+            nomos_blend_network::core::Event::HealthyPeer(peer_id) => {
                 Self::handle_healthy_peer(peer_id);
             }
-            nomos_blend_network::Event::Error(e) => {
+            nomos_blend_network::core::Event::Error(e) => {
                 tracing::error!(target: LOG_TARGET, "Received error from blend network: {e:?}");
                 self.check_and_dial_new_peers();
                 tracing::info!(counter.error = 1);

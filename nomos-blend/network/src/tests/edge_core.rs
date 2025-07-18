@@ -11,7 +11,7 @@ use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder,
 };
 
-use crate::handler::edge::{edge_core::FromBehaviour, EdgeToCoreBlendConnectionHandler};
+use crate::edge::handler::{EdgeToCoreBlendConnectionHandler, FromBehaviour};
 
 pub(super) struct TestEdgeSenderBehaviour {
     events_from_handler: VecDeque<THandlerOutEvent<Self>>,

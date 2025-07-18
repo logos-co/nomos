@@ -14,7 +14,7 @@ use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder,
 };
 
-use crate::handler::edge::CoreToEdgeBlendConnectionHandler;
+use crate::core::handler::core_edge::CoreToEdgeBlendConnectionHandler;
 
 pub(super) struct TestCoreReceiverBehaviour {
     timeout: Duration,

@@ -3,8 +3,8 @@ use core::task::{Context, Poll, Waker};
 use futures::TryFutureExt as _;
 use libp2p::{core::upgrade::ReadyUpgrade, swarm::handler::OutboundUpgradeSend, StreamProtocol};
 
-use crate::handler::{
-    edge::edge_core::{
+use crate::{
+    edge::handler::{
         sending::SendingState, ConnectionState, FromBehaviour, PollResult, StateTrait, LOG_TARGET,
     },
     send_msg,

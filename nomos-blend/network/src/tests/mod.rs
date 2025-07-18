@@ -7,10 +7,7 @@ use futures::{task::noop_waker_ref, StreamExt as _};
 use libp2p::swarm::{dial_opts::DialOpts, ListenError, SwarmEvent};
 use tokio::time::sleep;
 
-use crate::handler::{
-    edge,
-    tests::{core_edge::core_receiver_swarm, edge_core::edge_sender_swarm},
-};
+use crate::tests::{core_edge::core_receiver_swarm, edge_core::edge_sender_swarm};
 
 mod core_edge;
 mod edge_core;
@@ -127,7 +124,7 @@ async fn message_sending() {
             if !core_loop_done {
                 let core_node_event = core_node.poll_next_unpin(&mut cx);
                 if let Poll::Ready(Some(SwarmEvent::Behaviour(
-                    edge::core_edge::ToBehaviour::Message(message),
+                    crate::core::handler::core_edge::ToBehaviour::Message(message),
                 ))) = core_node_event
                 {
                     if message == b"test".to_vec() {
@@ -139,7 +136,7 @@ async fn message_sending() {
             if !edge_loop_done {
                 let edge_node_event = edge_node.poll_next_unpin(&mut cx);
                 if let Poll::Ready(Some(SwarmEvent::Behaviour(
-                    edge::edge_core::ToBehaviour::MessageSuccess(message),
+                    crate::edge::handler::ToBehaviour::MessageSuccess(message),
                 ))) = edge_node_event
                 {
                     if message == b"test".to_vec() {
@@ -207,8 +204,8 @@ async fn sender_timeout() {
 
     // The next event we should get from the core swarm is a failure due to
     // timeout.
-    let Some(SwarmEvent::Behaviour(edge::core_edge::ToBehaviour::FailedReception(
-        edge::core_edge::FailureReason::Timeout,
+    let Some(SwarmEvent::Behaviour(crate::core::handler::core_edge::ToBehaviour::FailedReception(
+        crate::core::handler::core_edge::FailureReason::Timeout,
     ))) = core_node.next().await
     else {
         panic!("Returned different error than expected (timeout)");

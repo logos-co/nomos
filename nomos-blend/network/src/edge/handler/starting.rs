@@ -5,8 +5,8 @@ use libp2p::{
     swarm::{handler::FullyNegotiatedOutbound, ConnectionHandlerEvent, SubstreamProtocol},
 };
 
-use crate::handler::{
-    edge::edge_core::{
+use crate::{
+    edge::handler::{
         dropped::DroppedState,
         message_set::MessageSetState,
         ready_to_send::{InternalState, ReadyToSendState},

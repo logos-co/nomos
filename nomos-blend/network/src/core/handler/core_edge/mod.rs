@@ -12,8 +12,8 @@ use libp2p::{
     StreamProtocol,
 };
 
-use crate::handler::{
-    edge::core_edge::{
+use crate::{
+    core::handler::core_edge::{
         dropped::DroppedState, ready_to_receive::ReadyToReceiveState, receiving::ReceivingState,
         starting::StartingState,
     },
@@ -25,7 +25,7 @@ mod ready_to_receive;
 mod receiving;
 mod starting;
 
-const LOG_TARGET: &str = "blend::libp2p::handler::core-edge";
+const LOG_TARGET: &str = "blend::network::core::handler::core-edge";
 
 type TimerFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
 type MessageReceiveFuture = Pin<Box<dyn Future<Output = Result<Vec<u8>, io::Error>> + Send>>;
