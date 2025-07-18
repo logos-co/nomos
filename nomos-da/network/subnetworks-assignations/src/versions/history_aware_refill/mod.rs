@@ -21,6 +21,7 @@ pub struct HistoryAware<Id>
 where
     Id: Ord, // Necessary for deserialization
 {
+    #[serde(skip, default = "Vec::new")] // Safe to skip as we do not load assignations from config
     assignations: assignations::Assignations<Id>,
     subnetwork_size: usize,
     replication_factor: usize,
