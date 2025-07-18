@@ -70,7 +70,7 @@ async fn message_sending() {
 
     edge_node
         .behaviour_mut()
-        .set_membership(Membership::new(vec![core_node_info], None));
+        .set_membership(Membership::new(&[core_node_info], None));
 
     edge_node
         .behaviour_mut()
@@ -124,7 +124,7 @@ async fn sender_timeout() {
 
     edge_node
         .behaviour_mut()
-        .set_membership(Membership::new(vec![core_node_info], None));
+        .set_membership(Membership::new(&[core_node_info], None));
 
     // Schedule a message to trigger a dialing, but it won't be sent actually.
     edge_node

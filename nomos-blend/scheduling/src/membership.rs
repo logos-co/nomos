@@ -28,22 +28,23 @@ pub struct Node<Id> {
     pub public_key: Ed25519PublicKey,
 }
 
-impl<NodeId> Membership<NodeId> {
+impl<NodeId> Membership<NodeId>
+where
+    NodeId: Clone,
+{
     #[must_use]
-    pub fn new(nodes: Vec<Node<NodeId>>, local_public_key: Option<&Ed25519PublicKey>) -> Self {
-        let mut remote_nodes = Vec::with_capacity(nodes.len() - 1);
-        for node in nodes {
-            if let Some(local_public_key) = local_public_key {
-                if node.public_key == *local_public_key {
-                    continue;
-                }
-            }
-            remote_nodes.push(node);
+    pub fn new(nodes: &[Node<NodeId>], local_public_key: Option<&Ed25519PublicKey>) -> Self {
+        Self {
+            remote_nodes: nodes
+                .iter()
+                .filter(|node| !matches!(local_public_key, Some(key) if node.public_key == *key))
+                .cloned()
+                .collect(),
         }
-
-        Self { remote_nodes }
     }
+}
 
+impl<NodeId> Membership<NodeId> {
     pub fn choose_remote_nodes<R: Rng>(
         &self,
         rng: &mut R,
