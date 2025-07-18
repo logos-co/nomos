@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Mutex};
 
-use libp2p::{Multiaddr, PeerId};
+use libp2p::PeerId;
 use nomos_core::block::BlockNumber;
 use nomos_da_network_core::SubnetworkId;
 use overwatch::{
@@ -22,7 +22,6 @@ impl ServiceData for MockStorageService {
 #[derive(Default)]
 struct StorageState {
     assignations: HashMap<BlockNumber, Assignations<PeerId, SubnetworkId>>,
-    addressbooks: HashMap<BlockNumber, HashMap<PeerId, Multiaddr>>,
 }
 
 #[derive(Default)]
@@ -43,36 +42,21 @@ impl MembershipStorageAdapter<PeerId, SubnetworkId> for MockStorage {
         &self,
         block_number: BlockNumber,
         assignations: Assignations<PeerId, SubnetworkId>,
-        addressbook: HashMap<PeerId, Multiaddr>,
     ) -> Result<(), DynError> {
-        let mut state = self.state.lock().unwrap();
-        {
-            state.assignations.insert(block_number, assignations);
-            state.addressbooks.insert(block_number, addressbook)
-        };
-
+        self.state
+            .lock()
+            .unwrap()
+            .assignations
+            .insert(block_number, assignations);
         Ok(())
     }
 
     async fn get(
         &self,
         block_number: BlockNumber,
-    ) -> Result<
-        Option<(
-            Assignations<PeerId, SubnetworkId>,
-            HashMap<PeerId, Multiaddr>,
-        )>,
-        DynError,
-    > {
-        let (assignations, addressbook) = {
-            let state = self.state.lock().unwrap();
-            (
-                state.assignations.get(&block_number).cloned(),
-                state.addressbooks.get(&block_number).cloned(),
-            )
-        };
-
-        Ok(assignations.zip(addressbook))
+    ) -> Result<Option<Assignations<PeerId, SubnetworkId>>, DynError> {
+        let state = self.state.lock().unwrap();
+        Ok(state.assignations.get(&block_number).cloned())
     }
 
     async fn prune(&self) {

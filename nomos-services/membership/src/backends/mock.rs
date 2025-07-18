@@ -3,9 +3,9 @@ use std::{
     vec,
 };
 
-use nomos_core::block::BlockNumber;
-use nomos_sdp_core::{
-    FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId, ServiceType,
+use nomos_core::{
+    block::BlockNumber,
+    sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId, ServiceType},
 };
 use serde::{Deserialize, Serialize};
 
@@ -96,12 +96,12 @@ impl MembershipBackend for MockMembershipBackend {
             let service_data = latest_entry.entry(service_type).or_default();
 
             match state {
-                nomos_sdp_core::DeclarationState::Active => {
+                nomos_core::sdp::DeclarationState::Active => {
                     self.locators_mapping.insert(provider_id, locators.clone());
                     service_data.insert(provider_id);
                 }
-                nomos_sdp_core::DeclarationState::Inactive
-                | nomos_sdp_core::DeclarationState::Withdrawn => {
+                nomos_core::sdp::DeclarationState::Inactive
+                | nomos_core::sdp::DeclarationState::Withdrawn => {
                     service_data.remove(&provider_id);
                     self.locators_mapping.remove(&provider_id);
                 }
@@ -158,10 +158,13 @@ mod tests {
     use std::collections::{BTreeSet, HashMap, HashSet};
 
     use multiaddr::multiaddr;
-    use nomos_core::block::BlockNumber;
-    use nomos_sdp_core::{
-        DeclarationId, DeclarationInfo, DeclarationMessage, DeclarationState, FinalizedBlockEvent,
-        FinalizedBlockEventUpdate, Locator, ProviderId, RewardAddress, ServiceType,
+    use nomos_core::{
+        block::BlockNumber,
+        sdp::{
+            DeclarationId, DeclarationInfo, DeclarationMessage, DeclarationState,
+            FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId, ServiceType,
+            ZkPublicKey,
+        },
     };
 
     use super::{
@@ -192,7 +195,7 @@ mod tests {
                 service_type: ServiceType::DataAvailability,
                 locators: Vec::new(),
                 provider_id: create_provider_id(seed),
-                reward_address: RewardAddress([0; 32]),
+                zk_id: ZkPublicKey([0; 32]),
             },
         )
     }
@@ -213,14 +216,14 @@ mod tests {
         let locators = (0..num_locators)
             .map(|i| create_locator(seed + i as u8))
             .collect();
-        let reward_address = RewardAddress([0; 32]);
+        let zk_id = ZkPublicKey([0; 32]);
 
         DeclarationInfo {
             id: create_declaration_id(seed),
             provider_id: create_provider_id(seed),
             service: service_type,
             locators,
-            reward_address,
+            zk_id,
             created: 0,
             active: Some(1),
             withdrawn: None,

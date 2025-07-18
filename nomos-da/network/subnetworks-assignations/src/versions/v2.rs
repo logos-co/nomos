@@ -1,6 +1,5 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
-use libp2p::Multiaddr;
 use libp2p_identity::PeerId;
 use serde::{Deserialize, Serialize};
 
@@ -9,7 +8,6 @@ use crate::{MembershipHandler, SubnetworkAssignations};
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct FillWithOriginalReplication {
     assignations: Vec<HashSet<PeerId>>,
-    addressbook: HashMap<PeerId, Multiaddr>,
     subnetwork_size: usize,
     dispersal_factor: usize,
     original_replication: usize,
@@ -20,7 +18,6 @@ impl FillWithOriginalReplication {
     #[must_use]
     pub fn new(
         peers: &[PeerId],
-        addressbook: HashMap<PeerId, Multiaddr>,
         subnetwork_size: usize,
         dispersal_factor: usize,
         original_replication: usize,
@@ -38,7 +35,6 @@ impl FillWithOriginalReplication {
             dispersal_factor,
             original_replication,
             pivot,
-            addressbook,
         }
     }
     fn fill(
@@ -109,10 +105,6 @@ impl MembershipHandler for FillWithOriginalReplication {
         self.subnetwork_size.saturating_sub(1) as u16
     }
 
-    fn get_address(&self, peer_id: &Self::Id) -> Option<Multiaddr> {
-        self.addressbook.get(peer_id).cloned()
-    }
-
     fn subnetworks(&self) -> SubnetworkAssignations<Self::NetworkId, Self::Id> {
         self.assignations
             .iter()
@@ -123,16 +115,10 @@ impl MembershipHandler for FillWithOriginalReplication {
             })
             .collect()
     }
-
-    fn addressbook(&self) -> HashMap<Self::Id, Multiaddr> {
-        self.addressbook.clone()
-    }
 }
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
-
     use libp2p_identity::PeerId;
 
     use crate::versions::v2::FillWithOriginalReplication;
@@ -146,7 +132,6 @@ mod test {
         let pivot = 512;
         let distribution = FillWithOriginalReplication::new(
             &nodes,
-            HashMap::default(),
             subnetwork_size,
             dispersal_factor,
             original_replication,

@@ -1,12 +1,14 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     marker::PhantomData,
+    num::NonZeroUsize,
+    ops::RangeInclusive,
 };
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use cryptarchia_engine::Slot;
 use libp2p_identity::PeerId;
-use multiaddr::Multiaddr;
 use nomos_core::{block::BlockNumber, header::HeaderId};
 use thiserror::Error;
 
@@ -66,6 +68,9 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for MockStora
     async fn load_prefix(
         &mut self,
         _key: &[u8],
+        _start_key: Option<&[u8]>,
+        _end_key: Option<&[u8]>,
+        _limit: Option<NonZeroUsize>,
     ) -> Result<Vec<Bytes>, <Self as StorageBackend>::Error> {
         unimplemented!()
     }
@@ -110,6 +115,28 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for MockStor
         &mut self,
         _header_id: HeaderId,
     ) -> Result<Option<Self::Block>, Self::Error> {
+        unimplemented!()
+    }
+
+    async fn store_immutable_block_ids(
+        &mut self,
+        _ids: BTreeMap<Slot, HeaderId>,
+    ) -> Result<(), Self::Error> {
+        unimplemented!()
+    }
+
+    async fn get_immutable_block_id(
+        &mut self,
+        _slot: Slot,
+    ) -> Result<Option<HeaderId>, Self::Error> {
+        unimplemented!()
+    }
+
+    async fn scan_immutable_block_ids(
+        &mut self,
+        _slot_range: RangeInclusive<Slot>,
+        _limit: NonZeroUsize,
+    ) -> Result<Vec<HeaderId>, Self::Error> {
         unimplemented!()
     }
 }
@@ -174,7 +201,6 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
         &mut self,
         _block_number: BlockNumber,
         _assignations: HashMap<Self::NetworkId, HashSet<Self::Id>>,
-        _addressbook: HashMap<Self::Id, Multiaddr>,
     ) -> Result<(), Self::Error> {
         unimplemented!()
     }
@@ -182,13 +208,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
     async fn get_assignations(
         &mut self,
         _block_number: BlockNumber,
-    ) -> Result<
-        (
-            HashMap<Self::NetworkId, HashSet<Self::Id>>,
-            HashMap<Self::Id, Multiaddr>,
-        ),
-        Self::Error,
-    > {
+    ) -> Result<HashMap<Self::NetworkId, HashSet<Self::Id>>, Self::Error> {
         unimplemented!()
     }
 }

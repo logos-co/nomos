@@ -16,11 +16,12 @@ use libp2p::{
     },
     Multiaddr, PeerId,
 };
-use subnetworks_assignations::MembershipHandler;
 use tokio::sync::{
     mpsc::{self, UnboundedReceiver, UnboundedSender},
     oneshot,
 };
+
+use crate::addressbook::AddressBookHandler;
 
 pub enum ConnectionEvent {
     OpenInbound(PeerId),
@@ -42,11 +43,12 @@ pub enum ConnectionBalancerCommand<Stats> {
     Stats(oneshot::Sender<Stats>),
 }
 
-pub struct ConnectionBalancerBehaviour<Balancer, Membership>
+pub struct ConnectionBalancerBehaviour<Balancer, Addressbook>
 where
     Balancer: ConnectionBalancer,
+    Addressbook: AddressBookHandler,
 {
-    membership: Membership,
+    addressbook: Addressbook,
     balancer: Balancer,
     peers_to_dial: VecDeque<PeerId>,
     command_sender:
@@ -56,16 +58,16 @@ where
     waker: Option<Waker>,
 }
 
-impl<Balancer, Membership> ConnectionBalancerBehaviour<Balancer, Membership>
+impl<Balancer, Addressbook> ConnectionBalancerBehaviour<Balancer, Addressbook>
 where
     Balancer: ConnectionBalancer,
-    Membership: MembershipHandler,
+    Addressbook: AddressBookHandler,
 {
-    pub fn new(membership: Membership, balancer: Balancer) -> Self {
+    pub fn new(addressbook: Addressbook, balancer: Balancer) -> Self {
         let (command_sender, command_receiver) = mpsc::unbounded_channel();
 
         Self {
-            membership,
+            addressbook,
             balancer,
             peers_to_dial: VecDeque::new(),
             command_sender,
@@ -88,10 +90,10 @@ where
     }
 }
 
-impl<Balancer, Membership> NetworkBehaviour for ConnectionBalancerBehaviour<Balancer, Membership>
+impl<Balancer, Addressbook> NetworkBehaviour for ConnectionBalancerBehaviour<Balancer, Addressbook>
 where
     Balancer: ConnectionBalancer + 'static,
-    Membership: MembershipHandler + 'static,
+    Addressbook: AddressBookHandler<Id = PeerId> + 'static,
 {
     type ConnectionHandler = dummy::ConnectionHandler;
     type ToSwarm = Infallible;
@@ -168,7 +170,7 @@ where
         }
 
         if let Some(peer) = self.peers_to_dial.pop_front() {
-            if let Some(addr) = self.membership.get_address(&peer) {
+            if let Some(addr) = self.addressbook.get_address(&peer) {
                 let opts = DialOpts::peer_id(peer)
                     .addresses(vec![addr])
                     .extend_addresses_through_behaviour()

@@ -1,10 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
-    env,
-    path::PathBuf,
-    str::FromStr as _,
-    sync::LazyLock,
-    time::Duration,
+    collections::HashSet, env, path::PathBuf, str::FromStr as _, sync::LazyLock, time::Duration,
 };
 
 use nomos_da_dispersal::backend::kzgrs::{MempoolPublishStrategy, SampleSubnetworks};
@@ -43,6 +38,9 @@ pub struct DaParams {
     pub balancer_interval: Duration,
     pub redial_cooldown: Duration,
     pub replication_settings: ReplicationConfig,
+    pub subnets_refresh_interval: Duration,
+    pub retry_shares_limit: usize,
+    pub retry_commitments_limit: usize,
 }
 
 impl Default for DaParams {
@@ -78,6 +76,9 @@ impl Default for DaParams {
                 seen_message_cache_size: 1000,
                 seen_message_ttl: Duration::from_secs(3600),
             },
+            subnets_refresh_interval: Duration::from_secs(5),
+            retry_shares_limit: 1,
+            retry_commitments_limit: 1,
         }
     }
 }
@@ -102,6 +103,9 @@ pub struct GeneralDaConfig {
     pub balancer_interval: Duration,
     pub redial_cooldown: Duration,
     pub replication_settings: ReplicationConfig,
+    pub subnets_refresh_interval: Duration,
+    pub retry_shares_limit: usize,
+    pub retry_commitments_limit: usize,
 }
 
 #[must_use]
@@ -129,12 +133,8 @@ pub fn create_da_configs(
         listening_addresses.push(listening_address);
     }
 
-    let membership = NomosDaMembership::new(
-        &[],
-        HashMap::default(),
-        da_params.subnetwork_size,
-        da_params.dispersal_factor,
-    );
+    let membership =
+        NomosDaMembership::new(&[], da_params.subnetwork_size, da_params.dispersal_factor);
 
     ids.iter()
         .zip(node_keys)
@@ -166,6 +166,9 @@ pub fn create_da_configs(
                 balancer_interval: da_params.balancer_interval,
                 redial_cooldown: da_params.redial_cooldown,
                 replication_settings: da_params.replication_settings,
+                subnets_refresh_interval: da_params.subnets_refresh_interval,
+                retry_shares_limit: da_params.retry_shares_limit,
+                retry_commitments_limit: da_params.retry_commitments_limit,
             }
         })
         .collect()

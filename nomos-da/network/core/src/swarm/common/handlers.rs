@@ -10,7 +10,7 @@ use crate::{
     protocols::{
         dispersal::validator::behaviour::DispersalEvent,
         replication::behaviour::{ReplicationBehaviour, ReplicationEvent},
-        sampling::behaviour::SamplingEvent,
+        sampling::SamplingEvent,
     },
     SubnetworkId,
 };

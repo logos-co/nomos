@@ -1,15 +1,16 @@
 use std::{collections::HashSet, fmt::Debug, marker::PhantomData, pin::Pin, time::Duration};
 
 use futures::{stream::BoxStream, Stream, StreamExt as _};
-use kzgrs_backend::common::share::DaShare;
+use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use nomos_core::da::BlobId;
 use nomos_da_network_core::{
     protocols::{
-        dispersal::executor::behaviour::DispersalExecutorEvent, sampling::behaviour::SamplingError,
+        dispersal::executor::behaviour::DispersalExecutorEvent, sampling::errors::SamplingError,
     },
     PeerId, SubnetworkId,
 };
 use nomos_da_network_service::{
+    api::ApiAdapter as ApiAdapterTrait,
     backends::libp2p::{
         common::SamplingEvent,
         executor::{
@@ -32,6 +33,7 @@ pub struct Libp2pNetworkAdapter<
     Membership,
     MembershipServiceAdapter,
     StorageAdapter,
+    ApiAdapter,
     RuntimeServiceId,
 > where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
@@ -41,15 +43,32 @@ pub struct Libp2pNetworkAdapter<
         + Sync
         + 'static,
     MembershipServiceAdapter: MembershipAdapter,
+    ApiAdapter: ApiAdapterTrait,
 {
     outbound_relay: OutboundRelay<
-        DaNetworkMsg<DaNetworkExecutorBackend<Membership>, Membership, RuntimeServiceId>,
+        DaNetworkMsg<
+            DaNetworkExecutorBackend<Membership>,
+            Membership,
+            DaSharesCommitments,
+            RuntimeServiceId,
+        >,
     >,
-    _phantom: PhantomData<(RuntimeServiceId, MembershipServiceAdapter, StorageAdapter)>,
+    _phantom: PhantomData<(
+        RuntimeServiceId,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        ApiAdapter,
+    )>,
 }
 
-impl<Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
-    Libp2pNetworkAdapter<Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
+impl<Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
+    Libp2pNetworkAdapter<
+        Membership,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        ApiAdapter,
+        RuntimeServiceId,
+    >
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -58,33 +77,31 @@ where
         + Sync
         + 'static,
     MembershipServiceAdapter: MembershipAdapter + Sync,
+    ApiAdapter: ApiAdapterTrait + Sync,
     StorageAdapter: Sync,
     RuntimeServiceId: Sync,
 {
-    async fn start_sampling(
-        &self,
-        blob_id: BlobId,
-        subnets: &[SubnetworkId],
-    ) -> Result<(), DynError> {
-        for id in subnets {
-            let subnetwork_id = id;
-            self.outbound_relay
-                .send(DaNetworkMsg::Process(
-                    ExecutorDaNetworkMessage::RequestSample {
-                        blob_id,
-                        subnetwork_id: *subnetwork_id,
-                    },
-                ))
-                .await
-                .expect("RequestSample message should have been sent");
-        }
+    async fn start_sampling(&self, blob_id: BlobId) -> Result<(), DynError> {
+        self.outbound_relay
+            .send(DaNetworkMsg::Process(
+                ExecutorDaNetworkMessage::RequestSample { blob_id },
+            ))
+            .await
+            .expect("RequestSample message should have been sent");
         Ok(())
     }
 }
 
 #[async_trait::async_trait]
-impl<Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId> DispersalNetworkAdapter
-    for Libp2pNetworkAdapter<Membership, MembershipServiceAdapter, StorageAdapter, RuntimeServiceId>
+impl<Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
+    DispersalNetworkAdapter
+    for Libp2pNetworkAdapter<
+        Membership,
+        MembershipServiceAdapter,
+        StorageAdapter,
+        ApiAdapter,
+        RuntimeServiceId,
+    >
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
         + Clone
@@ -93,6 +110,7 @@ where
         + Sync
         + 'static,
     MembershipServiceAdapter: MembershipAdapter + Sync,
+    ApiAdapter: ApiAdapterTrait + Sync,
     StorageAdapter: Sync,
     RuntimeServiceId: Sync,
 {
@@ -101,6 +119,7 @@ where
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
+        ApiAdapter,
         RuntimeServiceId,
     >;
 
@@ -149,7 +168,9 @@ where
             .map(|stream| {
                 Box::pin(stream.filter_map(|event| async {
                     match event {
-                        DaNetworkEvent::Sampling(_) | DaNetworkEvent::Verifying(_) => None,
+                        DaNetworkEvent::Sampling(_)
+                        | DaNetworkEvent::Commitments(_)
+                        | DaNetworkEvent::Verifying(_) => None,
                         DaNetworkEvent::Dispersal(DispersalExecutorEvent::DispersalError {
                             error,
                         }) => Some(Err(Box::new(error) as DynError)),
@@ -184,7 +205,7 @@ where
             .await
             .map_err(|(error, _)| error)?;
 
-        self.start_sampling(blob_id, subnets).await?;
+        self.start_sampling(blob_id).await?;
 
         let stream = stream_receiver.await.map_err(Box::new)?;
 
@@ -199,7 +220,7 @@ where
                     Some(SampleOutcome::Success(light_share.share_idx))
                 }
                 SamplingEvent::SamplingError { error } => match error {
-                    SamplingError::Protocol { subnetwork_id, .. }
+                    SamplingError::Share { subnetwork_id, .. }
                     | SamplingError::Deserialize { subnetwork_id, .. }
                     | SamplingError::BlobNotFound { subnetwork_id, .. } => {
                         Some(SampleOutcome::Retry(subnetwork_id))
@@ -229,8 +250,7 @@ where
                 }
                 () = tokio::time::sleep(cooldown) => {
                     if !pending_subnets.is_empty() {
-                        let retry_subnets: Vec<_> = pending_subnets.iter().copied().collect();
-                        self.start_sampling(blob_id, &retry_subnets).await?;
+                        self.start_sampling(blob_id).await?;
                     }
                 }
             }

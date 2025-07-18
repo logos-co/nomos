@@ -164,6 +164,7 @@ where
                 Network::Membership,
                 Network::MembershipAdapter,
                 Network::Storage,
+                Network::ApiAdapter,
                 RuntimeServiceId,
             >,
         >
@@ -206,7 +207,7 @@ where
 
         let network_relay = service_resources_handle
             .overwatch_handle
-            .relay::<NetworkService<_, _, _, _, _>>()
+            .relay::<NetworkService<_, _, _, _, _, _>>()
             .await?;
         let network_adapter = Network::new(network_adapter_settings, network_relay).await;
         let mut share_stream = network_adapter.share_stream().await;
@@ -226,7 +227,7 @@ where
         wait_until_services_are_ready!(
             &service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
-            NetworkService<_, _, _, _, _>,
+            NetworkService<_, _, _, _, _, _>,
             StorageService<_, _>
         )
         .await?;

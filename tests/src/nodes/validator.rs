@@ -15,19 +15,20 @@ use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
 use nomos_blend_service::settings::{
     CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt, TimingSettings,
 };
-use nomos_core::{block::Block, mantle::SignedMantleTx};
+use nomos_core::{block::Block, mantle::SignedMantleTx, sdp::FinalizedBlockEvent};
 use nomos_da_indexer::{
     storage::adapters::rocksdb::RocksAdapterSettings as IndexerStorageAdapterSettings,
     IndexerSettings,
 };
-use nomos_da_network_core::swarm::{BalancerStats, DAConnectionPolicySettings, MonitorStats};
+use nomos_da_network_core::{
+    protocols::sampling::SubnetsConfig,
+    swarm::{BalancerStats, DAConnectionPolicySettings, MonitorStats},
+};
 use nomos_da_network_service::{
-    backends::libp2p::common::DaNetworkBackendSettings, NetworkConfig as DaNetworkConfig,
+    api::http::ApiAdapterSettings, backends::libp2p::common::DaNetworkBackendSettings,
+    NetworkConfig as DaNetworkConfig,
 };
-use nomos_da_sampling::{
-    api::http::ApiAdapterSettings, backend::kzgrs::KzgrsSamplingBackendSettings,
-    DaSamplingServiceSettings,
-};
+use nomos_da_sampling::{backend::kzgrs::KzgrsSamplingBackendSettings, DaSamplingServiceSettings};
 use nomos_da_verifier::{
     backend::kzgrs::KzgrsDaVerifierSettings,
     storage::adapters::rocksdb::RocksAdapterSettings as VerifierStorageAdapterSettings,
@@ -43,7 +44,6 @@ use nomos_node::{
     api::backend::AxumBackendSettings, config::mempool::MempoolConfig, BlobInfo, Config, HeaderId,
     RocksBackendSettings,
 };
-use nomos_sdp_core::FinalizedBlockEvent;
 use nomos_time::{
     backends::{ntp::async_client::NTPClientSettings, NtpTimeBackendSettings},
     TimeServiceSettings,
@@ -383,8 +383,18 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 balancer_interval: config.da_config.balancer_interval,
                 redial_cooldown: config.da_config.redial_cooldown,
                 replication_settings: config.da_config.replication_settings,
+                subnets_settings: SubnetsConfig {
+                    num_of_subnets: config.da_config.num_samples as usize,
+                    shares_retry_limit: config.da_config.retry_shares_limit,
+                    commitments_retry_limit: config.da_config.retry_commitments_limit,
+                },
+                refresh_interval: config.da_config.subnets_refresh_interval,
             },
             membership: config.da_config.membership.clone(),
+            api_adapter_settings: ApiAdapterSettings {
+                api_port: config.api_config.address.port(),
+                is_secure: false,
+            },
         },
         da_indexer: IndexerSettings {
             storage: IndexerStorageAdapterSettings {
@@ -415,11 +425,6 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 num_subnets: config.da_config.num_subnets,
                 old_blobs_check_interval: config.da_config.old_blobs_check_interval,
                 blobs_validity_duration: config.da_config.blobs_validity_duration,
-            },
-            api_adapter_settings: ApiAdapterSettings {
-                membership: config.da_config.membership,
-                api_port: config.api_config.address.port(),
-                is_secure: false,
             },
         },
         storage: RocksBackendSettings {

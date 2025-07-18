@@ -1,0 +1,136 @@
+use futures::AsyncWriteExt as _;
+use libp2p::{PeerId, Stream};
+use nomos_da_messages::{
+    packing::{pack_to_writer, unpack_from_reader},
+    sampling,
+};
+
+use super::{
+    errors::SamplingError, BehaviourSampleReq, ResponseChannel, SampleFutureError,
+    SampleFutureSuccess, SampleStreamResponse,
+};
+
+/// Auxiliary struct that binds a stream with the corresponding `PeerId`
+pub struct SampleStream {
+    pub stream: Stream,
+    pub peer_id: PeerId,
+}
+
+/// Task for handling streams, one message at a time
+/// Writes the request to the stream and waits for a response
+pub async fn stream_sample(
+    mut stream: SampleStream,
+    message: sampling::SampleRequest,
+) -> Result<SampleFutureSuccess, SampleFutureError> {
+    let peer_id = stream.peer_id;
+    if let Err(error) = pack_to_writer(&message, &mut stream.stream).await {
+        return Err((
+            SamplingError::Io {
+                peer_id,
+                error,
+                message: Some(message),
+            },
+            Some(stream),
+        ));
+    }
+
+    if let Err(error) = stream.stream.flush().await {
+        return Err((
+            SamplingError::Io {
+                peer_id,
+                error,
+                message: Some(message),
+            },
+            Some(stream),
+        ));
+    }
+
+    let response = match unpack_from_reader(&mut stream.stream).await {
+        Ok(response) => response,
+        Err(error) => {
+            return Err((
+                SamplingError::Io {
+                    peer_id,
+                    error,
+                    message: Some(message),
+                },
+                Some(stream),
+            ));
+        }
+    };
+
+    Ok((peer_id, SampleStreamResponse::Writer(response), stream))
+}
+
+/// Handler for incoming streams
+/// Pulls a request from the stream and replies if possible
+pub async fn handle_incoming_stream(
+    mut stream: SampleStream,
+    channel: ResponseChannel,
+) -> Result<SampleFutureSuccess, SampleFutureError> {
+    let peer_id = stream.peer_id;
+    let request: sampling::SampleRequest = match unpack_from_reader(&mut stream.stream).await {
+        Ok(req) => req,
+        Err(error) => {
+            return Err((
+                SamplingError::Io {
+                    peer_id,
+                    error,
+                    message: None,
+                },
+                Some(stream),
+            ));
+        }
+    };
+
+    let request = match BehaviourSampleReq::try_from(request) {
+        Ok(req) => req,
+        Err(blob_id) => {
+            return Err((
+                SamplingError::InvalidBlobId { peer_id, blob_id },
+                Some(stream),
+            ));
+        }
+    };
+
+    if let Err(request) = channel.request_sender.send(request) {
+        return Err((
+            SamplingError::RequestChannel { request, peer_id },
+            Some(stream),
+        ));
+    }
+
+    let response: sampling::SampleResponse = match channel.response_receiver.await {
+        Ok(resp) => resp.into(),
+        Err(error) => {
+            return Err((
+                SamplingError::ResponseChannel { error, peer_id },
+                Some(stream),
+            ));
+        }
+    };
+
+    if let Err(error) = pack_to_writer(&response, &mut stream.stream).await {
+        return Err((
+            SamplingError::Io {
+                peer_id,
+                error,
+                message: None,
+            },
+            Some(stream),
+        ));
+    }
+
+    if let Err(error) = stream.stream.flush().await {
+        return Err((
+            SamplingError::Io {
+                peer_id,
+                error,
+                message: None,
+            },
+            Some(stream),
+        ));
+    }
+
+    Ok((peer_id, SampleStreamResponse::Reader, stream))
+}

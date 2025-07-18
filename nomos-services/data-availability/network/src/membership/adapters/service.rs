@@ -2,9 +2,9 @@ use std::{collections::HashMap, marker::PhantomData};
 
 use futures::StreamExt as _;
 use libp2p::{core::signed_envelope::DecodingError, Multiaddr, PeerId};
+use nomos_core::sdp::ServiceType;
 use nomos_libp2p::ed25519;
 use nomos_membership::{MembershipMessage, MembershipService, MembershipSnapshotStream};
-use nomos_sdp_core::ServiceType;
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 use tokio::sync::oneshot;
 

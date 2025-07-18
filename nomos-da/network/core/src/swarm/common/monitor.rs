@@ -21,7 +21,7 @@ use crate::{
             },
         },
         replication::behaviour::{ReplicationError, ReplicationEvent},
-        sampling::behaviour::{SamplingError, SamplingEvent},
+        sampling::{errors::SamplingError, SamplingEvent},
     },
 };
 
@@ -85,9 +85,9 @@ impl From<&ReplicationEvent> for MonitorEvent {
 impl From<&SamplingEvent> for MonitorEvent {
     fn from(event: &SamplingEvent) -> Self {
         match event {
-            SamplingEvent::SamplingSuccess { .. } | SamplingEvent::IncomingSample { .. } => {
-                Self::Noop
-            }
+            SamplingEvent::SamplingSuccess { .. }
+            | SamplingEvent::IncomingSample { .. }
+            | SamplingEvent::CommitmentsSuccess { .. } => Self::Noop,
             SamplingEvent::SamplingError { error } => match error {
                 // Only map Io or OpenStreamError to Self
                 &SamplingError::Io { .. } | &SamplingError::OpenStream { .. } => {
@@ -394,7 +394,7 @@ mod tests {
             monitor_settings,
             DAConnectionPolicy::new(
                 policy_settings,
-                FillFromNodeList::new(&[PeerId::random()], HashMap::default(), 0, 0),
+                FillFromNodeList::new(&[PeerId::random()], 0, 0),
                 peer_id,
             ),
         )

@@ -1,8 +1,8 @@
-use std::{marker::PhantomData, path::PathBuf, sync::Arc};
+use std::{marker::PhantomData, num::NonZeroUsize, path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use rocksdb::{Error, Options, DB};
+use rocksdb::{Direction, Error, IteratorMode, Options, DB};
 use serde::{Deserialize, Serialize};
 
 use super::{StorageBackend, StorageSerde, StorageTransaction};
@@ -125,14 +125,61 @@ where
     async fn load_prefix(
         &mut self,
         prefix: &[u8],
+        start_key: Option<&[u8]>,
+        end_key: Option<&[u8]>,
+        limit: Option<NonZeroUsize>,
     ) -> Result<Vec<Bytes>, <Self as StorageBackend>::Error> {
         let mut values = Vec::new();
-        let iter = self.rocks.prefix_iterator(prefix);
+
+        // NOTE: RocksDB has `prefix_iterator`, which sets `set_prefix_same_as_start`
+        // to `true`. However, it works only if prefix_extractor is non-null for the
+        // column family.
+        // https://docs.rs/rocksdb/latest/rocksdb/struct.ReadOptions.html#method.set_prefix_same_as_start
+        //
+        // Since the column family is Optional in our
+        // `RocksBackendSettings` and we don't configure any prefix extractor,
+        // the `prefix_iterator` works like a regular iterator, which doesn't check
+        // any upper bound.
+        //
+        // Thus, we use the regular iterator instead for clarity, and check the
+        // upper bound manually.
+
+        // Prepare the optional start and end keys by appending them to the prefix.
+        let start_key =
+            start_key.map(|k| prefix.iter().chain(k.iter()).copied().collect::<Vec<_>>());
+        let end_key = end_key.map(|k| prefix.iter().chain(k.iter()).copied().collect::<Vec<_>>());
+
+        // Create an iterator starting from the prefix or the start key if provided.
+        let iter = self.rocks.iterator(IteratorMode::From(
+            start_key.as_ref().map_or(prefix, |from| from.as_slice()),
+            Direction::Forward,
+        ));
 
         for item in iter {
             match item {
-                Ok((_key, value)) => {
+                Ok((key, value)) => {
+                    // Since the iterator proceeds without an upper bound,
+                    // we have to manually check for the prefix.
+                    if !key.starts_with(prefix) {
+                        break;
+                    }
+
+                    // Stop if we exceed the end key
+                    if let Some(end_key) = &end_key {
+                        // Lexicographical comparison
+                        if key.as_ref() > end_key.as_slice() {
+                            break;
+                        }
+                    }
+
                     values.push(Bytes::from(value.to_vec()));
+
+                    // Stop if we reach the limit
+                    if let Some(limit) = limit {
+                        if values.len() == limit.get() {
+                            break;
+                        }
+                    }
                 }
                 Err(e) => return Err(e), // Return the error if one occurs
             }
@@ -189,6 +236,118 @@ mod test {
         assert_eq!(removed_value, Some(value.as_bytes().into()));
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_load_prefix() {
+        let mut backend = RocksBackend::<NoStorageSerde>::new(RocksBackendSettings {
+            db_path: TempDir::new().unwrap().path().to_path_buf(),
+            read_only: false,
+            column_family: None,
+        })
+        .unwrap();
+
+        let prefix = b"foo/";
+
+        // No data yet in the backend
+        assert!(backend
+            .load_prefix(prefix, None, None, None)
+            .await
+            .unwrap()
+            .is_empty());
+
+        // No data with the prefix
+        backend.store("boo/0".into(), "boo0".into()).await.unwrap();
+        backend.store("zoo/0".into(), "zoo0".into()).await.unwrap();
+        assert!(backend
+            .load_prefix(prefix, None, None, None)
+            .await
+            .unwrap()
+            .is_empty());
+
+        // Two data with the prefix
+        // (Inserting in mixed order to test the sorted scan).
+        backend.store("foo/7".into(), "foo7".into()).await.unwrap();
+        backend.store("foo/0".into(), "foo0".into()).await.unwrap();
+        assert_eq!(
+            backend.load_prefix(prefix, None, None, None).await.unwrap(),
+            vec![Bytes::from("foo0"), Bytes::from("foo7")]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_load_prefix_range_limit() {
+        let mut backend = RocksBackend::<NoStorageSerde>::new(RocksBackendSettings {
+            db_path: TempDir::new().unwrap().path().to_path_buf(),
+            read_only: false,
+            column_family: None,
+        })
+        .unwrap();
+        backend.store("boo/0".into(), "boo0".into()).await.unwrap();
+        backend.store("foo/0".into(), "foo0".into()).await.unwrap();
+        backend.store("foo/1".into(), "foo1".into()).await.unwrap();
+        backend.store("foo/3".into(), "foo3".into()).await.unwrap();
+        backend.store("foo/4".into(), "foo4".into()).await.unwrap();
+        backend.store("foo/9".into(), "foo9".into()).await.unwrap();
+        backend.store("zoo/4".into(), "zoo4".into()).await.unwrap();
+
+        // with start_key and end_key that exist
+        assert_eq!(
+            backend
+                .load_prefix(b"foo/", Some(b"1"), Some(b"9"), None)
+                .await
+                .unwrap(),
+            vec![
+                Bytes::from("foo1"),
+                Bytes::from("foo3"),
+                Bytes::from("foo4"),
+                Bytes::from("foo9")
+            ]
+        );
+
+        // with start_key that doesn't exist
+        assert_eq!(
+            backend
+                .load_prefix(b"foo/", Some(b"2"), Some(b"9"), None)
+                .await
+                .unwrap(),
+            vec![
+                Bytes::from("foo3"),
+                Bytes::from("foo4"),
+                Bytes::from("foo9")
+            ]
+        );
+
+        // with end_key that doesn't exist
+        assert_eq!(
+            backend
+                .load_prefix(b"foo/", Some(b"1"), Some(b"8"), None)
+                .await
+                .unwrap(),
+            vec![
+                Bytes::from("foo1"),
+                Bytes::from("foo3"),
+                Bytes::from("foo4"),
+            ]
+        );
+
+        // with limit
+        assert_eq!(
+            backend
+                .load_prefix(
+                    b"foo/",
+                    Some(b"1"),
+                    Some(b"9"),
+                    Some(NonZeroUsize::new(3).unwrap())
+                )
+                .await
+                .unwrap(),
+            vec![
+                Bytes::from("foo1"),
+                Bytes::from("foo3"),
+                Bytes::from("foo4"),
+            ]
+        );
     }
 
     #[tokio::test]

@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use nomos_core::block::BlockNumber;
-use nomos_sdp_core::{FinalizedBlockEvent, ServiceType};
+use nomos_core::{
+    block::BlockNumber,
+    sdp::{FinalizedBlockEvent, ServiceType},
+};
 use overwatch::DynError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

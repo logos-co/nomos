@@ -1,5 +1,8 @@
 pub mod adapters;
 
+use std::collections::BTreeMap;
+
+use cryptarchia_engine::Slot;
 use futures::future::join_all;
 use nomos_core::header::HeaderId;
 use nomos_storage::{backends::StorageBackend, StorageService};
@@ -57,4 +60,10 @@ pub trait StorageAdapter<RuntimeServiceId> {
             .await
             .into_iter()
     }
+
+    /// Store immutable block ids with their slots.
+    async fn store_immutable_block_ids(
+        &self,
+        blocks: BTreeMap<Slot, HeaderId>,
+    ) -> Result<(), overwatch::DynError>;
 }

@@ -12,7 +12,7 @@ use nomos_core::da::BlobId;
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::dispersal::executor::behaviour::DispersalExecutorEvent,
-    swarm::{executor::ExecutorSwarm, BalancerStats, MonitorStats},
+    swarm::{executor::ExecutorSwarm, validator::SwarmSettings, BalancerStats, MonitorStats},
     SubnetworkId,
 };
 use nomos_libp2p::ed25519;
@@ -23,20 +23,23 @@ use subnetworks_assignations::MembershipHandler;
 use tokio::{
     sync::{broadcast, mpsc::UnboundedSender, oneshot},
     task::JoinHandle,
+    time,
 };
-use tokio_stream::wrappers::{BroadcastStream, UnboundedReceiverStream};
+use tokio_stream::wrappers::{BroadcastStream, IntervalStream, UnboundedReceiverStream};
 use tracing::instrument;
 
+use super::common::CommitmentsEvent;
 use crate::{
     backends::{
         libp2p::common::{
-            handle_balancer_command, handle_monitor_command, handle_sample_request,
-            handle_validator_events_stream, DaNetworkBackendSettings, SamplingEvent,
-            BROADCAST_CHANNEL_SIZE,
+            handle_balancer_command, handle_commitments_request, handle_monitor_command,
+            handle_sample_request, handle_validator_events_stream, DaNetworkBackendSettings,
+            SamplingEvent, BROADCAST_CHANNEL_SIZE,
         },
         NetworkBackend,
     },
     membership::handler::DaMembershipHandler,
+    DaAddressbook,
 };
 
 /// Message that the backend replies to
@@ -44,7 +47,9 @@ use crate::{
 pub enum ExecutorDaNetworkMessage<BalancerStats, MonitorStats> {
     /// Kickstart a network sapling
     RequestSample {
-        subnetwork_id: SubnetworkId,
+        blob_id: BlobId,
+    },
+    RequestCommitments {
         blob_id: BlobId,
     },
     RequestDispersal {
@@ -61,6 +66,7 @@ pub enum ExecutorDaNetworkMessage<BalancerStats, MonitorStats> {
 #[derive(Debug)]
 pub enum DaNetworkEventKind {
     Sampling,
+    Commitments,
     Verifying,
     Dispersal,
 }
@@ -69,6 +75,7 @@ pub enum DaNetworkEventKind {
 #[derive(Debug)]
 pub enum DaNetworkEvent {
     Sampling(SamplingEvent),
+    Commitments(CommitmentsEvent),
     Verifying(Box<DaShare>),
     Dispersal(DispersalExecutorEvent),
 }
@@ -90,8 +97,10 @@ where
     task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     verifier_replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     executor_replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
-    sampling_request_channel: UnboundedSender<(SubnetworkId, BlobId)>,
+    shares_request_channel: UnboundedSender<BlobId>,
+    commitments_request_channel: UnboundedSender<BlobId>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
+    commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
     verifying_broadcast_receiver: broadcast::Receiver<DaShare>,
     dispersal_broadcast_receiver: broadcast::Receiver<DispersalExecutorEvent>,
     dispersal_shares_sender: UnboundedSender<(Membership::NetworkId, DaShare)>,
@@ -118,23 +127,38 @@ where
     type EventKind = DaNetworkEventKind;
     type NetworkEvent = DaNetworkEvent;
     type Membership = DaMembershipHandler<Membership>;
+    type Addressbook = DaAddressbook;
 
     fn new(
         config: Self::Settings,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Self::Membership,
+        addressbook: Self::Addressbook,
     ) -> Self {
+        // TODO: If there is no requirement to subscribe to block number events in chain
+        // service, and an approximate duration is enough for sampling to hold
+        // temporal connections - remove this message.
+        let subnet_refresh_signal = Box::pin(
+            IntervalStream::new(time::interval(config.validator_settings.refresh_interval))
+                .map(|_| ()),
+        );
+
         let keypair = libp2p::identity::Keypair::from(ed25519::Keypair::from(
             config.validator_settings.node_key.clone(),
         ));
         let (mut executor_swarm, executor_events_stream) = ExecutorSwarm::new(
             keypair,
             membership,
-            config.validator_settings.policy_settings.clone(),
-            config.validator_settings.monitor_settings.clone(),
-            config.validator_settings.balancer_interval,
-            config.validator_settings.redial_cooldown,
-            config.validator_settings.replication_settings,
+            addressbook,
+            SwarmSettings {
+                policy_settings: config.validator_settings.policy_settings,
+                monitor_settings: config.validator_settings.monitor_settings,
+                balancer_interval: config.validator_settings.balancer_interval,
+                redial_cooldown: config.validator_settings.redial_cooldown,
+                replication_settings: config.validator_settings.replication_settings,
+                subnets_settings: config.validator_settings.subnets_settings,
+            },
+            subnet_refresh_signal,
         );
         let address = config.validator_settings.listening_address;
         // put swarm to listen at the specified configuration address
@@ -145,7 +169,8 @@ where
                 panic!("Error listening on DA network with address {address}: {e}")
             });
 
-        let sampling_request_channel = executor_swarm.sample_request_channel();
+        let shares_request_channel = executor_swarm.shares_request_channel();
+        let commitments_request_channel = executor_swarm.commitments_request_channel();
         let dispersal_shares_sender = executor_swarm.dispersal_shares_channel();
         let balancer_command_sender = executor_swarm.balancer_command_channel();
         let monitor_command_sender = executor_swarm.monitor_command_channel();
@@ -160,6 +185,8 @@ where
 
         let (sampling_broadcast_sender, sampling_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
+        let (commitments_broadcast_sender, commitments_broadcast_receiver) =
+            broadcast::channel(BROADCAST_CHANNEL_SIZE);
         let (verifying_broadcast_sender, verifying_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
         let (dispersal_broadcast_sender, dispersal_broadcast_receiver) =
@@ -172,6 +199,7 @@ where
                 handle_validator_events_stream(
                     executor_events_stream.validator_events_stream,
                     sampling_broadcast_sender,
+                    commitments_broadcast_sender,
                     verifying_broadcast_sender,
                 ),
                 verifier_replies_task_abort_registration,
@@ -195,8 +223,10 @@ where
             task,
             verifier_replies_task,
             executor_replies_task,
-            sampling_request_channel,
+            shares_request_channel,
+            commitments_request_channel,
             sampling_broadcast_receiver,
+            commitments_broadcast_receiver,
             verifying_broadcast_receiver,
             dispersal_broadcast_receiver,
             dispersal_shares_sender,
@@ -221,12 +251,13 @@ where
     #[instrument(skip_all)]
     async fn process(&self, msg: Self::Message) {
         match msg {
-            ExecutorDaNetworkMessage::RequestSample {
-                subnetwork_id,
-                blob_id,
-            } => {
+            ExecutorDaNetworkMessage::RequestSample { blob_id } => {
                 info_with_id!(&blob_id, "RequestSample");
-                handle_sample_request(&self.sampling_request_channel, subnetwork_id, blob_id).await;
+                handle_sample_request(&self.shares_request_channel, blob_id).await;
+            }
+            ExecutorDaNetworkMessage::RequestCommitments { blob_id } => {
+                info_with_id!(&blob_id, "RequestSample");
+                handle_commitments_request(&self.commitments_request_channel, blob_id).await;
             }
             ExecutorDaNetworkMessage::RequestDispersal {
                 subnetwork_id,
@@ -267,6 +298,11 @@ where
                 BroadcastStream::new(self.sampling_broadcast_receiver.resubscribe())
                     .filter_map(|event| async { event.ok() })
                     .map(Self::NetworkEvent::Sampling),
+            ),
+            DaNetworkEventKind::Commitments => Box::pin(
+                BroadcastStream::new(self.commitments_broadcast_receiver.resubscribe())
+                    .filter_map(|event| async { event.ok() })
+                    .map(Self::NetworkEvent::Commitments),
             ),
             DaNetworkEventKind::Verifying => Box::pin(
                 BroadcastStream::new(self.verifying_broadcast_receiver.resubscribe())

@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
-use libp2p::bytes::Bytes;
+use bytes::Bytes;
+use cryptarchia_engine::Slot;
 use nomos_core::header::HeaderId;
 use serde::{Deserialize, Serialize};
 
@@ -64,6 +65,6 @@ pub enum DownloadBlocksResponse {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct GetTipResponse {
-    /// The tip of the peer.
-    pub tip: HeaderId,
+    pub id: HeaderId,
+    pub slot: Slot,
 }

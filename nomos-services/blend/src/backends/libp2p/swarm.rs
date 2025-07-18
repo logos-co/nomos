@@ -1,6 +1,6 @@
 use std::{collections::HashSet, time::Duration};
 
-use futures::StreamExt as _;
+use futures::{Stream, StreamExt as _};
 use libp2p::{identity::Keypair, PeerId, Swarm, SwarmBuilder};
 use nomos_blend_scheduling::membership::Membership;
 use nomos_libp2p::{ed25519, SwarmEvent};
@@ -20,27 +20,28 @@ pub enum BlendSwarmMessage {
     Publish(Vec<u8>),
 }
 
-pub(super) struct BlendSwarm<Rng> {
+pub(super) struct BlendSwarm<SessionStream, Rng> {
     swarm: Swarm<BlendBehaviour>,
     swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
     incoming_message_sender: broadcast::Sender<Vec<u8>>,
-    // TODO: Instead of holding the membership, we just want a way to get the list of addresses.
-    membership: Membership<PeerId>,
+    session_stream: SessionStream,
+    latest_session_info: Membership<PeerId>,
     rng: Rng,
     peering_degree: usize,
 }
 
-impl<Rng> BlendSwarm<Rng>
+impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng>
 where
     Rng: RngCore,
 {
     pub(super) fn new(
         config: BlendConfig<Libp2pBlendBackendSettings, PeerId>,
-        membership: Membership<PeerId>,
+        session_stream: SessionStream,
         mut rng: Rng,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
         incoming_message_sender: broadcast::Sender<Vec<u8>>,
     ) -> Self {
+        let membership = config.membership();
         let keypair = Keypair::from(ed25519::Keypair::from(config.backend.node_key.clone()));
         let mut swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
@@ -74,14 +75,15 @@ where
             swarm,
             swarm_messages_receiver,
             incoming_message_sender,
-            membership,
+            session_stream,
+            latest_session_info: membership,
             rng,
             peering_degree: config.backend.peering_degree,
         }
     }
 }
 
-impl<Rng> BlendSwarm<Rng> {
+impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
     fn handle_swarm_message(&mut self, msg: BlendSwarmMessage) {
         match msg {
             BlendSwarmMessage::Publish(msg) => {
@@ -122,9 +124,10 @@ impl<Rng> BlendSwarm<Rng> {
     }
 }
 
-impl<Rng> BlendSwarm<Rng>
+impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng>
 where
     Rng: RngCore,
+    SessionStream: Stream<Item = Membership<PeerId>> + Unpin,
 {
     pub(super) async fn run(mut self) {
         loop {
@@ -134,6 +137,10 @@ where
                 }
                 Some(event) = self.swarm.next() => {
                     self.handle_event(event);
+                }
+                Some(new_session_info) = self.session_stream.next() => {
+                    self.latest_session_info = new_session_info;
+                    // TODO: Perform the session transition logic
                 }
             }
         }
@@ -221,7 +228,7 @@ where
             .chain(self.swarm.behaviour().blocked_peers.blocked_peers())
             .copied()
             .collect();
-        self.membership
+        self.latest_session_info
             .filter_and_choose_remote_nodes(&mut self.rng, amount, &exclude_peers)
             .iter()
             .for_each(|peer| {

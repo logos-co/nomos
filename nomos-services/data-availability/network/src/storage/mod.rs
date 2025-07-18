@@ -1,12 +1,12 @@
 pub mod adapters;
-use std::collections::HashMap;
+use std::collections::HashSet;
 
-use libp2p::Multiaddr;
 use nomos_core::block::BlockNumber;
 use overwatch::{
     services::{relay::OutboundRelay, ServiceData},
     DynError,
 };
+use rand::thread_rng;
 use subnetworks_assignations::{MembershipCreator, MembershipHandler};
 
 use crate::membership::{handler::DaMembershipHandler, Assignations};
@@ -21,12 +21,11 @@ pub trait MembershipStorageAdapter<Id, NetworkId> {
         &self,
         block_number: BlockNumber,
         assignations: Assignations<Id, NetworkId>,
-        addressbook: HashMap<Id, Multiaddr>,
     ) -> Result<(), DynError>;
     async fn get(
         &self,
         block_number: BlockNumber,
-    ) -> Result<Option<(Assignations<Id, NetworkId>, HashMap<Id, Multiaddr>)>, DynError>;
+    ) -> Result<Option<Assignations<Id, NetworkId>>, DynError>;
 
     async fn prune(&self);
 }
@@ -53,27 +52,25 @@ where
     pub async fn update(
         &self,
         block_number: BlockNumber,
-        new_members: HashMap<Membership::Id, Multiaddr>,
+        new_members: HashSet<Membership::Id>,
     ) -> Result<(), DynError> {
-        let updated_membership = self.handler.membership().update(new_members);
+        let updated_membership = self
+            .handler
+            .membership()
+            .update(new_members, &mut thread_rng());
         let assignations = updated_membership.subnetworks();
-        let addressbook = updated_membership.addressbook();
 
         tracing::debug!("Updating membership at block {block_number} with {assignations:?}");
         self.handler.update(updated_membership);
-        self.adapter
-            .store(block_number, assignations, addressbook)
-            .await
+        self.adapter.store(block_number, assignations).await
     }
 
     pub async fn get_historic_membership(
         &self,
         block_number: BlockNumber,
     ) -> Result<Option<Membership>, DynError> {
-        if let Some((assignations, addressbook)) = self.adapter.get(block_number).await? {
-            return Ok(Some(
-                self.handler.membership().init(assignations, addressbook),
-            ));
+        if let Some(assignations) = self.adapter.get(block_number).await? {
+            return Ok(Some(self.handler.membership().init(assignations)));
         }
 
         Ok(None)

@@ -6,7 +6,6 @@ pub mod settings;
 use std::{
     fmt::{Debug, Display},
     future::Future,
-    hash::Hash,
     time::Duration,
 };
 
@@ -34,6 +33,8 @@ use rand::{seq::SliceRandom as _, RngCore, SeedableRng as _};
 use rand_chacha::ChaCha12Rng;
 use serde::Deserialize;
 use services_utils::wait_until_services_are_ready;
+use tokio::time::interval;
+use tokio_stream::wrappers::IntervalStream;
 
 use crate::{
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
@@ -49,35 +50,35 @@ const LOG_TARGET: &str = "blend::service";
 /// independent of each other. For example, the blend backend can use the
 /// libp2p network stack, while the network adapter can use the other network
 /// backend.
-pub struct BlendService<Backend, Network, RuntimeServiceId>
+pub struct BlendService<Backend, NodeId, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend<RuntimeServiceId>,
+    Backend: BlendBackend<NodeId, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     backend: Backend,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    membership: Membership<Backend::NodeId>,
+    membership: Membership<NodeId>,
 }
 
-impl<Backend, Network, RuntimeServiceId> ServiceData
-    for BlendService<Backend, Network, RuntimeServiceId>
+impl<Backend, NodeId, Network, RuntimeServiceId> ServiceData
+    for BlendService<Backend, NodeId, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend<RuntimeServiceId>,
+    Backend: BlendBackend<NodeId, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
 {
-    type Settings = BlendConfig<Backend::Settings, Backend::NodeId>;
+    type Settings = BlendConfig<Backend::Settings, NodeId>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = ServiceMessage<Network::BroadcastSettings>;
 }
 
 #[async_trait]
-impl<Backend, Network, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for BlendService<Backend, Network, RuntimeServiceId>
+impl<Backend, NodeId, Network, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for BlendService<Backend, NodeId, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend<RuntimeServiceId> + Send + Sync + 'static,
-    Backend::NodeId: Hash + Eq + Unpin,
-    Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync + 'static,
+    Backend: BlendBackend<NodeId, RuntimeServiceId> + Send + Sync,
+    NodeId: Clone + Send + Sync + 'static,
+    Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
         + AsServiceId<Self>
         + Clone
@@ -93,11 +94,15 @@ where
     ) -> Result<Self, overwatch::DynError> {
         let settings_reader = service_resources_handle.settings_handle.notifier();
         let blend_config = settings_reader.get_updated_settings();
+        let membership = blend_config.membership();
         Ok(Self {
-            backend: <Backend as BlendBackend<RuntimeServiceId>>::new(
+            backend: <Backend as BlendBackend<NodeId, RuntimeServiceId>>::new(
                 settings_reader.get_updated_settings(),
                 service_resources_handle.overwatch_handle.clone(),
-                blend_config.membership(),
+                Box::pin(
+                    IntervalStream::new(interval(blend_config.time.session_duration()))
+                        .map(move |_| membership.clone()),
+                ),
                 ChaCha12Rng::from_entropy(),
             ),
             service_resources_handle,
@@ -206,7 +211,7 @@ async fn handle_local_data_message<
 ) where
     NodeId: Send,
     Rng: RngCore + Send,
-    Backend: BlendBackend<RuntimeServiceId> + Sync,
+    Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
 {
     let Ok(wrapped_message) = cryptographic_processor
         .encapsulate_data_message(&local_data_message)
@@ -282,7 +287,7 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
     network_adapter: &NetAdapter,
 ) where
     Rng: RngCore + Send,
-    Backend: BlendBackend<RuntimeServiceId> + Sync,
+    Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Sync,
 {
     let mut processed_messages_relay_futures = processed_messages
@@ -318,9 +323,10 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
     tracing::debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
 }
 
-impl<Backend, Network, RuntimeServiceId> Drop for BlendService<Backend, Network, RuntimeServiceId>
+impl<Backend, NodeId, Network, RuntimeServiceId> Drop
+    for BlendService<Backend, NodeId, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend<RuntimeServiceId>,
+    Backend: BlendBackend<NodeId, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     fn drop(&mut self) {

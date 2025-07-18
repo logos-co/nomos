@@ -1,5 +1,5 @@
 use kzgrs_backend::dispersal::Index;
-use nomos_sdp_core::{FinalizedBlockEvent, FinalizedBlockEventUpdate};
+use nomos_core::sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate};
 use rand::{thread_rng, Rng as _};
 use tests::{
     common::da::{disseminate_with_metadata, wait_for_indexed_blob, APP_ID},
@@ -36,7 +36,7 @@ async fn update_membership_and_dissiminate() {
     {
         let mut finalized_block_event_updates = vec![];
         let providers = members
-            .get(&nomos_sdp_core::ServiceType::DataAvailability)
+            .get(&nomos_core::sdp::ServiceType::DataAvailability)
             .expect("Expected at least one provider ID in the membership set")
             .clone();
 
@@ -50,9 +50,9 @@ async fn update_membership_and_dissiminate() {
                 .clone();
 
             finalized_block_event_updates.push(FinalizedBlockEventUpdate {
-                service_type: nomos_sdp_core::ServiceType::DataAvailability,
+                service_type: nomos_core::sdp::ServiceType::DataAvailability,
                 provider_id: provider,
-                state: nomos_sdp_core::DeclarationState::Active,
+                state: nomos_core::sdp::DeclarationState::Active,
                 locators,
             });
         }

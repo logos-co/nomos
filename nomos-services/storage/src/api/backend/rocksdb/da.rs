@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet};
 use async_trait::async_trait;
 use bytes::Bytes;
 use libp2p_identity::PeerId;
-use multiaddr::Multiaddr;
 use nomos_core::{block::BlockNumber, da::BlobId};
 use rocksdb::Error;
 use tracing::{debug, error};
@@ -21,7 +20,6 @@ pub const DA_BLOB_SHARES_INDEX_PREFIX: &str = concat!("da/verified/", "si");
 pub const DA_SHARED_COMMITMENTS_PREFIX: &str = concat!("da/verified/", "sc");
 pub const DA_SHARE_PREFIX: &str = concat!("da/verified/", "bl");
 pub const DA_ASSIGNATIONS_PREFIX: &str = concat!("da/membership/", "as");
-pub const DA_ADDRESSBOOK_PREFIX: &str = concat!("da/membership/", "ad");
 
 #[async_trait]
 impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBackend<SerdeOp> {
@@ -49,7 +47,9 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
         blob_id: Self::BlobId,
     ) -> Result<Option<Vec<Self::Share>>, Self::Error> {
         let shares_prefix_key = key_bytes(DA_SHARE_PREFIX, blob_id.as_ref());
-        let shares_bytes = self.load_prefix(&shares_prefix_key).await?;
+        let shares_bytes = self
+            .load_prefix(&shares_prefix_key, None, None, None)
+            .await?;
         if shares_bytes.is_empty() {
             return Ok(None);
         }
@@ -141,27 +141,16 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
         &mut self,
         block_number: BlockNumber,
         assignations: HashMap<Self::NetworkId, HashSet<Self::Id>>,
-        addressbook: HashMap<Self::Id, Multiaddr>,
     ) -> Result<(), Self::Error> {
         let block_bytes = block_number.to_be_bytes();
         let assignations_key = key_bytes(DA_ASSIGNATIONS_PREFIX, block_bytes);
-        let addressbook_key = key_bytes(DA_ADDRESSBOOK_PREFIX, block_bytes);
 
         let serialized_assignations = SerdeOp::serialize(assignations);
-        let serialized_addressbook = SerdeOp::serialize(addressbook);
 
         let txn = self.txn(move |db| {
             if let Err(e) = db.put(&assignations_key, &serialized_assignations) {
                 error!(
                     "Failed to store assignations for block {}: {:?}",
-                    block_number, e
-                );
-                return Err(e);
-            }
-
-            if let Err(e) = db.put(&addressbook_key, &serialized_addressbook) {
-                error!(
-                    "Failed to store addressbook for block {}: {:?}",
                     block_number, e
                 );
                 return Err(e);
@@ -191,22 +180,18 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
     async fn get_assignations(
         &mut self,
         block_number: BlockNumber,
-    ) -> Result<
-        (
-            HashMap<Self::NetworkId, HashSet<Self::Id>>,
-            HashMap<Self::Id, Multiaddr>,
-        ),
-        Self::Error,
-    > {
+    ) -> Result<HashMap<Self::NetworkId, HashSet<Self::Id>>, Self::Error> {
         let block_bytes = block_number.to_be_bytes();
         let assignations_key = key_bytes(DA_ASSIGNATIONS_PREFIX, block_bytes);
-        let addressbook_key = key_bytes(DA_ADDRESSBOOK_PREFIX, block_bytes);
 
         let assignations_bytes = self.load(&assignations_key).await?;
-        let addressbook_bytes = self.load(&addressbook_key).await?;
 
-        match (assignations_bytes, addressbook_bytes) {
-            (Some(assignations_data), Some(addressbook_data)) => {
+        assignations_bytes.map_or_else(
+            || {
+                debug!("No membership data found for block {}", block_number);
+                Ok(HashMap::new())
+            },
+            |assignations_data| {
                 let assignations = SerdeOp::deserialize::<
                     HashMap<Self::NetworkId, HashSet<Self::Id>>,
                 >(assignations_data)
@@ -218,33 +203,12 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
                     HashMap::new()
                 });
 
-                let addressbook =
-                    SerdeOp::deserialize::<HashMap<Self::Id, Multiaddr>>(addressbook_data)
-                        .unwrap_or_else(|e| {
-                            error!(
-                                "Failed to deserialize addressbook for block {}: {:?}",
-                                block_number, e
-                            );
-                            HashMap::new()
-                        });
-
                 debug!(
                     "Successfully loaded assignations and addressbook for block {}",
                     block_number
                 );
-                Ok((assignations, addressbook))
-            }
-            (None, None) => {
-                debug!("No membership data found for block {}", block_number);
-                Ok((HashMap::new(), HashMap::new()))
-            }
-            _ => {
-                error!(
-                "Inconsistent membership data for block {}: missing assignations or addressbook", 
-                block_number
-            );
-                Ok((HashMap::new(), HashMap::new()))
-            }
-        }
+                Ok(assignations)
+            },
+        )
     }
 }

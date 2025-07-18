@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use multiaddr::Multiaddr;
 use nomos_core::block::BlockNumber;
 use overwatch::DynError;
 use tokio::sync::oneshot::Sender;
@@ -20,9 +19,7 @@ use crate::{
 type AssignationsMap<Backend> =
     HashMap<<Backend as StorageDaApi>::NetworkId, HashSet<<Backend as StorageDaApi>::Id>>;
 
-type AddressBookMap<Backend> = HashMap<<Backend as StorageDaApi>::Id, Multiaddr>;
-
-type AssignationsResponse<Backend> = (AssignationsMap<Backend>, AddressBookMap<Backend>);
+type AssignationsResponse<Backend> = AssignationsMap<Backend>;
 
 pub enum DaApiRequest<Backend: StorageBackend> {
     GetLightShare {
@@ -53,12 +50,11 @@ pub enum DaApiRequest<Backend: StorageBackend> {
     },
     GetAssignations {
         block_number: BlockNumber,
-        response_tx: Sender<Option<(AssignationsMap<Backend>, AddressBookMap<Backend>)>>,
+        response_tx: Sender<Option<AssignationsMap<Backend>>>,
     },
     StoreAssignations {
         block_number: BlockNumber,
         assignations: AssignationsMap<Backend>,
-        addressbook: AddressBookMap<Backend>,
     },
 }
 
@@ -97,8 +93,7 @@ where
             Self::StoreAssignations {
                 block_number,
                 assignations,
-                addressbook,
-            } => handle_store_assignations(backend, block_number, assignations, addressbook).await,
+            } => handle_store_assignations(backend, block_number, assignations).await,
             Self::GetAssignations {
                 block_number,
                 response_tx,
@@ -208,10 +203,9 @@ async fn handle_store_assignations<Backend: StorageBackend>(
     backend: &mut Backend,
     block_number: BlockNumber,
     assignations: AssignationsMap<Backend>,
-    addressbook: AddressBookMap<Backend>,
 ) -> Result<(), StorageServiceError> {
     backend
-        .store_assignations(block_number, assignations, addressbook)
+        .store_assignations(block_number, assignations)
         .await
         .map_err(|e| StorageServiceError::BackendError(e.into()))
 }
@@ -342,13 +336,11 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
     pub const fn store_assignations_request(
         block_number: BlockNumber,
         assignations: AssignationsMap<Backend>,
-        addressbook: AddressBookMap<Backend>,
     ) -> Self {
         Self::Api {
             request: StorageApiRequest::Da(DaApiRequest::StoreAssignations {
                 block_number,
                 assignations,
-                addressbook,
             }),
         }
     }

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use nomos_libp2p::{
     libp2p::kad::{self, PeerInfo, ProgressStep, QueryId},
@@ -14,6 +14,9 @@ pub enum DiscoveryCommand {
     GetClosestPeers {
         peer_id: PeerId,
         reply: oneshot::Sender<Vec<PeerInfo>>,
+    },
+    GetDiscoveredPeers {
+        reply: oneshot::Sender<HashSet<PeerId>>,
     },
     DumpRoutingTable {
         reply: oneshot::Sender<HashMap<u32, Vec<PeerId>>>,
@@ -45,25 +48,25 @@ impl SwarmHandler {
     pub(super) fn handle_discovery_command(&mut self, command: DiscoveryCommand) {
         match command {
             DiscoveryCommand::GetClosestPeers { peer_id, reply } => {
-                match self.swarm.get_closest_peers(peer_id) {
-                    Ok(query_id) => {
-                        tracing::debug!("Pending query ID: {query_id}");
-                        self.pending_queries.insert(
-                            query_id,
-                            PendingQueryData {
-                                sender: reply,
-                                accumulated_results: Vec::new(),
-                            },
-                        );
-                    }
-                    Err(err) => {
-                        tracing::warn!(
-                            "Failed to get closest peers for peer ID: {peer_id}: {:?}",
-                            err
-                        );
-                        let _ = reply.send(Vec::new());
-                    }
-                }
+                let query_id = self.swarm.get_closest_peers(peer_id);
+                tracing::debug!("Pending query ID: {query_id}");
+                self.pending_queries.insert(
+                    query_id,
+                    PendingQueryData {
+                        sender: reply,
+                        accumulated_results: Vec::new(),
+                    },
+                );
+            }
+            DiscoveryCommand::GetDiscoveredPeers { reply } => {
+                let discovered_peers = self
+                    .swarm
+                    .kademlia_discovered_peers()
+                    .into_iter()
+                    .map(|peer_info| peer_info.peer_id)
+                    .collect::<HashSet<_>>();
+
+                let _ = reply.send(discovered_peers);
             }
             DiscoveryCommand::DumpRoutingTable { reply } => {
                 let result = self.swarm.kademlia_routing_table_dump();
