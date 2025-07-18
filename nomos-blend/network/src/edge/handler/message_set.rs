@@ -2,9 +2,11 @@ use core::task::{Context, Poll, Waker};
 
 use libp2p::swarm::handler::FullyNegotiatedOutbound;
 
+use super::FromBehaviour;
 use crate::edge::handler::{
+    dropped::DroppedState,
     ready_to_send::{InternalState, ReadyToSendState},
-    ConnectionEvent, ConnectionState, PollResult, StateTrait, LOG_TARGET,
+    ConnectionEvent, ConnectionState, FailureReason, PollResult, StateTrait, LOG_TARGET,
 };
 
 /// State indicating that a message has been passed to the connection handler by
@@ -30,6 +32,16 @@ impl From<MessageSetState> for ConnectionState {
 }
 
 impl StateTrait for MessageSetState {
+    fn on_behaviour_event(self, event: FromBehaviour) -> ConnectionState {
+        match event {
+            FromBehaviour::Message(_) => self.into(),
+            FromBehaviour::DropSubstream => {
+                tracing::trace!(target: LOG_TARGET, "MessageSetState -> DroppedState by request from behaviour.");
+                DroppedState::new(None, self.waker).into()
+            }
+        }
+    }
+
     // Moves the state machine to `ReadyToSendState` when the outbound stream is
     // negotiated.
     fn on_connection_event(mut self, event: ConnectionEvent) -> ConnectionState {
@@ -44,6 +56,10 @@ impl StateTrait for MessageSetState {
                     self.waker.take(),
                 );
                 updated_self.into()
+            }
+            ConnectionEvent::DialUpgradeError(error) => {
+                tracing::trace!(target: LOG_TARGET, "Outbound upgrade error: {error:?}");
+                DroppedState::new(Some(FailureReason::UpgradeError), self.waker.take()).into()
             }
             unprocessed_event => {
                 tracing::trace!(target: LOG_TARGET, "Ignoring connection event {unprocessed_event:?}");

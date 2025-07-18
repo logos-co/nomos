@@ -119,15 +119,18 @@ where
     }
 
     /// Schedules sending a message to the peer that is connected/negotiated.
-    fn schedule_send_message(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
-        if let Some(message) = self.pending_messages.pop_front() {
-            self.events.push_back(ToSwarm::NotifyHandler {
-                peer_id,
-                handler: NotifyHandler::One(connection_id),
-                event: FromBehaviour::Message(message),
-            });
-            self.try_wake();
-        }
+    /// Returns `true` if there was a message to schedule, `false` otherwise.
+    fn schedule_send_message(&mut self, peer_id: PeerId, connection_id: ConnectionId) -> bool {
+        let Some(message) = self.pending_messages.pop_front() else {
+            return false;
+        };
+        self.events.push_back(ToSwarm::NotifyHandler {
+            peer_id,
+            handler: NotifyHandler::One(connection_id),
+            event: FromBehaviour::Message(message),
+        });
+        self.try_wake();
+        true
     }
 
     /// Schedules a [`EventToSwarm`] to be sent to the swarm.
@@ -136,11 +139,24 @@ where
         self.try_wake();
     }
 
+    fn schedule_drop_substream(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
+        tracing::debug!(target: LOG_TARGET, "Dropping substream: peer:{peer_id}, connection_id:{connection_id}");
+        self.events.push_back(ToSwarm::NotifyHandler {
+            peer_id,
+            handler: NotifyHandler::One(connection_id),
+            event: FromBehaviour::DropSubstream,
+        });
+        self.try_wake();
+    }
+
     /// Handles [`ToBehaviour::ReadyToSend`] event from the connection handler.
     fn handle_ready_to_send(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
         tracing::debug!(target: LOG_TARGET, "Conn is ready to send: peer:{peer_id}, connection_id:{connection_id}");
         self.requested_dials.remove(&(peer_id, connection_id));
-        self.schedule_send_message(peer_id, connection_id);
+        if !self.schedule_send_message(peer_id, connection_id) {
+            // There was no message to send. Drop the substream.
+            self.schedule_drop_substream(peer_id, connection_id);
+        }
     }
 
     /// Handles [`ToBehaviour::Dropped`] event from the connection handler.

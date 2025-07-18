@@ -125,6 +125,8 @@ impl Default for EdgeToCoreBlendConnectionHandler {
 pub enum FromBehaviour {
     /// Send a message to the other side of the connection.
     Message(Vec<u8>),
+    /// Drop the substream.
+    DropSubstream,
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]

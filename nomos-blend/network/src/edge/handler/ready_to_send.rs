@@ -10,7 +10,8 @@ use libp2p::{
 use super::ToBehaviour;
 use crate::{
     edge::handler::{
-        sending::SendingState, ConnectionState, FromBehaviour, PollResult, StateTrait, LOG_TARGET,
+        dropped::DroppedState, sending::SendingState, ConnectionState, FromBehaviour, PollResult,
+        StateTrait, LOG_TARGET,
     },
     send_msg,
 };
@@ -80,22 +81,28 @@ impl InternalState {
 }
 
 impl StateTrait for ReadyToSendState {
-    // When the message is specified, the internal state is updated, ready to be
-    // polled by the swarm to make progress.
     fn on_behaviour_event(mut self, event: FromBehaviour) -> ConnectionState {
-        // Specifying a second message won't have any effect, since the connection
-        // handler allows a single message to be sent to a core node per connection.
-        let InternalState::OnlyOutboundStreamSet { stream, .. } = self.state else {
-            return self.into();
-        };
-        let FromBehaviour::Message(message) = event;
-
-        let updated_self = Self {
-            state: InternalState::MessageAndOutboundStreamSet { message, stream },
-            waker: self.waker.take(),
-        };
-        tracing::trace!(target: LOG_TARGET, "Transitioning internal state from `OnlyOutboundStreamSet` to `MessageAndOutboundStreamSet`.");
-        updated_self.into()
+        match event {
+            // When the message is specified, the internal state is updated, ready to be
+            // polled by the swarm to make progress.
+            FromBehaviour::Message(message) => {
+                // Specifying a second message won't have any effect, since the connection
+                // handler allows a single message to be sent to a core node per connection.
+                let InternalState::OnlyOutboundStreamSet { stream, .. } = self.state else {
+                    return self.into();
+                };
+                let updated_self = Self {
+                    state: InternalState::MessageAndOutboundStreamSet { message, stream },
+                    waker: self.waker.take(),
+                };
+                tracing::trace!(target: LOG_TARGET, "Transitioning internal state from `OnlyOutboundStreamSet` to `MessageAndOutboundStreamSet`.");
+                updated_self.into()
+            }
+            FromBehaviour::DropSubstream => {
+                tracing::trace!(target: LOG_TARGET, "ReadyToSendState -> DroppedState by request from behaviour.");
+                DroppedState::new(None, self.waker.take()).into()
+            }
+        }
     }
 
     // If the state contains the message to be sent, it moves to the `Sending`

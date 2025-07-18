@@ -42,12 +42,14 @@ impl From<StartingState> for ConnectionState {
 }
 
 impl StateTrait for StartingState {
-    // Moves the state machine to the `MessageSetState` state, with the provided
-    // message.
     fn on_behaviour_event(self, event: FromBehaviour) -> ConnectionState {
-        let FromBehaviour::Message(new_message) = event;
-
-        MessageSetState::new(new_message, self.waker).into()
+        match event {
+            FromBehaviour::Message(message) => MessageSetState::new(message, self.waker).into(),
+            FromBehaviour::DropSubstream => {
+                tracing::trace!(target: LOG_TARGET, "StartingState -> DroppedState by request from behaviour.");
+                DroppedState::new(None, self.waker).into()
+            }
+        }
     }
 
     // When an outbound substream is negotiated, it moves the state machine to a
