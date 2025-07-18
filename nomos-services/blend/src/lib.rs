@@ -1,4 +1,5 @@
 pub mod backends;
+pub mod edge;
 pub mod message;
 pub mod network;
 pub mod settings;
