@@ -122,8 +122,7 @@ where
 
     // TODO: Remove this method once the session stream is implemented.
     //       https://github.com/logos-co/nomos/issues/1462
-    #[cfg(test)]
-    pub(crate) fn set_membership(&mut self, membership: Membership<PeerId>) {
+    pub fn set_membership(&mut self, membership: Membership<PeerId>) {
         self.current_membership = Some(membership);
     }
 }
