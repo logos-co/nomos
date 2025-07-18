@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     task::{Context, Poll, Waker},
 };
 
@@ -29,6 +29,13 @@ pub struct Behaviour<Rng> {
     events: VecDeque<ToSwarm<EventToSwarm, FromBehaviour>>,
     /// Pending messages to be sent once a new connection is established.
     pending_messages: VecDeque<Vec<u8>>,
+    /// Requested dials.
+    /// Increased when a new dial is scheduled.
+    /// Decreased
+    /// - when the dial fails.
+    /// - when the connection becomes ready to send.
+    /// - when the connection has been dropped before being ready to send.
+    requested_dials: HashSet<(PeerId, ConnectionId)>,
     /// Waker that handles polling
     waker: Option<Waker>,
     // TODO: Replace with the session stream and make this a non-Option
@@ -41,12 +48,6 @@ pub struct Behaviour<Rng> {
 pub enum EventToSwarm {
     /// Notify the swarm that the message was sent successfully.
     MessageSuccess(Vec<u8>),
-    /// Notify the swarm that the message could not be sent.
-    SendError {
-        reason: FailureReason,
-        peer_id: PeerId,
-        connection_id: ConnectionId,
-    },
 }
 
 impl<Rng> Behaviour<Rng>
@@ -54,28 +55,35 @@ where
     Rng: RngCore,
 {
     #[must_use]
-    pub const fn new(current_membership: Option<Membership<PeerId>>, rng: Rng) -> Self {
+    pub fn new(current_membership: Option<Membership<PeerId>>, rng: Rng) -> Self {
         Self {
             events: VecDeque::new(),
             pending_messages: VecDeque::new(),
+            requested_dials: HashSet::new(),
             waker: None,
             current_membership,
             rng,
         }
     }
 
-    /// Schedules sending a message to a core node randomly selected.
+    /// Schedules sending a message by dialing a random node
     pub fn send_message(&mut self, message: Vec<u8>) -> Result<(), Error> {
-        self.schedule_dial_random_node()?;
-
-        // Add the message to the pending messages queue.
-        // This will be sent once a connection is established.
         self.pending_messages.push_back(message);
+        self.schedule_dial_if_needed()
+    }
+
+    /// Schedules a new dial if requested dials are less than pending messages.
+    fn schedule_dial_if_needed(&mut self) -> Result<(), Error> {
+        if self.pending_messages.len() > self.requested_dials.len() {
+            self.schedule_dial()?;
+        }
         Ok(())
     }
 
     /// Schedules dialing to a random node.
-    fn schedule_dial_random_node(&mut self) -> Result<(), Error> {
+    fn schedule_dial(&mut self) -> Result<(), Error> {
+        tracing::debug!(target: LOG_TARGET, "Scheduling a new dial");
+
         let Some(membership) = &self.current_membership else {
             return Err(Error::NoPeers);
         };
@@ -85,20 +93,34 @@ where
             .next()
             .ok_or(Error::NoPeers)?;
 
-        self.events.push_back(ToSwarm::Dial {
-            opts: DialOpts::peer_id(node.id)
-                .condition(PeerCondition::DisconnectedAndNotDialing)
-                .addresses(vec![node.address.clone()])
-                .build(),
-        });
+        let opts = self.new_dial_opts(node.id, &node.address);
+        self.requested_dials.insert((node.id, opts.connection_id()));
+        self.events.push_back(ToSwarm::Dial { opts });
         self.try_wake();
         Ok(())
     }
 
-    /// Schedules sending a message to the peer that is connected.
+    /// Creates a new [`DialOpts`] for the given peer.
+    /// Repeats until a new connection ID (not exist in [`requested_dials`]) is
+    /// generated.
+    fn new_dial_opts(&self, peer_id: PeerId, address: &Multiaddr) -> DialOpts {
+        loop {
+            let opts = DialOpts::peer_id(peer_id)
+                .condition(PeerCondition::DisconnectedAndNotDialing)
+                .addresses(vec![address.clone()])
+                .build();
+            if !self
+                .requested_dials
+                .contains(&(peer_id, opts.connection_id()))
+            {
+                return opts;
+            }
+        }
+    }
+
+    /// Schedules sending a message to the peer that is connected/negotiated.
     fn schedule_send_message(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
         if let Some(message) = self.pending_messages.pop_front() {
-            println!("SCHEDULE SEND MESSAGE");
             self.events.push_back(ToSwarm::NotifyHandler {
                 peer_id,
                 handler: NotifyHandler::One(connection_id),
@@ -114,6 +136,41 @@ where
         self.try_wake();
     }
 
+    /// Handles [`ToBehaviour::ReadyToSend`] event from the connection handler.
+    fn handle_ready_to_send(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
+        tracing::debug!(target: LOG_TARGET, "Conn is ready to send: peer:{peer_id}, connection_id:{connection_id}");
+        self.requested_dials.remove(&(peer_id, connection_id));
+        self.schedule_send_message(peer_id, connection_id);
+    }
+
+    /// Handles [`ToBehaviour::Dropped`] event from the connection handler.
+    fn handle_dropped_connection(
+        &mut self,
+        peer_id: PeerId,
+        connection_id: ConnectionId,
+        reason: Option<&FailureReason>,
+    ) {
+        self.requested_dials.remove(&(peer_id, connection_id));
+        if matches!(reason, Some(FailureReason::UpgradeError)) {
+            tracing::error!(target: LOG_TARGET, "Upgrade error: peer:{peer_id}, connection_id:{connection_id}");
+            if let Err(e) = self.schedule_dial_if_needed() {
+                tracing::error!(target: LOG_TARGET, "Failed to schedule dial: {e}");
+            }
+        }
+    }
+
+    /// Handles [`FromSwarm::DialFailure`] event from the swarm.
+    fn handle_dial_failure(&mut self, failure: DialFailure) {
+        tracing::error!(target: LOG_TARGET, "Dial failure: {failure:?}");
+        if let Some(peer_id) = failure.peer_id {
+            self.requested_dials
+                .remove(&(peer_id, failure.connection_id));
+        }
+        if let Err(e) = self.schedule_dial_if_needed() {
+            tracing::error!(target: LOG_TARGET, "Failed to schedule dial: {e}");
+        }
+    }
+
     fn try_wake(&mut self) {
         if let Some(waker) = self.waker.take() {
             waker.wake();
@@ -124,6 +181,9 @@ where
     //       https://github.com/logos-co/nomos/issues/1462
     pub fn set_membership(&mut self, membership: Membership<PeerId>) {
         self.current_membership = Some(membership);
+        if let Err(e) = self.schedule_dial_if_needed() {
+            tracing::error!(target: LOG_TARGET, "Failed to schedule dial: {e}");
+        }
     }
 }
 
@@ -170,13 +230,8 @@ where
 
     /// Informs the behaviour about an event from the [`Swarm`].
     fn on_swarm_event(&mut self, event: FromSwarm) {
-        if let FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) = event {
-            tracing::debug!(
-                    "Failed to dial to peer:{peer_id:?}, error:{error:?}. Requesting another dialing..."
-                );
-            if let Err(e) = self.schedule_dial_random_node() {
-                tracing::error!(target: LOG_TARGET, "Failed to request dialing to a random node: {e:?}");
-            }
+        if let FromSwarm::DialFailure(failure) = event {
+            self.handle_dial_failure(failure);
         }
     }
 
@@ -190,17 +245,13 @@ where
     ) {
         match event {
             ToBehaviour::ReadyToSend => {
-                self.schedule_send_message(peer_id, connection_id);
+                self.handle_ready_to_send(peer_id, connection_id);
             }
             ToBehaviour::MessageSuccess(message) => {
                 self.schedule_event_to_swarm(EventToSwarm::MessageSuccess(message));
             }
-            ToBehaviour::SendError(reason) => {
-                self.schedule_event_to_swarm(EventToSwarm::SendError {
-                    reason,
-                    peer_id,
-                    connection_id,
-                });
+            ToBehaviour::Dropped(reason) => {
+                self.handle_dropped_connection(peer_id, connection_id, reason.as_ref());
             }
         }
     }

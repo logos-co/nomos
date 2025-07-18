@@ -140,8 +140,8 @@ pub enum ToBehaviour {
     ReadyToSend,
     /// Notify the behaviour that the message was sent successfully.
     MessageSuccess(Vec<u8>),
-    /// Notify the behaviour that the message could not be sent.
-    SendError(FailureReason),
+    /// Notify the behaviour that the connection has been dropped.
+    Dropped(Option<FailureReason>),
 }
 
 impl ConnectionHandler for EdgeToCoreBlendConnectionHandler {
