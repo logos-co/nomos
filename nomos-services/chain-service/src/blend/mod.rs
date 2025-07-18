@@ -1,6 +1,6 @@
 pub mod adapters;
 
-use nomos_blend_service::{backends::BlendBackend, network::NetworkAdapter, BlendService};
+use nomos_blend_service::core::{backends::BlendBackend, network::NetworkAdapter, BlendService};
 use nomos_core::block::Block;
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 use serde::{de::DeserializeOwned, Serialize};
