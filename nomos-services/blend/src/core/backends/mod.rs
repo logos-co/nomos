@@ -8,7 +8,7 @@ use nomos_blend_scheduling::membership::Membership;
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
 
-use crate::BlendConfig;
+use crate::core::BlendConfig;
 
 /// A trait for blend backends that send messages to the blend network.
 #[async_trait::async_trait]

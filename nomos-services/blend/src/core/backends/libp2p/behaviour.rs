@@ -4,7 +4,7 @@ use libp2p::{allow_block_list::BlockedPeers, connection_limits::ConnectionLimits
 use nomos_blend_network::core::ObservationWindowTokioIntervalProvider;
 use nomos_libp2p::NetworkBehaviour;
 
-use crate::{backends::libp2p::Libp2pBlendBackendSettings, BlendConfig};
+use crate::core::{backends::libp2p::Libp2pBlendBackendSettings, BlendConfig};
 
 #[derive(NetworkBehaviour)]
 pub(super) struct BlendBehaviour {

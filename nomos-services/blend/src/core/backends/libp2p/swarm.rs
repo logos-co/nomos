@@ -7,7 +7,7 @@ use nomos_libp2p::{ed25519, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
 
-use crate::{
+use crate::core::{
     backends::libp2p::{
         behaviour::{BlendBehaviour, BlendBehaviourEvent},
         Libp2pBlendBackendSettings, LOG_TARGET,

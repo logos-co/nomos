@@ -4,7 +4,7 @@ use nomos_blend_scheduling::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::settings::TimingSettings;
+use crate::core::settings::TimingSettings;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BlendEdgeSettings<BackendSettings, NodeId> {
