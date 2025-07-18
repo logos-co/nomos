@@ -90,21 +90,21 @@ impl Downloader {
                 Duration::from_secs(TIMEOUT_IN_SEC),
                 unpack_from_reader(&mut stream),
             )
-            .await
-            .map_err(|e| {
-                error!("Timeout while receiving blocks from peer {}", peer_id);
-                ChainSyncError::from((peer_id, e))
-            })?
-            .map_err(|e| {
-                error!("Failed to receive blocks from peer {}: {}", peer_id, e);
-                ChainSyncError::from((peer_id, e))
-            })?;
+            .await;
 
             match response {
-                DownloadBlocksResponse::Block(block) => Ok(Some((block, stream))),
-                DownloadBlocksResponse::NoMoreBlocks => {
+                Ok(Ok(DownloadBlocksResponse::Block(block))) => Ok(Some((block, stream))),
+                Ok(Ok(DownloadBlocksResponse::NoMoreBlocks)) => {
                     utils::close_stream(peer_id, stream).await?;
                     Ok(None)
+                }
+                Ok(Err(e)) => {
+                    let _ = utils::close_stream(peer_id, stream).await;
+                    Err(ChainSyncError::from((peer_id, e)))
+                }
+                Err(e) => {
+                    let _ = utils::close_stream(peer_id, stream).await;
+                    Err(ChainSyncError::from((peer_id, e)))
                 }
             }
         });
