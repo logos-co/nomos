@@ -1,6 +1,11 @@
-use std::{collections::HashSet, fmt::Debug, hash::Hash};
+use std::{
+    collections::{BTreeSet, HashSet},
+    fmt::Debug,
+    hash::Hash,
+};
 
 use rand::RngCore;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     versions::history_aware_refill::assignations::HistoryAwareRefill, MembershipCreator,
@@ -11,11 +16,26 @@ pub mod assignations;
 mod participant;
 mod subnetwork;
 
-#[derive(Clone)]
-pub struct HistoryAware<Id> {
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HistoryAware<Id>
+where
+    Id: Ord, // Necessary for deserialization
+{
     assignations: assignations::Assignations<Id>,
     subnetwork_size: usize,
     replication_factor: usize,
+}
+
+impl<Id: Ord> HistoryAware<Id> {
+    pub fn new(subnetwork_size: usize, replication_factor: usize) -> Self {
+        Self {
+            assignations: std::iter::repeat_with(BTreeSet::new)
+                .take(subnetwork_size)
+                .collect(),
+            subnetwork_size,
+            replication_factor,
+        }
+    }
 }
 
 impl<Id> MembershipHandler for HistoryAware<Id>

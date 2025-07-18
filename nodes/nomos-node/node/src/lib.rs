@@ -52,7 +52,7 @@ use nomos_time::backends::NtpTimeBackend;
 pub use nomos_tracing_service::Tracing;
 use overwatch::derive_services;
 use serde::{de::DeserializeOwned, Serialize};
-use subnetworks_assignations::versions::v1::FillFromNodeList;
+use subnetworks_assignations::versions::history_aware_refill::HistoryAware;
 
 pub use crate::config::{Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs};
 use crate::{
@@ -80,7 +80,7 @@ impl StorageSerde for Wire {
 }
 
 /// Membership used by the DA Network service.
-pub type NomosDaMembership = FillFromNodeList;
+pub type NomosDaMembership = HistoryAware<PeerId>;
 pub type DaMembershipStorage = MockStorage;
 pub type DaNetworkApiAdapter = HttApiAdapter<DaMembershipHandler<NomosDaMembership>, DaAddressbook>;
 
