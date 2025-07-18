@@ -13,7 +13,6 @@ use crate::serde::ed25519_pubkey_hex;
 #[derive(Clone, Debug)]
 pub struct Membership<NodeId> {
     remote_nodes: Vec<Node<NodeId>>,
-    local_node: Node<NodeId>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -29,25 +28,23 @@ pub struct Node<Id> {
     pub public_key: Ed25519PublicKey,
 }
 
-impl<NodeId> Membership<NodeId> {
+impl<NodeId> Membership<NodeId>
+where
+    NodeId: Clone,
+{
     #[must_use]
-    pub fn new(nodes: Vec<Node<NodeId>>, local_public_key: &Ed25519PublicKey) -> Self {
-        let mut remote_nodes = Vec::with_capacity(nodes.len() - 1);
-        let mut local_node = None;
-        for node in nodes {
-            if node.public_key == *local_public_key {
-                local_node = Some(node);
-            } else {
-                remote_nodes.push(node);
-            }
-        }
-
+    pub fn new(nodes: &[Node<NodeId>], local_public_key: Option<&Ed25519PublicKey>) -> Self {
         Self {
-            remote_nodes,
-            local_node: local_node.expect("Local node not found"),
+            remote_nodes: nodes
+                .iter()
+                .filter(|node| !matches!(local_public_key, Some(key) if node.public_key == *key))
+                .cloned()
+                .collect(),
         }
     }
+}
 
+impl<NodeId> Membership<NodeId> {
     pub fn choose_remote_nodes<R: Rng>(
         &self,
         rng: &mut R,
@@ -56,10 +53,7 @@ impl<NodeId> Membership<NodeId> {
         self.remote_nodes.choose_multiple(rng, amount)
     }
 
-    pub const fn local_node(&self) -> &Node<NodeId> {
-        &self.local_node
-    }
-
+    #[must_use]
     pub const fn size(&self) -> usize {
         self.remote_nodes.len() + 1
     }

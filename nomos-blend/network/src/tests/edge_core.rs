@@ -1,108 +1,38 @@
-use core::task::{Context, Poll, Waker};
-use std::collections::VecDeque;
+use std::task::{Context, Poll};
 
 use futures::StreamExt as _;
 use libp2p::{
     core::{transport::PortUse, Endpoint},
     swarm::{
-        ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, NotifyHandler, SwarmEvent,
-        THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+        ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, SwarmEvent, THandler,
+        THandlerInEvent, THandlerOutEvent, ToSwarm,
     },
     Multiaddr, PeerId, Swarm, SwarmBuilder,
 };
+use nomos_blend_scheduling::membership::Membership;
+use rand::rngs::OsRng;
 
-use crate::edge::handler::{EdgeToCoreBlendConnectionHandler, FromBehaviour};
+use crate::edge::{self, handler::ToBehaviour, Error};
 
-pub(super) struct TestEdgeSenderBehaviour {
-    events_from_handler: VecDeque<THandlerOutEvent<Self>>,
-    events_to_handler: VecDeque<THandlerInEvent<Self>>,
-    waker: Option<Waker>,
-    peer_details: Option<(PeerId, ConnectionId)>,
+pub async fn edge_sender_swarm() -> (Swarm<edge::Behaviour<OsRng>>, Multiaddr) {
+    swarm(edge::Behaviour::new(None, OsRng)).await
 }
 
-impl TestEdgeSenderBehaviour {
-    pub(super) fn new() -> Self {
-        Self {
-            events_from_handler: VecDeque::new(),
-            events_to_handler: VecDeque::new(),
-            waker: None,
-            peer_details: None,
-        }
-    }
-
-    pub(super) fn send_message(&mut self, message: Vec<u8>) {
-        self.events_to_handler
-            .push_back(FromBehaviour::Message(message));
-    }
+pub async fn no_message_edge_sender_swarm() -> (Swarm<NoMessageSendBehaviour>, Multiaddr) {
+    swarm(NoMessageSendBehaviour {
+        inner: edge::Behaviour::new(None, OsRng),
+    })
+    .await
 }
 
-impl NetworkBehaviour for TestEdgeSenderBehaviour {
-    type ConnectionHandler = EdgeToCoreBlendConnectionHandler;
-    type ToSwarm = THandlerOutEvent<Self>;
-
-    fn handle_established_inbound_connection(
-        &mut self,
-        _connection_id: ConnectionId,
-        _peer: PeerId,
-        _local_addr: &Multiaddr,
-        _remote_addr: &Multiaddr,
-    ) -> Result<THandler<Self>, ConnectionDenied> {
-        Err(ConnectionDenied::new("Inbound connection denied"))
-    }
-
-    fn handle_established_outbound_connection(
-        &mut self,
-        connection_id: ConnectionId,
-        peer: PeerId,
-        _addr: &Multiaddr,
-        _role_override: Endpoint,
-        _port_use: PortUse,
-    ) -> Result<THandler<Self>, ConnectionDenied> {
-        self.peer_details = Some((peer, connection_id));
-        Ok(EdgeToCoreBlendConnectionHandler::new())
-    }
-
-    fn on_swarm_event(&mut self, _event: FromSwarm) {}
-
-    fn on_connection_handler_event(
-        &mut self,
-        _peer_id: PeerId,
-        _connection_id: ConnectionId,
-        event: THandlerOutEvent<Self>,
-    ) {
-        self.events_from_handler.push_back(event);
-        if let Some(waker) = self.waker.take() {
-            waker.wake();
-        }
-    }
-
-    fn poll(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
-        let Some(peer_details) = self.peer_details else {
-            return Poll::Pending;
-        };
-        if let Some(event_to_handler) = self.events_to_handler.pop_front() {
-            return Poll::Ready(ToSwarm::NotifyHandler {
-                peer_id: peer_details.0,
-                handler: NotifyHandler::One(peer_details.1),
-                event: event_to_handler,
-            });
-        }
-        if let Some(event_from_handler) = self.events_from_handler.pop_front() {
-            return Poll::Ready(ToSwarm::GenerateEvent(event_from_handler));
-        }
-        self.waker = Some(cx.waker().clone());
-        Poll::Pending
-    }
-}
-
-pub async fn edge_sender_swarm() -> (Swarm<TestEdgeSenderBehaviour>, Multiaddr) {
+async fn swarm<Behaviour>(behaviour: Behaviour) -> (Swarm<Behaviour>, Multiaddr)
+where
+    Behaviour: NetworkBehaviour,
+{
     let mut swarm = SwarmBuilder::with_new_identity()
         .with_tokio()
         .with_quic()
-        .with_behaviour(|_| TestEdgeSenderBehaviour::new())
+        .with_behaviour(|_| behaviour)
         .unwrap()
         .build();
     let _ = swarm
@@ -112,10 +42,89 @@ pub async fn edge_sender_swarm() -> (Swarm<TestEdgeSenderBehaviour>, Multiaddr) 
     (swarm, listening_addr)
 }
 
-async fn wait_for_listening_address(swarm: &mut Swarm<TestEdgeSenderBehaviour>) -> Multiaddr {
+async fn wait_for_listening_address<Behaviour>(swarm: &mut Swarm<Behaviour>) -> Multiaddr
+where
+    Behaviour: NetworkBehaviour,
+{
     loop {
         if let Some(SwarmEvent::NewListenAddr { address, .. }) = swarm.next().await {
             break address;
         }
+    }
+}
+
+pub struct NoMessageSendBehaviour {
+    inner: edge::Behaviour<OsRng>,
+}
+
+impl NoMessageSendBehaviour {
+    pub fn send_message(&mut self, message: Vec<u8>) -> Result<(), Error> {
+        self.inner.send_message(message)
+    }
+
+    pub fn set_membership(&mut self, membership: Membership<PeerId>) {
+        self.inner.set_membership(membership);
+    }
+}
+
+impl NetworkBehaviour for NoMessageSendBehaviour {
+    type ConnectionHandler = <edge::Behaviour<OsRng> as NetworkBehaviour>::ConnectionHandler;
+    type ToSwarm = <edge::Behaviour<OsRng> as NetworkBehaviour>::ToSwarm;
+
+    fn handle_established_inbound_connection(
+        &mut self,
+        connection_id: ConnectionId,
+        peer: PeerId,
+        local_addr: &Multiaddr,
+        remote_addr: &Multiaddr,
+    ) -> Result<THandler<Self>, ConnectionDenied> {
+        self.inner.handle_established_inbound_connection(
+            connection_id,
+            peer,
+            local_addr,
+            remote_addr,
+        )
+    }
+
+    fn handle_established_outbound_connection(
+        &mut self,
+        connection_id: ConnectionId,
+        peer: PeerId,
+        addr: &Multiaddr,
+        role_override: Endpoint,
+        port_use: PortUse,
+    ) -> Result<THandler<Self>, ConnectionDenied> {
+        self.inner.handle_established_outbound_connection(
+            connection_id,
+            peer,
+            addr,
+            role_override,
+            port_use,
+        )
+    }
+
+    fn on_swarm_event(&mut self, event: FromSwarm) {
+        self.inner.on_swarm_event(event);
+    }
+
+    fn on_connection_handler_event(
+        &mut self,
+        peer_id: PeerId,
+        connection_id: ConnectionId,
+        event: THandlerOutEvent<Self>,
+    ) {
+        if matches!(event, ToBehaviour::ReadyToSend) {
+            // Do not send messages in this behaviour.
+            return;
+        }
+        self.inner
+            .on_connection_handler_event(peer_id, connection_id, event);
+    }
+
+    fn poll(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+        self.inner.poll(cx)
     }
 }

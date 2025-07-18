@@ -2,11 +2,11 @@ use std::io;
 
 use libp2p::{swarm::ConnectionId, PeerId};
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// There were no peers to send a message to.
+    #[error("No peers to send a message to")]
     NoPeers,
-    /// IO error from peer
+    #[error("IO error from peer {peer_id:?} connection {connection_id:?}: {error}")]
     PeerIOError {
         error: io::Error,
         peer_id: PeerId,

@@ -1,5 +1,6 @@
+mod behaviour;
+mod error;
 pub(crate) mod handler;
 
-// TODO: Remove test flag once the component is integrated.
-#[cfg(test)]
-pub use handler::EdgeToCoreBlendConnectionHandler;
+pub use behaviour::{Behaviour, EventToSwarm};
+pub use error::Error;

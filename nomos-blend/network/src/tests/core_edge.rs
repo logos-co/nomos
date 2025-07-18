@@ -13,6 +13,8 @@ use libp2p::{
     },
     Multiaddr, PeerId, Swarm, SwarmBuilder,
 };
+use nomos_blend_message::crypto::Ed25519PrivateKey;
+use nomos_blend_scheduling::membership::Node;
 
 use crate::core::handler::core_edge::CoreToEdgeBlendConnectionHandler;
 
@@ -88,7 +90,7 @@ impl NetworkBehaviour for TestCoreReceiverBehaviour {
 
 pub async fn core_receiver_swarm(
     timeout: Duration,
-) -> (Swarm<TestCoreReceiverBehaviour>, Multiaddr) {
+) -> (Swarm<TestCoreReceiverBehaviour>, Node<PeerId>) {
     let mut swarm = SwarmBuilder::with_new_identity()
         .with_tokio()
         .with_quic()
@@ -99,7 +101,12 @@ pub async fn core_receiver_swarm(
         .listen_on("/ip4/127.0.0.1/udp/0/quic-v1".parse().unwrap())
         .unwrap();
     let listening_addr = wait_for_listening_address(&mut swarm).await;
-    (swarm, listening_addr)
+    let node = Node {
+        id: *swarm.local_peer_id(),
+        address: listening_addr,
+        public_key: Ed25519PrivateKey::generate().public_key(),
+    };
+    (swarm, node)
 }
 
 async fn wait_for_listening_address(swarm: &mut Swarm<TestCoreReceiverBehaviour>) -> Multiaddr {
