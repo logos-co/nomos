@@ -6,13 +6,13 @@ use crate::{
         gas::{Gas, GasConstants, GasCost},
         ledger::Tx as LedgerTx,
         ops::Op,
-        Transaction, TransactionHasher,
+        AuthenticatedMantleTx, Transaction, TransactionHasher,
     },
+    proofs::zksig::{DummyZkSignature as ZkSignature, ZkSignatureProof},
     utils::serde_bytes_newtype,
 };
 
 pub type OpProof = ();
-pub type ZkSignature = ();
 /// The hash of a transaction
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, PartialOrd, Ord)]
 pub struct TxHash(pub [u8; 32]);
@@ -22,6 +22,12 @@ serde_bytes_newtype!(TxHash, 32);
 impl From<[u8; 32]> for TxHash {
     fn from(bytes: [u8; 32]) -> Self {
         Self(bytes)
+    }
+}
+
+impl From<TxHash> for [u8; 32] {
+    fn from(hash: TxHash) -> Self {
+        hash.0
     }
 }
 
@@ -80,7 +86,7 @@ impl From<SignedMantleTx> for MantleTx {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignedMantleTx {
     pub mantle_tx: MantleTx,
     pub ops_profs: Vec<OpProof>,
@@ -94,6 +100,16 @@ impl Transaction for SignedMantleTx {
 
     fn as_sign_bytes(&self) -> bytes::Bytes {
         self.mantle_tx.as_sign_bytes()
+    }
+}
+
+impl AuthenticatedMantleTx for SignedMantleTx {
+    fn mantle_tx(&self) -> &MantleTx {
+        &self.mantle_tx
+    }
+
+    fn ledger_tx_proof(&self) -> &impl ZkSignatureProof {
+        &self.ledger_tx_proof
     }
 }
 

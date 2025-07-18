@@ -13,8 +13,11 @@ pub mod ops;
 pub mod select;
 pub mod tx;
 
+pub use gas::{GasConstants, GasCost};
 pub use ledger::{Note, NoteId, Utxo, Value};
-pub use tx::{MantleTx, SignedMantleTx};
+pub use tx::{MantleTx, SignedMantleTx, TxHash};
+
+use crate::proofs::zksig::ZkSignatureProof;
 
 pub type TransactionHasher<T> = fn(&T) -> <T as Transaction>::Hash;
 
@@ -30,6 +33,33 @@ pub trait Transaction {
     /// to produce the transaction's unique hash, which is what is typically
     /// signed by the transaction originator.
     fn as_sign_bytes(&self) -> Bytes;
+}
+
+pub trait AuthenticatedMantleTx: Transaction<Hash = TxHash> + GasCost {
+    /// Returns the underlying `MantleTx` that this transaction represents.
+    fn mantle_tx(&self) -> &MantleTx;
+
+    /// Returns the proof of the ledger transaction
+    fn ledger_tx_proof(&self) -> &impl ZkSignatureProof;
+}
+
+impl<T: Transaction> Transaction for &T {
+    const HASHER: TransactionHasher<Self> = |tx| T::HASHER(tx);
+    type Hash = T::Hash;
+
+    fn as_sign_bytes(&self) -> Bytes {
+        T::as_sign_bytes(self)
+    }
+}
+
+impl<T: AuthenticatedMantleTx> AuthenticatedMantleTx for &T {
+    fn mantle_tx(&self) -> &MantleTx {
+        T::mantle_tx(self)
+    }
+
+    fn ledger_tx_proof(&self) -> &impl ZkSignatureProof {
+        T::ledger_tx_proof(self)
+    }
 }
 
 pub trait TxSelect {
