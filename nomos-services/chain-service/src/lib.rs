@@ -635,7 +635,7 @@ where
                             cryptarchia,
                             block,
                             &mut block_processor,
-                            Some(&state_updater),
+                            &state_updater,
                         ).await;
 
                         info!(counter.consensus_processed_blocks = 1);
@@ -666,11 +666,11 @@ where
                             if let Some(block) = block {
                                 // apply our own block
                                 cryptarchia = Self::process_block_and_update_service_state(
-                                                            cryptarchia,
-                                                            block.clone(),
-                                                            &mut block_processor,
-                                                            Some(&state_updater),
-                                                        ).await;
+                                    cryptarchia,
+                                    block.clone(),
+                                    &mut block_processor,
+                                    &state_updater,
+                                ).await;
                                 blend_adapter.blend(block).await;
                             }
                         }
@@ -1036,10 +1036,6 @@ where
         }
     }
 
-    #[expect(
-        clippy::type_complexity,
-        reason = "NomosBlockProcessor and CryptarchiaConsensusStateUpdater amount of generics."
-    )]
     async fn process_block_and_update_service_state<CryptarchiaState>(
         cryptarchia: Cryptarchia<CryptarchiaState>,
         block: Block<ClPool::Item, DaPool::Item>,
@@ -1052,21 +1048,19 @@ where
             Storage,
             RuntimeServiceId,
         >,
-        service_state_updater: Option<
-            &CryptarchiaConsensusStateUpdater<
-                '_,
-                TxS::Settings,
-                BS::Settings,
-                NetAdapter::Settings,
-                BlendAdapter::Settings,
-            >,
+        service_state_updater: &CryptarchiaConsensusStateUpdater<
+            '_,
+            TxS::Settings,
+            BS::Settings,
+            NetAdapter::Settings,
+            BlendAdapter::Settings,
         >,
     ) -> Cryptarchia<CryptarchiaState>
     where
         CryptarchiaState: cryptarchia_engine::CryptarchiaState + Send,
     {
         match block_processor
-            .process_block(cryptarchia, block, service_state_updater)
+            .process_block(cryptarchia, block, Some(service_state_updater))
             .await
         {
             Ok(cryptarchia) => cryptarchia,
