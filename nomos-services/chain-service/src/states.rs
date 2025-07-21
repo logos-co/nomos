@@ -1,9 +1,11 @@
 use std::{collections::HashSet, marker::PhantomData};
 
-use cryptarchia_engine::CryptarchiaState;
 use nomos_core::{header::HeaderId, mantle::Utxo};
 use nomos_ledger::LedgerState;
-use overwatch::{services::state::ServiceState, DynError};
+use overwatch::{
+    services::state::{ServiceState, StateUpdater},
+    DynError,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{leadership::Leader, Cryptarchia, CryptarchiaSettings, Error};
@@ -32,8 +34,10 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
     /// Furthermore, it allows to specify blocks deleted from the cryptarchia
     /// engine (hence not tracked anymore) but that should be deleted from the
     /// persistence layer.
-    pub(crate) fn from_cryptarchia_and_unpruned_blocks<State: CryptarchiaState>(
-        cryptarchia: &Cryptarchia<State>,
+    pub(crate) fn from_cryptarchia_and_unpruned_blocks<
+        CryptarchiaState: cryptarchia_engine::CryptarchiaState,
+    >(
+        cryptarchia: &Cryptarchia<CryptarchiaState>,
         leader: &Leader,
         storage_blocks_to_remove: HashSet<HeaderId>,
     ) -> Result<Self, DynError> {
@@ -78,6 +82,51 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> ServiceState
                 _markers: PhantomData,
             }
         })
+    }
+}
+
+pub struct CryptarchiaConsensusStateUpdater<
+    'a,
+    TxS,
+    BxS,
+    NetworkAdapterSettings,
+    BlendAdapterSettings,
+> {
+    state_updater: StateUpdater<
+        Option<CryptarchiaConsensusState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>>,
+    >,
+    leader: &'a Leader,
+}
+
+impl<'a, TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
+    CryptarchiaConsensusStateUpdater<'a, TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
+{
+    pub const fn new(
+        state_updater: StateUpdater<
+            Option<
+                CryptarchiaConsensusState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>,
+            >,
+        >,
+        leader: &'a Leader,
+    ) -> Self {
+        Self {
+            state_updater,
+            leader,
+        }
+    }
+
+    pub fn update<CryptarchiaState: cryptarchia_engine::CryptarchiaState>(
+        &self,
+        cryptarchia: &Cryptarchia<CryptarchiaState>,
+        storage_blocks_to_remove: HashSet<HeaderId>,
+    ) -> Result<(), DynError> {
+        let state = CryptarchiaConsensusState::from_cryptarchia_and_unpruned_blocks(
+            cryptarchia,
+            self.leader,
+            storage_blocks_to_remove,
+        )?;
+        self.state_updater.update(Some(state));
+        Ok(())
     }
 }
 

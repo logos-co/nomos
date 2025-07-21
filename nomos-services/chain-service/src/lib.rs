@@ -59,7 +59,7 @@ use crate::{
     leadership::Leader,
     processor::{BlockProcessor as _, NomosBlockProcessor},
     relays::CryptarchiaConsensusRelays,
-    states::CryptarchiaConsensusState,
+    states::{CryptarchiaConsensusState, CryptarchiaConsensusStateUpdater},
     storage::{adapters::StorageAdapter, StorageAdapterExt as _},
     sync::block_provider::BlockProvider,
 };
@@ -73,12 +73,16 @@ const CRYPTARCHIA_ID: &str = "Cryptarchia";
 
 pub(crate) const LOG_TARGET: &str = "cryptarchia::service";
 
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Error)]
 pub enum Error {
     #[error("Ledger error: {0}")]
     Ledger(#[from] nomos_ledger::LedgerError<HeaderId>),
     #[error("Consensus error: {0}")]
     Consensus(#[from] cryptarchia_engine::Error<HeaderId>),
+    #[error("Blob is not found from the sampled blobs")]
+    SampledBlobNotFound,
+    #[error("Failed to validate blobs: {0}")]
+    BlobValidationFailure(DynError),
 }
 
 #[derive(Clone)]
@@ -562,17 +566,21 @@ where
             storage,
             &relays,
             self.block_subscription_sender.clone(),
-            self.service_resources_handle.state_updater.clone(),
-            &leader,
             // These are blocks that have been pruned by the cryptarchia engine but have not
             // yet been deleted from the storage layer.
             self.initial_state.storage_blocks_to_remove.clone(),
         );
 
+        // Create a state updater
+        let state_updater = CryptarchiaConsensusStateUpdater::new(
+            self.service_resources_handle.state_updater.clone(),
+            &leader,
+        );
+
         // Recover cryptarchia by loading blocks from the storage.
         let mut cryptarchia = self
             .recovery_cryptarchia(cryptarchia, &mut block_processor, storage)
-            .await;
+            .await?;
 
         let network_adapter =
             NetAdapter::new(network_adapter_settings, relays.network_relay().clone()).await;
@@ -622,10 +630,11 @@ where
                     Some(block) = incoming_blocks.next() => {
                         Self::log_received_block(&block);
 
-                        // Process the received block and update the cryptarchia state.
-                        cryptarchia = block_processor.process_block_and_update_service_state(
+                        cryptarchia = Self::process_block_and_update_service_state(
                             cryptarchia,
-                            block.clone(),
+                            block,
+                            &mut block_processor,
+                            Some(&state_updater),
                         ).await;
 
                         info!(counter.consensus_processed_blocks = 1);
@@ -655,11 +664,12 @@ where
 
                             if let Some(block) = block {
                                 // apply our own block
-                                cryptarchia = block_processor.process_block_and_update_service_state(
-                                    cryptarchia,
-                                    block.clone(),
-                                )
-                                .await;
+                                cryptarchia = Self::process_block_and_update_service_state(
+                                                            cryptarchia,
+                                                            block.clone(),
+                                                            &mut block_processor,
+                                                            Some(&state_updater),
+                                                        ).await;
                                 blend_adapter.blend(block).await;
                             }
                         }
@@ -874,7 +884,7 @@ where
         let mut output = None;
         let cl_txs = get_mempool_contents(relays.cl_mempool_relay().clone());
         let da_certs = get_mempool_contents(relays.da_mempool_relay().clone());
-        let blobs_ids = get_sampled_blobs(relays.sampling_relay().clone());
+        let blobs_ids = get_sampled_blobs(relays.sampling_relay());
         match futures::join!(cl_txs, da_certs, blobs_ids) {
             (Ok(cl_txs), Ok(da_blobs_info), Ok(blobs_ids)) => {
                 let block = BlockBuilder::new(
@@ -965,7 +975,7 @@ where
             RuntimeServiceId,
         >,
         storage: &StorageAdapter<Storage, ClPool::Item, DaPool::Item, RuntimeServiceId>,
-    ) -> Cryptarchia<State>
+    ) -> Result<Cryptarchia<State>, Error>
     where
         State: CryptarchiaState + Send,
     {
@@ -978,9 +988,12 @@ where
 
         // Process blocks
         for block in blocks {
-            cryptarchia = block_processor.process_block(cryptarchia, block).await;
+            cryptarchia = block_processor
+                .process_block(cryptarchia, block, None)
+                .await
+                .map_err(|(e, _)| e)?;
         }
-        cryptarchia
+        Ok(cryptarchia)
     }
 
     async fn handle_chainsync_event<State>(
@@ -1022,6 +1035,53 @@ where
                 if let Err(e) = reply_sender.send(response).await {
                     error!("Failed to send tip header: {e}");
                 }
+            }
+        }
+    }
+
+    #[expect(
+        clippy::type_complexity,
+        reason = "NomosBlockProcessor and CryptarchiaConsensusStateUpdater amount of generics."
+    )]
+    async fn process_block_and_update_service_state<'a, CryptarchiaState>(
+        cryptarchia: Cryptarchia<CryptarchiaState>,
+        block: Block<ClPool::Item, DaPool::Item>,
+        block_processor: &mut NomosBlockProcessor<
+            'a,
+            BlendAdapter,
+            BS,
+            ClPool,
+            ClPoolAdapter,
+            DaPool,
+            DaPoolAdapter,
+            NetAdapter,
+            SamplingBackend,
+            Storage,
+            TxS,
+            DaVerifierBackend,
+            RuntimeServiceId,
+        >,
+        service_state_updater: Option<
+            &CryptarchiaConsensusStateUpdater<
+                'a,
+                TxS::Settings,
+                BS::Settings,
+                NetAdapter::Settings,
+                BlendAdapter::Settings,
+            >,
+        >,
+    ) -> Cryptarchia<CryptarchiaState>
+    where
+        CryptarchiaState: cryptarchia_engine::CryptarchiaState + Send,
+    {
+        match block_processor
+            .process_block(cryptarchia, block, service_state_updater)
+            .await
+        {
+            Ok(cryptarchia) => cryptarchia,
+            Err((e, cryptarchia)) => {
+                error!("Failed to process block: {e}");
+                cryptarchia
             }
         }
     }
@@ -1071,43 +1131,14 @@ where
     rx.await
 }
 
-async fn mark_in_block<Payload, Item, Key>(
-    mempool: OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>,
-    ids: impl Iterator<Item = Key>,
-    block: HeaderId,
-) where
-    Key: Send,
-    Payload: Send,
-{
-    mempool
-        .send(MempoolMsg::MarkInBlock {
-            ids: ids.collect(),
-            block,
-        })
-        .await
-        .unwrap_or_else(|(e, _)| error!("Could not mark items in block: {e}"));
-}
-
-async fn mark_blob_in_block<BlobId: Debug + Send>(
-    sampling_relay: SamplingRelay<BlobId>,
-    blobs_id: Vec<BlobId>,
-) {
-    if let Err((_e, DaSamplingServiceMsg::MarkInBlock { blobs_id })) = sampling_relay
-        .send(DaSamplingServiceMsg::MarkInBlock { blobs_id })
-        .await
-    {
-        error!("Error marking in block for blobs ids: {blobs_id:?}");
-    }
-}
-
-async fn get_sampled_blobs<BlobId>(
-    sampling_relay: SamplingRelay<BlobId>,
+pub(crate) async fn get_sampled_blobs<BlobId>(
+    relay: &SamplingRelay<BlobId>,
 ) -> Result<BTreeSet<BlobId>, DynError>
 where
     BlobId: Send,
 {
     let (sender, receiver) = oneshot::channel();
-    sampling_relay
+    relay
         .send(DaSamplingServiceMsg::GetValidatedBlobs {
             reply_channel: sender,
         })
