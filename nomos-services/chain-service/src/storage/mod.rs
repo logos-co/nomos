@@ -1,6 +1,6 @@
 pub mod adapters;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use cryptarchia_engine::Slot;
 use futures::{future::join_all, StreamExt as _};
