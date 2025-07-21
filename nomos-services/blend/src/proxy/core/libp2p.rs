@@ -8,8 +8,10 @@ use crate::{
         BlendService,
     },
     message::ServiceMessage,
-    proxy::core::{Adapter, LOG_TARGET},
+    proxy::core::Adapter,
 };
+
+const LOG_TARGET: &str = "blend::service::proxy::core::libp2p";
 
 pub struct Libp2pAdapter<RuntimeServiceId> {
     relay: OutboundRelay<<BlendServiceType<RuntimeServiceId> as ServiceData>::Message>,
