@@ -1,6 +1,6 @@
 use std::{collections::HashSet, time::Duration};
 
-use chain_service::ConsensusMode;
+use chain_service::ConsensusModeInfo;
 use futures::stream::{self, StreamExt as _};
 use nomos_libp2p::PeerId;
 use tests::{
@@ -37,7 +37,7 @@ async fn test_ibd_behind_nodes() {
         "Waiting for initial validators to reach at least min_blocks ({min_blocks}) but still be in bootstrapping mode...",
     );
 
-    wait_for_validators_mode_and_height(&validators, min_blocks, ConsensusMode::Bootstrapping)
+    wait_for_validators_mode_and_height(&validators, min_blocks, ConsensusModeInfo::Bootstrapping)
         .await;
 
     let initial_peer_ids: HashSet<PeerId> = general_configs
@@ -62,7 +62,8 @@ async fn test_ibd_behind_nodes() {
         "Waiting for initial validators to reach target_blocks ({target_blocks}) and switch to online mode...",
     );
 
-    wait_for_validators_mode_and_height(&validators, target_blocks, ConsensusMode::Online).await;
+    wait_for_validators_mode_and_height(&validators, target_blocks, ConsensusModeInfo::Online)
+        .await;
 
     println!("Starting behind node with IBD peers...");
 
@@ -94,7 +95,7 @@ async fn test_ibd_behind_nodes() {
 async fn wait_for_validators_mode_and_height(
     validators: &[Validator],
     min_height: u32,
-    mode: ConsensusMode,
+    mode: ConsensusModeInfo,
 ) {
     loop {
         let infos: Vec<_> = stream::iter(validators)

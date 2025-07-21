@@ -967,7 +967,7 @@ where
                 }
 
                 Some(msg) = self.service_resources_handle.inbound_relay.next() => {
-                    Self::process_message(&cryptarchia, &self.block_subscription_sender, msg, ConsensusMode::Bootstrapping);
+                    Self::process_message(&cryptarchia, &self.block_subscription_sender, msg, Boostrapping);
                 }
             }
         }
@@ -1083,7 +1083,7 @@ where
                     }
 
                 Some(msg) = self.service_resources_handle.inbound_relay.next() => {
-                    Self::process_message(&cryptarchia, &self.block_subscription_sender, msg, ConsensusMode::Online);
+                    Self::process_message(&cryptarchia, &self.block_subscription_sender, msg, Online);
                 }
             }
         }
@@ -1221,11 +1221,11 @@ where
         cryptarchia
     }
 
-    fn process_message<State: CryptarchiaState + 'static>(
+    fn process_message<State: CryptarchiaState + 'static, Mode: Into<ConsensusModeInfo>>(
         cryptarchia: &Cryptarchia<State>,
         block_channel: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
         msg: ConsensusMsg<Block<ClPool::Item, DaPool::Item>>,
-        mode: ConsensusMode,
+        mode: Mode,
     ) {
         match msg {
             ConsensusMsg::Info { tx } => {
@@ -1242,7 +1242,7 @@ where
                         .get(&cryptarchia.tip())
                         .expect("tip branch not available")
                         .length(),
-                    mode,
+                    mode: mode.into(),
                 };
                 tx.send(info).unwrap_or_else(|e| {
                     error!("Could not send consensus info through channel: {:?}", e);
@@ -1613,14 +1613,26 @@ pub struct CryptarchiaInfo {
     pub tip: HeaderId,
     pub slot: Slot,
     pub height: u64,
-    pub mode: ConsensusMode,
+    pub mode: ConsensusModeInfo,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub enum ConsensusMode {
+pub enum ConsensusModeInfo {
     Bootstrapping,
     Online,
+}
+
+impl From<Boostrapping> for ConsensusModeInfo {
+    fn from(_: Boostrapping) -> Self {
+        Self::Bootstrapping
+    }
+}
+
+impl From<Online> for ConsensusModeInfo {
+    fn from(_: Online) -> Self {
+        Self::Online
+    }
 }
 
 async fn get_mempool_contents<Payload, Item, Key>(
