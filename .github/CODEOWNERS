@@ -1,18 +1,17 @@
 # Consensus
-/consensus/ @zeegomo @youngjoon-lee
-/nomos-services/chain-service @zeegomo @youngjoon-lee
+/consensus/ @zeegomo @youngjoon-lee @davidrusu
+/nomos-services/chain-service @zeegomo @youngjoon-lee @danielSanchezQ
 
 # Mantle
-/ledger/ @zeegomo @danielSanchezQ
-/nomos-mantle/ @zeegomo @danielSanchezQ
+/ledger/ @zeegomo @danielSanchezQ @davidrusu @bacv
 
 # Blend
 /nomos-blend/  @youngjoon-lee @ntn-x2
 /nomos-services/blend @youngjoon-lee @ntn-x2
 
 # DA
-/nomos-services/data-availability @danielSanchezQ @bacv
-/nomos-da/ @danielSanchezQ @bacv
+/nomos-services/data-availability @danielSanchezQ @bacv @pradovic
+/nomos-da/ @danielSanchezQ @bacv @pradovic
 
 # SDP
 /nomos-sdp/ @bacv @pradovic
