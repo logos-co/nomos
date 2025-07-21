@@ -140,7 +140,7 @@ where
     ) -> BoxStream<'static, Result<Bytes, DynError>> {
         let storage = self.storage_relay.clone();
 
-        // Skip known block
+        // Skip a block already known to the requester.
         let path = path.into_iter().skip(1);
 
         let stream = stream::iter(path)
@@ -287,7 +287,7 @@ where
         let genesis_block_id = self
             .scan_immutable_block_ids(
                 Slot::genesis()..=Slot::genesis(),
-                NonZeroUsize::new(1).expect("MAX_NUMBER_OF_BLOCKS should be > 0"),
+                NonZeroUsize::new(1).expect("NonZeroUsize should be > 0"),
             )
             .await?
             .into_iter()
