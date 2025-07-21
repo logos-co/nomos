@@ -24,17 +24,28 @@ const LOG_TARGET: &str = "blend::network::edge::behaviour";
 
 /// A [`NetworkBehaviour`] for an edge node,
 /// which sends data messages to one of core nodes in the Blend network.
+///
+/// It sends a dialing request to the Swarm for a random core node,
+/// whenever a data message is scheduled.
+/// Once the connection is established and fully negotiated,
+/// it sends one of the messages scheduled.
+/// After that, it closes the substream.
+///
+/// It continously tracks whether additional dialing is needed.
+/// Whenever it receives [`DialFailure`] or [`FailureReason::UpgradeError`],
+/// it requests new dialings if the number of requested dials is less than
+/// the number of scheduled messages.
 pub struct Behaviour<Rng> {
     /// Queue of events to yield to the swarm.
     events: VecDeque<ToSwarm<EventToSwarm, FromBehaviour>>,
     /// Pending messages to be sent once a new connection is established.
     pending_messages: VecDeque<Vec<u8>>,
-    /// Requested dials.
-    /// Increased when a new dial is scheduled.
-    /// Decreased
-    /// - when the dial fails.
-    /// - when the connection becomes ready to send.
-    /// - when the connection has been dropped before being ready to send.
+    /// Requested dials to track whether additional dialing is needed.
+    /// - Added when a new dial is scheduled.
+    /// - Removed
+    ///   - when the dial fails.
+    ///   - when the connection becomes ready to send.
+    ///   - when the connection has been dropped before being ready to send.
     requested_dials: HashSet<(PeerId, ConnectionId)>,
     /// Waker that handles polling
     waker: Option<Waker>,
