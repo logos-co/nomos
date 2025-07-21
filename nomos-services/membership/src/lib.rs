@@ -206,7 +206,8 @@ where
                             "Error sending initial membership snapshot for service type: {:?}",
                             service_type
                         );
-                    } else if result_sender.send(Ok(stream)).is_err() {
+                    }
+                    if result_sender.send(Ok(stream)).is_err() {
                         tracing::error!(
                             "Error sending finalized updates receiver for service type: {:?}",
                             service_type
