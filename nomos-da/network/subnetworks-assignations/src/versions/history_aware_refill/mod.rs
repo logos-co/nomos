@@ -41,7 +41,7 @@ impl<Id: Ord> HistoryAware<Id> {
 
 impl<'de, Id> Deserialize<'de> for HistoryAware<Id>
 where
-    Id: Ord + Deserialize<'de>,
+    Id: Ord,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
