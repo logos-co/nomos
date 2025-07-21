@@ -65,7 +65,7 @@ use crate::{
 };
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
-type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
+pub(crate) type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
 
 // Limit the number of blocks returned by GetHeaders
 const HEADERS_LIMIT: usize = 512;
@@ -561,10 +561,11 @@ where
         );
 
         // Create a block processor.
-        let storage = relays.storage_adapter();
         let mut block_processor = NomosBlockProcessor::new(
-            storage,
-            &relays,
+            relays.storage_adapter(),
+            relays.cl_mempool_relay().clone(),
+            relays.da_mempool_relay().clone(),
+            relays.sampling_relay().clone(),
             self.block_subscription_sender.clone(),
             // These are blocks that have been pruned by the cryptarchia engine but have not
             // yet been deleted from the storage layer.
@@ -579,7 +580,7 @@ where
 
         // Recover cryptarchia by loading blocks from the storage.
         let mut cryptarchia = self
-            .recovery_cryptarchia(cryptarchia, &mut block_processor, storage)
+            .recovery_cryptarchia(cryptarchia, &mut block_processor, relays.storage_adapter())
             .await?;
 
         let network_adapter =
@@ -952,26 +953,16 @@ where
     ///   the consensus.
     /// * `block_subscription_sender` - The broadcast channel to send the blocks
     ///   to the services.
-    #[expect(
-        clippy::type_complexity,
-        reason = "CryptarchiaConsensusState and CryptarchiaConsensusRelays amount of generics."
-    )]
     async fn recovery_cryptarchia<State>(
         &self,
         mut cryptarchia: Cryptarchia<State>,
         block_processor: &mut NomosBlockProcessor<
             '_,
-            BlendAdapter,
-            BS,
             ClPool,
             ClPoolAdapter,
             DaPool,
             DaPoolAdapter,
-            NetAdapter,
-            SamplingBackend,
             Storage,
-            TxS,
-            DaVerifierBackend,
             RuntimeServiceId,
         >,
         storage: &StorageAdapter<Storage, ClPool::Item, DaPool::Item, RuntimeServiceId>,
@@ -989,7 +980,13 @@ where
         // Process blocks
         for block in blocks {
             cryptarchia = block_processor
-                .process_block(cryptarchia, block, None)
+                .process_block::<State, CryptarchiaConsensusStateUpdater<
+                    '_,
+                    TxS,
+                    BS,
+                    NetAdapter::Settings,
+                    BlendAdapter::Settings,
+                >>(cryptarchia, block, None)
                 .await
                 .map_err(|(e, _)| e)?;
         }
@@ -1043,27 +1040,21 @@ where
         clippy::type_complexity,
         reason = "NomosBlockProcessor and CryptarchiaConsensusStateUpdater amount of generics."
     )]
-    async fn process_block_and_update_service_state<'a, CryptarchiaState>(
+    async fn process_block_and_update_service_state<CryptarchiaState>(
         cryptarchia: Cryptarchia<CryptarchiaState>,
         block: Block<ClPool::Item, DaPool::Item>,
         block_processor: &mut NomosBlockProcessor<
-            'a,
-            BlendAdapter,
-            BS,
+            '_,
             ClPool,
             ClPoolAdapter,
             DaPool,
             DaPoolAdapter,
-            NetAdapter,
-            SamplingBackend,
             Storage,
-            TxS,
-            DaVerifierBackend,
             RuntimeServiceId,
         >,
         service_state_updater: Option<
             &CryptarchiaConsensusStateUpdater<
-                'a,
+                '_,
                 TxS::Settings,
                 BS::Settings,
                 NetAdapter::Settings,

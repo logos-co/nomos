@@ -85,6 +85,14 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> ServiceState
     }
 }
 
+pub trait ServiceStateUpdater {
+    fn update<CryptarchiaState: cryptarchia_engine::CryptarchiaState>(
+        &self,
+        cryptarchia: &Cryptarchia<CryptarchiaState>,
+        storage_blocks_to_remove: HashSet<HeaderId>,
+    ) -> Result<(), DynError>;
+}
+
 pub struct CryptarchiaConsensusStateUpdater<
     'a,
     TxS,
@@ -92,7 +100,7 @@ pub struct CryptarchiaConsensusStateUpdater<
     NetworkAdapterSettings,
     BlendAdapterSettings,
 > {
-    state_updater: StateUpdater<
+    updater: StateUpdater<
         Option<CryptarchiaConsensusState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>>,
     >,
     leader: &'a Leader,
@@ -102,20 +110,21 @@ impl<'a, TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
     CryptarchiaConsensusStateUpdater<'a, TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
 {
     pub const fn new(
-        state_updater: StateUpdater<
+        updater: StateUpdater<
             Option<
                 CryptarchiaConsensusState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>,
             >,
         >,
         leader: &'a Leader,
     ) -> Self {
-        Self {
-            state_updater,
-            leader,
-        }
+        Self { updater, leader }
     }
+}
 
-    pub fn update<CryptarchiaState: cryptarchia_engine::CryptarchiaState>(
+impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> ServiceStateUpdater
+    for CryptarchiaConsensusStateUpdater<'_, TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
+{
+    fn update<CryptarchiaState: cryptarchia_engine::CryptarchiaState>(
         &self,
         cryptarchia: &Cryptarchia<CryptarchiaState>,
         storage_blocks_to_remove: HashSet<HeaderId>,
@@ -125,7 +134,7 @@ impl<'a, TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
             self.leader,
             storage_blocks_to_remove,
         )?;
-        self.state_updater.update(Some(state));
+        self.updater.update(Some(state));
         Ok(())
     }
 }
