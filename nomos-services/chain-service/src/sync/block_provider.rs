@@ -331,7 +331,8 @@ where
     where
         State: CryptarchiaState + Send + Sync + 'static,
     {
-        let limit = MAX_NUMBER_OF_BLOCKS
+        // Add 1 because we remove first(known block) from the path
+        let limit = (MAX_NUMBER_OF_BLOCKS + 1)
             .try_into()
             .expect("MAX_NUMBER_OF_BLOCKS should be > 0");
 
@@ -687,7 +688,7 @@ mod tests {
 
         assert_eq!(
             retrieved_blocks.len(),
-            MAX_NUMBER_OF_BLOCKS - 1, // Subtract 1 because a known block is skipped
+            MAX_NUMBER_OF_BLOCKS,
             "Retrieved blocks should not exceed MAX_NUMBER_OF_BLOCKS minus the skipped known block"
         );
     }
