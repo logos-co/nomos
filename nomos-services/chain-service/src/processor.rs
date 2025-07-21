@@ -298,7 +298,16 @@ where
                     error!("Could not notify block to services {e}");
                 }
 
-                self.storage_blocks_to_remove.extend(pruned_blocks.all());
+                if let Err(e) = self
+                    .storage
+                    .store_immutable_block_ids(pruned_blocks.immutable_blocks().copied())
+                    .await
+                {
+                    error!("Could not store immutable blocks as immutable: {e}");
+                }
+
+                self.storage_blocks_to_remove
+                    .extend(pruned_blocks.stale_blocks());
                 return cryptarchia;
             }
             Err(
