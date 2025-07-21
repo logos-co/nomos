@@ -145,12 +145,6 @@ where
         } = self.clone();
         let new_nodes: Vec<_> = new_nodes.into_iter().collect();
 
-        tracing::info!(
-            "DEBUG: Updating assignations with {} new nodes and assignations len {}",
-            new_nodes.len(),
-            assignations.len()
-        );
-
         let assignations = HistoryAwareRefill::calculate_subnetwork_assignations(
             &new_nodes,
             assignations,
