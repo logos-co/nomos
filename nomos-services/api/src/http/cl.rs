@@ -12,20 +12,57 @@ use tokio::sync::oneshot;
 
 use crate::wait_with_timeout;
 
-pub type ClMempoolService<T, RuntimeServiceId> = TxMempoolService<
-    MempoolNetworkAdapter<T, <T as Transaction>::Hash, RuntimeServiceId>,
-    MockPool<HeaderId, T, <T as Transaction>::Hash>,
+pub type ClMempoolService<
+    Tx,
+    SamplingNetworkAdapter,
+    VerifierNetworkAdapter,
+    SamplingStorage,
+    VerifierStorage,
+    RuntimeServiceId,
+> = TxMempoolService<
+    MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
+    SamplingNetworkAdapter,
+    VerifierNetworkAdapter,
+    SamplingStorage,
+    VerifierStorage,
+    MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
     RuntimeServiceId,
 >;
 
-pub async fn cl_mempool_metrics<T, RuntimeServiceId>(
+pub async fn cl_mempool_metrics<
+    Tx,
+    SamplingNetworkAdapter,
+    VerifierNetworkAdapter,
+    SamplingStorage,
+    VerifierStorage,
+    RuntimeServiceId,
+>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
 ) -> Result<MempoolMetrics, super::DynError>
 where
-    T: Transaction + Clone + Debug + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
-    <T as Transaction>::Hash:
+    Tx: Transaction + Clone + Debug + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+    <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    RuntimeServiceId: Debug + Sync + Display + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierNetworkAdapter:
+        nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    RuntimeServiceId: Debug
+        + Sync
+        + Send
+        + Display
+        + AsServiceId<
+            ClMempoolService<
+                Tx,
+                SamplingNetworkAdapter,
+                VerifierNetworkAdapter,
+                SamplingStorage,
+                VerifierStorage,
+                RuntimeServiceId,
+            >,
+        >,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
@@ -43,15 +80,41 @@ where
     .await
 }
 
-pub async fn cl_mempool_status<T, RuntimeServiceId>(
+pub async fn cl_mempool_status<
+    Tx,
+    SamplingNetworkAdapter,
+    VerifierNetworkAdapter,
+    SamplingStorage,
+    VerifierStorage,
+    RuntimeServiceId,
+>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
-    items: Vec<<T as Transaction>::Hash>,
+    items: Vec<<Tx as Transaction>::Hash>,
 ) -> Result<Vec<Status<HeaderId>>, super::DynError>
 where
-    T: Transaction + Clone + Debug + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
-    <T as Transaction>::Hash:
+    Tx: Transaction + Clone + Debug + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+    <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    RuntimeServiceId: Debug + Sync + Display + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierNetworkAdapter:
+        nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    RuntimeServiceId: Debug
+        + Sync
+        + Send
+        + Display
+        + AsServiceId<
+            ClMempoolService<
+                Tx,
+                SamplingNetworkAdapter,
+                VerifierNetworkAdapter,
+                SamplingStorage,
+                VerifierStorage,
+                RuntimeServiceId,
+            >,
+        >,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();

@@ -443,8 +443,9 @@ where
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + Send + 'static,
     SamplingBackend::BlobId: Debug + Ord + Send + Sync + 'static,
-    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + Sync + 'static,
     DaVerifierBackend::Settings: Clone,
@@ -467,7 +468,17 @@ where
                 RuntimeServiceId,
             >,
         >
-        + AsServiceId<TxMempoolService<ClPoolAdapter, ClPool, RuntimeServiceId>>
+        + AsServiceId<
+            TxMempoolService<
+                ClPoolAdapter,
+                SamplingNetworkAdapter,
+                DaVerifierNetwork,
+                SamplingStorage,
+                DaVerifierStorage,
+                ClPool,
+                RuntimeServiceId,
+            >,
+        >
         + AsServiceId<
             DaMempoolService<
                 DaPoolAdapter,
@@ -594,7 +605,7 @@ where
             Some(Duration::from_secs(60)),
             NetworkService<_, _>,
             BlendService<_, _, _, _>,
-            TxMempoolService<_, _, _>,
+            TxMempoolService<_, _, _, _, _, _, _>,
             DaMempoolService<_, _, _, _, _, _, _, _, _>,
             DaSamplingService<_, _, _, _, _, _, _>,
             StorageService<_, _>,

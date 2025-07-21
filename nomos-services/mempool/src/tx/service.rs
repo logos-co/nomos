@@ -11,8 +11,9 @@ use std::{
 };
 
 use futures::StreamExt as _;
+use nomos_da_sampling::backend::kzgrs::KzgrsSamplingBackend;
+use nomos_da_verifier::backend::kzgrs::KzgrsDaVerifier;
 use nomos_network::{message::BackendNetworkMsg, NetworkService};
-use nomos_utils::noop_service::NoService;
 use overwatch::{
     services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},
     OpaqueServiceResourcesHandle,
@@ -28,33 +29,75 @@ use services_utils::{
 use crate::{
     backend::{MemPool, RecoverableMempool},
     network::NetworkAdapter as NetworkAdapterTrait,
-    processor::{noop::NoOpPayloadProcessor, PayloadProcessor},
+    processor::{tx::SignedTxProcessor, PayloadProcessor},
     tx::{settings::TxMempoolSettings, state::TxMempoolState},
     MempoolMetrics, MempoolMsg,
 };
 
-type NoProcessor<NetworkAdapter> = NoOpPayloadProcessor<NoService, NetworkAdapter>;
+pub type DaSamplingService<
+    SamplingNetworkAdapter,
+    VerifierNetworkAdapter,
+    SamplingStorage,
+    VerifierStorage,
+    RuntimeServiceId,
+> = nomos_da_sampling::DaSamplingService<
+    KzgrsSamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    KzgrsDaVerifier,
+    VerifierNetworkAdapter,
+    VerifierStorage,
+    RuntimeServiceId,
+>;
 
 /// A tx mempool service that uses a [`JsonFileBackend`] as a recovery
 /// mechanism.
-pub type TxMempoolService<NetworkAdapter, Pool, RuntimeServiceId> = GenericTxMempoolService<
+pub type TxMempoolService<
+    MempoolNetworkAdapter,
+    SamplingNetworkAdapter,
+    VerifierNetworkAdapter,
+    SamplingStorage,
+    VerifierStorage,
     Pool,
-    NetworkAdapter,
-    NoProcessor<<NetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Payload>,
+    RuntimeServiceId,
+> = GenericTxMempoolService<
+    Pool,
+    MempoolNetworkAdapter,
+    SignedTxProcessor<
+        DaSamplingService<
+            SamplingNetworkAdapter,
+            VerifierNetworkAdapter,
+            SamplingStorage,
+            VerifierStorage,
+            RuntimeServiceId,
+        >,
+    >,
     JsonFileBackend<
         TxMempoolState<
             <Pool as RecoverableMempool>::RecoveryState,
             <Pool as MemPool>::Settings,
-            <NetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Settings,
-            <NoProcessor<
-                <NetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Payload,
+            <MempoolNetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Settings,
+            <SignedTxProcessor<
+                DaSamplingService<
+                    SamplingNetworkAdapter,
+                    VerifierNetworkAdapter,
+                    SamplingStorage,
+                    VerifierStorage,
+                    RuntimeServiceId,
+                >,
             > as PayloadProcessor>::Settings,
         >,
         TxMempoolSettings<
             <Pool as MemPool>::Settings,
-            <NetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Settings,
-            <NoProcessor<
-                <NetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Payload,
+            <MempoolNetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Settings,
+            <SignedTxProcessor<
+                DaSamplingService<
+                    SamplingNetworkAdapter,
+                    VerifierNetworkAdapter,
+                    SamplingStorage,
+                    VerifierStorage,
+                    RuntimeServiceId,
+                >,
             > as PayloadProcessor>::Settings,
         >,
     >,

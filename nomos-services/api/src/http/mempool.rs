@@ -17,24 +17,50 @@ use tokio::sync::oneshot;
 
 use crate::wait_with_timeout;
 
-pub async fn add_tx<N, A, Item, Key, RuntimeServiceId>(
+pub async fn add_tx<
+    MempoolNetworkBackend,
+    MempoolNetworkAdapter,
+    SamplingNetworkAdapter,
+    VerifierNetworkAdapter,
+    SamplingStorage,
+    VerifierStorage,
+    Item,
+    Key,
+    RuntimeServiceId,
+>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
     item: Item,
     converter: impl Fn(&Item) -> Key,
 ) -> Result<(), DynError>
 where
-    N: NetworkBackend<RuntimeServiceId>,
-    A: NetworkAdapter<RuntimeServiceId, Backend = N, Payload = Item, Key = Key>
+    MempoolNetworkBackend: NetworkBackend<RuntimeServiceId>,
+    MempoolNetworkAdapter: NetworkAdapter<RuntimeServiceId, Backend = MempoolNetworkBackend, Payload = Item, Key = Key>
         + Send
         + Sync
         + 'static,
-    A::Settings: Send + Sync,
+    MempoolNetworkAdapter::Settings: Send + Sync,
+    SamplingNetworkAdapter: DaSamplingNetworkAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierNetworkAdapter:
+        nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     Item: Clone + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     Key: Clone + Debug + Ord + Hash + Send + Serialize + for<'de> Deserialize<'de> + 'static,
     RuntimeServiceId: Debug
         + Sync
+        + Send
         + Display
-        + AsServiceId<TxMempoolService<A, MockPool<HeaderId, Item, Key>, RuntimeServiceId>>,
+        + AsServiceId<
+            TxMempoolService<
+                MempoolNetworkAdapter,
+                SamplingNetworkAdapter,
+                VerifierNetworkAdapter,
+                SamplingStorage,
+                VerifierStorage,
+                MockPool<HeaderId, Item, Key>,
+                RuntimeServiceId,
+            >,
+        >,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
