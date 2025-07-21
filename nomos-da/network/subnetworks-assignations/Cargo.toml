@@ -13,6 +13,7 @@ libp2p-identity = { version = "0.2", features = ["peerid", "serde"] }
 nomos-utils     = { workspace = true }
 rand            = { workspace = true, features = ["small_rng"] }
 serde           = "1"
+tracing         = "0.1"
 
 [dev-dependencies]
 divan           = "0.1"

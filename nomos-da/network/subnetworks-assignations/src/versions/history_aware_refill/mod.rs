@@ -5,7 +5,7 @@ use std::{
 };
 
 use rand::RngCore;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{
     versions::history_aware_refill::assignations::HistoryAwareRefill, MembershipCreator,
@@ -16,12 +16,12 @@ pub mod assignations;
 mod participant;
 mod subnetwork;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct HistoryAware<Id>
 where
-    Id: Ord, // Necessary for deserialization
+    Id: Ord,
 {
-    #[serde(skip, default = "Vec::new")] // Safe to skip as we do not load assignations from config
+    #[serde(skip)]
     assignations: assignations::Assignations<Id>,
     subnetwork_size: usize,
     replication_factor: usize,
@@ -36,6 +36,26 @@ impl<Id: Ord> HistoryAware<Id> {
             subnetwork_size,
             replication_factor,
         }
+    }
+}
+
+impl<'de, Id> Deserialize<'de> for HistoryAware<Id>
+where
+    Id: Ord + Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct HistoryAwareHelper {
+            subnetwork_size: usize,
+            replication_factor: usize,
+        }
+
+        let helper = HistoryAwareHelper::deserialize(deserializer)?;
+
+        Ok(Self::new(helper.subnetwork_size, helper.replication_factor))
     }
 }
 
@@ -68,12 +88,13 @@ where
     }
 
     fn members_of(&self, network_id: &Self::NetworkId) -> HashSet<Self::Id> {
-        self.assignations
+        let res = self
+            .assignations
             .get(*network_id as usize)
-            .expect("Subntework not found")
-            .iter()
-            .copied()
-            .collect()
+            .map_or_else(HashSet::new, |subnetwork| {
+                subnetwork.iter().copied().collect()
+            });
+        res
     }
 
     fn members(&self) -> HashSet<Self::Id> {
@@ -123,6 +144,13 @@ where
             replication_factor,
         } = self.clone();
         let new_nodes: Vec<_> = new_nodes.into_iter().collect();
+
+        tracing::info!(
+            "DEBUG: Updating assignations with {} new nodes and assignations len {}",
+            new_nodes.len(),
+            assignations.len()
+        );
+
         let assignations = HistoryAwareRefill::calculate_subnetwork_assignations(
             &new_nodes,
             assignations,
