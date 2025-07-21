@@ -1,5 +1,5 @@
-mod backends;
-mod settings;
+pub mod backends;
+pub mod settings;
 
 use std::{fmt::Display, marker::PhantomData};
 

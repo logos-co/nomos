@@ -1,4 +1,4 @@
-mod settings;
+pub mod settings;
 mod swarm;
 
 use std::pin::Pin;
