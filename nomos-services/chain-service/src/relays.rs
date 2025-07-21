@@ -4,8 +4,8 @@ use std::{
 };
 
 use nomos_blend_service::{
-    core::{network::NetworkAdapter as BlendNetworkAdapter, BlendService},
     message::ServiceMessage,
+    proxy::{self, BlendProxyService},
 };
 use nomos_core::{
     block::Block,
@@ -38,8 +38,14 @@ use crate::{
 
 type NetworkRelay<NetworkBackend, RuntimeServiceId> =
     OutboundRelay<BackendNetworkMsg<NetworkBackend, RuntimeServiceId>>;
-type BlendRelay<BlendAdapterNetworkBroadcastSettings> =
-    OutboundRelay<ServiceMessage<BlendAdapterNetworkBroadcastSettings>>;
+type BlendRelay<BlendAdapter, RuntimeServiceId> =
+    OutboundRelay<ServiceMessage<BlendBroadcastSettings<BlendAdapter, RuntimeServiceId>>>;
+type BlendBroadcastSettings<BlendAdapter, RuntimeServiceId> = <BlendCoreNetworkAdapter<
+    BlendAdapter,
+    RuntimeServiceId,
+> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings;
+type BlendCoreNetworkAdapter<BlendAdapter, RuntimeServiceId> =
+    <<BlendAdapter as blend::BlendAdapter<RuntimeServiceId>>::CoreAdapter as proxy::core::Adapter<RuntimeServiceId>>::Network;
 type ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> = MempoolRelay<
     <ClPoolAdapter as MempoolAdapter<RuntimeServiceId>>::Payload,
     <ClPool as MemPool>::Item,
@@ -67,8 +73,7 @@ pub struct CryptarchiaConsensusRelays<
     DaVerifierBackend,
     RuntimeServiceId,
 > where
-    BlendAdapter:
-        blend::BlendAdapter<RuntimeServiceId, Network: BlendNetworkAdapter<RuntimeServiceId>>,
+    BlendAdapter: blend::BlendAdapter<RuntimeServiceId>,
     BS: BlobSelect,
     ClPool: MemPool,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId>,
@@ -84,11 +89,7 @@ pub struct CryptarchiaConsensusRelays<
         <NetworkAdapter as network::NetworkAdapter<RuntimeServiceId>>::Backend,
         RuntimeServiceId,
     >,
-    blend_relay: BlendRelay<
-        <<BlendAdapter as blend::BlendAdapter<RuntimeServiceId>>::Network as BlendNetworkAdapter<
-            RuntimeServiceId,
-        >>::BroadcastSettings,
-    >,
+    blend_relay: BlendRelay<BlendAdapter, RuntimeServiceId>,
     cl_mempool_relay: ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId>,
     da_mempool_relay:
         DaMempoolRelay<DaPool, DaPoolAdapter, SamplingBackend::BlobId, RuntimeServiceId>,
@@ -127,8 +128,7 @@ impl<
         RuntimeServiceId,
     >
 where
-    BlendAdapter:
-        blend::BlendAdapter<RuntimeServiceId, Network: BlendNetworkAdapter<RuntimeServiceId>>,
+    BlendAdapter: blend::BlendAdapter<RuntimeServiceId>,
     BlendAdapter::Settings: Send,
     BS: BlobSelect<BlobId = DaPool::Item>,
     BS::Settings: Send,
@@ -164,8 +164,7 @@ where
             <NetworkAdapter as network::NetworkAdapter<RuntimeServiceId>>::Backend,
             RuntimeServiceId,
         >,
-        blend_relay: BlendRelay<
-            <<BlendAdapter as blend::BlendAdapter<RuntimeServiceId>>::Network as BlendNetworkAdapter<RuntimeServiceId>>::BroadcastSettings,>,
+        blend_relay: BlendRelay<BlendAdapter, RuntimeServiceId>,
         cl_mempool_relay: ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId>,
         da_mempool_relay: DaMempoolRelay<
             DaPool,
@@ -251,10 +250,9 @@ where
             + 'static
             + AsServiceId<NetworkService<NetworkAdapter::Backend, RuntimeServiceId>>
             + AsServiceId<
-                BlendService<
-                    BlendAdapter::Backend,
-                    BlendAdapter::NodeId,
-                    BlendAdapter::Network,
+                BlendProxyService<
+                    BlendAdapter::CoreAdapter,
+                    BlendAdapter::EdgeAdapter,
                     RuntimeServiceId,
                 >,
             >
@@ -304,7 +302,7 @@ where
 
         let blend_relay = service_resources_handle
             .overwatch_handle
-            .relay::<BlendService<_, _, _, _>>()
+            .relay::<BlendProxyService<_, _, _>>()
             .await
             .expect(
                 "Relay connection with nomos_blend_service::BlendService should
@@ -362,11 +360,7 @@ where
         &self.network_relay
     }
 
-    pub const fn blend_relay(
-        &self,
-    ) -> &BlendRelay<
-        <BlendAdapter::Network as BlendNetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
-    > {
+    pub const fn blend_relay(&self) -> &BlendRelay<BlendAdapter, RuntimeServiceId> {
         &self.blend_relay
     }
 

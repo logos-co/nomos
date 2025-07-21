@@ -361,7 +361,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 chain_service::network::adapters::libp2p::LibP2pAdapterSettings {
                     topic: String::from(nomos_node::CONSENSUS_TOPIC),
                 },
-            blend_adapter_settings: chain_service::blend::adapters::libp2p::LibP2pAdapterSettings {
+            blend_adapter_settings: chain_service::blend::libp2p::LibP2pAdapterSettings {
                 broadcast_settings:
                     nomos_blend_service::core::network::libp2p::Libp2pBroadcastSettings {
                         topic: String::from(nomos_node::CONSENSUS_TOPIC),

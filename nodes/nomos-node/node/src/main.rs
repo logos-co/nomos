@@ -31,10 +31,13 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    let blend_edge = config.blend_edge();
     let app = OverwatchRunner::<Nomos>::run(
         NomosServiceSettings {
             network: config.network,
-            blend: config.blend,
+            blend_proxy: (),
+            blend_core: config.blend,
+            blend_edge,
             #[cfg(feature = "tracing")]
             tracing: config.tracing,
             http: config.http,
@@ -93,7 +96,11 @@ async fn get_services_to_start(
     let mut service_ids = app.handle().retrieve_service_ids().await?;
 
     if !must_blend_service_group_start {
-        service_ids.retain(|value| value != &RuntimeServiceId::Blend);
+        service_ids.retain(|value| {
+            value != &RuntimeServiceId::BlendProxy
+                && value != &RuntimeServiceId::BlendCore
+                && value != &RuntimeServiceId::BlendEdge
+        });
     }
 
     if !must_da_service_group_start {

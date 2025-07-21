@@ -6,10 +6,6 @@ use bytes::Bytes;
 use color_eyre::eyre::Result;
 use kzgrs_backend::common::share::DaShare;
 pub use kzgrs_backend::dispersal::BlobInfo;
-pub use nomos_blend_service::core::{
-    backends::libp2p::Libp2pBlendBackend as BlendBackend,
-    network::libp2p::Libp2pAdapter as BlendNetworkAdapter,
-};
 use nomos_core::mantle::SignedMantleTx;
 pub use nomos_core::{
     da::blob::{info::DispersedBlobInfo, select::FillSize as FillSizeWithBlobs},
@@ -90,10 +86,23 @@ pub(crate) type TracingService = Tracing<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-pub(crate) type BlendService = nomos_blend_service::core::BlendService<
-    BlendBackend,
+pub(crate) type BlendProxyService = nomos_blend_service::proxy::BlendProxyService<
+    nomos_blend_service::proxy::core::libp2p::Libp2pAdapter<RuntimeServiceId>,
+    nomos_blend_service::proxy::edge::libp2p::Libp2pAdapter<RuntimeServiceId>,
+    RuntimeServiceId,
+>;
+
+pub(crate) type BlendCoreService = nomos_blend_service::core::BlendService<
+    nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
     PeerId,
-    BlendNetworkAdapter<RuntimeServiceId>,
+    nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
+    RuntimeServiceId,
+>;
+
+pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
+    nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
+    PeerId,
+    <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
     RuntimeServiceId,
 >;
 
@@ -263,7 +272,9 @@ pub struct Nomos {
     #[cfg(feature = "tracing")]
     tracing: TracingService,
     network: NetworkService,
-    blend: BlendService,
+    blend_proxy: BlendProxyService,
+    blend_core: BlendCoreService,
+    blend_edge: BlendEdgeService,
     da_indexer: DaIndexerService,
     da_verifier: DaVerifierService,
     da_sampling: DaSamplingService,

@@ -6,6 +6,7 @@ use std::{
 use clap::{builder::OsStr, Parser, ValueEnum};
 use color_eyre::eyre::{eyre, Result};
 use hex::FromHex as _;
+use nomos_blend_service::edge;
 use nomos_core::mantle::{Note, Utxo};
 use nomos_libp2p::{ed25519::SecretKey, Multiaddr};
 use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
@@ -18,9 +19,9 @@ use tracing::Level;
 use crate::{
     config::mempool::MempoolConfig,
     generic_services::{MembershipService, SdpService},
-    ApiService, BlendService, CryptarchiaService, DaIndexerService, DaNetworkService,
-    DaSamplingService, DaVerifierService, NetworkService, RuntimeServiceId, StorageService,
-    TimeService,
+    ApiService, BlendCoreService, BlendEdgeService, CryptarchiaService, DaIndexerService,
+    DaNetworkService, DaSamplingService, DaVerifierService, NetworkService, RuntimeServiceId,
+    StorageService, TimeService,
 };
 
 pub mod mempool;
@@ -230,7 +231,7 @@ pub struct DaArgs {
 pub struct Config {
     pub tracing: <Tracing<RuntimeServiceId> as ServiceData>::Settings,
     pub network: <NetworkService as ServiceData>::Settings,
-    pub blend: <BlendService as ServiceData>::Settings,
+    pub blend: <BlendCoreService as ServiceData>::Settings,
     pub da_network: <DaNetworkService as ServiceData>::Settings,
     pub da_indexer: <DaIndexerService as ServiceData>::Settings,
     pub da_verifier: <DaVerifierService as ServiceData>::Settings,
@@ -263,6 +264,18 @@ impl Config {
         update_http(&mut self.http, http_args)?;
         update_cryptarchia_consensus(&mut self.cryptarchia, cryptarchia_args)?;
         Ok(self)
+    }
+
+    #[must_use]
+    pub fn blend_edge(&self) -> <BlendEdgeService as ServiceData>::Settings {
+        edge::settings::BlendConfig {
+            backend: edge::backends::libp2p::settings::Libp2pBlendBackendSettings {
+                node_key: self.blend.backend.node_key.clone(),
+            },
+            crypto: self.blend.crypto.clone(),
+            time: self.blend.time.clone(),
+            membership: self.blend.membership.clone(),
+        }
     }
 }
 
@@ -343,7 +356,7 @@ pub fn update_network<RuntimeServiceId>(
 }
 
 pub fn update_blend(
-    blend: &mut <BlendService as ServiceData>::Settings,
+    blend: &mut <BlendCoreService as ServiceData>::Settings,
     blend_args: BlendArgs,
 ) -> Result<()> {
     let BlendArgs {

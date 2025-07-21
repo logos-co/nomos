@@ -1,4 +1,5 @@
 use color_eyre::eyre::Result;
+use nomos_blend_service::edge;
 use nomos_node::{
     config::{
         mempool::MempoolConfig, update_blend, update_cryptarchia_consensus, update_network,
@@ -11,9 +12,9 @@ use overwatch::services::ServiceData;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ApiService, BlendService, CryptarchiaService, DaDispersalService, DaIndexerService,
-    DaNetworkService, DaSamplingService, DaVerifierService, NetworkService, RuntimeServiceId,
-    StorageService, TimeService,
+    ApiService, BlendCoreService, BlendEdgeService, CryptarchiaService, DaDispersalService,
+    DaIndexerService, DaNetworkService, DaSamplingService, DaVerifierService, NetworkService,
+    RuntimeServiceId, StorageService, TimeService,
 };
 
 #[derive(Deserialize, Debug, Clone, Serialize)]
@@ -21,7 +22,7 @@ pub struct Config {
     #[cfg(feature = "tracing")]
     pub tracing: <nomos_node::Tracing<RuntimeServiceId> as ServiceData>::Settings,
     pub network: <NetworkService as ServiceData>::Settings,
-    pub blend: <BlendService as ServiceData>::Settings,
+    pub blend: <BlendCoreService as ServiceData>::Settings,
     pub da_dispersal: <DaDispersalService as ServiceData>::Settings,
     pub da_network: <DaNetworkService as ServiceData>::Settings,
     pub da_indexer: <DaIndexerService as ServiceData>::Settings,
@@ -62,6 +63,18 @@ impl Config {
         update_http(&mut self.http, http_args)?;
         update_cryptarchia_consensus(&mut self.cryptarchia, cryptarchia_args)?;
         Ok(self)
+    }
+
+    #[must_use]
+    pub fn blend_edge(&self) -> <BlendEdgeService as ServiceData>::Settings {
+        edge::settings::BlendConfig {
+            backend: edge::backends::libp2p::settings::Libp2pBlendBackendSettings {
+                node_key: self.blend.backend.node_key.clone(),
+            },
+            crypto: self.blend.crypto.clone(),
+            time: self.blend.time.clone(),
+            membership: self.blend.membership.clone(),
+        }
     }
 }
 

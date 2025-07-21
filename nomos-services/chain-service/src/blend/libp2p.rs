@@ -1,8 +1,9 @@
 use std::marker::PhantomData;
 
 use nomos_blend_service::{
-    core::{backends::libp2p::Libp2pBlendBackend, network::NetworkAdapter, BlendService},
+    core::network::NetworkAdapter,
     message::ServiceMessage,
+    proxy::{self, BlendProxyService},
 };
 use nomos_core::{block::Block, wire};
 use nomos_network::backends::libp2p::PeerId;
@@ -12,41 +13,46 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use crate::{blend::BlendAdapter, messages::NetworkMessage};
 
 #[derive(Clone)]
-pub struct LibP2pAdapter<Network, Tx, BlobCert, RuntimeServiceId>
+pub struct LibP2pAdapter<Tx, BlobCert, RuntimeServiceId>
 where
-    Network: NetworkAdapter<RuntimeServiceId>,
-    Network::BroadcastSettings: Clone,
     Tx: Clone + Eq,
     BlobCert: Clone + Eq,
+    RuntimeServiceId: 'static,
 {
-    settings: LibP2pAdapterSettings<Network::BroadcastSettings>,
-    blend_relay: OutboundRelay<
-        <BlendService<Libp2pBlendBackend, PeerId, Network, RuntimeServiceId> as ServiceData>::Message,
-    >,
-    _tx: PhantomData<Tx>,
-    _blob_cert: PhantomData<BlobCert>,
+    settings: LibP2pAdapterSettings<BroadcastSettings<RuntimeServiceId>>,
+    relay: OutboundRelay<<Service<RuntimeServiceId> as ServiceData>::Message>,
+    _phantom: PhantomData<(Tx, BlobCert)>,
 }
 
+type Service<RuntimeServiceId> = BlendProxyService<
+    proxy::core::libp2p::Libp2pAdapter<RuntimeServiceId>,
+    proxy::edge::libp2p::Libp2pAdapter<RuntimeServiceId>,
+    RuntimeServiceId,
+>;
+type BroadcastSettings<RuntimeServiceId> =
+    <<proxy::core::libp2p::Libp2pAdapter<RuntimeServiceId> as proxy::core::Adapter<
+        RuntimeServiceId,
+    >>::Network as NetworkAdapter<RuntimeServiceId>>::BroadcastSettings;
+
 #[async_trait::async_trait]
-impl<Network, Tx, BlobCert, RuntimeServiceId> BlendAdapter<RuntimeServiceId>
-    for LibP2pAdapter<Network, Tx, BlobCert, RuntimeServiceId>
+impl<Tx, BlobCert, RuntimeServiceId> BlendAdapter<RuntimeServiceId>
+    for LibP2pAdapter<Tx, BlobCert, RuntimeServiceId>
 where
-    Network: NetworkAdapter<RuntimeServiceId> + 'static,
-    Network::BroadcastSettings: Clone,
     Tx: Serialize + DeserializeOwned + Clone + Eq + Send + Sync + 'static,
     BlobCert: Serialize + DeserializeOwned + Clone + Eq + Send + Sync + 'static,
+    RuntimeServiceId: 'static,
 {
-    type Settings = LibP2pAdapterSettings<Network::BroadcastSettings>;
-    type Backend = Libp2pBlendBackend;
-    type Network = Network;
+    type Settings = LibP2pAdapterSettings<BroadcastSettings<RuntimeServiceId>>;
+    type CoreAdapter = proxy::core::libp2p::Libp2pAdapter<RuntimeServiceId>;
+    type EdgeAdapter = proxy::edge::libp2p::Libp2pAdapter<RuntimeServiceId>;
     type Tx = Tx;
     type BlobCertificate = BlobCert;
     type NodeId = PeerId;
 
     async fn new(
         settings: Self::Settings,
-        blend_relay: OutboundRelay<
-            <BlendService<Self::Backend, Self::NodeId, Self::Network, RuntimeServiceId> as ServiceData>::Message,
+        relay: OutboundRelay<
+            <BlendProxyService<Self::CoreAdapter, Self::EdgeAdapter, RuntimeServiceId> as ServiceData>::Message,
         >,
     ) -> Self {
         // this wait seems to be helpful in some cases since we give the time
@@ -57,15 +63,14 @@ where
 
         Self {
             settings,
-            blend_relay,
-            _tx: PhantomData,
-            _blob_cert: PhantomData,
+            relay,
+            _phantom: PhantomData,
         }
     }
 
     async fn blend(&self, block: Block<Self::Tx, Self::BlobCertificate>) {
         if let Err((e, msg)) = self
-            .blend_relay
+            .relay
             .send(ServiceMessage::Blend(
                 nomos_blend_service::message::NetworkMessage {
                     message: wire::serialize(&NetworkMessage::Block(block)).unwrap(),
