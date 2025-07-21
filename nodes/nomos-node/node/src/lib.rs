@@ -153,7 +153,23 @@ pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
     RuntimeServiceId,
 >;
 
-pub(crate) type ClMempoolService = generic_services::TxMempoolService<RuntimeServiceId>;
+pub(crate) type ClMempoolService = generic_services::TxMempoolService<
+    SamplingLibp2pAdapter<
+        NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
+        DaNetworkApiAdapter,
+        RuntimeServiceId,
+    >,
+    VerifierNetworkAdapter<
+        NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
+        DaNetworkApiAdapter,
+        RuntimeServiceId,
+    >,
+    RuntimeServiceId,
+>;
 
 pub(crate) type DaMempoolService = generic_services::DaMempoolService<
     nomos_da_sampling::network::adapters::validator::Libp2pAdapter<

@@ -28,15 +28,28 @@ use nomos_time::backends::NtpTimeBackend;
 
 use crate::{Wire, MB16};
 
-pub type TxMempoolService<RuntimeServiceId> = nomos_mempool::TxMempoolService<
-    nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-        SignedMantleTx,
-        <SignedMantleTx as Transaction>::Hash,
+pub type TxMempoolService<SamplingNetworkAdapter, VerifierNetworkAdapter, RuntimeServiceId> =
+    nomos_mempool::TxMempoolService<
+        nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
+            SignedMantleTx,
+            <SignedMantleTx as Transaction>::Hash,
+            RuntimeServiceId,
+        >,
+        SamplingNetworkAdapter,
+        VerifierNetworkAdapter,
+        nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<
+            DaShare,
+            Wire,
+            DaStorageConverter,
+        >,
+        nomos_da_verifier::storage::adapters::rocksdb::RocksAdapter<
+            DaShare,
+            Wire,
+            DaStorageConverter,
+        >,
+        MockPool<HeaderId, SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
         RuntimeServiceId,
-    >,
-    MockPool<HeaderId, SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
-    RuntimeServiceId,
->;
+    >;
 
 pub type TimeService<RuntimeServiceId> = nomos_time::TimeService<NtpTimeBackend, RuntimeServiceId>;
 
