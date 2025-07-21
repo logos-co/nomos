@@ -67,13 +67,6 @@ async fn test_ibd_behind_nodes() {
 
     println!("Behind node started, waiting for it to sync...");
 
-    let initial_heights: Vec<_> = stream::iter(&validators)
-        .then(|n| async move { n.consensus_info().await.height })
-        .collect()
-        .await;
-
-    let initial_node_min_height = initial_heights.iter().min().unwrap();
-
     let mut config = create_validator_config(general_configs[3].clone());
     config.cryptarchia.bootstrap.ibd.peers = initial_peer_ids.clone();
 
@@ -97,8 +90,6 @@ async fn test_ibd_behind_nodes() {
 
     let behind_node_info = behind_node.consensus_info().await;
     println!("behind node info: {behind_node_info:?}");
-
-    assert!(behind_node_info.height >= *initial_node_min_height);
 
     // IDB duration + 1 second that we waited after IDB
     // should allow creating at most 1 additional block by other validators

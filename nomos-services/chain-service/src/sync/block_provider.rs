@@ -277,13 +277,18 @@ where
         }
 
         // Check if the genesis block is stored as immutable
-        self.find_immutable_genesis_block(known_blocks).await
+        let maybe_genesis = self.find_immutable_genesis_block().await;
+
+        if let Ok(Some(genesis_block_id)) = &maybe_genesis {
+            if !known_blocks.contains(&genesis_block_id.id) {
+                return Ok(None);
+            }
+        }
+
+        maybe_genesis
     }
 
-    async fn find_immutable_genesis_block(
-        &self,
-        known_blocks: &HashSet<HeaderId>,
-    ) -> Result<Option<BlockInfo>, GetBlocksError> {
+    async fn find_immutable_genesis_block(&self) -> Result<Option<BlockInfo>, GetBlocksError> {
         let genesis_block_id = self
             .scan_immutable_block_ids(
                 Slot::genesis()..=Slot::genesis(),
@@ -293,10 +298,6 @@ where
             .into_iter()
             .next()
             .ok_or(GetBlocksError::StartBlockNotFound)?;
-
-        if !known_blocks.contains(&genesis_block_id) {
-            return Ok(None);
-        }
 
         Ok(Some(BlockInfo {
             id: genesis_block_id,
