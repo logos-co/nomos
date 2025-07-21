@@ -39,16 +39,17 @@ type NetworkRelay<NetworkBackend, RuntimeServiceId> =
     OutboundRelay<BackendNetworkMsg<NetworkBackend, RuntimeServiceId>>;
 type BlendRelay<BlendAdapterNetworkBroadcastSettings> =
     OutboundRelay<ServiceMessage<BlendAdapterNetworkBroadcastSettings>>;
-type ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> = MempoolRelay<
+pub type ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> = MempoolRelay<
     <ClPoolAdapter as MempoolAdapter<RuntimeServiceId>>::Payload,
     <ClPool as MemPool>::Item,
     <ClPool as MemPool>::Key,
 >;
-type DaMempoolRelay<DaPool, DaPoolAdapter, SamplingBackendBlobId, RuntimeServiceId> = MempoolRelay<
-    <DaPoolAdapter as MempoolAdapter<RuntimeServiceId>>::Payload,
-    <DaPool as MemPool>::Item,
-    SamplingBackendBlobId,
->;
+pub type DaMempoolRelay<DaPool, DaPoolAdapter, SamplingBackendBlobId, RuntimeServiceId> =
+    MempoolRelay<
+        <DaPoolAdapter as MempoolAdapter<RuntimeServiceId>>::Payload,
+        <DaPool as MemPool>::Item,
+        SamplingBackendBlobId,
+    >;
 pub type StorageRelay<Storage> = OutboundRelay<StorageMsg<Storage>>;
 type TimeRelay = OutboundRelay<TimeServiceMessage>;
 

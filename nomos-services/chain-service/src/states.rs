@@ -1,41 +1,39 @@
 use std::{collections::HashSet, marker::PhantomData};
 
-use cryptarchia_engine::CryptarchiaState;
 use nomos_core::{header::HeaderId, mantle::Utxo};
 use nomos_ledger::LedgerState;
-use overwatch::{services::state::ServiceState, DynError};
+use overwatch::{
+    services::state::{ServiceState, StateUpdater},
+    DynError,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{leadership::Leader, Cryptarchia, CryptarchiaSettings, Error};
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CryptarchiaConsensusState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> {
+pub struct ChainServiceState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> {
     pub tip: HeaderId,
     pub lib: HeaderId,
     pub lib_ledger_state: LedgerState,
     pub lib_leader_utxos: Vec<Utxo>,
     pub lib_block_length: u64,
-    /// Set of blocks that have been pruned from the engine but have not yet
-    /// been deleted from the persistence layer because of some unexpected
-    /// error.
-    pub(crate) storage_blocks_to_remove: HashSet<HeaderId>,
+    /// Blocks that were not successfully removed from the storage.
+    /// They should be retried when the service is recovered from this state.
+    pub(crate) stale_blocks: HashSet<HeaderId>,
     // Only neededed for the service state trait
     _markers: PhantomData<(TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings)>,
 }
 
 impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
-    CryptarchiaConsensusState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
+    ChainServiceState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
 {
-    /// Re-create the [`CryptarchiaConsensusState`]
-    /// given the cryptarchia engine, ledger state, and the leader details.
-    ///
-    /// Furthermore, it allows to specify blocks deleted from the cryptarchia
-    /// engine (hence not tracked anymore) but that should be deleted from the
-    /// persistence layer.
-    pub(crate) fn from_cryptarchia_and_unpruned_blocks<State: CryptarchiaState>(
-        cryptarchia: &Cryptarchia<State>,
+    /// Create the [`CryptarchiaConsensusState`]
+    /// given [`Cryptarchia`], [`Leader`], and a set of blocks to be removed
+    /// from the storage.
+    pub(crate) fn new<CryptarchiaState: cryptarchia_engine::CryptarchiaState>(
+        cryptarchia: &Cryptarchia<CryptarchiaState>,
         leader: &Leader,
-        storage_blocks_to_remove: HashSet<HeaderId>,
+        stale_blocks: HashSet<HeaderId>,
     ) -> Result<Self, DynError> {
         let lib = cryptarchia.consensus.lib_branch();
         let Some(lib_ledger_state) = cryptarchia.ledger.state(&lib.id()).cloned() else {
@@ -52,14 +50,14 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
             lib_ledger_state,
             lib_leader_utxos,
             lib_block_length,
-            storage_blocks_to_remove,
+            stale_blocks,
             _markers: PhantomData,
         })
     }
 }
 
 impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> ServiceState
-    for CryptarchiaConsensusState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
+    for ChainServiceState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
 {
     type Settings = CryptarchiaSettings<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>;
     type Error = Error;
@@ -74,10 +72,52 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> ServiceState
                 lib_ledger_state: settings.genesis_state.clone(),
                 lib_leader_utxos: settings.leader_config.utxos.clone(),
                 lib_block_length: 0,
-                storage_blocks_to_remove: HashSet::new(),
+                stale_blocks: HashSet::new(),
                 _markers: PhantomData,
             }
         })
+    }
+}
+
+pub trait ServiceStateUpdater {
+    fn update<CryptarchiaState: cryptarchia_engine::CryptarchiaState>(
+        &self,
+        cryptarchia: &Cryptarchia<CryptarchiaState>,
+        stale_blocks: HashSet<HeaderId>,
+    ) -> Result<(), DynError>;
+}
+
+pub struct ChainServiceStateUpdater<'a, TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> {
+    updater: StateUpdater<
+        Option<ChainServiceState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>>,
+    >,
+    leader: &'a Leader,
+}
+
+impl<'a, TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
+    ChainServiceStateUpdater<'a, TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
+{
+    pub const fn new(
+        updater: StateUpdater<
+            Option<ChainServiceState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>>,
+        >,
+        leader: &'a Leader,
+    ) -> Self {
+        Self { updater, leader }
+    }
+}
+
+impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> ServiceStateUpdater
+    for ChainServiceStateUpdater<'_, TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
+{
+    fn update<CryptarchiaState: cryptarchia_engine::CryptarchiaState>(
+        &self,
+        cryptarchia: &Cryptarchia<CryptarchiaState>,
+        stale_blocks: HashSet<HeaderId>,
+    ) -> Result<(), DynError> {
+        let state = ChainServiceState::new(cryptarchia, self.leader, stale_blocks)?;
+        self.updater.update(Some(state));
+        Ok(())
     }
 }
 
@@ -175,19 +215,18 @@ mod tests {
             .stale_blocks()
             .copied()
             .collect::<HashSet<_>>();
-        let recovery_state =
-            CryptarchiaConsensusState::<(), (), (), ()>::from_cryptarchia_and_unpruned_blocks(
-                &Cryptarchia {
-                    ledger: ledger_state,
-                    consensus: cryptarchia_engine.clone(),
-                },
-                &leader,
-                pruned_stale_blocks.clone(),
-            )
-            .unwrap();
+        let recovery_state = ChainServiceState::<(), (), (), ()>::new(
+            &Cryptarchia {
+                ledger: ledger_state,
+                consensus: cryptarchia_engine.clone(),
+            },
+            &leader,
+            pruned_stale_blocks.clone(),
+        )
+        .unwrap();
 
         assert_eq!(recovery_state.tip, cryptarchia_engine.tip());
         assert_eq!(recovery_state.lib, cryptarchia_engine.lib());
-        assert_eq!(recovery_state.storage_blocks_to_remove, pruned_stale_blocks);
+        assert_eq!(recovery_state.stale_blocks, pruned_stale_blocks);
     }
 }
