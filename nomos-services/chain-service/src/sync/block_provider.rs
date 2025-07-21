@@ -145,6 +145,9 @@ where
     ) -> BoxStream<'static, Result<Bytes, DynError>> {
         let storage = self.storage_relay.clone();
 
+        // Skip a block already known to the requester.
+        let path = path.into_iter().skip(1);
+
         let stream = stream::iter(path)
             .then(move |id| {
                 let storage = storage.clone();
@@ -290,7 +293,34 @@ where
             }));
         }
 
-        Ok(None)
+        // Check if the genesis block is stored as immutable
+        let maybe_genesis = self.find_immutable_genesis_block().await;
+
+        if let Ok(Some(genesis_block_id)) = &maybe_genesis {
+            if !known_blocks.contains(&genesis_block_id.id) {
+                return Ok(None);
+            }
+        }
+
+        maybe_genesis
+    }
+
+    async fn find_immutable_genesis_block(&self) -> Result<Option<BlockInfo>, GetBlocksError> {
+        let genesis_block_id = self
+            .scan_immutable_block_ids(
+                Slot::genesis()..=Slot::genesis(),
+                NonZeroUsize::new(1).expect("NonZeroUsize should be > 0"),
+            )
+            .await?
+            .into_iter()
+            .next()
+            .ok_or(GetBlocksError::StartBlockNotFound)?;
+
+        Ok(Some(BlockInfo {
+            id: genesis_block_id,
+            slot: Slot::genesis(),
+            location: BlockLocation::Storage,
+        }))
     }
 
     async fn compute_path_between_endpoints<State>(
@@ -302,7 +332,8 @@ where
     where
         State: CryptarchiaState + Send + Sync + 'static,
     {
-        let limit = MAX_NUMBER_OF_BLOCKS
+        // Add 1 because we remove first(known block) from the path
+        let limit = (MAX_NUMBER_OF_BLOCKS + 1)
             .try_into()
             .expect("MAX_NUMBER_OF_BLOCKS should be > 0");
 
@@ -567,8 +598,8 @@ mod tests {
         let known_blocks = HashSet::from([ids[1], ids[3], ids[6]]);
         let target_block = *ids.last().unwrap();
 
-        // Should start from the most recent known block (ids[6])
-        let expected = ids[6..=9].to_vec();
+        // Should start from the most recent known block (ids[6]) but skip it in result
+        let expected = ids[7..=9].to_vec();
         env.retrieve_and_validate_blocks(target_block, &known_blocks, &expected)
             .await;
     }
@@ -581,7 +612,7 @@ mod tests {
 
         let known_blocks = HashSet::from([ids[2]]);
         let target_block = ids[6];
-        let expected = ids[2..=6].to_vec();
+        let expected = ids[3..=6].to_vec();
 
         env.retrieve_and_validate_blocks(target_block, &known_blocks, &expected)
             .await;
@@ -598,7 +629,6 @@ mod tests {
         let target_block = engine_blocks[1];
 
         let expected = vec![
-            storage_blocks[2],
             storage_blocks[3],
             storage_blocks[4],
             engine_blocks[0],
@@ -660,7 +690,7 @@ mod tests {
         assert_eq!(
             retrieved_blocks.len(),
             MAX_NUMBER_OF_BLOCKS,
-            "Retrieved blocks should not exceed MAX_NUMBER_OF_BLOCKS"
+            "Retrieved blocks should not exceed MAX_NUMBER_OF_BLOCKS minus the skipped known block"
         );
     }
 

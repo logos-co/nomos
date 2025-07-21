@@ -20,7 +20,7 @@ use std::{
 
 use cryptarchia_engine::{Boostrapping, CryptarchiaState, Online, PrunedBlocks, Slot};
 use cryptarchia_sync::GetTipResponse;
-use futures::StreamExt as _;
+use futures::{stream, StreamExt as _};
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
 use nomos_blend_service::BlendService;
@@ -633,13 +633,14 @@ where
         );
 
         let pruned_blocks = PrunedBlocks::new();
-        let mut _storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
+        let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
             pruned_blocks.stale_blocks().copied(),
-            &self.initial_state.storage_blocks_to_remove, /* Fixed to use initial state to avoid
-                                                           * borrow error */
+            &self.initial_state.storage_blocks_to_remove,
             relays.storage_adapter(),
         )
         .await;
+
+        block_processor.add_storage_blocks_to_remove(storage_blocks_to_remove.into_iter());
 
         // Recover cryptarchia by loading blocks from the storage.
         let cryptarchia = self
@@ -689,9 +690,15 @@ where
         .await?;
 
         // Run IBD (Initial Block Download).
-        let cryptarchia = InitialBlockDownload::new(bootstrap_config.ibd.clone())
+        let cryptarchia = match InitialBlockDownload::new(bootstrap_config.ibd.clone())
             .run(cryptarchia, network_adapter, &mut block_processor)
-            .await?;
+            .await
+        {
+            Ok(cryptarchia) => cryptarchia,
+            Err(e) => {
+                panic!("IBD (Initial Block Download) failed: {e}");
+            }
+        };
 
         // Run the service loop.
         match cryptarchia {
@@ -709,6 +716,7 @@ where
                     blend_adapter,
                     chainsync_events,
                     sync_blocks_provider,
+                    storage,
                 )
                 .instrument(span())
                 .await;
@@ -871,6 +879,7 @@ where
         clippy::type_complexity,
         reason = "CryptarchiaConsensusRelays amount of generics."
     )]
+    #[expect(clippy::cognitive_complexity, reason = "Multiple select branches")]
     #[expect(
         clippy::too_many_arguments,
         reason = "TODO: Address this at some point."
@@ -916,8 +925,9 @@ where
         tx_selector: TxS,
         blob_selector: BS,
         blend_adapter: BlendAdapter,
-        chainsync_events: BoxedStream<ChainSyncEvent>,
+        mut chainsync_events: BoxedStream<ChainSyncEvent>,
         sync_blocks_provider: BlockProvider<Storage, ClPool::Item, DaPool::Item>,
+        storage: &StorageAdapter<Storage, ClPool::Item, DaPool::Item, RuntimeServiceId>,
     ) {
         // Start the timer for Prelonged Bootstrap Period.
         let mut prolonged_bootstrap_timer = Box::pin(tokio::time::sleep_until(
@@ -952,15 +962,27 @@ where
                     ).await;
                 }
 
+                Some(event) = chainsync_events.next() => {
+                    Self::reject_chainsync_event(event).await;
+                }
+
                 Some(msg) = self.service_resources_handle.inbound_relay.next() => {
-                    Self::process_message(&cryptarchia, &self.block_subscription_sender, msg);
+                    Self::process_message(&cryptarchia, &self.block_subscription_sender, msg, Boostrapping);
                 }
             }
         }
 
         // Switch to Online mode.
         let (cryptarchia, pruned_blocks) = cryptarchia.online();
-        block_processor.add_storage_blocks_to_remove(pruned_blocks.all().copied());
+
+        if let Err(e) = storage
+            .store_immutable_block_ids(pruned_blocks.immutable_blocks().copied())
+            .await
+        {
+            error!("Could not store immutable blocks as immutable: {e}");
+        }
+        block_processor.add_storage_blocks_to_remove(pruned_blocks.stale_blocks().copied());
+
         self.run_online_cryptarchia(
             cryptarchia,
             leader,
@@ -1061,7 +1083,7 @@ where
                     }
 
                 Some(msg) = self.service_resources_handle.inbound_relay.next() => {
-                    Self::process_message(&cryptarchia, &self.block_subscription_sender, msg);
+                    Self::process_message(&cryptarchia, &self.block_subscription_sender, msg, Online);
                 }
             }
         }
@@ -1199,10 +1221,11 @@ where
         cryptarchia
     }
 
-    fn process_message<State: CryptarchiaState>(
+    fn process_message<State: CryptarchiaState + 'static, Mode: Into<ConsensusModeInfo>>(
         cryptarchia: &Cryptarchia<State>,
         block_channel: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
         msg: ConsensusMsg<Block<ClPool::Item, DaPool::Item>>,
+        mode: Mode,
     ) {
         match msg {
             ConsensusMsg::Info { tx } => {
@@ -1219,6 +1242,7 @@ where
                         .get(&cryptarchia.tip())
                         .expect("tip branch not available")
                         .length(),
+                    mode: mode.into(),
                 };
                 tx.send(info).unwrap_or_else(|e| {
                     error!("Could not send consensus info through channel: {:?}", e);
@@ -1547,6 +1571,24 @@ where
             }
         }
     }
+
+    async fn reject_chainsync_event(event: ChainSyncEvent) {
+        match event {
+            ChainSyncEvent::ProvideBlocksRequest { reply_sender, .. } => {
+                let error_stream = stream::once(async {
+                    Err(DynError::from(
+                        "Node is bootstrapping, cannot provide blocks",
+                    ))
+                });
+                if let Err(e) = reply_sender.send(Box::pin(error_stream)).await {
+                    tracing::warn!("Failed to send error response for ProvideBlocksRequest: {e}");
+                }
+            }
+            ChainSyncEvent::ProvideTipRequest { .. } => {
+                tracing::warn!("Node is bootstrapping, cannot provide tip");
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1571,6 +1613,26 @@ pub struct CryptarchiaInfo {
     pub tip: HeaderId,
     pub slot: Slot,
     pub height: u64,
+    pub mode: ConsensusModeInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub enum ConsensusModeInfo {
+    Bootstrapping,
+    Online,
+}
+
+impl From<Boostrapping> for ConsensusModeInfo {
+    fn from(_: Boostrapping) -> Self {
+        Self::Bootstrapping
+    }
+}
+
+impl From<Online> for ConsensusModeInfo {
+    fn from(_: Online) -> Self {
+        Self::Online
+    }
 }
 
 async fn get_mempool_contents<Payload, Item, Key>(
