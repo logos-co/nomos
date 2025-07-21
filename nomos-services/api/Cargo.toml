@@ -18,7 +18,6 @@ bytes                    = { workspace = true }
 chain-service            = { workspace = true, features = ["libp2p"] }
 futures                  = "0.3.31"
 kzgrs-backend            = { workspace = true }
-nomos-blend-service      = { workspace = true, features = ["libp2p"] }
 nomos-core               = { workspace = true }
 nomos-da-dispersal       = { workspace = true }
 nomos-da-indexer         = { workspace = true, features = ["rocksdb-backend"] }

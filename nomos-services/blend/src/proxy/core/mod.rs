@@ -8,8 +8,6 @@ use crate::{
     message::ServiceMessage,
 };
 
-const LOG_TARGET: &str = "blend::service::proxy::core";
-
 #[async_trait::async_trait]
 pub trait Adapter<RuntimeServiceId> {
     type Backend: BlendBackend<Self::NodeId, RuntimeServiceId> + 'static;

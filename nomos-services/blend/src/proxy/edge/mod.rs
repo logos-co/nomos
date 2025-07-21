@@ -5,8 +5,6 @@ use overwatch::services::relay::OutboundRelay;
 
 use crate::{edge::backends::BlendBackend, message::ServiceMessage};
 
-const LOG_TARGET: &str = "blend::service::proxy::edge";
-
 #[async_trait::async_trait]
 pub trait Adapter<RuntimeServiceId> {
     type Backend: BlendBackend<Self::NodeId, RuntimeServiceId> + 'static;

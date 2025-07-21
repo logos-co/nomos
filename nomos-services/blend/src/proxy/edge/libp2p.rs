@@ -5,8 +5,10 @@ use crate::{
     core::network::{libp2p::Libp2pAdapter as Libp2pNetworkAdapter, NetworkAdapter},
     edge::{backends::libp2p::Libp2pBlendBackend, BlendService},
     message::ServiceMessage,
-    proxy::edge::{Adapter, LOG_TARGET},
+    proxy::edge::Adapter,
 };
+
+const LOG_TARGET: &str = "blend::service::proxy::edge::libp2p";
 
 pub struct Libp2pAdapter<RuntimeServiceId> {
     relay: OutboundRelay<<BlendServiceType<RuntimeServiceId> as ServiceData>::Message>,
