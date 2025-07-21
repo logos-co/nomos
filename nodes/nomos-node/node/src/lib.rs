@@ -50,7 +50,6 @@ pub use nomos_system_sig::SystemSig;
 use nomos_time::backends::NtpTimeBackend;
 #[cfg(feature = "tracing")]
 pub use nomos_tracing_service::Tracing;
-use nomos_utils::noop_service::NoService;
 use overwatch::derive_services;
 use serde::{de::DeserializeOwned, Serialize};
 use subnetworks_assignations::versions::v1::FillFromNodeList;
@@ -277,7 +276,6 @@ pub struct Nomos {
     http: ApiService,
     storage: StorageService,
     system_sig: SystemSigService,
-    no_service: NoService,
     #[cfg(feature = "testing")]
     testing_http: TestingApiService<RuntimeServiceId>,
 }
