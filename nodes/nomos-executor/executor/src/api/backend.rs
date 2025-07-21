@@ -299,9 +299,9 @@ where
         + Sync
         + 'static,
     SamplingNetworkAdapter:
-        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + 'static,
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
     SamplingStorage:
-        nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + 'static,
+        nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
     TimeBackend: nomos_time::backends::TimeBackend + Send + 'static,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_network_service::api::ApiAdapter + Send + Sync + 'static,
@@ -379,6 +379,10 @@ where
                     <Tx as Transaction>::Hash,
                     RuntimeServiceId,
                 >,
+                SamplingNetworkAdapter,
+                DaVerifierNetwork,
+                SamplingStorage,
+                DaVerifierStorage,
                 MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
                 RuntimeServiceId,
             >,
@@ -437,7 +441,7 @@ where
             nomos_da_network_service::NetworkService<_, _, _,_, _, _>,
             nomos_network::NetworkService<_, _>,
             DaStorageService<_, _>,
-            TxMempoolService<_, _, _>,
+            TxMempoolService<_, _, _, _, _, _, _>,
             DaMempoolService<_, _, _, _, _, _, _, _, _>,
             DaDispersal<_, _, _, _, _, _>
         )
@@ -470,11 +474,29 @@ where
             .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
             .route(
                 paths::CL_METRICS,
-                routing::get(cl_metrics::<Tx, RuntimeServiceId>),
+                routing::get(
+                    cl_metrics::<
+                        Tx,
+                        SamplingNetworkAdapter,
+                        DaVerifierNetwork,
+                        SamplingStorage,
+                        DaVerifierStorage,
+                        RuntimeServiceId,
+                    >,
+                ),
             )
             .route(
                 paths::CL_STATUS,
-                routing::post(cl_status::<Tx, RuntimeServiceId>),
+                routing::post(
+                    cl_status::<
+                        Tx,
+                        SamplingNetworkAdapter,
+                        DaVerifierNetwork,
+                        SamplingStorage,
+                        DaVerifierStorage,
+                        RuntimeServiceId,
+                    >,
+                ),
             )
             .route(
                 paths::CRYPTARCHIA_INFO,
@@ -592,7 +614,16 @@ where
             )
             .route(
                 paths::MEMPOOL_ADD_TX,
-                routing::post(add_tx::<Tx, RuntimeServiceId>),
+                routing::post(
+                    add_tx::<
+                        Tx,
+                        SamplingNetworkAdapter,
+                        DaVerifierNetwork,
+                        SamplingStorage,
+                        DaVerifierStorage,
+                        RuntimeServiceId,
+                    >,
+                ),
             )
             .route(
                 paths::MEMPOOL_ADD_BLOB_INFO,
