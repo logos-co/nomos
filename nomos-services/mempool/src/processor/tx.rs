@@ -68,6 +68,10 @@ where
             })
             .collect();
 
+        // In this case errors are about sending the `TriggerSampling` message to the DA
+        // Sampling Service. These errors do not represent the result of
+        // sampling itself, but might indicate that sending the message to
+        // sampling service failed.
         let errors: Vec<SignedTxProcessorError> = StreamExt::collect::<Vec<_>>(all_futures)
             .await
             .into_iter()
