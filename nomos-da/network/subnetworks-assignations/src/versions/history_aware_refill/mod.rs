@@ -91,7 +91,9 @@ where
         let res = self
             .assignations
             .get(*network_id as usize)
-            .map_or_else(HashSet::new, HashSet::clone)
+            .map_or_else(HashSet::new, |subnetwork| {
+                subnetwork.iter().copied().collect()
+            });
         res
     }
 
