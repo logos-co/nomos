@@ -4,8 +4,9 @@ use futures::FutureExt as _;
 use libp2p::swarm::ConnectionHandlerEvent;
 
 use crate::edge::handler::{
-    dropped::DroppedState, ConnectionState, FailureReason, MessageSendFuture, PollResult,
-    StateTrait, ToBehaviour, LOG_TARGET,
+    dropped::{DroppedState, Error},
+    ConnectionState, FailureReason, MessageSendFuture, PollResult, StateTrait, ToBehaviour,
+    LOG_TARGET,
 };
 
 /// State representing the moment in which a new message is being sent to the
@@ -53,8 +54,11 @@ impl StateTrait for SendingState {
             tracing::error!(target: LOG_TARGET, "Failed to send message. Error {error:?}");
             (
                 Poll::Pending,
-                DroppedState::new(Some(FailureReason::MessageStream), Some(cx.waker().clone()))
-                    .into(),
+                DroppedState::new(
+                    Some(Error::new(FailureReason::MessageStream, self.message)),
+                    Some(cx.waker().clone()),
+                )
+                .into(),
             )
         } else {
             tracing::trace!(target: LOG_TARGET, "Message sent successfully. Transitioning from `Sending` to `Dropped`.");

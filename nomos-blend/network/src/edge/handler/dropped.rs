@@ -7,22 +7,32 @@ use crate::edge::handler::{ConnectionState, FailureReason, PollResult, StateTrai
 /// State indicating either that an error should be emitted, or that the state
 /// machine has reached its end state, from which it does not exit anymore.
 pub struct DroppedState {
-    error: Option<FailureReason>,
-    /// Used when this state is polled, to remember whether
-    /// [`NotifyBehaviour`] has been requested to inform
-    /// that the substream has been dropped.
-    notify_behaviour_requested: bool,
+    error: Option<Error>,
+}
+
+pub struct Error {
+    reason: FailureReason,
+    message: Vec<u8>,
+}
+
+impl Error {
+    pub const fn new(reason: FailureReason, message: Vec<u8>) -> Self {
+        Self { reason, message }
+    }
 }
 
 impl DroppedState {
-    pub fn new(error: Option<FailureReason>, waker: Option<Waker>) -> Self {
-        // We wake here to notify the behaviour that the substream has been dropped.
+    pub fn new(error: Option<Error>, waker: Option<Waker>) -> Self {
+        let Some(error_to_consume) = error else {
+            // No need to wake if we don't have an error to report.
+            return Self { error: None };
+        };
+        // We wake here because we want the new error to be consumed.
         if let Some(waker) = waker {
             waker.wake();
         }
         Self {
-            error,
-            notify_behaviour_requested: false,
+            error: Some(error_to_consume),
         }
     }
 }
@@ -34,20 +44,21 @@ impl From<DroppedState> for ConnectionState {
 }
 
 impl StateTrait for DroppedState {
-    /// Notifies the behaviour that the substream has been dropped
-    /// by returning [`ConnectionHandlerEvent::NotifyBehaviour`]
-    /// If it has been already notified, it returns `Poll::Pending`.
+    // If an error message is to be emitted, it returns `Poll::Ready`, consuming it.
+    // After an error is consumed or if no error is to be consumed, the state
+    // machine will indefinitely return `Poll::Pending` every time it is polled.
     fn poll(mut self, _cx: &mut Context<'_>) -> PollResult<ConnectionState> {
-        if self.notify_behaviour_requested {
-            (Poll::Pending, self.into())
-        } else {
-            self.notify_behaviour_requested = true;
-            (
+        let poll_result = self.error.take().map_or_else(
+            || Poll::Pending,
+            |error| {
                 Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                    ToBehaviour::Dropped(self.error.take()),
-                )),
-                self.into(),
-            )
-        }
+                    ToBehaviour::SendError {
+                        reason: error.reason,
+                        message: error.message,
+                    },
+                ))
+            },
+        );
+        (poll_result, self.into())
     }
 }
