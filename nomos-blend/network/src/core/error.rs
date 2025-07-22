@@ -6,7 +6,7 @@ use libp2p::{swarm::ConnectionId, PeerId};
 pub enum Error {
     #[error("No peers to send a message to")]
     NoPeers,
-    #[error("IO error from peer {peer_id:?} connection {connection_id:?}: {error}")]
+    #[error("IO error from peer {peer_id:?} and connection {connection_id:?}: {error}")]
     PeerIOError {
         error: io::Error,
         peer_id: PeerId,
