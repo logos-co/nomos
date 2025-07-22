@@ -270,6 +270,8 @@ fn handle_incoming_blend_message<NodeId, Rng, SessionClock, BroadcastSettings>(
                 NetworkMessage<BlockProposalPayload, BroadcastSettings>,
             >(serialized_data_message.as_ref())
             {
+                // TODO: Add trait to validate a received block, and use its `type Block`
+                // instead of hardcoding one here.
                 scheduler.schedule_message(ProcessedMessage::Network(NetworkMessage {
                     broadcast_settings: deserialized_network_message.broadcast_settings,
                     message: wire::serialize(&deserialized_network_message.message)
