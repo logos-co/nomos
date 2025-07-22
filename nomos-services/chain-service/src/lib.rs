@@ -615,7 +615,7 @@ where
         )
         .await?;
 
-        let service_state_updater = self.service_resources_handle.state_updater.clone();
+        let service_state_updater = self.service_resources_handle.state_updater;
 
         let async_loop = async {
             loop {
