@@ -2,10 +2,7 @@ use std::{collections::HashSet, marker::PhantomData};
 
 use nomos_core::{header::HeaderId, mantle::Utxo};
 use nomos_ledger::LedgerState;
-use overwatch::{
-    services::state::{ServiceState, StateUpdater},
-    DynError,
-};
+use overwatch::{services::state::ServiceState, DynError};
 use serde::{Deserialize, Serialize};
 
 use crate::{leadership::Leader, Cryptarchia, CryptarchiaSettings, Error};
@@ -76,52 +73,6 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> ServiceState
                 _markers: PhantomData,
             }
         })
-    }
-}
-
-/// Defines how the service state is updated.
-pub trait ServiceStateUpdater {
-    fn update<CryptarchiaState: cryptarchia_engine::CryptarchiaState>(
-        &self,
-        cryptarchia: &Cryptarchia<CryptarchiaState>,
-        stale_blocks: HashSet<HeaderId>,
-    ) -> Result<(), DynError>;
-}
-
-/// Implements [`ServiceStateUpdater`] for [`ChainServiceState`].
-pub struct ChainServiceStateUpdater<'a, TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> {
-    updater: StateUpdater<
-        Option<ChainServiceState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>>,
-    >,
-    leader: &'a Leader,
-}
-
-impl<'a, TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
-    ChainServiceStateUpdater<'a, TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
-{
-    pub const fn new(
-        updater: StateUpdater<
-            Option<ChainServiceState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>>,
-        >,
-        leader: &'a Leader,
-    ) -> Self {
-        Self { updater, leader }
-    }
-}
-
-impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> ServiceStateUpdater
-    for ChainServiceStateUpdater<'_, TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
-{
-    /// Builds a new [`ChainServiceState`] from the provided [`Cryptarchia`]
-    /// and a set of stale blocks, and registers it with the [`StateUpdater`].
-    fn update<CryptarchiaState: cryptarchia_engine::CryptarchiaState>(
-        &self,
-        cryptarchia: &Cryptarchia<CryptarchiaState>,
-        stale_blocks: HashSet<HeaderId>,
-    ) -> Result<(), DynError> {
-        let state = ChainServiceState::new(cryptarchia, self.leader, stale_blocks)?;
-        self.updater.update(Some(state));
-        Ok(())
     }
 }
 

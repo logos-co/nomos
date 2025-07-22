@@ -375,9 +375,9 @@ where
     }
 
     pub const fn storage_adapter(
-        &self,
-    ) -> &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId> {
-        &self.storage_adapter
+        &mut self,
+    ) -> &mut StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId> {
+        &mut self.storage_adapter
     }
 
     pub const fn time_relay(&self) -> &TimeRelay {

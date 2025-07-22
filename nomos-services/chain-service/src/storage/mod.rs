@@ -1,6 +1,6 @@
 pub mod adapters;
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 use cryptarchia_engine::Slot;
 use futures::{future::join_all, StreamExt as _};
@@ -70,46 +70,19 @@ pub trait StorageAdapter<RuntimeServiceId> {
 
 const LOG_TARGET: &str = "cryptarchia::service::storage";
 
+/// Extension trait for [`StorageAdapter`] that provides additional
+/// functionalities.
 #[async_trait::async_trait]
 pub trait StorageAdapterExt<RuntimeServiceId>: StorageAdapter<RuntimeServiceId> {
     /// Deletes multiple blocks from storage,
-    /// and returns the header IDs of the blocks that failed to be deleted.
+    /// If there are any blocks that previously failed to be deleted,
+    /// they will be deleted together this time.
+    /// Any blocks that fail to be deleted this time will be collected
+    /// internally.
     async fn remove_blocks_and_collect_failures(
-        &self,
+        &mut self,
         blocks: impl Iterator<Item = HeaderId> + Send,
-    ) -> HashSet<HeaderId> {
-        let blocks = blocks.collect::<Vec<_>>();
-        let outcomes = blocks
-            .iter()
-            .copied()
-            .zip(self.remove_blocks(blocks.iter().copied()).await);
-
-        outcomes
-            .filter_map(|(block_id, outcome)| match outcome {
-                Ok(Some(_)) => {
-                    tracing::debug!(
-                        target: LOG_TARGET,
-                        "Block {block_id:#?} successfully deleted from storage."
-                    );
-                    None
-                }
-                Ok(None) => {
-                    tracing::trace!(
-                        target: LOG_TARGET,
-                        "Block {block_id:#?} was not found in storage."
-                    );
-                    None
-                }
-                Err(e) => {
-                    tracing::error!(
-                        target: LOG_TARGET,
-                        "Error deleting block {block_id:#?} from storage: {e}."
-                    );
-                    Some(block_id)
-                }
-            })
-            .collect()
-    }
+    );
 
     /// Retrieves the blocks in the range from `from` to `to` from the storage.
     /// Both `from` and `to` are included in the range.

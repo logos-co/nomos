@@ -41,7 +41,7 @@ use nomos_network::{message::ChainSyncEvent, NetworkService};
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageService};
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
-    services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},
+    services::{relay::OutboundRelay, state::StateUpdater, AsServiceId, ServiceCore, ServiceData},
     DynError, OpaqueServiceResourcesHandle,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -59,7 +59,7 @@ use crate::{
     leadership::Leader,
     processor::{BlockProcessor as _, NomosBlockProcessor},
     relays::CryptarchiaConsensusRelays,
-    states::{ChainServiceState, ChainServiceStateUpdater},
+    states::ChainServiceState,
     storage::{adapters::StorageAdapter, StorageAdapterExt as _},
     sync::block_provider::BlockProvider,
 };
@@ -516,7 +516,7 @@ where
 
     #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
     async fn run(mut self) -> Result<(), DynError> {
-        let relays: CryptarchiaConsensusRelays<
+        let mut relays: CryptarchiaConsensusRelays<
             BlendAdapter,
             BS,
             ClPool,
@@ -562,20 +562,10 @@ where
 
         // Create a block processor.
         let mut block_processor = NomosBlockProcessor::new(
-            relays.storage_adapter(),
             relays.cl_mempool_relay().clone(),
             relays.da_mempool_relay().clone(),
             relays.sampling_relay().clone(),
             self.block_subscription_sender.clone(),
-            // These are blocks that have been pruned by the cryptarchia engine but have not
-            // yet been deleted from the storage layer.
-            self.initial_state.stale_blocks.clone(),
-        );
-
-        // Create a state updater
-        let state_updater = ChainServiceStateUpdater::new(
-            self.service_resources_handle.state_updater.clone(),
-            &leader,
         );
 
         // Recover cryptarchia by loading blocks from the storage.
@@ -625,6 +615,8 @@ where
         )
         .await?;
 
+        let service_state_updater = self.service_resources_handle.state_updater.clone();
+
         let async_loop = async {
             loop {
                 tokio::select! {
@@ -635,7 +627,9 @@ where
                             cryptarchia,
                             block,
                             &mut block_processor,
-                            &state_updater,
+                            relays.storage_adapter(),
+                            &service_state_updater,
+                            &leader,
                         ).await;
 
                         info!(counter.consensus_processed_blocks = 1);
@@ -669,7 +663,9 @@ where
                                     cryptarchia,
                                     block.clone(),
                                     &mut block_processor,
-                                    &state_updater,
+                                    relays.storage_adapter(),
+                                    &service_state_updater,
+                                    &leader,
                                 ).await;
                                 blend_adapter.blend(block).await;
                             }
@@ -800,6 +796,7 @@ where
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
+    RuntimeServiceId: 'static,
 {
     fn process_message<State: CryptarchiaState>(
         cryptarchia: &Cryptarchia<State>,
@@ -957,15 +954,13 @@ where
         &self,
         mut cryptarchia: Cryptarchia<State>,
         block_processor: &mut NomosBlockProcessor<
-            '_,
             ClPool,
             ClPoolAdapter,
             DaPool,
             DaPoolAdapter,
-            Storage,
             RuntimeServiceId,
         >,
-        storage: &StorageAdapter<Storage, ClPool::Item, DaPool::Item, RuntimeServiceId>,
+        storage: &mut StorageAdapter<Storage, ClPool::Item, DaPool::Item, RuntimeServiceId>,
     ) -> Result<Cryptarchia<State>, Error>
     where
         State: CryptarchiaState + Send,
@@ -979,17 +974,10 @@ where
 
         // Process blocks
         for block in blocks {
-            cryptarchia =
-                block_processor
-                    .process_block::<State, ChainServiceStateUpdater<
-                        '_,
-                        TxS,
-                        BS,
-                        NetAdapter::Settings,
-                        BlendAdapter::Settings,
-                    >>(cryptarchia, block, None)
-                    .await
-                    .map_err(|(e, _)| e)?;
+            cryptarchia = block_processor
+                .process_block(cryptarchia, block, storage)
+                .await
+                .map_err(|(e, _)| e)?;
         }
         Ok(cryptarchia)
     }
@@ -1037,31 +1025,35 @@ where
         }
     }
 
+    #[expect(clippy::type_complexity, reason = "StateUpdater")]
     async fn process_block_and_update_service_state<CryptarchiaState>(
         cryptarchia: Cryptarchia<CryptarchiaState>,
         block: Block<ClPool::Item, DaPool::Item>,
         block_processor: &mut NomosBlockProcessor<
-            '_,
             ClPool,
             ClPoolAdapter,
             DaPool,
             DaPoolAdapter,
-            Storage,
             RuntimeServiceId,
         >,
-        service_state_updater: &ChainServiceStateUpdater<
-            '_,
-            TxS::Settings,
-            BS::Settings,
-            NetAdapter::Settings,
-            BlendAdapter::Settings,
+        storage: &mut StorageAdapter<Storage, ClPool::Item, DaPool::Item, RuntimeServiceId>,
+        service_state_updater: &StateUpdater<
+            Option<
+                ChainServiceState<
+                    TxS::Settings,
+                    BS::Settings,
+                    NetAdapter::Settings,
+                    BlendAdapter::Settings,
+                >,
+            >,
         >,
+        leader: &Leader,
     ) -> Cryptarchia<CryptarchiaState>
     where
         CryptarchiaState: cryptarchia_engine::CryptarchiaState + Send,
     {
-        match block_processor
-            .process_block(cryptarchia, block, Some(service_state_updater))
+        let cryptarchia = match block_processor
+            .process_block(cryptarchia, block, storage)
             .await
         {
             Ok(cryptarchia) => cryptarchia,
@@ -1069,7 +1061,19 @@ where
                 error!("Failed to process block: {e}");
                 cryptarchia
             }
+        };
+
+        // Update the service state with the new cryptarchia state.
+        match ChainServiceState::new(&cryptarchia, leader, storage.failed_removals().clone()) {
+            Ok(state) => {
+                service_state_updater.update(Some(state));
+            }
+            Err(e) => {
+                error!("Failed to create service state: {e}");
+            }
         }
+
+        cryptarchia
     }
 }
 

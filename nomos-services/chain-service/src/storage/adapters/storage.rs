@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, marker::PhantomData};
+use std::{
+    collections::{BTreeMap, HashSet},
+    marker::PhantomData,
+};
 
 use cryptarchia_engine::Slot;
 use nomos_core::{block::Block, header::HeaderId};
@@ -9,7 +12,7 @@ use overwatch::services::{relay::OutboundRelay, ServiceData};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::oneshot;
 
-use crate::storage::{StorageAdapter as StorageAdapterTrait, StorageAdapterExt};
+use crate::storage::{StorageAdapter as StorageAdapterTrait, StorageAdapterExt, LOG_TARGET};
 
 pub struct StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
 where
@@ -17,6 +20,7 @@ where
 {
     pub storage_relay:
         OutboundRelay<<StorageService<Storage, RuntimeServiceId> as ServiceData>::Message>,
+    failed_removals: HashSet<HeaderId>,
     _tx: PhantomData<Tx>,
     _blob_certificate: PhantomData<BlobCertificate>,
 }
@@ -41,6 +45,7 @@ where
     ) -> Self {
         Self {
             storage_relay,
+            failed_removals: HashSet::new(),
             _tx: PhantomData,
             _blob_certificate: PhantomData,
         }
@@ -119,6 +124,7 @@ where
     }
 }
 
+#[async_trait::async_trait]
 impl<Storage, Tx, BlobCertificate, RuntimeServiceId> StorageAdapterExt<RuntimeServiceId>
     for StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
 where
@@ -128,7 +134,44 @@ where
     Tx: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
     BlobCertificate: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
+    async fn remove_blocks_and_collect_failures(
+        &mut self,
+        blocks: impl Iterator<Item = HeaderId> + Send,
+    ) {
+        let blocks = blocks.collect::<Vec<_>>();
+        self.failed_removals = self
+            .remove_blocks(blocks.iter().copied())
+            .await
+            .zip(blocks.iter())
+            .filter_map(|(result, id)| match result {
+                Ok(Some(_)) => {
+                    tracing::trace!(target: LOG_TARGET, "Removed block: {id}");
+                    None
+                }
+                Ok(None) => {
+                    tracing::trace!(target: LOG_TARGET, "Failed to remove block: Not found");
+                    None
+                }
+                Err(e) => {
+                    tracing::error!(target: LOG_TARGET, "Failed to remove block: {e}");
+                    Some(*id)
+                }
+            })
+            .collect();
+    }
+
     fn parent_id(block: &Self::Block) -> HeaderId {
         block.header().parent()
+    }
+}
+
+impl<Storage, Tx, BlobCertificate, RuntimeServiceId>
+    StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
+where
+    Storage: StorageBackend + Send + Sync + 'static,
+{
+    #[must_use]
+    pub const fn failed_removals(&self) -> &HashSet<HeaderId> {
+        &self.failed_removals
     }
 }
