@@ -1,35 +1,37 @@
 use core::task::{Context, Poll, Waker};
 
+use futures::TryFutureExt as _;
 use libp2p::{
     core::upgrade::ReadyUpgrade,
     swarm::{handler::FullyNegotiatedOutbound, ConnectionHandlerEvent, SubstreamProtocol},
 };
 
+use super::sending::SendingState;
 use crate::{
     edge::handler::{
-        dropped::DroppedState,
-        message_set::MessageSetState,
-        ready_to_send::{InternalState, ReadyToSendState},
-        ConnectionEvent, ConnectionState, FailureReason, FromBehaviour, PollResult, StateTrait,
-        LOG_TARGET,
+        dropped::DroppedState, ConnectionEvent, ConnectionState, FailureReason, PollResult,
+        StateTrait, LOG_TARGET,
     },
-    PROTOCOL_NAME,
+    send_msg, PROTOCOL_NAME,
 };
 
 /// Entrypoint to start sending a single message to a core node.
 pub struct StartingState {
+    /// A message to be sent once the substream becomes ready to send.
+    message: Vec<u8>,
     /// Used when this state is polled, to remember whether a new outbound
-    /// substream request has already been made to the swarm.
-    substream_requested: bool,
+    /// stream request has already been made to the swarm.
+    connection_requested: bool,
     /// The waker to wake when we need to force a new round of polling to
     /// progress the state machine.
     waker: Option<Waker>,
 }
 
 impl StartingState {
-    pub const fn new() -> Self {
+    pub const fn new(message: Vec<u8>) -> Self {
         Self {
-            substream_requested: false,
+            message,
+            connection_requested: false,
             waker: None,
         }
     }
@@ -42,17 +44,7 @@ impl From<StartingState> for ConnectionState {
 }
 
 impl StateTrait for StartingState {
-    fn on_behaviour_event(self, event: FromBehaviour) -> ConnectionState {
-        match event {
-            FromBehaviour::Message(message) => MessageSetState::new(message, self.waker).into(),
-            FromBehaviour::DropSubstream => {
-                tracing::trace!(target: LOG_TARGET, "StartingState -> DroppedState by request from behaviour.");
-                DroppedState::new(None, self.waker).into()
-            }
-        }
-    }
-
-    // When an outbound substream is negotiated, it moves the state machine to a
+    // When an inbound substream is negotiated, it moves the state machine to a
     // `ReadyToSendState` state with an `OnlyOutboundStreamSet` internal state,
     // since no message has been passed to the connection handler by the behavior
     // yet. In case of `DialUpgradeError`, the state machine is moved to the
@@ -62,8 +54,9 @@ impl StateTrait for StartingState {
             ConnectionEvent::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
                 protocol: outbound_stream,
                 ..
-            }) => ReadyToSendState::new(
-                InternalState::only_outbound_stream_set(outbound_stream),
+            }) => SendingState::new(
+                self.message.clone(),
+                Box::pin(send_msg(outbound_stream, self.message).map_ok(|_| ())),
                 self.waker.take(),
             )
             .into(),
@@ -79,11 +72,11 @@ impl StateTrait for StartingState {
         }
     }
 
-    // When polled, if a substream has not been requested, it emits a
+    // When polled, if a connection has not been requested, it emits a
     // `OutboundSubstreamRequest` request, and waits until the swarm propagates the
     // necessary events.
     fn poll(self, cx: &mut Context<'_>) -> PollResult<ConnectionState> {
-        if self.substream_requested {
+        if self.connection_requested {
             (Poll::Pending, self.into())
         } else {
             tracing::trace!(target: LOG_TARGET, "Requesting a new outbound substream.");
@@ -93,7 +86,8 @@ impl StateTrait for StartingState {
                     protocol: SubstreamProtocol::new(ReadyUpgrade::new(PROTOCOL_NAME), ()),
                 }),
                 Self {
-                    substream_requested: true,
+                    message: self.message,
+                    connection_requested: true,
                     waker: Some(cx.waker().clone()),
                 }
                 .into(),

@@ -16,14 +16,9 @@ use libp2p::{
     StreamProtocol,
 };
 
-use crate::edge::handler::{
-    dropped::DroppedState, message_set::MessageSetState, ready_to_send::ReadyToSendState,
-    sending::SendingState, starting::StartingState,
-};
+use crate::edge::handler::{dropped::DroppedState, sending::SendingState, starting::StartingState};
 
 mod dropped;
-mod message_set;
-mod ready_to_send;
 mod sending;
 mod starting;
 
@@ -52,28 +47,14 @@ type ConnectionEvent<'a> = libp2p::swarm::handler::ConnectionEvent<
 
 enum ConnectionState {
     Starting(StartingState),
-    MessageSet(MessageSetState),
-    ReadyToSend(ReadyToSendState),
     Sending(SendingState),
     Dropped(DroppedState),
 }
 
 impl ConnectionState {
-    fn on_behaviour_event(self, event: FromBehaviour) -> Self {
-        match self {
-            Self::Starting(s) => s.on_behaviour_event(event),
-            Self::MessageSet(s) => s.on_behaviour_event(event),
-            Self::ReadyToSend(s) => s.on_behaviour_event(event),
-            Self::Sending(s) => s.on_behaviour_event(event),
-            Self::Dropped(s) => s.on_behaviour_event(event),
-        }
-    }
-
     fn on_connection_event(self, event: ConnectionEvent) -> Self {
         match self {
             Self::Starting(s) => s.on_connection_event(event),
-            Self::MessageSet(s) => s.on_connection_event(event),
-            Self::ReadyToSend(s) => s.on_connection_event(event),
             Self::Sending(s) => s.on_connection_event(event),
             Self::Dropped(s) => s.on_connection_event(event),
         }
@@ -82,8 +63,6 @@ impl ConnectionState {
     fn poll(self, cx: &mut Context<'_>) -> PollResult<Self> {
         match self {
             Self::Starting(s) => s.poll(cx),
-            Self::MessageSet(s) => s.poll(cx),
-            Self::ReadyToSend(s) => s.poll(cx),
             Self::Sending(s) => s.poll(cx),
             Self::Dropped(s) => s.poll(cx),
         }
@@ -91,10 +70,6 @@ impl ConnectionState {
 }
 
 trait StateTrait: Into<ConnectionState> {
-    fn on_behaviour_event(self, _event: FromBehaviour) -> ConnectionState {
-        self.into()
-    }
-
     fn on_connection_event(self, _event: ConnectionEvent) -> ConnectionState {
         self.into()
     }
@@ -107,26 +82,19 @@ pub struct EdgeToCoreBlendConnectionHandler {
 }
 
 impl EdgeToCoreBlendConnectionHandler {
-    pub fn new() -> Self {
+    pub fn new(msg: Vec<u8>) -> Self {
         tracing::trace!(target: LOG_TARGET, "Initializing edge->core connection handler.");
         Self {
-            state: Some(StartingState::new().into()),
+            state: Some(StartingState::new(msg).into()),
         }
     }
-}
 
-impl Default for EdgeToCoreBlendConnectionHandler {
-    fn default() -> Self {
-        Self::new()
+    pub fn new_dropped() -> Self {
+        tracing::trace!(target: LOG_TARGET, "Initializing edge->core connection handler in dropped state.");
+        Self {
+            state: Some(DroppedState::new(None, None).into()),
+        }
     }
-}
-
-#[derive(Debug)]
-pub enum FromBehaviour {
-    /// Send a message to the other side of the connection.
-    Message(Vec<u8>),
-    /// Drop the substream.
-    DropSubstream,
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -137,17 +105,14 @@ pub enum FailureReason {
 
 #[derive(Debug)]
 pub enum ToBehaviour {
-    /// Notify the behaviour that the connection handler is ready to send a
-    /// message.
-    ReadyToSend,
     /// Notify the behaviour that the message was sent successfully.
     MessageSuccess(Vec<u8>),
-    /// Notify the behaviour that the connection has been dropped.
-    Dropped(Option<FailureReason>),
+    /// Notify the behaviour that the message could not be sent.
+    SendError(FailureReason),
 }
 
 impl ConnectionHandler for EdgeToCoreBlendConnectionHandler {
-    type FromBehaviour = FromBehaviour;
+    type FromBehaviour = ();
     type ToBehaviour = ToBehaviour;
     type InboundProtocol = DeniedUpgrade;
     type InboundOpenInfo = ();
@@ -159,10 +124,7 @@ impl ConnectionHandler for EdgeToCoreBlendConnectionHandler {
         SubstreamProtocol::new(DeniedUpgrade, ())
     }
 
-    fn on_behaviour_event(&mut self, event: Self::FromBehaviour) {
-        let state = self.state.take().expect("Inconsistent state");
-        self.state = Some(state.on_behaviour_event(event));
-    }
+    fn on_behaviour_event(&mut self, _event: Self::FromBehaviour) {}
 
     fn on_connection_event(&mut self, event: ConnectionEvent) {
         let state = self.state.take().expect("Inconsistent state");

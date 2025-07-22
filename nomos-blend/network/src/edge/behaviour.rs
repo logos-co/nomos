@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     task::{Context, Poll, Waker},
 };
 
@@ -7,8 +7,8 @@ use libp2p::{
     core::{transport::PortUse, Endpoint},
     swarm::{
         dial_opts::{DialOpts, PeerCondition},
-        ConnectionDenied, ConnectionId, DialFailure, FromSwarm, NetworkBehaviour, NotifyHandler,
-        THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+        ConnectionDenied, ConnectionId, DialFailure, FromSwarm, NetworkBehaviour, THandler,
+        THandlerInEvent, THandlerOutEvent, ToSwarm,
     },
     Multiaddr, PeerId,
 };
@@ -17,7 +17,7 @@ use rand::RngCore;
 
 use super::{
     error::Error,
-    handler::{EdgeToCoreBlendConnectionHandler, FailureReason, FromBehaviour, ToBehaviour},
+    handler::{EdgeToCoreBlendConnectionHandler, FailureReason, ToBehaviour},
 };
 
 const LOG_TARGET: &str = "blend::network::edge::behaviour";
@@ -31,22 +31,13 @@ const LOG_TARGET: &str = "blend::network::edge::behaviour";
 /// it sends one of the messages scheduled.
 /// After that, it closes the substream.
 ///
-/// It continously tracks whether additional dialing is needed.
-/// Whenever it receives [`DialFailure`] or [`FailureReason::UpgradeError`],
-/// it requests new dialings if the number of requested dials is less than
-/// the number of scheduled messages.
+/// If any error occurs during the process,
+/// it restarts the process by scheduling a new dialing request for the message.
 pub struct Behaviour<Rng> {
     /// Queue of events to yield to the swarm.
-    events: VecDeque<ToSwarm<EventToSwarm, FromBehaviour>>,
-    /// Pending messages to be sent once a new connection is established.
-    pending_messages: VecDeque<Vec<u8>>,
-    /// Requested dials to track whether additional dialing is needed.
-    /// - Added when a new dial is scheduled.
-    /// - Removed
-    ///   - when the dial fails.
-    ///   - when the connection becomes ready to send.
-    ///   - when the connection has been dropped before being ready to send.
-    requested_dials: HashSet<(PeerId, ConnectionId)>,
+    events: VecDeque<ToSwarm<EventToSwarm, ()>>,
+    /// Messages to be sent once a new connection is established.
+    pending_messages: HashMap<(PeerId, ConnectionId), Vec<u8>>,
     /// Waker that handles polling
     waker: Option<Waker>,
     // TODO: Replace with the session stream and make this a non-Option
@@ -75,30 +66,30 @@ where
         _local_addr: &Multiaddr,
         _remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        Err(ConnectionDenied::new(
-            ConnectionDeniedReason::InboundNotAllowed,
-        ))
+        tracing::debug!(target: LOG_TARGET, "Connection established from a non-core node. Creating a connection handler with DroppedState.");
+        Ok(EdgeToCoreBlendConnectionHandler::new_dropped())
     }
 
     fn handle_established_outbound_connection(
         &mut self,
-        _connection_id: ConnectionId,
+        connection_id: ConnectionId,
         peer_id: PeerId,
         _addr: &Multiaddr,
         _role_override: Endpoint,
         _port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        // If no membership is provided (for tests), we assume all peers are core nodes.
-        let Some(membership) = &self.current_membership else {
-            return Ok(EdgeToCoreBlendConnectionHandler::new());
-        };
-        if membership.contains_remote(&peer_id) {
-            Ok(EdgeToCoreBlendConnectionHandler::new())
-        } else {
-            Err(ConnectionDenied::new(
-                ConnectionDeniedReason::OutboundToEdgeNodeNotAllowed,
-            ))
+        if !self.is_core_node(&peer_id) {
+            tracing::debug!(target: LOG_TARGET, "Connection established to a non-core node. Creating a connection handler with DroppedState.");
+            self.pending_messages.remove(&(peer_id, connection_id));
+            return Ok(EdgeToCoreBlendConnectionHandler::new_dropped());
         }
+
+        let Some(message) = self.pending_messages.remove(&(peer_id, connection_id)) else {
+            tracing::debug!(target: LOG_TARGET, "No message assigned to this connection. Creating a connection handler with DroppedState.");
+            return Ok(EdgeToCoreBlendConnectionHandler::new_dropped());
+        };
+
+        Ok(EdgeToCoreBlendConnectionHandler::new(message))
     }
 
     /// Informs the behaviour about an event from the [`Swarm`].
@@ -117,14 +108,11 @@ where
         event: THandlerOutEvent<Self>,
     ) {
         match event {
-            ToBehaviour::ReadyToSend => {
-                self.handle_ready_to_send(peer_id, connection_id);
-            }
             ToBehaviour::MessageSuccess(message) => {
-                self.schedule_event_to_swarm(EventToSwarm::MessageSuccess(message));
+                self.handle_message_success(peer_id, connection_id, message);
             }
-            ToBehaviour::Dropped(reason) => {
-                self.handle_dropped_connection(peer_id, connection_id, reason.as_ref());
+            ToBehaviour::SendError(reason) => {
+                self.handle_send_error(peer_id, connection_id, &reason);
             }
         }
     }
@@ -151,30 +139,29 @@ where
     pub fn new(current_membership: Option<Membership<PeerId>>, rng: Rng) -> Self {
         Self {
             events: VecDeque::new(),
-            pending_messages: VecDeque::new(),
-            requested_dials: HashSet::new(),
+            pending_messages: HashMap::new(),
             waker: None,
             current_membership,
             rng,
         }
     }
 
-    /// Schedules sending a message by dialing a random node
-    pub fn send_message(&mut self, message: Vec<u8>) -> Result<(), Error> {
-        self.pending_messages.push_back(message);
-        self.schedule_dial_if_needed()
+    /// Checks if the given peer is a core node.
+    fn is_core_node(&self, peer_id: &PeerId) -> bool {
+        // If no membership is provided (for tests), we assume all peers are core nodes.
+        let Some(membership) = &self.current_membership else {
+            return true;
+        };
+        membership.contains_remote(peer_id)
     }
 
-    /// Schedules a new dial if requested dials are less than pending messages.
-    fn schedule_dial_if_needed(&mut self) -> Result<(), Error> {
-        if self.pending_messages.len() > self.requested_dials.len() {
-            self.schedule_dial()?;
-        }
-        Ok(())
+    /// Schedules sending a message by dialing a random node
+    pub fn send_message(&mut self, message: Vec<u8>) -> Result<(), Error> {
+        self.schedule_dial(message)
     }
 
     /// Schedules dialing to a random node.
-    fn schedule_dial(&mut self) -> Result<(), Error> {
+    fn schedule_dial(&mut self, message: Vec<u8>) -> Result<(), Error> {
         tracing::debug!(target: LOG_TARGET, "Scheduling a new dial");
 
         let Some(membership) = &self.current_membership else {
@@ -186,44 +173,15 @@ where
             .next()
             .ok_or(Error::NoPeers)?;
 
-        let opts = self.new_dial_opts(node.id, &node.address);
-        self.requested_dials.insert((node.id, opts.connection_id()));
+        let opts = DialOpts::peer_id(node.id)
+            .condition(PeerCondition::Always)
+            .addresses(vec![node.address.clone()])
+            .build();
+        self.pending_messages
+            .insert((node.id, opts.connection_id()), message);
         self.events.push_back(ToSwarm::Dial { opts });
         self.try_wake();
         Ok(())
-    }
-
-    /// Creates a new [`DialOpts`] for the given peer.
-    /// Repeats until a new connection ID (not existing in [`requested_dials`]) is
-    /// generated.
-    fn new_dial_opts(&self, peer_id: PeerId, address: &Multiaddr) -> DialOpts {
-        loop {
-            let opts = DialOpts::peer_id(peer_id)
-                .condition(PeerCondition::DisconnectedAndNotDialing)
-                .addresses(vec![address.clone()])
-                .build();
-            if !self
-                .requested_dials
-                .contains(&(peer_id, opts.connection_id()))
-            {
-                return opts;
-            }
-        }
-    }
-
-    /// Schedules sending a message to the peer that is connected/negotiated.
-    /// Returns `true` if there was a message to schedule, `false` otherwise.
-    fn schedule_send_message(&mut self, peer_id: PeerId, connection_id: ConnectionId) -> bool {
-        let Some(message) = self.pending_messages.pop_front() else {
-            return false;
-        };
-        self.events.push_back(ToSwarm::NotifyHandler {
-            peer_id,
-            handler: NotifyHandler::One(connection_id),
-            event: FromBehaviour::Message(message),
-        });
-        self.try_wake();
-        true
     }
 
     /// Schedules a [`EventToSwarm`] to be sent to the swarm.
@@ -232,51 +190,55 @@ where
         self.try_wake();
     }
 
-    fn schedule_drop_substream(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
-        tracing::debug!(target: LOG_TARGET, "Dropping substream: peer:{peer_id}, connection_id:{connection_id}");
-        self.events.push_back(ToSwarm::NotifyHandler {
-            peer_id,
-            handler: NotifyHandler::One(connection_id),
-            event: FromBehaviour::DropSubstream,
-        });
-        self.try_wake();
-    }
+    /// Handles [`FromSwarm::DialFailure`] event from the swarm
+    /// by rescheduling a new dial if necessary.
+    fn handle_dial_failure(&mut self, failure: DialFailure) {
+        tracing::error!(target: LOG_TARGET, "Dial failure: {failure:?}");
 
-    /// Handles [`ToBehaviour::ReadyToSend`] event from the connection handler.
-    fn handle_ready_to_send(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
-        tracing::debug!(target: LOG_TARGET, "Conn is ready to send: peer:{peer_id}, connection_id:{connection_id}");
-        self.requested_dials.remove(&(peer_id, connection_id));
-        if !self.schedule_send_message(peer_id, connection_id) {
-            // There was no message to send. Drop the substream.
-            self.schedule_drop_substream(peer_id, connection_id);
+        // Reschedule a new dial only if the failure is from
+        // the connection that this NetworkBehaviour has requested.
+        let Some(peer_id) = failure.peer_id else {
+            return;
+        };
+        let Some(message) = self
+            .pending_messages
+            .remove(&(peer_id, failure.connection_id))
+        else {
+            return;
+        };
+        tracing::debug!(target: LOG_TARGET, "Rescheduling dial");
+        if let Err(e) = self.schedule_dial(message) {
+            tracing::error!(target: LOG_TARGET, "Failed to reschedule dial: {e}");
         }
     }
 
-    /// Handles [`ToBehaviour::Dropped`] event from the connection handler.
-    fn handle_dropped_connection(
+    /// Handles [`ToBehaviour::MessageSuccess`] event from the connection
+    /// handler by removing the message from the [`Self::pending_messages`]
+    /// and scheduling a [`EventToSwarm::MessageSuccess`] to the swarm.
+    fn handle_message_success(
         &mut self,
         peer_id: PeerId,
         connection_id: ConnectionId,
-        reason: Option<&FailureReason>,
+        message: Vec<u8>,
     ) {
-        self.requested_dials.remove(&(peer_id, connection_id));
-        if matches!(reason, Some(FailureReason::UpgradeError)) {
-            tracing::error!(target: LOG_TARGET, "Upgrade error: peer:{peer_id}, connection_id:{connection_id}");
-            if let Err(e) = self.schedule_dial_if_needed() {
-                tracing::error!(target: LOG_TARGET, "Failed to schedule dial: {e}");
-            }
-        }
+        tracing::debug!(target: LOG_TARGET, "Message sent successfully to {peer_id} on connection {connection_id}");
+        self.pending_messages.remove(&(peer_id, connection_id));
+        self.schedule_event_to_swarm(EventToSwarm::MessageSuccess(message));
     }
 
-    /// Handles [`FromSwarm::DialFailure`] event from the swarm.
-    fn handle_dial_failure(&mut self, failure: DialFailure) {
-        tracing::error!(target: LOG_TARGET, "Dial failure: {failure:?}");
-        if let Some(peer_id) = failure.peer_id {
-            self.requested_dials
-                .remove(&(peer_id, failure.connection_id));
-        }
-        if let Err(e) = self.schedule_dial_if_needed() {
-            tracing::error!(target: LOG_TARGET, "Failed to schedule dial: {e}");
+    /// Handles [`ToBehaviour::SendError`] event from the connection handler
+    /// by rescheduling a new dial.
+    fn handle_send_error(
+        &mut self,
+        peer_id: PeerId,
+        connection_id: ConnectionId,
+        reason: &FailureReason,
+    ) {
+        tracing::error!(target: LOG_TARGET, "Failed to send message. Reason: {reason:?}. Rescheduling dial.");
+        if let Some(message) = self.pending_messages.remove(&(peer_id, connection_id)) {
+            if let Err(e) = self.schedule_dial(message) {
+                tracing::error!(target: LOG_TARGET, "Failed to reschedule dial: {e}");
+            }
         }
     }
 
@@ -285,21 +247,4 @@ where
             waker.wake();
         }
     }
-
-    // TODO: Remove this method once the session stream is implemented.
-    //       https://github.com/logos-co/nomos/issues/1462
-    pub fn set_membership(&mut self, membership: Membership<PeerId>) {
-        self.current_membership = Some(membership);
-        if let Err(e) = self.schedule_dial_if_needed() {
-            tracing::error!(target: LOG_TARGET, "Failed to schedule dial: {e}");
-        }
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-enum ConnectionDeniedReason {
-    #[error("Inbound connection not allowed for edge node")]
-    InboundNotAllowed,
-    #[error("Outbound connection to edge node is not allowed")]
-    OutboundToEdgeNodeNotAllowed,
 }

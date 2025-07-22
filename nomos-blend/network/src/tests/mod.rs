@@ -3,9 +3,8 @@ use core::{
     time::Duration,
 };
 
-use edge_core::no_message_edge_sender_swarm;
 use futures::{task::noop_waker_ref, StreamExt as _};
-use libp2p::swarm::{dial_opts::DialOpts, ListenError, SwarmEvent};
+use libp2p::swarm::{dial_opts::DialOpts, ConnectionError, SwarmEvent};
 use nomos_blend_scheduling::membership::Membership;
 use tokio::time::sleep;
 
@@ -19,7 +18,7 @@ mod edge_core;
 
 #[test_log::test(tokio::test)]
 async fn core_to_edge_connection_failure() {
-    let (mut edge_node, edge_node_address) = edge_sender_swarm().await;
+    let (mut edge_node, edge_node_address) = edge_sender_swarm(None).await;
     let (mut core_node, _) = core_receiver_swarm(Duration::from_secs(1)).await;
     let edge_node_peer_id = *edge_node.local_peer_id();
 
@@ -45,8 +44,8 @@ async fn core_to_edge_connection_failure() {
 
             if !edge_loop_done {
                 let edge_node_event = edge_node.poll_next_unpin(&mut cx);
-                if let Poll::Ready(Some(SwarmEvent::IncomingConnectionError {
-                    error: ListenError::Denied { .. },
+                if let Poll::Ready(Some(SwarmEvent::ConnectionClosed {
+                    cause: Some(ConnectionError::KeepAliveTimeout),
                     ..
                 })) = edge_node_event
                 {
@@ -65,12 +64,9 @@ async fn core_to_edge_connection_failure() {
 
 #[test_log::test(tokio::test)]
 async fn message_sending() {
-    let (mut edge_node, _) = edge_sender_swarm().await;
     let (mut core_node, core_node_info) = core_receiver_swarm(Duration::from_secs(1)).await;
-
-    edge_node
-        .behaviour_mut()
-        .set_membership(Membership::new(&[core_node_info], None));
+    let membership = Membership::new(&[core_node_info], None);
+    let (mut edge_node, _) = edge_sender_swarm(Some(membership)).await;
 
     edge_node
         .behaviour_mut()
@@ -117,20 +113,15 @@ async fn message_sending() {
 
 #[test_log::test(tokio::test)]
 async fn sender_timeout() {
-    let (mut edge_node, _) = no_message_edge_sender_swarm().await;
-    let (mut core_node, core_node_info) = core_receiver_swarm(Duration::from_secs(1)).await;
+    // Set timeout to 0 to trigger an immediate timeout.
+    let (mut core_node, core_node_info) = core_receiver_swarm(Duration::ZERO).await;
+    let membership = Membership::new(&[core_node_info], None);
+    let (mut edge_node, _) = edge_sender_swarm(Some(membership)).await;
     let core_node_peer_id = *core_node.local_peer_id();
     let edge_node_peer_id = *edge_node.local_peer_id();
 
-    edge_node
-        .behaviour_mut()
-        .set_membership(Membership::new(&[core_node_info], None));
-
-    // Schedule a message to trigger a dialing, but it won't be sent actually.
-    edge_node
-        .behaviour_mut()
-        .send_message(b"test".to_vec())
-        .expect("Message must be scheduled");
+    // Schedule a message to trigger a dialing.
+    edge_node.behaviour_mut().send_message(vec![]).unwrap();
 
     let mut core_loop_done = false;
     let mut edge_loop_done = false;
@@ -148,6 +139,10 @@ async fn sender_timeout() {
                 }
             }
 
+            // Stop polling once the connection is established,
+            // which means that a connection handler has been created
+            // and the message will be sent once the connection is fully negotiated.
+            // Anyway, we expect that the core node gets a timeout error soon.
             if !edge_loop_done {
                 let edge_node_event = edge_node.poll_next_unpin(&mut cx);
                 if let Poll::Ready(Some(SwarmEvent::ConnectionEstablished { peer_id, .. })) =
@@ -169,10 +164,11 @@ async fn sender_timeout() {
 
     // The next event we should get from the core swarm is a failure due to
     // timeout.
+    let event = core_node.next().await;
     let Some(SwarmEvent::Behaviour(crate::core::handler::core_edge::ToBehaviour::FailedReception(
         crate::core::handler::core_edge::FailureReason::Timeout,
-    ))) = core_node.next().await
+    ))) = event
     else {
-        panic!("Returned different error than expected (timeout)");
+        panic!("Returned different error than expected (timeout): {event:?}");
     };
 }
