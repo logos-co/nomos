@@ -58,7 +58,7 @@ where
         self.storage_relay
             .send(get_assignations_msg)
             .await
-            .expect("Failed to send request to storage relay");
+            .map_err(|(e, _)| DynError::from(e))?;
 
         reply_rx.await.map_err(DynError::from)
     }
