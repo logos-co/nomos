@@ -89,7 +89,6 @@ where
         _port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
         // If no membership is provided (for tests), we assume all peers are core nodes.
-        // nodes.
         let Some(membership) = &self.current_membership else {
             return Ok(EdgeToCoreBlendConnectionHandler::new());
         };
