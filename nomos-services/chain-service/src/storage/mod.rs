@@ -8,6 +8,8 @@ use nomos_core::header::HeaderId;
 use nomos_storage::{backends::StorageBackend, StorageService};
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 
+use crate::Error;
+
 #[async_trait::async_trait]
 pub trait StorageAdapter<RuntimeServiceId> {
     type Backend: StorageBackend + Send + Sync + 'static;
@@ -84,42 +86,29 @@ pub trait StorageAdapterExt<RuntimeServiceId>: StorageAdapter<RuntimeServiceId> 
         blocks: impl Iterator<Item = HeaderId> + Send,
     );
 
-    /// Retrieves the blocks in the range from `from` to `to` from the storage.
-    /// Both `from` and `to` are included in the range.
-    ///
-    /// # Panics
-    ///
-    /// Panics if any of the blocks in the range are not found in the storage.
-    ///
-    /// # Parameters
-    ///
-    /// * `from` - The header id of the first block in the range. Must be a
-    ///   valid header.
-    /// * `to` - The header id of the last block in the range. Must be a valid
-    ///   header.
-    ///
-    /// # Returns
-    ///
-    /// A vector of blocks in the range from `from` to `to`.
-    /// If no blocks are found, returns an empty vector.
-    /// If any of the [`HeaderId`]s are invalid, returns an error with the first
-    /// invalid header id.
-    async fn get_blocks_in_range(&self, from: HeaderId, to: HeaderId) -> Vec<Self::Block> {
+    /// Retrieves the blocks in the inclusive range from `from` to `to`.
+    /// Returns [`Error::BlockNotFound`] if any block in the range is not found.
+    async fn get_blocks_in_range(
+        &self,
+        from: HeaderId,
+        to: HeaderId,
+    ) -> Result<Vec<Self::Block>, Error> {
         // Due to the blocks traversal order, this yields `to..from` order
-        let blocks = futures::stream::unfold(to, |header_id| async move {
+        let blocks = futures::stream::try_unfold(to, |header_id| async move {
             if header_id == from {
-                None
+                Ok(None)
             } else {
-                let block = self.get_block(&header_id).await.unwrap_or_else(|| {
-                    panic!("Could not retrieve block {to} from storage during recovery")
-                });
+                let block = self
+                    .get_block(&header_id)
+                    .await
+                    .ok_or_else(|| Error::BlockNotFound(header_id))?;
+
                 let parent_header_id = Self::parent_id(&block);
-                Some((block, parent_header_id))
+                Ok(Some((block, parent_header_id)))
             }
         });
 
-        // To avoid confusion, the order is reversed so it fits the natural `from..to`
-        // order
+        // To avoid confusion, the order is reversed to `from..to` order.
         blocks.collect::<Vec<_>>().await.into_iter().rev().collect()
     }
 

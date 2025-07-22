@@ -79,6 +79,8 @@ pub enum Error {
     Ledger(#[from] nomos_ledger::LedgerError<HeaderId>),
     #[error("Consensus error: {0}")]
     Consensus(#[from] cryptarchia_engine::Error<HeaderId>),
+    #[error("Block not found: {0}")]
+    BlockNotFound(HeaderId),
     #[error("Blob is not found from the sampled blobs")]
     SampledBlobNotFound,
     #[error("Failed to validate blobs: {0}")]
@@ -967,7 +969,7 @@ where
     {
         let blocks = storage
             .get_blocks_in_range(cryptarchia.lib(), self.initial_state.tip)
-            .await;
+            .await?;
 
         // Skip LIB block since it's already applied
         let blocks = blocks.into_iter().skip(1);
