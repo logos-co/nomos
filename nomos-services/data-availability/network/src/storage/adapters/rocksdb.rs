@@ -16,7 +16,6 @@ where
 }
 
 #[async_trait::async_trait]
-
 impl<Backend, RuntimeServiceId> MembershipStorageAdapter<PeerId, SubnetworkId>
     for RocksAdapter<Backend, RuntimeServiceId>
 where
