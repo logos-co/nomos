@@ -194,7 +194,7 @@ where
     }
 
     /// Creates a new [`DialOpts`] for the given peer.
-    /// Repeats until a new connection ID (not exist in [`requested_dials`]) is
+    /// Repeats until a new connection ID (not existing in [`requested_dials`]) is
     /// generated.
     fn new_dial_opts(&self, peer_id: PeerId, address: &Multiaddr) -> DialOpts {
         loop {
