@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 pub enum ServiceMessage<BroadcastSettings> {
     /// To send a message to the blend network and eventually broadcast it to
     /// the [`NetworkService`].
-    Blend(NetworkMessage<BroadcastSettings>),
+    Blend(NetworkMessage<Vec<u8>, BroadcastSettings>),
 }
 
 /// A message that is sent to the blend network.
@@ -16,38 +16,45 @@ pub enum ServiceMessage<BroadcastSettings> {
 /// [`BroadcastSettings`] must be included in the [`NetworkMessage`].
 /// [`BroadcastSettings`] is a generic type defined by [`NetworkAdapter`].
 #[derive(Debug, Serialize, Deserialize)]
-pub struct NetworkMessage<BroadcastSettings> {
-    pub message: Vec<u8>,
+pub struct NetworkMessage<DecapsulatedPayload, BroadcastSettings> {
+    pub message: DecapsulatedPayload,
     pub broadcast_settings: BroadcastSettings,
 }
 
 #[derive(Debug)]
-pub enum ProcessedMessage<BroadcastSettings> {
-    Network(NetworkMessage<BroadcastSettings>),
+pub enum ProcessedMessage<DecapsulatedPayload, BroadcastSettings> {
+    Network(NetworkMessage<DecapsulatedPayload, BroadcastSettings>),
     Encapsulated(EncapsulatedMessage),
 }
 
-impl<BroadcastSettings> From<NetworkMessage<BroadcastSettings>>
-    for ProcessedMessage<BroadcastSettings>
+impl<DecapsulatedPayload, BroadcastSettings>
+    From<NetworkMessage<DecapsulatedPayload, BroadcastSettings>>
+    for ProcessedMessage<DecapsulatedPayload, BroadcastSettings>
 {
-    fn from(value: NetworkMessage<BroadcastSettings>) -> Self {
+    fn from(value: NetworkMessage<DecapsulatedPayload, BroadcastSettings>) -> Self {
         Self::Network(value)
     }
 }
 
-impl<BroadcastSettings> From<EncapsulatedMessage> for ProcessedMessage<BroadcastSettings> {
+impl<DecapsulatedPayload, BroadcastSettings> From<EncapsulatedMessage>
+    for ProcessedMessage<DecapsulatedPayload, BroadcastSettings>
+{
     fn from(value: EncapsulatedMessage) -> Self {
         Self::Encapsulated(value)
     }
 }
 
-impl<BroadcastSettings> TryFrom<ProcessedMessage<BroadcastSettings>> for BlendOutgoingMessage
+impl<DecapsulatedPayload, BroadcastSettings>
+    TryFrom<ProcessedMessage<DecapsulatedPayload, BroadcastSettings>> for BlendOutgoingMessage
 where
+    DecapsulatedPayload: Serialize,
     BroadcastSettings: Serialize,
 {
     type Error = wire::Error;
 
-    fn try_from(value: ProcessedMessage<BroadcastSettings>) -> Result<Self, Self::Error> {
+    fn try_from(
+        value: ProcessedMessage<DecapsulatedPayload, BroadcastSettings>,
+    ) -> Result<Self, Self::Error> {
         match value {
             ProcessedMessage::Encapsulated(encapsulated) => {
                 Ok(Self::EncapsulatedMessage(encapsulated))

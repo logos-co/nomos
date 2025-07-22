@@ -20,7 +20,7 @@ use nomos_blend_scheduling::{
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
     BlendOutgoingMessage, CoverMessage, UninitializedMessageScheduler,
 };
-use nomos_core::wire;
+use nomos_core::{block::Block, da::BlobId, mantle::ledger::Tx, wire};
 use nomos_network::NetworkService;
 use overwatch::{
     services::{
@@ -42,6 +42,8 @@ use crate::{
 };
 
 const LOG_TARGET: &str = "blend::service";
+
+type BlockProposalPayload = Block<Tx, BlobId>;
 
 /// A blend service that sends messages to the blend network
 /// and broadcasts fully unwrapped messages through the [`NetworkService`].
@@ -139,7 +141,7 @@ where
         let mut message_scheduler = UninitializedMessageScheduler::<
             _,
             _,
-            ProcessedMessage<Network::BroadcastSettings>,
+            ProcessedMessage<Vec<u8>, Network::BroadcastSettings>,
         >::new(
             blend_config.session_stream(),
             blend_config.scheduler_settings(),
@@ -207,7 +209,11 @@ async fn handle_local_data_message<
     local_data_message: Vec<u8>,
     cryptographic_processor: &mut CryptographicProcessor<NodeId, Rng>,
     backend: &Backend,
-    scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
+    scheduler: &mut MessageScheduler<
+        SessionClock,
+        Rng,
+        ProcessedMessage<Vec<u8>, BroadcastSettings>,
+    >,
 ) where
     NodeId: Send,
     Rng: RngCore + Send,
@@ -237,7 +243,11 @@ async fn handle_local_data_message<
 fn handle_incoming_blend_message<NodeId, Rng, SessionClock, BroadcastSettings>(
     blend_message: &[u8],
     cryptographic_processor: &CryptographicProcessor<NodeId, Rng>,
-    scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
+    scheduler: &mut MessageScheduler<
+        SessionClock,
+        Rng,
+        ProcessedMessage<Vec<u8>, BroadcastSettings>,
+    >,
 ) where
     BroadcastSettings: for<'de> Deserialize<'de>,
 {
@@ -257,10 +267,14 @@ fn handle_incoming_blend_message<NodeId, Rng, SessionClock, BroadcastSettings>(
         Ok(BlendOutgoingMessage::DataMessage(serialized_data_message)) => {
             tracing::debug!(target: LOG_TARGET, "Processing a fully decapsulated data message.");
             if let Ok(deserialized_network_message) = wire::deserialize::<
-                NetworkMessage<BroadcastSettings>,
+                NetworkMessage<BlockProposalPayload, BroadcastSettings>,
             >(serialized_data_message.as_ref())
             {
-                scheduler.schedule_message(deserialized_network_message.into());
+                scheduler.schedule_message(ProcessedMessage::Network(NetworkMessage {
+                    broadcast_settings: deserialized_network_message.broadcast_settings,
+                    message: wire::serialize(&deserialized_network_message.message)
+                        .expect("Block should not fail to serialize."),
+                }));
             } else {
                 tracing::debug!(target: LOG_TARGET, "Unrecognized data message from blend backend. Dropping.");
             }
@@ -280,7 +294,7 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
     RoundInfo {
         cover_message_generation_flag,
         processed_messages,
-    }: RoundInfo<ProcessedMessage<NetAdapter::BroadcastSettings>>,
+    }: RoundInfo<ProcessedMessage<Vec<u8>, NetAdapter::BroadcastSettings>>,
     cryptographic_processor: &mut CryptographicProcessor<NodeId, Rng>,
     rng: &mut Rng,
     backend: &Backend,
