@@ -21,6 +21,7 @@ use crate::{
     Cryptarchia, Error, SamplingRelay, LOG_TARGET,
 };
 
+/// Defines how to validate and apply blocks to the [`Cryptarchia`].
 #[async_trait::async_trait]
 pub trait BlockProcessor {
     type Block;
@@ -36,6 +37,7 @@ pub trait BlockProcessor {
         ServiceStateUpdater: states::ServiceStateUpdater + Send + Sync;
 }
 
+/// Implements [`BlockProcessor`] that processes the [`Block`] type.
 pub struct NomosBlockProcessor<
     'a,
     ClPool,
@@ -58,6 +60,8 @@ pub struct NomosBlockProcessor<
     da_mempool_relay: DaMempoolRelay<DaPool, DaPoolAdapter, DaPool::Key, RuntimeServiceId>,
     sampling_relay: SamplingRelay<DaPool::Key>,
     block_subscription_sender: broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
+    /// Blocks that were not successfully removed from the storage.
+    /// They should be retried at the next block processing.
     stale_blocks: HashSet<HeaderId>,
 }
 

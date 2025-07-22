@@ -79,6 +79,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> ServiceState
     }
 }
 
+/// Defines how the service state is updated.
 pub trait ServiceStateUpdater {
     fn update<CryptarchiaState: cryptarchia_engine::CryptarchiaState>(
         &self,
@@ -87,6 +88,7 @@ pub trait ServiceStateUpdater {
     ) -> Result<(), DynError>;
 }
 
+/// Implements [`ServiceStateUpdater`] for [`ChainServiceState`].
 pub struct ChainServiceStateUpdater<'a, TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> {
     updater: StateUpdater<
         Option<ChainServiceState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>>,
@@ -110,6 +112,8 @@ impl<'a, TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
 impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> ServiceStateUpdater
     for ChainServiceStateUpdater<'_, TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
 {
+    /// Builds a new [`ChainServiceState`] from the provided [`Cryptarchia`]
+    /// and a set of stale blocks, and registers it with the [`StateUpdater`].
     fn update<CryptarchiaState: cryptarchia_engine::CryptarchiaState>(
         &self,
         cryptarchia: &Cryptarchia<CryptarchiaState>,
