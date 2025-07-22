@@ -1,5 +1,7 @@
 use blake2::{Blake2b512, Digest as _};
-use rand::{Error, RngCore, SeedableRng};
+pub use cipher::StreamCipher;
+use cipher::{inout::InOutBuf, BlockSizeUser, StreamCipherError};
+pub use rand::{CryptoRng, Error, RngCore, SeedableRng};
 
 const OUTPUT_SIZE: usize = 64;
 type Hasher = Blake2b512;
@@ -53,7 +55,7 @@ impl BlakeRng {
         Self(Box::new(iter))
     }
 
-    fn rng_next_byte<const N: usize>(&mut self) -> [u8; N] {
+    fn rng_next_bytes<const N: usize>(&mut self) -> [u8; N] {
         let mut output = [0u8; N];
         self.fill_bytes_(&mut output);
         output
@@ -76,11 +78,11 @@ impl SeedableRng for BlakeRng {
 
 impl RngCore for BlakeRng {
     fn next_u32(&mut self) -> u32 {
-        u32::from_le_bytes(self.rng_next_byte::<4>())
+        u32::from_le_bytes(self.rng_next_bytes::<4>())
     }
 
     fn next_u64(&mut self) -> u64 {
-        u64::from_le_bytes(self.rng_next_byte::<8>())
+        u64::from_le_bytes(self.rng_next_bytes::<8>())
     }
 
     fn fill_bytes(&mut self, dst: &mut [u8]) {
@@ -89,6 +91,22 @@ impl RngCore for BlakeRng {
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
         self.fill_bytes(dest);
+        Ok(())
+    }
+}
+
+impl CryptoRng for BlakeRng {}
+
+impl BlockSizeUser for BlakeRng {
+    type BlockSize = <Blake2b512 as BlockSizeUser>::BlockSize;
+}
+impl StreamCipher for BlakeRng {
+    fn try_apply_keystream_inout(
+        &mut self,
+        mut buf: InOutBuf<'_, '_, u8>,
+    ) -> Result<(), StreamCipherError> {
+        let buff = self.rng_next_bytes::<64>();
+        buf.get_out().copy_from_slice(&buff);
         Ok(())
     }
 }
