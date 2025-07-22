@@ -10,6 +10,7 @@ workspace = true
 [dependencies]
 async-trait = "0.1"
 blake2      = { version = "0.10", optional = true }
+cipher      = { version = "0.4" }
 const-hex   = "1"
 humantime   = { version = "2.1", optional = true }
 overwatch   = { workspace = true }
