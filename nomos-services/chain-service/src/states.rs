@@ -16,7 +16,7 @@ pub struct ChainServiceState<TxS, BxS, NetworkAdapterSettings, BlendAdapterSetti
     pub lib_block_length: u64,
     /// Blocks that were not successfully removed from the storage.
     /// They should be retried when the service is recovered from this state.
-    pub(crate) stale_blocks: HashSet<HeaderId>,
+    pub(crate) failed_removals: HashSet<HeaderId>,
     // Only neededed for the service state trait
     _markers: PhantomData<(TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings)>,
 }
@@ -30,7 +30,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
     pub(crate) fn new<CryptarchiaState: cryptarchia_engine::CryptarchiaState>(
         cryptarchia: &Cryptarchia<CryptarchiaState>,
         leader: &Leader,
-        stale_blocks: HashSet<HeaderId>,
+        failed_removals: HashSet<HeaderId>,
     ) -> Result<Self, DynError> {
         let lib = cryptarchia.consensus.lib_branch();
         let Some(lib_ledger_state) = cryptarchia.ledger.state(&lib.id()).cloned() else {
@@ -47,7 +47,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
             lib_ledger_state,
             lib_leader_utxos,
             lib_block_length,
-            stale_blocks,
+            failed_removals,
             _markers: PhantomData,
         })
     }
@@ -69,7 +69,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> ServiceState
                 lib_ledger_state: settings.genesis_state.clone(),
                 lib_leader_utxos: settings.leader_config.utxos.clone(),
                 lib_block_length: 0,
-                stale_blocks: HashSet::new(),
+                failed_removals: HashSet::new(),
                 _markers: PhantomData,
             }
         })
@@ -182,6 +182,6 @@ mod tests {
 
         assert_eq!(recovery_state.tip, cryptarchia_engine.tip());
         assert_eq!(recovery_state.lib, cryptarchia_engine.lib());
-        assert_eq!(recovery_state.stale_blocks, pruned_stale_blocks);
+        assert_eq!(recovery_state.failed_removals, pruned_stale_blocks);
     }
 }
