@@ -85,6 +85,8 @@ pub enum Error {
     SampledBlobNotFound,
     #[error("Failed to validate blobs: {0}")]
     BlobValidationFailure(DynError),
+    #[error("Service state update error: {0}")]
+    ServiceStateUpdateError(DynError),
 }
 
 #[derive(Clone)]
@@ -625,14 +627,20 @@ where
                     Some(block) = incoming_blocks.next() => {
                         Self::log_received_block(&block);
 
-                        cryptarchia = Self::process_block_and_update_service_state(
-                            cryptarchia,
+                        cryptarchia = match Self::process_block_and_update_service_state(
+                            &cryptarchia,
                             block,
                             &mut block_processor,
                             relays.storage_adapter(),
                             &service_state_updater,
                             &leader,
-                        ).await;
+                        ).await {
+                            Ok(cryptarchia) => cryptarchia,
+                            Err(e) => {
+                                error!(target: LOG_TARGET, "Failed to process block and update state: {e}");
+                                continue;
+                            }
+                        };
 
                         info!(counter.consensus_processed_blocks = 1);
                     }
@@ -661,14 +669,20 @@ where
 
                             if let Some(block) = block {
                                 // apply our own block
-                                cryptarchia = Self::process_block_and_update_service_state(
-                                    cryptarchia,
+                                cryptarchia = match Self::process_block_and_update_service_state(
+                                    &cryptarchia,
                                     block.clone(),
                                     &mut block_processor,
                                     relays.storage_adapter(),
                                     &service_state_updater,
                                     &leader,
-                                ).await;
+                                ).await {
+                                    Ok(cryptarchia) => cryptarchia,
+                                    Err(e) => {
+                                        error!(target: LOG_TARGET, "Failed to process block and update state: {e}");
+                                        continue;
+                                    }
+                                };
                                 blend_adapter.blend(block).await;
                             }
                         }
@@ -965,7 +979,7 @@ where
         storage: &mut StorageAdapter<Storage, ClPool::Item, DaPool::Item, RuntimeServiceId>,
     ) -> Result<Cryptarchia<State>, Error>
     where
-        State: CryptarchiaState + Send,
+        State: CryptarchiaState + Send + Sync,
     {
         let blocks = storage
             .get_blocks_in_range(cryptarchia.lib(), self.initial_state.tip)
@@ -977,9 +991,8 @@ where
         // Process blocks
         for block in blocks {
             cryptarchia = block_processor
-                .process_block(cryptarchia, block, storage)
-                .await
-                .map_err(|(e, _)| e)?;
+                .process_block(&cryptarchia, block, storage)
+                .await?;
         }
         Ok(cryptarchia)
     }
@@ -1029,7 +1042,7 @@ where
 
     #[expect(clippy::type_complexity, reason = "StateUpdater")]
     async fn process_block_and_update_service_state<CryptarchiaState>(
-        cryptarchia: Cryptarchia<CryptarchiaState>,
+        cryptarchia: &Cryptarchia<CryptarchiaState>,
         block: Block<ClPool::Item, DaPool::Item>,
         block_processor: &mut NomosBlockProcessor<
             ClPool,
@@ -1050,32 +1063,20 @@ where
             >,
         >,
         leader: &Leader,
-    ) -> Cryptarchia<CryptarchiaState>
+    ) -> Result<Cryptarchia<CryptarchiaState>, Error>
     where
-        CryptarchiaState: cryptarchia_engine::CryptarchiaState + Send,
+        CryptarchiaState: cryptarchia_engine::CryptarchiaState + Send + Sync,
     {
-        let cryptarchia = match block_processor
+        let cryptarchia = block_processor
             .process_block(cryptarchia, block, storage)
-            .await
-        {
-            Ok(cryptarchia) => cryptarchia,
-            Err((e, cryptarchia)) => {
-                error!("Failed to process block: {e}");
-                cryptarchia
-            }
-        };
+            .await?;
 
         // Update the service state with the new cryptarchia state.
-        match ChainServiceState::new(&cryptarchia, leader, storage.failed_removals().clone()) {
-            Ok(state) => {
-                service_state_updater.update(Some(state));
-            }
-            Err(e) => {
-                error!("Failed to create service state: {e}");
-            }
-        }
+        let state = ChainServiceState::new(&cryptarchia, leader, storage.failed_removals().clone())
+            .map_err(Error::ServiceStateUpdateError)?;
+        service_state_updater.update(Some(state));
 
-        cryptarchia
+        Ok(cryptarchia)
     }
 }
 

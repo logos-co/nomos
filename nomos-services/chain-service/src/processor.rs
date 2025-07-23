@@ -26,12 +26,12 @@ pub trait BlockProcessor<RuntimeServiceId> {
 
     async fn process_block<CryptarchiaState, Storage>(
         &mut self,
-        cryptarchia: Cryptarchia<CryptarchiaState>,
+        cryptarchia: &Cryptarchia<CryptarchiaState>,
         block: Self::Block,
         storage: &mut Storage,
-    ) -> Result<Cryptarchia<CryptarchiaState>, (Error, Cryptarchia<CryptarchiaState>)>
+    ) -> Result<Cryptarchia<CryptarchiaState>, Error>
     where
-        CryptarchiaState: cryptarchia_engine::CryptarchiaState + Send,
+        CryptarchiaState: cryptarchia_engine::CryptarchiaState + Send + Sync,
         Storage: StorageAdapter<RuntimeServiceId, Block = Self::Block> + Send + Sync + 'static;
 }
 
@@ -90,19 +90,17 @@ where
     #[instrument(level = "debug", skip(self, cryptarchia, storage))]
     async fn process_block<CryptarchiaState, Storage>(
         &mut self,
-        cryptarchia: Cryptarchia<CryptarchiaState>,
+        cryptarchia: &Cryptarchia<CryptarchiaState>,
         block: Self::Block,
         storage: &mut Storage,
-    ) -> Result<Cryptarchia<CryptarchiaState>, (Error, Cryptarchia<CryptarchiaState>)>
+    ) -> Result<Cryptarchia<CryptarchiaState>, Error>
     where
-        CryptarchiaState: cryptarchia_engine::CryptarchiaState + Send,
+        CryptarchiaState: cryptarchia_engine::CryptarchiaState + Send + Sync,
         Storage: StorageAdapter<RuntimeServiceId, Block = Self::Block> + Send + Sync + 'static,
     {
         debug!("processing a block proposal: {:?}", block);
 
-        if let Err(e) = self.validate_blobs(&block).await {
-            return Err((e, cryptarchia));
-        }
+        self.validate_blobs(&block).await?;
 
         match cryptarchia.try_apply_header(block.header()) {
             Ok((cryptarchia, pruned_blocks)) => {
@@ -121,10 +119,10 @@ where
                 e @ (Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(_))
                 | Error::Consensus(cryptarchia_engine::Error::ParentMissing(_))),
             ) => {
-                // TODO: request parent block
-                Err((e, cryptarchia))
+                // TODO: request parent block (or in upper layer)
+                Err(e)
             }
-            Err(e) => Err((e, cryptarchia)),
+            Err(e) => Err(e),
         }
     }
 }
