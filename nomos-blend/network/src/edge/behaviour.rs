@@ -17,7 +17,7 @@ use rand::RngCore;
 
 use super::{
     error::Error,
-    handler::{EdgeToCoreBlendConnectionHandler, SendError, ToBehaviour},
+    handler::{EdgeToCoreBlendConnectionHandler, FromBehaviour, SendError, ToBehaviour},
 };
 
 const LOG_TARGET: &str = "blend::network::edge::behaviour";
@@ -35,7 +35,7 @@ const LOG_TARGET: &str = "blend::network::edge::behaviour";
 /// it restarts the process by scheduling a new dialing request for the message.
 pub struct Behaviour<Rng> {
     /// Queue of events to yield to the swarm.
-    events: VecDeque<ToSwarm<EventToSwarm, ()>>,
+    events: VecDeque<ToSwarm<EventToSwarm, FromBehaviour>>,
     /// Dials that are not completed yet.
     /// Each dial has a message assigned to it, so once the dial completes,
     /// a [`ConnectionHandler`] can be created for that message.
@@ -246,7 +246,7 @@ where
 
         // Reschedule a new dial only if the failure is from
         // the connection that this NetworkBehaviour has requested.
-        if let Some(message) = self.get_messsage_of_failed_dial(failure) {
+        if let Some(message) = self.get_message_of_failed_dial(failure) {
             tracing::debug!(target: LOG_TARGET, "Rescheduling dial");
             if let Err(e) = self.schedule_dial(message) {
                 tracing::error!(target: LOG_TARGET, "Failed to reschedule dial: {e}");

@@ -52,11 +52,11 @@ enum ConnectionState {
 }
 
 impl ConnectionState {
-    fn on_behaviour_event(self) -> Self {
+    fn on_behaviour_event(self, event: FromBehaviour) -> Self {
         match self {
-            Self::Starting(s) => s.on_behaviour_event(),
-            Self::Sending(s) => s.on_behaviour_event(),
-            Self::Dropped(s) => s.on_behaviour_event(),
+            Self::Starting(s) => s.on_behaviour_event(event),
+            Self::Sending(s) => s.on_behaviour_event(event),
+            Self::Dropped(s) => s.on_behaviour_event(event),
         }
     }
 
@@ -78,7 +78,7 @@ impl ConnectionState {
 }
 
 trait StateTrait: Into<ConnectionState> {
-    fn on_behaviour_event(self) -> ConnectionState {
+    fn on_behaviour_event(self, _event: FromBehaviour) -> ConnectionState {
         self.into()
     }
 
@@ -103,6 +103,9 @@ impl EdgeToCoreBlendConnectionHandler {
 }
 
 #[derive(Debug)]
+pub enum FromBehaviour {}
+
+#[derive(Debug)]
 pub struct SendError {
     pub reason: FailureReason,
     pub message: Vec<u8>,
@@ -123,7 +126,7 @@ pub enum ToBehaviour {
 }
 
 impl ConnectionHandler for EdgeToCoreBlendConnectionHandler {
-    type FromBehaviour = ();
+    type FromBehaviour = FromBehaviour;
     type ToBehaviour = ToBehaviour;
     type InboundProtocol = DeniedUpgrade;
     type InboundOpenInfo = ();
@@ -135,9 +138,9 @@ impl ConnectionHandler for EdgeToCoreBlendConnectionHandler {
         SubstreamProtocol::new(DeniedUpgrade, ())
     }
 
-    fn on_behaviour_event(&mut self, _event: Self::FromBehaviour) {
+    fn on_behaviour_event(&mut self, event: Self::FromBehaviour) {
         let state = self.state.take().expect("Inconsistent state");
-        self.state = Some(state.on_behaviour_event());
+        self.state = Some(state.on_behaviour_event(event));
     }
 
     fn on_connection_event(&mut self, event: ConnectionEvent) {
