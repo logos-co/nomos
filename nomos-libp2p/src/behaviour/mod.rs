@@ -44,6 +44,7 @@ impl Behaviour {
         gossipsub_config: libp2p::gossipsub::Config,
         kad_config: &KademliaSettings,
         identify_config: &IdentifySettings,
+        chain_sync_config: cryptarchia_sync::Config,
         protocol_name: ProtocolName,
         public_key: identity::PublicKey,
     ) -> Result<Self, Box<dyn Error>> {
@@ -67,7 +68,7 @@ impl Behaviour {
             kad_config.to_libp2p_config(protocol_name),
         );
 
-        let chain_sync = cryptarchia_sync::Behaviour::default();
+        let chain_sync = cryptarchia_sync::Behaviour::new(chain_sync_config);
 
         Ok(Self {
             gossipsub,

@@ -1,10 +1,7 @@
 use futures::stream;
 use libp2p::PeerId;
 use libp2p_stream::Control;
-use tokio::{
-    sync::oneshot,
-    time::{timeout, Duration},
-};
+use tokio::{sync::oneshot, time, time::Duration};
 use tracing::error;
 
 use crate::{
@@ -22,8 +19,6 @@ use crate::{
 };
 
 pub struct Downloader;
-
-const TIMEOUT_IN_SEC: u64 = 5;
 
 impl Downloader {
     pub async fn send_tip_request(
@@ -56,15 +51,18 @@ impl Downloader {
         Ok(request_stream)
     }
 
-    pub async fn receive_tip(request_stream: TipRequestStream) -> Result<(), ChainSyncError> {
+    pub async fn receive_tip(
+        request_stream: TipRequestStream,
+        timeout: Duration,
+    ) -> Result<(), ChainSyncError> {
         let TipRequestStream {
             mut stream,
             peer_id,
             reply_channel,
         } = request_stream;
 
-        let response = timeout(
-            Duration::from_secs(TIMEOUT_IN_SEC),
+        let response = time::timeout(
+            timeout,
             unpack_from_reader::<GetTipResponse, _>(&mut stream),
         )
         .await
@@ -80,17 +78,16 @@ impl Downloader {
 
         utils::close_stream(peer_id, stream).await
     }
-    pub async fn receive_blocks(request_stream: BlocksRequestStream) -> Result<(), ChainSyncError> {
+    pub async fn receive_blocks(
+        request_stream: BlocksRequestStream,
+        timeout: Duration,
+    ) -> Result<(), ChainSyncError> {
         let libp2p_stream = request_stream.stream;
         let peer_id = request_stream.peer_id;
         let reply_channel = request_stream.reply_channel;
 
         let stream = stream::try_unfold(libp2p_stream, move |mut stream| async move {
-            let response = timeout(
-                Duration::from_secs(TIMEOUT_IN_SEC),
-                unpack_from_reader(&mut stream),
-            )
-            .await;
+            let response = time::timeout(timeout, unpack_from_reader(&mut stream)).await;
 
             match response {
                 Ok(Ok(DownloadBlocksResponse::Block(block))) => Ok(Some((block, stream))),
