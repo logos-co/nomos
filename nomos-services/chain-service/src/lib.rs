@@ -1,5 +1,6 @@
 pub mod blend;
 mod bootstrap;
+mod cryptarchia;
 mod leadership;
 mod messages;
 pub mod network;
@@ -16,8 +17,11 @@ use std::{
     time::Duration,
 };
 
-use cryptarchia_engine::{Boostrapping, CryptarchiaState, Online, PrunedBlocks, Slot};
-use futures::StreamExt as _;
+use cryptarchia_engine::{CryptarchiaState, Online, PrunedBlocks, Slot};
+use futures::{
+    future::{pending, BoxFuture},
+    StreamExt as _,
+};
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
 use nomos_blend_service::BlendService;
@@ -51,10 +55,7 @@ use services_utils::{
     wait_until_services_are_ready,
 };
 use thiserror::Error;
-use tokio::{
-    sync::{broadcast, oneshot},
-    time::Instant,
-};
+use tokio::sync::{broadcast, oneshot};
 use tracing::{debug, error, info, instrument, span, Level, Span};
 use tracing_futures::Instrument as _;
 
@@ -64,6 +65,7 @@ use crate::{
         cryptarchia::InitialCryptarchia,
         ibd::{IbdCompletedCryptarchia, InitialBlockDownload},
     },
+    cryptarchia::CryptarchiaExt,
     leadership::Leader,
     network::BoxedStream,
     relays::CryptarchiaConsensusRelays,
@@ -175,19 +177,6 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
             }
         }
         tracing::debug!(target: LOG_TARGET, "Pruned {pruned_states_count} old forks and their ledger states.");
-    }
-}
-
-impl Cryptarchia<Boostrapping> {
-    fn online(self) -> (Cryptarchia<Online>, PrunedBlocks<HeaderId>) {
-        let (consensus, pruned_blocks) = self.consensus.online();
-        (
-            Cryptarchia {
-                ledger: self.ledger,
-                consensus,
-            },
-            pruned_blocks,
-        )
     }
 }
 
@@ -656,7 +645,7 @@ where
         // Run the service loop.
         match cryptarchia {
             IbdCompletedCryptarchia::Bootstrapping(cryptarchia) => {
-                self.run_bootstrap_cryptarchia(
+                self.run_cryptarchia(
                     &bootstrap_config,
                     cryptarchia,
                     leader,
@@ -674,7 +663,8 @@ where
                 .await;
             }
             IbdCompletedCryptarchia::Online(cryptarchia) => {
-                self.run_online_cryptarchia(
+                self.run_cryptarchia(
+                    &bootstrap_config,
                     cryptarchia,
                     leader,
                     storage_blocks_to_remove,
@@ -822,11 +812,6 @@ where
     /// - Handles inbound service messages.
     /// - Switches to [`Cryptarchia<Online>`] after the prolonged bootstrap
     ///   period has passed.
-    ///
-    /// Unlike [`Cryptarchia<Online>`], it doesn't handle chain sync requests.
-    /// TODO: Reject chain sync requests explicitly, so that requesters aren't
-    ///       blocked for a long time.
-    ///       https://github.com/logos-co/nomos/issues/1451
     #[expect(
         clippy::type_complexity,
         reason = "CryptarchiaConsensusRelays amount of generics."
@@ -835,10 +820,10 @@ where
         clippy::too_many_arguments,
         reason = "TODO: Address this at some point."
     )]
-    async fn run_bootstrap_cryptarchia(
+    async fn run_cryptarchia<State>(
         mut self,
         config: &BootstrapConfig,
-        mut cryptarchia: Cryptarchia<Boostrapping>,
+        mut cryptarchia: Cryptarchia<State>,
         leader: Leader,
         mut storage_blocks_to_remove: HashSet<HeaderId>,
         mut incoming_blocks: BoxedStream<Block<ClPool::Item, DaPool::Item>>,
@@ -861,19 +846,39 @@ where
         tx_selector: TxS,
         blob_selector: BS,
         blend_adapter: BlendAdapter,
-        chainsync_events: BoxedStream<ChainSyncEvent>,
+        mut chainsync_events: BoxedStream<ChainSyncEvent>,
         sync_blocks_provider: BlockProvider<Storage>,
-    ) {
-        // Start the timer for Prelonged Bootstrap Period.
-        let mut prolonged_bootstrap_timer = Box::pin(tokio::time::sleep_until(
-            Instant::now() + config.prolonged_bootstrap_period,
-        ));
+    ) where
+        State: CryptarchiaState + Send + Sync + 'static,
+        Cryptarchia<State>: CryptarchiaExt,
+    {
+        // Start the timer for Prelonged Bootstrap Period if neccesary.
+        let mut prolonged_bootstrap_timer: BoxFuture<()> =
+            match cryptarchia.prolonged_boostrap_timer(config) {
+                Some(timer) => timer,
+                None => Box::pin(pending()),
+            };
 
         loop {
             tokio::select! {
                 () = &mut prolonged_bootstrap_timer => {
                     info!("Prolonged Bootstrap Period has passed. Switching to Online.");
-                    break;
+                    let (cryptarchia, pruned_blocks) = cryptarchia.online();
+                    storage_blocks_to_remove.extend(&pruned_blocks);
+                    return self.run_cryptarchia::<Online>(
+                        config,
+                        cryptarchia,
+                        leader,
+                        storage_blocks_to_remove,
+                        incoming_blocks,
+                        slot_timer,
+                        relays,
+                        tx_selector,
+                        blob_selector,
+                        blend_adapter,
+                        chainsync_events,
+                        sync_blocks_provider
+                    ).await;
                 }
 
                 Some(block) = incoming_blocks.next() => {
@@ -899,100 +904,11 @@ where
                     ).await;
                 }
 
-                Some(msg) = self.service_resources_handle.inbound_relay.next() => {
-                    Self::process_message(&cryptarchia, &self.block_subscription_sender, msg);
-                }
-            }
-        }
-
-        // Switch to Online mode.
-        let (cryptarchia, pruned_blocks) = cryptarchia.online();
-        storage_blocks_to_remove.extend(&pruned_blocks);
-        self.run_online_cryptarchia(
-            cryptarchia,
-            leader,
-            storage_blocks_to_remove,
-            incoming_blocks,
-            slot_timer,
-            relays,
-            tx_selector,
-            blob_selector,
-            blend_adapter,
-            chainsync_events,
-            sync_blocks_provider,
-        )
-        .await;
-    }
-
-    /// Runs [`Cryptarchia<Online>`].
-    /// - Handles incoming blocks.
-    /// - Proposes new blocks.
-    /// - Handles inbound service messages.
-    /// - Handles chain sync requests.
-    #[expect(
-        clippy::type_complexity,
-        reason = "CryptarchiaConsensusRelays amount of generics."
-    )]
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "TODO: Address this at some point."
-    )]
-    async fn run_online_cryptarchia(
-        mut self,
-        mut cryptarchia: Cryptarchia<Online>,
-        leader: Leader,
-        mut storage_blocks_to_remove: HashSet<HeaderId>,
-        mut incoming_blocks: BoxedStream<Block<ClPool::Item, DaPool::Item>>,
-        mut slot_timer: EpochSlotTickStream,
-        relays: &CryptarchiaConsensusRelays<
-            BlendAdapter,
-            BS,
-            ClPool,
-            ClPoolAdapter,
-            DaPool,
-            DaPoolAdapter,
-            NetAdapter,
-            SamplingBackend,
-            SamplingRng,
-            Storage,
-            TxS,
-            DaVerifierBackend,
-            RuntimeServiceId,
-        >,
-        tx_selector: TxS,
-        blob_selector: BS,
-        blend_adapter: BlendAdapter,
-        mut chainsync_events: BoxedStream<ChainSyncEvent>,
-        sync_blocks_provider: BlockProvider<Storage>,
-    ) {
-        loop {
-            tokio::select! {
-                Some(block) = incoming_blocks.next() => {
-                    (cryptarchia, storage_blocks_to_remove) = self.handle_incoming_block(
-                        cryptarchia,
-                        &leader,
-                        block,
-                        storage_blocks_to_remove,
-                        relays,
-                    ).await;
-                }
-
-                Some(SlotTick { slot, .. }) = slot_timer.next() => {
-                    (cryptarchia, storage_blocks_to_remove) = self.handle_new_slot(
-                        slot,
-                        cryptarchia,
-                        &leader,
-                        storage_blocks_to_remove,
-                        relays,
-                        tx_selector.clone(),
-                        blob_selector.clone(),
-                        &blend_adapter
-                    ).await;
-                }
-
                 Some(event) = chainsync_events.next() => {
-                       Self::handle_chainsync_event(&cryptarchia, &sync_blocks_provider, event).await;
-                    }
+                    // TODO: Reject chain sync requests in Bootstrapping mode.
+                    //       https://github.com/logos-co/nomos/issues/1451
+                    Self::handle_chainsync_event(&cryptarchia, &sync_blocks_provider, event).await;
+                }
 
                 Some(msg) = self.service_resources_handle.inbound_relay.next() => {
                     Self::process_message(&cryptarchia, &self.block_subscription_sender, msg);
