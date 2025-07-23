@@ -52,7 +52,7 @@ pub struct Behaviour<Rng> {
 #[derive(Debug)]
 pub enum EventToSwarm {
     /// Notify the swarm that the message was sent successfully.
-    MessageSuccess(Vec<u8>),
+    MessageSuccess { message: Vec<u8>, peer_id: PeerId },
 }
 
 impl<Rng> NetworkBehaviour for Behaviour<Rng>
@@ -118,7 +118,7 @@ where
                 self.handle_message_success(peer_id, connection_id, message);
             }
             ToBehaviour::SendError(error) => {
-                self.handle_send_error(error);
+                self.handle_send_error(peer_id, connection_id, error);
             }
         }
     }
@@ -188,8 +188,7 @@ impl<Rng> Behaviour<Rng> {
     }
 
     /// Handles [`ToBehaviour::MessageSuccess`] event from the connection
-    /// handler by removing the message from the [`Self::pending_messages`]
-    /// and scheduling a [`EventToSwarm::MessageSuccess`] to the swarm.
+    /// by scheduling a [`EventToSwarm::MessageSuccess`] to the swarm.
     fn handle_message_success(
         &mut self,
         peer_id: PeerId,
@@ -197,8 +196,7 @@ impl<Rng> Behaviour<Rng> {
         message: Vec<u8>,
     ) {
         tracing::debug!(target: LOG_TARGET, "Message sent successfully to {peer_id} on connection {connection_id}");
-        self.pending_dials.remove(&(peer_id, connection_id));
-        self.schedule_event_to_swarm(EventToSwarm::MessageSuccess(message));
+        self.schedule_event_to_swarm(EventToSwarm::MessageSuccess { message, peer_id });
     }
 
     fn try_wake(&mut self) {
@@ -258,8 +256,18 @@ where
 
     /// Handles [`ToBehaviour::SendError`] event from the connection handler
     /// by rescheduling a new dial.
-    fn handle_send_error(&mut self, error: SendError) {
-        tracing::error!(target: LOG_TARGET, "Failed to send message. Reason: {:?}. Rescheduling dial.", error.reason);
+    fn handle_send_error(
+        &mut self,
+        peer_id: PeerId,
+        connection_id: ConnectionId,
+        error: SendError,
+    ) {
+        tracing::error!(
+            target: LOG_TARGET,
+            "Failed to send message: peer_id:{peer_id:?}, connection_id:{connection_id:?}, reason: {:?}. Rescheduling dial.",
+            error.reason,
+        );
+
         if let Err(e) = self.schedule_dial(error.message) {
             tracing::error!(target: LOG_TARGET, "Failed to reschedule dial: {e}");
         }

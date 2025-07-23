@@ -66,7 +66,7 @@ async fn core_to_edge_connection_failure() {
 #[test_log::test(tokio::test)]
 async fn message_sending() {
     let (mut core_node, core_node_info) = core_receiver_swarm(Duration::from_secs(1)).await;
-    let membership = Membership::new(&[core_node_info], None);
+    let membership = Membership::new(&[core_node_info.clone()], None);
     let (mut edge_node, _) = edge_sender_swarm(Some(membership)).await;
 
     edge_node
@@ -93,11 +93,13 @@ async fn message_sending() {
 
             if !edge_loop_done {
                 let edge_node_event = edge_node.poll_next_unpin(&mut cx);
-                if let Poll::Ready(Some(SwarmEvent::Behaviour(EventToSwarm::MessageSuccess(
+                if let Poll::Ready(Some(SwarmEvent::Behaviour(EventToSwarm::MessageSuccess {
                     message,
-                )))) = edge_node_event
+                    peer_id,
+                }))) = edge_node_event
                 {
                     if message == b"test".to_vec() {
+                        assert_eq!(peer_id, core_node_info.id);
                         edge_loop_done = true;
                     }
                 }
