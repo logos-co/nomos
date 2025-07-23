@@ -2,7 +2,7 @@ use std::{collections::HashSet, fmt::Debug, hash::Hash};
 
 use cryptarchia_engine::{Boostrapping, Online, Slot};
 use futures::StreamExt as _;
-use nomos_core::{block::BlockTrait, header::HeaderId};
+use nomos_core::{block::abstractions::Block, header::HeaderId};
 use overwatch::DynError;
 use serde::{Deserialize, Serialize};
 
@@ -26,7 +26,7 @@ impl<NetAdapter, RuntimeServiceId> InitialBlockDownload<NetAdapter, RuntimeServi
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Send + Sync,
     NetAdapter::Settings: Send + Sync,
-    NetAdapter::Block: BlockTrait,
+    NetAdapter::Block: Block,
     NetAdapter::PeerId: Copy + Eq + Hash + Send + Sync,
     RuntimeServiceId: Send + Sync,
 {
@@ -264,6 +264,7 @@ mod tests {
 
     use cryptarchia_engine::EpochConfig;
     use cryptarchia_sync::GetTipResponse;
+    use nomos_core::block::abstractions;
     use nomos_ledger::LedgerState;
     use nomos_network::{backends::NetworkBackend, message::ChainSyncEvent, NetworkService};
     use overwatch::{
@@ -751,7 +752,7 @@ mod tests {
         slot: Slot,
     }
 
-    impl BlockTrait for Block {
+    impl abstractions::Block for Block {
         fn id(&self) -> HeaderId {
             self.id
         }

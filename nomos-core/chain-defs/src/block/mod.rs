@@ -1,3 +1,4 @@
+pub mod abstractions;
 pub mod builder;
 
 use ::serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -12,14 +13,6 @@ pub type TxHash = [u8; 32];
 
 pub type BlockNumber = u64;
 
-/// A block trait to abstract complex block structures,
-/// especially for testing purposes.
-// TODO: Rename this to `Block` with renaming the `Block` to `NomosBlock`,
-//       once this change is approved.
-pub trait BlockTrait {
-    fn id(&self) -> HeaderId;
-}
-
 /// A block
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Block<Tx: Clone + Eq, BlobCertificate: Clone + Eq> {
@@ -28,7 +21,9 @@ pub struct Block<Tx: Clone + Eq, BlobCertificate: Clone + Eq> {
     bl_blobs: Vec<BlobCertificate>,
 }
 
-impl<Tx: Clone + Eq, BlobCertificate: Clone + Eq> BlockTrait for Block<Tx, BlobCertificate> {
+impl<Tx: Clone + Eq, BlobCertificate: Clone + Eq> abstractions::Block
+    for Block<Tx, BlobCertificate>
+{
     fn id(&self) -> HeaderId {
         self.header().id()
     }
