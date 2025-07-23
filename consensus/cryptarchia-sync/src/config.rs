@@ -3,8 +3,6 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DurationMilliSeconds};
 
-pub(crate) const DEFAULT_RESPONSE_TIMEOUT_MS: u64 = 5000;
-
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {

@@ -22,7 +22,7 @@ use tokio::sync::{mpsc, mpsc::Sender, oneshot};
 use tracing::{debug, error};
 
 use crate::{
-    config::{Config, DEFAULT_RESPONSE_TIMEOUT_MS},
+    config::Config,
     libp2p::{
         downloader::Downloader,
         errors::{ChainSyncError, ChainSyncErrorKind, DynError},
@@ -37,6 +37,8 @@ const SYNC_PROTOCOL_ID: &str = "/nomos/cryptarchia/sync/0.1.0";
 pub const SYNC_PROTOCOL: StreamProtocol = StreamProtocol::new(SYNC_PROTOCOL_ID);
 
 const MAX_INCOMING_REQUESTS: usize = 4;
+
+const DEFAULT_RESPONSE_TIMEOUT_MS: u64 = 5000;
 
 type SendingBlocksRequestsFuture = BoxFuture<'static, Result<BlocksRequestStream, ChainSyncError>>;
 
