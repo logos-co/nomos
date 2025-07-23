@@ -34,6 +34,21 @@ pub enum LedgerError<Id> {
     Overflow,
     #[error("Zero value note")]
     ZeroValueNote,
+    #[error("Invalid parent for channel {channel_id:?}, expected {parent:?}, got {actual:?}")]
+    InvalidParent {
+        channel_id: ChannelId,
+        parent: [u8; 32],
+        actual: [u8; 32],
+    },
+    #[error("Unauthorized signer {signer:?} for channel {channel_id:?}")]
+    UnauthorizedSigner {
+        channel_id: ChannelId,
+        signer: String,
+    },
+    #[error("Invalid keys for channel {channel_id:?}")]
+    EmptyKeys {
+        channel_id: ChannelId,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
