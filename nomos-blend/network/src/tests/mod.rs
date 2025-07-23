@@ -3,6 +3,7 @@ use core::{
     time::Duration,
 };
 
+use edge_core::dummy_edge_swarm;
 use futures::{task::noop_waker_ref, StreamExt as _};
 use libp2p::swarm::{dial_opts::DialOpts, ListenError, SwarmEvent};
 use nomos_blend_scheduling::membership::Membership;
@@ -113,15 +114,18 @@ async fn message_sending() {
 
 #[test_log::test(tokio::test)]
 async fn sender_timeout() {
-    // Set timeout to 0 to trigger an immediate timeout.
-    let (mut core_node, core_node_info) = core_receiver_swarm(Duration::ZERO).await;
-    let membership = Membership::new(&[core_node_info], None);
-    let (mut edge_node, _) = edge_sender_swarm(Some(membership)).await;
+    // Set timeout to 1. If an edge node doesn't send any message within 1 second,
+    // the core node should get a timeout error.
+    let (mut core_node, core_node_info) = core_receiver_swarm(Duration::from_secs(1)).await;
+    let (mut edge_node, _) = dummy_edge_swarm().await;
     let core_node_peer_id = *core_node.local_peer_id();
     let edge_node_peer_id = *edge_node.local_peer_id();
 
-    // Schedule a message to trigger a dialing.
-    edge_node.behaviour_mut().send_message(vec![]).unwrap();
+    // Dial the core node, expecting that the [`DummyConnectionHandler`]
+    // and the substream will be created, but no message will be sent.
+    edge_node
+        .dial(DialOpts::from(core_node_info.address))
+        .expect("Failed to connect to core node.");
 
     let mut core_loop_done = false;
     let mut edge_loop_done = false;
@@ -140,9 +144,9 @@ async fn sender_timeout() {
             }
 
             // Stop polling once the connection is established,
-            // which means that a connection handler has been created
-            // and the message will be sent once the connection is fully negotiated.
-            // Anyway, we expect that the core node gets a timeout error soon.
+            // which means that a [`DummyConnectionHandler`] has been created.
+            // The substream will be created by the [`DummyConnectionHandler`],
+            // but no message will be sent.
             if !edge_loop_done {
                 let edge_node_event = edge_node.poll_next_unpin(&mut cx);
                 if let Poll::Ready(Some(SwarmEvent::ConnectionEstablished { peer_id, .. })) =
