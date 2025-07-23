@@ -101,7 +101,7 @@ where
             ChaCha12Rng::from_entropy(),
         );
 
-        let mut data_messages = inbound_relay.map(|ServiceMessage::Blend(message)| {
+        let mut messages_to_blend = inbound_relay.map(|ServiceMessage::Blend(message)| {
             wire::serialize(&message)
                 .expect("Message from internal services should not fail to serialize")
         });
@@ -115,8 +115,8 @@ where
 
         loop {
             tokio::select! {
-                Some(message) = data_messages.next() => {
-                    handle_data_message(message, &mut cryptoraphic_procdessor, backend).await;
+                Some(message) = messages_to_blend.next() => {
+                    handle_messages_to_blend(message, &mut cryptoraphic_processor, backend).await;
                 }
             }
         }
@@ -124,11 +124,7 @@ where
 }
 
 /// Blend a new message received from another service.
-///
-/// When a new local data message is received, an attempt to serialize and
-/// encapsulate its payload is performed. If encapsulation is successful, the
-/// message is sent over the Blend network.
-async fn handle_data_message<NodeId, Rng, Backend, RuntimeServiceId>(
+async fn handle_messages_to_blend<NodeId, Rng, Backend, RuntimeServiceId>(
     message: Vec<u8>,
     cryptographic_processor: &mut CryptographicProcessor<NodeId, Rng>,
     backend: &Backend,
