@@ -19,7 +19,7 @@ use rand::{seq::index::sample, thread_rng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::sync::oneshot;
 use tokio_stream::{wrappers::errors::BroadcastStreamRecvError, StreamExt as _};
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::{
     messages::NetworkMessage,
@@ -224,8 +224,9 @@ where
         }
 
         // Add a timeout for awaiting the stream from the peer
-        let stream = timeout(Duration::from_secs(10), receiver).await
-            .map_err(|_| "Timeout waiting for block stream from peer".to_string())??;
+        let stream = timeout(Duration::from_secs(10), receiver)
+            .await
+            .map_err(|_| "Timeout waiting for block stream from peer".to_owned())??;
         let stream = stream.map_err(|e| Box::new(e) as DynError).map(|result| {
             let block = result?;
             wire::deserialize(&block).map_err(|e| Box::new(e) as DynError)
@@ -237,12 +238,15 @@ where
     /// Attempts to open a stream of blocks from a locally known block to the
     /// target_block block.
     async fn request_blocks_from_peers(
-        &self,
+        &mut self,
         target_block: HeaderId,
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
     ) -> Result<BoxedStream<Result<Self::Block, DynError>>, DynError> {
+        info!("Requesting orphan parents from peers:
+            target_block: {target_block:?}, local_tip: {local_tip:?}, latest_immutable_block: {latest_immutable_block:?}");
+
         let connected_peers = Self::get_connected_peers(&self.network_relay).await?;
 
         // All peers we know about, including those that are not connected.
@@ -253,6 +257,8 @@ where
             &discovered_peers,
             MAX_PEERS_TO_TRY_FOR_ORPHAN_DOWNLOAD,
         );
+
+        info!("Requesting orphan parents from {:?}", peers_to_request);
 
         for peer in peers_to_request {
             debug!("Requesting orphan parents from peer: {peer}");

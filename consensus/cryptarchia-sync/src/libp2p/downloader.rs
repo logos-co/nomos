@@ -1,8 +1,10 @@
 use futures::stream;
 use libp2p::PeerId;
 use libp2p_stream::Control;
-use tokio::sync::oneshot;
-use tokio::time::{timeout, Duration};
+use tokio::{
+    sync::oneshot,
+    time::{timeout, Duration},
+};
 use tracing::error;
 
 use crate::{

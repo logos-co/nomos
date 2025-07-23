@@ -9,8 +9,6 @@ pub mod tracing;
 
 pub mod time;
 
-use std::time::Duration;
-
 use blend::GeneralBlendConfig;
 use consensus::GeneralConsensusConfig;
 use da::GeneralDaConfig;
@@ -21,9 +19,8 @@ use tracing::GeneralTracingConfig;
 use crate::{
     get_available_port,
     topology::configs::{
-        api::GeneralApiConfig,consensus::ConsensusParams,
-        da::DaParams, membership::GeneralMembershipConfig, network::NetworkParams,
-        time::GeneralTimeConfig,
+        api::GeneralApiConfig, consensus::ConsensusParams, da::DaParams,
+        membership::GeneralMembershipConfig, network::NetworkParams, time::GeneralTimeConfig,
     },
 };
 

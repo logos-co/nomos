@@ -1,7 +1,8 @@
-use crate::libp2p::packing::PackingError;
 use libp2p::PeerId;
 use thiserror::Error;
 use tokio::time::error::Elapsed;
+
+use crate::libp2p::packing::PackingError;
 
 pub type DynError = Box<dyn std::error::Error + Send + Sync + 'static>;
 

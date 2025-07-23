@@ -21,7 +21,7 @@ impl ConsensusParams {
             // (forks) being produced in the same slot (epoch). Setting the security
             // parameter to some value > 1 ensures nodes have some time to sync before
             // deciding on the longest chain.
-            security_param: NonZero::new(10).unwrap(),
+            security_param: NonZero::new(100).unwrap(),
             // a block should be produced (on average) every slot
             active_slot_coeff: 0.9,
         }
