@@ -5,7 +5,7 @@ use core::{
 
 use edge_core::dummy_edge_swarm;
 use futures::{task::noop_waker_ref, StreamExt as _};
-use libp2p::swarm::{dial_opts::DialOpts, ListenError, SwarmEvent};
+use libp2p::swarm::{dial_opts::DialOpts, DialError, ListenError, SwarmEvent};
 use nomos_blend_scheduling::membership::Membership;
 use tokio::time::sleep;
 
@@ -17,6 +17,7 @@ use crate::{
 mod core_edge;
 mod edge_core;
 
+/// Tests that the [`crate::edge::Behaviour`] denies inbound connections.
 #[test_log::test(tokio::test)]
 async fn core_to_edge_connection_failure() {
     let (mut edge_node, edge_node_address) = edge_sender_swarm(None).await;
@@ -63,6 +64,9 @@ async fn core_to_edge_connection_failure() {
     .await;
 }
 
+/// Tests that the [`crate::edge::Behaviour`] dials a core node
+/// as soon as a new message is scheduled, and sends the message
+/// throught the established connection.
 #[test_log::test(tokio::test)]
 async fn message_sending() {
     let (mut core_node, core_node_info) = core_receiver_swarm(Duration::from_secs(1)).await;
@@ -114,11 +118,69 @@ async fn message_sending() {
     .await;
 }
 
+/// Tests that the [`crate::edge::Behaviour`] closes the connection
+/// that was established without any message assigned to it.
+#[test_log::test(tokio::test)]
+async fn edge_to_core_connection_without_message_assigned() {
+    let (mut edge_node, _) = edge_sender_swarm(None).await;
+    let (mut core_node, core_node_info) = core_receiver_swarm(Duration::from_secs(1)).await;
+    let core_node_peer_id = *core_node.local_peer_id();
+    let edge_node_peer_id = *edge_node.local_peer_id();
+
+    // As a Swarm user, dial the core node without any message assigned to it,
+    // expecting that it is closed by [`crate::edge::Behaviour`].
+    edge_node
+        .dial(DialOpts::from(core_node_info.address))
+        .expect("Failed to connect to core node.");
+
+    let mut core_loop_done = false;
+    let mut edge_loop_done = false;
+    let mut cx = Context::from_waker(noop_waker_ref());
+    async {
+        loop {
+            if !core_loop_done {
+                let core_node_event = core_node.poll_next_unpin(&mut cx);
+                if let Poll::Ready(Some(SwarmEvent::ConnectionEstablished { peer_id, .. })) =
+                    core_node_event
+                {
+                    if peer_id == edge_node_peer_id {
+                        core_loop_done = true;
+                    }
+                }
+            }
+
+            if !edge_loop_done {
+                let edge_node_event = edge_node.poll_next_unpin(&mut cx);
+                if let Poll::Ready(Some(SwarmEvent::OutgoingConnectionError {
+                    peer_id,
+                    error: DialError::Denied { .. },
+                    ..
+                })) = edge_node_event
+                {
+                    if peer_id == Some(core_node_peer_id) {
+                        edge_loop_done = true;
+                    }
+                }
+            }
+
+            if core_loop_done && edge_loop_done {
+                break;
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
+    }
+    .await;
+}
+
+/// Tests that a core node gets a timeout error if a connected edge node
+/// doesn't send any message within the specified timeout period.
 #[test_log::test(tokio::test)]
 async fn sender_timeout() {
     // Set timeout to 1. If an edge node doesn't send any message within 1 second,
     // the core node should get a timeout error.
     let (mut core_node, core_node_info) = core_receiver_swarm(Duration::from_secs(1)).await;
+    // Initialize an edge node with a dummy behaviour that establishes a connection
+    // but doesn't send any message.
     let (mut edge_node, _) = dummy_edge_swarm().await;
     let core_node_peer_id = *core_node.local_peer_id();
     let edge_node_peer_id = *edge_node.local_peer_id();
