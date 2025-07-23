@@ -231,7 +231,7 @@ mod tests {
             ledger_tx_proof: DummyZkSignature::prove(
                 nomos_core::proofs::zksig::ZkSignaturePublic {
                     pks,
-                    tx_hash: mantle_tx.hash().into(),
+                    msg_hash: mantle_tx.hash().into(),
                 },
             ),
             mantle_tx,

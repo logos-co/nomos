@@ -209,30 +209,20 @@ impl LedgerState {
 
         if !tx.ledger_tx_proof().verify(&ZkSignaturePublic {
             pks,
-            tx_hash: tx.hash().into(),
+            msg_hash: tx.hash().into(),
         }) {
             return Err(LedgerError::InvalidProof);
         }
 
-        for (i, output) in ledger_tx.outputs.iter().enumerate() {
-            if output.value == 0 {
+        for utxo in ledger_tx.utxos() {
+            let note = utxo.note;
+            if note.value == 0 {
                 return Err(LedgerError::ZeroValueNote);
             }
             balance = balance
-                .checked_sub(output.value)
+                .checked_sub(note.value)
                 .ok_or(LedgerError::InsufficientBalance)?;
-            self.utxos = self
-                .utxos
-                .insert(
-                    Utxo {
-                        tx_hash: tx.hash(),
-                        output_index: i,
-                        note: *output,
-                    }
-                    .id(),
-                    *output,
-                )
-                .0;
+            self.utxos = self.utxos.insert(utxo.id(), note).0;
         }
 
         balance = balance
@@ -699,7 +689,7 @@ pub mod tests {
             ops_profs: vec![],
             ledger_tx_proof: DummyZkSignature::prove(ZkSignaturePublic {
                 pks,
-                tx_hash: mantle_tx.hash().into(),
+                msg_hash: mantle_tx.hash().into(),
             }),
             mantle_tx,
         }

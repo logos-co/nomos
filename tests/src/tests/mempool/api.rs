@@ -30,7 +30,7 @@ async fn test_post_mantle_tx() {
     let signed_tx = SignedMantleTx {
         ops_profs: Vec::new(),
         ledger_tx_proof: DummyZkSignature::prove(ZkSignaturePublic {
-            tx_hash: mantle_tx.hash().into(),
+            msg_hash: mantle_tx.hash().into(),
             pks: vec![],
         }),
         mantle_tx,
