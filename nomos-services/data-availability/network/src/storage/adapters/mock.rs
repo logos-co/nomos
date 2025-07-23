@@ -30,7 +30,6 @@ pub struct MockStorage {
 }
 
 #[async_trait::async_trait]
-
 impl MembershipStorageAdapter<PeerId, SubnetworkId> for MockStorage {
     type StorageService = MockStorageService;
 
