@@ -5,7 +5,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use cryptarchia_engine::{Branch, Branches, CryptarchiaState};
+use cryptarchia_engine::{Branch, Branches};
 use futures::{future, stream, stream::BoxStream, StreamExt as _, TryStreamExt as _};
 use nomos_core::{block::Block, header::HeaderId, wire};
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageMsg};
@@ -48,14 +48,13 @@ impl<Storage: StorageBackend + 'static> BlockProvider<Storage> {
     /// a known block towards the `target_block`, in parent-to-child order.
     /// The stream yields blocks one by one and terminates early if an error
     /// is encountered.
-    pub async fn send_blocks<State, Tx, BlobCertificate>(
+    pub async fn send_blocks<Tx, BlobCertificate>(
         &self,
-        cryptarchia: &Cryptarchia<State>,
+        cryptarchia: &Cryptarchia,
         target_block: HeaderId,
         known_blocks: &HashSet<HeaderId>,
         reply_sender: Sender<BoxStream<'static, Result<Bytes, DynError>>>,
     ) where
-        State: CryptarchiaState + Send + Sync + 'static,
         <Storage as StorageChainApi>::Block: TryInto<Block<Tx, BlobCertificate>>,
         Tx: Serialize + Clone + Eq + 'static,
         BlobCertificate: Serialize + Clone + Eq + 'static,
@@ -211,7 +210,7 @@ where
 pub mod tests {
     use std::num::NonZero;
 
-    use cryptarchia_engine::{Boostrapping, Config, Slot};
+    use cryptarchia_engine::{Config, Slot, State::Boostrapping};
 
     use super::*;
 
@@ -319,13 +318,14 @@ pub mod tests {
         ));
     }
 
-    fn new_cryptarchia() -> cryptarchia_engine::Cryptarchia<[u8; 32], Boostrapping> {
-        <cryptarchia_engine::Cryptarchia<_, Boostrapping>>::from_lib(
+    fn new_cryptarchia() -> cryptarchia_engine::Cryptarchia<[u8; 32]> {
+        <cryptarchia_engine::Cryptarchia<_>>::from_lib(
             [0; 32],
             Config {
                 security_param: NonZero::new(1).unwrap(),
                 active_slot_coeff: 1.0,
             },
+            Boostrapping,
         )
     }
 }

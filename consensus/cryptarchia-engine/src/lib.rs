@@ -16,58 +16,52 @@ pub use time::{Epoch, EpochConfig, Slot};
 
 pub(crate) const LOG_TARGET: &str = "cryptarchia::engine";
 
-#[derive(Clone, Debug, Copy)]
-pub struct Boostrapping;
-#[derive(Clone, Debug, Copy)]
-pub struct Online;
-
-pub trait CryptarchiaState: Copy + Debug {
-    fn fork_choice<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Branch<Id>
-    where
-        Id: Eq + Hash + Copy;
-    fn lib<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Id
-    where
-        Id: Eq + Hash + Copy;
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+pub enum State {
+    Boostrapping,
+    Online,
 }
 
-impl CryptarchiaState for Boostrapping {
-    fn fork_choice<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Branch<Id>
-    where
-        Id: Eq + Hash + Copy,
-    {
-        let k = cryptarchia.config.security_param.get().into();
-        let s = cryptarchia.config.s();
-        maxvalid_bg(cryptarchia.local_chain, &cryptarchia.branches, k, s)
+impl State {
+    #[must_use] pub const fn is_bootstrapping(&self) -> bool {
+        matches!(self, Self::Boostrapping)
     }
 
-    fn lib<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Id
-    where
-        Id: Eq + Hash + Copy,
-    {
-        cryptarchia.branches.lib
-    }
-}
-
-impl CryptarchiaState for Online {
-    fn fork_choice<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Branch<Id>
-    where
-        Id: Eq + Hash + Copy,
-    {
-        let k = cryptarchia.config.security_param.get().into();
-        maxvalid_mc(cryptarchia.local_chain, &cryptarchia.branches, k)
+    #[must_use] pub const fn is_online(&self) -> bool {
+        matches!(self, Self::Online)
     }
 
-    fn lib<Id>(cryptarchia: &Cryptarchia<Id, Self>) -> Id
+    fn fork_choice<Id>(cryptarchia: &Cryptarchia<Id>) -> Branch<Id>
     where
         Id: Eq + Hash + Copy,
     {
-        cryptarchia
-            .branches
-            .nth_ancestor(
-                &cryptarchia.local_chain,
-                cryptarchia.config.security_param.get().into(),
-            )
-            .id()
+        match cryptarchia.state {
+            Self::Boostrapping => {
+                let k = cryptarchia.config.security_param.get().into();
+                let s = cryptarchia.config.s();
+                maxvalid_bg(cryptarchia.local_chain, &cryptarchia.branches, k, s)
+            }
+            Self::Online => {
+                let k = cryptarchia.config.security_param.get().into();
+                maxvalid_mc(cryptarchia.local_chain, &cryptarchia.branches, k)
+            }
+        }
+    }
+
+    fn lib<Id>(cryptarchia: &Cryptarchia<Id>) -> Id
+    where
+        Id: Eq + Hash + Copy,
+    {
+        match cryptarchia.state {
+            Self::Boostrapping => cryptarchia.branches.lib,
+            Self::Online => cryptarchia
+                .branches
+                .nth_ancestor(
+                    &cryptarchia.local_chain,
+                    cryptarchia.config.security_param.get().into(),
+                )
+                .id(),
+        }
     }
 }
 
@@ -122,25 +116,15 @@ where
     cmax
 }
 
-#[derive(Clone, Debug)]
-pub struct Cryptarchia<Id, State: ?Sized> {
-    local_chain: Branch<Id>,
-    branches: Branches<Id>,
-    config: Config,
-    // Just a marker to indicate whether the node is bootstrapping or online.
-    // Does not actually end up in memory.
-    _state: std::marker::PhantomData<State>,
-}
-
-impl<Id, State> PartialEq for Cryptarchia<Id, State>
+#[derive(Clone, Debug, PartialEq)]
+pub struct Cryptarchia<Id>
 where
     Id: Eq + Hash,
 {
-    fn eq(&self, other: &Self) -> bool {
-        self.local_chain == other.local_chain
-            && self.branches == other.branches
-            && self.config == other.config
-    }
+    local_chain: Branch<Id>,
+    branches: Branches<Id>,
+    config: Config,
+    state: State,
 }
 
 #[derive(Clone, Debug)]
@@ -354,12 +338,11 @@ pub struct ForkDivergenceInfo<Id> {
     pub lca: Branch<Id>,
 }
 
-impl<Id, State> Cryptarchia<Id, State>
+impl<Id> Cryptarchia<Id>
 where
     Id: Eq + Hash + Copy + Debug,
-    State: CryptarchiaState + Copy,
 {
-    pub fn from_lib(id: Id, config: Config) -> Self {
+    pub fn from_lib(id: Id, config: Config, state: State) -> Self {
         Self {
             branches: Branches::from_lib(id),
             local_chain: Branch {
@@ -369,7 +352,7 @@ where
                 slot: 0.into(),
             },
             config,
-            _state: std::marker::PhantomData,
+            state,
         }
     }
 
@@ -395,14 +378,14 @@ where
 
     /// Attempts to update the LIB.
     /// Whether the LIB is actually updated or not depends on the
-    /// current [`CryptarchiaState`].
+    /// current state.
     ///
     /// If the LIB is updated, forks that diverged before the new LIB
     /// are pruned, and the blocks of the pruned forks are returned.
     /// as [`PrunedBlocks`].
     /// Otherwise, an empty [`PrunedBlocks`] is returned.
     fn update_lib(&mut self) -> PrunedBlocks<Id> {
-        let new_lib = <State as CryptarchiaState>::lib(&*self);
+        let new_lib = State::lib(&*self);
         // Trigger pruning only if the LIB has changed.
         if self.branches.lib == new_lib {
             PrunedBlocks::new()
@@ -413,7 +396,7 @@ where
     }
 
     pub fn fork_choice(&self) -> Branch<Id> {
-        <State as CryptarchiaState>::fork_choice(self)
+        State::fork_choice(self)
     }
 
     pub const fn tip(&self) -> Id {
@@ -522,6 +505,10 @@ where
         &self.branches.branches[&self.lib()]
     }
 
+    pub const fn state(&self) -> &State {
+        &self.state
+    }
+
     /// Calculate the depth of LIB from the local chain tip.
     fn lib_depth(&self) -> u64 {
         self.tip_branch()
@@ -529,19 +516,13 @@ where
             .checked_sub(self.lib_branch().length())
             .expect("Local chain tip height must be >= LIB height.")
     }
-}
 
-impl<Id> Cryptarchia<Id, Boostrapping>
-where
-    Id: Eq + Hash + Copy + Debug,
-{
-    /// Signal transitioning to the online state.
-    pub fn online(self) -> (Cryptarchia<Id, Online>, PrunedBlocks<Id>) {
-        let mut new = Cryptarchia {
+    pub fn online(self) -> (Self, PrunedBlocks<Id>) {
+        let mut new = Self {
             local_chain: self.local_chain,
             branches: self.branches.clone(),
             config: self.config,
-            _state: std::marker::PhantomData,
+            state: State::Online,
         };
         // Update the LIB to the current local chain's tip
         let pruned_blocks = new.update_lib();
