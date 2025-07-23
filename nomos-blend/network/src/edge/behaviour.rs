@@ -174,7 +174,7 @@ impl<Rng> Behaviour<Rng> {
         self.try_wake();
     }
 
-    fn get_messsage_of_failed_dial(&mut self, failure: DialFailure) -> Option<Vec<u8>> {
+    fn get_message_of_failed_dial(&mut self, failure: DialFailure) -> Option<Vec<u8>> {
         let peer_id = failure.peer_id?;
         self.pending_dials
             .remove(&(peer_id, failure.connection_id))
