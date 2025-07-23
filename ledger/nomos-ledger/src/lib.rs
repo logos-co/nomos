@@ -34,6 +34,8 @@ pub enum LedgerError<Id> {
     Overflow,
     #[error("Zero value note")]
     ZeroValueNote,
+    #[error("Mantle error: {0}")]
+    Mantle(#[from] mantle::Error),
 }
 
 #[derive(Clone, Debug, PartialEq)]
