@@ -88,13 +88,6 @@ impl EdgeToCoreBlendConnectionHandler {
             state: Some(StartingState::new(msg).into()),
         }
     }
-
-    pub fn new_dropped() -> Self {
-        tracing::trace!(target: LOG_TARGET, "Initializing edge->core connection handler in dropped state.");
-        Self {
-            state: Some(DroppedState::new(None, None).into()),
-        }
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]

@@ -66,8 +66,9 @@ where
         _local_addr: &Multiaddr,
         _remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        tracing::debug!(target: LOG_TARGET, "Connection established from a non-core node. Creating a connection handler with DroppedState.");
-        Ok(EdgeToCoreBlendConnectionHandler::new_dropped())
+        let reason = ConnectionDeniedReason::InboundNotAllowed;
+        tracing::warn!(target: LOG_TARGET, "Denying the connection: {reason:?}");
+        Err(ConnectionDenied::new(Box::new(reason)))
     }
 
     fn handle_established_outbound_connection(
@@ -79,14 +80,16 @@ where
         _port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
         if !self.is_core_node(&peer_id) {
-            tracing::debug!(target: LOG_TARGET, "Connection established to a non-core node. Creating a connection handler with DroppedState.");
+            let reason = ConnectionDeniedReason::OutboundToEdgeNodeNotAllowed;
+            tracing::warn!(target: LOG_TARGET, "Denying the connection: {reason:?}");
             self.pending_messages.remove(&(peer_id, connection_id));
-            return Ok(EdgeToCoreBlendConnectionHandler::new_dropped());
+            return Err(ConnectionDenied::new(Box::new(reason)));
         }
 
         let Some(message) = self.pending_messages.remove(&(peer_id, connection_id)) else {
-            tracing::debug!(target: LOG_TARGET, "No message assigned to this connection. Creating a connection handler with DroppedState.");
-            return Ok(EdgeToCoreBlendConnectionHandler::new_dropped());
+            let reason = ConnectionDeniedReason::NotRequested;
+            tracing::warn!(target: LOG_TARGET, "Denying the connection: {reason:?}");
+            return Err(ConnectionDenied::new(Box::new(reason)));
         };
 
         Ok(EdgeToCoreBlendConnectionHandler::new(message))
@@ -129,6 +132,16 @@ where
             Poll::Pending
         }
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+enum ConnectionDeniedReason {
+    #[error("Inbound connection is not allowed")]
+    InboundNotAllowed,
+    #[error("Outbound connection to an edge node is not allowed")]
+    OutboundToEdgeNodeNotAllowed,
+    #[error("Connection was not requested by this NetworkBehaviour")]
+    NotRequested,
 }
 
 impl<Rng> Behaviour<Rng>
@@ -197,19 +210,25 @@ where
 
         // Reschedule a new dial only if the failure is from
         // the connection that this NetworkBehaviour has requested.
-        let Some(peer_id) = failure.peer_id else {
-            return;
-        };
-        let Some(message) = self
-            .pending_messages
-            .remove(&(peer_id, failure.connection_id))
-        else {
-            return;
-        };
-        tracing::debug!(target: LOG_TARGET, "Rescheduling dial");
-        if let Err(e) = self.schedule_dial(message) {
-            tracing::error!(target: LOG_TARGET, "Failed to reschedule dial: {e}");
+        if let Some(message) = self.get_messsage_of_failed_dial(failure) {
+            tracing::debug!(target: LOG_TARGET, "Rescheduling dial");
+            if let Err(e) = self.schedule_dial(message) {
+                tracing::error!(target: LOG_TARGET, "Failed to reschedule dial: {e}");
+            }
         }
+    }
+
+    fn get_messsage_of_failed_dial(&mut self, failure: DialFailure) -> Option<Vec<u8>> {
+        let peer_id = failure.peer_id?;
+        self.pending_messages
+            .remove(&(peer_id, failure.connection_id))
+            .or_else(|| {
+                tracing::warn!(
+                    target: LOG_TARGET,
+                    "The failed dial that was not requested by this behaviour.",
+                );
+                None
+            })
     }
 
     /// Handles [`ToBehaviour::MessageSuccess`] event from the connection

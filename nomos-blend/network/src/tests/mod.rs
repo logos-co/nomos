@@ -4,7 +4,7 @@ use core::{
 };
 
 use futures::{task::noop_waker_ref, StreamExt as _};
-use libp2p::swarm::{dial_opts::DialOpts, ConnectionError, SwarmEvent};
+use libp2p::swarm::{dial_opts::DialOpts, ListenError, SwarmEvent};
 use nomos_blend_scheduling::membership::Membership;
 use tokio::time::sleep;
 
@@ -44,8 +44,8 @@ async fn core_to_edge_connection_failure() {
 
             if !edge_loop_done {
                 let edge_node_event = edge_node.poll_next_unpin(&mut cx);
-                if let Poll::Ready(Some(SwarmEvent::ConnectionClosed {
-                    cause: Some(ConnectionError::KeepAliveTimeout),
+                if let Poll::Ready(Some(SwarmEvent::IncomingConnectionError {
+                    error: ListenError::Denied { .. },
                     ..
                 })) = edge_node_event
                 {
