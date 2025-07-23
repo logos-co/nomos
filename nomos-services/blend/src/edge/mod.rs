@@ -95,7 +95,7 @@ where
         } = self;
 
         let settings = settings_handle.notifier().get_updated_settings();
-        let mut cryptoraphic_procdessor = CryptographicProcessor::new(
+        let mut cryptoraphic_processor = CryptographicProcessor::new(
             settings.crypto.clone(),
             settings.membership(),
             ChaCha12Rng::from_entropy(),
