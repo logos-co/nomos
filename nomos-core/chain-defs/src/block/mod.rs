@@ -1,9 +1,13 @@
+pub mod abstractions;
 pub mod builder;
 
 use ::serde::{de::DeserializeOwned, Deserialize, Serialize};
 use bytes::Bytes;
 
-use crate::{header::Header, wire};
+use crate::{
+    header::{Header, HeaderId},
+    wire,
+};
 
 pub type TxHash = [u8; 32];
 
@@ -15,6 +19,14 @@ pub struct Block<Tx: Clone + Eq, BlobCertificate: Clone + Eq> {
     header: Header,
     cl_transactions: Vec<Tx>,
     bl_blobs: Vec<BlobCertificate>,
+}
+
+impl<Tx: Clone + Eq, BlobCertificate: Clone + Eq> abstractions::Block
+    for Block<Tx, BlobCertificate>
+{
+    fn id(&self) -> HeaderId {
+        self.header().id()
+    }
 }
 
 impl<Tx: Clone + Eq, BlobCertificate: Clone + Eq> Block<Tx, BlobCertificate> {
