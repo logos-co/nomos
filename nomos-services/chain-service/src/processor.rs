@@ -15,7 +15,7 @@ use tracing::{debug, error, instrument};
 use crate::{
     get_sampled_blobs,
     relays::{ClMempoolRelay, DaMempoolRelay},
-    storage::{StorageAdapter, StorageAdapterExt},
+    storage::StorageAdapter,
     Cryptarchia, Error, SamplingRelay,
 };
 
@@ -32,11 +32,7 @@ pub trait BlockProcessor<RuntimeServiceId> {
     ) -> Result<Cryptarchia<CryptarchiaState>, (Error, Cryptarchia<CryptarchiaState>)>
     where
         CryptarchiaState: cryptarchia_engine::CryptarchiaState + Send,
-        Storage: StorageAdapter<RuntimeServiceId, Block = Self::Block>
-            + StorageAdapterExt<RuntimeServiceId>
-            + Send
-            + Sync
-            + 'static;
+        Storage: StorageAdapter<RuntimeServiceId, Block = Self::Block> + Send + Sync + 'static;
 }
 
 /// Implements [`BlockProcessor`] that processes the [`Block`] type.
@@ -100,11 +96,7 @@ where
     ) -> Result<Cryptarchia<CryptarchiaState>, (Error, Cryptarchia<CryptarchiaState>)>
     where
         CryptarchiaState: cryptarchia_engine::CryptarchiaState + Send,
-        Storage: StorageAdapter<RuntimeServiceId, Block = Self::Block>
-            + StorageAdapterExt<RuntimeServiceId>
-            + Send
-            + Sync
-            + 'static,
+        Storage: StorageAdapter<RuntimeServiceId, Block = Self::Block> + Send + Sync + 'static,
     {
         debug!("processing a block proposal: {:?}", block);
 
@@ -242,7 +234,6 @@ where
         stale_blocks: impl Iterator<Item = HeaderId> + Send,
     ) where
         Storage: StorageAdapter<RuntimeServiceId, Block = Block<ClPool::Item, DaPool::Item>>
-            + StorageAdapterExt<RuntimeServiceId>
             + Send
             + Sync
             + 'static,

@@ -10,6 +10,8 @@ use overwatch::services::{relay::OutboundRelay, ServiceData};
 
 use crate::Error;
 
+const LOG_TARGET: &str = "chain::service::storage";
+
 #[async_trait::async_trait]
 pub trait StorageAdapter<RuntimeServiceId> {
     type Backend: StorageBackend + Send + Sync + 'static;
@@ -28,6 +30,32 @@ pub trait StorageAdapter<RuntimeServiceId> {
     ///
     /// The block with the given header id. If no block is found, returns None.
     async fn get_block(&self, key: &HeaderId) -> Option<Self::Block>;
+
+    /// Retrieves the blocks in the inclusive range from `from` to `to`.
+    /// Returns [`Error::BlockNotFound`] if any block in the range is not found.
+    async fn get_blocks_in_range(
+        &self,
+        from: HeaderId,
+        to: HeaderId,
+    ) -> Result<Vec<Self::Block>, Error> {
+        // Due to the blocks traversal order, this yields `to..from` order
+        let blocks = futures::stream::try_unfold(to, |header_id| async move {
+            if header_id == from {
+                Ok(None)
+            } else {
+                let block = self
+                    .get_block(&header_id)
+                    .await
+                    .ok_or_else(|| Error::BlockNotFound(header_id))?;
+
+                let parent_header_id = Self::parent_id(&block);
+                Ok(Some((block, parent_header_id)))
+            }
+        });
+
+        // To avoid confusion, the order is reversed to `from..to` order.
+        blocks.collect::<Vec<_>>().await.into_iter().rev().collect()
+    }
 
     async fn store_block(
         &self,
@@ -63,19 +91,6 @@ pub trait StorageAdapter<RuntimeServiceId> {
             .into_iter()
     }
 
-    /// Store immutable block ids with their slots.
-    async fn store_immutable_block_ids(
-        &self,
-        blocks: BTreeMap<Slot, HeaderId>,
-    ) -> Result<(), overwatch::DynError>;
-}
-
-const LOG_TARGET: &str = "cryptarchia::service::storage";
-
-/// Extension trait for [`StorageAdapter`] that provides additional
-/// functionalities.
-#[async_trait::async_trait]
-pub trait StorageAdapterExt<RuntimeServiceId>: StorageAdapter<RuntimeServiceId> {
     /// Deletes multiple blocks from storage,
     /// If there are any blocks that previously failed to be deleted,
     /// they will be deleted together this time.
@@ -86,31 +101,11 @@ pub trait StorageAdapterExt<RuntimeServiceId>: StorageAdapter<RuntimeServiceId> 
         blocks: impl Iterator<Item = HeaderId> + Send,
     );
 
-    /// Retrieves the blocks in the inclusive range from `from` to `to`.
-    /// Returns [`Error::BlockNotFound`] if any block in the range is not found.
-    async fn get_blocks_in_range(
+    /// Store immutable block ids with their slots.
+    async fn store_immutable_block_ids(
         &self,
-        from: HeaderId,
-        to: HeaderId,
-    ) -> Result<Vec<Self::Block>, Error> {
-        // Due to the blocks traversal order, this yields `to..from` order
-        let blocks = futures::stream::try_unfold(to, |header_id| async move {
-            if header_id == from {
-                Ok(None)
-            } else {
-                let block = self
-                    .get_block(&header_id)
-                    .await
-                    .ok_or_else(|| Error::BlockNotFound(header_id))?;
-
-                let parent_header_id = Self::parent_id(&block);
-                Ok(Some((block, parent_header_id)))
-            }
-        });
-
-        // To avoid confusion, the order is reversed to `from..to` order.
-        blocks.collect::<Vec<_>>().await.into_iter().rev().collect()
-    }
+        blocks: BTreeMap<Slot, HeaderId>,
+    ) -> Result<(), overwatch::DynError>;
 
     fn parent_id(block: &Self::Block) -> HeaderId;
 }

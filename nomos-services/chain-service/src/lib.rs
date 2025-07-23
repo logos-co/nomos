@@ -60,7 +60,7 @@ use crate::{
     processor::{BlockProcessor as _, NomosBlockProcessor},
     relays::CryptarchiaConsensusRelays,
     states::ChainServiceState,
-    storage::{adapters::StorageAdapter, StorageAdapterExt as _},
+    storage::{adapters::StorageAdapter, StorageAdapter as _},
     sync::block_provider::BlockProvider,
 };
 

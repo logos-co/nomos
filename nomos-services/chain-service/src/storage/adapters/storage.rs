@@ -12,7 +12,7 @@ use overwatch::services::{relay::OutboundRelay, ServiceData};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::oneshot;
 
-use crate::storage::{StorageAdapter as StorageAdapterTrait, StorageAdapterExt, LOG_TARGET};
+use crate::storage::{StorageAdapter as StorageAdapterTrait, LOG_TARGET};
 
 pub struct StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
 where
@@ -112,28 +112,6 @@ where
         Ok(Some(deserialized_block))
     }
 
-    async fn store_immutable_block_ids(
-        &self,
-        blocks: BTreeMap<Slot, HeaderId>,
-    ) -> Result<(), overwatch::DynError> {
-        self.storage_relay
-            .send(StorageMsg::store_immutable_block_ids_request(blocks))
-            .await
-            .map_err(|_| "Failed to send store_immutable_block_id request to storage relay")?;
-        Ok(())
-    }
-}
-
-#[async_trait::async_trait]
-impl<Storage, Tx, BlobCertificate, RuntimeServiceId> StorageAdapterExt<RuntimeServiceId>
-    for StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
-where
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Block:
-        TryFrom<Block<Tx, BlobCertificate>> + TryInto<Block<Tx, BlobCertificate>>,
-    Tx: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
-    BlobCertificate: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
-{
     async fn remove_blocks_and_collect_failures(
         &mut self,
         blocks: impl Iterator<Item = HeaderId> + Send,
@@ -158,6 +136,17 @@ where
                 }
             })
             .collect();
+    }
+
+    async fn store_immutable_block_ids(
+        &self,
+        blocks: BTreeMap<Slot, HeaderId>,
+    ) -> Result<(), overwatch::DynError> {
+        self.storage_relay
+            .send(StorageMsg::store_immutable_block_ids_request(blocks))
+            .await
+            .map_err(|_| "Failed to send store_immutable_block_id request to storage relay")?;
+        Ok(())
     }
 
     fn parent_id(block: &Self::Block) -> HeaderId {
