@@ -17,7 +17,7 @@ use rand::RngCore;
 
 use super::{
     error::Error,
-    handler::{EdgeToCoreBlendConnectionHandler, FailureReason, ToBehaviour},
+    handler::{EdgeToCoreBlendConnectionHandler, SendError, ToBehaviour},
 };
 
 const LOG_TARGET: &str = "blend::network::edge::behaviour";
@@ -36,8 +36,11 @@ const LOG_TARGET: &str = "blend::network::edge::behaviour";
 pub struct Behaviour<Rng> {
     /// Queue of events to yield to the swarm.
     events: VecDeque<ToSwarm<EventToSwarm, ()>>,
-    /// Messages to be sent once a new connection is established.
-    pending_messages: HashMap<(PeerId, ConnectionId), Vec<u8>>,
+    /// Dials that are not completed yet.
+    /// Each dial has a message assigned to it, so once the dial completes,
+    /// a [`ConnectionHandler`] can be created for that message.
+    /// If the dial fails, another dial can be scheduled for that message.
+    pending_dials: HashMap<(PeerId, ConnectionId), Vec<u8>>,
     /// Waker that handles polling
     waker: Option<Waker>,
     // TODO: Replace with the session stream and make this a non-Option
@@ -82,11 +85,11 @@ where
         if !self.is_core_node(&peer_id) {
             let reason = ConnectionDeniedReason::OutboundToEdgeNodeNotAllowed;
             tracing::warn!(target: LOG_TARGET, "Denying the connection: {reason:?}");
-            self.pending_messages.remove(&(peer_id, connection_id));
+            self.pending_dials.remove(&(peer_id, connection_id));
             return Err(ConnectionDenied::new(Box::new(reason)));
         }
 
-        let Some(message) = self.pending_messages.remove(&(peer_id, connection_id)) else {
+        let Some(message) = self.pending_dials.remove(&(peer_id, connection_id)) else {
             let reason = ConnectionDeniedReason::NotRequested;
             tracing::warn!(target: LOG_TARGET, "Denying the connection: {reason:?}");
             return Err(ConnectionDenied::new(Box::new(reason)));
@@ -114,8 +117,8 @@ where
             ToBehaviour::MessageSuccess(message) => {
                 self.handle_message_success(peer_id, connection_id, message);
             }
-            ToBehaviour::SendError(reason) => {
-                self.handle_send_error(peer_id, connection_id, &reason);
+            ToBehaviour::SendError(error) => {
+                self.handle_send_error(error);
             }
         }
     }
@@ -152,7 +155,7 @@ where
     pub fn new(current_membership: Option<Membership<PeerId>>, rng: Rng) -> Self {
         Self {
             events: VecDeque::new(),
-            pending_messages: HashMap::new(),
+            pending_dials: HashMap::new(),
             waker: None,
             current_membership,
             rng,
@@ -190,7 +193,7 @@ where
             .condition(PeerCondition::Always)
             .addresses(vec![node.address.clone()])
             .build();
-        self.pending_messages
+        self.pending_dials
             .insert((node.id, opts.connection_id()), message);
         self.events.push_back(ToSwarm::Dial { opts });
         self.try_wake();
@@ -220,7 +223,7 @@ where
 
     fn get_messsage_of_failed_dial(&mut self, failure: DialFailure) -> Option<Vec<u8>> {
         let peer_id = failure.peer_id?;
-        self.pending_messages
+        self.pending_dials
             .remove(&(peer_id, failure.connection_id))
             .or_else(|| {
                 tracing::warn!(
@@ -241,23 +244,16 @@ where
         message: Vec<u8>,
     ) {
         tracing::debug!(target: LOG_TARGET, "Message sent successfully to {peer_id} on connection {connection_id}");
-        self.pending_messages.remove(&(peer_id, connection_id));
+        self.pending_dials.remove(&(peer_id, connection_id));
         self.schedule_event_to_swarm(EventToSwarm::MessageSuccess(message));
     }
 
     /// Handles [`ToBehaviour::SendError`] event from the connection handler
     /// by rescheduling a new dial.
-    fn handle_send_error(
-        &mut self,
-        peer_id: PeerId,
-        connection_id: ConnectionId,
-        reason: &FailureReason,
-    ) {
-        tracing::error!(target: LOG_TARGET, "Failed to send message. Reason: {reason:?}. Rescheduling dial.");
-        if let Some(message) = self.pending_messages.remove(&(peer_id, connection_id)) {
-            if let Err(e) = self.schedule_dial(message) {
-                tracing::error!(target: LOG_TARGET, "Failed to reschedule dial: {e}");
-            }
+    fn handle_send_error(&mut self, error: SendError) {
+        tracing::error!(target: LOG_TARGET, "Failed to send message. Reason: {:?}. Rescheduling dial.", error.reason);
+        if let Err(e) = self.schedule_dial(error.message) {
+            tracing::error!(target: LOG_TARGET, "Failed to reschedule dial: {e}");
         }
     }
 

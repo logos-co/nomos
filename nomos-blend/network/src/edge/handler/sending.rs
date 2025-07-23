@@ -5,7 +5,7 @@ use libp2p::swarm::ConnectionHandlerEvent;
 
 use crate::edge::handler::{
     dropped::DroppedState, ConnectionState, FailureReason, MessageSendFuture, PollResult,
-    StateTrait, ToBehaviour, LOG_TARGET,
+    SendError, StateTrait, ToBehaviour, LOG_TARGET,
 };
 
 /// State representing the moment in which a new message is being sent to the
@@ -51,10 +51,13 @@ impl StateTrait for SendingState {
         };
         if let Err(error) = message_send_result {
             tracing::error!(target: LOG_TARGET, "Failed to send message. Error {error:?}");
+            let error = SendError {
+                reason: FailureReason::MessageStream,
+                message: self.message,
+            };
             (
                 Poll::Pending,
-                DroppedState::new(Some(FailureReason::MessageStream), Some(cx.waker().clone()))
-                    .into(),
+                DroppedState::new(Some(error), Some(cx.waker().clone())).into(),
             )
         } else {
             tracing::trace!(target: LOG_TARGET, "Message sent successfully. Transitioning from `Sending` to `Dropped`.");

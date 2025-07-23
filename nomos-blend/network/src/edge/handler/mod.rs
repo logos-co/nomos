@@ -90,6 +90,12 @@ impl EdgeToCoreBlendConnectionHandler {
     }
 }
 
+#[derive(Debug)]
+pub struct SendError {
+    pub reason: FailureReason,
+    pub message: Vec<u8>,
+}
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FailureReason {
     UpgradeError,
@@ -101,7 +107,7 @@ pub enum ToBehaviour {
     /// Notify the behaviour that the message was sent successfully.
     MessageSuccess(Vec<u8>),
     /// Notify the behaviour that the message could not be sent.
-    SendError(FailureReason),
+    SendError(SendError),
 }
 
 impl ConnectionHandler for EdgeToCoreBlendConnectionHandler {

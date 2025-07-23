@@ -10,7 +10,7 @@ use super::sending::SendingState;
 use crate::{
     edge::handler::{
         dropped::DroppedState, ConnectionEvent, ConnectionState, FailureReason, PollResult,
-        StateTrait, LOG_TARGET,
+        SendError, StateTrait, LOG_TARGET,
     },
     send_msg, PROTOCOL_NAME,
 };
@@ -62,7 +62,11 @@ impl StateTrait for StartingState {
             .into(),
             ConnectionEvent::DialUpgradeError(error) => {
                 tracing::trace!(target: LOG_TARGET, "Outbound upgrade error: {error:?}");
-                DroppedState::new(Some(FailureReason::UpgradeError), self.waker.take()).into()
+                let error = SendError {
+                    reason: FailureReason::UpgradeError,
+                    message: self.message,
+                };
+                DroppedState::new(Some(error), self.waker.take()).into()
             }
             unprocessed_event => {
                 tracing::trace!(target: LOG_TARGET, "Ignoring connection event {unprocessed_event:?}");

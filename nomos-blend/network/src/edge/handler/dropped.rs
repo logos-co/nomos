@@ -2,16 +2,16 @@ use core::task::{Context, Poll, Waker};
 
 use libp2p::swarm::ConnectionHandlerEvent;
 
-use crate::edge::handler::{ConnectionState, FailureReason, PollResult, StateTrait, ToBehaviour};
+use crate::edge::handler::{ConnectionState, PollResult, SendError, StateTrait, ToBehaviour};
 
 /// State indicating either that an error should be emitted, or that the state
 /// machine has reached its end state, from which it does not exit anymore.
 pub struct DroppedState {
-    error: Option<FailureReason>,
+    error: Option<SendError>,
 }
 
 impl DroppedState {
-    pub fn new(error: Option<FailureReason>, waker: Option<Waker>) -> Self {
+    pub fn new(error: Option<SendError>, waker: Option<Waker>) -> Self {
         let Some(error_to_consume) = error else {
             // No need to wake if we don't have an error to report.
             return Self { error: None };
