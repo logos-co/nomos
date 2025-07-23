@@ -74,10 +74,10 @@ where
         // TODO: Download from multiple peers.
         //       https://github.com/logos-co/nomos/issues/1455
         match self.config.peers.iter().next() {
-            Some(peer) => self
-                .download_from_peer(cryptarchia, network_adapter, *peer, block_processor)
-                .await
-                .map_err(|(_, e)| e),
+            Some(peer) => {
+                self.download_from_peer(cryptarchia, network_adapter, *peer, block_processor)
+                    .await
+            }
             None => Ok(cryptarchia),
         }
     }
@@ -93,7 +93,7 @@ where
         network_adapter: NetAdapter,
         peer: NetAdapter::PeerId,
         block_processor: &mut BlockProcessor,
-    ) -> Result<Cryptarchia<CryptarchiaState>, (Cryptarchia<CryptarchiaState>, IbdError)>
+    ) -> Result<Cryptarchia<CryptarchiaState>, IbdError>
     where
         CryptarchiaState: cryptarchia_engine::CryptarchiaState + Send,
         BlockProcessor: processor::BlockProcessor<Block = NetAdapter::Block> + Send + Sync,
@@ -106,7 +106,7 @@ where
             // Each time, set `target` to the most recent peer's tip.
             match network_adapter.request_tip(peer).await {
                 Err(e) => {
-                    return Err((cryptarchia, IbdError::ErrorFromBlockProvider(e)));
+                    return Err(IbdError::ErrorFromBlockProvider(e));
                 }
                 Ok(tip) => {
                     if !should_download(tip.id, tip.slot, &cryptarchia) {
@@ -152,10 +152,7 @@ where
         target: HeaderId,
         latest_downloaded_block: Option<HeaderId>,
         block_processor: &mut BlockProcessor,
-    ) -> Result<
-        (Cryptarchia<CryptarchiaState>, Option<HeaderId>),
-        (Cryptarchia<CryptarchiaState>, IbdError),
-    >
+    ) -> Result<(Cryptarchia<CryptarchiaState>, Option<HeaderId>), IbdError>
     where
         CryptarchiaState: cryptarchia_engine::CryptarchiaState + Send,
         BlockProcessor: processor::BlockProcessor<Block = NetAdapter::Block> + Send + Sync,
@@ -171,7 +168,7 @@ where
             )
             .await
         {
-            Err(e) => Err((cryptarchia, IbdError::ErrorFromBlockProvider(e))),
+            Err(e) => Err(IbdError::ErrorFromBlockProvider(e)),
             Ok(block_stream) => {
                 // Process the block stream.
                 self.process_block_stream(block_stream, cryptarchia, block_processor)
@@ -191,10 +188,7 @@ where
         >,
         mut cryptarchia: Cryptarchia<CryptarchiaState>,
         block_processor: &mut BlockProcessor,
-    ) -> Result<
-        (Cryptarchia<CryptarchiaState>, Option<HeaderId>),
-        (Cryptarchia<CryptarchiaState>, IbdError),
-    >
+    ) -> Result<(Cryptarchia<CryptarchiaState>, Option<HeaderId>), IbdError>
     where
         CryptarchiaState: cryptarchia_engine::CryptarchiaState + Send,
         BlockProcessor: processor::BlockProcessor<Block = NetAdapter::Block> + Send + Sync,
@@ -203,7 +197,7 @@ where
         while let Some(res) = block_stream.next().await {
             match res {
                 Err(e) => {
-                    return Err((cryptarchia, IbdError::ErrorFromBlockProvider(e)));
+                    return Err(IbdError::ErrorFromBlockProvider(e));
                 }
                 Ok(block) => {
                     let id = block.id();
@@ -495,7 +489,7 @@ mod tests {
     async fn tip_error_from_block_provider() {
         let mut block_processor = MockBlockProcessor;
 
-        let Err((cryptarchia, _)) = InitialBlockDownload::new(IbdConfig {
+        let result = InitialBlockDownload::new(IbdConfig {
             peers: HashSet::new(),
         })
         .download_from_peer(
@@ -517,20 +511,15 @@ mod tests {
             (),
             &mut block_processor,
         )
-        .await
-        else {
-            panic!("should fail");
-        };
-
-        // Cryptarchia holds blocks that were processed before the error.
-        assert_eq!(cryptarchia.consensus.tip(), [2; 32].into());
+        .await;
+        assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn block_error_from_block_provider() {
         let mut block_processor = MockBlockProcessor;
 
-        let Err((cryptarchia, _)) = InitialBlockDownload::new(IbdConfig {
+        let result = InitialBlockDownload::new(IbdConfig {
             peers: HashSet::new(),
         })
         .download_from_peer(
@@ -547,13 +536,8 @@ mod tests {
             (),
             &mut block_processor,
         )
-        .await
-        else {
-            panic!("should fail");
-        };
-
-        // Cryptarchia holds blocks that were processed before the error.
-        assert_eq!(cryptarchia.consensus.tip(), [2; 32].into());
+        .await;
+        assert!(result.is_err());
     }
 
     fn new_cryptarchia() -> Cryptarchia<Online> {
