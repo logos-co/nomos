@@ -124,7 +124,7 @@ async fn message_sending() {
             if !core_loop_done {
                 let core_node_event = core_node.poll_next_unpin(&mut cx);
                 if let Poll::Ready(Some(SwarmEvent::Behaviour(
-                    crate::core::handler::core_edge::ToBehaviour::Message(message),
+                    crate::core::handler::edge::ToBehaviour::Message(message),
                 ))) = core_node_event
                 {
                     if message == b"test".to_vec() {
@@ -204,8 +204,8 @@ async fn sender_timeout() {
 
     // The next event we should get from the core swarm is a failure due to
     // timeout.
-    let Some(SwarmEvent::Behaviour(crate::core::handler::core_edge::ToBehaviour::FailedReception(
-        crate::core::handler::core_edge::FailureReason::Timeout,
+    let Some(SwarmEvent::Behaviour(crate::core::handler::edge::ToBehaviour::FailedReception(
+        crate::core::handler::edge::FailureReason::Timeout,
     ))) = core_node.next().await
     else {
         panic!("Returned different error than expected (timeout)");

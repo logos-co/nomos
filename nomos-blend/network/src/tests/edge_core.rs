@@ -11,7 +11,7 @@ use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder,
 };
 
-use crate::edge::handler::{EdgeToCoreBlendConnectionHandler, FromBehaviour};
+use crate::edge::handler::{ConnectionHandler, FromBehaviour};
 
 pub(super) struct TestEdgeSenderBehaviour {
     events_from_handler: VecDeque<THandlerOutEvent<Self>>,
@@ -37,7 +37,7 @@ impl TestEdgeSenderBehaviour {
 }
 
 impl NetworkBehaviour for TestEdgeSenderBehaviour {
-    type ConnectionHandler = EdgeToCoreBlendConnectionHandler;
+    type ConnectionHandler = ConnectionHandler;
     type ToSwarm = THandlerOutEvent<Self>;
 
     fn handle_established_inbound_connection(
@@ -59,7 +59,7 @@ impl NetworkBehaviour for TestEdgeSenderBehaviour {
         _port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
         self.peer_details = Some((peer, connection_id));
-        Ok(EdgeToCoreBlendConnectionHandler::new())
+        Ok(ConnectionHandler::new())
     }
 
     fn on_swarm_event(&mut self, _event: FromSwarm) {}

@@ -14,7 +14,7 @@ use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder,
 };
 
-use crate::core::handler::core_edge::CoreToEdgeBlendConnectionHandler;
+use crate::core::handler::edge::ConnectionHandler;
 
 pub(super) struct TestCoreReceiverBehaviour {
     timeout: Duration,
@@ -35,7 +35,7 @@ impl TestCoreReceiverBehaviour {
 }
 
 impl NetworkBehaviour for TestCoreReceiverBehaviour {
-    type ConnectionHandler = CoreToEdgeBlendConnectionHandler;
+    type ConnectionHandler = ConnectionHandler;
     type ToSwarm = THandlerOutEvent<Self>;
 
     fn handle_established_inbound_connection(
@@ -46,7 +46,7 @@ impl NetworkBehaviour for TestCoreReceiverBehaviour {
         _remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
         self.peer_details = Some((peer, connection_id));
-        Ok(CoreToEdgeBlendConnectionHandler::new(self.timeout))
+        Ok(ConnectionHandler::new(self.timeout))
     }
 
     fn handle_established_outbound_connection(

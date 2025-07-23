@@ -12,7 +12,7 @@ use std::io;
 
 use libp2p::{
     core::upgrade::{DeniedUpgrade, ReadyUpgrade},
-    swarm::{ConnectionHandler, ConnectionHandlerEvent, SubstreamProtocol},
+    swarm::{ConnectionHandlerEvent, SubstreamProtocol},
     StreamProtocol,
 };
 
@@ -34,8 +34,8 @@ type MessageSendFuture = Pin<Box<dyn Future<Output = Result<(), io::Error>> + Se
 type PollResult<T> = (
     Poll<
         ConnectionHandlerEvent<
-            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
-            <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
+            <ConnectionHandler as libp2p::swarm::ConnectionHandler>::OutboundProtocol,
+            <ConnectionHandler as libp2p::swarm::ConnectionHandler>::OutboundOpenInfo,
             ToBehaviour,
         >,
     >,
@@ -44,10 +44,10 @@ type PollResult<T> = (
 #[expect(deprecated, reason = "Self::InboundOpenInfo is deprecated")]
 type ConnectionEvent<'a> = libp2p::swarm::handler::ConnectionEvent<
     'a,
-    <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::InboundProtocol,
-    <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundProtocol,
-    <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::InboundOpenInfo,
-    <EdgeToCoreBlendConnectionHandler as ConnectionHandler>::OutboundOpenInfo,
+    <ConnectionHandler as libp2p::swarm::ConnectionHandler>::InboundProtocol,
+    <ConnectionHandler as libp2p::swarm::ConnectionHandler>::OutboundProtocol,
+    <ConnectionHandler as libp2p::swarm::ConnectionHandler>::InboundOpenInfo,
+    <ConnectionHandler as libp2p::swarm::ConnectionHandler>::OutboundOpenInfo,
 >;
 
 enum ConnectionState {
@@ -102,11 +102,11 @@ trait StateTrait: Into<ConnectionState> {
     fn poll(self, cx: &mut Context<'_>) -> PollResult<ConnectionState>;
 }
 
-pub struct EdgeToCoreBlendConnectionHandler {
+pub struct ConnectionHandler {
     state: Option<ConnectionState>,
 }
 
-impl EdgeToCoreBlendConnectionHandler {
+impl ConnectionHandler {
     pub fn new() -> Self {
         tracing::trace!(target: LOG_TARGET, "Initializing edge->core connection handler.");
         Self {
@@ -115,7 +115,7 @@ impl EdgeToCoreBlendConnectionHandler {
     }
 }
 
-impl Default for EdgeToCoreBlendConnectionHandler {
+impl Default for ConnectionHandler {
     fn default() -> Self {
         Self::new()
     }
@@ -141,7 +141,7 @@ pub enum ToBehaviour {
     SendError(FailureReason),
 }
 
-impl ConnectionHandler for EdgeToCoreBlendConnectionHandler {
+impl libp2p::swarm::ConnectionHandler for ConnectionHandler {
     type FromBehaviour = FromBehaviour;
     type ToBehaviour = ToBehaviour;
     type InboundProtocol = DeniedUpgrade;

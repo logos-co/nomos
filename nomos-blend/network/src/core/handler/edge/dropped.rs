@@ -2,7 +2,7 @@ use core::task::{Context, Poll, Waker};
 
 use libp2p::swarm::ConnectionHandlerEvent;
 
-use crate::core::handler::core_edge::{
+use crate::core::handler::edge::{
     ConnectionState, FailureReason, PollResult, StateTrait, ToBehaviour,
 };
 

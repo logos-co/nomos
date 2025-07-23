@@ -3,7 +3,7 @@ use core::task::{Context, Poll, Waker};
 use futures::FutureExt as _;
 use libp2p::swarm::ConnectionHandlerEvent;
 
-use crate::core::handler::core_edge::{
+use crate::core::handler::edge::{
     dropped::DroppedState, ConnectionState, FailureReason, MessageReceiveFuture, PollResult,
     StateTrait, TimerFuture, ToBehaviour, LOG_TARGET,
 };

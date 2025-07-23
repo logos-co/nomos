@@ -6,7 +6,7 @@ use core::{
 use futures_timer::Delay;
 use libp2p::swarm::handler::FullyNegotiatedInbound;
 
-use crate::core::handler::core_edge::{
+use crate::core::handler::edge::{
     dropped::DroppedState, ready_to_receive::ReadyToReceiveState, ConnectionEvent, ConnectionState,
     FailureReason, PollResult, StateTrait, LOG_TARGET,
 };

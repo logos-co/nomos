@@ -4,7 +4,7 @@ use futures::{FutureExt as _, TryFutureExt as _};
 use libp2p::{core::upgrade::ReadyUpgrade, swarm::handler::InboundUpgradeSend, StreamProtocol};
 
 use crate::{
-    core::handler::core_edge::{
+    core::handler::edge::{
         dropped::DroppedState, receiving::ReceivingState, ConnectionState, FailureReason,
         PollResult, StateTrait, TimerFuture, LOG_TARGET,
     },

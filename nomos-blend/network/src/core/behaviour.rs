@@ -19,14 +19,13 @@ use libp2p::{
 use nomos_blend_scheduling::membership::Membership;
 use sha2::{Digest as _, Sha256};
 
-use super::{handler::core_edge, Error};
 use crate::core::{
     conn_maintenance::ConnectionMonitor,
     handler::{
-        core::{FromBehaviour, ToBehaviour},
-        core_edge::CoreToEdgeBlendConnectionHandler,
-        CoreToCoreBlendConnectionHandler,
+        core::{self, FromBehaviour, ToBehaviour},
+        edge,
     },
+    Error,
 };
 
 /// A [`NetworkBehaviour`]:
@@ -197,14 +196,14 @@ where
 {
     fn create_connection_handler_for_remote_core(
         &self,
-    ) -> CoreToCoreBlendConnectionHandler<ObservationWindowClockProvider::IntervalStream> {
-        CoreToCoreBlendConnectionHandler::new(ConnectionMonitor::new(
+    ) -> core::ConnectionHandler<ObservationWindowClockProvider::IntervalStream> {
+        core::ConnectionHandler::new(ConnectionMonitor::new(
             self.observation_window_clock_provider.interval_stream(),
         ))
     }
 
-    fn create_connection_handler_for_remote_edge(&self) -> CoreToEdgeBlendConnectionHandler {
-        CoreToEdgeBlendConnectionHandler::new(self.edge_node_connection_duration)
+    fn create_connection_handler_for_remote_edge(&self) -> edge::ConnectionHandler {
+        edge::ConnectionHandler::new(self.edge_node_connection_duration)
     }
 }
 
@@ -214,8 +213,8 @@ where
         + 'static,
 {
     type ConnectionHandler = Either<
-        CoreToCoreBlendConnectionHandler<ObservationWindowClockProvider::IntervalStream>,
-        CoreToEdgeBlendConnectionHandler,
+        core::ConnectionHandler<ObservationWindowClockProvider::IntervalStream>,
+        edge::ConnectionHandler,
     >;
     type ToSwarm = Event;
 
@@ -360,10 +359,10 @@ where
                 // We "shuffle" together messages received from core and edge nodes.
                 // The difference is that for messages received by edge nodes, we forward them to
                 // all connected core nodes.
-                core_edge::ToBehaviour::Message(new_message) => {
+                edge::ToBehaviour::Message(new_message) => {
                     self.handle_received_message(new_message, None);
                 }
-                core_edge::ToBehaviour::FailedReception(reason) => {
+                edge::ToBehaviour::FailedReception(reason) => {
                     tracing::trace!("An attempt was made from an edge node to send a message to us, but the attempt failed. Error reason: {reason:?}");
                 }
             },
