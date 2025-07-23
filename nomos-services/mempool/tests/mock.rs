@@ -10,7 +10,11 @@ use nomos_core::{
 };
 use nomos_mempool::{
     backend::mockpool::MockPool,
-    network::adapters::mock::{MockAdapter, MOCK_TX_CONTENT_TOPIC},
+    network::{
+        adapters::mock::{MockAdapter, MOCK_TX_CONTENT_TOPIC},
+        NetworkAdapter,
+    },
+    processor::noop::NoOpPayloadProcessor,
     tx::{service::GenericTxMempoolService, state::TxMempoolState},
     MempoolMsg, TxMempoolSettings,
 };
@@ -21,6 +25,7 @@ use nomos_network::{
     NetworkService,
 };
 use nomos_tracing_service::{Tracing, TracingSettings};
+use nomos_utils::noop_service::NoService;
 use overwatch::overwatch::OverwatchRunner;
 use overwatch_derive::*;
 use rand::distributions::{Alphanumeric, DistString as _};
@@ -29,13 +34,16 @@ use services_utils::{
     traits::FromSettings as _,
 };
 
+type NoProcessor<NetworkAdapter> = NoOpPayloadProcessor<NoService, NetworkAdapter>;
+
 type MockRecoveryBackend = JsonFileBackend<
-    TxMempoolState<MockPool<HeaderId, MockTransaction<MockMessage>, MockTxId>, (), ()>,
-    TxMempoolSettings<(), ()>,
+    TxMempoolState<MockPool<HeaderId, MockTransaction<MockMessage>, MockTxId>, (), (), ()>,
+    TxMempoolSettings<(), (), ()>,
 >;
 type MockMempoolService = GenericTxMempoolService<
     MockPool<HeaderId, MockTransaction<MockMessage>, MockTxId>,
     MockAdapter<RuntimeServiceId>,
+    NoProcessor<<MockAdapter<RuntimeServiceId> as NetworkAdapter<RuntimeServiceId>>::Payload>,
     MockRecoveryBackend,
     RuntimeServiceId,
 >;
@@ -45,6 +53,7 @@ struct MockPoolNode {
     logging: Tracing<RuntimeServiceId>,
     network: NetworkService<Mock, RuntimeServiceId>,
     mockpool: MockMempoolService,
+    no_service: NoService,
 }
 
 fn run_with_recovery_teardown(recovery_path: &Path, run: impl Fn()) {
@@ -57,6 +66,7 @@ fn get_test_random_path() -> PathBuf {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "self contained test")]
 fn test_mock_mempool() {
     let recovery_file_path = get_test_random_path();
     run_with_recovery_teardown(&recovery_file_path, || {
@@ -93,9 +103,11 @@ fn test_mock_mempool() {
             mockpool: TxMempoolSettings {
                 pool: (),
                 network_adapter: (),
+                processor: (),
                 recovery_path: recovery_file_path.clone(),
             },
             logging: TracingSettings::default(),
+            no_service: (),
         };
         let app = OverwatchRunner::<MockPoolNode>::run(settings, None)
             .map_err(|e| eprintln!("Error encountered: {e}"))
@@ -157,6 +169,7 @@ fn test_mock_mempool() {
         let recovery_backend = MockRecoveryBackend::from_settings(&TxMempoolSettings {
             pool: (),
             network_adapter: (),
+            processor: (),
             recovery_path: recovery_file_path.clone(),
         });
         let recovered_state = recovery_backend

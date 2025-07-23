@@ -51,7 +51,7 @@ use nomos_time::backends::NtpTimeBackend;
 pub use nomos_tracing_service::Tracing;
 use overwatch::derive_services;
 use serde::{de::DeserializeOwned, Serialize};
-use subnetworks_assignations::versions::v1::FillFromNodeList;
+use subnetworks_assignations::versions::history_aware_refill::HistoryAware;
 
 pub use crate::config::{Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs};
 use crate::{
@@ -81,7 +81,7 @@ impl StorageSerde for Wire {
 }
 
 /// Membership used by the DA Network service.
-pub type NomosDaMembership = FillFromNodeList;
+pub type NomosDaMembership = HistoryAware<PeerId>;
 type DaMembershipStorage = DaMembershipStorageGeneric<RuntimeServiceId>;
 pub type DaNetworkApiAdapter = HttApiAdapter<DaMembershipHandler<NomosDaMembership>, DaAddressbook>;
 
@@ -153,7 +153,23 @@ pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
     RuntimeServiceId,
 >;
 
-pub(crate) type ClMempoolService = generic_services::TxMempoolService<RuntimeServiceId>;
+pub(crate) type ClMempoolService = generic_services::TxMempoolService<
+    SamplingLibp2pAdapter<
+        NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
+        DaNetworkApiAdapter,
+        RuntimeServiceId,
+    >,
+    VerifierNetworkAdapter<
+        NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
+        DaNetworkApiAdapter,
+        RuntimeServiceId,
+    >,
+    RuntimeServiceId,
+>;
 
 pub(crate) type DaMempoolService = generic_services::DaMempoolService<
     nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
@@ -261,7 +277,6 @@ pub struct Nomos {
     http: ApiService,
     storage: StorageService,
     system_sig: SystemSigService,
-
     #[cfg(feature = "testing")]
     testing_http: TestingApiService<RuntimeServiceId>,
 }

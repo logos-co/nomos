@@ -9,7 +9,7 @@ network:
     host: 0.0.0.0
     port: 3000
     node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d
-    initial_peers: []
+    initial_peers: [ ]
 blend:
   backend:
     listening_address: /ip4/127.0.0.1/udp/3001/quic-v1
@@ -29,7 +29,7 @@ blend:
     # 21,600 blocks * 30s per block * 1s per round = 648,000 rounds
     rounds_per_session: 648000
     rounds_per_interval: 30
-    round_duration: [1, 0]
+    round_duration: [ 1, 0 ]
     # Defined in the spec
     rounds_per_observation_window: 30
   scheduler:
@@ -77,13 +77,8 @@ da_network:
         nanos: 0
     num_subnets: 2
   membership:
-    assignations:
-      - - 12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
-        - 12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
-      - - 12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
-        - 12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
     subnetwork_size: 2
-    dispersal_factor: 2
+    replication_factor: 2
     addressbook:
       12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir: /ip4/127.0.0.1/udp/8717/quic-v1/p2p/12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
       12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh: /ip4/127.0.0.1/udp/8716/quic-v1/p2p/12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
@@ -96,12 +91,12 @@ da_dispersal:
       num_columns: 2
       with_cache: false
       global_params_path: /tmp
-    dispersal_timeout: [20, 0]
+    dispersal_timeout: [ 20, 0 ]
     mempool_strategy:
       !SampleSubnetworks
-        sample_threshold: 2
-        timeout: [10, 0]
-        cooldown: [0, 100]
+      sample_threshold: 2
+      timeout: [ 10, 0 ]
+      cooldown: [ 0, 100 ]
 da_indexer:
   storage:
     blob_storage_directory: ./
@@ -132,21 +127,21 @@ da_sampling:
 http:
   backend_settings:
     address: 127.0.0.1:8722
-    cors_origins: []
+    cors_origins: [ ]
 time:
   backend_settings:
     slot_config:
       slot_duration: '2.0'
-      chain_start_time: [2025, 41, 9, 38, 29, 993653000, 0, 0, 0]
+      chain_start_time: [ 2025, 41, 9, 38, 29, 993653000, 0, 0, 0 ]
     epoch_config:
       epoch_stake_distribution_stabilization: 3
       epoch_period_nonce_buffer: 3
       epoch_period_nonce_stabilization: 4
     base_period_length: 11
-    update_interval: [16, 0]
+    update_interval: [ 16, 0 ]
     ntp_server: pool.ntp.org
     ntp_client_settings:
-      timeout: [5, 0]
+      timeout: [ 5, 0 ]
       listening_interface: 0.0.0.0
 cryptarchia:
   transaction_selector_settings: null
@@ -291,8 +286,8 @@ cryptarchia:
         total_stake: 1
     mantle_ledger: ~
   time:
-    slot_duration: [2, 0]
-    chain_start_time: [2025, 41, 9, 38, 29, 993653000, 0, 0, 0]
+    slot_duration: [ 2, 0 ]
+    chain_start_time: [ 2025, 41, 9, 38, 29, 993653000, 0, 0, 0 ]
   leader_config:
     utxos:
       - tx_hash: '0000000000000000000000000000000000000000000000000000000000000000'
@@ -316,8 +311,8 @@ mempool:
   da_pool_recovery_path: ./recovery/da_mempool.json
 membership:
   backend:
-    settings_per_service: {}
-    initial_membership: {}
-    initial_locators_mapping: {}
+    settings_per_service: { }
+    initial_membership: { }
+    initial_locators_mapping: { }
     latest_block_number: 0
 sdp:

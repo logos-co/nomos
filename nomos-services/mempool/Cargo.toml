@@ -21,7 +21,8 @@ kzgrs-backend         = { workspace = true }
 linked-hash-map       = { version = "0.5.6", optional = true, features = ["serde_impl"] }
 nomos-core            = { workspace = true }
 nomos-da-network-core = { workspace = true }
-nomos-da-sampling     = { workspace = true }
+nomos-da-sampling     = { workspace = true, features = ["rocksdb-backend"] }
+nomos-da-verifier     = { workspace = true, features = ["rocksdb-backend"] }
 nomos-network         = { workspace = true }
 overwatch             = { workspace = true }
 rand                  = { workspace = true }
@@ -37,6 +38,7 @@ utoipa                = { version = "4.0", optional = true }
 [dev-dependencies]
 nomos-mempool         = { path = ".", features = ["mock"] }
 nomos-tracing-service = { workspace = true }
+nomos-utils           = { workspace = true }
 overwatch-derive      = { workspace = true }
 tokio                 = { version = "1", features = ["full"] }
 

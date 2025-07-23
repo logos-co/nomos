@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use divan::{black_box, counter::ItemsCount, Bencher};
 use nomos_utils::blake_rng::BlakeRng;
 use rand::{prelude::IteratorRandom as _, thread_rng, RngCore as _, SeedableRng as _};
-use subnetworks_assignations::versions::history_aware_refill::HistoryAwareRefill;
+use subnetworks_assignations::versions::history_aware_refill::assignations::HistoryAwareRefill;
 fn main() {
     divan::main();
 }
