@@ -84,7 +84,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> ServiceState
 mod tests {
     use std::num::NonZero;
 
-    use cryptarchia_engine::State::Boostrapping;
+    use cryptarchia_engine::State::Bootstrapping;
 
     use super::*;
 
@@ -112,7 +112,7 @@ mod tests {
             let mut cryptarchia = cryptarchia_engine::Cryptarchia::<_>::from_lib(
                 genesis_header_id,
                 cryptarchia_engine_config,
-                Boostrapping,
+                Bootstrapping,
             );
 
             //      b4 - b5

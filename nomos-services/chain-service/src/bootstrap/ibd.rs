@@ -14,12 +14,8 @@ where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
 {
     #[expect(clippy::unused_async, reason = "To be implemented")]
-    pub async fn run(
-        cryptarchia: Cryptarchia,
-        _network_adapter: NetAdapter,
-    ) -> Cryptarchia {
-         // TODO: Implement IBD
+    pub async fn run(cryptarchia: Cryptarchia, _network_adapter: NetAdapter) -> Cryptarchia {
+        // TODO: Implement IBD
         cryptarchia
     }
 }
-

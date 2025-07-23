@@ -210,7 +210,7 @@ where
 pub mod tests {
     use std::num::NonZero;
 
-    use cryptarchia_engine::{Config, Slot, State::Boostrapping};
+    use cryptarchia_engine::{Config, Slot, State::Bootstrapping};
 
     use super::*;
 
@@ -325,7 +325,7 @@ pub mod tests {
                 security_param: NonZero::new(1).unwrap(),
                 active_slot_coeff: 1.0,
             },
-            Boostrapping,
+            Bootstrapping,
         )
     }
 }

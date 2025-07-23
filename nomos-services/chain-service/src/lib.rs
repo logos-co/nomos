@@ -16,7 +16,7 @@ use std::{
     time::Duration,
 };
 
-use cryptarchia_engine::{PrunedBlocks, Slot, State};
+use cryptarchia_engine::{PrunedBlocks, Slot};
 use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
@@ -60,7 +60,7 @@ use tracing_futures::Instrument as _;
 
 pub use crate::bootstrap::config::BootstrapConfig;
 use crate::{
-    bootstrap::ibd::{InitialBlockDownload},
+    bootstrap::{ibd::InitialBlockDownload, state::choose_engine_state},
     leadership::Leader,
     network::BoxedStream,
     relays::CryptarchiaConsensusRelays,
@@ -176,10 +176,10 @@ impl Cryptarchia {
         tracing::debug!(target: LOG_TARGET, "Pruned {pruned_states_count} old forks and their ledger states.");
     }
 
-    fn online(self) -> (Cryptarchia, PrunedBlocks<HeaderId>) {
+    fn online(self) -> (Self, PrunedBlocks<HeaderId>) {
         let (consensus, pruned_blocks) = self.consensus.online();
         (
-            Cryptarchia {
+            Self {
                 ledger: self.ledger,
                 consensus,
             },
@@ -187,11 +187,11 @@ impl Cryptarchia {
         )
     }
 
-    fn is_boostrapping(&self) -> bool {
+    const fn is_boostrapping(&self) -> bool {
         self.consensus.state().is_bootstrapping()
     }
 
-    fn state(&self) -> &State {
+    const fn state(&self) -> &cryptarchia_engine::State {
         self.consensus.state()
     }
 }
@@ -799,17 +799,15 @@ where
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
 {
-    /// Runs Cryptarchia in bootstrapping mode.
-    /// - Handles incoming blocks.
-    /// - Proposes new blocks.
-    /// - Handles inbound service messages.
-    /// - Switches to online mode after the prolonged bootstrap period has
-    ///   passed.
+    /// Runs [`Cryptarchia`] by handling
+    /// - incoming blocks from the network
+    /// - slot ticks
+    /// - inbound messages from other services
+    /// - chain sync events
     ///
-    /// Unlike online mode, it doesn't handle chain sync requests.
-    /// TODO: Reject chain sync requests explicitly, so that requesters aren't
-    ///       blocked for a long time.
-    ///       https://github.com/logos-co/nomos/issues/1451
+    /// Also, if the [`Cryptarchia`] is in the Bootstrapping state,
+    /// switch [`Cryptarchia`] from Bootstrapping to Online
+    /// after the prolonged bootstrap period has passed.
     #[expect(
         clippy::type_complexity,
         reason = "CryptarchiaConsensusRelays amount of generics."
@@ -891,6 +889,9 @@ where
                 Some(event) = chainsync_events.next() => {
                     if cryptarchia.state().is_online() {
                         // Only process sync requests if we are in online mode
+                        // TODO: Reject chain sync requests explicitly, so that requesters aren't
+                        //       blocked for a long time.
+                        //       https://github.com/logos-co/nomos/issues/1451
                        Self::handle_chainsync_event(&cryptarchia, &sync_blocks_provider, event).await;
                     }
                 }
@@ -1418,12 +1419,13 @@ where
         >,
     ) -> (Cryptarchia, PrunedBlocks<HeaderId>, Leader) {
         let lib_id = self.initial_state.lib;
-        let state = if lib_id == genesis_id || bootstrap_config.force_bootstrap {
-            State::Boostrapping
-        } else {
-            State::Online
-        };
-        let cryptarchia = Cryptarchia::from_lib(lib_id, self.initial_state.lib_ledger_state.clone(), ledger_config, state);
+        let state = choose_engine_state(lib_id, genesis_id, bootstrap_config);
+        let cryptarchia = Cryptarchia::from_lib(
+            lib_id,
+            self.initial_state.lib_ledger_state.clone(),
+            ledger_config,
+            state,
+        );
         let leader = Leader::new(
             self.initial_state.lib_leader_utxos.clone(),
             leader_config.sk,

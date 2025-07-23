@@ -18,16 +18,18 @@ pub(crate) const LOG_TARGET: &str = "cryptarchia::engine";
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum State {
-    Boostrapping,
+    Bootstrapping,
     Online,
 }
 
 impl State {
-    #[must_use] pub const fn is_bootstrapping(&self) -> bool {
-        matches!(self, Self::Boostrapping)
+    #[must_use]
+    pub const fn is_bootstrapping(&self) -> bool {
+        matches!(self, Self::Bootstrapping)
     }
 
-    #[must_use] pub const fn is_online(&self) -> bool {
+    #[must_use]
+    pub const fn is_online(&self) -> bool {
         matches!(self, Self::Online)
     }
 
@@ -36,7 +38,7 @@ impl State {
         Id: Eq + Hash + Copy,
     {
         match cryptarchia.state {
-            Self::Boostrapping => {
+            Self::Bootstrapping => {
                 let k = cryptarchia.config.security_param.get().into();
                 let s = cryptarchia.config.s();
                 maxvalid_bg(cryptarchia.local_chain, &cryptarchia.branches, k, s)
@@ -53,7 +55,7 @@ impl State {
         Id: Eq + Hash + Copy,
     {
         match cryptarchia.state {
-            Self::Boostrapping => cryptarchia.branches.lib,
+            Self::Bootstrapping => cryptarchia.branches.lib,
             Self::Online => cryptarchia
                 .branches
                 .nth_ancestor(
@@ -539,8 +541,8 @@ pub mod tests {
         num::NonZero,
     };
 
-    use super::{maxvalid_bg, Boostrapping, Cryptarchia, Error, Slot};
-    use crate::Config;
+    use super::{maxvalid_bg, Cryptarchia, Error, Slot};
+    use crate::{Config, State};
 
     #[must_use]
     pub const fn config() -> Config {
@@ -570,11 +572,9 @@ pub mod tests {
     /// Blocks IDs for blocks other than the genesis are the hash of each block
     /// index, so for a chain of length 10, the sequence of block IDs will be
     /// `[0, hash(1), hash(2), ..., hash(9)]`.
-    fn create_canonical_chain(
-        length: NonZero<u64>,
-        c: Option<Config>,
-    ) -> Cryptarchia<[u8; 32], Boostrapping> {
-        let mut engine = Cryptarchia::from_lib([0; 32], c.unwrap_or_else(config));
+    fn create_canonical_chain(length: NonZero<u64>, c: Option<Config>) -> Cryptarchia<[u8; 32]> {
+        let mut engine =
+            Cryptarchia::from_lib([0; 32], c.unwrap_or_else(config), State::Bootstrapping);
         let mut parent = engine.lib();
         for i in 1..length.get() {
             let new_block = hash(&i);
@@ -680,7 +680,7 @@ pub mod tests {
     #[test]
     fn test_fork_choice() {
         // TODO: use cryptarchia
-        let mut engine = <Cryptarchia<_, Boostrapping>>::from_lib([0; 32], config());
+        let mut engine = <Cryptarchia<_>>::from_lib([0; 32], config(), State::Bootstrapping);
         // by setting a low k we trigger the density choice rule, and the shorter chain
         // is denser after the fork
         engine.config.security_param = NonZero::new(10).unwrap();
@@ -759,7 +759,7 @@ pub mod tests {
 
     #[test]
     fn test_getters() {
-        let engine = <Cryptarchia<_, Boostrapping>>::from_lib([0; 32], config());
+        let engine = <Cryptarchia<_>>::from_lib([0; 32], config(), State::Bootstrapping);
         let id_0 = engine.lib();
 
         // Get branch directly from HashMap
