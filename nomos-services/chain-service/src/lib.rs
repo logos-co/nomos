@@ -949,23 +949,11 @@ where
         );
     }
 
-    /// Initialize cryptarchia
-    /// It initialize cryptarchia from the LIB (initially genesis) +
-    /// (optionally) known blocks which were received before the service
-    /// restarted.
+    /// Recover [`Cryptarchia`] by loading blocks from the storage.
     ///
-    /// # Arguments
-    ///
-    /// * `initial_state` - The initial state of cryptarchia.
-    /// * `lib_id` - The LIB block id.
-    /// * `lib_state` - The LIB ledger state.
-    /// * `leader` - The leader instance. It needs to be a Leader initialised to
-    ///   genesis. This function will update the leader if needed.
-    /// * `ledger_config` - The ledger configuration.
-    /// * `relays` - The relays object containing all the necessary relays for
-    ///   the consensus.
-    /// * `block_subscription_sender` - The broadcast channel to send the blocks
-    ///   to the services.
+    /// It loads blocks from the storage starting from the LIB block
+    /// up to the tip block stored in the initial service state.
+    /// Loaded blocks are applied to the [`Cryptarchia`].
     async fn recovery_cryptarchia<State>(
         &self,
         mut cryptarchia: Cryptarchia<State>,
