@@ -1002,6 +1002,7 @@ where
         {
             debug!("proposing block...");
             // TODO: spawn as a separate task?
+            //       https://github.com/logos-co/nomos/issues/1492
             let block =
                 Self::propose_block(parent, slot, proof, tx_selector, blob_selector, relays).await;
 
