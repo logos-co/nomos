@@ -147,10 +147,7 @@ enum ConnectionDeniedReason {
     NotRequested,
 }
 
-impl<Rng> Behaviour<Rng>
-where
-    Rng: RngCore,
-{
+impl<Rng> Behaviour<Rng> {
     #[must_use]
     pub fn new(current_membership: Option<Membership<PeerId>>, rng: Rng) -> Self {
         Self {
@@ -171,54 +168,10 @@ where
         membership.contains_remote(peer_id)
     }
 
-    /// Schedules sending a message by dialing a random node
-    pub fn send_message(&mut self, message: Vec<u8>) -> Result<(), Error> {
-        self.schedule_dial(message)
-    }
-
-    /// Schedules dialing to a random node.
-    fn schedule_dial(&mut self, message: Vec<u8>) -> Result<(), Error> {
-        tracing::debug!(target: LOG_TARGET, "Scheduling a new dial");
-
-        let Some(membership) = &self.current_membership else {
-            return Err(Error::NoPeers);
-        };
-
-        let node = membership
-            .choose_remote_nodes(&mut self.rng, 1)
-            .next()
-            .ok_or(Error::NoPeers)?;
-
-        let opts = DialOpts::peer_id(node.id)
-            .condition(PeerCondition::Always)
-            .addresses(vec![node.address.clone()])
-            .build();
-        self.pending_dials
-            .insert((node.id, opts.connection_id()), message);
-        self.events.push_back(ToSwarm::Dial { opts });
-        self.try_wake();
-        Ok(())
-    }
-
     /// Schedules a [`EventToSwarm`] to be sent to the swarm.
     fn schedule_event_to_swarm(&mut self, event: EventToSwarm) {
         self.events.push_back(ToSwarm::GenerateEvent(event));
         self.try_wake();
-    }
-
-    /// Handles [`FromSwarm::DialFailure`] event from the swarm
-    /// by rescheduling a new dial if necessary.
-    fn handle_dial_failure(&mut self, failure: DialFailure) {
-        tracing::error!(target: LOG_TARGET, "Dial failure: {failure:?}");
-
-        // Reschedule a new dial only if the failure is from
-        // the connection that this NetworkBehaviour has requested.
-        if let Some(message) = self.get_messsage_of_failed_dial(failure) {
-            tracing::debug!(target: LOG_TARGET, "Rescheduling dial");
-            if let Err(e) = self.schedule_dial(message) {
-                tracing::error!(target: LOG_TARGET, "Failed to reschedule dial: {e}");
-            }
-        }
     }
 
     fn get_messsage_of_failed_dial(&mut self, failure: DialFailure) -> Option<Vec<u8>> {
@@ -248,18 +201,67 @@ where
         self.schedule_event_to_swarm(EventToSwarm::MessageSuccess(message));
     }
 
+    fn try_wake(&mut self) {
+        if let Some(waker) = self.waker.take() {
+            waker.wake();
+        }
+    }
+}
+
+impl<Rng> Behaviour<Rng>
+where
+    Rng: RngCore,
+{
+    /// Schedules sending a message by dialing a random node
+    pub fn send_message(&mut self, message: Vec<u8>) -> Result<(), Error> {
+        self.schedule_dial(message)
+    }
+
+    /// Schedules dialing to a random node.
+    fn schedule_dial(&mut self, message: Vec<u8>) -> Result<(), Error> {
+        tracing::debug!(target: LOG_TARGET, "Scheduling a new dial");
+
+        let Some(membership) = &self.current_membership else {
+            return Err(Error::NoPeers);
+        };
+
+        let node = membership
+            .choose_remote_nodes(&mut self.rng, 1)
+            .next()
+            .ok_or(Error::NoPeers)?;
+
+        let opts = DialOpts::peer_id(node.id)
+            .condition(PeerCondition::Always)
+            .addresses(vec![node.address.clone()])
+            .build();
+        self.pending_dials
+            .insert((node.id, opts.connection_id()), message);
+        self.events.push_back(ToSwarm::Dial { opts });
+        self.try_wake();
+        Ok(())
+    }
+
+    /// Handles [`FromSwarm::DialFailure`] event from the swarm
+    /// by rescheduling a new dial if necessary.
+    fn handle_dial_failure(&mut self, failure: DialFailure) {
+        tracing::error!(target: LOG_TARGET, "Dial failure: {failure:?}");
+
+        // Reschedule a new dial only if the failure is from
+        // the connection that this NetworkBehaviour has requested.
+        if let Some(message) = self.get_messsage_of_failed_dial(failure) {
+            tracing::debug!(target: LOG_TARGET, "Rescheduling dial");
+            if let Err(e) = self.schedule_dial(message) {
+                tracing::error!(target: LOG_TARGET, "Failed to reschedule dial: {e}");
+            }
+        }
+    }
+
     /// Handles [`ToBehaviour::SendError`] event from the connection handler
     /// by rescheduling a new dial.
     fn handle_send_error(&mut self, error: SendError) {
         tracing::error!(target: LOG_TARGET, "Failed to send message. Reason: {:?}. Rescheduling dial.", error.reason);
         if let Err(e) = self.schedule_dial(error.message) {
             tracing::error!(target: LOG_TARGET, "Failed to reschedule dial: {e}");
-        }
-    }
-
-    fn try_wake(&mut self) {
-        if let Some(waker) = self.waker.take() {
-            waker.wake();
         }
     }
 }
