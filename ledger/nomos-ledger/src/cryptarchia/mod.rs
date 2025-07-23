@@ -724,17 +724,9 @@ pub mod tests {
         assert!(!new_state.utxos.contains(&input_utxo.id()));
 
         // Verify outputs were created
-        let tx_hash = create_tx(&[&input_utxo], vec![output_note1, output_note2]).hash();
-        let output_utxo1 = Utxo {
-            tx_hash,
-            output_index: 0,
-            note: output_note1,
-        };
-        let output_utxo2 = Utxo {
-            tx_hash,
-            output_index: 1,
-            note: output_note2,
-        };
+        let mantle_tx = create_tx(&[&input_utxo], vec![output_note1, output_note2]);
+        let output_utxo1 = mantle_tx.mantle_tx.ledger_tx.utxo_by_index(0).unwrap();
+        let output_utxo2 = mantle_tx.mantle_tx.ledger_tx.utxo_by_index(1).unwrap();
         assert!(new_state.utxos.contains(&output_utxo1.id()));
         assert!(new_state.utxos.contains(&output_utxo2.id()));
 

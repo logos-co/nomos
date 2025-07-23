@@ -287,11 +287,7 @@ mod tests {
         assert!(!new_state.latest_commitments().contains(&utxo.id()));
 
         // Verify output was created
-        let output_utxo = Utxo {
-            tx_hash: tx.hash(),
-            output_index: 0,
-            note: output_note,
-        };
+        let output_utxo = tx.mantle_tx.ledger_tx.utxo_by_index(0).unwrap();
         assert!(new_state.latest_commitments().contains(&output_utxo.id()));
     }
 }

@@ -130,11 +130,12 @@ impl Tx {
     }
 
     pub fn utxos(&self) -> impl Iterator<Item = Utxo> + '_ {
+        let tx_hash = self.hash();
         self.outputs
             .iter()
             .enumerate()
             .map(move |(index, note)| Utxo {
-                tx_hash: self.hash(),
+                tx_hash,
                 output_index: index,
                 note: *note,
             })
