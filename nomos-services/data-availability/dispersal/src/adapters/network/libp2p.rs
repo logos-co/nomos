@@ -5,7 +5,7 @@ use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use nomos_core::da::BlobId;
 use nomos_da_network_core::{
     protocols::{
-        dispersal::executor::behaviour::DispersalExecutorEvent, sampling::behaviour::SamplingError,
+        dispersal::executor::behaviour::DispersalExecutorEvent, sampling::errors::SamplingError,
     },
     PeerId, SubnetworkId,
 };
@@ -168,7 +168,9 @@ where
             .map(|stream| {
                 Box::pin(stream.filter_map(|event| async {
                     match event {
-                        DaNetworkEvent::Sampling(_) | DaNetworkEvent::Verifying(_) => None,
+                        DaNetworkEvent::Sampling(_)
+                        | DaNetworkEvent::Commitments(_)
+                        | DaNetworkEvent::Verifying(_) => None,
                         DaNetworkEvent::Dispersal(DispersalExecutorEvent::DispersalError {
                             error,
                         }) => Some(Err(Box::new(error) as DynError)),
@@ -218,7 +220,7 @@ where
                     Some(SampleOutcome::Success(light_share.share_idx))
                 }
                 SamplingEvent::SamplingError { error } => match error {
-                    SamplingError::Protocol { subnetwork_id, .. }
+                    SamplingError::Share { subnetwork_id, .. }
                     | SamplingError::Deserialize { subnetwork_id, .. }
                     | SamplingError::BlobNotFound { subnetwork_id, .. } => {
                         Some(SampleOutcome::Retry(subnetwork_id))

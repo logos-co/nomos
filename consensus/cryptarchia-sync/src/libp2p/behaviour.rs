@@ -554,7 +554,7 @@ mod tests {
     use libp2p::{bytes::Bytes, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
     use libp2p_swarm_test::SwarmExt as _;
     use nomos_core::header::HeaderId;
-    use rand::{rng, Rng as _};
+    use rand::{thread_rng, Rng};
     use tokio::sync::oneshot;
 
     use crate::{
@@ -668,7 +668,7 @@ mod tests {
 
         let provider_addr: Multiaddr = format!(
             "/ip4/127.0.0.1/udp/{}/quic-v1",
-            rng().random_range(10000..60000)
+            thread_rng().gen_range(10000..60000)
         )
         .parse()
         .unwrap();

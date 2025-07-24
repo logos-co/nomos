@@ -1,6 +1,6 @@
 use blake2::{digest::consts::U32, Blake2b, Digest as _};
 use kzgrs::Proof;
-use nomos_core::da::blob;
+use nomos_core::da::{blob, BlobId};
 use serde::{Deserialize, Serialize};
 
 use super::{build_blob_id, ShareIndex};
@@ -112,4 +112,11 @@ pub struct DaSharesCommitments {
         deserialize_with = "deserialize_vec_canonical"
     )]
     pub rows_commitments: Vec<Commitment>,
+}
+
+impl DaSharesCommitments {
+    #[must_use]
+    pub fn blob_id(&self) -> BlobId {
+        build_blob_id(&self.rows_commitments)
+    }
 }

@@ -49,6 +49,8 @@ pub struct CfgSyncConfig {
     pub balancer_interval: Duration,
     pub mempool_publish_strategy: MempoolPublishStrategy,
     pub replication_settings: ReplicationConfig,
+    pub retry_shares_limit: usize,
+    pub retry_commitments_limit: usize,
 
     // Tracing params
     pub tracing_settings: TracingSettings,
@@ -98,7 +100,8 @@ impl CfgSyncConfig {
             redial_cooldown: Duration::ZERO,
             replication_settings: self.replication_settings,
             subnets_refresh_interval: Duration::from_secs(30),
-            retry_subnets_limit: 1,
+            retry_shares_limit: self.retry_shares_limit,
+            retry_commitments_limit: self.retry_commitments_limit,
         }
     }
 

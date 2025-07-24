@@ -16,7 +16,7 @@ futures          = "0.3"
 nomos-core       = { workspace = true }
 nomos-libp2p     = { workspace = true, optional = true }
 overwatch        = { workspace = true }
-rand             = { version = "0.7.3", optional = true }
+rand             = { workspace = true, optional = true }
 serde            = { version = "1.0", features = ["derive"] }
 tokio            = { version = "1", features = ["macros", "sync"] }
 tokio-stream     = "0.1"

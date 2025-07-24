@@ -8,12 +8,14 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-async-trait    = "0.1"
-futures        = "0.3"
-nomos-core     = { workspace = true }
-nomos-sdp-core = { workspace = true }
-overwatch      = { workspace = true }
-thiserror      = "1"
-tokio          = { version = "1", features = ["macros", "sync"] }
-tokio-stream   = "0.1"
-tracing        = { workspace = true, features = ["attributes"] }
+async-trait  = "0.1"
+futures      = "0.3"
+nomos-core   = { workspace = true }
+overwatch    = { workspace = true }
+thiserror    = "1"
+tokio        = { version = "1", features = ["macros", "sync"] }
+tokio-stream = "0.1"
+tracing      = { workspace = true, features = ["attributes"] }
+
+[dev-dependencies]
+multiaddr = "0.18"

@@ -18,12 +18,13 @@ use tokio::{
 use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
 
 use crate::{
+    addressbook::AddressBookHandler,
     behaviour::validator::{ValidatorBehaviour, ValidatorBehaviourEvent},
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::{
         dispersal::validator::behaviour::DispersalEvent,
         replication::behaviour::{ReplicationConfig, ReplicationEvent},
-        sampling::behaviour::{SamplingEvent, SubnetsConfig},
+        sampling::{SamplingEvent, SubnetsConfig},
     },
     swarm::{
         common::{
@@ -45,38 +46,54 @@ const EVENT_SAMPLING: &str = "sampling";
 const EVENT_VALIDATOR_DISPERSAL: &str = "validator_dispersal";
 const EVENT_REPLICATION: &str = "replication";
 
+pub struct SwarmSettings {
+    pub policy_settings: DAConnectionPolicySettings,
+    pub monitor_settings: DAConnectionMonitorSettings,
+    pub balancer_interval: Duration,
+    pub redial_cooldown: Duration,
+    pub replication_settings: ReplicationConfig,
+    pub subnets_settings: SubnetsConfig,
+}
+
 pub struct ValidatorEventsStream {
     pub sampling_events_receiver: UnboundedReceiverStream<SamplingEvent>,
     pub validation_events_receiver: UnboundedReceiverStream<DaShare>,
 }
 
-pub struct ValidatorSwarm<
+pub struct ValidatorSwarm<Membership, Addressbook>
+where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + 'static,
-> {
+    Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
+{
     swarm: Swarm<
         ValidatorBehaviour<
             ConnectionBalancer<Membership>,
             ConnectionMonitor<Membership>,
             Membership,
+            Addressbook,
         >,
     >,
     sampling_events_sender: UnboundedSender<SamplingEvent>,
     validation_events_sender: UnboundedSender<DaShare>,
 }
 
-impl<Membership> ValidatorSwarm<Membership>
+impl<Membership, Addressbook> ValidatorSwarm<Membership, Addressbook>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
+    Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
 {
     pub fn new(
         key: Keypair,
         membership: Membership,
-        policy_settings: DAConnectionPolicySettings,
-        monitor_settings: DAConnectionMonitorSettings,
-        balancer_interval: Duration,
-        redial_cooldown: Duration,
-        replication_config: ReplicationConfig,
-        subnets_config: SubnetsConfig,
+        addressbook: Addressbook,
+        SwarmSettings {
+            policy_settings,
+            monitor_settings,
+            balancer_interval,
+            redial_cooldown,
+            replication_settings: replication_config,
+            subnets_settings: subnets_config,
+        }: SwarmSettings,
         refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
     ) -> (Self, ValidatorEventsStream) {
         let (sampling_events_sender, sampling_events_receiver) = unbounded_channel();
@@ -109,6 +126,7 @@ where
                 swarm: Self::build_swarm(
                     key,
                     membership,
+                    addressbook,
                     balancer,
                     monitor,
                     redial_cooldown,
@@ -128,6 +146,7 @@ where
     fn build_swarm(
         key: Keypair,
         membership: Membership,
+        addressbook: Addressbook,
         balancer: ConnectionBalancer<Membership>,
         monitor: ConnectionMonitor<Membership>,
         redial_cooldown: Duration,
@@ -139,6 +158,7 @@ where
             ConnectionBalancer<Membership>,
             ConnectionMonitor<Membership>,
             Membership,
+            Addressbook,
         >,
     > {
         SwarmBuilder::with_existing_identity(key)
@@ -148,6 +168,7 @@ where
                 ValidatorBehaviour::new(
                     key,
                     membership,
+                    addressbook,
                     balancer,
                     monitor,
                     redial_cooldown,
@@ -175,11 +196,18 @@ where
         self.swarm.listen_on(address)
     }
 
-    pub fn sample_request_channel(&mut self) -> UnboundedSender<BlobId> {
+    pub fn shares_request_channel(&mut self) -> UnboundedSender<BlobId> {
         self.swarm
             .behaviour()
             .sampling_behaviour()
-            .sample_request_channel()
+            .shares_request_channel()
+    }
+
+    pub fn commitments_request_channel(&mut self) -> UnboundedSender<BlobId> {
+        self.swarm
+            .behaviour()
+            .sampling_behaviour()
+            .commitments_request_channel()
     }
 
     pub fn balancer_command_channel(
@@ -208,6 +236,7 @@ where
             ConnectionBalancer<Membership>,
             ConnectionMonitor<Membership>,
             Membership,
+            Addressbook,
         >,
     > {
         &self.swarm
@@ -220,6 +249,7 @@ where
             ConnectionBalancer<Membership>,
             ConnectionMonitor<Membership>,
             Membership,
+            Addressbook,
         >,
     > {
         &mut self.swarm
@@ -264,6 +294,7 @@ where
             ConnectionBalancer<Membership>,
             ConnectionMonitor<Membership>,
             Membership,
+            Addressbook,
         >,
     ) {
         match event {

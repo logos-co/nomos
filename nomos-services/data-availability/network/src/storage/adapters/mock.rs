@@ -1,9 +1,12 @@
 use std::{collections::HashMap, sync::Mutex};
 
-use libp2p::{Multiaddr, PeerId};
+use libp2p::PeerId;
 use nomos_core::block::BlockNumber;
 use nomos_da_network_core::SubnetworkId;
-use overwatch::services::{relay::OutboundRelay, state::NoState, ServiceData};
+use overwatch::{
+    services::{relay::OutboundRelay, state::NoState, ServiceData},
+    DynError,
+};
 
 use crate::{membership::Assignations, MembershipStorageAdapter};
 
@@ -19,7 +22,6 @@ impl ServiceData for MockStorageService {
 #[derive(Default)]
 struct StorageState {
     assignations: HashMap<BlockNumber, Assignations<PeerId, SubnetworkId>>,
-    addressbooks: HashMap<BlockNumber, HashMap<PeerId, Multiaddr>>,
 }
 
 #[derive(Default)]
@@ -27,6 +29,7 @@ pub struct MockStorage {
     state: Mutex<StorageState>,
 }
 
+#[async_trait::async_trait]
 impl MembershipStorageAdapter<PeerId, SubnetworkId> for MockStorage {
     type StorageService = MockStorageService;
 
@@ -34,36 +37,28 @@ impl MembershipStorageAdapter<PeerId, SubnetworkId> for MockStorage {
         Self::default()
     }
 
-    fn store(
+    async fn store(
         &self,
         block_number: BlockNumber,
         assignations: Assignations<PeerId, SubnetworkId>,
-        addressbook: HashMap<PeerId, Multiaddr>,
-    ) {
-        let mut state = self.state.lock().unwrap();
-        state.assignations.insert(block_number, assignations);
-        state.addressbooks.insert(block_number, addressbook);
+    ) -> Result<(), DynError> {
+        self.state
+            .lock()
+            .unwrap()
+            .assignations
+            .insert(block_number, assignations);
+        Ok(())
     }
 
-    fn get(
+    async fn get(
         &self,
         block_number: BlockNumber,
-    ) -> Option<(
-        Assignations<PeerId, SubnetworkId>,
-        HashMap<PeerId, Multiaddr>,
-    )> {
-        let (assignations, addressbook) = {
-            let state = self.state.lock().unwrap();
-            (
-                state.assignations.get(&block_number).cloned(),
-                state.addressbooks.get(&block_number).cloned(),
-            )
-        };
-
-        assignations.zip(addressbook)
+    ) -> Result<Option<Assignations<PeerId, SubnetworkId>>, DynError> {
+        let state = self.state.lock().unwrap();
+        Ok(state.assignations.get(&block_number).cloned())
     }
 
-    fn prune(&self) {
+    async fn prune(&self) {
         todo!()
     }
 }

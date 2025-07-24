@@ -3,12 +3,12 @@ use std::{
     str::FromStr as _,
 };
 
+use nomos_core::sdp::{Locator, ServiceType};
 use nomos_libp2p::{ed25519, Multiaddr};
 use nomos_membership::{
     backends::{mock::MockMembershipBackendSettings, MembershipBackendServiceSettings},
     MembershipServiceSettings,
 };
-use nomos_sdp_core::{Locator, ServiceType};
 use serde::{Deserialize, Serialize};
 
 use crate::secret_key_to_provider_id;

@@ -75,17 +75,50 @@ macro_rules! make_request_and_return_response {
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn cl_metrics<T, RuntimeServiceId>(
+pub async fn cl_metrics<
+    Tx,
+    SamplingNetworkAdapter,
+    VerifierNetworkAdapter,
+    SamplingStorage,
+    VerifierStorage,
+    RuntimeServiceId,
+>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
-    T: Transaction + Clone + Debug + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
-    <T as Transaction>::Hash:
+    Tx: Transaction + Clone + Debug + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+    <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierNetworkAdapter:
+        nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    RuntimeServiceId: Debug
+        + Send
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<
+            ClMempoolService<
+                Tx,
+                SamplingNetworkAdapter,
+                VerifierNetworkAdapter,
+                SamplingStorage,
+                VerifierStorage,
+                RuntimeServiceId,
+            >,
+        >,
 {
-    make_request_and_return_response!(cl::cl_mempool_metrics::<T, RuntimeServiceId>(&handle))
+    make_request_and_return_response!(cl::cl_mempool_metrics::<
+        Tx,
+        SamplingNetworkAdapter,
+        VerifierNetworkAdapter,
+        SamplingStorage,
+        VerifierStorage,
+        RuntimeServiceId,
+    >(&handle))
 }
 
 #[utoipa::path(
@@ -96,17 +129,50 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn cl_status<T, RuntimeServiceId>(
+pub async fn cl_status<
+    Tx,
+    SamplingNetworkAdapter,
+    VerifierNetworkAdapter,
+    SamplingStorage,
+    VerifierStorage,
+    RuntimeServiceId,
+>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
-    Json(items): Json<Vec<<T as Transaction>::Hash>>,
+    Json(items): Json<Vec<<Tx as Transaction>::Hash>>,
 ) -> Response
 where
-    T: Transaction + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
-    <T as Transaction>::Hash: Serialize + DeserializeOwned + Ord + Debug + Send + Sync + 'static,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
+    Tx: Transaction + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
+    <Tx as Transaction>::Hash: Serialize + DeserializeOwned + Ord + Debug + Send + Sync + 'static,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierNetworkAdapter:
+        nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    RuntimeServiceId: Debug
+        + Send
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<
+            ClMempoolService<
+                Tx,
+                SamplingNetworkAdapter,
+                VerifierNetworkAdapter,
+                SamplingStorage,
+                VerifierStorage,
+                RuntimeServiceId,
+            >,
+        >,
 {
-    make_request_and_return_response!(cl::cl_mempool_status::<T, RuntimeServiceId>(&handle, items))
+    make_request_and_return_response!(cl::cl_mempool_status::<
+        Tx,
+        SamplingNetworkAdapter,
+        VerifierNetworkAdapter,
+        SamplingStorage,
+        VerifierStorage,
+        RuntimeServiceId,
+    >(&handle, items))
 }
 #[derive(Deserialize)]
 pub struct CryptarchiaInfoQuery {
@@ -883,7 +949,14 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn add_tx<Tx, RuntimeServiceId>(
+pub async fn add_tx<
+    Tx,
+    SamplingNetworkAdapter,
+    VerifierNetworkAdapter,
+    SamplingStorage,
+    VerifierStorage,
+    RuntimeServiceId,
+>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(tx): Json<Tx>,
 ) -> Response
@@ -891,13 +964,24 @@ where
     Tx: Transaction + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierNetworkAdapter:
+        nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     RuntimeServiceId: Debug
         + Sync
+        + Send
         + Display
         + 'static
         + AsServiceId<
             TxMempoolService<
                 MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
+                SamplingNetworkAdapter,
+                VerifierNetworkAdapter,
+                SamplingStorage,
+                VerifierStorage,
                 MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
                 RuntimeServiceId,
             >,
@@ -906,6 +990,10 @@ where
     make_request_and_return_response!(mempool::add_tx::<
         Libp2pNetworkBackend,
         MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
+        SamplingNetworkAdapter,
+        VerifierNetworkAdapter,
+        SamplingStorage,
+        VerifierStorage,
         Tx,
         <Tx as Transaction>::Hash,
         RuntimeServiceId,

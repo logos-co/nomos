@@ -230,8 +230,10 @@ where
         BS::Settings: Sync,
         NetworkAdapter::Settings: Sync + Send,
         BlendAdapter::Settings: Sync,
-        SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
-        SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+        SamplingNetworkAdapter:
+            nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+        SamplingStorage:
+            nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
         DaVerifierStorage:
             nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
         DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + Sync + 'static,
@@ -255,7 +257,17 @@ where
                     RuntimeServiceId,
                 >,
             >
-            + AsServiceId<TxMempoolService<ClPoolAdapter, ClPool, RuntimeServiceId>>
+            + AsServiceId<
+                TxMempoolService<
+                    ClPoolAdapter,
+                    SamplingNetworkAdapter,
+                    DaVerifierNetwork,
+                    SamplingStorage,
+                    DaVerifierStorage,
+                    ClPool,
+                    RuntimeServiceId,
+                >,
+            >
             + AsServiceId<
                 DaMempoolService<
                     DaPoolAdapter,
@@ -300,7 +312,7 @@ where
 
         let cl_mempool_relay = service_resources_handle
             .overwatch_handle
-            .relay::<TxMempoolService<_, _, _>>()
+            .relay::<TxMempoolService<_, _, _, _, _, _, _>>()
             .await
             .expect("Relay connection with CL MemPoolService should succeed");
 

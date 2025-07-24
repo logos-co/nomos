@@ -40,4 +40,12 @@ pub trait NetworkAdapter<RuntimeServiceId> {
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
     ) -> Result<BoxedStream<Result<Self::Block, DynError>>, DynError>;
+
+    async fn request_blocks_from_peers(
+        &self,
+        target_block: HeaderId,
+        local_tip: HeaderId,
+        latest_immutable_block: HeaderId,
+        additional_blocks: HashSet<HeaderId>,
+    ) -> Result<BoxedStream<Result<Self::Block, DynError>>, DynError>;
 }

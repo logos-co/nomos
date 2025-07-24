@@ -1,3 +1,4 @@
+pub mod addressbook;
 #[expect(
     clippy::too_many_arguments,
     reason = "Behaviours needs configuration passed for multiple protocols"
@@ -14,5 +15,5 @@ pub mod swarm;
 #[cfg(test)]
 pub mod test_utils;
 
-pub type SubnetworkId = u16;
 pub use libp2p::PeerId;
+pub use subnetworks_assignations::SubnetworkId;

@@ -18,6 +18,7 @@ use tokio::{
 use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
 
 use crate::{
+    addressbook::AddressBookHandler,
     behaviour::executor::{ExecutorBehaviour, ExecutorBehaviourEvent},
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::{
@@ -25,7 +26,7 @@ use crate::{
             executor::behaviour::DispersalExecutorEvent, validator::behaviour::DispersalEvent,
         },
         replication::behaviour::{ReplicationConfig, ReplicationEvent},
-        sampling::behaviour::{SamplingEvent, SubnetsConfig},
+        sampling::{SamplingEvent, SubnetsConfig},
     },
     swarm::{
         common::{
@@ -36,9 +37,8 @@ use crate::{
             monitor::MonitorEvent,
             policy::DAConnectionPolicy,
         },
-        validator::ValidatorEventsStream,
-        BalancerStats, ConnectionBalancer, ConnectionMonitor, DAConnectionMonitorSettings,
-        DAConnectionPolicySettings, MonitorStats,
+        validator::{SwarmSettings, ValidatorEventsStream},
+        BalancerStats, ConnectionBalancer, ConnectionMonitor, MonitorStats,
     },
     SubnetworkId,
 };
@@ -53,15 +53,17 @@ pub struct ExecutorEventsStream {
     pub validator_events_stream: ValidatorEventsStream,
     pub dispersal_events_receiver: UnboundedReceiverStream<DispersalExecutorEvent>,
 }
-
-pub struct ExecutorSwarm<
+pub struct ExecutorSwarm<Membership, Addressbook>
+where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + 'static,
-> {
+    Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
+{
     swarm: Swarm<
         ExecutorBehaviour<
             ConnectionBalancer<Membership>,
             ConnectionMonitor<Membership>,
             Membership,
+            Addressbook,
         >,
     >,
     sampling_events_sender: UnboundedSender<SamplingEvent>,
@@ -69,23 +71,23 @@ pub struct ExecutorSwarm<
     dispersal_events_sender: UnboundedSender<DispersalExecutorEvent>,
 }
 
-impl<Membership> ExecutorSwarm<Membership>
+impl<Membership, Addressbook> ExecutorSwarm<Membership, Addressbook>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
+    Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
 {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "Swarm contains a lot of behaviours"
-    )]
     pub fn new(
         key: Keypair,
         membership: Membership,
-        policy_settings: DAConnectionPolicySettings,
-        monitor_settings: DAConnectionMonitorSettings,
-        balancer_interval: Duration,
-        redial_cooldown: Duration,
-        replication_config: ReplicationConfig,
-        subnets_config: SubnetsConfig,
+        addressbook: Addressbook,
+        SwarmSettings {
+            policy_settings,
+            monitor_settings,
+            balancer_interval,
+            redial_cooldown,
+            replication_settings: replication_config,
+            subnets_settings: subnets_config,
+        }: SwarmSettings,
         refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
     ) -> (Self, ExecutorEventsStream) {
         let (sampling_events_sender, sampling_events_receiver) = unbounded_channel();
@@ -118,6 +120,7 @@ where
                 swarm: Self::build_swarm(
                     key,
                     membership,
+                    addressbook,
                     balancer,
                     monitor,
                     redial_cooldown,
@@ -141,6 +144,7 @@ where
     fn build_swarm(
         key: Keypair,
         membership: Membership,
+        addressbook: Addressbook,
         balancer: ConnectionBalancer<Membership>,
         monitor: ConnectionMonitor<Membership>,
         redial_cooldown: Duration,
@@ -152,6 +156,7 @@ where
             ConnectionBalancer<Membership>,
             ConnectionMonitor<Membership>,
             Membership,
+            Addressbook,
         >,
     > {
         SwarmBuilder::with_existing_identity(key)
@@ -161,6 +166,7 @@ where
                 ExecutorBehaviour::new(
                     key,
                     membership,
+                    addressbook,
                     balancer,
                     monitor,
                     redial_cooldown,
@@ -188,11 +194,18 @@ where
         self.swarm.listen_on(address)
     }
 
-    pub fn sample_request_channel(&mut self) -> UnboundedSender<BlobId> {
+    pub fn shares_request_channel(&mut self) -> UnboundedSender<BlobId> {
         self.swarm
             .behaviour()
             .sampling_behaviour()
-            .sample_request_channel()
+            .shares_request_channel()
+    }
+
+    pub fn commitments_request_channel(&mut self) -> UnboundedSender<BlobId> {
+        self.swarm
+            .behaviour()
+            .sampling_behaviour()
+            .commitments_request_channel()
     }
 
     pub fn dispersal_shares_channel(
@@ -237,6 +250,7 @@ where
             ConnectionBalancer<Membership>,
             ConnectionMonitor<Membership>,
             Membership,
+            Addressbook,
         >,
     > {
         &self.swarm
@@ -249,6 +263,7 @@ where
             ConnectionBalancer<Membership>,
             ConnectionMonitor<Membership>,
             Membership,
+            Addressbook,
         >,
     > {
         &mut self.swarm
@@ -303,6 +318,7 @@ where
             ConnectionBalancer<Membership>,
             ConnectionMonitor<Membership>,
             Membership,
+            Addressbook,
         >,
     ) {
         match event {
@@ -368,5 +384,9 @@ where
                 }
             }
         }
+    }
+
+    pub fn strong_count(&self) -> usize {
+        self.sampling_events_sender.strong_count()
     }
 }

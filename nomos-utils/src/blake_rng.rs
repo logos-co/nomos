@@ -1,5 +1,5 @@
 use blake2::{Blake2b512, Digest as _};
-use rand::{RngCore, SeedableRng};
+use rand::{Error, RngCore, SeedableRng};
 
 const OUTPUT_SIZE: usize = 64;
 type Hasher = Blake2b512;
@@ -85,6 +85,11 @@ impl RngCore for BlakeRng {
 
     fn fill_bytes(&mut self, dst: &mut [u8]) {
         self.fill_bytes_(dst);
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
+        self.fill_bytes(dest);
+        Ok(())
     }
 }
 

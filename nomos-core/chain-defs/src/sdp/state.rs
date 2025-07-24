@@ -1,6 +1,7 @@
 use thiserror::Error;
 
-use crate::{BlockNumber, DeclarationId, DeclarationInfo, EventType, ServiceParameters};
+use super::{DeclarationId, DeclarationInfo, EventType, ServiceParameters};
+use crate::block::BlockNumber;
 
 #[derive(Error, Debug)]
 pub enum ActiveStateError {
@@ -268,7 +269,7 @@ impl From<WithdrawnState> for TransientDeclarationState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DeclarationMessage, ProviderId, ServiceType, ZkPublicKey};
+    use crate::sdp::{DeclarationMessage, ProviderId, ServiceType, ZkPublicKey};
 
     const fn default_service_params() -> ServiceParameters {
         ServiceParameters {
