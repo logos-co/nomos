@@ -18,7 +18,7 @@ use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::crypto::{CryptographicProcessor, ENCAPSULATION_COUNT},
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
-    CoverMessage, UninitializedMessageScheduler,
+    UninitializedMessageScheduler,
 };
 use nomos_core::wire;
 use nomos_network::NetworkService;
@@ -291,7 +291,7 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
                         message,
                     }) => Box::new(network_adapter.broadcast(message, broadcast_settings)),
                     ProcessedMessage::Encapsulated(encapsulated_message) => {
-                        Box::new(backend.publish(encapsulated_message))
+                        Box::new(backend.publish(*encapsulated_message))
                     }
                 }
             },

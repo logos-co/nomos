@@ -3,9 +3,7 @@ use std::{collections::HashSet, time::Duration};
 use futures::{Stream, StreamExt as _};
 use libp2p::{identity::Keypair, PeerId, Swarm, SwarmBuilder};
 use nomos_blend_message::encap::{DecapsulationOutput, EncapsulatedMessage};
-use nomos_blend_scheduling::{
-    membership::Membership, message_blend::crypto::ENCAPSULATION_COUNT, BlendOutgoingMessage,
-};
+use nomos_blend_scheduling::{membership::Membership, message_blend::crypto::ENCAPSULATION_COUNT};
 use nomos_libp2p::{ed25519, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
@@ -98,10 +96,6 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
         }
     }
 
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "Tracing macros generate more code that triggers this warning."
-    )]
     fn handle_publish_swarm_message(&mut self, msg: &EncapsulatedMessage<ENCAPSULATION_COUNT>) {
         if let Err(e) = self.swarm.behaviour_mut().blend.publish(msg) {
             tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");

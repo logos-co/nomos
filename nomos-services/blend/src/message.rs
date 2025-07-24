@@ -24,7 +24,7 @@ pub struct NetworkMessage<BroadcastSettings> {
 #[derive(Debug)]
 pub enum ProcessedMessage<BroadcastSettings> {
     Network(NetworkMessage<BroadcastSettings>),
-    Encapsulated(EncapsulatedMessage<ENCAPSULATION_COUNT>),
+    Encapsulated(Box<EncapsulatedMessage<ENCAPSULATION_COUNT>>),
 }
 
 impl<BroadcastSettings> From<NetworkMessage<BroadcastSettings>>
@@ -39,6 +39,6 @@ impl<BroadcastSettings> From<EncapsulatedMessage<ENCAPSULATION_COUNT>>
     for ProcessedMessage<BroadcastSettings>
 {
     fn from(value: EncapsulatedMessage<ENCAPSULATION_COUNT>) -> Self {
-        Self::Encapsulated(value)
+        Self::Encapsulated(Box::new(value))
     }
 }
