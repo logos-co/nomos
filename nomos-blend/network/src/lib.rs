@@ -4,9 +4,6 @@ use futures::{AsyncReadExt as _, AsyncWriteExt as _};
 use libp2p::{Stream, StreamProtocol};
 
 pub mod core;
-pub mod edge;
-#[cfg(test)]
-mod tests;
 
 pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/nomos/blend/0.1.0");
 
