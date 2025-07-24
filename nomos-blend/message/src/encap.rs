@@ -15,6 +15,10 @@ use crate::{
     message::{BlendingHeader, Header, Payload, PayloadType, PublicHeader},
 };
 
+// TODO: Change to key nullifier when proof of quota verification is
+// implemented.
+pub type MessageIdentifier = (Ed25519PublicKey, ProofOfQuota);
+
 /// An encapsulated message that is sent to the blend network.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
@@ -100,9 +104,10 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
                 }))
             }
             PartDecapsulationOutput::Completed(payload) => {
+                let (payload_type, payload_body) = payload.into_components()?;
                 Ok(DecapsulationOutput::Completed(DecapsulatedMessage {
-                    payload_type: payload.payload_type(),
-                    payload_body: payload.body()?.to_vec(),
+                    payload_type,
+                    payload_body: payload_body.to_vec(),
                 }))
             }
         }

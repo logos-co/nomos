@@ -18,7 +18,7 @@ pub trait BlendAdapter<RuntimeServiceId> {
     async fn new(
         settings: Self::Settings,
         blend_relay: OutboundRelay<
-            <BlendService<Self::Backend, Self::NodeId, Self::Network, RuntimeServiceId> as ServiceData>::Message, 
+            <BlendService<Self::Backend, Self::NodeId, Self::Network, RuntimeServiceId> as ServiceData>::Message
         >,
     ) -> Self;
     async fn blend(&self, block: Block<Self::Tx, Self::BlobCertificate>);

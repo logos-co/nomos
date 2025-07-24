@@ -134,19 +134,12 @@ impl Payload {
         })
     }
 
-    pub const fn payload_type(&self) -> PayloadType {
-        self.header.payload_type
-    }
-
-    /// Returns the payload body unpadded.
-    /// Returns an error if the payload cannot be read up to the length
-    /// specified in the header
-    pub fn body(&self) -> Result<&[u8], Error> {
+    pub fn into_components(self) -> Result<(PayloadType, [u8; MAX_PAYLOAD_BODY_SIZE]), Error> {
         let len = self.header.body_len as usize;
         if self.body.len() < len {
             return Err(Error::InvalidPayloadLength);
         }
-        Ok(&self.body[..len])
+        Ok((self.header.payload_type, *self.body))
     }
 }
 
