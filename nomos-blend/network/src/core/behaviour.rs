@@ -1,11 +1,10 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     ops::RangeInclusive,
     task::{Context, Poll, Waker},
     time::Duration,
 };
 
-use cached::{Cached as _, SizedCache};
 use either::Either;
 use futures::Stream;
 use libp2p::{
@@ -16,8 +15,18 @@ use libp2p::{
     },
     Multiaddr, PeerId,
 };
-use nomos_blend_scheduling::membership::Membership;
-use sha2::{Digest as _, Sha256};
+use nomos_blend_message::{
+    crypto::{Ed25519PublicKey, ProofOfQuota},
+    encap::EncapsulatedMessage,
+};
+use nomos_blend_scheduling::{
+    membership::Membership,
+    message_blend::crypto::{
+        deserialize_encapsulated_message, serialize_encapsulated_message, CryptographicProcessor,
+        ENCAPSULATION_COUNT,
+    },
+    BlendOutgoingMessage,
+};
 
 use crate::core::{
     conn_maintenance::ConnectionMonitor,
@@ -28,26 +37,27 @@ use crate::core::{
     Error,
 };
 
+const LOG_TARGET: &str = "blend::network::behaviour";
+
 /// A [`NetworkBehaviour`]:
 /// - forwards messages to all connected peers with deduplication.
 /// - receives messages from all connected peers.
-pub struct Behaviour<ObservationWindowClockProvider> {
+pub struct Behaviour<Rng, ObservationWindowClockProvider> {
     negotiated_peers: HashMap<PeerId, NegotiatedPeerState>,
     /// Queue of events to yield to the swarm.
     events: VecDeque<ToSwarm<Event, Either<FromBehaviour, ()>>>,
     /// Waker that handles polling
     waker: Option<Waker>,
-    /// An LRU cache for storing seen messages (based on their ID). This
-    /// cache prevents duplicates from being propagated on the network.
-    // TODO: Once having the new message encapsulation mechanism,
-    //       this cache should be <(key, nullifier), HashSet<PeerId>>.
-    // TODO: This cache should be cleared after the session transition period has passed,
-    //       because keys and nullifiers are valid during a single session.
-    seen_message_cache: SizedCache<Vec<u8>, ()>,
+    // TODO: Replace `ProofOfQuota` with a key nullifier once proof of quota verification is
+    // implemented.
+    // TODO: This cache should be cleared after the session transition period has
+    // passed, because keys and nullifiers are valid during a single session.
+    exchanged_message_identifiers: HashMap<PeerId, HashSet<(Ed25519PublicKey, ProofOfQuota)>>,
     observation_window_clock_provider: ObservationWindowClockProvider,
     // TODO: Replace with the session stream and make this a non-Option
     current_membership: Option<Membership<PeerId>>,
     edge_node_connection_duration: Duration,
+    cryptographic_processor: CryptographicProcessor<PeerId, Rng>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -57,14 +67,9 @@ enum NegotiatedPeerState {
 }
 
 #[derive(Debug)]
-pub struct Config {
-    pub seen_message_cache_size: usize,
-}
-
-#[derive(Debug)]
 pub enum Event {
     /// A message received from one of the peers.
-    Message(Vec<u8>),
+    Message(BlendOutgoingMessage),
     /// A peer has been detected as spammy.
     SpammyPeer(PeerId),
     /// A peer has been detected as unhealthy.
@@ -74,41 +79,53 @@ pub enum Event {
     Error(Error),
 }
 
-impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
+/// The source of a Blend message.
+///
+/// Used to avoid received messages are sent back to the sender, in case the
+/// sender is a core node.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum PeerSource {
+    /// The sender was a core node with the given `PeerId`.
+    Core(PeerId),
+    /// The sender was an edge node.
+    Edge,
+}
+
+impl PeerSource {
+    const fn sender_address(&self) -> Option<PeerId> {
+        match self {
+            Self::Core(peer_id) => Some(*peer_id),
+            Self::Edge => None,
+        }
+    }
+}
+
+impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockProvider> {
     #[must_use]
     pub fn new(
-        config: &Config,
         observation_window_clock_provider: ObservationWindowClockProvider,
         current_membership: Option<Membership<PeerId>>,
         edge_node_connection_duration: Duration,
+        cryptographic_processor: CryptographicProcessor<PeerId, Rng>,
     ) -> Self {
-        let duplicate_cache = SizedCache::with_size(config.seen_message_cache_size);
         Self {
             negotiated_peers: HashMap::new(),
             events: VecDeque::new(),
             waker: None,
-            seen_message_cache: duplicate_cache,
+            exchanged_message_identifiers: HashMap::new(),
             observation_window_clock_provider,
             current_membership,
             edge_node_connection_duration,
+            cryptographic_processor,
         }
     }
 
     /// Publish a message to all connected peers
-    pub fn publish(&mut self, message: &[u8]) -> Result<(), Error> {
-        let msg_id = Self::message_id(message);
-        // If the message was already seen, don't forward it again
-        if self.seen_message_cache.cache_get(&msg_id).is_some() {
-            return Ok(());
-        }
-
-        let result = self.forward_message(message, None);
-        // Add the message to the cache only if the forwarding was successfully
-        // triggered
-        if result.is_ok() {
-            self.seen_message_cache.cache_set(msg_id, ());
-        }
-        result
+    pub fn publish(
+        &mut self,
+        message: &EncapsulatedMessage<ENCAPSULATION_COUNT>,
+    ) -> Result<(), Error> {
+        self.forward_message(message, None)
     }
 
     /// Forwards a message to all connected and healthy peers except the
@@ -118,9 +135,16 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     /// the blend protocol.
     fn forward_message(
         &mut self,
-        message: &[u8],
+        message: &EncapsulatedMessage<ENCAPSULATION_COUNT>,
         excluded_peer: Option<PeerId>,
     ) -> Result<(), Error> {
+        let message_public_header = message.public_header();
+        let message_identifier = (
+            message_public_header.signing_pubkey,
+            message_public_header.proof_of_quota,
+        );
+
+        let serialized_message = serialize_encapsulated_message(message);
         let mut num_peers = 0;
         self.negotiated_peers
             .iter()
@@ -130,13 +154,22 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             // Exclude from the list of candidate peers any peer that is not in a healthy state.
             .filter(|(_, peer_state)| **peer_state == NegotiatedPeerState::Healthy)
             .for_each(|(peer_id, _)| {
-                tracing::debug!("Registering event for peer {:?} to send msg", peer_id);
-                self.events.push_back(ToSwarm::NotifyHandler {
-                    peer_id: *peer_id,
-                    handler: NotifyHandler::Any,
-                    event: Either::Left(FromBehaviour::Message(message.to_vec())),
-                });
-                num_peers += 1;
+                tracing::debug!(target: LOG_TARGET, "Registering event for peer {:?} to send msg", peer_id);
+                if self
+                    .exchanged_message_identifiers
+                    .entry(*peer_id)
+                    .or_default()
+                    .insert(message_identifier)
+                {
+                    self.events.push_back(ToSwarm::NotifyHandler {
+                        peer_id: *peer_id,
+                        handler: NotifyHandler::Any,
+                        event: Either::Left(FromBehaviour::Message(serialized_message.clone())),
+                    });
+                    num_peers += 1;
+                } else {
+                    tracing::trace!(target: LOG_TARGET, "Not sending message to peer {peer_id:?} because we already exchanged this message with them.");
+                }
             });
 
         if num_peers == 0 {
@@ -145,12 +178,6 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             self.try_wake();
             Ok(())
         }
-    }
-
-    fn message_id(message: &[u8]) -> Vec<u8> {
-        let mut hasher = Sha256::new();
-        hasher.update(message);
-        hasher.finalize().to_vec()
     }
 
     #[must_use]
@@ -167,30 +194,91 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         }
     }
 
-    fn handle_received_message(&mut self, message: Vec<u8>, from: Option<PeerId>) {
-        // Add the message to the cache. If it was already seen, ignore it.
-        if self
-            .seen_message_cache
-            .cache_set(Self::message_id(&message), ())
-            .is_some()
-        {
+    fn mark_peer_as_malicious(&mut self, peer_source: &PeerSource) {
+        if let PeerSource::Core(peer_id) = peer_source {
+            tracing::debug!(target: LOG_TARGET, "Closing substream and marking peer as malicious {peer_id:?}.");
+            self.close_spammy_substream(*peer_id);
+        }
+    }
+
+    /// Remove the peer from the set of negotiated peers and instruct the swarm
+    /// to close the substream with the specified peer.
+    fn close_spammy_substream(&mut self, peer_id: PeerId) {
+        // Notify swarm only if it's the first occurrence.
+        if self.negotiated_peers.remove(&peer_id).is_some() {
+            self.events
+                .push_back(ToSwarm::GenerateEvent(Event::SpammyPeer(peer_id)));
+        }
+        self.exchanged_message_identifiers.remove(&peer_id);
+    }
+
+    fn handle_received_message(&mut self, message: &[u8], source: &PeerSource) {
+        // Mark a peer as malicious if it sends a un-deserializable message: https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df8172927bebb75d8b988e.
+        let Ok(deserialized_encapsulated_message) = deserialize_encapsulated_message(message)
+        else {
+            tracing::debug!(target: LOG_TARGET, "Failed to deserialize encapsulated message from peer source {source:?}.");
+            self.mark_peer_as_malicious(source);
             return;
+        };
+        let encapsulated_message_public_header = deserialized_encapsulated_message.public_header();
+        let message_identifier = (
+            encapsulated_message_public_header.signing_pubkey,
+            encapsulated_message_public_header.proof_of_quota,
+        );
+
+        // Mark a (core) peer as malicious if it sends a duplicate message maliciously (i.e., if a message with the same identifier was already exchanged with them): https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81fc86bdce264466efd3.
+        if let PeerSource::Core(peer_id) = *source {
+            let exchanged_message_identifiers = self
+                .exchanged_message_identifiers
+                .entry(peer_id)
+                .or_default();
+            if !exchanged_message_identifiers.insert(message_identifier) {
+                tracing::debug!(target: LOG_TARGET, "Neighbor {peer_id:?} sent us a message previously already exchanged. Marking it as spammy.");
+                self.mark_peer_as_malicious(source);
+                return;
+            }
         }
 
         // Forward the message immediately to the rest of connected peers
         // without any processing for the fast propagation.
-        if let Err(e) = self.forward_message(&message, from) {
+        if let Err(e) =
+            self.forward_message(&deserialized_encapsulated_message, source.sender_address())
+        {
             tracing::error!("Failed to forward message: {e:?}");
         }
+
+        // Start the processing
+        let decapsulated_message = match self.cryptographic_processor.decapsulate_serialized_message(deserialized_encapsulated_message) {
+            Err(
+                malicious_error @ (
+                // Mark peer as malicious if it sends a message with either:
+                // * an invalid signature: https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81859cebf5e3d2a5cd8f
+                // * an invalid proof of quota: https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81b593ddce00cffd24a8
+                | nomos_blend_message::Error::SignatureVerificationFailed
+                | nomos_blend_message::Error::ProofOfQuotaVerificationFailed),
+            ) => {
+                tracing::debug!(target: LOG_TARGET, "Failed to verify proofs on message from peer source {source:?}. Error: {malicious_error:?}");
+                if let PeerSource::Core(peer_id) = source {
+                    tracing::debug!(target: LOG_TARGET, "Closing substream and marking peer as malicious {peer_id:?}.");
+                    self.close_spammy_substream(*peer_id);
+                }
+                return;
+            }
+            Err(non_malicious_error) => {
+                tracing::debug!(target: LOG_TARGET, "Failed to unwrap message: {non_malicious_error:?}");
+                return;
+            }
+            Ok(decapsulated_message) => decapsulated_message,
+        };
 
         // Notify the swarm about the received message,
         // so that it can be processed by the core protocol module.
         self.events
-            .push_back(ToSwarm::GenerateEvent(Event::Message(message)));
+            .push_back(ToSwarm::GenerateEvent(Event::Message(decapsulated_message)));
     }
 }
 
-impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider>
+impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockProvider>
 where
     ObservationWindowClockProvider: IntervalStreamProvider<IntervalItem = RangeInclusive<u64>>,
 {
@@ -207,8 +295,10 @@ where
     }
 }
 
-impl<ObservationWindowClockProvider> NetworkBehaviour for Behaviour<ObservationWindowClockProvider>
+impl<Rng, ObservationWindowClockProvider> NetworkBehaviour
+    for Behaviour<Rng, ObservationWindowClockProvider>
 where
+    Rng: 'static,
     ObservationWindowClockProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {
@@ -303,7 +393,7 @@ where
             Either::Left(event) => match event {
                 // A message was forwarded from the peer.
                 ToBehaviour::Message(message) => {
-                    self.handle_received_message(message, Some(peer_id));
+                    self.handle_received_message(&message, &PeerSource::Core(peer_id));
                 }
                 // The inbound/outbound connection was fully negotiated by the peer,
                 // which means that the peer supports the blend protocol.
@@ -315,12 +405,8 @@ where
                     self.negotiated_peers.remove(&peer_id);
                 }
                 ToBehaviour::SpammyPeer => {
-                    // Notify swarm only if it's the first occurrence.
-                    if self.negotiated_peers.remove(&peer_id).is_some() {
-                        tracing::debug!("Peer {:?} has been detected as spammy", peer_id);
-                        self.events
-                            .push_back(ToSwarm::GenerateEvent(Event::SpammyPeer(peer_id)));
-                    }
+                    tracing::debug!("Peer {:?} has been detected as spammy", peer_id);
+                    self.close_spammy_substream(peer_id);
                 }
                 ToBehaviour::UnhealthyPeer => {
                     // Notify swarm only if it's the first transition into the unhealthy state.
@@ -360,7 +446,7 @@ where
                 // The difference is that for messages received by edge nodes, we forward them to
                 // all connected core nodes.
                 edge::ToBehaviour::Message(new_message) => {
-                    self.handle_received_message(new_message, None);
+                    self.handle_received_message(&new_message, &PeerSource::Edge);
                 }
                 edge::ToBehaviour::FailedReception(reason) => {
                     tracing::trace!("An attempt was made from an edge node to send a message to us, but the attempt failed. Error reason: {reason:?}");
