@@ -1,81 +1,115 @@
+use std::sync::Arc;
 
-pub struct ChannelId([u8; 32]);
-pub struct MsgId([u8; 32]);
+use ed25519::signature::Verifier as _;
+use nomos_core::mantle::{
+    ops::channel::{set_keys::SetKeysOp, ChannelId, Ed25519PublicKey as PublicKey, MsgId},
+    TxHash,
+};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+use super::Error;
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Channels {
     pub channels: rpds::HashTrieMapSync<ChannelId, ChannelState>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChannelState {
     tip: MsgId,
     // avoid cloning the keys every new message
-    keys: Arc<Vec<PublicKey>>,
+    keys: Arc<[PublicKey]>,
+}
+
+impl Default for Channels {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Channels {
-    pub fn apply_msg<Id>(
-        &self,
+    pub fn apply_msg(
+        mut self,
         channel_id: ChannelId,
-        parent: MsgId,
-        msg: &MsgId,
+        parent: &MsgId,
+        msg: MsgId,
         signer: &PublicKey,
-    ) -> Result<Self, LedgerError<Id>> {
+    ) -> Result<Self, Error> {
+        if !self.channels.contains_key(&channel_id) {
+            self.channels = self.channels.insert(
+                channel_id,
+                ChannelState {
+                    tip: MsgId::root(),
+                    keys: vec![*signer].into(),
+                },
+            );
+        }
+
         let channel = self
             .channels
-            .entry(&channel_id)
-            .ok_or(LedgerError::ChannelNotFound(channel_id))?;
-        if parent != self.tip {
-            return Err(LedgerError::InvalidParent {
-                channel_id: ChannelId(channel_id.0),
-                parent: parent.0,
+            .get(&channel_id)
+            .expect("we initialize non-existing channels above");
+        if *parent != channel.tip {
+            return Err(Error::InvalidParent {
+                channel_id,
+                parent: (*parent).into(),
+                actual: channel.tip.into(),
             });
         }
 
-        if !self.keys.contains(signer) {
-            return Err(LedgerError::UnauthorizedSigner {
-                channel_id: ChannelId(self.tip.0),
-                signer: signer.to_string(),
+        if !channel.keys.contains(signer) {
+            return Err(Error::UnauthorizedSigner {
+                channel_id,
+                signer: format!("{signer:?}"),
             });
         }
 
-        Ok(Self {
-            tip: *msg,
-            keys: self.keys.clone(),
-        })
+        self.channels = self.channels.insert(
+            channel_id,
+            ChannelState {
+                tip: msg,
+                keys: Arc::clone(&channel.keys),
+            },
+        );
+        Ok(self)
     }
 
-    pub fn set_keys<Id>(& self, keys: Vec<PublicKey>, signer: &PublicKey) -> Result<Self, LedgerError<Id>> {
-        // The first key is the admin key
-        if self.keys[0] != *signer {
-            return Err(LedgerError::UnauthorizedSigner {
-                channel_id: ChannelId(self.tip.0),
-                signer: signer.to_string(),
-            });
+    pub fn set_keys(
+        mut self,
+        channel_id: ChannelId,
+        op: &SetKeysOp,
+        sig: &ed25519::Signature,
+        tx_hash: &TxHash,
+    ) -> Result<Self, Error> {
+        if op.keys().is_empty() {
+            return Err(Error::EmptyKeys { channel_id });
         }
 
-        if keys.is_empty() {
-            return Err(LedgerError::EmptyKeys {
-                channel_id: ChannelId(self.tip.0),
-            });
+        if let Some(channel) = self.channels.get_mut(&channel_id) {
+            if channel.keys[0].verify(tx_hash.as_ref(), sig).is_err() {
+                return Err(Error::InvalidSignature);
+            }
+            channel.keys = op.keys().to_vec().into();
+        } else {
+            self.channels = self.channels.insert(
+                channel_id,
+                ChannelState {
+                    tip: MsgId::root(),
+                    keys: op.keys().to_vec().into(),
+                },
+            );
         }
 
-        Ok(Self {
-            tip: self.tip,
-            keys: Arc::new(keys),
-        })
+        Ok(self)
     }
 
-    pub fn new<Id>(tip: MsgId, keys: Vec<PublicKey>) -> Result<Self, LedgerError<Id>> {
-        if keys.is_empty() {
-            return Err(LedgerError::EmptyKeys {
-                channel_id: ChannelId(tip.0),
-            });
-        }
+    #[must_use]
+    pub fn new() -> Self {
         Self {
-            tip,
-            keys: Arc::new(keys),
+            channels: rpds::HashTrieMapSync::new_sync(),
         }
     }
 }

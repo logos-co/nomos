@@ -5,14 +5,12 @@ use crate::{
     mantle::{
         gas::{Gas, GasConstants, GasCost},
         ledger::Tx as LedgerTx,
-        ops::Op,
+        ops::{Op, OpProof},
         AuthenticatedMantleTx, Transaction, TransactionHasher,
     },
     proofs::zksig::{DummyZkSignature as ZkSignature, ZkSignatureProof},
     utils::serde_bytes_newtype,
 };
-
-pub type OpProof = ();
 /// The hash of a transaction
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, PartialOrd, Ord)]
 pub struct TxHash(pub [u8; 32]);
@@ -28,6 +26,12 @@ impl From<[u8; 32]> for TxHash {
 impl From<TxHash> for [u8; 32] {
     fn from(hash: TxHash) -> Self {
         hash.0
+    }
+}
+
+impl AsRef<[u8; 32]> for TxHash {
+    fn as_ref(&self) -> &[u8; 32] {
+        &self.0
     }
 }
 
@@ -89,7 +93,8 @@ impl From<SignedMantleTx> for MantleTx {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignedMantleTx {
     pub mantle_tx: MantleTx,
-    pub ops_profs: Vec<OpProof>,
+    // TODO: make this more efficient
+    pub ops_profs: Vec<Option<OpProof>>,
     pub ledger_tx_proof: ZkSignature,
 }
 
@@ -110,6 +115,13 @@ impl AuthenticatedMantleTx for SignedMantleTx {
 
     fn ledger_tx_proof(&self) -> &impl ZkSignatureProof {
         &self.ledger_tx_proof
+    }
+
+    fn ops_with_proof(&self) -> impl Iterator<Item = (&Op, Option<&OpProof>)> {
+        self.mantle_tx
+            .ops
+            .iter()
+            .zip(self.ops_profs.iter().map(Option::as_ref))
     }
 }
 
