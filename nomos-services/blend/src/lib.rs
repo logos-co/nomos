@@ -31,7 +31,7 @@ use overwatch::{
 };
 use rand::{seq::SliceRandom as _, RngCore, SeedableRng as _};
 use rand_chacha::ChaCha12Rng;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
@@ -151,13 +151,6 @@ where
         // Yields new messages received via Blend peers.
         let mut blend_messages = backend.listen_to_incoming_messages();
 
-        // Yields a new data message whenever another service requires a message to be
-        // sent via Blend.
-        let mut local_data_messages = inbound_relay.map(|ServiceMessage::Blend(message)| {
-            wire::serialize(&message)
-                .expect("Message from internal services should not fail to serialize")
-        });
-
         status_updater.notify_ready();
         tracing::info!(
             target: LOG_TARGET,
@@ -174,7 +167,7 @@ where
 
         loop {
             tokio::select! {
-                Some(local_data_message) = local_data_messages.next() => {
+                Some(local_data_message) = inbound_relay.next() => {
                     handle_local_data_message(local_data_message, &mut cryptographic_processor, backend, &mut message_scheduler).await;
                 }
                 Some(incoming_message) = blend_messages.next() => {
@@ -204,7 +197,7 @@ async fn handle_local_data_message<
     BroadcastSettings,
     RuntimeServiceId,
 >(
-    local_data_message: Vec<u8>,
+    local_data_message: ServiceMessage<BroadcastSettings>,
     cryptographic_processor: &mut CryptographicProcessor<NodeId, Rng>,
     backend: &Backend,
     scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
@@ -212,9 +205,16 @@ async fn handle_local_data_message<
     NodeId: Send,
     Rng: RngCore + Send,
     Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId> + Sync,
+    BroadcastSettings: Serialize,
 {
+    let ServiceMessage::Blend(message_payload) = local_data_message;
+
+    let Ok(serialized_data_message) = wire::serialize(&message_payload).inspect_err(|_| tracing::error!(target: LOG_TARGET, "Message from internal service failed to be serialized.")) else {
+        return;
+    };
+
     let Ok(wrapped_message) = cryptographic_processor
-        .encapsulate_data_message(&local_data_message)
+        .encapsulate_data_message(&serialized_data_message)
         .inspect_err(|e| {
             tracing::error!(target: LOG_TARGET, "Failed to wrap message: {e:?}");
         })
@@ -253,8 +253,8 @@ fn handle_incoming_blend_message<Rng, SessionClock, BroadcastSettings>(
                 }
             }
         }
-        DecapsulationOutput::Incompleted(encapsulated_message) => {
-            scheduler.schedule_message(encapsulated_message.into());
+        DecapsulationOutput::Incompleted(remaining_encapsulated_message) => {
+            scheduler.schedule_message(remaining_encapsulated_message.into());
         }
     }
 }

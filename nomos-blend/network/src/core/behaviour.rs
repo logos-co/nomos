@@ -221,7 +221,7 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
         self.try_wake();
     }
 
-    fn handle_received_serialized_message(
+    fn handle_received_serialized_encapsulated_message(
         &mut self,
         serialized_message: &[u8],
         source: &PeerSource,
@@ -448,7 +448,10 @@ where
             Either::Left(event) => match event {
                 // A message was forwarded from the peer.
                 ToBehaviour::Message(message) => {
-                    self.handle_received_serialized_message(&message, &PeerSource::Core(peer_id));
+                    self.handle_received_serialized_encapsulated_message(
+                        &message,
+                        &PeerSource::Core(peer_id),
+                    );
                 }
                 // The inbound/outbound connection was fully negotiated by the peer,
                 // which means that the peer supports the blend protocol.
@@ -500,7 +503,10 @@ where
                 // The difference is that for messages received by edge nodes, we forward them to
                 // all connected core nodes.
                 edge::ToBehaviour::Message(new_message) => {
-                    self.handle_received_serialized_message(&new_message, &PeerSource::Edge);
+                    self.handle_received_serialized_encapsulated_message(
+                        &new_message,
+                        &PeerSource::Edge,
+                    );
                 }
                 edge::ToBehaviour::FailedReception(reason) => {
                     tracing::trace!(target: LOG_TARGET, "An attempt was made from an edge node to send a message to us, but the attempt failed. Error reason: {reason:?}");
