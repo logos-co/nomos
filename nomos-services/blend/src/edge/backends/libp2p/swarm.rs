@@ -1,13 +1,18 @@
-use std::time::Duration;
+use std::{collections::HashMap, marker::PhantomData, time::Duration};
 
 use futures::Stream;
-use libp2p::{identity::Keypair, PeerId, Swarm, SwarmBuilder};
-use nomos_blend_network::edge::{Behaviour, EventToSwarm};
-use nomos_blend_scheduling::membership::Membership;
-use nomos_libp2p::{ed25519, SwarmEvent};
+use libp2p::{
+    identity::Keypair,
+    swarm::{dial_opts::PeerCondition, ConnectionId},
+    PeerId, Swarm, SwarmBuilder,
+};
+use nomos_blend_network::{send_msg, PROTOCOL_NAME};
+use nomos_blend_scheduling::membership::{Membership, Node};
+use nomos_libp2p::{ed25519, DialError, DialOpts, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt as _;
+use tracing::{debug, error, trace};
 
 use super::settings::Libp2pBlendEdgeBackendSettings;
 use crate::edge::backends::libp2p::LOG_TARGET;
@@ -16,9 +21,14 @@ pub(super) struct BlendEdgeSwarm<SessionStream, Rng>
 where
     Rng: RngCore + 'static,
 {
-    swarm: Swarm<Behaviour<Rng>>,
+    swarm: Swarm<libp2p_stream::Behaviour>,
+    stream_control: libp2p_stream::Control,
     command_receiver: mpsc::Receiver<Command>,
     session_stream: SessionStream,
+    current_membership: Option<Membership<PeerId>>,
+    rng: Rng,
+    pending_dials: HashMap<(PeerId, ConnectionId), Vec<u8>>,
+    _phantom: PhantomData<Rng>,
 }
 
 #[derive(Debug)]
@@ -33,6 +43,7 @@ where
     pub(super) fn new(
         settings: &Libp2pBlendEdgeBackendSettings,
         session_stream: SessionStream,
+        current_membership: Option<Membership<PeerId>>,
         rng: Rng,
         command_receiver: mpsc::Receiver<Command>,
     ) -> Self {
@@ -40,8 +51,8 @@ where
         let swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()
-            .with_behaviour(|_| Behaviour::new(None, rng))
-            .expect("edge::Behaviour should be built")
+            .with_behaviour(|_| libp2p_stream::Behaviour::new())
+            .expect("Behaviour should be built")
             .with_swarm_config(|cfg| {
                 // The idle timeout starts ticking once there are no active streams on a
                 // connection. We want the connection to be closed as soon as
@@ -49,21 +60,16 @@ where
                 cfg.with_idle_connection_timeout(Duration::ZERO)
             })
             .build();
+        let stream_control = swarm.behaviour().new_control();
         Self {
             swarm,
+            stream_control,
             command_receiver,
             session_stream,
-        }
-    }
-
-    fn handle_swarm_event(event: SwarmEvent<EventToSwarm>) {
-        match event {
-            SwarmEvent::Behaviour(EventToSwarm::MessageSuccess(_)) => {
-                tracing::debug!(target: LOG_TARGET, "Message has been sent successfully");
-            }
-            event => {
-                tracing::trace!(target: LOG_TARGET, "Unhandled swarm event: {event:?}");
-            }
+            current_membership,
+            rng,
+            pending_dials: HashMap::new(),
+            _phantom: PhantomData,
         }
     }
 
@@ -76,15 +82,120 @@ where
     }
 
     fn handle_send_message_command(&mut self, msg: Vec<u8>) {
-        if let Err(e) = self.swarm.behaviour_mut().send_message(msg) {
-            tracing::error!(target: LOG_TARGET, "Failed to schedule sending message: {e}");
+        self.dial_and_schedule_message(msg);
+    }
+
+    fn dial_and_schedule_message(&mut self, msg: Vec<u8>) {
+        let Some(peer) = self.choose_peer() else {
+            error!("No peers available to send the message to");
+            return;
+        };
+
+        let opts = DialOpts::peer_id(peer.id)
+            .addresses(vec![peer.address.clone()])
+            .condition(PeerCondition::Always)
+            .build();
+        let connection_id = opts.connection_id();
+        if let Err(e) = self.swarm.dial(opts) {
+            error!(target: LOG_TARGET, "Failed to dial peer {}: {e}", peer.id);
+            return;
         }
+        debug!(target: LOG_TARGET, "Message scheduled for the dial: peer:{}, connection_id:{}", peer.id, connection_id);
+        self.pending_dials.insert((peer.id, connection_id), msg);
+    }
+
+    fn choose_peer(&mut self) -> Option<Node<PeerId>> {
+        let Some(membership) = &self.current_membership else {
+            return None;
+        };
+        membership
+            .choose_remote_nodes(&mut self.rng, 1)
+            .next()
+            .cloned()
+    }
+
+    async fn handle_swarm_event(&mut self, event: SwarmEvent<()>) {
+        match event {
+            SwarmEvent::ConnectionEstablished {
+                peer_id,
+                connection_id,
+                ..
+            } => {
+                self.handle_connection_established(peer_id, connection_id)
+                    .await;
+            }
+            SwarmEvent::OutgoingConnectionError {
+                connection_id,
+                peer_id,
+                error,
+            } => {
+                self.handle_outgoing_connection_error(peer_id, connection_id, &error);
+            }
+            _ => {
+                trace!(target: LOG_TARGET, "Unhandled swarm event: {event:?}");
+            }
+        }
+    }
+
+    async fn handle_connection_established(
+        &mut self,
+        peer_id: PeerId,
+        connection_id: ConnectionId,
+    ) {
+        debug!(target: LOG_TARGET, "Connection established: peer_id:{peer_id}, connection_id:{connection_id}");
+
+        let Some(message) = self.pending_dials.remove(&(peer_id, connection_id)) else {
+            debug!(target: LOG_TARGET, "No message assigned to this connection. Ignoring: peer_id:{peer_id}, connection_id:{connection_id}");
+            return;
+        };
+
+        match self
+            .stream_control
+            .open_stream(peer_id, PROTOCOL_NAME)
+            .await
+        {
+            Ok(stream) => Self::send_message_to_stream(message, stream).await,
+            Err(e) => {
+                error!(target: LOG_TARGET, "Failed to open stream to {peer_id}: {e}");
+            }
+        }
+    }
+
+    async fn send_message_to_stream(message: Vec<u8>, stream: libp2p::Stream) {
+        match send_msg(stream, message).await {
+            Ok(_) => {
+                debug!(target: LOG_TARGET, "Message sent successfully");
+            }
+            Err(e) => {
+                error!(target: LOG_TARGET, "Failed to send message: {e}");
+            }
+        }
+    }
+
+    fn handle_outgoing_connection_error(
+        &mut self,
+        peer_id: Option<PeerId>,
+        connection_id: ConnectionId,
+        error: &DialError,
+    ) {
+        error!(target: LOG_TARGET, "Outgoing connection error: peer_id:{peer_id:?}, connection_id:{connection_id}: {error}");
+
+        let Some(peer_id) = peer_id else {
+            debug!(target: LOG_TARGET, "No PeerId set. Ignoring: peer_id:{peer_id:?}, connection_id:{connection_id}");
+            return;
+        };
+        let Some(message) = self.pending_dials.remove(&(peer_id, connection_id)) else {
+            debug!(target: LOG_TARGET, "No message assigned to this connection. Ignoring: peer_id:{peer_id}, connection_id:{connection_id}");
+            return;
+        };
+
+        self.dial_and_schedule_message(message);
     }
 
     // TODO: Implement the actual session transition.
     //       https://github.com/logos-co/nomos/issues/1462
     fn transition_session(&mut self, membership: Membership<PeerId>) {
-        self.swarm.behaviour_mut().set_membership(membership);
+        self.current_membership = Some(membership);
     }
 }
 
@@ -97,7 +208,7 @@ where
         loop {
             tokio::select! {
                 Some(event) = self.swarm.next() => {
-                    Self::handle_swarm_event(event);
+                    self.handle_swarm_event(event).await;
                 }
                 Some(command) = self.command_receiver.recv() => {
                     self.handle_command(command);

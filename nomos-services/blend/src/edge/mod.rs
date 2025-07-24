@@ -64,6 +64,7 @@ where
             .notifier()
             .get_updated_settings();
         let membership = settings.membership();
+        let current_membership = Some(membership.clone());
         let backend = <Backend as BlendEdgeBackend<NodeId, RuntimeServiceId>>::new(
             settings.backend,
             service_resources_handle.overwatch_handle.clone(),
@@ -71,6 +72,7 @@ where
                 IntervalStream::new(interval(settings.time.session_duration()))
                     .map(move |_| membership.clone()),
             ),
+            current_membership,
             ChaCha12Rng::from_entropy(),
         );
 

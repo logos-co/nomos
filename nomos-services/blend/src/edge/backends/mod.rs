@@ -20,6 +20,7 @@ where
         settings: Self::Settings,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         session_stream: Pin<Box<dyn Stream<Item = Membership<NodeId>> + Send>>,
+        current_membership: Option<Membership<NodeId>>,
         rng: Rng,
     ) -> Self
     where
