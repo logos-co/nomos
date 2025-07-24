@@ -1,6 +1,6 @@
 use std::{collections::HashMap, marker::PhantomData, time::Duration};
 
-use futures::Stream;
+use futures::{Stream, StreamExt as _};
 use libp2p::{
     identity::Keypair,
     swarm::{dial_opts::PeerCondition, ConnectionId},
@@ -11,7 +11,6 @@ use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_libp2p::{ed25519, DialError, DialOpts, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::mpsc;
-use tokio_stream::StreamExt as _;
 use tracing::{debug, error, trace};
 
 use super::settings::Libp2pBlendEdgeBackendSettings;
@@ -217,6 +216,122 @@ where
                     self.transition_session(new_session);
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ops::RangeInclusive;
+
+    use libp2p::Multiaddr;
+    use nomos_blend_message::crypto::Ed25519PrivateKey;
+    use nomos_blend_network::core::{self, Event};
+    use rand::rngs::OsRng;
+    use tokio::time::Instant;
+
+    use super::*;
+
+    /// Tests if a message sent by [`BlendEdgeSwarm`] is received by
+    /// [`core::Behaviour`].
+    #[test_log::test(tokio::test)]
+    async fn send_message() {
+        // Initialize a Swarm with [`core::Behaviour`] for a core node.
+        let (mut peer_swarm, peer_info) = core_node_swarm().await;
+
+        // Initialize and run a [`BlendEdgeSwarm`].
+        let (command_sender, command_receiver) = mpsc::channel(1);
+        let swarm = BlendEdgeSwarm::new(
+            &Libp2pBlendEdgeBackendSettings {
+                node_key: ed25519::SecretKey::generate(),
+            },
+            futures::stream::pending(),
+            Some(Membership::new(&[peer_info], None)),
+            OsRng,
+            command_receiver,
+        );
+        tokio::spawn(async move {
+            swarm.run().await;
+        });
+
+        // Schedule a message, expecting that a connection is established,
+        // and the message is sent.
+        command_sender
+            .send(Command::SendMessage(b"hello".to_vec()))
+            .await
+            .expect("Failed to send command");
+
+        // Wait for the message to be received by the core node.
+        let mut timeout = Box::pin(tokio::time::sleep_until(
+            Instant::now() + Duration::from_secs(3),
+        ));
+        loop {
+            tokio::select! {
+                () = &mut timeout => {
+                    panic!("Timeout waiting for message");
+                }
+                event = peer_swarm.next() => {
+                    if let Some(SwarmEvent::Behaviour(Event::Message(message))) = event {
+                        assert_eq!(message, b"hello");
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Creates a Swarm with [`core::Behaviour`].
+    async fn core_node_swarm() -> (
+        Swarm<core::Behaviour<ObservationWindowClockProvider>>,
+        Node<PeerId>,
+    ) {
+        let key = Keypair::generate_ed25519();
+        let mut node = Node {
+            id: key.public().to_peer_id(),
+            address: Multiaddr::empty(),
+            public_key: Ed25519PrivateKey::generate().public_key(),
+        };
+        let behaviour = core::Behaviour::new(
+            &core::Config {
+                seen_message_cache_size: 1,
+            },
+            ObservationWindowClockProvider,
+            Some(Membership::new(&[node.clone()], Some(&node.public_key))),
+            Duration::from_secs(1),
+        );
+
+        let mut swarm = SwarmBuilder::with_existing_identity(key)
+            .with_tokio()
+            .with_quic()
+            .with_behaviour(|_| behaviour)
+            .unwrap()
+            .build();
+        let _ = swarm
+            .listen_on("/ip4/127.0.0.1/udp/0/quic-v1".parse().unwrap())
+            .unwrap();
+        let listening_addr = wait_for_listening_address(&mut swarm).await;
+        node.address = listening_addr;
+        (swarm, node)
+    }
+
+    async fn wait_for_listening_address(
+        swarm: &mut Swarm<core::Behaviour<ObservationWindowClockProvider>>,
+    ) -> Multiaddr {
+        loop {
+            if let Some(SwarmEvent::NewListenAddr { address, .. }) = swarm.next().await {
+                break address;
+            }
+        }
+    }
+
+    struct ObservationWindowClockProvider;
+
+    impl core::IntervalStreamProvider for ObservationWindowClockProvider {
+        type IntervalStream = futures::stream::Pending<Self::IntervalItem>;
+        type IntervalItem = RangeInclusive<u64>;
+
+        fn interval_stream(&self) -> Self::IntervalStream {
+            futures::stream::pending()
         }
     }
 }
