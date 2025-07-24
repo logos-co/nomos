@@ -13,12 +13,12 @@ use async_trait::async_trait;
 use backends::BlendBackend;
 use futures::{future::join_all, StreamExt as _};
 use network::NetworkAdapter;
-use nomos_blend_message::{crypto::random_sized_bytes, Error};
+use nomos_blend_message::{crypto::random_sized_bytes, encap::DecapsulationOutput, PayloadType};
 use nomos_blend_scheduling::{
     membership::Membership,
-    message_blend::crypto::CryptographicProcessor,
+    message_blend::crypto::{CryptographicProcessor, ENCAPSULATION_COUNT},
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
-    BlendOutgoingMessage, CoverMessage, UninitializedMessageScheduler,
+    CoverMessage, UninitializedMessageScheduler,
 };
 use nomos_core::wire;
 use nomos_network::NetworkService;
@@ -52,7 +52,7 @@ const LOG_TARGET: &str = "blend::service";
 /// backend.
 pub struct BlendService<Backend, NodeId, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend<NodeId, RuntimeServiceId>,
+    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     backend: Backend,
@@ -63,7 +63,7 @@ where
 impl<Backend, NodeId, Network, RuntimeServiceId> ServiceData
     for BlendService<Backend, NodeId, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend<NodeId, RuntimeServiceId>,
+    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     type Settings = BlendConfig<Backend::Settings, NodeId>;
@@ -76,7 +76,7 @@ where
 impl<Backend, NodeId, Network, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for BlendService<Backend, NodeId, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend<NodeId, RuntimeServiceId> + Send + Sync,
+    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId> + Send + Sync,
     NodeId: Clone + Send + Sync + 'static,
     Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
@@ -96,7 +96,7 @@ where
         let blend_config = settings_reader.get_updated_settings();
         let membership = blend_config.membership();
         Ok(Self {
-            backend: <Backend as BlendBackend<NodeId, RuntimeServiceId>>::new(
+            backend: <Backend as BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId>>::new(
                 settings_reader.get_updated_settings(),
                 service_resources_handle.overwatch_handle.clone(),
                 Box::pin(
@@ -178,7 +178,7 @@ where
                     handle_local_data_message(local_data_message, &mut cryptographic_processor, backend, &mut message_scheduler).await;
                 }
                 Some(incoming_message) = blend_messages.next() => {
-                    handle_incoming_blend_message::<_, _, _, Network::BroadcastSettings>(&incoming_message, &cryptographic_processor, &mut message_scheduler);
+                    handle_incoming_blend_message(incoming_message, &mut message_scheduler);
                 }
                 Some(round_info) = message_scheduler.next() => {
                     handle_release_round(round_info, &mut cryptographic_processor, &mut rng, backend, &network_adapter).await;
@@ -211,7 +211,7 @@ async fn handle_local_data_message<
 ) where
     NodeId: Send,
     Rng: RngCore + Send,
-    Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
+    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId> + Sync,
 {
     let Ok(wrapped_message) = cryptographic_processor
         .encapsulate_data_message(&local_data_message)
@@ -225,45 +225,36 @@ async fn handle_local_data_message<
     scheduler.notify_new_data_message();
 }
 
-/// Processes an incoming Blend message.
-///
-/// An attempt to decapsulate the message is performed.
-/// Upon success, the received message, unless a cover message, is added to the
-/// queue to be released at the next release round.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "We keep all cases in a single function for clarity."
-)]
-fn handle_incoming_blend_message<NodeId, Rng, SessionClock, BroadcastSettings>(
-    blend_message: &[u8],
-    cryptographic_processor: &CryptographicProcessor<NodeId, Rng>,
+/// Processes an already decapsulated and validated Blend message received from
+/// a core or edge peer.
+fn handle_incoming_blend_message<Rng, SessionClock, BroadcastSettings>(
+    blend_message: DecapsulationOutput<ENCAPSULATION_COUNT>,
     scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
 ) where
     BroadcastSettings: for<'de> Deserialize<'de>,
 {
-    match cryptographic_processor.decapsulate_message(blend_message) {
-        Err(e @ (Error::DeserializationFailed | Error::ProofOfSelectionVerificationFailed)) => {
-            tracing::debug!(target: LOG_TARGET, "This node is not allowed to decapsulate this message: {e}");
-        }
-        Err(e) => {
-            tracing::error!(target: LOG_TARGET, "Failed to unwrap message: {e}");
-        }
-        Ok(BlendOutgoingMessage::CoverMessage(_)) => {
-            tracing::info!(target: LOG_TARGET, "Discarding received cover message.");
-        }
-        Ok(BlendOutgoingMessage::EncapsulatedMessage(encapsulated_message)) => {
-            scheduler.schedule_message(encapsulated_message.into());
-        }
-        Ok(BlendOutgoingMessage::DataMessage(serialized_data_message)) => {
-            tracing::debug!(target: LOG_TARGET, "Processing a fully decapsulated data message.");
-            if let Ok(deserialized_network_message) = wire::deserialize::<
-                NetworkMessage<BroadcastSettings>,
-            >(serialized_data_message.as_ref())
-            {
-                scheduler.schedule_message(deserialized_network_message.into());
-            } else {
-                tracing::debug!(target: LOG_TARGET, "Unrecognized data message from blend backend. Dropping.");
+    match blend_message {
+        DecapsulationOutput::Completed(fully_decapsulated_message) => {
+            match fully_decapsulated_message.into_components() {
+                (PayloadType::Cover, _) => {
+                    tracing::info!(target: LOG_TARGET, "Discarding received cover message.");
+                }
+                (PayloadType::Data, serialized_data_message) => {
+                    tracing::debug!(target: LOG_TARGET, "Processing a fully decapsulated data message.");
+                    if let Ok(deserialized_network_message) =
+                        wire::deserialize::<NetworkMessage<BroadcastSettings>>(
+                            serialized_data_message.as_ref(),
+                        )
+                    {
+                        scheduler.schedule_message(deserialized_network_message.into());
+                    } else {
+                        tracing::debug!(target: LOG_TARGET, "Unrecognized data message from blend backend. Dropping.");
+                    }
+                }
             }
+        }
+        DecapsulationOutput::Incompleted(encapsulated_message) => {
+            scheduler.schedule_message(encapsulated_message.into());
         }
     }
 }
@@ -287,7 +278,7 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
     network_adapter: &NetAdapter,
 ) where
     Rng: RngCore + Send,
-    Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
+    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId> + Sync,
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Sync,
 {
     let mut processed_messages_relay_futures = processed_messages
@@ -300,7 +291,7 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
                         message,
                     }) => Box::new(network_adapter.broadcast(message, broadcast_settings)),
                     ProcessedMessage::Encapsulated(encapsulated_message) => {
-                        Box::new(backend.publish(encapsulated_message.into()))
+                        Box::new(backend.publish(encapsulated_message))
                     }
                 }
             },
@@ -310,9 +301,7 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
         let cover_message = cryptographic_processor
             .encapsulate_cover_message(&random_sized_bytes::<{ size_of::<u32>() }>())
             .expect("Should not fail to generate new cover message");
-        processed_messages_relay_futures.push(Box::new(
-            backend.publish(CoverMessage::from(cover_message).into()),
-        ));
+        processed_messages_relay_futures.push(Box::new(backend.publish(cover_message)));
     }
     // TODO: If we send all of them in parallel, do we still need to shuffle them?
     processed_messages_relay_futures.shuffle(rng);
@@ -326,7 +315,7 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
 impl<Backend, NodeId, Network, RuntimeServiceId> Drop
     for BlendService<Backend, NodeId, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend<NodeId, RuntimeServiceId>,
+    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     fn drop(&mut self) {

@@ -1,5 +1,5 @@
-use nomos_blend_scheduling::{BlendOutgoingMessage, DataMessage, EncapsulatedMessage};
-use nomos_core::wire;
+use nomos_blend_message::encap::EncapsulatedMessage;
+use nomos_blend_scheduling::message_blend::crypto::ENCAPSULATION_COUNT;
 use serde::{Deserialize, Serialize};
 
 /// A message that is handled by [`BlendService`].
@@ -24,7 +24,7 @@ pub struct NetworkMessage<BroadcastSettings> {
 #[derive(Debug)]
 pub enum ProcessedMessage<BroadcastSettings> {
     Network(NetworkMessage<BroadcastSettings>),
-    Encapsulated(EncapsulatedMessage),
+    Encapsulated(EncapsulatedMessage<ENCAPSULATION_COUNT>),
 }
 
 impl<BroadcastSettings> From<NetworkMessage<BroadcastSettings>>
@@ -35,26 +35,10 @@ impl<BroadcastSettings> From<NetworkMessage<BroadcastSettings>>
     }
 }
 
-impl<BroadcastSettings> From<EncapsulatedMessage> for ProcessedMessage<BroadcastSettings> {
-    fn from(value: EncapsulatedMessage) -> Self {
-        Self::Encapsulated(value)
-    }
-}
-
-impl<BroadcastSettings> TryFrom<ProcessedMessage<BroadcastSettings>> for BlendOutgoingMessage
-where
-    BroadcastSettings: Serialize,
+impl<BroadcastSettings> From<EncapsulatedMessage<ENCAPSULATION_COUNT>>
+    for ProcessedMessage<BroadcastSettings>
 {
-    type Error = wire::Error;
-
-    fn try_from(value: ProcessedMessage<BroadcastSettings>) -> Result<Self, Self::Error> {
-        match value {
-            ProcessedMessage::Encapsulated(encapsulated) => {
-                Ok(Self::EncapsulatedMessage(encapsulated))
-            }
-            ProcessedMessage::Network(unserialized_network_message) => Ok(Self::DataMessage(
-                DataMessage::from(wire::serialize(&unserialized_network_message)?),
-            )),
-        }
+    fn from(value: EncapsulatedMessage<ENCAPSULATION_COUNT>) -> Self {
+        Self::Encapsulated(value)
     }
 }

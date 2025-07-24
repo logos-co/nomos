@@ -59,15 +59,19 @@ mod test {
     use futures::Stream;
     use libp2p::{
         futures::StreamExt as _,
-        identity::Keypair,
+        identity::{ed25519, Keypair},
         swarm::{dummy, NetworkBehaviour, SwarmEvent},
         Multiaddr, PeerId, Swarm, SwarmBuilder,
     };
     use nomos_blend_message::crypto::Ed25519PrivateKey;
-    use nomos_blend_scheduling::membership::{Membership, Node};
+    use nomos_blend_scheduling::{
+        membership::{Membership, Node},
+        message_blend::{crypto::CryptographicProcessor, CryptographicProcessorSettings},
+    };
+    use rand_chacha::{rand_core::SeedableRng, ChaCha12Rng};
     use tokio::select;
 
-    use crate::core::{behaviour::Config, Behaviour, Error, Event, IntervalStreamProvider};
+    use crate::core::{error::Error, Behaviour, Event, IntervalStreamProvider};
 
     struct TestTokioIntervalStreamProvider(Duration, RangeInclusive<u64>);
 
@@ -98,6 +102,7 @@ mod test {
             None,
             None,
             Duration::from_secs(1),
+            processor,
         );
         let mut swarm2 = new_blend_swarm(
             keypairs.next().unwrap(),
@@ -106,7 +111,19 @@ mod test {
             None,
             None,
             Duration::from_secs(1),
+            processor,
         );
+        let processor2 = {
+            let key = Ed25519PrivateKey::generate();
+            CryptographicProcessor::new(
+                CryptographicProcessorSettings {
+                    signing_private_key: key,
+                    num_blend_layers: 3,
+                },
+                Membership::new(vec![], &key.public_key()),
+                ChaCha12Rng::from_entropy(),
+            )
+        };
         swarm2.dial(node1_addr).unwrap();
 
         // Swamr2 publishes a message.
@@ -120,7 +137,7 @@ mod test {
                     // (It will fail until swarm2 is connected to swarm1 successfully.)
                     _ = publish_try_interval.tick() => {
                         if !msg_published {
-                            msg_published = swarm2.behaviour_mut().publish(&msg).is_ok();
+                            msg_published = swarm2.behaviour_mut().publish(processor.encapsulate_cover_message(msg).unwrap()).is_ok();
                         }
                     }
                     // Proceed swarm1
@@ -316,22 +333,21 @@ mod test {
         expected_message_range: Option<RangeInclusive<u64>>,
         membership_info: Option<Membership<PeerId>>,
         timeout: Duration,
-    ) -> Swarm<Behaviour<TestTokioIntervalStreamProvider>> {
+        processor: CryptographicProcessor<PeerId, ChaCha12Rng>,
+    ) -> Swarm<Behaviour<ChaCha12Rng, TestTokioIntervalStreamProvider>> {
         new_swarm_with_behaviour(
             keypair,
             addr,
             Behaviour::new(
-                &Config {
-                    seen_message_cache_size: 1000,
-                },
                 TestTokioIntervalStreamProvider(
                     expected_duration,
                     // If no range is provided, we assume the maximum range which is equivalent
                     // to not having a monitor at all.
                     expected_message_range.unwrap_or(0..=u64::MAX),
                 ),
-                membership_info,
+                membership_info.clone(),
                 timeout,
+                processor,
             ),
         )
     }
@@ -368,24 +384,24 @@ mod test {
         base_port: usize,
     ) -> (
         impl Iterator<Item = Node<PeerId>>,
-        impl Iterator<Item = Keypair>,
+        impl Iterator<Item = Ed25519PrivateKey>,
     ) {
         let mut nodes = Vec::with_capacity(count);
-        let mut keypairs = Vec::with_capacity(count);
+        let mut secret_keys = Vec::with_capacity(count);
 
         for i in 0..count {
-            let keypair = Keypair::generate_ed25519();
+            let secret_key = ed25519::SecretKey::generate();
             let node = Node {
-                id: PeerId::from(keypair.public()),
+                id: PeerId::from(secret_key.public_key().try_into().unwrap),
                 address: format!("/ip4/127.0.0.1/udp/{}/quic-v1", base_port + i)
                     .parse()
                     .unwrap(),
                 public_key: Ed25519PrivateKey::from([i as u8; 32]).public_key(),
             };
             nodes.push(node);
-            keypairs.push(keypair);
+            secret_keys.push(secret_key);
         }
 
-        (nodes.into_iter(), keypairs.into_iter())
+        (nodes.into_iter(), secret_keys.into_iter())
     }
 }

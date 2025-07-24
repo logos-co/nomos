@@ -17,7 +17,7 @@ use libp2p::{
 };
 use nomos_blend_message::{
     crypto::{Ed25519PublicKey, ProofOfQuota},
-    encap::EncapsulatedMessage,
+    encap::{DecapsulationOutput, EncapsulatedMessage},
 };
 use nomos_blend_scheduling::{
     membership::Membership,
@@ -25,7 +25,6 @@ use nomos_blend_scheduling::{
         deserialize_encapsulated_message, serialize_encapsulated_message, CryptographicProcessor,
         ENCAPSULATION_COUNT,
     },
-    BlendOutgoingMessage,
 };
 
 use crate::core::{
@@ -66,10 +65,9 @@ enum NegotiatedPeerState {
     Unhealthy,
 }
 
-#[derive(Debug)]
 pub enum Event {
     /// A message received from one of the peers.
-    Message(BlendOutgoingMessage),
+    Message(Box<DecapsulationOutput<ENCAPSULATION_COUNT>>),
     /// A peer has been detected as spammy.
     SpammyPeer(PeerId),
     /// A peer has been detected as unhealthy.
@@ -274,7 +272,9 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
         // Notify the swarm about the received message,
         // so that it can be processed by the core protocol module.
         self.events
-            .push_back(ToSwarm::GenerateEvent(Event::Message(decapsulated_message)));
+            .push_back(ToSwarm::GenerateEvent(Event::Message(Box::new(
+                decapsulated_message,
+            ))));
     }
 }
 
@@ -432,13 +432,12 @@ where
                 }
                 ToBehaviour::IOError(error) => {
                     self.negotiated_peers.remove(&peer_id);
-                    self.events.push_back(ToSwarm::GenerateEvent(Event::Error(
-                        Error::PeerIOError {
+                    self.events
+                        .push_back(ToSwarm::GenerateEvent(Event::Error(Error::PeerIO {
                             error,
                             peer_id,
                             connection_id,
-                        },
-                    )));
+                        })));
                 }
             },
             Either::Right(event) => match event {

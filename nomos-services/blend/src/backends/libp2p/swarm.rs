@@ -2,7 +2,10 @@ use std::{collections::HashSet, time::Duration};
 
 use futures::{Stream, StreamExt as _};
 use libp2p::{identity::Keypair, PeerId, Swarm, SwarmBuilder};
-use nomos_blend_scheduling::membership::Membership;
+use nomos_blend_message::encap::{DecapsulationOutput, EncapsulatedMessage};
+use nomos_blend_scheduling::{
+    membership::Membership, message_blend::crypto::ENCAPSULATION_COUNT, BlendOutgoingMessage,
+};
 use nomos_libp2p::{ed25519, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
@@ -17,13 +20,16 @@ use crate::{
 
 #[derive(Debug)]
 pub enum BlendSwarmMessage {
-    Publish(Vec<u8>),
+    Publish(EncapsulatedMessage<ENCAPSULATION_COUNT>),
 }
 
-pub(super) struct BlendSwarm<SessionStream, Rng> {
-    swarm: Swarm<BlendBehaviour>,
+pub(super) struct BlendSwarm<SessionStream, Rng>
+where
+    Rng: 'static,
+{
+    swarm: Swarm<BlendBehaviour<Rng>>,
     swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
-    incoming_message_sender: broadcast::Sender<Vec<u8>>,
+    incoming_message_sender: broadcast::Sender<DecapsulationOutput<ENCAPSULATION_COUNT>>,
     session_stream: SessionStream,
     latest_session_info: Membership<PeerId>,
     rng: Rng,
@@ -32,21 +38,21 @@ pub(super) struct BlendSwarm<SessionStream, Rng> {
 
 impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng>
 where
-    Rng: RngCore,
+    Rng: RngCore + Clone,
 {
     pub(super) fn new(
         config: BlendConfig<Libp2pBlendBackendSettings, PeerId>,
         session_stream: SessionStream,
         mut rng: Rng,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
-        incoming_message_sender: broadcast::Sender<Vec<u8>>,
+        incoming_message_sender: broadcast::Sender<DecapsulationOutput<ENCAPSULATION_COUNT>>,
     ) -> Self {
         let membership = config.membership();
         let keypair = Keypair::from(ed25519::Keypair::from(config.backend.node_key.clone()));
         let mut swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()
-            .with_behaviour(|_| BlendBehaviour::new(&config))
+            .with_behaviour(|_| BlendBehaviour::new(&config, rng.clone()))
             .expect("Blend Behaviour should be built")
             .with_swarm_config(|cfg| {
                 // The idle timeout starts ticking once there are no active streams on a
@@ -96,13 +102,12 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
         clippy::cognitive_complexity,
         reason = "Tracing macros generate more code that triggers this warning."
     )]
-    fn handle_publish_swarm_message(&mut self, msg: &[u8]) {
+    fn handle_publish_swarm_message(&mut self, msg: &EncapsulatedMessage<ENCAPSULATION_COUNT>) {
         if let Err(e) = self.swarm.behaviour_mut().blend.publish(msg) {
             tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
             tracing::info!(counter.failed_outbound_messages = 1);
         } else {
             tracing::info!(counter.successful_outbound_messages = 1);
-            tracing::info!(histogram.sent_data = msg.len() as u64);
         }
     }
 
@@ -110,16 +115,14 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
         clippy::cognitive_complexity,
         reason = "Tracing macros generate more code that triggers this warning."
     )]
-    fn handle_blend_message(&self, msg: Vec<u8>) {
-        tracing::debug!("Received message from a peer: {msg:?}");
+    fn handle_blend_message(&self, msg: DecapsulationOutput<ENCAPSULATION_COUNT>) {
+        tracing::debug!(target: LOG_TARGET, "Received message from a peer: {msg:?}");
 
-        let msg_size = msg.len();
         if let Err(e) = self.incoming_message_sender.send(msg) {
             tracing::error!(target: LOG_TARGET, "Failed to send incoming message to channel: {e}");
             tracing::info!(counter.failed_inbound_messages = 1);
         } else {
             tracing::info!(counter.successful_inbound_messages = 1);
-            tracing::info!(histogram.received_data = msg_size as u64);
         }
     }
 }
@@ -149,7 +152,7 @@ where
     fn handle_blend_behaviour_event(&mut self, blend_event: nomos_blend_network::core::Event) {
         match blend_event {
             nomos_blend_network::core::Event::Message(msg) => {
-                self.handle_blend_message(msg);
+                self.handle_blend_message(*msg);
             }
             nomos_blend_network::core::Event::SpammyPeer(peer_id) => {
                 self.handle_spammy_peer(peer_id);
@@ -168,7 +171,7 @@ where
         }
     }
 
-    fn handle_event(&mut self, event: SwarmEvent<BlendBehaviourEvent>) {
+    fn handle_event(&mut self, event: SwarmEvent<BlendBehaviourEvent<Rng>>) {
         match event {
             SwarmEvent::Behaviour(BlendBehaviourEvent::Blend(e)) => {
                 self.handle_blend_behaviour_event(e);
@@ -187,7 +190,7 @@ where
                 self.check_and_dial_new_peers();
             }
             _ => {
-                tracing::debug!(target: LOG_TARGET, "Received event from blend network: {event:?}");
+                tracing::debug!(target: LOG_TARGET, "Received event from blend network that will be ignored.");
                 tracing::info!(counter.ignored_event = 1);
             }
         }

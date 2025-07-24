@@ -2,19 +2,20 @@ use std::num::NonZeroU64;
 
 use libp2p::{allow_block_list::BlockedPeers, connection_limits::ConnectionLimits, PeerId};
 use nomos_blend_network::core::ObservationWindowTokioIntervalProvider;
+use nomos_blend_scheduling::message_blend::crypto::CryptographicProcessor;
 use nomos_libp2p::NetworkBehaviour;
 
 use crate::{backends::libp2p::Libp2pBlendBackendSettings, BlendConfig};
 
 #[derive(NetworkBehaviour)]
-pub(super) struct BlendBehaviour {
+pub(super) struct BlendBehaviour<Rng> {
     pub(super) blend: nomos_blend_network::core::Behaviour<ObservationWindowTokioIntervalProvider>,
     pub(super) limits: libp2p::connection_limits::Behaviour,
     pub(super) blocked_peers: libp2p::allow_block_list::Behaviour<BlockedPeers>,
 }
 
-impl BlendBehaviour {
-    pub(super) fn new(config: &BlendConfig<Libp2pBlendBackendSettings, PeerId>) -> Self {
+impl<Rng> BlendBehaviour<Rng> {
+    pub(super) fn new(config: &BlendConfig<Libp2pBlendBackendSettings, PeerId>, rng: Rng) -> Self {
         let observation_window_interval_provider = ObservationWindowTokioIntervalProvider {
             blending_ops_per_message: config.crypto.num_blend_layers,
             maximal_delay_rounds: config.scheduler.delayer.maximum_release_delay_in_rounds,
@@ -32,15 +33,10 @@ impl BlendBehaviour {
         };
         Self {
             blend: nomos_blend_network::core::Behaviour::new(
-                &nomos_blend_network::core::Config {
-                    // TODO: This should be as (ROUNDS_IN_SESSION + BUFFER) * MAX_HOPS,
-                    // once session and round mechanisms are implemented.
-                    // https://www.notion.so/Blend-Protocol-Version-1-PENDING-MIGRATION-1c48f96fb65c809494efe63019a5ebfb?source=copy_link#2088f96fb65c80be9057c6b4ce6b7023
-                    seen_message_cache_size: 1_944_000,
-                },
                 observation_window_interval_provider,
                 Some(config.membership()),
                 config.backend.edge_node_connection_timeout,
+                CryptographicProcessor::new(config.crypto.clone(), config.membership(), rng),
             ),
             limits: libp2p::connection_limits::Behaviour::new(
                 ConnectionLimits::default()

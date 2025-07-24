@@ -14,4 +14,6 @@ pub enum Error {
     InvalidPayloadLength,
     #[error("Signature verification failed")]
     SignatureVerificationFailed,
+    #[error("Proof of quota verification failed")]
+    ProofOfQuotaVerificationFailed,
 }
