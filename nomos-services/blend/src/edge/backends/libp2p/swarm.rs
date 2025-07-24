@@ -1,6 +1,6 @@
-use std::{collections::HashMap, marker::PhantomData, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
-use futures::{Stream, StreamExt as _};
+use futures::{AsyncWriteExt as _, Stream, StreamExt as _};
 use libp2p::{
     identity::Keypair,
     swarm::{dial_opts::PeerCondition, ConnectionId},
@@ -27,7 +27,6 @@ where
     current_membership: Option<Membership<PeerId>>,
     rng: Rng,
     pending_dials: HashMap<(PeerId, ConnectionId), Vec<u8>>,
-    _phantom: PhantomData<Rng>,
 }
 
 #[derive(Debug)]
@@ -68,7 +67,6 @@ where
             current_membership,
             rng,
             pending_dials: HashMap::new(),
-            _phantom: PhantomData,
         }
     }
 
@@ -86,7 +84,7 @@ where
 
     fn dial_and_schedule_message(&mut self, msg: Vec<u8>) {
         let Some(peer) = self.choose_peer() else {
-            error!("No peers available to send the message to");
+            error!(target: LOG_TARGET, "No peers available to send the message to");
             return;
         };
 
@@ -162,12 +160,19 @@ where
 
     async fn send_message_to_stream(message: Vec<u8>, stream: libp2p::Stream) {
         match send_msg(stream, message).await {
-            Ok(_) => {
+            Ok(stream) => {
                 debug!(target: LOG_TARGET, "Message sent successfully");
+                Self::close_stream(stream).await;
             }
             Err(e) => {
                 error!(target: LOG_TARGET, "Failed to send message: {e}");
             }
+        }
+    }
+
+    async fn close_stream(mut stream: libp2p::Stream) {
+        if let Err(e) = stream.close().await {
+            error!(target: LOG_TARGET, "Failed to close stream: {e}");
         }
     }
 
