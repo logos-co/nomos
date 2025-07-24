@@ -15,16 +15,11 @@ use libp2p::{
     },
     Multiaddr, PeerId,
 };
-use nomos_blend_message::{
-    crypto::{Ed25519PublicKey, ProofOfQuota},
-    encap::{DecapsulationOutput, EncapsulatedMessage, MessageIdentifier},
-};
+use nomos_blend_message::MessageIdentifier;
 use nomos_blend_scheduling::{
-    membership::Membership,
-    message_blend::crypto::{
-        deserialize_encapsulated_message, serialize_encapsulated_message, CryptographicProcessor,
-        ENCAPSULATION_COUNT,
-    },
+    deserialize_encapsulated_message, membership::Membership,
+    message_blend::crypto::CryptographicProcessor, serialize_encapsulated_message,
+    EncapsulatedMessage, UnwrappedMessage,
 };
 
 use crate::core::{
@@ -47,15 +42,15 @@ pub struct Behaviour<Rng, ObservationWindowClockProvider> {
     events: VecDeque<ToSwarm<Event, Either<FromBehaviour, ()>>>,
     /// Waker that handles polling
     waker: Option<Waker>,
-    /// The session-bound storage keeping track, for each peer, what (public
-    /// key, proof of quota) has been exchanged between them.
-    /// Sending a duplicate for the same (public key, proof of quota) results in
+    /// The session-bound storage keeping track, for each peer, what message
+    /// identifiers have been exchanged between them.
+    /// Sending a message with the same identifier more than once results in
     /// the peer being flagged as malicious, and the connection dropped.
     // TODO: Replace `ProofOfQuota` with the proof key nullifier once proof of quota verification
     // is implemented.
     // TODO: This cache should be cleared after the session transition period has
     // passed, because keys and nullifiers are valid during a single session.
-    exchanged_message_identifiers: HashMap<PeerId, HashSet<(Ed25519PublicKey, ProofOfQuota)>>,
+    exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
     observation_window_clock_provider: ObservationWindowClockProvider,
     // TODO: Replace with the session stream and make this a non-Option
     current_membership: Option<Membership<PeerId>>,
@@ -72,7 +67,7 @@ enum NegotiatedPeerState {
 pub enum Event {
     /// A message received from one of the peers, after its correctness has been
     /// verified by the cryptographic processor.
-    Message(Box<DecapsulationOutput<ENCAPSULATION_COUNT>>),
+    Message(Box<UnwrappedMessage>),
     /// A peer has been detected as spammy.
     SpammyPeer(PeerId),
     /// A peer has been detected as unhealthy.
@@ -121,7 +116,12 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
             negotiated_peers: HashMap::new(),
             events: VecDeque::new(),
             waker: None,
-            exchanged_message_identifiers: HashMap::new(),
+            exchanged_message_identifiers: HashMap::with_capacity(
+                current_membership
+                    .as_ref()
+                    .map(Membership::size)
+                    .unwrap_or_default(),
+            ),
             observation_window_clock_provider,
             current_membership,
             edge_node_connection_duration,
@@ -129,11 +129,8 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
         }
     }
 
-    /// Publish a message to all connected peers
-    pub fn publish(
-        &mut self,
-        message: &EncapsulatedMessage<ENCAPSULATION_COUNT>,
-    ) -> Result<(), Error> {
+    /// Publish an already-encapsulated message to all connected peers
+    pub fn publish(&mut self, message: &EncapsulatedMessage) -> Result<(), Error> {
         self.forward_message(message, None)
     }
 
@@ -144,7 +141,7 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
     /// the blend protocol.
     fn forward_message(
         &mut self,
-        message: &EncapsulatedMessage<ENCAPSULATION_COUNT>,
+        message: &EncapsulatedMessage,
         excluded_peer: Option<PeerId>,
     ) -> Result<(), Error> {
         let message_id = message_id(message);
@@ -159,13 +156,13 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
             // Exclude from the list of candidate peers any peer that is not in a healthy state.
             .filter(|(_, peer_state)| **peer_state == NegotiatedPeerState::Healthy)
             .for_each(|(peer_id, _)| {
-                tracing::debug!(target: LOG_TARGET, "Registering event for peer {:?} to send msg", peer_id);
                 if self
                     .exchanged_message_identifiers
                     .entry(*peer_id)
                     .or_default()
                     .insert(message_id)
                 {
+                    tracing::debug!(target: LOG_TARGET, "Registering event for peer {:?} to send msg", peer_id);
                     self.events.push_back(ToSwarm::NotifyHandler {
                         peer_id: *peer_id,
                         handler: NotifyHandler::Any,
@@ -203,7 +200,7 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
     /// core node.
     fn mark_peer_as_malicious(&mut self, peer_source: &PeerSource) {
         if let PeerSource::Core(peer_id) = peer_source {
-            tracing::debug!(target: LOG_TARGET, "Closing substream and marking peer as malicious {peer_id:?}.");
+            tracing::debug!(target: LOG_TARGET, "Closing substream and marking core peer as malicious {peer_id:?}.");
             self.close_spammy_substream(*peer_id);
         }
     }
@@ -273,7 +270,7 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
         &mut self,
         serialized_message: &[u8],
         peer_source: &PeerSource,
-    ) -> Result<EncapsulatedMessage<ENCAPSULATION_COUNT>, ()> {
+    ) -> Result<EncapsulatedMessage, ()> {
         let Ok(deserialized_message) = deserialize_encapsulated_message(serialized_message) else {
             tracing::debug!(target: LOG_TARGET, "Failed to deserialize encapsulated message.");
             self.mark_peer_as_malicious(peer_source);
@@ -301,10 +298,10 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
 
     fn try_decapsulate_message(
         &mut self,
-        encapsulated_message: EncapsulatedMessage<ENCAPSULATION_COUNT>,
+        encapsulated_message: EncapsulatedMessage,
         source: &PeerSource,
-    ) -> Result<DecapsulationOutput<ENCAPSULATION_COUNT>, ()> {
-        match self.cryptographic_processor.decapsulate_serialized_message(encapsulated_message) {
+    ) -> Result<UnwrappedMessage, ()> {
+        match self.cryptographic_processor.decapsulate_message(encapsulated_message) {
             Err(
                 malicious_error @ (
                 // Mark peer as malicious if it sends a message with either:
@@ -328,9 +325,7 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
 
 // TODO: Replace this with the proof of quota nullifier key proof of quota
 // verification is implemented.
-const fn message_id(
-    message: &EncapsulatedMessage<ENCAPSULATION_COUNT>,
-) -> (Ed25519PublicKey, ProofOfQuota) {
+const fn message_id(message: &EncapsulatedMessage) -> MessageIdentifier {
     let message_public_header = message.public_header();
     (
         message_public_header.signing_pubkey,

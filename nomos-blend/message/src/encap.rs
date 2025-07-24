@@ -107,7 +107,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
                 let (payload_type, payload_body) = payload.into_components()?;
                 Ok(DecapsulationOutput::Completed(DecapsulatedMessage {
                     payload_type,
-                    payload_body: payload_body.to_vec(),
+                    payload_body,
                 }))
             }
         }

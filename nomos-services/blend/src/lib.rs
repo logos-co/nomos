@@ -16,9 +16,9 @@ use network::NetworkAdapter;
 use nomos_blend_message::{crypto::random_sized_bytes, encap::DecapsulationOutput, PayloadType};
 use nomos_blend_scheduling::{
     membership::Membership,
-    message_blend::crypto::{CryptographicProcessor, ENCAPSULATION_COUNT},
+    message_blend::crypto::CryptographicProcessor,
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
-    UninitializedMessageScheduler,
+    UninitializedMessageScheduler, UnwrappedMessage,
 };
 use nomos_core::wire;
 use nomos_network::NetworkService;
@@ -225,15 +225,15 @@ async fn handle_local_data_message<
     scheduler.notify_new_data_message();
 }
 
-/// Processes an already decapsulated and validated Blend message received from
+/// Processes an already unwrapped and validated Blend message received from
 /// a core or edge peer.
 fn handle_incoming_blend_message<Rng, SessionClock, BroadcastSettings>(
-    blend_message: DecapsulationOutput<ENCAPSULATION_COUNT>,
+    unwrapped_blend_message: UnwrappedMessage,
     scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
 ) where
     BroadcastSettings: for<'de> Deserialize<'de>,
 {
-    match blend_message {
+    match unwrapped_blend_message {
         DecapsulationOutput::Completed(fully_decapsulated_message) => {
             match fully_decapsulated_message.into_components() {
                 (PayloadType::Cover, _) => {

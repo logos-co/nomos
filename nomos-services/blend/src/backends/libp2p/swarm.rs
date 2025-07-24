@@ -2,8 +2,7 @@ use std::{collections::HashSet, time::Duration};
 
 use futures::{Stream, StreamExt as _};
 use libp2p::{identity::Keypair, PeerId, Swarm, SwarmBuilder};
-use nomos_blend_message::encap::{DecapsulationOutput, EncapsulatedMessage};
-use nomos_blend_scheduling::{membership::Membership, message_blend::crypto::ENCAPSULATION_COUNT};
+use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage, UnwrappedMessage};
 use nomos_libp2p::{ed25519, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
@@ -18,7 +17,7 @@ use crate::{
 
 #[derive(Debug)]
 pub enum BlendSwarmMessage {
-    Publish(EncapsulatedMessage<ENCAPSULATION_COUNT>),
+    Publish(EncapsulatedMessage),
 }
 
 pub(super) struct BlendSwarm<SessionStream, Rng>
@@ -27,7 +26,7 @@ where
 {
     swarm: Swarm<BlendBehaviour<Rng>>,
     swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
-    incoming_message_sender: broadcast::Sender<DecapsulationOutput<ENCAPSULATION_COUNT>>,
+    incoming_message_sender: broadcast::Sender<UnwrappedMessage>,
     session_stream: SessionStream,
     latest_session_info: Membership<PeerId>,
     rng: Rng,
@@ -43,7 +42,7 @@ where
         session_stream: SessionStream,
         mut rng: Rng,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
-        incoming_message_sender: broadcast::Sender<DecapsulationOutput<ENCAPSULATION_COUNT>>,
+        incoming_message_sender: broadcast::Sender<UnwrappedMessage>,
     ) -> Self {
         let membership = config.membership();
         let keypair = Keypair::from(ed25519::Keypair::from(config.backend.node_key.clone()));
@@ -96,7 +95,7 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
         }
     }
 
-    fn handle_publish_swarm_message(&mut self, msg: &EncapsulatedMessage<ENCAPSULATION_COUNT>) {
+    fn handle_publish_swarm_message(&mut self, msg: &EncapsulatedMessage) {
         if let Err(e) = self.swarm.behaviour_mut().blend.publish(msg) {
             tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
             tracing::info!(counter.failed_outbound_messages = 1);
@@ -105,13 +104,7 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
         }
     }
 
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "Tracing macros generate more code that triggers this warning."
-    )]
-    fn handle_blend_message(&self, msg: DecapsulationOutput<ENCAPSULATION_COUNT>) {
-        tracing::debug!(target: LOG_TARGET, "Received message from a peer: {msg:?}");
-
+    fn handle_blend_message(&self, msg: UnwrappedMessage) {
         if let Err(e) = self.incoming_message_sender.send(msg) {
             tracing::error!(target: LOG_TARGET, "Failed to send incoming message to channel: {e}");
             tracing::info!(counter.failed_inbound_messages = 1);

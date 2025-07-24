@@ -4,8 +4,7 @@ pub mod libp2p;
 use std::{fmt::Debug, pin::Pin};
 
 use futures::Stream;
-use nomos_blend_message::encap::{DecapsulationOutput, EncapsulatedMessage};
-use nomos_blend_scheduling::{membership::Membership, message_blend::crypto::ENCAPSULATION_COUNT};
+use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage, UnwrappedMessage};
 use overwatch::overwatch::handle::OverwatchHandle;
 
 use crate::BlendConfig;
@@ -23,9 +22,9 @@ pub trait BlendBackend<NodeId, Rng, RuntimeServiceId> {
     ) -> Self;
     fn shutdown(&mut self);
     /// Publish a message to the blend network.
-    async fn publish(&self, msg: EncapsulatedMessage<ENCAPSULATION_COUNT>);
+    async fn publish(&self, msg: EncapsulatedMessage);
     /// Listen to messages received from the blend network.
     fn listen_to_incoming_messages(
         &mut self,
-    ) -> Pin<Box<dyn Stream<Item = DecapsulationOutput<ENCAPSULATION_COUNT>> + Send>>;
+    ) -> Pin<Box<dyn Stream<Item = UnwrappedMessage> + Send>>;
 }

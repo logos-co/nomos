@@ -1,5 +1,4 @@
-use nomos_blend_message::encap::EncapsulatedMessage;
-use nomos_blend_scheduling::message_blend::crypto::ENCAPSULATION_COUNT;
+use nomos_blend_scheduling::EncapsulatedMessage;
 use serde::{Deserialize, Serialize};
 
 /// A message that is handled by [`BlendService`].
@@ -24,7 +23,7 @@ pub struct NetworkMessage<BroadcastSettings> {
 #[derive(Debug)]
 pub enum ProcessedMessage<BroadcastSettings> {
     Network(NetworkMessage<BroadcastSettings>),
-    Encapsulated(Box<EncapsulatedMessage<ENCAPSULATION_COUNT>>),
+    Encapsulated(Box<EncapsulatedMessage>),
 }
 
 impl<BroadcastSettings> From<NetworkMessage<BroadcastSettings>>
@@ -35,10 +34,8 @@ impl<BroadcastSettings> From<NetworkMessage<BroadcastSettings>>
     }
 }
 
-impl<BroadcastSettings> From<EncapsulatedMessage<ENCAPSULATION_COUNT>>
-    for ProcessedMessage<BroadcastSettings>
-{
-    fn from(value: EncapsulatedMessage<ENCAPSULATION_COUNT>) -> Self {
+impl<BroadcastSettings> From<EncapsulatedMessage> for ProcessedMessage<BroadcastSettings> {
+    fn from(value: EncapsulatedMessage) -> Self {
         Self::Encapsulated(Box::new(value))
     }
 }
