@@ -150,9 +150,6 @@ edition_2024_expr_fragment_specifier         = { level = "allow" }
 elided_lifetimes_in_paths                    = { level = "allow" }
 ffi_unwind_calls                             = { level = "allow" }
 impl_trait_overcaptures                      = { level = "allow" }
-keyword-idents                               = { level = "allow" }
-keyword_idents_2018                          = { level = "allow" }
-keyword_idents_2024                          = { level = "allow" }
 let_underscore_drop                          = { level = "allow" }
 linker_messages                              = { level = "allow" }
 macro_use_extern_crate                       = { level = "allow" }
