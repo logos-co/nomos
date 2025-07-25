@@ -154,7 +154,6 @@ keyword_idents_2024                          = { level = "allow" }
 let_underscore_drop                          = { level = "allow" }
 linker_messages                              = { level = "allow" }
 macro_use_extern_crate                       = { level = "allow" }
-meta_variable_misuse                         = { level = "allow" }
 missing_copy_implementations                 = { level = "allow" }
 missing_debug_implementations                = { level = "allow" }
 missing_docs                                 = { level = "allow" }
