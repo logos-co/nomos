@@ -13,10 +13,10 @@ use rand::RngCore;
 use tokio::sync::mpsc;
 use tracing::{debug, error, trace};
 
-use super::settings::Libp2pBlendEdgeBackendSettings;
+use super::settings::Libp2pBlendBackendSettings;
 use crate::edge::backends::libp2p::LOG_TARGET;
 
-pub(super) struct BlendEdgeSwarm<SessionStream, Rng>
+pub(super) struct BlendSwarm<SessionStream, Rng>
 where
     Rng: RngCore + 'static,
 {
@@ -34,12 +34,12 @@ pub enum Command {
     SendMessage(Vec<u8>),
 }
 
-impl<SessionStream, Rng> BlendEdgeSwarm<SessionStream, Rng>
+impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng>
 where
     Rng: RngCore + 'static,
 {
     pub(super) fn new(
-        settings: &Libp2pBlendEdgeBackendSettings,
+        settings: &Libp2pBlendBackendSettings,
         session_stream: SessionStream,
         current_membership: Option<Membership<PeerId>>,
         rng: Rng,
@@ -203,7 +203,7 @@ where
     }
 }
 
-impl<SessionStream, Rng> BlendEdgeSwarm<SessionStream, Rng>
+impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng>
 where
     Rng: RngCore + 'static,
     SessionStream: Stream<Item = Membership<PeerId>> + Unpin,
@@ -246,8 +246,8 @@ mod tests {
 
         // Initialize and run a [`BlendEdgeSwarm`].
         let (command_sender, command_receiver) = mpsc::channel(1);
-        let swarm = BlendEdgeSwarm::new(
-            &Libp2pBlendEdgeBackendSettings {
+        let swarm = BlendSwarm::new(
+            &Libp2pBlendBackendSettings {
                 node_key: ed25519::SecretKey::generate(),
             },
             futures::stream::pending(),

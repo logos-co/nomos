@@ -10,7 +10,7 @@ use rand::RngCore;
 
 /// A trait for blend backends that send messages to the blend network.
 #[async_trait::async_trait]
-pub trait BlendEdgeBackend<NodeId, RuntimeServiceId>
+pub trait BlendBackend<NodeId, RuntimeServiceId>
 where
     NodeId: Clone,
 {
