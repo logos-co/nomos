@@ -159,7 +159,6 @@ macro_use_extern_crate                       = { level = "allow" }
 missing_copy_implementations                 = { level = "allow" }
 missing_debug_implementations                = { level = "allow" }
 missing_docs                                 = { level = "allow" }
-non_ascii_idents                             = { level = "allow" }
 rust_2021_incompatible_closure_captures      = { level = "allow" }
 rust_2021_incompatible_or_patterns           = { level = "allow" }
 rust_2021_prefixes_incompatible_syntax       = { level = "allow" }
