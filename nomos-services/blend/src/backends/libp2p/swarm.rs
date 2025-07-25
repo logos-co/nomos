@@ -90,13 +90,13 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
     fn handle_swarm_message(&mut self, msg: BlendSwarmMessage) {
         match msg {
             BlendSwarmMessage::Publish(msg) => {
-                self.handle_publish_swarm_message(&msg);
+                self.handle_publish_swarm_message(msg);
             }
         }
     }
 
-    fn handle_publish_swarm_message(&mut self, msg: &EncapsulatedMessage) {
-        if let Err(e) = self.swarm.behaviour_mut().blend.publish(msg) {
+    fn handle_publish_swarm_message(&mut self, msg: EncapsulatedMessage) {
+        if let Err(e) = self.swarm.behaviour_mut().blend.validate_and_publish(msg) {
             tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
             tracing::info!(counter.failed_outbound_messages = 1);
         } else {

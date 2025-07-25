@@ -28,6 +28,7 @@ use crate::core::{
         core::{self, FromBehaviour, ToBehaviour},
         edge,
     },
+    message::{EncapsulatedMessageWithValidatedPublicHeader, ValidateMessagePublicHeader as _},
     Error,
 };
 
@@ -46,8 +47,6 @@ pub struct Behaviour<Rng, ObservationWindowClockProvider> {
     /// identifiers have been exchanged between them.
     /// Sending a message with the same identifier more than once results in
     /// the peer being flagged as malicious, and the connection dropped.
-    // TODO: Replace `ProofOfQuota` with the proof key nullifier once proof of quota verification
-    // is implemented.
     // TODO: This cache should be cleared after the session transition period has
     // passed, because keys and nullifiers are valid during a single session.
     exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
@@ -129,9 +128,15 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
         }
     }
 
-    /// Publish an already-encapsulated message to all connected peers
-    pub fn publish(&mut self, message: &EncapsulatedMessage) -> Result<(), Error> {
-        self.forward_message(message, None)
+    /// Publish an already-encapsulated message to all connected peers.
+    ///
+    /// Before the message is propagated, its public header is validated to make
+    /// sure the receiving peer won't mark us as malicious.
+    pub fn validate_and_publish(&mut self, message: EncapsulatedMessage) -> Result<(), Error> {
+        let validated_message = message
+            .validate_public_header()
+            .map_err(|_| Error::InvalidMessage)?;
+        self.forward_message(&validated_message, None)
     }
 
     /// Forwards a message to all connected and healthy peers except the
@@ -141,7 +146,7 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
     /// the blend protocol.
     fn forward_message(
         &mut self,
-        message: &EncapsulatedMessage,
+        message: &EncapsulatedMessageWithValidatedPublicHeader,
         excluded_peer: Option<PeerId>,
     ) -> Result<(), Error> {
         let message_id = message.id();
@@ -242,17 +247,22 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
             };
         }
 
+        // Verify the message public header, or else mark the peer as malicious: https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81859cebf5e3d2a5cd8f.
+        let Ok(validated_message) = deserialized_encapsulated_message.validate_public_header()
+        else {
+            tracing::debug!(target: LOG_TARGET, "Neighbor sent us a message with an invalid public header. Marking it as spammy.");
+            self.mark_peer_as_malicious(source);
+            return;
+        };
+
         // Forward the message immediately to the rest of connected peers
         // before any further processing for fast propagation.
-        if let Err(e) =
-            self.forward_message(&deserialized_encapsulated_message, source.sender_address())
-        {
+        if let Err(e) = self.forward_message(&validated_message, source.sender_address()) {
             tracing::error!(target: LOG_TARGET, "Failed to forward message: {e:?}");
         }
 
         // Start the processing
-        let Ok(decapsulated_message) =
-            self.try_decapsulate_message(deserialized_encapsulated_message, source)
+        let Ok(decapsulated_message) = self.try_decapsulate_message(validated_message.into_inner())
         else {
             return;
         };
@@ -297,29 +307,14 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
     }
 
     fn try_decapsulate_message(
-        &mut self,
+        &self,
         encapsulated_message: EncapsulatedMessage,
-        source: &PeerSource,
     ) -> Result<UnwrappedMessage, ()> {
-        match self.cryptographic_processor.decapsulate_message(encapsulated_message) {
-            Err(
-                malicious_error @ (
-                // Mark peer as malicious if it sends a message with either:
-                // * an invalid signature: https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81859cebf5e3d2a5cd8f
-                // * an invalid proof of quota: https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81b593ddce00cffd24a8
-                | nomos_blend_message::Error::SignatureVerificationFailed
-                | nomos_blend_message::Error::ProofOfQuotaVerificationFailed),
-            ) => {
-                tracing::debug!(target: LOG_TARGET, "Failed to verify proofs on message from peer source {source:?}. Error: {malicious_error:?}");
-                self.mark_peer_as_malicious(source);
-                Err(())
-            }
-            Err(non_malicious_error) => {
-                tracing::debug!(target: LOG_TARGET, "Failed to unwrap message: {non_malicious_error:?}");
-                Err(())
-            }
-            Ok(decapsulated_message) => Ok(decapsulated_message),
-        }
+        self.cryptographic_processor
+            .decapsulate_message(encapsulated_message)
+            .map_err(|e| {
+                tracing::debug!(target: LOG_TARGET, "Failed to decapsulate message: {e:?}");
+            })
     }
 }
 

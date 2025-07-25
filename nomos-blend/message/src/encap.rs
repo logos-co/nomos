@@ -15,9 +15,7 @@ use crate::{
     message::{BlendingHeader, Header, Payload, PayloadType, PublicHeader},
 };
 
-// TODO: Change to key nullifier when proof of quota verification is
-// implemented.
-pub type MessageIdentifier = (Ed25519PublicKey, ProofOfQuota);
+pub type MessageIdentifier = Ed25519PublicKey;
 
 /// An encapsulated message that is sent to the blend network.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -118,14 +116,19 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
         &self.public_header
     }
 
-    // TODO: Replace this with the proof of quota nullifier key proof of quota
-    // verification is implemented.
     #[must_use]
     pub const fn id(&self) -> MessageIdentifier {
-        (
-            self.public_header.signing_pubkey,
-            self.public_header.proof_of_quota,
-        )
+        self.public_header.signing_pubkey
+    }
+
+    pub fn verify_public_header(&self) -> Result<(), Error> {
+        self.public_header
+            .verify_signature(&EncapsulatedPart::signing_body(
+                &self.encapsulated_part.private_header,
+                &self.encapsulated_part.payload,
+            ))?;
+        // TODO: Add proof of quota verification
+        Ok(())
     }
 }
 
