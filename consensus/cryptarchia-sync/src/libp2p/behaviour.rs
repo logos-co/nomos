@@ -1,7 +1,6 @@
 use std::{
     collections::HashSet,
     task::{Context, Poll},
-    time::Duration,
 };
 
 use futures::{
@@ -37,8 +36,6 @@ const SYNC_PROTOCOL_ID: &str = "/nomos/cryptarchia/sync/0.1.0";
 pub const SYNC_PROTOCOL: StreamProtocol = StreamProtocol::new(SYNC_PROTOCOL_ID);
 
 const MAX_INCOMING_REQUESTS: usize = 4;
-
-const DEFAULT_RESPONSE_TIMEOUT_MS: u64 = 5000;
 
 type SendingBlocksRequestsFuture = BoxFuture<'static, Result<BlocksRequestStream, ChainSyncError>>;
 
@@ -323,15 +320,17 @@ impl Behaviour {
     }
 
     fn handle_tip_request_available(&self, request_stream: TipRequestStream) {
-        self.receiving_tip_responses
-            .push(Downloader::receive_tip(request_stream, self.timeout()).boxed());
+        self.receiving_tip_responses.push(
+            Downloader::receive_tip(request_stream, self.config.peer_response_timeout).boxed(),
+        );
 
         self.try_notify_waker();
     }
 
     fn handle_blocks_request_available(&self, request_stream: BlocksRequestStream) {
-        self.receiving_block_responses
-            .push(Downloader::receive_blocks(request_stream, self.timeout()).boxed());
+        self.receiving_block_responses.push(
+            Downloader::receive_blocks(request_stream, self.config.peer_response_timeout).boxed(),
+        );
 
         self.try_notify_waker();
     }
@@ -363,12 +362,6 @@ impl Behaviour {
         if let Some(waker) = &self.waker {
             waker.wake_by_ref();
         }
-    }
-
-    fn timeout(&self) -> Duration {
-        self.config
-            .peer_response_timeout_ms
-            .unwrap_or(Duration::from_millis(DEFAULT_RESPONSE_TIMEOUT_MS))
     }
 }
 
@@ -844,7 +837,7 @@ mod tests {
 
     fn new_swarm_with_quic() -> Swarm<Behaviour> {
         let config = Config {
-            peer_response_timeout_ms: Some(Duration::from_millis(1000)),
+            peer_response_timeout: Duration::from_millis(1000),
         };
         let keypair = libp2p::identity::Keypair::generate_ed25519();
         libp2p::SwarmBuilder::with_existing_identity(keypair)
