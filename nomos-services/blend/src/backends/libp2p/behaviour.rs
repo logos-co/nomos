@@ -9,7 +9,8 @@ use crate::{backends::libp2p::Libp2pBlendBackendSettings, BlendConfig};
 
 #[derive(NetworkBehaviour)]
 pub(super) struct BlendBehaviour<Rng> {
-    pub(super) blend: nomos_blend_network::core::Behaviour<ObservationWindowTokioIntervalProvider>,
+    pub(super) blend:
+        nomos_blend_network::core::Behaviour<Rng, ObservationWindowTokioIntervalProvider>,
     pub(super) limits: libp2p::connection_limits::Behaviour,
     pub(super) blocked_peers: libp2p::allow_block_list::Behaviour<BlockedPeers>,
 }

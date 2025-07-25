@@ -22,14 +22,16 @@ use nomos_blend_scheduling::{
     EncapsulatedMessage, UnwrappedMessage,
 };
 
-use crate::core::{
-    conn_maintenance::ConnectionMonitor,
-    handler::{
-        core::{self, FromBehaviour, ToBehaviour},
-        edge,
+use crate::{
+    core::{
+        conn_maintenance::ConnectionMonitor,
+        handler::{
+            core::{self, FromBehaviour, ToBehaviour},
+            edge,
+        },
+        Error,
     },
     message::{EncapsulatedMessageWithValidatedPublicHeader, ValidateMessagePublicHeader as _},
-    Error,
 };
 
 const LOG_TARGET: &str = "blend::network::behaviour";

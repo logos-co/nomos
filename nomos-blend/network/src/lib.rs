@@ -3,6 +3,8 @@ use std::io;
 use futures::{AsyncReadExt as _, AsyncWriteExt as _};
 use libp2p::{Stream, StreamProtocol};
 
+mod message;
+
 pub mod core;
 pub mod edge;
 #[cfg(test)]
