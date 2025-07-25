@@ -661,9 +661,17 @@ where
                 tokio::select! {
                     () = &mut prolonged_bootstrap_timer, if cryptarchia.is_boostrapping() => {
                         info!("Prolonged Bootstrap Period has passed. Switching to Online.");
-                        let (new_cryptarchia, pruned_blocks) = cryptarchia.online();
-                        storage_blocks_to_remove.extend(pruned_blocks.stale_blocks());
-                        cryptarchia = new_cryptarchia;
+                        (cryptarchia, storage_blocks_to_remove) = Self::switch_to_online(
+                            cryptarchia,
+                            &storage_blocks_to_remove,
+                            relays.storage_adapter(),
+                        ).await;
+                        Self::update_state(
+                            &cryptarchia,
+                            &leader,
+                            storage_blocks_to_remove.clone(),
+                            &self.service_resources_handle.state_updater,
+                        );
                     }
 
                     Some(block) = incoming_blocks.next() => {
@@ -677,8 +685,7 @@ where
                             &storage_blocks_to_remove,
                             &relays,
                             &self.block_subscription_sender,
-                            self.service_resources_handle
-                                        .state_updater.clone()
+                            &self.service_resources_handle.state_updater
                         ).await;
 
                         info!(counter.consensus_processed_blocks = 1);
@@ -715,9 +722,7 @@ where
                                     &storage_blocks_to_remove,
                                     &relays,
                                     &self.block_subscription_sender,
-                                    self.service_resources_handle
-                                        .state_updater.clone()
-                                        ,
+                                    &self.service_resources_handle.state_updater,
                                 )
                                 .await;
                                 blend_adapter.blend(block).await;
@@ -941,7 +946,7 @@ where
             RuntimeServiceId,
         >,
         block_subscription_sender: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-        state_updater: StateUpdater<
+        state_updater: &StateUpdater<
             Option<
                 CryptarchiaConsensusState<
                     TxS::Settings,
@@ -962,10 +967,36 @@ where
         )
         .await;
 
-        match <Self as ServiceData>::State::from_cryptarchia_and_unpruned_blocks(
+        Self::update_state(
             &cryptarchia,
             leader,
             storage_blocks_to_remove.clone(),
+            state_updater,
+        );
+
+        (cryptarchia, storage_blocks_to_remove)
+    }
+
+    #[expect(clippy::type_complexity, reason = "StateUpdater")]
+    fn update_state(
+        cryptarchia: &Cryptarchia,
+        leader: &Leader,
+        storage_blocks_to_remove: HashSet<HeaderId>,
+        state_updater: &StateUpdater<
+            Option<
+                CryptarchiaConsensusState<
+                    TxS::Settings,
+                    BS::Settings,
+                    NetAdapter::Settings,
+                    BlendAdapter::Settings,
+                >,
+            >,
+        >,
+    ) {
+        match <Self as ServiceData>::State::from_cryptarchia_and_unpruned_blocks(
+            cryptarchia,
+            leader,
+            storage_blocks_to_remove,
         ) {
             Ok(state) => {
                 state_updater.update(Some(state));
@@ -974,8 +1005,6 @@ where
                 error!(target: LOG_TARGET, "Failed to update state: {}", e);
             }
         }
-
-        (cryptarchia, storage_blocks_to_remove)
     }
 
     /// Try to add a [`Block`] to [`Cryptarchia`].
@@ -1411,6 +1440,29 @@ where
                 }
             }
         }
+    }
+
+    async fn switch_to_online(
+        cryptarchia: Cryptarchia,
+        storage_blocks_to_remove: &HashSet<HeaderId>,
+        storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
+    ) -> (Cryptarchia, HashSet<HeaderId>) {
+        let (cryptarchia, pruned_blocks) = cryptarchia.online();
+        if let Err(e) = storage_adapter
+            .store_immutable_block_ids(pruned_blocks.immutable_blocks().clone())
+            .await
+        {
+            error!("Could not store immutable block IDs: {e}");
+        }
+
+        let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
+            pruned_blocks.stale_blocks().copied(),
+            storage_blocks_to_remove,
+            storage_adapter,
+        )
+        .await;
+
+        (cryptarchia, storage_blocks_to_remove)
     }
 }
 
