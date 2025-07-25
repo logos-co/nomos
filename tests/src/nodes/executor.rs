@@ -12,8 +12,9 @@ use cryptarchia_engine::time::SlotConfig;
 use kzgrs_backend::common::share::DaShare;
 use nomos_api::http::membership::MembershipUpdateRequest;
 use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
-use nomos_blend_service::core::settings::{
-    CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt, TimingSettings,
+use nomos_blend_service::{
+    core::settings::{CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt},
+    settings::TimingSettings,
 };
 use nomos_core::{header::HeaderId, sdp::FinalizedBlockEvent};
 use nomos_da_dispersal::{
