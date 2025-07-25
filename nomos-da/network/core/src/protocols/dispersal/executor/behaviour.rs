@@ -279,7 +279,8 @@ where
     ) -> Result<StreamHandlerFutureSuccess, DispersalError> {
         let blob_id = message.blob_id();
         let blob_id: BlobId = blob_id.clone().try_into().unwrap();
-        let message = dispersal::DispersalRequest::new(Share::new(blob_id, message), subnetwork_id);
+        let message =
+            dispersal::DispersalRequest::new_share(Share::new(blob_id, message), subnetwork_id);
         let peer_id = stream.peer_id;
         pack_to_writer(&message, &mut stream.stream)
             .map_err(|error| DispersalError::Io {

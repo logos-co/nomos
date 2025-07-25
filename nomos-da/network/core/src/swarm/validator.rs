@@ -1,7 +1,6 @@
 use std::{io, time::Duration};
 
 use futures::{stream, StreamExt as _};
-use kzgrs_backend::common::share::DaShare;
 use libp2p::{
     core::transport::ListenerId,
     identity::Keypair,
@@ -57,7 +56,7 @@ pub struct SwarmSettings {
 
 pub struct ValidatorEventsStream {
     pub sampling_events_receiver: UnboundedReceiverStream<SamplingEvent>,
-    pub validation_events_receiver: UnboundedReceiverStream<DaShare>,
+    pub validation_events_receiver: UnboundedReceiverStream<DispersalEvent>,
 }
 
 pub struct ValidatorSwarm<Membership, Addressbook>
@@ -74,7 +73,7 @@ where
         >,
     >,
     sampling_events_sender: UnboundedSender<SamplingEvent>,
-    validation_events_sender: UnboundedSender<DaShare>,
+    validation_events_sender: UnboundedSender<DispersalEvent>,
 }
 
 impl<Membership, Addressbook> ValidatorSwarm<Membership, Addressbook>

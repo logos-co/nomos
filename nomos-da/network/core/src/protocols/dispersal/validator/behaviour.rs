@@ -14,7 +14,9 @@ use libp2p::{
 };
 use libp2p_stream::IncomingStreams;
 use log::debug;
+use nomos_core::mantle::ops::{blob::BlobOp, Op};
 use nomos_da_messages::{
+    common::Share,
     dispersal,
     packing::{pack_to_writer, unpack_from_reader},
 };
@@ -52,21 +54,24 @@ impl Clone for DispersalError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DispersalEvent {
-    /// Received a n
-    IncomingMessage {
-        message: Box<dispersal::DispersalRequest>,
-    },
+    /// Received a network message.
+    IncomingShare(Box<Share>),
     /// Something went wrong receiving the blob
     DispersalError { error: DispersalError },
 }
 
 impl DispersalEvent {
     #[must_use]
+    pub fn new_share(share: Share) -> Self {
+        Self::IncomingShare(Box::new(share))
+    }
+
+    #[must_use]
     pub fn share_size(&self) -> Option<usize> {
         match self {
-            Self::IncomingMessage { message } => Some(message.share.data.column_len()),
+            Self::IncomingShare(share) => Some(share.data.column_len()),
             Self::DispersalError { .. } => None,
         }
     }
@@ -98,6 +103,29 @@ impl<Membership: MembershipHandler> DispersalValidatorBehaviour<Membership> {
         }
     }
 
+    fn process_dispersal_request(
+        request: &dispersal::DispersalRequest,
+    ) -> Option<dispersal::DispersalResponse> {
+        match request {
+            dispersal::DispersalRequest::Share(share_request) => {
+                let blob_id = share_request.share.blob_id;
+                Some(dispersal::DispersalResponse::BlobId(blob_id))
+            }
+            dispersal::DispersalRequest::Tx(signed_mantle_tx) => {
+                if let Some(Op::Blob(BlobOp { blob, .. })) = signed_mantle_tx.mantle_tx.ops.first()
+                {
+                    Some(dispersal::DispersalResponse::Tx(*blob))
+                } else {
+                    // Validator does not acknowledge malformed Tx at network level, but validation
+                    // happens at the service level.
+                    // If transaction is invalid in term of ledger, responsible services might
+                    // terminate the connection to this peer.
+                    None
+                }
+            }
+        }
+    }
+
     /// Stream handling messages task.
     /// This task handles a single message receive. Then it writes up the
     /// acknowledgment into the same stream as response and finish.
@@ -105,23 +133,21 @@ impl<Membership: MembershipHandler> DispersalValidatorBehaviour<Membership> {
         peer_id: PeerId,
         mut stream: Stream,
     ) -> Result<(PeerId, dispersal::DispersalRequest, Stream), DispersalError> {
-        let message: dispersal::DispersalRequest = unpack_from_reader(&mut stream)
+        let request: dispersal::DispersalRequest = unpack_from_reader(&mut stream)
             .await
             .map_err(|error| DispersalError::Io { peer_id, error })?;
 
-        let blob_id = message.share.blob_id;
-        let response = dispersal::DispersalResponse::BlobId(blob_id);
+        if let Some(response) = Self::process_dispersal_request(&request) {
+            pack_to_writer(&response, &mut stream)
+                .await
+                .map_err(|error| DispersalError::Io { peer_id, error })?;
 
-        pack_to_writer(&response, &mut stream)
-            .await
-            .map_err(|error| DispersalError::Io { peer_id, error })?;
-
-        stream
-            .flush()
-            .await
-            .map_err(|error| DispersalError::Io { peer_id, error })?;
-
-        Ok((peer_id, message, stream))
+            stream
+                .flush()
+                .await
+                .map_err(|error| DispersalError::Io { peer_id, error })?;
+        }
+        Ok((peer_id, request, stream))
     }
 }
 
@@ -204,9 +230,14 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
             Poll::Ready(Some(Ok((peer_id, message, stream)))) => {
                 tasks.push(Self::handle_new_stream(peer_id, stream).boxed());
                 cx.waker().wake_by_ref();
-                return Poll::Ready(ToSwarm::GenerateEvent(DispersalEvent::IncomingMessage {
-                    message: Box::new(message),
-                }));
+                return match message {
+                    dispersal::DispersalRequest::Share(share_request) => {
+                        Poll::Ready(ToSwarm::GenerateEvent(DispersalEvent::IncomingShare(
+                            Box::new(share_request.share),
+                        )))
+                    }
+                    dispersal::DispersalRequest::Tx(_signed_mantle_tx) => todo!(),
+                };
             }
             Poll::Ready(Some(Err(error))) => {
                 debug!("Error on dispersal stream {error:?}");
