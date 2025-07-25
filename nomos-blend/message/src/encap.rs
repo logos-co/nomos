@@ -15,8 +15,10 @@ use crate::{
     message::{BlendingHeader, Header, Payload, PayloadType, PublicHeader},
 };
 
+pub type MessageIdentifier = Ed25519PublicKey;
+
 /// An encapsulated message that is sent to the blend network.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
     /// A header that is not encapsulated.
     header: Header,
@@ -53,7 +55,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
                         i == 0,
                     ),
                     input.signing_key.clone(),
-                    input.proof_of_quota.clone(),
+                    input.proof_of_quota,
                 )
             },
         );
@@ -99,11 +101,57 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
                     encapsulated_part,
                 }))
             }
-            PartDecapsulationOutput::Completed(payload) => Ok(DecapsulationOutput::Completed((
-                payload.payload_type(),
-                payload.body()?.to_vec(),
-            ))),
+            PartDecapsulationOutput::Completed(payload) => {
+                let (payload_type, payload_body) = payload.try_into_components()?;
+                Ok(DecapsulationOutput::Completed(DecapsulatedMessage {
+                    payload_type,
+                    payload_body,
+                }))
+            }
         }
+    }
+
+    #[must_use]
+    pub const fn public_header(&self) -> &PublicHeader {
+        &self.public_header
+    }
+
+    #[must_use]
+    pub const fn id(&self) -> MessageIdentifier {
+        self.public_header.signing_pubkey
+    }
+
+    pub fn verify_public_header(&self) -> Result<(), Error> {
+        self.public_header
+            .verify_signature(&EncapsulatedPart::signing_body(
+                &self.encapsulated_part.private_header,
+                &self.encapsulated_part.payload,
+            ))?;
+        // TODO: Add proof of quota verification
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DecapsulatedMessage {
+    payload_type: PayloadType,
+    payload_body: Vec<u8>,
+}
+
+impl DecapsulatedMessage {
+    #[must_use]
+    pub const fn payload_type(&self) -> PayloadType {
+        self.payload_type
+    }
+
+    #[must_use]
+    pub fn payload_body(&self) -> &[u8] {
+        &self.payload_body
+    }
+
+    #[must_use]
+    pub fn into_components(self) -> (PayloadType, Vec<u8>) {
+        (self.payload_type, self.payload_body)
     }
 }
 
@@ -112,15 +160,16 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
     clippy::large_enum_variant,
     reason = "Size difference between variants is not too large (small ENCAPSULATION_COUNT)"
 )]
+#[derive(Clone, Debug)]
 pub enum DecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
     Incompleted(EncapsulatedMessage<ENCAPSULATION_COUNT>),
-    Completed((PayloadType, Vec<u8>)),
+    Completed(DecapsulatedMessage),
 }
 
 /// Part of the message that should be encapsulated.
 // TODO: Consider having `InitializedPart`
 // that just finished the initialization step and doesn't have `decapsulate` method.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct EncapsulatedPart<const ENCAPSULATION_COUNT: usize> {
     private_header: EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
     payload: EncapsulatedPayload,
@@ -345,9 +394,9 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
 
         // Build a new public header with the values in the first blending header.
         let public_header = PublicHeader {
-            signing_pubkey: first_blending_header.signing_pubkey.clone(),
-            proof_of_quota: first_blending_header.proof_of_quota.clone(),
-            signature: first_blending_header.signature.clone(),
+            signing_pubkey: first_blending_header.signing_pubkey,
+            proof_of_quota: first_blending_header.proof_of_quota,
+            signature: first_blending_header.signature,
         };
 
         // Shift blending headers one leftward.
@@ -526,7 +575,10 @@ mod tests {
 
         // We can decapsulate with the correct private key
         // and the fully-decapsulated payload is correct.
-        let DecapsulationOutput::Completed((payload_type, payload_body)) = msg
+        let DecapsulationOutput::Completed(DecapsulatedMessage {
+            payload_type,
+            payload_body,
+        }) = msg
             .decapsulate(blend_node_enc_keys.first().unwrap())
             .unwrap()
         else {

@@ -13,7 +13,7 @@ use crate::{
 pub const VERSION: u8 = 1;
 
 // A message header that is revealed to all nodes.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Header {
     version: u8,
 }
@@ -34,7 +34,7 @@ impl Default for Header {
 }
 
 // A public header that is revealed to all nodes.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Copy, Serialize, Deserialize)]
 pub struct PublicHeader {
     pub signing_pubkey: Ed25519PublicKey,
     pub proof_of_quota: ProofOfQuota,
@@ -147,6 +147,10 @@ impl Payload {
             return Err(Error::InvalidPayloadLength);
         }
         Ok(&self.body[..len])
+    }
+
+    pub fn try_into_components(self) -> Result<(PayloadType, Vec<u8>), Error> {
+        Ok((self.payload_type(), self.body()?.to_vec()))
     }
 }
 

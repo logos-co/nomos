@@ -8,7 +8,6 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-cached                 = { workspace = true }
 either                 = "1.15.0"
 futures                = "0.3.30"
 futures-timer          = { version = "3.0.3" }
@@ -16,7 +15,6 @@ libp2p                 = { workspace = true }
 nomos-blend-message    = { workspace = true }
 nomos-blend-scheduling = { workspace = true }
 nomos-utils            = { workspace = true, optional = true }
-sha2                   = "0.10"
 tokio                  = { version = "1", features = ["time"], optional = true }
 tokio-stream           = { version = "0.1", optional = true }
 tracing                = { workspace = true }

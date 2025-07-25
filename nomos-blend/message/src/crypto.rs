@@ -55,7 +55,7 @@ impl From<[u8; KEY_SIZE]> for Ed25519PrivateKey {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Ed25519PublicKey(ed25519_dalek::VerifyingKey);
 
 impl Ed25519PublicKey {
@@ -95,7 +95,7 @@ impl TryFrom<[u8; KEY_SIZE]> for Ed25519PublicKey {
 
 pub const SIGNATURE_SIZE: usize = 64;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Signature(ed25519_dalek::Signature);
 
 impl From<ed25519_dalek::Signature> for Signature {
@@ -162,7 +162,7 @@ impl SharedKey {
 
 pub const PROOF_OF_QUOTA_SIZE: usize = 160;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Hash, PartialEq, Eq)]
 pub struct ProofOfQuota(#[serde(with = "BigArray")] [u8; PROOF_OF_QUOTA_SIZE]);
 
 impl ProofOfQuota {
