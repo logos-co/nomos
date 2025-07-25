@@ -22,7 +22,6 @@ members = [
   "nomos-da/network/messages",
   "nomos-da/network/subnetworks-assignations",
   "nomos-libp2p",
-  "nomos-sdp",
   "nomos-services/api",
   "nomos-services/blend",
   "nomos-services/chain-service",
@@ -45,6 +44,7 @@ members = [
   "nomos-utils",
   "testnet/cfgsync",
   "tests",
+  "utxotree",
 ]
 resolver = "2"
 
@@ -84,7 +84,6 @@ nomos-mempool            = { path = "./nomos-services/mempool" }
 nomos-network            = { path = "./nomos-services/network" }
 nomos-node               = { path = "./nodes/nomos-node/node", default-features = false }
 nomos-sdp                = { path = "./nomos-services/sdp" }
-nomos-sdp-core           = { path = "./nomos-sdp" }
 nomos-storage            = { path = "./nomos-services/storage" }
 nomos-system-sig         = { path = "./nomos-services/system-sig" }
 nomos-time               = { path = "./nomos-services/time" }
@@ -95,6 +94,7 @@ nomos_proof_statements   = { path = "./nomos-core/proof_statements" }
 services-utils           = { path = "./nomos-services/utils" }
 subnetworks-assignations = { path = "./nomos-da/network/subnetworks-assignations" }
 tests                    = { path = "./tests" }
+utxotree                 = { path = "./utxotree" }
 
 # External
 blake2           = "0.10"
@@ -105,8 +105,9 @@ libp2p           = "0.55"
 libp2p-stream    = "0.3.0-alpha"
 overwatch        = { git = "https://github.com/logos-co/Overwatch", rev = "f5a9902" }
 overwatch-derive = { git = "https://github.com/logos-co/Overwatch", rev = "f5a9902" }
+rand             = "0.8"
 reqwest          = "0.12"
-risc0-zkvm       = "2.2.0"
+risc0-zkvm       = "2.3.0"
 serde_with       = "3.12.0"
 tracing          = "0.1"
 

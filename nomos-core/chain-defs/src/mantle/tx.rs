@@ -3,16 +3,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     mantle::{
-        gas::{Gas, GasConstants, GasPrice},
+        gas::{Gas, GasConstants, GasCost},
         ledger::Tx as LedgerTx,
         ops::Op,
-        Transaction, TransactionHasher,
+        AuthenticatedMantleTx, Transaction, TransactionHasher,
     },
+    proofs::zksig::{DummyZkSignature as ZkSignature, ZkSignatureProof},
     utils::serde_bytes_newtype,
 };
 
 pub type OpProof = ();
-pub type ZkSignature = ();
 /// The hash of a transaction
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, PartialOrd, Ord)]
 pub struct TxHash(pub [u8; 32]);
@@ -22,6 +22,12 @@ serde_bytes_newtype!(TxHash, 32);
 impl From<[u8; 32]> for TxHash {
     fn from(bytes: [u8; 32]) -> Self {
         Self(bytes)
+    }
+}
+
+impl From<TxHash> for [u8; 32] {
+    fn from(hash: TxHash) -> Self {
+        hash.0
     }
 }
 
@@ -40,19 +46,12 @@ impl TxHash {
     }
 }
 
-impl GasPrice for LedgerTx {
-    fn gas_price<Constants: GasConstants>(&self) -> Gas {
-        // TODO: properly implement this when adding the ledger tx,
-        // for now making every tx too expensive so it would blow up its usage.
-        u64::MAX
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MantleTx {
     pub ops: Vec<Op>,
     pub ledger_tx: LedgerTx,
-    pub gas_price: Gas,
+    pub execution_gas_price: Gas,
+    pub storage_gas_price: Gas,
 }
 
 impl Transaction for MantleTx {
@@ -72,8 +71,11 @@ impl Transaction for MantleTx {
             buff.extend_from_slice(op.as_sign_bytes().as_ref());
         }
         buff.extend_from_slice(END_OPS);
-        buff.extend_from_slice(self.gas_price.to_le_bytes().as_ref());
-        buff.extend_from_slice(self.ledger_tx.as_sign_bytes().as_ref());
+
+        buff.extend_from_slice(self.storage_gas_price.to_le_bytes().as_ref());
+        buff.extend_from_slice(self.execution_gas_price.to_le_bytes().as_ref());
+
+        buff.extend_from_slice(&self.ledger_tx.hash().0);
         buff.freeze()
     }
 }
@@ -84,7 +86,7 @@ impl From<SignedMantleTx> for MantleTx {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignedMantleTx {
     pub mantle_tx: MantleTx,
     pub ops_profs: Vec<OpProof>,
@@ -101,16 +103,41 @@ impl Transaction for SignedMantleTx {
     }
 }
 
-impl GasPrice for MantleTx {
-    fn gas_price<Constants: GasConstants>(&self) -> Gas {
-        let ops_gas: Gas = self.ops.iter().map(GasPrice::gas_price::<Constants>).sum();
-        let ledger_tx_gas = self.ledger_tx.gas_price::<Constants>();
-        ops_gas + ledger_tx_gas
+impl AuthenticatedMantleTx for SignedMantleTx {
+    fn mantle_tx(&self) -> &MantleTx {
+        &self.mantle_tx
+    }
+
+    fn ledger_tx_proof(&self) -> &impl ZkSignatureProof {
+        &self.ledger_tx_proof
     }
 }
 
-impl GasPrice for SignedMantleTx {
-    fn gas_price<Constants: GasConstants>(&self) -> Gas {
-        self.mantle_tx.gas_price::<Constants>()
+impl SignedMantleTx {
+    fn serialized_size(&self) -> u64 {
+        use bincode::Options as _;
+        // TODO: we need a more universal size estimation, but that means complete
+        // control over serialization which requires a rework of the wire module
+        crate::wire::bincode::OPTIONS
+            .serialized_size(&self)
+            .expect("Failed to serialize signed mantle tx")
+    }
+}
+
+impl GasCost for SignedMantleTx {
+    fn gas_cost<Constants: GasConstants>(&self) -> Gas {
+        let execution_gas = self
+            .mantle_tx
+            .ops
+            .iter()
+            .map(Op::execution_gas::<Constants>)
+            .sum::<Gas>()
+            + self.mantle_tx.ledger_tx.execution_gas::<Constants>();
+        let storage_gas = self.serialized_size();
+        let da_gas_cost = self.mantle_tx.ops.iter().map(Op::da_gas_cost).sum::<Gas>();
+
+        execution_gas * self.mantle_tx.execution_gas_price
+            + storage_gas * self.mantle_tx.storage_gas_price
+            + da_gas_cost
     }
 }

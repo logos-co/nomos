@@ -7,24 +7,21 @@ use std::{
     sync::Arc,
 };
 
-use libp2p::Multiaddr;
-use libp2p_identity::PeerId;
+use rand::RngCore;
+
+pub type SubnetworkId = u16;
 
 pub type SubnetworkAssignations<NetworkId, Id> = HashMap<NetworkId, HashSet<Id>>;
 
 pub trait MembershipCreator: MembershipHandler {
     /// Initializes the underlying implementor with the provided members list.
     #[must_use]
-    fn init(
-        &self,
-        peer_addresses: HashMap<Self::NetworkId, HashSet<Self::Id>>,
-        addressbook: HashMap<Self::Id, Multiaddr>,
-    ) -> Self;
+    fn init(&self, peer_addresses: SubnetworkAssignations<Self::NetworkId, Self::Id>) -> Self;
 
     /// Creates a new instance of membership handler that combines previous
     /// members and new members.
     #[must_use]
-    fn update(&self, new_peer_addresses: HashMap<Self::Id, Multiaddr>) -> Self;
+    fn update<Rng: RngCore>(&self, new_peers: HashSet<Self::Id>, rng: &mut Rng) -> Self;
 }
 
 pub trait MembershipHandler {
@@ -52,12 +49,8 @@ pub trait MembershipHandler {
 
     fn last_subnetwork_id(&self) -> Self::NetworkId;
 
-    fn get_address(&self, peer_id: &PeerId) -> Option<Multiaddr>;
-
     /// Returns all subnetworks with assigned members.
     fn subnetworks(&self) -> SubnetworkAssignations<Self::NetworkId, Self::Id>;
-
-    fn addressbook(&self) -> HashMap<Self::Id, Multiaddr>;
 }
 
 impl<T> MembershipHandler for Arc<T>
@@ -87,15 +80,7 @@ where
         self.as_ref().last_subnetwork_id()
     }
 
-    fn get_address(&self, peer_id: &PeerId) -> Option<Multiaddr> {
-        self.as_ref().get_address(peer_id)
-    }
-
     fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
         self.as_ref().subnetworks()
-    }
-
-    fn addressbook(&self) -> HashMap<Self::Id, Multiaddr> {
-        self.as_ref().addressbook()
     }
 }

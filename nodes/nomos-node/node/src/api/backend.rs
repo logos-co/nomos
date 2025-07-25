@@ -42,7 +42,6 @@ use nomos_storage::{
     StorageService,
 };
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
-use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use subnetworks_assignations::MembershipHandler;
@@ -88,7 +87,6 @@ pub struct AxumBackend<
     DaStorageConverter,
     SamplingBackend,
     SamplingNetworkAdapter,
-    SamplingRng,
     SamplingStorage,
     TimeBackend,
     ApiAdapter,
@@ -109,7 +107,6 @@ pub struct AxumBackend<
     _storage_converter: core::marker::PhantomData<DaStorageConverter>,
     _sampling_backend: core::marker::PhantomData<SamplingBackend>,
     _sampling_network_adapter: core::marker::PhantomData<SamplingNetworkAdapter>,
-    _sampling_rng: core::marker::PhantomData<SamplingRng>,
     _sampling_storage: core::marker::PhantomData<SamplingStorage>,
     _time_backend: core::marker::PhantomData<TimeBackend>,
     _api_adapter: core::marker::PhantomData<ApiAdapter>,
@@ -147,7 +144,6 @@ impl<
         DaStorageConverter,
         SamplingBackend,
         SamplingNetworkAdapter,
-        SamplingRng,
         SamplingStorage,
         TimeBackend,
         ApiAdapter,
@@ -171,7 +167,6 @@ impl<
         DaStorageConverter,
         SamplingBackend,
         SamplingNetworkAdapter,
-        SamplingRng,
         SamplingStorage,
         TimeBackend,
         ApiAdapter,
@@ -239,11 +234,8 @@ where
         Serialize + for<'de> Deserialize<'de> + Ord + Debug + Send + Sync + 'static,
     DaStorageSerializer: StorageSerde + Send + Sync + 'static,
     <DaStorageSerializer as StorageSerde>::Error: Send + Sync,
-    SamplingRng: SeedableRng + RngCore + Send + 'static,
-    SamplingBackend: DaSamplingServiceBackend<
-            SamplingRng,
-            BlobId = <DaVerifiedBlobInfo as DispersedBlobInfo>::BlobId,
-        > + Send
+    SamplingBackend: DaSamplingServiceBackend<BlobId = <DaVerifiedBlobInfo as DispersedBlobInfo>::BlobId>
+        + Send
         + 'static,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -259,13 +251,13 @@ where
     DaShare::LightShare: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     DaShare::SharesCommitments: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     SamplingNetworkAdapter:
-        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + 'static,
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
     SamplingStorage:
-        nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + 'static,
+        nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend + Send + 'static,
     TimeBackend::Settings: Clone + Send + Sync,
-    ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync + 'static,
+    ApiAdapter: nomos_da_network_service::api::ApiAdapter + Send + Sync + 'static,
     DaStorageConverter:
         DaConverter<DaStorageBackend<DaStorageSerializer>, Share = DaShare> + Send + Sync + 'static,
     StorageAdapter:
@@ -282,13 +274,11 @@ where
                 DaStorageSerializer,
                 SamplingBackend,
                 SamplingNetworkAdapter,
-                SamplingRng,
                 SamplingStorage,
                 DaVerifierBackend,
                 DaVerifierNetwork,
                 DaVerifierStorage,
                 TimeBackend,
-                ApiAdapter,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -311,13 +301,11 @@ where
                 DaStorageSerializer,
                 SamplingBackend,
                 SamplingNetworkAdapter,
-                SamplingRng,
                 SamplingStorage,
                 DaVerifierBackend,
                 DaVerifierNetwork,
                 DaVerifierStorage,
                 TimeBackend,
-                ApiAdapter,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -328,6 +316,7 @@ where
                 Membership,
                 DaMembershipAdapter,
                 DaMembershipStorage,
+                ApiAdapter,
                 RuntimeServiceId,
             >,
         >
@@ -345,6 +334,10 @@ where
                     <Tx as Transaction>::Hash,
                     RuntimeServiceId,
                 >,
+                SamplingNetworkAdapter,
+                DaVerifierNetwork,
+                SamplingStorage,
+                DaVerifierStorage,
                 MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
                 RuntimeServiceId,
             >,
@@ -359,12 +352,10 @@ where
                 MockPool<HeaderId, DaVerifiedBlobInfo, DaVerifiedBlobInfo::BlobId>,
                 SamplingBackend,
                 SamplingNetworkAdapter,
-                SamplingRng,
                 SamplingStorage,
                 DaVerifierBackend,
                 DaVerifierNetwork,
                 DaVerifierStorage,
-                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -391,7 +382,6 @@ where
             _storage_converter: core::marker::PhantomData,
             _sampling_backend: core::marker::PhantomData,
             _sampling_network_adapter: core::marker::PhantomData,
-            _sampling_rng: core::marker::PhantomData,
             _sampling_storage: core::marker::PhantomData,
             _time_backend: core::marker::PhantomData,
             _api_adapter: core::marker::PhantomData,
@@ -418,17 +408,15 @@ where
                 _,
                 _,
                 _,
-                _,
-                _,
                 SIZE,
             >,
             DaVerifier<_, _, _, _, _, _>,
-            DaIndexer<_, _, _, _, _, _, _, _, _, _, _, _, _, _, SIZE>,
-            nomos_da_network_service::NetworkService<_, _, _, _, _>,
+            DaIndexer<_, _, _, _, _, _, _, _, _, _, _, _, SIZE>,
+            nomos_da_network_service::NetworkService<_, _, _, _, _, _>,
             nomos_network::NetworkService<_, _>,
             DaStorageService<_, _>,
-            TxMempoolService<_, _, _>,
-            DaMempoolService<_, _, _, _, _, _, _, _, _, _, _>
+            TxMempoolService<_, _, _, _, _, _, _>,
+            DaMempoolService<_, _, _, _, _, _, _, _, _>
         )
         .await?;
         Ok(())
@@ -460,11 +448,29 @@ where
             .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
             .route(
                 paths::CL_METRICS,
-                routing::get(cl_metrics::<Tx, RuntimeServiceId>),
+                routing::get(
+                    cl_metrics::<
+                        Tx,
+                        SamplingNetworkAdapter,
+                        DaVerifierNetwork,
+                        SamplingStorage,
+                        DaVerifierStorage,
+                        RuntimeServiceId,
+                    >,
+                ),
             )
             .route(
                 paths::CL_STATUS,
-                routing::post(cl_status::<Tx, RuntimeServiceId>),
+                routing::post(
+                    cl_status::<
+                        Tx,
+                        SamplingNetworkAdapter,
+                        DaVerifierNetwork,
+                        SamplingStorage,
+                        DaVerifierStorage,
+                        RuntimeServiceId,
+                    >,
+                ),
             )
             .route(
                 paths::CRYPTARCHIA_INFO,
@@ -474,13 +480,11 @@ where
                         DaStorageSerializer,
                         SamplingBackend,
                         SamplingNetworkAdapter,
-                        SamplingRng,
                         SamplingStorage,
                         DaVerifierBackend,
                         DaVerifierNetwork,
                         DaVerifierStorage,
                         TimeBackend,
-                        ApiAdapter,
                         RuntimeServiceId,
                         SIZE,
                     >,
@@ -494,13 +498,11 @@ where
                         DaStorageSerializer,
                         SamplingBackend,
                         SamplingNetworkAdapter,
-                        SamplingRng,
                         SamplingStorage,
                         DaVerifierBackend,
                         DaVerifierNetwork,
                         DaVerifierStorage,
                         TimeBackend,
-                        ApiAdapter,
                         RuntimeServiceId,
                         SIZE,
                     >,
@@ -530,13 +532,11 @@ where
                         DaStorageSerializer,
                         SamplingBackend,
                         SamplingNetworkAdapter,
-                        SamplingRng,
                         SamplingStorage,
                         DaVerifierBackend,
                         DaVerifierNetwork,
                         DaVerifierStorage,
                         TimeBackend,
-                        ApiAdapter,
                         RuntimeServiceId,
                         SIZE,
                     >,
@@ -550,6 +550,7 @@ where
                         Membership,
                         DaMembershipAdapter,
                         DaMembershipStorage,
+                        ApiAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -562,6 +563,7 @@ where
                         Membership,
                         DaMembershipAdapter,
                         DaMembershipStorage,
+                        ApiAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -574,6 +576,7 @@ where
                         Membership,
                         DaMembershipAdapter,
                         DaMembershipStorage,
+                        ApiAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -588,7 +591,16 @@ where
             )
             .route(
                 paths::MEMPOOL_ADD_TX,
-                routing::post(add_tx::<Tx, RuntimeServiceId>),
+                routing::post(
+                    add_tx::<
+                        Tx,
+                        SamplingNetworkAdapter,
+                        DaVerifierNetwork,
+                        SamplingStorage,
+                        DaVerifierStorage,
+                        RuntimeServiceId,
+                    >,
+                ),
             )
             .route(
                 paths::MEMPOOL_ADD_BLOB_INFO,
@@ -597,12 +609,10 @@ where
                         DaVerifiedBlobInfo,
                         SamplingBackend,
                         SamplingNetworkAdapter,
-                        SamplingRng,
                         SamplingStorage,
                         DaVerifierBackend,
                         DaVerifierNetwork,
                         DaVerifierStorage,
-                        ApiAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -651,6 +661,7 @@ where
                         Membership,
                         DaMembershipAdapter,
                         DaMembershipStorage,
+                        ApiAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -663,6 +674,7 @@ where
                         Membership,
                         DaMembershipAdapter,
                         DaMembershipStorage,
+                        ApiAdapter,
                         RuntimeServiceId,
                     >,
                 ),

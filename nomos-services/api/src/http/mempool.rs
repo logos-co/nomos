@@ -12,30 +12,55 @@ use nomos_mempool::{
 };
 use nomos_network::backends::NetworkBackend;
 use overwatch::{services::AsServiceId, DynError};
-use rand::{RngCore, SeedableRng};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
 use crate::wait_with_timeout;
 
-pub async fn add_tx<N, A, Item, Key, RuntimeServiceId>(
+pub async fn add_tx<
+    MempoolNetworkBackend,
+    MempoolNetworkAdapter,
+    SamplingNetworkAdapter,
+    VerifierNetworkAdapter,
+    SamplingStorage,
+    VerifierStorage,
+    Item,
+    Key,
+    RuntimeServiceId,
+>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
     item: Item,
     converter: impl Fn(&Item) -> Key,
 ) -> Result<(), DynError>
 where
-    N: NetworkBackend<RuntimeServiceId>,
-    A: NetworkAdapter<RuntimeServiceId, Backend = N, Payload = Item, Key = Key>
+    MempoolNetworkBackend: NetworkBackend<RuntimeServiceId>,
+    MempoolNetworkAdapter: NetworkAdapter<RuntimeServiceId, Backend = MempoolNetworkBackend, Payload = Item, Key = Key>
         + Send
         + Sync
         + 'static,
-    A::Settings: Send + Sync,
+    MempoolNetworkAdapter::Settings: Send + Sync,
+    SamplingNetworkAdapter: DaSamplingNetworkAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierNetworkAdapter:
+        nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     Item: Clone + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     Key: Clone + Debug + Ord + Hash + Send + Serialize + for<'de> Deserialize<'de> + 'static,
     RuntimeServiceId: Debug
         + Sync
+        + Send
         + Display
-        + AsServiceId<TxMempoolService<A, MockPool<HeaderId, Item, Key>, RuntimeServiceId>>,
+        + AsServiceId<
+            TxMempoolService<
+                MempoolNetworkAdapter,
+                SamplingNetworkAdapter,
+                VerifierNetworkAdapter,
+                SamplingStorage,
+                VerifierStorage,
+                MockPool<HeaderId, Item, Key>,
+                RuntimeServiceId,
+            >,
+        >,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
@@ -61,12 +86,10 @@ pub async fn add_blob_info<
     Key,
     SamplingBackend,
     SamplingAdapter,
-    SamplingRng,
     SamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
     DaVerifierStorage,
-    ApiAdapter,
     RuntimeServiceId,
 >(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
@@ -80,19 +103,17 @@ where
     A::Settings: Send + Sync,
     Item: Clone + Debug + Send + Sync + 'static + Serialize + for<'de> Deserialize<'de>,
     Key: Clone + Debug + Ord + Hash + Send + Serialize + for<'de> Deserialize<'de> + 'static,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = Key> + Send,
+    SamplingBackend: DaSamplingServiceBackend<BlobId = Key> + Send,
     SamplingBackend::BlobId: Debug,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::Settings: Clone,
     SamplingAdapter: DaSamplingNetworkAdapter<RuntimeServiceId> + Send,
-    SamplingRng: SeedableRng + RngCore + Send,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
     DaVerifierBackend: VerifierBackend + Send + 'static,
     DaVerifierBackend::Settings: Clone,
     DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
-    ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -102,12 +123,10 @@ where
                 MockPool<HeaderId, Item, Key>,
                 SamplingBackend,
                 SamplingAdapter,
-                SamplingRng,
                 SamplingStorage,
                 DaVerifierBackend,
                 DaVerifierNetwork,
                 DaVerifierStorage,
-                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,

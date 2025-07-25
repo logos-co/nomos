@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use nomos_sdp_core::{FinalizedBlockEvent, FinalizedBlockEventUpdate};
+use nomos_core::sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate};
 use tests::topology::{Topology, TopologyConfig};
 
 #[tokio::test]
@@ -14,14 +14,14 @@ async fn test_update_membership_http() {
         .initial_membership
         .get(&0)
         .expect("Expected at least one membership entry")
-        .get(&nomos_sdp_core::ServiceType::DataAvailability)
+        .get(&nomos_core::sdp::ServiceType::DataAvailability)
         .expect("Expected at least one provider ID in the membership set")
         .iter()
         .next()
         .expect("Expected at least one provider ID in the membership set");
 
     let mut locators = BTreeSet::default();
-    locators.insert(nomos_sdp_core::Locator(
+    locators.insert(nomos_core::sdp::Locator(
         executor.config().network.backend.initial_peers[0].clone(),
     ));
 
@@ -29,9 +29,9 @@ async fn test_update_membership_http() {
         .update_membership(FinalizedBlockEvent {
             block_number: 1,
             updates: vec![FinalizedBlockEventUpdate {
-                service_type: nomos_sdp_core::ServiceType::DataAvailability,
+                service_type: nomos_core::sdp::ServiceType::DataAvailability,
                 provider_id: *provider_id,
-                state: nomos_sdp_core::DeclarationState::Active,
+                state: nomos_core::sdp::DeclarationState::Active,
                 locators,
             }],
         })

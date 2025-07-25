@@ -12,7 +12,6 @@ use kzgrs_backend::common::{
 use nomos_core::da::BlobId;
 use nomos_da_network_core::SubnetworkId;
 use nomos_tracing::info_with_id;
-use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use tokio::{time, time::Interval};
 use tracing::instrument;
@@ -34,14 +33,13 @@ pub struct KzgrsSamplingBackendSettings {
     pub blobs_validity_duration: Duration,
 }
 
-pub struct KzgrsSamplingBackend<R: Rng> {
+pub struct KzgrsSamplingBackend {
     settings: KzgrsSamplingBackendSettings,
     validated_blobs: BTreeSet<BlobId>,
     pending_sampling_blobs: HashMap<BlobId, SamplingContext>,
-    rng: R,
 }
 
-impl<R: Rng> KzgrsSamplingBackend<R> {
+impl KzgrsSamplingBackend {
     fn prune_by_time(&mut self) {
         self.pending_sampling_blobs.retain(|_blob_id, context| {
             context.started.elapsed() < self.settings.blobs_validity_duration
@@ -50,19 +48,18 @@ impl<R: Rng> KzgrsSamplingBackend<R> {
 }
 
 #[async_trait::async_trait]
-impl<R: Rng + Sync + Send> DaSamplingServiceBackend<R> for KzgrsSamplingBackend<R> {
+impl DaSamplingServiceBackend for KzgrsSamplingBackend {
     type Settings = KzgrsSamplingBackendSettings;
     type BlobId = BlobId;
     type Share = DaShare;
     type SharesCommitments = DaSharesCommitments;
 
-    fn new(settings: Self::Settings, rng: R) -> Self {
+    fn new(settings: Self::Settings) -> Self {
         let bt: BTreeSet<BlobId> = BTreeSet::new();
         Self {
             settings,
             validated_blobs: bt,
             pending_sampling_blobs: HashMap::new(),
-            rng,
         }
     }
 
@@ -128,16 +125,13 @@ impl<R: Rng + Sync + Send> DaSamplingServiceBackend<R> for KzgrsSamplingBackend<
             return SamplingState::Terminated;
         }
 
-        let subnets: Vec<SubnetworkId> = (0..self.settings.num_subnets)
-            .choose_multiple(&mut self.rng, self.settings.num_samples.into());
-
         let ctx: SamplingContext = SamplingContext {
             subnets: HashSet::new(),
             started: Instant::now(),
             commitment: None,
         };
         self.pending_sampling_blobs.insert(blob_id, ctx);
-        SamplingState::Init(subnets)
+        SamplingState::Init
     }
 
     fn prune(&mut self) {
@@ -173,48 +167,14 @@ mod test {
         SamplingContext, SamplingState,
     };
 
-    fn create_sampler(num_samples: usize, num_subnets: usize) -> KzgrsSamplingBackend<StdRng> {
+    fn create_sampler(num_samples: usize, num_subnets: usize) -> KzgrsSamplingBackend {
         let settings = KzgrsSamplingBackendSettings {
             num_samples: num_samples as u16,
             num_subnets: num_subnets as u16,
             old_blobs_check_interval: Duration::from_millis(20),
             blobs_validity_duration: Duration::from_millis(10),
         };
-        let rng = StdRng::from_entropy();
-        KzgrsSamplingBackend::new(settings, rng)
-    }
-
-    #[tokio::test]
-    async fn test_init_sampling_subnet_range() {
-        let number_of_subnets = 42;
-        let num_samples = 50; // Testing with more samples than subnets to check the limit
-        let mut backend = create_sampler(num_samples, number_of_subnets);
-
-        let blob_id = BlobId::default();
-        let state = backend.init_sampling(blob_id).await;
-
-        if let SamplingState::Init(subnets) = state {
-            let unique_subnet_ids: HashSet<_> = subnets.iter().copied().collect();
-
-            assert_eq!(
-                unique_subnet_ids.len(),
-                subnets.len(),
-                "Subnet IDs are not unique"
-            );
-
-            assert_eq!(
-                subnets.len(),
-                number_of_subnets.min(num_samples),
-                "Incorrect number of subnet IDs selected"
-            );
-
-            for subnet_id in subnets {
-                assert!(
-                    (subnet_id as usize) < number_of_subnets,
-                    "Subnet ID is out of range"
-                );
-            }
-        }
+        KzgrsSamplingBackend::new(settings)
     }
 
     #[tokio::test]
@@ -224,10 +184,11 @@ mod test {
 
         // create a sampler instance
         let sampler = &mut create_sampler(subnet_num, 42);
+        let mut rng = StdRng::from_entropy();
 
         // create some blobs and blob_ids
-        let b1: BlobId = sampler.rng.gen();
-        let b2: BlobId = sampler.rng.gen();
+        let b1: BlobId = rng.gen();
+        let b2: BlobId = rng.gen();
         let share = DaShare {
             share_idx: 42,
             column: Column(vec![]),
@@ -243,18 +204,16 @@ mod test {
         assert!(sampler.get_validated_blobs().await.is_empty());
 
         // start sampling for b1
-        let SamplingState::Init(subnets_to_sample) = sampler.init_sampling(b1).await else {
+        let SamplingState::Init = sampler.init_sampling(b1).await else {
             panic!("unexpected return value")
         };
-        assert!(subnets_to_sample.len() == subnet_num);
         assert!(sampler.validated_blobs.is_empty());
         assert!(sampler.pending_sampling_blobs.len() == 1);
 
         // start sampling for b2
-        let SamplingState::Init(subnets_to_sample2) = sampler.init_sampling(b2).await else {
+        let SamplingState::Init = sampler.init_sampling(b2).await else {
             panic!("unexpected return value")
         };
-        assert!(subnets_to_sample2.len() == subnet_num);
         assert!(sampler.validated_blobs.is_empty());
         assert!(sampler.pending_sampling_blobs.len() == 2);
 
@@ -385,10 +344,11 @@ mod test {
         let ctx12 = ctx11.clone();
         let ctx13 = ctx11.clone();
 
+        let mut rng = StdRng::from_entropy();
         // create a couple blob ids
-        let b1: BlobId = sampler.rng.gen();
-        let b2: BlobId = sampler.rng.gen();
-        let b3: BlobId = sampler.rng.gen();
+        let b1: BlobId = rng.gen();
+        let b2: BlobId = rng.gen();
+        let b3: BlobId = rng.gen();
 
         // insert first blob
         // pruning should have no effect

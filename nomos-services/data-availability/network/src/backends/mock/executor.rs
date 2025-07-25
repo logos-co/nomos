@@ -13,7 +13,7 @@ use tokio::sync::{
 };
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::backends::NetworkBackend;
+use crate::{backends::NetworkBackend, DaAddressbook};
 
 const BUFFER_SIZE: usize = 64;
 
@@ -74,11 +74,13 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
     type EventKind = EventKind;
     type NetworkEvent = Event;
     type Membership = MockMembership;
+    type Addressbook = DaAddressbook;
 
     fn new(
         config: Self::Settings,
         _: OverwatchHandle<RuntimeServiceId>,
         _membership: Self::Membership,
+        _addressbook: Self::Addressbook,
     ) -> Self {
         let (commands_tx, _) = mpsc::channel(BUFFER_SIZE);
         let (events_tx, _) = broadcast::channel(BUFFER_SIZE);
@@ -150,17 +152,9 @@ impl MembershipHandler for MockMembership {
         todo!()
     }
 
-    fn get_address(&self, _peer_id: &PeerId) -> Option<libp2p::Multiaddr> {
-        todo!()
-    }
-
     fn subnetworks(
         &self,
     ) -> subnetworks_assignations::SubnetworkAssignations<Self::NetworkId, Self::Id> {
-        todo!()
-    }
-
-    fn addressbook(&self) -> std::collections::HashMap<Self::Id, libp2p::Multiaddr> {
         todo!()
     }
 }

@@ -1,5 +1,8 @@
 use common_http_client::CommonHttpClient;
-use nomos_core::mantle::{ledger::Tx as LedgerTx, MantleTx, SignedMantleTx};
+use nomos_core::{
+    mantle::{ledger::Tx as LedgerTx, MantleTx, SignedMantleTx, Transaction as _},
+    proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
+};
 use reqwest::Url;
 use tests::topology::{Topology, TopologyConfig};
 
@@ -20,13 +23,17 @@ async fn test_post_mantle_tx() {
     let mantle_tx = MantleTx {
         ops: Vec::new(),
         ledger_tx: LedgerTx::new(vec![], vec![]),
-        gas_price: 0,
+        storage_gas_price: 0,
+        execution_gas_price: 0,
     };
 
     let signed_tx = SignedMantleTx {
-        mantle_tx,
         ops_profs: Vec::new(),
-        ledger_tx_proof: (),
+        ledger_tx_proof: DummyZkSignature::prove(ZkSignaturePublic {
+            msg_hash: mantle_tx.hash().into(),
+            pks: vec![],
+        }),
+        mantle_tx,
     };
 
     let client = CommonHttpClient::new(None);

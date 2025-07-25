@@ -1,12 +1,15 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     marker::PhantomData,
     num::NonZeroUsize,
+    ops::RangeInclusive,
 };
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use nomos_core::header::HeaderId;
+use cryptarchia_engine::Slot;
+use libp2p_identity::PeerId;
+use nomos_core::{block::BlockNumber, header::HeaderId};
 use thiserror::Error;
 
 use super::{StorageBackend, StorageSerde, StorageTransaction};
@@ -114,6 +117,28 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for MockStor
     ) -> Result<Option<Self::Block>, Self::Error> {
         unimplemented!()
     }
+
+    async fn store_immutable_block_ids(
+        &mut self,
+        _ids: BTreeMap<Slot, HeaderId>,
+    ) -> Result<(), Self::Error> {
+        unimplemented!()
+    }
+
+    async fn get_immutable_block_id(
+        &mut self,
+        _slot: Slot,
+    ) -> Result<Option<HeaderId>, Self::Error> {
+        unimplemented!()
+    }
+
+    async fn scan_immutable_block_ids(
+        &mut self,
+        _slot_range: RangeInclusive<Slot>,
+        _limit: NonZeroUsize,
+    ) -> Result<Vec<HeaderId>, Self::Error> {
+        unimplemented!()
+    }
 }
 
 #[async_trait]
@@ -123,6 +148,8 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
     type Share = Bytes;
     type Commitments = Bytes;
     type ShareIndex = [u8; 2];
+    type Id = PeerId;
+    type NetworkId = u16;
 
     async fn get_light_share(
         &mut self,
@@ -167,6 +194,21 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
         &mut self,
         _blob_id: Self::BlobId,
     ) -> Result<Option<Vec<Self::Share>>, Self::Error> {
+        unimplemented!()
+    }
+
+    async fn store_assignations(
+        &mut self,
+        _block_number: BlockNumber,
+        _assignations: HashMap<Self::NetworkId, HashSet<Self::Id>>,
+    ) -> Result<(), Self::Error> {
+        unimplemented!()
+    }
+
+    async fn get_assignations(
+        &mut self,
+        _block_number: BlockNumber,
+    ) -> Result<HashMap<Self::NetworkId, HashSet<Self::Id>>, Self::Error> {
         unimplemented!()
     }
 }

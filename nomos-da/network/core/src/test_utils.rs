@@ -12,7 +12,7 @@ use libp2p::{
 };
 use subnetworks_assignations::MembershipHandler;
 
-use crate::SubnetworkId;
+use crate::{addressbook::AddressBookHandler, SubnetworkId};
 
 #[derive(Clone)]
 pub struct AllNeighbours {
@@ -65,19 +65,19 @@ impl MembershipHandler for AllNeighbours {
     }
 
     fn last_subnetwork_id(&self) -> Self::NetworkId {
-        0
-    }
-
-    fn get_address(&self, peer_id: &PeerId) -> Option<libp2p::Multiaddr> {
-        self.addresses.lock().unwrap().get(peer_id).cloned()
+        1
     }
 
     fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
         HashMap::new()
     }
+}
 
-    fn addressbook(&self) -> HashMap<Self::Id, libp2p::Multiaddr> {
-        self.addresses.lock().unwrap().clone()
+impl AddressBookHandler for AllNeighbours {
+    type Id = PeerId;
+
+    fn get_address(&self, peer_id: &Self::Id) -> Option<libp2p::Multiaddr> {
+        self.addresses.lock().unwrap().get(peer_id).cloned()
     }
 }
 

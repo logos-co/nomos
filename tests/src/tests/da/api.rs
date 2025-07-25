@@ -83,7 +83,7 @@ async fn test_block_peer() {
 
     // take second peer ID from the membership set
     let existing_provider_id = *membership
-        .get(&nomos_sdp_core::ServiceType::DataAvailability)
+        .get(&nomos_core::sdp::ServiceType::DataAvailability)
         .expect("Expected at least one provider ID in the membership set")
         .iter()
         .nth(1)

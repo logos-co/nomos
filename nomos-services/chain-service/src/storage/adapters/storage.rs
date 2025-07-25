@@ -1,5 +1,6 @@
-use std::marker::PhantomData;
+use std::{collections::BTreeMap, marker::PhantomData};
 
+use cryptarchia_engine::Slot;
 use nomos_core::{block::Block, header::HeaderId};
 use nomos_storage::{
     api::chain::StorageChainApi, backends::StorageBackend, StorageMsg, StorageService,
@@ -104,5 +105,16 @@ where
             .map_err(|_| "Failed to convert block to storage format.")?;
 
         Ok(Some(deserialized_block))
+    }
+
+    async fn store_immutable_block_ids(
+        &self,
+        blocks: BTreeMap<Slot, HeaderId>,
+    ) -> Result<(), overwatch::DynError> {
+        self.storage_relay
+            .send(StorageMsg::store_immutable_block_ids_request(blocks))
+            .await
+            .map_err(|_| "Failed to send store_immutable_block_id request to storage relay")?;
+        Ok(())
     }
 }

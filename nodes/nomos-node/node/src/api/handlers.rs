@@ -28,7 +28,9 @@ use nomos_core::{
 use nomos_da_messages::http::da::{
     DASharesCommitmentsRequest, DaSamplingRequest, GetRangeReq, GetSharesRequest,
 };
-use nomos_da_network_service::{backends::NetworkBackend, NetworkService};
+use nomos_da_network_service::{
+    api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend, NetworkService,
+};
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_da_verifier::backend::VerifierBackend;
 use nomos_http_api_common::paths;
@@ -44,7 +46,6 @@ use nomos_storage::{
     StorageService,
 };
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
-use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 
@@ -74,17 +75,50 @@ macro_rules! make_request_and_return_response {
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn cl_metrics<T, RuntimeServiceId>(
+pub async fn cl_metrics<
+    Tx,
+    SamplingNetworkAdapter,
+    VerifierNetworkAdapter,
+    SamplingStorage,
+    VerifierStorage,
+    RuntimeServiceId,
+>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
-    T: Transaction + Clone + Debug + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
-    <T as Transaction>::Hash:
+    Tx: Transaction + Clone + Debug + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+    <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierNetworkAdapter:
+        nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    RuntimeServiceId: Debug
+        + Send
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<
+            ClMempoolService<
+                Tx,
+                SamplingNetworkAdapter,
+                VerifierNetworkAdapter,
+                SamplingStorage,
+                VerifierStorage,
+                RuntimeServiceId,
+            >,
+        >,
 {
-    make_request_and_return_response!(cl::cl_mempool_metrics::<T, RuntimeServiceId>(&handle))
+    make_request_and_return_response!(cl::cl_mempool_metrics::<
+        Tx,
+        SamplingNetworkAdapter,
+        VerifierNetworkAdapter,
+        SamplingStorage,
+        VerifierStorage,
+        RuntimeServiceId,
+    >(&handle))
 }
 
 #[utoipa::path(
@@ -95,17 +129,50 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn cl_status<T, RuntimeServiceId>(
+pub async fn cl_status<
+    Tx,
+    SamplingNetworkAdapter,
+    VerifierNetworkAdapter,
+    SamplingStorage,
+    VerifierStorage,
+    RuntimeServiceId,
+>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
-    Json(items): Json<Vec<<T as Transaction>::Hash>>,
+    Json(items): Json<Vec<<Tx as Transaction>::Hash>>,
 ) -> Response
 where
-    T: Transaction + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
-    <T as Transaction>::Hash: Serialize + DeserializeOwned + Ord + Debug + Send + Sync + 'static,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<ClMempoolService<T, RuntimeServiceId>>,
+    Tx: Transaction + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
+    <Tx as Transaction>::Hash: Serialize + DeserializeOwned + Ord + Debug + Send + Sync + 'static,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierNetworkAdapter:
+        nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    RuntimeServiceId: Debug
+        + Send
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<
+            ClMempoolService<
+                Tx,
+                SamplingNetworkAdapter,
+                VerifierNetworkAdapter,
+                SamplingStorage,
+                VerifierStorage,
+                RuntimeServiceId,
+            >,
+        >,
 {
-    make_request_and_return_response!(cl::cl_mempool_status::<T, RuntimeServiceId>(&handle, items))
+    make_request_and_return_response!(cl::cl_mempool_status::<
+        Tx,
+        SamplingNetworkAdapter,
+        VerifierNetworkAdapter,
+        SamplingStorage,
+        VerifierStorage,
+        RuntimeServiceId,
+    >(&handle, items))
 }
 #[derive(Deserialize)]
 pub struct CryptarchiaInfoQuery {
@@ -126,13 +193,11 @@ pub async fn cryptarchia_info<
     SS,
     SamplingBackend,
     SamplingNetworkAdapter,
-    SamplingRng,
     SamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
     DaVerifierStorage,
     TimeBackend,
-    ApiAdapter,
     RuntimeServiceId,
     const SIZE: usize,
 >(
@@ -143,8 +208,7 @@ where
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SS: StorageSerde + Send + Sync + 'static,
-    SamplingRng: SeedableRng + RngCore,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = BlobId> + Send,
+    SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
@@ -157,7 +221,6 @@ where
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -168,13 +231,11 @@ where
                 SS,
                 SamplingBackend,
                 SamplingNetworkAdapter,
-                SamplingRng,
                 SamplingStorage,
                 DaVerifierBackend,
                 DaVerifierNetwork,
                 DaVerifierStorage,
                 TimeBackend,
-                ApiAdapter,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -185,13 +246,11 @@ where
         SS,
         SamplingBackend,
         SamplingNetworkAdapter,
-        SamplingRng,
         SamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
         DaVerifierStorage,
         TimeBackend,
-        ApiAdapter,
         RuntimeServiceId,
         SIZE,
     >(&handle))
@@ -210,13 +269,11 @@ pub async fn cryptarchia_headers<
     SS,
     SamplingBackend,
     SamplingNetworkAdapter,
-    SamplingRng,
     SamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
     DaVerifierStorage,
     TimeBackend,
-    ApiAdapter,
     RuntimeServiceId,
     const SIZE: usize,
 >(
@@ -228,8 +285,7 @@ where
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SS: StorageSerde + Send + Sync + 'static,
-    SamplingRng: SeedableRng + RngCore,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = BlobId> + Send,
+    SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
@@ -242,7 +298,6 @@ where
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -253,13 +308,11 @@ where
                 SS,
                 SamplingBackend,
                 SamplingNetworkAdapter,
-                SamplingRng,
                 SamplingStorage,
                 DaVerifierBackend,
                 DaVerifierNetwork,
                 DaVerifierStorage,
                 TimeBackend,
-                ApiAdapter,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -271,13 +324,11 @@ where
         SS,
         SamplingBackend,
         SamplingNetworkAdapter,
-        SamplingRng,
         SamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
         DaVerifierStorage,
         TimeBackend,
-        ApiAdapter,
         RuntimeServiceId,
         SIZE,
     >(&handle, from, to))
@@ -341,13 +392,11 @@ pub async fn get_range<
     SS,
     SamplingBackend,
     SamplingNetworkAdapter,
-    SamplingRng,
     SamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
     DaVerifierStorage,
     TimeBackend,
-    ApiAdapter,
     RuntimeServiceId,
     const SIZE: usize,
 >(
@@ -385,9 +434,7 @@ where
         AsRef<[u8]> + Clone + Serialize + DeserializeOwned + PartialOrd + Send + Sync,
     SS: StorageSerde + Send + Sync + 'static,
     <SS as StorageSerde>::Error: Send + Sync + 'static,
-    SamplingRng: SeedableRng + RngCore,
-    SamplingBackend:
-        DaSamplingServiceBackend<SamplingRng, BlobId = <V as DispersedBlobInfo>::BlobId> + Send,
+    SamplingBackend: DaSamplingServiceBackend<BlobId = <V as DispersedBlobInfo>::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
@@ -400,7 +447,6 @@ where
     DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -413,13 +459,11 @@ where
                 SS,
                 SamplingBackend,
                 SamplingNetworkAdapter,
-                SamplingRng,
                 SamplingStorage,
                 DaVerifierBackend,
                 DaVerifierNetwork,
                 DaVerifierStorage,
                 TimeBackend,
-                ApiAdapter,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -432,13 +476,11 @@ where
         SS,
         SamplingBackend,
         SamplingNetworkAdapter,
-        SamplingRng,
         SamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
         DaVerifierStorage,
         TimeBackend,
-        ApiAdapter,
         RuntimeServiceId,
         SIZE,
     >(&handle, app_id, range))
@@ -457,6 +499,7 @@ pub async fn block_peer<
     Membership,
     MembershipAdapter,
     MembershipStorage,
+    ApiAdapter,
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
@@ -468,6 +511,7 @@ where
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync + 'static,
     Membership::NetworkId: Send + Sync + 'static,
+    ApiAdapter: ApiAdapterTrait + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -478,6 +522,7 @@ where
                 Membership,
                 MembershipAdapter,
                 MembershipStorage,
+                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -487,6 +532,7 @@ where
         Membership,
         MembershipAdapter,
         MembershipStorage,
+        ApiAdapter,
         RuntimeServiceId,
     >(&handle, peer_id))
 }
@@ -505,6 +551,7 @@ pub async fn unblock_peer<
     Membership,
     MembershipAdapter,
     MembershipStorage,
+    ApiAdapter,
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
@@ -516,6 +563,7 @@ where
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync + 'static,
     Membership::NetworkId: Send + Sync + 'static,
+    ApiAdapter: ApiAdapterTrait + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -526,6 +574,7 @@ where
                 Membership,
                 MembershipAdapter,
                 MembershipStorage,
+                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -535,6 +584,7 @@ where
         Membership,
         MembershipAdapter,
         MembershipStorage,
+        ApiAdapter,
         RuntimeServiceId,
     >(&handle, peer_id))
 }
@@ -552,6 +602,7 @@ pub async fn blacklisted_peers<
     Membership,
     MembershipAdapter,
     MembershipStorage,
+    ApiAdapter,
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
@@ -562,6 +613,7 @@ where
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync + 'static,
     Membership::NetworkId: Send + Sync + 'static,
+    ApiAdapter: ApiAdapterTrait + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -572,6 +624,7 @@ where
                 Membership,
                 MembershipAdapter,
                 MembershipStorage,
+                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -581,6 +634,7 @@ where
         Membership,
         MembershipAdapter,
         MembershipStorage,
+        ApiAdapter,
         RuntimeServiceId,
     >(&handle))
 }
@@ -800,6 +854,7 @@ pub async fn balancer_stats<
     Membership,
     MembershipAdapter,
     MembershipStorage,
+    ApiAdapter,
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
@@ -810,6 +865,7 @@ where
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync + 'static,
     Membership::NetworkId: Send + Sync + 'static,
+    ApiAdapter: ApiAdapterTrait + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -820,6 +876,7 @@ where
                 Membership,
                 MembershipAdapter,
                 MembershipStorage,
+                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -829,6 +886,7 @@ where
         Membership,
         MembershipAdapter,
         MembershipStorage,
+        ApiAdapter,
         RuntimeServiceId,
     >(&handle))
 }
@@ -846,6 +904,7 @@ pub async fn monitor_stats<
     Membership,
     MembershipAdapter,
     MembershipStorage,
+    ApiAdapter,
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
@@ -856,6 +915,7 @@ where
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync + 'static,
     Membership::NetworkId: Send + Sync + 'static,
+    ApiAdapter: ApiAdapterTrait + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -866,6 +926,7 @@ where
                 Membership,
                 MembershipAdapter,
                 MembershipStorage,
+                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -875,6 +936,7 @@ where
         Membership,
         MembershipAdapter,
         MembershipStorage,
+        ApiAdapter,
         RuntimeServiceId,
     >(&handle))
 }
@@ -887,7 +949,14 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn add_tx<Tx, RuntimeServiceId>(
+pub async fn add_tx<
+    Tx,
+    SamplingNetworkAdapter,
+    VerifierNetworkAdapter,
+    SamplingStorage,
+    VerifierStorage,
+    RuntimeServiceId,
+>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(tx): Json<Tx>,
 ) -> Response
@@ -895,13 +964,24 @@ where
     Tx: Transaction + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierNetworkAdapter:
+        nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    VerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     RuntimeServiceId: Debug
         + Sync
+        + Send
         + Display
         + 'static
         + AsServiceId<
             TxMempoolService<
                 MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
+                SamplingNetworkAdapter,
+                VerifierNetworkAdapter,
+                SamplingStorage,
+                VerifierStorage,
                 MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
                 RuntimeServiceId,
             >,
@@ -910,6 +990,10 @@ where
     make_request_and_return_response!(mempool::add_tx::<
         Libp2pNetworkBackend,
         MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
+        SamplingNetworkAdapter,
+        VerifierNetworkAdapter,
+        SamplingStorage,
+        VerifierStorage,
         Tx,
         <Tx as Transaction>::Hash,
         RuntimeServiceId,
@@ -928,12 +1012,10 @@ pub async fn add_blob_info<
     B,
     SamplingBackend,
     SamplingAdapter,
-    SamplingRng,
     SamplingStorage,
     DaVerifierBackend,
     DaVerifierNetwork,
     DaVerifierStorage,
-    ApiAdapter,
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
@@ -951,21 +1033,18 @@ where
         + 'static,
     <B as DispersedBlobInfo>::BlobId:
         Ord + Clone + Debug + Hash + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = <B as DispersedBlobInfo>::BlobId>
-        + Send
-        + 'static,
+    SamplingBackend:
+        DaSamplingServiceBackend<BlobId = <B as DispersedBlobInfo>::BlobId> + Send + 'static,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
     SamplingAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + 'static,
-    SamplingRng: SeedableRng + RngCore + Send + 'static,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
     DaVerifierBackend: VerifierBackend + Send + 'static,
     DaVerifierBackend::Settings: Clone,
     DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
     DaVerifierNetwork::Settings: Clone,
-    ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -976,12 +1055,10 @@ where
                 MockPool<HeaderId, B, <B as DispersedBlobInfo>::BlobId>,
                 SamplingBackend,
                 SamplingAdapter,
-                SamplingRng,
                 SamplingStorage,
                 DaVerifierBackend,
                 DaVerifierNetwork,
                 DaVerifierStorage,
-                ApiAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -993,12 +1070,10 @@ where
         <B as DispersedBlobInfo>::BlobId,
         SamplingBackend,
         SamplingAdapter,
-        SamplingRng,
         SamplingStorage,
         DaVerifierBackend,
         DaVerifierNetwork,
         DaVerifierStorage,
-        ApiAdapter,
         RuntimeServiceId,
     >(&handle, blob_info, DispersedBlobInfo::blob_id))
 }

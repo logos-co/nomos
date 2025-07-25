@@ -27,7 +27,6 @@ use overwatch::{
     services::{relay::OutboundRelay, AsServiceId},
     OpaqueServiceResourcesHandle,
 };
-use rand::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{
@@ -62,7 +61,6 @@ pub struct CryptarchiaConsensusRelays<
     DaPoolAdapter,
     NetworkAdapter,
     SamplingBackend,
-    SamplingRng,
     Storage,
     TxS,
     DaVerifierBackend,
@@ -77,8 +75,7 @@ pub struct CryptarchiaConsensusRelays<
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId>,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
     Storage: StorageBackend + Send + Sync + 'static,
-    SamplingRng: SeedableRng + RngCore,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng>,
+    SamplingBackend: DaSamplingServiceBackend,
     TxS: TxSelect,
     DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend,
 {
@@ -109,7 +106,6 @@ impl<
         DaPoolAdapter,
         NetworkAdapter,
         SamplingBackend,
-        SamplingRng,
         Storage,
         TxS,
         DaVerifierBackend,
@@ -124,7 +120,6 @@ impl<
         DaPoolAdapter,
         NetworkAdapter,
         SamplingBackend,
-        SamplingRng,
         Storage,
         TxS,
         DaVerifierBackend,
@@ -152,10 +147,9 @@ where
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
     NetworkAdapter::Settings: Send,
-    SamplingBackend: DaSamplingServiceBackend<SamplingRng, BlobId = DaPool::Key> + Send,
+    SamplingBackend: DaSamplingServiceBackend<BlobId = DaPool::Key> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
-    SamplingRng: SeedableRng + RngCore,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block:
         TryFrom<Block<ClPool::Item, DaPool::Item>> + TryInto<Block<ClPool::Item, DaPool::Item>>,
@@ -205,7 +199,6 @@ where
         DaVerifierNetwork,
         DaVerifierStorage,
         TimeBackend,
-        ApiAdapter,
     >(
         service_resources_handle: &OpaqueServiceResourcesHandle<
             CryptarchiaConsensus<
@@ -220,13 +213,11 @@ where
                 Storage,
                 SamplingBackend,
                 SamplingNetworkAdapter,
-                SamplingRng,
                 SamplingStorage,
                 DaVerifierBackend,
                 DaVerifierNetwork,
                 DaVerifierStorage,
                 TimeBackend,
-                ApiAdapter,
                 RuntimeServiceId,
             >,
             RuntimeServiceId,
@@ -239,8 +230,10 @@ where
         BS::Settings: Sync,
         NetworkAdapter::Settings: Sync + Send,
         BlendAdapter::Settings: Sync,
-        SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
-        SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+        SamplingNetworkAdapter:
+            nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+        SamplingStorage:
+            nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
         DaVerifierStorage:
             nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
         DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + Sync + 'static,
@@ -250,7 +243,6 @@ where
         DaVerifierNetwork::Settings: Clone,
         TimeBackend: TimeBackendTrait,
         TimeBackend::Settings: Clone + Send + Sync,
-        ApiAdapter: nomos_da_sampling::api::ApiAdapter + Send + Sync,
         RuntimeServiceId: Debug
             + Sync
             + Send
@@ -265,19 +257,27 @@ where
                     RuntimeServiceId,
                 >,
             >
-            + AsServiceId<TxMempoolService<ClPoolAdapter, ClPool, RuntimeServiceId>>
+            + AsServiceId<
+                TxMempoolService<
+                    ClPoolAdapter,
+                    SamplingNetworkAdapter,
+                    DaVerifierNetwork,
+                    SamplingStorage,
+                    DaVerifierStorage,
+                    ClPool,
+                    RuntimeServiceId,
+                >,
+            >
             + AsServiceId<
                 DaMempoolService<
                     DaPoolAdapter,
                     DaPool,
                     SamplingBackend,
                     SamplingNetworkAdapter,
-                    SamplingRng,
                     SamplingStorage,
                     DaVerifierBackend,
                     DaVerifierNetwork,
                     DaVerifierStorage,
-                    ApiAdapter,
                     RuntimeServiceId,
                 >,
             >
@@ -285,12 +285,10 @@ where
                 DaSamplingService<
                     SamplingBackend,
                     SamplingNetworkAdapter,
-                    SamplingRng,
                     SamplingStorage,
                     DaVerifierBackend,
                     DaVerifierNetwork,
                     DaVerifierStorage,
-                    ApiAdapter,
                     RuntimeServiceId,
                 >,
             >
@@ -314,19 +312,19 @@ where
 
         let cl_mempool_relay = service_resources_handle
             .overwatch_handle
-            .relay::<TxMempoolService<_, _, _>>()
+            .relay::<TxMempoolService<_, _, _, _, _, _, _>>()
             .await
             .expect("Relay connection with CL MemPoolService should succeed");
 
         let da_mempool_relay = service_resources_handle
             .overwatch_handle
-            .relay::<DaMempoolService<_, _, _, _, _, _, _, _, _, _, _>>()
+            .relay::<DaMempoolService<_, _, _, _, _, _, _, _, _>>()
             .await
             .expect("Relay connection with DA MemPoolService should succeed");
 
         let sampling_relay = service_resources_handle
             .overwatch_handle
-            .relay::<DaSamplingService<_, _, _, _, _, _, _, _, _>>()
+            .relay::<DaSamplingService<_, _, _, _, _, _, _>>()
             .await
             .expect("Relay connection with SamplingService should succeed");
 

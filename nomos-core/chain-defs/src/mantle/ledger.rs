@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     crypto::Digest as _,
-    mantle::{keys::PublicKey, tx::TxHash, Transaction, TransactionHasher},
+    mantle::{gas::GasConstants, keys::PublicKey, tx::TxHash, Transaction, TransactionHasher},
     utils::serde_bytes_newtype,
 };
 
@@ -18,6 +18,18 @@ impl NoteId {
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
+    }
+}
+
+impl AsRef<[u8; 32]> for NoteId {
+    fn as_ref(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl AsRef<[u8]> for NoteId {
+    fn as_ref(&self) -> &[u8] {
+        &self.0[..]
     }
 }
 
@@ -110,6 +122,23 @@ impl Tx {
             output_index: index,
             note: *note,
         })
+    }
+
+    #[must_use]
+    pub const fn execution_gas<Constants: GasConstants>(&self) -> u64 {
+        Constants::LEDGER_TX
+    }
+
+    pub fn utxos(&self) -> impl Iterator<Item = Utxo> + '_ {
+        let tx_hash = self.hash();
+        self.outputs
+            .iter()
+            .enumerate()
+            .map(move |(index, note)| Utxo {
+                tx_hash,
+                output_index: index,
+                note: *note,
+            })
     }
 }
 

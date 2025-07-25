@@ -1,8 +1,7 @@
 use async_trait::async_trait;
-use nomos_sdp_core::{
-    ledger::{DeclarationsRepository, DeclarationsRepositoryError},
-    DeclarationInfo,
-};
+use nomos_core::sdp::{self, DeclarationInfo};
+
+use crate::backends::{DeclarationsRepository, DeclarationsRepositoryError};
 
 pub struct LedgerDeclarationAdapter;
 
@@ -20,7 +19,7 @@ impl SdpDeclarationAdapter for LedgerDeclarationAdapter {
 impl DeclarationsRepository for LedgerDeclarationAdapter {
     async fn get(
         &self,
-        _id: nomos_sdp_core::DeclarationId,
+        _id: sdp::DeclarationId,
     ) -> Result<DeclarationInfo, DeclarationsRepositoryError> {
         todo!()
     }
@@ -34,8 +33,8 @@ impl DeclarationsRepository for LedgerDeclarationAdapter {
 
     async fn check_nonce(
         &self,
-        _declaration_id: nomos_sdp_core::DeclarationId,
-        _nonce: nomos_sdp_core::Nonce,
+        _declaration_id: sdp::DeclarationId,
+        _nonce: sdp::Nonce,
     ) -> Result<(), DeclarationsRepositoryError> {
         todo!()
     }

@@ -3,9 +3,9 @@ use std::{
     vec,
 };
 
-use nomos_core::block::BlockNumber;
-use nomos_sdp_core::{
-    FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId, ServiceType,
+use nomos_core::{
+    block::BlockNumber,
+    sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId, ServiceType},
 };
 use serde::{Deserialize, Serialize};
 
@@ -96,12 +96,12 @@ impl MembershipBackend for MockMembershipBackend {
             let service_data = latest_entry.entry(service_type).or_default();
 
             match state {
-                nomos_sdp_core::DeclarationState::Active => {
+                nomos_core::sdp::DeclarationState::Active => {
                     self.locators_mapping.insert(provider_id, locators.clone());
                     service_data.insert(provider_id);
                 }
-                nomos_sdp_core::DeclarationState::Inactive
-                | nomos_sdp_core::DeclarationState::Withdrawn => {
+                nomos_core::sdp::DeclarationState::Inactive
+                | nomos_core::sdp::DeclarationState::Withdrawn => {
                     service_data.remove(&provider_id);
                     self.locators_mapping.remove(&provider_id);
                 }
@@ -158,10 +158,13 @@ mod tests {
     use std::collections::{BTreeSet, HashMap, HashSet};
 
     use multiaddr::multiaddr;
-    use nomos_core::block::BlockNumber;
-    use nomos_sdp_core::{
-        DeclarationId, DeclarationInfo, DeclarationMessage, DeclarationState, FinalizedBlockEvent,
-        FinalizedBlockEventUpdate, Locator, ProviderId, ServiceType, ZkPublicKey,
+    use nomos_core::{
+        block::BlockNumber,
+        sdp::{
+            DeclarationId, DeclarationInfo, DeclarationMessage, DeclarationState,
+            FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId, ServiceType,
+            ZkPublicKey,
+        },
     };
 
     use super::{
