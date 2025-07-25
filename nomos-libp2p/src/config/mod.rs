@@ -47,6 +47,10 @@ pub struct SwarmConfig {
     /// Identify config
     #[serde(default)]
     pub identify_config: identify::Settings,
+
+    /// Chain sync config
+    #[serde(default)]
+    pub chain_sync_config: cryptarchia_sync::Config,
 }
 
 impl Default for SwarmConfig {
@@ -59,6 +63,7 @@ impl Default for SwarmConfig {
             protocol_name_env: ProtocolName::default(),
             kademlia_config: kademlia::Settings::default(),
             identify_config: identify::Settings::default(),
+            chain_sync_config: cryptarchia_sync::Config::default(),
         }
     }
 }

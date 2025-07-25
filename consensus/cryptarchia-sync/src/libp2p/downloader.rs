@@ -1,7 +1,7 @@
 use futures::stream;
 use libp2p::PeerId;
 use libp2p_stream::Control;
-use tokio::sync::oneshot;
+use tokio::{sync::oneshot, time, time::Duration};
 use tracing::error;
 
 use crate::{
@@ -51,16 +51,26 @@ impl Downloader {
         Ok(request_stream)
     }
 
-    pub async fn receive_tip(request_stream: TipRequestStream) -> Result<(), ChainSyncError> {
+    pub async fn receive_tip(
+        request_stream: TipRequestStream,
+        timeout: Duration,
+    ) -> Result<(), ChainSyncError> {
         let TipRequestStream {
             mut stream,
             peer_id,
             reply_channel,
         } = request_stream;
 
-        let response = unpack_from_reader::<GetTipResponse, _>(&mut stream)
-            .await
-            .map_err(|e| ChainSyncError::from((peer_id, e)));
+        let response = time::timeout(
+            timeout,
+            unpack_from_reader::<GetTipResponse, _>(&mut stream),
+        )
+        .await
+        .map_err(|e| {
+            error!("Timeout while receiving tip from peer {}", peer_id);
+            ChainSyncError::from((peer_id, e))
+        })?
+        .map_err(|e| ChainSyncError::from((peer_id, e)));
 
         if let Err(e) = reply_channel.send(response) {
             error!("Failed to send tip response to peer {peer_id}: {e:?}");
@@ -68,22 +78,29 @@ impl Downloader {
 
         utils::close_stream(peer_id, stream).await
     }
-    pub async fn receive_blocks(request_stream: BlocksRequestStream) -> Result<(), ChainSyncError> {
+    pub async fn receive_blocks(
+        request_stream: BlocksRequestStream,
+        timeout: Duration,
+    ) -> Result<(), ChainSyncError> {
         let libp2p_stream = request_stream.stream;
         let peer_id = request_stream.peer_id;
         let reply_channel = request_stream.reply_channel;
 
         let stream = stream::try_unfold(libp2p_stream, move |mut stream| async move {
-            match unpack_from_reader::<DownloadBlocksResponse, _>(&mut stream).await {
-                Ok(DownloadBlocksResponse::Block(block)) => Ok(Some((block, stream))),
-                Ok(DownloadBlocksResponse::NoMoreBlocks) => {
+            let response = time::timeout(timeout, unpack_from_reader(&mut stream)).await;
+
+            match response {
+                Ok(Ok(DownloadBlocksResponse::Block(block))) => Ok(Some((block, stream))),
+                Ok(Ok(DownloadBlocksResponse::NoMoreBlocks)) => {
                     utils::close_stream(peer_id, stream).await?;
                     Ok(None)
                 }
+                Ok(Err(e)) => {
+                    let _ = utils::close_stream(peer_id, stream).await;
+                    Err(ChainSyncError::from((peer_id, e)))
+                }
                 Err(e) => {
-                    error!("Failed to receive blocks from peer {}: {}", peer_id, e);
-                    utils::close_stream(peer_id, stream).await?;
-
+                    let _ = utils::close_stream(peer_id, stream).await;
                     Err(ChainSyncError::from((peer_id, e)))
                 }
             }

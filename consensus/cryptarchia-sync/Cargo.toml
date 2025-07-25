@@ -13,6 +13,7 @@ libp2p-stream      = { workspace = true, optional = true }
 nomos-core         = { workspace = true }
 rand               = { workspace = true }
 serde              = { version = "1", features = ["derive"] }
+serde_with         = { workspace = true }
 thiserror          = "1"
 tokio              = { version = "1", features = ["macros", "rt", "sync"] }
 tracing            = "0.1"
