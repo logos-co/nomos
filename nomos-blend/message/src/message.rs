@@ -149,7 +149,7 @@ impl Payload {
         Ok(&self.body[..len])
     }
 
-    pub fn into_components(self) -> Result<(PayloadType, Vec<u8>), Error> {
+    pub fn try_into_components(self) -> Result<(PayloadType, Vec<u8>), Error> {
         Ok((self.payload_type(), self.body()?.to_vec()))
     }
 }

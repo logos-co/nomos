@@ -214,7 +214,7 @@ async fn handle_local_data_message<
     };
 
     let Ok(wrapped_message) = cryptographic_processor
-        .encapsulate_data_message(&serialized_data_message)
+        .encapsulate_data_payload(&serialized_data_message)
         .inspect_err(|e| {
             tracing::error!(target: LOG_TARGET, "Failed to wrap message: {e:?}");
         })
@@ -299,7 +299,7 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
         .collect::<Vec<_>>();
     if cover_message_generation_flag.is_some() {
         let cover_message = cryptographic_processor
-            .encapsulate_cover_message(&random_sized_bytes::<{ size_of::<u32>() }>())
+            .encapsulate_cover_payload(&random_sized_bytes::<{ size_of::<u32>() }>())
             .expect("Should not fail to generate new cover message");
         processed_messages_relay_futures.push(Box::new(backend.publish(cover_message)));
     }

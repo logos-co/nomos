@@ -102,7 +102,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
                 }))
             }
             PartDecapsulationOutput::Completed(payload) => {
-                let (payload_type, payload_body) = payload.into_components()?;
+                let (payload_type, payload_body) = payload.try_into_components()?;
                 Ok(DecapsulationOutput::Completed(DecapsulatedMessage {
                     payload_type,
                     payload_body,

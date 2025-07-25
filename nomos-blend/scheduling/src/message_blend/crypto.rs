@@ -77,39 +77,39 @@ impl<NodeId, Rng> CryptographicProcessor<NodeId, Rng>
 where
     Rng: RngCore,
 {
-    pub fn encapsulate_cover_message(
+    pub fn encapsulate_cover_payload(
         &mut self,
         payload: &[u8],
     ) -> Result<EncapsulatedMessage, Error> {
-        self.encapsulate_message(PayloadType::Cover, payload)
+        self.encapsulate_payload(PayloadType::Cover, payload)
     }
 
-    pub fn encapsulate_and_serialize_cover_message(
+    pub fn encapsulate_and_serialize_cover_payload(
         &mut self,
         payload: &[u8],
     ) -> Result<Vec<u8>, Error> {
         Ok(serialize_encapsulated_message(
-            &self.encapsulate_cover_message(payload)?,
+            &self.encapsulate_cover_payload(payload)?,
         ))
     }
 
-    pub fn encapsulate_data_message(
+    pub fn encapsulate_data_payload(
         &mut self,
         payload: &[u8],
     ) -> Result<EncapsulatedMessage, Error> {
-        self.encapsulate_message(PayloadType::Data, payload)
+        self.encapsulate_payload(PayloadType::Data, payload)
     }
 
-    pub fn encapsulate_and_serialize_data_message(
+    pub fn encapsulate_and_serialize_data_payload(
         &mut self,
         payload: &[u8],
     ) -> Result<Vec<u8>, Error> {
         Ok(serialize_encapsulated_message(
-            &self.encapsulate_data_message(payload)?,
+            &self.encapsulate_data_payload(payload)?,
         ))
     }
 
-    fn encapsulate_message(
+    fn encapsulate_payload(
         &mut self,
         payload_type: PayloadType,
         payload: &[u8],

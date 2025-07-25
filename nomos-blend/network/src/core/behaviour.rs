@@ -36,9 +36,13 @@ use crate::{
 
 const LOG_TARGET: &str = "blend::network::behaviour";
 
-/// A [`NetworkBehaviour`]:
-/// - forwards messages to all connected peers with deduplication.
-/// - receives messages from all connected peers.
+/// A [`NetworkBehaviour`] that processes incoming Blend messages, and
+/// propagates messages from the Blend service to the rest of the Blend network.
+///
+/// The public header and uniqueness of incoming messages is validated according to the [Blend v1 specification](https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084) before the message is propagated to the swarm and to the Blend service.
+/// The same checks are applied to messages received by the Blend service before
+/// they are propagated to the rest of the network, making sure no peer marks
+/// this node as malicious due to an invalid Blend message.
 pub struct Behaviour<Rng, ObservationWindowClockProvider> {
     negotiated_peers: HashMap<PeerId, NegotiatedPeerState>,
     /// Queue of events to yield to the swarm.
@@ -50,7 +54,7 @@ pub struct Behaviour<Rng, ObservationWindowClockProvider> {
     /// Sending a message with the same identifier more than once results in
     /// the peer being flagged as malicious, and the connection dropped.
     // TODO: This cache should be cleared after the session transition period has
-    // passed, because keys and nullifiers are valid during a single session.
+    // passed.
     exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
     observation_window_clock_provider: ObservationWindowClockProvider,
     // TODO: Replace with the session stream and make this a non-Option
@@ -138,14 +142,21 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
         let validated_message = message
             .validate_public_header()
             .map_err(|_| Error::InvalidMessage)?;
-        self.forward_message(&validated_message, None)
+        self.forward_message(&validated_message, None)?;
+        self.try_wake();
+        Ok(())
     }
 
     /// Forwards a message to all connected and healthy peers except the
     /// excluded peer.
     ///
-    /// Returns [`Error::NoPeers`] if there are no connected peers that support
-    /// the blend protocol.
+    /// For each potential recipient, a uniqueness check is performed to avoid
+    /// sending a duplicate message to a peer and be marked as malicious by
+    /// them.
+    ///
+    /// Returns [`Error::NoPeers`] if there are no connected peers
+    /// that support the blend protocol or that have not yet received the
+    /// message.
     fn forward_message(
         &mut self,
         message: &EncapsulatedMessageWithValidatedPublicHeader,
@@ -184,7 +195,6 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
         if num_peers == 0 {
             Err(Error::NoPeers)
         } else {
-            self.try_wake();
             Ok(())
         }
     }
@@ -225,7 +235,6 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
         }
         // Clear the cache.
         self.exchanged_message_identifiers.remove(&peer_id);
-        self.try_wake();
     }
 
     fn handle_received_serialized_encapsulated_message(
@@ -235,8 +244,10 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
     ) {
         // Mark a peer as malicious if it sends a un-deserializable message: https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df8172927bebb75d8b988e.
         let Ok(deserialized_encapsulated_message) =
-            self.try_deserialize_encapsulated_message(serialized_message, source)
+            deserialize_encapsulated_message(serialized_message)
         else {
+            tracing::debug!(target: LOG_TARGET, "Failed to deserialize encapsulated message.");
+            self.mark_peer_as_malicious(source);
             return;
         };
 
@@ -257,38 +268,25 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
             return;
         };
 
-        // Forward the message immediately to the rest of connected peers
-        // before any further processing for fast propagation.
+        // Forward the (un-decapsulated but validated) message immediately to the rest
+        // of connected peers before any further processing for fast
+        // propagation.
         if let Err(e) = self.forward_message(&validated_message, source.sender_address()) {
             tracing::error!(target: LOG_TARGET, "Failed to forward message: {e:?}");
         }
 
-        // Start the processing
+        // Start the processing.
         let Ok(decapsulated_message) = self.try_decapsulate_message(validated_message.into_inner())
         else {
             return;
         };
 
         // Notify the swarm about the received message,
-        // so that it can be processed by the core protocol module.
+        // so that it can be further processed by the core protocol module.
         self.events
             .push_back(ToSwarm::GenerateEvent(Event::Message(Box::new(
                 decapsulated_message,
             ))));
-        self.try_wake();
-    }
-
-    fn try_deserialize_encapsulated_message(
-        &mut self,
-        serialized_message: &[u8],
-        peer_source: &PeerSource,
-    ) -> Result<EncapsulatedMessage, ()> {
-        let Ok(deserialized_message) = deserialize_encapsulated_message(serialized_message) else {
-            tracing::debug!(target: LOG_TARGET, "Failed to deserialize encapsulated message.");
-            self.mark_peer_as_malicious(peer_source);
-            return Err(());
-        };
-        Ok(deserialized_message)
     }
 
     fn check_and_update_message_cache(
