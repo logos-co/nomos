@@ -165,9 +165,8 @@ where
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
-        #[cfg(test)]
         use std::sync::Once;
-        #[cfg(test)]
+
         static ONCE_INIT: Once = Once::new();
 
         let config = service_resources_handle
@@ -237,18 +236,12 @@ where
             });
         }
 
-        #[cfg(test)]
         ONCE_INIT.call_once(move || {
             tracing_subscriber::registry()
                 .with(LevelFilter::from(config.level))
                 .with(layers)
                 .init();
         });
-        #[cfg(not(test))]
-        tracing_subscriber::registry()
-            .with(LevelFilter::from(config.level))
-            .with(layers)
-            .init();
 
         panic::set_hook(Box::new(nomos_tracing::panic::panic_hook));
 
