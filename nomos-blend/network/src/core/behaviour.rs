@@ -144,7 +144,7 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
         message: &EncapsulatedMessage,
         excluded_peer: Option<PeerId>,
     ) -> Result<(), Error> {
-        let message_id = message_id(message);
+        let message_id = message.id();
 
         let serialized_message = serialize_encapsulated_message(message);
         let mut num_peers = 0;
@@ -233,7 +233,7 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
             return;
         };
 
-        let message_identifier = message_id(&deserialized_encapsulated_message);
+        let message_identifier = deserialized_encapsulated_message.id();
 
         // Mark a (core) peer as malicious if it sends a duplicate message maliciously (i.e., if a message with the same identifier was already exchanged with them): https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81fc86bdce264466efd3.
         if let PeerSource::Core(peer_id) = *source {
@@ -321,16 +321,6 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
             Ok(decapsulated_message) => Ok(decapsulated_message),
         }
     }
-}
-
-// TODO: Replace this with the proof of quota nullifier key proof of quota
-// verification is implemented.
-const fn message_id(message: &EncapsulatedMessage) -> MessageIdentifier {
-    let message_public_header = message.public_header();
-    (
-        message_public_header.signing_pubkey,
-        message_public_header.proof_of_quota,
-    )
 }
 
 impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockProvider>

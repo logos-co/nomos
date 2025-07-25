@@ -117,6 +117,16 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
     pub const fn public_header(&self) -> &PublicHeader {
         &self.public_header
     }
+
+    // TODO: Replace this with the proof of quota nullifier key proof of quota
+    // verification is implemented.
+    #[must_use]
+    pub const fn id(&self) -> MessageIdentifier {
+        (
+            self.public_header.signing_pubkey,
+            self.public_header.proof_of_quota,
+        )
+    }
 }
 
 #[derive(Clone, Debug)]
