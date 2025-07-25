@@ -3,7 +3,7 @@ use std::{num::NonZeroU64, str::FromStr as _};
 
 use nomos_blend_message::crypto::Ed25519PrivateKey;
 use nomos_blend_scheduling::membership::Node;
-use nomos_blend_service::backends::libp2p::Libp2pBlendBackendSettings;
+use nomos_blend_service::core::backends::libp2p::Libp2pBlendBackendSettings;
 use nomos_libp2p::{
     ed25519::{self, Keypair as Ed25519Keypair},
     identity::Keypair,

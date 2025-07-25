@@ -6,7 +6,7 @@ use bytes::Bytes;
 use color_eyre::eyre::Result;
 use kzgrs_backend::common::share::DaShare;
 pub use kzgrs_backend::dispersal::BlobInfo;
-pub use nomos_blend_service::{
+pub use nomos_blend_service::core::{
     backends::libp2p::Libp2pBlendBackend as BlendBackend,
     network::libp2p::Libp2pAdapter as BlendNetworkAdapter,
 };
@@ -90,7 +90,7 @@ pub(crate) type TracingService = Tracing<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-pub(crate) type BlendService = nomos_blend_service::BlendService<
+pub(crate) type BlendService = nomos_blend_service::core::BlendService<
     BlendBackend,
     PeerId,
     BlendNetworkAdapter<RuntimeServiceId>,

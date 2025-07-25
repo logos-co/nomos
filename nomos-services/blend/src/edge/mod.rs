@@ -3,7 +3,7 @@ mod settings;
 
 use std::{fmt::Display, marker::PhantomData};
 
-use backends::BlendEdgeBackend;
+use backends::BlendBackend;
 use nomos_blend_scheduling::message_blend::crypto::CryptographicProcessor;
 use nomos_core::wire;
 use overwatch::{
@@ -16,7 +16,7 @@ use overwatch::{
 use rand::{RngCore, SeedableRng as _};
 use rand_chacha::ChaCha12Rng;
 use serde::Serialize;
-use settings::BlendEdgeSettings;
+use settings::BlendConfig;
 use tokio::time::interval;
 use tokio_stream::{wrappers::IntervalStream, StreamExt as _};
 
@@ -24,9 +24,9 @@ use crate::message::ServiceMessage;
 
 const LOG_TARGET: &str = "blend::service::edge";
 
-pub struct BlendEdgeService<Backend, NodeId, BroadcastSettings, RuntimeServiceId>
+pub struct BlendService<Backend, NodeId, BroadcastSettings, RuntimeServiceId>
 where
-    Backend: BlendEdgeBackend<NodeId, RuntimeServiceId>,
+    Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone,
 {
     backend: Backend,
@@ -35,12 +35,12 @@ where
 }
 
 impl<Backend, NodeId, BroadcastSettings, RuntimeServiceId> ServiceData
-    for BlendEdgeService<Backend, NodeId, BroadcastSettings, RuntimeServiceId>
+    for BlendService<Backend, NodeId, BroadcastSettings, RuntimeServiceId>
 where
-    Backend: BlendEdgeBackend<NodeId, RuntimeServiceId>,
+    Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone,
 {
-    type Settings = BlendEdgeSettings<Backend::Settings, NodeId>;
+    type Settings = BlendConfig<Backend::Settings, NodeId>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = ServiceMessage<BroadcastSettings>;
@@ -48,9 +48,9 @@ where
 
 #[async_trait::async_trait]
 impl<Backend, NodeId, BroadcastSettings, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for BlendEdgeService<Backend, NodeId, BroadcastSettings, RuntimeServiceId>
+    for BlendService<Backend, NodeId, BroadcastSettings, RuntimeServiceId>
 where
-    Backend: BlendEdgeBackend<NodeId, RuntimeServiceId> + Send + Sync,
+    Backend: BlendBackend<NodeId, RuntimeServiceId> + Send + Sync,
     NodeId: Clone + Send + Sync + 'static,
     BroadcastSettings: Serialize + Send,
     RuntimeServiceId: AsServiceId<Self> + Display + Clone + Send,
@@ -65,7 +65,7 @@ where
             .get_updated_settings();
         let membership = settings.membership();
         let current_membership = Some(membership.clone());
-        let backend = <Backend as BlendEdgeBackend<NodeId, RuntimeServiceId>>::new(
+        let backend = <Backend as BlendBackend<NodeId, RuntimeServiceId>>::new(
             settings.backend,
             service_resources_handle.overwatch_handle.clone(),
             Box::pin(
@@ -131,7 +131,7 @@ async fn handle_messages_to_blend<NodeId, Rng, Backend, RuntimeServiceId>(
 ) where
     NodeId: Clone + Send,
     Rng: RngCore + Send,
-    Backend: BlendEdgeBackend<NodeId, RuntimeServiceId> + Sync,
+    Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
 {
     let Ok(message) = cryptographic_processor
         .encapsulate_data_message(&message)

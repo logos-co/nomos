@@ -73,7 +73,7 @@ pub type DaIndexerService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> =
             RuntimeServiceId,
         >,
         chain_service::blend::adapters::libp2p::LibP2pAdapter<
-            nomos_blend_service::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
+            nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
             SignedMantleTx,
             BlobInfo,
             RuntimeServiceId,
@@ -175,7 +175,7 @@ pub type CryptarchiaService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> 
             RuntimeServiceId,
         >,
         chain_service::blend::adapters::libp2p::LibP2pAdapter<
-            nomos_blend_service::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
+            nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
             SignedMantleTx,
             BlobInfo,
             RuntimeServiceId,

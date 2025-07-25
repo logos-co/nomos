@@ -7,14 +7,14 @@ use serde::{Deserialize, Serialize};
 use crate::settings::TimingSettings;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct BlendEdgeSettings<BackendSettings, NodeId> {
+pub struct BlendConfig<BackendSettings, NodeId> {
     pub backend: BackendSettings,
     pub crypto: CryptographicProcessorSettings,
     pub time: TimingSettings,
     pub membership: Vec<Node<NodeId>>,
 }
 
-impl<BackendSettings, NodeId> BlendEdgeSettings<BackendSettings, NodeId>
+impl<BackendSettings, NodeId> BlendConfig<BackendSettings, NodeId>
 where
     NodeId: Clone,
 {

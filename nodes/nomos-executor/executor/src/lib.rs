@@ -3,7 +3,7 @@ pub mod config;
 
 use api::backend::AxumBackend;
 use kzgrs_backend::common::share::DaShare;
-use nomos_blend_service::{
+use nomos_blend_service::core::{
     backends::libp2p::Libp2pBlendBackend as BlendBackend,
     network::libp2p::Libp2pAdapter as BlendNetworkAdapter,
 };
@@ -49,7 +49,7 @@ type DaMembershipStorage = DaMembershipStorageGeneric<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-pub(crate) type BlendService = nomos_blend_service::BlendService<
+pub(crate) type BlendService = nomos_blend_service::core::BlendService<
     BlendBackend,
     PeerId,
     BlendNetworkAdapter<RuntimeServiceId>,

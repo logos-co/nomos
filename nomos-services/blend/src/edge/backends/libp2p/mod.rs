@@ -11,15 +11,15 @@ use libp2p::PeerId;
 use nomos_blend_scheduling::membership::Membership;
 use overwatch::overwatch::OverwatchHandle;
 use rand::RngCore;
-use settings::Libp2pBlendEdgeBackendSettings;
-use swarm::BlendEdgeSwarm;
+use settings::Libp2pBlendBackendSettings;
+use swarm::BlendSwarm;
 use tokio::sync::mpsc;
 
-use super::BlendEdgeBackend;
+use super::BlendBackend;
 
 const LOG_TARGET: &str = "blend::service::edge::backend::libp2p";
 
-pub struct Libp2pBlendEdgeBackend {
+pub struct Libp2pBlendBackend {
     swarm_task_abort_handle: AbortHandle,
     swarm_command_sender: mpsc::Sender<swarm::Command>,
 }
@@ -27,8 +27,8 @@ pub struct Libp2pBlendEdgeBackend {
 const CHANNEL_SIZE: usize = 64;
 
 #[async_trait::async_trait]
-impl<RuntimeServiceId> BlendEdgeBackend<PeerId, RuntimeServiceId> for Libp2pBlendEdgeBackend {
-    type Settings = Libp2pBlendEdgeBackendSettings;
+impl<RuntimeServiceId> BlendBackend<PeerId, RuntimeServiceId> for Libp2pBlendBackend {
+    type Settings = Libp2pBlendBackendSettings;
 
     fn new<Rng>(
         settings: Self::Settings,
@@ -41,7 +41,7 @@ impl<RuntimeServiceId> BlendEdgeBackend<PeerId, RuntimeServiceId> for Libp2pBlen
         Rng: RngCore + Send + 'static,
     {
         let (swarm_command_sender, swarm_command_receiver) = mpsc::channel(CHANNEL_SIZE);
-        let swarm = BlendEdgeSwarm::new(
+        let swarm = BlendSwarm::new(
             &settings,
             session_stream,
             current_membership,

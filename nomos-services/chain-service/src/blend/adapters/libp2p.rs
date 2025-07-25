@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
 use nomos_blend_service::{
-    backends::libp2p::Libp2pBlendBackend, message::ServiceMessage, network::NetworkAdapter,
-    BlendService,
+    core::{backends::libp2p::Libp2pBlendBackend, network::NetworkAdapter, BlendService},
+    message::ServiceMessage,
 };
 use nomos_core::{block::Block, wire};
 use nomos_network::backends::libp2p::PeerId;
