@@ -244,7 +244,6 @@ deref_into_dyn_supertrait                    = { level = "allow" }
 edition_2024_expr_fragment_specifier         = { level = "allow" }
 elided_lifetimes_in_paths                    = { level = "allow" }
 ffi_unwind_calls                             = { level = "allow" }
-if_let_rescope                               = { level = "allow" }
 impl_trait_overcaptures                      = { level = "allow" }
 keyword-idents                               = { level = "allow" }
 keyword_idents_2018                          = { level = "allow" }
