@@ -15,15 +15,15 @@ futures-timer          = { version = "3.0.3" }
 libp2p                 = { workspace = true }
 nomos-blend-message    = { workspace = true }
 nomos-blend-scheduling = { workspace = true }
-nomos-utils            = { optional = true, workspace = true }
+nomos-utils            = { workspace = true, optional = true }
 sha2                   = "0.10"
-tokio                  = { features = ["time"], optional = true, version = "1" }
-tokio-stream           = { optional = true, version = "0.1" }
+tokio                  = { version = "1", features = ["time"], optional = true }
+tokio-stream           = { version = "0.1", optional = true }
 tracing                = { workspace = true }
 
 [dev-dependencies]
-libp2p       = { features = ["ed25519", "quic", "tokio"], workspace = true }
-tokio        = { features = ["macros", "rt-multi-thread", "time"], version = "1" }
+libp2p       = { workspace = true, features = ["ed25519", "quic", "tokio"] }
+tokio        = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 tokio-stream = "0.1"
 
 [features]
