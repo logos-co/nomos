@@ -85,7 +85,6 @@ cast_possible_wrap          = { level = "allow" }
 cast_precision_loss         = { level = "allow" }
 cast_sign_loss              = { level = "allow" }
 cfg_not_test                = { level = "allow" }
-dbg_macro                   = { level = "allow" }
 error_impl_error            = { level = "allow" }
 impl_trait_in_params        = { level = "allow" }
 indexing_slicing            = { level = "allow" }
