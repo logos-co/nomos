@@ -115,13 +115,11 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        loop {
-            tokio::select! {
-                Some(message) = messages_to_blend.next() => {
-                    handle_messages_to_blend(message, &mut cryptoraphic_processor, backend).await;
-                }
-            }
+        while let Some(message) = messages_to_blend.next().await {
+            handle_messages_to_blend(message, &mut cryptoraphic_processor, backend).await;
         }
+
+        Ok(())
     }
 }
 
