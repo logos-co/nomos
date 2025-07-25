@@ -23,7 +23,6 @@ tracing                = { workspace = true }
 
 [dev-dependencies]
 libp2p       = { workspace = true, features = ["ed25519", "quic", "tokio"] }
-test-log     = { version = "0.2.18" }
 tokio        = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 tokio-stream = "0.1"
 

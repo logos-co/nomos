@@ -34,13 +34,20 @@ impl<RuntimeServiceId> BlendEdgeBackend<PeerId, RuntimeServiceId> for Libp2pBlen
         settings: Self::Settings,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         session_stream: Pin<Box<dyn Stream<Item = Membership<PeerId>> + Send>>,
+        current_membership: Option<Membership<PeerId>>,
         rng: Rng,
     ) -> Self
     where
         Rng: RngCore + Send + 'static,
     {
         let (swarm_command_sender, swarm_command_receiver) = mpsc::channel(CHANNEL_SIZE);
-        let swarm = BlendEdgeSwarm::new(&settings, session_stream, rng, swarm_command_receiver);
+        let swarm = BlendEdgeSwarm::new(
+            &settings,
+            session_stream,
+            current_membership,
+            rng,
+            swarm_command_receiver,
+        );
 
         let (swarm_task_abort_handle, swarm_task_abort_registration) = AbortHandle::new_pair();
         overwatch_handle
