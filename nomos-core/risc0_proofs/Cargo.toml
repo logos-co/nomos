@@ -169,7 +169,6 @@ rust_2024_prelude_collisions                 = { level = "allow" }
 tail_expr_drop_order                         = { level = "allow" }
 trivial_casts                                = { level = "allow" }
 unit_bindings                                = { level = "allow" }
-unnameable_types                             = { level = "allow" }
 unreachable_pub                              = { level = "allow" }
 unsafe_code                                  = { level = "allow" }
 variant_size_differences                     = { level = "allow" }
