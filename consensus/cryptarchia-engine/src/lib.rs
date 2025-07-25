@@ -615,7 +615,7 @@ pub mod tests {
     /// `[0, hash(1), hash(2), ..., hash(9)]`.
     fn create_canonical_chain(length: NonZero<u64>, c: Option<Config>) -> Cryptarchia<[u8; 32]> {
         let mut engine =
-            Cryptarchia::from_lib([0; 32], c.unwrap_or_else(config), State::Bootstrapping);
+            Cryptarchia::from_lib(hash(&0u64), c.unwrap_or_else(config), State::Bootstrapping);
         let mut parent = engine.lib();
         for i in 1..length.get() {
             let new_block = hash(&i);
@@ -675,7 +675,7 @@ pub mod tests {
     #[test]
     fn test_fork_choice() {
         // TODO: use cryptarchia
-        let mut engine = <Cryptarchia<_>>::from_lib([0; 32], config(), State::Bootstrapping);
+        let mut engine = <Cryptarchia<_>>::from_lib(hash(&0u64), config(), State::Bootstrapping);
         // by setting a low k we trigger the density choice rule, and the shorter chain
         // is denser after the fork
         engine.config.security_param = NonZero::new(10).unwrap();
@@ -754,7 +754,7 @@ pub mod tests {
 
     #[test]
     fn test_getters() {
-        let engine = <Cryptarchia<_>>::from_lib([0; 32], config(), State::Bootstrapping);
+        let engine = <Cryptarchia<_>>::from_lib(hash(&0u64), config(), State::Bootstrapping);
         let id_0 = engine.lib();
 
         // Get branch directly from HashMap
