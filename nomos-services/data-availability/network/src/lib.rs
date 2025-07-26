@@ -17,7 +17,6 @@ use futures::Stream;
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p::{Multiaddr, PeerId};
 use nomos_core::{block::BlockNumber, da::BlobId};
-use nomos_da_network_core::addressbook::AddressBookMut as _;
 use overwatch::{
     services::{
         state::{NoOperator, ServiceState},
@@ -32,12 +31,12 @@ use tokio::sync::oneshot;
 use tokio_stream::StreamExt as _;
 
 use crate::{
-    addressbook::mock::MockAddressBook,
+    addressbook::{AddressBook, AddressBookMut as _},
     api::ApiAdapter as ApiAdapterTrait,
     membership::{handler::DaMembershipHandler, MembershipAdapter},
 };
 
-pub type DaAddressbook = MockAddressBook;
+pub type DaAddressbook = AddressBook;
 
 pub enum DaNetworkMsg<Backend, Membership, Commitments, RuntimeServiceId>
 where
@@ -377,7 +376,6 @@ where
             <Membership as MembershipHandler>::NetworkId,
         > + Send
         + Sync,
-
     ApiAdapter:
         ApiAdapterTrait<BlobId = BlobId, Commitments = DaSharesCommitments> + Send + Sync + 'static,
     ApiAdapter::Settings: Clone + Send,
@@ -450,16 +448,13 @@ where
         storage: &MembershipStorage<StorageAdapter, Membership>,
         addressbook: &DaAddressbook,
     ) {
+        addressbook.update(update.clone());
         storage
-            .update(block_number, update.keys().copied().collect())
+            .update(block_number, update)
             .await
             .unwrap_or_else(|e| {
                 tracing::error!("Failed to update membership at block {block_number}: {e}");
             });
-        // since addressbook access is different then membership (get address vs
-        // snapshots) addressbook real implementation would have storage inside
-        // for update and get address
-        addressbook.update(update);
     }
 }
 
