@@ -22,6 +22,7 @@ impl ServiceData for MockStorageService {
 #[derive(Default)]
 struct StorageState {
     assignations: HashMap<BlockNumber, Assignations<PeerId, SubnetworkId>>,
+    addressbook: HashMap<PeerId, libp2p::Multiaddr>,
 }
 
 #[derive(Default)]
@@ -56,6 +57,19 @@ impl MembershipStorageAdapter<PeerId, SubnetworkId> for MockStorage {
     ) -> Result<Option<Assignations<PeerId, SubnetworkId>>, DynError> {
         let state = self.state.lock().unwrap();
         Ok(state.assignations.get(&block_number).cloned())
+    }
+
+    async fn store_addresses(
+        &self,
+        ids: HashMap<PeerId, libp2p::Multiaddr>,
+    ) -> Result<(), DynError> {
+        self.state.lock().unwrap().addressbook.extend(ids);
+        Ok(())
+    }
+
+    async fn get_address(&self, id: PeerId) -> Result<Option<libp2p::Multiaddr>, DynError> {
+        let state = self.state.lock().unwrap();
+        Ok(state.addressbook.get(&id).cloned())
     }
 
     async fn prune(&self) {

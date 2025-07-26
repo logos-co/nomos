@@ -1,7 +1,11 @@
 pub mod adapters;
-use std::collections::HashSet;
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+};
 
 use blake2::{digest::Update as BlakeUpdate, Blake2b512, Digest as _};
+use multiaddr::Multiaddr;
 use nomos_core::block::BlockNumber;
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
@@ -29,55 +33,69 @@ pub trait MembershipStorageAdapter<Id, NetworkId> {
         block_number: BlockNumber,
     ) -> Result<Option<Assignations<Id, NetworkId>>, DynError>;
 
+    async fn store_addresses(&self, ids: HashMap<Id, Multiaddr>) -> Result<(), DynError>;
+    async fn get_address(&self, id: Id) -> Result<Option<Multiaddr>, DynError>;
     async fn prune(&self);
 }
 
-pub struct MembershipStorage<Adapter, Membership> {
-    adapter: Adapter,
+pub struct MembershipStorage<MembershipAdapter, Membership> {
+    membership_adapter: MembershipAdapter,
     handler: DaMembershipHandler<Membership>,
 }
 
-impl<Adapter, Membership> MembershipStorage<Adapter, Membership>
+impl<MembershipAdapter, Membership> MembershipStorage<MembershipAdapter, Membership>
 where
-    Adapter: MembershipStorageAdapter<
+    MembershipAdapter: MembershipStorageAdapter<
             <Membership as MembershipHandler>::Id,
             <Membership as MembershipHandler>::NetworkId,
         > + Send
         + Sync,
-    Membership: MembershipCreator + MembershipHandler + Clone + Send + Sync,
-    Membership::Id: Send + Sync,
+    Membership: MembershipCreator + Clone + Send + Sync,
+    Membership::Id: Send + Sync + Clone + Copy + Eq + Hash,
 {
-    pub const fn new(adapter: Adapter, handler: DaMembershipHandler<Membership>) -> Self {
-        Self { adapter, handler }
+    pub const fn new(
+        membership_adapter: MembershipAdapter,
+        handler: DaMembershipHandler<Membership>,
+    ) -> Self {
+        Self {
+            membership_adapter,
+            handler,
+        }
     }
 
     pub async fn update(
         &self,
         block_number: BlockNumber,
-        new_members: HashSet<Membership::Id>,
+        new_members: HashMap<Membership::Id, Multiaddr>,
     ) -> Result<(), DynError> {
         let mut hasher = Blake2b512::default();
         BlakeUpdate::update(&mut hasher, block_number.to_le_bytes().as_slice());
         let seed: [u8; 64] = hasher.finalize().into();
 
+        let update: HashSet<Membership::Id> = new_members.keys().copied().collect();
+
         // Scope the RNG so it's dropped before the await
         let (updated_membership, assignations) = {
             let mut rng = BlakeRng::from_seed(seed.into());
-            let updated_membership = self.handler.membership().update(new_members, &mut rng);
+            let updated_membership = self.handler.membership().update(update, &mut rng);
             let assignations = updated_membership.subnetworks();
             (updated_membership, assignations)
         };
 
         tracing::debug!("Updating membership at block {block_number} with {assignations:?}");
         self.handler.update(updated_membership);
-        self.adapter.store(block_number, assignations).await
+        self.membership_adapter
+            .store(block_number, assignations)
+            .await?;
+
+        self.membership_adapter.store_addresses(new_members).await
     }
 
     pub async fn get_historic_membership(
         &self,
         block_number: BlockNumber,
     ) -> Result<Option<Membership>, DynError> {
-        if let Some(assignations) = self.adapter.get(block_number).await? {
+        if let Some(assignations) = self.membership_adapter.get(block_number).await? {
             return Ok(Some(self.handler.membership().init(assignations)));
         }
 

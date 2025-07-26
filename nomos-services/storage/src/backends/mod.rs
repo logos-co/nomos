@@ -4,7 +4,7 @@ pub mod mock;
 #[cfg(feature = "rocksdb-backend")]
 pub mod rocksdb;
 
-use std::{error::Error, num::NonZeroUsize};
+use std::{collections::HashMap, error::Error, num::NonZeroUsize};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -47,6 +47,10 @@ pub trait StorageBackend: StorageBackendApi + Sized {
         &mut self,
         key: Bytes,
         value: Bytes,
+    ) -> Result<(), <Self as StorageBackend>::Error>;
+    async fn bulk_store(
+        &mut self,
+        items: HashMap<Bytes, Bytes>,
     ) -> Result<(), <Self as StorageBackend>::Error>;
     async fn load(&mut self, key: &[u8]) -> Result<Option<Bytes>, <Self as StorageBackend>::Error>;
     /// Loads all values whose keys start with the given prefix.

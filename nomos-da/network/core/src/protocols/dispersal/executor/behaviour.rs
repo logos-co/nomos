@@ -544,13 +544,10 @@ where
     fn poll_dial_requests<Out, In>(&mut self, cx: &mut Context<'_>) -> Option<ToSwarm<Out, In>> {
         if let Poll::Ready(ToSwarm::Dial { mut opts }) = self.stream_behaviour.poll(cx) {
             // Attach a known peer address if possible.
-            if let Some(address) = opts
-                .get_peer_id()
-                .and_then(|peer_id: PeerId| self.addressbook.get_address(&peer_id))
-            {
-                opts = DialOpts::peer_id(opts.get_peer_id().unwrap())
-                    .addresses(vec![address])
-                    .build();
+            if let Some(peer_id) = opts.get_peer_id() {
+                if let Some(address) = self.addressbook.get_address(&peer_id) {
+                    opts = DialOpts::peer_id(peer_id).addresses(vec![address]).build();
+                }
             }
             Some(ToSwarm::Dial { opts })
         } else {
