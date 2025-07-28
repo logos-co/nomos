@@ -453,7 +453,6 @@ where
         update: HashMap<Membership::Id, Multiaddr>,
         storage: &MembershipStorage<StorageAdapter, Membership, DaAddressbook>,
     ) {
-        addressbook.update(update.clone());
         storage
             .update(block_number, update)
             .await
