@@ -153,7 +153,7 @@ impl Op {
 mod tests {
     use std::sync::LazyLock;
 
-    use serde_json::{json, Value};
+    use serde_json::json;
 
     use super::{channel::blob::BlobOp, Op};
     use crate::wire;
@@ -173,7 +173,8 @@ mod tests {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0
         ]);
-        let payload = json!({"channel": 0, "blob": zeros, "blob_size": 0, "after_tx": Value::Null, "signer": zeros, "da_storage_gas_price": 0});
+        let zero_string = "0000000000000000000000000000000000000000000000000000000000000000";
+        let payload = json!({"channel": zero_string, "blob": zeros, "blob_size": 0, "parent": zero_string, "signer": *VK, "da_storage_gas_price": 0});
         let repr = json!({"opcode": 0x01, "payload": payload});
         println!("{:?}", serde_json::to_string(&repr).unwrap());
         let op = Op::ChannelBlob(BlobOp {
@@ -193,11 +194,14 @@ mod tests {
     #[test]
     fn test_bincode_serialize_deserialize_blob_op() {
         // opcode + payload
+        // TODO: use more efficient repr for the ed25519 key
         let expected_bincode = vec![
             1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 0,
+            0, 0, 0, 0, 0, 215, 90, 152, 1, 130, 177, 10, 183, 213, 75, 254, 211, 201, 100, 7, 58,
+            14, 225, 114, 243, 218, 166, 35, 37, 175, 2, 26, 104, 247, 7, 81, 26,
         ];
 
         let blob_op = BlobOp {
