@@ -4,19 +4,21 @@ use arc_swap::ArcSwap;
 use libp2p::{Multiaddr, PeerId};
 use nomos_da_network_core::addressbook::AddressBookHandler;
 
+pub type AddressBookSnapshot<Id> = HashMap<Id, Multiaddr>;
+
 pub trait AddressBookMut: AddressBookHandler {
-    fn update(&self, new_peers: HashMap<Self::Id, Multiaddr>);
+    fn update(&self, new_peers: AddressBookSnapshot<Self::Id>);
 }
 
 #[derive(Debug, Clone)]
 pub struct AddressBook {
-    peers: Arc<ArcSwap<HashMap<PeerId, Multiaddr>>>,
+    peers: Arc<ArcSwap<AddressBookSnapshot<PeerId>>>,
 }
 
 impl Default for AddressBook {
     fn default() -> Self {
         Self {
-            peers: Arc::new(ArcSwap::from_pointee(HashMap::new())),
+            peers: Arc::new(ArcSwap::from_pointee(AddressBookSnapshot::new())),
         }
     }
 }
@@ -31,7 +33,7 @@ impl AddressBookHandler for AddressBook {
 }
 
 impl AddressBookMut for AddressBook {
-    fn update(&self, new_peers: HashMap<Self::Id, Multiaddr>) {
+    fn update(&self, new_peers: AddressBookSnapshot<Self::Id>) {
         self.peers.store(Arc::new(new_peers));
     }
 }
@@ -41,7 +43,7 @@ impl<T> AddressBookMut for Arc<T>
 where
     T: AddressBookMut,
 {
-    fn update(&self, new_peers: HashMap<Self::Id, Multiaddr>) {
+    fn update(&self, new_peers: AddressBookSnapshot<Self::Id>) {
         (**self).update(new_peers);
     }
 }

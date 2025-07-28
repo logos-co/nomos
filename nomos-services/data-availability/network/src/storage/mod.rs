@@ -15,7 +15,10 @@ use overwatch::{
 use rand::SeedableRng as _;
 use subnetworks_assignations::{MembershipCreator, MembershipHandler};
 
-use crate::membership::{handler::DaMembershipHandler, Assignations};
+use crate::{
+    addressbook::{AddressBookMut, AddressBookSnapshot},
+    membership::{handler::DaMembershipHandler, Assignations},
+};
 
 #[async_trait::async_trait]
 pub trait MembershipStorageAdapter<Id, NetworkId> {
@@ -38,12 +41,14 @@ pub trait MembershipStorageAdapter<Id, NetworkId> {
     async fn prune(&self);
 }
 
-pub struct MembershipStorage<MembershipAdapter, Membership> {
+pub struct MembershipStorage<MembershipAdapter, Membership, AddressBook> {
     membership_adapter: MembershipAdapter,
-    handler: DaMembershipHandler<Membership>,
+    membership_handler: DaMembershipHandler<Membership>,
+    addressbook: AddressBook,
 }
 
-impl<MembershipAdapter, Membership> MembershipStorage<MembershipAdapter, Membership>
+impl<MembershipAdapter, Membership, AddressBook>
+    MembershipStorage<MembershipAdapter, Membership, AddressBook>
 where
     MembershipAdapter: MembershipStorageAdapter<
             <Membership as MembershipHandler>::Id,
@@ -52,21 +57,24 @@ where
         + Sync,
     Membership: MembershipCreator + Clone + Send + Sync,
     Membership::Id: Send + Sync + Clone + Copy + Eq + Hash,
+    AddressBook: AddressBookMut<Id = Membership::Id> + Send + Sync,
 {
     pub const fn new(
         membership_adapter: MembershipAdapter,
-        handler: DaMembershipHandler<Membership>,
+        membership_handler: DaMembershipHandler<Membership>,
+        addressbook: AddressBook,
     ) -> Self {
         Self {
             membership_adapter,
-            handler,
+            membership_handler,
+            addressbook,
         }
     }
 
     pub async fn update(
         &self,
         block_number: BlockNumber,
-        new_members: HashMap<Membership::Id, Multiaddr>,
+        new_members: AddressBookSnapshot<Membership::Id>,
     ) -> Result<(), DynError> {
         let mut hasher = Blake2b512::default();
         BlakeUpdate::update(&mut hasher, block_number.to_le_bytes().as_slice());
@@ -77,28 +85,56 @@ where
         // Scope the RNG so it's dropped before the await
         let (updated_membership, assignations) = {
             let mut rng = BlakeRng::from_seed(seed.into());
-            let updated_membership = self.handler.membership().update(update, &mut rng);
+            let updated_membership = self
+                .membership_handler
+                .membership()
+                .update(update, &mut rng);
             let assignations = updated_membership.subnetworks();
             (updated_membership, assignations)
         };
 
         tracing::debug!("Updating membership at block {block_number} with {assignations:?}");
-        self.handler.update(updated_membership);
+
+        // update in-memory latest membership
+        self.membership_handler.update(updated_membership);
+        self.addressbook.update(new_members.clone());
+
+        // update membership storage
         self.membership_adapter
             .store(block_number, assignations)
             .await?;
-
         self.membership_adapter.store_addresses(new_members).await
     }
 
     pub async fn get_historic_membership(
         &self,
         block_number: BlockNumber,
-    ) -> Result<Option<Membership>, DynError> {
+    ) -> Result<Option<(Membership, AddressBookSnapshot<Membership::Id>)>, DynError> {
+        let mut membership = None;
+        let mut addressbook = AddressBookSnapshot::default();
+
         if let Some(assignations) = self.membership_adapter.get(block_number).await? {
-            return Ok(Some(self.handler.membership().init(assignations)));
+            membership = Some(self.membership_handler.membership().init(assignations));
         }
 
-        Ok(None)
+        if membership.is_none() {
+            tracing::debug!("No membership found for block {block_number}");
+            return Ok(None);
+        }
+
+        for id in membership.as_ref().unwrap().members() {
+            // retrieve address for each member to get the most up-to-date addresses
+            // todo: implement bulk address retrieval
+            // for now, we retrieve addresses one by one
+            if let Some(address) = self.membership_adapter.get_address(id).await? {
+                addressbook.insert(id, address);
+            }
+        }
+
+        tracing::debug!(
+            "Historic membership for block {block_number} found with {} members",
+            addressbook.len()
+        );
+        Ok(Some((membership.unwrap(), addressbook)))
     }
 }
