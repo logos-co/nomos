@@ -20,55 +20,6 @@ pub struct BlobOp {
 
 impl BlobOp {
     #[must_use]
-    pub const fn new(
-        channel: ChannelId,
-        blob: BlobId,
-        blob_size: u64,
-        da_storage_gas_price: Gas,
-        parent: MsgId,
-        signer: Ed25519PublicKey,
-    ) -> Self {
-        Self {
-            channel,
-            blob,
-            blob_size,
-            da_storage_gas_price,
-            parent,
-            signer,
-        }
-    }
-
-    #[must_use]
-    pub const fn channel_id(&self) -> &ChannelId {
-        &self.channel
-    }
-
-    #[must_use]
-    pub const fn blob(&self) -> &BlobId {
-        &self.blob
-    }
-
-    #[must_use]
-    pub const fn blob_size(&self) -> u64 {
-        self.blob_size
-    }
-
-    #[must_use]
-    pub const fn da_storage_gas_price(&self) -> Gas {
-        self.da_storage_gas_price
-    }
-
-    #[must_use]
-    pub const fn parent(&self) -> &MsgId {
-        &self.parent
-    }
-
-    #[must_use]
-    pub const fn signer(&self) -> &Ed25519PublicKey {
-        &self.signer
-    }
-
-    #[must_use]
     pub fn id(&self) -> MsgId {
         let mut hasher = crate::crypto::Hasher::new();
         hasher.update(self.channel.as_ref());

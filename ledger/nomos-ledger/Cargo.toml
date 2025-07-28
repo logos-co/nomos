@@ -20,5 +20,8 @@ serde                  = { version = "1.0", features = ["derive"], optional = tr
 thiserror              = "1"
 utxotree               = { workspace = true }
 
+[dev-dependencies]
+ed25519-dalek = "2.0.0"
+
 [features]
 serde = ["cryptarchia-engine/serde", "dep:nomos-utils", "dep:serde", "utxotree/serde"]
