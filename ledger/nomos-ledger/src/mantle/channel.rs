@@ -19,9 +19,9 @@ pub struct Channels {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChannelState {
-    tip: MsgId,
+    pub tip: MsgId,
     // avoid cloning the keys every new message
-    keys: Arc<[PublicKey]>,
+    pub keys: Arc<[PublicKey]>,
 }
 
 impl Default for Channels {
@@ -84,7 +84,7 @@ impl Channels {
         sig: &ed25519::Signature,
         tx_hash: &TxHash,
     ) -> Result<Self, Error> {
-        if op.keys().is_empty() {
+        if op.keys.is_empty() {
             return Err(Error::EmptyKeys { channel_id });
         }
 
@@ -92,13 +92,13 @@ impl Channels {
             if channel.keys[0].verify(tx_hash.as_ref(), sig).is_err() {
                 return Err(Error::InvalidSignature);
             }
-            channel.keys = op.keys().to_vec().into();
+            channel.keys = op.keys.clone().into();
         } else {
             self.channels = self.channels.insert(
                 channel_id,
                 ChannelState {
                     tip: MsgId::root(),
-                    keys: op.keys().to_vec().into(),
+                    keys: op.keys.clone().into(),
                 },
             );
         }
