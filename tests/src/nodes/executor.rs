@@ -1,14 +1,14 @@
 use std::{
     collections::HashSet,
     net::SocketAddr,
-    num::NonZeroU64,
+    num::{NonZeroU64, NonZeroUsize},
     ops::Range,
     path::PathBuf,
     process::{Child, Command, Stdio},
     time::Duration,
 };
 
-use chain_service::CryptarchiaSettings;
+use chain_service::{CryptarchiaSettings, OrphanConfig};
 use cryptarchia_engine::time::SlotConfig;
 use kzgrs_backend::common::share::DaShare;
 use nomos_api::http::membership::MembershipUpdateRequest;
@@ -345,6 +345,10 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 ibd: chain_service::IbdConfig {
                     peers: HashSet::new(),
                 },
+            },
+            orphan: OrphanConfig {
+                max_orphan_cache_size: NonZeroUsize::new(5)
+                    .expect("Max orphan cache size must be non-zero"),
             },
         },
         da_network: DaNetworkConfig {
