@@ -689,6 +689,7 @@ mod tests {
         pub storage: StorageService<RocksBackend<Wire>, RuntimeServiceId>,
     }
 
+    #[expect(dead_code, reason = "Fix in a separate PR")]
     struct TestEnv {
         service: overwatch::overwatch::Overwatch<RuntimeServiceId>,
         storage_relay: StorageRelay<RocksBackend<Wire>>,
