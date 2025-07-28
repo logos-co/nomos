@@ -168,7 +168,7 @@ where
         loop {
             tokio::select! {
                 Some(local_data_message) = inbound_relay.next() => {
-                    handle_local_data_message(local_data_message, &mut cryptographic_processor, backend, &mut message_scheduler).await;
+                    handle_local_data_message(local_data_message, &mut cryptographic_processor, backend, &mut message_scheduler, &blend_config, &network_adapter).await;
                 }
                 Some(incoming_message) = blend_messages.next() => {
                     handle_incoming_blend_message(incoming_message, &mut message_scheduler);
@@ -194,35 +194,50 @@ async fn handle_local_data_message<
     Rng,
     Backend,
     SessionClock,
-    BroadcastSettings,
+    NetAdapter,
     RuntimeServiceId,
 >(
-    local_data_message: ServiceMessage<BroadcastSettings>,
+    local_data_message: ServiceMessage<NetAdapter::BroadcastSettings>,
     cryptographic_processor: &mut CryptographicProcessor<NodeId, Rng>,
     backend: &Backend,
-    scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
+    scheduler: &mut MessageScheduler<
+        SessionClock,
+        Rng,
+        ProcessedMessage<NetAdapter::BroadcastSettings>,
+    >,
+    settings: &BlendConfig<Backend::Settings, NodeId>,
+    network_adapter: &NetAdapter,
 ) where
-    NodeId: Send,
+    NodeId: Clone + Send + Sync,
     Rng: RngCore + Send,
     Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId> + Sync,
-    BroadcastSettings: Serialize,
+    SessionClock: Send,
+    NetAdapter: NetworkAdapter<RuntimeServiceId> + Sync,
 {
     let ServiceMessage::Blend(message_payload) = local_data_message;
 
-    let Ok(serialized_data_message) = wire::serialize(&message_payload).inspect_err(|_| tracing::error!(target: LOG_TARGET, "Message from internal service failed to be serialized.")) else {
-        return;
-    };
+    if settings.is_network_large_enough() {
+        let Ok(serialized_data_message) = wire::serialize(&message_payload).inspect_err(|_| tracing::error!(target: LOG_TARGET, "Message from internal service failed to be serialized.")) else {
+            return;
+        };
 
-    let Ok(wrapped_message) = cryptographic_processor
-        .encapsulate_data_payload(&serialized_data_message)
-        .inspect_err(|e| {
-            tracing::error!(target: LOG_TARGET, "Failed to wrap message: {e:?}");
-        })
-    else {
-        return;
-    };
-    backend.publish(wrapped_message).await;
-    scheduler.notify_new_data_message();
+        let Ok(wrapped_message) = cryptographic_processor
+            .encapsulate_data_payload(&serialized_data_message)
+            .inspect_err(|e| {
+                tracing::error!(target: LOG_TARGET, "Failed to wrap message: {e:?}");
+            })
+        else {
+            return;
+        };
+        backend.publish(wrapped_message).await;
+        scheduler.notify_new_data_message();
+    } else {
+        tracing::debug!(target: LOG_TARGET, "Network is too small to blend the message, broadcasting it directly.");
+
+        network_adapter
+            .broadcast(message_payload.message, message_payload.broadcast_settings)
+            .await;
+    }
 }
 
 /// Processes an already unwrapped and validated Blend message received from

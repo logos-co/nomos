@@ -18,6 +18,7 @@ pub struct BlendConfig<BackendSettings, NodeId> {
     pub scheduler: SchedulerSettingsExt,
     pub time: TimingSettings,
     pub membership: Vec<Node<NodeId>>,
+    pub minimum_network_size: usize,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -102,6 +103,10 @@ where
     pub(super) fn membership(&self) -> Membership<NodeId> {
         let local_signing_pubkey = self.crypto.signing_private_key.public_key();
         Membership::new(self.membership.clone(), &local_signing_pubkey)
+    }
+
+    pub(super) fn is_network_large_enough(&self) -> bool {
+        self.membership().size() >= self.minimum_network_size
     }
 }
 
