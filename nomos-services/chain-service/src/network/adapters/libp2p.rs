@@ -19,7 +19,7 @@ use rand::{seq::index::sample, thread_rng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::sync::oneshot;
 use tokio_stream::{wrappers::errors::BroadcastStreamRecvError, StreamExt as _};
-use tracing::debug;
+use tracing::info;
 
 use crate::{
     messages::NetworkMessage,
@@ -251,12 +251,14 @@ where
             MAX_PEERS_TO_TRY_FOR_ORPHAN_DOWNLOAD,
         );
 
+        info!("Requesting blocks from peers: {peers_to_request:?}");
+
         let requests = peers_to_request
             .into_iter()
             .map(|peer| {
                 let additional_blocks = additional_blocks.clone();
                 async move {
-                    let stream = self
+                    return match self
                         .request_blocks_from_peer(
                             peer,
                             target_block,
@@ -264,11 +266,17 @@ where
                             latest_immutable_block,
                             additional_blocks,
                         )
-                        .await?;
-
-                    debug!("Requested orphan parents from peer: {peer}");
-
-                    Ok(stream)
+                        .await
+                    {
+                        Ok(stream) => {
+                            info!("Successfully requested blocks from peer: {peer}");
+                            Ok(stream)
+                        }
+                        Err(e) => {
+                            info!("Failed to request blocks from peer {peer}: {e}");
+                            Err(e)
+                        }
+                    };
                 }
                 .boxed()
             })
