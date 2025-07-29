@@ -15,7 +15,7 @@ use crate::core::{
 
 /// A composed behaviour that wraps the two sub-behaviours for dealing with core
 /// and edge nodes.
-#[derive(libp2p::swarm::NetworkBehaviour)]
+#[derive(nomos_libp2p::NetworkBehaviour)]
 pub struct NetworkBehaviour<ObservationWindowClockProvider> {
     with_core: CoreToCoreBehaviour<ObservationWindowClockProvider>,
     with_edge: CoreToEdgeBehaviour,
