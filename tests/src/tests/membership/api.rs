@@ -43,6 +43,7 @@ async fn test_update_get_membership_http() {
         .await
         .unwrap();
 
+    // we add one more provider to the membership in block 2
     let mut node_key_bytes: [u8; 32] = rand::random();
     let some_addr: Multiaddr = "/ip4/127.0.0.1/udp/10000/quic-v1".parse().unwrap();
     let node_key = ed25519::SecretKey::try_from_bytes(&mut node_key_bytes)
@@ -65,11 +66,15 @@ async fn test_update_get_membership_http() {
         .await
         .unwrap();
 
+    // The first membership (block 1) is from config initial peers and has 2
+    // subnetworks and 2 peerids in addressbook.
     let membership = executor.da_get_membership(1).await.unwrap();
     assert_eq!(membership.assignations.len(), 2);
     assert_eq!(membership.assignations.get(&0).unwrap().len(), 2);
     assert_eq!(membership.addressbook.len(), 2);
 
+    // The second membership (block 2) is from the update and has 2 subnetworks and
+    // 3 peerids in addressbook.
     let membership = executor.da_get_membership(2).await.unwrap();
     assert_eq!(membership.assignations.len(), 2);
     assert!(membership.assignations.contains_key(&0));
