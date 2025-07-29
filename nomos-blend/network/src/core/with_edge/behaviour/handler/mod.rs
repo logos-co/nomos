@@ -108,7 +108,8 @@ pub enum FailureReason {
 pub enum ToBehaviour {
     /// A message has been received from the connection.
     Message(Vec<u8>),
-    FailedReception(FailureReason),
+    SubstreamOpened,
+    SubstreamClosed(Option<FailureReason>),
 }
 
 impl libp2p::swarm::ConnectionHandler for ConnectionHandler {

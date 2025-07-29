@@ -126,7 +126,7 @@ mod test {
                     }
                     // Proceed swarm1
                     event = swarm1.select_next_some() => {
-                        if let SwarmEvent::Behaviour(Event::Message(received_msg)) = event {
+                        if let SwarmEvent::Behaviour(Event::Message(received_msg, _)) = event {
                             assert_eq!(received_msg, msg);
                             break;
                         }

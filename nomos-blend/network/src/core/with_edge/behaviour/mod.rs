@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     convert::Infallible,
     task::{Context, Poll, Waker},
     time::Duration,
@@ -9,8 +9,9 @@ use either::Either;
 use libp2p::{
     core::{transport::PortUse, Endpoint},
     swarm::{
-        dummy::ConnectionHandler as DummyConnectionHandler, ConnectionDenied, ConnectionId,
-        FromSwarm, NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+        dummy::ConnectionHandler as DummyConnectionHandler, ConnectionClosed, ConnectionDenied,
+        ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent,
+        ToSwarm,
     },
     Multiaddr, PeerId,
 };
@@ -19,6 +20,8 @@ use nomos_blend_scheduling::membership::Membership;
 use crate::core::with_edge::behaviour::handler::{ConnectionHandler, ToBehaviour};
 
 mod handler;
+
+const LOG_TARGET: &str = "blend::network::core::edge::behaviour";
 
 #[derive(Debug)]
 pub enum Event {
@@ -42,16 +45,18 @@ pub struct Behaviour {
     current_membership: Option<Membership<PeerId>>,
     // Timeout to close connection with an edge node if a message is not received on time.
     connection_timeout: Duration,
+    connected_edge_peers: HashMap<PeerId, HashSet<ConnectionId>>,
 }
 
 impl Behaviour {
     #[must_use]
-    pub const fn new(config: &Config, current_membership: Option<Membership<PeerId>>) -> Self {
+    pub fn new(config: &Config, current_membership: Option<Membership<PeerId>>) -> Self {
         Self {
             events: VecDeque::new(),
             waker: None,
             current_membership,
             connection_timeout: config.connection_timeout,
+            connected_edge_peers: HashMap::new(),
         }
     }
 
@@ -97,17 +102,51 @@ impl NetworkBehaviour for Behaviour {
         Ok(Either::Right(DummyConnectionHandler))
     }
 
-    fn on_swarm_event(&mut self, _: FromSwarm) {}
+    fn on_swarm_event(&mut self, event: FromSwarm) {
+        if let FromSwarm::ConnectionClosed(ConnectionClosed {
+            peer_id,
+            connection_id,
+            ..
+        }) = event
+        {
+            let Entry::Occupied(mut entry) = self.connected_edge_peers.entry(peer_id) else {
+                return;
+            };
+            entry.get_mut().remove(&connection_id);
+            if entry.get().is_empty() {
+                entry.remove_entry();
+            }
+        }
+    }
 
     fn on_connection_handler_event(
         &mut self,
-        _: PeerId,
-        _: ConnectionId,
+        peer: PeerId,
+        connection_id: ConnectionId,
         event: THandlerOutEvent<Self>,
     ) {
-        if let Either::Left(ToBehaviour::Message(message)) = event {
-            self.events
-                .push_back(ToSwarm::GenerateEvent(Event::Message(message)));
+        match event {
+            Either::Left(ToBehaviour::Message(message)) => {
+                self.events
+                    .push_back(ToSwarm::GenerateEvent(Event::Message(message)));
+            }
+            Either::Left(ToBehaviour::SubstreamOpened) => {
+                self.connected_edge_peers
+                    .entry(peer)
+                    .or_default()
+                    .insert(connection_id);
+            }
+            Either::Left(ToBehaviour::SubstreamClosed(error)) => {
+                tracing::trace!(target: LOG_TARGET, "Substream with peer ID {peer:?} and connection ID: {connection_id:?} closed with error: {error:?}.");
+                if !self
+                    .connected_edge_peers
+                    .entry(peer)
+                    .or_default()
+                    .remove(&connection_id)
+                {
+                    tracing::warn!(target: LOG_TARGET, "Closing a substream that was not previously added to the map of open substreams. Peer ID: {peer:?}, connection ID: {connection_id:?}.");
+                }
+            }
         }
         self.try_wake();
     }

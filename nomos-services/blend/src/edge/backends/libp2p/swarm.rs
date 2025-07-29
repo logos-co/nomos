@@ -278,7 +278,7 @@ mod tests {
                     panic!("Timeout waiting for message");
                 }
                 event = peer_swarm.next() => {
-                    if let Some(SwarmEvent::Behaviour(Event::Message(message))) = event {
+                    if let Some(SwarmEvent::Behaviour(Event::Message(message, _))) = event {
                         assert_eq!(message, b"hello");
                         break;
                     }

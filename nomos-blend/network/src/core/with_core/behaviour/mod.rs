@@ -67,7 +67,7 @@ pub struct Config {
 #[derive(Debug)]
 pub enum Event {
     /// A message received from one of the peers.
-    Message(Vec<u8>),
+    Message(Vec<u8>, PeerId),
     /// A peer has been detected as spammy.
     SpammyPeer(PeerId),
     /// A peer has been detected as unhealthy.
@@ -103,7 +103,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             return Ok(());
         }
 
-        let result = self.forward_message(message, None);
+        let result = self.publish(message);
         // Add the message to the cache only if the forwarding was successfully
         // triggered
         if result.is_ok() {
@@ -117,17 +117,13 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     ///
     /// Returns [`Error::NoPeers`] if there are no connected peers that support
     /// the blend protocol.
-    fn forward_message(
-        &mut self,
-        message: &[u8],
-        excluded_peer: Option<PeerId>,
-    ) -> Result<(), Error> {
+    pub fn forward_message(&mut self, message: &[u8], excluded_peer: PeerId) -> Result<(), Error> {
         let mut num_peers = 0;
         self.negotiated_peers
             .iter()
             // Exclude from the list of candidate peers the provided peer (i.e., the sender of the
             // message we are forwarding).
-            .filter(|(peer_id, _)| (excluded_peer != Some(**peer_id)))
+            .filter(|(peer_id, _)| (excluded_peer != **peer_id))
             // Exclude from the list of candidate peers any peer that is not in a healthy state.
             .filter(|(_, peer_state)| **peer_state == NegotiatedPeerState::Healthy)
             .for_each(|(peer_id, _)| {
@@ -168,7 +164,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         }
     }
 
-    fn handle_received_message(&mut self, message: Vec<u8>, from: Option<PeerId>) {
+    fn handle_received_message(&mut self, message: Vec<u8>, from: PeerId) {
         // Add the message to the cache. If it was already seen, ignore it.
         if self
             .seen_message_cache
@@ -178,16 +174,10 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             return;
         }
 
-        // Forward the message immediately to the rest of connected peers
-        // without any processing for the fast propagation.
-        if let Err(e) = self.forward_message(&message, from) {
-            tracing::error!("Failed to forward message: {e:?}");
-        }
-
         // Notify the swarm about the received message,
         // so that it can be processed by the core protocol module.
         self.events
-            .push_back(ToSwarm::GenerateEvent(Event::Message(message)));
+            .push_back(ToSwarm::GenerateEvent(Event::Message(message, from)));
     }
 }
 
@@ -291,7 +281,7 @@ where
             Either::Left(event) => match event {
                 // A message was forwarded from the peer.
                 ToBehaviour::Message(message) => {
-                    self.handle_received_message(message, Some(peer_id));
+                    self.handle_received_message(message, peer_id);
                 }
                 // The inbound/outbound connection was fully negotiated by the peer,
                 // which means that the peer supports the blend protocol.

@@ -114,7 +114,26 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
         clippy::cognitive_complexity,
         reason = "Tracing macros generate more code that triggers this warning."
     )]
-    fn handle_blend_message(&self, msg: Vec<u8>) {
+    fn forward_swarm_message(&mut self, msg: &[u8], except: PeerId) {
+        if let Err(e) = self
+            .swarm
+            .behaviour_mut()
+            .blend_with_core
+            .forward_message(msg, except)
+        {
+            tracing::error!(target: LOG_TARGET, "Failed to forward message to blend network: {e:?}");
+            tracing::info!(counter.failed_outbound_messages = 1);
+        } else {
+            tracing::info!(counter.successful_outbound_messages = 1);
+            tracing::info!(histogram.sent_data = msg.len() as u64);
+        }
+    }
+
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "Tracing macros generate more code that triggers this warning."
+    )]
+    fn report_message_to_swarm(&self, msg: Vec<u8>) {
         tracing::debug!("Received message from a peer: {msg:?}");
 
         let msg_size = msg.len();
@@ -155,8 +174,10 @@ where
         blend_event: nomos_blend_network::core::with_core::behaviour::Event,
     ) {
         match blend_event {
-            nomos_blend_network::core::with_core::behaviour::Event::Message(msg) => {
-                self.handle_blend_message(msg);
+            nomos_blend_network::core::with_core::behaviour::Event::Message(msg, peer_id) => {
+                // Forward message received from node to all other core nodes.
+                self.forward_swarm_message(&msg, peer_id);
+                self.report_message_to_swarm(msg);
             }
             nomos_blend_network::core::with_core::behaviour::Event::SpammyPeer(peer_id) => {
                 self.handle_spammy_peer(peer_id);
@@ -184,7 +205,7 @@ where
                 // Forward message received from edge node to all core nodes.
                 self.publish_swarm_message(&msg);
                 // Report the message to the Blend service for further processing.
-                self.handle_blend_message(msg);
+                self.report_message_to_swarm(msg);
             }
         }
     }
