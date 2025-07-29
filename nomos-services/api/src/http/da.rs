@@ -483,7 +483,7 @@ where
     .await
 }
 
-pub async fn get_membership<
+pub async fn da_get_membership<
     Backend,
     Membership,
     MembershipAdapter,

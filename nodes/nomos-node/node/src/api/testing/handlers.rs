@@ -37,7 +37,7 @@ where
     >(handle, payload))
 }
 
-pub async fn get_membership<
+pub async fn da_get_membership<
     Backend,
     Membership,
     MembershipAdapter,
@@ -69,7 +69,7 @@ where
             >,
         >,
 {
-    make_request_and_return_response!(da::get_membership::<
+    make_request_and_return_response!(da::da_get_membership::<
         Backend,
         Membership,
         MembershipAdapter,
