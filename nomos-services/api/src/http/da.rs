@@ -493,7 +493,7 @@ pub async fn get_membership<
 >(
     handle: OverwatchHandle<RuntimeServiceId>,
     block_number: BlockNumber,
-) -> Result<MembershipResponse<Membership::NetworkId, Membership::Id>, DynError>
+) -> Result<MembershipResponse, DynError>
 where
     Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
     Membership: MembershipHandler + Clone + Send + Sync + 'static,

@@ -6,11 +6,9 @@ use nomos_api::http::{
     membership::{self, MembershipUpdateRequest},
 };
 use nomos_core::block::BlockNumber;
-use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
     api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend, NetworkService,
 };
-use nomos_libp2p::PeerId;
 use nomos_membership::{adapters::SdpAdapter, backends::MembershipBackend, MembershipService};
 use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
 use subnetworks_assignations::MembershipHandler;
@@ -52,8 +50,9 @@ pub async fn get_membership<
 ) -> Response
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
-    Membership:
-        MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send + Sync + 'static,
+    Membership: MembershipHandler + Clone + Send + Sync + 'static,
+    Membership::Id: Send + Sync + 'static,
+    Membership::NetworkId: Send + Sync + 'static,
     ApiAdapter: ApiAdapterTrait + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
