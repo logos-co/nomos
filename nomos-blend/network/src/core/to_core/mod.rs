@@ -1,2 +1,2 @@
-mod behaviour;
-mod error;
+pub mod behaviour;
+pub mod error;

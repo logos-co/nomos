@@ -97,7 +97,7 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
         reason = "Tracing macros generate more code that triggers this warning."
     )]
     fn handle_publish_swarm_message(&mut self, msg: &[u8]) {
-        if let Err(e) = self.swarm.behaviour_mut().blend.publish(msg) {
+        if let Err(e) = self.swarm.behaviour_mut().blend_to_core.publish(msg) {
             tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
             tracing::info!(counter.failed_outbound_messages = 1);
         } else {
@@ -146,21 +146,24 @@ where
         }
     }
 
-    fn handle_blend_behaviour_event(&mut self, blend_event: nomos_blend_network::core::Event) {
+    fn handle_blend_core_behaviour_event(
+        &mut self,
+        blend_event: nomos_blend_network::core::to_core::behaviour::Event,
+    ) {
         match blend_event {
-            nomos_blend_network::core::Event::Message(msg) => {
+            nomos_blend_network::core::to_core::behaviour::Event::Message(msg) => {
                 self.handle_blend_message(msg);
             }
-            nomos_blend_network::core::Event::SpammyPeer(peer_id) => {
+            nomos_blend_network::core::to_core::behaviour::Event::SpammyPeer(peer_id) => {
                 self.handle_spammy_peer(peer_id);
             }
-            nomos_blend_network::core::Event::UnhealthyPeer(peer_id) => {
+            nomos_blend_network::core::to_core::behaviour::Event::UnhealthyPeer(peer_id) => {
                 self.handle_unhealthy_peer(peer_id);
             }
-            nomos_blend_network::core::Event::HealthyPeer(peer_id) => {
+            nomos_blend_network::core::to_core::behaviour::Event::HealthyPeer(peer_id) => {
                 Self::handle_healthy_peer(peer_id);
             }
-            nomos_blend_network::core::Event::Error(e) => {
+            nomos_blend_network::core::to_core::behaviour::Event::Error(e) => {
                 tracing::error!(target: LOG_TARGET, "Received error from blend network: {e:?}");
                 self.check_and_dial_new_peers();
                 tracing::info!(counter.error = 1);
@@ -168,10 +171,24 @@ where
         }
     }
 
+    fn handle_blend_edge_behaviour_event(
+        &self,
+        blend_event: nomos_blend_network::core::to_edge::behaviour::Event,
+    ) {
+        match blend_event {
+            nomos_blend_network::core::to_edge::behaviour::Event::Message(msg) => {
+                self.handle_blend_message(msg);
+            }
+        }
+    }
+
     fn handle_event(&mut self, event: SwarmEvent<BlendBehaviourEvent>) {
         match event {
-            SwarmEvent::Behaviour(BlendBehaviourEvent::Blend(e)) => {
-                self.handle_blend_behaviour_event(e);
+            SwarmEvent::Behaviour(BlendBehaviourEvent::BlendToCore(e)) => {
+                self.handle_blend_core_behaviour_event(e);
+            }
+            SwarmEvent::Behaviour(BlendBehaviourEvent::BlendToEdge(e)) => {
+                self.handle_blend_edge_behaviour_event(e);
             }
             SwarmEvent::ConnectionClosed {
                 peer_id,
@@ -213,7 +230,7 @@ where
     fn check_and_dial_new_peers(&mut self) {
         let num_new_conns_needed = self
             .peering_degree
-            .saturating_sub(self.swarm.behaviour().blend.num_healthy_peers());
+            .saturating_sub(self.swarm.behaviour().blend_to_core.num_healthy_peers());
         if num_new_conns_needed > 0 {
             self.dial_random_peers(num_new_conns_needed);
         }

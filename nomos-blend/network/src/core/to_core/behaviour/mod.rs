@@ -3,7 +3,6 @@ use std::{
     convert::Infallible,
     ops::RangeInclusive,
     task::{Context, Poll, Waker},
-    time::Duration,
 };
 
 use cached::{Cached as _, SizedCache};
@@ -29,6 +28,9 @@ use crate::core::to_core::{
 };
 
 mod handler;
+
+#[cfg(feature = "tokio")]
+pub use self::handler::tokio::ObservationWindowTokioIntervalProvider;
 
 /// A [`NetworkBehaviour`]:
 /// - forwards messages to all connected peers with deduplication.

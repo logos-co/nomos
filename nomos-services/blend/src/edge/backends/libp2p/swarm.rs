@@ -231,7 +231,9 @@ mod tests {
 
     use libp2p::Multiaddr;
     use nomos_blend_message::crypto::Ed25519PrivateKey;
-    use nomos_blend_network::core::{self, Event};
+    use nomos_blend_network::core::to_core::behaviour::{
+        Behaviour, Config, Event, IntervalStreamProvider,
+    };
     use rand::rngs::OsRng;
     use tokio::time::Instant;
 
@@ -287,7 +289,7 @@ mod tests {
 
     /// Creates a Swarm with [`core::Behaviour`].
     async fn core_node_swarm() -> (
-        Swarm<core::Behaviour<ObservationWindowClockProvider>>,
+        Swarm<Behaviour<ObservationWindowClockProvider>>,
         Node<PeerId>,
     ) {
         let key = Keypair::generate_ed25519();
@@ -296,13 +298,12 @@ mod tests {
             address: Multiaddr::empty(),
             public_key: Ed25519PrivateKey::generate().public_key(),
         };
-        let behaviour = core::Behaviour::new(
-            &core::Config {
+        let behaviour = Behaviour::new(
+            &Config {
                 seen_message_cache_size: 1,
             },
             ObservationWindowClockProvider,
             Some(Membership::new(&[node.clone()], Some(&node.public_key))),
-            Duration::from_secs(1),
         );
 
         let mut swarm = SwarmBuilder::with_existing_identity(key)
@@ -320,7 +321,7 @@ mod tests {
     }
 
     async fn wait_for_listening_address(
-        swarm: &mut Swarm<core::Behaviour<ObservationWindowClockProvider>>,
+        swarm: &mut Swarm<Behaviour<ObservationWindowClockProvider>>,
     ) -> Multiaddr {
         loop {
             if let Some(SwarmEvent::NewListenAddr { address, .. }) = swarm.next().await {
@@ -331,7 +332,7 @@ mod tests {
 
     struct ObservationWindowClockProvider;
 
-    impl core::IntervalStreamProvider for ObservationWindowClockProvider {
+    impl IntervalStreamProvider for ObservationWindowClockProvider {
         type IntervalStream = futures::stream::Pending<Self::IntervalItem>;
         type IntervalItem = RangeInclusive<u64>;
 

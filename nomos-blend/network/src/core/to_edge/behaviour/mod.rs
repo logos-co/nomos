@@ -39,6 +39,7 @@ pub struct Behaviour {
 }
 
 impl Behaviour {
+    #[must_use]
     pub const fn new(config: &Config, current_membership: Option<Membership<PeerId>>) -> Self {
         Self {
             events: VecDeque::new(),
