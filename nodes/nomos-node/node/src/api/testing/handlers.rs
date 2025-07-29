@@ -1,9 +1,19 @@
 use std::fmt::{Debug, Display};
 
 use axum::{extract::State, response::Response, Json};
-use nomos_api::http::membership::{self, MembershipUpdateRequest};
+use nomos_api::http::{
+    da::{self},
+    membership::{self, MembershipUpdateRequest},
+};
+use nomos_core::block::BlockNumber;
+use nomos_da_network_core::SubnetworkId;
+use nomos_da_network_service::{
+    api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend, NetworkService,
+};
+use nomos_libp2p::PeerId;
 use nomos_membership::{adapters::SdpAdapter, backends::MembershipBackend, MembershipService};
-use overwatch::overwatch::OverwatchHandle;
+use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
+use subnetworks_assignations::MembershipHandler;
 
 use crate::make_request_and_return_response;
 
@@ -20,11 +30,52 @@ where
         + Debug
         + Display
         + 'static
-        + overwatch::services::AsServiceId<MembershipService<Backend, Sdp, RuntimeServiceId>>,
+        + AsServiceId<MembershipService<Backend, Sdp, RuntimeServiceId>>,
 {
     make_request_and_return_response!(membership::update_membership_handler::<
         Backend,
         Sdp,
         RuntimeServiceId,
     >(handle, payload))
+}
+
+pub async fn get_membership<
+    Backend,
+    Membership,
+    MembershipAdapter,
+    MembershipStorage,
+    ApiAdapter,
+    RuntimeServiceId,
+>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+    Json(block_number): Json<BlockNumber>,
+) -> Response
+where
+    Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
+    Membership:
+        MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send + Sync + 'static,
+    ApiAdapter: ApiAdapterTrait + Send + Sync + 'static,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<
+            NetworkService<
+                Backend,
+                Membership,
+                MembershipAdapter,
+                MembershipStorage,
+                ApiAdapter,
+                RuntimeServiceId,
+            >,
+        >,
+{
+    make_request_and_return_response!(da::get_membership::<
+        Backend,
+        Membership,
+        MembershipAdapter,
+        MembershipStorage,
+        ApiAdapter,
+        RuntimeServiceId,
+    >(handle, block_number))
 }

@@ -38,10 +38,11 @@ use crate::{
 
 pub type DaAddressbook = AddressBook;
 
-pub type MembershipData<NetworkId, Id> = (
-    SubnetworkAssignations<NetworkId, Id>,
-    AddressBookSnapshot<Id>,
-);
+#[derive(Clone, Debug)]
+pub struct MembershipResponse<NetworkId, Id> {
+    pub assignations: SubnetworkAssignations<NetworkId, Id>,
+    pub addressbook: AddressBookSnapshot<Id>,
+}
 
 pub enum DaNetworkMsg<Backend, Membership, Commitments, RuntimeServiceId>
 where
@@ -55,7 +56,7 @@ where
     },
     GetMembership {
         block_number: BlockNumber,
-        sender: oneshot::Sender<MembershipData<Membership::NetworkId, Membership::Id>>,
+        sender: oneshot::Sender<MembershipResponse<Membership::NetworkId, Membership::Id>>,
     },
     GetCommitments {
         blob_id: BlobId,
@@ -426,14 +427,17 @@ where
                     })
                 {
                     let assignations = membership.subnetworks();
-                    sender.send((assignations, addressbook)).unwrap_or_else(|_| {
+                    sender.send(MembershipResponse { assignations, addressbook }).unwrap_or_else(|_| {
                         tracing::warn!(
                             "client hung up before a subnetwork assignations handle could be established"
                         );
                     });
                 } else {
                     tracing::warn!("No membership found for block number {block_number}");
-                    sender.send((SubnetworkAssignations::default(), AddressBookSnapshot::default())).unwrap_or_else(|_| {
+                    sender.send(MembershipResponse{
+                        assignations: SubnetworkAssignations::default(),
+                        addressbook: AddressBookSnapshot::default(),
+                    }).unwrap_or_else(|_| {
                         tracing::warn!(
                             "client hung up before a subnetwork assignations handle could be established"
                         );
