@@ -83,9 +83,9 @@ impl NetworkBehaviour for Behaviour {
         };
         // Allow only inbound connections from edge nodes.
         Ok(if membership.contains_remote(&peer) {
-            Either::Left(ConnectionHandler::new(self.connection_timeout))
-        } else {
             Either::Right(DummyConnectionHandler)
+        } else {
+            Either::Left(ConnectionHandler::new(self.connection_timeout))
         })
     }
 

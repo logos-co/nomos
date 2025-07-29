@@ -97,33 +97,26 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
 
     /// Publish an unseen message to all connected peers
     pub fn publish(&mut self, message: &[u8]) -> Result<(), Error> {
+        self.forward_message_and_maybe_exclude(message, None)
+    }
+
+    fn forward_message_and_maybe_exclude(
+        &mut self,
+        message: &[u8],
+        excluded_peer: Option<PeerId>,
+    ) -> Result<(), Error> {
         let msg_id = Self::message_id(message);
         // If the message was already seen, don't forward it again
         if self.seen_message_cache.cache_get(&msg_id).is_some() {
-            return Ok(());
+            return Err(Error::Duplicate);
         }
 
-        let result = self.publish(message);
-        // Add the message to the cache only if the forwarding was successfully
-        // triggered
-        if result.is_ok() {
-            self.seen_message_cache.cache_set(msg_id, ());
-        }
-        result
-    }
-
-    /// Forwards a message to all connected and healthy peers except the
-    /// excluded peer.
-    ///
-    /// Returns [`Error::NoPeers`] if there are no connected peers that support
-    /// the blend protocol.
-    pub fn forward_message(&mut self, message: &[u8], excluded_peer: PeerId) -> Result<(), Error> {
         let mut num_peers = 0;
         self.negotiated_peers
             .iter()
             // Exclude from the list of candidate peers the provided peer (i.e., the sender of the
             // message we are forwarding).
-            .filter(|(peer_id, _)| (excluded_peer != **peer_id))
+            .filter(|(peer_id, _)| (excluded_peer != Some(**peer_id)))
             // Exclude from the list of candidate peers any peer that is not in a healthy state.
             .filter(|(_, peer_state)| **peer_state == NegotiatedPeerState::Healthy)
             .for_each(|(peer_id, _)| {
@@ -139,9 +132,19 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         if num_peers == 0 {
             Err(Error::NoPeers)
         } else {
+            self.seen_message_cache.cache_set(msg_id, ());
             self.try_wake();
             Ok(())
         }
+    }
+
+    /// Forwards a message to all connected and healthy peers except the
+    /// excluded peer.
+    ///
+    /// Returns [`Error::NoPeers`] if there are no connected peers that support
+    /// the blend protocol.
+    pub fn forward_message(&mut self, message: &[u8], excluded_peer: PeerId) -> Result<(), Error> {
+        self.forward_message_and_maybe_exclude(message, Some(excluded_peer))
     }
 
     fn message_id(message: &[u8]) -> Vec<u8> {
@@ -165,10 +168,10 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     }
 
     fn handle_received_message(&mut self, message: Vec<u8>, from: PeerId) {
-        // Add the message to the cache. If it was already seen, ignore it.
+        // If the message was already seen, ignore it.
         if self
             .seen_message_cache
-            .cache_set(Self::message_id(&message), ())
+            .cache_get(&Self::message_id(&message))
             .is_some()
         {
             return;
