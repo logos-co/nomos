@@ -3,7 +3,7 @@ pub use std::{num::NonZeroU64, ops::RangeInclusive, time::Duration};
 pub use nomos_utils::math::NonNegativeF64;
 pub use tokio_stream::StreamExt as _;
 
-use super::IntervalStreamProvider;
+use crate::core::to_core::behaviour::IntervalStreamProvider;
 
 #[derive(Clone)]
 /// Provider of a stream of observation windows used by the Blend connection
@@ -67,7 +67,10 @@ mod test {
     use nomos_blend_scheduling::membership::{Membership, Node};
     use tokio::select;
 
-    use crate::core::{behaviour::Config, Behaviour, Error, Event, IntervalStreamProvider};
+    use crate::core::to_core::{
+        behaviour::{Behaviour, Config, Event, IntervalStreamProvider},
+        error::Error,
+    };
 
     struct TestTokioIntervalStreamProvider(Duration, RangeInclusive<u64>);
 

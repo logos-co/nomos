@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
+    convert::Infallible,
     ops::RangeInclusive,
     task::{Context, Poll, Waker},
     time::Duration,
@@ -11,22 +12,23 @@ use futures::Stream;
 use libp2p::{
     core::{transport::PortUse, Endpoint},
     swarm::{
-        ConnectionClosed, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour,
-        NotifyHandler, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+        dummy::ConnectionHandler as DummyConnectionHandler, ConnectionClosed, ConnectionDenied,
+        ConnectionId, FromSwarm, NetworkBehaviour, NotifyHandler, THandler, THandlerInEvent,
+        THandlerOutEvent, ToSwarm,
     },
     Multiaddr, PeerId,
 };
 use nomos_blend_scheduling::membership::Membership;
 use sha2::{Digest as _, Sha256};
 
-use crate::core::{
-    conn_maintenance::ConnectionMonitor,
-    handler::{
-        core::{self, FromBehaviour, ToBehaviour},
-        edge,
+use crate::core::to_core::{
+    behaviour::handler::{
+        conn_maintenance::ConnectionMonitor, ConnectionHandler, FromBehaviour, ToBehaviour,
     },
-    Error,
+    error::Error,
 };
+
+mod handler;
 
 /// A [`NetworkBehaviour`]:
 /// - forwards messages to all connected peers with deduplication.
@@ -34,7 +36,7 @@ use crate::core::{
 pub struct Behaviour<ObservationWindowClockProvider> {
     negotiated_peers: HashMap<PeerId, NegotiatedPeerState>,
     /// Queue of events to yield to the swarm.
-    events: VecDeque<ToSwarm<Event, Either<FromBehaviour, ()>>>,
+    events: VecDeque<ToSwarm<Event, Either<FromBehaviour, Infallible>>>,
     /// Waker that handles polling
     waker: Option<Waker>,
     /// An LRU cache for storing seen messages (based on their ID). This
@@ -47,7 +49,6 @@ pub struct Behaviour<ObservationWindowClockProvider> {
     observation_window_clock_provider: ObservationWindowClockProvider,
     // TODO: Replace with the session stream and make this a non-Option
     current_membership: Option<Membership<PeerId>>,
-    edge_node_connection_duration: Duration,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -80,7 +81,6 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         config: &Config,
         observation_window_clock_provider: ObservationWindowClockProvider,
         current_membership: Option<Membership<PeerId>>,
-        edge_node_connection_duration: Duration,
     ) -> Self {
         let duplicate_cache = SizedCache::with_size(config.seen_message_cache_size);
         Self {
@@ -90,7 +90,6 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             seen_message_cache: duplicate_cache,
             observation_window_clock_provider,
             current_membership,
-            edge_node_connection_duration,
         }
     }
 
@@ -196,14 +195,10 @@ where
 {
     fn create_connection_handler_for_remote_core(
         &self,
-    ) -> core::ConnectionHandler<ObservationWindowClockProvider::IntervalStream> {
-        core::ConnectionHandler::new(ConnectionMonitor::new(
+    ) -> ConnectionHandler<ObservationWindowClockProvider::IntervalStream> {
+        ConnectionHandler::new(ConnectionMonitor::new(
             self.observation_window_clock_provider.interval_stream(),
         ))
-    }
-
-    fn create_connection_handler_for_remote_edge(&self) -> edge::ConnectionHandler {
-        edge::ConnectionHandler::new(self.edge_node_connection_duration)
     }
 }
 
@@ -213,8 +208,8 @@ where
         + 'static,
 {
     type ConnectionHandler = Either<
-        core::ConnectionHandler<ObservationWindowClockProvider::IntervalStream>,
-        edge::ConnectionHandler,
+        ConnectionHandler<ObservationWindowClockProvider::IntervalStream>,
+        DummyConnectionHandler,
     >;
     type ToSwarm = Event;
 
@@ -235,7 +230,7 @@ where
         Ok(if membership.contains_remote(&peer_id) {
             Either::Left(self.create_connection_handler_for_remote_core())
         } else {
-            Either::Right(self.create_connection_handler_for_remote_edge())
+            Either::Right(DummyConnectionHandler)
         })
     }
 
@@ -254,15 +249,11 @@ where
                 self.create_connection_handler_for_remote_core(),
             ));
         };
-        if membership.contains_remote(&peer_id) {
-            Ok(Either::Left(
-                self.create_connection_handler_for_remote_core(),
-            ))
+        Ok(if membership.contains_remote(&peer_id) {
+            Either::Left(self.create_connection_handler_for_remote_core())
         } else {
-            Err(ConnectionDenied::new(
-                "No outbound stream is expected toward edge nodes.",
-            ))
-        }
+            Either::Right(DummyConnectionHandler)
+        })
     }
 
     /// Informs the behaviour about an event from the [`Swarm`].
@@ -353,17 +344,6 @@ where
                             connection_id,
                         },
                     )));
-                }
-            },
-            Either::Right(event) => match event {
-                // We "shuffle" together messages received from core and edge nodes.
-                // The difference is that for messages received by edge nodes, we forward them to
-                // all connected core nodes.
-                edge::ToBehaviour::Message(new_message) => {
-                    self.handle_received_message(new_message, None);
-                }
-                edge::ToBehaviour::FailedReception(reason) => {
-                    tracing::trace!("An attempt was made from an edge node to send a message to us, but the attempt failed. Error reason: {reason:?}");
                 }
             },
         }

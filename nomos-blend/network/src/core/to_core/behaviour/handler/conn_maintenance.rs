@@ -116,7 +116,9 @@ mod tests {
     use futures::task::noop_waker;
     use tokio_stream::StreamExt as _;
 
-    use crate::core::conn_maintenance::{ConnectionMonitor, ConnectionMonitorOutput};
+    use crate::core::to_core::behaviour::handler::conn_maintenance::{
+        ConnectionMonitor, ConnectionMonitorOutput,
+    };
 
     #[test]
     fn monitor() {
