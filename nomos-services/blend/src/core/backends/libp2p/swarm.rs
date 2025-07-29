@@ -177,6 +177,7 @@ where
             nomos_blend_network::core::with_core::behaviour::Event::Message(msg, peer_id) => {
                 // Forward message received from node to all other core nodes.
                 self.forward_swarm_message(&msg, peer_id);
+                // Report the message to the Blend service for further processing.
                 self.report_message_to_swarm(msg);
             }
             nomos_blend_network::core::with_core::behaviour::Event::SpammyPeer(peer_id) => {
