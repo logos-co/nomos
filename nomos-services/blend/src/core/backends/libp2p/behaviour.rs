@@ -8,10 +8,8 @@ use crate::core::{backends::libp2p::Libp2pBlendBackendSettings, BlendConfig};
 
 #[derive(NetworkBehaviour)]
 pub(super) struct BlendBehaviour {
-    pub(super) blend_with_core: nomos_blend_network::core::with_core::behaviour::Behaviour<
-        ObservationWindowTokioIntervalProvider,
-    >,
-    pub(super) blend_with_edge: nomos_blend_network::core::with_edge::behaviour::Behaviour,
+    pub(super) blend:
+        nomos_blend_network::core::NetworkBehaviour<ObservationWindowTokioIntervalProvider>,
     pub(super) limits: libp2p::connection_limits::Behaviour,
     pub(super) blocked_peers: libp2p::allow_block_list::Behaviour<BlockedPeers>,
 }
@@ -34,20 +32,19 @@ impl BlendBehaviour {
             rounds_per_observation_window: config.time.rounds_per_observation_window,
         };
         Self {
-            blend_with_core: nomos_blend_network::core::with_core::behaviour::Behaviour::new(
-                &nomos_blend_network::core::with_core::behaviour::Config {
-                    // TODO: This should be as (ROUNDS_IN_SESSION + BUFFER) * MAX_HOPS,
-                    // once session and round mechanisms are implemented.
-                    // https://www.notion.so/Blend-Protocol-Version-1-PENDING-MIGRATION-1c48f96fb65c809494efe63019a5ebfb?source=copy_link#2088f96fb65c80be9057c6b4ce6b7023
-                    seen_message_cache_size: 1_944_000,
+            blend: nomos_blend_network::core::NetworkBehaviour::new(
+                &nomos_blend_network::core::Config {
+                    with_core: nomos_blend_network::core::with_core::behaviour::Config {
+                        // TODO: This should be as (ROUNDS_IN_SESSION + BUFFER) * MAX_HOPS,
+                        // once session and round mechanisms are implemented.
+                        // https://www.notion.so/Blend-Protocol-Version-1-PENDING-MIGRATION-1c48f96fb65c809494efe63019a5ebfb?source=copy_link#2088f96fb65c80be9057c6b4ce6b7023
+                        seen_message_cache_size: 1_944_000,
+                    },
+                    with_edge: nomos_blend_network::core::with_edge::behaviour::Config {
+                        connection_timeout: Duration::from_secs(1),
+                    },
                 },
                 observation_window_interval_provider,
-                Some(config.membership()),
-            ),
-            blend_with_edge: nomos_blend_network::core::with_edge::behaviour::Behaviour::new(
-                &nomos_blend_network::core::with_edge::behaviour::Config {
-                    connection_timeout: Duration::from_secs(1),
-                },
                 Some(config.membership()),
             ),
             limits: libp2p::connection_limits::Behaviour::new(

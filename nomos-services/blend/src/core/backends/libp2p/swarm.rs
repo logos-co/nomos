@@ -2,6 +2,10 @@ use std::{collections::HashSet, time::Duration};
 
 use futures::{Stream, StreamExt as _};
 use libp2p::{identity::Keypair, PeerId, Swarm, SwarmBuilder};
+use nomos_blend_network::core::{
+    with_core::behaviour::Event as CoreToCoreEvent, with_edge::behaviour::Event as CoreToEdgeEvent,
+    NetworkBehaviourEvent,
+};
 use nomos_blend_scheduling::membership::Membership;
 use nomos_libp2p::{ed25519, SwarmEvent};
 use rand::RngCore;
@@ -101,7 +105,13 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
         reason = "Tracing macros generate more code that triggers this warning."
     )]
     fn publish_swarm_message(&mut self, msg: &[u8]) {
-        if let Err(e) = self.swarm.behaviour_mut().blend_with_core.publish(msg) {
+        if let Err(e) = self
+            .swarm
+            .behaviour_mut()
+            .blend
+            .with_core_mut()
+            .publish(msg)
+        {
             tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
             tracing::info!(counter.failed_outbound_messages = 1);
         } else {
@@ -118,7 +128,8 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
         if let Err(e) = self
             .swarm
             .behaviour_mut()
-            .blend_with_core
+            .blend
+            .with_core_mut()
             .forward_message(msg, except)
         {
             tracing::error!(target: LOG_TARGET, "Failed to forward message to blend network: {e:?}");
@@ -169,10 +180,7 @@ where
         }
     }
 
-    fn handle_blend_core_behaviour_event(
-        &mut self,
-        blend_event: nomos_blend_network::core::with_core::behaviour::Event,
-    ) {
+    fn handle_blend_core_behaviour_event(&mut self, blend_event: CoreToCoreEvent) {
         match blend_event {
             nomos_blend_network::core::with_core::behaviour::Event::Message(msg, peer_id) => {
                 // Forward message received from node to all other core nodes.
@@ -197,10 +205,7 @@ where
         }
     }
 
-    fn handle_blend_edge_behaviour_event(
-        &mut self,
-        blend_event: nomos_blend_network::core::with_edge::behaviour::Event,
-    ) {
+    fn handle_blend_edge_behaviour_event(&mut self, blend_event: CoreToEdgeEvent) {
         match blend_event {
             nomos_blend_network::core::with_edge::behaviour::Event::Message(msg) => {
                 // Forward message received from edge node to all core nodes.
@@ -213,10 +218,14 @@ where
 
     fn handle_event(&mut self, event: SwarmEvent<BlendBehaviourEvent>) {
         match event {
-            SwarmEvent::Behaviour(BlendBehaviourEvent::BlendWithCore(e)) => {
+            SwarmEvent::Behaviour(BlendBehaviourEvent::Blend(NetworkBehaviourEvent::WithCore(
+                e,
+            ))) => {
                 self.handle_blend_core_behaviour_event(e);
             }
-            SwarmEvent::Behaviour(BlendBehaviourEvent::BlendWithEdge(e)) => {
+            SwarmEvent::Behaviour(BlendBehaviourEvent::Blend(NetworkBehaviourEvent::WithEdge(
+                e,
+            ))) => {
                 self.handle_blend_edge_behaviour_event(e);
             }
             SwarmEvent::ConnectionClosed {
@@ -259,7 +268,7 @@ where
     fn check_and_dial_new_peers(&mut self) {
         let num_new_conns_needed = self
             .peering_degree
-            .saturating_sub(self.swarm.behaviour().blend_with_core.num_healthy_peers());
+            .saturating_sub(self.swarm.behaviour().blend.with_core().num_healthy_peers());
         if num_new_conns_needed > 0 {
             self.dial_random_peers(num_new_conns_needed);
         }

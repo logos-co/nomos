@@ -231,8 +231,10 @@ mod tests {
 
     use libp2p::Multiaddr;
     use nomos_blend_message::crypto::Ed25519PrivateKey;
-    use nomos_blend_network::core::with_core::behaviour::{
-        Behaviour, Config, Event, IntervalStreamProvider,
+    use nomos_blend_network::core::{
+        with_core::behaviour::{Config as WithCoreConfig, IntervalStreamProvider},
+        with_edge::behaviour::{Config as WithEdgeConfig, Event},
+        Config, NetworkBehaviour, NetworkBehaviourEvent,
     };
     use rand::rngs::OsRng;
     use tokio::time::Instant;
@@ -278,7 +280,7 @@ mod tests {
                     panic!("Timeout waiting for message");
                 }
                 event = peer_swarm.next() => {
-                    if let Some(SwarmEvent::Behaviour(Event::Message(message, _))) = event {
+                    if let Some(SwarmEvent::Behaviour(NetworkBehaviourEvent::WithEdge(Event::Message(message)))) = event {
                         assert_eq!(message, b"hello");
                         break;
                     }
@@ -289,7 +291,7 @@ mod tests {
 
     /// Creates a Swarm with [`core::Behaviour`].
     async fn core_node_swarm() -> (
-        Swarm<Behaviour<ObservationWindowClockProvider>>,
+        Swarm<NetworkBehaviour<ObservationWindowClockProvider>>,
         Node<PeerId>,
     ) {
         let key = Keypair::generate_ed25519();
@@ -298,9 +300,14 @@ mod tests {
             address: Multiaddr::empty(),
             public_key: Ed25519PrivateKey::generate().public_key(),
         };
-        let behaviour = Behaviour::new(
+        let behaviour = NetworkBehaviour::new(
             &Config {
-                seen_message_cache_size: 1,
+                with_core: WithCoreConfig {
+                    seen_message_cache_size: 1,
+                },
+                with_edge: WithEdgeConfig {
+                    connection_timeout: Duration::from_secs(1),
+                },
             },
             ObservationWindowClockProvider,
             Some(Membership::new(&[node.clone()], Some(&node.public_key))),
@@ -321,7 +328,7 @@ mod tests {
     }
 
     async fn wait_for_listening_address(
-        swarm: &mut Swarm<Behaviour<ObservationWindowClockProvider>>,
+        swarm: &mut Swarm<NetworkBehaviour<ObservationWindowClockProvider>>,
     ) -> Multiaddr {
         loop {
             if let Some(SwarmEvent::NewListenAddr { address, .. }) = swarm.next().await {
