@@ -17,7 +17,7 @@ use libp2p::{
 };
 
 use crate::{
-    core::to_core::behaviour::handler::conn_maintenance::{
+    core::with_core::behaviour::handler::conn_maintenance::{
         ConnectionMonitor, ConnectionMonitorOutput,
     },
     recv_msg, send_msg, PROTOCOL_NAME,

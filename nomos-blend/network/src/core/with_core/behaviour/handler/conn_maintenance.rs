@@ -6,7 +6,7 @@ use std::{
 use futures::{Stream, StreamExt as _};
 use tracing::debug;
 
-const LOG_TARGET: &str = "blend::network::core::conn_maintenance";
+const LOG_TARGET: &str = "blend::network::core::core::conn_maintenance";
 
 /// Counts the number of messages received from a peer during
 /// an interval.
@@ -116,7 +116,7 @@ mod tests {
     use futures::task::noop_waker;
     use tokio_stream::StreamExt as _;
 
-    use crate::core::to_core::behaviour::handler::conn_maintenance::{
+    use crate::core::with_core::behaviour::handler::conn_maintenance::{
         ConnectionMonitor, ConnectionMonitorOutput,
     };
 

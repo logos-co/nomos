@@ -1,2 +1,2 @@
-pub mod to_core;
-pub mod to_edge;
+pub mod with_core;
+pub mod with_edge;

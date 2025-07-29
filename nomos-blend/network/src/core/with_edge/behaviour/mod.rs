@@ -16,13 +16,13 @@ use libp2p::{
 };
 use nomos_blend_scheduling::membership::Membership;
 
-use crate::core::to_edge::behaviour::handler::{ConnectionHandler, ToBehaviour};
+use crate::core::with_edge::behaviour::handler::{ConnectionHandler, ToBehaviour};
 
 mod handler;
 
 #[derive(Debug)]
 pub enum Event {
-    /// A message received from one of the peers.
+    /// A message received from an edge peer.
     Message(Vec<u8>),
 }
 
@@ -31,10 +31,16 @@ pub struct Config {
     pub connection_timeout: Duration,
 }
 
+/// A [`NetworkBehaviour`]:
+/// - receives messages from edge nodes and forwards them to the swarm.
 pub struct Behaviour {
+    /// Queue of events to yield to the swarm.
     events: VecDeque<ToSwarm<Event, Either<Infallible, Infallible>>>,
+    /// Waker that handles polling
     waker: Option<Waker>,
+    // TODO: Replace with the session stream and make this a non-Option
     current_membership: Option<Membership<PeerId>>,
+    // Timeout to close connection with an edge node if a message is not received on time.
     connection_timeout: Duration,
 }
 
@@ -47,10 +53,6 @@ impl Behaviour {
             current_membership,
             connection_timeout: config.connection_timeout,
         }
-    }
-
-    fn create_connection_handler_for_remote_core(&self) -> ConnectionHandler {
-        ConnectionHandler::new(self.connection_timeout)
     }
 
     fn try_wake(&mut self) {
@@ -74,8 +76,9 @@ impl NetworkBehaviour for Behaviour {
         let Some(membership) = &self.current_membership else {
             return Ok(Either::Right(DummyConnectionHandler));
         };
+        // Allow only inbound connections from edge nodes.
         Ok(if membership.contains_remote(&peer) {
-            Either::Left(self.create_connection_handler_for_remote_core())
+            Either::Left(ConnectionHandler::new(self.connection_timeout))
         } else {
             Either::Right(DummyConnectionHandler)
         })
@@ -89,7 +92,8 @@ impl NetworkBehaviour for Behaviour {
         _: Endpoint,
         _: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        // No outbound sub-stream at all.
+        // No outbound sub-stream at all, since substreams with core nodes are handled
+        // elsewhere, and substreams with edge nodes are not allowed.
         Ok(Either::Right(DummyConnectionHandler))
     }
 

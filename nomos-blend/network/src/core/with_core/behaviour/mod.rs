@@ -20,7 +20,7 @@ use libp2p::{
 use nomos_blend_scheduling::membership::Membership;
 use sha2::{Digest as _, Sha256};
 
-use crate::core::to_core::{
+use crate::core::with_core::{
     behaviour::handler::{
         conn_maintenance::ConnectionMonitor, ConnectionHandler, FromBehaviour, ToBehaviour,
     },
@@ -33,8 +33,8 @@ mod handler;
 pub use self::handler::tokio::ObservationWindowTokioIntervalProvider;
 
 /// A [`NetworkBehaviour`]:
-/// - forwards messages to all connected peers with deduplication.
-/// - receives messages from all connected peers.
+/// - forwards messages to all connected core peers with deduplication.
+/// - receives messages from all connected core peers.
 pub struct Behaviour<ObservationWindowClockProvider> {
     negotiated_peers: HashMap<PeerId, NegotiatedPeerState>,
     /// Queue of events to yield to the swarm.
@@ -95,7 +95,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         }
     }
 
-    /// Publish a message to all connected peers
+    /// Publish an unseen message to all connected peers
     pub fn publish(&mut self, message: &[u8]) -> Result<(), Error> {
         let msg_id = Self::message_id(message);
         // If the message was already seen, don't forward it again
@@ -191,19 +191,6 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     }
 }
 
-impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider>
-where
-    ObservationWindowClockProvider: IntervalStreamProvider<IntervalItem = RangeInclusive<u64>>,
-{
-    fn create_connection_handler_for_remote_core(
-        &self,
-    ) -> ConnectionHandler<ObservationWindowClockProvider::IntervalStream> {
-        ConnectionHandler::new(ConnectionMonitor::new(
-            self.observation_window_clock_provider.interval_stream(),
-        ))
-    }
-}
-
 impl<ObservationWindowClockProvider> NetworkBehaviour for Behaviour<ObservationWindowClockProvider>
 where
     ObservationWindowClockProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
@@ -225,13 +212,17 @@ where
         // If no membership is provided (for tests), then we assume all peers are core
         // nodes.
         let Some(membership) = &self.current_membership else {
-            return Ok(Either::Left(
-                self.create_connection_handler_for_remote_core(),
-            ));
+            return Ok(Either::Left(ConnectionHandler::new(
+                ConnectionMonitor::new(self.observation_window_clock_provider.interval_stream()),
+            )));
         };
         Ok(if membership.contains_remote(&peer_id) {
-            Either::Left(self.create_connection_handler_for_remote_core())
+            Either::Left(ConnectionHandler::new(ConnectionMonitor::new(
+                self.observation_window_clock_provider.interval_stream(),
+            )))
         } else {
+            // Do not deny connection, but do not allow for any sub-stream to be created
+            // with a non-core node, in this behaviour.
             Either::Right(DummyConnectionHandler)
         })
     }
@@ -247,13 +238,17 @@ where
         // If no membership is provided (for tests), then we assume all peers are core
         // nodes.
         let Some(membership) = &self.current_membership else {
-            return Ok(Either::Left(
-                self.create_connection_handler_for_remote_core(),
-            ));
+            return Ok(Either::Left(ConnectionHandler::new(
+                ConnectionMonitor::new(self.observation_window_clock_provider.interval_stream()),
+            )));
         };
         Ok(if membership.contains_remote(&peer_id) {
-            Either::Left(self.create_connection_handler_for_remote_core())
+            Either::Left(ConnectionHandler::new(ConnectionMonitor::new(
+                self.observation_window_clock_provider.interval_stream(),
+            )))
         } else {
+            // Do not deny connection, but do not allow for any sub-stream to be created
+            // with a non-core node, in this behaviour.
             Either::Right(DummyConnectionHandler)
         })
     }

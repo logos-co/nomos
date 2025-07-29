@@ -231,7 +231,7 @@ mod tests {
 
     use libp2p::Multiaddr;
     use nomos_blend_message::crypto::Ed25519PrivateKey;
-    use nomos_blend_network::core::to_core::behaviour::{
+    use nomos_blend_network::core::with_core::behaviour::{
         Behaviour, Config, Event, IntervalStreamProvider,
     };
     use rand::rngs::OsRng;

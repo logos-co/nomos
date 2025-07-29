@@ -13,7 +13,7 @@ use libp2p::{
 };
 
 use crate::{
-    core::to_edge::behaviour::handler::{
+    core::with_edge::behaviour::handler::{
         dropped::DroppedState, ready_to_receive::ReadyToReceiveState, receiving::ReceivingState,
         starting::StartingState,
     },

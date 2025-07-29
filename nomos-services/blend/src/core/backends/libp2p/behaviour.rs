@@ -1,17 +1,17 @@
 use std::{num::NonZeroU64, time::Duration};
 
 use libp2p::{allow_block_list::BlockedPeers, connection_limits::ConnectionLimits, PeerId};
-use nomos_blend_network::core::to_core::behaviour::ObservationWindowTokioIntervalProvider;
+use nomos_blend_network::core::with_core::behaviour::ObservationWindowTokioIntervalProvider;
 use nomos_libp2p::NetworkBehaviour;
 
 use crate::core::{backends::libp2p::Libp2pBlendBackendSettings, BlendConfig};
 
 #[derive(NetworkBehaviour)]
 pub(super) struct BlendBehaviour {
-    pub(super) blend_to_core: nomos_blend_network::core::to_core::behaviour::Behaviour<
+    pub(super) blend_with_core: nomos_blend_network::core::with_core::behaviour::Behaviour<
         ObservationWindowTokioIntervalProvider,
     >,
-    pub(super) blend_to_edge: nomos_blend_network::core::to_edge::behaviour::Behaviour,
+    pub(super) blend_with_edge: nomos_blend_network::core::with_edge::behaviour::Behaviour,
     pub(super) limits: libp2p::connection_limits::Behaviour,
     pub(super) blocked_peers: libp2p::allow_block_list::Behaviour<BlockedPeers>,
 }
@@ -34,8 +34,8 @@ impl BlendBehaviour {
             rounds_per_observation_window: config.time.rounds_per_observation_window,
         };
         Self {
-            blend_to_core: nomos_blend_network::core::to_core::behaviour::Behaviour::new(
-                &nomos_blend_network::core::to_core::behaviour::Config {
+            blend_with_core: nomos_blend_network::core::with_core::behaviour::Behaviour::new(
+                &nomos_blend_network::core::with_core::behaviour::Config {
                     // TODO: This should be as (ROUNDS_IN_SESSION + BUFFER) * MAX_HOPS,
                     // once session and round mechanisms are implemented.
                     // https://www.notion.so/Blend-Protocol-Version-1-PENDING-MIGRATION-1c48f96fb65c809494efe63019a5ebfb?source=copy_link#2088f96fb65c80be9057c6b4ce6b7023
@@ -44,8 +44,8 @@ impl BlendBehaviour {
                 observation_window_interval_provider,
                 Some(config.membership()),
             ),
-            blend_to_edge: nomos_blend_network::core::to_edge::behaviour::Behaviour::new(
-                &nomos_blend_network::core::to_edge::behaviour::Config {
+            blend_with_edge: nomos_blend_network::core::with_edge::behaviour::Behaviour::new(
+                &nomos_blend_network::core::with_edge::behaviour::Config {
                     connection_timeout: Duration::from_secs(1),
                 },
                 Some(config.membership()),
