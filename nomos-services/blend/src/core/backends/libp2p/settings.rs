@@ -1,5 +1,5 @@
 use core::time::Duration;
-use std::num::NonZeroU64;
+use std::{num::NonZeroU64, ops::RangeInclusive};
 
 use libp2p::Multiaddr;
 use nomos_libp2p::ed25519;
@@ -16,8 +16,7 @@ pub struct Libp2pBlendBackendSettings {
         default = "ed25519::SecretKey::generate"
     )]
     pub node_key: ed25519::SecretKey,
-    pub peering_degree: usize,
-    pub max_peering_degree: u32,
+    pub peering_degree: RangeInclusive<usize>,
     pub minimum_messages_coefficient: NonZeroU64,
     pub normalization_constant: NonNegativeF64,
     #[serde_as(

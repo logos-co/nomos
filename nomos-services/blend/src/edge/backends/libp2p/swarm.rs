@@ -304,6 +304,7 @@ mod tests {
             &Config {
                 with_core: WithCoreConfig {
                     seen_message_cache_size: 1,
+                    peering_degree: usize::MIN..=usize::MAX,
                 },
                 with_edge: WithEdgeConfig {
                     connection_timeout: Duration::from_secs(1),

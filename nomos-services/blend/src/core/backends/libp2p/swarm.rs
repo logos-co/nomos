@@ -1,4 +1,4 @@
-use std::{collections::HashSet, time::Duration};
+use std::{collections::HashSet, ops::RangeInclusive, time::Duration};
 
 use futures::{Stream, StreamExt as _};
 use libp2p::{identity::Keypair, PeerId, Swarm, SwarmBuilder};
@@ -31,7 +31,7 @@ pub(super) struct BlendSwarm<SessionStream, Rng> {
     session_stream: SessionStream,
     latest_session_info: Membership<PeerId>,
     rng: Rng,
-    peering_degree: usize,
+    min_outgoing_peering_degree: usize,
 }
 
 impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng>
@@ -68,7 +68,7 @@ where
 
         // Dial the initial peers randomly selected
         membership
-            .choose_remote_nodes(&mut rng, config.backend.peering_degree)
+            .choose_remote_nodes(&mut rng, *config.backend.peering_degree.start())
             .for_each(|peer| {
                 if let Err(e) = swarm.dial(peer.address.clone()) {
                     tracing::error!(target: LOG_TARGET, "Failed to dial a peer: {e:?}");
@@ -82,7 +82,7 @@ where
             session_stream,
             latest_session_info: membership,
             rng,
-            peering_degree: config.backend.peering_degree,
+            min_outgoing_peering_degree: *config.backend.peering_degree.start(),
         }
     }
 }
@@ -266,9 +266,13 @@ where
     /// Dial new peers, if necessary, to maintain the peering degree.
     /// We aim to have at least the peering degree number of "healthy" peers.
     fn check_and_dial_new_peers(&mut self) {
-        let num_new_conns_needed = self
-            .peering_degree
-            .saturating_sub(self.swarm.behaviour().blend.with_core().num_healthy_peers());
+        let num_new_conns_needed = self.min_outgoing_peering_degree.saturating_sub(
+            self.swarm
+                .behaviour()
+                .blend
+                .with_core()
+                .num_connected_outgoing_peers(),
+        );
         if num_new_conns_needed > 0 {
             self.dial_random_peers(num_new_conns_needed);
         }

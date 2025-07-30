@@ -39,6 +39,7 @@ impl BlendBehaviour {
                         // once session and round mechanisms are implemented.
                         // https://www.notion.so/Blend-Protocol-Version-1-PENDING-MIGRATION-1c48f96fb65c809494efe63019a5ebfb?source=copy_link#2088f96fb65c80be9057c6b4ce6b7023
                         seen_message_cache_size: 1_944_000,
+                        peering_degree: config.backend.peering_degree.clone(),
                     },
                     with_edge: nomos_blend_network::core::with_edge::behaviour::Config {
                         connection_timeout: Duration::from_secs(1),
@@ -49,9 +50,7 @@ impl BlendBehaviour {
             ),
             limits: libp2p::connection_limits::Behaviour::new(
                 ConnectionLimits::default()
-                    .with_max_established(Some(config.backend.max_peering_degree))
-                    .with_max_established_incoming(Some(config.backend.max_peering_degree))
-                    .with_max_established_outgoing(Some(config.backend.max_peering_degree))
+                    .with_max_established(Some(*config.backend.peering_degree.end() as u32))
                     // Blend protocol restricts the number of connections per peer to 1.
                     .with_max_established_per_peer(Some(1)),
             ),

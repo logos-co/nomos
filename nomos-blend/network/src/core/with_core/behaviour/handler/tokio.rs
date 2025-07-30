@@ -318,6 +318,7 @@ mod test {
             Behaviour::new(
                 &Config {
                     seen_message_cache_size: 1000,
+                    peering_degree: usize::MIN..=usize::MAX,
                 },
                 TestTokioIntervalStreamProvider(
                     expected_duration,
