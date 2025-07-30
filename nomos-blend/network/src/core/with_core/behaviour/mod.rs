@@ -298,7 +298,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         self.peering_degree_info.remaining_incoming_capacity() > 0
     }
 
-    fn can_open_outgoing_connection(&self) -> bool {
+    pub fn can_open_outgoing_connection(&self) -> bool {
         self.peering_degree_info.remaining_outgoing_capacity() > 0
     }
 }

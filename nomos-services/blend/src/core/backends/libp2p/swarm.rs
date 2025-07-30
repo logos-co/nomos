@@ -199,7 +199,7 @@ where
             }
             nomos_blend_network::core::with_core::behaviour::Event::Error(e) => {
                 tracing::error!(target: LOG_TARGET, "Received error from blend network: {e:?}");
-                self.check_and_dial_new_peers();
+                self.restore_minimum_outgoing_peering_degree();
                 tracing::info!(counter.error = 1);
             }
         }
@@ -239,7 +239,7 @@ where
                     peer_id,
                     connection_id
                 );
-                self.check_and_dial_new_peers();
+                self.restore_minimum_outgoing_peering_degree();
             }
             _ => {
                 tracing::debug!(target: LOG_TARGET, "Received event from blend network: {event:?}");
@@ -251,12 +251,12 @@ where
     fn handle_spammy_peer(&mut self, peer_id: PeerId) {
         tracing::debug!(target: LOG_TARGET, "Peer {} is spammy", peer_id);
         self.swarm.behaviour_mut().blocked_peers.block_peer(peer_id);
-        self.check_and_dial_new_peers();
+        self.restore_minimum_outgoing_peering_degree();
     }
 
     fn handle_unhealthy_peer(&mut self, peer_id: PeerId) {
         tracing::debug!(target: LOG_TARGET, "Peer {} is unhealthy", peer_id);
-        self.check_and_dial_new_peers();
+        self.dial_new_peer();
     }
 
     fn handle_healthy_peer(peer_id: PeerId) {
@@ -265,7 +265,7 @@ where
 
     /// Dial new peers, if necessary, to maintain the peering degree.
     /// We aim to have at least the peering degree number of "healthy" peers.
-    fn check_and_dial_new_peers(&mut self) {
+    fn restore_minimum_outgoing_peering_degree(&mut self) {
         let num_new_conns_needed = self.min_outgoing_peering_degree.saturating_sub(
             self.swarm
                 .behaviour()
@@ -275,6 +275,22 @@ where
         );
         if num_new_conns_needed > 0 {
             self.dial_random_peers(num_new_conns_needed);
+        }
+    }
+
+    /// Dial a new peer, if the underlying swarm has a slot available for a new
+    /// connection.
+    fn dial_new_peer(&mut self) {
+        if self
+            .swarm
+            .behaviour()
+            .blend
+            .with_core()
+            .can_open_outgoing_connection()
+        {
+            self.dial_random_peers(1);
+        } else {
+            tracing::warn!("Maximum connections already established. Not possible to open a new outgoing connection.");
         }
     }
 
