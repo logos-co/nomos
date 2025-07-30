@@ -49,7 +49,14 @@ pub struct Behaviour {
     current_membership: Option<Membership<PeerId>>,
     // Timeout to close connection with an edge node if a message is not received on time.
     connection_timeout: Duration,
+    /// Set of peers that have opened a connection to this node.
+    ///
+    /// This set contains ALL connections, including the ones that will not be
+    /// upgraded and will hence be closed by the swarm. Once this set reaches
+    /// the maximum number of incoming connections, new connections upgrades
+    /// will be denied by default until a slot is freed.
     connected_edge_peers: HashSet<(PeerId, ConnectionId)>,
+    /// Maximum number of concurrent incoming connections the node must support.
     max_incoming_connections: usize,
 }
 
@@ -84,6 +91,19 @@ impl NetworkBehaviour for Behaviour {
         _: &Multiaddr,
         _: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
+        // Add connection regardless of the handler we will use, to enforce a limit on
+        // the connection requests.
+        self.connected_edge_peers.insert((peer, connection_id));
+
+        // If we are above the maximum limit, return a dummy handler that will soon
+        // close the connection.
+        if self.connected_edge_peers.len() > self.max_incoming_connections {
+            tracing::trace!(target: LOG_TARGET, "Connected peer {peer:?} on connection {connection_id:?} will not be upgraded since we are already at maximum incoming connection capacity.");
+            return Ok(Either::Right(DummyConnectionHandler));
+        }
+
+        // If no membership is set, all nodes are assumed to be core nodes, hence we do
+        // not allow inbound connections from core nodes.
         let Some(membership) = &self.current_membership else {
             return Ok(Either::Right(DummyConnectionHandler));
         };
@@ -91,13 +111,8 @@ impl NetworkBehaviour for Behaviour {
         // Allow only inbound connections from edge nodes.
         Ok(if membership.contains_remote(&peer) {
             Either::Right(DummyConnectionHandler)
-        } else if self.connected_edge_peers.len() < self.max_incoming_connections {
-            tracing::debug!(target: LOG_TARGET, "Adding connected peer {peer:?} on connection {connection_id:?} to internal state for potential upgrade.");
-            self.connected_edge_peers.insert((peer, connection_id));
-            Either::Left(ConnectionHandler::new(self.connection_timeout))
         } else {
-            tracing::trace!(target: LOG_TARGET, "Connected peer {peer:?} on connection {connection_id:?} will not be upgraded since we are already at maximum incoming connection capacity.");
-            Either::Right(DummyConnectionHandler)
+            Either::Left(ConnectionHandler::new(self.connection_timeout))
         })
     }
 
