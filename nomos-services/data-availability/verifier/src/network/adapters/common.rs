@@ -102,7 +102,10 @@ macro_rules! adapter_for {
                 let receiver = receiver.await.expect("Blob stream should be received");
 
                 let stream = receiver.filter_map(move |msg| match msg {
-                    $DaNetworkEvent::Verifying(blob) => Some(*blob),
+                    $DaNetworkEvent::Verifying(verification_event) => match verification_event {
+                        VerificationEvent::Share(share) => Some(*share),
+                        VerificationEvent::Tx(_) => None,
+                    },
                     _ => None,
                 });
 
