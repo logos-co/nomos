@@ -374,7 +374,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 force_bootstrap: false,
                 ibd: chain_service::IbdConfig {
                     peers: HashSet::new(),
-                    download_limit: NonZeroUsize::new(1000).expect("Shouldn't be zero"),
+                    download_size: NonZeroUsize::new(1000).expect("Shouldn't be zero"),
                     max_download_iterations: NonZeroUsize::new(1000).expect("Shouldn't be zero"),
                 },
             },

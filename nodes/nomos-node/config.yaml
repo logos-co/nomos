@@ -293,7 +293,7 @@ cryptarchia:
     force_bootstrap: false
     ibd:
       peers: []
-      download_limit: 1000
+      download_size: 1000
       max_download_iterations: 1000
 storage:
   db_path: nomos_db

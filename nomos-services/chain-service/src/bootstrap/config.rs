@@ -27,7 +27,7 @@ where
     /// The max number of blocks to download by a single request.
     // TODO: This is not used anywhere yet. Add this to the download request
     // by modifying related implemn
-    pub download_limit: NonZeroUsize,
+    pub download_size: NonZeroUsize,
     /// The max number of downloads to repeat for a single peer.
     pub max_download_iterations: NonZeroUsize,
 }
