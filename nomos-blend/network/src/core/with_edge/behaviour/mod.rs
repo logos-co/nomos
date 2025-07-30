@@ -32,6 +32,25 @@ pub enum Event {
 #[derive(Debug)]
 pub struct Config {
     pub connection_timeout: Duration,
+    pub max_incoming_connections: usize,
+}
+
+struct PeeringDegreeInfo {
+    current_incoming: usize,
+    max_incoming: usize,
+}
+
+impl PeeringDegreeInfo {
+    const fn new(max_incoming: usize) -> Self {
+        Self {
+            current_incoming: 0,
+            max_incoming,
+        }
+    }
+
+    const fn remaining_incoming_capacity(&self) -> usize {
+        self.max_incoming.saturating_sub(self.current_incoming)
+    }
 }
 
 /// A [`NetworkBehaviour`]:
@@ -46,6 +65,7 @@ pub struct Behaviour {
     // Timeout to close connection with an edge node if a message is not received on time.
     connection_timeout: Duration,
     connected_edge_peers: HashMap<PeerId, HashSet<ConnectionId>>,
+    peering_degree_info: PeeringDegreeInfo,
 }
 
 impl Behaviour {
@@ -57,6 +77,7 @@ impl Behaviour {
             current_membership,
             connection_timeout: config.connection_timeout,
             connected_edge_peers: HashMap::new(),
+            peering_degree_info: PeeringDegreeInfo::new(config.max_incoming_connections),
         }
     }
 
@@ -64,6 +85,48 @@ impl Behaviour {
         if let Some(waker) = self.waker.take() {
             waker.wake();
         }
+    }
+
+    const fn can_accept_incoming_connection(&self) -> bool {
+        self.peering_degree_info.remaining_incoming_capacity() > 0
+    }
+
+    fn add_connection_with_peer(&mut self, peer_id: PeerId, connection_id: ConnectionId) -> bool {
+        let entry = self.connected_edge_peers.entry(peer_id);
+        match entry {
+            Entry::Occupied(mut existing_connection_set) => {
+                existing_connection_set.get_mut().insert(connection_id)
+            }
+            Entry::Vacant(new_connection_set) => {
+                new_connection_set.insert(vec![connection_id].into_iter().collect());
+                self.peering_degree_info.current_incoming = self
+                    .peering_degree_info
+                    .current_incoming
+                    .checked_add(1)
+                    .unwrap();
+                false
+            }
+        }
+    }
+
+    fn remove_connection_with_peer(
+        &mut self,
+        peer_id: PeerId,
+        connection_id: ConnectionId,
+    ) -> bool {
+        let Entry::Occupied(mut entry) = self.connected_edge_peers.entry(peer_id) else {
+            return false;
+        };
+        entry.get_mut().remove(&connection_id);
+        if entry.get().is_empty() {
+            entry.remove_entry();
+            self.peering_degree_info.current_incoming = self
+                .peering_degree_info
+                .current_incoming
+                .checked_sub(1)
+                .unwrap();
+        }
+        true
     }
 }
 
@@ -78,6 +141,10 @@ impl NetworkBehaviour for Behaviour {
         _: &Multiaddr,
         _: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
+        if !self.can_accept_incoming_connection() {
+            return Ok(Either::Right(DummyConnectionHandler));
+        }
+
         let Some(membership) = &self.current_membership else {
             return Ok(Either::Right(DummyConnectionHandler));
         };
@@ -109,13 +176,7 @@ impl NetworkBehaviour for Behaviour {
             ..
         }) = event
         {
-            let Entry::Occupied(mut entry) = self.connected_edge_peers.entry(peer_id) else {
-                return;
-            };
-            entry.get_mut().remove(&connection_id);
-            if entry.get().is_empty() {
-                entry.remove_entry();
-            }
+            self.remove_connection_with_peer(peer_id, connection_id);
         }
     }
 
@@ -131,19 +192,13 @@ impl NetworkBehaviour for Behaviour {
                     .push_back(ToSwarm::GenerateEvent(Event::Message(message)));
             }
             Either::Left(ToBehaviour::SubstreamOpened) => {
-                self.connected_edge_peers
-                    .entry(peer)
-                    .or_default()
-                    .insert(connection_id);
+                if self.add_connection_with_peer(peer, connection_id) {
+                    tracing::warn!(target: LOG_TARGET, "There should not be an entry stored for this peer ID {peer:?} and connection ID {connection_id:?}.");
+                }
             }
             Either::Left(ToBehaviour::SubstreamClosed(error)) => {
                 tracing::trace!(target: LOG_TARGET, "Substream with peer ID {peer:?} and connection ID: {connection_id:?} closed with error: {error:?}.");
-                if !self
-                    .connected_edge_peers
-                    .entry(peer)
-                    .or_default()
-                    .remove(&connection_id)
-                {
+                if !self.remove_connection_with_peer(peer, connection_id) {
                     tracing::warn!(target: LOG_TARGET, "Closing a substream that was not previously added to the map of open substreams. Peer ID: {peer:?}, connection ID: {connection_id:?}.");
                 }
             }

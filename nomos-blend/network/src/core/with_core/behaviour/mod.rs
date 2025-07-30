@@ -324,6 +324,7 @@ where
         if !self.can_accept_incoming_connection() {
             return Ok(Either::Right(DummyConnectionHandler));
         }
+
         // If no membership is provided (for tests), then we assume all peers are core
         // nodes.
         let Some(membership) = &self.current_membership else {
@@ -353,6 +354,7 @@ where
         if !self.can_open_outgoing_connection() {
             return Ok(Either::Right(DummyConnectionHandler));
         }
+
         // If no membership is provided (for tests), then we assume all peers are core
         // nodes.
         let Some(membership) = &self.current_membership else {
