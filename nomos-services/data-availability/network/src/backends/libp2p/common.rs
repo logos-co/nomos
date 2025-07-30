@@ -139,6 +139,7 @@ fn handle_dispersal_event(
                 );
             }
         }
+        DispersalEvent::IncomingTx(_) => todo!(),
         DispersalEvent::DispersalError { error } => {
             error!("Error from dispersal behaviour: {error:?}");
         }

@@ -14,7 +14,10 @@ use libp2p::{
 };
 use libp2p_stream::IncomingStreams;
 use log::debug;
-use nomos_core::mantle::ops::{blob::BlobOp, Op};
+use nomos_core::mantle::{
+    ops::{blob::BlobOp, Op},
+    SignedMantleTx,
+};
 use nomos_da_messages::{
     common::Share,
     dispersal,
@@ -58,8 +61,11 @@ impl Clone for DispersalError {
 pub enum DispersalEvent {
     /// Received a network message.
     IncomingShare(Box<Share>),
+    IncomingTx(Box<SignedMantleTx>),
     /// Something went wrong receiving the blob
-    DispersalError { error: DispersalError },
+    DispersalError {
+        error: DispersalError,
+    },
 }
 
 impl DispersalEvent {
@@ -72,7 +78,7 @@ impl DispersalEvent {
     pub fn share_size(&self) -> Option<usize> {
         match self {
             Self::IncomingShare(share) => Some(share.data.column_len()),
-            Self::DispersalError { .. } => None,
+            Self::IncomingTx { .. } | Self::DispersalError { .. } => None,
         }
     }
 }
@@ -236,7 +242,11 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
                             Box::new(share_request.share),
                         )))
                     }
-                    dispersal::DispersalRequest::Tx(_signed_mantle_tx) => todo!(),
+                    dispersal::DispersalRequest::Tx(signed_mantle_tx) => {
+                        Poll::Ready(ToSwarm::GenerateEvent(DispersalEvent::IncomingTx(
+                            Box::new(signed_mantle_tx),
+                        )))
+                    }
                 };
             }
             Poll::Ready(Some(Err(error))) => {

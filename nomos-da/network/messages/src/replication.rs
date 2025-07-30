@@ -26,6 +26,11 @@ impl ReplicationRequest {
     }
 
     #[must_use]
+    pub const fn new_tx(tx: SignedMantleTx) -> Self {
+        Self::Tx(tx)
+    }
+
+    #[must_use]
     pub fn id(&self) -> ReplicationResponseId {
         match self {
             Self::Share(share) => (share.share.blob_id, share.subnetwork_id).into(),

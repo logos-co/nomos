@@ -26,8 +26,14 @@ pub async fn handle_validator_dispersal_event<Membership>(
         error!("Error sending blob to validation: {e:?}");
     }
 
-    if let DispersalEvent::IncomingShare(share) = event {
-        replication_behaviour.send_message(&ReplicationRequest::new_share(*share));
+    match event {
+        DispersalEvent::IncomingShare(share) => {
+            replication_behaviour.send_message(&ReplicationRequest::new_share(*share));
+        }
+        DispersalEvent::IncomingTx(signed_mantle_tx) => {
+            replication_behaviour.send_message(&ReplicationRequest::new_tx(*signed_mantle_tx));
+        }
+        DispersalEvent::DispersalError { .. } => {} // Do not replicate errors.
     }
 }
 
