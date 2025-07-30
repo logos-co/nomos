@@ -7,7 +7,10 @@ use nomos_core::da::BlobId;
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
     api::ApiAdapter as ApiAdapterTrait,
-    backends::libp2p::executor::{DaNetworkEvent, DaNetworkEventKind, DaNetworkExecutorBackend},
+    backends::libp2p::{
+        common::VerificationEvent,
+        executor::{DaNetworkEvent, DaNetworkEventKind, DaNetworkExecutorBackend},
+    },
     membership::{handler::DaMembershipHandler, MembershipAdapter},
     NetworkService,
 };
