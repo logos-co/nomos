@@ -1,8 +1,8 @@
 digraph {
-    0 [ label = "pol" shape = box]
-    1 [ label = "prover" shape = box]
-    2 [ label = "utils" shape = box]
-    3 [ label = "verifier" shape = box]
+    0 [ label = "circuits-pol" shape = box]
+    1 [ label = "circuits-prover" shape = box]
+    2 [ label = "circuits-utils" shape = box]
+    3 [ label = "circuits-verifier" shape = box]
     4 [ label = "cryptarchia-engine" shape = box]
     5 [ label = "nomos-utils" shape = box]
     6 [ label = "cryptarchia-sync" shape = box]
