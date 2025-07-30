@@ -2,6 +2,10 @@
 # Make sure any excluded crates are still clipped in our CI. Also, make sure they use the same Clippy and rustc lints we specify in this file down below.
 exclude = ["nomos-core/proof_statements", "nomos-core/risc0_proofs"]
 members = [
+  "circuits/pol",
+  "circuits/prover",
+  "circuits/utils",
+  "circuits/verifier",
   "consensus/cryptarchia-engine",
   "consensus/cryptarchia-sync",
   "ledger/nomos-ledger",

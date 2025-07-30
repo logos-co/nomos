@@ -24,3 +24,6 @@ tests/.tmp*
 
 # Wildcard for any file that contains ignore
 *ignore*
+
+# Circom Circuits' Binaries
+circuits/*/bin/*
