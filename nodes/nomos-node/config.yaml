@@ -291,6 +291,10 @@ cryptarchia:
   bootstrap:
     prolonged_bootstrap_period: [86400, 0]
     force_bootstrap: false
+    ibd:
+      peers: []
+      download_limit: 1000
+      max_download_iterations: 1000
 storage:
   db_path: nomos_db
   read_only: false

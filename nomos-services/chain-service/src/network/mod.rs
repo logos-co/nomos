@@ -39,7 +39,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
-    ) -> Result<BoxedStream<Result<Self::Block, DynError>>, DynError>;
+    ) -> Result<BoxedStream<Result<(HeaderId, Self::Block), DynError>>, DynError>;
 
     async fn request_blocks_from_peers(
         &self,
@@ -47,5 +47,5 @@ pub trait NetworkAdapter<RuntimeServiceId> {
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
-    ) -> Result<BoxedStream<Result<Self::Block, DynError>>, DynError>;
+    ) -> Result<BoxedStream<Result<(HeaderId, Self::Block), DynError>>, DynError>;
 }

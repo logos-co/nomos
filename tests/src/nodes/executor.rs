@@ -1,6 +1,7 @@
 use std::{
+    collections::HashSet,
     net::SocketAddr,
-    num::NonZeroU64,
+    num::{NonZeroU64, NonZeroUsize},
     ops::Range,
     path::PathBuf,
     process::{Child, Command, Stdio},
@@ -325,6 +326,11 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             bootstrap: chain_service::BootstrapConfig {
                 prolonged_bootstrap_period: Duration::from_secs(3),
                 force_bootstrap: false,
+                ibd: chain_service::IbdConfig {
+                    peers: HashSet::new(),
+                    download_limit: NonZeroUsize::new(1000).expect("Shouldn't be zero"),
+                    max_download_iterations: NonZeroUsize::new(1000).expect("Shouldn't be zero"),
+                },
             },
         },
         da_network: DaNetworkConfig {
