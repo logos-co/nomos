@@ -43,6 +43,10 @@ impl BlendBehaviour {
                     },
                     with_edge: nomos_blend_network::core::with_edge::behaviour::Config {
                         connection_timeout: Duration::from_secs(1),
+                        max_incoming_connections: config
+                            .backend
+                            .maximum_incoming_edge_node_connections
+                            as usize,
                     },
                 },
                 observation_window_interval_provider,
@@ -50,6 +54,8 @@ impl BlendBehaviour {
             ),
             limits: libp2p::connection_limits::Behaviour::new(
                 ConnectionLimits::default()
+                    // We know the upper limit is (max core-core established + max core-edge
+                    // established), so we can enforce that here.
                     .with_max_established(Some(*config.backend.peering_degree.end() as u32))
                     // Blend protocol restricts the number of connections per peer to 1.
                     .with_max_established_per_peer(Some(1)),

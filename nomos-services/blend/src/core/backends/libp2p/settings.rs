@@ -23,4 +23,5 @@ pub struct Libp2pBlendBackendSettings {
         as = "nomos_utils::bounded_duration::MinimalBoundedDuration<1, nomos_utils::bounded_duration::SECOND>"
     )]
     pub edge_node_connection_timeout: Duration,
+    pub maximum_incoming_edge_node_connections: u64,
 }

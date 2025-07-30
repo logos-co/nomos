@@ -227,7 +227,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::ops::RangeInclusive;
+    use std::{ops::RangeInclusive, usize};
 
     use libp2p::Multiaddr;
     use nomos_blend_message::crypto::Ed25519PrivateKey;
@@ -308,6 +308,7 @@ mod tests {
                 },
                 with_edge: WithEdgeConfig {
                     connection_timeout: Duration::from_secs(1),
+                    max_incoming_connections: usize::MAX,
                 },
             },
             ObservationWindowClockProvider,
