@@ -272,9 +272,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     }
 
     fn remove_peer(&mut self, peer_id: &PeerId) -> Option<(NegotiatedPeerState, Endpoint)> {
-        let Some((peer_state, endpoint)) = self.negotiated_peers.remove(peer_id) else {
-            return None;
-        };
+        let (peer_state, endpoint) = self.negotiated_peers.remove(peer_id)?;
         match endpoint {
             Endpoint::Dialer => {
                 self.peering_degree_info.current_incoming = self
@@ -290,7 +288,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
                     .checked_sub(1)
                     .unwrap();
             }
-        };
+        }
         Some((peer_state, endpoint))
     }
 

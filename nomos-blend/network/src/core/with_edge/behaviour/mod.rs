@@ -9,9 +9,9 @@ use either::Either;
 use libp2p::{
     core::{transport::PortUse, Endpoint},
     swarm::{
-        behaviour::ConnectionEstablished, dummy::ConnectionHandler as DummyConnectionHandler,
-        ConnectionClosed, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler,
-        THandlerInEvent, THandlerOutEvent, ToSwarm,
+        dummy::ConnectionHandler as DummyConnectionHandler, ConnectionClosed, ConnectionDenied,
+        ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent,
+        ToSwarm,
     },
     Multiaddr, PeerId,
 };

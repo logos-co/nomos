@@ -227,7 +227,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{ops::RangeInclusive, usize};
+    use std::ops::RangeInclusive;
 
     use libp2p::Multiaddr;
     use nomos_blend_message::crypto::Ed25519PrivateKey;

@@ -1,4 +1,4 @@
-use std::{collections::HashSet, ops::RangeInclusive, time::Duration};
+use std::{collections::HashSet, time::Duration};
 
 use futures::{Stream, StreamExt as _};
 use libp2p::{identity::Keypair, PeerId, Swarm, SwarmBuilder};
