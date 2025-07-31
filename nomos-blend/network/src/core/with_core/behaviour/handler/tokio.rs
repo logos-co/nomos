@@ -314,7 +314,7 @@ mod test {
     async fn outgoing_connection_limit() {
         // All swarms can maintain a single connection, either outgoing (since min
         // outgoing is 0) or incoming (since max total is 1 and min outgoing is 0).
-        let (mut nodes, mut keypairs) = nodes(3, 8390);
+        let (mut nodes, mut keypairs) = nodes(3, 8490);
         let node1_addr = nodes.next().unwrap().address;
         let mut swarm1 = new_blend_swarm(
             keypairs.next().unwrap(),
@@ -386,7 +386,7 @@ mod test {
 
     #[test_log::test(tokio::test)]
     async fn incoming_connection_limit() {
-        let (mut nodes, mut keypairs) = nodes(3, 8390);
+        let (mut nodes, mut keypairs) = nodes(3, 8590);
         let node1_addr = nodes.next().unwrap().address;
         // Swarm 1 can have 1 outgoing and 1 incoming connection.
         let mut swarm1 = new_blend_swarm(
@@ -435,30 +435,29 @@ mod test {
                 break;
             }
             select! {
-                event = swarm1.select_next_some() => {
-                    match event {
-                        SwarmEvent::Behaviour(Event::IncomingConnectionRequestAccepted(peer_id, _)) | SwarmEvent::Behaviour(Event::OutgoingConnectionRequestAccepted(peer_id, _)) => {
-                            assert_eq!(peer_id, *swarm3.local_peer_id());
-                            num_events_waiting -= 1;
-                        }
-                        _ => {}
-                    }
-                }
-                _ = swarm2.select_next_some() => {}
-                event = swarm3.select_next_some() => {
-                    match event {
-                        SwarmEvent::Behaviour(Event::OutgoingConnectionRequestAccepted(peer_id, _)) | SwarmEvent::Behaviour(Event::IncomingConnectionRequestAccepted(peer_id, _))=> {
-                            assert_eq!(peer_id, *swarm1.local_peer_id());
-                            num_events_waiting -= 1;
-                        }
-                        SwarmEvent::Behaviour(Event::IncomingConnectionRequestDiscarded(peer_id, _)) => {
-                            assert_eq!(peer_id, *swarm2.local_peer_id());
-                            num_events_waiting -= 1;
-                        }
-                        _ => {}
-                    }
-                }
-            }
+                                        event = swarm1.select_next_some() => {
+                                            if let SwarmEvent::Behaviour(Event::IncomingConnectionRequestAccepted(peer_id, _) |
+                        Event::OutgoingConnectionRequestAccepted(peer_id, _)) = event {
+                                                assert_eq!(peer_id, *swarm3.local_peer_id());
+                                                num_events_waiting -= 1;
+                                            }
+                                        }
+                                        _ = swarm2.select_next_some() => {}
+                                        event = swarm3.select_next_some() => {
+                                            match event {
+                                                SwarmEvent::Behaviour(Event::OutgoingConnectionRequestAccepted(peer_id, _) |
+            Event::IncomingConnectionRequestAccepted(peer_id, _))=> {
+                                                    assert_eq!(peer_id, *swarm1.local_peer_id());
+                                                    num_events_waiting -= 1;
+                                                }
+                                                SwarmEvent::Behaviour(Event::IncomingConnectionRequestDiscarded(peer_id, _)) => {
+                                                    assert_eq!(peer_id, *swarm2.local_peer_id());
+                                                    num_events_waiting -= 1;
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                    }
         }
     }
 

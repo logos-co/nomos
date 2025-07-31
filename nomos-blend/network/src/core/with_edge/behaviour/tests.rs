@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use futures::StreamExt as _;
 use libp2p::{Multiaddr, PeerId, Swarm, SwarmBuilder};
-use libp2p_stream::OpenStreamError;
 use nomos_blend_message::crypto::Ed25519PrivateKey;
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_libp2p::SwarmEvent;
@@ -31,28 +30,43 @@ async fn incoming_connection_limit_enforced() {
     let mut successful_swarm = edge_to_core_swarm();
     let mut unsuccessful_swarm = edge_to_core_swarm();
 
-    let mut timeout = Box::pin(sleep(Duration::from_secs(4)));
-
     successful_swarm
         .dial(listening_swarm.listeners().next().unwrap().clone())
         .unwrap();
+    // Small delay to make sure first dial attempt happens before second.
+    sleep(Duration::from_millis(500)).await;
     unsuccessful_swarm
         .dial(listening_swarm.listeners().next().unwrap().clone())
         .unwrap();
 
+    let mut num_events_waiting: u8 = 3;
+
     loop {
+        if num_events_waiting == 0 {
+            break;
+        }
+
         tokio::select! {
-            () = &mut timeout => {
-                break;
-            }
-            // Consume listening swarm events.
-            event = listening_swarm.next() => {
-                if let Some(SwarmEvent::Behaviour(Event::Message(msg))) = event {
-                    assert_eq!(msg, b"test".to_vec());
+            event = listening_swarm.select_next_some() => {
+                match event {
+                    SwarmEvent::Behaviour(Event::IncomingConnectionRequestAccepted(peer_id, _)) => {
+                        assert_eq!(peer_id, *successful_swarm.local_peer_id());
+                        num_events_waiting -= 1;
+                    }
+                    SwarmEvent::Behaviour(Event::IncomingConnectionRequestDiscarded(peer_id, _)) => {
+                        assert_eq!(peer_id, *unsuccessful_swarm.local_peer_id());
+                        num_events_waiting -= 1;
+                    }
+                    SwarmEvent::Behaviour(Event::Message(msg)) => {
+                        assert_eq!(msg, b"test".to_vec());
+                        num_events_waiting -= 1;
+                    }
+                    _ => {}
                 }
             }
-            event = successful_swarm.next() => {
-                if let Some(SwarmEvent::ConnectionEstablished { peer_id, .. }) = event {
+            event = successful_swarm.select_next_some() => {
+                if let SwarmEvent::ConnectionEstablished { peer_id, .. } = event {
+                    assert_eq!(peer_id, *listening_swarm.local_peer_id());
                     let mut successful_swarm_control = successful_swarm.behaviour().new_control();
                     // Upgrade substream to the Blend protocol. This should be successful.
                     tokio::spawn(async move {
@@ -61,20 +75,7 @@ async fn incoming_connection_limit_enforced() {
                     });
                 }
             }
-            event = unsuccessful_swarm.next() => {
-                if let Some(SwarmEvent::ConnectionEstablished { peer_id, .. }) = event {
-                    let mut unsuccessful_swarm_control = unsuccessful_swarm.behaviour().new_control();
-                    // Upgrade substream to the Blend protocol. This should not succeed since behaviour should return a dummy handler because the maximum number of incoming connections has been reached.
-                    tokio::spawn(async move {
-                        let stream_res = unsuccessful_swarm_control.open_stream(peer_id, PROTOCOL_NAME).await;
-                        if let Err(OpenStreamError::UnsupportedProtocol(protocol)) = stream_res {
-                            assert_eq!(protocol, PROTOCOL_NAME.as_ref());
-                        } else {
-                            panic!("Expected UnsupportedProtocol error.");
-                        }
-                    });
-                }
-            }
+            _ = unsuccessful_swarm.select_next_some() => {}
         }
     }
 }
@@ -103,19 +104,19 @@ async fn connect_disconnect_connect() {
     loop {
         tokio::select! {
             // Consume listening swarm events.
-            event = listening_swarm.next() => {
+            event = listening_swarm.select_next_some() => {
                 match event {
-                    Some(SwarmEvent::Behaviour(Event::Message(msg))) => {
+                    SwarmEvent::Behaviour(Event::Message(msg)) => {
                         assert_eq!(msg, b"test".to_vec());
                     },
-                    Some(SwarmEvent::ConnectionClosed { .. }) => {
+                    SwarmEvent::ConnectionClosed { .. } => {
                         break;
                     }
                     _ => {}
                 }
             }
-            event = first_swarm.next() => {
-                if let Some(SwarmEvent::ConnectionEstablished { peer_id, .. }) = event {
+            event = first_swarm.select_next_some() => {
+                if let SwarmEvent::ConnectionEstablished { peer_id, .. } = event {
                     let mut successful_swarm_control = first_swarm.behaviour().new_control();
                     // Upgrade substream to the Blend protocol. This should be successful.
                     tokio::spawn(async move {

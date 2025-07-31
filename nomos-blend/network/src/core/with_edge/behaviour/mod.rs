@@ -30,6 +30,10 @@ const LOG_TARGET: &str = "blend::network::core::edge::behaviour";
 pub enum Event {
     /// A message received from an edge peer.
     Message(Vec<u8>),
+    #[cfg(test)]
+    IncomingConnectionRequestDiscarded(PeerId, ConnectionId),
+    #[cfg(test)]
+    IncomingConnectionRequestAccepted(PeerId, ConnectionId),
 }
 
 #[derive(Debug)]
@@ -58,6 +62,8 @@ pub struct Behaviour {
     connected_edge_peers: HashSet<(PeerId, ConnectionId)>,
     /// Maximum number of concurrent incoming connections the node must support.
     max_incoming_connections: usize,
+    #[cfg(test)]
+    discarded_incoming_connections: HashSet<(PeerId, ConnectionId)>,
 }
 
 impl Behaviour {
@@ -70,6 +76,8 @@ impl Behaviour {
             connection_timeout: config.connection_timeout,
             connected_edge_peers: HashSet::with_capacity(config.max_incoming_connections),
             max_incoming_connections: config.max_incoming_connections,
+            #[cfg(test)]
+            discarded_incoming_connections: HashSet::new(),
         }
     }
 
@@ -99,6 +107,9 @@ impl NetworkBehaviour for Behaviour {
         // handler that will soon close the connection.
         if self.connected_edge_peers.len() > self.max_incoming_connections {
             tracing::trace!(target: LOG_TARGET, "Connected peer {peer:?} on connection {connection_id:?} will not be upgraded since we are already at maximum incoming connection capacity.");
+            #[cfg(test)]
+            self.discarded_incoming_connections
+                .insert((peer, connection_id));
             return Ok(Either::Right(DummyConnectionHandler));
         }
 
@@ -137,19 +148,42 @@ impl NetworkBehaviour for Behaviour {
         }) = event
         {
             self.connected_edge_peers.remove(&(peer_id, connection_id));
+            #[cfg(test)]
+            {
+                if self
+                    .discarded_incoming_connections
+                    .remove(&(peer_id, connection_id))
+                {
+                    self.events.push_back(ToSwarm::GenerateEvent(
+                        Event::IncomingConnectionRequestDiscarded(peer_id, connection_id),
+                    ));
+                    self.try_wake();
+                }
+            }
         }
     }
 
     fn on_connection_handler_event(
         &mut self,
-        _: PeerId,
-        _: ConnectionId,
+        peer_id: PeerId,
+        connection_id: ConnectionId,
         event: THandlerOutEvent<Self>,
     ) {
-        if let Either::Left(ToBehaviour::Message(message)) = event {
-            self.events
-                .push_back(ToSwarm::GenerateEvent(Event::Message(message)));
+        match event {
+            Either::Left(ToBehaviour::Message(message)) => {
+                self.events
+                    .push_back(ToSwarm::GenerateEvent(Event::Message(message)));
+            }
+            #[cfg(test)]
+            Either::Left(ToBehaviour::SubstreamOpened) => {
+                self.events.push_back(ToSwarm::GenerateEvent(
+                    Event::IncomingConnectionRequestAccepted(peer_id, connection_id),
+                ));
+            }
+            _ => {}
         }
+        // Make Clippy happy since these variables are only accessed for tests.
+        let _ = (peer_id, connection_id);
         self.try_wake();
     }
 
