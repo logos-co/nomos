@@ -11,7 +11,8 @@ static BINARY: LazyLock<PathBuf, fn() -> PathBuf> = LazyLock::new(|| {
         .unwrap_or_else(|error_message| panic!("{}", error_message))
 });
 
-/// Runs the `verifier` command.
+/// Runs the `verifier` command to check the validity of a proof for a given
+/// verification key and public inputs.
 ///
 /// # Arguments
 ///
@@ -37,8 +38,12 @@ fn verifier(
     Ok(output.status.success())
 }
 
-/// Shorthand for running the `verifier` command with the contents, instead of
-/// files.
+/// Runs the `verifier` command to check the validity of a proof for a given
+/// verification key and public inputs.
+///
+/// # Note
+///
+/// Calls [`verifier`] underneath but hides the file handling details.
 ///
 /// # Arguments
 ///
