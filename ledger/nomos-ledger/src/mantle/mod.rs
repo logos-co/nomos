@@ -48,7 +48,7 @@ impl LedgerState {
         }
     }
 
-    pub fn try_apply_tx<Id, Constants: GasConstants>(
+    pub fn try_apply_tx<Constants: GasConstants>(
         mut self,
         tx: impl AuthenticatedMantleTx,
     ) -> Result<Self, Error> {
@@ -162,7 +162,7 @@ mod tests {
         };
 
         let tx = create_signed_tx(Op::ChannelBlob(blob_op), &signing_key);
-        let result = ledger_state.try_apply_tx::<(), MainnetGasConstants>(tx);
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx);
         assert!(result.is_ok());
     }
 
@@ -180,7 +180,7 @@ mod tests {
         };
 
         let tx = create_signed_tx(Op::ChannelInscribe(inscribe_op), &signing_key);
-        let result = ledger_state.try_apply_tx::<(), MainnetGasConstants>(tx);
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx);
         assert!(result.is_ok());
 
         let new_state = result.unwrap();
@@ -199,7 +199,7 @@ mod tests {
         };
 
         let tx = create_signed_tx(Op::ChannelSetKeys(set_keys_op), &signing_key);
-        let result = ledger_state.try_apply_tx::<(), MainnetGasConstants>(tx);
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx);
         assert!(result.is_ok());
 
         let new_state = result.unwrap();
@@ -227,7 +227,7 @@ mod tests {
         };
 
         let tx = create_signed_tx(Op::ChannelBlob(blob_op), &wrong_signing_key);
-        let result = ledger_state.try_apply_tx::<(), MainnetGasConstants>(tx);
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx);
         assert_eq!(result, Err(Error::InvalidSignature));
     }
 
@@ -239,7 +239,7 @@ mod tests {
             nomos_core::mantle::ops::native::NativeOp {},
         )]);
 
-        let result = ledger_state.try_apply_tx::<(), MainnetGasConstants>(tx_with_unsupported_op);
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx_with_unsupported_op);
         assert_eq!(result, Err(Error::UnsupportedOp));
     }
 
@@ -262,7 +262,7 @@ mod tests {
         let mut tx = create_test_tx_with_ops(vec![op]);
         tx.ops_profs = vec![None]; // Missing proof
 
-        let result = ledger_state.try_apply_tx::<(), MainnetGasConstants>(tx);
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx);
         assert_eq!(result, Err(Error::UnsupportedOp));
     }
 
@@ -284,7 +284,7 @@ mod tests {
 
         let first_tx = create_signed_tx(Op::ChannelBlob(first_blob), &signing_key);
         ledger_state = ledger_state
-            .try_apply_tx::<(), MainnetGasConstants>(first_tx)
+            .try_apply_tx::<MainnetGasConstants>(first_tx)
             .unwrap();
 
         // Now try to add a message with wrong parent
@@ -301,7 +301,7 @@ mod tests {
         let second_tx = create_signed_tx(Op::ChannelBlob(second_blob), &signing_key);
         let result = ledger_state
             .clone()
-            .try_apply_tx::<(), MainnetGasConstants>(second_tx);
+            .try_apply_tx::<MainnetGasConstants>(second_tx);
         assert!(matches!(result, Err(Error::InvalidParent { .. })));
 
         // Writing into an empty channel with a parent != MsgId::root() should also fail
@@ -316,7 +316,7 @@ mod tests {
         };
 
         let empty_tx = create_signed_tx(Op::ChannelBlob(empty_blob), &signing_key);
-        let empty_result = ledger_state.try_apply_tx::<(), MainnetGasConstants>(empty_tx);
+        let empty_result = ledger_state.try_apply_tx::<MainnetGasConstants>(empty_tx);
         assert!(matches!(empty_result, Err(Error::InvalidParent { .. })));
     }
 
@@ -340,7 +340,7 @@ mod tests {
         let correct_parent = first_blob.id();
         let first_tx = create_signed_tx(Op::ChannelBlob(first_blob), &signing_key);
         ledger_state = ledger_state
-            .try_apply_tx::<(), MainnetGasConstants>(first_tx)
+            .try_apply_tx::<MainnetGasConstants>(first_tx)
             .unwrap();
 
         // Now try to add a message with unauthorized signer
@@ -354,7 +354,7 @@ mod tests {
         };
 
         let second_tx = create_signed_tx(Op::ChannelBlob(second_blob), &unauthorized_signing_key);
-        let result = ledger_state.try_apply_tx::<(), MainnetGasConstants>(second_tx);
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(second_tx);
         assert!(matches!(result, Err(Error::UnauthorizedSigner { .. })));
     }
 
@@ -370,7 +370,7 @@ mod tests {
         };
 
         let tx = create_signed_tx(Op::ChannelSetKeys(set_keys_op), &signing_key);
-        let result = ledger_state.try_apply_tx::<(), MainnetGasConstants>(tx);
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx);
         assert_eq!(result, Err(Error::EmptyKeys { channel_id }));
     }
 
@@ -427,7 +427,7 @@ mod tests {
         ];
         let tx = create_multi_signed_tx(ops, vec![&sk1, &sk2, &sk1, &sk4]);
 
-        let result = ledger_state.try_apply_tx::<(), MainnetGasConstants>(tx);
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx);
         assert!(result.is_ok());
 
         let new_state = result.unwrap();
