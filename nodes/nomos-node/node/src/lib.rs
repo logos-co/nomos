@@ -6,10 +6,7 @@ use bytes::Bytes;
 use color_eyre::eyre::Result;
 use kzgrs_backend::common::share::DaShare;
 pub use kzgrs_backend::dispersal::BlobInfo;
-pub use nomos_blend_service::core::{
-    backends::libp2p::Libp2pBlendBackend as BlendBackend,
-    network::libp2p::Libp2pAdapter as BlendNetworkAdapter,
-};
+pub use nomos_blend_service::{core as blend_core, edge as blend_edge};
 use nomos_core::mantle::SignedMantleTx;
 pub use nomos_core::{
     da::blob::{info::DispersedBlobInfo, select::FillSize as FillSizeWithBlobs},
@@ -90,10 +87,19 @@ pub(crate) type TracingService = Tracing<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-pub(crate) type BlendService = nomos_blend_service::core::BlendService<
-    BlendBackend,
+pub(crate) type BlendService = nomos_blend_service::BlendService<RuntimeServiceId>;
+
+pub(crate) type BlendCoreService = blend_core::BlendService<
+    blend_core::backends::libp2p::Libp2pBlendBackend,
     PeerId,
-    BlendNetworkAdapter<RuntimeServiceId>,
+    blend_core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
+    RuntimeServiceId,
+>;
+
+pub(crate) type BlendEdgeService = blend_edge::BlendService<
+    blend_edge::backends::libp2p::Libp2pBlendBackend,
+    PeerId,
+    <blend_core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as blend_core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
     RuntimeServiceId,
 >;
 
@@ -264,6 +270,8 @@ pub struct Nomos {
     tracing: TracingService,
     network: NetworkService,
     blend: BlendService,
+    blend_core: BlendCoreService,
+    blend_edge: BlendEdgeService,
     da_indexer: DaIndexerService,
     da_verifier: DaVerifierService,
     da_sampling: DaSamplingService,

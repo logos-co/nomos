@@ -1,7 +1,7 @@
 use color_eyre::eyre::Result;
 use nomos_node::{
     config::{
-        mempool::MempoolConfig, update_blend, update_cryptarchia_consensus, update_network,
+        mempool::MempoolConfig, update_blend_core, update_cryptarchia_consensus, update_network,
         BlendArgs,
     },
     generic_services::{MembershipService, SdpService},
@@ -58,7 +58,7 @@ impl Config {
         #[cfg(feature = "tracing")]
         nomos_node::config::update_tracing(&mut self.tracing, log_args)?;
         update_network::<RuntimeServiceId>(&mut self.network, network_args)?;
-        update_blend(&mut self.blend, blend_args)?;
+        update_blend_core(&mut self.blend, blend_args)?;
         update_http(&mut self.http, http_args)?;
         update_cryptarchia_consensus(&mut self.cryptarchia, cryptarchia_args)?;
         Ok(self)

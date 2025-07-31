@@ -3,10 +3,7 @@ use std::{
     marker::PhantomData,
 };
 
-use nomos_blend_service::{
-    core::{network::NetworkAdapter as BlendNetworkAdapter, BlendService},
-    message::ServiceMessage,
-};
+use nomos_blend_service::message::ServiceMessage;
 use nomos_core::{
     block::Block,
     da::blob::{info::DispersedBlobInfo, BlobSelect},
