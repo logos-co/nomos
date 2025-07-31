@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use backend::VerifierBackend;
+use backend::{tx::mock::MockTxVerifier, TxVerifierBackend, VerifierBackend};
 use network::NetworkAdapter;
 use nomos_core::da::blob::Share;
 use nomos_da_network_service::{
@@ -31,6 +31,9 @@ use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot::Sender;
 use tokio_stream::StreamExt as _;
 use tracing::{error, instrument};
+
+pub type DaVerifierService<ShareVerifier, Network, Storage, RuntimeServiceId> =
+    GenericDaVerifierService<ShareVerifier, MockTxVerifier, Network, Storage, RuntimeServiceId>;
 
 pub enum DaVerifierMsg<Commitments, LightShare, Share, Answer> {
     AddShare {
@@ -57,36 +60,44 @@ impl<C: 'static, L: 'static, B: 'static, A: 'static> Debug for DaVerifierMsg<C, 
     }
 }
 
-pub struct DaVerifierService<Backend, Network, Storage, RuntimeServiceId>
+pub struct GenericDaVerifierService<ShareVerifier, TxVerifier, Network, Storage, RuntimeServiceId>
 where
-    Backend: VerifierBackend,
-    Backend::Settings: Clone,
-    Backend::DaShare: 'static,
+    ShareVerifier: VerifierBackend,
+    ShareVerifier::Settings: Clone,
+    ShareVerifier::DaShare: 'static,
+    TxVerifier: TxVerifierBackend,
+    TxVerifier::Settings: Clone,
     Network: NetworkAdapter<RuntimeServiceId>,
     Network::Settings: Clone,
     Storage: DaStorageAdapter<RuntimeServiceId>,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    verifier: Backend,
+    share_verifier: ShareVerifier,
+    tx_verifier: TxVerifier,
 }
 
-impl<Backend, Network, Storage, RuntimeServiceId>
-    DaVerifierService<Backend, Network, Storage, RuntimeServiceId>
+impl<ShareVerifier, TxVerifier, Network, Storage, RuntimeServiceId>
+    GenericDaVerifierService<ShareVerifier, TxVerifier, Network, Storage, RuntimeServiceId>
 where
-    Backend: VerifierBackend + Send + Sync + 'static,
-    Backend::DaShare: Debug + Send,
-    Backend::Error: Error + Send + Sync,
-    Backend::Settings: Clone,
-    <Backend::DaShare as Share>::BlobId: AsRef<[u8]>,
-    Network: NetworkAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + 'static,
+    ShareVerifier: VerifierBackend + Send + Sync + 'static,
+    ShareVerifier::DaShare: Debug + Send,
+    ShareVerifier::Error: Error + Send + Sync,
+    ShareVerifier::Settings: Clone,
+    <ShareVerifier::DaShare as Share>::BlobId: AsRef<[u8]>,
+    TxVerifier: TxVerifierBackend,
+    TxVerifier::Settings: Clone,
+    Network: NetworkAdapter<RuntimeServiceId, Share = ShareVerifier::DaShare, Tx = TxVerifier::Tx>
+        + Send
+        + 'static,
     Network::Settings: Clone,
-    Storage: DaStorageAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + Sync + 'static,
+    Storage:
+        DaStorageAdapter<RuntimeServiceId, Share = ShareVerifier::DaShare> + Send + Sync + 'static,
 {
     #[instrument(skip_all)]
     async fn handle_new_share(
-        verifier: &Backend,
+        verifier: &ShareVerifier,
         storage_adapter: &Storage,
-        share: Backend::DaShare,
+        share: ShareVerifier::DaShare,
     ) -> Result<(), DynError> {
         if storage_adapter
             .get_share(share.blob_id(), share.share_idx())
@@ -105,42 +116,62 @@ where
         }
         Ok(())
     }
+
+    async fn handle_new_tx(
+        _verifier: &TxVerifier,
+        _storage_adapter: &Storage,
+        _tx: TxVerifier::Tx,
+    ) -> Result<(), DynError> {
+        Ok(())
+    }
 }
 
-impl<Backend, Network, DaStorage, RuntimeServiceId> ServiceData
-    for DaVerifierService<Backend, Network, DaStorage, RuntimeServiceId>
+impl<ShareVerifier, TxVerifier, Network, DaStorage, RuntimeServiceId> ServiceData
+    for GenericDaVerifierService<ShareVerifier, TxVerifier, Network, DaStorage, RuntimeServiceId>
 where
-    Backend: VerifierBackend,
-    Backend::Settings: Clone,
+    ShareVerifier: VerifierBackend,
+    ShareVerifier::Settings: Clone,
+    TxVerifier: TxVerifierBackend,
+    TxVerifier::Settings: Clone,
     Network: NetworkAdapter<RuntimeServiceId>,
     Network::Settings: Clone,
     DaStorage: DaStorageAdapter<RuntimeServiceId>,
     DaStorage::Settings: Clone,
 {
-    type Settings =
-        DaVerifierServiceSettings<Backend::Settings, Network::Settings, DaStorage::Settings>;
+    type Settings = DaVerifierServiceSettings<
+        ShareVerifier::Settings,
+        TxVerifier::Settings,
+        Network::Settings,
+        DaStorage::Settings,
+    >;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = DaVerifierMsg<
-        <Backend::DaShare as Share>::SharesCommitments,
-        <Backend::DaShare as Share>::LightShare,
-        Backend::DaShare,
+        <ShareVerifier::DaShare as Share>::SharesCommitments,
+        <ShareVerifier::DaShare as Share>::LightShare,
+        ShareVerifier::DaShare,
         (),
     >;
 }
 
 #[async_trait::async_trait]
-impl<Backend, Network, DaStorage, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for DaVerifierService<Backend, Network, DaStorage, RuntimeServiceId>
+impl<ShareVerifier, TxVerifier, Network, DaStorage, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for GenericDaVerifierService<ShareVerifier, TxVerifier, Network, DaStorage, RuntimeServiceId>
 where
-    Backend: VerifierBackend + Send + Sync + 'static,
-    Backend::Settings: Clone + Send + Sync + 'static,
-    Backend::DaShare: Debug + Send + Sync + 'static,
-    Backend::Error: Error + Send + Sync + 'static,
-    <Backend::DaShare as Share>::BlobId: AsRef<[u8]> + Debug + Send + Sync + 'static,
-    <Backend::DaShare as Share>::LightShare: Debug + Send + Sync + 'static,
-    <Backend::DaShare as Share>::SharesCommitments: Debug + Send + Sync + 'static,
-    Network: NetworkAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + Sync + 'static,
+    ShareVerifier: VerifierBackend + Send + Sync + 'static,
+    ShareVerifier::Settings: Clone + Send + Sync + 'static,
+    ShareVerifier::DaShare: Debug + Send + Sync + 'static,
+    ShareVerifier::Error: Error + Send + Sync + 'static,
+    <ShareVerifier::DaShare as Share>::BlobId: AsRef<[u8]> + Debug + Send + Sync + 'static,
+    <ShareVerifier::DaShare as Share>::LightShare: Debug + Send + Sync + 'static,
+    <ShareVerifier::DaShare as Share>::SharesCommitments: Debug + Send + Sync + 'static,
+    TxVerifier: TxVerifierBackend + Send + Sync + 'static,
+    TxVerifier::Tx: Send,
+    TxVerifier::Settings: Clone + Send + Sync + 'static,
+    Network: NetworkAdapter<RuntimeServiceId, Share = ShareVerifier::DaShare, Tx = TxVerifier::Tx>
+        + Send
+        + Sync
+        + 'static,
     Network::Membership: MembershipHandler + Clone,
     Network::Settings: Clone + Send + Sync + 'static,
     Network::Storage: MembershipStorageAdapter<
@@ -150,7 +181,8 @@ where
         + Sync
         + 'static,
     Network::MembershipAdapter: MembershipAdapter,
-    DaStorage: DaStorageAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + Sync + 'static,
+    DaStorage:
+        DaStorageAdapter<RuntimeServiceId, Share = ShareVerifier::DaShare> + Send + Sync + 'static,
     DaStorage::Settings: Clone + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Display
@@ -175,14 +207,17 @@ where
         _initial_state: Self::State,
     ) -> Result<Self, DynError> {
         let DaVerifierServiceSettings {
-            verifier_settings, ..
+            share_verifier_settings,
+            tx_verifier_settings,
+            ..
         } = service_resources_handle
             .settings_handle
             .notifier()
             .get_updated_settings();
         Ok(Self {
             service_resources_handle,
-            verifier: Backend::new(verifier_settings),
+            share_verifier: ShareVerifier::new(share_verifier_settings),
+            tx_verifier: TxVerifier::new(tx_verifier_settings),
         })
     }
 
@@ -194,7 +229,8 @@ where
         // in the above-mentioned list.
         let Self {
             mut service_resources_handle,
-            verifier,
+            share_verifier,
+            tx_verifier,
         } = self;
 
         let DaVerifierServiceSettings {
@@ -211,6 +247,7 @@ where
             .await?;
         let network_adapter = Network::new(network_adapter_settings, network_relay).await;
         let mut share_stream = network_adapter.share_stream().await;
+        let mut tx_stream = network_adapter.tx_stream().await;
 
         let storage_relay = service_resources_handle
             .overwatch_handle
@@ -236,15 +273,20 @@ where
             tokio::select! {
                 Some(share) = share_stream.next() => {
                     let blob_id = share.blob_id();
-                    if let Err(err) =  Self::handle_new_share(&verifier,&storage_adapter, share).await {
+                    if let Err(err) =  Self::handle_new_share(&share_verifier, &storage_adapter, share).await {
                         error!("Error handling blob {blob_id:?} due to {err:?}");
+                    }
+                }
+                Some(tx) = tx_stream.next() => {
+                    if let Err(err) =  Self::handle_new_tx(&tx_verifier, &storage_adapter, tx).await {
+                        error!("Error handling tx due to {err:?}");
                     }
                 }
                 Some(msg) = service_resources_handle.inbound_relay.recv() => {
                     match msg {
                         DaVerifierMsg::AddShare { share, reply_channel } => {
                             let blob_id = share.blob_id();
-                            match Self::handle_new_share(&verifier, &storage_adapter, share).await {
+                            match Self::handle_new_share(&share_verifier, &storage_adapter, share).await {
                                 Ok(attestation) => {
                                     if let Err(err) = reply_channel.send(Some(attestation)) {
                                         error!("Error replying attestation {err:?}");
@@ -259,7 +301,7 @@ where
                             };
                         },
                         DaVerifierMsg::VerifyShare {commitments,  light_share, reply_channel } => {
-                            match verifier.verify(&commitments, &light_share) {
+                            match share_verifier.verify(&commitments, &light_share) {
                                 Ok(()) => {
                                     if let Err(err) = reply_channel.send(Ok(())) {
                                         error!("Error replying verification {err:?}");
@@ -282,8 +324,14 @@ where
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DaVerifierServiceSettings<BackendSettings, NetworkSettings, StorageSettings> {
-    pub verifier_settings: BackendSettings,
+pub struct DaVerifierServiceSettings<
+    ShareVerifierSettings,
+    TxVerifierSettings,
+    NetworkSettings,
+    StorageSettings,
+> {
+    pub share_verifier_settings: ShareVerifierSettings,
+    pub tx_verifier_settings: TxVerifierSettings,
     pub network_adapter_settings: NetworkSettings,
     pub storage_adapter_settings: StorageSettings,
 }

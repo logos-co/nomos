@@ -402,10 +402,11 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
             },
         },
         da_verifier: DaVerifierServiceSettings {
-            verifier_settings: KzgrsDaVerifierSettings {
+            share_verifier_settings: KzgrsDaVerifierSettings {
                 global_params_path: config.da_config.global_params_path,
                 domain_size: config.da_config.num_subnets as usize,
             },
+            tx_verifier_settings: (),
             network_adapter_settings: (),
             storage_adapter_settings: VerifierStorageAdapterSettings {
                 blob_storage_directory: "./".into(),
