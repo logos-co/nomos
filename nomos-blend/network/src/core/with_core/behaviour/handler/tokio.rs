@@ -3,7 +3,7 @@ pub use std::{num::NonZeroU64, ops::RangeInclusive, time::Duration};
 pub use nomos_utils::math::NonNegativeF64;
 pub use tokio_stream::StreamExt as _;
 
-use super::IntervalStreamProvider;
+use crate::core::with_core::behaviour::IntervalStreamProvider;
 
 #[derive(Clone)]
 /// Provider of a stream of observation windows used by the Blend connection
@@ -67,7 +67,10 @@ mod test {
     use nomos_blend_scheduling::membership::{Membership, Node};
     use tokio::select;
 
-    use crate::core::{behaviour::Config, Behaviour, Error, Event, IntervalStreamProvider};
+    use crate::core::with_core::{
+        behaviour::{Behaviour, Config, Event, IntervalStreamProvider},
+        error::Error,
+    };
 
     struct TestTokioIntervalStreamProvider(Duration, RangeInclusive<u64>);
 
@@ -97,7 +100,6 @@ mod test {
             Duration::from_secs(5),
             None,
             None,
-            Duration::from_secs(1),
         );
         let mut swarm2 = new_blend_swarm(
             keypairs.next().unwrap(),
@@ -105,7 +107,6 @@ mod test {
             Duration::from_secs(5),
             None,
             None,
-            Duration::from_secs(1),
         );
         swarm2.dial(node1_addr).unwrap();
 
@@ -125,7 +126,7 @@ mod test {
                     }
                     // Proceed swarm1
                     event = swarm1.select_next_some() => {
-                        if let SwarmEvent::Behaviour(Event::Message(received_msg)) = event {
+                        if let SwarmEvent::Behaviour(Event::Message(received_msg, _)) = event {
                             assert_eq!(received_msg, msg);
                             break;
                         }
@@ -156,7 +157,6 @@ mod test {
             Duration::from_secs(5),
             None,
             None,
-            Duration::from_secs(1),
         );
         swarm2.dial(node1_addr).unwrap();
 
@@ -191,7 +191,6 @@ mod test {
             Duration::from_secs(5),
             Some(0..=0),
             None,
-            Duration::from_secs(1),
         );
         let mut swarm2 = new_blend_swarm(
             keypairs.next().unwrap(),
@@ -199,7 +198,6 @@ mod test {
             Duration::from_secs(5),
             Some(0..=0),
             None,
-            Duration::from_secs(1),
         );
         swarm2.dial(node1_addr).unwrap();
 
@@ -259,7 +257,6 @@ mod test {
             Duration::from_secs(5),
             Some(1..=1),
             None,
-            Duration::from_secs(1),
         );
         let mut swarm2 = new_blend_swarm(
             keypairs.next().unwrap(),
@@ -267,7 +264,6 @@ mod test {
             Duration::from_secs(5),
             Some(1..=1),
             None,
-            Duration::from_secs(1),
         );
         swarm2.dial(node1_addr).unwrap();
 
@@ -315,7 +311,6 @@ mod test {
         expected_duration: Duration,
         expected_message_range: Option<RangeInclusive<u64>>,
         membership_info: Option<Membership<PeerId>>,
-        timeout: Duration,
     ) -> Swarm<Behaviour<TestTokioIntervalStreamProvider>> {
         new_swarm_with_behaviour(
             keypair,
@@ -331,7 +326,6 @@ mod test {
                     expected_message_range.unwrap_or(0..=u64::MAX),
                 ),
                 membership_info,
-                timeout,
             ),
         )
     }

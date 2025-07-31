@@ -12,4 +12,5 @@ pub enum Error {
         peer_id: PeerId,
         connection_id: ConnectionId,
     },
+    Duplicate,
 }

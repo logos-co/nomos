@@ -1,12 +1,16 @@
 use core::task::{Context, Poll, Waker};
 
 use futures::{FutureExt as _, TryFutureExt as _};
-use libp2p::{core::upgrade::ReadyUpgrade, swarm::handler::InboundUpgradeSend, StreamProtocol};
+use libp2p::{
+    core::upgrade::ReadyUpgrade,
+    swarm::{handler::InboundUpgradeSend, ConnectionHandlerEvent},
+    StreamProtocol,
+};
 
 use crate::{
-    core::handler::edge::{
+    core::with_edge::behaviour::handler::{
         dropped::DroppedState, receiving::ReceivingState, ConnectionState, FailureReason,
-        PollResult, StateTrait, TimerFuture, LOG_TARGET,
+        PollResult, StateTrait, TimerFuture, ToBehaviour, LOG_TARGET,
     },
     recv_msg,
 };
@@ -18,6 +22,7 @@ pub struct ReadyToReceiveState {
     /// The timer future that will be polled regularly to close the connection
     /// when idling for too long.
     timeout_timer: TimerFuture,
+    behaviour_notified: bool,
 }
 
 impl ReadyToReceiveState {
@@ -34,6 +39,7 @@ impl ReadyToReceiveState {
         Self {
             inbound_stream,
             timeout_timer,
+            behaviour_notified: false,
         }
     }
 }
@@ -62,6 +68,14 @@ impl StateTrait for ReadyToReceiveState {
             Box::pin(recv_msg(self.inbound_stream).map_ok(|(_, message)| message)),
             Some(cx.waker().clone()),
         );
-        (Poll::Pending, receiving_state.into())
+        let poll_result = if self.behaviour_notified {
+            Poll::Pending
+        } else {
+            self.behaviour_notified = true;
+            Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                ToBehaviour::SubstreamOpened,
+            ))
+        };
+        (poll_result, receiving_state.into())
     }
 }
