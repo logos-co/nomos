@@ -1,10 +1,6 @@
 use std::marker::PhantomData;
 
-use nomos_blend_service::{
-    core::network::NetworkAdapter,
-    message::ServiceMessage,
-    proxy::{self, BlendProxyService},
-};
+use nomos_blend_service::{core::network::NetworkAdapter, message::ServiceMessage, BlendService};
 use nomos_core::{block::Block, wire};
 use nomos_network::backends::libp2p::PeerId;
 use overwatch::services::{relay::OutboundRelay, ServiceData};
@@ -24,7 +20,7 @@ where
     _phantom: PhantomData<(Tx, BlobCert)>,
 }
 
-type Service<RuntimeServiceId> = BlendProxyService<
+type Service<RuntimeServiceId> = BlendService<
     proxy::core::libp2p::Libp2pAdapter<RuntimeServiceId>,
     proxy::edge::libp2p::Libp2pAdapter<RuntimeServiceId>,
     RuntimeServiceId,
