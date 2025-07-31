@@ -148,6 +148,7 @@ impl Cryptarchia {
             parent,
             slot,
             header.leader_proof(),
+            [0; 32], // TODO: add the new voucher commitment here
             std::iter::empty::<&SignedMantleTx>(),
         )?;
         let (consensus, pruned_blocks) = self.consensus.receive_block(id, parent, slot)?;

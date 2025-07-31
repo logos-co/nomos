@@ -8,7 +8,7 @@ use nomos_core::{
 use nomos_proof_statements::{leadership::LeaderPublic, zksig::ZkSignaturePublic};
 
 pub type UtxoTree = utxotree::UtxoTree<NoteId, Note, ZkHasher>;
-use super::{Config, LedgerError};
+use super::{Balance, Config, LedgerError};
 use crate::mantle::locked_notes::LockedNotes;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -194,8 +194,8 @@ impl LedgerState {
         mut self,
         locked_notes: &LockedNotes,
         tx: impl AuthenticatedMantleTx,
-    ) -> Result<(Self, Value), LedgerError<Id>> {
-        let mut balance: u64 = 0;
+    ) -> Result<(Self, Balance), LedgerError<Id>> {
+        let mut balance: i128 = 0;
         let mut pks: Vec<Fr> = vec![];
         let ledger_tx = &tx.mantle_tx().ledger_tx;
         for input in &ledger_tx.inputs {
@@ -208,7 +208,7 @@ impl LedgerState {
                 .remove(input)
                 .map_err(|_| LedgerError::InvalidNote(*input))?;
             balance = balance
-                .checked_add(note.value)
+                .checked_add(note.value.into())
                 .ok_or(LedgerError::Overflow)?;
             pks.push(note.pk.into());
         }
@@ -226,15 +226,10 @@ impl LedgerState {
                 return Err(LedgerError::ZeroValueNote);
             }
             balance = balance
-                .checked_sub(note.value)
-                .ok_or(LedgerError::InsufficientBalance)?;
+                .checked_sub(note.value.into())
+                .ok_or(LedgerError::Overflow)?;
             self.utxos = self.utxos.insert(utxo.id(), note).0;
         }
-
-        let gas_cost = tx.gas_cost::<Constants>();
-        balance = balance
-            .checked_sub(gas_cost)
-            .ok_or(LedgerError::InsufficientBalance)?;
 
         Ok((self, balance))
     }
@@ -736,7 +731,7 @@ pub mod tests {
 
         assert_eq!(
             balance,
-            input_note.value - output_note1.value - output_note2.value - fees
+            (input_note.value - output_note1.value - output_note2.value) as i128
         );
 
         // Verify input was consumed
@@ -758,7 +753,7 @@ pub mod tests {
             .unwrap();
         assert_eq!(
             final_balance,
-            output_note1.value + output_note2.value - fees
+            (output_note1.value + output_note2.value) as i128
         );
         assert!(!final_state.utxos.contains(&output_utxo1.id()));
         assert!(!final_state.utxos.contains(&output_utxo2.id()));
@@ -811,10 +806,7 @@ pub mod tests {
 
     #[test]
     fn test_tx_processing_insufficient_balance() {
-        let input_note = Note::new(
-            MainnetGasConstants::LEDGER_TX + 1,
-            Fr::from(BigUint::from(1u8)).into(),
-        );
+        let input_note = Note::new(1, Fr::from(BigUint::from(1u8)).into());
         let input_utxo = Utxo {
             tx_hash: Fr::from(BigUint::from(1u8)).into(),
             output_index: 0,
@@ -827,35 +819,20 @@ pub mod tests {
         let ledger_state = LedgerState::from_utxos([input_utxo]);
         let tx = create_tx(&[&input_utxo], vec![output_note, output_note]);
 
-        let result = ledger_state
+        let (_, balance) = ledger_state
             .clone()
-            .try_apply_tx::<(), MainnetGasConstants>(&locked_notes, tx);
-        assert!(matches!(result, Err(LedgerError::InsufficientBalance)));
+            .try_apply_tx::<(), MainnetGasConstants>(tx)
+            .unwrap();
+        assert_eq!(balance, -1);
 
         let tx = create_tx(&[&input_utxo], vec![output_note]);
-        assert!(ledger_state
-            .try_apply_tx::<(), MainnetGasConstants>(&locked_notes, tx)
-            .is_err());
-    }
-
-    #[test]
-    fn test_tx_processing_insufficient_balance_with_gas() {
-        let input_note = Note::new(1, Fr::from(BigUint::from(1u8)).into());
-        let input_utxo = Utxo {
-            tx_hash: Fr::from(BigUint::from(1u8)).into(),
-            output_index: 0,
-            note: input_note,
-        };
-
-        let output_note = Note::new(1, Fr::from(BigUint::from(2u8)).into());
-
-        let locked_notes = LockedNotes::new();
-        let ledger_state = LedgerState::from_utxos([input_utxo]);
-        let tx = create_tx(&[&input_utxo], vec![output_note]);
-
-        // input / output are balanced, but gas cost is not covered
-        let result = ledger_state.try_apply_tx::<(), MainnetGasConstants>(&locked_notes, tx);
-        assert!(matches!(result, Err(LedgerError::InsufficientBalance)));
+        assert_eq!(
+            ledger_state
+                .try_apply_tx::<(), MainnetGasConstants>(tx)
+                .unwrap()
+                .1,
+            0
+        );
     }
 
     #[test]
@@ -876,40 +853,10 @@ pub mod tests {
         assert!(result.is_ok());
 
         let (new_state, balance) = result.unwrap();
-        assert_eq!(balance, 10000 - fees);
+        assert_eq!(balance, 10000);
 
         // Verify input was consumed
         assert!(!new_state.utxos.contains(&input_utxo.id()));
-    }
-
-    #[test]
-    fn test_tx_processing_overflow_protection() {
-        let input_note1 = Note::new(u64::MAX, Fr::from(BigUint::from(1u8)).into());
-        let input_note2 = Note::new(1, Fr::from(BigUint::from(2u8)).into());
-        let input_utxo1 = Utxo {
-            tx_hash: Fr::from(BigUint::from(1u8)).into(),
-            output_index: 0,
-            note: input_note1,
-        };
-        let input_utxo2 = Utxo {
-            tx_hash: Fr::from(BigUint::from(2u8)).into(),
-            output_index: 0,
-            note: input_note2,
-        };
-
-        let output_note = Note::new(100, Fr::from(BigUint::from(3u8)).into());
-
-        let locked_notes = LockedNotes::new();
-        // adding both utxos together would overflow the total stake calculation
-        let mut ledger_state = LedgerState::from_utxos([input_utxo1]);
-        ledger_state.utxos = ledger_state
-            .utxos
-            .insert(input_utxo2.id(), input_utxo2.note)
-            .0;
-        let tx = create_tx(&[&input_utxo1, &input_utxo2], vec![output_note]);
-
-        let result = ledger_state.try_apply_tx::<(), MainnetGasConstants>(&locked_notes, tx);
-        assert!(matches!(result, Err(LedgerError::Overflow)));
     }
 
     #[test]

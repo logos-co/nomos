@@ -1,6 +1,6 @@
 pub mod channel;
 pub(crate) mod internal;
-mod leader_claim;
+pub mod leader_claim;
 pub mod native;
 pub mod opcode;
 pub mod sdp;
