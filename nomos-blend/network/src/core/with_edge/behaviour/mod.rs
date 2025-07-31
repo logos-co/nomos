@@ -95,8 +95,8 @@ impl NetworkBehaviour for Behaviour {
         // the connection requests.
         self.connected_edge_peers.insert((peer, connection_id));
 
-        // If we are above the maximum limit, return a dummy handler that will soon
-        // close the connection.
+        // If we went above the maximum limit with the new addition, return a dummy
+        // handler that will soon close the connection.
         if self.connected_edge_peers.len() > self.max_incoming_connections {
             tracing::trace!(target: LOG_TARGET, "Connected peer {peer:?} on connection {connection_id:?} will not be upgraded since we are already at maximum incoming connection capacity.");
             return Ok(Either::Right(DummyConnectionHandler));

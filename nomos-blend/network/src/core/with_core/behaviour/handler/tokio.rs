@@ -220,12 +220,7 @@ mod test {
                     }
                     event = swarm1.select_next_some() => {
                         match event {
-                            // We expect the behaviour reports a spammy peer.
-                            SwarmEvent::Behaviour(Event::SpammyPeer(peer_id)) => {
-                                assert_eq!(peer_id, *swarm2.local_peer_id());
-                                num_events_waiting -= 1;
-                            },
-                            // We expect that the Swarm1 closes the connection proactively.
+                            // We expect that the Swarm1 closes the connection proactively as a result of the peer being spammy.
                             SwarmEvent::ConnectionClosed { peer_id, num_established, .. } => {
                                 assert_eq!(peer_id, *swarm2.local_peer_id());
                                 assert_eq!(num_established, 0);
@@ -279,13 +274,13 @@ mod test {
 
                 select! {
                     event = swarm1.select_next_some() => {
-                        if let SwarmEvent::Behaviour(Event::UnhealthyPeer(peer_id)) = event {
+                        if let SwarmEvent::Behaviour(Event::UnhealthyPeer(peer_id, _)) = event {
                             assert_eq!(peer_id, *swarm2.local_peer_id());
                             num_events_waiting -= 1;
                         }
                     }
                     event = swarm2.select_next_some() => {
-                        if let SwarmEvent::Behaviour(Event::UnhealthyPeer(peer_id)) = event {
+                        if let SwarmEvent::Behaviour(Event::UnhealthyPeer(peer_id, _)) = event {
                             assert_eq!(peer_id, *swarm1.local_peer_id());
                             num_events_waiting -= 1;
                         }

@@ -60,9 +60,10 @@ pub struct Behaviour<ObservationWindowClockProvider> {
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
-enum NegotiatedPeerState {
+pub enum NegotiatedPeerState {
     Healthy,
     Unhealthy,
+    Spammy,
 }
 
 #[derive(Debug)]
@@ -77,12 +78,11 @@ pub struct Config {
 pub enum Event {
     /// A message received from one of the peers.
     Message(Vec<u8>, PeerId),
-    /// A peer has been detected as spammy.
-    SpammyPeer(PeerId),
     /// A peer has been detected as unhealthy.
-    UnhealthyPeer(PeerId),
-    /// A peer has been detected as healthy.
-    HealthyPeer(PeerId),
+    UnhealthyPeer(PeerId, ConnectionId),
+    /// A peer that was previously unhealthy has returned to a healthy state.
+    HealthyPeer(PeerId, ConnectionId),
+    PeerDisconnected(PeerId, ConnectionId, NegotiatedPeerState),
     Error(Error),
 }
 
@@ -121,15 +121,34 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         max_incoming_slots.min(remaining_slots)
     }
 
+    fn can_accept_incoming_connection(&self) -> bool {
+        self.available_incoming_connections_slots() > 0
+    }
+
     fn available_outgoing_connections_slots(&self) -> usize {
         self.max_total
             .saturating_sub(self.connected_incoming_peers.len())
-            .saturating_sub(self.connected_incoming_peers.len())
+            .saturating_sub(self.connected_outgoing_peers.len())
     }
 
-    fn remove_connection(&mut self, connection: &(PeerId, ConnectionId)) -> bool {
-        self.connected_incoming_peers.remove(connection).is_some()
-            || self.connected_outgoing_peers.remove(connection).is_some()
+    pub fn can_open_outgoing_connection(&self) -> bool {
+        self.available_outgoing_connections_slots() > 0
+    }
+
+    /// Remove the connection from the internal storage and returns the role of
+    /// the removed peer (i.e., dialer or listener) along with their latest
+    /// negotiated state, if present.
+    fn remove_connection(
+        &mut self,
+        connection: &(PeerId, ConnectionId),
+    ) -> Option<(Endpoint, Option<NegotiatedPeerState>)> {
+        if let Some(negotiated_state) = self.connected_incoming_peers.remove(connection) {
+            Some((Endpoint::Dialer, negotiated_state))
+        } else {
+            self.connected_outgoing_peers
+                .remove(connection)
+                .map(|negotiated_state| (Endpoint::Listener, negotiated_state))
+        }
     }
 
     fn update_state(
@@ -168,7 +187,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         let msg_id = Self::message_id(message);
         // If the message was already seen, don't forward it again
         if self.seen_message_cache.cache_get(&msg_id).is_some() {
-            return Err(Error::Duplicate);
+            return Err(Error::DuplicateMessage);
         }
 
         let mut num_peers = 0;
@@ -264,6 +283,9 @@ where
         _: &Multiaddr,
         _: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
+        // We calculate this before adding the peer to the storage, so we know whether
+        // we have a slot available to accept a new incoming connection or not.
+        let can_accept_incoming_connection = self.can_accept_incoming_connection();
         // Add connection regardless of the handler we will use, to enforce a limit on
         // the connection requests.
         self.connected_incoming_peers
@@ -271,7 +293,7 @@ where
 
         // If we are above the maximum limit, return a dummy handler that will soon
         // close the connection.
-        if self.available_incoming_connections_slots() == 0 {
+        if can_accept_incoming_connection {
             tracing::trace!(target: LOG_TARGET, "Connected peer {peer_id:?} on connection {connection_id:?} will not be upgraded since we are already at maximum incoming connection capacity.");
             return Ok(Either::Right(DummyConnectionHandler));
         }
@@ -301,6 +323,9 @@ where
         _: Endpoint,
         _: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
+        // We calculate this before adding the peer to the storage, so we know whether
+        // we have a slot available to open a new outgoing connection or not.
+        let can_open_outgoing_connection = self.can_open_outgoing_connection();
         // Add connection regardless of the handler we will use, to enforce a limit on
         // the connection requests.
         self.connected_outgoing_peers
@@ -308,7 +333,7 @@ where
 
         // If we are above the maximum limit, return a dummy handler that will soon
         // close the connection.
-        if self.available_outgoing_connections_slots() == 0 {
+        if can_open_outgoing_connection {
             tracing::trace!(target: LOG_TARGET, "Connected peer {peer_id:?} on connection {connection_id:?} will not be upgraded since we are already at maximum outgoing connection capacity.");
             return Ok(Either::Right(DummyConnectionHandler));
         }
@@ -342,9 +367,39 @@ where
             // 1. The connection was closed by the peer.
             // 2. The connection was closed by the local node since no stream is active.
             //
-            // In both cases, we need to remove the peer from the list of connected peers,
-            // though it may be already removed from list by handling other events.
-            self.remove_connection(&(peer_id, connection_id));
+            // In both cases, we need to remove the peer from the list of connected peers.
+            let Some((peer_role, negotiated_state)) =
+                self.remove_connection(&(peer_id, connection_id))
+            else {
+                // This event is not for us to consume.
+                return;
+            };
+
+            match (peer_role, negotiated_state) {
+                (Endpoint::Listener, Some(state)) => {
+                    self.events
+                        .push_back(ToSwarm::GenerateEvent(Event::PeerDisconnected(
+                            peer_id,
+                            connection_id,
+                            state,
+                        )));
+                    self.try_wake();
+                }
+                // Disconnected incoming connections are not an issue the swarm must deal with, so
+                // we keep it internal, i.e., we accept a new incoming connection when it comes, if
+                // we have a slot for it.
+                (Endpoint::Dialer, _) => {}
+                // The disconnected peer was never upgraded to the Blend
+                // protocol, either because they do not support it or
+                // because we prevented it due to connection limits. So, we
+                // do not notify the swarm at all about this, as this is an
+                // internal detail.
+                #[expect(
+                    clippy::match_same_arms,
+                    reason = "We separate the arms so we can add a comment for each of them as to why we do not anything with them."
+                )]
+                (_, None) => {}
+            }
         }
     }
 
@@ -391,18 +446,24 @@ where
                 }
                 ToBehaviour::SpammyPeer => {
                     // We do not remove the peer yet, as that will happen once the connection is
-                    // closed and we capture the respective swarm event.
+                    // closed and we capture the respective swarm event. This will happen for sure
+                    // since the connection handler will not deal with the peer anymore.
+                    // Also, we do not notify the swarm about a spammy peer, because it might try to
+                    // open a new connection, but until the connection to the spammy peer is not
+                    // closed, the new outgoing connection might fail due to connection limits.
+                    // So, we let the swarm know about it when the peer has actually disconnected.
                     tracing::debug!(target: LOG_TARGET, "Peer {peer_id:?} on connection {connection_id:?} has been detected as spammy");
-                    self.events
-                        .push_back(ToSwarm::GenerateEvent(Event::SpammyPeer(peer_id)));
-                    self.try_wake();
+                    self.update_state((peer_id, connection_id), NegotiatedPeerState::Spammy);
                 }
                 ToBehaviour::UnhealthyPeer => {
                     // Notify swarm only if it's the first transition into the unhealthy state.
                     if self.update_state((peer_id, connection_id), NegotiatedPeerState::Unhealthy) {
                         tracing::debug!(target: LOG_TARGET, "Peer {:?} on connection {connection_id:?} has been detected as unhealthy", peer_id);
                         self.events
-                            .push_back(ToSwarm::GenerateEvent(Event::UnhealthyPeer(peer_id)));
+                            .push_back(ToSwarm::GenerateEvent(Event::UnhealthyPeer(
+                                peer_id,
+                                connection_id,
+                            )));
                         self.try_wake();
                     }
                 }
@@ -411,23 +472,18 @@ where
                     if self.update_state((peer_id, connection_id), NegotiatedPeerState::Healthy) {
                         tracing::debug!(target: LOG_TARGET, "Peer {:?} on connection {connection_id:?} has been detected as healthy", peer_id);
                         self.events
-                            .push_back(ToSwarm::GenerateEvent(Event::HealthyPeer(peer_id)));
+                            .push_back(ToSwarm::GenerateEvent(Event::HealthyPeer(
+                                peer_id,
+                                connection_id,
+                            )));
                         self.try_wake();
                     }
                 }
-                ToBehaviour::IOError(error) => {
-                    // We do not remove the peer yet, as that will happen once the connection is
-                    // closed and we capture the respective swarm event.
-                    self.events.push_back(ToSwarm::GenerateEvent(Event::Error(
-                        Error::PeerIOError {
-                            error,
-                            peer_id,
-                            connection_id,
-                        },
-                    )));
-                    self.try_wake();
-                }
-                ToBehaviour::DialUpgradeError(_) => {}
+                // We do not do anything with these errors, since they will result in the connection
+                // with the peer closed, which we capture and process elsewhere, and we also notify
+                // the swarm about it then, to avoid concurrency issues in the number of connections
+                // that are kept open.
+                ToBehaviour::DialUpgradeError(_) | ToBehaviour::IOError(_) => {}
             },
         }
     }
