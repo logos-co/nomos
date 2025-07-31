@@ -8,7 +8,24 @@ use nomos_core::mantle::{
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use super::Error;
+#[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+pub enum Error {
+    #[error("Invalid parent {parent:?} for channel {channel_id:?}, expected {actual:?}")]
+    InvalidParent {
+        channel_id: ChannelId,
+        parent: [u8; 32],
+        actual: [u8; 32],
+    },
+    #[error("Unauthorized signer {signer:?} for channel {channel_id:?}")]
+    UnauthorizedSigner {
+        channel_id: ChannelId,
+        signer: String,
+    },
+    #[error("Invalid signature")]
+    InvalidSignature,
+    #[error("Invalid keys for channel {channel_id:?}")]
+    EmptyKeys { channel_id: ChannelId },
+}
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
