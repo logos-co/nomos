@@ -25,5 +25,10 @@ where
     /// Peers to download blocks from.
     pub peers: HashSet<NodeId>,
     /// The max number of downloads to repeat for a single peer.
+    #[serde(default = "default_max_download_iterations")]
     pub max_download_iterations: NonZeroUsize,
+}
+
+const fn default_max_download_iterations() -> NonZeroUsize {
+    NonZeroUsize::new(1000).unwrap()
 }
