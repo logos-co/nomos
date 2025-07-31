@@ -11,7 +11,7 @@ static BINARY: LazyLock<PathBuf, fn() -> PathBuf> = LazyLock::new(|| {
         .unwrap_or_else(|error_message| panic!("{}", error_message))
 });
 
-/// Runs the `pol` command.
+/// Runs the `pol` circuit to generate a witness from the provided inputs.
 ///
 /// # Arguments
 ///
@@ -39,20 +39,24 @@ pub fn pol(inputs_file: &PathBuf, witness_file: &PathBuf) -> io::Result<PathBuf>
     Ok(witness_file.to_owned())
 }
 
-/// Shorthand for running the `pol` command with the contents, instead of files.
+/// Runs the `pol` circuit to generate a witness from the provided inputs.
+///
+/// # Note
+///
+/// Calls [`pol`] underneath but hides the file handling details.
 ///
 /// # Arguments
 ///
-/// * `input` - A string containing the public and private inputs.
+/// * `inputs` - A string containing the public and private inputs.
 ///
 /// # Returns
 ///
 /// An `io::Result<String>` which contains the witness if successful, or an
 /// `io::Error` if the command fails.
-pub fn pol_from_content(input: &str) -> io::Result<String> {
+pub fn pol_from_content(inputs: &str) -> io::Result<String> {
     let mut inputs_file = NamedTempFile::new()?;
     let witness_file = NamedTempFile::new()?;
-    inputs_file.write_all(input.as_bytes())?;
+    inputs_file.write_all(inputs.as_bytes())?;
 
     pol(
         &inputs_file.path().to_path_buf(),
