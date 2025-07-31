@@ -13,7 +13,7 @@ use tracing::{debug, error, info};
 
 use crate::{
     network::{BoxedStream, NetworkAdapter},
-    IbdConfig,
+    Cryptarchia, IbdConfig,
 };
 
 // TODO: Replace ProcessBlock closures with a trait
@@ -23,35 +23,33 @@ pub struct InitialBlockDownload<
     NodeId,
     Block,
     NetAdapter,
-    Cryptarchia,
     ProcessBlockFn,
     ProcessBlockFut,
     RuntimeServiceId,
 > where
     NodeId: Clone + Eq + Hash,
-    ProcessBlockFn: Fn(Cryptarchia, Block) -> ProcessBlockFut,
-    ProcessBlockFut: Future<Output = Cryptarchia>,
+    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, Block) -> ProcessBlockFut,
+    ProcessBlockFut: Future<Output = (Cryptarchia, HashSet<HeaderId>)>,
 {
     config: IbdConfig<NodeId>,
     network: NetAdapter,
     process_block: ProcessBlockFn,
-    _phantom: PhantomData<(NodeId, Block, Cryptarchia, RuntimeServiceId)>,
+    _phantom: PhantomData<(Block, RuntimeServiceId)>,
 }
 
-impl<NodeId, Block, NetAdapter, Cryptarchia, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
+impl<NodeId, Block, NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
     InitialBlockDownload<
         NodeId,
         Block,
         NetAdapter,
-        Cryptarchia,
         ProcessBlockFn,
         ProcessBlockFut,
         RuntimeServiceId,
     >
 where
     NodeId: Clone + Eq + Hash,
-    ProcessBlockFn: Fn(Cryptarchia, Block) -> ProcessBlockFut,
-    ProcessBlockFut: Future<Output = Cryptarchia>,
+    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, Block) -> ProcessBlockFut,
+    ProcessBlockFut: Future<Output = (Cryptarchia, HashSet<HeaderId>)>,
 {
     pub const fn new(
         config: IbdConfig<NodeId>,
@@ -67,12 +65,11 @@ where
     }
 }
 
-impl<NodeId, Block, NetAdapter, Cryptarchia, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
+impl<NodeId, Block, NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
     InitialBlockDownload<
         NodeId,
         Block,
         NetAdapter,
-        Cryptarchia,
         ProcessBlockFn,
         ProcessBlockFut,
         RuntimeServiceId,
@@ -80,19 +77,24 @@ impl<NodeId, Block, NetAdapter, Cryptarchia, ProcessBlockFn, ProcessBlockFut, Ru
 where
     NodeId: Clone + Eq + Hash + Copy + Debug + Send + Sync,
     Block: Send + Sync,
-    Cryptarchia: crate::bootstrap::ibd::Cryptarchia + Send + Sync,
     NetAdapter: NetworkAdapter<RuntimeServiceId, PeerId = NodeId, Block = Block> + Send + Sync,
-    ProcessBlockFn: Fn(Cryptarchia, Block) -> ProcessBlockFut + Send + Sync,
-    ProcessBlockFut: Future<Output = Cryptarchia> + Send,
+    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, Block) -> ProcessBlockFut + Send + Sync,
+    ProcessBlockFut: Future<Output = (Cryptarchia, HashSet<HeaderId>)> + Send,
     RuntimeServiceId: Sync,
 {
     /// Runs IBD with the configured peers.
     ///
     /// It downloads blocks from the peers, applies them to the [`Cryptarchia`],
     /// and returns the updated [`Cryptarchia`].
-    pub async fn run(&self, cryptarchia: Cryptarchia) -> Result<Cryptarchia, Error> {
+    pub async fn run(
+        &self,
+        cryptarchia: Cryptarchia,
+        storage_blocks_to_remove: HashSet<HeaderId>,
+    ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
         let downloads = self.initiate_downloads(&cryptarchia).await;
-        Ok(self.proceed_downloads(downloads, cryptarchia).await)
+        Ok(self
+            .proceed_downloads(downloads, cryptarchia, storage_blocks_to_remove)
+            .await)
     }
 
     /// Initiates downloads from the configured peers.
@@ -161,7 +163,7 @@ where
     }
 
     fn should_download(target: &HeaderId, cryptarchia: &Cryptarchia) -> bool {
-        !cryptarchia.contain(target)
+        cryptarchia.consensus.branches().get(target).is_none()
     }
 
     /// Proceeds downloads by reading/processing blocks from the streams.
@@ -171,7 +173,8 @@ where
         &self,
         mut downloads: Downloads<NodeId, Block>,
         mut cryptarchia: Cryptarchia,
-    ) -> Cryptarchia {
+        mut storage_blocks_to_remove: HashSet<HeaderId>,
+    ) -> (Cryptarchia, HashSet<HeaderId>) {
         // Read all streams in a round-robin fashion
         // to avoid forming a long chain of blocks received only from a single peer.
         let mut peers: VecDeque<_> = downloads.keys().copied().collect();
@@ -181,7 +184,8 @@ where
             // Read one block from the stream.
             match download.next_block().await {
                 Ok(Some((_, block))) => {
-                    cryptarchia = (self.process_block)(cryptarchia, block).await;
+                    (cryptarchia, storage_blocks_to_remove) =
+                        (self.process_block)(cryptarchia, storage_blocks_to_remove, block).await;
                     peers.push_back(peer);
                 }
                 Ok(None) => {
@@ -204,7 +208,7 @@ where
             }
         }
 
-        cryptarchia
+        (cryptarchia, storage_blocks_to_remove)
     }
 
     async fn initiate_next_download(
@@ -224,12 +228,6 @@ where
             }
         }
     }
-}
-
-pub trait Cryptarchia {
-    fn tip(&self) -> HeaderId;
-    fn lib(&self) -> HeaderId;
-    fn contain(&self, id: &HeaderId) -> bool;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -295,10 +293,14 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroUsize;
+    use std::{
+        iter::empty,
+        num::{NonZero, NonZeroUsize},
+    };
 
-    use cryptarchia_engine::Slot;
+    use cryptarchia_engine::{EpochConfig, Slot};
     use cryptarchia_sync::GetTipResponse;
+    use nomos_ledger::LedgerState;
     use nomos_network::{backends::NetworkBackend, message::ChainSyncEvent, NetworkService};
     use overwatch::{
         overwatch::OverwatchHandle,
@@ -311,96 +313,110 @@ mod tests {
     #[tokio::test]
     async fn single_download() {
         let peer = BlockProvider::new(
-            vec![Block::new(0, 0), Block::new(1, 1), Block::new(2, 2)],
-            Block::new(2, 2),
+            vec![
+                Block::genesis(),
+                Block::new(1, GENESIS_ID, 1),
+                Block::new(2, 1, 2),
+            ],
+            Block::new(2, 1, 2),
             2,
             false,
         );
-        let local = InitialBlockDownload::new(
+        let (cryptarchia, _) = InitialBlockDownload::new(
             config([NodeId(0)].into()),
             MockNetworkAdapter::<()>::new(HashMap::from([(NodeId(0), peer.clone())])),
             process_block,
         )
-        .run(Cryptarchia::new())
+        .run(new_cryptarchia(), HashSet::new())
         .await
         .unwrap();
 
-        // The local chain should be the same as the peer's chain.
-        assert_eq!(local.chain, peer.chain);
+        // All blocks from the peer should be in the local chain.
+        assert!(peer.chain.iter().all(|b| contain(b, &cryptarchia)));
     }
 
     #[tokio::test]
     async fn repeat_downloads() {
         let peer = BlockProvider::new(
             vec![
-                Block::new(0, 0),
-                Block::new(1, 1),
-                Block::new(2, 2),
-                Block::new(3, 3),
+                Block::genesis(),
+                Block::new(1, GENESIS_ID, 1),
+                Block::new(2, 1, 2),
+                Block::new(3, 2, 3),
             ],
-            Block::new(3, 3),
+            Block::new(3, 2, 3),
             2,
             false,
         );
-        let local = InitialBlockDownload::new(
+        let (cryptarchia, _) = InitialBlockDownload::new(
             config([NodeId(0)].into()),
             MockNetworkAdapter::<()>::new(HashMap::from([(NodeId(0), peer.clone())])),
             process_block,
         )
-        .run(Cryptarchia::new())
+        .run(new_cryptarchia(), HashSet::new())
         .await
         .unwrap();
 
-        // The local chain should be the same as the peer's chain.
-        assert_eq!(local.chain, peer.chain);
+        // All blocks from the peer should be in the local chain.
+        assert!(peer.chain.iter().all(|b| contain(b, &cryptarchia)));
     }
 
     #[tokio::test]
     async fn max_download_iterations() {
         let peer = BlockProvider::new(
             vec![
-                Block::new(0, 0),
-                Block::new(1, 1),
-                Block::new(2, 2),
-                Block::new(3, 3),
+                Block::genesis(),
+                Block::new(1, GENESIS_ID, 1),
+                Block::new(2, 1, 2),
+                Block::new(3, 2, 3),
             ],
-            Block::new(10, 10),
+            // Setting the tip that doesn't exist in the chain,
+            // so that the requester can't receive it.
+            Block::new(10, 3, 10),
             2,
             false,
         );
-        let local = InitialBlockDownload::new(
+
+        // Although the peer's tip (10) cannot be reached,
+        // the download should stop after reaching `max_download_iterations`.
+        let (cryptarchia, _) = InitialBlockDownload::new(
             config([NodeId(0)].into()),
             MockNetworkAdapter::<()>::new(HashMap::from([(NodeId(0), peer.clone())])),
             process_block,
         )
-        .run(Cryptarchia::new())
+        .run(new_cryptarchia(), HashSet::new())
         .await
         .unwrap();
 
-        // The local chain should be the same as the peer's chain.
-        assert_eq!(local.chain, peer.chain);
+        // Although the peer's tip (10) is not reached,
+        // all other blocks should be in the local chain.
+        assert!(peer.chain.iter().all(|b| contain(b, &cryptarchia)));
     }
 
     #[tokio::test]
     async fn multiple_peers() {
         let peer0 = BlockProvider::new(
-            vec![Block::new(0, 0), Block::new(1, 1), Block::new(2, 2)],
-            Block::new(2, 2),
+            vec![
+                Block::genesis(),
+                Block::new(1, GENESIS_ID, 1),
+                Block::new(2, 1, 2),
+            ],
+            Block::new(2, 1, 2),
             2,
             false,
         );
         let peer1 = BlockProvider::new(
             vec![
-                Block::new(0, 0),
-                Block::new(3, 3),
-                Block::new(4, 4),
-                Block::new(5, 5),
+                Block::genesis(),
+                Block::new(3, GENESIS_ID, 3),
+                Block::new(4, 3, 4),
+                Block::new(5, 4, 5),
             ],
-            Block::new(5, 5),
+            Block::new(5, 4, 5),
             2,
             false,
         );
-        let local = InitialBlockDownload::new(
+        let (cryptarchia, _) = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
@@ -408,35 +424,39 @@ mod tests {
             ])),
             process_block,
         )
-        .run(Cryptarchia::new())
+        .run(new_cryptarchia(), HashSet::new())
         .await
         .unwrap();
 
         // All blocks from both peers should be in the local chain.
-        assert!(peer0.chain.iter().all(|b| local.chain.contains(b)));
-        assert!(peer1.chain.iter().all(|b| local.chain.contains(b)));
+        assert!(peer0.chain.iter().all(|b| contain(b, &cryptarchia)));
+        assert!(peer1.chain.iter().all(|b| contain(b, &cryptarchia)));
     }
 
     #[tokio::test]
     async fn err_from_one_peer() {
         let peer0 = BlockProvider::new(
-            vec![Block::new(0, 0), Block::new(1, 1), Block::new(2, 2)],
-            Block::new(2, 2),
+            vec![
+                Block::genesis(),
+                Block::new(1, GENESIS_ID, 1),
+                Block::new(2, 1, 2),
+            ],
+            Block::new(2, 1, 2),
             2,
             true,
         );
         let peer1 = BlockProvider::new(
             vec![
-                Block::new(0, 0),
-                Block::new(3, 3),
-                Block::new(4, 4),
-                Block::new(5, 5),
+                Block::genesis(),
+                Block::new(3, GENESIS_ID, 3),
+                Block::new(4, 3, 4),
+                Block::new(5, 4, 5),
             ],
-            Block::new(5, 5),
+            Block::new(5, 4, 5),
             2,
             false,
         );
-        let local = InitialBlockDownload::new(
+        let (cryptarchia, _) = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
@@ -444,18 +464,33 @@ mod tests {
             ])),
             process_block,
         )
-        .run(Cryptarchia::new())
+        .run(new_cryptarchia(), HashSet::new())
         .await
         .unwrap();
 
         // All blocks from peer1 that doesn't return an error
         // should be added to the local chain.
-        assert!(peer1.chain.iter().all(|b| local.chain.contains(b)));
+        assert!(peer1.chain.iter().all(|b| contain(b, &cryptarchia)));
     }
 
-    async fn process_block(mut cryptarchia: Cryptarchia, block: Block) -> Cryptarchia {
-        cryptarchia.push(block);
-        cryptarchia
+    async fn process_block(
+        mut cryptarchia: Cryptarchia,
+        storage_blocks_to_remove: HashSet<HeaderId>,
+        block: Block,
+    ) -> (Cryptarchia, HashSet<HeaderId>) {
+        // Add the block only to the consensus, not to the ledger state
+        // because the mocked block doesn't have a proof.
+        // It's enough because the tests doesn't check the ledger state.
+        let (consensus, _) = cryptarchia
+            .consensus
+            .receive_block(block.id, block.parent, block.slot)
+            .expect("Block must be valid");
+        cryptarchia.consensus = consensus;
+        (cryptarchia, storage_blocks_to_remove)
+    }
+
+    fn contain(block: &Block, cryptarchia: &Cryptarchia) -> bool {
+        cryptarchia.consensus.branches().get(&block.id).is_some()
     }
 
     #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -469,47 +504,29 @@ mod tests {
         }
     }
 
-    struct Cryptarchia {
-        chain: Vec<Block>,
-    }
-
-    impl Cryptarchia {
-        fn new() -> Self {
-            Self {
-                chain: vec![Block::new(0, 0)],
-            }
-        }
-
-        fn push(&mut self, block: Block) {
-            self.chain.push(block);
-        }
-    }
-
-    impl crate::bootstrap::ibd::Cryptarchia for Cryptarchia {
-        fn tip(&self) -> HeaderId {
-            self.chain.last().unwrap().id
-        }
-
-        fn lib(&self) -> HeaderId {
-            self.chain.first().unwrap().id
-        }
-
-        fn contain(&self, id: &HeaderId) -> bool {
-            self.chain.iter().any(|block| &block.id == id)
-        }
-    }
+    const GENESIS_ID: u8 = 0;
 
     #[derive(Clone, Debug, PartialEq)]
     struct Block {
         id: HeaderId,
+        parent: HeaderId,
         slot: Slot,
     }
 
     impl Block {
-        fn new(id: u8, slot: u64) -> Self {
+        fn new(id: u8, parent: u8, slot: u64) -> Self {
             Self {
                 id: [id; 32].into(),
+                parent: [parent; 32].into(),
                 slot: slot.into(),
+            }
+        }
+
+        fn genesis() -> Self {
+            Self {
+                id: [GENESIS_ID; 32].into(),
+                parent: [GENESIS_ID; 32].into(),
+                slot: Slot::genesis(),
             }
         }
     }
@@ -674,5 +691,24 @@ mod tests {
         async fn subscribe_to_chainsync(&mut self) -> BroadcastStream<Self::ChainSyncEvent> {
             unimplemented!()
         }
+    }
+
+    fn new_cryptarchia() -> Cryptarchia {
+        Cryptarchia::from_lib(
+            [GENESIS_ID; 32].into(),
+            LedgerState::from_utxos(empty()),
+            nomos_ledger::Config {
+                epoch_config: EpochConfig {
+                    epoch_stake_distribution_stabilization: NonZero::new(1).unwrap(),
+                    epoch_period_nonce_buffer: NonZero::new(1).unwrap(),
+                    epoch_period_nonce_stabilization: NonZero::new(1).unwrap(),
+                },
+                consensus_config: cryptarchia_engine::Config {
+                    security_param: NonZero::new(1).unwrap(),
+                    active_slot_coeff: 1.0,
+                },
+            },
+            cryptarchia_engine::State::Bootstrapping,
+        )
     }
 }

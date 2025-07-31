@@ -666,13 +666,12 @@ where
         let (mut cryptarchia, mut storage_blocks_to_remove) = InitialBlockDownload::new(
             bootstrap_config.ibd,
             network_adapter,
-            |cryptarchia: IbdCryptarchia, block| {
+            |cryptarchia, storage_blocks_to_remove, block| {
                 let leader = &leader;
                 let relays = &relays;
                 let block_subscription_sender = &self.block_subscription_sender;
                 let state_updater = &self.service_resources_handle.state_updater;
                 async move {
-                    let (cryptarchia, storage_blocks_to_remove) = cryptarchia.into_inner();
                     Self::process_block_and_update_state(
                         cryptarchia,
                         leader,
@@ -683,13 +682,11 @@ where
                         state_updater,
                     )
                     .await
-                    .into()
                 }
             },
         )
-        .run((cryptarchia, storage_blocks_to_remove).into())
-        .await?
-        .into_inner();
+        .run(cryptarchia, storage_blocks_to_remove)
+        .await?;
 
         // Start the timer for Prelonged Bootstrap Period.
         let mut prolonged_bootstrap_timer = Box::pin(tokio::time::sleep_until(
@@ -1600,44 +1597,4 @@ where
         .await
         .map_err(|(error, _)| Box::new(error) as DynError)?;
     receiver.await.map_err(|error| Box::new(error) as DynError)
-}
-
-/// A wrapper struct that implements [`bootstrap::ibd::Cryptarchia`],
-/// which is for block processing closure used by IBD.
-//
-// TODO: This needs to be replaced with a trait that implements
-//       block processing methods.
-//       https://github.com/logos-co/nomos/issues/1505
-struct IbdCryptarchia {
-    cryptarchia: Cryptarchia,
-    storage_blocks_to_remove: HashSet<HeaderId>,
-}
-
-impl bootstrap::ibd::Cryptarchia for IbdCryptarchia {
-    fn tip(&self) -> HeaderId {
-        self.cryptarchia.tip()
-    }
-
-    fn lib(&self) -> HeaderId {
-        self.cryptarchia.lib()
-    }
-
-    fn contain(&self, id: &HeaderId) -> bool {
-        self.cryptarchia.consensus.branches().get(id).is_some()
-    }
-}
-
-impl IbdCryptarchia {
-    fn into_inner(self) -> (Cryptarchia, HashSet<HeaderId>) {
-        (self.cryptarchia, self.storage_blocks_to_remove)
-    }
-}
-
-impl From<(Cryptarchia, HashSet<HeaderId>)> for IbdCryptarchia {
-    fn from((cryptarchia, storage_blocks_to_remove): (Cryptarchia, HashSet<HeaderId>)) -> Self {
-        Self {
-            cryptarchia,
-            storage_blocks_to_remove,
-        }
-    }
 }
