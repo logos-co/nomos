@@ -323,26 +323,32 @@ where
         }
         self.seen_message_cache.cache_set(message_id, ());
 
-        let peers = match &message {
-            ReplicationRequest::Share(share_request) => {
-                // Push a message in the queue for every single peer connected that is a member
-                // of the selected subnetwork_id
-                self.no_loopback_member_peers_of(share_request.subnetwork_id)
-            }
-            ReplicationRequest::Tx(_signed_mantle_tx) => todo!(),
-        };
-
         // At least one message was enqueued
         let mut queued = false;
 
-        self.connected
-            .iter()
-            .filter(|peer_id| peers.contains(peer_id))
-            .for_each(|peer_id| {
-                self.pending_outbound
-                    .enqueue_message(*peer_id, message.clone());
-                queued = true;
-            });
+        match &message {
+            ReplicationRequest::Share(share_request) => {
+                // Push a message in the queue for every single peer connected that is a member
+                // of the selected subnetwork_id
+                let peers = self.no_loopback_member_peers_of(share_request.subnetwork_id);
+                self.connected
+                    .iter()
+                    .filter(|peer_id| peers.contains(peer_id))
+                    .for_each(|peer_id| {
+                        self.pending_outbound
+                            .enqueue_message(*peer_id, message.clone());
+                        queued = true;
+                    });
+            }
+            ReplicationRequest::Tx(_signed_mantle_tx) => {
+                // Push Tx to all connected peers
+                self.connected.iter().for_each(|peer_id| {
+                    self.pending_outbound
+                        .enqueue_message(*peer_id, message.clone());
+                    queued = true;
+                });
+            }
+        }
 
         if queued {
             waker.map(Waker::wake_by_ref);
