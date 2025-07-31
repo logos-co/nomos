@@ -5,6 +5,8 @@ name              = "circuits-pol"
 version           = "0.1.0"
 
 [dependencies]
+circuits-utils = { workspace = true }
+tempfile       = "3"
 
 [lints]
 workspace = true
