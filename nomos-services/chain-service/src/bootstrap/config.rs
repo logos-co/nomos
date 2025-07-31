@@ -1,4 +1,4 @@
-use std::{collections::HashSet, hash::Hash, num::NonZeroUsize, time::Duration};
+use std::{collections::HashSet, hash::Hash, time::Duration};
 
 use nomos_utils::bounded_duration::{MinimalBoundedDuration, SECOND};
 use serde::{Deserialize, Serialize};
@@ -24,11 +24,4 @@ where
 {
     /// Peers to download blocks from.
     pub peers: HashSet<NodeId>,
-    /// The max number of downloads to repeat for a single peer.
-    #[serde(default = "default_max_download_iterations")]
-    pub max_download_iterations: NonZeroUsize,
-}
-
-const fn default_max_download_iterations() -> NonZeroUsize {
-    NonZeroUsize::new(1000).unwrap()
 }

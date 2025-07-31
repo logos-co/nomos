@@ -24,7 +24,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, num::NonZeroUsize, time::Duration};
+    use std::{collections::HashSet, time::Duration};
 
     use super::*;
     use crate::IbdConfig;
@@ -53,7 +53,6 @@ mod tests {
             force_bootstrap,
             ibd: IbdConfig {
                 peers: HashSet::new(),
-                max_download_iterations: NonZeroUsize::MAX,
             },
         }
     }

@@ -87,7 +87,7 @@ where
     ) -> Downloads<NetAdapter::PeerId, NetAdapter::Block> {
         let mut downloads = HashMap::new();
         for peer in &self.config.peers {
-            match self.initiate_download(*peer, 0, cryptarchia, None).await {
+            match self.initiate_download(*peer, cryptarchia, None).await {
                 Ok(Some(download)) => {
                     info!("Download initiated: {download:?}");
                     downloads.insert(*peer, download);
@@ -107,19 +107,13 @@ where
     /// It gets the peer's tip, and requests a block stream to reach the tip.
     /// If the peer's tip already exists in local, no download is initiated
     /// and [`None`] is returned.
-    /// If communication fails or if the maximum number of iterations is
-    /// reached, an [`Error`] is returned.
+    /// If communication fails, an [`Error`] is returned.
     async fn initiate_download(
         &self,
         peer: NetAdapter::PeerId,
-        iteration: usize,
         cryptarchia: &Cryptarchia,
         latest_downloaded_block: Option<HeaderId>,
     ) -> Result<Option<Download<NetAdapter::PeerId, NetAdapter::Block>>, Error> {
-        if iteration >= self.config.max_download_iterations.get() {
-            return Err(Error::MaxDownloadIterationsReached);
-        }
-
         // Get the most recent peer's tip and set it as the target.
         let target = self
             .network
@@ -145,7 +139,7 @@ where
             .await
             .map_err(Error::BlockProvider)?;
 
-        Ok(Some(Download::new(peer, iteration, target, stream)))
+        Ok(Some(Download::new(peer, target, stream)))
     }
 
     fn should_download(target: &HeaderId, cryptarchia: &Cryptarchia) -> bool {
@@ -202,9 +196,8 @@ where
         prev: Download<NetAdapter::PeerId, NetAdapter::Block>,
         cryptarchia: &Cryptarchia,
     ) -> Option<Download<NetAdapter::PeerId, NetAdapter::Block>> {
-        let next_iteration = prev.iteration.checked_add(1)?;
         match self
-            .initiate_download(prev.peer, next_iteration, cryptarchia, prev.last)
+            .initiate_download(prev.peer, cryptarchia, prev.last)
             .await
         {
             Ok(download) => download,
@@ -220,15 +213,12 @@ where
 pub enum Error {
     #[error("Block provider error: {0}")]
     BlockProvider(DynError),
-    #[error("Max download iterations reached")]
-    MaxDownloadIterationsReached,
 }
 
 type Downloads<NodeId, Block> = HashMap<NodeId, Download<NodeId, Block>>;
 
 struct Download<NodeId, Block> {
     peer: NodeId,
-    iteration: usize,
     target: HeaderId,
     last: Option<HeaderId>,
     stream: BoxedStream<Result<(HeaderId, Block), DynError>>,
@@ -237,13 +227,11 @@ struct Download<NodeId, Block> {
 impl<NodeId, Block> Download<NodeId, Block> {
     fn new(
         peer: NodeId,
-        iteration: usize,
         target: HeaderId,
         stream: BoxedStream<Result<(HeaderId, Block), DynError>>,
     ) -> Self {
         Self {
             peer,
-            iteration,
             target,
             last: None,
             stream,
@@ -270,7 +258,6 @@ where
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Download")
             .field("peer", &self.peer)
-            .field("iteration", &self.iteration)
             .field("target", &self.target)
             .field("last", &self.last)
             .finish()
@@ -279,10 +266,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        iter::empty,
-        num::{NonZero, NonZeroUsize},
-    };
+    use std::{iter::empty, num::NonZero};
 
     use cryptarchia_engine::{EpochConfig, Slot};
     use cryptarchia_sync::GetTipResponse;
@@ -344,38 +328,6 @@ mod tests {
         .unwrap();
 
         // All blocks from the peer should be in the local chain.
-        assert!(peer.chain.iter().all(|b| contain(b, &cryptarchia)));
-    }
-
-    #[tokio::test]
-    async fn max_download_iterations() {
-        let peer = BlockProvider::new(
-            vec![
-                Block::genesis(),
-                Block::new(1, GENESIS_ID, 1),
-                Block::new(2, 1, 2),
-                Block::new(3, 2, 3),
-            ],
-            // Setting the tip that doesn't exist in the chain,
-            // so that the requester can't receive it.
-            Block::new(10, 3, 10),
-            2,
-            false,
-        );
-
-        // Although the peer's tip (10) cannot be reached,
-        // the download should stop after reaching `max_download_iterations`.
-        let (cryptarchia, _) = InitialBlockDownload::new(
-            config([NodeId(0)].into()),
-            MockNetworkAdapter::<()>::new(HashMap::from([(NodeId(0), peer.clone())])),
-            process_block,
-        )
-        .run(new_cryptarchia(), HashSet::new())
-        .await
-        .unwrap();
-
-        // Although the peer's tip (10) is not reached,
-        // all other blocks should be in the local chain.
         assert!(peer.chain.iter().all(|b| contain(b, &cryptarchia)));
     }
 
@@ -483,10 +435,7 @@ mod tests {
     struct NodeId(usize);
 
     fn config(peers: HashSet<NodeId>) -> IbdConfig<NodeId> {
-        IbdConfig {
-            peers,
-            max_download_iterations: NonZeroUsize::new(10).unwrap(),
-        }
+        IbdConfig { peers }
     }
 
     const GENESIS_ID: u8 = 0;
