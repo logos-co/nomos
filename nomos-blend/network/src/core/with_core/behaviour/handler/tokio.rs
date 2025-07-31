@@ -65,7 +65,7 @@ mod test {
     };
     use nomos_blend_message::crypto::Ed25519PrivateKey;
     use nomos_blend_scheduling::membership::{Membership, Node};
-    use tokio::select;
+    use tokio::{select, time::sleep};
 
     use crate::core::with_core::{
         behaviour::{Behaviour, Config, Event, IntervalStreamProvider, NegotiatedPeerState},
@@ -100,11 +100,13 @@ mod test {
             Duration::from_secs(5),
             None,
             None,
+            None,
         );
         let mut swarm2 = new_blend_swarm(
             keypairs.next().unwrap(),
             nodes.next().unwrap().address,
             Duration::from_secs(5),
+            None,
             None,
             None,
         );
@@ -157,6 +159,7 @@ mod test {
             Duration::from_secs(5),
             None,
             None,
+            None,
         );
         swarm2.dial(node1_addr).unwrap();
 
@@ -191,12 +194,14 @@ mod test {
             Duration::from_secs(5),
             Some(0..=0),
             None,
+            None,
         );
         let mut swarm2 = new_blend_swarm(
             keypairs.next().unwrap(),
             nodes.next().unwrap().address,
             Duration::from_secs(5),
             Some(0..=0),
+            None,
             None,
         );
         swarm2.dial(node1_addr).unwrap();
@@ -255,12 +260,14 @@ mod test {
             Duration::from_secs(5),
             Some(1..=1),
             None,
+            None,
         );
         let mut swarm2 = new_blend_swarm(
             keypairs.next().unwrap(),
             nodes.next().unwrap().address,
             Duration::from_secs(5),
             Some(1..=1),
+            None,
             None,
         );
         swarm2.dial(node1_addr).unwrap();
@@ -303,12 +310,165 @@ mod test {
             .is_ok());
     }
 
+    #[test_log::test(tokio::test)]
+    async fn outgoing_connection_limit() {
+        // All swarms can maintain a single connection, either outgoing (since min
+        // outgoing is 0) or incoming (since max total is 1 and min outgoing is 0).
+        let (mut nodes, mut keypairs) = nodes(3, 8390);
+        let node1_addr = nodes.next().unwrap().address;
+        let mut swarm1 = new_blend_swarm(
+            keypairs.next().unwrap(),
+            node1_addr.clone(),
+            Duration::from_secs(5),
+            Some(1..=1),
+            None,
+            Some(0..=1),
+        );
+        let node2_addr = nodes.next().unwrap().address;
+        let mut swarm2 = new_blend_swarm(
+            keypairs.next().unwrap(),
+            node2_addr.clone(),
+            Duration::from_secs(5),
+            Some(1..=1),
+            None,
+            Some(0..=1),
+        );
+        let mut swarm3 = new_blend_swarm(
+            keypairs.next().unwrap(),
+            nodes.next().unwrap().address,
+            Duration::from_secs(5),
+            Some(1..=1),
+            None,
+            Some(0..=1),
+        );
+        // Will succeed
+        swarm3.dial(node1_addr).unwrap();
+        // Small delay to make sure node1 dial attempt happens before node 2.
+        sleep(Duration::from_millis(500)).await;
+        // Will fail
+        swarm3.dial(node2_addr).unwrap();
+
+        let mut num_events_waiting: u8 = 4;
+
+        loop {
+            if num_events_waiting == 0 {
+                break;
+            }
+            select! {
+                event = swarm1.select_next_some() => {
+                    if let SwarmEvent::Behaviour(Event::IncomingConnectionRequestAccepted(peer_id, _)) = event {
+                        assert_eq!(peer_id, *swarm3.local_peer_id());
+                        num_events_waiting -= 1;
+                    }
+                }
+                event = swarm2.select_next_some() => {
+                    if let SwarmEvent::Behaviour(Event::IncomingConnectionRequestAccepted(peer_id, _)) = event {
+                        assert_eq!(peer_id, *swarm3.local_peer_id());
+                        num_events_waiting -= 1;
+                    }
+                }
+                event = swarm3.select_next_some() => {
+                    match event {
+                        SwarmEvent::Behaviour(Event::OutgoingConnectionRequestAccepted(peer_id, _)) => {
+                            assert_eq!(peer_id, *swarm1.local_peer_id());
+                            num_events_waiting -= 1;
+                        }
+                        SwarmEvent::Behaviour(Event::OutgoingConnectionRequestDiscarded(peer_id, _)) => {
+                            assert_eq!(peer_id, *swarm2.local_peer_id());
+                            num_events_waiting -= 1;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn incoming_connection_limit() {
+        let (mut nodes, mut keypairs) = nodes(3, 8390);
+        let node1_addr = nodes.next().unwrap().address;
+        // Swarm 1 can have 1 outgoing and 1 incoming connection.
+        let mut swarm1 = new_blend_swarm(
+            keypairs.next().unwrap(),
+            node1_addr.clone(),
+            Duration::from_secs(5),
+            Some(1..=1),
+            None,
+            Some(1..=2),
+        );
+        // Node 2 can have a single outgoing connection.
+        let node2_addr = nodes.next().unwrap().address;
+        let mut swarm2 = new_blend_swarm(
+            keypairs.next().unwrap(),
+            node2_addr.clone(),
+            Duration::from_secs(5),
+            Some(1..=1),
+            None,
+            Some(1..=1),
+        );
+        // Node 3 (the one being tested) can have 1 outgoing and 1 incoming connection.
+        let node3_addr = nodes.next().unwrap().address;
+        let mut swarm3 = new_blend_swarm(
+            keypairs.next().unwrap(),
+            node3_addr.clone(),
+            Duration::from_secs(5),
+            Some(1..=1),
+            None,
+            Some(1..=2),
+        );
+        // Will succeed. It will take 1 outgoing slot for swarm 1 and 1 incoming slot
+        // for swarm 3.
+        swarm1.dial(node3_addr.clone()).unwrap();
+        sleep(Duration::from_millis(500)).await;
+        // Will succeed. It will take 1 outgoing slot for swarm 3 and 1 incoming slot
+        // for swarm 1.
+        swarm3.dial(node1_addr).unwrap();
+        sleep(Duration::from_millis(500)).await;
+        // Will fail. Swarm 3 has all incoming slots taken.
+        swarm2.dial(node3_addr).unwrap();
+
+        let mut num_events_waiting: u8 = 5;
+
+        loop {
+            if num_events_waiting == 0 {
+                break;
+            }
+            select! {
+                event = swarm1.select_next_some() => {
+                    match event {
+                        SwarmEvent::Behaviour(Event::IncomingConnectionRequestAccepted(peer_id, _)) | SwarmEvent::Behaviour(Event::OutgoingConnectionRequestAccepted(peer_id, _)) => {
+                            assert_eq!(peer_id, *swarm3.local_peer_id());
+                            num_events_waiting -= 1;
+                        }
+                        _ => {}
+                    }
+                }
+                _ = swarm2.select_next_some() => {}
+                event = swarm3.select_next_some() => {
+                    match event {
+                        SwarmEvent::Behaviour(Event::OutgoingConnectionRequestAccepted(peer_id, _)) | SwarmEvent::Behaviour(Event::IncomingConnectionRequestAccepted(peer_id, _))=> {
+                            assert_eq!(peer_id, *swarm1.local_peer_id());
+                            num_events_waiting -= 1;
+                        }
+                        SwarmEvent::Behaviour(Event::IncomingConnectionRequestDiscarded(peer_id, _)) => {
+                            assert_eq!(peer_id, *swarm2.local_peer_id());
+                            num_events_waiting -= 1;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
     fn new_blend_swarm(
         keypair: Keypair,
         addr: Multiaddr,
         expected_duration: Duration,
         expected_message_range: Option<RangeInclusive<u64>>,
         membership_info: Option<Membership<PeerId>>,
+        peering_degree: Option<RangeInclusive<usize>>,
     ) -> Swarm<Behaviour<TestTokioIntervalStreamProvider>> {
         new_swarm_with_behaviour(
             keypair,
@@ -316,7 +476,7 @@ mod test {
             Behaviour::new(
                 &Config {
                     seen_message_cache_size: 1000,
-                    peering_degree: 0..=1000,
+                    peering_degree: peering_degree.unwrap_or(0..=1000),
                 },
                 TestTokioIntervalStreamProvider(
                     expected_duration,
