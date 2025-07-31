@@ -19,40 +19,29 @@ use crate::{
 // TODO: Replace ProcessBlock closures with a trait
 //       that implements block processing.
 //       https://github.com/logos-co/nomos/issues/1505
-pub struct InitialBlockDownload<
-    NodeId,
-    Block,
-    NetAdapter,
-    ProcessBlockFn,
-    ProcessBlockFut,
-    RuntimeServiceId,
-> where
-    NodeId: Clone + Eq + Hash,
-    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, Block) -> ProcessBlockFut,
+pub struct InitialBlockDownload<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
+where
+    NetAdapter: NetworkAdapter<RuntimeServiceId>,
+    NetAdapter::PeerId: Clone + Eq + Hash,
+    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut,
     ProcessBlockFut: Future<Output = (Cryptarchia, HashSet<HeaderId>)>,
 {
-    config: IbdConfig<NodeId>,
+    config: IbdConfig<NetAdapter::PeerId>,
     network: NetAdapter,
     process_block: ProcessBlockFn,
-    _phantom: PhantomData<(Block, RuntimeServiceId)>,
+    _phantom: PhantomData<RuntimeServiceId>,
 }
 
-impl<NodeId, Block, NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
-    InitialBlockDownload<
-        NodeId,
-        Block,
-        NetAdapter,
-        ProcessBlockFn,
-        ProcessBlockFut,
-        RuntimeServiceId,
-    >
+impl<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
+    InitialBlockDownload<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
 where
-    NodeId: Clone + Eq + Hash,
-    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, Block) -> ProcessBlockFut,
+    NetAdapter: NetworkAdapter<RuntimeServiceId>,
+    NetAdapter::PeerId: Clone + Eq + Hash,
+    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut,
     ProcessBlockFut: Future<Output = (Cryptarchia, HashSet<HeaderId>)>,
 {
     pub const fn new(
-        config: IbdConfig<NodeId>,
+        config: IbdConfig<NetAdapter::PeerId>,
         network: NetAdapter,
         process_block: ProcessBlockFn,
     ) -> Self {
@@ -65,20 +54,14 @@ where
     }
 }
 
-impl<NodeId, Block, NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
-    InitialBlockDownload<
-        NodeId,
-        Block,
-        NetAdapter,
-        ProcessBlockFn,
-        ProcessBlockFut,
-        RuntimeServiceId,
-    >
+impl<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
+    InitialBlockDownload<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
 where
-    NodeId: Clone + Eq + Hash + Copy + Debug + Send + Sync,
-    Block: Send + Sync,
-    NetAdapter: NetworkAdapter<RuntimeServiceId, PeerId = NodeId, Block = Block> + Send + Sync,
-    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, Block) -> ProcessBlockFut + Send + Sync,
+    NetAdapter: NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    NetAdapter::PeerId: Copy + Clone + Eq + Hash + Debug + Send + Sync,
+    NetAdapter::Block: Debug,
+    ProcessBlockFn:
+        Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut + Send + Sync,
     ProcessBlockFut: Future<Output = (Cryptarchia, HashSet<HeaderId>)> + Send,
     RuntimeServiceId: Sync,
 {
@@ -98,7 +81,10 @@ where
     }
 
     /// Initiates downloads from the configured peers.
-    async fn initiate_downloads(&self, cryptarchia: &Cryptarchia) -> Downloads<NodeId, Block> {
+    async fn initiate_downloads(
+        &self,
+        cryptarchia: &Cryptarchia,
+    ) -> Downloads<NetAdapter::PeerId, NetAdapter::Block> {
         let mut downloads = HashMap::new();
         for peer in &self.config.peers {
             match self.initiate_download(*peer, 0, cryptarchia, None).await {
@@ -125,11 +111,11 @@ where
     /// reached, an [`Error`] is returned.
     async fn initiate_download(
         &self,
-        peer: NodeId,
+        peer: NetAdapter::PeerId,
         iteration: usize,
         cryptarchia: &Cryptarchia,
         latest_downloaded_block: Option<HeaderId>,
-    ) -> Result<Option<Download<NodeId, Block>>, Error> {
+    ) -> Result<Option<Download<NetAdapter::PeerId, NetAdapter::Block>>, Error> {
         if iteration >= self.config.max_download_iterations.get() {
             return Err(Error::MaxDownloadIterationsReached);
         }
@@ -171,7 +157,7 @@ where
     /// It returns the updated [`Cryptarchia`].
     async fn proceed_downloads(
         &self,
-        mut downloads: Downloads<NodeId, Block>,
+        mut downloads: Downloads<NetAdapter::PeerId, NetAdapter::Block>,
         mut cryptarchia: Cryptarchia,
         mut storage_blocks_to_remove: HashSet<HeaderId>,
     ) -> (Cryptarchia, HashSet<HeaderId>) {
@@ -213,9 +199,9 @@ where
 
     async fn initiate_next_download(
         &self,
-        prev: Download<NodeId, Block>,
+        prev: Download<NetAdapter::PeerId, NetAdapter::Block>,
         cryptarchia: &Cryptarchia,
-    ) -> Option<Download<NodeId, Block>> {
+    ) -> Option<Download<NetAdapter::PeerId, NetAdapter::Block>> {
         let next_iteration = prev.iteration.checked_add(1)?;
         match self
             .initiate_download(prev.peer, next_iteration, cryptarchia, prev.last)
