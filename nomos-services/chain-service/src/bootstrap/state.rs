@@ -53,7 +53,6 @@ mod tests {
             force_bootstrap,
             ibd: IbdConfig {
                 peers: HashSet::new(),
-                download_size: NonZeroUsize::MAX,
                 max_download_iterations: NonZeroUsize::MAX,
             },
         }

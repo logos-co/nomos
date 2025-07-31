@@ -485,7 +485,6 @@ mod tests {
     fn config(peers: HashSet<NodeId>) -> IbdConfig<NodeId> {
         IbdConfig {
             peers,
-            download_size: NonZeroUsize::new(10).unwrap(),
             max_download_iterations: NonZeroUsize::new(10).unwrap(),
         }
     }
