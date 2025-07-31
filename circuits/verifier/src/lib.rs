@@ -6,9 +6,10 @@ use tempfile::NamedTempFile;
 const BINARY_NAME: &str = "verifier";
 const BINARY_ENV_VAR: &str = "NOMOS_VERIFIER";
 
-static BINARY: LazyLock<PathBuf, fn() -> PathBuf> = LazyLock::new(|| {
-    find_binary(BINARY_NAME, BINARY_ENV_VAR)
-        .unwrap_or_else(|error_message| panic!("{}", error_message))
+static BINARY: LazyLock<PathBuf> = LazyLock::new(|| {
+    find_binary(BINARY_NAME, BINARY_ENV_VAR).unwrap_or_else(|error_message| {
+        panic!("Could not find the required '{BINARY_NAME}' binary: {error_message}");
+    })
 });
 
 /// Runs the `verifier` command to check the validity of a proof for a given
