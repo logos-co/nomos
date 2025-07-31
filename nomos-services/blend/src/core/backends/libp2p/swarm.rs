@@ -3,7 +3,8 @@ use std::{collections::HashSet, time::Duration};
 use futures::{Stream, StreamExt as _};
 use libp2p::{identity::Keypair, PeerId, Swarm, SwarmBuilder};
 use nomos_blend_network::core::{
-    with_core::behaviour::Event as CoreToCoreEvent, with_edge::behaviour::Event as CoreToEdgeEvent,
+    with_core::behaviour::{Event as CoreToCoreEvent, NegotiatedPeerState},
+    with_edge::behaviour::Event as CoreToEdgeEvent,
     NetworkBehaviourEvent,
 };
 use nomos_blend_scheduling::membership::Membership;
@@ -66,9 +67,11 @@ where
                 panic!("Failed to listen on Blend network: {e:?}");
             });
 
+        let min_outgoing_peering_degree = *config.backend.peering_degree.start();
+
         // Dial the initial peers randomly selected
         membership
-            .choose_remote_nodes(&mut rng, *config.backend.peering_degree.start())
+            .choose_remote_nodes(&mut rng, min_outgoing_peering_degree)
             .for_each(|peer| {
                 if let Err(e) = swarm.dial(peer.address.clone()) {
                     tracing::error!(target: LOG_TARGET, "Failed to dial a peer: {e:?}");
@@ -82,7 +85,7 @@ where
             session_stream,
             latest_session_info: membership,
             rng,
-            min_outgoing_peering_degree: *config.backend.peering_degree.start(),
+            min_outgoing_peering_degree,
         }
     }
 }
@@ -144,7 +147,7 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
         clippy::cognitive_complexity,
         reason = "Tracing macros generate more code that triggers this warning."
     )]
-    fn report_message_to_swarm(&self, msg: Vec<u8>) {
+    fn report_message_to_service(&self, msg: Vec<u8>) {
         tracing::debug!("Received message from a peer: {msg:?}");
 
         let msg_size = msg.len();
@@ -186,21 +189,20 @@ where
                 // Forward message received from node to all other core nodes.
                 self.forward_swarm_message(&msg, peer_id);
                 // Report the message to the Blend service for further processing.
-                self.report_message_to_swarm(msg);
+                self.report_message_to_service(msg);
             }
-            nomos_blend_network::core::with_core::behaviour::Event::SpammyPeer(peer_id) => {
-                self.handle_spammy_peer(peer_id);
-            }
-            nomos_blend_network::core::with_core::behaviour::Event::UnhealthyPeer(peer_id) => {
+            nomos_blend_network::core::with_core::behaviour::Event::UnhealthyPeer(peer_id, _) => {
                 self.handle_unhealthy_peer(peer_id);
             }
-            nomos_blend_network::core::with_core::behaviour::Event::HealthyPeer(peer_id) => {
+            nomos_blend_network::core::with_core::behaviour::Event::HealthyPeer(peer_id, _) => {
                 Self::handle_healthy_peer(peer_id);
             }
-            nomos_blend_network::core::with_core::behaviour::Event::Error(e) => {
-                tracing::error!(target: LOG_TARGET, "Received error from blend network: {e:?}");
-                self.restore_minimum_outgoing_peering_degree();
-                tracing::info!(counter.error = 1);
+            nomos_blend_network::core::with_core::behaviour::Event::PeerDisconnected(
+                peer_id,
+                _,
+                peer_state,
+            ) => {
+                self.handle_disconnected_peer(peer_id, peer_state);
             }
         }
     }
@@ -211,7 +213,7 @@ where
                 // Forward message received from edge node to all core nodes.
                 self.publish_swarm_message(&msg);
                 // Report the message to the Blend service for further processing.
-                self.report_message_to_swarm(msg);
+                self.report_message_to_service(msg);
             }
         }
     }
@@ -228,19 +230,6 @@ where
             ))) => {
                 self.handle_blend_edge_behaviour_event(e);
             }
-            SwarmEvent::ConnectionClosed {
-                peer_id,
-                connection_id,
-                ..
-            } => {
-                tracing::error!(
-                    target: LOG_TARGET,
-                    "Connection closed: peer:{}, conn_id:{}",
-                    peer_id,
-                    connection_id
-                );
-                self.restore_minimum_outgoing_peering_degree();
-            }
             _ => {
                 tracing::debug!(target: LOG_TARGET, "Received event from blend network: {event:?}");
                 tracing::info!(counter.ignored_event = 1);
@@ -248,39 +237,34 @@ where
         }
     }
 
-    fn handle_spammy_peer(&mut self, peer_id: PeerId) {
-        tracing::debug!(target: LOG_TARGET, "Peer {} is spammy", peer_id);
-        self.swarm.behaviour_mut().blocked_peers.block_peer(peer_id);
-        self.restore_minimum_outgoing_peering_degree();
-    }
-
     fn handle_unhealthy_peer(&mut self, peer_id: PeerId) {
-        tracing::debug!(target: LOG_TARGET, "Peer {} is unhealthy", peer_id);
-        self.dial_new_peer();
+        tracing::debug!(target: LOG_TARGET, "Peer {peer_id} is unhealthy");
+        self.try_dial_new_peer();
     }
 
     fn handle_healthy_peer(peer_id: PeerId) {
-        tracing::debug!(target: LOG_TARGET, "Peer {} is healthy", peer_id);
+        tracing::debug!(target: LOG_TARGET, "Peer {peer_id} is healthy");
     }
 
-    /// Dial new peers, if necessary, to maintain the peering degree.
-    /// We aim to have at least the peering degree number of "healthy" peers.
-    fn restore_minimum_outgoing_peering_degree(&mut self) {
-        let num_new_conns_needed = self.min_outgoing_peering_degree.saturating_sub(
-            self.swarm
-                .behaviour()
-                .blend
-                .with_core()
-                .num_connected_outgoing_peers(),
-        );
-        if num_new_conns_needed > 0 {
-            self.dial_random_peers(num_new_conns_needed);
+    fn handle_disconnected_peer(&mut self, peer_id: PeerId, peer_state: NegotiatedPeerState) {
+        if peer_state == NegotiatedPeerState::Spammy {
+            self.swarm.behaviour_mut().blocked_peers.block_peer(peer_id);
+        }
+        let is_minimum_outgoing_degree_enforced = self
+            .swarm
+            .behaviour()
+            .blend
+            .with_core()
+            .healthy_outgoing_connections()
+            >= self.min_outgoing_peering_degree;
+        if !is_minimum_outgoing_degree_enforced {
+            self.try_dial_new_peer();
         }
     }
 
     /// Dial a new peer, if the underlying swarm has a slot available for a new
     /// connection.
-    fn dial_new_peer(&mut self) {
+    fn try_dial_new_peer(&mut self) {
         if self
             .swarm
             .behaviour()

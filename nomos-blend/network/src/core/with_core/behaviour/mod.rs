@@ -83,7 +83,6 @@ pub enum Event {
     /// A peer that was previously unhealthy has returned to a healthy state.
     HealthyPeer(PeerId, ConnectionId),
     PeerDisconnected(PeerId, ConnectionId, NegotiatedPeerState),
-    Error(Error),
 }
 
 impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
@@ -238,6 +237,13 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         self.connected_incoming_peers
             .iter()
             .chain(self.connected_outgoing_peers.iter())
+            .filter(|(_, state)| matches!(state, Some(NegotiatedPeerState::Healthy)))
+            .count()
+    }
+
+    pub fn healthy_outgoing_connections(&self) -> usize {
+        self.connected_outgoing_peers
+            .iter()
             .filter(|(_, state)| matches!(state, Some(NegotiatedPeerState::Healthy)))
             .count()
     }

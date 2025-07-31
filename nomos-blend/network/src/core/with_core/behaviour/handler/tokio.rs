@@ -219,15 +219,11 @@ mod test {
                         }
                     }
                     event = swarm1.select_next_some() => {
-                        match event {
-                            // We expect that the Swarm1 closes the connection proactively as a result of the peer being spammy.
-                            SwarmEvent::ConnectionClosed { peer_id, num_established, .. } => {
-                                assert_eq!(peer_id, *swarm2.local_peer_id());
-                                assert_eq!(num_established, 0);
-                                assert!(swarm1.connected_peers().next().is_none());
-                                num_events_waiting -= 1;
-                            },
-                            _ => {},
+                        if let SwarmEvent::ConnectionClosed { peer_id, num_established, .. } = event {
+                            assert_eq!(peer_id, *swarm2.local_peer_id());
+                            assert_eq!(num_established, 0);
+                            assert!(swarm1.connected_peers().next().is_none());
+                            num_events_waiting -= 1;
                         }
                     }
                     _ = swarm2.select_next_some() => {}
