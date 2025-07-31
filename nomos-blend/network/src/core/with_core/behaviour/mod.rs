@@ -500,23 +500,36 @@ where
                 // The inbound/outbound connection was fully negotiated by the peer,
                 // which means that the peer supports the blend protocol.
                 ToBehaviour::FullyNegotiatedInbound | ToBehaviour::FullyNegotiatedOutbound => {
-                    self.update_state((peer_id, connection_id), NegotiatedPeerState::Healthy);
+                    let old_state =
+                        self.update_state((peer_id, connection_id), NegotiatedPeerState::Healthy);
                     #[cfg(test)]
                     {
+                        // Do not process the second channel upgrade.
+                        if old_state == Some(NegotiatedPeerState::Healthy) {
+                            return;
+                        }
+
                         let is_peer_outgoing = self
                             .connected_outgoing_peers
                             .contains_key(&(peer_id, connection_id));
+                        let is_peer_incoming = self
+                            .connected_incoming_peers
+                            .contains_key(&(peer_id, connection_id));
+
                         if is_peer_outgoing {
                             self.events.push_back(ToSwarm::GenerateEvent(
                                 Event::OutgoingConnectionRequestAccepted(peer_id, connection_id),
                             ));
-                        } else {
+                            self.try_wake();
+                        } else if is_peer_incoming {
                             self.events.push_back(ToSwarm::GenerateEvent(
                                 Event::IncomingConnectionRequestAccepted(peer_id, connection_id),
                             ));
+                            self.try_wake();
                         }
-                        self.try_wake();
                     }
+                    // Keep Clippy happy
+                    let _ = old_state;
                 }
                 ToBehaviour::SpammyPeer => {
                     // We do not remove the peer yet, as that will happen once the connection is

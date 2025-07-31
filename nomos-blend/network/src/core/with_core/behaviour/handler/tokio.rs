@@ -187,16 +187,7 @@ mod test {
     async fn detect_spammy_peer() {
         // Init two swarms with connection monitoring enabled.
         let (mut nodes, mut keypairs) = nodes(2, 8290);
-        let node1_addr = nodes.next().unwrap().address;
         let mut swarm1 = new_blend_swarm(
-            keypairs.next().unwrap(),
-            node1_addr.clone(),
-            Duration::from_secs(5),
-            Some(0..=0),
-            None,
-            None,
-        );
-        let mut swarm2 = new_blend_swarm(
             keypairs.next().unwrap(),
             nodes.next().unwrap().address,
             Duration::from_secs(5),
@@ -204,10 +195,20 @@ mod test {
             None,
             None,
         );
-        swarm2.dial(node1_addr).unwrap();
+        let node2_addr = nodes.next().unwrap().address;
+        let mut swarm2 = new_blend_swarm(
+            keypairs.next().unwrap(),
+            node2_addr.clone(),
+            Duration::from_secs(5),
+            Some(0..=0),
+            None,
+            None,
+        );
+        swarm1.dial(node2_addr).unwrap();
 
         // Swarm2 sends a message to Swarm1, even though `expected_messages` is
-        // 0. Then, Swarm1 should detect Swarm2 as a spammy peer.
+        // 0. Then, Swarm1 should close the connection with Swarm2 which is flagged as
+        //    spammy.
         let task = async {
             let mut num_events_waiting = 2;
             let mut msg_published = false;
