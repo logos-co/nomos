@@ -155,7 +155,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         connection: (PeerId, ConnectionId),
         new_state: NegotiatedPeerState,
     ) -> bool {
-        let old_value = if let Entry::Occupied(mut existing_incoming_entry) =
+        let old_state = if let Entry::Occupied(mut existing_incoming_entry) =
             self.connected_incoming_peers.entry(connection)
         {
             let old_state = *existing_incoming_entry.get();
@@ -170,7 +170,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         } else {
             None
         };
-        old_value != Some(new_state)
+        old_state != Some(new_state)
     }
 
     /// Publish an unseen message to all connected peers
@@ -299,7 +299,7 @@ where
 
         // If we are above the maximum limit, return a dummy handler that will soon
         // close the connection.
-        if can_accept_incoming_connection {
+        if !can_accept_incoming_connection {
             tracing::trace!(target: LOG_TARGET, "Connected peer {peer_id:?} on connection {connection_id:?} will not be upgraded since we are already at maximum incoming connection capacity.");
             return Ok(Either::Right(DummyConnectionHandler));
         }
@@ -339,7 +339,7 @@ where
 
         // If we are above the maximum limit, return a dummy handler that will soon
         // close the connection.
-        if can_open_outgoing_connection {
+        if !can_open_outgoing_connection {
             tracing::trace!(target: LOG_TARGET, "Connected peer {peer_id:?} on connection {connection_id:?} will not be upgraded since we are already at maximum outgoing connection capacity.");
             return Ok(Either::Right(DummyConnectionHandler));
         }
@@ -428,27 +428,10 @@ where
                     self.handle_received_message(message, peer_id);
                     self.try_wake();
                 }
-                // The inbound connection was fully negotiated by the peer, which means that the
+                // The connection was fully negotiated by the peer, which means that the
                 // peer supports the blend protocol.
-                ToBehaviour::FullyNegotiatedInbound => {
-                    if self
-                        .connected_incoming_peers
-                        .insert((peer_id, connection_id), Some(NegotiatedPeerState::Healthy))
-                        .is_none()
-                    {
-                        tracing::warn!(target: LOG_TARGET, "Negotiated inbound connection for peer {peer_id:?} and connection {connection_id:?} which were not previously stored in storage.");
-                    }
-                }
-                // The outbound connection was fully negotiated by the peer, which means that the
-                // peer supports the blend protocol.
-                ToBehaviour::FullyNegotiatedOutbound => {
-                    if self
-                        .connected_outgoing_peers
-                        .insert((peer_id, connection_id), Some(NegotiatedPeerState::Healthy))
-                        .is_none()
-                    {
-                        tracing::warn!(target: LOG_TARGET, "Negotiated outbound connection for peer {peer_id:?} and connection {connection_id:?} which were not previously stored in storage.");
-                    }
+                ToBehaviour::FullyNegotiatedInbound | ToBehaviour::FullyNegotiatedOutbound => {
+                    self.update_state((peer_id, connection_id), NegotiatedPeerState::Healthy);
                 }
                 ToBehaviour::SpammyPeer => {
                     // We do not remove the peer yet, as that will happen once the connection is

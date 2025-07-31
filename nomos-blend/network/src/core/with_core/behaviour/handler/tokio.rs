@@ -68,7 +68,7 @@ mod test {
     use tokio::select;
 
     use crate::core::with_core::{
-        behaviour::{Behaviour, Config, Event, IntervalStreamProvider},
+        behaviour::{Behaviour, Config, Event, IntervalStreamProvider, NegotiatedPeerState},
         error::Error,
     };
 
@@ -145,7 +145,7 @@ mod test {
 
     /// If the peer doesn't support the blend protocol, the message should
     /// not be forwarded to the peer.
-    #[tokio::test]
+    #[test_log::test(tokio::test)]
     async fn peer_not_support_blend_protocol() {
         // Only swarm2 supports the blend protocol.
         let (mut nodes, mut keypairs) = nodes(2, 8190);
@@ -180,7 +180,7 @@ mod test {
         }
     }
 
-    #[tokio::test]
+    #[test_log::test(tokio::test)]
     async fn detect_spammy_peer() {
         // Init two swarms with connection monitoring enabled.
         let (mut nodes, mut keypairs) = nodes(2, 8290);
@@ -204,7 +204,7 @@ mod test {
         // Swarm2 sends a message to Swarm1, even though `expected_messages` is
         // 0. Then, Swarm1 should detect Swarm2 as a spammy peer.
         let task = async {
-            let mut num_events_waiting = 2;
+            let mut num_events_waiting = 1;
             let mut msg_published = false;
             let mut publish_try_interval = tokio::time::interval(Duration::from_millis(10));
             loop {
@@ -219,11 +219,18 @@ mod test {
                         }
                     }
                     event = swarm1.select_next_some() => {
-                        if let SwarmEvent::ConnectionClosed { peer_id, num_established, .. } = event {
-                            assert_eq!(peer_id, *swarm2.local_peer_id());
-                            assert_eq!(num_established, 0);
-                            assert!(swarm1.connected_peers().next().is_none());
-                            num_events_waiting -= 1;
+                        match event {
+                            SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, _, NegotiatedPeerState::Spammy)) => {
+                                assert_eq!(peer_id, *swarm2.local_peer_id());
+                                num_events_waiting -= 1;
+                            },
+                            SwarmEvent::ConnectionClosed { peer_id, num_established, .. } => {
+                                assert_eq!(peer_id, *swarm2.local_peer_id());
+                                assert_eq!(num_established, 0);
+                                assert!(swarm1.connected_peers().next().is_none());
+                                num_events_waiting -= 1;
+                            }
+                            _ => {}
                         }
                     }
                     _ = swarm2.select_next_some() => {}
@@ -237,7 +244,7 @@ mod test {
             .is_ok());
     }
 
-    #[tokio::test]
+    #[test_log::test(tokio::test)]
     async fn detect_unhealthy_peer() {
         // Init two swarms with connection monitoring enabled.
         let (mut nodes, mut keypairs) = nodes(2, 8390);
@@ -309,7 +316,7 @@ mod test {
             Behaviour::new(
                 &Config {
                     seen_message_cache_size: 1000,
-                    peering_degree: usize::MIN..=usize::MAX,
+                    peering_degree: 0..=1000,
                 },
                 TestTokioIntervalStreamProvider(
                     expected_duration,
