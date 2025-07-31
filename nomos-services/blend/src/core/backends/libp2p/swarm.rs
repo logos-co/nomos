@@ -67,7 +67,7 @@ where
                 panic!("Failed to listen on Blend network: {e:?}");
             });
 
-        let min_outgoing_peering_degree = *config.backend.peering_degree.start();
+        let min_outgoing_peering_degree = *config.backend.peering_degree.start() as usize;
 
         // Dial the initial peers randomly selected
         membership
@@ -246,18 +246,21 @@ where
         tracing::debug!(target: LOG_TARGET, "Peer {peer_id} is healthy");
     }
 
+    // If a peer disconnects, we add it to a black-list if it was a spammy one.
+    // Then, if the number of healthy outgoing connections drops below the minimum,
+    // we try to open a new one, if there is an outgoing slot available.
     fn handle_disconnected_peer(&mut self, peer_id: PeerId, peer_state: NegotiatedPeerState) {
         if peer_state == NegotiatedPeerState::Spammy {
             self.swarm.behaviour_mut().blocked_peers.block_peer(peer_id);
         }
-        let is_minimum_outgoing_degree_enforced = self
+        let is_outgoing_peering_degree_sufficient = self
             .swarm
             .behaviour()
             .blend
             .with_core()
             .healthy_outgoing_connections()
             >= self.min_outgoing_peering_degree;
-        if !is_minimum_outgoing_degree_enforced {
+        if !is_outgoing_peering_degree_sufficient {
             self.try_dial_new_peer();
         }
     }

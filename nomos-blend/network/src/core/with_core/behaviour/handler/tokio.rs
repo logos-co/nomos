@@ -209,7 +209,7 @@ mod test {
         // Swarm2 sends a message to Swarm1, even though `expected_messages` is
         // 0. Then, Swarm1 should detect Swarm2 as a spammy peer.
         let task = async {
-            let mut num_events_waiting = 1;
+            let mut num_events_waiting = 2;
             let mut msg_published = false;
             let mut publish_try_interval = tokio::time::interval(Duration::from_millis(10));
             loop {
@@ -229,6 +229,7 @@ mod test {
                                 assert_eq!(peer_id, *swarm2.local_peer_id());
                                 num_events_waiting -= 1;
                             },
+                            // We expect that the Swarm1 closes the connection proactively.
                             SwarmEvent::ConnectionClosed { peer_id, num_established, .. } => {
                                 assert_eq!(peer_id, *swarm2.local_peer_id());
                                 assert_eq!(num_established, 0);
@@ -428,7 +429,7 @@ mod test {
         // Will fail. Swarm 3 has all incoming slots taken.
         swarm2.dial(node3_addr).unwrap();
 
-        let mut num_events_waiting: u8 = 5;
+        let mut num_events_waiting: u8 = 3;
 
         loop {
             if num_events_waiting == 0 {

@@ -31,6 +31,14 @@ impl BlendBehaviour {
                 .expect("Round duration cannot be zero."),
             rounds_per_observation_window: config.time.rounds_per_observation_window,
         };
+        // We know the upper limit is (max core->core (incoming + outgoing) established
+        // + max core->edge (incoming) established), so we can calculate the theoretical
+        //   upper limit on the number of established connections.
+        let max_concurrent_connections = config
+            .backend
+            .peering_degree
+            .end()
+            .saturating_add(config.backend.maximum_incoming_edge_node_connections);
         Self {
             blend: nomos_blend_network::core::NetworkBehaviour::new(
                 &nomos_blend_network::core::Config {
@@ -39,7 +47,8 @@ impl BlendBehaviour {
                         // once session and round mechanisms are implemented.
                         // https://www.notion.so/Blend-Protocol-Version-1-PENDING-MIGRATION-1c48f96fb65c809494efe63019a5ebfb?source=copy_link#2088f96fb65c80be9057c6b4ce6b7023
                         seen_message_cache_size: 1_944_000,
-                        peering_degree: config.backend.peering_degree.clone(),
+                        peering_degree: (*config.backend.peering_degree.start() as usize
+                            ..=*config.backend.peering_degree.end() as usize),
                     },
                     with_edge: nomos_blend_network::core::with_edge::behaviour::Config {
                         connection_timeout: Duration::from_secs(1),
@@ -54,9 +63,7 @@ impl BlendBehaviour {
             ),
             limits: libp2p::connection_limits::Behaviour::new(
                 ConnectionLimits::default()
-                    // We know the upper limit is (max core-core established + max core-edge
-                    // established), so we can enforce that here.
-                    .with_max_established(Some(*config.backend.peering_degree.end() as u32))
+                    .with_max_established(Some(max_concurrent_connections as u32))
                     // Blend protocol restricts the number of connections per peer to 1.
                     .with_max_established_per_peer(Some(1)),
             ),

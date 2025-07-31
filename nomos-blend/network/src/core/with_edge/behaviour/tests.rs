@@ -1,4 +1,4 @@
-use std::time::Duration;
+use core::time::Duration;
 
 use futures::StreamExt as _;
 use libp2p::{Multiaddr, PeerId, Swarm, SwarmBuilder};

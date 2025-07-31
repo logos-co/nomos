@@ -52,10 +52,22 @@ pub struct Behaviour<ObservationWindowClockProvider> {
     observation_window_clock_provider: ObservationWindowClockProvider,
     // TODO: Replace with the session stream and make this a non-Option
     current_membership: Option<Membership<PeerId>>,
-
+    /// Peers that have established an inbound connection with us.
+    ///
+    /// If a peer support Blend and there are available incoming connection
+    /// slots, the peer will be upgraded to a `Healthy` state once the
+    /// connection handler is successfully initialized for the new connection.
     connected_incoming_peers: HashMap<(PeerId, ConnectionId), Option<NegotiatedPeerState>>,
+    /// Peers that this peer has established an outgoing connection with.
+    ///
+    /// If a peer support Blend and there are available outgoing connection
+    /// slots, the peer will be upgraded to a `Healthy` state once the
+    /// connection handler is successfully initialized for the new connection.
     connected_outgoing_peers: HashMap<(PeerId, ConnectionId), Option<NegotiatedPeerState>>,
+    /// Minimum outgoing peering degree, as per the Blend spec.
     min_outgoing: usize,
+    /// Total number of incoming + outgoing connections the node can maintain at
+    /// any given time.
     max_total: usize,
 }
 
@@ -69,8 +81,8 @@ pub enum NegotiatedPeerState {
 #[derive(Debug)]
 pub struct Config {
     pub seen_message_cache_size: usize,
-    // Range representing (minimum outgoing peering degree, maximum incoming+outgoing peering
-    // degree).
+    // Range representing [minimum outgoing peering degree, maximum incoming+outgoing peering
+    // degree].
     pub peering_degree: RangeInclusive<usize>,
 }
 
@@ -78,18 +90,29 @@ pub struct Config {
 pub enum Event {
     /// A message received from one of the peers.
     Message(Vec<u8>, PeerId),
-    /// A peer has been detected as unhealthy.
+    /// A peer on a given connection has been detected as unhealthy.
     UnhealthyPeer(PeerId, ConnectionId),
-    /// A peer that was previously unhealthy has returned to a healthy state.
+    /// A peer on a given connection that was previously unhealthy has returned
+    /// to a healthy state.
     HealthyPeer(PeerId, ConnectionId),
+    /// A connection with a peer has dropped. The last state that was negotiated
+    /// with the peer is also returned.
     PeerDisconnected(PeerId, ConnectionId, NegotiatedPeerState),
     #[cfg(test)]
+    /// For tests only. It signals to the swarm that a given incoming connection
+    /// request from a peer was discarded.
     IncomingConnectionRequestDiscarded(PeerId, ConnectionId),
     #[cfg(test)]
+    /// For tests only. It signals to the swarm that a given outgoing connection
+    /// request to a peer was discarded.
     OutgoingConnectionRequestDiscarded(PeerId, ConnectionId),
     #[cfg(test)]
+    /// For tests only. It signals to the swarm that a given incoming connection
+    /// request from a peer was accepted and upgraded.
     IncomingConnectionRequestAccepted(PeerId, ConnectionId),
     #[cfg(test)]
+    /// For tests only. It signals to the swarm that a given outgoing connection
+    /// request to a peer was accepted and upgraded.
     OutgoingConnectionRequestAccepted(PeerId, ConnectionId),
 }
 
@@ -103,6 +126,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         let duplicate_cache = SizedCache::with_size(config.seen_message_cache_size);
         let (min_outgoing, max_total) =
             (*config.peering_degree.start(), *config.peering_degree.end());
+        let maximum_incoming = max_total.saturating_sub(min_outgoing);
         Self {
             events: VecDeque::new(),
             waker: None,
@@ -111,13 +135,15 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             current_membership,
             max_total,
             min_outgoing,
-            connected_incoming_peers: HashMap::with_capacity(
-                max_total.saturating_sub(min_outgoing),
-            ),
+            connected_incoming_peers: HashMap::with_capacity(maximum_incoming),
             connected_outgoing_peers: HashMap::with_capacity(max_total),
         }
     }
 
+    /// Returns the number of slots that can be used for incoming connections.
+    ///
+    /// That is, the minimum between the maximum number of allowed incoming
+    /// connections, and the number of remaining total slots.
     fn available_incoming_connections_slots(&self) -> usize {
         let max_incoming_slots = self.max_total.saturating_sub(self.min_outgoing);
         let remaining_slots = self
@@ -128,16 +154,24 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         max_incoming_slots.min(remaining_slots)
     }
 
+    /// Returns `true` if this node can try to upgrade an incoming connection
+    /// request.
     fn can_accept_incoming_connection(&self) -> bool {
         self.available_incoming_connections_slots() > 0
     }
 
+    /// Returns the number of slots that can be used for outgoing connections.
+    ///
+    /// Outgoing connections are allocated a minimum number of slots, plus, if
+    /// needed, the remaining number of incoming slots.
     fn available_outgoing_connections_slots(&self) -> usize {
         self.max_total
             .saturating_sub(self.connected_incoming_peers.len())
             .saturating_sub(self.connected_outgoing_peers.len())
     }
 
+    /// Returns `true` if this node can try to upgrade an incoming connection
+    /// request.
     pub fn can_open_outgoing_connection(&self) -> bool {
         self.available_outgoing_connections_slots() > 0
     }
@@ -158,6 +192,8 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         }
     }
 
+    /// Update the negotiated state of a given incoming or outgoing connection,
+    /// returning the previous state, if one was set.
     fn update_state(
         &mut self,
         connection: (PeerId, ConnectionId),
@@ -201,12 +237,12 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             .iter()
             .chain(self.connected_outgoing_peers.iter())
             .filter(|(_, state)| matches!(state, Some(NegotiatedPeerState::Healthy)))
-            .map(|(key, _)| key)
+            .map(|(peer_id, _)| peer_id)
             // Exclude from the list of candidate peers the provided peer (i.e., the sender of the
             // message we are forwarding).
             .filter(|(peer_id, _)| (excluded_peer != Some(*peer_id)))
             .for_each(|(peer_id, connection_id)| {
-                tracing::debug!(target: LOG_TARGET, "Registering event for peer {peer_id:?} to send msg");
+                tracing::debug!(target: LOG_TARGET, "Registering event for peer {peer_id:?} on connection {connection_id:?} to send msg");
                 self.events.push_back(ToSwarm::NotifyHandler {
                     peer_id: *peer_id,
                     handler: NotifyHandler::One(*connection_id),
@@ -239,6 +275,8 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         hasher.finalize().to_vec()
     }
 
+    /// Return the number of Blend peers on both incoming and outgoing
+    /// connections that are marked as healthy by this node.
     #[must_use]
     pub fn num_healthy_peers(&self) -> usize {
         self.connected_incoming_peers
@@ -248,6 +286,8 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             .count()
     }
 
+    /// Return the number of outgoing connections to other Blend nodes that are
+    /// marked as healthy by this node.
     pub fn healthy_outgoing_connections(&self) -> usize {
         self.connected_outgoing_peers
             .iter()
@@ -275,6 +315,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         // so that it can be processed by the core protocol module.
         self.events
             .push_back(ToSwarm::GenerateEvent(Event::Message(message, from)));
+        self.try_wake();
     }
 }
 
@@ -305,7 +346,7 @@ where
             .insert((peer_id, connection_id), None);
 
         // If we are above the maximum limit, return a dummy handler that will soon
-        // close the connection.
+        // close the connection, if the swarm is configured to do so.
         if !can_accept_incoming_connection {
             tracing::trace!(target: LOG_TARGET, "Connected peer {peer_id:?} on connection {connection_id:?} will not be upgraded since we are already at maximum incoming connection capacity.");
             return Ok(Either::Right(DummyConnectionHandler));
@@ -345,7 +386,7 @@ where
             .insert((peer_id, connection_id), None);
 
         // If we are above the maximum limit, return a dummy handler that will soon
-        // close the connection.
+        // close the connection, if the swarm is configured to do so.
         if !can_open_outgoing_connection {
             tracing::trace!(target: LOG_TARGET, "Connected peer {peer_id:?} on connection {connection_id:?} will not be upgraded since we are already at maximum outgoing connection capacity.");
             return Ok(Either::Right(DummyConnectionHandler));
@@ -389,6 +430,9 @@ where
             };
 
             match (peer_role, negotiated_state) {
+                // If the disconnected peer was part of an outgoing connection from us (i.e., it was
+                // a listener) and we had a negotiated state with it (i.e., it was a Blend node),
+                // notify the swarm about it.
                 (Endpoint::Listener, Some(state)) => {
                     self.events
                         .push_back(ToSwarm::GenerateEvent(Event::PeerDisconnected(
@@ -399,16 +443,16 @@ where
                     self.try_wake();
                 }
                 // Disconnected incoming connections are not an issue the swarm must deal with, so
-                // we keep it internal, i.e., we accept a new incoming connection when it comes, if
-                // we have a slot for it.
+                // we keep it internal, i.e., we will just accept a new incoming connection when it
+                // comes, if we have a slot available for it.
                 (Endpoint::Dialer, _) => {}
                 // The disconnected peer was never upgraded to the Blend
-                // protocol, either because they do not support it or
-                // because we prevented it due to connection limits. So, we
-                // do not notify the swarm at all about this, as this is an
+                // protocol (i.e., its negotiated state is `None`), either because they do not
+                // support it or because we prevented it due to connection limits.
+                // So, we do not notify the swarm at all about this, as this is an
                 // internal detail.
                 // We bubble this up to the swarm only during tests, to test that connections beyond
-                // our maximum capacity are ignored.
+                // our maximum capacity are effectively ignored.
                 (peer_role, None) => {
                     #[cfg(test)]
                     {
@@ -432,7 +476,7 @@ where
                         }
                         self.try_wake();
                     };
-                    // Needed to make the variable used also for non-test runs.
+                    // Make Clippy happy since `peer_role` is only used in a test-gated block.
                     let _ = peer_role;
                 }
             }
@@ -452,10 +496,9 @@ where
                 // A message was forwarded from the peer.
                 ToBehaviour::Message(message) => {
                     self.handle_received_message(message, peer_id);
-                    self.try_wake();
                 }
-                // The connection was fully negotiated by the peer, which means that the
-                // peer supports the blend protocol.
+                // The inbound/outbound connection was fully negotiated by the peer,
+                // which means that the peer supports the blend protocol.
                 ToBehaviour::FullyNegotiatedInbound | ToBehaviour::FullyNegotiatedOutbound => {
                     self.update_state((peer_id, connection_id), NegotiatedPeerState::Healthy);
                     #[cfg(test)]
@@ -481,14 +524,16 @@ where
                     // since the connection handler will not deal with the peer anymore.
                     // Also, we do not notify the swarm about a spammy peer, because it might try to
                     // open a new connection, but until the connection to the spammy peer is not
-                    // closed, the new outgoing connection might fail due to connection limits.
-                    // So, we let the swarm know about it when the peer has actually disconnected.
+                    // completely closed, the new outgoing connection might fail due to connection
+                    // limits (which is calculated from number of elements in our storage maps). So,
+                    // we let the swarm know about it when the peer has actually
+                    // disconnected and removed from storage.
                     tracing::debug!(target: LOG_TARGET, "Peer {peer_id:?} on connection {connection_id:?} has been detected as spammy");
                     self.update_state((peer_id, connection_id), NegotiatedPeerState::Spammy);
                 }
                 ToBehaviour::UnhealthyPeer => {
-                    // Notify swarm only if it's the first transition from a negotiated state into
-                    // the unhealthy state.
+                    // Notify swarm only if it's the first transition from a previously negotiated
+                    // state into the unhealthy state.
                     let Some(old_state) =
                         self.update_state((peer_id, connection_id), NegotiatedPeerState::Unhealthy)
                     else {
@@ -505,8 +550,8 @@ where
                     }
                 }
                 ToBehaviour::HealthyPeer => {
-                    // Notify swarm only if it's the first transition from a negotiated state into
-                    // the healthy state.
+                    // Notify swarm only if it's the first transition from a previously negotiated
+                    // state into the healthy state.
                     let Some(old_state) =
                         self.update_state((peer_id, connection_id), NegotiatedPeerState::Healthy)
                     else {
@@ -526,6 +571,7 @@ where
                 // with the peer closed, which we capture and process elsewhere, and we also notify
                 // the swarm about it then, to avoid concurrency issues in the number of connections
                 // that are kept open.
+                // TODO: These two events can then be removed from the connection handler.
                 ToBehaviour::DialUpgradeError(_) | ToBehaviour::IOError(_) => {}
             },
         }

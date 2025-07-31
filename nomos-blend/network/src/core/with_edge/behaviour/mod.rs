@@ -31,14 +31,22 @@ pub enum Event {
     /// A message received from an edge peer.
     Message(Vec<u8>),
     #[cfg(test)]
+    /// For tests only. It signals to the swarm that a given incoming connection
+    /// request from a peer was discarded.
     IncomingConnectionRequestDiscarded(PeerId, ConnectionId),
     #[cfg(test)]
+    /// For tests only. It signals to the swarm that a given incoming connection
+    /// request from a peer was accepted and upgraded.
     IncomingConnectionRequestAccepted(PeerId, ConnectionId),
 }
 
 #[derive(Debug)]
 pub struct Config {
+    /// The duration after which the substream is closed if no message is
+    /// received by the remote peer.
     pub connection_timeout: Duration,
+    /// The maximum number of concurrent incoming connections from edge nodes
+    /// this node can maintain.
     pub max_incoming_connections: usize,
 }
 
@@ -56,13 +64,18 @@ pub struct Behaviour {
     /// Set of peers that have opened a connection to this node.
     ///
     /// This set contains ALL connections, including the ones that will not be
-    /// upgraded and will hence be closed by the swarm. Once this set reaches
-    /// the maximum number of incoming connections, new connections upgrades
-    /// will be denied by default until a slot is freed.
+    /// upgraded and will hence be closed by the swarm, if configured to
+    /// immediately close idle connections. Once this set reaches
+    /// the maximum number of elements equal to the maximum number of incoming
+    /// connections, new connections upgrades will be denied by default
+    /// until a slot is freed.
     connected_edge_peers: HashSet<(PeerId, ConnectionId)>,
-    /// Maximum number of concurrent incoming connections the node must support.
+    /// Maximum number of concurrent incoming connections the node can maintain.
     max_incoming_connections: usize,
     #[cfg(test)]
+    /// For tests only. A set used to track which incoming requests are
+    /// considered for upgrade and which ones are not, due, e.g., to connection
+    /// limits.
     discarded_incoming_connections: HashSet<(PeerId, ConnectionId)>,
 }
 
