@@ -65,6 +65,8 @@ use crate::{
 };
 
 const BIN_PATH: &str = "../target/debug/nomos-executor";
+const DA_GET_TESTING_ENDPOINT_ERROR: &str =
+    "Failed to connect to testing endpoint. The binary was likely built without the 'testing' feature. Try: cargo build --workspace --all-features";
 
 pub struct Executor {
     addr: SocketAddr,
@@ -246,13 +248,7 @@ impl Executor {
             .send()
             .await;
 
-        assert!(
-            response.is_ok(),
-            "Failed to connect to testing endpoint {}.\n\
-            The binary was likely built without the 'testing' feature.\n\
-            Try: cargo build --workspace --all-features",
-            self.testing_http_addr
-        );
+        assert!(response.is_ok(), "{}", DA_GET_TESTING_ENDPOINT_ERROR);
 
         let response = response.unwrap();
         response.error_for_status()?;
@@ -273,14 +269,7 @@ impl Executor {
             .send()
             .await;
 
-        assert!(
-            response.is_ok(),
-            "Failed to connect to da get membership endpoint {}{}.\n\
-         The binary was likely built without the 'testing' feature.\n\
-         Try: cargo build --workspace --all-features",
-            self.addr,
-            DA_GET_MEMBERSHIP
-        );
+        assert!(response.is_ok(), "{}", DA_GET_TESTING_ENDPOINT_ERROR);
 
         let response = response.unwrap();
         response.error_for_status()?.json().await
