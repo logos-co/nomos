@@ -15,7 +15,8 @@ static BINARY: LazyLock<PathBuf, fn() -> PathBuf> = LazyLock::new(|| {
         .unwrap_or_else(|error_message| panic!("{}", error_message))
 });
 
-/// Runs the `prover` command.
+/// Runs the `prover` command to generate a proof and public inputs for the
+/// given circuit and witness contents.
 ///
 /// # Arguments
 ///
@@ -54,8 +55,12 @@ pub fn prover(
     Ok((proof_file.to_owned(), public_file.to_owned()))
 }
 
-/// Shorthand for running the `prover` command with the contents, instead of
-/// files.
+/// Runs the `prover` command to generate a proof and public inputs for the
+/// given circuit and witness contents.
+///
+/// # Note
+///
+/// Calls [`prover`] underneath but hides the file handling details.
 ///
 /// # Arguments
 ///
