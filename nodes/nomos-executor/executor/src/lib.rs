@@ -49,12 +49,24 @@ type DaMembershipStorage = DaMembershipStorageGeneric<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-pub(crate) type BlendService = nomos_blend_service::core::BlendService<
+pub(crate) type BlendCoreService = nomos_blend_service::core::BlendService<
     BlendBackend,
     PeerId,
     BlendNetworkAdapter<RuntimeServiceId>,
     RuntimeServiceId,
 >;
+
+pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
+    nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
+    PeerId,
+    <BlendNetworkAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<
+        RuntimeServiceId,
+    >>::BroadcastSettings,
+    RuntimeServiceId,
+>;
+
+pub(crate) type BlendService =
+    nomos_blend_service::BlendService<BlendCoreService, BlendEdgeService, RuntimeServiceId>;
 
 type DispersalMempoolAdapter = KzgrsMempoolAdapter<
     MempoolNetworkAdapter<BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId, RuntimeServiceId>,
@@ -290,6 +302,8 @@ pub struct NomosExecutor {
     tracing: TracingService,
     network: NetworkService,
     blend: BlendService,
+    blend_core: BlendCoreService,
+    blend_edge: BlendEdgeService,
     da_dispersal: DaDispersalService,
     da_indexer: DaIndexerService,
     da_verifier: DaVerifierService,

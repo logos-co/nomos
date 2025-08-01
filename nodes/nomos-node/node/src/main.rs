@@ -35,6 +35,8 @@ async fn main() -> Result<()> {
         NomosServiceSettings {
             network: config.network,
             blend: config.blend,
+            blend_core: config.blend_core,
+            blend_edge: config.blend_edge,
             #[cfg(feature = "tracing")]
             tracing: config.tracing,
             http: config.http,

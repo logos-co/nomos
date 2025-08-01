@@ -1,4 +1,3 @@
-pub mod blend;
 mod bootstrap;
 mod leadership;
 mod messages;
@@ -21,13 +20,14 @@ use cryptarchia_sync::GetTipResponse;
 use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
-use nomos_blend_service::core::BlendService;
+pub use nomos_blend_service::ServiceExt as BlendServiceExt;
 use nomos_core::{
     block::{builder::BlockBuilder, Block},
     da::blob::{info::DispersedBlobInfo, metadata::Metadata as BlobMetadata, BlobSelect},
     header::{Builder, Header, HeaderId},
     mantle::{gas::MainnetGasConstants, SignedMantleTx, Transaction, TxSelect},
     proofs::leader_proof::Risc0LeaderProof,
+    wire,
 };
 use nomos_da_sampling::{
     backend::DaSamplingServiceBackend, DaSamplingService, DaSamplingServiceMsg,
@@ -200,7 +200,7 @@ impl Cryptarchia {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings> {
+pub struct CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendBroadcastSettings> {
     #[serde(default)]
     pub transaction_selector_settings: Ts,
     #[serde(default)]
@@ -210,13 +210,13 @@ pub struct CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendAdapterSetti
     pub genesis_state: LedgerState,
     pub leader_config: LeaderConfig,
     pub network_adapter_settings: NetworkAdapterSettings,
-    pub blend_adapter_settings: BlendAdapterSettings,
+    pub blend_broadcast_settings: BlendBroadcastSettings,
     pub recovery_file: PathBuf,
     pub bootstrap: BootstrapConfig,
 }
 
-impl<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings> FileBackendSettings
-    for CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings>
+impl<Ts, Bs, NetworkAdapterSettings, BlendBroadcastSettings> FileBackendSettings
+    for CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendBroadcastSettings>
 {
     fn recovery_file(&self) -> &PathBuf {
         &self.recovery_file
@@ -226,7 +226,7 @@ impl<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings> FileBackendSettings
 #[expect(clippy::allow_attributes_without_reason)]
 pub struct CryptarchiaConsensus<
     NetAdapter,
-    BlendAdapter,
+    BlendService,
     ClPool,
     ClPoolAdapter,
     DaPool,
@@ -246,8 +246,7 @@ pub struct CryptarchiaConsensus<
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Backend: 'static,
     NetAdapter::Settings: Send,
-    BlendAdapter: blend::BlendAdapter<RuntimeServiceId>,
-    BlendAdapter::Settings: Send,
+    BlendService: BlendServiceExt,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone,
@@ -287,7 +286,7 @@ pub struct CryptarchiaConsensus<
 
 impl<
         NetAdapter,
-        BlendAdapter,
+        BlendService,
         ClPool,
         ClPoolAdapter,
         DaPool,
@@ -306,7 +305,7 @@ impl<
     > ServiceData
     for CryptarchiaConsensus<
         NetAdapter,
-        BlendAdapter,
+        BlendService,
         ClPool,
         ClPoolAdapter,
         DaPool,
@@ -326,8 +325,7 @@ impl<
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Settings: Send,
-    BlendAdapter: blend::BlendAdapter<RuntimeServiceId>,
-    BlendAdapter::Settings: Send,
+    BlendService: BlendServiceExt,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone,
@@ -364,13 +362,13 @@ where
         TxS::Settings,
         BS::Settings,
         NetAdapter::Settings,
-        BlendAdapter::Settings,
+        <BlendService as BlendServiceExt>::BroadcastSettings,
     >;
     type State = CryptarchiaConsensusState<
         TxS::Settings,
         BS::Settings,
         NetAdapter::Settings,
-        BlendAdapter::Settings,
+        <BlendService as BlendServiceExt>::BroadcastSettings,
     >;
     type StateOperator = RecoveryOperator<JsonFileBackend<Self::State, Self::Settings>>;
     type Message = ConsensusMsg<Block<ClPool::Item, DaPool::Item>>;
@@ -379,7 +377,7 @@ where
 #[async_trait::async_trait]
 impl<
         NetAdapter,
-        BlendAdapter,
+        BlendService,
         ClPool,
         ClPoolAdapter,
         DaPool,
@@ -398,7 +396,7 @@ impl<
     > ServiceCore<RuntimeServiceId>
     for CryptarchiaConsensus<
         NetAdapter,
-        BlendAdapter,
+        BlendService,
         ClPool,
         ClPoolAdapter,
         DaPool,
@@ -422,12 +420,15 @@ where
         + Sync
         + 'static,
     NetAdapter::Settings: Send + Sync + 'static,
-    BlendAdapter: blend::BlendAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = DaPool::Item>
-        + Clone
+    BlendService: ServiceData<
+            Message = nomos_blend_service::message::ServiceMessage<
+                <BlendService as BlendServiceExt>::BroadcastSettings,
+            >,
+        > + BlendServiceExt
         + Send
         + Sync
         + 'static,
-    BlendAdapter::Settings: Send + Sync + 'static,
+    <BlendService as BlendServiceExt>::BroadcastSettings: Clone + Send + Sync,
     ClPool: RecoverableMempool<BlockId = HeaderId> + Send + Sync + 'static,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone + Send + Sync + 'static,
@@ -492,14 +493,7 @@ where
         + 'static
         + AsServiceId<Self>
         + AsServiceId<NetworkService<NetAdapter::Backend, RuntimeServiceId>>
-        + AsServiceId<
-            BlendService<
-                BlendAdapter::Backend,
-                BlendAdapter::NodeId,
-                BlendAdapter::Network,
-                RuntimeServiceId,
-            >,
-        >
+        + AsServiceId<BlendService>
         + AsServiceId<
             TxMempoolService<
                 ClPoolAdapter,
@@ -554,7 +548,7 @@ where
     #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
     async fn run(mut self) -> Result<(), DynError> {
         let relays: CryptarchiaConsensusRelays<
-            BlendAdapter,
+            BlendService,
             BS,
             ClPool,
             ClPoolAdapter,
@@ -578,7 +572,7 @@ where
             blob_selector_settings,
             leader_config,
             network_adapter_settings,
-            blend_adapter_settings,
+            blend_broadcast_settings,
             bootstrap: bootstrap_config,
             ..
         } = self
@@ -626,8 +620,7 @@ where
             receiver.await?
         };
 
-        let blend_adapter =
-            BlendAdapter::new(blend_adapter_settings, relays.blend_relay().clone()).await;
+        let blend_relay = relays.blend_relay();
 
         self.service_resources_handle.status_updater.notify_ready();
         info!(
@@ -639,7 +632,7 @@ where
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
             NetworkService<_, _>,
-            BlendService<_, _, _, _>,
+            BlendService,
             TxMempoolService<_, _, _, _, _, _, _>,
             DaMempoolService<_, _, _, _, _, _, _, _, _>,
             DaSamplingService<_, _, _, _, _, _, _>,
@@ -725,7 +718,7 @@ where
                                     &self.service_resources_handle.state_updater,
                                 )
                                 .await;
-                                blend_adapter.blend(block).await;
+                                Self::publish_block(block, blend_relay, blend_broadcast_settings.clone()).await;
                             }
                         }
                     }
@@ -764,7 +757,7 @@ where
 
 impl<
         NetAdapter,
-        BlendAdapter,
+        BlendService,
         ClPool,
         ClPoolAdapter,
         DaPool,
@@ -783,7 +776,7 @@ impl<
     >
     CryptarchiaConsensus<
         NetAdapter,
-        BlendAdapter,
+        BlendService,
         ClPool,
         ClPoolAdapter,
         DaPool,
@@ -803,12 +796,15 @@ impl<
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Clone + Send + Sync + 'static,
     NetAdapter::Settings: Send + Sync + 'static,
-    BlendAdapter: blend::BlendAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = DaPool::Item>
-        + Clone
+    BlendService: ServiceData<
+            Message = nomos_blend_service::message::ServiceMessage<
+                <BlendService as BlendServiceExt>::BroadcastSettings,
+            >,
+        > + BlendServiceExt
         + Send
         + Sync
         + 'static,
-    BlendAdapter::Settings: Send + Sync + 'static,
+    <BlendService as BlendServiceExt>::BroadcastSettings: Send + Sync,
     ClPool: RecoverableMempool<BlockId = HeaderId> + Send + Sync + 'static,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone + Send + Sync + 'static,
@@ -932,7 +928,7 @@ where
         block: Block<ClPool::Item, DaPool::Item>,
         storage_blocks_to_remove: &HashSet<HeaderId>,
         relays: &CryptarchiaConsensusRelays<
-            BlendAdapter,
+            BlendService,
             BS,
             ClPool,
             ClPoolAdapter,
@@ -952,7 +948,7 @@ where
                     TxS::Settings,
                     BS::Settings,
                     NetAdapter::Settings,
-                    BlendAdapter::Settings,
+                    <BlendService as BlendServiceExt>::BroadcastSettings,
                 >,
             >,
         >,
@@ -988,7 +984,7 @@ where
                     TxS::Settings,
                     BS::Settings,
                     NetAdapter::Settings,
-                    BlendAdapter::Settings,
+                    <BlendService as BlendServiceExt>::BroadcastSettings,
                 >,
             >,
         >,
@@ -1016,7 +1012,7 @@ where
         cryptarchia: Cryptarchia,
         block: Block<ClPool::Item, DaPool::Item>,
         relays: &CryptarchiaConsensusRelays<
-            BlendAdapter,
+            BlendService,
             BS,
             ClPool,
             ClPoolAdapter,
@@ -1118,7 +1114,7 @@ where
         tx_selector: TxS,
         blob_selector: BS,
         relays: &CryptarchiaConsensusRelays<
-            BlendAdapter,
+            BlendService,
             BS,
             ClPool,
             ClPoolAdapter,
@@ -1272,7 +1268,7 @@ where
         ledger_config: nomos_ledger::Config,
         leader_config: LeaderConfig,
         relays: &CryptarchiaConsensusRelays<
-            BlendAdapter,
+            BlendService,
             BS,
             ClPool,
             ClPoolAdapter,
@@ -1463,6 +1459,24 @@ where
         .await;
 
         (cryptarchia, storage_blocks_to_remove)
+    }
+
+    async fn publish_block(
+        block: Block<ClPool::Item, DaPool::Item>,
+        blend_relay: &OutboundRelay<<BlendService as ServiceData>::Message>,
+        blend_broadcast_settings: <BlendService as BlendServiceExt>::BroadcastSettings,
+    ) {
+        if let Err((e, _)) = blend_relay
+            .send(nomos_blend_service::message::ServiceMessage::Blend(
+                nomos_blend_service::message::NetworkMessage {
+                    message: wire::serialize(&messages::NetworkMessage::Block(block)).unwrap(),
+                    broadcast_settings: blend_broadcast_settings,
+                },
+            ))
+            .await
+        {
+            error!(target: LOG_TARGET, "Failed to relay block to blend service: {e:?}");
+        }
     }
 }
 

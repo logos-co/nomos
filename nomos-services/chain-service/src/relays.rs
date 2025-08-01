@@ -3,10 +3,6 @@ use std::{
     marker::PhantomData,
 };
 
-use nomos_blend_service::{
-    core::{network::NetworkAdapter as BlendNetworkAdapter, BlendService},
-    message::ServiceMessage,
-};
 use nomos_core::{
     block::Block,
     da::blob::{info::DispersedBlobInfo, BlobSelect},
@@ -25,21 +21,20 @@ use nomos_storage::{
 };
 use nomos_time::{backends::TimeBackend as TimeBackendTrait, TimeService, TimeServiceMessage};
 use overwatch::{
-    services::{relay::OutboundRelay, AsServiceId},
+    services::{relay::OutboundRelay, AsServiceId, ServiceData},
     OpaqueServiceResourcesHandle,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{
-    blend, network,
+    network,
     storage::{adapters::StorageAdapter, StorageAdapter as _},
     CryptarchiaConsensus, MempoolRelay, SamplingRelay,
 };
 
 type NetworkRelay<NetworkBackend, RuntimeServiceId> =
     OutboundRelay<BackendNetworkMsg<NetworkBackend, RuntimeServiceId>>;
-type BlendRelay<BlendAdapterNetworkBroadcastSettings> =
-    OutboundRelay<ServiceMessage<BlendAdapterNetworkBroadcastSettings>>;
+type BlendRelay<BlendService> = OutboundRelay<<BlendService as ServiceData>::Message>;
 type ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> = MempoolRelay<
     <ClPoolAdapter as MempoolAdapter<RuntimeServiceId>>::Payload,
     <ClPool as MemPool>::Item,
@@ -54,7 +49,7 @@ pub type StorageRelay<Storage> = OutboundRelay<StorageMsg<Storage>>;
 type TimeRelay = OutboundRelay<TimeServiceMessage>;
 
 pub struct CryptarchiaConsensusRelays<
-    BlendAdapter,
+    BlendService,
     BS,
     ClPool,
     ClPoolAdapter,
@@ -67,8 +62,7 @@ pub struct CryptarchiaConsensusRelays<
     DaVerifierBackend,
     RuntimeServiceId,
 > where
-    BlendAdapter:
-        blend::BlendAdapter<RuntimeServiceId, Network: BlendNetworkAdapter<RuntimeServiceId>>,
+    BlendService: ServiceData,
     BS: BlobSelect,
     ClPool: MemPool,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId>,
@@ -84,11 +78,7 @@ pub struct CryptarchiaConsensusRelays<
         <NetworkAdapter as network::NetworkAdapter<RuntimeServiceId>>::Backend,
         RuntimeServiceId,
     >,
-    blend_relay: BlendRelay<
-        <<BlendAdapter as blend::BlendAdapter<RuntimeServiceId>>::Network as BlendNetworkAdapter<
-            RuntimeServiceId,
-        >>::BroadcastSettings,
-    >,
+    blend_relay: BlendRelay<BlendService>,
     cl_mempool_relay: ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId>,
     da_mempool_relay:
         DaMempoolRelay<DaPool, DaPoolAdapter, SamplingBackend::BlobId, RuntimeServiceId>,
@@ -99,7 +89,7 @@ pub struct CryptarchiaConsensusRelays<
 }
 
 impl<
-        BlendAdapter,
+        BlendService,
         BS,
         ClPool,
         ClPoolAdapter,
@@ -113,7 +103,7 @@ impl<
         RuntimeServiceId,
     >
     CryptarchiaConsensusRelays<
-        BlendAdapter,
+        BlendService,
         BS,
         ClPool,
         ClPoolAdapter,
@@ -127,9 +117,7 @@ impl<
         RuntimeServiceId,
     >
 where
-    BlendAdapter:
-        blend::BlendAdapter<RuntimeServiceId, Network: BlendNetworkAdapter<RuntimeServiceId>>,
-    BlendAdapter::Settings: Send,
+    BlendService: ServiceData,
     BS: BlobSelect<BlobId = DaPool::Item>,
     BS::Settings: Send,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
@@ -164,8 +152,7 @@ where
             <NetworkAdapter as network::NetworkAdapter<RuntimeServiceId>>::Backend,
             RuntimeServiceId,
         >,
-        blend_relay: BlendRelay<
-            <<BlendAdapter as blend::BlendAdapter<RuntimeServiceId>>::Network as BlendNetworkAdapter<RuntimeServiceId>>::BroadcastSettings,>,
+        blend_relay: BlendRelay<BlendService>,
         cl_mempool_relay: ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId>,
         da_mempool_relay: DaMempoolRelay<
             DaPool,
@@ -204,7 +191,7 @@ where
         service_resources_handle: &OpaqueServiceResourcesHandle<
             CryptarchiaConsensus<
                 NetworkAdapter,
-                BlendAdapter,
+                BlendService,
                 ClPool,
                 ClPoolAdapter,
                 DaPool,
@@ -230,7 +217,9 @@ where
         TxS::Settings: Sync,
         BS::Settings: Sync,
         NetworkAdapter::Settings: Sync + Send,
-        BlendAdapter::Settings: Sync,
+        BlendService: nomos_blend_service::ServiceExt,
+        <BlendService as nomos_blend_service::ServiceExt>::BroadcastSettings: Send + Sync,
+        <BlendService as ServiceData>::Message: Send + 'static,
         SamplingNetworkAdapter:
             nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
         SamplingStorage:
@@ -250,14 +239,7 @@ where
             + Display
             + 'static
             + AsServiceId<NetworkService<NetworkAdapter::Backend, RuntimeServiceId>>
-            + AsServiceId<
-                BlendService<
-                    BlendAdapter::Backend,
-                    BlendAdapter::NodeId,
-                    BlendAdapter::Network,
-                    RuntimeServiceId,
-                >,
-            >
+            + AsServiceId<BlendService>
             + AsServiceId<
                 TxMempoolService<
                     ClPoolAdapter,
@@ -304,7 +286,7 @@ where
 
         let blend_relay = service_resources_handle
             .overwatch_handle
-            .relay::<BlendService<_, _, _, _>>()
+            .relay::<BlendService>()
             .await
             .expect(
                 "Relay connection with nomos_blend_service::BlendService should
@@ -362,11 +344,7 @@ where
         &self.network_relay
     }
 
-    pub const fn blend_relay(
-        &self,
-    ) -> &BlendRelay<
-        <BlendAdapter::Network as BlendNetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
-    > {
+    pub const fn blend_relay(&self) -> &BlendRelay<BlendService> {
         &self.blend_relay
     }
 
