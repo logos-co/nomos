@@ -21,7 +21,7 @@ use cryptarchia_sync::GetTipResponse;
 use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
-use nomos_blend_service::core::BlendService;
+use nomos_blend_service::proxy::BlendProxyService;
 use nomos_core::{
     block::{builder::BlockBuilder, Block},
     da::blob::{info::DispersedBlobInfo, metadata::Metadata as BlobMetadata, BlobSelect},
@@ -493,10 +493,9 @@ where
         + AsServiceId<Self>
         + AsServiceId<NetworkService<NetAdapter::Backend, RuntimeServiceId>>
         + AsServiceId<
-            BlendService<
-                BlendAdapter::Backend,
-                BlendAdapter::NodeId,
-                BlendAdapter::Network,
+            BlendProxyService<
+                BlendAdapter::CoreAdapter,
+                BlendAdapter::EdgeAdapter,
                 RuntimeServiceId,
             >,
         >
@@ -639,7 +638,7 @@ where
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
             NetworkService<_, _>,
-            BlendService<_, _, _, _>,
+            BlendProxyService<_, _, _>,
             TxMempoolService<_, _, _, _, _, _, _>,
             DaMempoolService<_, _, _, _, _, _, _, _, _>,
             DaSamplingService<_, _, _, _, _, _, _>,
