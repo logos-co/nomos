@@ -31,6 +31,14 @@ impl BlendBehaviour {
                 .expect("Round duration cannot be zero."),
             rounds_per_observation_window: config.time.rounds_per_observation_window,
         };
+        let (min_outgoing_core_node_connections, max_total_core_node_connections) = (
+            *config.backend.peering_degree.start() as usize,
+            *config.backend.peering_degree.end() as usize,
+        );
+        let max_incoming_core_node_connections =
+            max_total_core_node_connections.saturating_sub(min_outgoing_core_node_connections);
+        let max_incoming_edge_node_connections =
+            config.backend.maximum_incoming_edge_node_connections as usize;
         Self {
             blend: nomos_blend_network::core::NetworkBehaviour::new(
                 &nomos_blend_network::core::Config {
@@ -39,9 +47,12 @@ impl BlendBehaviour {
                         // once session and round mechanisms are implemented.
                         // https://www.notion.so/Blend-Protocol-Version-1-PENDING-MIGRATION-1c48f96fb65c809494efe63019a5ebfb?source=copy_link#2088f96fb65c80be9057c6b4ce6b7023
                         seen_message_cache_size: 1_944_000,
+                        peering_degree: min_outgoing_core_node_connections
+                            ..=max_total_core_node_connections,
                     },
                     with_edge: nomos_blend_network::core::with_edge::behaviour::Config {
                         connection_timeout: Duration::from_secs(1),
+                        max_incoming_connections: max_incoming_edge_node_connections,
                     },
                 },
                 observation_window_interval_provider,
@@ -49,9 +60,15 @@ impl BlendBehaviour {
             ),
             limits: libp2p::connection_limits::Behaviour::new(
                 ConnectionLimits::default()
-                    .with_max_established(Some(config.backend.max_peering_degree))
-                    .with_max_established_incoming(Some(config.backend.max_peering_degree))
-                    .with_max_established_outgoing(Some(config.backend.max_peering_degree))
+                    // Max incoming connections is max core->core incoming + max edge->core
+                    // incoming.
+                    .with_max_established_incoming(Some(
+                        max_incoming_core_node_connections
+                            .saturating_add(max_incoming_edge_node_connections)
+                            as u32,
+                    ))
+                    // Max outgoing connections is max core->core outgoing, as per Blend v1 spec.
+                    .with_max_established_outgoing(Some(max_total_core_node_connections as u32))
                     // Blend protocol restricts the number of connections per peer to 1.
                     .with_max_established_per_peer(Some(1)),
             ),

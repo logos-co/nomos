@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
+    collections::{HashSet, VecDeque},
     convert::Infallible,
     task::{Context, Poll, Waker},
     time::Duration,
@@ -21,17 +21,33 @@ use crate::core::with_edge::behaviour::handler::{ConnectionHandler, ToBehaviour}
 
 mod handler;
 
+#[cfg(test)]
+mod tests;
+
 const LOG_TARGET: &str = "blend::network::core::edge::behaviour";
 
 #[derive(Debug)]
 pub enum Event {
     /// A message received from an edge peer.
     Message(Vec<u8>),
+    #[cfg(test)]
+    /// For tests only. It signals to the swarm that a given incoming connection
+    /// request from a peer was discarded.
+    IncomingConnectionRequestDiscarded(PeerId, ConnectionId),
+    #[cfg(test)]
+    /// For tests only. It signals to the swarm that a given incoming connection
+    /// request from a peer was accepted and upgraded.
+    IncomingConnectionRequestAccepted(PeerId, ConnectionId),
 }
 
 #[derive(Debug)]
 pub struct Config {
+    /// The duration after which the substream is closed if no message is
+    /// received by the remote peer.
     pub connection_timeout: Duration,
+    /// The maximum number of concurrent incoming connections from edge nodes
+    /// this node can maintain.
+    pub max_incoming_connections: usize,
 }
 
 /// A [`NetworkBehaviour`]:
@@ -45,7 +61,22 @@ pub struct Behaviour {
     current_membership: Option<Membership<PeerId>>,
     // Timeout to close connection with an edge node if a message is not received on time.
     connection_timeout: Duration,
-    connected_edge_peers: HashMap<PeerId, HashSet<ConnectionId>>,
+    /// Set of peers that have opened a connection to this node.
+    ///
+    /// This set contains ALL connections, including the ones that will not be
+    /// upgraded and will hence be closed by the swarm, if configured to
+    /// immediately close idle connections. Once this set reaches
+    /// the maximum number of elements equal to the maximum number of incoming
+    /// connections, new connections upgrades will be denied by default
+    /// until a slot is freed.
+    connected_edge_peers: HashSet<(PeerId, ConnectionId)>,
+    /// Maximum number of concurrent incoming connections the node can maintain.
+    max_incoming_connections: usize,
+    #[cfg(test)]
+    /// For tests only. A set used to track which incoming requests are
+    /// considered for upgrade and which ones are not, due, e.g., to connection
+    /// limits.
+    discarded_incoming_connections: HashSet<(PeerId, ConnectionId)>,
 }
 
 impl Behaviour {
@@ -56,7 +87,10 @@ impl Behaviour {
             waker: None,
             current_membership,
             connection_timeout: config.connection_timeout,
-            connected_edge_peers: HashMap::new(),
+            connected_edge_peers: HashSet::with_capacity(config.max_incoming_connections),
+            max_incoming_connections: config.max_incoming_connections,
+            #[cfg(test)]
+            discarded_incoming_connections: HashSet::new(),
         }
     }
 
@@ -73,14 +107,31 @@ impl NetworkBehaviour for Behaviour {
 
     fn handle_established_inbound_connection(
         &mut self,
-        _: ConnectionId,
+        connection_id: ConnectionId,
         peer: PeerId,
         _: &Multiaddr,
         _: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
+        // Add connection regardless of the handler we will use, to enforce a limit on
+        // the connection requests.
+        self.connected_edge_peers.insert((peer, connection_id));
+
+        // If we went above the maximum limit with the new addition, return a dummy
+        // handler that will soon close the connection.
+        if self.connected_edge_peers.len() > self.max_incoming_connections {
+            tracing::trace!(target: LOG_TARGET, "Connected peer {peer:?} on connection {connection_id:?} will not be upgraded since we are already at maximum incoming connection capacity.");
+            #[cfg(test)]
+            self.discarded_incoming_connections
+                .insert((peer, connection_id));
+            return Ok(Either::Right(DummyConnectionHandler));
+        }
+
+        // If no membership is set, all nodes are assumed to be core nodes, hence we do
+        // not allow inbound connections from core nodes.
         let Some(membership) = &self.current_membership else {
             return Ok(Either::Right(DummyConnectionHandler));
         };
+
         // Allow only inbound connections from edge nodes.
         Ok(if membership.contains_remote(&peer) {
             Either::Right(DummyConnectionHandler)
@@ -109,19 +160,25 @@ impl NetworkBehaviour for Behaviour {
             ..
         }) = event
         {
-            let Entry::Occupied(mut entry) = self.connected_edge_peers.entry(peer_id) else {
-                return;
-            };
-            entry.get_mut().remove(&connection_id);
-            if entry.get().is_empty() {
-                entry.remove_entry();
+            self.connected_edge_peers.remove(&(peer_id, connection_id));
+            #[cfg(test)]
+            {
+                if self
+                    .discarded_incoming_connections
+                    .remove(&(peer_id, connection_id))
+                {
+                    self.events.push_back(ToSwarm::GenerateEvent(
+                        Event::IncomingConnectionRequestDiscarded(peer_id, connection_id),
+                    ));
+                    self.try_wake();
+                }
             }
         }
     }
 
     fn on_connection_handler_event(
         &mut self,
-        peer: PeerId,
+        peer_id: PeerId,
         connection_id: ConnectionId,
         event: THandlerOutEvent<Self>,
     ) {
@@ -130,24 +187,16 @@ impl NetworkBehaviour for Behaviour {
                 self.events
                     .push_back(ToSwarm::GenerateEvent(Event::Message(message)));
             }
+            #[cfg(test)]
             Either::Left(ToBehaviour::SubstreamOpened) => {
-                self.connected_edge_peers
-                    .entry(peer)
-                    .or_default()
-                    .insert(connection_id);
+                self.events.push_back(ToSwarm::GenerateEvent(
+                    Event::IncomingConnectionRequestAccepted(peer_id, connection_id),
+                ));
             }
-            Either::Left(ToBehaviour::SubstreamClosed(error)) => {
-                tracing::trace!(target: LOG_TARGET, "Substream with peer ID {peer:?} and connection ID: {connection_id:?} closed with error: {error:?}.");
-                if !self
-                    .connected_edge_peers
-                    .entry(peer)
-                    .or_default()
-                    .remove(&connection_id)
-                {
-                    tracing::warn!(target: LOG_TARGET, "Closing a substream that was not previously added to the map of open substreams. Peer ID: {peer:?}, connection ID: {connection_id:?}.");
-                }
-            }
+            _ => {}
         }
+        // Make Clippy happy since these variables are only accessed for tests.
+        let _ = (peer_id, connection_id);
         self.try_wake();
     }
 
