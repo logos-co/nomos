@@ -11,6 +11,7 @@ workspace = true
 async-trait            = "0.1"
 futures                = "0.3"
 libp2p                 = { workspace = true, features = ["ed25519"] }
+libp2p-stream          = { workspace = true }
 nomos-blend-message    = { workspace = true }
 nomos-blend-network    = { workspace = true, features = ["tokio"] }
 nomos-blend-scheduling = { workspace = true }
@@ -27,6 +28,9 @@ services-utils         = { workspace = true }
 tokio                  = { version = "1", features = ["macros", "sync"] }
 tokio-stream           = "0.1"
 tracing                = { workspace = true }
+
+[dev-dependencies]
+test-log = "0.2"
 
 [features]
 default = []

@@ -6,14 +6,11 @@ use libp2p::{Stream, StreamProtocol};
 mod message;
 
 pub mod core;
-pub mod edge;
-#[cfg(test)]
-mod tests;
 
-pub(crate) const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/nomos/blend/0.1.0");
+pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/nomos/blend/0.1.0");
 
 /// Write a message to the stream
-pub(crate) async fn send_msg(mut stream: Stream, msg: Vec<u8>) -> io::Result<Stream> {
+pub async fn send_msg(mut stream: Stream, msg: Vec<u8>) -> io::Result<Stream> {
     let msg_len: u16 = msg.len().try_into().map_err(|_| {
         io::Error::new(
             io::ErrorKind::InvalidInput,

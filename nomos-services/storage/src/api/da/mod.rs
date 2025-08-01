@@ -4,6 +4,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use multiaddr::Multiaddr;
 use nomos_core::{block::BlockNumber, da::blob::Share};
 
 pub mod requests;
@@ -111,4 +112,11 @@ pub trait StorageDaApi {
         &mut self,
         block_number: BlockNumber,
     ) -> Result<HashMap<Self::NetworkId, HashSet<Self::Id>>, Self::Error>;
+
+    async fn store_addresses(
+        &mut self,
+        ids: HashMap<Self::Id, Multiaddr>,
+    ) -> Result<(), Self::Error>;
+
+    async fn get_address(&mut self, id: Self::Id) -> Result<Option<Multiaddr>, Self::Error>;
 }

@@ -12,8 +12,9 @@ use cryptarchia_engine::time::SlotConfig;
 use kzgrs_backend::common::share::DaShare;
 use nomos_api::http::membership::MembershipUpdateRequest;
 use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
-use nomos_blend_service::settings::{
-    CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt, TimingSettings,
+use nomos_blend_service::{
+    core::settings::{CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt},
+    settings::TimingSettings,
 };
 use nomos_core::{block::Block, mantle::SignedMantleTx, sdp::FinalizedBlockEvent};
 use nomos_da_indexer::{
@@ -319,7 +320,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 initial_peers: config.network_config.initial_peers,
             },
         },
-        blend: nomos_blend_service::settings::BlendConfig {
+        blend: nomos_blend_service::core::settings::BlendConfig {
             backend: config.blend_config.backend,
             crypto: CryptographicProcessorSettings {
                 signing_private_key: config.blend_config.private_key.clone(),
@@ -361,9 +362,10 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                     topic: String::from(nomos_node::CONSENSUS_TOPIC),
                 },
             blend_adapter_settings: chain_service::blend::adapters::libp2p::LibP2pAdapterSettings {
-                broadcast_settings: nomos_blend_service::network::libp2p::Libp2pBroadcastSettings {
-                    topic: String::from(nomos_node::CONSENSUS_TOPIC),
-                },
+                broadcast_settings:
+                    nomos_blend_service::core::network::libp2p::Libp2pBroadcastSettings {
+                        topic: String::from(nomos_node::CONSENSUS_TOPIC),
+                    },
             },
             recovery_file: PathBuf::from("./recovery/cryptarchia.json"),
             bootstrap: chain_service::BootstrapConfig {

@@ -21,7 +21,7 @@ use cryptarchia_sync::GetTipResponse;
 use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
-use nomos_blend_service::BlendService;
+use nomos_blend_service::core::BlendService;
 use nomos_core::{
     block::{builder::BlockBuilder, Block},
     da::blob::{info::DispersedBlobInfo, metadata::Metadata as BlobMetadata, BlobSelect},

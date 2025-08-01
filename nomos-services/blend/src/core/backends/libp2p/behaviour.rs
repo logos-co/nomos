@@ -5,7 +5,7 @@ use nomos_blend_network::core::ObservationWindowTokioIntervalProvider;
 use nomos_blend_scheduling::message_blend::crypto::CryptographicProcessor;
 use nomos_libp2p::NetworkBehaviour;
 
-use crate::{backends::libp2p::Libp2pBlendBackendSettings, BlendConfig};
+use crate::core::{backends::libp2p::Libp2pBlendBackendSettings, settings::BlendConfig};
 
 #[derive(NetworkBehaviour)]
 pub(super) struct BlendBehaviour<Rng> {

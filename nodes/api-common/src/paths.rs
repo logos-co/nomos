@@ -20,3 +20,4 @@ pub const DISPERSE_DATA: &str = "/disperse-data";
 
 // testing paths
 pub const UPDATE_MEMBERSHIP: &str = "/test/membership/update";
+pub const DA_GET_MEMBERSHIP: &str = "/test/da/membership/get";

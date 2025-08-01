@@ -7,7 +7,7 @@ use futures::Stream;
 use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage, UnwrappedMessage};
 use overwatch::overwatch::handle::OverwatchHandle;
 
-use crate::BlendConfig;
+use crate::core::settings::BlendConfig;
 
 /// A trait for blend backends that send messages to the blend network.
 #[async_trait::async_trait]

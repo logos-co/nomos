@@ -12,12 +12,12 @@ use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::{
+use crate::core::{
     backends::{
         libp2p::swarm::{BlendSwarm, BlendSwarmMessage},
         BlendBackend,
     },
-    BlendConfig,
+    settings::BlendConfig,
 };
 
 const LOG_TARGET: &str = "blend::backend::libp2p";
