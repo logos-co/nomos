@@ -21,6 +21,7 @@ use tokio::sync::{mpsc, mpsc::Sender, oneshot};
 use tracing::{debug, error};
 
 use crate::{
+    config::Config,
     libp2p::{
         downloader::Downloader,
         errors::{ChainSyncError, ChainSyncErrorKind, DynError},
@@ -153,17 +154,13 @@ pub struct Behaviour {
     /// Waker to notify the behaviour when `request_tip` or
     /// `start_blocks_download` is called.
     waker: Option<std::task::Waker>,
-}
-
-impl Default for Behaviour {
-    fn default() -> Self {
-        Self::new()
-    }
+    /// Configuration for the behaviour.
+    config: Config,
 }
 
 impl Behaviour {
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(config: Config) -> Self {
         let stream_behaviour = StreamBehaviour::new();
         let mut control = stream_behaviour.new_control();
         let incoming_streams = control
@@ -183,6 +180,7 @@ impl Behaviour {
             receiving_tip_responses: FuturesUnordered::new(),
             sending_tip_responses: FuturesUnordered::new(),
             waker: None,
+            config,
         }
     }
 
@@ -322,15 +320,17 @@ impl Behaviour {
     }
 
     fn handle_tip_request_available(&self, request_stream: TipRequestStream) {
-        self.receiving_tip_responses
-            .push(Downloader::receive_tip(request_stream).boxed());
+        self.receiving_tip_responses.push(
+            Downloader::receive_tip(request_stream, self.config.peer_response_timeout).boxed(),
+        );
 
         self.try_notify_waker();
     }
 
     fn handle_blocks_request_available(&self, request_stream: BlocksRequestStream) {
-        self.receiving_block_responses
-            .push(Downloader::receive_blocks(request_stream).boxed());
+        self.receiving_block_responses.push(
+            Downloader::receive_blocks(request_stream, self.config.peer_response_timeout).boxed(),
+        );
 
         self.try_notify_waker();
     }
@@ -558,6 +558,7 @@ mod tests {
     use tokio::sync::oneshot;
 
     use crate::{
+        config::Config,
         libp2p::{
             behaviour::{Behaviour, BoxedStream, Event, MAX_INCOMING_REQUESTS},
             errors::{ChainSyncError, ChainSyncErrorKind},
@@ -591,7 +592,7 @@ mod tests {
     #[tokio::test]
     async fn test_download_with_no_peers() {
         let (response_tx, _response_rx) = oneshot::channel();
-        let err = Behaviour::new()
+        let err = Behaviour::new(Config::default())
             .start_blocks_download(
                 PeerId::random(),
                 HeaderId::from([0; 32]),
@@ -662,6 +663,50 @@ mod tests {
         assert_eq!(response.slot, Slot::from(0));
     }
 
+    #[tokio::test]
+    async fn test_timeout() {
+        let mut provider_swarm = new_swarm_with_quic();
+        let provider_swarm_peer_id = *provider_swarm.local_peer_id();
+
+        let provider_addr: Multiaddr = format!(
+            "/ip4/127.0.0.1/udp/{}/quic-v1",
+            thread_rng().gen_range(10000..60000)
+        )
+        .parse()
+        .unwrap();
+
+        provider_swarm.listen_on(provider_addr.clone()).unwrap();
+
+        tokio::spawn(async move {
+            while let Some(event) = provider_swarm.next().await {
+                if let SwarmEvent::Behaviour(Event::ProvideBlocksRequest { .. }) = event {
+                    tokio::time::sleep(Duration::from_secs(100)).await;
+                } else {
+                    continue;
+                }
+            }
+        });
+
+        let mut downloader_swarm = new_swarm_with_quic();
+        downloader_swarm.dial_and_wait(provider_addr).await;
+
+        let streams = request_download(
+            &mut downloader_swarm,
+            1,
+            HeaderId::from([0; 32]),
+            HeaderId::from([0; 32]),
+            HeaderId::from([0; 32]),
+            &HashSet::new(),
+            provider_swarm_peer_id,
+        );
+
+        tokio::spawn(async move { downloader_swarm.loop_on_next().await });
+
+        let (_blocks, errors) = wait_block_messages(1, streams).await;
+
+        assert!(matches!(errors[0].kind, ChainSyncErrorKind::Timeout(_)));
+    }
+
     async fn start_provider_and_downloader(blocks_count: usize) -> (Swarm<Behaviour>, PeerId) {
         let mut provider_swarm = new_swarm_with_quic();
         let provider_swarm_peer_id = *provider_swarm.local_peer_id();
@@ -672,6 +717,7 @@ mod tests {
         )
         .parse()
         .unwrap();
+
         provider_swarm.listen_on(provider_addr.clone()).unwrap();
 
         tokio::spawn(async move {
@@ -757,14 +803,20 @@ mod tests {
     async fn wait_block_messages(
         expected_count: usize,
         streams: Vec<oneshot::Receiver<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>>,
-    ) -> (Vec<SerialisedBlock>, Vec<()>) {
+    ) -> (Vec<SerialisedBlock>, Vec<ChainSyncError>) {
         let mut blocks = Vec::new();
         let mut errors = Vec::new();
 
         for receiver in streams {
-            let Ok(mut stream) = receiver.await else {
-                errors.push(());
-                continue;
+            let mut stream = match receiver.await {
+                Ok(stream) => stream,
+                Err(e) => {
+                    errors.push(ChainSyncError {
+                        peer: PeerId::random(),
+                        kind: ChainSyncErrorKind::ChannelReceiveError(e.to_string()),
+                    });
+                    continue;
+                }
             };
 
             while let Some(result) = stream.next().await {
@@ -772,7 +824,7 @@ mod tests {
                     Ok(block) => {
                         blocks.push(block);
                     }
-                    Err(_) => errors.push(()),
+                    Err(e) => errors.push(e),
                 }
             }
 
@@ -784,13 +836,16 @@ mod tests {
     }
 
     fn new_swarm_with_quic() -> Swarm<Behaviour> {
+        let config = Config {
+            peer_response_timeout: Duration::from_millis(1000),
+        };
         let keypair = libp2p::identity::Keypair::generate_ed25519();
         libp2p::SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()
             .with_dns()
             .unwrap()
-            .with_behaviour(|_| Behaviour::new())
+            .with_behaviour(|_| Behaviour::new(config))
             .unwrap()
             .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(10)))
             .build()
