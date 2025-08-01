@@ -8,6 +8,7 @@ use std::{
 
 use bytes::Bytes;
 use cryptarchia_engine::{Branch, Slot};
+use cryptarchia_sync::{BlocksResponse, ProviderResponse};
 use futures::{future, stream, stream::BoxStream, StreamExt as _, TryStreamExt as _};
 use nomos_core::{block::Block, header::HeaderId, wire};
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageMsg};
@@ -81,7 +82,7 @@ where
         cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId>,
         target_block: HeaderId,
         known_blocks: &HashSet<HeaderId>,
-        reply_sender: Sender<BoxStream<'static, Result<Bytes, DynError>>>,
+        reply_sender: Sender<BlocksResponse>,
     ) {
         info!(
             "Providing blocks:
@@ -94,7 +95,8 @@ where
             .await
         {
             Ok(stream) => {
-                if let Err(e) = reply_sender.send(stream).await {
+                let response = ProviderResponse::Available(stream);
+                if let Err(e) = reply_sender.send(response).await {
                     error!("Failed to send blocks stream: {e}");
                 }
             }
@@ -488,16 +490,15 @@ where
         rx.await.map_err(|_| GetBlocksError::ChannelDropped)
     }
 
-    async fn send_error(msg: String, reply_sender: Sender<BoxStream<'_, Result<Bytes, DynError>>>) {
-        error!(msg);
+    async fn send_error(reason: String, reply_sender: Sender<BlocksResponse>) {
+        error!(reason);
 
-        let stream = stream::once(async move { Err(DynError::from(msg)) });
         if let Err(e) = reply_sender
-            .send(Box::pin(stream))
+            .send(ProviderResponse::Unavailable { reason })
             .await
-            .map_err(|_| GetBlocksError::SendError("Failed to send error stream".to_owned()))
+            .map_err(|_| GetBlocksError::SendError("Failed to send error response".to_owned()))
         {
-            error!("Failed to send error stream: {e}");
+            error!("Failed to send error response: {e}");
         }
     }
 }

@@ -1,19 +1,28 @@
 use futures::{stream::BoxStream, TryStreamExt as _};
 use libp2p::{PeerId, Stream as Libp2pStream};
 use tokio::sync::mpsc;
+use tracing::error;
 
 use crate::{
     libp2p::{
+        behaviour::TipResponse,
         errors::{ChainSyncError, ChainSyncErrorKind, DynError},
         packing::unpack_from_reader,
         utils::send_message,
     },
     messages::{DownloadBlocksResponse, GetTipResponse, RequestMessage, SerialisedBlock},
+    BlocksResponse,
 };
 
 pub const MAX_ADDITIONAL_BLOCKS: usize = 5;
 
 pub struct Provider;
+
+#[derive(Debug, Clone)]
+pub enum ProviderResponse<Response> {
+    Available(Response),
+    Unavailable { reason: String },
+}
 
 pub type ReceivingRequestStream = (PeerId, Libp2pStream, RequestMessage);
 
@@ -30,7 +39,7 @@ impl Provider {
     }
 
     pub async fn provide_tip(
-        mut reply_receiver: mpsc::Receiver<GetTipResponse>,
+        mut reply_receiver: mpsc::Receiver<TipResponse>,
         peer_id: PeerId,
         mut libp2p_stream: Libp2pStream,
     ) -> Result<(), ChainSyncError> {
@@ -41,39 +50,73 @@ impl Provider {
             ),
         })?;
 
-        send_message(peer_id, &mut libp2p_stream, &response).await?;
+        match response {
+            ProviderResponse::Available(tip) => {
+                send_message(peer_id, &mut libp2p_stream, &tip).await?;
+            }
+            ProviderResponse::Unavailable { reason } => {
+                let response = GetTipResponse::Failure(reason);
+                send_message(peer_id, &mut libp2p_stream, &response).await?;
+            }
+        };
 
         Ok(())
     }
-
     pub async fn provide_blocks(
-        mut reply_receiver: mpsc::Receiver<BoxStream<'static, Result<SerialisedBlock, DynError>>>,
+        mut reply_receiver: mpsc::Receiver<BlocksResponse>,
         peer_id: PeerId,
         mut libp2p_stream: Libp2pStream,
     ) -> Result<(), ChainSyncError> {
-        let stream = reply_receiver.recv().await.ok_or_else(|| ChainSyncError {
+        let response = reply_receiver.recv().await.ok_or_else(|| ChainSyncError {
             peer: peer_id,
             kind: ChainSyncErrorKind::ChannelReceiveError(
                 "Failed to receive blocks stream from channel".to_owned(),
             ),
         })?;
 
-        stream
-            .map_err(|e| ChainSyncError {
-                peer: peer_id,
-                kind: ChainSyncErrorKind::ReceivingBlocksError(format!(
-                    "Failed to receive block from stream: {e}"
-                )),
-            })
+        match response {
+            ProviderResponse::Available(stream) => {
+                Self::send_blocks(peer_id, stream, libp2p_stream).await
+            }
+            ProviderResponse::Unavailable { reason } => {
+                let response = DownloadBlocksResponse::Failure(reason);
+                send_message(peer_id, &mut libp2p_stream, &response).await?;
+                Ok(())
+            }
+        }
+    }
+
+    async fn send_blocks(
+        peer_id: PeerId,
+        stream: BoxStream<'static, Result<SerialisedBlock, DynError>>,
+        mut libp2p_stream: Libp2pStream,
+    ) -> Result<(), ChainSyncError> {
+        let result = stream
             .try_fold(&mut libp2p_stream, |stream, block| async move {
                 let message = DownloadBlocksResponse::Block(block);
                 send_message(peer_id, stream, &message).await?;
                 Ok(stream)
             })
-            .await?;
+            .await;
 
-        let request = DownloadBlocksResponse::NoMoreBlocks;
-        send_message(peer_id, &mut libp2p_stream, &request).await?;
+        match result {
+            Ok(_) => {
+                let message = DownloadBlocksResponse::NoMoreBlocks;
+                send_message(peer_id, &mut libp2p_stream, &message).await?;
+            }
+            Err(e) => {
+                error!("Failed to send blocks to peer {}: {}", peer_id, e);
+                let message = DownloadBlocksResponse::Failure(e.to_string());
+                let _ = send_message(peer_id, &mut libp2p_stream, &message).await;
+
+                return Err(ChainSyncError {
+                    peer: peer_id,
+                    kind: ChainSyncErrorKind::ReceivingBlocksError(format!(
+                        "Failed to receive block from stream: {e}"
+                    )),
+                });
+            }
+        }
 
         Ok(())
     }

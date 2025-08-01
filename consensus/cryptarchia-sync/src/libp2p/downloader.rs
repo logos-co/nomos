@@ -58,9 +58,14 @@ impl Downloader {
             reply_channel,
         } = request_stream;
 
-        let response = unpack_from_reader::<GetTipResponse, _>(&mut stream)
-            .await
-            .map_err(|e| ChainSyncError::from((peer_id, e)));
+        let response = match unpack_from_reader::<GetTipResponse, _>(&mut stream).await {
+            Ok(GetTipResponse::Tip { tip, slot }) => Ok(GetTipResponse::Tip { tip, slot }),
+            Ok(GetTipResponse::Failure(reason)) => Err(ChainSyncError {
+                peer: peer_id,
+                kind: ChainSyncErrorKind::RequestTipError(reason),
+            }),
+            Err(e) => Err(ChainSyncError::from((peer_id, e))),
+        };
 
         if let Err(e) = reply_channel.send(response) {
             error!("Failed to send tip response to peer {peer_id}: {e:?}");
@@ -68,6 +73,7 @@ impl Downloader {
 
         utils::close_stream(peer_id, stream).await
     }
+
     pub async fn receive_blocks(request_stream: BlocksRequestStream) -> Result<(), ChainSyncError> {
         let libp2p_stream = request_stream.stream;
         let peer_id = request_stream.peer_id;
@@ -79,6 +85,14 @@ impl Downloader {
                 Ok(DownloadBlocksResponse::NoMoreBlocks) => {
                     utils::close_stream(peer_id, stream).await?;
                     Ok(None)
+                }
+                Ok(DownloadBlocksResponse::Failure(reason)) => {
+                    utils::close_stream(peer_id, stream).await?;
+
+                    Err(ChainSyncError {
+                        peer: peer_id,
+                        kind: ChainSyncErrorKind::RequestBlocksDownloadError(reason),
+                    })
                 }
                 Err(e) => {
                     error!("Failed to receive blocks from peer {}: {}", peer_id, e);

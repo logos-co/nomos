@@ -4,8 +4,9 @@ mod messages;
 
 #[cfg(feature = "libp2p")]
 pub use libp2p::{
-    behaviour::{Behaviour, BoxedStream, Event},
+    behaviour::{Behaviour, BlocksResponse, BoxedStream, Event, TipResponse},
     errors::{ChainSyncError, ChainSyncErrorKind},
+    provider::ProviderResponse,
 };
 pub use messages::{DownloadBlocksRequest, GetTipResponse, SerialisedBlock};
 pub use nomos_core::header::HeaderId;
