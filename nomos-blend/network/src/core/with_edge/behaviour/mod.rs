@@ -15,9 +15,13 @@ use libp2p::{
     },
     Multiaddr, PeerId,
 };
-use nomos_blend_scheduling::membership::Membership;
+use nomos_blend_scheduling::{deserialize_encapsulated_message, membership::Membership};
 
-use crate::core::with_edge::behaviour::handler::{ConnectionHandler, ToBehaviour};
+use crate::{
+    core::with_edge::behaviour::handler::{ConnectionHandler, ToBehaviour},
+    message::ValidateMessagePublicHeader as _,
+    EncapsulatedMessageWithValidatedPublicHeader,
+};
 
 mod handler;
 
@@ -25,8 +29,9 @@ const LOG_TARGET: &str = "blend::network::core::edge::behaviour";
 
 #[derive(Debug)]
 pub enum Event {
-    /// A message received from an edge peer.
-    Message(Vec<u8>),
+    /// A message received from one of the edge peers, after its public header
+    /// has been verified.
+    Message(EncapsulatedMessageWithValidatedPublicHeader),
 }
 
 #[derive(Debug)]
@@ -64,6 +69,22 @@ impl Behaviour {
         if let Some(waker) = self.waker.take() {
             waker.wake();
         }
+    }
+
+    fn handle_received_serialized_encapsulated_message(&mut self, serialized_message: &[u8]) {
+        let Ok(deserialized_encapsulated_message) =
+            deserialize_encapsulated_message(serialized_message)
+        else {
+            return;
+        };
+
+        let Ok(validated_message) = deserialized_encapsulated_message.validate_public_header()
+        else {
+            return;
+        };
+
+        self.events
+            .push_back(ToSwarm::GenerateEvent(Event::Message(validated_message)));
     }
 }
 
@@ -127,8 +148,7 @@ impl NetworkBehaviour for Behaviour {
     ) {
         match event {
             Either::Left(ToBehaviour::Message(message)) => {
-                self.events
-                    .push_back(ToSwarm::GenerateEvent(Event::Message(message)));
+                self.handle_received_serialized_encapsulated_message(&message);
             }
             Either::Left(ToBehaviour::SubstreamOpened) => {
                 self.connected_edge_peers

@@ -18,9 +18,8 @@ use libp2p::{
 };
 use nomos_blend_message::MessageIdentifier;
 use nomos_blend_scheduling::{
-    deserialize_encapsulated_message, membership::Membership,
-    message_blend::crypto::CryptographicProcessor, serialize_encapsulated_message,
-    EncapsulatedMessage, UnwrappedMessage,
+    deserialize_encapsulated_message, membership::Membership, serialize_encapsulated_message,
+    EncapsulatedMessage,
 };
 
 use crate::{
@@ -47,7 +46,7 @@ const LOG_TARGET: &str = "blend::network::behaviour";
 /// The same checks are applied to messages received by the Blend service before
 /// they are propagated to the rest of the network, making sure no peer marks
 /// this node as malicious due to an invalid Blend message.
-pub struct Behaviour<Rng, ObservationWindowClockProvider> {
+pub struct Behaviour<ObservationWindowClockProvider> {
     negotiated_peers: HashMap<PeerId, NegotiatedPeerState>,
     /// Queue of events to yield to the swarm.
     events: VecDeque<ToSwarm<Event, Either<FromBehaviour, Infallible>>>,
@@ -63,7 +62,6 @@ pub struct Behaviour<Rng, ObservationWindowClockProvider> {
     observation_window_clock_provider: ObservationWindowClockProvider,
     // TODO: Replace with the session stream and make this a non-Option
     current_membership: Option<Membership<PeerId>>,
-    cryptographic_processor: CryptographicProcessor<PeerId, Rng>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -72,10 +70,11 @@ enum NegotiatedPeerState {
     Unhealthy,
 }
 
+#[derive(Debug)]
 pub enum Event {
-    /// A message received from one of the peers, after its correctness has been
-    /// verified by the cryptographic processor.
-    Message(Box<UnwrappedMessage>, PeerId),
+    /// A message received from one of the core peers, after its public header
+    /// has been verified.
+    Message(Box<EncapsulatedMessageWithValidatedPublicHeader>, PeerId),
     /// A peer has been detected as spammy.
     SpammyPeer(PeerId),
     /// A peer has been detected as unhealthy.
@@ -85,12 +84,11 @@ pub enum Event {
     Error(Error),
 }
 
-impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockProvider> {
+impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     #[must_use]
     pub fn new(
         observation_window_clock_provider: ObservationWindowClockProvider,
         current_membership: Option<Membership<PeerId>>,
-        cryptographic_processor: CryptographicProcessor<PeerId, Rng>,
     ) -> Self {
         Self {
             negotiated_peers: HashMap::new(),
@@ -104,7 +102,6 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
             ),
             observation_window_clock_provider,
             current_membership,
-            cryptographic_processor,
         }
     }
 
@@ -117,6 +114,15 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
             .validate_public_header()
             .map_err(|_| Error::InvalidMessage)?;
         self.forward_message_and_maybe_exclude(&validated_message, None)?;
+        self.try_wake();
+        Ok(())
+    }
+
+    pub fn publish_validated_message(
+        &mut self,
+        message: &EncapsulatedMessageWithValidatedPublicHeader,
+    ) -> Result<(), Error> {
+        self.forward_message_and_maybe_exclude(message, None)?;
         self.try_wake();
         Ok(())
     }
@@ -191,6 +197,16 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
         Ok(())
     }
 
+    pub fn forward_validated_message(
+        &mut self,
+        message: &EncapsulatedMessageWithValidatedPublicHeader,
+        excluded_peer: PeerId,
+    ) -> Result<(), Error> {
+        self.forward_message_and_maybe_exclude(message, Some(excluded_peer))?;
+        self.try_wake();
+        Ok(())
+    }
+
     #[must_use]
     pub fn num_healthy_peers(&self) -> usize {
         self.negotiated_peers
@@ -205,8 +221,7 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
         }
     }
 
-    /// Mark the sender of a malformed message as malicious if the sender is a
-    /// core node.
+    /// Mark the sender of a malformed message as malicious.
     fn mark_peer_as_malicious(&mut self, peer_id: PeerId) {
         tracing::debug!(target: LOG_TARGET, "Closing substream and marking core peer as malicious {peer_id:?}.");
         self.close_spammy_substream(peer_id);
@@ -255,16 +270,10 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
             return;
         };
 
-        // Start the processing.
-        let Ok(decapsulated_message) = self.try_decapsulate_message(validated_message.into_inner())
-        else {
-            return;
-        };
-
         // Notify the swarm about the received message,
         // so that it can be further processed by the core protocol module.
         self.events.push_back(ToSwarm::GenerateEvent(Event::Message(
-            Box::new(decapsulated_message),
+            Box::new(validated_message),
             from,
         )));
     }
@@ -285,23 +294,10 @@ impl<Rng, ObservationWindowClockProvider> Behaviour<Rng, ObservationWindowClockP
         }
         Ok(())
     }
-
-    fn try_decapsulate_message(
-        &self,
-        encapsulated_message: EncapsulatedMessage,
-    ) -> Result<UnwrappedMessage, ()> {
-        self.cryptographic_processor
-            .decapsulate_message(encapsulated_message)
-            .map_err(|e| {
-                tracing::debug!(target: LOG_TARGET, "Failed to decapsulate message: {e:?}");
-            })
-    }
 }
 
-impl<Rng, ObservationWindowClockProvider> NetworkBehaviour
-    for Behaviour<Rng, ObservationWindowClockProvider>
+impl<ObservationWindowClockProvider> NetworkBehaviour for Behaviour<ObservationWindowClockProvider>
 where
-    Rng: 'static,
     ObservationWindowClockProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {

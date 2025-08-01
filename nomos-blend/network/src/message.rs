@@ -5,9 +5,11 @@ use nomos_blend_scheduling::EncapsulatedMessage;
 
 /// An encapsulated message whose public header as been validated according to
 /// the Blend specification.
+#[derive(Debug, Clone)]
 pub struct EncapsulatedMessageWithValidatedPublicHeader(EncapsulatedMessage);
 
 impl EncapsulatedMessageWithValidatedPublicHeader {
+    #[must_use]
     pub fn into_inner(self) -> EncapsulatedMessage {
         self.0
     }

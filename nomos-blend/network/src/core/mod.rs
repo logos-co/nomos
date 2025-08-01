@@ -2,9 +2,7 @@ pub mod with_core;
 pub mod with_edge;
 
 use libp2p::PeerId;
-use nomos_blend_scheduling::{
-    membership::Membership, message_blend::crypto::CryptographicProcessor,
-};
+use nomos_blend_scheduling::membership::Membership;
 
 use self::{
     with_core::behaviour::Behaviour as CoreToCoreBehaviour,
@@ -15,19 +13,19 @@ use crate::core::with_edge::behaviour::Config as CoreToEdgeConfig;
 /// A composed behaviour that wraps the two sub-behaviours for dealing with core
 /// and edge nodes.
 #[derive(nomos_libp2p::NetworkBehaviour)]
-pub struct NetworkBehaviour<Rng, ObservationWindowClockProvider> {
-    with_core: CoreToCoreBehaviour<Rng, ObservationWindowClockProvider>,
+pub struct NetworkBehaviour<ObservationWindowClockProvider> {
+    with_core: CoreToCoreBehaviour<ObservationWindowClockProvider>,
     with_edge: CoreToEdgeBehaviour,
 }
 
-impl<Rng, ObservationWindowClockProvider> NetworkBehaviour<Rng, ObservationWindowClockProvider> {
-    pub const fn with_core(&self) -> &CoreToCoreBehaviour<Rng, ObservationWindowClockProvider> {
+impl<ObservationWindowClockProvider> NetworkBehaviour<ObservationWindowClockProvider> {
+    pub const fn with_core(&self) -> &CoreToCoreBehaviour<ObservationWindowClockProvider> {
         &self.with_core
     }
 
     pub const fn with_core_mut(
         &mut self,
-    ) -> &mut CoreToCoreBehaviour<Rng, ObservationWindowClockProvider> {
+    ) -> &mut CoreToCoreBehaviour<ObservationWindowClockProvider> {
         &mut self.with_core
     }
 
@@ -44,18 +42,16 @@ pub struct Config {
     pub with_edge: CoreToEdgeConfig,
 }
 
-impl<Rng, ObservationWindowClockProvider> NetworkBehaviour<Rng, ObservationWindowClockProvider> {
+impl<ObservationWindowClockProvider> NetworkBehaviour<ObservationWindowClockProvider> {
     pub fn new(
         config: &Config,
         observation_window_clock_provider: ObservationWindowClockProvider,
         current_membership: Option<Membership<PeerId>>,
-        cryptographic_processor: CryptographicProcessor<PeerId, Rng>,
     ) -> Self {
         Self {
             with_core: CoreToCoreBehaviour::new(
                 observation_window_clock_provider,
                 current_membership.clone(),
-                cryptographic_processor,
             ),
             with_edge: CoreToEdgeBehaviour::new(&config.with_edge, current_membership),
         }
