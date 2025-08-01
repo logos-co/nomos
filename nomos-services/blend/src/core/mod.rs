@@ -1,5 +1,4 @@
 pub mod backends;
-pub mod message;
 pub mod network;
 pub mod settings;
 
@@ -37,8 +36,8 @@ use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
 use crate::{
-    core::{message::ProcessedMessage, settings::BlendConfig},
-    message::{NetworkMessage, ServiceMessage},
+    core::settings::BlendConfig,
+    message::{NetworkMessage, ProcessedMessage, ServiceMessage},
 };
 
 const LOG_TARGET: &str = "blend::service";
