@@ -53,7 +53,7 @@ where
             .ops
             .iter()
             .filter_map(|op| {
-                if let Op::Blob(blob_op) = op {
+                if let Op::ChannelBlob(blob_op) = op {
                     Some(async {
                         self.sampling_relay
                             .send(DaSamplingServiceMsg::TriggerSampling {
