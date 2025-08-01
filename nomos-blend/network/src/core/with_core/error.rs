@@ -7,10 +7,11 @@ pub enum Error {
     /// There were no peers to send a message to.
     NoPeers,
     /// IO error from peer
-    PeerIOError {
+    PeerIO {
         error: io::Error,
         peer_id: PeerId,
         connection_id: ConnectionId,
     },
     Duplicate,
+    InvalidMessage,
 }

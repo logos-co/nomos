@@ -4,7 +4,9 @@ mod settings;
 use std::{fmt::Display, marker::PhantomData};
 
 use backends::BlendBackend;
-use nomos_blend_scheduling::message_blend::crypto::CryptographicProcessor;
+use nomos_blend_scheduling::{
+    message_blend::crypto::CryptographicProcessor, serialize_encapsulated_message,
+};
 use nomos_core::wire;
 use overwatch::{
     services::{
@@ -134,12 +136,12 @@ async fn handle_messages_to_blend<NodeId, Rng, Backend, RuntimeServiceId>(
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
 {
     let Ok(message) = cryptographic_processor
-        .encapsulate_data_message(&message)
+        .encapsulate_data_payload(&message)
         .inspect_err(|e| {
             tracing::error!(target: LOG_TARGET, "Failed to encapsulate message: {e:?}");
         })
     else {
         return;
     };
-    backend.send(message).await;
+    backend.send(serialize_encapsulated_message(&message)).await;
 }

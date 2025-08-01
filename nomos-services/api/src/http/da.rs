@@ -8,6 +8,7 @@ use std::{
 use kzgrs_backend::common::share::DaShare;
 use nomos_blend_service::core::network::libp2p::Libp2pAdapter as BlendNetworkAdapter;
 use nomos_core::{
+    block::BlockNumber,
     da::{
         blob::{info::DispersedBlobInfo, metadata, select::FillSize as FillSizeWithBlobs, Share},
         BlobId, DaVerifier as CoreDaVerifier,
@@ -31,7 +32,7 @@ use nomos_da_network_service::{
         libp2p::{executor::ExecutorDaNetworkMessage, validator::DaNetworkMessage},
         NetworkBackend,
     },
-    DaNetworkMsg, NetworkService,
+    DaNetworkMsg, MembershipResponse, NetworkService,
 };
 use nomos_da_sampling::{
     backend::DaSamplingServiceBackend, storage::adapters::rocksdb::converter::DaStorageConverter,
@@ -478,6 +479,53 @@ where
     wait_with_timeout(
         receiver,
         "Timeout while waiting for blacklisted peers".to_owned(),
+    )
+    .await
+}
+
+pub async fn da_get_membership<
+    Backend,
+    Membership,
+    MembershipAdapter,
+    StorageAdapter,
+    ApiAdapter,
+    RuntimeServiceId,
+>(
+    handle: OverwatchHandle<RuntimeServiceId>,
+    block_number: BlockNumber,
+) -> Result<MembershipResponse, DynError>
+where
+    Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
+    Membership: MembershipHandler + Clone + Send + Sync + 'static,
+    Membership::Id: Send + Sync + 'static,
+    Membership::NetworkId: Send + Sync + 'static,
+    ApiAdapter: ApiAdapterTrait + Send + Sync + 'static,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<
+            NetworkService<
+                Backend,
+                Membership,
+                MembershipAdapter,
+                StorageAdapter,
+                ApiAdapter,
+                RuntimeServiceId,
+            >,
+        >,
+{
+    let relay = handle.relay().await?;
+    let (sender, receiver) = oneshot::channel();
+    let message = DaNetworkMsg::GetMembership {
+        block_number,
+        sender,
+    };
+    relay.send(message).await.map_err(|(e, _)| e)?;
+
+    wait_with_timeout(
+        receiver,
+        "Timeout while waiting for get membership".to_owned(),
     )
     .await
 }

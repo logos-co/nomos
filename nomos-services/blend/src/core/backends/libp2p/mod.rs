@@ -6,7 +6,7 @@ use futures::{
     Stream, StreamExt as _,
 };
 use libp2p::PeerId;
-use nomos_blend_scheduling::membership::Membership;
+use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage, UnwrappedMessage};
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
@@ -17,7 +17,7 @@ use crate::core::{
         libp2p::swarm::{BlendSwarm, BlendSwarmMessage},
         BlendBackend,
     },
-    BlendConfig,
+    settings::BlendConfig,
 };
 
 const LOG_TARGET: &str = "blend::backend::libp2p";
@@ -31,24 +31,24 @@ mod swarm;
 pub struct Libp2pBlendBackend {
     swarm_task_abort_handle: AbortHandle,
     swarm_message_sender: mpsc::Sender<BlendSwarmMessage>,
-    incoming_message_sender: broadcast::Sender<Vec<u8>>,
+    incoming_message_sender: broadcast::Sender<UnwrappedMessage>,
 }
 
 const CHANNEL_SIZE: usize = 64;
 
 #[async_trait]
-impl<RuntimeServiceId> BlendBackend<PeerId, RuntimeServiceId> for Libp2pBlendBackend {
+impl<Rng, RuntimeServiceId> BlendBackend<PeerId, Rng, RuntimeServiceId> for Libp2pBlendBackend
+where
+    Rng: RngCore + Clone + Send + 'static,
+{
     type Settings = Libp2pBlendBackendSettings;
 
-    fn new<Rng>(
+    fn new(
         config: BlendConfig<Self::Settings, PeerId>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         session_stream: Pin<Box<dyn Stream<Item = Membership<PeerId>> + Send>>,
         rng: Rng,
-    ) -> Self
-    where
-        Rng: RngCore + Send + 'static,
-    {
+    ) -> Self {
         let (swarm_message_sender, swarm_message_receiver) = mpsc::channel(CHANNEL_SIZE);
         let (incoming_message_sender, _) = broadcast::channel(CHANNEL_SIZE);
 
@@ -80,7 +80,7 @@ impl<RuntimeServiceId> BlendBackend<PeerId, RuntimeServiceId> for Libp2pBlendBac
         swarm_task_abort_handle.abort();
     }
 
-    async fn publish(&self, msg: Vec<u8>) {
+    async fn publish(&self, msg: EncapsulatedMessage) {
         if let Err(e) = self
             .swarm_message_sender
             .send(BlendSwarmMessage::Publish(msg))
@@ -90,7 +90,9 @@ impl<RuntimeServiceId> BlendBackend<PeerId, RuntimeServiceId> for Libp2pBlendBac
         }
     }
 
-    fn listen_to_incoming_messages(&mut self) -> Pin<Box<dyn Stream<Item = Vec<u8>> + Send>> {
+    fn listen_to_incoming_messages(
+        &mut self,
+    ) -> Pin<Box<dyn Stream<Item = UnwrappedMessage> + Send>> {
         Box::pin(
             BroadcastStream::new(self.incoming_message_sender.subscribe())
                 .filter_map(|event| async { event.ok() }),

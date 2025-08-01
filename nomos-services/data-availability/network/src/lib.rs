@@ -17,6 +17,7 @@ use futures::Stream;
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p::{Multiaddr, PeerId};
 use nomos_core::{block::BlockNumber, da::BlobId};
+use nomos_da_network_core::SubnetworkId;
 use overwatch::{
     services::{
         state::{NoOperator, ServiceState},
@@ -38,15 +39,15 @@ use crate::{
 
 pub type DaAddressbook = AddressBook;
 
-pub type MembershipData<NetworkId, Id> = (
-    SubnetworkAssignations<NetworkId, Id>,
-    AddressBookSnapshot<Id>,
-);
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MembershipResponse {
+    pub assignations: SubnetworkAssignations<SubnetworkId, PeerId>,
+    pub addressbook: AddressBookSnapshot<PeerId>,
+}
 
-pub enum DaNetworkMsg<Backend, Membership, Commitments, RuntimeServiceId>
+pub enum DaNetworkMsg<Backend, Commitments, RuntimeServiceId>
 where
     Backend: NetworkBackend<RuntimeServiceId>,
-    Membership: MembershipHandler,
 {
     Process(Backend::Message),
     Subscribe {
@@ -55,7 +56,7 @@ where
     },
     GetMembership {
         block_number: BlockNumber,
-        sender: oneshot::Sender<MembershipData<Membership::NetworkId, Membership::Id>>,
+        sender: oneshot::Sender<MembershipResponse>,
     },
     GetCommitments {
         blob_id: BlobId,
@@ -63,11 +64,10 @@ where
     },
 }
 
-impl<Backend, Membership, Commitments, RuntimeServiceId> Debug
-    for DaNetworkMsg<Backend, Membership, Commitments, RuntimeServiceId>
+impl<Backend, Commitments, RuntimeServiceId> Debug
+    for DaNetworkMsg<Backend, Commitments, RuntimeServiceId>
 where
     Backend: NetworkBackend<RuntimeServiceId>,
-    Membership: MembershipHandler,
 {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -187,7 +187,7 @@ where
         RuntimeServiceId,
     >;
     type StateOperator = NoOperator<Self::State>;
-    type Message = DaNetworkMsg<Backend, Membership, DaSharesCommitments, RuntimeServiceId>;
+    type Message = DaNetworkMsg<Backend, DaSharesCommitments, RuntimeServiceId>;
 }
 
 #[async_trait]
@@ -215,14 +215,12 @@ where
         > + Send
         + 'static,
     Backend::State: Send + Sync,
-    Membership: MembershipCreator<Id = PeerId> + Clone + Send + Sync + 'static,
+    Membership:
+        MembershipCreator<Id = PeerId, NetworkId = SubnetworkId> + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync,
     Membership::NetworkId: Send,
     MembershipServiceAdapter: MembershipAdapter<Id = Membership::Id> + Send + Sync + 'static,
-    StorageAdapter: MembershipStorageAdapter<PeerId, <Membership as MembershipHandler>::NetworkId>
-        + Send
-        + Sync
-        + 'static,
+    StorageAdapter: MembershipStorageAdapter<PeerId, SubnetworkId> + Send + Sync + 'static,
     ApiAdapter: ApiAdapterTrait<
             Share = DaShare,
             BlobId = BlobId,
@@ -387,10 +385,11 @@ where
     ApiAdapter::Settings: Clone + Send,
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::State: Send + Sync,
-    Membership: MembershipCreator<Id = PeerId> + Clone + Send + Sync + 'static,
+    Membership:
+        MembershipCreator<Id = PeerId, NetworkId = SubnetworkId> + Clone + Send + Sync + 'static,
 {
     async fn handle_network_service_message(
-        msg: DaNetworkMsg<Backend, Membership, DaSharesCommitments, RuntimeServiceId>,
+        msg: DaNetworkMsg<Backend, DaSharesCommitments, RuntimeServiceId>,
         backend: &mut Backend,
         membership_storage: &MembershipStorage<StorageAdapter, Membership, DaAddressbook>,
         api_adapter: &ApiAdapter,
@@ -426,14 +425,17 @@ where
                     })
                 {
                     let assignations = membership.subnetworks();
-                    sender.send((assignations, addressbook)).unwrap_or_else(|_| {
+                    sender.send(MembershipResponse { assignations, addressbook }).unwrap_or_else(|_| {
                         tracing::warn!(
                             "client hung up before a subnetwork assignations handle could be established"
                         );
                     });
                 } else {
                     tracing::warn!("No membership found for block number {block_number}");
-                    sender.send((SubnetworkAssignations::default(), AddressBookSnapshot::default())).unwrap_or_else(|_| {
+                    sender.send(MembershipResponse{
+                        assignations: SubnetworkAssignations::default(),
+                        addressbook: AddressBookSnapshot::default(),
+                    }).unwrap_or_else(|_| {
                         tracing::warn!(
                             "client hung up before a subnetwork assignations handle could be established"
                         );

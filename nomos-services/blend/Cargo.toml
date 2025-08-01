@@ -29,9 +29,6 @@ tokio                  = { version = "1", features = ["macros", "sync"] }
 tokio-stream           = "0.1"
 tracing                = { workspace = true }
 
-[dev-dependencies]
-test-log = "0.2"
-
 [features]
 default = []
 libp2p  = ["dep:nomos-libp2p", "nomos-network/libp2p"]
