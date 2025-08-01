@@ -17,7 +17,7 @@ serde           = "1"
 [dev-dependencies]
 divan           = "0.1"
 libp2p-identity = { version = "0.2", features = ["rand"] }
-nomos-utils     = { workspace = true, features = ["blake2"] }
+nomos-utils     = { workspace = true, features = ["rng"] }
 
 [[bench]]
 harness = false
