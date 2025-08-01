@@ -8,6 +8,7 @@ use nomos_storage::{
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::oneshot;
+use tracing::debug;
 
 use crate::storage::StorageAdapter as StorageAdapterTrait;
 
@@ -111,6 +112,7 @@ where
         &self,
         blocks: BTreeMap<Slot, HeaderId>,
     ) -> Result<(), overwatch::DynError> {
+        debug!("Storing immutable block IDs: {blocks:?}");
         self.storage_relay
             .send(StorageMsg::store_immutable_block_ids_request(blocks))
             .await

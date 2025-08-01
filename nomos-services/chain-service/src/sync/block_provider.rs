@@ -19,7 +19,7 @@ use tracing::{error, info};
 
 use crate::relays::StorageRelay;
 
-const MAX_NUMBER_OF_BLOCKS: usize = 1000;
+pub const MAX_NUMBER_OF_BLOCKS: usize = 1000;
 
 #[derive(Debug, Error)]
 pub enum GetBlocksError {
@@ -129,6 +129,9 @@ where
             .find_path(cryptarchia, target_block, known_blocks)
             .await?;
 
+        let path = path.iter().skip(1).copied().collect();
+        info!("Found path: {path:?}");
+
         let stream = self.stream_blocks_from_path(path);
         Ok(stream)
     }
@@ -144,11 +147,15 @@ where
             .then(move |id| {
                 let storage = storage.clone();
 
+                info!("Loading block: {id:?}");
+
                 async move {
                     let block = Self::load_block(id, &storage)
                         .await
                         .map_err(DynError::from)?
                         .ok_or_else(|| DynError::from(GetBlocksError::BlockNotFound(id)))?;
+
+                    info!("Loaded block: {id:?}");
 
                     Ok::<_, DynError>(Bytes::from(
                         wire::serialize(&block).expect("Block must be serialized"),

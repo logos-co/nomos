@@ -305,6 +305,9 @@ cryptarchia:
   bootstrap:
     prolonged_bootstrap_period: [86400, 0]
     force_bootstrap: false
+  orphan:
+    max_orphan_cache_size: 5
+    max_number_of_requests: 5
 storage:
   db_path: nomos_db
   read_only: false

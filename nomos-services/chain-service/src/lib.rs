@@ -58,14 +58,14 @@ use tokio::{
 use tracing::{debug, error, info, instrument, span, Level};
 use tracing_futures::Instrument as _;
 
-pub use crate::bootstrap::config::BootstrapConfig;
+pub use crate::{bootstrap::config::BootstrapConfig, sync::orphan_config::OrphanConfig};
 use crate::{
     bootstrap::{ibd::InitialBlockDownload, state::choose_engine_state},
     leadership::Leader,
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
     storage::{adapters::StorageAdapter, StorageAdapter as _},
-    sync::block_provider::BlockProvider,
+    sync::{block_provider::BlockProvider, orphan_handler::OrphanHandler},
 };
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
@@ -83,6 +83,8 @@ pub enum Error {
     Ledger(#[from] nomos_ledger::LedgerError<HeaderId>),
     #[error("Consensus error: {0}")]
     Consensus(#[from] cryptarchia_engine::Error<HeaderId>),
+    #[error("Storage error: {0}")]
+    Storage(String),
 }
 
 #[derive(Clone)]
@@ -197,6 +199,10 @@ impl Cryptarchia {
     const fn state(&self) -> &cryptarchia_engine::State {
         self.consensus.state()
     }
+
+    fn has_block(&self, block_id: &HeaderId) -> bool {
+        self.consensus.branches().get(block_id).is_some()
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -213,6 +219,7 @@ pub struct CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendAdapterSetti
     pub blend_adapter_settings: BlendAdapterSettings,
     pub recovery_file: PathBuf,
     pub bootstrap: BootstrapConfig,
+    pub orphan: OrphanConfig,
 }
 
 impl<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings> FileBackendSettings
@@ -580,6 +587,7 @@ where
             network_adapter_settings,
             blend_adapter_settings,
             bootstrap: bootstrap_config,
+            orphan: orphan_config,
             ..
         } = self
             .service_resources_handle
@@ -629,6 +637,12 @@ where
         let blend_adapter =
             BlendAdapter::new(blend_adapter_settings, relays.blend_relay().clone()).await;
 
+        let mut orphan_handler = OrphanHandler::new(
+            network_adapter.clone(),
+            orphan_config.max_orphan_cache_size,
+            ledger_config.consensus_config.security_param,
+        );
+
         self.service_resources_handle.status_updater.notify_ready();
         info!(
             "Service '{}' is ready.",
@@ -677,18 +691,39 @@ where
                     Some(block) = incoming_blocks.next() => {
                         Self::log_received_block(&block);
 
+                        if cryptarchia.has_block(&block.header().id()) {
+                            info!(target: LOG_TARGET, "Block {:?} already processed, ignoring", block.header().id());
+                            continue;
+                        }
+
                         // Process the received block and update the cryptarchia state.
-                        (cryptarchia, storage_blocks_to_remove) = Self::process_block_and_update_state(
-                            cryptarchia,
+                        match Self::process_block_and_update_state(
+                            cryptarchia.clone(),
                             &leader,
                             block.clone(),
                             &storage_blocks_to_remove,
                             &relays,
                             &self.block_subscription_sender,
                             &self.service_resources_handle.state_updater
-                        ).await;
+                        ).await {
+                            Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
+                                cryptarchia = new_cryptarchia;
+                                storage_blocks_to_remove = new_storage_blocks_to_remove;
 
-                        info!(counter.consensus_processed_blocks = 1);
+                                orphan_handler.remove_orphan_if_present(&block.header().id());
+
+                                info!(counter.consensus_processed_blocks = 1);
+                            }
+                            Err(Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(parent))
+                                | Error::Consensus(cryptarchia_engine::Error::ParentMissing(parent)),) => {
+
+                                error!(target: LOG_TARGET, "Received block with parent {:?} that is not in the ledger state. Ignoring block.", parent);
+                                orphan_handler.add_orphan(block.header().id());
+                            }
+                            Err(e) => {
+                                error!(target: LOG_TARGET, "Error processing block: {:?}", e);
+                            }
+                        }
                     }
 
                     Some(SlotTick { slot, .. }) = slot_timer.next() => {
@@ -715,8 +750,8 @@ where
 
                             if let Some(block) = block {
                                 // apply our own block
-                                (cryptarchia, storage_blocks_to_remove) = Self::process_block_and_update_state(
-                                    cryptarchia,
+                                match Self::process_block_and_update_state(
+                                    cryptarchia.clone(),
                                     &leader,
                                     block.clone(),
                                     &storage_blocks_to_remove,
@@ -724,8 +759,17 @@ where
                                     &self.block_subscription_sender,
                                     &self.service_resources_handle.state_updater,
                                 )
-                                .await;
-                                blend_adapter.blend(block).await;
+                                .await {
+                                    Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
+                                        cryptarchia = new_cryptarchia;
+                                        storage_blocks_to_remove = new_storage_blocks_to_remove;
+
+                                        blend_adapter.blend(block).await;
+                                    }
+                                    Err(e) => {
+                                        error!(target: LOG_TARGET, "Error processing local block: {:?}", e);
+                                    }
+                                }
                             }
                         }
                     }
@@ -741,6 +785,43 @@ where
                             //       blocked for a long time.
                             //       https://github.com/logos-co/nomos/issues/1451
                            Self::handle_chainsync_event(&cryptarchia, &sync_blocks_provider, event).await;
+                        }else{
+                            info!(target: LOG_TARGET, "Received chain sync event while in bootstrapping state. Ignoring.");
+                        }
+                    }
+
+                    Some(block) = orphan_handler.request_blocks(
+                        cryptarchia.tip(),
+                        cryptarchia.lib()
+                    ), if orphan_handler.should_call() => {
+
+                        let header_id  =  block.header().id();
+                        info!("Processing block from orphan handler: {header_id:?}");
+
+                        if cryptarchia.has_block(&block.header().id()) {
+                            info!("Block {:?} already processed, cancelling further download of stream", header_id);
+                            continue;
+                        }
+
+                        match Self::process_block_and_update_state(
+                            cryptarchia.clone(),
+                            &leader,
+                            block.clone(),
+                            &storage_blocks_to_remove,
+                            &relays,
+                            &self.block_subscription_sender,
+                            &self.service_resources_handle.state_updater
+                        ).await {
+                            Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
+                                cryptarchia = new_cryptarchia;
+                                storage_blocks_to_remove = new_storage_blocks_to_remove;
+
+                                info!(counter.consensus_processed_blocks = 1);
+                            }
+                            Err(e) => {
+                                error!(target: LOG_TARGET, "Error processing orphan handler block: {:?}", e);
+                                orphan_handler.cancel_active_stream();
+                            }
                         }
                     }
                 }
@@ -956,9 +1037,9 @@ where
                 >,
             >,
         >,
-    ) -> (Cryptarchia, HashSet<HeaderId>) {
+    ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
         let (cryptarchia, pruned_blocks) =
-            Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
+            Self::process_block(cryptarchia, block, relays, block_subscription_sender).await?;
 
         let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
             pruned_blocks.stale_blocks().copied(),
@@ -974,7 +1055,7 @@ where
             state_updater,
         );
 
-        (cryptarchia, storage_blocks_to_remove)
+        Ok((cryptarchia, storage_blocks_to_remove))
     }
 
     #[expect(clippy::type_complexity, reason = "StateUpdater")]
@@ -1030,82 +1111,67 @@ where
             RuntimeServiceId,
         >,
         block_broadcaster: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> (Cryptarchia, PrunedBlocks<HeaderId>) {
-        debug!("received proposal {:?}", block);
+    ) -> Result<(Cryptarchia, PrunedBlocks<HeaderId>), Error> {
+        debug!("received proposal {:?}", block.header().id());
 
         let sampled_blobs = match get_sampled_blobs(relays.sampling_relay().clone()).await {
             Ok(sampled_blobs) => sampled_blobs,
             Err(error) => {
                 error!("Unable to retrieved sampled blobs: {error}");
-                return (cryptarchia, PrunedBlocks::new());
+                return Ok((cryptarchia, PrunedBlocks::new()));
             }
         };
         if !Self::validate_blocks_blobs(&block, &sampled_blobs) {
             error!("Invalid block: {block:?}");
-            return (cryptarchia, PrunedBlocks::new());
+            return Ok((cryptarchia, PrunedBlocks::new()));
         }
 
         // TODO: filter on time?
         let header = block.header();
         let id = header.id();
 
-        match cryptarchia.try_apply_header(header) {
-            Ok((cryptarchia, pruned_blocks)) => {
-                // remove included content from mempool
-                mark_in_block(
-                    relays.cl_mempool_relay().clone(),
-                    block.transactions().map(Transaction::hash),
-                    id,
-                )
-                .await;
-                mark_in_block(
-                    relays.da_mempool_relay().clone(),
-                    block.blobs().map(DispersedBlobInfo::blob_id),
-                    id,
-                )
-                .await;
+        let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_header(header)?;
 
-                mark_blob_in_block(
-                    relays.sampling_relay().clone(),
-                    block.blobs().map(DispersedBlobInfo::blob_id).collect(),
-                )
-                .await;
+        // remove included content from mempool
+        mark_in_block(
+            relays.cl_mempool_relay().clone(),
+            block.transactions().map(Transaction::hash),
+            id,
+        )
+        .await;
+        mark_in_block(
+            relays.da_mempool_relay().clone(),
+            block.blobs().map(DispersedBlobInfo::blob_id),
+            id,
+        )
+        .await;
 
-                if let Err(e) = relays
-                    .storage_adapter()
-                    .store_block(header.id(), block.clone())
-                    .await
-                {
-                    error!("Could not store block {e}");
-                }
+        mark_blob_in_block(
+            relays.sampling_relay().clone(),
+            block.blobs().map(DispersedBlobInfo::blob_id).collect(),
+        )
+        .await;
 
-                if let Err(e) = relays
-                    .storage_adapter()
-                    .store_immutable_block_ids(pruned_blocks.immutable_blocks().clone())
-                    .await
-                {
-                    error!("Could not store immutable block IDs: {e}");
-                }
+        relays
+            .storage_adapter()
+            .store_block(header.id(), block.clone())
+            .await
+            .map_err(|e| Error::Storage(format!("Failed to store block: {e}")))?;
 
-                if let Err(e) = block_broadcaster.send(block) {
-                    error!("Could not notify block to services {e}");
-                }
+        let immutable_blocks = pruned_blocks.immutable_blocks().clone();
+        info!("Immutable blocks: {:?}", immutable_blocks);
 
-                return (cryptarchia, pruned_blocks);
-            }
-            Err(
-                Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(parent))
-                | Error::Consensus(cryptarchia_engine::Error::ParentMissing(parent)),
-            ) => {
-                debug!("missing parent {:?}", parent);
-                // TODO: request parent block
-            }
-            Err(e) => {
-                debug!("invalid block {:?}: {e:?}", block);
-            }
+        relays
+            .storage_adapter()
+            .store_immutable_block_ids(immutable_blocks)
+            .await
+            .map_err(|e| Error::Storage(format!("Failed to store immutable block ids: {e}")))?;
+
+        if let Err(e) = block_broadcaster.send(block) {
+            error!("Could not notify block to services {e}");
         }
 
-        (cryptarchia, PrunedBlocks::new())
+        Ok((cryptarchia, pruned_blocks))
     }
 
     #[expect(clippy::allow_attributes_without_reason)]
@@ -1309,11 +1375,22 @@ where
 
         let mut pruned_blocks = PrunedBlocks::new();
         for block in blocks {
-            let (new_cryptarchia, new_pruned_blocks) =
-                Self::process_block(cryptarchia, block, relays, &self.block_subscription_sender)
-                    .await;
-            cryptarchia = new_cryptarchia;
-            pruned_blocks.extend(&new_pruned_blocks);
+            match Self::process_block(
+                cryptarchia.clone(),
+                block,
+                relays,
+                &self.block_subscription_sender,
+            )
+            .await
+            {
+                Ok((new_cryptarchia, new_pruned_blocks)) => {
+                    cryptarchia = new_cryptarchia;
+                    pruned_blocks.extend(&new_pruned_blocks);
+                }
+                Err(e) => {
+                    error!(target: LOG_TARGET, "Error processing block: {:?}", e);
+                }
+            }
         }
 
         (cryptarchia, pruned_blocks, leader)
