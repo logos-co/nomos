@@ -203,7 +203,7 @@ where
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
-    ) -> Result<BoxedStream<Result<Self::Block, DynError>>, DynError> {
+    ) -> Result<BoxedStream<Result<(HeaderId, Self::Block), DynError>>, DynError> {
         let (reply_sender, receiver) = oneshot::channel();
         if let Err((e, _)) = self
             .network_relay
@@ -225,7 +225,9 @@ where
         let stream = receiver.await?;
         let stream = stream.map_err(|e| Box::new(e) as DynError).map(|result| {
             let block = result?;
-            wire::deserialize(&block).map_err(|e| Box::new(e) as DynError)
+            let block: Self::Block =
+                wire::deserialize(&block).map_err(|e| Box::new(e) as DynError)?;
+            Ok((block.header().id(), block))
         });
 
         Ok(Box::new(stream))
@@ -239,7 +241,7 @@ where
         local_tip: HeaderId,
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
-    ) -> Result<BoxedStream<Result<Self::Block, DynError>>, DynError> {
+    ) -> Result<BoxedStream<Result<(HeaderId, Self::Block), DynError>>, DynError> {
         let connected_peers = Self::get_connected_peers(&self.network_relay).await?;
 
         // All peers we know about, including those that are not connected.

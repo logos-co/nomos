@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     net::SocketAddr,
     num::NonZeroU64,
     ops::Range,
@@ -341,6 +342,9 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             bootstrap: chain_service::BootstrapConfig {
                 prolonged_bootstrap_period: Duration::from_secs(3),
                 force_bootstrap: false,
+                ibd: chain_service::IbdConfig {
+                    peers: HashSet::new(),
+                },
             },
         },
         da_network: DaNetworkConfig {
