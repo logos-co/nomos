@@ -65,12 +65,19 @@ impl Downloader {
             timeout,
             unpack_from_reader::<GetTipResponse, _>(&mut stream),
         )
-        .await
-        .map_err(|e| {
-            error!("Timeout while receiving tip from peer {}", peer_id);
-            ChainSyncError::from((peer_id, e))
-        })?
-        .map_err(|e| ChainSyncError::from((peer_id, e)));
+            .await
+            .map_err(|e| {
+                error!("Timeout while receiving tip from peer {}", peer_id);
+                ChainSyncError::from((peer_id, e))
+            })?
+            .map_err(|e| ChainSyncError::from((peer_id, e)))
+            .and_then(|response| match response {
+                GetTipResponse::Tip { tip, slot } => Ok(GetTipResponse::Tip { tip, slot }),
+                GetTipResponse::Failure(reason) => Err(ChainSyncError {
+                    peer: peer_id,
+                    kind: ChainSyncErrorKind::RequestTipError(reason),
+                }),
+            });
 
         if let Err(e) = reply_channel.send(response) {
             error!("Failed to send tip response to peer {peer_id}: {e:?}");
@@ -78,6 +85,7 @@ impl Downloader {
 
         utils::close_stream(peer_id, stream).await
     }
+
     pub async fn receive_blocks(
         request_stream: BlocksRequestStream,
         timeout: Duration,
@@ -94,6 +102,14 @@ impl Downloader {
                 Ok(Ok(DownloadBlocksResponse::NoMoreBlocks)) => {
                     utils::close_stream(peer_id, stream).await?;
                     Ok(None)
+                }
+                Ok(Ok(DownloadBlocksResponse::Failure(reason))) => {
+                    utils::close_stream(peer_id, stream).await?;
+
+                    Err(ChainSyncError {
+                        peer: peer_id,
+                        kind: ChainSyncErrorKind::RequestBlocksDownloadError(reason),
+                    })
                 }
                 Ok(Err(e)) => {
                     let _ = utils::close_stream(peer_id, stream).await;

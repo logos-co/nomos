@@ -8,11 +8,11 @@ pub type DynError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 #[derive(Debug, Error)]
 pub enum ChainSyncErrorKind {
-    #[error("Failed to start chain sync: {0}")]
-    StartSyncError(String),
+    #[error("Failed to start blocks download: {0}")]
+    RequestBlocksDownloadError(String),
 
-    #[error("Failed to request tips: {0}")]
-    RequestTipsError(String),
+    #[error("Failed to request tip: {0}")]
+    RequestTipError(String),
 
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
@@ -29,7 +29,7 @@ pub enum ChainSyncErrorKind {
     #[error("Failed to send data to channel: {0}")]
     ChannelSendError(String),
 
-    #[error("Service error: {0}")]
+    #[error("Block provider error: {0}")]
     ReceivingBlocksError(String),
 
     #[error("Timeout waiting response from peer: {0}")]

@@ -10,7 +10,7 @@ use futures::StreamExt as _;
 use nomos_core::header::HeaderId;
 use overwatch::DynError;
 use tracing::{debug, error, info};
-
+use cryptarchia_sync::GetTipResponse;
 use crate::{
     network::{BoxedStream, NetworkAdapter},
     Cryptarchia, IbdConfig,
@@ -24,7 +24,7 @@ where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::PeerId: Clone + Eq + Hash,
     ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut,
-    ProcessBlockFut: Future<Output = (Cryptarchia, HashSet<HeaderId>)>,
+    ProcessBlockFut: Future<Output=(Cryptarchia, HashSet<HeaderId>)>,
 {
     config: IbdConfig<NetAdapter::PeerId>,
     network: NetAdapter,
@@ -33,12 +33,12 @@ where
 }
 
 impl<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
-    InitialBlockDownload<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
+InitialBlockDownload<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::PeerId: Clone + Eq + Hash,
     ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut,
-    ProcessBlockFut: Future<Output = (Cryptarchia, HashSet<HeaderId>)>,
+    ProcessBlockFut: Future<Output=(Cryptarchia, HashSet<HeaderId>)>,
 {
     pub const fn new(
         config: IbdConfig<NetAdapter::PeerId>,
@@ -55,14 +55,14 @@ where
 }
 
 impl<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
-    InitialBlockDownload<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
+InitialBlockDownload<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Send + Sync,
     NetAdapter::PeerId: Copy + Clone + Eq + Hash + Debug + Send + Sync,
     NetAdapter::Block: Debug,
     ProcessBlockFn:
-        Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut + Send + Sync,
-    ProcessBlockFut: Future<Output = (Cryptarchia, HashSet<HeaderId>)> + Send,
+    Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut + Send + Sync,
+    ProcessBlockFut: Future<Output=(Cryptarchia, HashSet<HeaderId>)> + Send,
     RuntimeServiceId: Sync,
 {
     /// Runs IBD with the configured peers.
@@ -127,12 +127,18 @@ where
         latest_downloaded_block: Option<HeaderId>,
     ) -> Result<Option<Download<NetAdapter::PeerId, NetAdapter::Block>>, Error> {
         // Get the most recent peer's tip and set it as the target.
-        let target = self
+        let tip_response = self
             .network
             .request_tip(peer)
             .await
-            .map_err(Error::BlockProvider)?
-            .id;
+            .map_err(Error::BlockProvider)?;
+
+        let target = match tip_response {
+            GetTipResponse::Tip { tip, .. } => tip,
+            GetTipResponse::Failure(reason) => {
+                return Err(Error::BlockProvider(DynError::from(reason)));
+            }
+        };
 
         if !Self::should_download(&target, cryptarchia) {
             return Ok(None);
@@ -313,9 +319,9 @@ mod tests {
             MockNetworkAdapter::<()>::new(HashMap::new()),
             process_block,
         )
-        .run(new_cryptarchia(), HashSet::new())
-        .await
-        .unwrap();
+            .run(new_cryptarchia(), HashSet::new())
+            .await
+            .unwrap();
 
         // The Cryptarchia remains unchanged.
         assert_eq!(cryptarchia.lib(), [GENESIS_ID; 32].into());
@@ -339,9 +345,9 @@ mod tests {
             MockNetworkAdapter::<()>::new(HashMap::from([(NodeId(0), peer.clone())])),
             process_block,
         )
-        .run(new_cryptarchia(), HashSet::new())
-        .await
-        .unwrap();
+            .run(new_cryptarchia(), HashSet::new())
+            .await
+            .unwrap();
 
         // All blocks from the peer should be in the local chain.
         assert!(peer.chain.iter().all(|b| contain(b, &cryptarchia)));
@@ -365,9 +371,9 @@ mod tests {
             MockNetworkAdapter::<()>::new(HashMap::from([(NodeId(0), peer.clone())])),
             process_block,
         )
-        .run(new_cryptarchia(), HashSet::new())
-        .await
-        .unwrap();
+            .run(new_cryptarchia(), HashSet::new())
+            .await
+            .unwrap();
 
         // All blocks from the peer should be in the local chain.
         assert!(peer.chain.iter().all(|b| contain(b, &cryptarchia)));
@@ -404,9 +410,9 @@ mod tests {
             ])),
             process_block,
         )
-        .run(new_cryptarchia(), HashSet::new())
-        .await
-        .unwrap();
+            .run(new_cryptarchia(), HashSet::new())
+            .await
+            .unwrap();
 
         // All blocks from both peers should be in the local chain.
         assert!(peer0.chain.iter().all(|b| contain(b, &cryptarchia)));
@@ -447,9 +453,9 @@ mod tests {
             ])),
             process_block,
         )
-        .run(new_cryptarchia(), HashSet::new())
-        .await
-        .unwrap();
+            .run(new_cryptarchia(), HashSet::new())
+            .await
+            .unwrap();
 
         // All blocks from peer1 that doesn't return an error
         // should be added to the local chain.
@@ -489,8 +495,8 @@ mod tests {
             ])),
             process_block,
         )
-        .run(new_cryptarchia(), HashSet::new())
-        .await;
+            .run(new_cryptarchia(), HashSet::new())
+            .await;
 
         assert!(matches!(result, Err(Error::AllPeersFailed)));
     }
@@ -529,9 +535,9 @@ mod tests {
             ])),
             process_block,
         )
-        .run(new_cryptarchia(), HashSet::new())
-        .await
-        .unwrap();
+            .run(new_cryptarchia(), HashSet::new())
+            .await
+            .unwrap();
 
         // All blocks from peer1 that doesn't return an error
         // should be added to the local chain.
@@ -571,8 +577,8 @@ mod tests {
             ])),
             process_block,
         )
-        .run(new_cryptarchia(), HashSet::new())
-        .await;
+            .run(new_cryptarchia(), HashSet::new())
+            .await;
 
         assert!(matches!(result, Err(Error::AllPeersFailed)));
     }
@@ -723,8 +729,8 @@ mod tests {
         async fn request_tip(&self, peer: Self::PeerId) -> Result<GetTipResponse, DynError> {
             let provider = self.providers.get(&peer).unwrap();
             match provider.tip.clone() {
-                Ok(tip) => Ok(GetTipResponse {
-                    id: tip.id,
+                Ok(tip) => Ok(GetTipResponse::Tip {
+                    tip: tip.id,
                     slot: tip.slot,
                 }),
                 Err(()) => Err(DynError::from("Cannot provide tip")),
