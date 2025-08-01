@@ -304,11 +304,11 @@ mod tests {
             &Config {
                 with_core: WithCoreConfig {
                     seen_message_cache_size: 1,
-                    peering_degree: usize::MIN..=usize::MAX,
+                    peering_degree: 1..=1000,
                 },
                 with_edge: WithEdgeConfig {
                     connection_timeout: Duration::from_secs(1),
-                    max_incoming_connections: usize::MAX,
+                    max_incoming_connections: 1000,
                 },
             },
             ObservationWindowClockProvider,
