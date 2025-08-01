@@ -35,9 +35,8 @@ impl BlendBehaviour {
             *config.backend.peering_degree.start() as usize,
             *config.backend.peering_degree.end() as usize,
         );
-        let max_incoming_core_node_connections = max_total_core_node_connections
-            .saturating_sub(min_outgoing_core_node_connections)
-            as usize;
+        let max_incoming_core_node_connections =
+            max_total_core_node_connections.saturating_sub(min_outgoing_core_node_connections);
         let max_incoming_edge_node_connections =
             config.backend.maximum_incoming_edge_node_connections as usize;
         Self {
