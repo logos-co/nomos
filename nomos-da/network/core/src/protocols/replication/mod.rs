@@ -76,7 +76,7 @@ mod test {
                     message, ..
                 }) = swarm.select_next_some().await
                 {
-                    if &message == expected_message {
+                    if *message == *expected_message.as_ref() {
                         break;
                     }
                 }
@@ -102,17 +102,14 @@ mod test {
         let messages = (0..20u8)
             .map(|i| {
                 blob_id[31] = i;
-                ReplicationRequest {
-                    share: Share {
-                        blob_id,
-                        data: {
-                            let mut data = testutils::get_default_da_blob_data();
-                            *data.last_mut().unwrap() = i;
-                            testutils::get_da_share(Some(data))
-                        },
+                ReplicationRequest::new_share(Share {
+                    blob_id,
+                    data: {
+                        let mut data = testutils::get_default_da_blob_data();
+                        *data.last_mut().unwrap() = i;
+                        testutils::get_da_share(Some(data))
                     },
-                    subnetwork_id: 0,
-                }
+                })
             })
             .collect::<Vec<_>>();
         let serialized = bincode::serialize(&messages).unwrap();

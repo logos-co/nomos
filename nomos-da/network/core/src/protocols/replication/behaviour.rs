@@ -110,7 +110,12 @@ impl ReplicationEvent {
     #[must_use]
     pub fn share_size(&self) -> Option<usize> {
         match self {
-            Self::IncomingMessage { message, .. } => Some(message.share.data.column_len()),
+            Self::IncomingMessage { message, .. } => match message.as_ref() {
+                ReplicationRequest::Share(share_request) => {
+                    Some(share_request.share.data.column_len())
+                }
+                ReplicationRequest::Tx(_) => None,
+            },
             Self::ReplicationError { .. } => None,
         }
     }
@@ -318,9 +323,15 @@ where
         }
         self.seen_message_cache.cache_set(message_id, ());
 
-        // Push a message in the queue for every single peer connected that is a member
-        // of the selected subnetwork_id
-        let peers = self.no_loopback_member_peers_of(message.subnetwork_id);
+        let peers = match &message {
+            ReplicationRequest::Share(share_request) => {
+                // Push a message in the queue for every single peer connected that is a member
+                // of the selected subnetwork_id
+                self.no_loopback_member_peers_of(share_request.subnetwork_id)
+            }
+            ReplicationRequest::Tx(_signed_mantle_tx) => todo!(),
+        };
+
         // At least one message was enqueued
         let mut queued = false;
 
