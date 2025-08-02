@@ -8,11 +8,14 @@ use kzgrs_backend::common::{
     share::{DaLightShare, DaShare, DaSharesCommitments},
     ShareIndex,
 };
-use nomos_core::da::BlobId;
+use nomos_core::{da::BlobId, mantle::SignedMantleTx};
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
-    protocols::sampling::{
-        self, errors::SamplingError, BehaviourSampleReq, BehaviourSampleRes, SubnetsConfig,
+    protocols::{
+        dispersal::validator::behaviour::DispersalEvent,
+        sampling::{
+            self, errors::SamplingError, BehaviourSampleReq, BehaviourSampleRes, SubnetsConfig,
+        },
     },
     swarm::{
         validator::ValidatorEventsStream, DAConnectionMonitorSettings, DAConnectionPolicySettings,
@@ -97,12 +100,30 @@ impl SamplingEvent {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum VerificationEvent {
+    Tx(Box<SignedMantleTx>),
+    Share(Box<DaShare>),
+}
+
+impl From<DaShare> for VerificationEvent {
+    fn from(share: DaShare) -> Self {
+        Self::Share(Box::new(share))
+    }
+}
+
+impl From<Box<SignedMantleTx>> for VerificationEvent {
+    fn from(tx: Box<SignedMantleTx>) -> Self {
+        VerificationEvent::Tx(tx)
+    }
+}
+
 /// Task that handles forwarding of events to the subscriptions channels/stream
 pub(crate) async fn handle_validator_events_stream(
     events_streams: ValidatorEventsStream,
     sampling_broadcast_sender: broadcast::Sender<SamplingEvent>,
     commitments_broadcast_sender: broadcast::Sender<CommitmentsEvent>,
-    validation_broadcast_sender: broadcast::Sender<DaShare>,
+    validation_broadcast_sender: broadcast::Sender<VerificationEvent>,
 ) {
     let ValidatorEventsStream {
         mut sampling_events_receiver,
@@ -114,18 +135,43 @@ pub(crate) async fn handle_validator_events_stream(
         // safe set: https://docs.rs/tokio/latest/tokio/macro.select.html#cancellation-safety
         tokio::select! {
             Some(sampling_event) = StreamExt::next(&mut sampling_events_receiver) => {
-                handle_event(&sampling_broadcast_sender, &commitments_broadcast_sender, sampling_event).await;
+                handle_sampling_event(&sampling_broadcast_sender, &commitments_broadcast_sender, sampling_event).await;
             }
-            Some(da_share) = StreamExt::next(&mut validation_events_receiver) => {
-                if let Err(error) = validation_broadcast_sender.send(da_share) {
-                    error!("Error in internal broadcast of validation for blob: {:?}", error.0);
-                }
+            Some(dispersal_event) = StreamExt::next(&mut validation_events_receiver) => {
+                handle_dispersal_event(&validation_broadcast_sender, dispersal_event);
             }
         }
     }
 }
 
-async fn handle_event(
+fn handle_dispersal_event(
+    validation_broadcast_sender: &broadcast::Sender<VerificationEvent>,
+    dispersal_event: DispersalEvent,
+) {
+    match dispersal_event {
+        DispersalEvent::IncomingShare(share) => {
+            if let Err(error) = validation_broadcast_sender.send(share.data.into()) {
+                error!(
+                    "Error in internal broadcast of validation for blob: {:?}",
+                    error.0
+                );
+            }
+        }
+        DispersalEvent::IncomingTx(tx) => {
+            if let Err(error) = validation_broadcast_sender.send(tx.into()) {
+                error!(
+                    "Error in internal broadcast of validation for blob: {:?}",
+                    error.0
+                );
+            }
+        }
+        DispersalEvent::DispersalError { error } => {
+            error!("Error from dispersal behaviour: {error:?}");
+        }
+    }
+}
+
+async fn handle_sampling_event(
     sampling_broadcast_sender: &broadcast::Sender<SamplingEvent>,
     commitments_broadcast_sender: &broadcast::Sender<CommitmentsEvent>,
     sampling_event: sampling::SamplingEvent,
@@ -160,7 +206,7 @@ async fn handle_event(
             request_receiver,
             response_sender,
         } => {
-            handle_request(
+            handle_sampling_request(
                 sampling_broadcast_sender,
                 commitments_broadcast_sender,
                 request_receiver,
@@ -169,7 +215,7 @@ async fn handle_event(
             .await;
         }
         sampling::SamplingEvent::SamplingError { error } => {
-            handle_error(
+            handle_sampling_error(
                 sampling_broadcast_sender,
                 commitments_broadcast_sender,
                 error,
@@ -178,7 +224,7 @@ async fn handle_event(
     }
 }
 
-fn handle_error(
+fn handle_sampling_error(
     sampling_broadcast_sender: &broadcast::Sender<SamplingEvent>,
     commitments_broadcast_sender: &broadcast::Sender<CommitmentsEvent>,
     error: SamplingError,
@@ -194,7 +240,7 @@ fn handle_error(
     }
 }
 
-async fn handle_request(
+async fn handle_sampling_request(
     sampling_broadcast_sender: &broadcast::Sender<SamplingEvent>,
     commitments_broadcast_sender: &broadcast::Sender<CommitmentsEvent>,
     request_receiver: Receiver<BehaviourSampleReq>,

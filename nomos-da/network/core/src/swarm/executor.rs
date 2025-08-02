@@ -67,7 +67,7 @@ where
         >,
     >,
     sampling_events_sender: UnboundedSender<SamplingEvent>,
-    validation_events_sender: UnboundedSender<DaShare>,
+    validation_events_sender: UnboundedSender<DispersalEvent>,
     dispersal_events_sender: UnboundedSender<DispersalExecutorEvent>,
 }
 
