@@ -27,7 +27,7 @@ pub enum BehaviourError {
     #[error("Operation not supported")]
     OperationNotSupported,
     #[error("Chainsync error: {0}")]
-    ChainSyncError(#[from] ChainSyncError),
+    ChainSyncError(#[from] Box<ChainSyncError>),
 }
 
 #[derive(NetworkBehaviour)]
