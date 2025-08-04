@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
+    collections::{HashSet, VecDeque},
     convert::Infallible,
     task::{Context, Poll, Waker},
     time::Duration,
@@ -37,6 +37,7 @@ pub enum Event {
 #[derive(Debug)]
 pub struct Config {
     pub connection_timeout: Duration,
+    pub max_incoming_connections: usize,
 }
 
 /// A [`NetworkBehaviour`]:
@@ -50,7 +51,8 @@ pub struct Behaviour {
     current_membership: Option<Membership<PeerId>>,
     // Timeout to close connection with an edge node if a message is not received on time.
     connection_timeout: Duration,
-    connected_edge_peers: HashMap<PeerId, HashSet<ConnectionId>>,
+    connected_edge_peers: HashSet<(PeerId, ConnectionId)>,
+    max_incoming_connections: usize,
 }
 
 impl Behaviour {
@@ -61,7 +63,8 @@ impl Behaviour {
             waker: None,
             current_membership,
             connection_timeout: config.connection_timeout,
-            connected_edge_peers: HashMap::new(),
+            connected_edge_peers: HashSet::with_capacity(config.max_incoming_connections),
+            max_incoming_connections: config.max_incoming_connections,
         }
     }
 
@@ -94,11 +97,21 @@ impl NetworkBehaviour for Behaviour {
 
     fn handle_established_inbound_connection(
         &mut self,
-        _: ConnectionId,
+        connection_id: ConnectionId,
         peer: PeerId,
         _: &Multiaddr,
         _: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
+        self.connected_edge_peers.insert((peer, connection_id));
+        let connected_peers = self.connected_edge_peers.len();
+
+        // If the new peer makes the set of incoming connections too large, do not try
+        // to upgrade the connection.
+        if connected_peers > self.max_incoming_connections {
+            tracing::trace!(target: LOG_TARGET, "Connected peer {peer:?} on connection {connection_id:?} will not be upgraded since we are already at maximum incoming connection capacity.");
+            return Ok(Either::Right(DummyConnectionHandler));
+        }
+
         let Some(membership) = &self.current_membership else {
             return Ok(Either::Right(DummyConnectionHandler));
         };
@@ -130,44 +143,19 @@ impl NetworkBehaviour for Behaviour {
             ..
         }) = event
         {
-            let Entry::Occupied(mut entry) = self.connected_edge_peers.entry(peer_id) else {
-                return;
-            };
-            entry.get_mut().remove(&connection_id);
-            if entry.get().is_empty() {
-                entry.remove_entry();
-            }
+            self.connected_edge_peers.remove(&(peer_id, connection_id));
         }
     }
 
     fn on_connection_handler_event(
         &mut self,
-        peer: PeerId,
-        connection_id: ConnectionId,
+        _: PeerId,
+        _: ConnectionId,
         event: THandlerOutEvent<Self>,
     ) {
-        match event {
-            Either::Left(ToBehaviour::Message(message)) => {
-                self.handle_received_serialized_encapsulated_message(&message);
-                self.try_wake();
-            }
-            Either::Left(ToBehaviour::SubstreamOpened) => {
-                self.connected_edge_peers
-                    .entry(peer)
-                    .or_default()
-                    .insert(connection_id);
-            }
-            Either::Left(ToBehaviour::SubstreamClosed(error)) => {
-                tracing::trace!(target: LOG_TARGET, "Substream with peer ID {peer:?} and connection ID: {connection_id:?} closed with error: {error:?}.");
-                if !self
-                    .connected_edge_peers
-                    .entry(peer)
-                    .or_default()
-                    .remove(&connection_id)
-                {
-                    tracing::warn!(target: LOG_TARGET, "Closing a substream that was not previously added to the map of open substreams. Peer ID: {peer:?}, connection ID: {connection_id:?}.");
-                }
-            }
+        if let Either::Left(ToBehaviour::Message(message)) = event {
+            self.handle_received_serialized_encapsulated_message(&message);
+            self.try_wake();
         }
     }
 
