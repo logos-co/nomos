@@ -85,6 +85,8 @@ where
         &self,
         cryptarchia: &Cryptarchia,
     ) -> Downloads<NetAdapter::PeerId, NetAdapter::Block> {
+        // TODO: Don't initiate multiple downloads for the same target.
+        //       https://github.com/logos-co/nomos/issues/1455
         let mut downloads = HashMap::new();
         for peer in &self.config.peers {
             match self.initiate_download(*peer, cryptarchia, None).await {
