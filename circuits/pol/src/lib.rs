@@ -1,4 +1,4 @@
-use std::{fs::read_to_string, io, io::Write as _, path::PathBuf, sync::LazyLock};
+use std::{io, io::Write as _, path::PathBuf, sync::LazyLock};
 
 use circuits_utils::find_binary;
 use tempfile::NamedTempFile;
@@ -54,7 +54,7 @@ pub fn pol(inputs_file: &PathBuf, witness_file: &PathBuf) -> io::Result<PathBuf>
 ///
 /// An `io::Result<String>` which contains the witness if successful, or an
 /// `io::Error` if the command fails.
-pub fn pol_from_content(inputs: &str) -> io::Result<String> {
+pub fn pol_from_content(inputs: &str) -> io::Result<Vec<u8>> {
     let mut inputs_file = NamedTempFile::new()?;
     let witness_file = NamedTempFile::new()?;
     inputs_file.write_all(inputs.as_bytes())?;
@@ -63,5 +63,64 @@ pub fn pol_from_content(inputs: &str) -> io::Result<String> {
         &inputs_file.path().to_path_buf(),
         &witness_file.path().to_path_buf(),
     )?;
-    read_to_string(witness_file.path())
+    std::fs::read(witness_file.path())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs::read_to_string;
+
+    use super::*;
+
+    static INPUT: LazyLock<PathBuf> = LazyLock::new(|| {
+        let file = PathBuf::from("../pol/resources/tests/input.json");
+        assert!(file.exists(), "Could not find {}.", file.display());
+        file
+    });
+
+    #[test]
+    fn test_pol() {
+        let witness_file = NamedTempFile::new().unwrap();
+        let result = pol(&INPUT, &witness_file.path().to_path_buf()).unwrap();
+        assert_eq!(
+            result,
+            witness_file.path(),
+            "The witness file path should match the expected path"
+        );
+
+        let witness_content = std::fs::read(witness_file.path()).unwrap();
+        assert!(
+            !witness_content.is_empty(),
+            "The witness file should not be empty"
+        );
+    }
+
+    #[test]
+    fn test_pol_invalid_input() {
+        let mut invalid_input_file = NamedTempFile::new().unwrap();
+        invalid_input_file.write_all(b"invalid input").unwrap();
+        let witness_file = NamedTempFile::new().unwrap();
+        let result = pol(
+            &invalid_input_file.path().to_path_buf(),
+            &witness_file.path().to_path_buf(),
+        );
+        assert!(result.is_err(), "Expected pol to fail with invalid input");
+    }
+
+    #[test]
+    fn test_pol_from_content() {
+        let input = read_to_string(&*INPUT).unwrap();
+        let witness = pol_from_content(input.as_ref()).unwrap();
+        assert!(!witness.is_empty(), "The witness should not be empty");
+    }
+
+    #[test]
+    fn test_pol_from_content_invalid() {
+        let invalid_input = "invalid input";
+        let result = pol_from_content(invalid_input);
+        assert!(
+            result.is_err(),
+            "Expected pol_from_content to fail with invalid input"
+        );
+    }
 }
