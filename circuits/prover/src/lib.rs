@@ -105,13 +105,13 @@ mod tests {
     use super::*;
 
     static CIRCUIT_ZKEY: LazyLock<PathBuf> = LazyLock::new(|| {
-        let file = PathBuf::from("../pol/resources/tests/pol.zkey");
+        let file = PathBuf::from("../mantle/pol/resources/tests/pol.zkey");
         assert!(file.exists(), "Could not find {}.", file.display());
         file
     });
 
     static WITNESS_WTNS: LazyLock<PathBuf> = LazyLock::new(|| {
-        let file = PathBuf::from("../pol/resources/tests/witness.wtns");
+        let file = PathBuf::from("../mantle/pol/resources/tests/witness.wtns");
         assert!(file.exists(), "Could not find {}.", file.display());
         file
     });

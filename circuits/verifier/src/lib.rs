@@ -86,19 +86,19 @@ mod tests {
     use super::*;
 
     static VERIFICATION_KEY_JSON: LazyLock<PathBuf> = LazyLock::new(|| {
-        let file = PathBuf::from("../pol/resources/tests/verification_key.json");
+        let file = PathBuf::from("../mantle/pol/resources/tests/verification_key.json");
         assert!(file.exists(), "Could not find {}.", file.display());
         file
     });
 
     static PROOF_JSON: LazyLock<PathBuf> = LazyLock::new(|| {
-        let file = PathBuf::from("../pol/resources/tests/proof.json");
+        let file = PathBuf::from("../mantle/pol/resources/tests/proof.json");
         assert!(file.exists(), "Could not find {}.", file.display());
         file
     });
 
     static PUBLIC_JSON: LazyLock<PathBuf> = LazyLock::new(|| {
-        let file = PathBuf::from("../pol/resources/tests/public.json");
+        let file = PathBuf::from("../mantle/pol/resources/tests/public.json");
         assert!(file.exists(), "Could not find {}.", file.display());
         file
     });
