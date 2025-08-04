@@ -10,14 +10,14 @@ workspace = true
 [dependencies]
 async-trait            = "0.1"
 bytes                  = { workspace = true }
-cryptarchia-engine     = { workspace = true, features = ["serde"] }
+cryptarchia-engine     = { features = ["serde"], workspace = true }
 cryptarchia-sync       = { workspace = true }
 futures                = "0.3"
 nomos-blend-service    = { workspace = true }
 nomos-core             = { workspace = true }
 nomos-da-sampling      = { workspace = true }
 nomos-da-verifier      = { workspace = true }
-nomos-ledger           = { workspace = true, features = ["serde"] }
+nomos-ledger           = { features = ["serde"], workspace = true }
 nomos-mempool          = { workspace = true }
 nomos-network          = { workspace = true }
 nomos-storage          = { workspace = true }
@@ -27,15 +27,19 @@ nomos_proof_statements = { workspace = true }
 overwatch              = { workspace = true }
 rand                   = "0.8"
 risc0-zkvm             = { workspace = true }
-serde                  = { version = "1", features = ["derive"] }
+serde                  = { features = ["derive"], version = "1" }
 serde_with             = { workspace = true }
 services-utils         = { workspace = true }
 thiserror              = "1.0"
-tokio                  = { version = "1", features = ["sync"] }
+tokio                  = { features = ["sync"], version = "1" }
 tokio-stream           = "0.1"
 tracing                = { workspace = true }
 tracing-futures        = "0.2"
-utoipa                 = { version = "4.0", optional = true }
+utoipa                 = { optional = true, version = "4.0" }
+
+[dev-dependencies]
+test-log   = "0.2"
+tokio-test = "0.4"
 
 [features]
 default = []

@@ -374,6 +374,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 force_bootstrap: false,
                 ibd: chain_service::IbdConfig {
                     peers: HashSet::new(),
+                    delay_before_new_download: Duration::from_secs(10),
                 },
             },
         },

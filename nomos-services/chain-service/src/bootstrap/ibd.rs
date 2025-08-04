@@ -1,18 +1,13 @@
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    fmt::{Debug, Formatter},
-    future::Future,
-    hash::Hash,
-    marker::PhantomData,
-};
+use std::{collections::HashSet, fmt::Debug, future::Future, hash::Hash, marker::PhantomData};
 
 use futures::StreamExt as _;
 use nomos_core::header::HeaderId;
 use overwatch::DynError;
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 
 use crate::{
-    network::{BoxedStream, NetworkAdapter},
+    bootstrap::download::{Delay, Download, Downloads, DownloadsOutput},
+    network::NetworkAdapter,
     Cryptarchia, IbdConfig,
 };
 
@@ -58,8 +53,8 @@ impl<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
     InitialBlockDownload<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Send + Sync,
-    NetAdapter::PeerId: Copy + Clone + Eq + Hash + Debug + Send + Sync,
-    NetAdapter::Block: Debug,
+    NetAdapter::PeerId: Copy + Clone + Eq + Hash + Debug + Send + Sync + Unpin,
+    NetAdapter::Block: Debug + Unpin,
     ProcessBlockFn:
         Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut + Send + Sync,
     ProcessBlockFut: Future<Output = (Cryptarchia, HashSet<HeaderId>)> + Send,
@@ -67,8 +62,16 @@ where
 {
     /// Runs IBD with the configured peers.
     ///
-    /// It downloads blocks from the peers, applies them to the [`Cryptarchia`],
-    /// and returns the updated [`Cryptarchia`].
+    /// It downloads blocks from the peers, and applies them to the
+    /// [`Cryptarchia`].
+    ///
+    /// An updated [`Cryptarchia`] is returned after downloads from
+    /// **all** peers are completed.
+    ///
+    /// For peers that complete earlier, new downloads may be initiated
+    /// after a delay, as long as there are other peers still in progress.
+    ///
+    /// Failed peers are ignored.
     pub async fn run(
         &self,
         cryptarchia: Cryptarchia,
@@ -80,43 +83,52 @@ where
             .await)
     }
 
-    /// Initiates downloads from the configured peers.
-    async fn initiate_downloads(
+    /// Initiates [`Downloads`] from the configured peers.
+    async fn initiate_downloads<'a>(
         &self,
         cryptarchia: &Cryptarchia,
-    ) -> Downloads<NetAdapter::PeerId, NetAdapter::Block> {
-        // TODO: Don't initiate multiple downloads for the same target.
-        //       https://github.com/logos-co/nomos/issues/1455
-        let mut downloads = HashMap::new();
+    ) -> Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>
+    where
+        NetAdapter::PeerId: 'a,
+        NetAdapter::Block: 'a,
+    {
+        let mut downloads = Downloads::new(self.config.delay_before_new_download);
         for peer in &self.config.peers {
-            match self.initiate_download(*peer, cryptarchia, None).await {
+            match self
+                .initiate_download(*peer, None, cryptarchia, downloads.targets())
+                .await
+            {
                 Ok(Some(download)) => {
-                    info!("Download initiated: {download:?}");
-                    downloads.insert(*peer, download);
+                    downloads.add_download(download);
                 }
                 Ok(None) => {
-                    debug!("No download needed for peer: {peer:?}");
+                    debug!("No download needed for {peer:?}. Delaying the peer");
+                    downloads.add_delay(Delay::new(*peer, None));
                 }
                 Err(e) => {
-                    error!("Failed to initiate download: peer:{peer:?}: {e}");
+                    error!("Failed to initiate download for {peer:?}: {e}");
                 }
             }
         }
         downloads
     }
 
-    /// Initiates a download from a specific peer.
+    /// Initiates a [`Download`] from a specific peer.
+    ///
     /// It gets the peer's tip, and requests a block stream to reach the tip.
-    /// If the peer's tip already exists in local, no download is initiated
-    /// and [`None`] is returned.
+    ///
+    /// If the peer's tip already exists in local, or if there is any duplicate
+    /// download for the tip, no download is initiated and [`None`] is returned.
+    ///
     /// If communication fails, an [`Error`] is returned.
     async fn initiate_download(
         &self,
         peer: NetAdapter::PeerId,
-        cryptarchia: &Cryptarchia,
         latest_downloaded_block: Option<HeaderId>,
+        cryptarchia: &Cryptarchia,
+        targets_in_progress: &HashSet<HeaderId>,
     ) -> Result<Option<Download<NetAdapter::PeerId, NetAdapter::Block>>, Error> {
-        // Get the most recent peer's tip and set it as the target.
+        // Get the most recent peer's tip.
         let target = self
             .network
             .request_tip(peer)
@@ -124,11 +136,11 @@ where
             .map_err(Error::BlockProvider)?
             .id;
 
-        if !Self::should_download(&target, cryptarchia) {
+        if !Self::should_download(&target, cryptarchia, targets_in_progress) {
             return Ok(None);
         }
 
-        // Request block stream
+        // Request a block stream by setting the target block to the peer's tip.
         let stream = self
             .network
             .request_blocks_from_peer(
@@ -144,48 +156,72 @@ where
         Ok(Some(Download::new(peer, target, stream)))
     }
 
-    fn should_download(target: &HeaderId, cryptarchia: &Cryptarchia) -> bool {
+    fn should_download(
+        target: &HeaderId,
+        cryptarchia: &Cryptarchia,
+        targets_in_progress: &HashSet<HeaderId>,
+    ) -> bool {
         cryptarchia.consensus.branches().get(target).is_none()
+            && !targets_in_progress.contains(target)
     }
 
-    /// Proceeds downloads by reading/processing blocks from the streams.
-    /// It initiates/proceeds additional downloads if needed.
-    /// It returns the updated [`Cryptarchia`].
-    async fn proceed_downloads(
+    /// Proceeds [`Downloads`] by reading/processing blocks.
+    ///
+    /// An updated [`Cryptarchia`] is returned after downloads from
+    /// all peers are completed.
+    ///
+    /// For peers that complete earlier, new downloads may be initiated
+    /// after a delay, as long as there are other peers still in progress.
+    ///
+    /// If there is no download needed at the moment for a peer,
+    /// the peer is delayed for a while before the next attempt.
+    ///
+    /// Failed peers are ignored.
+    async fn proceed_downloads<'a>(
         &self,
-        mut downloads: Downloads<NetAdapter::PeerId, NetAdapter::Block>,
+        mut downloads: Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>,
         mut cryptarchia: Cryptarchia,
         mut storage_blocks_to_remove: HashSet<HeaderId>,
-    ) -> (Cryptarchia, HashSet<HeaderId>) {
-        // Read all streams in a round-robin fashion
-        // to avoid forming a long chain of blocks received only from a single peer.
-        let mut peers: VecDeque<_> = downloads.keys().copied().collect();
-        while let Some(peer) = peers.pop_front() {
-            let download = downloads.get_mut(&peer).expect("Download must exist");
-
-            // Read one block from the stream.
-            match download.next_block().await {
-                Ok(Some((_, block))) => {
+    ) -> (Cryptarchia, HashSet<HeaderId>)
+    where
+        NetAdapter::PeerId: 'a,
+        NetAdapter::Block: 'a,
+    {
+        while let Some(output) = downloads.next().await {
+            match output {
+                DownloadsOutput::DelayCompleted(delay) => {
+                    downloads = self
+                        .try_initiate_download(
+                            *delay.peer(),
+                            delay.latest_downloaded_block(),
+                            &cryptarchia,
+                            downloads,
+                        )
+                        .await;
+                }
+                DownloadsOutput::BlockDownloaded { block, download } => {
                     (cryptarchia, storage_blocks_to_remove) =
                         (self.process_block)(cryptarchia, storage_blocks_to_remove, block).await;
-                    peers.push_back(peer);
+                    // TODO: Stop download if process_block fails.
+                    //       (Requires refactoring the chain service)
+                    downloads.add_download(download);
                 }
-                Ok(None) => {
-                    debug!("Download is done. Initiate next download if needed: {peer:?}");
-                    if let Some(download) = self
-                        .initiate_next_download(
-                            downloads.remove(&peer).expect("Download must exist"),
+                DownloadsOutput::DownloadCompleted(download) => {
+                    debug!(
+                        "A download completed for {:?}. Try a new download",
+                        download.peer()
+                    );
+                    downloads = self
+                        .try_initiate_download(
+                            *download.peer(),
+                            download.last(),
                             &cryptarchia,
+                            downloads,
                         )
-                        .await
-                    {
-                        downloads.insert(peer, download);
-                        peers.push_back(peer);
-                    }
+                        .await;
                 }
-                Err(e) => {
-                    error!("Download error: Exclude peer({peer:?}) from downloads: {e}");
-                    downloads.remove(&peer);
+                DownloadsOutput::Error { error, download } => {
+                    error!("Download failed from {:?}: {}", download.peer(), error);
                 }
             }
         }
@@ -193,21 +229,43 @@ where
         (cryptarchia, storage_blocks_to_remove)
     }
 
-    async fn initiate_next_download(
+    /// Tries to initiate a download for a peer.
+    ///
+    /// If there is no download needed at the moment, a delay is scheduled,
+    /// so that a new download can be attempted later.
+    ///
+    /// The peer is ignored if the communication fails.
+    async fn try_initiate_download<'a>(
         &self,
-        prev: Download<NetAdapter::PeerId, NetAdapter::Block>,
+        peer: NetAdapter::PeerId,
+        latest_downloaded_block: Option<HeaderId>,
         cryptarchia: &Cryptarchia,
-    ) -> Option<Download<NetAdapter::PeerId, NetAdapter::Block>> {
+        mut downloads: Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>,
+    ) -> Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>
+    where
+        NetAdapter::PeerId: 'a,
+        NetAdapter::Block: 'a,
+    {
         match self
-            .initiate_download(prev.peer, cryptarchia, prev.last)
+            .initiate_download(
+                peer,
+                latest_downloaded_block,
+                cryptarchia,
+                downloads.targets(),
+            )
             .await
         {
-            Ok(download) => download,
+            Ok(Some(download)) => {
+                downloads.add_download(download);
+            }
+            Ok(None) => {
+                downloads.add_delay(Delay::new(peer, latest_downloaded_block));
+            }
             Err(e) => {
-                error!("Failed to initiate next download for {:?}: {e}", prev.peer);
-                None
+                error!("Failed to initiate next download for {peer:?}: {e}");
             }
         }
+        downloads
     }
 }
 
@@ -217,58 +275,9 @@ pub enum Error {
     BlockProvider(DynError),
 }
 
-type Downloads<NodeId, Block> = HashMap<NodeId, Download<NodeId, Block>>;
-
-struct Download<NodeId, Block> {
-    peer: NodeId,
-    target: HeaderId,
-    last: Option<HeaderId>,
-    stream: BoxedStream<Result<(HeaderId, Block), DynError>>,
-}
-
-impl<NodeId, Block> Download<NodeId, Block> {
-    fn new(
-        peer: NodeId,
-        target: HeaderId,
-        stream: BoxedStream<Result<(HeaderId, Block), DynError>>,
-    ) -> Self {
-        Self {
-            peer,
-            target,
-            last: None,
-            stream,
-        }
-    }
-
-    async fn next_block(&mut self) -> Result<Option<(HeaderId, Block)>, DynError> {
-        match self.stream.next().await {
-            Some(Ok((id, block))) => {
-                self.last = Some(id);
-                Ok(Some((id, block)))
-            }
-            Some(Err(e)) => Err(e),
-            None => Ok(None),
-        }
-    }
-}
-
-#[expect(clippy::missing_fields_in_debug, reason = "BoxedStream")]
-impl<NodeId, Block> Debug for Download<NodeId, Block>
-where
-    NodeId: Debug,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Download")
-            .field("peer", &self.peer)
-            .field("target", &self.target)
-            .field("last", &self.last)
-            .finish()
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::{iter::empty, num::NonZero};
+    use std::{collections::HashMap, iter::empty, num::NonZero};
 
     use cryptarchia_engine::{EpochConfig, Slot};
     use cryptarchia_sync::GetTipResponse;
@@ -281,6 +290,7 @@ mod tests {
     use tokio_stream::wrappers::BroadcastStream;
 
     use super::*;
+    use crate::network::BoxedStream;
 
     #[tokio::test]
     async fn single_download() {
@@ -437,7 +447,10 @@ mod tests {
     struct NodeId(usize);
 
     fn config(peers: HashSet<NodeId>) -> IbdConfig<NodeId> {
-        IbdConfig { peers }
+        IbdConfig {
+            peers,
+            delay_before_new_download: std::time::Duration::from_millis(1),
+        }
     }
 
     const GENESIS_ID: u8 = 0;
