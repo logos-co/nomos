@@ -28,10 +28,10 @@ pub async fn handle_validator_dispersal_event<Membership>(
 
     match event {
         DispersalEvent::IncomingShare(share) => {
-            replication_behaviour.send_message(&ReplicationRequest::new_share(*share));
+            replication_behaviour.send_message(&ReplicationRequest::from(*share));
         }
         DispersalEvent::IncomingTx(signed_mantle_tx) => {
-            replication_behaviour.send_message(&ReplicationRequest::new_tx(*signed_mantle_tx));
+            replication_behaviour.send_message(&ReplicationRequest::from(*signed_mantle_tx));
         }
         DispersalEvent::DispersalError { .. } => {} // Do not replicate errors.
     }

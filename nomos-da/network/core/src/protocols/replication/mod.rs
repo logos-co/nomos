@@ -121,7 +121,7 @@ mod test {
         let messages = (0..20u8)
             .map(|i| {
                 blob_id[31] = i;
-                ReplicationRequest::new_share(Share {
+                ReplicationRequest::from(Share {
                     blob_id,
                     data: {
                         let mut data = testutils::get_default_da_blob_data();
@@ -347,7 +347,7 @@ mod test {
                 // storage_gas_price also affect the hash and is enough in this test case.
                 unique_signed_tx.mantle_tx.storage_gas_price = i;
 
-                let tx_message = ReplicationRequest::new_tx(unique_signed_tx.clone());
+                let tx_message = ReplicationRequest::from(unique_signed_tx.clone());
 
                 // Send each message two times.
                 swarm2.behaviour_mut().send_message(&tx_message);

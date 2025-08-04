@@ -18,24 +18,26 @@ pub enum ReplicationRequest {
 
 impl ReplicationRequest {
     #[must_use]
-    pub const fn new_share(share: Share) -> Self {
-        Self::Share(ShareRequest {
-            subnetwork_id: share.data.share_idx,
-            share,
-        })
-    }
-
-    #[must_use]
-    pub const fn new_tx(tx: SignedMantleTx) -> Self {
-        Self::Tx(tx)
-    }
-
-    #[must_use]
     pub fn id(&self) -> ReplicationResponseId {
         match self {
             Self::Share(share) => (share.share.blob_id, share.subnetwork_id).into(),
             Self::Tx(tx) => tx.into(),
         }
+    }
+}
+
+impl From<SignedMantleTx> for ReplicationRequest {
+    fn from(tx: SignedMantleTx) -> Self {
+        Self::Tx(tx)
+    }
+}
+
+impl From<Share> for ReplicationRequest {
+    fn from(share: Share) -> Self {
+        Self::Share(ShareRequest {
+            subnetwork_id: share.data.share_idx,
+            share,
+        })
     }
 }
 
