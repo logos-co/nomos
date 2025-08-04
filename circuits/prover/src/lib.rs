@@ -1,3 +1,6 @@
+pub mod rapidsnark;
+pub mod traits;
+
 use std::{
     io::{Write as _, read_to_string},
     path::PathBuf,
@@ -5,7 +8,9 @@ use std::{
 };
 
 use circuits_utils::find_binary;
+pub use rapidsnark::Rapidsnark;
 use tempfile::NamedTempFile;
+pub use traits::Prover;
 
 const BINARY_NAME: &str = "prover";
 const BINARY_ENV_VAR: &str = "NOMOS_PROVER";
@@ -30,9 +35,9 @@ static BINARY: LazyLock<PathBuf> = LazyLock::new(|| {
 ///
 /// # Returns
 ///
-/// An `io::Result<(PathBuf, PathBuf)>` which contains the paths to the proof
-/// file and public inputs file if successful, or an `io::Error` if the command
-/// fails.
+/// An [`io::Result<(PathBuf, PathBuf)>`] which contains the paths to the proof
+/// file and public inputs file if successful, or an [`io::Error`]+ if the
+/// command fails.
 pub fn prover(
     circuit_file: &PathBuf,
     witness_file: &PathBuf,
@@ -65,13 +70,13 @@ pub fn prover(
 ///
 /// # Arguments
 ///
-/// * `circuit_contents` - A string containing the circuit (proving key).
-/// * `witness_contents` - A string containing the witness.
+/// * `circuit_contents` - A byte slice containing the circuit (proving key).
+/// * `witness_contents` - A byte slice containing the witness.
 ///
 /// # Returns
 ///
-/// An `io::Result<(String, String)>` which contains the proof and public inputs
-/// as strings if successful, or an `io::Error` if the command fails.
+/// An [`io::Result<(String, String)>`] which contains the proof and public
+/// inputs as strings if successful, or an [`io::Error`] if the command fails.
 pub fn prover_from_contents(
     circuit_contents: &[u8],
     witness_contents: &[u8],
