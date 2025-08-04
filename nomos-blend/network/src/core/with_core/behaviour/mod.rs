@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     convert::Infallible,
     ops::RangeInclusive,
     task::{Context, Poll, Waker},
@@ -10,9 +10,9 @@ use futures::Stream;
 use libp2p::{
     core::{transport::PortUse, Endpoint},
     swarm::{
-        dummy::ConnectionHandler as DummyConnectionHandler, ConnectionClosed, ConnectionDenied,
-        ConnectionId, FromSwarm, NetworkBehaviour, NotifyHandler, THandler, THandlerInEvent,
-        THandlerOutEvent, ToSwarm,
+        dummy::ConnectionHandler as DummyConnectionHandler, CloseConnection, ConnectionClosed,
+        ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, NotifyHandler, THandler,
+        THandlerInEvent, THandlerOutEvent, ToSwarm,
     },
     Multiaddr, PeerId,
 };
@@ -139,7 +139,6 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             .validate_public_header()
             .map_err(|_| Error::InvalidMessage)?;
         self.forward_validated_message_and_maybe_exclude(&validated_message, None)?;
-        self.try_wake();
         Ok(())
     }
 
@@ -152,7 +151,6 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         message: &EncapsulatedMessageWithValidatedPublicHeader,
     ) -> Result<(), Error> {
         self.forward_validated_message_and_maybe_exclude(message, None)?;
-        self.try_wake();
         Ok(())
     }
 
@@ -203,6 +201,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         if num_peers == 0 {
             Err(Error::NoPeers)
         } else {
+            self.try_wake();
             Ok(())
         }
     }
@@ -220,7 +219,6 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         excluded_connection: (PeerId, ConnectionId),
     ) -> Result<(), Error> {
         self.forward_validated_message_and_maybe_exclude(message, Some(excluded_connection))?;
-        self.try_wake();
         Ok(())
     }
 
@@ -249,16 +247,56 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         }
     }
 
+    /// Notify the swarm to close the specified connection.
+    fn close_connection(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
+        self.events.push_back(ToSwarm::CloseConnection {
+            peer_id,
+            connection: CloseConnection::One(connection_id),
+        });
+        self.try_wake();
+    }
+
+    fn handle_negotiated_connection(&mut self, connection: (PeerId, ConnectionId)) {
+        if !self.established_connections.contains_key(&connection) {
+            tracing::warn!(target: LOG_TARGET, "Marking peer as healthy that was not previously added to the map of established connections. Peer ID: {:?}, connection ID: {:?}. Ignoring.", connection.0, connection.1);
+            return;
+        }
+        self.established_connections
+            .insert(connection, Some(NegotiatedPeerState::Healthy));
+    }
+
+    fn handle_spammy_peer(&mut self, connection: (PeerId, ConnectionId)) {
+        self.mark_connection_as_malicious(connection);
+    }
+
     /// Mark the connection with the sender of a malformed message as malicious
-    /// by sending a message to its connection handler to close the substream.
+    /// and instruct the swarm to close it.
     fn mark_connection_as_malicious(&mut self, connection: (PeerId, ConnectionId)) {
-        tracing::debug!(target: LOG_TARGET, "Closing substream and marking core peer {:?} on connection {:?} as malicious.", connection.0, connection.1);
-        if self.update_negotiated_state(connection, NegotiatedPeerState::Spammy) {
-            self.events.push_back(ToSwarm::NotifyHandler {
-                peer_id: connection.0,
-                handler: NotifyHandler::One(connection.1),
-                event: Either::Left(FromBehaviour::CloseSubstreams),
-            });
+        tracing::debug!(target: LOG_TARGET, "Closing connection and marking core peer {:?} on connection {:?} as malicious.", connection.0, connection.1);
+        self.update_negotiated_state(connection, NegotiatedPeerState::Spammy);
+        self.close_connection(connection.0, connection.1);
+    }
+
+    fn handle_unhealthy_peer(&mut self, connection: (PeerId, ConnectionId)) {
+        if self.update_negotiated_state(connection, NegotiatedPeerState::Unhealthy) {
+            tracing::debug!(target: LOG_TARGET, "Peer {:?} has been detected as unhealthy", connection.0);
+            self.events
+                .push_back(ToSwarm::GenerateEvent(Event::UnhealthyPeer(
+                    connection.0,
+                    connection.1,
+                )));
+            self.try_wake();
+        }
+    }
+
+    fn handle_healthy_peer(&mut self, connection: (PeerId, ConnectionId)) {
+        if self.update_negotiated_state(connection, NegotiatedPeerState::Healthy) {
+            tracing::debug!(target: LOG_TARGET, "Peer {:?} has been detected as healthy", connection.0);
+            self.events
+                .push_back(ToSwarm::GenerateEvent(Event::HealthyPeer(
+                    connection.0,
+                    connection.1,
+                )));
             self.try_wake();
         }
     }
@@ -271,22 +309,11 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         connection: (PeerId, ConnectionId),
         state: NegotiatedPeerState,
     ) -> bool {
-        // If no entry is present, return `false`.
-        let Entry::Occupied(mut negotiated_state) = self.established_connections.entry(connection)
-        else {
-            return false;
-        };
-        let old_state = *negotiated_state.get();
-        *negotiated_state.get_mut() = Some(state);
-
-        // If the old state was not negotiated yet (i.e., `None`), return also `false`
-        // since this does not technically represent a state change but rather a state
-        // initialization.
-        let Some(old_state) = old_state else {
+        let Some(old_state) = self.established_connections.insert(connection, Some(state)) else {
             return false;
         };
 
-        old_state != state
+        old_state != Some(state)
     }
 
     fn handle_received_serialized_encapsulated_message(
@@ -324,6 +351,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             from.0,
             from.1,
         )));
+        self.try_wake();
     }
 
     fn check_and_update_message_cache(
@@ -370,6 +398,7 @@ where
         // try to upgrade the connection.
         if connected_peers > *self.peering_degree.end() {
             tracing::trace!(target: LOG_TARGET, "Inbound connection {connection_id:?} with peer {peer_id:?} will not be upgraded since we are already at maximum peering capacity.");
+            self.close_connection(peer_id, connection_id);
             return Ok(Either::Right(DummyConnectionHandler));
         }
 
@@ -385,8 +414,7 @@ where
                 self.observation_window_clock_provider.interval_stream(),
             )))
         } else {
-            // Do not deny connection, but do not allow for any sub-stream to be created
-            // with a non-core node, in this behaviour.
+            self.close_connection(peer_id, connection_id);
             Either::Right(DummyConnectionHandler)
         })
     }
@@ -407,6 +435,7 @@ where
         // try to upgrade the connection.
         if connected_peers > *self.peering_degree.end() {
             tracing::trace!(target: LOG_TARGET, "Outbound connection {connection_id:?} with peer {peer_id:?} will not be upgraded since we are already at maximum peering capacity.");
+            self.close_connection(peer_id, connection_id);
             return Ok(Either::Right(DummyConnectionHandler));
         }
 
@@ -422,8 +451,7 @@ where
                 self.observation_window_clock_provider.interval_stream(),
             )))
         } else {
-            // Do not deny connection, but do not allow for any sub-stream to be created
-            // with a non-core node, in this behaviour.
+            self.close_connection(peer_id, connection_id);
             Either::Right(DummyConnectionHandler)
         })
     }
@@ -486,53 +514,20 @@ where
                 // which means that the peer supports the blend protocol. We consider them healthy
                 // by default.
                 ToBehaviour::FullyNegotiatedInbound | ToBehaviour::FullyNegotiatedOutbound => {
-                    // Using `insert` does not work since it returns `None` both if the key does not
-                    // exist (we want to capture this) or if the old value is `None` (which is what
-                    // we expect).
-                    if !self
-                        .established_connections
-                        .contains_key(&(peer_id, connection_id))
-                    {
-                        tracing::warn!(target: LOG_TARGET, "Marking peer as healthy that was not previously added to the map of established connections. Peer ID: {peer_id:?}, connection ID: {connection_id:?}. Ignoring.");
-                        return;
-                    }
-                    self.established_connections
-                        .insert((peer_id, connection_id), Some(NegotiatedPeerState::Healthy));
+                    self.handle_negotiated_connection((peer_id, connection_id));
                 }
                 ToBehaviour::SpammyPeer => {
-                    self.mark_connection_as_malicious((peer_id, connection_id));
+                    self.handle_spammy_peer((peer_id, connection_id));
                 }
                 ToBehaviour::UnhealthyPeer => {
-                    if self.update_negotiated_state(
-                        (peer_id, connection_id),
-                        NegotiatedPeerState::Unhealthy,
-                    ) {
-                        tracing::debug!(target: LOG_TARGET, "Peer {:?} has been detected as unhealthy", peer_id);
-                        self.events
-                            .push_back(ToSwarm::GenerateEvent(Event::UnhealthyPeer(
-                                peer_id,
-                                connection_id,
-                            )));
-                        self.try_wake();
-                    }
+                    self.handle_unhealthy_peer((peer_id, connection_id));
                 }
                 ToBehaviour::HealthyPeer => {
-                    if self.update_negotiated_state(
-                        (peer_id, connection_id),
-                        NegotiatedPeerState::Healthy,
-                    ) {
-                        tracing::debug!(target: LOG_TARGET, "Peer {:?} has been detected as healthy", peer_id);
-                        self.events
-                            .push_back(ToSwarm::GenerateEvent(Event::HealthyPeer(
-                                peer_id,
-                                connection_id,
-                            )));
-                        self.try_wake();
-                    }
+                    self.handle_healthy_peer((peer_id, connection_id));
                 }
-                // These errors are not handled since they will result in the given connection being
-                // closed, which we capture and handle in the `on_swarm_event` handler.
-                ToBehaviour::IOError(_) | ToBehaviour::DialUpgradeError(_) => {}
+                ToBehaviour::IOError(_) | ToBehaviour::DialUpgradeError(_) => {
+                    self.close_connection(peer_id, connection_id);
+                }
             },
         }
     }

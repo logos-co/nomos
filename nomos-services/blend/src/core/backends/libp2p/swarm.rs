@@ -4,8 +4,9 @@ use futures::{Stream, StreamExt as _};
 use libp2p::{identity::Keypair, swarm::ConnectionId, PeerId, Swarm, SwarmBuilder};
 use nomos_blend_network::{
     core::{
-        with_core::behaviour::Event as CoreToCoreEvent,
-        with_edge::behaviour::Event as CoreToEdgeEvent, NetworkBehaviourEvent,
+        with_core::behaviour::{Event as CoreToCoreEvent, NegotiatedPeerState},
+        with_edge::behaviour::Event as CoreToEdgeEvent,
+        NetworkBehaviourEvent,
     },
     EncapsulatedMessageWithValidatedPublicHeader,
 };
@@ -234,9 +235,9 @@ where
             nomos_blend_network::core::with_core::behaviour::Event::PeerDisconnected(
                 peer_id,
                 _,
-                _,
+                peer_state,
             ) => {
-                self.handle_disconnected_peer(peer_id);
+                self.handle_disconnected_peer(peer_id, peer_state);
             }
         }
     }
@@ -264,6 +265,11 @@ where
             ))) => {
                 self.handle_blend_edge_behaviour_event(e);
             }
+            // In case we fail to dial a peer, re-evaluate the healthy connections and open a new
+            // one if needed.
+            SwarmEvent::OutgoingConnectionError { peer_id, .. } => {
+                self.check_and_dial_new_peers_except(peer_id);
+            }
             _ => {
                 tracing::debug!(target: LOG_TARGET, "Received event from blend network that will be ignored.");
                 tracing::info!(counter.ignored_event = 1);
@@ -273,21 +279,24 @@ where
 
     fn handle_unhealthy_peer(&mut self, peer_id: PeerId) {
         tracing::debug!(target: LOG_TARGET, "Peer {peer_id} is unhealthy");
-        self.check_and_dial_new_peers();
+        self.check_and_dial_new_peers_except(Some(peer_id));
     }
 
     fn handle_healthy_peer(peer_id: PeerId) {
         tracing::debug!(target: LOG_TARGET, "Peer {peer_id} is healthy again");
     }
 
-    fn handle_disconnected_peer(&mut self, peer_id: PeerId) {
-        tracing::debug!(target: LOG_TARGET, "Peer {peer_id} disconnected");
-        self.check_and_dial_new_peers();
+    fn handle_disconnected_peer(&mut self, peer_id: PeerId, peer_state: NegotiatedPeerState) {
+        tracing::debug!(target: LOG_TARGET, "Peer {peer_id} disconnected with state {peer_state:?}.");
+        if peer_state == NegotiatedPeerState::Spammy {
+            self.swarm.behaviour_mut().blocked_peers.block_peer(peer_id);
+        }
+        self.check_and_dial_new_peers_except(Some(peer_id));
     }
 
     /// Dial new peers, if necessary, to maintain the peering degree.
     /// We aim to have at least the peering degree number of "healthy" peers.
-    fn check_and_dial_new_peers(&mut self) {
+    fn check_and_dial_new_peers_except(&mut self, except: Option<PeerId>) {
         let num_new_conns_needed = self
             .minimum_healthy_peering_degree()
             .saturating_sub(self.num_healthy_peers());
@@ -296,16 +305,17 @@ where
             tracing::debug!(target: LOG_TARGET, "To maintain the minimum healthy peering degree the node would need to create {num_new_conns_needed} new connections, but only {available_connection_slots} slots are available.");
         }
         let connections_to_establish = num_new_conns_needed.min(available_connection_slots);
-        self.dial_random_peers(connections_to_establish);
+        self.dial_random_peers(connections_to_establish, except);
     }
 
     /// Dial random peers from the membership list,
     /// excluding the currently connected peers and the blocked peers.
-    fn dial_random_peers(&mut self, amount: usize) {
+    fn dial_random_peers(&mut self, amount: usize, except: Option<PeerId>) {
         let exclude_peers: HashSet<PeerId> = self
             .swarm
             .connected_peers()
             .chain(self.swarm.behaviour().blocked_peers.blocked_peers())
+            .chain(except.iter())
             .copied()
             .collect();
         self.latest_session_info
