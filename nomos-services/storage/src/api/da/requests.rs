@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use overwatch::DynError;
 use tokio::sync::oneshot::Sender;
 
+use super::ServiceTx;
 use crate::{
     api::{
         da::{
@@ -42,6 +43,14 @@ pub enum DaApiRequest<Backend: StorageBackend> {
         blob_id: <Backend as StorageDaApi>::BlobId,
         shared_commitments: <Backend as StorageDaApi>::Commitments,
     },
+    StoreTx {
+        blob_id: <Backend as StorageDaApi>::BlobId,
+        tx: <Backend as StorageDaApi>::Tx,
+    },
+    GetTx {
+        blob_id: <Backend as StorageDaApi>::BlobId,
+        response_tx: Sender<Option<<Backend as StorageDaApi>::Tx>>,
+    },
 }
 
 impl<Backend> StorageOperation<Backend> for DaApiRequest<Backend>
@@ -76,6 +85,11 @@ where
                 blob_id,
                 response_tx,
             } => handle_get_blob_light_shares(backend, blob_id, response_tx).await,
+            Self::StoreTx { blob_id, tx } => handle_store_tx(backend, blob_id, tx).await,
+            Self::GetTx {
+                blob_id,
+                response_tx,
+            } => handle_get_tx(backend, blob_id, response_tx).await,
         }
     }
 }
@@ -177,6 +191,35 @@ async fn handle_store_shared_commitments<Backend: StorageBackend>(
         .map_err(|e| StorageServiceError::BackendError(e.into()))
 }
 
+async fn handle_store_tx<Backend: StorageBackend>(
+    backend: &mut Backend,
+    blob_id: Backend::BlobId,
+    tx: Backend::Tx,
+) -> Result<(), StorageServiceError> {
+    backend
+        .store_tx(blob_id, tx)
+        .await
+        .map_err(|e| StorageServiceError::BackendError(e.into()))
+}
+
+async fn handle_get_tx<Backend: StorageBackend>(
+    backend: &mut Backend,
+    blob_id: <Backend as StorageDaApi>::BlobId,
+    response_tx: Sender<Option<<Backend as StorageDaApi>::Tx>>,
+) -> Result<(), StorageServiceError> {
+    let result = backend
+        .get_tx(blob_id)
+        .await
+        .map_err(|e| StorageServiceError::BackendError(e.into()))?;
+
+    if response_tx.send(result).is_err() {
+        return Err(StorageServiceError::ReplyError {
+            message: "Failed to send reply for get tx for share".to_owned(),
+        });
+    }
+    Ok(())
+}
+
 impl<Backend: StorageBackend> StorageMsg<Backend> {
     pub fn get_light_share_request<Converter: DaConverter<Backend>>(
         blob_id: ServiceBlobId<Converter, Backend>,
@@ -264,6 +307,30 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
             request: StorageApiRequest::Da(DaApiRequest::StoreSharedCommitments {
                 blob_id,
                 shared_commitments,
+            }),
+        })
+    }
+
+    pub fn store_tx_request<Converter: DaConverter<Backend>>(
+        blob_id: ServiceBlobId<Converter, Backend>,
+        tx: ServiceTx<Converter, Backend>,
+    ) -> Result<Self, DynError> {
+        let blob_id = Converter::blob_id_to_storage(blob_id).map_err(Into::<DynError>::into)?;
+        let tx = Converter::tx_to_storage(tx)?;
+        Ok(Self::Api {
+            request: StorageApiRequest::Da(DaApiRequest::StoreTx { blob_id, tx }),
+        })
+    }
+
+    pub fn get_tx_request<Converter: DaConverter<Backend>>(
+        blob_id: ServiceBlobId<Converter, Backend>,
+        response_tx: Sender<Option<<Backend as StorageDaApi>::Tx>>,
+    ) -> Result<Self, DynError> {
+        let blob_id = Converter::blob_id_to_storage(blob_id).map_err(Into::<DynError>::into)?;
+        Ok(Self::Api {
+            request: StorageApiRequest::Da(DaApiRequest::GetTx {
+                blob_id,
+                response_tx,
             }),
         })
     }

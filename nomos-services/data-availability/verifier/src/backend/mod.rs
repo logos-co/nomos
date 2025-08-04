@@ -11,8 +11,10 @@ pub trait VerifierBackend: DaVerifier {
 pub trait TxVerifierBackend {
     type Settings;
     type Tx;
+    type BlobId;
     type Error;
     fn new(settings: Self::Settings) -> Self;
 
-    fn verify(&self, tx: Self::Tx) -> Result<(), Self::Error>;
+    fn verify(&self, tx: &Self::Tx) -> Result<(), Self::Error>;
+    fn blob_id(&self, tx: &Self::Tx) -> Result<Self::BlobId, Self::Error>;
 }

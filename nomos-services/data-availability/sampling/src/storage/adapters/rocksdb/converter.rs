@@ -1,6 +1,9 @@
 use bytes::Bytes;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
-use nomos_core::da::{blob::Share, BlobId};
+use nomos_core::{
+    da::{blob::Share, BlobId},
+    mantle::SignedMantleTx,
+};
 use nomos_storage::{
     api::da::{DaConverter, StorageDaApi},
     backends::{rocksdb::RocksBackend, StorageSerde},
@@ -14,6 +17,7 @@ where
     <SerdeOP as StorageSerde>::Error: Send + Sync + 'static,
 {
     type Share = DaShare;
+    type Tx = SignedMantleTx;
     type Error = SerdeOP::Error;
 
     fn blob_id_to_storage(blob_id: BlobId) -> Result<BlobId, Self::Error> {
@@ -54,5 +58,17 @@ where
         backend_commitments: Bytes,
     ) -> Result<DaSharesCommitments, Self::Error> {
         SerdeOP::deserialize(backend_commitments)
+    }
+
+    fn tx_to_storage(
+        _backend_tx: SignedMantleTx,
+    ) -> Result<<RocksBackend<SerdeOP> as StorageDaApi>::Tx, Self::Error> {
+        unimplemented!() // Not needed for sampling.
+    }
+
+    fn tx_from_storage(
+        _service_tx: <RocksBackend<SerdeOP> as StorageDaApi>::Tx,
+    ) -> Result<SignedMantleTx, Self::Error> {
+        unimplemented!() // Not needed for sampling.
     }
 }

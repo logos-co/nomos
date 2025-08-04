@@ -16,7 +16,7 @@ use nomos_da_network_service::{
     membership::MembershipAdapter, storage::MembershipStorageAdapter, NetworkService,
 };
 use nomos_storage::StorageService;
-use nomos_tracing::info_with_id;
+use nomos_tracing::{error_with_id, info_with_id};
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -83,15 +83,19 @@ where
     ShareVerifier::DaShare: Debug + Send,
     ShareVerifier::Error: Error + Send + Sync,
     ShareVerifier::Settings: Clone,
-    <ShareVerifier::DaShare as Share>::BlobId: AsRef<[u8]>,
-    TxVerifier: TxVerifierBackend,
+    <ShareVerifier::DaShare as Share>::BlobId: Clone + AsRef<[u8]>,
+    TxVerifier: TxVerifierBackend<BlobId = <ShareVerifier::DaShare as Share>::BlobId> + Send + Sync,
     TxVerifier::Settings: Clone,
+    TxVerifier::Tx: Send,
+    TxVerifier::Error: Error + Send + Sync + 'static,
     Network: NetworkAdapter<RuntimeServiceId, Share = ShareVerifier::DaShare, Tx = TxVerifier::Tx>
         + Send
         + 'static,
     Network::Settings: Clone,
-    Storage:
-        DaStorageAdapter<RuntimeServiceId, Share = ShareVerifier::DaShare> + Send + Sync + 'static,
+    Storage: DaStorageAdapter<RuntimeServiceId, Share = ShareVerifier::DaShare, Tx = TxVerifier::Tx>
+        + Send
+        + Sync
+        + 'static,
 {
     #[instrument(skip_all)]
     async fn handle_new_share(
@@ -99,6 +103,10 @@ where
         storage_adapter: &Storage,
         share: ShareVerifier::DaShare,
     ) -> Result<(), DynError> {
+        if storage_adapter.get_tx(share.blob_id()).await?.is_none() {
+            error_with_id!(share.blob_id().as_ref(), "VerifierTxDoesNotExist");
+            return Err("Transaction doesn't exist".into());
+        }
         if storage_adapter
             .get_share(share.blob_id(), share.share_idx())
             .await?
@@ -118,10 +126,18 @@ where
     }
 
     async fn handle_new_tx(
-        _verifier: &TxVerifier,
-        _storage_adapter: &Storage,
-        _tx: TxVerifier::Tx,
+        verifier: &TxVerifier,
+        storage_adapter: &Storage,
+        tx: TxVerifier::Tx,
     ) -> Result<(), DynError> {
+        let blob_id = verifier.blob_id(&tx)?;
+        if storage_adapter.get_tx(blob_id.clone()).await?.is_some() {
+            info_with_id!(blob_id.as_ref(), "VerifierTxExists");
+        } else {
+            info_with_id!(blob_id.as_ref(), "VerifierAddTx");
+            verifier.verify(&tx)?;
+            storage_adapter.add_tx(blob_id, tx).await?;
+        }
         Ok(())
     }
 }
@@ -162,12 +178,13 @@ where
     ShareVerifier::Settings: Clone + Send + Sync + 'static,
     ShareVerifier::DaShare: Debug + Send + Sync + 'static,
     ShareVerifier::Error: Error + Send + Sync + 'static,
-    <ShareVerifier::DaShare as Share>::BlobId: AsRef<[u8]> + Debug + Send + Sync + 'static,
+    <ShareVerifier::DaShare as Share>::BlobId: Clone + AsRef<[u8]> + Debug + Send + Sync + 'static,
     <ShareVerifier::DaShare as Share>::LightShare: Debug + Send + Sync + 'static,
     <ShareVerifier::DaShare as Share>::SharesCommitments: Debug + Send + Sync + 'static,
-    TxVerifier: TxVerifierBackend + Send + Sync + 'static,
+    TxVerifier: TxVerifierBackend<BlobId = <ShareVerifier::DaShare as Share>::BlobId> + Send + Sync,
     TxVerifier::Tx: Send,
     TxVerifier::Settings: Clone + Send + Sync + 'static,
+    TxVerifier::Error: Error + Send + Sync + 'static,
     Network: NetworkAdapter<RuntimeServiceId, Share = ShareVerifier::DaShare, Tx = TxVerifier::Tx>
         + Send
         + Sync
@@ -181,8 +198,10 @@ where
         + Sync
         + 'static,
     Network::MembershipAdapter: MembershipAdapter,
-    DaStorage:
-        DaStorageAdapter<RuntimeServiceId, Share = ShareVerifier::DaShare> + Send + Sync + 'static,
+    DaStorage: DaStorageAdapter<RuntimeServiceId, Share = ShareVerifier::DaShare, Tx = TxVerifier::Tx>
+        + Send
+        + Sync
+        + 'static,
     DaStorage::Settings: Clone + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Display

@@ -114,7 +114,7 @@ impl From<DaShare> for VerificationEvent {
 
 impl From<Box<SignedMantleTx>> for VerificationEvent {
     fn from(tx: Box<SignedMantleTx>) -> Self {
-        VerificationEvent::Tx(tx)
+        Self::Tx(tx)
     }
 }
 

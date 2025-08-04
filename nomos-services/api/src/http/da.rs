@@ -13,7 +13,7 @@ use nomos_core::{
         BlobId, DaVerifier as CoreDaVerifier,
     },
     header::HeaderId,
-    mantle::{select::FillSize as FillSizeWithTx, Transaction},
+    mantle::{select::FillSize as FillSizeWithTx, SignedMantleTx, Transaction},
 };
 use nomos_da_dispersal::{
     adapters::{mempool::DaMempoolAdapter, network::DispersalNetworkAdapter},
@@ -162,7 +162,8 @@ where
     <VB as VerifierBackend>::Settings: Clone,
     <VB as CoreDaVerifier>::Error: Error,
     SS: StorageSerde + Send + Sync + 'static,
-    DaStorageConverter: DaConverter<RocksBackend<SS>, Share = S> + Send + Sync + 'static,
+    DaStorageConverter:
+        DaConverter<RocksBackend<SS>, Share = S, Tx = SignedMantleTx> + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display

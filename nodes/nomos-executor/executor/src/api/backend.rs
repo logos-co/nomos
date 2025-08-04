@@ -21,7 +21,7 @@ use nomos_core::{
         DaVerifier as CoreDaVerifier,
     },
     header::HeaderId,
-    mantle::Transaction,
+    mantle::{SignedMantleTx, Transaction},
 };
 use nomos_da_dispersal::adapters::mempool::DaMempoolAdapter;
 use nomos_da_network_core::SubnetworkId;
@@ -266,7 +266,7 @@ where
         Serialize + for<'de> Deserialize<'de> + Ord + Debug + Send + Sync + 'static,
     DaStorageSerializer: StorageSerde + Send + Sync + 'static,
     <DaStorageSerializer as StorageSerde>::Error: Send + Sync,
-    DaStorageConverter: da::DaConverter<DaStorageBackend<DaStorageSerializer>, Share = DaShare>
+    DaStorageConverter: da::DaConverter<DaStorageBackend<DaStorageSerializer>, Share = DaShare, Tx = SignedMantleTx>
         + Send
         + Sync
         + 'static,
