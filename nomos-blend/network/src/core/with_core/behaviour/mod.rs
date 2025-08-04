@@ -109,20 +109,27 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     ///
     /// Before the message is propagated, its public header is validated to make
     /// sure the receiving peer won't mark us as malicious.
-    pub fn validate_and_publish(&mut self, message: EncapsulatedMessage) -> Result<(), Error> {
+    pub fn validate_and_publish_message(
+        &mut self,
+        message: EncapsulatedMessage,
+    ) -> Result<(), Error> {
         let validated_message = message
             .validate_public_header()
             .map_err(|_| Error::InvalidMessage)?;
-        self.forward_message_and_maybe_exclude(&validated_message, None)?;
+        self.forward_validated_message_and_maybe_exclude(&validated_message, None)?;
         self.try_wake();
         Ok(())
     }
 
+    /// Publish an already-encapsulated message to all connected peers.
+    ///
+    /// Public header validation checks are skipped, since the message is
+    /// assumed to have been properly formed.
     pub fn publish_validated_message(
         &mut self,
         message: &EncapsulatedMessageWithValidatedPublicHeader,
     ) -> Result<(), Error> {
-        self.forward_message_and_maybe_exclude(message, None)?;
+        self.forward_validated_message_and_maybe_exclude(message, None)?;
         self.try_wake();
         Ok(())
     }
@@ -137,7 +144,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     /// Returns [`Error::NoPeers`] if there are no connected peers
     /// that support the blend protocol or that have not yet received the
     /// message.
-    fn forward_message_and_maybe_exclude(
+    fn forward_validated_message_and_maybe_exclude(
         &mut self,
         message: &EncapsulatedMessageWithValidatedPublicHeader,
         excluded_peer: Option<PeerId>,
@@ -182,27 +189,17 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     /// Forwards a message to all connected and healthy peers except the
     /// excluded peer.
     ///
+    /// Public header validation checks are skipped, since the message is
+    /// assumed to have been properly formed.
+    ///
     /// Returns [`Error::NoPeers`] if there are no connected peers that support
     /// the blend protocol.
-    pub fn forward_message(
-        &mut self,
-        message: EncapsulatedMessage,
-        excluded_peer: PeerId,
-    ) -> Result<(), Error> {
-        let validated_message = message
-            .validate_public_header()
-            .map_err(|_| Error::InvalidMessage)?;
-        self.forward_message_and_maybe_exclude(&validated_message, Some(excluded_peer))?;
-        self.try_wake();
-        Ok(())
-    }
-
     pub fn forward_validated_message(
         &mut self,
         message: &EncapsulatedMessageWithValidatedPublicHeader,
         excluded_peer: PeerId,
     ) -> Result<(), Error> {
-        self.forward_message_and_maybe_exclude(message, Some(excluded_peer))?;
+        self.forward_validated_message_and_maybe_exclude(message, Some(excluded_peer))?;
         self.try_wake();
         Ok(())
     }

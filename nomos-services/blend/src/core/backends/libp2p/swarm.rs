@@ -108,7 +108,7 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
             .behaviour_mut()
             .blend
             .with_core_mut()
-            .validate_and_publish(msg)
+            .validate_and_publish_message(msg)
         {
             tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
             tracing::info!(counter.failed_outbound_messages = 1);
@@ -117,7 +117,25 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
         }
     }
 
-    fn forward_swarm_message(
+    fn publish_validated_swarm_message(
+        &mut self,
+        msg: &EncapsulatedMessageWithValidatedPublicHeader,
+    ) {
+        if let Err(e) = self
+            .swarm
+            .behaviour_mut()
+            .blend
+            .with_core_mut()
+            .publish_validated_message(msg)
+        {
+            tracing::error!(target: LOG_TARGET, "Failed to forward message to blend network: {e:?}");
+            tracing::info!(counter.failed_outbound_messages = 1);
+        } else {
+            tracing::info!(counter.successful_outbound_messages = 1);
+        }
+    }
+
+    fn forward_validated_swarm_message(
         &mut self,
         msg: &EncapsulatedMessageWithValidatedPublicHeader,
         except: PeerId,
@@ -178,8 +196,8 @@ where
         match blend_event {
             nomos_blend_network::core::with_core::behaviour::Event::Message(msg, peer_id) => {
                 // Forward message received from node to all other core nodes.
-                self.forward_swarm_message(&msg, peer_id);
-                // Bubble up to service  for further processing and delaying
+                self.forward_validated_swarm_message(&msg, peer_id);
+                // Bubble up to service for decapsulation and delaying.
                 self.report_message_to_service(*msg);
             }
             nomos_blend_network::core::with_core::behaviour::Event::SpammyPeer(peer_id) => {
@@ -203,13 +221,8 @@ where
         match blend_event {
             nomos_blend_network::core::with_edge::behaviour::Event::Message(msg) => {
                 // Forward message received from edge node to all the core nodes.
-                let _ = self
-                    .swarm
-                    .behaviour_mut()
-                    .blend
-                    .with_core_mut()
-                    .publish_validated_message(&msg);
-                // Bubble up to service for further processing and delaying
+                self.publish_validated_swarm_message(&msg);
+                // Bubble up to service for decapsulation and delaying.
                 self.report_message_to_service(msg);
             }
         }

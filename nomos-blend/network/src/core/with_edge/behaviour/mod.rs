@@ -149,6 +149,7 @@ impl NetworkBehaviour for Behaviour {
         match event {
             Either::Left(ToBehaviour::Message(message)) => {
                 self.handle_received_serialized_encapsulated_message(&message);
+                self.try_wake();
             }
             Either::Left(ToBehaviour::SubstreamOpened) => {
                 self.connected_edge_peers
@@ -168,7 +169,6 @@ impl NetworkBehaviour for Behaviour {
                 }
             }
         }
-        self.try_wake();
     }
 
     fn poll(
