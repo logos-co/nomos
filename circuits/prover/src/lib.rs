@@ -110,8 +110,8 @@ mod tests {
         file
     });
 
-    static WITNESS_OUT: LazyLock<PathBuf> = LazyLock::new(|| {
-        let file = PathBuf::from("../pol/resources/tests/witness.out");
+    static WITNESS_WTNS: LazyLock<PathBuf> = LazyLock::new(|| {
+        let file = PathBuf::from("../pol/resources/tests/witness.wtns");
         assert!(file.exists(), "Could not find {}.", file.display());
         file
     });
@@ -119,7 +119,7 @@ mod tests {
     #[test]
     fn test_prover() {
         let circuit_file = CIRCUIT_ZKEY.clone();
-        let witness_file = WITNESS_OUT.clone();
+        let witness_file = WITNESS_WTNS.clone();
         let proof_file = NamedTempFile::new().unwrap();
         let public_file = NamedTempFile::new().unwrap();
 
@@ -177,7 +177,7 @@ mod tests {
     #[test]
     fn test_prover_from_contents() {
         let circuit_contents = std::fs::read(&*CIRCUIT_ZKEY).unwrap();
-        let witness_contents = std::fs::read(&*WITNESS_OUT).unwrap();
+        let witness_contents = std::fs::read(&*WITNESS_WTNS).unwrap();
 
         let (proof, public) = prover_from_contents(&circuit_contents, &witness_contents).unwrap();
         assert!(!proof.is_empty(), "The proof should not be empty");
