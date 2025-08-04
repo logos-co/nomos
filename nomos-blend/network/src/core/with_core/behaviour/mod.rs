@@ -58,7 +58,7 @@ pub struct Behaviour<ObservationWindowClockProvider> {
     ///
     /// Only connections with other core nodes that are established before the
     /// specified connection limit is reached will be upgraded and the state of
-    /// the peer negotiated and monitored.
+    /// the peer negotiated, monitored, and reported to the swarm.
     established_connections: HashMap<(PeerId, ConnectionId), Option<NegotiatedPeerState>>,
     /// Queue of events to yield to the swarm.
     events: VecDeque<ToSwarm<Event, Either<FromBehaviour, Infallible>>>,
@@ -72,7 +72,7 @@ pub struct Behaviour<ObservationWindowClockProvider> {
     // passed.
     exchanged_message_identifiers: HashMap<(PeerId, ConnectionId), HashSet<MessageIdentifier>>,
     observation_window_clock_provider: ObservationWindowClockProvider,
-    // TOO: Replace with the session stream and make this a non-OptionD
+    // TODO: Replace with the session stream and make this a non-Option
     current_membership: Option<Membership<PeerId>>,
     /// The [minimum, maximum] peering degree of this node.
     peering_degree: RangeInclusive<usize>,
@@ -207,8 +207,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         }
     }
 
-    /// Forwards a message to all healthy connections except the specified
-    /// connection.
+    /// Forwards a message to all healthy connections except the specified one.
     ///
     /// Public header validation checks are skipped, since the message is
     /// assumed to have been properly formed.
@@ -251,7 +250,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     }
 
     /// Mark the connection with the sender of a malformed message as malicious
-    /// by sending a message to the connection handler to close the substream.
+    /// by sending a message to its connection handler to close the substream.
     fn mark_connection_as_malicious(&mut self, connection: (PeerId, ConnectionId)) {
         tracing::debug!(target: LOG_TARGET, "Closing substream and marking core peer {:?} on connection {:?} as malicious.", connection.0, connection.1);
         if self.update_negotiated_state(connection, NegotiatedPeerState::Spammy) {
@@ -444,13 +443,18 @@ where
             // In both cases, we need to remove the peer from the list of connected peers.
             // We ignore the case in which the last negotiated state was `None`, meaning no
             // substream was actually upgraded.
-            let Some(Some(last_peer_negotiated_state)) = self
+            let Some(last_peer_negotiated_state) = self
                 .established_connections
                 .remove(&(peer_id, connection_id))
             else {
                 // This event was not meant for us to consume.
                 return;
             };
+            let Some(last_peer_negotiated_state) = last_peer_negotiated_state else {
+                // We have closed a connection with a peer that was not upgraded. Ignore it.
+                return;
+            };
+
             self.events
                 .push_back(ToSwarm::GenerateEvent(Event::PeerDisconnected(
                     peer_id,
@@ -482,6 +486,16 @@ where
                 // which means that the peer supports the blend protocol. We consider them healthy
                 // by default.
                 ToBehaviour::FullyNegotiatedInbound | ToBehaviour::FullyNegotiatedOutbound => {
+                    // Using `insert` does not work since it returns `None` both if the key does not
+                    // exist (we want to capture this) or if the old value is `None` (which is what
+                    // we expect).
+                    if !self
+                        .established_connections
+                        .contains_key(&(peer_id, connection_id))
+                    {
+                        tracing::warn!(target: LOG_TARGET, "Marking peer as healthy that was not previously added to the map of established connections. Peer ID: {peer_id:?}, connection ID: {connection_id:?}. Ignoring.");
+                        return;
+                    }
                     self.established_connections
                         .insert((peer_id, connection_id), Some(NegotiatedPeerState::Healthy));
                 }

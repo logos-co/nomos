@@ -16,7 +16,7 @@ pub struct Libp2pBlendBackendSettings {
         default = "ed25519::SecretKey::generate"
     )]
     pub node_key: ed25519::SecretKey,
-    pub peering_degree: RangeInclusive<u64>,
+    pub core_peering_degree: RangeInclusive<u64>,
     pub minimum_messages_coefficient: NonZeroU64,
     pub normalization_constant: NonNegativeF64,
     #[serde_as(

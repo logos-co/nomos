@@ -31,8 +31,9 @@ impl BlendBehaviour {
                 .expect("Round duration cannot be zero."),
             rounds_per_observation_window: config.time.rounds_per_observation_window,
         };
-        let minimum_core_healthy_peering_degree = *config.backend.peering_degree.start() as usize;
-        let maximum_core_peering_degree = *config.backend.peering_degree.end() as usize;
+        let minimum_core_healthy_peering_degree =
+            *config.backend.core_peering_degree.start() as usize;
+        let maximum_core_peering_degree = *config.backend.core_peering_degree.end() as usize;
         let maximum_edge_incoming_connections =
             config.backend.max_edge_node_incoming_connections as usize;
         Self {

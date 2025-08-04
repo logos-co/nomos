@@ -36,7 +36,7 @@ pub fn create_blend_configs(ids: &[[u8; 32]]) -> Vec<GeneralBlendConfig> {
                     ))
                     .unwrap(),
                     node_key,
-                    peering_degree: 1..=3,
+                    core_peering_degree: 1..=3,
                     minimum_messages_coefficient: NonZeroU64::try_from(1)
                         .expect("Minimum messages coefficient cannot be zero."),
                     normalization_constant: 1.03f64

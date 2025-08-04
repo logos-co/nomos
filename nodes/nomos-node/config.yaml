@@ -21,7 +21,7 @@ blend:
       secs: 1
       nanos: 0
     max_edge_node_incoming_connections: 300
-    peering_degree:
+    core_peering_degree:
       start: 4
       end: 8
   crypto:
