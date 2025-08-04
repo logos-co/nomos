@@ -4,7 +4,8 @@ use std::{
 };
 
 use nomos_blend_service::{
-    message::ServiceMessage, network::NetworkAdapter as BlendNetworkAdapter, BlendService,
+    core::{network::NetworkAdapter as BlendNetworkAdapter, BlendService},
+    message::ServiceMessage,
 };
 use nomos_core::{
     block::Block,

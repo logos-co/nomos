@@ -12,7 +12,10 @@ pub use config::Config;
 use cryptarchia::LedgerState as CryptarchiaLedger;
 pub use cryptarchia::{EpochState, UtxoTree};
 use cryptarchia_engine::Slot;
-use nomos_core::{mantle::Utxo, proofs::leader_proof};
+use nomos_core::{
+    mantle::{gas::GasConstants, AuthenticatedMantleTx, NoteId, Utxo},
+    proofs::leader_proof,
+};
 use thiserror::Error;
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
@@ -23,6 +26,14 @@ pub enum LedgerError<Id> {
     ParentNotFound(Id),
     #[error("Invalid leader proof")]
     InvalidProof,
+    #[error("Invalid note: {0:?}")]
+    InvalidNote(NoteId),
+    #[error("Insufficient balance")]
+    InsufficientBalance,
+    #[error("Overflow while calculating balance")]
+    Overflow,
+    #[error("Zero value note")]
+    ZeroValueNote,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -44,22 +55,27 @@ where
 
     /// Create a new [`Ledger`] with the updated state.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    pub fn try_update<LeaderProof>(
+    pub fn try_update<LeaderProof, Constants>(
         &self,
         id: Id,
         parent_id: Id,
         slot: Slot,
         proof: &LeaderProof,
+        txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
     ) -> Result<Self, LedgerError<Id>>
     where
         LeaderProof: leader_proof::LeaderProof,
+        Constants: GasConstants,
     {
         let parent_state = self
             .states
             .get(&parent_id)
             .ok_or(LedgerError::ParentNotFound(parent_id))?;
 
-        let new_state = parent_state.clone().try_update(slot, proof, &self.config)?;
+        let new_state =
+            parent_state
+                .clone()
+                .try_update::<_, _, Constants>(slot, proof, txs, &self.config)?;
 
         let mut states = self.states.clone();
         states.insert(id, new_state);
@@ -103,17 +119,19 @@ pub struct LedgerState {
 }
 
 impl LedgerState {
-    fn try_update<LeaderProof, Id>(
+    fn try_update<LeaderProof, Id, Constants>(
         self,
         slot: Slot,
         proof: &LeaderProof,
+        txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
         config: &Config,
     ) -> Result<Self, LedgerError<Id>>
     where
         LeaderProof: leader_proof::LeaderProof,
+        Constants: GasConstants,
     {
         self.try_apply_header(slot, proof, config)?
-            .try_apply_contents()
+            .try_apply_contents::<_, Constants>(txs)
     }
 
     /// Apply header-related changed to the ledger state. These include
@@ -138,15 +156,17 @@ impl LedgerState {
         })
     }
 
-    #[expect(
-        clippy::missing_const_for_fn,
-        clippy::unnecessary_wraps,
-        reason = "placehoder method"
-    )]
-    fn try_apply_contents<Id>(self) -> Result<Self, LedgerError<Id>> {
-        // In the current implementation, we don't have any contents to apply.
-        // If we had transactions or other contents, this would be the place to apply
-        // them.
+    /// Apply the contents of an update to the ledger state.
+    fn try_apply_contents<Id, Constants: GasConstants>(
+        mut self,
+        txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
+    ) -> Result<Self, LedgerError<Id>> {
+        for tx in txs {
+            let _balance;
+            (self.cryptarchia_ledger, _balance) =
+                self.cryptarchia_ledger.try_apply_tx::<_, Constants>(tx)?;
+            // TODO: mantle ops
+        }
         Ok(self)
     }
 
@@ -180,5 +200,94 @@ impl LedgerState {
     #[must_use]
     pub const fn aged_commitments(&self) -> &UtxoTree {
         self.cryptarchia_ledger.aged_commitments()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use cryptarchia::tests::{config, generate_proof, utxo};
+    use nomos_core::{
+        mantle::{
+            gas::MainnetGasConstants, ledger::Tx as LedgerTx, MantleTx, Note, SignedMantleTx,
+            Transaction as _,
+        },
+        proofs::zksig::DummyZkSignature,
+    };
+
+    use super::*;
+
+    type HeaderId = [u8; 32];
+
+    fn create_tx(inputs: Vec<NoteId>, outputs: Vec<Note>, pks: Vec<[u8; 32]>) -> SignedMantleTx {
+        let ledger_tx = LedgerTx::new(inputs, outputs);
+        let mantle_tx = MantleTx {
+            ops: vec![],
+            ledger_tx,
+            execution_gas_price: 1,
+            storage_gas_price: 1,
+        };
+        SignedMantleTx {
+            ops_profs: vec![],
+            ledger_tx_proof: DummyZkSignature::prove(
+                nomos_core::proofs::zksig::ZkSignaturePublic {
+                    pks,
+                    msg_hash: mantle_tx.hash().into(),
+                },
+            ),
+            mantle_tx,
+        }
+    }
+
+    fn create_test_ledger() -> (Ledger<HeaderId>, HeaderId, Utxo) {
+        let utxo = utxo();
+        let genesis_state = LedgerState::from_utxos([utxo]);
+        let ledger = Ledger::new([0; 32], genesis_state, config());
+        (ledger, [0; 32], utxo)
+    }
+
+    #[test]
+    fn test_ledger_creation() {
+        let (ledger, genesis_id, utxo) = create_test_ledger();
+
+        let state = ledger.state(&genesis_id).unwrap();
+        assert!(state.latest_commitments().contains(&utxo.id()));
+        assert_eq!(state.slot(), 0.into());
+    }
+
+    #[test]
+    fn test_ledger_try_update_with_transaction() {
+        let (ledger, genesis_id, utxo) = create_test_ledger();
+
+        let output_note = Note::new(1, [1; 32].into());
+        let pk = [0; 32];
+        let tx = create_tx(vec![utxo.id()], vec![output_note], vec![pk]);
+
+        // Create a dummy proof (using same structure as in cryptarchia tests)
+
+        let proof = generate_proof(
+            &ledger.state(&genesis_id).unwrap().cryptarchia_ledger,
+            &utxo,
+            Slot::from(1u64),
+            &ledger.config,
+        );
+
+        let new_id = [1; 32];
+        let new_ledger = ledger
+            .try_update::<_, MainnetGasConstants>(
+                new_id,
+                genesis_id,
+                Slot::from(1u64),
+                &proof,
+                std::iter::once(&tx),
+            )
+            .unwrap();
+
+        // Verify the transaction was applied
+        let new_state = new_ledger.state(&new_id).unwrap();
+        assert!(!new_state.latest_commitments().contains(&utxo.id()));
+
+        // Verify output was created
+        let output_utxo = tx.mantle_tx.ledger_tx.utxo_by_index(0).unwrap();
+        assert!(new_state.latest_commitments().contains(&output_utxo.id()));
     }
 }

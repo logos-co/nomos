@@ -12,10 +12,11 @@ use cryptarchia_engine::time::SlotConfig;
 use kzgrs_backend::common::share::DaShare;
 use nomos_api::http::membership::MembershipUpdateRequest;
 use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
-use nomos_blend_service::settings::{
-    CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt, TimingSettings,
+use nomos_blend_service::{
+    core::settings::{CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt},
+    settings::TimingSettings,
 };
-use nomos_core::{header::HeaderId, sdp::FinalizedBlockEvent};
+use nomos_core::{block::BlockNumber, header::HeaderId, sdp::FinalizedBlockEvent};
 use nomos_da_dispersal::{
     backend::kzgrs::{DispersalKZGRSBackendSettings, EncoderSettings},
     DispersalServiceSettings,
@@ -33,7 +34,7 @@ use nomos_da_network_service::{
     backends::libp2p::{
         common::DaNetworkBackendSettings, executor::DaNetworkExecutorBackendSettings,
     },
-    NetworkConfig as DaNetworkConfig,
+    MembershipResponse, NetworkConfig as DaNetworkConfig,
 };
 use nomos_da_sampling::{backend::kzgrs::KzgrsSamplingBackendSettings, DaSamplingServiceSettings};
 use nomos_da_verifier::{
@@ -43,8 +44,8 @@ use nomos_da_verifier::{
 };
 use nomos_executor::{api::backend::AxumBackendSettings, config::Config};
 use nomos_http_api_common::paths::{
-    CL_METRICS, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER, DA_GET_RANGE,
-    DA_MONITOR_STATS, DA_UNBLOCK_PEER, UPDATE_MEMBERSHIP,
+    CL_METRICS, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER, DA_GET_MEMBERSHIP,
+    DA_GET_RANGE, DA_MONITOR_STATS, DA_UNBLOCK_PEER, UPDATE_MEMBERSHIP,
 };
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{config::mempool::MempoolConfig, RocksBackendSettings};
@@ -64,6 +65,8 @@ use crate::{
 };
 
 const BIN_PATH: &str = "../target/debug/nomos-executor";
+const DA_GET_TESTING_ENDPOINT_ERROR: &str =
+    "Failed to connect to testing endpoint. The binary was likely built without the 'testing' feature. Try: cargo build --workspace --all-features";
 
 pub struct Executor {
     addr: SocketAddr,
@@ -245,17 +248,31 @@ impl Executor {
             .send()
             .await;
 
-        assert!(
-            response.is_ok(),
-            "Failed to connect to testing endpoint {}.\n\
-            The binary was likely built without the 'testing' feature.\n\
-            Try: cargo build --workspace --all-features",
-            self.testing_http_addr
-        );
+        assert!(response.is_ok(), "{}", DA_GET_TESTING_ENDPOINT_ERROR);
 
         let response = response.unwrap();
         response.error_for_status()?;
         Ok(())
+    }
+
+    pub async fn da_get_membership(
+        &self,
+        block_number: BlockNumber,
+    ) -> Result<MembershipResponse, reqwest::Error> {
+        let response = CLIENT
+            .post(format!(
+                "http://{}{}",
+                self.testing_http_addr, DA_GET_MEMBERSHIP
+            ))
+            .header("Content-Type", "application/json")
+            .body(serde_json::to_string(&block_number).unwrap())
+            .send()
+            .await;
+
+        assert!(response.is_ok(), "{}", DA_GET_TESTING_ENDPOINT_ERROR);
+
+        let response = response.unwrap();
+        response.error_for_status()?.json().await
     }
 }
 
@@ -273,7 +290,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 initial_peers: config.network_config.initial_peers,
             },
         },
-        blend: nomos_blend_service::settings::BlendConfig {
+        blend: nomos_blend_service::core::settings::BlendConfig {
             backend: config.blend_config.backend,
             crypto: CryptographicProcessorSettings {
                 signing_private_key: config.blend_config.private_key.clone(),
@@ -315,11 +332,16 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                     topic: String::from(nomos_node::CONSENSUS_TOPIC),
                 },
             blend_adapter_settings: chain_service::blend::adapters::libp2p::LibP2pAdapterSettings {
-                broadcast_settings: nomos_blend_service::network::libp2p::Libp2pBroadcastSettings {
-                    topic: String::from(nomos_node::CONSENSUS_TOPIC),
-                },
+                broadcast_settings:
+                    nomos_blend_service::core::network::libp2p::Libp2pBroadcastSettings {
+                        topic: String::from(nomos_node::CONSENSUS_TOPIC),
+                    },
             },
             recovery_file: PathBuf::from("./recovery/cryptarchia.json"),
+            bootstrap: chain_service::BootstrapConfig {
+                prolonged_bootstrap_period: Duration::from_secs(3),
+                force_bootstrap: false,
+            },
         },
         da_network: DaNetworkConfig {
             backend: DaNetworkExecutorBackendSettings {

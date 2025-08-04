@@ -9,7 +9,10 @@ use nomos_core::{
     mantle::{SignedMantleTx, Transaction},
 };
 use nomos_da_indexer::consensus::adapters::cryptarchia::CryptarchiaConsensusAdapter;
-use nomos_da_network_service::membership::adapters::service::MembershipServiceAdapter;
+use nomos_da_network_service::{
+    membership::adapters::service::MembershipServiceAdapter,
+    storage::adapters::rocksdb::RocksAdapter,
+};
 use nomos_da_sampling::{
     backend::kzgrs::KzgrsSamplingBackend, storage::adapters::rocksdb::converter::DaStorageConverter,
 };
@@ -70,7 +73,7 @@ pub type DaIndexerService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> =
             RuntimeServiceId,
         >,
         chain_service::blend::adapters::libp2p::LibP2pAdapter<
-            nomos_blend_service::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
+            nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
             SignedMantleTx,
             BlobInfo,
             RuntimeServiceId,
@@ -172,7 +175,7 @@ pub type CryptarchiaService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> 
             RuntimeServiceId,
         >,
         chain_service::blend::adapters::libp2p::LibP2pAdapter<
-            nomos_blend_service::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
+            nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
             SignedMantleTx,
             BlobInfo,
             RuntimeServiceId,
@@ -245,3 +248,6 @@ pub type SdpService<RuntimeServiceId> = nomos_sdp::SdpService<
     Metadata,
     RuntimeServiceId,
 >;
+
+pub type DaMembershipStorageGeneric<RuntimeServiceId> =
+    RocksAdapter<RocksBackend<Wire>, RuntimeServiceId>;

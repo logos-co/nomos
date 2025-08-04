@@ -1,4 +1,5 @@
 pub mod blend;
+mod bootstrap;
 mod leadership;
 mod messages;
 pub mod network;
@@ -15,17 +16,17 @@ use std::{
     time::Duration,
 };
 
-use cryptarchia_engine::{CryptarchiaState, Online, PrunedBlocks, Slot};
+use cryptarchia_engine::{PrunedBlocks, Slot};
 use cryptarchia_sync::GetTipResponse;
 use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
-use nomos_blend_service::BlendService;
+use nomos_blend_service::core::BlendService;
 use nomos_core::{
     block::{builder::BlockBuilder, Block},
     da::blob::{info::DispersedBlobInfo, metadata::Metadata as BlobMetadata, BlobSelect},
     header::{Builder, Header, HeaderId},
-    mantle::{Transaction, TxSelect},
+    mantle::{gas::MainnetGasConstants, SignedMantleTx, Transaction, TxSelect},
     proofs::leader_proof::Risc0LeaderProof,
 };
 use nomos_da_sampling::{
@@ -50,11 +51,16 @@ use services_utils::{
     wait_until_services_are_ready,
 };
 use thiserror::Error;
-use tokio::sync::{broadcast, oneshot};
+use tokio::{
+    sync::{broadcast, oneshot},
+    time::Instant,
+};
 use tracing::{debug, error, info, instrument, span, Level};
 use tracing_futures::Instrument as _;
 
+pub use crate::bootstrap::config::BootstrapConfig;
 use crate::{
+    bootstrap::{ibd::InitialBlockDownload, state::choose_engine_state},
     leadership::Leader,
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
@@ -80,22 +86,24 @@ pub enum Error {
 }
 
 #[derive(Clone)]
-struct Cryptarchia<State> {
+struct Cryptarchia {
     ledger: nomos_ledger::Ledger<HeaderId>,
-    consensus: cryptarchia_engine::Cryptarchia<HeaderId, State>,
+    consensus: cryptarchia_engine::Cryptarchia<HeaderId>,
 }
 
-impl<State: CryptarchiaState> Cryptarchia<State> {
+impl Cryptarchia {
     /// Initialize a new [`Cryptarchia`] instance.
     pub fn from_lib(
         lib_id: HeaderId,
         lib_ledger_state: LedgerState,
         ledger_config: nomos_ledger::Config,
+        state: cryptarchia_engine::State,
     ) -> Self {
         Self {
-            consensus: <cryptarchia_engine::Cryptarchia<_, _>>::from_lib(
+            consensus: <cryptarchia_engine::Cryptarchia<_>>::from_lib(
                 lib_id,
                 ledger_config.consensus_config,
+                state,
             ),
             ledger: <nomos_ledger::Ledger<_>>::new(lib_id, lib_ledger_state, ledger_config),
         }
@@ -121,9 +129,13 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
         let id = header.id();
         let parent = header.parent();
         let slot = header.slot();
-        let ledger = self
-            .ledger
-            .try_update(id, parent, slot, header.leader_proof())?;
+        let ledger = self.ledger.try_update::<_, MainnetGasConstants>(
+            id,
+            parent,
+            slot,
+            header.leader_proof(),
+            std::iter::empty::<&SignedMantleTx>(),
+        )?;
         let (consensus, pruned_blocks) = self.consensus.receive_block(id, parent, slot)?;
 
         let mut cryptarchia = Self { ledger, consensus };
@@ -166,6 +178,25 @@ impl<State: CryptarchiaState> Cryptarchia<State> {
         }
         tracing::debug!(target: LOG_TARGET, "Pruned {pruned_states_count} old forks and their ledger states.");
     }
+
+    fn online(self) -> (Self, PrunedBlocks<HeaderId>) {
+        let (consensus, pruned_blocks) = self.consensus.online();
+        (
+            Self {
+                ledger: self.ledger,
+                consensus,
+            },
+            pruned_blocks,
+        )
+    }
+
+    const fn is_boostrapping(&self) -> bool {
+        self.consensus.state().is_bootstrapping()
+    }
+
+    const fn state(&self) -> &cryptarchia_engine::State {
+        self.consensus.state()
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -181,6 +212,7 @@ pub struct CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendAdapterSetti
     pub network_adapter_settings: NetworkAdapterSettings,
     pub blend_adapter_settings: BlendAdapterSettings,
     pub recovery_file: PathBuf,
+    pub bootstrap: BootstrapConfig,
 }
 
 impl<Ts, Bs, NetworkAdapterSettings, BlendAdapterSettings> FileBackendSettings
@@ -541,11 +573,13 @@ where
 
         let CryptarchiaSettings {
             config: ledger_config,
+            genesis_id,
             transaction_selector_settings,
             blob_selector_settings,
             leader_config,
             network_adapter_settings,
             blend_adapter_settings,
+            bootstrap: bootstrap_config,
             ..
         } = self
             .service_resources_handle
@@ -556,14 +590,15 @@ where
         // These are blocks that have been pruned by the cryptarchia engine but have not
         // yet been deleted from the storage layer.
         let storage_blocks_to_remove = self.initial_state.storage_blocks_to_remove.clone();
-        let (mut cryptarchia, pruned_blocks, leader) = Self::initialize_cryptarchia(
-            self.initial_state,
-            ledger_config,
-            leader_config,
-            &relays,
-            &self.block_subscription_sender,
-        )
-        .await;
+        let (cryptarchia, pruned_blocks, leader) = self
+            .initialize_cryptarchia(
+                genesis_id,
+                &bootstrap_config,
+                ledger_config,
+                leader_config,
+                &relays,
+            )
+            .await;
         let mut storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
             pruned_blocks.stale_blocks().copied(),
             &storage_blocks_to_remove,
@@ -578,7 +613,7 @@ where
 
         let mut incoming_blocks = network_adapter.blocks_stream().await?;
         let mut chainsync_events = network_adapter.chainsync_events_stream().await?;
-        let sync_blocks_provider: BlockProvider<_, _, _, _> =
+        let sync_blocks_provider: BlockProvider<_, _, _> =
             BlockProvider::new(relays.storage_adapter().storage_relay.clone());
 
         let mut slot_timer = {
@@ -613,9 +648,32 @@ where
         )
         .await?;
 
+        // Run IBD (Initial Block Download).
+        let mut cryptarchia = InitialBlockDownload::run(cryptarchia, network_adapter).await;
+
+        // Start the timer for Prelonged Bootstrap Period.
+        let mut prolonged_bootstrap_timer = Box::pin(tokio::time::sleep_until(
+            Instant::now() + bootstrap_config.prolonged_bootstrap_period,
+        ));
+
         let async_loop = async {
             loop {
                 tokio::select! {
+                    () = &mut prolonged_bootstrap_timer, if cryptarchia.is_boostrapping() => {
+                        info!("Prolonged Bootstrap Period has passed. Switching to Online.");
+                        (cryptarchia, storage_blocks_to_remove) = Self::switch_to_online(
+                            cryptarchia,
+                            &storage_blocks_to_remove,
+                            relays.storage_adapter(),
+                        ).await;
+                        Self::update_state(
+                            &cryptarchia,
+                            &leader,
+                            storage_blocks_to_remove.clone(),
+                            &self.service_resources_handle.state_updater,
+                        );
+                    }
+
                     Some(block) = incoming_blocks.next() => {
                         Self::log_received_block(&block);
 
@@ -627,8 +685,7 @@ where
                             &storage_blocks_to_remove,
                             &relays,
                             &self.block_subscription_sender,
-                            self.service_resources_handle
-                                        .state_updater.clone()
+                            &self.service_resources_handle.state_updater
                         ).await;
 
                         info!(counter.consensus_processed_blocks = 1);
@@ -665,9 +722,7 @@ where
                                     &storage_blocks_to_remove,
                                     &relays,
                                     &self.block_subscription_sender,
-                                    self.service_resources_handle
-                                        .state_updater.clone()
-                                        ,
+                                    &self.service_resources_handle.state_updater,
                                 )
                                 .await;
                                 blend_adapter.blend(block).await;
@@ -680,7 +735,13 @@ where
                     }
 
                     Some(event) = chainsync_events.next() => {
-                       Self::handle_chainsync_event(&cryptarchia, &sync_blocks_provider, event).await;
+                        if cryptarchia.state().is_online() {
+                            // Only process sync requests if we are in online mode
+                            // TODO: Reject chain sync requests explicitly, so that requesters aren't
+                            //       blocked for a long time.
+                            //       https://github.com/logos-co/nomos/issues/1451
+                           Self::handle_chainsync_event(&cryptarchia, &sync_blocks_provider, event).await;
+                        }
                     }
                 }
             }
@@ -741,9 +802,13 @@ impl<
     >
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Clone + Send + Sync + 'static,
-    NetAdapter::Settings: Send,
-    BlendAdapter: blend::BlendAdapter<RuntimeServiceId> + Clone + Send + Sync + 'static,
-    BlendAdapter::Settings: Send,
+    NetAdapter::Settings: Send + Sync + 'static,
+    BlendAdapter: blend::BlendAdapter<RuntimeServiceId, Tx = ClPool::Item, BlobCertificate = DaPool::Item>
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+    BlendAdapter::Settings: Send + Sync + 'static,
     ClPool: RecoverableMempool<BlockId = HeaderId> + Send + Sync + 'static,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone + Send + Sync + 'static,
@@ -780,9 +845,9 @@ where
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key> + Send + Sync + 'static,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
     TxS: TxSelect<Tx = ClPool::Item> + Clone + Send + Sync + 'static,
-    TxS::Settings: Send,
+    TxS::Settings: Send + Sync + 'static,
     BS: BlobSelect<BlobId = DaPool::Item> + Clone + Send + Sync + 'static,
-    BS::Settings: Send,
+    BS::Settings: Send + Sync + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block:
         TryFrom<Block<ClPool::Item, DaPool::Item>> + TryInto<Block<ClPool::Item, DaPool::Item>>,
@@ -800,8 +865,8 @@ where
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
 {
-    fn process_message<State: CryptarchiaState>(
-        cryptarchia: &Cryptarchia<State>,
+    fn process_message(
+        cryptarchia: &Cryptarchia,
         block_channel: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
         msg: ConsensusMsg<Block<ClPool::Item, DaPool::Item>>,
     ) {
@@ -861,12 +926,8 @@ where
         clippy::type_complexity,
         reason = "CryptarchiaConsensusState and CryptarchiaConsensusRelays amount of generics."
     )]
-    #[expect(
-        clippy::future_not_send,
-        reason = "Internal function, settings are not Sync"
-    )]
     async fn process_block_and_update_state(
-        cryptarchia: Cryptarchia<Online>,
+        cryptarchia: Cryptarchia,
         leader: &Leader,
         block: Block<ClPool::Item, DaPool::Item>,
         storage_blocks_to_remove: &HashSet<HeaderId>,
@@ -885,7 +946,7 @@ where
             RuntimeServiceId,
         >,
         block_subscription_sender: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-        state_updater: StateUpdater<
+        state_updater: &StateUpdater<
             Option<
                 CryptarchiaConsensusState<
                     TxS::Settings,
@@ -895,7 +956,7 @@ where
                 >,
             >,
         >,
-    ) -> (Cryptarchia<Online>, HashSet<HeaderId>) {
+    ) -> (Cryptarchia, HashSet<HeaderId>) {
         let (cryptarchia, pruned_blocks) =
             Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
 
@@ -906,10 +967,36 @@ where
         )
         .await;
 
-        match <Self as ServiceData>::State::from_cryptarchia_and_unpruned_blocks(
+        Self::update_state(
             &cryptarchia,
             leader,
             storage_blocks_to_remove.clone(),
+            state_updater,
+        );
+
+        (cryptarchia, storage_blocks_to_remove)
+    }
+
+    #[expect(clippy::type_complexity, reason = "StateUpdater")]
+    fn update_state(
+        cryptarchia: &Cryptarchia,
+        leader: &Leader,
+        storage_blocks_to_remove: HashSet<HeaderId>,
+        state_updater: &StateUpdater<
+            Option<
+                CryptarchiaConsensusState<
+                    TxS::Settings,
+                    BS::Settings,
+                    NetAdapter::Settings,
+                    BlendAdapter::Settings,
+                >,
+            >,
+        >,
+    ) {
+        match <Self as ServiceData>::State::from_cryptarchia_and_unpruned_blocks(
+            cryptarchia,
+            leader,
+            storage_blocks_to_remove,
         ) {
             Ok(state) => {
                 state_updater.update(Some(state));
@@ -918,8 +1005,6 @@ where
                 error!(target: LOG_TARGET, "Failed to update state: {}", e);
             }
         }
-
-        (cryptarchia, storage_blocks_to_remove)
     }
 
     /// Try to add a [`Block`] to [`Cryptarchia`].
@@ -927,8 +1012,8 @@ where
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(cryptarchia, relays))]
-    async fn process_block<State: CryptarchiaState>(
-        cryptarchia: Cryptarchia<State>,
+    async fn process_block(
+        cryptarchia: Cryptarchia,
         block: Block<ClPool::Item, DaPool::Item>,
         relays: &CryptarchiaConsensusRelays<
             BlendAdapter,
@@ -945,7 +1030,7 @@ where
             RuntimeServiceId,
         >,
         block_broadcaster: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> (Cryptarchia<State>, PrunedBlocks<HeaderId>) {
+    ) -> (Cryptarchia, PrunedBlocks<HeaderId>) {
         debug!("received proposal {:?}", block);
 
         let sampled_blobs = match get_sampled_blobs(relays.sampling_relay().clone()).await {
@@ -1181,12 +1266,9 @@ where
         reason = "CryptarchiaConsensusState and CryptarchiaConsensusRelays amount of generics."
     )]
     async fn initialize_cryptarchia(
-        initial_state: CryptarchiaConsensusState<
-            TxS::Settings,
-            BS::Settings,
-            NetAdapter::Settings,
-            BlendAdapter::Settings,
-        >,
+        &self,
+        genesis_id: HeaderId,
+        bootstrap_config: &BootstrapConfig,
         ledger_config: nomos_ledger::Config,
         leader_config: LeaderConfig,
         relays: &CryptarchiaConsensusRelays<
@@ -1203,19 +1285,24 @@ where
             DaVerifierBackend,
             RuntimeServiceId,
         >,
-        block_subscription_sender: &broadcast::Sender<Block<ClPool::Item, DaPool::Item>>,
-    ) -> (Cryptarchia<Online>, PrunedBlocks<HeaderId>, Leader) {
-        let lib_id = initial_state.lib;
-        let mut cryptarchia =
-            <Cryptarchia<Online>>::from_lib(lib_id, initial_state.lib_ledger_state, ledger_config);
+    ) -> (Cryptarchia, PrunedBlocks<HeaderId>, Leader) {
+        let lib_id = self.initial_state.lib;
+        let state = choose_engine_state(lib_id, genesis_id, bootstrap_config);
+        let mut cryptarchia = Cryptarchia::from_lib(
+            lib_id,
+            self.initial_state.lib_ledger_state.clone(),
+            ledger_config,
+            state,
+        );
         let leader = Leader::new(
-            initial_state.lib_leader_utxos.clone(),
+            self.initial_state.lib_leader_utxos.clone(),
             leader_config.sk,
             ledger_config,
         );
 
         let blocks =
-            Self::get_blocks_in_range(lib_id, initial_state.tip, relays.storage_adapter()).await;
+            Self::get_blocks_in_range(lib_id, self.initial_state.tip, relays.storage_adapter())
+                .await;
 
         // Skip LIB block since it's already applied
         let blocks = blocks.into_iter().skip(1);
@@ -1223,7 +1310,8 @@ where
         let mut pruned_blocks = PrunedBlocks::new();
         for block in blocks {
             let (new_cryptarchia, new_pruned_blocks) =
-                Self::process_block(cryptarchia, block, relays, block_subscription_sender).await;
+                Self::process_block(cryptarchia, block, relays, &self.block_subscription_sender)
+                    .await;
             cryptarchia = new_cryptarchia;
             pruned_blocks.extend(&new_pruned_blocks);
         }
@@ -1313,13 +1401,11 @@ where
         }
     }
 
-    async fn handle_chainsync_event<State>(
-        cryptarchia: &Cryptarchia<State>,
-        sync_blocks_provider: &BlockProvider<Storage, State, TxS::Tx, BS::BlobId>,
+    async fn handle_chainsync_event(
+        cryptarchia: &Cryptarchia,
+        sync_blocks_provider: &BlockProvider<Storage, TxS::Tx, BS::BlobId>,
         event: ChainSyncEvent,
-    ) where
-        State: CryptarchiaState + Send + Sync + 'static,
-    {
+    ) {
         match event {
             ChainSyncEvent::ProvideBlocksRequest {
                 target_block,
@@ -1354,6 +1440,29 @@ where
                 }
             }
         }
+    }
+
+    async fn switch_to_online(
+        cryptarchia: Cryptarchia,
+        storage_blocks_to_remove: &HashSet<HeaderId>,
+        storage_adapter: &StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
+    ) -> (Cryptarchia, HashSet<HeaderId>) {
+        let (cryptarchia, pruned_blocks) = cryptarchia.online();
+        if let Err(e) = storage_adapter
+            .store_immutable_block_ids(pruned_blocks.immutable_blocks().clone())
+            .await
+        {
+            error!("Could not store immutable block IDs: {e}");
+        }
+
+        let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
+            pruned_blocks.stale_blocks().copied(),
+            storage_blocks_to_remove,
+            storage_adapter,
+        )
+        .await;
+
+        (cryptarchia, storage_blocks_to_remove)
     }
 }
 

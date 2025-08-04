@@ -7,7 +7,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use cryptarchia_engine::{Branch, CryptarchiaState, Slot};
+use cryptarchia_engine::{Branch, Slot};
 use futures::{future, stream, stream::BoxStream, StreamExt as _, TryStreamExt as _};
 use nomos_core::{block::Block, header::HeaderId, wire};
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageMsg};
@@ -50,20 +50,19 @@ enum BlockLocation {
     Storage,
 }
 
-pub struct BlockProvider<Storage, State, Tx, BlobCertificate>
+pub struct BlockProvider<Storage, Tx, BlobCertificate>
 where
     Storage: StorageBackend,
     Tx: Clone + Eq,
     BlobCertificate: Clone + Eq,
 {
     storage_relay: StorageRelay<Storage>,
-    _phantom: PhantomData<(State, Tx, BlobCertificate)>,
+    _phantom: PhantomData<(Tx, BlobCertificate)>,
 }
 
-impl<Storage, State, Tx, BlobCertificate> BlockProvider<Storage, State, Tx, BlobCertificate>
+impl<Storage, Tx, BlobCertificate> BlockProvider<Storage, Tx, BlobCertificate>
 where
     Storage: StorageBackend + 'static,
-    State: CryptarchiaState + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block: TryInto<Block<Tx, BlobCertificate>>,
     Tx: Serialize + Clone + Eq + Send + Sync + 'static,
     BlobCertificate: Serialize + Clone + Eq + Send + Sync + 'static,
@@ -79,7 +78,7 @@ where
     /// to the [`target_block`], and sends it to the [`reply_sender`].
     pub async fn send_blocks(
         &self,
-        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId, State>,
+        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId>,
         target_block: HeaderId,
         known_blocks: &HashSet<HeaderId>,
         reply_sender: Sender<BoxStream<'static, Result<Bytes, DynError>>>,
@@ -124,7 +123,7 @@ where
         &self,
         target_block: HeaderId,
         known_blocks: &HashSet<HeaderId>,
-        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId, State>,
+        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId>,
     ) -> Result<BoxStream<'static, Result<Bytes, DynError>>, DynError> {
         let path = self
             .find_path(cryptarchia, target_block, known_blocks)
@@ -165,7 +164,7 @@ where
     /// Finds the path from one of the known blocks to the target block
     async fn find_path(
         &self,
-        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId, State>,
+        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId>,
         target_block: HeaderId,
         known_blocks: &HashSet<HeaderId>,
     ) -> Result<Vec<HeaderId>, GetBlocksError> {
@@ -182,7 +181,7 @@ where
     /// Locates the target block and determines its slot and location
     async fn find_target_block(
         &self,
-        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId, State>,
+        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId>,
         target_block: HeaderId,
     ) -> Result<BlockInfo, GetBlocksError> {
         if let Some(target_branch) = cryptarchia.branches().get(&target_block) {
@@ -221,7 +220,7 @@ where
     /// [`GetBlocksError::StartBlockNotFound`] is returned.
     async fn find_optimal_start_block(
         &self,
-        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId, State>,
+        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId>,
         known_blocks: &HashSet<HeaderId>,
         target_info: &BlockInfo,
     ) -> Result<BlockInfo, GetBlocksError> {
@@ -239,7 +238,7 @@ where
     }
 
     fn find_optimal_start_block_from_engine(
-        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId, State>,
+        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId>,
         known_blocks: &HashSet<HeaderId>,
         target_info: &BlockInfo,
     ) -> Result<Option<BlockInfo>, GetBlocksError> {
@@ -279,7 +278,7 @@ where
 
     async fn compute_path_between_endpoints(
         &self,
-        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId, State>,
+        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId>,
         start_info: BlockInfo,
         target_info: BlockInfo,
     ) -> Result<Vec<HeaderId>, GetBlocksError> {
@@ -307,7 +306,7 @@ where
     }
 
     fn compute_path_from_engine(
-        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId, State>,
+        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId>,
         start_block: HeaderId,
         target_block: HeaderId,
         limit: NonZeroUsize,
@@ -348,7 +347,7 @@ where
     /// Builds a list of block IDs using storage scan + engine path when needed
     async fn compute_path_from_storage_and_engine(
         &self,
-        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId, State>,
+        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId>,
         start_block_slot: Slot,
         target_block: HeaderId,
         target_block_slot: Slot,
@@ -378,7 +377,7 @@ where
     }
 
     fn max_lca(
-        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId, State>,
+        cryptarchia: &cryptarchia_engine::Cryptarchia<HeaderId>,
         target_branch: &Branch<HeaderId>,
         known_blocks: &HashSet<HeaderId>,
     ) -> Option<Branch<HeaderId>> {

@@ -1,7 +1,11 @@
-use std::{collections::HashSet, error::Error};
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+};
 
 use async_trait::async_trait;
-use nomos_core::da::blob::Share;
+use multiaddr::Multiaddr;
+use nomos_core::{block::BlockNumber, da::blob::Share};
 
 pub mod requests;
 
@@ -61,6 +65,8 @@ pub trait StorageDaApi {
     type Share: Send + Sync;
     type Commitments: Send + Sync;
     type ShareIndex: Send + Sync;
+    type Id: Send + Sync;
+    type NetworkId: Send + Sync;
 
     async fn get_light_share(
         &mut self,
@@ -95,4 +101,22 @@ pub trait StorageDaApi {
         blob_id: Self::BlobId,
         shared_commitments: Self::Commitments,
     ) -> Result<(), Self::Error>;
+
+    async fn store_assignations(
+        &mut self,
+        block_number: BlockNumber,
+        assignations: HashMap<Self::NetworkId, HashSet<Self::Id>>,
+    ) -> Result<(), Self::Error>;
+
+    async fn get_assignations(
+        &mut self,
+        block_number: BlockNumber,
+    ) -> Result<HashMap<Self::NetworkId, HashSet<Self::Id>>, Self::Error>;
+
+    async fn store_addresses(
+        &mut self,
+        ids: HashMap<Self::Id, Multiaddr>,
+    ) -> Result<(), Self::Error>;
+
+    async fn get_address(&mut self, id: Self::Id) -> Result<Option<Multiaddr>, Self::Error>;
 }

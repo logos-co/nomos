@@ -1,6 +1,5 @@
 use std::{collections::HashSet, marker::PhantomData};
 
-use cryptarchia_engine::CryptarchiaState;
 use nomos_core::{header::HeaderId, mantle::Utxo};
 use nomos_ledger::LedgerState;
 use overwatch::{services::state::ServiceState, DynError};
@@ -32,8 +31,8 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings>
     /// Furthermore, it allows to specify blocks deleted from the cryptarchia
     /// engine (hence not tracked anymore) but that should be deleted from the
     /// persistence layer.
-    pub(crate) fn from_cryptarchia_and_unpruned_blocks<State: CryptarchiaState>(
-        cryptarchia: &Cryptarchia<State>,
+    pub(crate) fn from_cryptarchia_and_unpruned_blocks(
+        cryptarchia: &Cryptarchia,
         leader: &Leader,
         storage_blocks_to_remove: HashSet<HeaderId>,
     ) -> Result<Self, DynError> {
@@ -85,7 +84,7 @@ impl<TxS, BxS, NetworkAdapterSettings, BlendAdapterSettings> ServiceState
 mod tests {
     use std::num::NonZero;
 
-    use cryptarchia_engine::Boostrapping;
+    use cryptarchia_engine::State::Bootstrapping;
 
     use super::*;
 
@@ -110,9 +109,10 @@ mod tests {
         let (cryptarchia_engine, pruned_blocks) = {
             // Boostrapping mode since we are pursposefully adding old forks to test the
             // recovery mechanism.
-            let mut cryptarchia = cryptarchia_engine::Cryptarchia::<_, Boostrapping>::from_lib(
+            let mut cryptarchia = cryptarchia_engine::Cryptarchia::<_>::from_lib(
                 genesis_header_id,
                 cryptarchia_engine_config,
+                Bootstrapping,
             );
 
             //      b4 - b5

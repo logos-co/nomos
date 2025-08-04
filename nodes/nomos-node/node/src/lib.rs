@@ -6,7 +6,7 @@ use bytes::Bytes;
 use color_eyre::eyre::Result;
 use kzgrs_backend::common::share::DaShare;
 pub use kzgrs_backend::dispersal::BlobInfo;
-pub use nomos_blend_service::{
+pub use nomos_blend_service::core::{
     backends::libp2p::Libp2pBlendBackend as BlendBackend,
     network::libp2p::Libp2pAdapter as BlendNetworkAdapter,
 };
@@ -19,8 +19,7 @@ pub use nomos_core::{
 };
 pub use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBackend;
 use nomos_da_network_service::{
-    api::http::HttApiAdapter, membership::handler::DaMembershipHandler,
-    storage::adapters::mock::MockStorage, DaAddressbook,
+    api::http::HttApiAdapter, membership::handler::DaMembershipHandler, DaAddressbook,
 };
 use nomos_da_sampling::{
     backend::kzgrs::KzgrsSamplingBackend,
@@ -52,12 +51,14 @@ use nomos_time::backends::NtpTimeBackend;
 pub use nomos_tracing_service::Tracing;
 use overwatch::derive_services;
 use serde::{de::DeserializeOwned, Serialize};
-use subnetworks_assignations::versions::v1::FillFromNodeList;
+use subnetworks_assignations::versions::history_aware_refill::HistoryAware;
 
 pub use crate::config::{Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs};
 use crate::{
     api::backend::AxumBackend,
-    generic_services::{DaMembershipAdapter, MembershipService, SdpService},
+    generic_services::{
+        DaMembershipAdapter, DaMembershipStorageGeneric, MembershipService, SdpService,
+    },
 };
 
 pub const CONSENSUS_TOPIC: &str = "/cryptarchia/proto";
@@ -80,8 +81,8 @@ impl StorageSerde for Wire {
 }
 
 /// Membership used by the DA Network service.
-pub type NomosDaMembership = FillFromNodeList;
-pub type DaMembershipStorage = MockStorage;
+pub type NomosDaMembership = HistoryAware<PeerId>;
+type DaMembershipStorage = DaMembershipStorageGeneric<RuntimeServiceId>;
 pub type DaNetworkApiAdapter = HttApiAdapter<DaMembershipHandler<NomosDaMembership>, DaAddressbook>;
 
 #[cfg(feature = "tracing")]
@@ -89,7 +90,7 @@ pub(crate) type TracingService = Tracing<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-pub(crate) type BlendService = nomos_blend_service::BlendService<
+pub(crate) type BlendService = nomos_blend_service::core::BlendService<
     BlendBackend,
     PeerId,
     BlendNetworkAdapter<RuntimeServiceId>,

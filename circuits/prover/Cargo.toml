@@ -1,0 +1,10 @@
+[package]
+edition           = "2024"
+license.workspace = true
+name              = "circuits-prover"
+version           = "0.1.0"
+
+[dependencies]
+
+[lints]
+workspace = true

@@ -54,3 +54,15 @@ impl From<[u8; 32]> for PublicKey {
         Self::new(key)
     }
 }
+
+impl From<SecretKey> for [u8; 16] {
+    fn from(secret: SecretKey) -> Self {
+        secret.0
+    }
+}
+
+impl From<PublicKey> for [u8; 32] {
+    fn from(public: PublicKey) -> Self {
+        public.0
+    }
+}

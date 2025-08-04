@@ -3,7 +3,10 @@ use std::{collections::HashMap, sync::Mutex};
 use libp2p::PeerId;
 use nomos_core::block::BlockNumber;
 use nomos_da_network_core::SubnetworkId;
-use overwatch::services::{relay::OutboundRelay, state::NoState, ServiceData};
+use overwatch::{
+    services::{relay::OutboundRelay, state::NoState, ServiceData},
+    DynError,
+};
 
 use crate::{membership::Assignations, MembershipStorageAdapter};
 
@@ -19,6 +22,7 @@ impl ServiceData for MockStorageService {
 #[derive(Default)]
 struct StorageState {
     assignations: HashMap<BlockNumber, Assignations<PeerId, SubnetworkId>>,
+    addressbook: HashMap<PeerId, libp2p::Multiaddr>,
 }
 
 #[derive(Default)]
@@ -26,6 +30,7 @@ pub struct MockStorage {
     state: Mutex<StorageState>,
 }
 
+#[async_trait::async_trait]
 impl MembershipStorageAdapter<PeerId, SubnetworkId> for MockStorage {
     type StorageService = MockStorageService;
 
@@ -33,17 +38,41 @@ impl MembershipStorageAdapter<PeerId, SubnetworkId> for MockStorage {
         Self::default()
     }
 
-    fn store(&self, block_number: BlockNumber, assignations: Assignations<PeerId, SubnetworkId>) {
-        let mut state = self.state.lock().unwrap();
-        state.assignations.insert(block_number, assignations);
+    async fn store(
+        &self,
+        block_number: BlockNumber,
+        assignations: Assignations<PeerId, SubnetworkId>,
+    ) -> Result<(), DynError> {
+        self.state
+            .lock()
+            .unwrap()
+            .assignations
+            .insert(block_number, assignations);
+        Ok(())
     }
 
-    fn get(&self, block_number: BlockNumber) -> Option<Assignations<PeerId, SubnetworkId>> {
+    async fn get(
+        &self,
+        block_number: BlockNumber,
+    ) -> Result<Option<Assignations<PeerId, SubnetworkId>>, DynError> {
         let state = self.state.lock().unwrap();
-        state.assignations.get(&block_number).cloned()
+        Ok(state.assignations.get(&block_number).cloned())
     }
 
-    fn prune(&self) {
+    async fn store_addresses(
+        &self,
+        ids: HashMap<PeerId, libp2p::Multiaddr>,
+    ) -> Result<(), DynError> {
+        self.state.lock().unwrap().addressbook.extend(ids);
+        Ok(())
+    }
+
+    async fn get_address(&self, id: PeerId) -> Result<Option<libp2p::Multiaddr>, DynError> {
+        let state = self.state.lock().unwrap();
+        Ok(state.addressbook.get(&id).cloned())
+    }
+
+    async fn prune(&self) {
         todo!()
     }
 }

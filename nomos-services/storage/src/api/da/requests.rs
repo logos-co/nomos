@@ -1,5 +1,7 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
+use multiaddr::Multiaddr;
+use nomos_core::block::BlockNumber;
 use overwatch::DynError;
 use tokio::sync::oneshot::Sender;
 
@@ -14,6 +16,13 @@ use crate::{
     backends::StorageBackend,
     StorageMsg, StorageServiceError,
 };
+
+type AssignationsMap<Backend> =
+    HashMap<<Backend as StorageDaApi>::NetworkId, HashSet<<Backend as StorageDaApi>::Id>>;
+
+type AssignationsResponse<Backend> = AssignationsMap<Backend>;
+
+type AddressbookRequest<Backend> = HashMap<<Backend as StorageDaApi>::Id, Multiaddr>;
 
 pub enum DaApiRequest<Backend: StorageBackend> {
     GetLightShare {
@@ -41,6 +50,21 @@ pub enum DaApiRequest<Backend: StorageBackend> {
     StoreSharedCommitments {
         blob_id: <Backend as StorageDaApi>::BlobId,
         shared_commitments: <Backend as StorageDaApi>::Commitments,
+    },
+    GetAssignations {
+        block_number: BlockNumber,
+        response_tx: Sender<Option<AssignationsMap<Backend>>>,
+    },
+    StoreAssignations {
+        block_number: BlockNumber,
+        assignations: AssignationsMap<Backend>,
+    },
+    StoreAddresses {
+        ids: AddressbookRequest<Backend>,
+    },
+    GetAddress {
+        id: Backend::Id,
+        response_tx: Sender<Option<Multiaddr>>,
     },
 }
 
@@ -76,6 +100,18 @@ where
                 blob_id,
                 response_tx,
             } => handle_get_blob_light_shares(backend, blob_id, response_tx).await,
+            Self::StoreAssignations {
+                block_number,
+                assignations,
+            } => handle_store_assignations(backend, block_number, assignations).await,
+            Self::GetAssignations {
+                block_number,
+                response_tx,
+            } => handle_get_assignations(backend, block_number, response_tx).await,
+            Self::StoreAddresses { ids } => handle_store_addresses(backend, ids).await,
+            Self::GetAddress { id, response_tx } => {
+                handle_get_address(backend, id, response_tx).await
+            }
         }
     }
 }
@@ -177,6 +213,63 @@ async fn handle_store_shared_commitments<Backend: StorageBackend>(
         .map_err(|e| StorageServiceError::BackendError(e.into()))
 }
 
+async fn handle_store_assignations<Backend: StorageBackend>(
+    backend: &mut Backend,
+    block_number: BlockNumber,
+    assignations: AssignationsMap<Backend>,
+) -> Result<(), StorageServiceError> {
+    backend
+        .store_assignations(block_number, assignations)
+        .await
+        .map_err(|e| StorageServiceError::BackendError(e.into()))
+}
+
+async fn handle_get_assignations<Backend: StorageBackend>(
+    backend: &mut Backend,
+    block_number: BlockNumber,
+    response_tx: Sender<Option<AssignationsResponse<Backend>>>,
+) -> Result<(), StorageServiceError> {
+    let result = backend
+        .get_assignations(block_number)
+        .await
+        .map_err(|e| StorageServiceError::BackendError(e.into()))?;
+
+    if response_tx.send(Some(result)).is_err() {
+        return Err(StorageServiceError::ReplyError {
+            message: "Failed to send reply for get assignations request".to_owned(),
+        });
+    }
+    Ok(())
+}
+
+async fn handle_store_addresses<Backend: StorageBackend>(
+    backend: &mut Backend,
+    ids: AddressbookRequest<Backend>,
+) -> Result<(), StorageServiceError> {
+    backend
+        .store_addresses(ids)
+        .await
+        .map_err(|e| StorageServiceError::BackendError(e.into()))
+}
+
+async fn handle_get_address<Backend: StorageBackend>(
+    backend: &mut Backend,
+    id: Backend::Id,
+    response_tx: Sender<Option<Multiaddr>>,
+) -> Result<(), StorageServiceError> {
+    let result = backend
+        .get_address(id)
+        .await
+        .map_err(|e| StorageServiceError::BackendError(e.into()))?;
+
+    if response_tx.send(result).is_err() {
+        return Err(StorageServiceError::ReplyError {
+            message: "Failed to send reply for get address request".to_owned(),
+        });
+    }
+    Ok(())
+}
+
 impl<Backend: StorageBackend> StorageMsg<Backend> {
     pub fn get_light_share_request<Converter: DaConverter<Backend>>(
         blob_id: ServiceBlobId<Converter, Backend>,
@@ -266,5 +359,48 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
                 shared_commitments,
             }),
         })
+    }
+
+    #[must_use]
+    pub const fn get_assignations_request(
+        block_number: BlockNumber,
+        response_tx: Sender<Option<AssignationsResponse<Backend>>>,
+    ) -> Self {
+        Self::Api {
+            request: StorageApiRequest::Da(DaApiRequest::GetAssignations {
+                block_number,
+                response_tx,
+            }),
+        }
+    }
+
+    #[must_use]
+    pub const fn store_assignations_request(
+        block_number: BlockNumber,
+        assignations: AssignationsMap<Backend>,
+    ) -> Self {
+        Self::Api {
+            request: StorageApiRequest::Da(DaApiRequest::StoreAssignations {
+                block_number,
+                assignations,
+            }),
+        }
+    }
+
+    #[must_use]
+    pub const fn store_addresses_request(ids: AddressbookRequest<Backend>) -> Self {
+        Self::Api {
+            request: StorageApiRequest::Da(DaApiRequest::StoreAddresses { ids }),
+        }
+    }
+
+    #[must_use]
+    pub const fn get_address_request(
+        id: Backend::Id,
+        response_tx: Sender<Option<Multiaddr>>,
+    ) -> Self {
+        Self::Api {
+            request: StorageApiRequest::Da(DaApiRequest::GetAddress { id, response_tx }),
+        }
     }
 }
