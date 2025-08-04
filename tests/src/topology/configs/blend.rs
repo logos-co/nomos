@@ -44,6 +44,7 @@ pub fn create_blend_configs(ids: &[[u8; 32]]) -> Vec<GeneralBlendConfig> {
                         .try_into()
                         .expect("Normalization constant cannot be negative."),
                     edge_node_connection_timeout: Duration::from_secs(1),
+                    max_edge_node_incoming_connections: 300,
                 },
                 private_key: Ed25519PrivateKey::generate(),
                 membership: Vec::new(),

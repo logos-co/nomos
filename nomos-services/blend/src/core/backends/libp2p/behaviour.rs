@@ -1,4 +1,4 @@
-use std::{num::NonZeroU64, time::Duration};
+use std::num::NonZeroU64;
 
 use libp2p::{allow_block_list::BlockedPeers, connection_limits::ConnectionLimits, PeerId};
 use nomos_blend_network::core::with_core::behaviour::ObservationWindowTokioIntervalProvider;
@@ -35,7 +35,8 @@ impl BlendBehaviour {
             blend: nomos_blend_network::core::NetworkBehaviour::new(
                 &nomos_blend_network::core::Config {
                     with_edge: nomos_blend_network::core::with_edge::behaviour::Config {
-                        connection_timeout: Duration::from_secs(1),
+                        connection_timeout: config.backend.edge_node_connection_timeout,
+                        max_incoming_connections: config.backend.max_edge_node_incoming_connections,
                     },
                 },
                 observation_window_interval_provider,
@@ -43,8 +44,16 @@ impl BlendBehaviour {
             ),
             limits: libp2p::connection_limits::Behaviour::new(
                 ConnectionLimits::default()
-                    .with_max_established(Some(config.backend.max_peering_degree))
-                    .with_max_established_incoming(Some(config.backend.max_peering_degree))
+                    .with_max_established(Some(
+                        config.backend.max_peering_degree.saturating_add(
+                            config.backend.max_edge_node_incoming_connections as u32,
+                        ),
+                    ))
+                    .with_max_established_incoming(Some(
+                        config.backend.max_peering_degree.saturating_add(
+                            config.backend.max_edge_node_incoming_connections as u32,
+                        ),
+                    ))
                     .with_max_established_outgoing(Some(config.backend.max_peering_degree))
                     // Blend protocol restricts the number of connections per peer to 1.
                     .with_max_established_per_peer(Some(1)),
