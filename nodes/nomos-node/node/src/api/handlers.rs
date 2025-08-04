@@ -23,7 +23,7 @@ use nomos_core::{
         BlobId, DaVerifier as CoreDaVerifier,
     },
     header::HeaderId,
-    mantle::Transaction,
+    mantle::{SignedMantleTx, Transaction},
 };
 use nomos_da_messages::http::da::{
     DASharesCommitmentsRequest, DaSamplingRequest, GetRangeReq, GetSharesRequest,
@@ -359,7 +359,8 @@ where
     <VB as VerifierBackend>::Settings: Clone,
     <VB as CoreDaVerifier>::Error: Error,
     SS: StorageSerde + Send + Sync + 'static,
-    StorageConverter: DaConverter<DaStorageBackend<SS>, Share = S> + Send + Sync + 'static,
+    StorageConverter:
+        DaConverter<DaStorageBackend<SS>, Share = S, Tx = SignedMantleTx> + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display

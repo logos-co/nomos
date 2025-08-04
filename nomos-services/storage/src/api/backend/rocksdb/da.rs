@@ -18,6 +18,7 @@ pub const DA_VID_KEY_PREFIX: &str = "da/vid/";
 pub const DA_BLOB_SHARES_INDEX_PREFIX: &str = concat!("da/verified/", "si");
 pub const DA_SHARED_COMMITMENTS_PREFIX: &str = concat!("da/verified/", "sc");
 pub const DA_SHARE_PREFIX: &str = concat!("da/verified/", "bl");
+pub const DA_TX_PREFIX: &str = concat!("da/verified/", "tx");
 
 #[async_trait]
 impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBackend<SerdeOp> {
@@ -25,6 +26,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
     type BlobId = BlobId;
     type Share = Bytes;
     type Commitments = Bytes;
+    type Tx = Bytes;
     type ShareIndex = [u8; 2];
 
     async fn get_light_share(
@@ -131,5 +133,29 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
     ) -> Result<(), Self::Error> {
         let commitments_key = key_bytes(DA_SHARED_COMMITMENTS_PREFIX, blob_id.as_ref());
         self.store(commitments_key, shared_commitments).await
+    }
+
+    async fn store_tx(&mut self, blob_id: Self::BlobId, tx: Self::Tx) -> Result<(), Self::Error> {
+        let tx_key = key_bytes(DA_TX_PREFIX, blob_id.as_ref());
+        let serialized_tx = SerdeOp::serialize(tx);
+        self.store(tx_key, serialized_tx).await
+    }
+
+    async fn get_tx(&mut self, blob_id: Self::BlobId) -> Result<Option<Self::Tx>, Self::Error> {
+        let tx_key = key_bytes(DA_TX_PREFIX, blob_id.as_ref());
+        let tx_bytes = self.load(&tx_key).await?;
+
+        let tx = tx_bytes.map_or_else(
+            || None,
+            |bytes| match SerdeOp::deserialize::<Self::Tx>(bytes) {
+                Ok(tx) => Some(tx),
+                Err(e) => {
+                    error!("Failed to deserialize tx: {:?}", e);
+                    None
+                }
+            },
+        );
+
+        Ok(tx)
     }
 }

@@ -28,7 +28,7 @@ use tokio::{
 use tokio_stream::wrappers::{BroadcastStream, IntervalStream, UnboundedReceiverStream};
 use tracing::instrument;
 
-use super::common::CommitmentsEvent;
+use super::common::{CommitmentsEvent, VerificationEvent};
 use crate::{
     backends::{
         libp2p::common::{
@@ -76,7 +76,7 @@ pub enum DaNetworkEventKind {
 pub enum DaNetworkEvent {
     Sampling(SamplingEvent),
     Commitments(CommitmentsEvent),
-    Verifying(Box<DaShare>),
+    Verifying(VerificationEvent),
     Dispersal(DispersalExecutorEvent),
 }
 
@@ -101,7 +101,7 @@ where
     commitments_request_channel: UnboundedSender<BlobId>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
     commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
-    verifying_broadcast_receiver: broadcast::Receiver<DaShare>,
+    verifying_broadcast_receiver: broadcast::Receiver<VerificationEvent>,
     dispersal_broadcast_receiver: broadcast::Receiver<DispersalExecutorEvent>,
     dispersal_shares_sender: UnboundedSender<(Membership::NetworkId, DaShare)>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
@@ -307,7 +307,7 @@ where
             DaNetworkEventKind::Verifying => Box::pin(
                 BroadcastStream::new(self.verifying_broadcast_receiver.resubscribe())
                     .filter_map(|event| async { event.ok() })
-                    .map(|share| Self::NetworkEvent::Verifying(Box::new(share))),
+                    .map(Self::NetworkEvent::Verifying),
             ),
             DaNetworkEventKind::Dispersal => Box::pin(
                 BroadcastStream::new(self.dispersal_broadcast_receiver.resubscribe())

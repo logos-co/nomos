@@ -21,7 +21,7 @@ use nomos_core::{
         DaVerifier as CoreDaVerifier,
     },
     header::HeaderId,
-    mantle::Transaction,
+    mantle::{SignedMantleTx, Transaction},
 };
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
@@ -258,8 +258,10 @@ where
     TimeBackend: nomos_time::backends::TimeBackend + Send + 'static,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_network_service::api::ApiAdapter + Send + Sync + 'static,
-    DaStorageConverter:
-        DaConverter<DaStorageBackend<DaStorageSerializer>, Share = DaShare> + Send + Sync + 'static,
+    DaStorageConverter: DaConverter<DaStorageBackend<DaStorageSerializer>, Share = DaShare, Tx = SignedMantleTx>
+        + Send
+        + Sync
+        + 'static,
     StorageAdapter:
         storage::StorageAdapter<DaStorageSerializer, RuntimeServiceId> + Send + Sync + 'static,
     RuntimeServiceId: Debug

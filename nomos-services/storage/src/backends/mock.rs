@@ -146,6 +146,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
     type BlobId = [u8; 32];
     type Share = Bytes;
     type Commitments = Bytes;
+    type Tx = ();
     type ShareIndex = [u8; 2];
 
     async fn get_light_share(
@@ -191,6 +192,14 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
         &mut self,
         _blob_id: Self::BlobId,
     ) -> Result<Option<Vec<Self::Share>>, Self::Error> {
+        unimplemented!()
+    }
+
+    async fn get_tx(&mut self, _blob_id: Self::BlobId) -> Result<Option<Self::Tx>, Self::Error> {
+        unimplemented!()
+    }
+
+    async fn store_tx(&mut self, _blob_id: Self::BlobId, _tx: Self::Tx) -> Result<(), Self::Error> {
         unimplemented!()
     }
 }
