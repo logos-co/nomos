@@ -1,7 +1,12 @@
+pub mod rapidsnark;
+pub mod traits;
+
 use std::{io::Write as _, path::PathBuf, sync::LazyLock};
 
 use circuits_utils::find_binary;
+pub use rapidsnark::Rapidsnark;
 use tempfile::NamedTempFile;
+pub use traits::Verifier;
 
 const BINARY_NAME: &str = "verifier";
 const BINARY_ENV_VAR: &str = "NOMOS_VERIFIER";
@@ -23,8 +28,8 @@ static BINARY: LazyLock<PathBuf> = LazyLock::new(|| {
 ///
 /// # Returns
 ///
-/// An `io::Result<bool>` which indicates whether the verification was
-/// successful or not, or an `io::Error` if the command fails.
+/// An [`io::Result<bool>`] which indicates whether the verification was
+/// successful or not, or an [`io::Error`] if the command fails.
 fn verifier(
     verification_key_file: &PathBuf,
     public_file: &PathBuf,
@@ -48,14 +53,15 @@ fn verifier(
 ///
 /// # Arguments
 ///
-/// * `verification_key_contents` - The contents of the verification key.
-/// * `public_contents` - The contents of the public inputs.
-/// * `proof_contents` - The contents of the proof.
+/// * `verification_key_contents` - A byte slice containing the verification
+///   key.
+/// * `public_contents` - A byte slice containing the public inputs.
+/// * `proof_contents` - A byte slice containing the proof.
 ///
 /// # Returns
 ///
-/// An `io::Result<bool>` which indicates whether the verification was
-/// successful or not, or an `io::Error` if the command fails.
+/// An [`io::Result<bool>`] which indicates whether the verification was
+/// successful or not, or an [`io::Error`] if the command fails.
 pub fn verifier_from_contents(
     verification_key_contents: &[u8],
     public_contents: &[u8],

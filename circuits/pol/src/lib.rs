@@ -1,7 +1,12 @@
+pub mod pol;
+pub mod traits;
+
 use std::{io, io::Write as _, path::PathBuf, sync::LazyLock};
 
 use circuits_utils::find_binary;
+pub use pol::Pol;
 use tempfile::NamedTempFile;
+pub use traits::WitnessGenerator;
 
 const BINARY_NAME: &str = "pol";
 const BINARY_ENV_VAR: &str = "NOMOS_POL";
@@ -22,8 +27,8 @@ static BINARY: LazyLock<PathBuf> = LazyLock::new(|| {
 ///
 /// # Returns
 ///
-/// An `io::Result<PathBuf>` which contains the path to the witness file if
-/// successful, or an `io::Error` if the command fails.
+/// An [`io::Result<PathBuf>`] which contains the path to the witness file if
+/// successful, or an [`io::Error`] if the command fails.
 pub fn pol(inputs_file: &PathBuf, witness_file: &PathBuf) -> io::Result<PathBuf> {
     let output = std::process::Command::new(BINARY.to_owned())
         .arg(inputs_file)
@@ -52,8 +57,8 @@ pub fn pol(inputs_file: &PathBuf, witness_file: &PathBuf) -> io::Result<PathBuf>
 ///
 /// # Returns
 ///
-/// An `io::Result<String>` which contains the witness if successful, or an
-/// `io::Error` if the command fails.
+/// An [`io::Result<String>`] which contains the witness if successful, or an
+/// [`io::Error`] if the command fails.
 pub fn pol_from_content(inputs: &str) -> io::Result<Vec<u8>> {
     let mut inputs_file = NamedTempFile::new()?;
     let witness_file = NamedTempFile::new()?;
