@@ -1,4 +1,4 @@
-use std::io;
+use crate::Result;
 
 pub trait WitnessGenerator {
     /// Generates a witness from the given inputs.
@@ -9,7 +9,6 @@ pub trait WitnessGenerator {
     ///
     /// # Returns
     ///
-    /// An [`io::Result<Vec<u8>>`] which contains the witness if successful, or
-    /// an [`io::Error`] if the command fails.
-    fn generate_witness(inputs: &str) -> io::Result<Vec<u8>>;
+    /// A [`Result<Vec<u8>>`] which contains the witness if successful.
+    fn generate_witness(inputs: &str) -> Result<Vec<u8>>;
 }

@@ -1,4 +1,8 @@
-use std::{io, io::Write as _, path::PathBuf, sync::LazyLock};
+use std::{
+    io::{Error, Write as _},
+    path::PathBuf,
+    sync::LazyLock,
+};
 
 use circuits_utils::find_binary;
 use tempfile::NamedTempFile;
@@ -34,9 +38,7 @@ pub fn pol(inputs_file: &PathBuf, witness_file: &PathBuf) -> Result<PathBuf> {
 
     if !output.status.success() {
         let error_message = String::from_utf8_lossy(&output.stderr);
-        return Err(io::Error::other(format!(
-            "pol command failed: {error_message}"
-        )));
+        return Err(Error::other(format!("pol command failed: {error_message}")));
     }
 
     Ok(witness_file.to_owned())
