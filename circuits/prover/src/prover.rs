@@ -1,4 +1,4 @@
-use std::io;
+use crate::Result;
 
 pub trait Prover {
     /// Generates a proof from the given circuit and witness contents.
@@ -17,5 +17,5 @@ pub trait Prover {
     fn generate_proof(
         circuit_contents: &[u8],
         witness_contents: &[u8],
-    ) -> io::Result<(Vec<u8>, Vec<u8>)>;
+    ) -> Result<(Vec<u8>, Vec<u8>)>;
 }
