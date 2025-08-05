@@ -1,4 +1,4 @@
-use crate::{traits::Verifier, verifier_from_contents};
+use crate::{Result, traits::Verifier, wrappers::verifier_from_contents};
 
 pub struct Rapidsnark;
 
@@ -7,7 +7,7 @@ impl Verifier for Rapidsnark {
         verification_key_contents: &[u8],
         public_contents: &[u8],
         proof_contents: &[u8],
-    ) -> std::io::Result<bool> {
+    ) -> Result<bool> {
         verifier_from_contents(verification_key_contents, public_contents, proof_contents)
     }
 }
