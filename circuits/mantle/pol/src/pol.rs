@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::{WitnessGenerator, pol_from_content};
+use crate::{WitnessGenerator, wrappers::pol_from_content};
 
 pub struct Pol;
 
