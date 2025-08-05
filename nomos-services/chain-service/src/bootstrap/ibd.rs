@@ -199,6 +199,8 @@ where
                         (self.process_block)(cryptarchia, storage_blocks_to_remove, block).await;
                     // TODO: Stop download if process_block fails.
                     //       (Requires refactoring the chain service)
+                    // TODO: Close the download (the underlying stream) when we need to stop it.
+                    //       https://github.com/logos-co/nomos/issues/1517
                     downloads.add_download(download);
                 }
                 DownloadsOutput::DownloadCompleted(download) => {
