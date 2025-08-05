@@ -297,6 +297,7 @@ where
                 }
                 // If there is no outbound substream, request to open a new one.
                 None => {
+                    tracing::debug!(target: LOG_TARGET, "Outbound substream is not initialized yet. Reque.");
                     self.outbound_substream = Some(OutboundSubstreamState::PendingOpenSubstream);
                     return Poll::Ready(ConnectionHandlerEvent::OutboundSubstreamRequest {
                         protocol: SubstreamProtocol::new(ReadyUpgrade::new(PROTOCOL_NAME), ()),
