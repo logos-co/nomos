@@ -1,4 +1,4 @@
-use std::io;
+use crate::Result;
 
 pub trait Verifier {
     /// Verifies a proof using the provided verification key and public inputs.
@@ -18,5 +18,5 @@ pub trait Verifier {
         verification_key_contents: &[u8],
         public_contents: &[u8],
         proof_contents: &[u8],
-    ) -> io::Result<bool>;
+    ) -> Result<bool>;
 }
