@@ -17,5 +17,5 @@ pub trait Prover {
     fn generate_proof(
         circuit_contents: &[u8],
         witness_contents: &[u8],
-    ) -> io::Result<(String, String)>;
+    ) -> io::Result<(Vec<u8>, Vec<u8>)>;
 }

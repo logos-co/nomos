@@ -1,5 +1,5 @@
 use std::{
-    io::{Error, Write as _, read_to_string},
+    io::{Error, Write as _},
     path::PathBuf,
     sync::LazyLock,
 };
@@ -76,7 +76,7 @@ pub fn prover(
 pub fn prover_from_contents(
     circuit_contents: &[u8],
     witness_contents: &[u8],
-) -> Result<(String, String)> {
+) -> Result<(Vec<u8>, Vec<u8>)> {
     let mut circuit_file = NamedTempFile::new()?;
     let mut witness_file = NamedTempFile::new()?;
     let proof_file = NamedTempFile::new()?;
@@ -91,8 +91,8 @@ pub fn prover_from_contents(
         &public_file.path().to_path_buf(),
     )?;
 
-    let proof = read_to_string(proof_file)?;
-    let public = read_to_string(public_file)?;
+    let proof = std::fs::read(proof_file)?;
+    let public = std::fs::read(public_file)?;
     Ok((proof, public))
 }
 
