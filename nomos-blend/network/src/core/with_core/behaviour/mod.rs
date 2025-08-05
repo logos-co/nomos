@@ -249,6 +249,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
 
     /// Notify the swarm to close the specified connection.
     fn close_connection(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
+        tracing::debug!(target: LOG_TARGET, "Instructing swarm to close connection {connection_id:?} with peer {peer_id:?}.");
         self.events.push_back(ToSwarm::CloseConnection {
             peer_id,
             connection: CloseConnection::One(connection_id),
@@ -257,6 +258,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     }
 
     fn handle_negotiated_connection(&mut self, connection: (PeerId, ConnectionId)) {
+        tracing::debug!(target: LOG_TARGET, "Connection {connection:?} has been negotiated.");
         if !self.established_connections.contains_key(&connection) {
             tracing::warn!(target: LOG_TARGET, "Marking peer as healthy that was not previously added to the map of established connections. Peer ID: {:?}, connection ID: {:?}. Ignoring.", connection.0, connection.1);
             return;
@@ -405,15 +407,18 @@ where
         // If no membership is provided (for tests), then we assume all peers are core
         // nodes.
         let Some(membership) = &self.current_membership else {
+            tracing::debug!(target: LOG_TARGET, "Upgrading inbound connection {connection_id:?} with core peer {peer_id:?}.");
             return Ok(Either::Left(ConnectionHandler::new(
                 ConnectionMonitor::new(self.observation_window_clock_provider.interval_stream()),
             )));
         };
         Ok(if membership.contains_remote(&peer_id) {
+            tracing::debug!(target: LOG_TARGET, "Upgrading inbound connection {connection_id:?} with core peer {peer_id:?}.");
             Either::Left(ConnectionHandler::new(ConnectionMonitor::new(
                 self.observation_window_clock_provider.interval_stream(),
             )))
         } else {
+            tracing::debug!(target: LOG_TARGET, "Denying inbound connection {connection_id:?} with edge peer {peer_id:?}.");
             self.close_connection(peer_id, connection_id);
             Either::Right(DummyConnectionHandler)
         })
@@ -442,15 +447,18 @@ where
         // If no membership is provided (for tests), then we assume all peers are core
         // nodes.
         let Some(membership) = &self.current_membership else {
+            tracing::debug!(target: LOG_TARGET, "Upgrading outbound connection {connection_id:?} with core peer {peer_id:?}.");
             return Ok(Either::Left(ConnectionHandler::new(
                 ConnectionMonitor::new(self.observation_window_clock_provider.interval_stream()),
             )));
         };
         Ok(if membership.contains_remote(&peer_id) {
+            tracing::debug!(target: LOG_TARGET, "Upgrading outbound connection {connection_id:?} with core peer {peer_id:?}.");
             Either::Left(ConnectionHandler::new(ConnectionMonitor::new(
                 self.observation_window_clock_provider.interval_stream(),
             )))
         } else {
+            tracing::debug!(target: LOG_TARGET, "Denying outbound connection {connection_id:?} with edge peer {peer_id:?}.");
             self.close_connection(peer_id, connection_id);
             Either::Right(DummyConnectionHandler)
         })
@@ -480,6 +488,7 @@ where
             };
             let Some(last_peer_negotiated_state) = last_peer_negotiated_state else {
                 // We have closed a connection with a peer that was not upgraded. Ignore it.
+                tracing::debug!(target: LOG_TARGET, "Removing connection {connection_id:?} from storage for un-negotiated peer {peer_id:?}.");
                 return;
             };
 

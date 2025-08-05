@@ -67,7 +67,8 @@ enum OutboundSubstreamState {
 }
 
 impl<ConnectionWindowClock> ConnectionHandler<ConnectionWindowClock> {
-    pub const fn new(monitor: ConnectionMonitor<ConnectionWindowClock>) -> Self {
+    pub fn new(monitor: ConnectionMonitor<ConnectionWindowClock>) -> Self {
+        tracing::trace!(target: LOG_TARGET, "Initializing core->core connection handler.");
         Self {
             inbound_substream: None,
             outbound_substream: None,
