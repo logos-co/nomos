@@ -9,9 +9,9 @@ use either::Either;
 use libp2p::{
     core::{transport::PortUse, Endpoint},
     swarm::{
-        dummy::ConnectionHandler as DummyConnectionHandler, CloseConnection, ConnectionClosed,
-        ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
-        THandlerOutEvent, ToSwarm,
+        dummy::ConnectionHandler as DummyConnectionHandler, ConnectionClosed, ConnectionDenied,
+        ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent,
+        ToSwarm,
     },
     Multiaddr, PeerId,
 };
@@ -90,15 +90,6 @@ impl Behaviour {
             .push_back(ToSwarm::GenerateEvent(Event::Message(validated_message)));
         self.try_wake();
     }
-
-    /// Notify the swarm to close the specified connection.
-    fn close_connection(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
-        self.events.push_back(ToSwarm::CloseConnection {
-            peer_id,
-            connection: CloseConnection::One(connection_id),
-        });
-        self.try_wake();
-    }
 }
 
 impl NetworkBehaviour for Behaviour {
@@ -116,20 +107,17 @@ impl NetworkBehaviour for Behaviour {
         let connected_peers = self.connected_edge_peers.len();
 
         // If the new peer makes the set of incoming connections too large, do not try
-        // to upgrade the connection and immediately close it.
+        // to upgrade the connection.
         if connected_peers > self.max_incoming_connections {
             tracing::trace!(target: LOG_TARGET, "Connected peer {peer:?} on connection {connection_id:?} will not be upgraded since we are already at maximum incoming connection capacity.");
-            self.close_connection(peer, connection_id);
             return Ok(Either::Right(DummyConnectionHandler));
         }
 
         let Some(membership) = &self.current_membership else {
-            self.close_connection(peer, connection_id);
             return Ok(Either::Right(DummyConnectionHandler));
         };
         // Allow only inbound connections from edge nodes.
         Ok(if membership.contains_remote(&peer) {
-            self.close_connection(peer, connection_id);
             Either::Right(DummyConnectionHandler)
         } else {
             Either::Left(ConnectionHandler::new(self.connection_timeout))
@@ -138,15 +126,14 @@ impl NetworkBehaviour for Behaviour {
 
     fn handle_established_outbound_connection(
         &mut self,
-        connection_id: ConnectionId,
-        peer_id: PeerId,
+        _: ConnectionId,
+        _: PeerId,
         _: &Multiaddr,
         _: Endpoint,
         _: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
         // No outbound sub-stream at all, since substreams with core nodes are handled
         // elsewhere, and substreams with edge nodes are not allowed.
-        self.close_connection(peer_id, connection_id);
         Ok(Either::Right(DummyConnectionHandler))
     }
 

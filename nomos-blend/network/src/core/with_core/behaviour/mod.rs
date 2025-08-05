@@ -10,9 +10,9 @@ use futures::Stream;
 use libp2p::{
     core::{transport::PortUse, Endpoint},
     swarm::{
-        dummy::ConnectionHandler as DummyConnectionHandler, CloseConnection, ConnectionClosed,
-        ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, NotifyHandler, THandler,
-        THandlerInEvent, THandlerOutEvent, ToSwarm,
+        dummy::ConnectionHandler as DummyConnectionHandler, ConnectionClosed, ConnectionDenied,
+        ConnectionId, FromSwarm, NetworkBehaviour, NotifyHandler, THandler, THandlerInEvent,
+        THandlerOutEvent, ToSwarm,
     },
     Multiaddr, PeerId,
 };
@@ -247,16 +247,6 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         }
     }
 
-    /// Notify the swarm to close the specified connection.
-    fn close_connection(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
-        tracing::debug!(target: LOG_TARGET, "Instructing swarm to close connection {connection_id:?} with peer {peer_id:?}.");
-        self.events.push_back(ToSwarm::CloseConnection {
-            peer_id,
-            connection: CloseConnection::One(connection_id),
-        });
-        self.try_wake();
-    }
-
     fn handle_negotiated_connection(&mut self, connection: (PeerId, ConnectionId)) {
         tracing::debug!(target: LOG_TARGET, "Connection {connection:?} has been negotiated.");
         if !self.established_connections.contains_key(&connection) {
@@ -271,12 +261,10 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         self.mark_connection_as_malicious(connection);
     }
 
-    /// Mark the connection with the sender of a malformed message as malicious
-    /// and instruct the swarm to close it.
+    /// Mark the connection with the sender of a malformed message as malicious.
     fn mark_connection_as_malicious(&mut self, connection: (PeerId, ConnectionId)) {
         tracing::debug!(target: LOG_TARGET, "Closing connection and marking core peer {:?} on connection {:?} as malicious.", connection.0, connection.1);
         self.update_negotiated_state(connection, NegotiatedPeerState::Spammy);
-        self.close_connection(connection.0, connection.1);
     }
 
     fn handle_unhealthy_peer(&mut self, connection: (PeerId, ConnectionId)) {
@@ -385,6 +373,10 @@ where
     >;
     type ToSwarm = Event;
 
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "It's good to keep everything in a single function here."
+    )]
     fn handle_established_inbound_connection(
         &mut self,
         connection_id: ConnectionId,
@@ -400,7 +392,6 @@ where
         // try to upgrade the connection.
         if connected_peers > *self.peering_degree.end() {
             tracing::trace!(target: LOG_TARGET, "Inbound connection {connection_id:?} with peer {peer_id:?} will not be upgraded since we are already at maximum peering capacity.");
-            self.close_connection(peer_id, connection_id);
             return Ok(Either::Right(DummyConnectionHandler));
         }
 
@@ -419,11 +410,14 @@ where
             )))
         } else {
             tracing::debug!(target: LOG_TARGET, "Denying inbound connection {connection_id:?} with edge peer {peer_id:?}.");
-            self.close_connection(peer_id, connection_id);
             Either::Right(DummyConnectionHandler)
         })
     }
 
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "It's good to keep everything in a single function here."
+    )]
     fn handle_established_outbound_connection(
         &mut self,
         connection_id: ConnectionId,
@@ -440,7 +434,6 @@ where
         // try to upgrade the connection.
         if connected_peers > *self.peering_degree.end() {
             tracing::trace!(target: LOG_TARGET, "Outbound connection {connection_id:?} with peer {peer_id:?} will not be upgraded since we are already at maximum peering capacity.");
-            self.close_connection(peer_id, connection_id);
             return Ok(Either::Right(DummyConnectionHandler));
         }
 
@@ -459,7 +452,6 @@ where
             )))
         } else {
             tracing::debug!(target: LOG_TARGET, "Denying outbound connection {connection_id:?} with edge peer {peer_id:?}.");
-            self.close_connection(peer_id, connection_id);
             Either::Right(DummyConnectionHandler)
         })
     }
@@ -534,9 +526,7 @@ where
                 ToBehaviour::HealthyPeer => {
                     self.handle_healthy_peer((peer_id, connection_id));
                 }
-                ToBehaviour::IOError(_) | ToBehaviour::DialUpgradeError(_) => {
-                    self.close_connection(peer_id, connection_id);
-                }
+                ToBehaviour::IOError(_) | ToBehaviour::DialUpgradeError(_) => {}
             },
         }
     }
