@@ -7,7 +7,7 @@ use nomos_da_messages::{
 
 use super::{
     errors::SamplingError, BehaviourSampleReq, ResponseChannel, SampleFutureError,
-    SampleFutureSuccess, SampleStreamResponse,
+    SampleRequestFutureSuccess, SampleResponseFutureSuccess,
 };
 
 /// Auxiliary struct that binds a stream with the corresponding `PeerId`
@@ -21,7 +21,7 @@ pub struct SampleStream {
 pub async fn stream_sample(
     mut stream: SampleStream,
     message: sampling::SampleRequest,
-) -> Result<SampleFutureSuccess, SampleFutureError> {
+) -> Result<SampleResponseFutureSuccess, SampleFutureError> {
     let peer_id = stream.peer_id;
     if let Err(error) = pack_to_writer(&message, &mut stream.stream).await {
         return Err((
@@ -59,7 +59,7 @@ pub async fn stream_sample(
         }
     };
 
-    Ok((peer_id, SampleStreamResponse::Writer(response), stream))
+    Ok((peer_id, response, stream))
 }
 
 /// Handler for incoming streams
@@ -67,7 +67,7 @@ pub async fn stream_sample(
 pub async fn handle_incoming_stream(
     mut stream: SampleStream,
     channel: ResponseChannel,
-) -> Result<SampleFutureSuccess, SampleFutureError> {
+) -> Result<SampleRequestFutureSuccess, SampleFutureError> {
     let peer_id = stream.peer_id;
     let request: sampling::SampleRequest = match unpack_from_reader(&mut stream.stream).await {
         Ok(req) => req,
@@ -132,5 +132,5 @@ pub async fn handle_incoming_stream(
         ));
     }
 
-    Ok((peer_id, SampleStreamResponse::Reader, stream))
+    Ok((peer_id, stream))
 }
