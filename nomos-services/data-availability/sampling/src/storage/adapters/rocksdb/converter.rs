@@ -61,14 +61,14 @@ where
     }
 
     fn tx_to_storage(
-        _backend_tx: SignedMantleTx,
+        service_tx: SignedMantleTx,
     ) -> Result<<RocksBackend<SerdeOP> as StorageDaApi>::Tx, Self::Error> {
-        unimplemented!() // Not needed for sampling.
+        Ok(SerdeOP::serialize(&service_tx))
     }
 
     fn tx_from_storage(
-        _service_tx: <RocksBackend<SerdeOP> as StorageDaApi>::Tx,
+        backend_tx: <RocksBackend<SerdeOP> as StorageDaApi>::Tx,
     ) -> Result<SignedMantleTx, Self::Error> {
-        unimplemented!() // Not needed for sampling.
+        SerdeOP::deserialize(backend_tx)
     }
 }

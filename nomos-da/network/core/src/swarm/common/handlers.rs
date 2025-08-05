@@ -51,11 +51,9 @@ pub async fn handle_replication_event(
     event: ReplicationEvent,
 ) {
     if let ReplicationEvent::IncomingMessage { message, .. } = event {
-        let dispersal_event = match message.as_ref() {
-            ReplicationRequest::Share(share_request) => {
-                DispersalEvent::new_share(share_request.share.clone())
-            }
-            ReplicationRequest::Tx(_signed_mantle_tx) => todo!(),
+        let dispersal_event = match *message {
+            ReplicationRequest::Share(share_request) => DispersalEvent::from(share_request.share),
+            ReplicationRequest::Tx(tx) => DispersalEvent::from(tx),
         };
         if let Err(e) = validation_events_sender.send(dispersal_event) {
             error!("Error sending blob to validation: {e:?}");

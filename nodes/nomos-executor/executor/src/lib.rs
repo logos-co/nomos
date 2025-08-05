@@ -12,6 +12,7 @@ use nomos_da_dispersal::{
     adapters::{
         mempool::kzgrs::KzgrsMempoolAdapter,
         network::libp2p::Libp2pNetworkAdapter as DispersalNetworkAdapter,
+        wallet::mock::MockWalletAdapter as DispersalWalletAdapter,
     },
     backend::kzgrs::DispersalKZGRSBackend,
     DispersalService,
@@ -85,6 +86,7 @@ pub(crate) type DaDispersalService = DispersalService<
             RuntimeServiceId,
         >,
         DispersalMempoolAdapter,
+        DispersalWalletAdapter,
     >,
     DispersalNetworkAdapter<
         NomosDaMembership,
@@ -244,6 +246,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
                 RuntimeServiceId,
             >,
             DispersalMempoolAdapter,
+            DispersalWalletAdapter,
         >,
         DispersalNetworkAdapter<
             NomosDaMembership,

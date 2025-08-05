@@ -70,16 +70,23 @@ pub enum DispersalEvent {
 
 impl DispersalEvent {
     #[must_use]
-    pub fn new_share(share: Share) -> Self {
-        Self::IncomingShare(Box::new(share))
-    }
-
-    #[must_use]
     pub fn share_size(&self) -> Option<usize> {
         match self {
             Self::IncomingShare(share) => Some(share.data.column_len()),
             Self::IncomingTx { .. } | Self::DispersalError { .. } => None,
         }
+    }
+}
+
+impl From<Share> for DispersalEvent {
+    fn from(share: Share) -> Self {
+        Self::IncomingShare(Box::new(share))
+    }
+}
+
+impl From<SignedMantleTx> for DispersalEvent {
+    fn from(tx: SignedMantleTx) -> Self {
+        Self::IncomingTx(Box::new(tx))
     }
 }
 
