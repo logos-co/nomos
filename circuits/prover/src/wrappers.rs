@@ -32,7 +32,7 @@ static BINARY: LazyLock<PathBuf> = LazyLock::new(|| {
 ///
 /// # Returns
 ///
-/// An [`Result<(PathBuf, PathBuf)>`] which contains the paths to the proof
+/// A [`Result<(PathBuf, PathBuf)>`] which contains the paths to the proof
 /// file and public inputs file if successful.
 pub fn prover(
     circuit_file: &PathBuf,
@@ -71,7 +71,7 @@ pub fn prover(
 ///
 /// # Returns
 ///
-/// An [`Result<(String, String)>`] which contains the proof and public
+/// A [`Result<(String, String)>`] which contains the proof and public
 /// inputs as strings if successful.
 pub fn prover_from_contents(
     circuit_contents: &[u8],
