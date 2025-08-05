@@ -34,6 +34,8 @@ const VALUE_FULLY_NEGOTIATED_OUTBOUND: &str = "fully_negotiated_outbound";
 const VALUE_DIAL_UPGRADE_ERROR: &str = "dial_upgrade_error";
 const VALUE_IGNORED: &str = "ignored";
 
+const LOG_TARGET: &str = "blend::network::core::core::conn::handler";
+
 pub struct ConnectionHandler<ConnectionWindowClock> {
     inbound_substream: Option<InboundSubstreamState>,
     outbound_substream: Option<OutboundSubstreamState>,
@@ -195,10 +197,10 @@ where
 
         // Process inbound stream
         // TODO: Refactor this to a separate function.
-        tracing::debug!("Processing inbound stream");
+        tracing::debug!(target: LOG_TARGET, "Processing inbound stream");
         match self.inbound_substream.take() {
             None => {
-                tracing::debug!("Inbound substream is not initialized yet. Doing nothing.");
+                tracing::debug!(target: LOG_TARGET, "Inbound substream is not initialized yet. Doing nothing.");
             }
             Some(InboundSubstreamState::PendingRecv(mut msg_recv_fut)) => match msg_recv_fut
                 .poll_unpin(cx)
@@ -229,19 +231,19 @@ where
                     ));
                 }
                 Poll::Pending => {
-                    tracing::debug!("No message received from inbound stream yet. Waiting more...");
+                    tracing::debug!(target: LOG_TARGET, "No message received from inbound stream yet. Waiting more...");
                     self.inbound_substream = Some(InboundSubstreamState::PendingRecv(msg_recv_fut));
                 }
             },
             Some(InboundSubstreamState::Dropped) => {
-                tracing::debug!("Inbound substream has been dropped proactively. Doing nothing.");
+                tracing::debug!(target: LOG_TARGET, "Inbound substream has been dropped proactively. Doing nothing.");
                 self.inbound_substream = Some(InboundSubstreamState::Dropped);
             }
         }
 
         // Process outbound stream
         // TODO: Refactor this to a separate function.
-        tracing::debug!("Processing outbound stream");
+        tracing::debug!(target: LOG_TARGET, "Processing outbound stream");
         loop {
             match self.outbound_substream.take() {
                 // If the request to open a new outbound substream is still being processed, wait
@@ -254,12 +256,12 @@ where
                 // If the substream is idle, and if it's time to send a message, send it.
                 Some(OutboundSubstreamState::Idle(stream)) => {
                     if let Some(msg) = self.outbound_msgs.pop_front() {
-                        tracing::debug!("Sending message to outbound stream: {:?}", msg);
+                        tracing::debug!(target: LOG_TARGET, "Sending message to outbound stream: {:?}", msg);
                         self.outbound_substream = Some(OutboundSubstreamState::PendingSend(
                             send_msg(stream, msg).boxed(),
                         ));
                     } else {
-                        tracing::debug!("Nothing to send to outbound stream");
+                        tracing::debug!(target: LOG_TARGET, "Nothing to send to outbound stream");
                         self.outbound_substream = Some(OutboundSubstreamState::Idle(stream));
                         self.waker = Some(cx.waker().clone());
                         return Poll::Pending;
@@ -269,11 +271,11 @@ where
                 Some(OutboundSubstreamState::PendingSend(mut msg_send_fut)) => {
                     match msg_send_fut.poll_unpin(cx) {
                         Poll::Ready(Ok(stream)) => {
-                            tracing::debug!("Message sent to outbound stream");
+                            tracing::debug!(target: LOG_TARGET, "Message sent to outbound stream");
                             self.outbound_substream = Some(OutboundSubstreamState::Idle(stream));
                         }
                         Poll::Ready(Err(e)) => {
-                            tracing::error!("Failed to send message to outbound stream: {e:?}. Dropping both inbound and outbound substreams");
+                            tracing::error!(target: LOG_TARGET, "Failed to send message to outbound stream: {e:?}. Dropping both inbound and outbound substreams");
                             self.close_substreams();
                             return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                                 ToBehaviour::IOError(e),
@@ -288,7 +290,7 @@ where
                     }
                 }
                 Some(OutboundSubstreamState::Dropped) => {
-                    tracing::debug!("Outbound substream has been dropped proactively");
+                    tracing::debug!(target: LOG_TARGET, "Outbound substream has been dropped proactively");
                     self.outbound_substream = Some(OutboundSubstreamState::Dropped);
                     return Poll::Pending;
                 }
@@ -336,7 +338,7 @@ where
                 protocol: stream,
                 ..
             }) => {
-                tracing::debug!("FullyNegotiatedInbound: Creating inbound substream");
+                tracing::debug!(target: LOG_TARGET, "FullyNegotiatedInbound: Creating inbound substream");
                 self.inbound_substream =
                     Some(InboundSubstreamState::PendingRecv(recv_msg(stream).boxed()));
                 self.pending_events_to_behaviour
@@ -347,21 +349,21 @@ where
                 protocol: stream,
                 ..
             }) => {
-                tracing::debug!("FullyNegotiatedOutbound: Creating outbound substream");
+                tracing::debug!(target: LOG_TARGET, "FullyNegotiatedOutbound: Creating outbound substream");
                 self.outbound_substream = Some(OutboundSubstreamState::Idle(stream));
                 self.pending_events_to_behaviour
                     .push_back(ToBehaviour::FullyNegotiatedOutbound);
                 VALUE_FULLY_NEGOTIATED_OUTBOUND
             }
             ConnectionEvent::DialUpgradeError(e) => {
-                tracing::error!("DialUpgradeError: {:?}", e);
+                tracing::error!(target: LOG_TARGET, "DialUpgradeError: {:?}", e);
                 self.pending_events_to_behaviour
                     .push_back(ToBehaviour::DialUpgradeError(e));
                 self.close_substreams();
                 VALUE_DIAL_UPGRADE_ERROR
             }
             event => {
-                tracing::debug!("Ignoring connection event: {:?}", event);
+                tracing::debug!(target: LOG_TARGET, "Ignoring connection event: {:?}", event);
                 VALUE_IGNORED
             }
         };
