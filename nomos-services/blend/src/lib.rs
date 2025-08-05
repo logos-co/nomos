@@ -98,10 +98,25 @@ where
 }
 
 /// Defines additional types required for communicating with [`BlendService`].
+///
+/// In particular, this trait extends the [`ServiceData`] by introducing types
+/// that are not covered by [`ServiceData`] but are necessary to construct
+/// messages send to a [`BlendService`].
 pub trait ServiceExt {
+    /// A type for broadcast settings required for
+    /// [`crate::message::ServiceMessage`].
+    ///
+    /// This depends on the the [`core::network::NetworkAdapter`] of the
+    /// [`core::BlendService`] that is not exposed to the users of
+    /// [`BlendService`].
+    /// Therefore, this type must be specified for [`BlendService`]s
+    /// that depend on concrete types of [`core::network::NetworkAdapter`].
     type BroadcastSettings;
 }
 
+/// Implementing [`ServiceExt`] for [`BlendService`]
+/// that depends on the libp2p-based [`core::BlendService`] and
+/// [`edge::BlendService`].
 impl<RuntimeServiceId> ServiceExt
     for BlendService<
         core::BlendService<
