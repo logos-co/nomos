@@ -1,4 +1,4 @@
-use crate::{prover_from_contents, traits::Prover};
+use crate::{prover::Prover, wrappers::prover_from_contents};
 
 pub struct Rapidsnark;
 
