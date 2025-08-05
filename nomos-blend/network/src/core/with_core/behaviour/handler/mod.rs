@@ -207,9 +207,7 @@ where
                 .poll_unpin(cx)
             {
                 Poll::Ready(Ok((stream, msg))) => {
-                    tracing::debug!(
-                        "Received message from inbound stream. Notifying behaviour if necessary..."
-                    );
+                    tracing::debug!(target: LOG_TARGET, "Received message from inbound stream. Notifying behaviour if necessary...");
 
                     // Record the message to the monitor.
                     self.monitor.record_message();
@@ -223,9 +221,7 @@ where
                     ));
                 }
                 Poll::Ready(Err(e)) => {
-                    tracing::error!(
-                        "Failed to receive message from inbound stream: {e:?}. Dropping both inbound/outbound substreams"
-                    );
+                    tracing::error!(target: LOG_TARGET, "Failed to receive message from inbound stream: {e:?}. Dropping both inbound/outbound substreams");
                     self.close_substreams();
                     return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                         ToBehaviour::IOError(e),
