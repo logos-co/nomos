@@ -1,3 +1,5 @@
+use std::iter::{Enumerate, FlatMap, Repeat};
+
 use blake2::{Blake2b512, Digest as _};
 pub use cipher::StreamCipher;
 use cipher::{inout::InOutBuf, BlockSizeUser, StreamCipherError};
@@ -41,18 +43,27 @@ impl IntoIterator for BlakeRngSeed {
     }
 }
 
-pub struct BlakeRng(Box<dyn Iterator<Item = u8>>);
+// Box<dyn> is usually more convenient. But for making BlakeRng clone we needed
+// the actual type.
+type InnerIterator =
+    FlatMap<Enumerate<Repeat<BlakeRngSeed>>, Vec<u8>, fn((usize, BlakeRngSeed)) -> Vec<u8>>;
+
+#[derive(Clone)]
+pub struct BlakeRng(InnerIterator);
 
 impl BlakeRng {
-    fn with_seed(seed: BlakeRngSeed) -> Self {
-        let iter = std::iter::repeat(seed).enumerate().flat_map(|(i, seed)| {
-            let mut hasher = Hasher::new();
-            hasher.update(seed);
-            hasher.update(i.to_le_bytes());
-            hasher.finalize().to_vec()
-        });
+    fn rehash((i, seed): (usize, BlakeRngSeed)) -> Vec<u8> {
+        let mut hasher = Hasher::new();
+        hasher.update(seed);
+        hasher.update(i.to_le_bytes());
+        hasher.finalize().to_vec()
+    }
 
-        Self(Box::new(iter))
+    fn with_seed(seed: BlakeRngSeed) -> Self {
+        let iter = std::iter::repeat(seed)
+            .enumerate()
+            .flat_map(Self::rehash as fn((usize, BlakeRngSeed)) -> Vec<u8>);
+        Self(iter)
     }
 
     fn rng_next_bytes<const N: usize>(&mut self) -> [u8; N] {
