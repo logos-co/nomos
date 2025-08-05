@@ -100,6 +100,7 @@ impl CryptoRng for BlakeRng {}
 impl BlockSizeUser for BlakeRng {
     type BlockSize = <Blake2b512 as BlockSizeUser>::BlockSize;
 }
+
 impl StreamCipher for BlakeRng {
     fn try_apply_keystream_inout(
         &mut self,
