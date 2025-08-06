@@ -39,8 +39,8 @@ tracing-futures        = "0.2"
 utoipa                 = { version = "4.0", optional = true }
 
 [dev-dependencies]
-kzgrs-backend          = { workspace = true }
-tempfile = "3"
+kzgrs-backend = { workspace = true }
+tempfile      = "3"
 
 [features]
 default = []
