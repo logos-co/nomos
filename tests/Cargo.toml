@@ -57,6 +57,10 @@ name = "test_cryptarchia_happy_path"
 path = "src/tests/cryptarchia/happy.rs"
 
 [[test]]
+name = "test_cryptarchia_bootstrap"
+path = "src/tests/cryptarchia/bootstrap.rs"
+
+[[test]]
 name = "test_da"
 path = "src/tests/da/disperse.rs"
 

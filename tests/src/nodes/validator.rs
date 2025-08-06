@@ -55,6 +55,7 @@ use nomos_tracing_service::LoggerLayer;
 use nomos_utils::math::NonNegativeF64;
 use reqwest::Url;
 use tempfile::NamedTempFile;
+use tokio::time::error::Elapsed;
 
 use super::{create_tempdir, persist_tempdir, GetRangeReq, CLIENT};
 use crate::{
@@ -92,7 +93,7 @@ impl Drop for Validator {
 }
 
 impl Validator {
-    pub async fn spawn(mut config: Config) -> Self {
+    pub async fn spawn(mut config: Config) -> Result<Self, Elapsed> {
         let dir = create_tempdir().unwrap();
         let mut file = NamedTempFile::new().unwrap();
         let config_path = file.path().to_owned();
@@ -129,13 +130,13 @@ impl Validator {
             tempdir: dir,
             config,
         };
+
         tokio::time::timeout(adjust_timeout(Duration::from_secs(10)), async {
             node.wait_online().await;
         })
-        .await
-        .unwrap();
+        .await?;
 
-        node
+        Ok(node)
     }
 
     async fn get(&self, path: &str) -> reqwest::Result<reqwest::Response> {
@@ -370,7 +371,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
             },
             recovery_file: PathBuf::from("./recovery/cryptarchia.json"),
             bootstrap: chain_service::BootstrapConfig {
-                prolonged_bootstrap_period: Duration::from_secs(3),
+                prolonged_bootstrap_period: config.bootstrapping_config.prolonged_bootstrap_period,
                 force_bootstrap: false,
                 ibd: chain_service::IbdConfig {
                     peers: HashSet::new(),

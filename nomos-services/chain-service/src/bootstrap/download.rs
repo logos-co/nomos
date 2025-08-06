@@ -146,6 +146,12 @@ where
     pub const fn targets(&self) -> &HashSet<HeaderId> {
         &self.targets
     }
+
+    /// Returns the number of peers currently registered
+    /// (either for download or for delay).
+    pub fn num_peers(&self) -> usize {
+        self.downloads.len() + self.delays.len()
+    }
 }
 
 /// Output of the [`Downloads::poll_next`].
@@ -381,6 +387,7 @@ mod tests {
         // Add download to Downloads
         downloads.add_download(download);
         assert!(downloads.targets().contains(&target));
+        assert_eq!(downloads.num_peers(), 1);
 
         // Should yield a BlockDownloaded output
         let DownloadsOutput::BlockDownloaded { block, download } = downloads.next().await.unwrap()
@@ -393,6 +400,7 @@ mod tests {
         // Add download to Downloads again
         downloads.add_download(download);
         assert!(downloads.targets().contains(&target));
+        assert_eq!(downloads.num_peers(), 1);
 
         // Should yield a BlockDownloaded output
         let DownloadsOutput::BlockDownloaded { block, download } = downloads.next().await.unwrap()
@@ -400,11 +408,13 @@ mod tests {
             panic!("Expected BlockDownloaded output");
         };
         assert!(!downloads.targets().contains(&target));
+        assert_eq!(downloads.num_peers(), 0);
         assert_eq!(block, 200);
 
         // Add download to Downloads again
         downloads.add_download(download);
         assert!(downloads.targets().contains(&target));
+        assert_eq!(downloads.num_peers(), 1);
 
         // Should yield a DownloadCompleted output
         assert!(matches!(
@@ -412,6 +422,7 @@ mod tests {
             Some(DownloadsOutput::DownloadCompleted(_))
         ));
         assert!(!downloads.targets().contains(&target));
+        assert_eq!(downloads.num_peers(), 0);
 
         // Should yield a None since no download is in the Downloads.
         assert!(downloads.next().await.is_none());
@@ -433,6 +444,7 @@ mod tests {
         // Add download to Downloads
         downloads.add_download(download);
         assert!(downloads.targets().contains(&target));
+        assert_eq!(downloads.num_peers(), 1);
 
         // Should yield a BlockDownloaded output
         let DownloadsOutput::BlockDownloaded { block, download } = downloads.next().await.unwrap()
@@ -440,17 +452,20 @@ mod tests {
             panic!("Expected BlockDownloaded output");
         };
         assert!(!downloads.targets().contains(&target));
+        assert_eq!(downloads.num_peers(), 0);
         assert_eq!(block, 100);
 
         // Add download to Downloads again
         downloads.add_download(download);
         assert!(downloads.targets().contains(&target));
+        assert_eq!(downloads.num_peers(), 1);
 
         // Should yield a Error output
         let DownloadsOutput::Error { .. } = downloads.next().await.unwrap() else {
             panic!("Expected BlockDownloaded output");
         };
         assert!(!downloads.targets().contains(&target));
+        assert_eq!(downloads.num_peers(), 0);
 
         // Should yield a None since no download is in the Downloads.
         assert!(downloads.next().await.is_none());
@@ -479,6 +494,7 @@ mod tests {
         downloads.add_download(download2);
         assert!(downloads.targets().contains(&target1));
         assert!(downloads.targets().contains(&target2));
+        assert_eq!(downloads.num_peers(), 2);
 
         let mut expected_blocks = HashSet::<TestBlock>::from([100, 200, 300]);
 
@@ -487,17 +503,23 @@ mod tests {
         else {
             panic!("Expected BlockDownloaded output");
         };
+        assert_eq!(downloads.num_peers(), 1);
         assert!(expected_blocks.remove(&block));
+
         downloads.add_download(download);
+        assert_eq!(downloads.num_peers(), 2);
 
         match downloads.next().await {
             Some(DownloadsOutput::BlockDownloaded { block, download }) => {
                 // The returned block should be one of the expected blocks.
+                assert_eq!(downloads.num_peers(), 1);
                 assert!(expected_blocks.remove(&block));
                 downloads.add_download(download);
+                assert_eq!(downloads.num_peers(), 2);
             }
             Some(DownloadsOutput::DownloadCompleted(download)) => {
                 // If a download is completed at this point, it should be for peer1.
+                assert_eq!(downloads.num_peers(), 1);
                 assert_eq!(download.peer(), &peer1);
             }
             _ => panic!("Expected BlockDownloaded or DownloadCompleted output"),
@@ -531,6 +553,7 @@ mod tests {
         // the next output should be DownloadCompleted.
         match downloads.next().await {
             Some(DownloadsOutput::DownloadCompleted(download)) => {
+                assert_eq!(downloads.num_peers(), 0);
                 assert!(HashSet::from([peer1, peer2]).contains(download.peer()));
             }
             _ => panic!("Expected BlockDownloaded or DownloadCompleted output"),
@@ -555,6 +578,8 @@ mod tests {
         downloads.add_download(download2);
         // Should only have one target.
         assert_eq!(downloads.targets(), &HashSet::from([target]));
+        // But, should have two peers (one for download and one for delay).
+        assert_eq!(downloads.num_peers(), 2);
         // One peer should be delayed due to the duplicate target.
         assert_eq!(downloads.delays.len(), 1);
 
@@ -563,18 +588,23 @@ mod tests {
         else {
             panic!("Expected BlockDownloaded output");
         };
+        assert_eq!(downloads.num_peers(), 1);
         assert_eq!(block, 100);
         assert_eq!(download.peer(), &peer1);
+
         downloads.add_download(download);
+        assert_eq!(downloads.num_peers(), 2);
 
         // Should yield a DownloadCompleted output from peer1
         let DownloadsOutput::DownloadCompleted(download) = downloads.next().await.unwrap() else {
             panic!("Expected DownloadedCompleted output");
         };
+        assert_eq!(downloads.num_peers(), 1);
         assert_eq!(download.peer(), &peer1);
 
         // Should yield a None since no download is in progress,
         // even though there is a delay for peer2.
+        assert_eq!(downloads.num_peers(), 1);
         assert_eq!(downloads.delays.len(), 1);
         assert!(downloads.next().await.is_none());
     }
