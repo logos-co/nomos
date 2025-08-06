@@ -1,3 +1,4 @@
+use core::mem;
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     convert::Infallible,
@@ -73,7 +74,7 @@ pub struct Behaviour<ObservationWindowClockProvider> {
     /// We use this to keep track of the role of the remote peer, to be used
     /// when deciding which connection to close when a duplicate connection to
     /// the same peer is detected.
-    pending_connections: HashMap<(PeerId, ConnectionId), Endpoint>,
+    connections_waiting_upgrade: HashMap<(PeerId, ConnectionId), Endpoint>,
     /// Queue of events to yield to the swarm.
     events: VecDeque<ToSwarm<Event, Either<FromBehaviour, Infallible>>>,
     /// Waker that handles polling
@@ -136,7 +137,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             observation_window_clock_provider,
             current_membership,
             peering_degree: config.peering_degree.clone(),
-            pending_connections: HashMap::new(),
+            connections_waiting_upgrade: HashMap::new(),
             local_peer_id,
         }
     }
@@ -261,158 +262,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         }
     }
 
-    fn handle_negotiated_connection(&mut self, connection: (PeerId, ConnectionId)) {
-        let Some(new_connection_peer_role) = self.pending_connections.remove(&connection) else {
-            #[cfg(debug_assertions)]
-            panic!(
-                "Negotiated connection with peer {:?} not found in storage.",
-                connection.0
-            );
-            #[cfg(not(debug_assertions))]
-            {
-                tracing::warn!(target: LOG_TARGET, "Negotiated connection not found in storage. Ignoring.");
-                return;
-            }
-        };
-        let Some(PeerConnectionDetails {
-            role: existing_connection_peer_role,
-            connection_id: existing_connection_id,
-            ..
-        }) = self.negotiated_peers.get_mut(&connection.0)
-        else {
-            // We need to check if we still have available connection slots, as it is
-            // possible, especially upon session transition, that more than the maximum
-            // allowed number of peers are trying to connect to us. So once the stream is
-            // actually upgraded, we downgrade it again if we do not have space left for it.
-            // By not adding the new connection to the map of negotiated peers, the swarm
-            // will not be notified about this dropped connection, which is what we want.
-            if self.available_connection_slots() == 0 {
-                tracing::debug!(target: LOG_TARGET, "Connection {:?} with peer {:?} must be closed because peering degree limit has been reached.", connection.1, connection.0);
-                self.events.push_back(ToSwarm::NotifyHandler {
-                    peer_id: connection.0,
-                    handler: NotifyHandler::One(connection.1),
-                    event: Either::Left(FromBehaviour::CloseSubstreams),
-                });
-                self.try_wake();
-                return;
-            }
-            tracing::debug!(target: LOG_TARGET, "Connection {:?} with peer {:?} has been negotiated.", connection.1, connection.0);
-            let Entry::Vacant(new_entry) = self.negotiated_peers.entry(connection.0) else {
-                tracing::debug!(target: LOG_TARGET, "Marking peer as healthy that was already previously added to the map of upgraded connections, likely because of another connection (likely in the opposite direction) being upgraded in parallel. Peer ID: {:?} - connection ID: {:?}. Closing this connection.", connection.0, connection.1);
-                self.events.push_back(ToSwarm::NotifyHandler {
-                    peer_id: connection.0,
-                    handler: NotifyHandler::One(connection.1),
-                    event: Either::Left(FromBehaviour::CloseSubstreams),
-                });
-                self.try_wake();
-                return;
-            };
-            new_entry.insert(PeerConnectionDetails {
-                role: new_connection_peer_role,
-                negotiated_state: NegotiatedPeerState::Healthy,
-                connection_id: connection.1,
-            });
-            return;
-        };
-
-        match (*existing_connection_peer_role, new_connection_peer_role) {
-            // Same connection direction (in case it was not caught at connection establishment
-            // time), we ignore the new connection.
-            (Endpoint::Dialer, Endpoint::Dialer) | (Endpoint::Listener, Endpoint::Listener) => {
-                tracing::trace!(target: LOG_TARGET, "Connection {:?} with peer {:?} will be closed since there is already a connection established in the same direction.", connection.1, connection.0);
-                self.events.push_back(ToSwarm::NotifyHandler {
-                    peer_id: connection.0,
-                    handler: NotifyHandler::One(connection.1),
-                    event: Either::Left(FromBehaviour::CloseSubstreams),
-                });
-                self.try_wake();
-            }
-            // We currently have an outbound connection and we are dealing with a new inbound
-            // request from the same peer.
-            (Endpoint::Listener, Endpoint::Dialer) => {
-                let should_close_established_outbound =
-                    self.local_peer_id.to_base58() < connection.0.to_base58();
-                if should_close_established_outbound {
-                    tracing::trace!(target: LOG_TARGET, "Replacing established outbound connection {existing_connection_id:?} with peer {:?} with upgraded inbound connection {:?}.", connection.0, connection.1);
-                    // Notify the current connection handler to drop the substreams.
-                    self.events.push_back(ToSwarm::NotifyHandler {
-                        peer_id: connection.0,
-                        handler: NotifyHandler::One(*existing_connection_id),
-                        event: Either::Left(FromBehaviour::CloseSubstreams),
-                    });
-                    // Modify the `negotiated_peers` storage directly so
-                    // that when the old connection is dropped, the swarm is
-                    // not notified.
-                    *existing_connection_peer_role = Endpoint::Dialer;
-                    *existing_connection_id = connection.1;
-                } else {
-                    tracing::trace!(target: LOG_TARGET, "Dropping upgraded inbound connection {:?} with peer {:?} in favor of currently established outbound connection {existing_connection_id:?}", connection.1, connection.0);
-                    // Notify the new connection handler to drop the substreams, and we do not
-                    // alter the storage.
-                    self.events.push_back(ToSwarm::NotifyHandler {
-                        peer_id: connection.0,
-                        handler: NotifyHandler::One(connection.1),
-                        event: Either::Left(FromBehaviour::CloseSubstreams),
-                    });
-                }
-                self.try_wake();
-            }
-            // We currently have an inbound connection and we are dealing with a new outbound
-            // request from the same peer.
-            (Endpoint::Dialer, Endpoint::Listener) => {
-                let should_close_established_inbound =
-                    self.local_peer_id.to_base58() > connection.0.to_base58();
-                if should_close_established_inbound {
-                    tracing::trace!(target: LOG_TARGET, "Replacing established inbound connection {existing_connection_id:?} with peer {:?} with upgraded outbound connection {:?}.", connection.0, connection.1);
-                    // Notify the current connection handler to drop the substreams.
-                    self.events.push_back(ToSwarm::NotifyHandler {
-                        peer_id: connection.0,
-                        handler: NotifyHandler::One(*existing_connection_id),
-                        event: Either::Left(FromBehaviour::CloseSubstreams),
-                    });
-                    // Modify the `negotiated_peers` storage directly so
-                    // that when the old connection is dropped, the swarm is
-                    // not notified.
-                    *existing_connection_peer_role = Endpoint::Listener;
-                    *existing_connection_id = connection.1;
-                } else {
-                    tracing::trace!(target: LOG_TARGET, "Dropping upgraded outbound connection {:?} with peer {:?} in favor of currently established inbound connection {existing_connection_id:?}", connection.1, connection.0);
-                    // Notify the new connection handler to drop the substreams, and we do not
-                    // alter the storage.
-                    self.events.push_back(ToSwarm::NotifyHandler {
-                        peer_id: connection.0,
-                        handler: NotifyHandler::One(connection.1),
-                        event: Either::Left(FromBehaviour::CloseSubstreams),
-                    });
-                }
-                self.try_wake();
-            }
-        }
-    }
-
-    fn handle_spammy_connection(&mut self, connection: (PeerId, ConnectionId)) {
-        tracing::debug!(target: LOG_TARGET, "Marking peer {:?} as malicious.", connection.0);
-        let Some(peer_details) = self.negotiated_peers.get_mut(&connection.0) else {
-            #[cfg(debug_assertions)]
-            panic!(
-                "Connection with peer {:?} not found in storage.",
-                connection.0
-            );
-            #[cfg(not(debug_assertions))]
-            {
-                tracing::warn!(target: LOG_TARGET, "Connection with peer {:?} not found in storage. Ignoring.", connection.0);
-                return;
-            }
-        };
-        debug_assert!(peer_details.connection_id == connection.1);
-        peer_details.negotiated_state = NegotiatedPeerState::Spammy;
-    }
-
-    /// Mark the connection with the sender of a malformed message as malicious
-    /// and instruct the connection handler to drop the substream.
-    fn mark_connection_as_malicious(&mut self, connection: (PeerId, ConnectionId)) {
-        tracing::debug!(target: LOG_TARGET, "Closing connection with malicious peer {:?}.", connection.0);
-        self.handle_spammy_connection(connection);
+    fn close_connection(&mut self, connection: (PeerId, ConnectionId)) {
         self.events.push_back(ToSwarm::NotifyHandler {
             peer_id: connection.0,
             handler: NotifyHandler::One(connection.1),
@@ -421,25 +271,202 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         self.try_wake();
     }
 
-    fn handle_unhealthy_connection(&mut self, connection: (PeerId, ConnectionId)) {
-        let Some(peer_details) = self.negotiated_peers.get_mut(&connection.0) else {
-            #[cfg(debug_assertions)]
-            panic!(
-                "Connection with peer {:?} not found in storage.",
-                connection.0
+    fn handle_negotiated_connection(&mut self, new_connection: (PeerId, ConnectionId)) {
+        let new_connection_peer_role = self
+            .connections_waiting_upgrade
+            .remove(&new_connection)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Negotiated connection with peer {:?} not found in storage.",
+                    new_connection.0
+                )
+            });
+
+        if self.negotiated_peers.contains_key(&new_connection.0) {
+            self.handle_negotiated_connection_for_existing_peer(
+                new_connection,
+                new_connection_peer_role,
             );
-            #[cfg(not(debug_assertions))]
-            {
-                tracing::warn!(target: LOG_TARGET, "Connection with peer {peer_id:?} not found in storage. Ignoring.");
-                return;
-            }
+        } else {
+            self.handle_negotiated_connection_for_new_peer(
+                new_connection,
+                new_connection_peer_role,
+            );
+        }
+    }
+
+    fn handle_negotiated_connection_for_new_peer(
+        &mut self,
+        connection: (PeerId, ConnectionId),
+        role: Endpoint,
+    ) {
+        // We need to check if we still have available connection slots, as it is
+        // possible, especially upon session transition, that more than the maximum
+        // allowed number of peers are trying to connect to us. So once the stream is
+        // actually upgraded, we downgrade it again if we do not have space left for it.
+        // By not adding the new connection to the map of negotiated peers, the swarm
+        // will not be notified about this dropped connection, which is what we want.
+        if self.available_connection_slots() == 0 {
+            tracing::debug!(target: LOG_TARGET, "Connection {:?} with peer {:?} must be closed because peering degree limit has been reached.", connection.1, connection.0);
+            self.close_connection(connection);
+            return;
+        }
+        tracing::debug!(target: LOG_TARGET, "Connection {:?} with peer {:?} has been negotiated.", connection.1, connection.0);
+        let Entry::Vacant(new_entry) = self.negotiated_peers.entry(connection.0) else {
+            tracing::debug!(target: LOG_TARGET, "Marking peer as healthy that was already previously added to the map of upgraded connections, likely because of another connection (likely in the opposite direction) being upgraded in parallel. Peer ID: {:?} - connection ID: {:?}. Closing this connection.", connection.0, connection.1);
+            self.close_connection(connection);
+            return;
         };
-        debug_assert!(peer_details.connection_id == connection.1);
+        new_entry.insert(PeerConnectionDetails {
+            role,
+            negotiated_state: NegotiatedPeerState::Healthy,
+            connection_id: connection.1,
+        });
+    }
 
-        let old_state = peer_details.negotiated_state;
-        peer_details.negotiated_state = NegotiatedPeerState::Unhealthy;
+    fn handle_negotiated_connection_for_existing_peer(
+        &mut self,
+        new_connection: (PeerId, ConnectionId),
+        new_role: Endpoint,
+    ) {
+        let existing_connection = self
+            .negotiated_peers
+            .get(&new_connection.0)
+            .expect("Negotiated connection should be present in storage.");
+        match (existing_connection.role, new_role) {
+            // Same connection direction (in case it was not caught at connection establishment
+            // time), we ignore the new connection.
+            (Endpoint::Dialer, Endpoint::Dialer) | (Endpoint::Listener, Endpoint::Listener) => {
+                self.handle_connected_peer_duplicate_connection(new_connection);
+            }
+            // We currently have an outbound connection and we are dealing with a new inbound
+            // request from the same peer.
+            (Endpoint::Listener, Endpoint::Dialer) => {
+                self.handle_connected_peer_incoming_connection(new_connection);
+            }
+            // We currently have an inbound connection and we are dealing with a new outbound
+            // request from the same peer.
+            (Endpoint::Dialer, Endpoint::Listener) => {
+                self.handle_connected_peer_outgoing_connection(new_connection);
+            }
+        }
+    }
 
-        if old_state != NegotiatedPeerState::Unhealthy {
+    fn handle_connected_peer_duplicate_connection(
+        &mut self,
+        new_connection: (PeerId, ConnectionId),
+    ) {
+        tracing::trace!(target: LOG_TARGET, "Connection {:?} with peer {:?} will be closed since there is already a connection established in the same direction.", new_connection.1, new_connection.0);
+        self.close_connection(new_connection);
+    }
+
+    fn handle_connected_peer_incoming_connection(
+        &mut self,
+        new_connection: (PeerId, ConnectionId),
+    ) {
+        let existing_outbound_connection_details = self
+            .negotiated_peers
+            .get_mut(&new_connection.0)
+            .expect("Negotiated outbound connection should be present in storage.");
+        let should_close_established_outbound =
+            self.local_peer_id.to_base58() < new_connection.0.to_base58();
+        if should_close_established_outbound {
+            tracing::trace!(target: LOG_TARGET, "Replacing established outbound connection {:?} with peer {:?} with upgraded inbound connection {:?}.", existing_outbound_connection_details.connection_id, new_connection.0, new_connection.1);
+            let existing_outbound_connection = (
+                new_connection.0,
+                existing_outbound_connection_details.connection_id,
+            );
+            // Modify the `negotiated_peers` storage directly so
+            // that when the old connection is dropped, the swarm is
+            // not notified.
+            update_connection_id_and_direction(
+                existing_outbound_connection_details,
+                new_connection.1,
+            );
+            // Notify the current connection handler to drop the substreams.
+            self.close_connection(existing_outbound_connection);
+        } else {
+            tracing::trace!(target: LOG_TARGET, "Dropping upgraded inbound connection {:?} with peer {:?} in favor of currently established outbound connection {:?}", new_connection.1, new_connection.0, existing_outbound_connection_details.connection_id);
+            // Notify the new connection handler to drop the substreams, and we do not
+            // alter the storage.
+            self.close_connection(new_connection);
+        }
+    }
+
+    fn handle_connected_peer_outgoing_connection(
+        &mut self,
+        new_connection: (PeerId, ConnectionId),
+    ) {
+        let existing_inbound_connection_details = self
+            .negotiated_peers
+            .get_mut(&new_connection.0)
+            .expect("Negotiated inbound connection should be present in storage.");
+        let should_close_established_inbound =
+            self.local_peer_id.to_base58() > new_connection.0.to_base58();
+        if should_close_established_inbound {
+            tracing::trace!(target: LOG_TARGET, "Replacing established inbound connection {:?} with peer {:?} with upgraded outbound connection {:?}.", existing_inbound_connection_details.connection_id, new_connection.0, new_connection.1);
+            let existing_inbound_connection = (
+                new_connection.0,
+                existing_inbound_connection_details.connection_id,
+            );
+            // Modify the `negotiated_peers` storage directly so
+            // that when the old connection is dropped, the swarm is
+            // not notified.
+            update_connection_id_and_direction(
+                existing_inbound_connection_details,
+                new_connection.1,
+            );
+            // Notify the current connection handler to drop the substreams.
+            self.close_connection(existing_inbound_connection);
+        } else {
+            tracing::trace!(target: LOG_TARGET, "Dropping upgraded outbound connection {:?} with peer {:?} in favor of currently established inbound connection {:?}", new_connection.1, new_connection.0, existing_inbound_connection_details.connection_id);
+            // Notify the new connection handler to drop the substreams, and we do not
+            // alter the storage.
+            self.close_connection(new_connection);
+        }
+    }
+
+    /// Mark the connection with the sender of a malformed message as malicious
+    /// and instruct its connection handler to drop the substream.
+    fn close_spammy_connection(&mut self, connection: (PeerId, ConnectionId)) {
+        tracing::debug!(target: LOG_TARGET, "Closing connection with spammy peer {:?}.", connection.0);
+        self.set_connection_to_spammy(connection);
+        self.close_connection(connection);
+    }
+
+    fn update_state_for_negotiated_peer(
+        &mut self,
+        connection: (PeerId, ConnectionId),
+        state: NegotiatedPeerState,
+    ) -> NegotiatedPeerState {
+        tracing::debug!(target: LOG_TARGET, "Marking peer {:?} as {state:?}.", connection.0);
+        let peer_details = self
+            .negotiated_peers
+            .get_mut(&connection.0)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Connection with peer {:?} not found in storage.",
+                    connection.0
+                )
+            });
+        // We double check we are dealing with the expected connection.
+        debug_assert!(
+            peer_details.connection_id == connection.1,
+            "Stored connection ID and provided connection ID do not match for the provided peer ID."
+        );
+
+        mem::replace(&mut peer_details.negotiated_state, state)
+    }
+
+    fn set_connection_to_spammy(&mut self, connection: (PeerId, ConnectionId)) {
+        self.update_state_for_negotiated_peer(connection, NegotiatedPeerState::Spammy);
+    }
+
+    fn handle_unhealthy_connection(&mut self, connection: (PeerId, ConnectionId)) {
+        // Notify swarm only on first transition into unhealthy state.
+        if self.update_state_for_negotiated_peer(connection, NegotiatedPeerState::Unhealthy)
+            != NegotiatedPeerState::Unhealthy
+        {
             tracing::debug!(target: LOG_TARGET, "Peer {:?} has been marked as unhealthy.", connection.0);
             self.events
                 .push_back(ToSwarm::GenerateEvent(Event::UnhealthyPeer(connection.0)));
@@ -448,24 +475,10 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     }
 
     fn handle_healthy_connection(&mut self, connection: (PeerId, ConnectionId)) {
-        let Some(peer_details) = self.negotiated_peers.get_mut(&connection.0) else {
-            #[cfg(debug_assertions)]
-            panic!(
-                "Connection with peer {:?} not found in storage.",
-                connection.0
-            );
-            #[cfg(not(debug_assertions))]
-            {
-                tracing::warn!(target: LOG_TARGET, "Connection with peer {peer_id:?} not found in storage. Ignoring.");
-                return;
-            }
-        };
-        debug_assert!(peer_details.connection_id == connection.1);
-
-        let old_state = peer_details.negotiated_state;
-        peer_details.negotiated_state = NegotiatedPeerState::Healthy;
-
-        if old_state != NegotiatedPeerState::Healthy {
+        // Notify swarm only on first transition into healthy state.
+        if self.update_state_for_negotiated_peer(connection, NegotiatedPeerState::Healthy)
+            != NegotiatedPeerState::Healthy
+        {
             tracing::debug!(target: LOG_TARGET, "Peer {:?} has been marked as healthy.", connection.0);
             self.events
                 .push_back(ToSwarm::GenerateEvent(Event::HealthyPeer(connection.0)));
@@ -483,7 +496,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             deserialize_encapsulated_message(serialized_message)
         else {
             tracing::debug!(target: LOG_TARGET, "Failed to deserialize encapsulated message.");
-            self.mark_connection_as_malicious(from);
+            self.close_spammy_connection(from);
             return;
         };
 
@@ -497,7 +510,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         let Ok(validated_message) = deserialized_encapsulated_message.validate_public_header()
         else {
             tracing::debug!(target: LOG_TARGET, "Neighbor sent us a message with an invalid public header. Marking it as spammy.");
-            self.mark_connection_as_malicious(from);
+            self.close_spammy_connection(from);
             return;
         };
 
@@ -521,11 +534,23 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             .or_default();
         if !exchanged_message_identifiers.insert(*message_id) {
             tracing::debug!(target: LOG_TARGET, "Neighbor {:?} on connection {:?} sent us a message previously already exchanged. Marking it as spammy.", connection.0, connection.1);
-            self.mark_connection_as_malicious(connection);
+            self.close_spammy_connection(connection);
             return Err(());
         }
         Ok(())
     }
+}
+
+fn update_connection_id_and_direction(
+    existing_connection: &mut PeerConnectionDetails,
+    new_connection_id: ConnectionId,
+) {
+    existing_connection.role = if existing_connection.role == Endpoint::Dialer {
+        Endpoint::Listener
+    } else {
+        Endpoint::Dialer
+    };
+    existing_connection.connection_id = new_connection_id;
 }
 
 impl<ObservationWindowClockProvider> NetworkBehaviour for Behaviour<ObservationWindowClockProvider>
@@ -558,7 +583,7 @@ where
         }
 
         // If there is already an established inbound connection with the given peer,
-        // do not try to upgrade the new one as we already have a connection.
+        // do not try to upgrade the new one as we already have an inbound connection.
         // Otherwise, we let the connection upgrade, and we will close one of the two
         // connections depending on the comparison result of local and remote peer IDs.
         if let Some(PeerConnectionDetails {
@@ -610,7 +635,7 @@ where
         }
 
         // If there is already an established outbound connection with the given peer,
-        // do not try to upgrade the new one as we already have a connection.
+        // do not try to upgrade the new one as we already have an outbound connection.
         // Otherwise, we let the connection upgrade, and we will close one of the two
         // connections depending on the comparison result of local and remote peer IDs.
         if let Some(PeerConnectionDetails {
@@ -650,7 +675,9 @@ where
             ..
         }) = event
         {
-            self.pending_connections.remove(&(peer_id, connection_id));
+            // We remove and ignore any un-upgraded connection.
+            self.connections_waiting_upgrade
+                .remove(&(peer_id, connection_id));
 
             // This event happens in one of the following cases:
             // 1. The connection was closed by the peer.
@@ -663,7 +690,12 @@ where
                 return;
             };
 
-            debug_assert!(peer_details.connection_id == connection_id);
+            // If a negotiated connection was closed, we are sure the connection IDs must
+            // match.
+            debug_assert!(
+                peer_details.connection_id == connection_id,
+                "Closed connection ID and removed connection ID do not match."
+            );
 
             self.events
                 .push_back(ToSwarm::GenerateEvent(Event::PeerDisconnected(
@@ -698,7 +730,9 @@ where
                     self.handle_negotiated_connection((peer_id, connection_id));
                 }
                 ToBehaviour::SpammyPeer => {
-                    self.handle_spammy_connection((peer_id, connection_id));
+                    // We do not explicitly close the connection here since the connection handler
+                    // will already do that for us.
+                    self.set_connection_to_spammy((peer_id, connection_id));
                 }
                 ToBehaviour::UnhealthyPeer => {
                     self.handle_unhealthy_connection((peer_id, connection_id));
