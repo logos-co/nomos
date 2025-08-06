@@ -10,15 +10,15 @@ use libp2p::{
     core::{transport::PortUse, Endpoint},
     swarm::{
         dummy::ConnectionHandler as DummyConnectionHandler, ConnectionClosed, ConnectionDenied,
-        ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent,
-        ToSwarm,
+        ConnectionId, FromSwarm, NetworkBehaviour, NotifyHandler, THandler, THandlerInEvent,
+        THandlerOutEvent, ToSwarm,
     },
     Multiaddr, PeerId,
 };
 use nomos_blend_scheduling::{deserialize_encapsulated_message, membership::Membership};
 
 use crate::{
-    core::with_edge::behaviour::handler::{ConnectionHandler, ToBehaviour},
+    core::with_edge::behaviour::handler::{ConnectionHandler, FromBehaviour, ToBehaviour},
     message::ValidateMessagePublicHeader as _,
     EncapsulatedMessageWithValidatedPublicHeader,
 };
@@ -44,14 +44,14 @@ pub struct Config {
 /// - receives messages from edge nodes and forwards them to the swarm.
 pub struct Behaviour {
     /// Queue of events to yield to the swarm.
-    events: VecDeque<ToSwarm<Event, Either<Infallible, Infallible>>>,
+    events: VecDeque<ToSwarm<Event, Either<FromBehaviour, Infallible>>>,
     /// Waker that handles polling
     waker: Option<Waker>,
     // TODO: Replace with the session stream and make this a non-Option
     current_membership: Option<Membership<PeerId>>,
     // Timeout to close connection with an edge node if a message is not received on time.
     connection_timeout: Duration,
-    connected_edge_peers: HashSet<(PeerId, ConnectionId)>,
+    upgraded_edge_peers: HashSet<(PeerId, ConnectionId)>,
     max_incoming_connections: usize,
 }
 
@@ -63,7 +63,7 @@ impl Behaviour {
             waker: None,
             current_membership,
             connection_timeout: config.connection_timeout,
-            connected_edge_peers: HashSet::with_capacity(config.max_incoming_connections),
+            upgraded_edge_peers: HashSet::with_capacity(config.max_incoming_connections),
             max_incoming_connections: config.max_incoming_connections,
         }
     }
@@ -90,6 +90,34 @@ impl Behaviour {
             .push_back(ToSwarm::GenerateEvent(Event::Message(validated_message)));
         self.try_wake();
     }
+
+    #[must_use]
+    fn available_connection_slots(&self) -> usize {
+        self.max_incoming_connections
+            .saturating_sub(self.upgraded_edge_peers.len())
+    }
+
+    fn handle_negotiated_connection(&mut self, connection: (PeerId, ConnectionId)) {
+        // We need to check if we still have available connection slots, as it
+        // is possible, especially upon session transition, that more
+        // than the maximum allowed number of peers are trying to
+        // connect to us. So once we stream is actually upgraded, we
+        // downgrade it again if we do not have space left for it. This will
+        // most likely, depending on the swarm configuration, result in the
+        // connection being dropped.
+        if self.available_connection_slots() == 0 {
+            tracing::debug!(target: LOG_TARGET, "Connection {connection:?} must be closed because peering degree limit has been reached.");
+            self.events.push_back(ToSwarm::NotifyHandler {
+                peer_id: connection.0,
+                handler: NotifyHandler::One(connection.1),
+                event: Either::Left(FromBehaviour::CloseSubstream),
+            });
+            self.try_wake();
+            return;
+        }
+        tracing::debug!(target: LOG_TARGET, "Connection {connection:?} has been negotiated.");
+        self.upgraded_edge_peers.insert(connection);
+    }
 }
 
 impl NetworkBehaviour for Behaviour {
@@ -103,12 +131,9 @@ impl NetworkBehaviour for Behaviour {
         _: &Multiaddr,
         _: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        self.connected_edge_peers.insert((peer, connection_id));
-        let connected_peers = self.connected_edge_peers.len();
-
         // If the new peer makes the set of incoming connections too large, do not try
         // to upgrade the connection.
-        if connected_peers > self.max_incoming_connections {
+        if self.upgraded_edge_peers.len() >= self.max_incoming_connections {
             tracing::trace!(target: LOG_TARGET, "Connected peer {peer:?} on connection {connection_id:?} will not be upgraded since we are already at maximum incoming connection capacity.");
             return Ok(Either::Right(DummyConnectionHandler));
         }
@@ -144,18 +169,24 @@ impl NetworkBehaviour for Behaviour {
             ..
         }) = event
         {
-            self.connected_edge_peers.remove(&(peer_id, connection_id));
+            self.upgraded_edge_peers.remove(&(peer_id, connection_id));
         }
     }
 
     fn on_connection_handler_event(
         &mut self,
-        _: PeerId,
-        _: ConnectionId,
+        peer_id: PeerId,
+        connection_id: ConnectionId,
         event: THandlerOutEvent<Self>,
     ) {
-        if let Either::Left(ToBehaviour::Message(message)) = event {
-            self.handle_received_serialized_encapsulated_message(&message);
+        match event {
+            Either::Left(ToBehaviour::Message(message)) => {
+                self.handle_received_serialized_encapsulated_message(&message);
+            }
+            Either::Left(ToBehaviour::SubstreamOpened) => {
+                self.handle_negotiated_connection((peer_id, connection_id));
+            }
+            Either::Left(_) | Either::Right(_) => {}
         }
     }
 

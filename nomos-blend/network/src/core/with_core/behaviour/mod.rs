@@ -53,13 +53,12 @@ pub struct Config {
 /// they are propagated to the rest of the network, making sure no peer marks
 /// this node as malicious due to an invalid Blend message.
 pub struct Behaviour<ObservationWindowClockProvider> {
-    /// Tracks ALL established connections between this node and other core
-    /// nodes.
+    /// Tracks connections between this node and other core nodes.
     ///
     /// Only connections with other core nodes that are established before the
     /// specified connection limit is reached will be upgraded and the state of
     /// the peer negotiated, monitored, and reported to the swarm.
-    established_connections: HashMap<(PeerId, ConnectionId), Option<NegotiatedPeerState>>,
+    negotiated_peers: HashMap<(PeerId, ConnectionId), NegotiatedPeerState>,
     /// Queue of events to yield to the swarm.
     events: VecDeque<ToSwarm<Event, Either<FromBehaviour, Infallible>>>,
     /// Waker that handles polling
@@ -112,7 +111,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         current_membership: Option<Membership<PeerId>>,
     ) -> Self {
         Self {
-            established_connections: HashMap::with_capacity(*config.peering_degree.end()),
+            negotiated_peers: HashMap::with_capacity(*config.peering_degree.end()),
             events: VecDeque::new(),
             waker: None,
             exchanged_message_identifiers: HashMap::with_capacity(
@@ -172,13 +171,13 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         let message_id = message.id();
 
         let serialized_message = serialize_encapsulated_message(message);
-        let mut num_peers = 0;
-        self.established_connections
+        let mut num_peers = 0u32;
+        self.negotiated_peers
             .iter()
             // Exclude the connection the message was received from.
             .filter(|(connection, _)| (excluded_connection != Some(**connection)))
             // Exclude from the list of candidate peers any peer that is not in a healthy state.
-            .filter(|(_, peer_state)| **peer_state == Some(NegotiatedPeerState::Healthy))
+            .filter(|(_, peer_state)| **peer_state == NegotiatedPeerState::Healthy)
             .for_each(|((peer_id, connection_id), _)| {
                 if self
                     .exchanged_message_identifiers
@@ -224,9 +223,9 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
 
     #[must_use]
     pub fn num_healthy_peers(&self) -> usize {
-        self.established_connections
+        self.negotiated_peers
             .values()
-            .filter(|state| **state == Some(NegotiatedPeerState::Healthy))
+            .filter(|state| **state == NegotiatedPeerState::Healthy)
             .count()
     }
 
@@ -238,7 +237,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     pub fn available_connection_slots(&self) -> usize {
         self.peering_degree
             .end()
-            .saturating_sub(self.established_connections.len())
+            .saturating_sub(self.negotiated_peers.len())
     }
 
     fn try_wake(&mut self) {
@@ -248,13 +247,25 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     }
 
     fn handle_negotiated_connection(&mut self, connection: (PeerId, ConnectionId)) {
-        tracing::debug!(target: LOG_TARGET, "Connection {connection:?} has been negotiated.");
-        if !self.established_connections.contains_key(&connection) {
-            tracing::warn!(target: LOG_TARGET, "Marking peer as healthy that was not previously added to the map of established connections. Peer ID: {:?}, connection ID: {:?}. Ignoring.", connection.0, connection.1);
+        // We need to check if we still have available connection slots, as it is
+        // possible, especially upon session transition, that more than the maximum
+        // allowed number of peers are trying to connect to us. So once the stream is
+        // actually upgraded, we downgrade it again if we do not have space left for it.
+        // By not adding the new connection to the map of negotiated peers, the swarm
+        // will not be notified about this dropped connection, which is what we want.
+        if self.available_connection_slots() == 0 {
+            tracing::debug!(target: LOG_TARGET, "Connection {connection:?} must be closed because peering degree limit has been reached.");
+            self.events.push_back(ToSwarm::NotifyHandler {
+                peer_id: connection.0,
+                handler: NotifyHandler::One(connection.1),
+                event: Either::Left(FromBehaviour::CloseSubstreams),
+            });
+            self.try_wake();
             return;
         }
-        self.established_connections
-            .insert(connection, Some(NegotiatedPeerState::Healthy));
+        tracing::debug!(target: LOG_TARGET, "Connection {connection:?} has been negotiated.");
+        self.negotiated_peers
+            .insert(connection, NegotiatedPeerState::Healthy);
     }
 
     fn handle_spammy_peer(&mut self, connection: (PeerId, ConnectionId)) {
@@ -264,11 +275,16 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     /// Mark the connection with the sender of a malformed message as malicious.
     fn mark_connection_as_malicious(&mut self, connection: (PeerId, ConnectionId)) {
         tracing::debug!(target: LOG_TARGET, "Closing connection and marking core peer {:?} on connection {:?} as malicious.", connection.0, connection.1);
-        self.update_negotiated_state(connection, NegotiatedPeerState::Spammy);
+        self.negotiated_peers
+            .insert(connection, NegotiatedPeerState::Spammy);
     }
 
     fn handle_unhealthy_peer(&mut self, connection: (PeerId, ConnectionId)) {
-        if self.update_negotiated_state(connection, NegotiatedPeerState::Unhealthy) {
+        if self
+            .negotiated_peers
+            .insert(connection, NegotiatedPeerState::Unhealthy)
+            != Some(NegotiatedPeerState::Unhealthy)
+        {
             tracing::debug!(target: LOG_TARGET, "Peer {:?} has been detected as unhealthy", connection.0);
             self.events
                 .push_back(ToSwarm::GenerateEvent(Event::UnhealthyPeer(
@@ -280,7 +296,11 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     }
 
     fn handle_healthy_peer(&mut self, connection: (PeerId, ConnectionId)) {
-        if self.update_negotiated_state(connection, NegotiatedPeerState::Healthy) {
+        if self
+            .negotiated_peers
+            .insert(connection, NegotiatedPeerState::Healthy)
+            != Some(NegotiatedPeerState::Healthy)
+        {
             tracing::debug!(target: LOG_TARGET, "Peer {:?} has been detected as healthy", connection.0);
             self.events
                 .push_back(ToSwarm::GenerateEvent(Event::HealthyPeer(
@@ -289,21 +309,6 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
                 )));
             self.try_wake();
         }
-    }
-
-    /// Update the state of a connection with the provided value, and returns
-    /// `True` if the old state existed (i.e., it was not `None`), and was
-    /// different than the new value.
-    fn update_negotiated_state(
-        &mut self,
-        connection: (PeerId, ConnectionId),
-        state: NegotiatedPeerState,
-    ) -> bool {
-        let Some(old_state) = self.established_connections.insert(connection, Some(state)) else {
-            return false;
-        };
-
-        old_state != Some(state)
     }
 
     fn handle_received_serialized_encapsulated_message(
@@ -384,13 +389,9 @@ where
         _: &Multiaddr,
         _: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        self.established_connections
-            .insert((peer_id, connection_id), None);
-        let connected_peers = self.established_connections.len();
-
         // If the new peer makes the set of established connections too large, do not
         // try to upgrade the connection.
-        if connected_peers > *self.peering_degree.end() {
+        if self.negotiated_peers.len() >= *self.peering_degree.end() {
             tracing::trace!(target: LOG_TARGET, "Inbound connection {connection_id:?} with peer {peer_id:?} will not be upgraded since we are already at maximum peering capacity.");
             return Ok(Either::Right(DummyConnectionHandler));
         }
@@ -426,13 +427,9 @@ where
         _: Endpoint,
         _: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        self.established_connections
-            .insert((peer_id, connection_id), None);
-        let connected_peers = self.established_connections.len();
-
         // If the new peer makes the set of established connections too large, do not
         // try to upgrade the connection.
-        if connected_peers > *self.peering_degree.end() {
+        if self.negotiated_peers.len() >= *self.peering_degree.end() {
             tracing::trace!(target: LOG_TARGET, "Outbound connection {connection_id:?} with peer {peer_id:?} will not be upgraded since we are already at maximum peering capacity.");
             return Ok(Either::Right(DummyConnectionHandler));
         }
@@ -471,16 +468,10 @@ where
             // In both cases, we need to remove the peer from the list of connected peers.
             // We ignore the case in which the last negotiated state was `None`, meaning no
             // substream was actually upgraded.
-            let Some(last_peer_negotiated_state) = self
-                .established_connections
-                .remove(&(peer_id, connection_id))
+            let Some(last_peer_negotiated_state) =
+                self.negotiated_peers.remove(&(peer_id, connection_id))
             else {
                 // This event was not meant for us to consume.
-                return;
-            };
-            let Some(last_peer_negotiated_state) = last_peer_negotiated_state else {
-                // We have closed a connection with a peer that was not upgraded. Ignore it.
-                tracing::debug!(target: LOG_TARGET, "Removing connection {connection_id:?} from storage for un-negotiated peer {peer_id:?}.");
                 return;
             };
 

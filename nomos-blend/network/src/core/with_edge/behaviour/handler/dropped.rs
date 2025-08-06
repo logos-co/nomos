@@ -53,4 +53,8 @@ impl StateTrait for DroppedState {
             .into(),
         )
     }
+
+    fn take_waker(&mut self) -> Option<Waker> {
+        None
+    }
 }
