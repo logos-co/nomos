@@ -1,7 +1,7 @@
 use std::{collections::HashSet, time::Duration};
 
 use futures::{Stream, StreamExt as _};
-use libp2p::{identity::Keypair, PeerId, Swarm, SwarmBuilder};
+use libp2p::{PeerId, Swarm, SwarmBuilder};
 use nomos_blend_network::{
     core::{
         with_core::behaviour::{Event as CoreToCoreEvent, NegotiatedPeerState},
@@ -11,7 +11,7 @@ use nomos_blend_network::{
     EncapsulatedMessageWithValidatedPublicHeader,
 };
 use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage};
-use nomos_libp2p::{ed25519, SwarmEvent};
+use nomos_libp2p::SwarmEvent;
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
 
@@ -52,7 +52,7 @@ where
         incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithValidatedPublicHeader>,
     ) -> Self {
         let membership = config.membership();
-        let keypair = Keypair::from(ed25519::Keypair::from(config.backend.node_key.clone()));
+        let keypair = config.backend.keypair();
         let mut swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()

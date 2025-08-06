@@ -1,10 +1,8 @@
 use std::num::NonZeroU64;
 
-use libp2p::{
-    allow_block_list::BlockedPeers, connection_limits::ConnectionLimits, identity::Keypair, PeerId,
-};
+use libp2p::{allow_block_list::BlockedPeers, connection_limits::ConnectionLimits, PeerId};
 use nomos_blend_network::core::with_core::behaviour::ObservationWindowTokioIntervalProvider;
-use nomos_libp2p::{ed25519, NetworkBehaviour};
+use nomos_libp2p::NetworkBehaviour;
 
 use crate::core::{backends::libp2p::Libp2pBlendBackendSettings, settings::BlendConfig};
 
@@ -52,9 +50,7 @@ impl BlendBehaviour {
                 },
                 observation_window_interval_provider,
                 Some(config.membership()),
-                Keypair::from(ed25519::Keypair::from(config.backend.node_key.clone()))
-                    .public()
-                    .to_peer_id(),
+                config.backend.peer_id(),
             ),
             limits: libp2p::connection_limits::Behaviour::new(
                 ConnectionLimits::default()

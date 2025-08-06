@@ -1,7 +1,7 @@
 use core::time::Duration;
 use std::{num::NonZeroU64, ops::RangeInclusive};
 
-use libp2p::Multiaddr;
+use libp2p::{identity::Keypair, Multiaddr, PeerId};
 use nomos_libp2p::ed25519;
 use nomos_utils::math::NonNegativeF64;
 use serde::{Deserialize, Serialize};
@@ -24,4 +24,16 @@ pub struct Libp2pBlendBackendSettings {
     )]
     pub edge_node_connection_timeout: Duration,
     pub max_edge_node_incoming_connections: u64,
+}
+
+impl Libp2pBlendBackendSettings {
+    #[must_use]
+    pub fn keypair(&self) -> Keypair {
+        Keypair::from(ed25519::Keypair::from(self.node_key.clone()))
+    }
+
+    #[must_use]
+    pub fn peer_id(&self) -> PeerId {
+        self.keypair().public().to_peer_id()
+    }
 }
