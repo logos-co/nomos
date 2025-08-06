@@ -1,14 +1,6 @@
-use blake2::{
-    digest::{Update as _, VariableOutput as _},
-    Blake2bVar,
-};
-use chacha20::ChaCha20;
-use cipher::{KeyIvInit as _, StreamCipher as _};
+use blake2::{digest::Digest as _, Blake2b512};
 use ed25519_dalek::{ed25519::signature::Signer as _, Verifier as _};
-use rand_chacha::{
-    rand_core::{RngCore as _, SeedableRng as _},
-    ChaCha12Rng, ChaCha20Rng,
-};
+use nomos_utils::blake_rng::{BlakeRng, RngCore as _, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
@@ -22,7 +14,7 @@ impl Ed25519PrivateKey {
     #[must_use]
     pub fn generate() -> Self {
         Self(ed25519_dalek::SigningKey::generate(
-            &mut ChaCha12Rng::from_entropy(),
+            &mut BlakeRng::from_entropy(),
         ))
     }
 
@@ -204,44 +196,41 @@ impl From<[u8; PROOF_OF_SELECTION_SIZE]> for ProofOfSelection {
     }
 }
 
-/// Generates random bytes of the constant size using [`ChaCha20`].
+/// Generates random bytes of the constant size using [`BlakeRng`].
 #[must_use]
 pub fn random_sized_bytes<const SIZE: usize>() -> [u8; SIZE] {
     let mut buf = [0u8; SIZE];
-    ChaCha20Rng::from_entropy().fill_bytes(&mut buf);
+    BlakeRng::from_entropy().fill_bytes(&mut buf);
     buf
 }
 
 /// Generates pseudo-random bytes of the constant size
-/// using [`ChaCha20`] cipher with a key derived from the input key.
+/// using [`BlakeRng`] cipher with a key derived from the input key.
 #[must_use]
 pub fn pseudo_random_sized_bytes<const SIZE: usize>(key: &[u8]) -> [u8; SIZE] {
     let mut buf = [0u8; SIZE];
-    chacha20_random_bytes(&mut buf, key);
+    blake_random_bytes(&mut buf, key);
     buf
 }
 
 /// Generates pseudo-random bytes of the given size
-/// using [`ChaCha20`] cipher with a key derived from the input key.
+/// using [`BlakeRng`] cipher with a key derived from the input key.
 #[must_use]
 pub fn pseudo_random_bytes(key: &[u8], size: usize) -> Vec<u8> {
     let mut buf = vec![0u8; size];
-    chacha20_random_bytes(&mut buf, key);
+    blake_random_bytes(&mut buf, key);
     buf
 }
 
-fn chacha20_random_bytes(buf: &mut [u8], key: &[u8]) {
-    const IV: [u8; 12] = [0u8; 12];
-    let mut cipher = ChaCha20::new_from_slices(&blake2b256(key), &IV).unwrap();
-    cipher.apply_keystream(buf);
+fn blake_random_bytes(buf: &mut [u8], key: &[u8]) {
+    let mut cipher = BlakeRng::from_seed(blake2b512(key).into());
+    cipher.fill_bytes(buf);
 }
 
-const HASH_SIZE: usize = 32; // Size of the hash output for Blake2b-256
+const HASH_SIZE: usize = 64; // Size of the hash output for Blake2b-512
 
-fn blake2b256(input: &[u8]) -> [u8; HASH_SIZE] {
-    let mut hasher = Blake2bVar::new(HASH_SIZE).unwrap();
+fn blake2b512(input: &[u8]) -> [u8; HASH_SIZE] {
+    let mut hasher = Blake2b512::new();
     hasher.update(input);
-    let mut output = [0u8; HASH_SIZE];
-    hasher.finalize_variable(&mut output).unwrap();
-    output
+    hasher.finalize().into()
 }

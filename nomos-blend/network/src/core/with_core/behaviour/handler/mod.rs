@@ -17,9 +17,16 @@ use libp2p::{
 };
 
 use crate::{
-    core::conn_maintenance::{ConnectionMonitor, ConnectionMonitorOutput},
+    core::with_core::behaviour::handler::conn_maintenance::{
+        ConnectionMonitor, ConnectionMonitorOutput,
+    },
     recv_msg, send_msg, PROTOCOL_NAME,
 };
+
+pub(super) mod conn_maintenance;
+
+#[cfg(feature = "tokio")]
+pub(super) mod tokio;
 
 // Metrics
 const VALUE_FULLY_NEGOTIATED_INBOUND: &str = "fully_negotiated_inbound";

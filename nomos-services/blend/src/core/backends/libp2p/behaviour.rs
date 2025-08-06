@@ -1,22 +1,21 @@
-use std::num::NonZeroU64;
+use std::{num::NonZeroU64, time::Duration};
 
 use libp2p::{allow_block_list::BlockedPeers, connection_limits::ConnectionLimits, PeerId};
-use nomos_blend_network::core::ObservationWindowTokioIntervalProvider;
-use nomos_blend_scheduling::message_blend::crypto::CryptographicProcessor;
+use nomos_blend_network::core::with_core::behaviour::ObservationWindowTokioIntervalProvider;
 use nomos_libp2p::NetworkBehaviour;
 
 use crate::core::{backends::libp2p::Libp2pBlendBackendSettings, settings::BlendConfig};
 
 #[derive(NetworkBehaviour)]
-pub(super) struct BlendBehaviour<Rng> {
+pub(super) struct BlendBehaviour {
     pub(super) blend:
-        nomos_blend_network::core::Behaviour<Rng, ObservationWindowTokioIntervalProvider>,
+        nomos_blend_network::core::NetworkBehaviour<ObservationWindowTokioIntervalProvider>,
     pub(super) limits: libp2p::connection_limits::Behaviour,
     pub(super) blocked_peers: libp2p::allow_block_list::Behaviour<BlockedPeers>,
 }
 
-impl<Rng> BlendBehaviour<Rng> {
-    pub(super) fn new(config: &BlendConfig<Libp2pBlendBackendSettings, PeerId>, rng: Rng) -> Self {
+impl BlendBehaviour {
+    pub(super) fn new(config: &BlendConfig<Libp2pBlendBackendSettings, PeerId>) -> Self {
         let observation_window_interval_provider = ObservationWindowTokioIntervalProvider {
             blending_ops_per_message: config.crypto.num_blend_layers,
             maximal_delay_rounds: config.scheduler.delayer.maximum_release_delay_in_rounds,
@@ -33,11 +32,14 @@ impl<Rng> BlendBehaviour<Rng> {
             rounds_per_observation_window: config.time.rounds_per_observation_window,
         };
         Self {
-            blend: nomos_blend_network::core::Behaviour::new(
+            blend: nomos_blend_network::core::NetworkBehaviour::new(
+                &nomos_blend_network::core::Config {
+                    with_edge: nomos_blend_network::core::with_edge::behaviour::Config {
+                        connection_timeout: Duration::from_secs(1),
+                    },
+                },
                 observation_window_interval_provider,
                 Some(config.membership()),
-                config.backend.edge_node_connection_timeout,
-                CryptographicProcessor::new(config.crypto.clone(), config.membership(), rng),
             ),
             limits: libp2p::connection_limits::Behaviour::new(
                 ConnectionLimits::default()

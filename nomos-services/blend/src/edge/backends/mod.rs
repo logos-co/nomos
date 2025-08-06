@@ -4,7 +4,7 @@ pub mod libp2p;
 use std::pin::Pin;
 
 use futures::Stream;
-use nomos_blend_scheduling::membership::Membership;
+use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage};
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
 
@@ -27,5 +27,5 @@ where
         Rng: RngCore + Send + 'static;
     fn shutdown(&mut self);
     /// Send a message to the blend network.
-    async fn send(&self, msg: Vec<u8>);
+    async fn send(&self, msg: EncapsulatedMessage);
 }

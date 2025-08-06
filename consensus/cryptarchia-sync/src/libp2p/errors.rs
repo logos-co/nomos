@@ -1,5 +1,6 @@
 use libp2p::PeerId;
 use thiserror::Error;
+use tokio::time::error::Elapsed;
 
 use crate::libp2p::packing::PackingError;
 
@@ -30,8 +31,10 @@ pub enum ChainSyncErrorKind {
 
     #[error("Service error: {0}")]
     ReceivingBlocksError(String),
-}
 
+    #[error("Timeout waiting response from peer: {0}")]
+    Timeout(#[from] Elapsed),
+}
 #[derive(Debug, Error, Clone)]
 #[error("Peer {peer}: {kind}")]
 pub struct ChainSyncError {
@@ -109,6 +112,15 @@ impl Clone for ChainSyncErrorKind {
                 }
             },
             err => err.clone(),
+        }
+    }
+}
+
+impl From<(PeerId, Elapsed)> for ChainSyncError {
+    fn from((peer, err): (PeerId, Elapsed)) -> Self {
+        Self {
+            peer,
+            kind: err.into(),
         }
     }
 }

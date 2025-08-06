@@ -4,7 +4,7 @@ use core::{
     task::{Context, Poll},
     time::Duration,
 };
-use std::io;
+use std::{convert::Infallible, io};
 
 use libp2p::{
     core::upgrade::{DeniedUpgrade, ReadyUpgrade},
@@ -13,7 +13,7 @@ use libp2p::{
 };
 
 use crate::{
-    core::handler::edge::{
+    core::with_edge::behaviour::handler::{
         dropped::DroppedState, ready_to_receive::ReadyToReceiveState, receiving::ReceivingState,
         starting::StartingState,
     },
@@ -108,11 +108,12 @@ pub enum FailureReason {
 pub enum ToBehaviour {
     /// A message has been received from the connection.
     Message(Vec<u8>),
-    FailedReception(FailureReason),
+    SubstreamOpened,
+    SubstreamClosed(Option<FailureReason>),
 }
 
 impl libp2p::swarm::ConnectionHandler for ConnectionHandler {
-    type FromBehaviour = ();
+    type FromBehaviour = Infallible;
     type ToBehaviour = ToBehaviour;
     type InboundProtocol = ReadyUpgrade<StreamProtocol>;
     type InboundOpenInfo = ();

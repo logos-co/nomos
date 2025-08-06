@@ -6,7 +6,8 @@ use futures::{
     Stream, StreamExt as _,
 };
 use libp2p::PeerId;
-use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage, UnwrappedMessage};
+use nomos_blend_network::EncapsulatedMessageWithValidatedPublicHeader;
+use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage};
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
@@ -31,7 +32,7 @@ mod swarm;
 pub struct Libp2pBlendBackend {
     swarm_task_abort_handle: AbortHandle,
     swarm_message_sender: mpsc::Sender<BlendSwarmMessage>,
-    incoming_message_sender: broadcast::Sender<UnwrappedMessage>,
+    incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithValidatedPublicHeader>,
 }
 
 const CHANNEL_SIZE: usize = 64;
@@ -92,7 +93,7 @@ where
 
     fn listen_to_incoming_messages(
         &mut self,
-    ) -> Pin<Box<dyn Stream<Item = UnwrappedMessage> + Send>> {
+    ) -> Pin<Box<dyn Stream<Item = EncapsulatedMessageWithValidatedPublicHeader> + Send>> {
         Box::pin(
             BroadcastStream::new(self.incoming_message_sender.subscribe())
                 .filter_map(|event| async { event.ok() }),

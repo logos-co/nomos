@@ -56,6 +56,7 @@ impl Swarm {
             gossipsub_config,
             kademlia_config,
             identify_config,
+            chain_sync_config,
             ..
         } = config;
 
@@ -68,6 +69,7 @@ impl Swarm {
                     gossipsub_config,
                     &kademlia_config,
                     &identify_config,
+                    chain_sync_config,
                     config.protocol_name_env,
                     keypair.public(),
                 )
