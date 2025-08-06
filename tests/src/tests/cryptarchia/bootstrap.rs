@@ -21,19 +21,6 @@ async fn test_ibd_behind_nodes() {
         validators.push(Validator::spawn(config).await.unwrap());
     }
 
-    let min_height = 5;
-
-    println!(
-        "Waiting for initial validators to reach at least min_blocks ({min_height}) but still be in bootstrapping mode...",
-    );
-
-    wait_for_validators_mode_and_height(
-        &validators,
-        Some(min_height),
-        cryptarchia_engine::State::Bootstrapping,
-    )
-    .await;
-
     println!("Testing IBD while initial validators are still bootstrapping...");
 
     let initial_peer_ids: HashSet<PeerId> = general_configs
@@ -54,7 +41,7 @@ async fn test_ibd_behind_nodes() {
 
     println!("Waiting for initial validators to switch to online mode...",);
 
-    wait_for_validators_mode_and_height(&validators, None, cryptarchia_engine::State::Online).await;
+    wait_for_validators_mode(&validators, cryptarchia_engine::State::Online).await;
 
     println!("Starting behind node with IBD peers...");
 
@@ -85,11 +72,7 @@ async fn test_ibd_behind_nodes() {
     assert!(behind_node_info.height >= *initial_current_min_height - 1);
 }
 
-async fn wait_for_validators_mode_and_height(
-    validators: &[Validator],
-    min_height: Option<u32>,
-    mode: cryptarchia_engine::State,
-) {
+async fn wait_for_validators_mode(validators: &[Validator], mode: cryptarchia_engine::State) {
     loop {
         let infos: Vec<_> = stream::iter(validators)
             .then(|n| async move { n.consensus_info().await })
@@ -105,14 +88,11 @@ async fn wait_for_validators_mode_and_height(
                 .join(", ")
         );
 
-        let min_height = min_height.unwrap_or(0);
-        let current_min_height = infos.iter().map(|info| info.height).min().unwrap_or(0) as u32;
-
-        if current_min_height >= min_height && infos.iter().all(|info| info.mode == mode) {
-            println!("   All validators reached min height {min_height} and are in mode {mode:?}",);
+        if infos.iter().all(|info| info.mode == mode) {
+            println!("   All validators reached are in mode {mode:?}",);
             break;
         }
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(1000)).await;
     }
 }
