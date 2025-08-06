@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     convert::Infallible,
     ops::RangeInclusive,
     task::{Context, Poll, Waker},
@@ -283,15 +283,21 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
                 return;
             }
         };
-        debug_assert!(!self.negotiated_peers.contains_key(&connection.0));
-        self.negotiated_peers.insert(
-            connection.0,
-            PeerConnectionDetails {
-                role: peer_role,
-                negotiated_state: NegotiatedPeerState::Healthy,
-                connection_id: connection.1,
-            },
-        );
+        let Entry::Vacant(new_entry) = self.negotiated_peers.entry(connection.0) else {
+            tracing::debug!(target: LOG_TARGET, "Marking peer as healthy that was already previously added to the map of upgraded connections, likely because of another connection (likely in the opposite direction) being upgraded in parallel. Peer ID: {:?} - connection ID: {:?}. Closing this connection.", connection.0, connection.1);
+            self.events.push_back(ToSwarm::NotifyHandler {
+                peer_id: connection.0,
+                handler: NotifyHandler::One(connection.1),
+                event: Either::Left(FromBehaviour::CloseSubstreams),
+            });
+            self.try_wake();
+            return;
+        };
+        new_entry.insert(PeerConnectionDetails {
+            role: peer_role,
+            negotiated_state: NegotiatedPeerState::Healthy,
+            connection_id: connection.1,
+        });
     }
 
     fn handle_spammy_connection(&mut self, connection: (PeerId, ConnectionId)) {
@@ -461,6 +467,13 @@ where
             return Ok(Either::Right(DummyConnectionHandler));
         }
 
+        // If there is already an established connection (regardless of its direction)
+        // with the given peer, do not try to upgrade the new one.
+        if self.negotiated_peers.contains_key(&peer_id) {
+            tracing::trace!(target: LOG_TARGET, "Inbound connection {connection_id:?} with peer {peer_id:?} will not be upgraded since there is already an upgraded connection established.");
+            return Ok(Either::Right(DummyConnectionHandler));
+        }
+
         // If no membership is provided (for tests), then we assume all peers are core
         // nodes.
         let Some(membership) = &self.current_membership else {
@@ -500,6 +513,13 @@ where
             return Ok(Either::Right(DummyConnectionHandler));
         }
 
+        // If there is already an established connection (regardless of its direction)
+        // with the given peer, do not try to upgrade the new one.
+        if self.negotiated_peers.contains_key(&peer_id) {
+            tracing::trace!(target: LOG_TARGET, "Inbound connection {connection_id:?} with peer {peer_id:?} will not be upgraded since there is already an upgraded connection established.");
+            return Ok(Either::Right(DummyConnectionHandler));
+        }
+
         // If no membership is provided (for tests), then we assume all peers are core
         // nodes.
         let Some(membership) = &self.current_membership else {
@@ -532,7 +552,10 @@ where
             // 1. The connection was closed by the peer.
             // 2. The connection was closed by the local node since no stream is active.
             let Some(peer_details) = self.negotiated_peers.remove(&peer_id) else {
-                // This event was not meant for us to consume.
+                // Either this event was not meant for us, or it was about an uninitialised
+                // connection (e.g., if two connections are upgraded at the same time, and one
+                // of them will be forcibly closed in favor of the other). In
+                // both cases we do not care and we can ignore this event.
                 return;
             };
 
