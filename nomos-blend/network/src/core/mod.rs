@@ -51,12 +51,14 @@ impl<ObservationWindowClockProvider> NetworkBehaviour<ObservationWindowClockProv
         config: &Config,
         observation_window_clock_provider: ObservationWindowClockProvider,
         current_membership: Option<Membership<PeerId>>,
+        local_peer_id: PeerId,
     ) -> Self {
         Self {
             with_core: CoreToCoreBehaviour::new(
                 &config.with_core,
                 observation_window_clock_provider,
                 current_membership.clone(),
+                local_peer_id,
             ),
             with_edge: CoreToEdgeBehaviour::new(&config.with_edge, current_membership),
         }
