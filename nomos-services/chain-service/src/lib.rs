@@ -663,7 +663,7 @@ where
         // TODO: Currently, we're passing a closure that processes each block.
         //       It needs to be replaced with a trait, which requires substantial
         // refactoring.       https://github.com/logos-co/nomos/issues/1505
-        let (mut cryptarchia, mut storage_blocks_to_remove) = InitialBlockDownload::new(
+        let initial_block_download = InitialBlockDownload::new(
             bootstrap_config.ibd,
             network_adapter,
             |cryptarchia, storage_blocks_to_remove, block| {
@@ -684,9 +684,20 @@ where
                     .await
                 }
             },
-        )
-        .run(cryptarchia, storage_blocks_to_remove)
-        .await?;
+        );
+
+        let (mut cryptarchia, mut storage_blocks_to_remove) = match initial_block_download
+            .run(cryptarchia, storage_blocks_to_remove)
+            .await
+        {
+            Ok((cryptarchia, storage_blocks_to_remove)) => {
+                info!("Initial Block Download completed successfully.");
+                (cryptarchia, storage_blocks_to_remove)
+            }
+            Err(e) => {
+                panic!("Initial Block Download failed: {e:?}");
+            }
+        };
 
         // Start the timer for Prelonged Bootstrap Period.
         let mut prolonged_bootstrap_timer = Box::pin(tokio::time::sleep_until(
