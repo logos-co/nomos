@@ -739,6 +739,7 @@ where
                 "Closed connection ID and removed connection ID do not match."
             );
 
+            self.exchanged_message_identifiers.remove(&peer_id);
             self.events
                 .push_back(ToSwarm::GenerateEvent(Event::PeerDisconnected(
                     peer_id,
