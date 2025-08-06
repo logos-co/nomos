@@ -277,9 +277,6 @@ where
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
-                DaVerifierBackend,
-                DaVerifierNetwork,
-                DaVerifierStorage,
                 TimeBackend,
                 RuntimeServiceId,
                 SIZE,
@@ -304,9 +301,6 @@ where
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
-                DaVerifierBackend,
-                DaVerifierNetwork,
-                DaVerifierStorage,
                 TimeBackend,
                 RuntimeServiceId,
                 SIZE,
@@ -337,9 +331,7 @@ where
                     RuntimeServiceId,
                 >,
                 SamplingNetworkAdapter,
-                DaVerifierNetwork,
                 SamplingStorage,
-                DaVerifierStorage,
                 MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
                 RuntimeServiceId,
             >,
@@ -355,9 +347,6 @@ where
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
-                DaVerifierBackend,
-                DaVerifierNetwork,
-                DaVerifierStorage,
                 RuntimeServiceId,
             >,
         >,
@@ -407,18 +396,15 @@ where
                 _,
                 _,
                 _,
-                _,
-                _,
-                _,
                 SIZE,
             >,
             DaVerifier<_, _, _, _, _, _>,
-            DaIndexer<_, _, _, _, _, _, _, _, _, _, _, _, SIZE>,
+            DaIndexer<_, _, _, _, _, _, _, _, _, SIZE>,
             nomos_da_network_service::NetworkService<_, _, _, _, _, _>,
             nomos_network::NetworkService<_, _>,
             DaStorageService<_, _>,
-            TxMempoolService<_, _, _, _, _, _, _>,
-            DaMempoolService<_, _, _, _, _, _, _, _, _>
+            TxMempoolService<_, _, _, _, _>,
+            DaMempoolService<_, _, _, _, _, _>
         )
         .await?;
         Ok(())
@@ -451,27 +437,13 @@ where
             .route(
                 paths::CL_METRICS,
                 routing::get(
-                    cl_metrics::<
-                        Tx,
-                        SamplingNetworkAdapter,
-                        DaVerifierNetwork,
-                        SamplingStorage,
-                        DaVerifierStorage,
-                        RuntimeServiceId,
-                    >,
+                    cl_metrics::<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
                 ),
             )
             .route(
                 paths::CL_STATUS,
                 routing::post(
-                    cl_status::<
-                        Tx,
-                        SamplingNetworkAdapter,
-                        DaVerifierNetwork,
-                        SamplingStorage,
-                        DaVerifierStorage,
-                        RuntimeServiceId,
-                    >,
+                    cl_status::<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
                 ),
             )
             .route(
@@ -483,9 +455,6 @@ where
                         SamplingBackend,
                         SamplingNetworkAdapter,
                         SamplingStorage,
-                        DaVerifierBackend,
-                        DaVerifierNetwork,
-                        DaVerifierStorage,
                         TimeBackend,
                         RuntimeServiceId,
                         SIZE,
@@ -501,9 +470,6 @@ where
                         SamplingBackend,
                         SamplingNetworkAdapter,
                         SamplingStorage,
-                        DaVerifierBackend,
-                        DaVerifierNetwork,
-                        DaVerifierStorage,
                         TimeBackend,
                         RuntimeServiceId,
                         SIZE,
@@ -535,9 +501,6 @@ where
                         SamplingBackend,
                         SamplingNetworkAdapter,
                         SamplingStorage,
-                        DaVerifierBackend,
-                        DaVerifierNetwork,
-                        DaVerifierStorage,
                         TimeBackend,
                         RuntimeServiceId,
                         SIZE,
@@ -594,14 +557,7 @@ where
             .route(
                 paths::MEMPOOL_ADD_TX,
                 routing::post(
-                    add_tx::<
-                        Tx,
-                        SamplingNetworkAdapter,
-                        DaVerifierNetwork,
-                        SamplingStorage,
-                        DaVerifierStorage,
-                        RuntimeServiceId,
-                    >,
+                    add_tx::<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
                 ),
             )
             .route(
@@ -612,9 +568,6 @@ where
                         SamplingBackend,
                         SamplingNetworkAdapter,
                         SamplingStorage,
-                        DaVerifierBackend,
-                        DaVerifierNetwork,
-                        DaVerifierStorage,
                         RuntimeServiceId,
                     >,
                 ),

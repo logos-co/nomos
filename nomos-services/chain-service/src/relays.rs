@@ -1,7 +1,4 @@
-use std::{
-    fmt::{Debug, Display},
-    marker::PhantomData,
-};
+use std::fmt::{Debug, Display};
 
 use nomos_blend_service::{
     message::ServiceMessage, network::NetworkAdapter as BlendNetworkAdapter, BlendService,
@@ -63,7 +60,6 @@ pub struct CryptarchiaConsensusRelays<
     SamplingBackend,
     Storage,
     TxS,
-    DaVerifierBackend,
     RuntimeServiceId,
 > where
     BlendAdapter:
@@ -77,7 +73,6 @@ pub struct CryptarchiaConsensusRelays<
     Storage: StorageBackend + Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend,
     TxS: TxSelect,
-    DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend,
 {
     network_relay: NetworkRelay<
         <NetworkAdapter as network::NetworkAdapter<RuntimeServiceId>>::Backend,
@@ -94,7 +89,6 @@ pub struct CryptarchiaConsensusRelays<
     storage_adapter: StorageAdapter<Storage, TxS::Tx, BS::BlobId, RuntimeServiceId>,
     sampling_relay: SamplingRelay<DaPool::Key>,
     time_relay: TimeRelay,
-    _phantom_data: PhantomData<DaVerifierBackend>,
 }
 
 impl<
@@ -108,7 +102,6 @@ impl<
         SamplingBackend,
         Storage,
         TxS,
-        DaVerifierBackend,
         RuntimeServiceId,
     >
     CryptarchiaConsensusRelays<
@@ -122,7 +115,6 @@ impl<
         SamplingBackend,
         Storage,
         TxS,
-        DaVerifierBackend,
         RuntimeServiceId,
     >
 where
@@ -155,8 +147,6 @@ where
         TryFrom<Block<ClPool::Item, DaPool::Item>> + TryInto<Block<ClPool::Item, DaPool::Item>>,
     TxS: TxSelect<Tx = ClPool::Item>,
     TxS::Settings: Send,
-    DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + Sync + 'static,
-    DaVerifierBackend::Settings: Clone,
 {
     pub async fn new(
         network_relay: NetworkRelay<
@@ -187,7 +177,6 @@ where
             sampling_relay,
             storage_adapter,
             time_relay,
-            _phantom_data: PhantomData,
         }
     }
 
@@ -196,8 +185,6 @@ where
     pub async fn from_service_resources_handle<
         SamplingNetworkAdapter,
         SamplingStorage,
-        DaVerifierNetwork,
-        DaVerifierStorage,
         TimeBackend,
     >(
         service_resources_handle: &OpaqueServiceResourcesHandle<
@@ -214,9 +201,6 @@ where
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
-                DaVerifierBackend,
-                DaVerifierNetwork,
-                DaVerifierStorage,
                 TimeBackend,
                 RuntimeServiceId,
             >,
@@ -234,13 +218,6 @@ where
             nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
         SamplingStorage:
             nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
-        DaVerifierStorage:
-            nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
-        DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + Sync + 'static,
-        DaVerifierBackend::Settings: Clone,
-        DaVerifierNetwork:
-            nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
-        DaVerifierNetwork::Settings: Clone,
         TimeBackend: TimeBackendTrait,
         TimeBackend::Settings: Clone + Send + Sync,
         RuntimeServiceId: Debug
@@ -261,9 +238,7 @@ where
                 TxMempoolService<
                     ClPoolAdapter,
                     SamplingNetworkAdapter,
-                    DaVerifierNetwork,
                     SamplingStorage,
-                    DaVerifierStorage,
                     ClPool,
                     RuntimeServiceId,
                 >,
@@ -275,9 +250,6 @@ where
                     SamplingBackend,
                     SamplingNetworkAdapter,
                     SamplingStorage,
-                    DaVerifierBackend,
-                    DaVerifierNetwork,
-                    DaVerifierStorage,
                     RuntimeServiceId,
                 >,
             >
@@ -286,9 +258,6 @@ where
                     SamplingBackend,
                     SamplingNetworkAdapter,
                     SamplingStorage,
-                    DaVerifierBackend,
-                    DaVerifierNetwork,
-                    DaVerifierStorage,
                     RuntimeServiceId,
                 >,
             >
@@ -312,19 +281,19 @@ where
 
         let cl_mempool_relay = service_resources_handle
             .overwatch_handle
-            .relay::<TxMempoolService<_, _, _, _, _, _, _>>()
+            .relay::<TxMempoolService<_, _, _, _, _>>()
             .await
             .expect("Relay connection with CL MemPoolService should succeed");
 
         let da_mempool_relay = service_resources_handle
             .overwatch_handle
-            .relay::<DaMempoolService<_, _, _, _, _, _, _, _, _>>()
+            .relay::<DaMempoolService<_, _, _, _, _, _>>()
             .await
             .expect("Relay connection with DA MemPoolService should succeed");
 
         let sampling_relay = service_resources_handle
             .overwatch_handle
-            .relay::<DaSamplingService<_, _, _, _, _, _, _>>()
+            .relay::<DaSamplingService<_, _, _, _>>()
             .await
             .expect("Relay connection with SamplingService should succeed");
 

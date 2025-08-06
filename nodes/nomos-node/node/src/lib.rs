@@ -104,13 +104,6 @@ pub(crate) type DaIndexerService = generic_services::DaIndexerService<
         DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
-    VerifierNetworkAdapter<
-        NomosDaMembership,
-        DaMembershipAdapter<RuntimeServiceId>,
-        DaMembershipStorage,
-        DaNetworkApiAdapter,
-        RuntimeServiceId,
-    >,
     RuntimeServiceId,
 >;
 
@@ -127,13 +120,6 @@ pub(crate) type DaVerifierService = generic_services::DaVerifierService<
 
 pub(crate) type DaSamplingService = generic_services::DaSamplingService<
     SamplingLibp2pAdapter<
-        NomosDaMembership,
-        DaMembershipAdapter<RuntimeServiceId>,
-        DaMembershipStorage,
-        DaNetworkApiAdapter,
-        RuntimeServiceId,
-    >,
-    VerifierNetworkAdapter<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
@@ -160,13 +146,6 @@ pub(crate) type ClMempoolService = generic_services::TxMempoolService<
         DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
-    VerifierNetworkAdapter<
-        NomosDaMembership,
-        DaMembershipAdapter<RuntimeServiceId>,
-        DaMembershipStorage,
-        DaNetworkApiAdapter,
-        RuntimeServiceId,
-    >,
     RuntimeServiceId,
 >;
 
@@ -178,25 +157,11 @@ pub(crate) type DaMempoolService = generic_services::DaMempoolService<
         DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
-    VerifierNetworkAdapter<
-        NomosDaMembership,
-        DaMembershipAdapter<RuntimeServiceId>,
-        DaMembershipStorage,
-        DaNetworkApiAdapter,
-        RuntimeServiceId,
-    >,
     RuntimeServiceId,
 >;
 
 pub(crate) type CryptarchiaService = generic_services::CryptarchiaService<
     nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
-        NomosDaMembership,
-        DaMembershipAdapter<RuntimeServiceId>,
-        DaMembershipStorage,
-        DaNetworkApiAdapter,
-        RuntimeServiceId,
-    >,
-    VerifierNetworkAdapter<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
