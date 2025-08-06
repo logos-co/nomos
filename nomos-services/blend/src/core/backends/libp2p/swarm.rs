@@ -1,7 +1,7 @@
 use std::{collections::HashSet, time::Duration};
 
 use futures::{Stream, StreamExt as _};
-use libp2p::{identity::Keypair, swarm::ConnectionId, PeerId, Swarm, SwarmBuilder};
+use libp2p::{identity::Keypair, PeerId, Swarm, SwarmBuilder};
 use nomos_blend_network::{
     core::{
         with_core::behaviour::{Event as CoreToCoreEvent, NegotiatedPeerState},
@@ -167,25 +167,20 @@ where
 
     fn handle_blend_core_behaviour_event(&mut self, blend_event: CoreToCoreEvent) {
         match blend_event {
-            nomos_blend_network::core::with_core::behaviour::Event::Message(
-                msg,
-                peer_id,
-                connection_id,
-            ) => {
+            nomos_blend_network::core::with_core::behaviour::Event::Message(msg, peer_id) => {
                 // Forward message received from node to all other core nodes.
-                self.forward_validated_swarm_message(&msg, (peer_id, connection_id));
+                self.forward_validated_swarm_message(&msg, peer_id);
                 // Bubble up to service for decapsulation and delaying.
                 self.report_message_to_service(*msg);
             }
-            nomos_blend_network::core::with_core::behaviour::Event::UnhealthyPeer(peer_id, _) => {
+            nomos_blend_network::core::with_core::behaviour::Event::UnhealthyPeer(peer_id) => {
                 self.handle_unhealthy_peer(peer_id);
             }
-            nomos_blend_network::core::with_core::behaviour::Event::HealthyPeer(peer_id, _) => {
+            nomos_blend_network::core::with_core::behaviour::Event::HealthyPeer(peer_id) => {
                 Self::handle_healthy_peer(peer_id);
             }
             nomos_blend_network::core::with_core::behaviour::Event::PeerDisconnected(
                 peer_id,
-                _,
                 peer_state,
             ) => {
                 self.handle_disconnected_peer(peer_id, peer_state);
@@ -239,7 +234,7 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
     fn forward_validated_swarm_message(
         &mut self,
         msg: &EncapsulatedMessageWithValidatedPublicHeader,
-        except: (PeerId, ConnectionId),
+        except: PeerId,
     ) {
         if let Err(e) = self
             .swarm
