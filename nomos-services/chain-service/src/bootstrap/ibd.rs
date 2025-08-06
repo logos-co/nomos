@@ -77,6 +77,10 @@ where
         cryptarchia: Cryptarchia,
         storage_blocks_to_remove: HashSet<HeaderId>,
     ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
+        if self.config.peers.is_empty() {
+            return Ok((cryptarchia, storage_blocks_to_remove));
+        }
+
         let downloads = self.initiate_downloads(&cryptarchia).await;
         if downloads.is_empty() {
             return Err(Error::AllPeersFailed);
@@ -301,6 +305,22 @@ mod tests {
     use tokio_stream::wrappers::BroadcastStream;
 
     use super::*;
+
+    #[tokio::test]
+    async fn no_peers_configured() {
+        let (cryptarchia, _) = InitialBlockDownload::new(
+            config(HashSet::new()),
+            MockNetworkAdapter::<()>::new(HashMap::new()),
+            process_block,
+        )
+        .run(new_cryptarchia(), HashSet::new())
+        .await
+        .unwrap();
+
+        // The Cryptarchia remains unchanged.
+        assert_eq!(cryptarchia.lib(), [GENESIS_ID; 32].into());
+        assert_eq!(cryptarchia.tip(), [GENESIS_ID; 32].into());
+    }
 
     #[tokio::test]
     async fn single_download() {
