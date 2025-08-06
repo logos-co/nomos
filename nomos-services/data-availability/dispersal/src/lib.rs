@@ -5,7 +5,6 @@ use std::{
 };
 
 use adapters::wallet::{mock::MockWalletAdapter, DaWalletAdapter};
-use nomos_core::da::blob::metadata;
 use nomos_da_network_core::{PeerId, SubnetworkId};
 use overwatch::{
     services::{
@@ -20,19 +19,15 @@ use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
 use tracing::error;
 
-use crate::{
-    adapters::{mempool::DaMempoolAdapter, network::DispersalNetworkAdapter},
-    backend::DispersalBackend,
-};
+use crate::{adapters::network::DispersalNetworkAdapter, backend::DispersalBackend};
 
 pub mod adapters;
 pub mod backend;
 
 #[derive(Debug)]
-pub enum DaDispersalMsg<Metadata, B: DispersalBackend> {
+pub enum DaDispersalMsg<B: DispersalBackend> {
     Disperse {
         data: Vec<u8>,
-        metadata: Metadata,
         reply_channel: oneshot::Sender<Result<B::BlobId, DynError>>,
     },
 }
@@ -42,30 +37,20 @@ pub struct DispersalServiceSettings<BackendSettings> {
     pub backend: BackendSettings,
 }
 
-pub type DispersalService<
-    Backend,
-    NetworkAdapter,
-    MempoolAdapter,
-    Membership,
-    Metadata,
-    RuntimeServiceId,
-> = GenericDispersalService<
-    Backend,
-    NetworkAdapter,
-    MempoolAdapter,
-    MockWalletAdapter,
-    Membership,
-    Metadata,
-    RuntimeServiceId,
->;
+pub type DispersalService<Backend, NetworkAdapter, Membership, RuntimeServiceId> =
+    GenericDispersalService<
+        Backend,
+        NetworkAdapter,
+        MockWalletAdapter,
+        Membership,
+        RuntimeServiceId,
+    >;
 
 pub struct GenericDispersalService<
     Backend,
     NetworkAdapter,
-    MempoolAdapter,
     WalletAdapter,
     Membership,
-    Metadata,
     RuntimeServiceId,
 > where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
@@ -74,34 +59,22 @@ pub struct GenericDispersalService<
         + Send
         + Sync
         + 'static,
-    Backend: DispersalBackend<NetworkAdapter = NetworkAdapter, Metadata = Metadata>,
+    Backend: DispersalBackend<NetworkAdapter = NetworkAdapter>,
     Backend::BlobId: Serialize,
     Backend::Settings: Clone,
     NetworkAdapter: DispersalNetworkAdapter,
-    MempoolAdapter: DaMempoolAdapter,
     WalletAdapter: DaWalletAdapter,
-    Metadata: metadata::Metadata + Debug + 'static,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     _backend: PhantomData<Backend>,
 }
 
-impl<
-        Backend,
-        NetworkAdapter,
-        MempoolAdapter,
-        WalletAdapter,
-        Membership,
-        Metadata,
-        RuntimeServiceId,
-    > ServiceData
+impl<Backend, NetworkAdapter, WalletAdapter, Membership, RuntimeServiceId> ServiceData
     for GenericDispersalService<
         Backend,
         NetworkAdapter,
-        MempoolAdapter,
         WalletAdapter,
         Membership,
-        Metadata,
         RuntimeServiceId,
     >
 where
@@ -111,37 +84,26 @@ where
         + Send
         + Sync
         + 'static,
-    Backend: DispersalBackend<NetworkAdapter = NetworkAdapter, Metadata = Metadata>,
+    Backend: DispersalBackend<NetworkAdapter = NetworkAdapter>,
     Backend::BlobId: Serialize,
     Backend::Settings: Clone,
     NetworkAdapter: DispersalNetworkAdapter,
-    MempoolAdapter: DaMempoolAdapter,
     WalletAdapter: DaWalletAdapter,
-    Metadata: metadata::Metadata + Debug + 'static,
 {
     type Settings = DispersalServiceSettings<Backend::Settings>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
-    type Message = DaDispersalMsg<Metadata, Backend>;
+    type Message = DaDispersalMsg<Backend>;
 }
 
 #[async_trait::async_trait]
-impl<
-        Backend,
-        NetworkAdapter,
-        MempoolAdapter,
-        WalletAdapter,
-        Membership,
-        Metadata,
-        RuntimeServiceId,
-    > ServiceCore<RuntimeServiceId>
+impl<Backend, NetworkAdapter, WalletAdapter, Membership, RuntimeServiceId>
+    ServiceCore<RuntimeServiceId>
     for GenericDispersalService<
         Backend,
         NetworkAdapter,
-        MempoolAdapter,
         WalletAdapter,
         Membership,
-        Metadata,
         RuntimeServiceId,
     >
 where
@@ -151,28 +113,20 @@ where
         + Send
         + Sync
         + 'static,
-    Backend: DispersalBackend<
-            NetworkAdapter = NetworkAdapter,
-            MempoolAdapter = MempoolAdapter,
-            WalletAdapter = WalletAdapter,
-            Metadata = Metadata,
-        > + Send
+    Backend: DispersalBackend<NetworkAdapter = NetworkAdapter, WalletAdapter = WalletAdapter>
+        + Send
         + Sync,
     Backend::Settings: Clone + Send + Sync,
     Backend::BlobId: Serialize,
     NetworkAdapter: DispersalNetworkAdapter<SubnetworkId = Membership::NetworkId> + Send,
     <NetworkAdapter::NetworkService as ServiceData>::Message: 'static,
-    MempoolAdapter: DaMempoolAdapter,
-    <MempoolAdapter::MempoolService as ServiceData>::Message: 'static,
     WalletAdapter: DaWalletAdapter + Send,
-    Metadata: metadata::Metadata + Debug + Send + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
         + Send
         + AsServiceId<Self>
         + AsServiceId<NetworkAdapter::NetworkService>
-        + AsServiceId<MempoolAdapter::MempoolService>
         + 'static,
 {
     fn init(
@@ -202,18 +156,8 @@ where
             .relay::<NetworkAdapter::NetworkService>()
             .await?;
         let network_adapter = NetworkAdapter::new(network_relay);
-        let mempool_relay = service_resources_handle
-            .overwatch_handle
-            .relay::<MempoolAdapter::MempoolService>()
-            .await?;
-        let mempool_adapter = MempoolAdapter::new(mempool_relay);
         let wallet_adapter = WalletAdapter::new();
-        let backend = Backend::init(
-            backend_settings,
-            network_adapter,
-            mempool_adapter,
-            wallet_adapter,
-        );
+        let backend = Backend::init(backend_settings, network_adapter, wallet_adapter);
         let mut inbound_relay = service_resources_handle.inbound_relay;
 
         service_resources_handle.status_updater.notify_ready();
@@ -225,8 +169,7 @@ where
         wait_until_services_are_ready!(
             &service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
-            NetworkAdapter::NetworkService,
-            MempoolAdapter::MempoolService
+            NetworkAdapter::NetworkService
         )
         .await?;
 
@@ -234,10 +177,9 @@ where
             match dispersal_msg {
                 DaDispersalMsg::Disperse {
                     data,
-                    metadata,
                     reply_channel,
                 } => {
-                    let response = backend.process_dispersal(data, metadata).await;
+                    let response = backend.process_dispersal(data).await;
                     if let Err(Err(e)) = reply_channel.send(response) {
                         error!("Error forwarding dispersal response: {e}");
                     }

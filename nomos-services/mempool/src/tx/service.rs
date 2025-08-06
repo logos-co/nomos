@@ -11,8 +11,7 @@ use std::{
 };
 
 use futures::StreamExt as _;
-use nomos_da_sampling::backend::kzgrs::KzgrsSamplingBackend;
-use nomos_da_verifier::backend::kzgrs::KzgrsDaVerifier;
+use nomos_da_sampling::{backend::kzgrs::KzgrsSamplingBackend, KzgrsDaVerifier};
 use nomos_network::{message::BackendNetworkMsg, NetworkService};
 use overwatch::{
     services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},

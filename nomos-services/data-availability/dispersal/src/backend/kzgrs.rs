@@ -3,29 +3,22 @@ use std::{error::Error, sync::Arc, time::Duration};
 use futures::StreamExt as _;
 use kzgrs_backend::{
     common::build_blob_id,
-    dispersal, encoder,
+    encoder,
     encoder::{DaEncoderParams, EncodedData},
 };
 use nomos_core::{
     da::{BlobId, DaDispersal, DaEncoder},
     mantle::ops::Ed25519PublicKey,
 };
-use nomos_mempool::backend::MempoolError;
 use nomos_tracing::info_with_id;
 use nomos_utils::bounded_duration::{MinimalBoundedDuration, NANO};
 use overwatch::DynError;
-use rand::{seq::IteratorRandom as _, thread_rng};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
-use tokio::time::error::Elapsed;
 use tracing::instrument;
 
 use crate::{
-    adapters::{
-        mempool::{DaMempoolAdapter, DaMempoolAdapterError},
-        network::DispersalNetworkAdapter,
-        wallet::DaWalletAdapter,
-    },
+    adapters::{network::DispersalNetworkAdapter, wallet::DaWalletAdapter},
     backend::DispersalBackend,
 };
 
@@ -37,20 +30,6 @@ pub struct SampleSubnetworks {
     pub timeout: Duration,
     #[serde_as(as = "MinimalBoundedDuration<1, NANO>")]
     pub cooldown: Duration,
-}
-
-#[serde_as]
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Timeout {
-    #[serde_as(as = "MinimalBoundedDuration<1, NANO>")]
-    pub wait_duration: Duration,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum MempoolPublishStrategy {
-    Immediately,
-    Timeout(Timeout),
-    SampleSubnetworks(SampleSubnetworks),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -66,13 +45,11 @@ pub struct DispersalKZGRSBackendSettings {
     pub encoder_settings: EncoderSettings,
     #[serde_as(as = "MinimalBoundedDuration<1, NANO>")]
     pub dispersal_timeout: Duration,
-    pub mempool_strategy: MempoolPublishStrategy,
 }
 
-pub struct DispersalKZGRSBackend<NetworkAdapter, MempoolAdapter, WalletAdapter> {
+pub struct DispersalKZGRSBackend<NetworkAdapter, WalletAdapter> {
     settings: DispersalKZGRSBackendSettings,
     network_adapter: Arc<NetworkAdapter>,
-    mempool_adapter: MempoolAdapter,
     wallet_adapter: Arc<WalletAdapter>,
     encoder: Arc<encoder::DaEncoder>,
 }
@@ -163,12 +140,10 @@ where
     }
 }
 
-impl<NetworkAdapter, MempoolAdapter, WalletAdapter>
-    DispersalKZGRSBackend<NetworkAdapter, MempoolAdapter, WalletAdapter>
+impl<NetworkAdapter, WalletAdapter> DispersalKZGRSBackend<NetworkAdapter, WalletAdapter>
 where
     NetworkAdapter: DispersalNetworkAdapter + Send + Sync,
     NetworkAdapter::SubnetworkId: From<u16> + Send + Sync,
-    MempoolAdapter: DaMempoolAdapter<BlobId = BlobId, Metadata = dispersal::Metadata> + Send + Sync,
     WalletAdapter: DaWalletAdapter + Send + Sync,
     WalletAdapter::Error: Error + Send + Sync + 'static,
 {
@@ -202,30 +177,14 @@ where
             .await?;
         handler.disperse_shares(encoded_data).await
     }
-
-    async fn publish_to_mempool(
-        &self,
-        blob_id: BlobId,
-        metadata: dispersal::Metadata,
-    ) -> Result<(), DynError> {
-        self.mempool_adapter
-            .post_blob_id(blob_id, metadata)
-            .await
-            .or_else(|err| match err {
-                DaMempoolAdapterError::Mempool(MempoolError::ExistingItem) => Ok(()),
-                DaMempoolAdapterError::Mempool(MempoolError::DynamicPoolError(err))
-                | DaMempoolAdapterError::Other(err) => Err(err),
-            })
-    }
 }
 
 #[async_trait::async_trait]
-impl<NetworkAdapter, MempoolAdapter, WalletAdapter> DispersalBackend
-    for DispersalKZGRSBackend<NetworkAdapter, MempoolAdapter, WalletAdapter>
+impl<NetworkAdapter, WalletAdapter> DispersalBackend
+    for DispersalKZGRSBackend<NetworkAdapter, WalletAdapter>
 where
     NetworkAdapter: DispersalNetworkAdapter + Send + Sync,
     NetworkAdapter::SubnetworkId: From<u16> + Send + Sync,
-    MempoolAdapter: DaMempoolAdapter<BlobId = BlobId, Metadata = dispersal::Metadata> + Send + Sync,
     WalletAdapter: DaWalletAdapter + Send + Sync,
     WalletAdapter::Error: Error + Send + Sync + 'static,
 {
@@ -233,15 +192,12 @@ where
     type Encoder = encoder::DaEncoder;
     type Dispersal = DispersalHandler<NetworkAdapter, WalletAdapter>;
     type NetworkAdapter = NetworkAdapter;
-    type MempoolAdapter = MempoolAdapter;
     type WalletAdapter = WalletAdapter;
-    type Metadata = dispersal::Metadata;
     type BlobId = BlobId;
 
     fn init(
         settings: Self::Settings,
         network_adapter: Self::NetworkAdapter,
-        mempool_adapter: Self::MempoolAdapter,
         wallet_adapter: Self::WalletAdapter,
     ) -> Self {
         let encoder_settings = &settings.encoder_settings;
@@ -257,63 +213,17 @@ where
         Self {
             settings,
             network_adapter: Arc::new(network_adapter),
-            mempool_adapter,
             wallet_adapter: Arc::new(wallet_adapter),
             encoder: Arc::new(encoder),
         }
     }
 
     #[instrument(skip_all)]
-    async fn process_dispersal(
-        &self,
-        data: Vec<u8>,
-        metadata: Self::Metadata,
-    ) -> Result<Self::BlobId, DynError> {
+    async fn process_dispersal(&self, data: Vec<u8>) -> Result<Self::BlobId, DynError> {
         let original_size = data.len();
         let (blob_id, encoded_data) = self.encode(data).await?;
         info_with_id!(blob_id.as_ref(), "ProcessDispersal");
         self.disperse(encoded_data, original_size).await?;
-        match self.settings.mempool_strategy {
-            MempoolPublishStrategy::Immediately => {
-                self.publish_to_mempool(blob_id, metadata).await?;
-            }
-            // MempoolPublishStrategy::Timeout { wait_duration } => {
-            MempoolPublishStrategy::Timeout(Timeout { wait_duration }) => {
-                tokio::time::sleep(wait_duration).await;
-                self.publish_to_mempool(blob_id, metadata).await?;
-            }
-            MempoolPublishStrategy::SampleSubnetworks(SampleSubnetworks {
-                sample_threshold,
-                timeout,
-                cooldown,
-            }) => {
-                let subnets = {
-                    // ThreadRng is not Send, need to drop before await bound.
-                    let mut rng = thread_rng();
-                    (0..self.settings.encoder_settings.num_columns as u16)
-                        .choose_multiple(&mut rng, sample_threshold)
-                };
-
-                match tokio::time::timeout(
-                    timeout,
-                    self.network_adapter
-                        .get_blob_samples(blob_id, &subnets, cooldown),
-                )
-                .await
-                {
-                    Ok(Ok(())) => {
-                        self.publish_to_mempool(blob_id, metadata).await?;
-                    }
-                    Ok(Err(e)) => return Err(e),
-                    Err(Elapsed { .. }) => {
-                        return Err(Box::new(std::io::Error::new(
-                            std::io::ErrorKind::TimedOut,
-                            format!("Dispersed blob sampling timed out for blob_id {blob_id:?}"),
-                        )));
-                    }
-                }
-            }
-        }
         Ok(blob_id)
     }
 }

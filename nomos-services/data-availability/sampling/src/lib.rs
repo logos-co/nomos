@@ -19,6 +19,9 @@ use nomos_da_network_service::{
     backends::libp2p::common::SamplingEvent, membership::MembershipAdapter,
     storage::MembershipStorageAdapter, NetworkService,
 };
+// Reexport VerifierBackend under the sampling service crate to keep Sampling service self
+// contained when using in Mempool or other services.
+pub use nomos_da_verifier::backend::kzgrs::KzgrsDaVerifier;
 use nomos_da_verifier::{
     backend::VerifierBackend as VerifierBackendTrait, DaVerifierMsg, DaVerifierService,
 };

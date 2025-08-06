@@ -23,7 +23,6 @@ use nomos_core::{
     header::HeaderId,
     mantle::{SignedMantleTx, Transaction},
 };
-use nomos_da_dispersal::adapters::mempool::DaMempoolAdapter;
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
     backends::libp2p::executor::DaNetworkExecutorBackend, membership::MembershipAdapter,
@@ -88,7 +87,6 @@ pub struct AxumBackend<
     DaStorageConverter,
     DispersalBackend,
     DispersalNetworkAdapter,
-    DispersalMempoolAdapter,
     Metadata,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -117,7 +115,6 @@ pub struct AxumBackend<
         DaStorageConverter,
         DispersalBackend,
         DispersalNetworkAdapter,
-        DispersalMempoolAdapter,
         Metadata,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -158,7 +155,6 @@ impl<
         DaStorageConverter,
         DispersalBackend,
         DispersalNetworkAdapter,
-        DispersalMempoolAdapter,
         Metadata,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -185,7 +181,6 @@ impl<
         DaStorageConverter,
         DispersalBackend,
         DispersalNetworkAdapter,
-        DispersalMempoolAdapter,
         Metadata,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -270,11 +265,8 @@ where
         + Send
         + Sync
         + 'static,
-    DispersalBackend: nomos_da_dispersal::backend::DispersalBackend<
-            NetworkAdapter = DispersalNetworkAdapter,
-            MempoolAdapter = DispersalMempoolAdapter,
-            Metadata = Metadata,
-        > + Send
+    DispersalBackend: nomos_da_dispersal::backend::DispersalBackend<NetworkAdapter = DispersalNetworkAdapter>
+        + Send
         + Sync
         + 'static,
     DispersalBackend::BlobId: Serialize,
@@ -283,7 +275,6 @@ where
             SubnetworkId = Membership::NetworkId,
         > + Send
         + 'static,
-    DispersalMempoolAdapter: DaMempoolAdapter + Send + 'static,
     Metadata: DeserializeOwned + metadata::Metadata + Debug + Send + 'static,
     SamplingBackend: DaSamplingServiceBackend<BlobId = <DaVerifiedBlobInfo as DispersedBlobInfo>::BlobId>
         + Send
@@ -405,14 +396,7 @@ where
             >,
         >
         + AsServiceId<
-            DaDispersal<
-                DispersalBackend,
-                DispersalNetworkAdapter,
-                DispersalMempoolAdapter,
-                Membership,
-                Metadata,
-                RuntimeServiceId,
-            >,
+            DaDispersal<DispersalBackend, DispersalNetworkAdapter, Membership, RuntimeServiceId>,
         >,
 {
     type Error = hyper::Error;
@@ -443,7 +427,7 @@ where
             DaStorageService<_, _>,
             TxMempoolService<_, _, _, _, _, _, _>,
             DaMempoolService<_, _, _, _, _, _, _, _, _>,
-            DaDispersal<_, _, _, _, _, _>
+            DaDispersal<_, _, _, _>
         )
         .await
     }
@@ -646,9 +630,7 @@ where
                     disperse_data::<
                         DispersalBackend,
                         DispersalNetworkAdapter,
-                        DispersalMempoolAdapter,
                         Membership,
-                        Metadata,
                         RuntimeServiceId,
                     >,
                 ),

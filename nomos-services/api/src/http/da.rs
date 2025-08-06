@@ -16,9 +16,8 @@ use nomos_core::{
     mantle::{select::FillSize as FillSizeWithTx, SignedMantleTx, Transaction},
 };
 use nomos_da_dispersal::{
-    adapters::{mempool::DaMempoolAdapter, network::DispersalNetworkAdapter},
-    backend::DispersalBackend,
-    DaDispersalMsg, DispersalService,
+    adapters::network::DispersalNetworkAdapter, backend::DispersalBackend, DaDispersalMsg,
+    DispersalService,
 };
 use nomos_da_indexer::{
     consensus::adapters::cryptarchia::CryptarchiaConsensusAdapter,
@@ -113,21 +112,8 @@ pub type DaVerifier<
     RuntimeServiceId,
 >;
 
-pub type DaDispersal<
-    Backend,
-    NetworkAdapter,
-    MempoolAdapter,
-    Membership,
-    Metadata,
-    RuntimeServiceId,
-> = DispersalService<
-    Backend,
-    NetworkAdapter,
-    MempoolAdapter,
-    Membership,
-    Metadata,
-    RuntimeServiceId,
->;
+pub type DaDispersal<Backend, NetworkAdapter, Membership, RuntimeServiceId> =
+    DispersalService<Backend, NetworkAdapter, Membership, RuntimeServiceId>;
 
 pub type DaNetwork<
     Backend,
@@ -281,17 +267,9 @@ where
     wait_with_timeout(receiver, "Timeout while waiting for get range".to_owned()).await
 }
 
-pub async fn disperse_data<
-    Backend,
-    NetworkAdapter,
-    MempoolAdapter,
-    Membership,
-    Metadata,
-    RuntimeServiceId,
->(
+pub async fn disperse_data<Backend, NetworkAdapter, Membership, RuntimeServiceId>(
     handle: &OverwatchHandle<RuntimeServiceId>,
     data: Vec<u8>,
-    metadata: Metadata,
 ) -> Result<Backend::BlobId, DynError>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
@@ -300,38 +278,20 @@ where
         + Send
         + Sync
         + 'static,
-    Backend: DispersalBackend<
-            NetworkAdapter = NetworkAdapter,
-            MempoolAdapter = MempoolAdapter,
-            Metadata = Metadata,
-        > + Send
-        + Sync
-        + 'static,
+    Backend: DispersalBackend<NetworkAdapter = NetworkAdapter> + Send + Sync + 'static,
     Backend::Settings: Clone + Send + Sync,
     Backend::BlobId: Serialize,
     NetworkAdapter: DispersalNetworkAdapter<SubnetworkId = Membership::NetworkId> + Send,
-    MempoolAdapter: DaMempoolAdapter,
-    Metadata: metadata::Metadata + Debug + Send + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
-        + AsServiceId<
-            DaDispersal<
-                Backend,
-                NetworkAdapter,
-                MempoolAdapter,
-                Membership,
-                Metadata,
-                RuntimeServiceId,
-            >,
-        >,
+        + AsServiceId<DaDispersal<Backend, NetworkAdapter, Membership, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
     relay
         .send(DaDispersalMsg::Disperse {
             data,
-            metadata,
             reply_channel: sender,
         })
         .await
