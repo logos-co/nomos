@@ -67,17 +67,6 @@ async fn test_ibd_behind_nodes() {
 
     println!("Behind node started, waiting for it to sync...");
 
-    let mut config = create_validator_config(general_configs[3].clone());
-    config.cryptarchia.bootstrap.ibd.peers = initial_peer_ids.clone();
-
-    println!("Starting behind node with IBD peers...");
-
-    let behind_node = Validator::spawn(config)
-        .await
-        .expect("Behind node should start successfully");
-
-    println!("Behind node started, waiting for it to sync...");
-
     // 1 second is enough to download the initial blocks and catch up
     tokio::time::sleep(adjust_timeout(Duration::from_secs(1))).await;
 
