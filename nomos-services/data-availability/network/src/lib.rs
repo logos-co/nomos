@@ -520,6 +520,7 @@ where
             }
 
             let selected_peers = Self::prepare_selected_peers(
+                backend,
                 &all_subnet_ids,
                 block_number,
                 &membership,
@@ -540,6 +541,7 @@ where
     }
 
     fn prepare_selected_peers(
+        backend: &Backend,
         all_subnet_ids: &[SubnetworkId],
         block_number: BlockNumber,
         membership: &Membership,
@@ -576,10 +578,13 @@ where
                 return None;
             }
 
-            let members_vec: Vec<_> = subnet_members.into_iter().collect();
+            let subnet_members: Vec<_> = subnet_members
+                .into_iter()
+                .filter(|peer_id| *peer_id != backend.local_peer_id())
+                .collect();
 
             // Pick one random peer from this subnetwork
-            let selected_peer = &members_vec[rng.gen_range(0..members_vec.len())];
+            let selected_peer = &subnet_members[rng.gen_range(0..subnet_members.len())];
 
             if let Some(address) = addressbook.get(selected_peer) {
                 selected_peers.insert(*selected_peer, address.clone());

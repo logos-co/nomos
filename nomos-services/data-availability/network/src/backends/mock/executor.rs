@@ -133,6 +133,10 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
     ) {
         todo!()
     }
+
+    fn local_peer_id(&self) -> PeerId {
+        todo!()
+    }
 }
 
 #[derive(Clone)]

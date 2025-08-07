@@ -108,6 +108,7 @@ where
     dispersal_shares_sender: UnboundedSender<(Membership::NetworkId, DaShare)>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
+    local_peer_id: PeerId,
     _membership: PhantomData<Membership>,
 }
 
@@ -179,6 +180,8 @@ where
         let balancer_command_sender = executor_swarm.balancer_command_channel();
         let monitor_command_sender = executor_swarm.monitor_command_channel();
 
+        let local_peer_id = *executor_swarm.local_peer_id();
+
         let (task_abort_handle, abort_registration) = AbortHandle::new_pair();
         let task = (
             task_abort_handle,
@@ -237,6 +240,7 @@ where
             dispersal_shares_sender,
             balancer_command_sender,
             monitor_command_sender,
+            local_peer_id,
             _membership: PhantomData,
         }
     }
@@ -336,6 +340,10 @@ where
             membership,
         )
         .await;
+    }
+
+    fn local_peer_id(&self) -> PeerId {
+        self.local_peer_id
     }
 }
 

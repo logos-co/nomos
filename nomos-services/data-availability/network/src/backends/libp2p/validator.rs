@@ -90,6 +90,7 @@ pub struct DaNetworkValidatorBackend<Membership> {
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
     commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
     verifying_broadcast_receiver: broadcast::Receiver<DaShare>,
+    local_peer_id: PeerId,
     _membership: PhantomData<Membership>,
 }
 
@@ -155,6 +156,7 @@ where
         let historic_sample_request_channel = validator_swarm.historic_sample_request_channel();
         let balancer_command_sender = validator_swarm.balancer_command_channel();
         let monitor_command_sender = validator_swarm.monitor_command_channel();
+        let local_peer_id = *validator_swarm.local_peer_id();
 
         let (task_abort_handle, abort_registration) = AbortHandle::new_pair();
         let task = (
@@ -193,6 +195,7 @@ where
             sampling_broadcast_receiver,
             commitments_broadcast_receiver,
             verifying_broadcast_receiver,
+            local_peer_id,
             _membership: PhantomData,
         }
     }
@@ -269,5 +272,9 @@ where
             membership,
         )
         .await;
+    }
+
+    fn local_peer_id(&self) -> PeerId {
+        self.local_peer_id
     }
 }

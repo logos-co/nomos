@@ -42,4 +42,5 @@ pub trait NetworkBackend<RuntimeServiceId> {
         blob_id: BlobId,
         membership: HashMap<PeerId, Multiaddr>,
     );
+    fn local_peer_id(&self) -> PeerId;
 }
