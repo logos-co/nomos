@@ -81,10 +81,6 @@ pub struct GenericDaMempoolService<
 {
     pool: Pool,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    #[expect(
-        clippy::type_complexity,
-        reason = "There is nothing we can do about this, at the moment."
-    )]
     _phantom: PhantomData<(
         NetworkAdapter,
         RecoveryBackend,

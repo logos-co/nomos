@@ -1,17 +1,17 @@
 pub mod backend;
 pub mod network;
 pub mod storage;
+pub mod verifier;
 
 use std::{
     collections::BTreeSet,
     fmt::{Debug, Display},
     marker::PhantomData,
-    sync::Arc,
     time::Duration,
 };
 
 use backend::{DaSamplingServiceBackend, SamplingState};
-use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
+use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use network::NetworkAdapter;
 use nomos_core::da::BlobId;
 use nomos_da_network_core::protocols::sampling::errors::SamplingError;
@@ -32,6 +32,16 @@ use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
 use tokio_stream::StreamExt as _;
 use tracing::{error, instrument};
+use verifier::{kzgrs::KzgrsDaVerifier, VerifierBackend};
+
+pub type DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId> =
+    GenericDaSamplingService<
+        SamplingBackend,
+        SamplingNetwork,
+        SamplingStorage,
+        KzgrsDaVerifier,
+        RuntimeServiceId,
+    >;
 
 #[derive(Debug)]
 pub enum DaSamplingServiceMsg<BlobId> {
@@ -47,26 +57,45 @@ pub enum DaSamplingServiceMsg<BlobId> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DaSamplingServiceSettings<BackendSettings> {
+pub struct DaSamplingServiceSettings<BackendSettings, ShareVerifierSettings> {
     pub sampling_settings: BackendSettings,
+    pub share_verifier_settings: ShareVerifierSettings,
 }
 
-pub struct DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>
-where
+pub struct GenericDaSamplingService<
+    SamplingBackend,
+    SamplingNetwork,
+    SamplingStorage,
+    ShareVerifier,
+    RuntimeServiceId,
+> where
     SamplingBackend: DaSamplingServiceBackend,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId>,
+    ShareVerifier: VerifierBackend,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    _phantom: PhantomData<(SamplingBackend, SamplingNetwork, SamplingStorage)>,
+    _phantom: PhantomData<(
+        SamplingBackend,
+        SamplingNetwork,
+        SamplingStorage,
+        ShareVerifier,
+    )>,
 }
 
-impl<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>
-    DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>
+impl<SamplingBackend, SamplingNetwork, SamplingStorage, ShareVerifier, RuntimeServiceId>
+    GenericDaSamplingService<
+        SamplingBackend,
+        SamplingNetwork,
+        SamplingStorage,
+        ShareVerifier,
+        RuntimeServiceId,
+    >
 where
     SamplingBackend: DaSamplingServiceBackend,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId>,
+    ShareVerifier: VerifierBackend,
 {
     #[must_use]
     pub const fn new(
@@ -79,8 +108,14 @@ where
     }
 }
 
-impl<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>
-    DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>
+impl<SamplingBackend, SamplingNetwork, SamplingStorage, ShareVerifier, RuntimeServiceId>
+    GenericDaSamplingService<
+        SamplingBackend,
+        SamplingNetwork,
+        SamplingStorage,
+        ShareVerifier,
+        RuntimeServiceId,
+    >
 where
     SamplingBackend: DaSamplingServiceBackend<
             BlobId = BlobId,
@@ -90,6 +125,7 @@ where
     SamplingBackend::Settings: Clone,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send + Sync,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,
+    ShareVerifier: VerifierBackend<DaShare = DaShare> + Send + Sync,
 {
     #[instrument(skip_all)]
     async fn handle_service_message(
@@ -137,6 +173,7 @@ where
         event: SamplingEvent,
         sampler: &mut SamplingBackend,
         storage_adapter: &SamplingStorage,
+        verifier: &ShareVerifier,
     ) {
         match event {
             SamplingEvent::SamplingSuccess {
@@ -149,10 +186,7 @@ where
                     sampler.handle_sampling_error(blob_id).await;
                     return;
                 };
-                if Self::verify_blob(commitments, light_share.clone())
-                    .await
-                    .is_ok()
-                {
+                if verifier.verify(&commitments, &light_share).is_ok() {
                     sampler
                         .handle_sampling_success(blob_id, light_share.share_idx)
                         .await;
@@ -212,32 +246,38 @@ where
             .ok()
             .flatten()
     }
-
-    async fn verify_blob(
-        commitments: Arc<DaSharesCommitments>,
-        light_share: Box<DaLightShare>,
-    ) -> Result<(), DynError> {
-        Ok(())
-    }
 }
 
-impl<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId> ServiceData
-    for DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>
+impl<SamplingBackend, SamplingNetwork, SamplingStorage, ShareVerifier, RuntimeServiceId> ServiceData
+    for GenericDaSamplingService<
+        SamplingBackend,
+        SamplingNetwork,
+        SamplingStorage,
+        ShareVerifier,
+        RuntimeServiceId,
+    >
 where
     SamplingBackend: DaSamplingServiceBackend,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId>,
+    ShareVerifier: VerifierBackend,
 {
-    type Settings = DaSamplingServiceSettings<SamplingBackend::Settings>;
+    type Settings = DaSamplingServiceSettings<SamplingBackend::Settings, ShareVerifier::Settings>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = DaSamplingServiceMsg<SamplingBackend::BlobId>;
 }
 
 #[async_trait::async_trait]
-impl<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>
+impl<SamplingBackend, SamplingNetwork, SamplingStorage, ShareVerifier, RuntimeServiceId>
     ServiceCore<RuntimeServiceId>
-    for DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>
+    for GenericDaSamplingService<
+        SamplingBackend,
+        SamplingNetwork,
+        SamplingStorage,
+        ShareVerifier,
+        RuntimeServiceId,
+    >
 where
     SamplingBackend: DaSamplingServiceBackend<
             BlobId = BlobId,
@@ -249,6 +289,8 @@ where
     SamplingNetwork::Settings: Send + Sync,
     SamplingNetwork::Membership: MembershipHandler + Clone + 'static,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,
+    ShareVerifier: VerifierBackend<DaShare = DaShare> + Send + Sync,
+    ShareVerifier::Settings: Clone + Send + Sync,
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<
             NetworkService<
@@ -278,7 +320,10 @@ where
             mut service_resources_handle,
             ..
         } = self;
-        let DaSamplingServiceSettings { sampling_settings } = service_resources_handle
+        let DaSamplingServiceSettings {
+            sampling_settings,
+            share_verifier_settings,
+        } = service_resources_handle
             .settings_handle
             .notifier()
             .get_updated_settings();
@@ -297,6 +342,7 @@ where
         let storage_adapter = SamplingStorage::new(storage_relay).await;
 
         let mut sampler = SamplingBackend::new(sampling_settings);
+        let share_verifier = ShareVerifier::new(share_verifier_settings);
         let mut next_prune_tick = sampler.prune_interval();
 
         service_resources_handle.status_updater.notify_ready();
@@ -319,7 +365,7 @@ where
                     Self::handle_service_message(service_message, &mut network_adapter,  &storage_adapter,  &mut sampler).await;
                 }
                 Some(sampling_message) = sampling_message_stream.next() => {
-                    Self::handle_sampling_message(sampling_message, &mut sampler, &storage_adapter).await;
+                    Self::handle_sampling_message(sampling_message, &mut sampler, &storage_adapter, &share_verifier).await;
                 }
                 // cleanup not on time samples
                 _ = next_prune_tick.tick() => {
