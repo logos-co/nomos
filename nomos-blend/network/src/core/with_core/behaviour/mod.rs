@@ -269,10 +269,10 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     ///
     /// This function does not perform any checks to verify whether the
     /// specified connection is stored or not.
-    fn close_connection(&mut self, connection: (PeerId, ConnectionId)) {
+    fn close_connection(&mut self, (peer_id, connection_id): (PeerId, ConnectionId)) {
         self.events.push_back(ToSwarm::NotifyHandler {
-            peer_id: connection.0,
-            handler: NotifyHandler::One(connection.1),
+            peer_id,
+            handler: NotifyHandler::One(connection_id),
             event: Either::Left(FromBehaviour::CloseSubstreams),
         });
         self.try_wake();
