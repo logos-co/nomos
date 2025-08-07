@@ -53,6 +53,7 @@ mod tests {
             force_bootstrap,
             ibd: IbdConfig {
                 peers: HashSet::new(),
+                delay_before_new_download: Duration::from_millis(1),
             },
         }
     }
