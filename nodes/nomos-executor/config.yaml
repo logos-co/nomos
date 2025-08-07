@@ -113,6 +113,13 @@ da_verifier:
   storage_adapter_settings:
     blob_storage_directory: ./
 da_sampling:
+  share_verifier_settings:
+    sk: 67cee9fdc9c5160671b40da60b17153558496a12fb57804c1e64ef51f5a29dca
+    index:
+      - 1
+      - 0
+    global_params_path: ./tests/kzgrs/kzgrs_test_params
+    domain_size: 2
   sampling_settings:
     num_samples: 1
     num_subnets: 2
