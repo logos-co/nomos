@@ -6,6 +6,7 @@ use std::{
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
+#[cfg(feature = "libp2p")]
 use libp2p::PeerId;
 use overwatch::{
     services::{
@@ -117,6 +118,7 @@ pub trait ServiceExt {
 /// Implementing [`ServiceExt`] for [`BlendService`]
 /// that depends on the libp2p-based [`core::BlendService`] and
 /// [`edge::BlendService`].
+#[cfg(feature = "libp2p")]
 impl<RuntimeServiceId> ServiceExt
     for BlendService<
         core::BlendService<
