@@ -545,12 +545,12 @@ where
         addressbook: &HashMap<PeerId, Multiaddr>,
         subnets_settings: &SubnetsConfig,
     ) -> Option<HashMap<PeerId, Multiaddr>> {
-        let subnets_to_sample = subnets_settings.num_of_subnets.min(all_subnet_ids.len());
-        if subnets_to_sample < subnets_settings.num_of_subnets {
+        let subnets_to_sample = subnets_settings.num_of_subnets;
+        if subnets_to_sample > all_subnet_ids.len() {
             tracing::error!(
                 "Only {} subnetworks available, requested {}. Sampling all available.",
                 all_subnet_ids.len(),
-                subnets_settings.num_of_subnets
+                subnets_to_sample
             );
 
             return None;
