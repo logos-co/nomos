@@ -25,7 +25,7 @@ use overwatch::{
     },
     OpaqueServiceResourcesHandle,
 };
-use rand::seq::IteratorRandom as _;
+use rand::{seq::SliceRandom as _, Rng as _};
 use serde::{Deserialize, Serialize};
 use storage::{MembershipStorage, MembershipStorageAdapter};
 use subnetworks_assignations::{MembershipCreator, MembershipHandler, SubnetworkAssignations};
@@ -495,7 +495,6 @@ where
                 tracing::error!("Failed to update membership at block {block_number}: {e}");
             });
     }
-
     async fn handle_historic_sample_request(
         backend: &Backend,
         membership_storage: &MembershipStorage<StorageAdapter, Membership, AddressBook>,
@@ -512,35 +511,82 @@ where
             });
 
         if let Some((membership, addressbook)) = membership {
-            let historic_members = membership.members();
-            let random_peers: Vec<PeerId> = historic_members
-                .iter()
-                .choose_multiple(&mut rand::thread_rng(), subnets_settings.num_of_subnets)
-                .into_iter()
-                .copied()
-                .collect();
+            let all_subnet_ids: Vec<_> = membership.subnetworks().keys().copied().collect();
 
-            let mut updated_membership = HashMap::new();
-
-            for peer_id in &random_peers {
-                if let Some(address) = addressbook.get(peer_id) {
-                    updated_membership.insert(*peer_id, address.clone());
-                } else {
-                    tracing::error!(
-                    "No addresses found for peer {peer_id} in addressbook at block {block_number}"
-                );
-
-                    return;
-                }
+            if all_subnet_ids.is_empty() {
+                tracing::error!("No subnetworks available for sampling");
+                return;
             }
 
-            // split sending in two steps to help the compiler understand we do not
-            // need to hold an instance of &I (which is not Send) across an await point
-            let send = backend.start_historic_sampling(block_number, blob_id, updated_membership);
+            let selected_peers = Self::prepare_selected_peers(
+                &all_subnet_ids,
+                block_number,
+                &membership,
+                &addressbook,
+                subnets_settings,
+            );
+
+            if selected_peers.is_none() {
+                return;
+            }
+
+            let send =
+                backend.start_historic_sampling(block_number, blob_id, selected_peers.unwrap());
             send.await;
         } else {
             tracing::warn!("No membership found for block number {block_number}");
         }
+    }
+
+    fn prepare_selected_peers(
+        all_subnet_ids: &[SubnetworkId],
+        block_number: BlockNumber,
+        membership: &Membership,
+        addressbook: &HashMap<PeerId, Multiaddr>,
+        subnets_settings: &SubnetsConfig,
+    ) -> Option<HashMap<PeerId, Multiaddr>> {
+        let subnets_to_sample = subnets_settings.num_of_subnets.min(all_subnet_ids.len());
+        if subnets_to_sample < subnets_settings.num_of_subnets {
+            tracing::error!(
+                "Only {} subnetworks available, requested {}. Sampling all available.",
+                all_subnet_ids.len(),
+                subnets_settings.num_of_subnets
+            );
+
+            return None;
+        }
+
+        let mut selected_peers = HashMap::new();
+        let mut rng = rand::thread_rng();
+
+        // Select `subnets_to_sample` UNIQUE subnetworks
+        let selected_subnet_ids = all_subnet_ids.choose_multiple(&mut rng, subnets_to_sample);
+
+        // For each selected subnetwork, pick one random peer
+        for subnet_id in selected_subnet_ids {
+            let subnet_members = membership.members_of(subnet_id);
+
+            if subnet_members.is_empty() {
+                tracing::error!("Subnetwork {subnet_id:?} has no members at block {block_number}");
+                return None;
+            }
+
+            let members_vec: Vec<_> = subnet_members.into_iter().collect();
+
+            // Pick one random peer from this subnetwork
+            let selected_peer = &members_vec[rng.gen_range(0..members_vec.len())];
+
+            if let Some(address) = addressbook.get(selected_peer) {
+                selected_peers.insert(*selected_peer, address.clone());
+            } else {
+                tracing::error!(
+                "No addresses found for peer {selected_peer:?} in addressbook at block {block_number}"
+            );
+                return None;
+            }
+        }
+
+        Some(selected_peers)
     }
 }
 
