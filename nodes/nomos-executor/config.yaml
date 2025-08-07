@@ -11,7 +11,6 @@ network:
     node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d
     initial_peers: [ ]
 blend:
-blend_core:
   backend:
     listening_address: /ip4/127.0.0.1/udp/3001/quic-v1
     node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d
@@ -38,26 +37,6 @@ blend_core:
     message_frequency_per_round: 1.0
     redundancy_parameter: 0
     maximum_release_delay_in_rounds: 3
-  membership:
-    - id: 12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
-      address: /ip4/127.0.0.1/udp/8720/quic-v1
-      public_key: cd81cab2112a1cf8e6d986d53c0ab6c740e3a82dc04e0a6497f62727969fa5fd
-    - id: 12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
-      address: /ip4/127.0.0.1/udp/8721/quic-v1
-      public_key: 92f041e26306548444400e88eefa622dc125a45f3e3119a04ba1ffe4946dd4e6
-blend_edge:
-  backend:
-    node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d
-  crypto:
-    signing_private_key: 32e4b52b78e0e8273f31e2ae0826d09b0348d4c66824af4f51ec4ef338082211
-    num_blend_layers: 1
-  time:
-    # 21,600 blocks * 30s per block * 1s per round = 648,000 rounds
-    rounds_per_session: 648000
-    rounds_per_interval: 30
-    round_duration: [ 1, 0 ]
-    # Defined in the spec
-    rounds_per_observation_window: 30
   membership:
     - id: 12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
       address: /ip4/127.0.0.1/udp/8720/quic-v1

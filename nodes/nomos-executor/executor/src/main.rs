@@ -65,12 +65,14 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    let (blend_config, blend_core_config, blend_edge_config) = config.blend.into();
+
     let app = OverwatchRunner::<NomosExecutor>::run(
         NomosExecutorServiceSettings {
             network: config.network,
-            blend: config.blend,
-            blend_core: config.blend_core,
-            blend_edge: config.blend_edge,
+            blend: blend_config,
+            blend_core: blend_core_config,
+            blend_edge: blend_edge_config,
             #[cfg(feature = "tracing")]
             tracing: config.tracing,
             http: config.http,

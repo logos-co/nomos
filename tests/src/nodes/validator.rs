@@ -40,12 +40,12 @@ use nomos_http_api_common::paths::{
     CL_METRICS, CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_RANGE,
     DA_MONITOR_STATS, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
 };
-use nomos_libp2p::ed25519;
 use nomos_mempool::MempoolMetrics;
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
-    api::backend::AxumBackendSettings, config::mempool::MempoolConfig, BlobInfo, Config, HeaderId,
-    RocksBackendSettings,
+    api::backend::AxumBackendSettings,
+    config::{blend::BlendConfig, mempool::MempoolConfig},
+    BlobInfo, Config, HeaderId, RocksBackendSettings,
 };
 use nomos_time::{
     backends::{ntp::async_client::NTPClientSettings, NtpTimeBackendSettings},
@@ -315,45 +315,6 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         .parse()
         .unwrap();
 
-    let blend_core = nomos_blend_service::core::settings::BlendConfig {
-        backend: config.blend_config.backend,
-        crypto: CryptographicProcessorSettings {
-            signing_private_key: config.blend_config.private_key.clone(),
-            num_blend_layers: 1,
-        },
-        time: TimingSettings {
-            round_duration: Duration::from_secs(1),
-            rounds_per_interval: NonZeroU64::try_from(30u64)
-                .expect("Rounds per interval cannot be zero."),
-            // (21,600 blocks * 30s per block) / 1s per round = 648,000 rounds
-            rounds_per_session: NonZeroU64::try_from(648_000u64)
-                .expect("Rounds per session cannot be zero."),
-            rounds_per_observation_window: NonZeroU64::try_from(30u64)
-                .expect("Rounds per observation window cannot be zero."),
-        },
-        scheduler: SchedulerSettingsExt {
-            cover: CoverTrafficSettingsExt {
-                intervals_for_safety_buffer: 100,
-                message_frequency_per_round: NonNegativeF64::try_from(1f64)
-                    .expect("Message frequency per round cannot be negative."),
-                redundancy_parameter: 0,
-            },
-            delayer: MessageDelayerSettingsExt {
-                maximum_release_delay_in_rounds: NonZeroU64::try_from(3u64)
-                    .expect("Maximum release delay between rounds cannot be zero."),
-            },
-        },
-        membership: config.blend_config.membership,
-    };
-    let blend_edge = nomos_blend_service::edge::settings::BlendConfig {
-        backend: nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackendSettings {
-            node_key: ed25519::SecretKey::generate(),
-        },
-        crypto: blend_core.crypto.clone(),
-        time: blend_core.time.clone(),
-        membership: blend_core.membership.clone(),
-    };
-
     let da_policy_settings = config.da_config.policy_settings;
     Config {
         network: NetworkConfig {
@@ -362,9 +323,36 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 initial_peers: config.network_config.initial_peers,
             },
         },
-        blend: (),
-        blend_core,
-        blend_edge,
+        blend: BlendConfig::new(nomos_blend_service::core::settings::BlendConfig {
+            backend: config.blend_config.backend,
+            crypto: CryptographicProcessorSettings {
+                signing_private_key: config.blend_config.private_key.clone(),
+                num_blend_layers: 1,
+            },
+            time: TimingSettings {
+                round_duration: Duration::from_secs(1),
+                rounds_per_interval: NonZeroU64::try_from(30u64)
+                    .expect("Rounds per interval cannot be zero."),
+                // (21,600 blocks * 30s per block) / 1s per round = 648,000 rounds
+                rounds_per_session: NonZeroU64::try_from(648_000u64)
+                    .expect("Rounds per session cannot be zero."),
+                rounds_per_observation_window: NonZeroU64::try_from(30u64)
+                    .expect("Rounds per observation window cannot be zero."),
+            },
+            scheduler: SchedulerSettingsExt {
+                cover: CoverTrafficSettingsExt {
+                    intervals_for_safety_buffer: 100,
+                    message_frequency_per_round: NonNegativeF64::try_from(1f64)
+                        .expect("Message frequency per round cannot be negative."),
+                    redundancy_parameter: 0,
+                },
+                delayer: MessageDelayerSettingsExt {
+                    maximum_release_delay_in_rounds: NonZeroU64::try_from(3u64)
+                        .expect("Maximum release delay between rounds cannot be zero."),
+                },
+            },
+            membership: config.blend_config.membership,
+        }),
         cryptarchia: CryptarchiaSettings {
             leader_config: config.consensus_config.leader_config,
             config: config.consensus_config.ledger_config,
