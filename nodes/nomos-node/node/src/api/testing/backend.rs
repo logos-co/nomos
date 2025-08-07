@@ -9,8 +9,10 @@ use http::{
     HeaderValue,
 };
 use nomos_api::Backend;
-use nomos_http_api_common::paths::UPDATE_MEMBERSHIP;
+use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBackend;
+use nomos_http_api_common::paths::{DA_GET_MEMBERSHIP, UPDATE_MEMBERSHIP};
 use nomos_membership::MembershipService as MembershipServiceTrait;
+pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
 use services_utils::wait_until_services_are_ready;
 use tower_http::{
@@ -19,12 +21,25 @@ use tower_http::{
 };
 
 use crate::{
-    api::{backend::AxumBackendSettings, testing::handlers::update_membership},
-    generic_services::{MembershipBackend, MembershipSdp, MembershipService},
+    api::{
+        backend::AxumBackendSettings,
+        testing::handlers::{da_get_membership, update_membership},
+    },
+    generic_services::{DaMembershipAdapter, MembershipBackend, MembershipSdp, MembershipService},
+    DaMembershipStorage, DaNetworkApiAdapter, NomosDaMembership,
 };
 pub struct TestAxumBackend {
     settings: AxumBackendSettings,
 }
+
+type TestDaNetworkService<RuntimeServiceId> = nomos_da_network_service::NetworkService<
+    DaNetworkValidatorBackend<NomosDaMembership>,
+    NomosDaMembership,
+    DaMembershipAdapter<RuntimeServiceId>,
+    DaMembershipStorage,
+    DaNetworkApiAdapter,
+    RuntimeServiceId,
+>;
 
 #[async_trait::async_trait]
 impl<RuntimeServiceId> Backend<RuntimeServiceId> for TestAxumBackend
@@ -35,7 +50,8 @@ where
         + Debug
         + Clone
         + 'static
-        + AsServiceId<MembershipService<RuntimeServiceId>>,
+        + AsServiceId<MembershipService<RuntimeServiceId>>
+        + AsServiceId<TestDaNetworkService<RuntimeServiceId>>,
 {
     type Error = hyper::Error;
     type Settings = AxumBackendSettings;
@@ -89,6 +105,19 @@ where
                     update_membership::<
                         MembershipBackend,
                         MembershipSdp<RuntimeServiceId>,
+                        RuntimeServiceId,
+                    >,
+                ),
+            )
+            .route(
+                DA_GET_MEMBERSHIP,
+                post(
+                    da_get_membership::<
+                        DaNetworkValidatorBackend<NomosDaMembership>,
+                        NomosDaMembership,
+                        DaMembershipAdapter<RuntimeServiceId>,
+                        DaMembershipStorage,
+                        DaNetworkApiAdapter,
                         RuntimeServiceId,
                     >,
                 ),

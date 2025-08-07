@@ -2,7 +2,14 @@ use std::{collections::HashSet, time::Duration};
 
 use futures::{Stream, StreamExt as _};
 use libp2p::{identity::Keypair, PeerId, Swarm, SwarmBuilder};
-use nomos_blend_scheduling::membership::Membership;
+use nomos_blend_network::{
+    core::{
+        with_core::behaviour::Event as CoreToCoreEvent,
+        with_edge::behaviour::Event as CoreToEdgeEvent, NetworkBehaviourEvent,
+    },
+    EncapsulatedMessageWithValidatedPublicHeader,
+};
+use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage};
 use nomos_libp2p::{ed25519, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
@@ -12,18 +19,21 @@ use crate::core::{
         behaviour::{BlendBehaviour, BlendBehaviourEvent},
         Libp2pBlendBackendSettings, LOG_TARGET,
     },
-    BlendConfig,
+    settings::BlendConfig,
 };
 
 #[derive(Debug)]
 pub enum BlendSwarmMessage {
-    Publish(Vec<u8>),
+    Publish(EncapsulatedMessage),
 }
 
-pub(super) struct BlendSwarm<SessionStream, Rng> {
+pub(super) struct BlendSwarm<SessionStream, Rng>
+where
+    Rng: 'static,
+{
     swarm: Swarm<BlendBehaviour>,
     swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
-    incoming_message_sender: broadcast::Sender<Vec<u8>>,
+    incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithValidatedPublicHeader>,
     session_stream: SessionStream,
     latest_session_info: Membership<PeerId>,
     rng: Rng,
@@ -39,7 +49,7 @@ where
         session_stream: SessionStream,
         mut rng: Rng,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
-        incoming_message_sender: broadcast::Sender<Vec<u8>>,
+        incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithValidatedPublicHeader>,
     ) -> Self {
         let membership = config.membership();
         let keypair = Keypair::from(ed25519::Keypair::from(config.backend.node_key.clone()));
@@ -87,22 +97,60 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
     fn handle_swarm_message(&mut self, msg: BlendSwarmMessage) {
         match msg {
             BlendSwarmMessage::Publish(msg) => {
-                self.handle_publish_swarm_message(&msg);
+                self.handle_publish_swarm_message(msg);
             }
         }
     }
 
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "Tracing macros generate more code that triggers this warning."
-    )]
-    fn handle_publish_swarm_message(&mut self, msg: &[u8]) {
-        if let Err(e) = self.swarm.behaviour_mut().blend.publish(msg) {
+    fn handle_publish_swarm_message(&mut self, msg: EncapsulatedMessage) {
+        if let Err(e) = self
+            .swarm
+            .behaviour_mut()
+            .blend
+            .with_core_mut()
+            .validate_and_publish_message(msg)
+        {
             tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
             tracing::info!(counter.failed_outbound_messages = 1);
         } else {
             tracing::info!(counter.successful_outbound_messages = 1);
-            tracing::info!(histogram.sent_data = msg.len() as u64);
+        }
+    }
+
+    fn publish_validated_swarm_message(
+        &mut self,
+        msg: &EncapsulatedMessageWithValidatedPublicHeader,
+    ) {
+        if let Err(e) = self
+            .swarm
+            .behaviour_mut()
+            .blend
+            .with_core_mut()
+            .publish_validated_message(msg)
+        {
+            tracing::error!(target: LOG_TARGET, "Failed to forward message to blend network: {e:?}");
+            tracing::info!(counter.failed_outbound_messages = 1);
+        } else {
+            tracing::info!(counter.successful_outbound_messages = 1);
+        }
+    }
+
+    fn forward_validated_swarm_message(
+        &mut self,
+        msg: &EncapsulatedMessageWithValidatedPublicHeader,
+        except: PeerId,
+    ) {
+        if let Err(e) = self
+            .swarm
+            .behaviour_mut()
+            .blend
+            .with_core_mut()
+            .forward_validated_message(msg, except)
+        {
+            tracing::error!(target: LOG_TARGET, "Failed to forward message to blend network: {e:?}");
+            tracing::info!(counter.failed_outbound_messages = 1);
+        } else {
+            tracing::info!(counter.successful_outbound_messages = 1);
         }
     }
 
@@ -110,16 +158,14 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
         clippy::cognitive_complexity,
         reason = "Tracing macros generate more code that triggers this warning."
     )]
-    fn handle_blend_message(&self, msg: Vec<u8>) {
+    fn report_message_to_service(&self, msg: EncapsulatedMessageWithValidatedPublicHeader) {
         tracing::debug!("Received message from a peer: {msg:?}");
 
-        let msg_size = msg.len();
         if let Err(e) = self.incoming_message_sender.send(msg) {
             tracing::error!(target: LOG_TARGET, "Failed to send incoming message to channel: {e}");
             tracing::info!(counter.failed_inbound_messages = 1);
         } else {
             tracing::info!(counter.successful_inbound_messages = 1);
-            tracing::info!(histogram.received_data = msg_size as u64);
         }
     }
 }
@@ -146,21 +192,24 @@ where
         }
     }
 
-    fn handle_blend_behaviour_event(&mut self, blend_event: nomos_blend_network::core::Event) {
+    fn handle_blend_core_behaviour_event(&mut self, blend_event: CoreToCoreEvent) {
         match blend_event {
-            nomos_blend_network::core::Event::Message(msg) => {
-                self.handle_blend_message(msg);
+            nomos_blend_network::core::with_core::behaviour::Event::Message(msg, peer_id) => {
+                // Forward message received from node to all other core nodes.
+                self.forward_validated_swarm_message(&msg, peer_id);
+                // Bubble up to service for decapsulation and delaying.
+                self.report_message_to_service(*msg);
             }
-            nomos_blend_network::core::Event::SpammyPeer(peer_id) => {
+            nomos_blend_network::core::with_core::behaviour::Event::SpammyPeer(peer_id) => {
                 self.handle_spammy_peer(peer_id);
             }
-            nomos_blend_network::core::Event::UnhealthyPeer(peer_id) => {
+            nomos_blend_network::core::with_core::behaviour::Event::UnhealthyPeer(peer_id) => {
                 self.handle_unhealthy_peer(peer_id);
             }
-            nomos_blend_network::core::Event::HealthyPeer(peer_id) => {
+            nomos_blend_network::core::with_core::behaviour::Event::HealthyPeer(peer_id) => {
                 Self::handle_healthy_peer(peer_id);
             }
-            nomos_blend_network::core::Event::Error(e) => {
+            nomos_blend_network::core::with_core::behaviour::Event::Error(e) => {
                 tracing::error!(target: LOG_TARGET, "Received error from blend network: {e:?}");
                 self.check_and_dial_new_peers();
                 tracing::info!(counter.error = 1);
@@ -168,10 +217,28 @@ where
         }
     }
 
+    fn handle_blend_edge_behaviour_event(&mut self, blend_event: CoreToEdgeEvent) {
+        match blend_event {
+            nomos_blend_network::core::with_edge::behaviour::Event::Message(msg) => {
+                // Forward message received from edge node to all the core nodes.
+                self.publish_validated_swarm_message(&msg);
+                // Bubble up to service for decapsulation and delaying.
+                self.report_message_to_service(msg);
+            }
+        }
+    }
+
     fn handle_event(&mut self, event: SwarmEvent<BlendBehaviourEvent>) {
         match event {
-            SwarmEvent::Behaviour(BlendBehaviourEvent::Blend(e)) => {
-                self.handle_blend_behaviour_event(e);
+            SwarmEvent::Behaviour(BlendBehaviourEvent::Blend(NetworkBehaviourEvent::WithCore(
+                e,
+            ))) => {
+                self.handle_blend_core_behaviour_event(e);
+            }
+            SwarmEvent::Behaviour(BlendBehaviourEvent::Blend(NetworkBehaviourEvent::WithEdge(
+                e,
+            ))) => {
+                self.handle_blend_edge_behaviour_event(e);
             }
             SwarmEvent::ConnectionClosed {
                 peer_id,
@@ -187,7 +254,7 @@ where
                 self.check_and_dial_new_peers();
             }
             _ => {
-                tracing::debug!(target: LOG_TARGET, "Received event from blend network: {event:?}");
+                tracing::debug!(target: LOG_TARGET, "Received event from blend network that will be ignored.");
                 tracing::info!(counter.ignored_event = 1);
             }
         }
@@ -213,7 +280,7 @@ where
     fn check_and_dial_new_peers(&mut self) {
         let num_new_conns_needed = self
             .peering_degree
-            .saturating_sub(self.swarm.behaviour().blend.num_healthy_peers());
+            .saturating_sub(self.swarm.behaviour().blend.with_core().num_healthy_peers());
         if num_new_conns_needed > 0 {
             self.dial_random_peers(num_new_conns_needed);
         }

@@ -2,7 +2,7 @@ pub mod fisheryates;
 pub mod math;
 pub mod noop_service;
 
-#[cfg(feature = "blake2")]
+#[cfg(feature = "rng")]
 pub mod blake_rng;
 
 #[cfg(feature = "time")]

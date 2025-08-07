@@ -24,7 +24,7 @@ nomos-libp2p             = { workspace = true }
 nomos-membership         = { workspace = true }
 nomos-storage            = { workspace = true }
 nomos-tracing            = { workspace = true }
-nomos-utils              = { workspace = true, features = ["blake2"] }
+nomos-utils              = { workspace = true, features = ["rng"] }
 overwatch                = { workspace = true }
 rand                     = { workspace = true }
 serde                    = { version = "1.0", features = ["derive"] }

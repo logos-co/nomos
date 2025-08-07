@@ -134,7 +134,7 @@ async fn handle_messages_to_blend<NodeId, Rng, Backend, RuntimeServiceId>(
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
 {
     let Ok(message) = cryptographic_processor
-        .encapsulate_data_message(&message)
+        .encapsulate_data_payload(&message)
         .inspect_err(|e| {
             tracing::error!(target: LOG_TARGET, "Failed to encapsulate message: {e:?}");
         })

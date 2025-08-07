@@ -3,6 +3,9 @@ use std::io;
 use futures::{AsyncReadExt as _, AsyncWriteExt as _};
 use libp2p::{Stream, StreamProtocol};
 
+mod message;
+pub use message::EncapsulatedMessageWithValidatedPublicHeader;
+
 pub mod core;
 
 pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/nomos/blend/0.1.0");

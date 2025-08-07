@@ -7,7 +7,10 @@ use libp2p::{
     PeerId, Swarm, SwarmBuilder,
 };
 use nomos_blend_network::{send_msg, PROTOCOL_NAME};
-use nomos_blend_scheduling::membership::{Membership, Node};
+use nomos_blend_scheduling::{
+    membership::{Membership, Node},
+    serialize_encapsulated_message, EncapsulatedMessage,
+};
 use nomos_libp2p::{ed25519, DialError, DialOpts, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::mpsc;
@@ -26,12 +29,12 @@ where
     session_stream: SessionStream,
     current_membership: Option<Membership<PeerId>>,
     rng: Rng,
-    pending_dials: HashMap<(PeerId, ConnectionId), Vec<u8>>,
+    pending_dials: HashMap<(PeerId, ConnectionId), EncapsulatedMessage>,
 }
 
 #[derive(Debug)]
 pub enum Command {
-    SendMessage(Vec<u8>),
+    SendMessage(EncapsulatedMessage),
 }
 
 impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng>
@@ -78,11 +81,11 @@ where
         }
     }
 
-    fn handle_send_message_command(&mut self, msg: Vec<u8>) {
+    fn handle_send_message_command(&mut self, msg: EncapsulatedMessage) {
         self.dial_and_schedule_message(msg);
     }
 
-    fn dial_and_schedule_message(&mut self, msg: Vec<u8>) {
+    fn dial_and_schedule_message(&mut self, msg: EncapsulatedMessage) {
         let Some(peer) = self.choose_peer() else {
             error!(target: LOG_TARGET, "No peers available to send the message to");
             return;
@@ -151,15 +154,17 @@ where
             .open_stream(peer_id, PROTOCOL_NAME)
             .await
         {
-            Ok(stream) => Self::send_message_to_stream(message, stream).await,
+            Ok(stream) => {
+                Self::send_message_to_stream(&message, stream).await;
+            }
             Err(e) => {
                 error!(target: LOG_TARGET, "Failed to open stream to {peer_id}: {e}");
             }
         }
     }
 
-    async fn send_message_to_stream(message: Vec<u8>, stream: libp2p::Stream) {
-        match send_msg(stream, message).await {
+    async fn send_message_to_stream(message: &EncapsulatedMessage, stream: libp2p::Stream) {
+        match send_msg(stream, serialize_encapsulated_message(message)).await {
             Ok(stream) => {
                 debug!(target: LOG_TARGET, "Message sent successfully");
                 Self::close_stream(stream).await;
@@ -221,122 +226,6 @@ where
                     self.transition_session(new_session);
                 }
             }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::ops::RangeInclusive;
-
-    use libp2p::Multiaddr;
-    use nomos_blend_message::crypto::Ed25519PrivateKey;
-    use nomos_blend_network::core::{self, Event};
-    use rand::rngs::OsRng;
-    use tokio::time::Instant;
-
-    use super::*;
-
-    /// Tests if a message sent by [`BlendEdgeSwarm`] is received by
-    /// [`core::Behaviour`].
-    #[test_log::test(tokio::test)]
-    async fn send_message() {
-        // Initialize a Swarm with [`core::Behaviour`] for a core node.
-        let (mut peer_swarm, peer_info) = core_node_swarm().await;
-
-        // Initialize and run a [`BlendEdgeSwarm`].
-        let (command_sender, command_receiver) = mpsc::channel(1);
-        let swarm = BlendSwarm::new(
-            &Libp2pBlendBackendSettings {
-                node_key: ed25519::SecretKey::generate(),
-            },
-            futures::stream::pending(),
-            Some(Membership::new(&[peer_info], None)),
-            OsRng,
-            command_receiver,
-        );
-        tokio::spawn(async move {
-            swarm.run().await;
-        });
-
-        // Schedule a message, expecting that a connection is established,
-        // and the message is sent.
-        command_sender
-            .send(Command::SendMessage(b"hello".to_vec()))
-            .await
-            .expect("Failed to send command");
-
-        // Wait for the message to be received by the core node.
-        let mut timeout = Box::pin(tokio::time::sleep_until(
-            Instant::now() + Duration::from_secs(3),
-        ));
-        loop {
-            tokio::select! {
-                () = &mut timeout => {
-                    panic!("Timeout waiting for message");
-                }
-                event = peer_swarm.next() => {
-                    if let Some(SwarmEvent::Behaviour(Event::Message(message))) = event {
-                        assert_eq!(message, b"hello");
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    /// Creates a Swarm with [`core::Behaviour`].
-    async fn core_node_swarm() -> (
-        Swarm<core::Behaviour<ObservationWindowClockProvider>>,
-        Node<PeerId>,
-    ) {
-        let key = Keypair::generate_ed25519();
-        let mut node = Node {
-            id: key.public().to_peer_id(),
-            address: Multiaddr::empty(),
-            public_key: Ed25519PrivateKey::generate().public_key(),
-        };
-        let behaviour = core::Behaviour::new(
-            &core::Config {
-                seen_message_cache_size: 1,
-            },
-            ObservationWindowClockProvider,
-            Some(Membership::new(&[node.clone()], Some(&node.public_key))),
-            Duration::from_secs(1),
-        );
-
-        let mut swarm = SwarmBuilder::with_existing_identity(key)
-            .with_tokio()
-            .with_quic()
-            .with_behaviour(|_| behaviour)
-            .unwrap()
-            .build();
-        let _ = swarm
-            .listen_on("/ip4/127.0.0.1/udp/0/quic-v1".parse().unwrap())
-            .unwrap();
-        let listening_addr = wait_for_listening_address(&mut swarm).await;
-        node.address = listening_addr;
-        (swarm, node)
-    }
-
-    async fn wait_for_listening_address(
-        swarm: &mut Swarm<core::Behaviour<ObservationWindowClockProvider>>,
-    ) -> Multiaddr {
-        loop {
-            if let Some(SwarmEvent::NewListenAddr { address, .. }) = swarm.next().await {
-                break address;
-            }
-        }
-    }
-
-    struct ObservationWindowClockProvider;
-
-    impl core::IntervalStreamProvider for ObservationWindowClockProvider {
-        type IntervalStream = futures::stream::Pending<Self::IntervalItem>;
-        type IntervalItem = RangeInclusive<u64>;
-
-        fn interval_stream(&self) -> Self::IntervalStream {
-            futures::stream::pending()
         }
     }
 }

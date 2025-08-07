@@ -1,7 +1,10 @@
 use derivative::Derivative;
 use nomos_blend_message::{
     crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, X25519PrivateKey},
-    encap::{DecapsulationOutput, EncapsulatedMessage},
+    encap::{
+        DecapsulationOutput as InternalDecapsulationOutput,
+        EncapsulatedMessage as InternalEncapsulatedMessage,
+    },
     input::{EncapsulationInput, EncapsulationInputs},
     Error, PayloadType,
 };
@@ -9,9 +12,11 @@ use nomos_core::wire;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
-use crate::{membership::Membership, serde::ed25519_privkey_hex, BlendOutgoingMessage};
+use crate::{membership::Membership, serde::ed25519_privkey_hex};
 
 const ENCAPSULATION_COUNT: usize = 3;
+pub type EncapsulatedMessage = InternalEncapsulatedMessage<ENCAPSULATION_COUNT>;
+pub type UnwrappedMessage = InternalDecapsulationOutput<ENCAPSULATION_COUNT>;
 
 /// [`CryptographicProcessor`] is responsible for wrapping and unwrapping
 /// messages for the message indistinguishability.
@@ -53,10 +58,18 @@ impl<NodeId, Rng> CryptographicProcessor<NodeId, Rng> {
         }
     }
 
-    pub fn decapsulate_message(&self, message: &[u8]) -> Result<BlendOutgoingMessage, Error> {
-        deserialize_encapsulated_message(message)?
-            .decapsulate(&self.encryption_private_key)
-            .map(BlendOutgoingMessage::from)
+    pub fn decapsulate_serialized_message(
+        &self,
+        message: &[u8],
+    ) -> Result<UnwrappedMessage, Error> {
+        self.decapsulate_message(deserialize_encapsulated_message(message)?)
+    }
+
+    pub fn decapsulate_message(
+        &self,
+        message: EncapsulatedMessage,
+    ) -> Result<UnwrappedMessage, Error> {
+        message.decapsulate(&self.encryption_private_key)
     }
 }
 
@@ -64,24 +77,48 @@ impl<NodeId, Rng> CryptographicProcessor<NodeId, Rng>
 where
     Rng: RngCore,
 {
-    pub fn encapsulate_cover_message(&mut self, payload: &[u8]) -> Result<Vec<u8>, Error> {
-        self.encapsulate_message(PayloadType::Cover, payload)
+    pub fn encapsulate_cover_payload(
+        &mut self,
+        payload: &[u8],
+    ) -> Result<EncapsulatedMessage, Error> {
+        self.encapsulate_payload(PayloadType::Cover, payload)
     }
 
-    pub fn encapsulate_data_message(&mut self, payload: &[u8]) -> Result<Vec<u8>, Error> {
-        self.encapsulate_message(PayloadType::Data, payload)
+    pub fn encapsulate_and_serialize_cover_payload(
+        &mut self,
+        payload: &[u8],
+    ) -> Result<Vec<u8>, Error> {
+        Ok(serialize_encapsulated_message(
+            &self.encapsulate_cover_payload(payload)?,
+        ))
     }
 
-    fn encapsulate_message(
+    pub fn encapsulate_data_payload(
+        &mut self,
+        payload: &[u8],
+    ) -> Result<EncapsulatedMessage, Error> {
+        self.encapsulate_payload(PayloadType::Data, payload)
+    }
+
+    pub fn encapsulate_and_serialize_data_payload(
+        &mut self,
+        payload: &[u8],
+    ) -> Result<Vec<u8>, Error> {
+        Ok(serialize_encapsulated_message(
+            &self.encapsulate_data_payload(payload)?,
+        ))
+    }
+
+    fn encapsulate_payload(
         &mut self,
         payload_type: PayloadType,
         payload: &[u8],
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<EncapsulatedMessage, Error> {
         // Retrieve the non-ephemeral signing keys of the blend nodes
         let blend_node_signing_keys = self
             .membership
             .choose_remote_nodes(&mut self.rng, self.settings.num_blend_layers as usize)
-            .map(|node| node.public_key.clone())
+            .map(|node| node.public_key)
             .collect::<Vec<_>>();
 
         let inputs = EncapsulationInputs::<ENCAPSULATION_COUNT>::new(
@@ -102,32 +139,15 @@ where
                 .into_boxed_slice(),
         )?;
 
-        let message =
-            EncapsulatedMessage::<ENCAPSULATION_COUNT>::new(&inputs, payload_type, payload)?;
-        Ok(serialize_encapsulated_message(&message))
+        EncapsulatedMessage::new(&inputs, payload_type, payload)
     }
 }
 
-impl From<DecapsulationOutput<ENCAPSULATION_COUNT>> for BlendOutgoingMessage {
-    fn from(output: DecapsulationOutput<ENCAPSULATION_COUNT>) -> Self {
-        match output {
-            DecapsulationOutput::Incompleted(message) => {
-                Self::EncapsulatedMessage(serialize_encapsulated_message(&message).into())
-            }
-            DecapsulationOutput::Completed((payload_type, payload_body)) => match payload_type {
-                PayloadType::Cover => Self::CoverMessage(payload_body.into()),
-                PayloadType::Data => Self::DataMessage(payload_body.into()),
-            },
-        }
-    }
-}
-
-fn serialize_encapsulated_message(message: &EncapsulatedMessage<ENCAPSULATION_COUNT>) -> Vec<u8> {
+#[must_use]
+pub fn serialize_encapsulated_message(message: &EncapsulatedMessage) -> Vec<u8> {
     wire::serialize(&message).expect("EncapsulatedMessage should be serializable")
 }
 
-fn deserialize_encapsulated_message(
-    message: &[u8],
-) -> Result<EncapsulatedMessage<ENCAPSULATION_COUNT>, Error> {
+pub fn deserialize_encapsulated_message(message: &[u8]) -> Result<EncapsulatedMessage, Error> {
     wire::deserialize(message).map_err(|_| Error::DeserializationFailed)
 }

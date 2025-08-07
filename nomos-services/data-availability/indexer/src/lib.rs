@@ -3,6 +3,7 @@ pub mod storage;
 
 use std::{
     fmt::{Debug, Display, Formatter},
+    hash::Hash,
     ops::Range,
     time::Duration,
 };
@@ -381,6 +382,7 @@ where
     Share: Debug + Send + Sync,
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Settings: Send,
+    NetAdapter::PeerId: Clone + Eq + Hash,
     BlendService: BlendServiceExt,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     ClPool: RecoverableMempool<BlockId = HeaderId>,

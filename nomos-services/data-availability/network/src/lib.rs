@@ -17,7 +17,7 @@ use futures::Stream;
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p::{Multiaddr, PeerId};
 use nomos_core::{block::BlockNumber, da::BlobId};
-use nomos_da_network_core::addressbook::AddressBookMut as _;
+use nomos_da_network_core::SubnetworkId;
 use overwatch::{
     services::{
         state::{NoOperator, ServiceState},
@@ -32,26 +32,31 @@ use tokio::sync::oneshot;
 use tokio_stream::StreamExt as _;
 
 use crate::{
-    addressbook::mock::MockAddressBook,
+    addressbook::{AddressBook, AddressBookSnapshot},
     api::ApiAdapter as ApiAdapterTrait,
     membership::{handler::DaMembershipHandler, MembershipAdapter},
 };
 
-pub type DaAddressbook = MockAddressBook;
+pub type DaAddressbook = AddressBook;
 
-pub enum DaNetworkMsg<Backend, Membership, Commitments, RuntimeServiceId>
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MembershipResponse {
+    pub assignations: SubnetworkAssignations<SubnetworkId, PeerId>,
+    pub addressbook: AddressBookSnapshot<PeerId>,
+}
+
+pub enum DaNetworkMsg<Backend, Commitments, RuntimeServiceId>
 where
     Backend: NetworkBackend<RuntimeServiceId>,
-    Membership: MembershipHandler,
 {
     Process(Backend::Message),
     Subscribe {
         kind: Backend::EventKind,
         sender: oneshot::Sender<Pin<Box<dyn Stream<Item = Backend::NetworkEvent> + Send>>>,
     },
-    SubnetworksAtBlock {
+    GetMembership {
         block_number: BlockNumber,
-        sender: oneshot::Sender<SubnetworkAssignations<Membership::NetworkId, Membership::Id>>,
+        sender: oneshot::Sender<MembershipResponse>,
     },
     GetCommitments {
         blob_id: BlobId,
@@ -59,11 +64,10 @@ where
     },
 }
 
-impl<Backend, Membership, Commitments, RuntimeServiceId> Debug
-    for DaNetworkMsg<Backend, Membership, Commitments, RuntimeServiceId>
+impl<Backend, Commitments, RuntimeServiceId> Debug
+    for DaNetworkMsg<Backend, Commitments, RuntimeServiceId>
 where
     Backend: NetworkBackend<RuntimeServiceId>,
-    Membership: MembershipHandler,
 {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -71,7 +75,7 @@ where
             Self::Subscribe { kind, .. } => {
                 write!(fmt, "DaNetworkMsg::Subscribe{{ kind: {kind:?}}}")
             }
-            Self::SubnetworksAtBlock { block_number, .. } => {
+            Self::GetMembership { block_number, .. } => {
                 write!(
                     fmt,
                     "DaNetworkMsg::SubnetworksAtBlock{{ block_number: {block_number} }}"
@@ -183,7 +187,7 @@ where
         RuntimeServiceId,
     >;
     type StateOperator = NoOperator<Self::State>;
-    type Message = DaNetworkMsg<Backend, Membership, DaSharesCommitments, RuntimeServiceId>;
+    type Message = DaNetworkMsg<Backend, DaSharesCommitments, RuntimeServiceId>;
 }
 
 #[async_trait]
@@ -211,14 +215,12 @@ where
         > + Send
         + 'static,
     Backend::State: Send + Sync,
-    Membership: MembershipCreator<Id = PeerId> + Clone + Send + Sync + 'static,
+    Membership:
+        MembershipCreator<Id = PeerId, NetworkId = SubnetworkId> + Clone + Send + Sync + 'static,
     Membership::Id: Send + Sync,
     Membership::NetworkId: Send,
     MembershipServiceAdapter: MembershipAdapter<Id = Membership::Id> + Send + Sync + 'static,
-    StorageAdapter: MembershipStorageAdapter<PeerId, <Membership as MembershipHandler>::NetworkId>
-        + Send
-        + Sync
-        + 'static,
+    StorageAdapter: MembershipStorageAdapter<PeerId, SubnetworkId> + Send + Sync + 'static,
     ApiAdapter: ApiAdapterTrait<
             Share = DaShare,
             BlobId = BlobId,
@@ -297,7 +299,8 @@ where
             .await?;
 
         let storage_adapter = StorageAdapter::new(storage_service_relay);
-        let membership_storage = MembershipStorage::new(storage_adapter, membership.clone());
+        let membership_storage =
+            MembershipStorage::new(storage_adapter, membership.clone(), addressbook.clone());
 
         let membership_service_adapter = MembershipServiceAdapter::new(membership_service_relay);
 
@@ -322,7 +325,7 @@ where
                         "Received membership update for block {}: {:?}",
                         block_number, providers
                     );
-                    Self::handle_membership_update(block_number, providers, &membership_storage, addressbook).await;
+                    Self::handle_membership_update(block_number, providers, &membership_storage).await;
                 }
             }
         }
@@ -377,18 +380,18 @@ where
             <Membership as MembershipHandler>::NetworkId,
         > + Send
         + Sync,
-
     ApiAdapter:
         ApiAdapterTrait<BlobId = BlobId, Commitments = DaSharesCommitments> + Send + Sync + 'static,
     ApiAdapter::Settings: Clone + Send,
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     Backend::State: Send + Sync,
-    Membership: MembershipCreator<Id = PeerId> + Clone + Send + Sync + 'static,
+    Membership:
+        MembershipCreator<Id = PeerId, NetworkId = SubnetworkId> + Clone + Send + Sync + 'static,
 {
     async fn handle_network_service_message(
-        msg: DaNetworkMsg<Backend, Membership, DaSharesCommitments, RuntimeServiceId>,
+        msg: DaNetworkMsg<Backend, DaSharesCommitments, RuntimeServiceId>,
         backend: &mut Backend,
-        membership_storage: &MembershipStorage<StorageAdapter, Membership>,
+        membership_storage: &MembershipStorage<StorageAdapter, Membership, DaAddressbook>,
         api_adapter: &ApiAdapter,
     ) {
         match msg {
@@ -405,13 +408,13 @@ where
                         "client hung up before a subscription handle could be established"
                     );
                 }),
-            DaNetworkMsg::SubnetworksAtBlock {
+            DaNetworkMsg::GetMembership {
                 block_number,
                 sender,
             } => {
                 // todo: handle errors properly when the usage of this function is known
                 // now we are just logging and returning an empty assignations
-                if let Some(membership) = membership_storage
+                if let Some((membership, addressbook)) = membership_storage
                     .get_historic_membership(block_number)
                     .await
                     .unwrap_or_else(|e| {
@@ -422,14 +425,17 @@ where
                     })
                 {
                     let assignations = membership.subnetworks();
-                    sender.send(assignations).unwrap_or_else(|_| {
+                    sender.send(MembershipResponse { assignations, addressbook }).unwrap_or_else(|_| {
                         tracing::warn!(
                             "client hung up before a subnetwork assignations handle could be established"
                         );
                     });
                 } else {
                     tracing::warn!("No membership found for block number {block_number}");
-                    sender.send(SubnetworkAssignations::default()).unwrap_or_else(|_| {
+                    sender.send(MembershipResponse{
+                        assignations: SubnetworkAssignations::default(),
+                        addressbook: AddressBookSnapshot::default(),
+                    }).unwrap_or_else(|_| {
                         tracing::warn!(
                             "client hung up before a subnetwork assignations handle could be established"
                         );
@@ -447,19 +453,14 @@ where
     async fn handle_membership_update(
         block_number: BlockNumber,
         update: HashMap<Membership::Id, Multiaddr>,
-        storage: &MembershipStorage<StorageAdapter, Membership>,
-        addressbook: &DaAddressbook,
+        storage: &MembershipStorage<StorageAdapter, Membership, DaAddressbook>,
     ) {
         storage
-            .update(block_number, update.keys().copied().collect())
+            .update(block_number, update)
             .await
             .unwrap_or_else(|e| {
                 tracing::error!("Failed to update membership at block {block_number}: {e}");
             });
-        // since addressbook access is different then membership (get address vs
-        // snapshots) addressbook real implementation would have storage inside
-        // for update and get address
-        addressbook.update(update);
     }
 }
 

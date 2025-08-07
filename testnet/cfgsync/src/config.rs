@@ -2,6 +2,7 @@ use std::{
     collections::{BTreeSet, HashMap, HashSet},
     net::Ipv4Addr,
     str::FromStr as _,
+    time::Duration,
 };
 
 use nomos_blend_scheduling::membership::Node;
@@ -18,6 +19,7 @@ use tests::{
     topology::configs::{
         api::GeneralApiConfig,
         blend::create_blend_configs,
+        bootstrap::create_bootstrap_configs,
         consensus::{create_consensus_configs, ConsensusParams},
         da::{create_da_configs, DaParams},
         membership::GeneralMembershipConfig,
@@ -90,6 +92,7 @@ pub fn create_node_configs(
     }
 
     let consensus_configs = create_consensus_configs(&ids, consensus_params);
+    let bootstrap_configs = create_bootstrap_configs(&ids, Duration::from_secs(60));
     let da_configs = create_da_configs(&ids, da_params, &ports);
     let network_configs = create_network_configs(&ids, &NetworkParams::default());
     let membership_configs = create_membership_configs(&ids, &hosts);
@@ -147,6 +150,7 @@ pub fn create_node_configs(
             host.clone(),
             GeneralConfig {
                 consensus_config,
+                bootstrapping_config: bootstrap_configs[i].clone(),
                 da_config,
                 network_config,
                 blend_config,

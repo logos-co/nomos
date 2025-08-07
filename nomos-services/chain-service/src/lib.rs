@@ -12,6 +12,7 @@ use core::fmt::Debug;
 use std::{
     collections::{BTreeSet, HashSet},
     fmt::Display,
+    hash::Hash,
     path::PathBuf,
     time::Duration,
 };
@@ -58,7 +59,7 @@ use tokio::{
 use tracing::{debug, error, info, instrument, span, Level};
 use tracing_futures::Instrument as _;
 
-pub use crate::bootstrap::config::BootstrapConfig;
+pub use crate::bootstrap::config::{BootstrapConfig, IbdConfig};
 use crate::{
     blend::BlendAdapter,
     bootstrap::{ibd::InitialBlockDownload, state::choose_engine_state},
@@ -201,7 +202,10 @@ impl Cryptarchia {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendBroadcastSettings> {
+pub struct CryptarchiaSettings<Ts, Bs, NodeId, NetworkAdapterSettings, BlendBroadcastSettings>
+where
+    NodeId: Clone + Eq + Hash,
+{
     #[serde(default)]
     pub transaction_selector_settings: Ts,
     #[serde(default)]
@@ -213,11 +217,13 @@ pub struct CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendBroadcastSet
     pub network_adapter_settings: NetworkAdapterSettings,
     pub blend_broadcast_settings: BlendBroadcastSettings,
     pub recovery_file: PathBuf,
-    pub bootstrap: BootstrapConfig,
+    pub bootstrap: BootstrapConfig<NodeId>,
 }
 
-impl<Ts, Bs, NetworkAdapterSettings, BlendBroadcastSettings> FileBackendSettings
-    for CryptarchiaSettings<Ts, Bs, NetworkAdapterSettings, BlendBroadcastSettings>
+impl<Ts, Bs, NodeId, NetworkAdapterSettings, BlendBroadcastSettings> FileBackendSettings
+    for CryptarchiaSettings<Ts, Bs, NodeId, NetworkAdapterSettings, BlendBroadcastSettings>
+where
+    NodeId: Clone + Eq + Hash,
 {
     fn recovery_file(&self) -> &PathBuf {
         &self.recovery_file
@@ -247,6 +253,7 @@ pub struct CryptarchiaConsensus<
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Backend: 'static,
     NetAdapter::Settings: Send,
+    NetAdapter::PeerId: Clone + Eq + Hash,
     BlendService: BlendServiceExt,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
@@ -326,6 +333,7 @@ impl<
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Settings: Send,
+    NetAdapter::PeerId: Clone + Eq + Hash,
     BlendService: BlendServiceExt,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
@@ -362,12 +370,14 @@ where
     type Settings = CryptarchiaSettings<
         TxS::Settings,
         BS::Settings,
+        NetAdapter::PeerId,
         NetAdapter::Settings,
         <BlendService as BlendServiceExt>::BroadcastSettings,
     >;
     type State = CryptarchiaConsensusState<
         TxS::Settings,
         BS::Settings,
+        NetAdapter::PeerId,
         NetAdapter::Settings,
         <BlendService as BlendServiceExt>::BroadcastSettings,
     >;
@@ -421,6 +431,7 @@ where
         + Sync
         + 'static,
     NetAdapter::Settings: Send + Sync + 'static,
+    NetAdapter::PeerId: Clone + Eq + Hash + Copy + Debug + Send + Sync + 'static,
     BlendService: ServiceData<
             Message = nomos_blend_service::message::ServiceMessage<
                 <BlendService as BlendServiceExt>::BroadcastSettings,
@@ -594,7 +605,7 @@ where
                 &relays,
             )
             .await;
-        let mut storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
+        let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
             pruned_blocks.stale_blocks().copied(),
             &storage_blocks_to_remove,
             relays.storage_adapter(),
@@ -646,7 +657,44 @@ where
         .await?;
 
         // Run IBD (Initial Block Download).
-        let mut cryptarchia = InitialBlockDownload::run(cryptarchia, network_adapter).await;
+        // TODO: Currently, we're passing a closure that processes each block.
+        //       It needs to be replaced with a trait, which requires substantial
+        // refactoring.       https://github.com/logos-co/nomos/issues/1505
+        let initial_block_download = InitialBlockDownload::new(
+            bootstrap_config.ibd,
+            network_adapter,
+            |cryptarchia, storage_blocks_to_remove, block| {
+                let leader = &leader;
+                let relays = &relays;
+                let block_subscription_sender = &self.block_subscription_sender;
+                let state_updater = &self.service_resources_handle.state_updater;
+                async move {
+                    Self::process_block_and_update_state(
+                        cryptarchia,
+                        leader,
+                        block,
+                        &storage_blocks_to_remove,
+                        relays,
+                        block_subscription_sender,
+                        state_updater,
+                    )
+                    .await
+                }
+            },
+        );
+
+        let (mut cryptarchia, mut storage_blocks_to_remove) = match initial_block_download
+            .run(cryptarchia, storage_blocks_to_remove)
+            .await
+        {
+            Ok((cryptarchia, storage_blocks_to_remove)) => {
+                info!("Initial Block Download completed successfully.");
+                (cryptarchia, storage_blocks_to_remove)
+            }
+            Err(e) => {
+                panic!("Initial Block Download failed: {e:?}");
+            }
+        };
 
         // Start the timer for Prelonged Bootstrap Period.
         let mut prolonged_bootstrap_timer = Box::pin(tokio::time::sleep_until(
@@ -800,8 +848,13 @@ impl<
         RuntimeServiceId,
     >
 where
-    NetAdapter: NetworkAdapter<RuntimeServiceId> + Clone + Send + Sync + 'static,
+    NetAdapter: NetworkAdapter<RuntimeServiceId, Block = Block<ClPool::Item, DaPool::Item>>
+        + Clone
+        + Send
+        + Sync
+        + 'static,
     NetAdapter::Settings: Send + Sync + 'static,
+    NetAdapter::PeerId: Clone + Eq + Hash + Copy + Debug + Send + Sync,
     BlendService: ServiceData<
             Message = nomos_blend_service::message::ServiceMessage<
                 <BlendService as BlendServiceExt>::BroadcastSettings,
@@ -887,6 +940,7 @@ where
                         .get(&cryptarchia.tip())
                         .expect("tip branch not available")
                         .length(),
+                    mode: *cryptarchia.consensus.state(),
                 };
                 tx.send(info).unwrap_or_else(|e| {
                     error!("Could not send consensus info through channel: {:?}", e);
@@ -953,6 +1007,7 @@ where
                 CryptarchiaConsensusState<
                     TxS::Settings,
                     BS::Settings,
+                    NetAdapter::PeerId,
                     NetAdapter::Settings,
                     <BlendService as BlendServiceExt>::BroadcastSettings,
                 >,
@@ -989,6 +1044,7 @@ where
                 CryptarchiaConsensusState<
                     TxS::Settings,
                     BS::Settings,
+                    NetAdapter::PeerId,
                     NetAdapter::Settings,
                     <BlendService as BlendServiceExt>::BroadcastSettings,
                 >,
@@ -1270,7 +1326,7 @@ where
     async fn initialize_cryptarchia(
         &self,
         genesis_id: HeaderId,
-        bootstrap_config: &BootstrapConfig,
+        bootstrap_config: &BootstrapConfig<NetAdapter::PeerId>,
         ledger_config: nomos_ledger::Config,
         leader_config: LeaderConfig,
         relays: &CryptarchiaConsensusRelays<
@@ -1490,6 +1546,7 @@ pub struct CryptarchiaInfo {
     pub tip: HeaderId,
     pub slot: Slot,
     pub height: u64,
+    pub mode: cryptarchia_engine::State,
 }
 
 async fn get_mempool_contents<Payload, Item, Key>(

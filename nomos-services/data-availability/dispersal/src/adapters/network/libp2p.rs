@@ -46,12 +46,7 @@ pub struct Libp2pNetworkAdapter<
     ApiAdapter: ApiAdapterTrait,
 {
     outbound_relay: OutboundRelay<
-        DaNetworkMsg<
-            DaNetworkExecutorBackend<Membership>,
-            Membership,
-            DaSharesCommitments,
-            RuntimeServiceId,
-        >,
+        DaNetworkMsg<DaNetworkExecutorBackend<Membership>, DaSharesCommitments, RuntimeServiceId>,
     >,
     _phantom: PhantomData<(
         RuntimeServiceId,

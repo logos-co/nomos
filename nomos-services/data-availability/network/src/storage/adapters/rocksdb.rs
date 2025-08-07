@@ -1,4 +1,6 @@
-use libp2p::PeerId;
+use std::collections::HashMap;
+
+use libp2p::{Multiaddr, PeerId};
 use nomos_core::block::BlockNumber;
 use nomos_da_network_core::SubnetworkId;
 use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
@@ -56,6 +58,28 @@ where
 
         self.storage_relay
             .send(get_assignations_msg)
+            .await
+            .map_err(|(e, _)| DynError::from(e))?;
+
+        reply_rx.await.map_err(DynError::from)
+    }
+
+    async fn store_addresses(&self, ids: HashMap<PeerId, Multiaddr>) -> Result<(), DynError> {
+        let store_ids_msg = StorageMsg::store_addresses_request(ids);
+        self.storage_relay
+            .send(store_ids_msg)
+            .await
+            .map_err(|(e, _)| DynError::from(e))?;
+
+        Ok(())
+    }
+
+    async fn get_address(&self, id: PeerId) -> Result<Option<Multiaddr>, DynError> {
+        let (reply_channel, reply_rx) = tokio::sync::oneshot::channel();
+        let get_address_msg = StorageMsg::get_address_request(id, reply_channel);
+
+        self.storage_relay
+            .send(get_address_msg)
             .await
             .map_err(|(e, _)| DynError::from(e))?;
 

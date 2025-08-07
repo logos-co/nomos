@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, num::NonZeroUsize, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, marker::PhantomData, num::NonZeroUsize, path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -116,6 +116,29 @@ where
         value: Bytes,
     ) -> Result<(), <Self as StorageBackend>::Error> {
         self.rocks.put(key, value)
+    }
+
+    async fn bulk_store(
+        &mut self,
+        items: HashMap<Bytes, Bytes>,
+    ) -> Result<(), <Self as StorageBackend>::Error> {
+        if items.is_empty() {
+            return Ok(());
+        }
+
+        let rocks_db = Arc::clone(&self.rocks);
+
+        // Use spawn_blocking to avoid blocking the async runtime during the bulk
+        // operation
+        tokio::task::spawn_blocking(move || {
+            let mut batch = rocksdb::WriteBatch::default();
+            for (key, value) in items {
+                batch.put(key, value);
+            }
+            rocks_db.write(batch)
+        })
+        .await
+        .expect("Failed to join the blocking task")
     }
 
     async fn load(&mut self, key: &[u8]) -> Result<Option<Bytes>, <Self as StorageBackend>::Error> {

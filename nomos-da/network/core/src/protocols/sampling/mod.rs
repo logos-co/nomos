@@ -1,6 +1,7 @@
-pub mod behaviour;
 mod connections;
 pub mod errors;
+mod requests;
+mod responses;
 mod streams;
 
 use errors::SamplingError;
@@ -12,23 +13,32 @@ use kzgrs_backend::common::{
     share::{DaLightShare, DaSharesCommitments},
     ShareIndex,
 };
-use libp2p::PeerId;
+use libp2p::{swarm::NetworkBehaviour, PeerId};
 use nomos_core::da::BlobId;
-use nomos_da_messages::{common, sampling};
+use nomos_da_messages::{common, sampling, sampling::SampleResponse};
 use serde::{Deserialize, Serialize};
 use streams::SampleStream;
+use subnetworks_assignations::MembershipHandler;
+use tokio::sync::mpsc::UnboundedSender;
 
-use crate::SubnetworkId;
+use crate::{
+    addressbook::AddressBookHandler,
+    protocols::sampling::{
+        requests::request_behaviour::RequestSamplingBehaviour,
+        responses::response_behaviour::ResponseSamplingBehaviour,
+    },
+    SubnetworkId,
+};
 
-enum SampleStreamResponse {
-    Writer(Box<sampling::SampleResponse>),
-    Reader,
-}
+type SampleResponseFutureSuccess = (PeerId, SampleResponse, SampleStream);
+type SampleRequestFutureSuccess = (PeerId, SampleStream);
 
-type SampleFutureSuccess = (PeerId, SampleStreamResponse, SampleStream);
 type SampleFutureError = (SamplingError, Option<SampleStream>);
 
-type SamplingStreamFuture = BoxFuture<'static, Result<SampleFutureSuccess, SampleFutureError>>;
+type SamplingResponseStreamFuture =
+    BoxFuture<'static, Result<SampleResponseFutureSuccess, SampleFutureError>>;
+type SamplingRequestStreamFuture =
+    BoxFuture<'static, Result<SampleRequestFutureSuccess, SampleFutureError>>;
 
 /// Auxiliary struct that binds where to send a request and the pair channel to
 /// listen for a response
@@ -83,7 +93,7 @@ pub enum BehaviourSampleRes {
     },
 }
 
-impl From<BehaviourSampleRes> for sampling::SampleResponse {
+impl From<BehaviourSampleRes> for SampleResponse {
     fn from(res: BehaviourSampleRes) -> Self {
         match res {
             BehaviourSampleRes::SamplingSuccess { share, blob_id, .. } => {
@@ -133,19 +143,46 @@ pub enum SamplingEvent {
     },
 }
 
-impl SamplingEvent {
-    #[must_use]
-    pub const fn no_subnetwork_peers_err(blob_id: BlobId, subnetwork_id: SubnetworkId) -> Self {
-        Self::SamplingError {
-            error: SamplingError::NoSubnetworkPeers {
+impl From<requests::SamplingEvent> for SamplingEvent {
+    fn from(value: requests::SamplingEvent) -> Self {
+        match value {
+            requests::SamplingEvent::SamplingSuccess {
                 blob_id,
                 subnetwork_id,
+                light_share,
+            } => Self::SamplingSuccess {
+                blob_id,
+                subnetwork_id,
+                light_share,
             },
+            requests::SamplingEvent::CommitmentsSuccess {
+                blob_id,
+                commitments,
+            } => Self::CommitmentsSuccess {
+                blob_id,
+                commitments,
+            },
+            requests::SamplingEvent::SamplingError { error } => Self::SamplingError { error },
         }
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+impl From<responses::SamplingEvent> for SamplingEvent {
+    fn from(value: responses::SamplingEvent) -> Self {
+        match value {
+            responses::SamplingEvent::IncomingSample {
+                request_receiver,
+                response_sender,
+            } => Self::IncomingSample {
+                request_receiver,
+                response_sender,
+            },
+            responses::SamplingEvent::SamplingError { error } => Self::SamplingError { error },
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct SubnetsConfig {
     /// Number of unique subnets that samples should be taken from when sampling
     /// a blob.
@@ -156,6 +193,51 @@ pub struct SubnetsConfig {
     /// Number of attemts for retrieving commitments from a random sampling
     /// peers that are selected for connections.
     pub commitments_retry_limit: usize,
+}
+
+#[derive(NetworkBehaviour)]
+#[behaviour(out_event = "SamplingEvent")]
+pub struct SamplingBehaviour<Membership, Addressbook>
+where
+    Membership: MembershipHandler,
+    Addressbook: AddressBookHandler,
+{
+    requests: RequestSamplingBehaviour<Membership, Addressbook>,
+    responses: ResponseSamplingBehaviour,
+}
+
+impl<Membership, Addressbook> SamplingBehaviour<Membership, Addressbook>
+where
+    Membership: MembershipHandler + Clone + 'static,
+    Membership::NetworkId: Send,
+    Addressbook: AddressBookHandler + Clone + 'static,
+{
+    pub fn new(
+        local_peer_id: PeerId,
+        membership: Membership,
+        addressbook: Addressbook,
+        subnets_config: SubnetsConfig,
+        refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
+    ) -> Self {
+        Self {
+            requests: RequestSamplingBehaviour::new(
+                local_peer_id,
+                membership,
+                addressbook,
+                subnets_config,
+                refresh_signal,
+            ),
+            responses: ResponseSamplingBehaviour::new(subnets_config),
+        }
+    }
+
+    pub fn shares_request_channel(&self) -> UnboundedSender<BlobId> {
+        self.requests.shares_request_channel()
+    }
+
+    pub fn commitments_request_channel(&self) -> UnboundedSender<BlobId> {
+        self.requests.commitments_request_channel()
+    }
 }
 
 #[cfg(test)]
@@ -173,7 +255,7 @@ mod test {
     use tokio_stream::wrappers::IntervalStream;
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
-    use super::{behaviour::SamplingBehaviour, SamplingEvent};
+    use super::{SamplingBehaviour, SamplingEvent};
     use crate::{
         addressbook::AddressBookHandler,
         protocols::sampling::{BehaviourSampleRes, SubnetsConfig},
