@@ -106,7 +106,9 @@ where
     ShareVerifier::DaShare: Debug + Send,
     ShareVerifier::Error: Error + Send + Sync,
     ShareVerifier::Settings: Clone,
-    <ShareVerifier::DaShare as Share>::BlobId: Clone + AsRef<[u8]>,
+    <ShareVerifier::DaShare as Share>::BlobId: Clone + AsRef<[u8]> + Send,
+    <ShareVerifier::DaShare as Share>::LightShare: Send,
+    <ShareVerifier::DaShare as Share>::SharesCommitments: Send,
     TxVerifier: TxVerifierBackend<BlobId = <ShareVerifier::DaShare as Share>::BlobId> + Send + Sync,
     TxVerifier::Settings: Clone,
     TxVerifier::Tx: Send,
@@ -119,6 +121,7 @@ where
             BlobId = <ShareVerifier::DaShare as Share>::BlobId,
             Tx = <TxVerifier as TxVerifierBackend>::Tx,
         > + Send
+        + Sync
         + 'static,
     Storage: DaStorageAdapter<RuntimeServiceId, Share = ShareVerifier::DaShare, Tx = TxVerifier::Tx>
         + Send

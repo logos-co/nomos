@@ -874,7 +874,6 @@ where
     /// Try to add a [`Block`] to [`Cryptarchia`].
     /// A [`Block`] is only added if it's valid
     #[expect(clippy::allow_attributes_without_reason)]
-    #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(cryptarchia, relays))]
     async fn process_block<State: CryptarchiaState>(
         cryptarchia: Cryptarchia<State>,
@@ -972,7 +971,6 @@ where
     }
 
     #[expect(clippy::allow_attributes_without_reason)]
-    #[expect(clippy::type_complexity)]
     #[instrument(level = "debug", skip(tx_selector, blob_selector, relays))]
     async fn propose_block(
         parent: HeaderId,
@@ -1123,10 +1121,6 @@ where
     ///   the consensus.
     /// * `block_subscription_sender` - The broadcast channel to send the blocks
     ///   to the services.
-    #[expect(
-        clippy::type_complexity,
-        reason = "CryptarchiaConsensusState and CryptarchiaConsensusRelays amount of generics."
-    )]
     async fn initialize_cryptarchia(
         initial_state: CryptarchiaConsensusState<
             TxS::Settings,
