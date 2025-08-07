@@ -1,3 +1,4 @@
+mod blend;
 mod bootstrap;
 mod leadership;
 mod messages;
@@ -27,7 +28,6 @@ use nomos_core::{
     header::{Builder, Header, HeaderId},
     mantle::{gas::MainnetGasConstants, SignedMantleTx, Transaction, TxSelect},
     proofs::leader_proof::Risc0LeaderProof,
-    wire,
 };
 use nomos_da_sampling::{
     backend::DaSamplingServiceBackend, DaSamplingService, DaSamplingServiceMsg,
@@ -60,6 +60,7 @@ use tracing_futures::Instrument as _;
 
 pub use crate::bootstrap::config::BootstrapConfig;
 use crate::{
+    blend::BlendAdapter,
     bootstrap::{ibd::InitialBlockDownload, state::choose_engine_state},
     leadership::Leader,
     relays::CryptarchiaConsensusRelays,
@@ -620,7 +621,10 @@ where
             receiver.await?
         };
 
-        let blend_relay = relays.blend_relay();
+        let blend_adapter = BlendAdapter::<BlendService>::new(
+            relays.blend_relay().clone(),
+            blend_broadcast_settings.clone(),
+        );
 
         self.service_resources_handle.status_updater.notify_ready();
         info!(
@@ -718,7 +722,9 @@ where
                                     &self.service_resources_handle.state_updater,
                                 )
                                 .await;
-                                Self::publish_block(block, blend_relay, blend_broadcast_settings.clone()).await;
+                                blend_adapter.publish_block(
+                                    block,
+                                ).await;
                             }
                         }
                     }
@@ -1459,24 +1465,6 @@ where
         .await;
 
         (cryptarchia, storage_blocks_to_remove)
-    }
-
-    async fn publish_block(
-        block: Block<ClPool::Item, DaPool::Item>,
-        blend_relay: &OutboundRelay<<BlendService as ServiceData>::Message>,
-        blend_broadcast_settings: <BlendService as BlendServiceExt>::BroadcastSettings,
-    ) {
-        if let Err((e, _)) = blend_relay
-            .send(nomos_blend_service::message::ServiceMessage::Blend(
-                nomos_blend_service::message::NetworkMessage {
-                    message: wire::serialize(&messages::NetworkMessage::Block(block)).unwrap(),
-                    broadcast_settings: blend_broadcast_settings,
-                },
-            ))
-            .await
-        {
-            error!(target: LOG_TARGET, "Failed to relay block to blend service: {e:?}");
-        }
     }
 }
 
