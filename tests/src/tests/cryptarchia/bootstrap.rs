@@ -3,13 +3,12 @@ use std::{collections::HashSet, time::Duration};
 use futures::stream::{self, StreamExt as _};
 use nomos_libp2p::PeerId;
 use tests::{
-    adjust_timeout
-    ,
+    adjust_timeout,
+    common::sync::wait_for_validators_mode_and_height,
     nodes::validator::{create_validator_config, Validator},
     secret_key_to_peer_id,
     topology::configs::{create_general_configs, GeneralConfig},
 };
-use tests::common::sync::wait_for_validators_mode_and_height;
 
 #[tokio::test]
 async fn test_ibd_behind_nodes() {

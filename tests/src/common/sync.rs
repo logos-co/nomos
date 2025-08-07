@@ -27,11 +27,10 @@ pub async fn wait_for_validators_mode_and_height(
         if infos.iter().all(|info| info.mode == mode)
             && infos.iter().all(|info| info.height >= min_height)
         {
-            println!("   All validators reached are in mode {mode:?}", );
+            println!("   All validators reached are in mode {mode:?}",);
             break;
         }
 
         tokio::time::sleep(Duration::from_millis(1000)).await;
     }
 }
-

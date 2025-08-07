@@ -3,11 +3,10 @@ use std::time::Duration;
 use futures::stream::{self, StreamExt as _};
 use tests::{
     adjust_timeout,
-    common::sync::wait_for_validators_mode,
+    common::sync::wait_for_validators_mode_and_height,
     nodes::validator::{create_validator_config, Validator},
     topology::configs::create_general_configs,
 };
-use tests::common::sync::wait_for_validators_mode_and_height;
 
 #[tokio::test]
 async fn test_orphan_handling() {
