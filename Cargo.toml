@@ -49,6 +49,7 @@ members = [
   "testnet/cfgsync",
   "tests",
   "utxotree",
+  "zk/groth16-verfier",
 ]
 resolver = "2"
 
