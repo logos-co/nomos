@@ -721,7 +721,6 @@ where
         if let FromSwarm::ConnectionClosed(ConnectionClosed {
             peer_id,
             connection_id,
-            remaining_established,
             ..
         }) = event
         {
@@ -737,12 +736,6 @@ where
             let negotiated_connection_id = peer_details_entry.get().connection_id;
 
             if negotiated_connection_id == connection_id {
-                // If we are removing a negotiated connection, we want to make sure that we
-                // always ever track one connection per peer.
-                debug_assert!(
-                    remaining_established == 0,
-                    "We should only ever keep track of a single connection per peer."
-                );
                 let negotiated_peer_details = peer_details_entry.remove();
                 self.exchanged_message_identifiers.remove(&peer_id);
                 self.events
