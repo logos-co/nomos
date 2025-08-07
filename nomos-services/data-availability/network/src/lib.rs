@@ -7,6 +7,7 @@ pub mod storage;
 use std::{
     collections::HashMap,
     fmt::{self, Debug, Display},
+    iter,
     marker::PhantomData,
     pin::Pin,
 };
@@ -25,7 +26,7 @@ use overwatch::{
     },
     OpaqueServiceResourcesHandle,
 };
-use rand::{seq::SliceRandom as _, Rng as _};
+use rand::Rng as _;
 use serde::{Deserialize, Serialize};
 use storage::{MembershipStorage, MembershipStorageAdapter};
 use subnetworks_assignations::{MembershipCreator, MembershipHandler, SubnetworkAssignations};
@@ -559,11 +560,15 @@ where
         let mut selected_peers = HashMap::new();
         let mut rng = rand::thread_rng();
 
-        // Select `subnets_to_sample` UNIQUE subnetworks
-        let selected_subnet_ids = all_subnet_ids.choose_multiple(&mut rng, subnets_to_sample);
+        // Select `subnets_to_sample` random subnetworks from `all_subnet_ids`
+        // this selection allows repeated subnetworks to be selected
+        let selected_subnet_ids: Vec<_> =
+            iter::repeat_with(|| all_subnet_ids[rng.gen_range(0..all_subnet_ids.len())])
+                .take(subnets_to_sample)
+                .collect();
 
         // For each selected subnetwork, pick one random peer
-        for subnet_id in selected_subnet_ids {
+        for subnet_id in &selected_subnet_ids {
             let subnet_members = membership.members_of(subnet_id);
 
             if subnet_members.is_empty() {
