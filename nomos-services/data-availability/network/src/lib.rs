@@ -573,15 +573,15 @@ where
         for subnet_id in &selected_subnet_ids {
             let subnet_members = membership.members_of(subnet_id);
 
-            if subnet_members.is_empty() {
-                tracing::error!("Subnetwork {subnet_id:?} has no members at block {block_number}");
-                return None;
-            }
-
             let subnet_members: Vec<_> = subnet_members
                 .into_iter()
                 .filter(|peer_id| *peer_id != backend.local_peer_id())
                 .collect();
+
+            if subnet_members.is_empty() {
+                tracing::error!("Subnetwork {subnet_id:?} has no members at block {block_number}");
+                return None;
+            }
 
             // Pick one random peer from this subnetwork
             let selected_peer = &subnet_members[rng.gen_range(0..subnet_members.len())];
