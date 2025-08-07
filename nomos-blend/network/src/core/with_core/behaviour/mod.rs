@@ -1,6 +1,6 @@
 use core::mem;
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     convert::Infallible,
     ops::RangeInclusive,
     task::{Context, Poll, Waker},
@@ -291,17 +291,24 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     /// # Panics
     ///
     /// If the specified connection is not present in the map of connections
-    /// waiting to be upgraded, since we need to peer role (i.e., dialer or
-    /// listener) before moving the connection into a different storage map.
+    /// waiting to be upgraded and this connection has not already been upgraded
+    /// before, since we need to peer role (i.e., dialer or listener) before
+    /// moving the connection into a different storage map.
     fn handle_negotiated_connection(&mut self, (peer_id, connection_id): (PeerId, ConnectionId)) {
-        let new_connection_peer_role = self
+        let Some(new_connection_peer_role) = self
             .connections_waiting_upgrade
             .remove(&(peer_id, connection_id))
-            .unwrap_or_else(|| {
-                panic!(
-                    "Negotiated connection {connection_id:?} with peer {peer_id:?} not found in storage of pending connections.",
-                )
-            });
+        else {
+            // We expect not to find a connection to upgrade only if we have already
+            // processed it (e.g., we are processing a `FullyNegotiatedInbound` after we
+            // have already processed a `FullyNegotiatedOutbound` or viceversa).
+            // Otherwise, this is an inconsistency and we should panic.
+            assert!(
+                self.negotiated_peers.contains_key(&peer_id),
+                "Negotiated connection {connection_id:?} with peer {peer_id:?} not found in storage of pending connections."
+            );
+            return;
+        };
 
         if self.negotiated_peers.contains_key(&peer_id) {
             self.handle_negotiated_connection_for_existing_peer(
@@ -722,37 +729,34 @@ where
             self.connections_waiting_upgrade
                 .remove(&(peer_id, connection_id));
 
-            // This event happens in one of the following cases:
-            // 1. The connection was closed by the peer.
-            // 2. The connection was closed by the local node since no stream is active.
-            let Some(peer_details) = self.negotiated_peers.remove(&peer_id) else {
-                // Either this event was not meant for us, or it was about an uninitialised
-                // connection (e.g., if two connections are upgraded at the same time, and one
-                // of them will be forcibly closed in favor of the other). In
-                // both cases we do not care and we can ignore this event.
+            let Entry::Occupied(peer_details_entry) = self.negotiated_peers.entry(peer_id) else {
+                // This event was not meant for us.
                 return;
             };
 
-            // If a negotiated connection was closed, we are sure the connection IDs must
-            // match.
-            debug_assert!(
-                peer_details.connection_id == connection_id,
-                "Closed connection ID and removed connection ID do not match."
-            );
-            // If we are removing a negotiated connection, we are sure that we always ever
-            // track one connection per peer.
-            debug_assert!(
-                remaining_established == 0,
-                "We should only ever keep track of a single connection per peer."
-            );
+            let negotiated_connection_id = peer_details_entry.get().connection_id;
 
-            self.exchanged_message_identifiers.remove(&peer_id);
-            self.events
-                .push_back(ToSwarm::GenerateEvent(Event::PeerDisconnected(
-                    peer_id,
-                    peer_details.negotiated_state,
-                )));
-            self.try_wake();
+            if negotiated_connection_id == connection_id {
+                // If we are removing a negotiated connection, we want to make sure that we
+                // always ever track one connection per peer.
+                debug_assert!(
+                    remaining_established == 0,
+                    "We should only ever keep track of a single connection per peer."
+                );
+                let negotiated_peer_details = peer_details_entry.remove();
+                self.exchanged_message_identifiers.remove(&peer_id);
+                self.events
+                    .push_back(ToSwarm::GenerateEvent(Event::PeerDisconnected(
+                        peer_id,
+                        negotiated_peer_details.negotiated_state,
+                    )));
+                self.try_wake();
+            } else {
+                // We are closing a different connection for the same peer, so a
+                // connection we have either replaced with a new one or ignored
+                // in favor of the old one.
+                tracing::trace!(target: LOG_TARGET, "Closing replaced or ignored connection {connection_id:?} with peer {peer_id:?}.");
+            }
         }
     }
 
