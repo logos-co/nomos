@@ -4,6 +4,7 @@ use futures::stream::{self, StreamExt as _};
 use nomos_libp2p::PeerId;
 use tests::{
     adjust_timeout,
+    common::sync::wait_for_validators_mode,
     nodes::validator::{create_validator_config, Validator},
     secret_key_to_peer_id,
     topology::configs::create_general_configs,
@@ -70,29 +71,4 @@ async fn test_ibd_behind_nodes() {
     // IDB duration + 1 second that we waited after IDB
     // should allow creating at most 1 additional block by other validators
     assert!(behind_node_info.height >= *initial_current_min_height - 1);
-}
-
-async fn wait_for_validators_mode(validators: &[Validator], mode: cryptarchia_engine::State) {
-    loop {
-        let infos: Vec<_> = stream::iter(validators)
-            .then(|n| async move { n.consensus_info().await })
-            .collect()
-            .await;
-
-        println!(
-            "   Initial validators: [{}]",
-            infos
-                .iter()
-                .map(|info| format!("{:?}/{:?}", info.height, info.mode))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-
-        if infos.iter().all(|info| info.mode == mode) {
-            println!("   All validators reached are in mode {mode:?}",);
-            break;
-        }
-
-        tokio::time::sleep(Duration::from_millis(1000)).await;
-    }
 }
