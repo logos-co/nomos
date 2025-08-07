@@ -4,5 +4,3 @@ mod wrappers;
 
 pub use prover::Prover;
 pub use rapidsnark::Rapidsnark;
-
-pub type Result<T> = std::io::Result<T>;

@@ -1,6 +1,7 @@
-use crate::Result;
-
 pub trait Prover {
+    /// The error type returned by the prover.
+    type Error;
+
     /// Generates a proof from the given circuit and witness contents.
     ///
     /// # Arguments
@@ -11,11 +12,10 @@ pub trait Prover {
     ///
     /// # Returns
     ///
-    /// An [`io::Result<(String, String)>`] which contains the proof and public
-    /// inputs as strings if successful, or an [`io::Error`] if the command
-    /// fails.
+    /// A [`Result`] which contains the proof and public inputs as strings if
+    /// successful,
     fn generate_proof(
         circuit_contents: &[u8],
         witness_contents: &[u8],
-    ) -> Result<(Vec<u8>, Vec<u8>)>;
+    ) -> Result<(Vec<u8>, Vec<u8>), Self::Error>;
 }
