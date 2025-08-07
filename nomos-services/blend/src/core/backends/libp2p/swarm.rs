@@ -1,3 +1,4 @@
+use core::num::NonZeroU64;
 use std::{
     collections::{HashMap, HashSet},
     time::Duration,
@@ -55,7 +56,7 @@ where
     session_stream: SessionStream,
     latest_session_info: Membership<PeerId>,
     rng: Rng,
-    max_dial_attempts_per_connection: u64,
+    max_dial_attempts_per_connection: NonZeroU64,
     ongoing_dials: HashMap<PeerId, DialAttempt>,
 }
 
@@ -180,7 +181,7 @@ where
             address,
             attempt_number,
         } = self.ongoing_dials.get(&peer_id).unwrap();
-        if *attempt_number < self.max_dial_attempts_per_connection {
+        if *attempt_number < self.max_dial_attempts_per_connection.get() {
             self.dial(peer_id, address.clone());
             return true;
         }
