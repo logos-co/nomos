@@ -3,9 +3,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures::{
-    future::BoxFuture, stream::BoxStream, AsyncWriteExt as _, FutureExt as _, StreamExt as _,
-};
+use futures::{future::BoxFuture, AsyncWriteExt as _, FutureExt as _, StreamExt as _};
 use libp2p::{
     core::{transport::PortUse, Endpoint},
     futures::stream::FuturesUnordered,
@@ -24,11 +22,11 @@ use crate::{
     config::Config,
     libp2p::{
         downloader::Downloader,
-        errors::{ChainSyncError, ChainSyncErrorKind, DynError},
+        errors::{ChainSyncError, ChainSyncErrorKind},
         provider::{Provider, ReceivingRequestStream, MAX_ADDITIONAL_BLOCKS},
     },
     messages::{DownloadBlocksRequest, GetTipResponse, RequestMessage, SerialisedBlock},
-    ProviderResponse,
+    BlocksResponse, TipResponse,
 };
 
 /// Cryptarchia networking protocol for synchronizing blocks.
@@ -53,10 +51,6 @@ type SendingTipResponsesFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
 type ReceivingRequestsFuture = BoxFuture<'static, Result<ReceivingRequestStream, ChainSyncError>>;
 
 pub type BoxedStream<T> = Box<dyn futures::Stream<Item = T> + Send + Unpin>;
-
-pub type TipResponse = ProviderResponse<GetTipResponse>;
-
-pub type BlocksResponse = ProviderResponse<BoxStream<'static, Result<SerialisedBlock, DynError>>>;
 
 type ToSwarmEvent = ToSwarm<
     <Behaviour as NetworkBehaviour>::ToSwarm,
@@ -566,11 +560,11 @@ mod tests {
         config::Config,
         libp2p::{
             behaviour::{Behaviour, BoxedStream, Event, MAX_INCOMING_REQUESTS},
-            errors::{ChainSyncError, ChainSyncErrorKind, DynError},
+            errors::{ChainSyncError, ChainSyncErrorKind},
             provider::MAX_ADDITIONAL_BLOCKS,
         },
         messages::{GetTipResponse, SerialisedBlock},
-        BlocksResponse,
+        BlocksResponse, DynError,
         GetTipResponse::Tip,
         ProviderResponse, TipResponse,
     };

@@ -4,8 +4,6 @@ use tokio::time::error::Elapsed;
 
 use crate::libp2p::packing::PackingError;
 
-pub type DynError = Box<dyn std::error::Error + Send + Sync + 'static>;
-
 #[derive(Debug, Error)]
 pub enum ChainSyncErrorKind {
     #[error("Failed to start blocks download: {0}")]

@@ -5,24 +5,17 @@ use tracing::error;
 
 use crate::{
     libp2p::{
-        behaviour::TipResponse,
-        errors::{ChainSyncError, ChainSyncErrorKind, DynError},
+        errors::{ChainSyncError, ChainSyncErrorKind},
         packing::unpack_from_reader,
         utils::{close_stream, send_message},
     },
     messages::{DownloadBlocksResponse, GetTipResponse, RequestMessage, SerialisedBlock},
-    BlocksResponse,
+    BlocksResponse, DynError, ProviderResponse, TipResponse,
 };
 
 pub const MAX_ADDITIONAL_BLOCKS: usize = 5;
 
 pub struct Provider;
-
-#[derive(Debug, Clone)]
-pub enum ProviderResponse<Response> {
-    Available(Response),
-    Unavailable { reason: String },
-}
 
 pub type ReceivingRequestStream = (PeerId, Libp2pStream, RequestMessage);
 

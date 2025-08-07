@@ -646,7 +646,7 @@ mod tests {
         let fake_target_block = HeaderId::from([88u8; 32]);
         let known_blocks = HashSet::from([HeaderId::from([99u8; 32])]);
 
-        env.test_error_scenario(fake_target_block, &known_blocks, "StartBlockNotFound")
+        env.test_error_scenario(fake_target_block, &known_blocks, "BlockNotFound")
             .await;
     }
 
