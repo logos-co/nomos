@@ -185,6 +185,9 @@ where
             ) => {
                 self.handle_disconnected_peer(peer_id, peer_state);
             }
+            nomos_blend_network::core::with_core::behaviour::Event::OutboundConnectionUpgradeFailed(_) => {
+                unimplemented!()
+            }
         }
     }
 }

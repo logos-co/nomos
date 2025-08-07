@@ -115,6 +115,10 @@ pub enum Event {
     /// A connection with a peer has dropped. The last state that was negotiated
     /// with the peer is also returned.
     PeerDisconnected(PeerId, NegotiatedPeerState),
+    /// An outbound connection request failed to be upgraded, meaning the peer
+    /// is a remote core but something failed when negotiating Blend protocol
+    /// support.
+    OutboundConnectionUpgradeFailed(PeerId),
 }
 
 impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
@@ -721,12 +725,28 @@ where
         if let FromSwarm::ConnectionClosed(ConnectionClosed {
             peer_id,
             connection_id,
+            endpoint,
             ..
         }) = event
         {
-            // We remove and ignore any un-upgraded connection.
-            self.connections_waiting_upgrade
-                .remove(&(peer_id, connection_id));
+            // We notify the swarm of any outbound connection that failed to be upgraded.
+            if let Some(remote_peer_role) = self
+                .connections_waiting_upgrade
+                .remove(&(peer_id, connection_id))
+            {
+                debug_assert!(
+                    endpoint.to_endpoint() == remote_peer_role,
+                    "Remote peer endpoint provided by event and the one stored do not match."
+                );
+                // If the closed connection was an outbound one, notify the swarm about it.
+                if remote_peer_role == Endpoint::Listener {
+                    self.events.push_back(ToSwarm::GenerateEvent(
+                        Event::OutboundConnectionUpgradeFailed(peer_id),
+                    ));
+                    self.try_wake();
+                }
+                return;
+            }
 
             let Entry::Occupied(peer_details_entry) = self.negotiated_peers.entry(peer_id) else {
                 // This event was not meant for us.
