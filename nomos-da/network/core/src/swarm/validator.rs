@@ -206,7 +206,9 @@ where
     pub fn historic_sample_request_channel(
         &mut self,
     ) -> UnboundedSender<(BlobId, BlockNumber, HashMap<PeerId, Multiaddr>)> {
-        todo!("Implement historic sample request channel when the behavior is ready");
+        // todo: implement this when behaviour is ready
+        let (sender, _receiver) = unbounded_channel();
+        sender
     }
 
     pub fn commitments_request_channel(&mut self) -> UnboundedSender<BlobId> {
