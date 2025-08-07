@@ -1,9 +1,10 @@
-use std::pin::Pin;
+use std::{collections::HashMap, pin::Pin};
 
 use futures::{Stream, StreamExt as _};
 use kzgrs_backend::common::{build_blob_id, share::DaShare};
-use libp2p::PeerId;
-use nomos_da_network_core::SubnetworkId;
+use libp2p::{Multiaddr, PeerId};
+use nomos_core::{block::BlockNumber, da::BlobId};
+use nomos_da_network_core::{protocols::sampling::SubnetsConfig, SubnetworkId};
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
 use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
@@ -81,6 +82,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
         _: OverwatchHandle<RuntimeServiceId>,
         _membership: Self::Membership,
         _addressbook: Self::Addressbook,
+        _subnets_settings: SubnetsConfig,
     ) -> Self {
         let (commands_tx, _) = mpsc::channel(BUFFER_SIZE);
         let (events_tx, _) = broadcast::channel(BUFFER_SIZE);
@@ -121,6 +123,15 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
                     .filter_map(|event| async { event.ok() }),
             ),
         }
+    }
+
+    async fn start_historic_sampling(
+        &self,
+        _block_number: BlockNumber,
+        _blob_id: BlobId,
+        _membership: HashMap<PeerId, Multiaddr>,
+    ) {
+        todo!()
     }
 }
 

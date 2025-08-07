@@ -357,11 +357,6 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                     balancer_interval: config.da_config.balancer_interval,
                     redial_cooldown: config.da_config.redial_cooldown,
                     replication_settings: config.da_config.replication_settings,
-                    subnets_settings: SubnetsConfig {
-                        num_of_subnets: config.da_config.num_samples as usize,
-                        shares_retry_limit: config.da_config.retry_shares_limit,
-                        commitments_retry_limit: config.da_config.retry_commitments_limit,
-                    },
                     refresh_interval: config.da_config.subnets_refresh_interval,
                 },
                 num_subnets: config.da_config.num_subnets,
@@ -370,6 +365,11 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             api_adapter_settings: ApiAdapterSettings {
                 api_port: config.api_config.address.port(),
                 is_secure: false,
+            },
+            subnets_settings: SubnetsConfig {
+                num_of_subnets: config.da_config.num_samples as usize,
+                shares_retry_limit: config.da_config.retry_shares_limit,
+                commitments_retry_limit: config.da_config.retry_commitments_limit,
             },
         },
         da_indexer: IndexerSettings {

@@ -1,4 +1,4 @@
-use std::{fmt::Debug, time::Duration};
+use std::{collections::HashMap, fmt::Debug, time::Duration};
 
 use futures::{
     channel::oneshot::{Receiver, Sender},
@@ -8,12 +8,11 @@ use kzgrs_backend::common::{
     share::{DaLightShare, DaShare, DaSharesCommitments},
     ShareIndex,
 };
-use nomos_core::da::BlobId;
+use libp2p::PeerId;
+use nomos_core::{block::BlockNumber, da::BlobId};
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
-    protocols::sampling::{
-        self, errors::SamplingError, BehaviourSampleReq, BehaviourSampleRes, SubnetsConfig,
-    },
+    protocols::sampling::{self, errors::SamplingError, BehaviourSampleReq, BehaviourSampleRes},
     swarm::{
         validator::ValidatorEventsStream, DAConnectionMonitorSettings, DAConnectionPolicySettings,
         ReplicationConfig,
@@ -41,7 +40,6 @@ pub struct DaNetworkBackendSettings {
     pub balancer_interval: Duration,
     pub redial_cooldown: Duration,
     pub replication_settings: ReplicationConfig,
-    pub subnets_settings: SubnetsConfig,
     pub refresh_interval: Duration,
 }
 
@@ -311,6 +309,23 @@ pub(crate) async fn handle_sample_request(
 ) {
     if let Err(SendError(blob_id)) = sampling_request_channel.send(blob_id) {
         error!("Error requesting samples for blob_id: {blob_id:?}");
+    }
+}
+
+pub(crate) async fn handle_historic_sample_request(
+    historic_sample_request_channel: &UnboundedSender<(
+        BlobId,
+        BlockNumber,
+        HashMap<PeerId, Multiaddr>,
+    )>,
+    blob_id: BlobId,
+    block_number: BlockNumber,
+    membership: HashMap<PeerId, Multiaddr>,
+) {
+    if let Err(SendError((blob_id, block_number, _))) =
+        historic_sample_request_channel.send((blob_id, block_number, membership))
+    {
+        error!("Error requesting historic sample for blob_id: {blob_id:?}, block_number: {block_number:?}");
     }
 }
 

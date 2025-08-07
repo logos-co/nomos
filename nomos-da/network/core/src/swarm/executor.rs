@@ -1,4 +1,4 @@
-use std::{io, time::Duration};
+use std::{collections::HashMap, io, time::Duration};
 
 use futures::{stream, StreamExt as _};
 use kzgrs_backend::common::share::DaShare;
@@ -9,7 +9,7 @@ use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, TransportError,
 };
 use log::debug;
-use nomos_core::da::BlobId;
+use nomos_core::{block::BlockNumber, da::BlobId};
 use subnetworks_assignations::MembershipHandler;
 use tokio::{
     sync::mpsc::{unbounded_channel, UnboundedSender},
@@ -199,6 +199,12 @@ where
             .behaviour()
             .sampling_behaviour()
             .shares_request_channel()
+    }
+
+    pub fn historic_sample_request_channel(
+        &mut self,
+    ) -> UnboundedSender<(BlobId, BlockNumber, HashMap<PeerId, Multiaddr>)> {
+        todo!("Implement historic sample request channel when the behavior is ready");
     }
 
     pub fn commitments_request_channel(&mut self) -> UnboundedSender<BlobId> {

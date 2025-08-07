@@ -1,10 +1,13 @@
 pub mod libp2p;
 pub mod mock;
 
-use std::pin::Pin;
+use std::{collections::HashMap, pin::Pin};
 
+use ::libp2p::PeerId;
 use futures::Stream;
-use nomos_da_network_core::addressbook::AddressBookHandler;
+use multiaddr::Multiaddr;
+use nomos_core::{block::BlockNumber, da::BlobId};
+use nomos_da_network_core::{addressbook::AddressBookHandler, protocols::sampling::SubnetsConfig};
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::ServiceState};
 use subnetworks_assignations::MembershipHandler;
 
@@ -25,6 +28,7 @@ pub trait NetworkBackend<RuntimeServiceId> {
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Self::Membership,
         addressbook: Self::Addressbook,
+        subnets_settings: SubnetsConfig,
     ) -> Self;
     fn shutdown(&mut self);
     async fn process(&self, msg: Self::Message);
@@ -32,4 +36,10 @@ pub trait NetworkBackend<RuntimeServiceId> {
         &mut self,
         event: Self::EventKind,
     ) -> Pin<Box<dyn Stream<Item = Self::NetworkEvent> + Send>>;
+    async fn start_historic_sampling(
+        &self,
+        block_number: BlockNumber,
+        blob_id: BlobId,
+        membership: HashMap<PeerId, Multiaddr>,
+    );
 }

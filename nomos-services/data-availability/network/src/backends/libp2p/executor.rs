@@ -1,4 +1,4 @@
-use std::{fmt::Debug, marker::PhantomData, pin::Pin};
+use std::{collections::HashMap, fmt::Debug, marker::PhantomData, pin::Pin};
 
 use futures::{
     future::Aborted,
@@ -6,12 +6,12 @@ use futures::{
     Stream, StreamExt as _,
 };
 use kzgrs_backend::common::share::DaShare;
-use libp2p::PeerId;
+use libp2p::{Multiaddr, PeerId};
 use log::error;
-use nomos_core::da::BlobId;
+use nomos_core::{block::BlockNumber, da::BlobId};
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
-    protocols::dispersal::executor::behaviour::DispersalExecutorEvent,
+    protocols::{dispersal::executor::behaviour::DispersalExecutorEvent, sampling::SubnetsConfig},
     swarm::{executor::ExecutorSwarm, validator::SwarmSettings, BalancerStats, MonitorStats},
     SubnetworkId,
 };
@@ -32,9 +32,9 @@ use super::common::CommitmentsEvent;
 use crate::{
     backends::{
         libp2p::common::{
-            handle_balancer_command, handle_commitments_request, handle_monitor_command,
-            handle_sample_request, handle_validator_events_stream, DaNetworkBackendSettings,
-            SamplingEvent, BROADCAST_CHANNEL_SIZE,
+            handle_balancer_command, handle_commitments_request, handle_historic_sample_request,
+            handle_monitor_command, handle_sample_request, handle_validator_events_stream,
+            DaNetworkBackendSettings, SamplingEvent, BROADCAST_CHANNEL_SIZE,
         },
         NetworkBackend,
     },
@@ -98,6 +98,8 @@ where
     verifier_replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     executor_replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     shares_request_channel: UnboundedSender<BlobId>,
+    historic_sample_request_channel:
+        UnboundedSender<(BlobId, BlockNumber, HashMap<PeerId, Multiaddr>)>,
     commitments_request_channel: UnboundedSender<BlobId>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
     commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
@@ -134,6 +136,7 @@ where
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Self::Membership,
         addressbook: Self::Addressbook,
+        subnets_settings: SubnetsConfig,
     ) -> Self {
         // TODO: If there is no requirement to subscribe to block number events in chain
         // service, and an approximate duration is enough for sampling to hold
@@ -156,7 +159,7 @@ where
                 balancer_interval: config.validator_settings.balancer_interval,
                 redial_cooldown: config.validator_settings.redial_cooldown,
                 replication_settings: config.validator_settings.replication_settings,
-                subnets_settings: config.validator_settings.subnets_settings,
+                subnets_settings,
             },
             subnet_refresh_signal,
         );
@@ -170,6 +173,7 @@ where
             });
 
         let shares_request_channel = executor_swarm.shares_request_channel();
+        let historic_sample_request_channel = executor_swarm.historic_sample_request_channel();
         let commitments_request_channel = executor_swarm.commitments_request_channel();
         let dispersal_shares_sender = executor_swarm.dispersal_shares_channel();
         let balancer_command_sender = executor_swarm.balancer_command_channel();
@@ -224,6 +228,7 @@ where
             verifier_replies_task,
             executor_replies_task,
             shares_request_channel,
+            historic_sample_request_channel,
             commitments_request_channel,
             sampling_broadcast_receiver,
             commitments_broadcast_receiver,
@@ -315,6 +320,22 @@ where
                     .map(Self::NetworkEvent::Dispersal),
             ),
         }
+    }
+
+    async fn start_historic_sampling(
+        &self,
+        block_number: BlockNumber,
+        blob_id: BlobId,
+        membership: HashMap<PeerId, Multiaddr>,
+    ) {
+        info_with_id!(&blob_id, "RequestHistoricSample");
+        handle_historic_sample_request(
+            &self.historic_sample_request_channel,
+            blob_id,
+            block_number,
+            membership,
+        )
+        .await;
     }
 }
 
