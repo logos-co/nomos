@@ -26,7 +26,6 @@ nomos-utils            = { workspace = true }
 nomos_proof_statements = { workspace = true }
 overwatch              = { workspace = true }
 rand                   = "0.8"
-rand_chacha            = "0.3"
 risc0-zkvm             = { workspace = true }
 serde                  = { version = "1", features = ["derive"] }
 serde_with             = { workspace = true }
