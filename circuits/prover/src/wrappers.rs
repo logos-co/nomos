@@ -1,13 +1,11 @@
 use std::{
-    io::{Error, Write as _},
+    io::{Error, Result, Write as _},
     path::PathBuf,
     sync::LazyLock,
 };
 
 use circuits_utils::find_binary;
 use tempfile::NamedTempFile;
-
-use crate::Result;
 
 const BINARY_NAME: &str = "prover";
 const BINARY_ENV_VAR: &str = "NOMOS_PROVER";
@@ -32,8 +30,8 @@ static BINARY: LazyLock<PathBuf> = LazyLock::new(|| {
 ///
 /// # Returns
 ///
-/// A [`Result<(PathBuf, PathBuf)>`] which contains the paths to the proof
-/// file and public inputs file if successful.
+/// A [`Result`] which contains the paths to the proof file and public inputs
+/// file if successful.
 pub fn prover(
     circuit_file: &PathBuf,
     witness_file: &PathBuf,
@@ -71,8 +69,8 @@ pub fn prover(
 ///
 /// # Returns
 ///
-/// A [`Result<(String, String)>`] which contains the proof and public
-/// inputs as strings if successful.
+/// A [`Result`] which contains the proof and public inputs as strings if
+/// successful.
 pub fn prover_from_contents(
     circuit_contents: &[u8],
     witness_contents: &[u8],

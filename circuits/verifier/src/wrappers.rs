@@ -1,9 +1,11 @@
-use std::{io::Write as _, path::PathBuf, sync::LazyLock};
+use std::{
+    io::{Result, Write as _},
+    path::PathBuf,
+    sync::LazyLock,
+};
 
 use circuits_utils::find_binary;
 use tempfile::NamedTempFile;
-
-use crate::Result;
 
 const BINARY_NAME: &str = "verifier";
 const BINARY_ENV_VAR: &str = "NOMOS_VERIFIER";

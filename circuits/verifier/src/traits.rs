@@ -1,6 +1,7 @@
-use crate::Result;
-
 pub trait Verifier {
+    /// The error type returned by the prover.
+    type Error;
+
     /// Verifies a proof using the provided verification key and public inputs.
     ///
     /// # Arguments
@@ -18,5 +19,5 @@ pub trait Verifier {
         verification_key_contents: &[u8],
         public_contents: &[u8],
         proof_contents: &[u8],
-    ) -> Result<bool>;
+    ) -> Result<bool, Self::Error>;
 }
