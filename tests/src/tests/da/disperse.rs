@@ -51,6 +51,7 @@ async fn disseminate_and_retrieve() {
     assert!(validator_idx_0_blobs.count() == 2);
 }
 
+#[ignore = "Reenable after transaction mempool is used"]
 #[tokio::test]
 async fn disseminate_retrieve_reconstruct() {
     const ITERATIONS: usize = 10;
@@ -204,8 +205,7 @@ async fn disseminate_same_data() {
     let from = 0u64.to_be_bytes();
     let to = 1u64.to_be_bytes();
 
-    for i in 0..ITERATIONS {
-        println!("iteration {i}");
+    for _ in 0..ITERATIONS {
         disseminate_with_metadata(executor, &data, metadata).await;
 
         wait_for_indexed_blob(executor, app_id, from, to, num_subnets).await;

@@ -29,7 +29,7 @@ use nomos_da_network_service::{
     storage::MembershipStorageAdapter,
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
-use nomos_da_verifier::backend::VerifierBackend;
+use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
 use nomos_http_api_common::paths;
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
@@ -72,7 +72,6 @@ pub struct AxumBackendSettings {
 }
 
 pub struct AxumBackend<
-    DaAttestation,
     DaShare,
     DaBlobInfo,
     Memebership,
@@ -91,6 +90,7 @@ pub struct AxumBackend<
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
+    VerifierMempoolAdapter,
     TimeBackend,
     ApiAdapter,
     HttpStorageAdapter,
@@ -100,7 +100,6 @@ pub struct AxumBackend<
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     _phantom: core::marker::PhantomData<(
-        DaAttestation,
         DaShare,
         DaBlobInfo,
         Memebership,
@@ -119,6 +118,7 @@ pub struct AxumBackend<
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
+        VerifierMempoolAdapter,
         TimeBackend,
         ApiAdapter,
         HttpStorageAdapter,
@@ -140,7 +140,6 @@ struct ApiDoc;
 
 #[async_trait::async_trait]
 impl<
-        DaAttestation,
         DaShare,
         DaBlobInfo,
         Membership,
@@ -159,6 +158,7 @@ impl<
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
+        VerifierMempoolAdapter,
         TimeBackend,
         ApiAdapter,
         StorageAdapter,
@@ -166,7 +166,6 @@ impl<
         RuntimeServiceId,
     > Backend<RuntimeServiceId>
     for AxumBackend<
-        DaAttestation,
         DaShare,
         DaBlobInfo,
         Membership,
@@ -185,13 +184,13 @@ impl<
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
+        VerifierMempoolAdapter,
         TimeBackend,
         ApiAdapter,
         StorageAdapter,
         SIZE,
     >
 where
-    DaAttestation: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     DaShare: Share + Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     <DaShare as Share>::BlobId: Clone + Serialize + DeserializeOwned + Send + Sync + 'static,
     <DaShare as Share>::ShareIndex:
@@ -293,6 +292,7 @@ where
         nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
     SamplingStorage:
         nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    VerifierMempoolAdapter: DaMempoolAdapter + Send + Sync + 'static,
     TimeBackend: nomos_time::backends::TimeBackend + Send + 'static,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_network_service::api::ApiAdapter + Send + Sync + 'static,
@@ -323,6 +323,7 @@ where
                 DaVerifierBackend,
                 DaStorageSerializer,
                 DaStorageConverter,
+                VerifierMempoolAdapter,
                 RuntimeServiceId,
             >,
         >
@@ -409,7 +410,7 @@ where
             &overwatch_handle,
             Some(Duration::from_secs(60)),
             Cryptarchia<_, _, _, _, _, _, _, SIZE>,
-            DaVerifier<_, _, _, _, _, _>,
+            DaVerifier<_, _, _, _, _, _, _>,
             DaIndexer<_, _, _, _, _, _, _, _, _, SIZE>,
             nomos_da_network_service::NetworkService<_, _, _,_, _, _>,
             nomos_network::NetworkService<_, _>,
@@ -491,12 +492,12 @@ where
                 paths::DA_ADD_SHARE,
                 routing::post(
                     add_share::<
-                        DaAttestation,
                         DaShare,
                         DaVerifierNetwork,
                         DaVerifierBackend,
                         DaStorageSerializer,
                         DaStorageConverter,
+                        VerifierMempoolAdapter,
                         RuntimeServiceId,
                     >,
                 ),

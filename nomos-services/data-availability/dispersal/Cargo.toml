@@ -17,7 +17,6 @@ nomos-da-network-service = { workspace = true }
 nomos-tracing            = { workspace = true }
 nomos-utils              = { workspace = true, features = ["time"] }
 overwatch                = { workspace = true }
-rand                     = { workspace = true }
 serde                    = { version = "1.0", features = ["derive"] }
 serde_with               = { workspace = true }
 services-utils           = { workspace = true }

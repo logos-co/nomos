@@ -13,7 +13,7 @@ use nomos_da_network_service::membership::adapters::service::MembershipServiceAd
 use nomos_da_sampling::{
     backend::kzgrs::KzgrsSamplingBackend, storage::adapters::rocksdb::converter::DaStorageConverter,
 };
-use nomos_da_verifier::backend::kzgrs::KzgrsDaVerifier;
+use nomos_da_verifier::{backend::kzgrs::KzgrsDaVerifier, mempool::kzgrs::KzgrsMempoolAdapter};
 use nomos_membership::{adapters::sdp::LedgerSdpAdapter, backends::mock::MockMembershipBackend};
 use nomos_mempool::backend::mockpool::MockPool;
 use nomos_sdp::{
@@ -86,7 +86,20 @@ pub type DaIndexerService<SamplingAdapter, RuntimeServiceId> = nomos_da_indexer:
     RuntimeServiceId,
 >;
 
-pub type DaVerifierService<VerifierAdapter, RuntimeServiceId> =
+pub type VerifierMempoolAdapter<NetworkAdapter, RuntimeServiceId> = KzgrsMempoolAdapter<
+    nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
+        BlobInfo,
+        <BlobInfo as DispersedBlobInfo>::BlobId,
+        RuntimeServiceId,
+    >,
+    MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
+    KzgrsSamplingBackend,
+    NetworkAdapter,
+    nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, Wire, DaStorageConverter>,
+    RuntimeServiceId,
+>;
+
+pub type DaVerifierService<VerifierAdapter, MempoolAdapter, RuntimeServiceId> =
     nomos_da_verifier::DaVerifierService<
         KzgrsDaVerifier,
         VerifierAdapter,
@@ -95,6 +108,7 @@ pub type DaVerifierService<VerifierAdapter, RuntimeServiceId> =
             Wire,
             DaStorageConverter,
         >,
+        MempoolAdapter,
         RuntimeServiceId,
     >;
 

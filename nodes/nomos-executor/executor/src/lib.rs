@@ -32,7 +32,9 @@ use nomos_libp2p::PeerId;
 #[cfg(feature = "tracing")]
 use nomos_node::Tracing;
 use nomos_node::{
-    generic_services::{DaMembershipAdapter, MembershipService, SdpService},
+    generic_services::{
+        DaMembershipAdapter, MembershipService, SdpService, VerifierMempoolAdapter,
+    },
     BlobInfo, DaMembershipStorage, DaNetworkApiAdapter, NetworkBackend, NomosDaMembership,
     RocksBackend, SystemSig, Wire, MB16,
 };
@@ -92,6 +94,7 @@ pub(crate) type DaVerifierService = nomos_node::generic_services::DaVerifierServ
         DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
+    VerifierMempoolAdapter<DaNetworkAdapter, RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
@@ -126,16 +129,16 @@ pub(crate) type ClMempoolService = nomos_node::generic_services::TxMempoolServic
     RuntimeServiceId,
 >;
 
-pub(crate) type DaMempoolService = nomos_node::generic_services::DaMempoolService<
-    nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
-        NomosDaMembership,
-        DaMembershipAdapter<RuntimeServiceId>,
-        DaMembershipStorage,
-        DaNetworkApiAdapter,
-        RuntimeServiceId,
-    >,
+pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
+    NomosDaMembership,
+    DaMembershipAdapter<RuntimeServiceId>,
+    DaMembershipStorage,
+    DaNetworkApiAdapter,
     RuntimeServiceId,
 >;
+
+pub(crate) type DaMempoolService =
+    nomos_node::generic_services::DaMempoolService<DaNetworkAdapter, RuntimeServiceId>;
 
 pub(crate) type CryptarchiaService = nomos_node::generic_services::CryptarchiaService<
     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
@@ -155,7 +158,6 @@ pub(crate) type ApiStorageAdapter<StorageOp, RuntimeServiceId> =
 
 pub(crate) type ApiService = nomos_api::ApiService<
     AxumBackend<
-        (),
         DaShare,
         BlobInfo,
         NomosDaMembership,
@@ -201,6 +203,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
             RuntimeServiceId,
         >,
         SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
+        VerifierMempoolAdapter<DaNetworkAdapter, RuntimeServiceId>,
         NtpTimeBackend,
         DaNetworkApiAdapter,
         ApiStorageAdapter<Wire, RuntimeServiceId>,

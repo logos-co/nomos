@@ -4,6 +4,7 @@ pub mod generic_services;
 
 use bytes::Bytes;
 use color_eyre::eyre::Result;
+use generic_services::VerifierMempoolAdapter;
 use kzgrs_backend::common::share::DaShare;
 pub use kzgrs_backend::dispersal::BlobInfo;
 pub use nomos_blend_service::{
@@ -115,6 +116,7 @@ pub(crate) type DaVerifierService = generic_services::DaVerifierService<
         DaNetworkApiAdapter,
         RuntimeServiceId,
     >,
+    VerifierMempoolAdapter<DaNetworkAdapter, RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
@@ -149,16 +151,16 @@ pub(crate) type ClMempoolService = generic_services::TxMempoolService<
     RuntimeServiceId,
 >;
 
-pub(crate) type DaMempoolService = generic_services::DaMempoolService<
-    nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
-        NomosDaMembership,
-        DaMembershipAdapter<RuntimeServiceId>,
-        DaMembershipStorage,
-        DaNetworkApiAdapter,
-        RuntimeServiceId,
-    >,
+pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
+    NomosDaMembership,
+    DaMembershipAdapter<RuntimeServiceId>,
+    DaMembershipStorage,
+    DaNetworkApiAdapter,
     RuntimeServiceId,
 >;
+
+pub(crate) type DaMempoolService =
+    generic_services::DaMempoolService<DaNetworkAdapter, RuntimeServiceId>;
 
 pub(crate) type CryptarchiaService = generic_services::CryptarchiaService<
     nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
@@ -178,7 +180,6 @@ pub(crate) type ApiStorageAdapter<StorageOp, RuntimeServiceId> =
 
 pub(crate) type ApiService = nomos_api::ApiService<
     AxumBackend<
-        (),
         DaShare,
         BlobInfo,
         NomosDaMembership,
@@ -206,6 +207,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
             RuntimeServiceId,
         >,
         SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
+        VerifierMempoolAdapter<DaNetworkAdapter, RuntimeServiceId>,
         NtpTimeBackend,
         DaNetworkApiAdapter,
         ApiStorageAdapter<Wire, RuntimeServiceId>,

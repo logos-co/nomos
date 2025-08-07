@@ -36,8 +36,9 @@ use nomos_da_sampling::{
     backend::DaSamplingServiceBackend, storage::adapters::rocksdb::converter::DaStorageConverter,
 };
 use nomos_da_verifier::{
-    backend::VerifierBackend, storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
-    DaVerifierMsg, DaVerifierService,
+    backend::VerifierBackend, mempool::DaMempoolAdapter,
+    storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter, DaVerifierMsg,
+    DaVerifierService,
 };
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
@@ -98,11 +99,13 @@ pub type DaVerifier<
     VerifierBackend,
     StorageSerializer,
     DaStorageConverter,
+    VerifierMempoolAdapter,
     RuntimeServiceId,
 > = DaVerifierService<
     VerifierBackend,
     NetworkAdapter,
     VerifierStorageAdapter<Blob, StorageSerializer, DaStorageConverter>,
+    VerifierMempoolAdapter,
     RuntimeServiceId,
 >;
 
@@ -125,29 +128,50 @@ pub type DaNetwork<
     RuntimeServiceId,
 >;
 
-pub async fn add_share<A, S, N, VB, SS, DaStorageConverter, RuntimeServiceId>(
+pub async fn add_share<
+    DaShare,
+    VerifierNetwork,
+    ShareVerifier,
+    SerdeOp,
+    DaStorageConverter,
+    VerifierMempoolAdapter,
+    RuntimeServiceId,
+>(
     handle: &OverwatchHandle<RuntimeServiceId>,
-    share: S,
+    share: DaShare,
 ) -> Result<Option<()>, DynError>
 where
-    A: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
-    S: Share + Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
-    <S as Share>::BlobId: Clone + Send + Sync + 'static,
-    <S as Share>::ShareIndex: Clone + Eq + Hash + Send + Sync + 'static,
-    <S as Share>::LightShare: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
-    <S as Share>::SharesCommitments: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
-    N: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
-    N::Settings: Clone,
-    VB: VerifierBackend + CoreDaVerifier<DaShare = S>,
-    <VB as VerifierBackend>::Settings: Clone,
-    <VB as CoreDaVerifier>::Error: Error,
-    SS: StorageSerde + Send + Sync + 'static,
-    DaStorageConverter:
-        DaConverter<RocksBackend<SS>, Share = S, Tx = SignedMantleTx> + Send + Sync + 'static,
+    DaShare: Share + Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
+    <DaShare as Share>::BlobId: Clone + Send + Sync + 'static,
+    <DaShare as Share>::ShareIndex: Clone + Eq + Hash + Send + Sync + 'static,
+    <DaShare as Share>::LightShare: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
+    <DaShare as Share>::SharesCommitments:
+        Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
+    VerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
+    VerifierNetwork::Settings: Clone,
+    ShareVerifier: VerifierBackend + CoreDaVerifier<DaShare = DaShare>,
+    <ShareVerifier as VerifierBackend>::Settings: Clone,
+    <ShareVerifier as CoreDaVerifier>::Error: Error,
+    SerdeOp: StorageSerde + Send + Sync + 'static,
+    DaStorageConverter: DaConverter<RocksBackend<SerdeOp>, Share = DaShare, Tx = SignedMantleTx>
+        + Send
+        + Sync
+        + 'static,
+    VerifierMempoolAdapter: DaMempoolAdapter,
     RuntimeServiceId: Debug
         + Sync
         + Display
-        + AsServiceId<DaVerifier<S, N, VB, SS, DaStorageConverter, RuntimeServiceId>>,
+        + AsServiceId<
+            DaVerifier<
+                DaShare,
+                VerifierNetwork,
+                ShareVerifier,
+                SerdeOp,
+                DaStorageConverter,
+                VerifierMempoolAdapter,
+                RuntimeServiceId,
+            >,
+        >,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();

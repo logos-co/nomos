@@ -32,7 +32,7 @@ use nomos_da_network_service::{
     api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend, NetworkService,
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
-use nomos_da_verifier::backend::VerifierBackend;
+use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
 use nomos_http_api_common::paths;
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
@@ -272,12 +272,11 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn add_share<A, S, N, VB, SS, StorageConverter, RuntimeServiceId>(
+pub async fn add_share<S, N, VB, SS, StorageConverter, VerifierMempoolAdapter, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(share): Json<S>,
 ) -> Response
 where
-    A: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     S: Share + Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     <S as Share>::BlobId: Clone + Send + Sync + 'static,
     <S as Share>::ShareIndex: Clone + Hash + Eq + Send + Sync + 'static,
@@ -291,19 +290,22 @@ where
     SS: StorageSerde + Send + Sync + 'static,
     StorageConverter:
         DaConverter<DaStorageBackend<SS>, Share = S, Tx = SignedMantleTx> + Send + Sync + 'static,
+    VerifierMempoolAdapter: DaMempoolAdapter + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
         + 'static
-        + AsServiceId<DaVerifier<S, N, VB, SS, StorageConverter, RuntimeServiceId>>,
+        + AsServiceId<
+            DaVerifier<S, N, VB, SS, StorageConverter, VerifierMempoolAdapter, RuntimeServiceId>,
+        >,
 {
     make_request_and_return_response!(da::add_share::<
-        A,
         S,
         N,
         VB,
         SS,
         StorageConverter,
+        VerifierMempoolAdapter,
         RuntimeServiceId,
     >(&handle, share))
 }
