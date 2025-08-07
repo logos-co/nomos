@@ -41,7 +41,7 @@ use crate::{
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
 };
 
-const LOG_TARGET: &str = "blend::service";
+const LOG_TARGET: &str = "blend::service::core";
 
 /// A blend service that sends messages to the blend network
 /// and broadcasts fully unwrapped messages through the [`NetworkService`].

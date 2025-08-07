@@ -6,7 +6,6 @@ use std::{
 };
 
 use kzgrs_backend::common::share::DaShare;
-use nomos_blend_service::core::network::libp2p::Libp2pAdapter as BlendNetworkAdapter;
 use nomos_core::{
     block::BlockNumber,
     da::{
@@ -77,12 +76,7 @@ pub type DaIndexer<
     CryptarchiaConsensusAdapter<Tx, V>,
     // Cryptarchia specific, should be the same as in `Cryptarchia` type above.
     chain_service::network::adapters::libp2p::LibP2pAdapter<Tx, V, RuntimeServiceId>,
-    chain_service::blend::adapters::libp2p::LibP2pAdapter<
-        BlendNetworkAdapter<RuntimeServiceId>,
-        Tx,
-        V,
-        RuntimeServiceId,
-    >,
+    BlendService<RuntimeServiceId>,
     MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
     MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
     MockPool<HeaderId, V, [u8; 32]>,
@@ -97,6 +91,22 @@ pub type DaIndexer<
     DaVerifierNetwork,
     DaVerifierStorage,
     TimeBackend,
+    RuntimeServiceId,
+>;
+
+type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
+    nomos_blend_service::core::BlendService<
+        nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
+        PeerId,
+        nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
+        RuntimeServiceId,
+    >,
+    nomos_blend_service::edge::BlendService<
+        nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
+        PeerId,
+        <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
+        RuntimeServiceId
+    >,
     RuntimeServiceId,
 >;
 

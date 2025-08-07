@@ -43,8 +43,9 @@ use nomos_http_api_common::paths::{
 use nomos_mempool::MempoolMetrics;
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
-    api::backend::AxumBackendSettings, config::mempool::MempoolConfig, BlobInfo, Config, HeaderId,
-    RocksBackendSettings,
+    api::backend::AxumBackendSettings,
+    config::{blend::BlendConfig, mempool::MempoolConfig},
+    BlobInfo, Config, HeaderId, RocksBackendSettings,
 };
 use nomos_time::{
     backends::{ntp::async_client::NTPClientSettings, NtpTimeBackendSettings},
@@ -55,6 +56,7 @@ use nomos_tracing_service::LoggerLayer;
 use nomos_utils::math::NonNegativeF64;
 use reqwest::Url;
 use tempfile::NamedTempFile;
+use tokio::time::error::Elapsed;
 
 use super::{create_tempdir, persist_tempdir, GetRangeReq, CLIENT};
 use crate::{
@@ -92,7 +94,7 @@ impl Drop for Validator {
 }
 
 impl Validator {
-    pub async fn spawn(mut config: Config) -> Self {
+    pub async fn spawn(mut config: Config) -> Result<Self, Elapsed> {
         let dir = create_tempdir().unwrap();
         let mut file = NamedTempFile::new().unwrap();
         let config_path = file.path().to_owned();
@@ -129,13 +131,13 @@ impl Validator {
             tempdir: dir,
             config,
         };
+
         tokio::time::timeout(adjust_timeout(Duration::from_secs(10)), async {
             node.wait_online().await;
         })
-        .await
-        .unwrap();
+        .await?;
 
-        node
+        Ok(node)
     }
 
     async fn get(&self, path: &str) -> reqwest::Result<reqwest::Response> {
@@ -321,7 +323,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 initial_peers: config.network_config.initial_peers,
             },
         },
-        blend: nomos_blend_service::core::settings::BlendConfig {
+        blend: BlendConfig::new(nomos_blend_service::core::settings::BlendConfig {
             backend: config.blend_config.backend,
             crypto: CryptographicProcessorSettings {
                 signing_private_key: config.blend_config.private_key.clone(),
@@ -350,7 +352,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 },
             },
             membership: config.blend_config.membership,
-        },
+        }),
         cryptarchia: CryptarchiaSettings {
             leader_config: config.consensus_config.leader_config,
             config: config.consensus_config.ledger_config,
@@ -362,15 +364,13 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 chain_service::network::adapters::libp2p::LibP2pAdapterSettings {
                     topic: String::from(nomos_node::CONSENSUS_TOPIC),
                 },
-            blend_adapter_settings: chain_service::blend::adapters::libp2p::LibP2pAdapterSettings {
-                broadcast_settings:
-                    nomos_blend_service::core::network::libp2p::Libp2pBroadcastSettings {
-                        topic: String::from(nomos_node::CONSENSUS_TOPIC),
-                    },
-            },
+            blend_broadcast_settings:
+                nomos_blend_service::core::network::libp2p::Libp2pBroadcastSettings {
+                    topic: String::from(nomos_node::CONSENSUS_TOPIC),
+                },
             recovery_file: PathBuf::from("./recovery/cryptarchia.json"),
             bootstrap: chain_service::BootstrapConfig {
-                prolonged_bootstrap_period: Duration::from_secs(3),
+                prolonged_bootstrap_period: config.bootstrapping_config.prolonged_bootstrap_period,
                 force_bootstrap: false,
                 ibd: chain_service::IbdConfig {
                     peers: HashSet::new(),

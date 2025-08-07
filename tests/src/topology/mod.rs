@@ -20,6 +20,7 @@ use crate::{
     topology::configs::{
         api::create_api_configs,
         blend::create_blend_configs,
+        bootstrap::create_bootstrap_configs,
         consensus::{create_consensus_configs, ConsensusParams},
         membership::{create_empty_membership_configs, create_membership_configs},
         time::default_time_config,
@@ -123,6 +124,7 @@ impl Topology {
         }
 
         let consensus_configs = create_consensus_configs(&ids, &config.consensus_params);
+        let bootstrapping_config = create_bootstrap_configs(&ids, Duration::from_secs(30));
         let da_configs = create_da_configs(&ids, &config.da_params, &ports);
         let membership_configs = create_membership_configs(ids.as_slice(), &ports);
         let network_configs = create_network_configs(&ids, &config.network_params);
@@ -136,6 +138,7 @@ impl Topology {
         for i in 0..n_participants {
             node_configs.push(GeneralConfig {
                 consensus_config: consensus_configs[i].clone(),
+                bootstrapping_config: bootstrapping_config[i].clone(),
                 da_config: da_configs[i].clone(),
                 network_config: network_configs[i].clone(),
                 blend_config: blend_configs[i].clone(),
@@ -164,6 +167,7 @@ impl Topology {
         let n_participants = config.n_validators + config.n_executors;
 
         let consensus_configs = create_consensus_configs(ids, &config.consensus_params);
+        let bootstrapping_config = create_bootstrap_configs(ids, Duration::from_secs(60));
         let da_configs = create_da_configs(ids, &config.da_params, ports);
         let network_configs = create_network_configs(ids, &config.network_params);
         let blend_configs = create_blend_configs(ids);
@@ -177,6 +181,7 @@ impl Topology {
         for i in 0..n_participants {
             node_configs.push(GeneralConfig {
                 consensus_config: consensus_configs[i].clone(),
+                bootstrapping_config: bootstrapping_config[i].clone(),
                 da_config: da_configs[i].clone(),
                 network_config: network_configs[i].clone(),
                 blend_config: blend_configs[i].clone(),
@@ -204,7 +209,7 @@ impl Topology {
         let mut validators = Vec::new();
         for i in 0..n_validators {
             let config = create_validator_config(config[i].clone());
-            validators.push(Validator::spawn(config).await);
+            validators.push(Validator::spawn(config).await.unwrap());
         }
 
         let mut executors = Vec::new();

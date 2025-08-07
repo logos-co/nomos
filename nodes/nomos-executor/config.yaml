@@ -298,9 +298,8 @@ cryptarchia:
     sk: 3cf3335017304dcfce45124a0633829f
   network_adapter_settings:
     topic: /cryptarchia/proto
-  blend_adapter_settings:
-    broadcast_settings:
-      topic: /cryptarchia/proto
+  blend_broadcast_settings:
+    topic: /cryptarchia/proto
   recovery_file: ./recovery/cryptarchia.json
   bootstrap:
     prolonged_bootstrap_period: [86400, 0]

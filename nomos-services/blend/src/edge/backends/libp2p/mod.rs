@@ -11,7 +11,7 @@ use libp2p::PeerId;
 use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage};
 use overwatch::overwatch::OverwatchHandle;
 use rand::RngCore;
-use settings::Libp2pBlendBackendSettings;
+pub use settings::Libp2pBlendBackendSettings;
 use swarm::BlendSwarm;
 use tokio::sync::mpsc;
 

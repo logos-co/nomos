@@ -13,6 +13,7 @@ blst                     = { version = "0.3.11" }
 chain-service            = { workspace = true }
 common-http-client       = { workspace = true }
 cryptarchia-engine       = { workspace = true, features = ["serde"] }
+cryptarchia-sync         = { workspace = true }
 executor-http-client     = { workspace = true }
 futures                  = "0.3"
 futures-util             = "0.3.31"
@@ -55,6 +56,10 @@ tracing                  = { workspace = true }
 [[test]]
 name = "test_cryptarchia_happy_path"
 path = "src/tests/cryptarchia/happy.rs"
+
+[[test]]
+name = "test_cryptarchia_bootstrap"
+path = "src/tests/cryptarchia/bootstrap.rs"
 
 [[test]]
 name = "test_da"
