@@ -282,7 +282,7 @@ impl Behaviour {
                 async move {
                     let _ = stream.close().await;
                 }
-                    .boxed(),
+                .boxed(),
             );
 
             return Poll::Pending;
@@ -313,7 +313,7 @@ impl Behaviour {
                 async move {
                     let _ = stream.close().await;
                 }
-                    .boxed(),
+                .boxed(),
             );
             error!("Rejected excess pending incoming request");
         } else {
@@ -683,8 +683,8 @@ mod tests {
             "/ip4/127.0.0.1/udp/{}/quic-v1",
             thread_rng().gen_range(10000..60000)
         )
-            .parse()
-            .unwrap();
+        .parse()
+        .unwrap();
 
         provider_swarm.listen_on(provider_addr.clone()).unwrap();
 
@@ -783,8 +783,8 @@ mod tests {
             "/ip4/127.0.0.1/udp/{}/quic-v1",
             thread_rng().gen_range(10000..60000)
         )
-            .parse()
-            .unwrap();
+        .parse()
+        .unwrap();
 
         provider_swarm.listen_on(provider_addr.clone()).unwrap();
 
@@ -821,7 +821,7 @@ mod tests {
                         .take(self.blocks_count)
                         .map(Ok),
                 )
-                    .boxed(),
+                .boxed(),
             )
         }
     }
@@ -865,7 +865,7 @@ mod tests {
                             as DynError)
                     }
                 }))
-                    .boxed(),
+                .boxed(),
             )
         }
     }

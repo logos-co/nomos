@@ -892,16 +892,14 @@ mod tests {
                 .await;
 
             let mut blocks = Vec::new();
-            if let Some(response) = rx.recv().await {
-                if let ProviderResponse::Available(mut stream) = response {
-                    while let Some(res) = stream.next().await {
-                        if let Ok(bytes) = res {
-                            let block: Block<SignedMantleTx, BlobInfo> =
-                                wire::deserialize(&bytes).unwrap();
-                            blocks.push(block.header().id());
-                        } else {
-                            break;
-                        }
+            if let Some(ProviderResponse::Available(mut stream)) = rx.recv().await {
+                while let Some(res) = stream.next().await {
+                    if let Ok(bytes) = res {
+                        let block: Block<SignedMantleTx, BlobInfo> =
+                            wire::deserialize(&bytes).unwrap();
+                        blocks.push(block.header().id());
+                    } else {
+                        break;
                     }
                 }
             }
