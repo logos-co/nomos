@@ -1,4 +1,4 @@
-use std::{collections::HashMap, pin::Pin};
+use std::pin::Pin;
 
 use futures::{Stream, StreamExt as _};
 use kzgrs_backend::common::{build_blob_id, share::DaShare};
@@ -129,7 +129,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
         &self,
         _block_number: BlockNumber,
         _blob_id: BlobId,
-        _membership: HashMap<PeerId, Multiaddr>,
+        _membership: Vec<(PeerId, Multiaddr)>,
     ) {
         todo!()
     }

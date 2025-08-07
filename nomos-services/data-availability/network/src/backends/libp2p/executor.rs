@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Debug, marker::PhantomData, pin::Pin};
+use std::{fmt::Debug, marker::PhantomData, pin::Pin};
 
 use futures::{
     future::Aborted,
@@ -12,7 +12,11 @@ use nomos_core::{block::BlockNumber, da::BlobId};
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::{dispersal::executor::behaviour::DispersalExecutorEvent, sampling::SubnetsConfig},
-    swarm::{executor::ExecutorSwarm, validator::SwarmSettings, BalancerStats, MonitorStats},
+    swarm::{
+        executor::ExecutorSwarm,
+        validator::{SampleArgs, SwarmSettings},
+        BalancerStats, MonitorStats,
+    },
     SubnetworkId,
 };
 use nomos_libp2p::ed25519;
@@ -98,8 +102,7 @@ where
     verifier_replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     executor_replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     shares_request_channel: UnboundedSender<BlobId>,
-    historic_sample_request_channel:
-        UnboundedSender<(BlobId, BlockNumber, HashMap<PeerId, Multiaddr>)>,
+    historic_sample_request_channel: UnboundedSender<SampleArgs>,
     commitments_request_channel: UnboundedSender<BlobId>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
     commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
@@ -330,7 +333,7 @@ where
         &self,
         block_number: BlockNumber,
         blob_id: BlobId,
-        membership: HashMap<PeerId, Multiaddr>,
+        membership: Vec<(PeerId, Multiaddr)>,
     ) {
         info_with_id!(&blob_id, "RequestHistoricSample");
         handle_historic_sample_request(

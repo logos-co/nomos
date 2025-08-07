@@ -1,7 +1,7 @@
 pub mod libp2p;
 pub mod mock;
 
-use std::{collections::HashMap, pin::Pin};
+use std::pin::Pin;
 
 use ::libp2p::PeerId;
 use futures::Stream;
@@ -40,7 +40,7 @@ pub trait NetworkBackend<RuntimeServiceId> {
         &self,
         block_number: BlockNumber,
         blob_id: BlobId,
-        membership: HashMap<PeerId, Multiaddr>,
+        membership: Vec<(PeerId, Multiaddr)>,
     );
     fn local_peer_id(&self) -> PeerId;
 }

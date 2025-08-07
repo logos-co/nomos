@@ -547,23 +547,22 @@ where
         membership: &Membership,
         addressbook: &HashMap<PeerId, Multiaddr>,
         subnets_settings: &SubnetsConfig,
-    ) -> Option<HashMap<PeerId, Multiaddr>> {
+    ) -> Option<Vec<(PeerId, Multiaddr)>> {
         let subnets_to_sample = subnets_settings.num_of_subnets;
+
         if subnets_to_sample > all_subnet_ids.len() {
             tracing::error!(
-                "Only {} subnetworks available, requested {}. Sampling all available.",
+                "Only {} subnetworks available, requested {}.",
                 all_subnet_ids.len(),
                 subnets_to_sample
             );
-
             return None;
         }
 
-        let mut selected_peers = HashMap::new();
+        let mut selected_peers = Vec::new();
         let mut rng = rand::thread_rng();
 
-        // Select `subnets_to_sample` random subnetworks from `all_subnet_ids`
-        // this selection allows repeated subnetworks to be selected
+        // Select `subnets_to_sample` random subnetworks (WITH replacement)
         let selected_subnet_ids: Vec<_> =
             iter::repeat_with(|| all_subnet_ids[rng.gen_range(0..all_subnet_ids.len())])
                 .take(subnets_to_sample)
@@ -579,15 +578,16 @@ where
                 .collect();
 
             if subnet_members.is_empty() {
-                tracing::error!("Subnetwork {subnet_id:?} has no members at block {block_number}");
+                tracing::error!(
+                    "Subnetwork {subnet_id:?} has no remote members at block {block_number}"
+                );
                 return None;
             }
 
-            // Pick one random peer from this subnetwork
-            let selected_peer = &subnet_members[rng.gen_range(0..subnet_members.len())];
+            let selected_peer = subnet_members[rng.gen_range(0..subnet_members.len())];
 
-            if let Some(address) = addressbook.get(selected_peer) {
-                selected_peers.insert(*selected_peer, address.clone());
+            if let Some(address) = addressbook.get(&selected_peer) {
+                selected_peers.push((selected_peer, address.clone())); // Can have duplicates!
             } else {
                 tracing::error!(
                 "No addresses found for peer {selected_peer:?} in addressbook at block {block_number}"

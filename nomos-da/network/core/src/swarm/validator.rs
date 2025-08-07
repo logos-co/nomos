@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io, time::Duration};
+use std::{io, time::Duration};
 
 use futures::{stream, StreamExt as _};
 use kzgrs_backend::common::share::DaShare;
@@ -40,6 +40,8 @@ use crate::{
     },
     SubnetworkId,
 };
+
+pub type SampleArgs = (BlobId, BlockNumber, Vec<(PeerId, Multiaddr)>);
 
 // Metrics
 const EVENT_SAMPLING: &str = "sampling";
@@ -203,9 +205,7 @@ where
             .shares_request_channel()
     }
 
-    pub fn historic_sample_request_channel(
-        &mut self,
-    ) -> UnboundedSender<(BlobId, BlockNumber, HashMap<PeerId, Multiaddr>)> {
+    pub fn historic_sample_request_channel(&mut self) -> UnboundedSender<SampleArgs> {
         // todo: implement this when behaviour is ready
         let (sender, _receiver) = unbounded_channel();
         sender

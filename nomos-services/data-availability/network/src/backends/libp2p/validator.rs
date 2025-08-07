@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Debug, marker::PhantomData, pin::Pin};
+use std::{fmt::Debug, marker::PhantomData, pin::Pin};
 
 use futures::{
     future::{AbortHandle, Abortable, Aborted},
@@ -11,7 +11,7 @@ use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::sampling::SubnetsConfig,
     swarm::{
-        validator::{SwarmSettings, ValidatorSwarm},
+        validator::{SampleArgs, SwarmSettings, ValidatorSwarm},
         BalancerStats, MonitorStats,
     },
     SubnetworkId,
@@ -83,8 +83,7 @@ pub struct DaNetworkValidatorBackend<Membership> {
     task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     shares_request_channel: UnboundedSender<BlobId>,
-    historic_sample_request_channel:
-        UnboundedSender<(BlobId, BlockNumber, HashMap<PeerId, Multiaddr>)>,
+    historic_sample_request_channel: UnboundedSender<SampleArgs>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
@@ -262,7 +261,7 @@ where
         &self,
         block_number: BlockNumber,
         blob_id: BlobId,
-        membership: HashMap<PeerId, Multiaddr>,
+        membership: Vec<(PeerId, Multiaddr)>,
     ) {
         info_with_id!(&blob_id, "RequestHistoricSample");
         handle_historic_sample_request(

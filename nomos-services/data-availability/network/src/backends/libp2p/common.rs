@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Debug, time::Duration};
+use std::{fmt::Debug, time::Duration};
 
 use futures::{
     channel::oneshot::{Receiver, Sender},
@@ -14,8 +14,8 @@ use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::sampling::{self, errors::SamplingError, BehaviourSampleReq, BehaviourSampleRes},
     swarm::{
-        validator::ValidatorEventsStream, DAConnectionMonitorSettings, DAConnectionPolicySettings,
-        ReplicationConfig,
+        validator::{SampleArgs, ValidatorEventsStream},
+        DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
     },
 };
 use nomos_libp2p::{ed25519, secret_key_serde, Multiaddr};
@@ -313,14 +313,10 @@ pub(crate) async fn handle_sample_request(
 }
 
 pub(crate) async fn handle_historic_sample_request(
-    historic_sample_request_channel: &UnboundedSender<(
-        BlobId,
-        BlockNumber,
-        HashMap<PeerId, Multiaddr>,
-    )>,
+    historic_sample_request_channel: &UnboundedSender<SampleArgs>,
     blob_id: BlobId,
     block_number: BlockNumber,
-    membership: HashMap<PeerId, Multiaddr>,
+    membership: Vec<(PeerId, Multiaddr)>,
 ) {
     if let Err(SendError((blob_id, block_number, _))) =
         historic_sample_request_channel.send((blob_id, block_number, membership))
