@@ -388,12 +388,16 @@ where
             .scan_immutable_block_ids(start_block_slot..=target_block_slot, limit)
             .await?;
 
-        if storage_path.len() >= limit.get() {
-            return Ok(storage_path);
+        if let Some(last_id) = storage_path.last() {
+            if *last_id == target_block {
+                return Ok(storage_path);
+            }
         }
 
-        let remaining_limit = NonZeroUsize::new(limit.get() - storage_path.len())
-            .expect("Remaining limit should be > 0");
+        let Some(remaining_limit) = NonZeroUsize::new(limit.get() - storage_path.len()) else {
+            // If the limit is reached, return the storage path as is
+            return Ok(storage_path);
+        };
 
         let engine_path = Self::compute_path_from_engine(
             cryptarchia,

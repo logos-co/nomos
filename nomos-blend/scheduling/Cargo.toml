@@ -22,5 +22,5 @@ tokio-stream        = { version = "0.1", features = ["sync"] }
 tracing             = { workspace = true }
 
 [dev-dependencies]
-rand_chacha = "0.3"
+nomos-utils = { workspace = true, features = ["rng"] }
 tokio       = { version = "1", features = ["rt-multi-thread", "time"] }

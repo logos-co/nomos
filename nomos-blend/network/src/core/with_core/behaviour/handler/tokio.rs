@@ -3,7 +3,7 @@ pub use std::{num::NonZeroU64, ops::RangeInclusive, time::Duration};
 pub use nomos_utils::math::NonNegativeF64;
 pub use tokio_stream::StreamExt as _;
 
-use super::IntervalStreamProvider;
+use crate::core::with_core::behaviour::IntervalStreamProvider;
 
 #[derive(Clone)]
 /// Provider of a stream of observation windows used by the Blend connection

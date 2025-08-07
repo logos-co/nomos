@@ -7,7 +7,10 @@ use libp2p::{
     PeerId, Swarm, SwarmBuilder,
 };
 use nomos_blend_network::{send_msg, PROTOCOL_NAME};
-use nomos_blend_scheduling::membership::{Membership, Node};
+use nomos_blend_scheduling::{
+    membership::{Membership, Node},
+    serialize_encapsulated_message, EncapsulatedMessage,
+};
 use nomos_libp2p::{ed25519, DialError, DialOpts, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::mpsc;
@@ -26,12 +29,12 @@ where
     session_stream: SessionStream,
     current_membership: Option<Membership<PeerId>>,
     rng: Rng,
-    pending_dials: HashMap<(PeerId, ConnectionId), Vec<u8>>,
+    pending_dials: HashMap<(PeerId, ConnectionId), EncapsulatedMessage>,
 }
 
 #[derive(Debug)]
 pub enum Command {
-    SendMessage(Vec<u8>),
+    SendMessage(EncapsulatedMessage),
 }
 
 impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng>
@@ -78,11 +81,11 @@ where
         }
     }
 
-    fn handle_send_message_command(&mut self, msg: Vec<u8>) {
+    fn handle_send_message_command(&mut self, msg: EncapsulatedMessage) {
         self.dial_and_schedule_message(msg);
     }
 
-    fn dial_and_schedule_message(&mut self, msg: Vec<u8>) {
+    fn dial_and_schedule_message(&mut self, msg: EncapsulatedMessage) {
         let Some(peer) = self.choose_peer() else {
             error!(target: LOG_TARGET, "No peers available to send the message to");
             return;
@@ -151,15 +154,17 @@ where
             .open_stream(peer_id, PROTOCOL_NAME)
             .await
         {
-            Ok(stream) => Self::send_message_to_stream(message, stream).await,
+            Ok(stream) => {
+                Self::send_message_to_stream(&message, stream).await;
+            }
             Err(e) => {
                 error!(target: LOG_TARGET, "Failed to open stream to {peer_id}: {e}");
             }
         }
     }
 
-    async fn send_message_to_stream(message: Vec<u8>, stream: libp2p::Stream) {
-        match send_msg(stream, message).await {
+    async fn send_message_to_stream(message: &EncapsulatedMessage, stream: libp2p::Stream) {
+        match send_msg(stream, serialize_encapsulated_message(message)).await {
             Ok(stream) => {
                 debug!(target: LOG_TARGET, "Message sent successfully");
                 Self::close_stream(stream).await;

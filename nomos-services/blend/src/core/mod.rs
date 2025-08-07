@@ -13,11 +13,12 @@ use backends::BlendBackend;
 use futures::{future::join_all, StreamExt as _};
 use network::NetworkAdapter;
 use nomos_blend_message::{crypto::random_sized_bytes, encap::DecapsulationOutput, PayloadType};
+use nomos_blend_network::EncapsulatedMessageWithValidatedPublicHeader;
 use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::crypto::CryptographicProcessor,
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
-    UninitializedMessageScheduler, UnwrappedMessage,
+    UninitializedMessageScheduler,
 };
 use nomos_core::wire;
 use nomos_network::NetworkService;
@@ -170,7 +171,7 @@ where
                     handle_local_data_message(local_data_message, &mut cryptographic_processor, backend, &mut message_scheduler).await;
                 }
                 Some(incoming_message) = blend_messages.next() => {
-                    handle_incoming_blend_message(incoming_message, &mut message_scheduler);
+                    handle_incoming_blend_message(incoming_message, &mut message_scheduler, &cryptographic_processor);
                 }
                 Some(round_info) = message_scheduler.next() => {
                     handle_release_round(round_info, &mut cryptographic_processor, &mut rng, backend, &network_adapter).await;
@@ -226,13 +227,19 @@ async fn handle_local_data_message<
 
 /// Processes an already unwrapped and validated Blend message received from
 /// a core or edge peer.
-fn handle_incoming_blend_message<Rng, SessionClock, BroadcastSettings>(
-    unwrapped_blend_message: UnwrappedMessage,
+fn handle_incoming_blend_message<Rng, NodeId, SessionClock, BroadcastSettings>(
+    validated_encapsulated_message: EncapsulatedMessageWithValidatedPublicHeader,
     scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
+    cryptographic_processor: &CryptographicProcessor<NodeId, Rng>,
 ) where
     BroadcastSettings: for<'de> Deserialize<'de>,
 {
-    match unwrapped_blend_message {
+    let Ok(decapsulated_message) = cryptographic_processor.decapsulate_message(validated_encapsulated_message.into_inner()).inspect_err(|e| {
+        tracing::debug!(target: LOG_TARGET, "Failed to decapsulate received message with error {e:?}");
+    }) else {
+        return;
+    };
+    match decapsulated_message {
         DecapsulationOutput::Completed(fully_decapsulated_message) => {
             match fully_decapsulated_message.into_components() {
                 (PayloadType::Cover, _) => {

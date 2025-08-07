@@ -4,9 +4,7 @@ mod settings;
 use std::{fmt::Display, marker::PhantomData};
 
 use backends::BlendBackend;
-use nomos_blend_scheduling::{
-    message_blend::crypto::CryptographicProcessor, serialize_encapsulated_message,
-};
+use nomos_blend_scheduling::message_blend::crypto::CryptographicProcessor;
 use nomos_core::wire;
 use overwatch::{
     services::{
@@ -143,5 +141,5 @@ async fn handle_messages_to_blend<NodeId, Rng, Backend, RuntimeServiceId>(
     else {
         return;
     };
-    backend.send(serialize_encapsulated_message(&message)).await;
+    backend.send(message).await;
 }

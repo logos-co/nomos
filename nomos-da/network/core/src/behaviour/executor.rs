@@ -15,7 +15,7 @@ use crate::{
             validator::behaviour::DispersalValidatorBehaviour,
         },
         replication::behaviour::{ReplicationBehaviour, ReplicationConfig},
-        sampling::{behaviour::SamplingBehaviour, SubnetsConfig},
+        sampling::{SamplingBehaviour, SubnetsConfig},
     },
 };
 

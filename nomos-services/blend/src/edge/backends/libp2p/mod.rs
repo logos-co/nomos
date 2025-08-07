@@ -8,7 +8,7 @@ use futures::{
     Stream,
 };
 use libp2p::PeerId;
-use nomos_blend_scheduling::membership::Membership;
+use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage};
 use overwatch::overwatch::OverwatchHandle;
 use rand::RngCore;
 use settings::Libp2pBlendBackendSettings;
@@ -64,7 +64,7 @@ impl<RuntimeServiceId> BlendBackend<PeerId, RuntimeServiceId> for Libp2pBlendBac
         self.swarm_task_abort_handle.abort();
     }
 
-    async fn send(&self, msg: Vec<u8>) {
+    async fn send(&self, msg: EncapsulatedMessage) {
         if let Err(e) = self
             .swarm_command_sender
             .send(swarm::Command::SendMessage(msg))

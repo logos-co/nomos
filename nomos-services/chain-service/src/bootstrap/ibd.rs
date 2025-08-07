@@ -195,6 +195,7 @@ where
         let num_peers = downloads.num_peers();
         let mut failed_peers = HashSet::new();
 
+        // Repeat until there is no download remaining.
         while let Some(output) = downloads.next().await {
             match output {
                 DownloadsOutput::DelayCompleted(delay) => {

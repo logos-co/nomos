@@ -12,7 +12,7 @@ use crate::{
     protocols::{
         dispersal::validator::behaviour::DispersalValidatorBehaviour,
         replication::behaviour::{ReplicationBehaviour, ReplicationConfig},
-        sampling::{behaviour::SamplingBehaviour, SubnetsConfig},
+        sampling::{SamplingBehaviour, SubnetsConfig},
     },
 };
 

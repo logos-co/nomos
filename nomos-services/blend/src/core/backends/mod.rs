@@ -4,7 +4,8 @@ pub mod libp2p;
 use std::{fmt::Debug, pin::Pin};
 
 use futures::Stream;
-use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage, UnwrappedMessage};
+use nomos_blend_network::EncapsulatedMessageWithValidatedPublicHeader;
+use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage};
 use overwatch::overwatch::handle::OverwatchHandle;
 
 use crate::core::settings::BlendConfig;
@@ -26,5 +27,5 @@ pub trait BlendBackend<NodeId, Rng, RuntimeServiceId> {
     /// Listen to messages received from the blend network.
     fn listen_to_incoming_messages(
         &mut self,
-    ) -> Pin<Box<dyn Stream<Item = UnwrappedMessage> + Send>>;
+    ) -> Pin<Box<dyn Stream<Item = EncapsulatedMessageWithValidatedPublicHeader> + Send>>;
 }

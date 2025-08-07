@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use nomos_libp2p::{ed25519, Multiaddr, SwarmConfig};
 
 use crate::{get_available_port, node_address_from_port};
@@ -35,6 +37,9 @@ pub fn create_network_configs(
             SwarmConfig {
                 node_key,
                 port: get_available_port(),
+                chain_sync_config: cryptarchia_sync::Config {
+                    peer_response_timeout: Duration::from_secs(5),
+                },
                 ..Default::default()
             }
         })

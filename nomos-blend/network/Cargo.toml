@@ -14,6 +14,7 @@ futures-timer          = { version = "3.0.3" }
 libp2p                 = { workspace = true }
 nomos-blend-message    = { workspace = true }
 nomos-blend-scheduling = { workspace = true }
+nomos-libp2p           = { workspace = true }
 nomos-utils            = { workspace = true, optional = true }
 tokio                  = { version = "1", features = ["time"], optional = true }
 tokio-stream           = { version = "0.1", optional = true }

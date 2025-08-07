@@ -11,13 +11,13 @@ use core::{fmt::Debug, hash::Hash};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub use config::*;
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 pub use time::{Epoch, EpochConfig, Slot};
 
 pub(crate) const LOG_TARGET: &str = "cryptarchia::engine";
 
-#[derive(Clone, Debug, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum State {
     Bootstrapping,
     Online,

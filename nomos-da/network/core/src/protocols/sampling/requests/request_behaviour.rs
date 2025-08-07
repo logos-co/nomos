@@ -6,10 +6,6 @@ use std::{
 
 use either::Either;
 use futures::{
-    channel::{
-        oneshot,
-        oneshot::{Receiver, Sender},
-    },
     stream::{BoxStream, FuturesUnordered},
     AsyncWriteExt as _, FutureExt as _, StreamExt as _,
 };
@@ -21,29 +17,33 @@ use libp2p::{
     },
     Multiaddr, PeerId,
 };
-use libp2p_stream::{Control, IncomingStreams};
+use libp2p_stream::Control;
 use nomos_core::da::BlobId;
-use nomos_da_messages::sampling;
+use nomos_da_messages::{sampling, sampling::SampleResponse};
 use rand::{rngs::ThreadRng, seq::IteratorRandom as _};
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::warn;
 
-use super::{
-    connections::Connections,
-    errors::SamplingError,
-    streams::{self, SampleStream},
-    BehaviourSampleReq, BehaviourSampleRes, ResponseChannel, SampleStreamResponse, SamplingEvent,
-    SamplingStreamFuture, SubnetsConfig,
+use crate::{
+    addressbook::AddressBookHandler,
+    protocol::SAMPLING_PROTOCOL,
+    protocols::sampling::{
+        connections::Connections,
+        errors::SamplingError,
+        requests::SamplingEvent,
+        streams::{self, SampleStream},
+        SamplingResponseStreamFuture, SubnetsConfig,
+    },
+    SubnetworkId,
 };
-use crate::{addressbook::AddressBookHandler, protocol::SAMPLING_PROTOCOL, SubnetworkId};
 
 type AttemptNumber = usize;
 
 /// Executor sampling protocol
 /// Takes care of sending and replying sampling requests
-pub struct SamplingBehaviour<Membership, Addressbook>
+pub struct RequestSamplingBehaviour<Membership, Addressbook>
 where
     Membership: MembershipHandler,
     Addressbook: AddressBookHandler,
@@ -52,12 +52,10 @@ where
     local_peer_id: PeerId,
     /// Underlying stream behaviour
     stream_behaviour: libp2p_stream::Behaviour,
-    /// Incoming sample request streams
-    incoming_streams: IncomingStreams,
     /// Underlying stream control
     control: Control,
     /// Pending sampling stream tasks
-    stream_tasks: FuturesUnordered<SamplingStreamFuture>,
+    stream_tasks: FuturesUnordered<SamplingResponseStreamFuture>,
     /// Pending blobs that need to be sampled from `PeerId`
     to_sample: HashMap<PeerId, VecDeque<sampling::SampleRequest>>,
     /// Queue of blobs that still needs a peer for sampling.
@@ -92,7 +90,7 @@ where
     waker: Option<Waker>,
 }
 
-impl<Membership, Addressbook> SamplingBehaviour<Membership, Addressbook>
+impl<Membership, Addressbook> RequestSamplingBehaviour<Membership, Addressbook>
 where
     Membership: MembershipHandler + 'static,
     Membership::NetworkId: Send,
@@ -106,11 +104,7 @@ where
         refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
     ) -> Self {
         let stream_behaviour = libp2p_stream::Behaviour::new();
-        let mut control = stream_behaviour.new_control();
-
-        let incoming_streams = control
-            .accept(SAMPLING_PROTOCOL)
-            .expect("Just a single accept to protocol is valid");
+        let control = stream_behaviour.new_control();
 
         let stream_tasks = FuturesUnordered::new();
         let to_sample = HashMap::new();
@@ -131,7 +125,6 @@ where
         Self {
             local_peer_id,
             stream_behaviour,
-            incoming_streams,
             control,
             stream_tasks,
             to_sample,
@@ -174,25 +167,6 @@ where
         self.commitments_request_sender.clone()
     }
 
-    /// Schedule an incoming stream to be replied
-    /// Creates the necessary channels so requests can be replied from outside
-    /// of this behaviour from whoever that takes the channels
-    fn schedule_incoming_stream_task(
-        &self,
-        sample_stream: SampleStream,
-    ) -> (Receiver<BehaviourSampleReq>, Sender<BehaviourSampleRes>) {
-        let (request_sender, request_receiver) = oneshot::channel();
-        let (response_sender, response_receiver) = oneshot::channel();
-        let channel = ResponseChannel {
-            request_sender,
-            response_receiver,
-        };
-        self.stream_tasks
-            .push(streams::handle_incoming_stream(sample_stream, channel).boxed());
-        // Scheduled a task, lets poll again.
-        (request_receiver, response_sender)
-    }
-
     pub fn try_wake(&mut self) {
         if let Some(waker) = self.waker.take() {
             waker.wake();
@@ -200,7 +174,7 @@ where
     }
 }
 
-impl<Membership, Addressbook> SamplingBehaviour<Membership, Addressbook>
+impl<Membership, Addressbook> RequestSamplingBehaviour<Membership, Addressbook>
 where
     Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
     Addressbook: AddressBookHandler<Id = PeerId> + 'static,
@@ -216,7 +190,7 @@ where
             // message, stream behaviour will dial peer if connection is not
             // present.
             let sample_request = sampling::SampleRequest::new_share(blob_id, subnetwork_id);
-            let with_dial_task: SamplingStreamFuture = async move {
+            let with_dial_task: SamplingResponseStreamFuture = async move {
                 // If we don't have an existing connection to the peer, this will immediately
                 // return `ConnectionReset` io error. To handle that, we need to queue
                 // `sample_request` for a peer and try again when the connection is
@@ -237,7 +211,7 @@ where
         if let Some((_, &peer_id)) = &self.sampling_peers.iter().choose(&mut rand::thread_rng()) {
             let control = self.control.clone();
             let sample_request = sampling::SampleRequest::new_commitments(blob_id);
-            let with_dial_task: SamplingStreamFuture = async move {
+            let with_dial_task: SamplingResponseStreamFuture = async move {
                 let stream = Self::open_stream(peer_id, control)
                     .await
                     .map_err(|err| (err, None))?;
@@ -259,7 +233,7 @@ where
             .and_then(VecDeque::pop_front)
         {
             let control = self.control.clone();
-            let open_stream_task: SamplingStreamFuture = async move {
+            let open_stream_task: SamplingResponseStreamFuture = async move {
                 let stream = Self::open_stream(peer_id, control)
                     .await
                     .map_err(|err| (err, None))?;
@@ -277,7 +251,7 @@ where
             if let Some(peer_id) = self.pick_subnetwork_peer(subnetwork_id, &mut rng) {
                 let control = self.control.clone();
                 let sample_request = sampling::SampleRequest::new_share(blob_id, subnetwork_id);
-                let open_stream_task: SamplingStreamFuture = async move {
+                let open_stream_task: SamplingResponseStreamFuture = async move {
                     let stream = Self::open_stream(peer_id, control)
                         .await
                         .map_err(|err| (err, None))?;
@@ -345,11 +319,11 @@ where
 
     /// Auxiliary method that transforms a sample response into an event
     fn handle_sample_response(
-        sample_response: sampling::SampleResponse,
+        sample_response: SampleResponse,
         peer_id: PeerId,
     ) -> Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
         match sample_response {
-            sampling::SampleResponse::Error(sampling::SampleError::Share(error)) => {
+            SampleResponse::Error(sampling::SampleError::Share(error)) => {
                 Poll::Ready(ToSwarm::GenerateEvent(SamplingEvent::SamplingError {
                     error: SamplingError::Share {
                         subnetwork_id: error.column_idx,
@@ -358,19 +332,19 @@ where
                     },
                 }))
             }
-            sampling::SampleResponse::Error(sampling::SampleError::Commitments(error)) => {
+            SampleResponse::Error(sampling::SampleError::Commitments(error)) => {
                 Poll::Ready(ToSwarm::GenerateEvent(SamplingEvent::SamplingError {
                     error: SamplingError::Commitments { error, peer_id },
                 }))
             }
-            sampling::SampleResponse::Share(share) => {
+            SampleResponse::Share(share) => {
                 Poll::Ready(ToSwarm::GenerateEvent(SamplingEvent::SamplingSuccess {
                     blob_id: share.blob_id,
                     subnetwork_id: share.data.share_idx,
                     light_share: Box::new(share.data),
                 }))
             }
-            sampling::SampleResponse::Commitments(commitments) => {
+            SampleResponse::Commitments(commitments) => {
                 Poll::Ready(ToSwarm::GenerateEvent(SamplingEvent::CommitmentsSuccess {
                     blob_id: commitments.blob_id(),
                     commitments: Box::new(commitments),
@@ -382,26 +356,12 @@ where
     fn handle_stream_response(
         &mut self,
         peer_id: PeerId,
-        stream_response: SampleStreamResponse,
+        sample_response: SampleResponse,
         stream: SampleStream,
     ) -> Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
-        match stream_response {
-            SampleStreamResponse::Writer(sample_response) => {
-                // Handle the free stream then return the response.
-                self.schedule_outgoing_stream_task(stream);
-                Self::handle_sample_response(*sample_response, peer_id)
-            }
-            SampleStreamResponse::Reader => {
-                // Writer might behoping to send to this stream another request, wait
-                // until the writer closes the stream.
-                let (request_receiver, response_sender) =
-                    self.schedule_incoming_stream_task(stream);
-                Poll::Ready(ToSwarm::GenerateEvent(SamplingEvent::IncomingSample {
-                    request_receiver,
-                    response_sender,
-                }))
-            }
-        }
+        // Handle the free stream then return the response.
+        self.schedule_outgoing_stream_task(stream);
+        Self::handle_sample_response(sample_response, peer_id)
     }
 
     fn handle_stream_error(
@@ -418,7 +378,12 @@ where
                 // Propagate error for blob_id if retry limit is reached.
                 if !self.connections.should_retry(message.share_idx) {
                     return Some(Poll::Ready(ToSwarm::GenerateEvent(
-                        SamplingEvent::no_subnetwork_peers_err(message.blob_id, message.share_idx),
+                        SamplingEvent::SamplingError {
+                            error: SamplingError::NoSubnetworkPeers {
+                                blob_id: message.blob_id,
+                                subnetwork_id: message.share_idx,
+                            },
+                        },
                     )));
                 }
                 // Dial to peer failed, should requeue to different peer.
@@ -479,7 +444,7 @@ where
     }
 }
 
-impl<Membership, Addressbook> NetworkBehaviour for SamplingBehaviour<Membership, Addressbook>
+impl<Membership, Addressbook> NetworkBehaviour for RequestSamplingBehaviour<Membership, Addressbook>
 where
     Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
     Addressbook: AddressBookHandler<Id = PeerId> + 'static,
@@ -574,18 +539,6 @@ where
 
         if let Some((subnetwork_id, blob_id)) = self.to_retry.pop_front() {
             self.try_subnetwork_sample_share(blob_id, subnetwork_id);
-        }
-
-        // poll incoming streams
-        if let Poll::Ready(Some((peer_id, stream))) = self.incoming_streams.poll_next_unpin(cx) {
-            let sample_stream = SampleStream { stream, peer_id };
-            let (request_receiver, response_sender) =
-                self.schedule_incoming_stream_task(sample_stream);
-            cx.waker().wake_by_ref();
-            return Poll::Ready(ToSwarm::GenerateEvent(SamplingEvent::IncomingSample {
-                request_receiver,
-                response_sender,
-            }));
         }
 
         // poll stream tasks
