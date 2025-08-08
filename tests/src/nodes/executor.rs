@@ -35,7 +35,11 @@ use nomos_da_network_service::{
     },
     NetworkConfig as DaNetworkConfig,
 };
-use nomos_da_sampling::{backend::kzgrs::KzgrsSamplingBackendSettings, DaSamplingServiceSettings};
+use nomos_da_sampling::{
+    backend::kzgrs::KzgrsSamplingBackendSettings,
+    verifier::kzgrs::KzgrsDaVerifierSettings as SamplingVerifierSettings,
+    DaSamplingServiceSettings,
+};
 use nomos_da_verifier::{
     backend::kzgrs::KzgrsDaVerifierSettings,
     storage::adapters::rocksdb::RocksAdapterSettings as VerifierStorageAdapterSettings,
@@ -377,6 +381,10 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 old_blobs_check_interval: config.da_config.old_blobs_check_interval,
                 blobs_validity_duration: config.da_config.blobs_validity_duration,
             },
+            share_verifier_settings: SamplingVerifierSettings {
+                global_params_path: config.da_config.global_params_path.clone(),
+                domain_size: config.da_config.num_subnets as usize,
+            },
         },
         storage: RocksBackendSettings {
             db_path: "./db".into(),
@@ -391,7 +399,6 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                     global_params_path: config.da_config.global_params_path,
                 },
                 dispersal_timeout: Duration::from_secs(20),
-                mempool_strategy: config.da_config.mempool_strategy,
             },
         },
         time: TimeServiceSettings {

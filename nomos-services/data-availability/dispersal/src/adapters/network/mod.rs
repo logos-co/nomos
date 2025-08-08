@@ -3,7 +3,7 @@ use std::{pin::Pin, time::Duration};
 
 use futures::Stream;
 use kzgrs_backend::common::share::DaShare;
-use nomos_core::da::BlobId;
+use nomos_core::{da::BlobId, mantle::SignedMantleTx};
 use nomos_da_network_core::SubnetworkId;
 use overwatch::{
     services::{relay::OutboundRelay, ServiceData},
@@ -16,10 +16,16 @@ pub trait DispersalNetworkAdapter {
     type SubnetworkId;
     fn new(outbound_relay: OutboundRelay<<Self::NetworkService as ServiceData>::Message>) -> Self;
 
-    async fn disperse(
+    async fn disperse_share(
         &self,
         subnetwork_id: Self::SubnetworkId,
         da_share: DaShare,
+    ) -> Result<(), DynError>;
+
+    async fn disperse_tx(
+        &self,
+        subnetwork_id: Self::SubnetworkId,
+        tx: SignedMantleTx,
     ) -> Result<(), DynError>;
 
     async fn dispersal_events_stream(

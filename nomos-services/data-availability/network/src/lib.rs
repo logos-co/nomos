@@ -9,11 +9,12 @@ use std::{
     fmt::{self, Debug, Display},
     marker::PhantomData,
     pin::Pin,
+    time::Duration,
 };
 
 use async_trait::async_trait;
 use backends::NetworkBackend;
-use futures::Stream;
+use futures::{stream, Stream};
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p::{Multiaddr, PeerId};
 use nomos_core::{block::BlockNumber, da::BlobId};
@@ -28,8 +29,11 @@ use overwatch::{
 use serde::{Deserialize, Serialize};
 use storage::{MembershipStorage, MembershipStorageAdapter};
 use subnetworks_assignations::{MembershipCreator, MembershipHandler, SubnetworkAssignations};
-use tokio::sync::oneshot;
-use tokio_stream::StreamExt as _;
+use tokio::sync::{
+    mpsc::{self, Sender},
+    oneshot,
+};
+use tokio_stream::{wrappers::ReceiverStream, StreamExt as _};
 
 use crate::{
     addressbook::mock::MockAddressBook,
@@ -130,6 +134,7 @@ pub struct NetworkService<
     membership: DaMembershipHandler<Membership>,
     addressbook: DaAddressbook,
     api_adapter: ApiAdapter,
+    subnet_refresh_sender: Sender<()>,
     phantom: PhantomData<MembershipServiceAdapter>,
 }
 
@@ -259,17 +264,27 @@ where
             addressbook.clone(),
         );
 
+        let (subnet_refresh_sender, subnet_refresh_rx) = mpsc::channel::<()>(1);
+        let periodic = tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(
+            Duration::from_secs(30),
+        ))
+        .map(|_| ());
+        let subnet_refresh_stream =
+            stream::select(periodic, ReceiverStream::new(subnet_refresh_rx));
+
         Ok(Self {
             backend: <Backend as NetworkBackend<RuntimeServiceId>>::new(
                 settings.backend,
                 service_resources_handle.overwatch_handle.clone(),
                 membership.clone(),
                 addressbook.clone(),
+                subnet_refresh_stream,
             ),
             service_resources_handle,
             membership,
             addressbook,
             api_adapter,
+            subnet_refresh_sender,
             phantom: PhantomData,
         })
     }
@@ -287,6 +302,7 @@ where
             ref membership,
             ref api_adapter,
             ref addressbook,
+            ref subnet_refresh_sender,
             ..
         } = self;
 
@@ -321,6 +337,7 @@ where
                         block_number, providers
                     );
                     Self::handle_membership_update(block_number, providers, &membership_storage, addressbook);
+                    subnet_refresh_sender.send(()).await;
                 }
             }
         }

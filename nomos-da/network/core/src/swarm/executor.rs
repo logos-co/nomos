@@ -9,7 +9,7 @@ use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, TransportError,
 };
 use log::debug;
-use nomos_core::da::BlobId;
+use nomos_core::{da::BlobId, mantle::SignedMantleTx};
 use subnetworks_assignations::MembershipHandler;
 use tokio::{
     sync::mpsc::{unbounded_channel, UnboundedSender},
@@ -215,6 +215,15 @@ where
             .behaviour()
             .dispersal_executor_behaviour()
             .shares_sender()
+    }
+
+    pub fn dispersal_tx_channel(
+        &mut self,
+    ) -> UnboundedSender<(Membership::NetworkId, SignedMantleTx)> {
+        self.swarm
+            .behaviour()
+            .dispersal_executor_behaviour()
+            .tx_sender()
     }
 
     pub fn dispersal_open_stream_sender(&mut self) -> UnboundedSender<PeerId> {

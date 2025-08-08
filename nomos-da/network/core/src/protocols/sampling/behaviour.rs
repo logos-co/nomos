@@ -295,7 +295,7 @@ where
     fn refresh_subnets(&mut self) {
         // Previously selected subnetworks and their peers won't be used anymore.
         self.sampling_peers.clear();
-        self.connections.clear();
+        //self.connections.clear();
 
         let mut rng = rand::thread_rng();
         let subnets: Vec<SubnetworkId> = (0..self.membership.last_subnetwork_id())

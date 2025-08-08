@@ -5,7 +5,7 @@ use reqwest::Url;
 
 use crate::{adjust_timeout, nodes::executor::Executor};
 
-pub const APP_ID: &str = "fd3384e132ad02a56c78f45547ee40038dc79002b90d29ed90e08eee762ae715";
+pub const APP_ID: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 pub const DA_TESTS_TIMEOUT: u64 = 120;
 pub async fn disseminate_with_metadata(
     executor: &Executor,
