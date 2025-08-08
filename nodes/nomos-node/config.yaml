@@ -75,7 +75,7 @@ da_network:
     subnets_settings:
       num_of_subnets: 20
       shares_retry_limit: 5
-    commitments_retry_limit: 5
+      commitments_retry_limit: 5
   membership:
     replication_factor: 2
     subnetwork_size: 2
