@@ -307,8 +307,9 @@ cryptarchia:
     force_bootstrap: false
     ibd:
       peers: []
-  orphan:
-    max_orphan_cache_size: 5
+  sync:
+    orphan:
+      max_orphan_cache_size: 5
 storage:
   db_path: nomos_db
   read_only: false

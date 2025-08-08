@@ -61,7 +61,7 @@ use tracing_futures::Instrument as _;
 
 pub use crate::{
     bootstrap::config::{BootstrapConfig, IbdConfig},
-    sync::orphan_config::OrphanConfig,
+    sync::config::{OrphanConfig, SyncConfig},
 };
 use crate::{
     blend::BlendAdapter,
@@ -227,7 +227,7 @@ where
     pub blend_broadcast_settings: BlendBroadcastSettings,
     pub recovery_file: PathBuf,
     pub bootstrap: BootstrapConfig<NodeId>,
-    pub orphan: OrphanConfig,
+    pub sync: SyncConfig,
 }
 
 impl<Ts, Bs, NodeId, NetworkAdapterSettings, BlendBroadcastSettings> FileBackendSettings
@@ -598,7 +598,7 @@ where
             network_adapter_settings,
             blend_broadcast_settings,
             bootstrap: bootstrap_config,
-            orphan: orphan_config,
+            sync: sync_config,
             ..
         } = self
             .service_resources_handle
@@ -652,7 +652,7 @@ where
 
         let mut orphan_downloader = Box::pin(OrphanBlocksDownloader::new(
             network_adapter.clone(),
-            orphan_config.max_orphan_cache_size,
+            sync_config.orphan.max_orphan_cache_size,
             ledger_config.consensus_config.security_param,
         ));
 
