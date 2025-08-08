@@ -59,10 +59,6 @@ use tokio::{
 use tracing::{debug, error, info, instrument, span, Level};
 use tracing_futures::Instrument as _;
 
-pub use crate::{
-    bootstrap::config::{BootstrapConfig, IbdConfig},
-    sync::config::{OrphanConfig, SyncConfig},
-};
 use crate::{
     blend::BlendAdapter,
     bootstrap::{ibd::InitialBlockDownload, state::choose_engine_state},
@@ -71,6 +67,10 @@ use crate::{
     states::CryptarchiaConsensusState,
     storage::{adapters::StorageAdapter, StorageAdapter as _},
     sync::{block_provider::BlockProvider, orphan_handler::OrphanBlocksDownloader},
+};
+pub use crate::{
+    bootstrap::config::{BootstrapConfig, IbdConfig},
+    sync::config::{OrphanConfig, SyncConfig},
 };
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
