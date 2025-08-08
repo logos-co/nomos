@@ -127,7 +127,6 @@ where
         let latest_session_info = self.latest_session_info.clone();
         latest_session_info
             .filter_and_choose_remote_nodes(&mut self.rng, amount, &exclude_peers)
-            .iter()
             .for_each(|peer| {
                 let peer_address = peer.address.clone();
                 let peer_id = peer.id;

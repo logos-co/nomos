@@ -1,10 +1,16 @@
-use std::{collections::HashMap, time::Duration};
+use core::num::NonZeroU64;
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    io,
+    time::Duration,
+};
 
 use futures::{AsyncWriteExt as _, Stream, StreamExt as _};
 use libp2p::{
     swarm::{dial_opts::PeerCondition, ConnectionId},
-    PeerId, Swarm, SwarmBuilder,
+    Multiaddr, PeerId, Swarm, SwarmBuilder,
 };
+use libp2p_stream::OpenStreamError;
 use nomos_blend_network::{send_msg, PROTOCOL_NAME};
 use nomos_blend_scheduling::{
     membership::{Membership, Node},
@@ -18,6 +24,12 @@ use tracing::{debug, error, trace};
 use super::settings::Libp2pBlendBackendSettings;
 use crate::edge::backends::libp2p::LOG_TARGET;
 
+struct DialAttempt {
+    address: Multiaddr,
+    attempt_number: u64,
+    message: EncapsulatedMessage,
+}
+
 pub(super) struct BlendSwarm<SessionStream, Rng>
 where
     Rng: RngCore + 'static,
@@ -28,7 +40,8 @@ where
     session_stream: SessionStream,
     current_membership: Option<Membership<PeerId>>,
     rng: Rng,
-    pending_dials: HashMap<(PeerId, ConnectionId), EncapsulatedMessage>,
+    max_dial_attempts_per_connection: NonZeroU64,
+    pending_dials: HashMap<(PeerId, ConnectionId), DialAttempt>,
 }
 
 #[derive(Debug)]
@@ -69,6 +82,7 @@ where
             current_membership,
             rng,
             pending_dials: HashMap::new(),
+            max_dial_attempts_per_connection: settings.max_dial_attempts_per_peer_per_message,
         }
     }
 
@@ -81,34 +95,78 @@ where
     }
 
     fn handle_send_message_command(&mut self, msg: EncapsulatedMessage) {
-        self.dial_and_schedule_message(msg);
+        self.dial_and_schedule_message_except(msg, None);
     }
 
-    fn dial_and_schedule_message(&mut self, msg: EncapsulatedMessage) {
-        let Some(peer) = self.choose_peer() else {
+    fn dial_and_schedule_message_except(
+        &mut self,
+        msg: EncapsulatedMessage,
+        except: Option<PeerId>,
+    ) {
+        let Some(node) = self.choose_peer_except(except) else {
             error!(target: LOG_TARGET, "No peers available to send the message to");
             return;
         };
 
-        let opts = DialOpts::peer_id(peer.id)
-            .addresses(vec![peer.address.clone()])
-            .condition(PeerCondition::Always)
-            .build();
-        let connection_id = opts.connection_id();
-        if let Err(e) = self.swarm.dial(opts) {
-            error!(target: LOG_TARGET, "Failed to dial peer {}: {e}", peer.id);
-            return;
-        }
-        debug!(target: LOG_TARGET, "Message scheduled for the dial: peer:{}, connection_id:{}", peer.id, connection_id);
-        self.pending_dials.insert((peer.id, connection_id), msg);
+        self.first_dial(node.id, node.address, msg);
     }
 
-    fn choose_peer(&mut self) -> Option<Node<PeerId>> {
+    fn first_dial(&mut self, peer_id: PeerId, address: Multiaddr, message: EncapsulatedMessage) {
+        let opts = dial_opts(peer_id, address.clone());
+        let connection_id = opts.connection_id();
+
+        let Entry::Vacant(empty_entry) = self.pending_dials.entry((peer_id, connection_id)) else {
+            panic!("First dial for peer {peer_id:?} and connection {connection_id:?} should not be present in storage.");
+        };
+        empty_entry.insert(DialAttempt {
+            address,
+            attempt_number: 1,
+            message,
+        });
+
+        if let Err(e) = self.swarm.dial(opts) {
+            error!(target: LOG_TARGET, "Failed to dial peer {peer_id:?} on connection {connection_id:?}: {e:?}");
+            self.retry_dial(peer_id, connection_id);
+        }
+    }
+
+    fn redial(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
+        let dial_entry = self
+            .pending_dials
+            .get_mut(&(peer_id, connection_id))
+            .unwrap();
+        let new_dial_attempt_number = dial_entry.attempt_number.checked_add(1).unwrap();
+        dial_entry.attempt_number = new_dial_attempt_number;
+
+        if let Err(e) = self
+            .swarm
+            .dial(dial_opts(peer_id, dial_entry.address.clone()))
+        {
+            error!(target: LOG_TARGET, "Failed to redial peer {peer_id:?} on connection {connection_id:?}: {e:?}");
+            self.retry_dial(peer_id, connection_id);
+        }
+    }
+
+    fn retry_dial(&mut self, peer_id: PeerId, connection_id: ConnectionId) -> Option<DialAttempt> {
+        let DialAttempt {
+            address,
+            attempt_number,
+            ..
+        } = self.pending_dials.get(&(peer_id, connection_id)).unwrap();
+        if *attempt_number < self.max_dial_attempts_per_connection.get() {
+            let connection_id = dial_opts(peer_id, address.clone()).connection_id();
+            self.redial(peer_id, connection_id);
+            return None;
+        }
+        self.pending_dials.remove(&(peer_id, connection_id))
+    }
+
+    fn choose_peer_except(&mut self, except: Option<PeerId>) -> Option<Node<PeerId>> {
         let Some(membership) = &self.current_membership else {
             return None;
         };
         membership
-            .choose_remote_nodes(&mut self.rng, 1)
+            .filter_and_choose_remote_nodes(&mut self.rng, 1, &except.into_iter().collect())
             .next()
             .cloned()
     }
@@ -143,10 +201,12 @@ where
     ) {
         debug!(target: LOG_TARGET, "Connection established: peer_id:{peer_id}, connection_id:{connection_id}");
 
-        let Some(message) = self.pending_dials.remove(&(peer_id, connection_id)) else {
-            debug!(target: LOG_TARGET, "No message assigned to this connection. Ignoring: peer_id:{peer_id}, connection_id:{connection_id}");
-            return;
-        };
+        // We need to clone so we can access `&mut self` below.
+        let message = self
+            .pending_dials
+            .get(&(peer_id, connection_id))
+            .map(|entry| entry.message.clone())
+            .unwrap();
 
         match self
             .stream_control
@@ -154,29 +214,59 @@ where
             .await
         {
             Ok(stream) => {
-                Self::send_message_to_stream(&message, stream).await;
+                self.handle_open_stream_success(stream, &message, (peer_id, connection_id))
+                    .await;
             }
-            Err(e) => {
-                error!(target: LOG_TARGET, "Failed to open stream to {peer_id}: {e}");
-            }
+            Err(e) => self.handle_open_stream_failure(&e, (peer_id, connection_id)),
         }
     }
 
-    async fn send_message_to_stream(message: &EncapsulatedMessage, stream: libp2p::Stream) {
+    async fn handle_open_stream_success(
+        &mut self,
+        stream: libp2p::Stream,
+        message: &EncapsulatedMessage,
+        (peer_id, connection_id): (PeerId, ConnectionId),
+    ) {
         match send_msg(stream, serialize_encapsulated_message(message)).await {
             Ok(stream) => {
-                debug!(target: LOG_TARGET, "Message sent successfully");
-                Self::close_stream(stream).await;
+                self.handle_send_message_success(stream, (peer_id, connection_id))
+                    .await;
             }
-            Err(e) => {
-                error!(target: LOG_TARGET, "Failed to send message: {e}");
-            }
+            Err(e) => self.handle_send_message_failure(&e, (peer_id, connection_id)),
         }
     }
 
-    async fn close_stream(mut stream: libp2p::Stream) {
-        if let Err(e) = stream.close().await {
-            error!(target: LOG_TARGET, "Failed to close stream: {e}");
+    async fn handle_send_message_success(
+        &mut self,
+        stream: libp2p::Stream,
+        (peer_id, connection_id): (PeerId, ConnectionId),
+    ) {
+        debug!(target: LOG_TARGET, "Message sent successfully to peer {peer_id:?} on connection {connection_id:?}.");
+        close_stream(stream, peer_id, connection_id).await;
+        // Regardless of the result of closing the stream, the message was sent so we
+        // can remove the pending dial info.
+        self.pending_dials.remove(&(peer_id, connection_id));
+    }
+
+    fn handle_send_message_failure(
+        &mut self,
+        error: &io::Error,
+        (peer_id, connection_id): (PeerId, ConnectionId),
+    ) {
+        error!(target: LOG_TARGET, "Failed to send message: {error} to peer {peer_id:?} on connection {connection_id:?}.");
+        if let Some(DialAttempt { message, .. }) = self.retry_dial(peer_id, connection_id) {
+            self.dial_and_schedule_message_except(message, Some(peer_id));
+        }
+    }
+
+    fn handle_open_stream_failure(
+        &mut self,
+        error: &OpenStreamError,
+        (peer_id, connection_id): (PeerId, ConnectionId),
+    ) {
+        error!(target: LOG_TARGET, "Failed to open stream to {peer_id}: {error}");
+        if let Some(DialAttempt { message, .. }) = self.retry_dial(peer_id, connection_id) {
+            self.dial_and_schedule_message_except(message, Some(peer_id));
         }
     }
 
@@ -189,15 +279,12 @@ where
         error!(target: LOG_TARGET, "Outgoing connection error: peer_id:{peer_id:?}, connection_id:{connection_id}: {error}");
 
         let Some(peer_id) = peer_id else {
-            debug!(target: LOG_TARGET, "No PeerId set. Ignoring: peer_id:{peer_id:?}, connection_id:{connection_id}");
-            return;
-        };
-        let Some(message) = self.pending_dials.remove(&(peer_id, connection_id)) else {
-            debug!(target: LOG_TARGET, "No message assigned to this connection. Ignoring: peer_id:{peer_id}, connection_id:{connection_id}");
             return;
         };
 
-        self.dial_and_schedule_message(message);
+        if let Some(DialAttempt { message, .. }) = self.retry_dial(peer_id, connection_id) {
+            self.dial_and_schedule_message_except(message, Some(peer_id));
+        }
     }
 
     // TODO: Implement the actual session transition.
@@ -205,6 +292,19 @@ where
     fn transition_session(&mut self, membership: Membership<PeerId>) {
         self.current_membership = Some(membership);
     }
+}
+
+async fn close_stream(mut stream: libp2p::Stream, peer_id: PeerId, connection_id: ConnectionId) {
+    if let Err(e) = stream.close().await {
+        error!(target: LOG_TARGET, "Failed to close stream: {e} with peer {peer_id:?} on connection {connection_id:?}.");
+    }
+}
+
+fn dial_opts(peer_id: PeerId, address: Multiaddr) -> DialOpts {
+    DialOpts::peer_id(peer_id)
+        .addresses(vec![address])
+        .condition(PeerCondition::Always)
+        .build()
 }
 
 impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng>
