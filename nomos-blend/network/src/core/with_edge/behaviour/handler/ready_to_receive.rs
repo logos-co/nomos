@@ -23,6 +23,7 @@ pub struct ReadyToReceiveState {
     /// when idling for too long.
     timeout_timer: TimerFuture,
     behaviour_notified: bool,
+    waker: Option<Waker>,
 }
 
 impl ReadyToReceiveState {
@@ -40,6 +41,7 @@ impl ReadyToReceiveState {
             inbound_stream,
             timeout_timer,
             behaviour_notified: false,
+            waker: None,
         }
     }
 }
@@ -77,5 +79,9 @@ impl StateTrait for ReadyToReceiveState {
             ))
         };
         (poll_result, receiving_state.into())
+    }
+
+    fn take_waker(&mut self) -> Option<Waker> {
+        self.waker.take()
     }
 }

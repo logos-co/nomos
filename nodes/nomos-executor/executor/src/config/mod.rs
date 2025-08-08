@@ -1,8 +1,8 @@
 use color_eyre::eyre::Result;
 use nomos_node::{
     config::{
-        mempool::MempoolConfig, update_blend, update_cryptarchia_consensus, update_network,
-        BlendArgs,
+        blend::BlendConfig, mempool::MempoolConfig, update_blend, update_cryptarchia_consensus,
+        update_network, BlendArgs,
     },
     generic_services::{MembershipService, SdpService},
     CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs,
@@ -11,9 +11,9 @@ use overwatch::services::ServiceData;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ApiService, BlendService, CryptarchiaService, DaDispersalService, DaIndexerService,
-    DaNetworkService, DaSamplingService, DaVerifierService, NetworkService, RuntimeServiceId,
-    StorageService, TimeService,
+    ApiService, CryptarchiaService, DaDispersalService, DaIndexerService, DaNetworkService,
+    DaSamplingService, DaVerifierService, NetworkService, RuntimeServiceId, StorageService,
+    TimeService,
 };
 
 #[derive(Deserialize, Debug, Clone, Serialize)]
@@ -21,7 +21,7 @@ pub struct Config {
     #[cfg(feature = "tracing")]
     pub tracing: <nomos_node::Tracing<RuntimeServiceId> as ServiceData>::Settings,
     pub network: <NetworkService as ServiceData>::Settings,
-    pub blend: <BlendService as ServiceData>::Settings,
+    pub blend: BlendConfig,
     pub da_dispersal: <DaDispersalService as ServiceData>::Settings,
     pub da_network: <DaNetworkService as ServiceData>::Settings,
     pub da_indexer: <DaIndexerService as ServiceData>::Settings,

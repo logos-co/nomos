@@ -90,12 +90,24 @@ pub(crate) type TracingService = Tracing<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-pub(crate) type BlendService = nomos_blend_service::core::BlendService<
+pub(crate) type BlendCoreService = nomos_blend_service::core::BlendService<
     BlendBackend,
     PeerId,
     BlendNetworkAdapter<RuntimeServiceId>,
     RuntimeServiceId,
 >;
+
+pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
+    nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
+    PeerId,
+    <BlendNetworkAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<
+        RuntimeServiceId,
+    >>::BroadcastSettings,
+    RuntimeServiceId,
+>;
+
+pub(crate) type BlendService =
+    nomos_blend_service::BlendService<BlendCoreService, BlendEdgeService, RuntimeServiceId>;
 
 pub(crate) type DaIndexerService = generic_services::DaIndexerService<
     nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
@@ -264,6 +276,8 @@ pub struct Nomos {
     tracing: TracingService,
     network: NetworkService,
     blend: BlendService,
+    blend_core: BlendCoreService,
+    blend_edge: BlendEdgeService,
     da_indexer: DaIndexerService,
     da_verifier: DaVerifierService,
     da_sampling: DaSamplingService,

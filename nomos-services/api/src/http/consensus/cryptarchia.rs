@@ -1,12 +1,10 @@
 use std::fmt::{Debug, Display};
 
 use chain_service::{
-    blend::adapters::libp2p::LibP2pAdapter as BlendAdapter,
     network::adapters::libp2p::LibP2pAdapter as ConsensusNetworkAdapter, ConsensusMsg,
     CryptarchiaConsensus, CryptarchiaInfo,
 };
 use kzgrs_backend::dispersal::BlobInfo;
-use nomos_blend_service::core::network::libp2p::Libp2pAdapter as BlendNetworkAdapter;
 use nomos_core::{
     da::{
         blob::{self, select::FillSize as FillSizeWithBlobs},
@@ -16,6 +14,7 @@ use nomos_core::{
     mantle::{select::FillSize as FillSizeWithTx, Transaction},
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
+use nomos_libp2p::PeerId;
 use nomos_mempool::{
     backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
 };
@@ -40,7 +39,7 @@ pub type Cryptarchia<
     const SIZE: usize,
 > = CryptarchiaConsensus<
     ConsensusNetworkAdapter<Tx, BlobInfo, RuntimeServiceId>,
-    BlendAdapter<BlendNetworkAdapter<RuntimeServiceId>, Tx, BlobInfo, RuntimeServiceId>,
+    BlendService<RuntimeServiceId>,
     MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
     MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
     MockPool<HeaderId, BlobInfo, <BlobInfo as blob::info::DispersedBlobInfo>::BlobId>,
@@ -59,6 +58,22 @@ pub type Cryptarchia<
     DaVerifierNetwork,
     DaVerifierStorage,
     TimeBackend,
+    RuntimeServiceId,
+>;
+
+type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
+    nomos_blend_service::core::BlendService<
+        nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
+        PeerId,
+        nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
+        RuntimeServiceId,
+    >,
+    nomos_blend_service::edge::BlendService<
+        nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
+        PeerId,
+        <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
+        RuntimeServiceId
+    >,
     RuntimeServiceId,
 >;
 

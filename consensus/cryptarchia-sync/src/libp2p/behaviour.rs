@@ -3,9 +3,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures::{
-    future::BoxFuture, stream::BoxStream, AsyncWriteExt as _, FutureExt as _, StreamExt as _,
-};
+use futures::{future::BoxFuture, AsyncWriteExt as _, FutureExt as _, StreamExt as _};
 use libp2p::{
     core::{transport::PortUse, Endpoint},
     futures::stream::FuturesUnordered,
@@ -24,10 +22,11 @@ use crate::{
     config::Config,
     libp2p::{
         downloader::Downloader,
-        errors::{ChainSyncError, ChainSyncErrorKind, DynError},
+        errors::{ChainSyncError, ChainSyncErrorKind},
         provider::{Provider, ReceivingRequestStream, MAX_ADDITIONAL_BLOCKS},
     },
     messages::{DownloadBlocksRequest, GetTipResponse, RequestMessage, SerialisedBlock},
+    BlocksResponse, TipResponse,
 };
 
 /// Cryptarchia networking protocol for synchronizing blocks.
@@ -110,11 +109,11 @@ pub enum Event {
         /// The list of additional blocks that the requester has.
         additional_blocks: HashSet<HeaderId>,
         /// Channel to send blocks to the service.
-        reply_sender: Sender<BoxStream<'static, Result<SerialisedBlock, DynError>>>,
+        reply_sender: Sender<BlocksResponse>,
     },
     ProvideTipsRequest {
         /// Channel to send the latest tip to the service.
-        reply_sender: Sender<GetTipResponse>,
+        reply_sender: Sender<TipResponse>,
     },
 }
 
@@ -200,7 +199,7 @@ impl Behaviour {
         if !self.connected_peers.contains(&peer_id) {
             return Err(ChainSyncError {
                 peer: peer_id,
-                kind: ChainSyncErrorKind::RequestTipsError("Peer is not connected".to_owned()),
+                kind: ChainSyncErrorKind::RequestTipError("Peer is not connected".to_owned()),
             });
         }
 
@@ -228,7 +227,7 @@ impl Behaviour {
         if !self.connected_peers.contains(&peer_id) {
             return Err(ChainSyncError {
                 peer: peer_id,
-                kind: ChainSyncErrorKind::StartSyncError(
+                kind: ChainSyncErrorKind::RequestBlocksDownloadError(
                     "Peer is neither connected nor known".to_owned(),
                 ),
             });
@@ -565,6 +564,9 @@ mod tests {
             provider::MAX_ADDITIONAL_BLOCKS,
         },
         messages::{GetTipResponse, SerialisedBlock},
+        BlocksResponse, DynError,
+        GetTipResponse::Tip,
+        ProviderResponse, TipResponse,
     };
 
     #[tokio::test]
@@ -583,7 +585,7 @@ mod tests {
 
         tokio::spawn(async move { downloader_swarm.loop_on_next().await });
 
-        let (blocks, errors) = wait_block_messages(200, streams).await;
+        let (blocks, errors) = wait_block_messages(streams).await;
 
         assert_eq!(blocks.len(), 200);
         assert_eq!(errors.len(), 0);
@@ -603,7 +605,7 @@ mod tests {
             )
             .unwrap_err();
 
-        matches!(err.kind, ChainSyncErrorKind::StartSyncError(_));
+        matches!(err.kind, ChainSyncErrorKind::RequestBlocksDownloadError(_));
     }
 
     #[tokio::test]
@@ -622,7 +624,7 @@ mod tests {
 
         tokio::spawn(async move { downloader_swarm.loop_on_next().await });
 
-        let (blocks, errors) = wait_block_messages(MAX_INCOMING_REQUESTS + 1, streams).await;
+        let (blocks, errors) = wait_block_messages(streams).await;
 
         assert_eq!(blocks.len(), MAX_INCOMING_REQUESTS);
         assert_eq!(errors.len(), 1);
@@ -634,19 +636,19 @@ mod tests {
 
         let streams = request_download(
             &mut downloader_swarm,
-            MAX_INCOMING_REQUESTS + 1,
+            1,
             HeaderId::from([0; 32]),
             HeaderId::from([0; 32]),
             HeaderId::from([0; 32]),
-            &iter::repeat_n(HeaderId::from([1; 32]), MAX_ADDITIONAL_BLOCKS + 1)
+            &(0..=MAX_ADDITIONAL_BLOCKS)
+                .map(|i| HeaderId::from([i as u8; 32]))
                 .collect::<HashSet<HeaderId>>(),
             provider_peer_id,
         );
 
         tokio::spawn(async move { downloader_swarm.loop_on_next().await });
 
-        let (_blocks, errors) = wait_block_messages(MAX_INCOMING_REQUESTS + 1, streams).await;
-
+        let (_blocks, errors) = wait_block_messages(streams).await;
         assert_eq!(errors.len(), 1);
     }
 
@@ -658,9 +660,12 @@ mod tests {
 
         tokio::spawn(async move { downloader_swarm.loop_on_next().await });
 
-        let response = receiver.await.unwrap().unwrap();
-        assert_eq!(response.id, HeaderId::from([0; 32]));
-        assert_eq!(response.slot, Slot::from(0));
+        let Tip { tip, slot } = receiver.await.unwrap().unwrap() else {
+            panic!("Expected a tip response");
+        };
+
+        assert_eq!(tip, HeaderId::from([0; 32]));
+        assert_eq!(slot, Slot::from(0));
     }
 
     #[tokio::test]
@@ -702,14 +707,71 @@ mod tests {
 
         tokio::spawn(async move { downloader_swarm.loop_on_next().await });
 
-        let (_blocks, errors) = wait_block_messages(1, streams).await;
+        let (_blocks, errors) = wait_block_messages(streams).await;
 
         assert!(matches!(errors[0].kind, ChainSyncErrorKind::Timeout(_)));
     }
 
-    async fn start_provider_and_downloader(blocks_count: usize) -> (Swarm<Behaviour>, PeerId) {
+    #[tokio::test]
+    async fn test_tip_request_rejection() {
+        let (mut downloader_swarm, provider_peer_id) = start_rejecting_provider().await;
+
+        let receiver = request_tip(&mut downloader_swarm, provider_peer_id);
+
+        tokio::spawn(async move { downloader_swarm.loop_on_next().await });
+
+        let result = receiver.await.unwrap();
+        let err = result.unwrap_err();
+        assert!(matches!(err.kind, ChainSyncErrorKind::RequestTipError(_)));
+    }
+
+    #[tokio::test]
+    async fn test_block_request_rejection() {
+        let (mut downloader_swarm, provider_peer_id) = start_rejecting_provider().await;
+
+        let streams = request_download(
+            &mut downloader_swarm,
+            1,
+            HeaderId::from([0; 32]),
+            HeaderId::from([0; 32]),
+            HeaderId::from([0; 32]),
+            &HashSet::new(),
+            provider_peer_id,
+        );
+
+        tokio::spawn(async move { downloader_swarm.loop_on_next().await });
+
+        let (blocks, errors) = wait_block_messages(streams).await;
+
+        assert_eq!(blocks.len(), 0);
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_block_stream_error_during_transmission() {
+        let (mut downloader_swarm, provider_peer_id) = start_provider_with_stream_error().await;
+
+        let streams = request_download(
+            &mut downloader_swarm,
+            1,
+            HeaderId::from([0; 32]),
+            HeaderId::from([0; 32]),
+            HeaderId::from([0; 32]),
+            &HashSet::new(),
+            provider_peer_id,
+        );
+
+        tokio::spawn(async move { downloader_swarm.loop_on_next().await });
+
+        let (blocks, errors) = wait_block_messages(streams).await;
+
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(errors.len(), 1);
+    }
+
+    async fn setup_provider_swarm() -> (Swarm<Behaviour>, PeerId, Multiaddr) {
         let mut provider_swarm = new_swarm_with_quic();
-        let provider_swarm_peer_id = *provider_swarm.local_peer_id();
+        let provider_peer_id = *provider_swarm.local_peer_id();
 
         let provider_addr: Multiaddr = format!(
             "/ip4/127.0.0.1/udp/{}/quic-v1",
@@ -720,43 +782,140 @@ mod tests {
 
         provider_swarm.listen_on(provider_addr.clone()).unwrap();
 
-        tokio::spawn(async move {
-            while let Some(event) = provider_swarm.next().await {
-                if let SwarmEvent::Behaviour(Event::ProvideTipsRequest { reply_sender }) = event {
+        (provider_swarm, provider_peer_id, provider_addr)
+    }
+
+    async fn setup_downloader_and_connect(provider_addr: Multiaddr) -> Swarm<Behaviour> {
+        let mut downloader_swarm = new_swarm_with_quic();
+        downloader_swarm.dial_and_wait(provider_addr).await;
+        downloader_swarm
+    }
+
+    trait ProviderBehavior: Send + 'static {
+        fn handle_tip_request(&self) -> TipResponse;
+        fn handle_blocks_request(&self, blocks_count: usize) -> BlocksResponse;
+    }
+
+    struct StandardProvider {
+        blocks_count: usize,
+    }
+
+    impl ProviderBehavior for StandardProvider {
+        fn handle_tip_request(&self) -> TipResponse {
+            ProviderResponse::Available(Tip {
+                tip: HeaderId::from([0; 32]),
+                slot: Slot::from(0),
+            })
+        }
+
+        fn handle_blocks_request(&self, _requested: usize) -> BlocksResponse {
+            ProviderResponse::Available(
+                futures::stream::iter(
+                    iter::repeat_with(|| Bytes::from_static(&[0; 32]))
+                        .take(self.blocks_count)
+                        .map(Ok),
+                )
+                .boxed(),
+            )
+        }
+    }
+
+    struct RejectingProvider;
+
+    impl ProviderBehavior for RejectingProvider {
+        fn handle_tip_request(&self) -> TipResponse {
+            ProviderResponse::Unavailable {
+                reason: "Node is not in online mode".to_string(),
+            }
+        }
+
+        fn handle_blocks_request(&self, _requested: usize) -> BlocksResponse {
+            ProviderResponse::Unavailable {
+                reason: "Node is not in online mode".to_string(),
+            }
+        }
+    }
+
+    struct ErrorStreamProvider {
+        success_count: usize,
+    }
+
+    impl ProviderBehavior for ErrorStreamProvider {
+        fn handle_tip_request(&self) -> TipResponse {
+            ProviderResponse::Available(Tip {
+                tip: HeaderId::from([0; 32]),
+                slot: Slot::from(0),
+            })
+        }
+
+        fn handle_blocks_request(&self, _requested: usize) -> BlocksResponse {
+            let success_count = self.success_count;
+            ProviderResponse::Available(
+                futures::stream::iter((0..50).map(move |i| {
+                    if i < success_count {
+                        Ok(Bytes::from_static(&[0; 32]))
+                    } else {
+                        Err(Box::new(std::io::Error::other("Simulated storage failure"))
+                            as DynError)
+                    }
+                }))
+                .boxed(),
+            )
+        }
+    }
+
+    async fn run_provider<B: ProviderBehavior>(mut provider_swarm: Swarm<Behaviour>, behavior: B) {
+        while let Some(event) = provider_swarm.next().await {
+            match event {
+                SwarmEvent::Behaviour(Event::ProvideTipsRequest { reply_sender }) => {
                     reply_sender
-                        .send(GetTipResponse {
-                            id: [0; 32].into(),
-                            slot: Slot::from(0),
-                        })
+                        .send(behavior.handle_tip_request())
                         .await
                         .unwrap();
-                    continue;
                 }
-                if let SwarmEvent::Behaviour(Event::ProvideBlocksRequest { reply_sender, .. }) =
-                    event
-                {
+                SwarmEvent::Behaviour(Event::ProvideBlocksRequest { reply_sender, .. }) => {
+                    let response = behavior.handle_blocks_request(0);
                     tokio::spawn(async move {
                         tokio::time::sleep(Duration::from_millis(100)).await;
-                        let _stream = reply_sender
-                            .send(
-                                futures::stream::iter(
-                                    iter::repeat_with(|| Bytes::from_static(&[0; 32]))
-                                        .take(blocks_count)
-                                        .map(Ok),
-                                )
-                                .boxed(),
-                            )
-                            .await;
+                        reply_sender.send(response).await.unwrap();
                     });
                 }
+                _ => {}
             }
-        });
+        }
+    }
 
-        let mut downloader_swarm = new_swarm_with_quic();
+    async fn start_provider_and_downloader(blocks_count: usize) -> (Swarm<Behaviour>, PeerId) {
+        let (provider_swarm, provider_peer_id, provider_addr) = setup_provider_swarm().await;
 
-        downloader_swarm.dial_and_wait(provider_addr).await;
+        tokio::spawn(run_provider(
+            provider_swarm,
+            StandardProvider { blocks_count },
+        ));
 
-        (downloader_swarm, provider_swarm_peer_id)
+        let downloader_swarm = setup_downloader_and_connect(provider_addr).await;
+        (downloader_swarm, provider_peer_id)
+    }
+
+    async fn start_rejecting_provider() -> (Swarm<Behaviour>, PeerId) {
+        let (provider_swarm, provider_peer_id, provider_addr) = setup_provider_swarm().await;
+
+        tokio::spawn(run_provider(provider_swarm, RejectingProvider));
+
+        let downloader_swarm = setup_downloader_and_connect(provider_addr).await;
+        (downloader_swarm, provider_peer_id)
+    }
+
+    async fn start_provider_with_stream_error() -> (Swarm<Behaviour>, PeerId) {
+        let (provider_swarm, provider_peer_id, provider_addr) = setup_provider_swarm().await;
+
+        tokio::spawn(run_provider(
+            provider_swarm,
+            ErrorStreamProvider { success_count: 1 },
+        ));
+
+        let downloader_swarm = setup_downloader_and_connect(provider_addr).await;
+        (downloader_swarm, provider_peer_id)
     }
 
     fn request_download(
@@ -801,7 +960,6 @@ mod tests {
     }
 
     async fn wait_block_messages(
-        expected_count: usize,
         streams: Vec<oneshot::Receiver<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>>,
     ) -> (Vec<SerialisedBlock>, Vec<ChainSyncError>) {
         let mut blocks = Vec::new();
@@ -826,10 +984,6 @@ mod tests {
                     }
                     Err(e) => errors.push(e),
                 }
-            }
-
-            if blocks.len() + errors.len() == expected_count {
-                break;
             }
         }
         (blocks, errors)

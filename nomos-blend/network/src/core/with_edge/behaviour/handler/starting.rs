@@ -72,4 +72,8 @@ impl StateTrait for StartingState {
         self.waker = Some(cx.waker().clone());
         (Poll::Pending, self.into())
     }
+
+    fn take_waker(&mut self) -> Option<Waker> {
+        self.waker.take()
+    }
 }
