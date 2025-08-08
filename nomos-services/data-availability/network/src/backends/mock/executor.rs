@@ -2,9 +2,9 @@ use std::pin::Pin;
 
 use futures::{Stream, StreamExt as _};
 use kzgrs_backend::common::{build_blob_id, share::DaShare};
-use libp2p::{Multiaddr, PeerId};
+use libp2p::PeerId;
 use nomos_core::{block::BlockNumber, da::BlobId};
-use nomos_da_network_core::{protocols::sampling::SubnetsConfig, SubnetworkId};
+use nomos_da_network_core::SubnetworkId;
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
 use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
@@ -75,6 +75,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
     type EventKind = EventKind;
     type NetworkEvent = Event;
     type Membership = MockMembership;
+    type HistoricMembership = MockMembership;
     type Addressbook = DaAddressbook;
 
     fn new(
@@ -82,7 +83,6 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
         _: OverwatchHandle<RuntimeServiceId>,
         _membership: Self::Membership,
         _addressbook: Self::Addressbook,
-        _subnets_settings: SubnetsConfig,
     ) -> Self {
         let (commands_tx, _) = mpsc::channel(BUFFER_SIZE);
         let (events_tx, _) = broadcast::channel(BUFFER_SIZE);
@@ -129,7 +129,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
         &self,
         _block_number: BlockNumber,
         _blob_id: BlobId,
-        _membership: Vec<(PeerId, Multiaddr)>,
+        _membership: Self::HistoricMembership,
     ) {
         todo!()
     }

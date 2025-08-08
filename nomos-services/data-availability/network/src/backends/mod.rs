@@ -5,9 +5,8 @@ use std::pin::Pin;
 
 use ::libp2p::PeerId;
 use futures::Stream;
-use multiaddr::Multiaddr;
 use nomos_core::{block::BlockNumber, da::BlobId};
-use nomos_da_network_core::{addressbook::AddressBookHandler, protocols::sampling::SubnetsConfig};
+use nomos_da_network_core::addressbook::AddressBookHandler;
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::ServiceState};
 use subnetworks_assignations::MembershipHandler;
 
@@ -21,6 +20,7 @@ pub trait NetworkBackend<RuntimeServiceId> {
     type EventKind: Debug + Send + Sync + 'static;
     type NetworkEvent: Debug + Send + Sync + 'static;
     type Membership: MembershipHandler + Clone;
+    type HistoricMembership: MembershipHandler + Clone;
     type Addressbook: AddressBookHandler + Clone;
 
     fn new(
@@ -28,7 +28,6 @@ pub trait NetworkBackend<RuntimeServiceId> {
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Self::Membership,
         addressbook: Self::Addressbook,
-        subnets_settings: SubnetsConfig,
     ) -> Self;
     fn shutdown(&mut self);
     async fn process(&self, msg: Self::Message);
@@ -40,7 +39,7 @@ pub trait NetworkBackend<RuntimeServiceId> {
         &self,
         block_number: BlockNumber,
         blob_id: BlobId,
-        membership: Vec<(PeerId, Multiaddr)>,
+        membership: Self::HistoricMembership,
     );
     fn local_peer_id(&self) -> PeerId;
 }

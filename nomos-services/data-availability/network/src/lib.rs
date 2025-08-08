@@ -7,7 +7,6 @@ pub mod storage;
 use std::{
     collections::HashMap,
     fmt::{self, Debug, Display},
-    iter,
     marker::PhantomData,
     pin::Pin,
 };
@@ -18,9 +17,7 @@ use futures::Stream;
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p::{Multiaddr, PeerId};
 use nomos_core::{block::BlockNumber, da::BlobId};
-use nomos_da_network_core::{
-    addressbook::AddressBookHandler as _, protocols::sampling::SubnetsConfig, SubnetworkId,
-};
+use nomos_da_network_core::{addressbook::AddressBookHandler as _, SubnetworkId};
 use overwatch::{
     services::{
         state::{NoOperator, ServiceState},
@@ -28,7 +25,6 @@ use overwatch::{
     },
     OpaqueServiceResourcesHandle,
 };
-use rand::Rng as _;
 use serde::{Deserialize, Serialize};
 use storage::{MembershipStorage, MembershipStorageAdapter};
 use subnetworks_assignations::{MembershipCreator, MembershipHandler, SubnetworkAssignations};
@@ -118,7 +114,6 @@ pub struct NetworkConfig<
     pub backend: Backend::Settings,
     pub membership: Membership,
     pub api_adapter_settings: ApiAdapterSettings,
-    pub subnets_settings: SubnetsConfig,
 }
 
 impl<
@@ -152,7 +147,6 @@ pub struct NetworkService<
     membership: DaMembershipHandler<Membership>,
     addressbook: DaAddressbook,
     api_adapter: ApiAdapter,
-    subnet_settings: SubnetsConfig,
     phantom: PhantomData<MembershipServiceAdapter>,
 }
 
@@ -230,6 +224,7 @@ where
     Backend: NetworkBackend<
             RuntimeServiceId,
             Membership = DaMembershipHandler<Membership>,
+            HistoricMembership = Membership,
             Addressbook = DaAddressbook,
         > + Send
         + Sync
@@ -285,13 +280,11 @@ where
                 service_resources_handle.overwatch_handle.clone(),
                 membership.clone(),
                 addressbook.clone(),
-                settings.subnets_settings,
             ),
             service_resources_handle,
             membership,
             addressbook,
             api_adapter,
-            subnet_settings: settings.subnets_settings,
             phantom: PhantomData,
         })
     }
@@ -340,7 +333,7 @@ where
         loop {
             tokio::select! {
                 Some(msg) = inbound_relay.recv() => {
-                    Self::handle_network_service_message(msg, backend, &membership_storage, api_adapter, &self.subnet_settings, addressbook).await;
+                    Self::handle_network_service_message(msg, backend, &membership_storage, api_adapter, addressbook).await;
                 }
                 Some((block_number, providers)) = stream.next() => {
                     tracing::debug!(
@@ -405,7 +398,8 @@ where
     ApiAdapter:
         ApiAdapterTrait<BlobId = BlobId, Commitments = DaSharesCommitments> + Send + Sync + 'static,
     ApiAdapter::Settings: Clone + Send,
-    Backend: NetworkBackend<RuntimeServiceId> + Send + Sync + 'static,
+    Backend:
+        NetworkBackend<RuntimeServiceId, HistoricMembership = Membership> + Send + Sync + 'static,
     Backend::State: Send + Sync,
     Membership:
         MembershipCreator<Id = PeerId, NetworkId = SubnetworkId> + Clone + Send + Sync + 'static,
@@ -415,7 +409,6 @@ where
         backend: &mut Backend,
         membership_storage: &MembershipStorage<StorageAdapter, Membership, DaAddressbook>,
         api_adapter: &ApiAdapter,
-        subnets_settings: &SubnetsConfig,
         addressbook: &DaAddressbook,
     ) {
         match msg {
@@ -491,7 +484,6 @@ where
                 Self::handle_historic_sample_request(
                     backend,
                     membership_storage,
-                    subnets_settings,
                     block_number,
                     blob_id,
                 )
@@ -515,7 +507,6 @@ where
     async fn handle_historic_sample_request(
         backend: &Backend,
         membership_storage: &MembershipStorage<StorageAdapter, Membership, AddressBook>,
-        subnets_settings: &SubnetsConfig,
         block_number: u64,
         blob_id: [u8; 32],
     ) {
@@ -528,92 +519,11 @@ where
             });
 
         if let Some(membership) = membership {
-            let all_subnet_ids: Vec<_> = membership.subnetworks().keys().copied().collect();
-
-            if all_subnet_ids.is_empty() {
-                tracing::error!("No subnetworks available for sampling");
-                return;
-            }
-
-            let addressbook = HashMap::new(); // this is just so the code compiles after merge
-            let selected_peers = Self::prepare_selected_peers(
-                backend,
-                &all_subnet_ids,
-                block_number,
-                &membership,
-                &addressbook,
-                subnets_settings,
-            );
-
-            if selected_peers.is_none() {
-                return;
-            }
-
-            let send =
-                backend.start_historic_sampling(block_number, blob_id, selected_peers.unwrap());
+            let send = backend.start_historic_sampling(block_number, blob_id, membership);
             send.await;
         } else {
             tracing::warn!("No membership found for block number {block_number}");
         }
-    }
-
-    fn prepare_selected_peers(
-        backend: &Backend,
-        all_subnet_ids: &[SubnetworkId],
-        block_number: BlockNumber,
-        membership: &Membership,
-        addressbook: &HashMap<PeerId, Multiaddr>,
-        subnets_settings: &SubnetsConfig,
-    ) -> Option<Vec<(PeerId, Multiaddr)>> {
-        let subnets_to_sample = subnets_settings.num_of_subnets;
-
-        if subnets_to_sample > all_subnet_ids.len() {
-            tracing::error!(
-                "Only {} subnetworks available, requested {}.",
-                all_subnet_ids.len(),
-                subnets_to_sample
-            );
-            return None;
-        }
-
-        let mut selected_peers = Vec::new();
-        let mut rng = rand::thread_rng();
-
-        // Select `subnets_to_sample` random subnetworks (WITH replacement)
-        let selected_subnet_ids: Vec<_> =
-            iter::repeat_with(|| all_subnet_ids[rng.gen_range(0..all_subnet_ids.len())])
-                .take(subnets_to_sample)
-                .collect();
-
-        // For each selected subnetwork, pick one random peer
-        for subnet_id in &selected_subnet_ids {
-            let subnet_members = membership.members_of(subnet_id);
-
-            let subnet_members: Vec<_> = subnet_members
-                .into_iter()
-                .filter(|peer_id| *peer_id != backend.local_peer_id())
-                .collect();
-
-            if subnet_members.is_empty() {
-                tracing::error!(
-                    "Subnetwork {subnet_id:?} has no remote members at block {block_number}"
-                );
-                return None;
-            }
-
-            let selected_peer = subnet_members[rng.gen_range(0..subnet_members.len())];
-
-            if let Some(address) = addressbook.get(&selected_peer) {
-                selected_peers.push((selected_peer, address.clone()));
-            } else {
-                tracing::error!(
-                "No addresses found for peer {selected_peer:?} in addressbook at block {block_number}"
-            );
-                return None;
-            }
-        }
-
-        Some(selected_peers)
     }
 }
 
@@ -632,7 +542,6 @@ where
             backend: self.backend.clone(),
             membership: self.membership.clone(),
             api_adapter_settings: self.api_adapter_settings.clone(),
-            subnets_settings: self.subnets_settings,
         }
     }
 }

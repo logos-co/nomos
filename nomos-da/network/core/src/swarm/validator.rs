@@ -1,4 +1,4 @@
-use std::{io, time::Duration};
+use std::{io, marker::PhantomData, time::Duration};
 
 use futures::{stream, StreamExt as _};
 use kzgrs_backend::common::share::DaShare;
@@ -41,7 +41,7 @@ use crate::{
     SubnetworkId,
 };
 
-pub type SampleArgs = (BlobId, BlockNumber, Vec<(PeerId, Multiaddr)>);
+pub type SampleArgs<Membership> = (BlobId, BlockNumber, Membership);
 
 // Metrics
 const EVENT_SAMPLING: &str = "sampling";
@@ -62,9 +62,10 @@ pub struct ValidatorEventsStream {
     pub validation_events_receiver: UnboundedReceiverStream<DaShare>,
 }
 
-pub struct ValidatorSwarm<Membership, Addressbook>
+pub struct ValidatorSwarm<Membership, HistoricMembership, Addressbook>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + 'static,
+    HistoricMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + 'static,
     Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
 {
     swarm: Swarm<
@@ -77,11 +78,14 @@ where
     >,
     sampling_events_sender: UnboundedSender<SamplingEvent>,
     validation_events_sender: UnboundedSender<DaShare>,
+    phantom: PhantomData<HistoricMembership>,
 }
 
-impl<Membership, Addressbook> ValidatorSwarm<Membership, Addressbook>
+impl<Membership, HistoricMembership, Addressbook>
+    ValidatorSwarm<Membership, HistoricMembership, Addressbook>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
+    HistoricMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
     Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
 {
     pub fn new(
@@ -138,6 +142,7 @@ where
                 ),
                 sampling_events_sender,
                 validation_events_sender,
+                phantom: PhantomData,
             },
             ValidatorEventsStream {
                 sampling_events_receiver,
@@ -205,7 +210,9 @@ where
             .shares_request_channel()
     }
 
-    pub fn historic_sample_request_channel(&mut self) -> UnboundedSender<SampleArgs> {
+    pub fn historic_sample_request_channel(
+        &mut self,
+    ) -> UnboundedSender<SampleArgs<HistoricMembership>> {
         // todo: implement this when behaviour is ready
         let (sender, _receiver) = unbounded_channel();
         sender

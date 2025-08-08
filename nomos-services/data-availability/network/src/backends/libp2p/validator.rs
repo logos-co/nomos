@@ -5,11 +5,10 @@ use futures::{
     Stream, StreamExt as _,
 };
 use kzgrs_backend::common::share::DaShare;
-use libp2p::{Multiaddr, PeerId};
+use libp2p::PeerId;
 use nomos_core::{block::BlockNumber, da::BlobId};
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
-    protocols::sampling::SubnetsConfig,
     swarm::{
         validator::{SampleArgs, SwarmSettings, ValidatorSwarm},
         BalancerStats, MonitorStats,
@@ -83,7 +82,7 @@ pub struct DaNetworkValidatorBackend<Membership> {
     task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     shares_request_channel: UnboundedSender<BlobId>,
-    historic_sample_request_channel: UnboundedSender<SampleArgs>,
+    historic_sample_request_channel: UnboundedSender<SampleArgs<Membership>>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
@@ -110,6 +109,7 @@ where
     type Message = DaNetworkMessage<BalancerStats, MonitorStats>;
     type EventKind = DaNetworkEventKind;
     type NetworkEvent = DaNetworkEvent;
+    type HistoricMembership = Membership;
     type Membership = DaMembershipHandler<Membership>;
     type Addressbook = DaAddressbook;
 
@@ -118,7 +118,6 @@ where
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Self::Membership,
         addressbook: Self::Addressbook,
-        subnets_settings: SubnetsConfig,
     ) -> Self {
         // TODO: If there is no requirement to subscribe to block number events in chain
         // service, and an approximate duration is enough for sampling to hold
@@ -138,7 +137,7 @@ where
                 balancer_interval: config.balancer_interval,
                 redial_cooldown: config.redial_cooldown,
                 replication_settings: config.replication_settings,
-                subnets_settings,
+                subnets_settings: config.subnets_settings,
             },
             subnet_refresh_signal,
         );
@@ -261,7 +260,7 @@ where
         &self,
         block_number: BlockNumber,
         blob_id: BlobId,
-        membership: Vec<(PeerId, Multiaddr)>,
+        membership: Self::HistoricMembership,
     ) {
         info_with_id!(&blob_id, "RequestHistoricSample");
         handle_historic_sample_request(

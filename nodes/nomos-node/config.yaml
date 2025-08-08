@@ -72,6 +72,10 @@ da_network:
     refresh_interval:
       secs: 30
       nanos: 0
+    subnets_settings:
+      num_of_subnets: 20
+      shares_retry_limit: 5
+    commitments_retry_limit: 5
   membership:
     replication_factor: 2
     subnetwork_size: 2
@@ -81,10 +85,6 @@ da_network:
   api_adapter_settings:
     api_port: 8722
     is_secure: false
-  subnets_settings:
-    num_of_subnets: 20
-    shares_retry_limit: 5
-    commitments_retry_limit: 5
 da_indexer:
   storage:
     blob_storage_directory: ./
