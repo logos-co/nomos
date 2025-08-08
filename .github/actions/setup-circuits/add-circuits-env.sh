@@ -61,7 +61,7 @@ for archive in "${archives[@]}"; do
     # The environment variable name is dynamically constructed
     # by converting the app name to uppercase and prefixing it with "NOMOS_<APP_NAME>"
     # E.g.: pol -> NOMOS_POL
-    env_var_name="NOMOS_${app^^}"
+    env_var_name="NOMOS_$(echo "$app" | tr '[:lower:]' '[:upper:]')"
     echo "$env_var_name=$binary_full_path" >> "$GITHUB_ENV"
 done
 
