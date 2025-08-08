@@ -7,7 +7,6 @@ use std::error::Error;
 
 use cryptarchia_sync::ChainSyncError;
 use libp2p::{identity, kad, swarm::NetworkBehaviour, PeerId};
-use thiserror::Error;
 
 use crate::{
     behaviour::gossipsub::compute_message_id, protocol_name::ProtocolName, IdentifySettings,
@@ -22,12 +21,18 @@ pub mod kademlia;
 // this limit so large. Remove this once we transition to smaller proofs.
 const DATA_LIMIT: usize = 1 << 18; // Do not serialize/deserialize more than 256 KiB
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum BehaviourError {
-    #[error("Operation not supported")]
+    /// Operation not supported
     OperationNotSupported,
-    #[error("Chainsync error: {0}")]
-    ChainSyncError(#[from] ChainSyncError),
+    /// Chainsync error
+    ChainSyncError(Box<ChainSyncError>),
+}
+
+impl From<ChainSyncError> for BehaviourError {
+    fn from(from: ChainSyncError) -> Self {
+        Self::ChainSyncError(from.into())
+    }
 }
 
 #[derive(NetworkBehaviour)]
