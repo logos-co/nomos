@@ -1,7 +1,6 @@
 use std::{fmt::Debug, marker::PhantomData, pin::Pin};
 
 use futures::{
-    future::Aborted,
     stream::{AbortHandle, Abortable},
     Stream, StreamExt as _,
 };
@@ -22,7 +21,6 @@ use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 use tokio::{
     sync::{broadcast, mpsc::UnboundedSender, oneshot},
-    task::JoinHandle,
     time,
 };
 use tokio_stream::wrappers::{BroadcastStream, IntervalStream, UnboundedReceiverStream};
@@ -94,9 +92,9 @@ pub struct DaNetworkExecutorBackend<Membership>
 where
     Membership: MembershipHandler,
 {
-    task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
-    verifier_replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
-    executor_replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
+    task_abort_handle: AbortHandle,
+    verifier_replies_task_abort_handle: AbortHandle,
+    executor_replies_task_abort_handle: AbortHandle,
     shares_request_channel: UnboundedSender<BlobId>,
     commitments_request_channel: UnboundedSender<BlobId>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
@@ -176,12 +174,9 @@ where
         let monitor_command_sender = executor_swarm.monitor_command_channel();
 
         let (task_abort_handle, abort_registration) = AbortHandle::new_pair();
-        let task = (
-            task_abort_handle,
-            overwatch_handle
-                .runtime()
-                .spawn(Abortable::new(executor_swarm.run(), abort_registration)),
-        );
+        overwatch_handle
+            .runtime()
+            .spawn(Abortable::new(executor_swarm.run(), abort_registration));
 
         let (sampling_broadcast_sender, sampling_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
@@ -191,38 +186,33 @@ where
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
         let (dispersal_broadcast_sender, dispersal_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
+
         let (verifier_replies_task_abort_handle, verifier_replies_task_abort_registration) =
             AbortHandle::new_pair();
-        let verifier_replies_task = (
-            verifier_replies_task_abort_handle,
-            overwatch_handle.runtime().spawn(Abortable::new(
-                handle_validator_events_stream(
-                    executor_events_stream.validator_events_stream,
-                    sampling_broadcast_sender,
-                    commitments_broadcast_sender,
-                    verifying_broadcast_sender,
-                ),
-                verifier_replies_task_abort_registration,
-            )),
-        );
+        overwatch_handle.runtime().spawn(Abortable::new(
+            handle_validator_events_stream(
+                executor_events_stream.validator_events_stream,
+                sampling_broadcast_sender,
+                commitments_broadcast_sender,
+                verifying_broadcast_sender,
+            ),
+            verifier_replies_task_abort_registration,
+        ));
+
         let (executor_replies_task_abort_handle, executor_replies_task_abort_registration) =
             AbortHandle::new_pair();
-
-        let executor_replies_task = (
-            executor_replies_task_abort_handle,
-            overwatch_handle.runtime().spawn(Abortable::new(
-                handle_executor_dispersal_events_stream(
-                    executor_events_stream.dispersal_events_receiver,
-                    dispersal_broadcast_sender,
-                ),
-                executor_replies_task_abort_registration,
-            )),
-        );
+        overwatch_handle.runtime().spawn(Abortable::new(
+            handle_executor_dispersal_events_stream(
+                executor_events_stream.dispersal_events_receiver,
+                dispersal_broadcast_sender,
+            ),
+            executor_replies_task_abort_registration,
+        ));
 
         Self {
-            task,
-            verifier_replies_task,
-            executor_replies_task,
+            task_abort_handle,
+            verifier_replies_task_abort_handle,
+            executor_replies_task_abort_handle,
             shares_request_channel,
             commitments_request_channel,
             sampling_broadcast_receiver,
@@ -238,14 +228,14 @@ where
 
     fn shutdown(&mut self) {
         let Self {
-            task: (task_handle, _),
-            verifier_replies_task: (verifier_handle, _),
-            executor_replies_task: (executor_handle, _),
+            task_abort_handle,
+            verifier_replies_task_abort_handle,
+            executor_replies_task_abort_handle,
             ..
         } = self;
-        task_handle.abort();
-        verifier_handle.abort();
-        executor_handle.abort();
+        task_abort_handle.abort();
+        verifier_replies_task_abort_handle.abort();
+        executor_replies_task_abort_handle.abort();
     }
 
     #[instrument(skip_all)]

@@ -1,7 +1,7 @@
 use std::{fmt::Debug, marker::PhantomData, pin::Pin};
 
 use futures::{
-    future::{AbortHandle, Abortable, Aborted},
+    future::{AbortHandle, Abortable},
     Stream, StreamExt as _,
 };
 use kzgrs_backend::common::share::DaShare;
@@ -22,7 +22,6 @@ use serde::Serialize;
 use subnetworks_assignations::MembershipHandler;
 use tokio::{
     sync::{broadcast, mpsc::UnboundedSender, oneshot},
-    task::JoinHandle,
     time,
 };
 use tokio_stream::wrappers::{BroadcastStream, IntervalStream};
@@ -79,8 +78,8 @@ pub enum DaNetworkEvent {
 /// It forwards network messages to the corresponding subscription
 /// channels/streams
 pub struct DaNetworkValidatorBackend<Membership> {
-    task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
-    replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
+    task_abort_handle: AbortHandle,
+    replies_task_abort_handle: AbortHandle,
     shares_request_channel: UnboundedSender<BlobId>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
@@ -152,35 +151,31 @@ where
         let monitor_command_sender = validator_swarm.monitor_command_channel();
 
         let (task_abort_handle, abort_registration) = AbortHandle::new_pair();
-        let task = (
-            task_abort_handle,
-            overwatch_handle
-                .runtime()
-                .spawn(Abortable::new(validator_swarm.run(), abort_registration)),
-        );
+        overwatch_handle
+            .runtime()
+            .spawn(Abortable::new(validator_swarm.run(), abort_registration));
+
         let (sampling_broadcast_sender, sampling_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
         let (commitments_broadcast_sender, commitments_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
         let (verifying_broadcast_sender, verifying_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
+
         let (replies_task_abort_handle, replies_task_abort_registration) = AbortHandle::new_pair();
-        let replies_task = (
-            replies_task_abort_handle,
-            overwatch_handle.runtime().spawn(Abortable::new(
-                handle_validator_events_stream(
-                    validator_events_stream,
-                    sampling_broadcast_sender,
-                    commitments_broadcast_sender,
-                    verifying_broadcast_sender,
-                ),
-                replies_task_abort_registration,
-            )),
-        );
+        overwatch_handle.runtime().spawn(Abortable::new(
+            handle_validator_events_stream(
+                validator_events_stream,
+                sampling_broadcast_sender,
+                commitments_broadcast_sender,
+                verifying_broadcast_sender,
+            ),
+            replies_task_abort_registration,
+        ));
 
         Self {
-            task,
-            replies_task,
+            task_abort_handle,
+            replies_task_abort_handle,
             shares_request_channel,
             balancer_command_sender,
             monitor_command_sender,
@@ -193,12 +188,12 @@ where
 
     fn shutdown(&mut self) {
         let Self {
-            task: (task_handle, _),
-            replies_task: (replies_handle, _),
+            task_abort_handle,
+            replies_task_abort_handle,
             ..
         } = self;
-        task_handle.abort();
-        replies_handle.abort();
+        task_abort_handle.abort();
+        replies_task_abort_handle.abort();
     }
 
     #[instrument(skip_all)]
