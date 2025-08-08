@@ -371,7 +371,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     ///
     /// # Panics
     ///
-    /// If there is no established connection for the given peer in the relative
+    /// If there is no negotiated connection for the given peer in the relative
     /// storage.
     fn handle_negotiated_connection_for_existing_peer(
         &mut self,
