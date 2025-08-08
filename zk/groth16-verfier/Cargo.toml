@@ -1,0 +1,13 @@
+[package]
+edition = "2024"
+license.workspace = true
+name = "groth16-verfier"
+version = "0.1.0"
+
+[dependencies]
+ark-ec = "0.5"
+ark-bn254 = "0.5"
+ark-groth16 = "0.5"
+
+[lints]
+workspace = true

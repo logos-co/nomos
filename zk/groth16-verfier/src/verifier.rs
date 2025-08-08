@@ -1,25 +1,15 @@
-use ark_bn254::Fr;
-use ark_ec::pairing::Pairing;
+use std::error::Error;
 
-use crate::{proof::Proof, verification_key::VerificationKey};
+use ark_ec::pairing::Pairing;
+use ark_groth16::{Groth16, r1cs_to_qap::LibsnarkReduction};
+
+use crate::{proof::Proof, verification_key::PreparedVerificationKey};
 
 pub fn groth16_verify<E: Pairing>(
-    vk: &VerificationKey<E>,
-    public_inputs: &[E::G1],
-    proof: Proof<E>,
-) -> bool {
-    assert_eq!(public_inputs.len(), vk.public_size());
-    let VerificationKey {
-        public_size,
-        alpha_1,
-        beta_2,
-        gamma_2,
-        delta_2,
-        alpha_beta_12,
-        ic,
-    } = vk;
-    let ic0 = ic[0];
-    let w = Fr::from(public_size);
-
-    true
+    vk: &PreparedVerificationKey<E>,
+    public_inputs: &[E::ScalarField],
+    proof: &Proof<E>,
+) -> Result<bool, impl Error> {
+    let proof: ark_groth16::Proof<E> = proof.into();
+    Groth16::<E, LibsnarkReduction>::verify_proof(vk.as_ref(), &proof, public_inputs)
 }
