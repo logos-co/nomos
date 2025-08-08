@@ -173,6 +173,11 @@ jobs:
           - [self-hosted, macOS]
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Deps
+        run: |
+          sudo apt update
+          sudo apt install -y libclang-dev clang
+
       - name: Disable rustup override
         run: rustup override unset
       - name: Checkout repository
