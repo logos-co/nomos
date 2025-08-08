@@ -103,7 +103,7 @@ mod tests {
 
         let settings = NTPClientSettings {
             timeout: Duration::from_secs(3),
-            listening_interface: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            listening_interface: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
         };
         let client = AsyncNTPClient::new(settings);
 

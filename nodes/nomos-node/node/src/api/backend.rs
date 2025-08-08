@@ -1,3 +1,5 @@
+#![allow(clippy::needless_for_each, reason = "Utoipa implementation")]
+
 use std::{
     error::Error,
     fmt::{Debug, Display},

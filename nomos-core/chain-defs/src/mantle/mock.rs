@@ -94,6 +94,7 @@ impl MockTxId {
     }
 }
 
+#[expect(clippy::infallible_try_from, reason = "We want a fallible API.")]
 impl TryFrom<&[u8]> for MockTxId {
     type Error = Infallible;
 

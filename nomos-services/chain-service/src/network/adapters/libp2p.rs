@@ -234,7 +234,7 @@ where
     }
 
     /// Attempts to open a stream of blocks from a locally known block to the
-    /// target_block block.
+    /// `target_block` block.
     async fn request_blocks_from_peers(
         &self,
         target_block: HeaderId,

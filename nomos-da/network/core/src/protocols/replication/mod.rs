@@ -46,8 +46,9 @@ mod test {
 
     fn make_neighbours(keys: &[&Keypair]) -> AllNeighbours {
         let neighbours = AllNeighbours::new();
-        keys.iter()
-            .for_each(|k| neighbours.add_neighbour(PeerId::from_public_key(&k.public())));
+        for k in keys {
+            neighbours.add_neighbour(PeerId::from_public_key(&k.public()));
+        }
         neighbours
     }
 

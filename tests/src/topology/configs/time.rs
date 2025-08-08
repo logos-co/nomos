@@ -29,7 +29,7 @@ pub fn default_time_config() -> GeneralTimeConfig {
         chain_start_time: OffsetDateTime::now_utc(),
         ntp_server: String::from("pool.ntp.org"),
         timeout: Duration::from_secs(5),
-        interface: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+        interface: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
         update_interval: Duration::from_secs(16),
     }
 }
