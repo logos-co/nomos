@@ -1,6 +1,6 @@
 # BUILD IMAGE ---------------------------------------------------------
 
-FROM rust:1.88.0-slim-bookworm AS builder
+FROM rust:1.89.0-slim-bookworm AS builder
 
 # Install dependencies needed for building RocksDB and etcd.
 RUN apt-get update && apt-get install -yq \
