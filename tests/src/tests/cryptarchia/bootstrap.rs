@@ -1,4 +1,4 @@
-use std::{collections::HashSet, ops::Div as _, time::Duration};
+use std::{collections::HashSet, time::Duration};
 
 use futures::stream::{self, StreamExt as _};
 use nomos_libp2p::PeerId;
@@ -99,16 +99,14 @@ async fn test_ibd_behind_nodes() {
 }
 
 fn calculate_block_time(general_config: &GeneralConfig) -> Duration {
-    Duration::from_secs(
-        1f64.div(
-            general_config
-                .consensus_config
-                .ledger_config
-                .consensus_config
-                .active_slot_coeff,
-        )
-        .floor() as u64,
-    )
+    let slot_duration = general_config.time_config.slot_duration;
+    let active_slot_coeff = general_config
+        .consensus_config
+        .ledger_config
+        .consensus_config
+        .active_slot_coeff;
+    println!("slot_duration:{slot_duration:?}, active_slot_coeff:{active_slot_coeff:?}");
+    slot_duration.div_f64(active_slot_coeff)
 }
 
 async fn wait_for_validators_mode_and_height(
