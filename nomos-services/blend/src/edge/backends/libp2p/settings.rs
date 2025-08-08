@@ -1,3 +1,5 @@
+use core::num::NonZeroU64;
+
 use libp2p::identity::Keypair;
 use nomos_libp2p::ed25519;
 use serde::{Deserialize, Serialize};
@@ -11,6 +13,7 @@ pub struct Libp2pBlendBackendSettings {
         default = "ed25519::SecretKey::generate"
     )]
     pub node_key: ed25519::SecretKey,
+    pub max_dial_attempts_per_peer_per_message: NonZeroU64,
 }
 
 impl Libp2pBlendBackendSettings {

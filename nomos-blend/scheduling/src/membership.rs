@@ -68,11 +68,12 @@ where
         rng: &mut R,
         amount: usize,
         exclude_peers: &HashSet<NodeId>,
-    ) -> Vec<&Node<NodeId>> {
+    ) -> impl Iterator<Item = &Node<NodeId>> {
         self.remote_nodes
             .iter()
             .filter(|node| !exclude_peers.contains(&node.id))
             .choose_multiple(rng, amount)
+            .into_iter()
     }
 
     // TODO: Change internal structure to a hashset/hashmap for O(1) lookup.

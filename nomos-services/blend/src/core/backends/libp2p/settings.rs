@@ -24,6 +24,7 @@ pub struct Libp2pBlendBackendSettings {
     )]
     pub edge_node_connection_timeout: Duration,
     pub max_edge_node_incoming_connections: u64,
+    pub max_dial_attempts_per_peer: NonZeroU64,
 }
 
 impl Libp2pBlendBackendSettings {

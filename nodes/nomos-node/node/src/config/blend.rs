@@ -16,6 +16,10 @@ impl BlendConfig {
         nomos_blend_service::edge::settings::BlendConfig {
             backend: nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackendSettings {
                 node_key: self.0.backend.node_key.clone(),
+                // TODO: Allow for edge service settings to be included here.
+                max_dial_attempts_per_peer_per_message: 3
+                    .try_into()
+                    .expect("Max dial attempts per peer per message cannot be zero."),
             },
             crypto: self.0.crypto.clone(),
             time: self.0.time.clone(),

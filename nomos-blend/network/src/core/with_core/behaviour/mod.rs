@@ -115,6 +115,13 @@ pub enum Event {
     /// A connection with a peer has dropped. The last state that was negotiated
     /// with the peer is also returned.
     PeerDisconnected(PeerId, NegotiatedPeerState),
+    /// An outbound connection request was successfully negotiated with the
+    /// remote peer.
+    OutboundConnectionUpgradeSucceeded(PeerId),
+    /// An outbound connection request failed to be upgraded, meaning the peer
+    /// is a remote core but something failed when negotiating Blend protocol
+    /// support.
+    OutboundConnectionUpgradeFailed(PeerId),
 }
 
 impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
@@ -334,7 +341,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     fn handle_negotiated_connection_for_new_peer(
         &mut self,
         (peer_id, connection_id): (PeerId, ConnectionId),
-        role: Endpoint,
+        peer_role: Endpoint,
     ) {
         // We need to check if we still have available connection slots, as it is
         // possible, especially upon session transition, that more than the maximum
@@ -355,11 +362,18 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         self.negotiated_peers.insert(
             peer_id,
             RemotePeerConnectionDetails {
-                role,
+                role: peer_role,
                 negotiated_state: NegotiatedPeerState::Healthy,
                 connection_id,
             },
         );
+        // If the new negotiated connection is outgoing, notify the Swarm about it.
+        if peer_role == Endpoint::Listener {
+            self.events.push_back(ToSwarm::GenerateEvent(
+                Event::OutboundConnectionUpgradeSucceeded(peer_id),
+            ));
+            self.try_wake();
+        }
     }
 
     /// Handle a newly upgraded connection for a peer that this peer is already
@@ -443,6 +457,14 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             // that when the old connection is dropped, the swarm is
             // not notified.
             update_connection_id_and_direction(existing_connection_details, new_connection_id);
+            // After the old connection details have been updated with the new
+            // ones, notify the Swarm that the new connection has been upgraded,
+            // if the new connection is an outgoing one.
+            if existing_connection_details.role == Endpoint::Listener {
+                self.events.push_back(ToSwarm::GenerateEvent(
+                    Event::OutboundConnectionUpgradeSucceeded(peer_id),
+                ));
+            }
             // Notify the current connection handler to drop the substreams.
             self.close_connection(existing_connection);
         } else {
@@ -721,12 +743,28 @@ where
         if let FromSwarm::ConnectionClosed(ConnectionClosed {
             peer_id,
             connection_id,
+            endpoint,
             ..
         }) = event
         {
-            // We remove and ignore any un-upgraded connection.
-            self.connections_waiting_upgrade
-                .remove(&(peer_id, connection_id));
+            // We notify the swarm of any outbound connection that failed to be upgraded.
+            if let Some(remote_peer_role) = self
+                .connections_waiting_upgrade
+                .remove(&(peer_id, connection_id))
+            {
+                debug_assert!(
+                    endpoint.to_endpoint() == remote_peer_role,
+                    "Remote peer endpoint provided by event and the one stored do not match."
+                );
+                // If the closed connection was an outbound one, notify the swarm about it.
+                if remote_peer_role == Endpoint::Listener {
+                    self.events.push_back(ToSwarm::GenerateEvent(
+                        Event::OutboundConnectionUpgradeFailed(peer_id),
+                    ));
+                    self.try_wake();
+                }
+                return;
+            }
 
             let Entry::Occupied(peer_details_entry) = self.negotiated_peers.entry(peer_id) else {
                 // This event was not meant for us.
