@@ -19,14 +19,12 @@ impl AddressBookHandler for AddressBook {
     }
 }
 
-#[async_trait::async_trait]
 pub trait AddressBookMut: AddressBookHandler {
-    async fn update(&self, new_peers: AddressBookSnapshot<Self::Id>);
+    fn update(&self, new_peers: AddressBookSnapshot<Self::Id>);
 }
 
-#[async_trait::async_trait]
 impl AddressBookMut for AddressBook {
-    async fn update(&self, new_peers: AddressBookSnapshot<Self::Id>) {
+    fn update(&self, new_peers: AddressBookSnapshot<Self::Id>) {
         let mut new_map = (**self.peers.load()).clone();
         new_map.extend(new_peers);
         self.peers.store(Arc::new(new_map));

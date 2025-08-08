@@ -97,7 +97,7 @@ where
 
         // update in-memory latest membership
         self.membership_handler.update(updated_membership);
-        self.addressbook.update(new_members.clone()).await;
+        self.addressbook.update(new_members.clone());
 
         // update membership storage
         self.membership_adapter
