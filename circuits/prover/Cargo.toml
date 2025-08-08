@@ -5,6 +5,8 @@ name              = "circuits-prover"
 version           = "0.1.0"
 
 [dependencies]
+circuits-utils = { workspace = true }
+tempfile       = { workspace = true }
 
 [lints]
 workspace = true

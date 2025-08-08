@@ -26,4 +26,4 @@ tests/.tmp*
 *ignore*
 
 # Circom Circuits' Binaries
-circuits/*/bin/*
+circuits/**/bin/*
