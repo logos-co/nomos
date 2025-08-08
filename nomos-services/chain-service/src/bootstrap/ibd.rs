@@ -208,7 +208,7 @@ where
                         )
                         .await;
                 }
-                DownloadsOutput::BlockDownloaded { block, download } => {
+                DownloadsOutput::BlockReceived { block, download } => {
                     (cryptarchia, storage_blocks_to_remove) =
                         (self.process_block)(cryptarchia, storage_blocks_to_remove, block).await;
                     // TODO: Stop download if process_block fails.
