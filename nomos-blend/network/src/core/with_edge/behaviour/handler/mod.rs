@@ -1,10 +1,10 @@
 use core::{
     future::Future,
     pin::Pin,
-    task::{Context, Poll},
+    task::{Context, Poll, Waker},
     time::Duration,
 };
-use std::{convert::Infallible, io};
+use std::io;
 
 use libp2p::{
     core::upgrade::{DeniedUpgrade, ReadyUpgrade},
@@ -57,6 +57,15 @@ pub enum ConnectionState {
 }
 
 impl ConnectionState {
+    fn on_behaviour_event(self, event: FromBehaviour) -> Self {
+        match self {
+            Self::Starting(s) => s.on_behaviour_event(event),
+            Self::ReadyToReceive(s) => s.on_behaviour_event(event),
+            Self::Receiving(s) => s.on_behaviour_event(event),
+            Self::Dropped(s) => s.on_behaviour_event(event),
+        }
+    }
+
     fn on_connection_event(self, event: ConnectionEvent) -> Self {
         match self {
             Self::Starting(s) => s.on_connection_event(event),
@@ -77,11 +86,17 @@ impl ConnectionState {
 }
 
 trait StateTrait: Into<ConnectionState> {
+    fn on_behaviour_event(mut self, _event: FromBehaviour) -> ConnectionState {
+        DroppedState::new(None, self.take_waker()).into()
+    }
+
     fn on_connection_event(self, _event: ConnectionEvent) -> ConnectionState {
         self.into()
     }
 
     fn poll(self, cx: &mut Context<'_>) -> PollResult<ConnectionState>;
+
+    fn take_waker(&mut self) -> Option<Waker>;
 }
 
 pub struct ConnectionHandler {
@@ -105,6 +120,11 @@ pub enum FailureReason {
 }
 
 #[derive(Debug)]
+pub enum FromBehaviour {
+    CloseSubstream,
+}
+
+#[derive(Debug)]
 pub enum ToBehaviour {
     /// A message has been received from the connection.
     Message(Vec<u8>),
@@ -113,7 +133,7 @@ pub enum ToBehaviour {
 }
 
 impl libp2p::swarm::ConnectionHandler for ConnectionHandler {
-    type FromBehaviour = Infallible;
+    type FromBehaviour = FromBehaviour;
     type ToBehaviour = ToBehaviour;
     type InboundProtocol = ReadyUpgrade<StreamProtocol>;
     type InboundOpenInfo = ();
@@ -125,7 +145,10 @@ impl libp2p::swarm::ConnectionHandler for ConnectionHandler {
         SubstreamProtocol::new(ReadyUpgrade::new(PROTOCOL_NAME), ())
     }
 
-    fn on_behaviour_event(&mut self, _event: Self::FromBehaviour) {}
+    fn on_behaviour_event(&mut self, event: Self::FromBehaviour) {
+        let state = self.state.take().expect("Inconsistent state");
+        self.state = Some(state.on_behaviour_event(event));
+    }
 
     fn on_connection_event(&mut self, event: ConnectionEvent) {
         let state = self.state.take().expect("Inconsistent state");

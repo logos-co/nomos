@@ -2,7 +2,6 @@ use std::{collections::HashMap, time::Duration};
 
 use futures::{AsyncWriteExt as _, Stream, StreamExt as _};
 use libp2p::{
-    identity::Keypair,
     swarm::{dial_opts::PeerCondition, ConnectionId},
     PeerId, Swarm, SwarmBuilder,
 };
@@ -11,7 +10,7 @@ use nomos_blend_scheduling::{
     membership::{Membership, Node},
     serialize_encapsulated_message, EncapsulatedMessage,
 };
-use nomos_libp2p::{ed25519, DialError, DialOpts, SwarmEvent};
+use nomos_libp2p::{DialError, DialOpts, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::mpsc;
 use tracing::{debug, error, trace};
@@ -48,7 +47,7 @@ where
         rng: Rng,
         command_receiver: mpsc::Receiver<Command>,
     ) -> Self {
-        let keypair = Keypair::from(ed25519::Keypair::from(settings.node_key.clone()));
+        let keypair = settings.keypair();
         let swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()

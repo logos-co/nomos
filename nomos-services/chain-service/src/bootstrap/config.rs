@@ -24,4 +24,12 @@ where
 {
     /// Peers to download blocks from.
     pub peers: HashSet<NodeId>,
+    /// Delay before attempting the next download
+    /// when no download is needed at the moment from a peer.
+    #[serde(default = "default_delay_before_new_download")]
+    pub delay_before_new_download: Duration,
+}
+
+const fn default_delay_before_new_download() -> Duration {
+    Duration::from_secs(10)
 }

@@ -61,10 +61,14 @@ pub enum DownloadBlocksResponse {
     Block(SerialisedBlock),
     /// A response indicating that no more blocks are available.
     NoMoreBlocks,
+    /// A response indicating that the request failed.
+    Failure(String),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct GetTipResponse {
-    pub id: HeaderId,
-    pub slot: Slot,
+pub enum GetTipResponse {
+    /// A response containing the tip and slot of the peer.
+    Tip { tip: HeaderId, slot: Slot },
+    /// A response indicating that the request failed.
+    Failure(String),
 }

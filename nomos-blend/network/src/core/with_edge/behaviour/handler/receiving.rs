@@ -17,6 +17,7 @@ pub struct ReceivingState {
     /// The timer future that will be polled regularly to close the connection
     /// if receiving the message takes too long.
     timeout_timer: TimerFuture,
+    waker: Option<Waker>,
 }
 
 impl ReceivingState {
@@ -33,6 +34,7 @@ impl ReceivingState {
         Self {
             incoming_message,
             timeout_timer,
+            waker: None,
         }
     }
 }
@@ -59,6 +61,7 @@ impl StateTrait for ReceivingState {
         let Poll::Ready(message_receive_result) = self.incoming_message.poll_unpin(cx) else {
             // We don't wake here since the `incoming_message` future will wake the waker
             // when completed.
+            self.waker = Some(cx.waker().clone());
             return (Poll::Pending, self.into());
         };
         match message_receive_result {
@@ -80,5 +83,9 @@ impl StateTrait for ReceivingState {
                 )
             }
         }
+    }
+
+    fn take_waker(&mut self) -> Option<Waker> {
+        self.waker.take()
     }
 }

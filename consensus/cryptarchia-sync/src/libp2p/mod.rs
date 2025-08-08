@@ -2,5 +2,5 @@ pub mod behaviour;
 mod downloader;
 pub mod errors;
 mod packing;
-mod provider;
+pub mod provider;
 mod utils;

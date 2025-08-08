@@ -18,7 +18,9 @@ use futures::Stream;
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p::{Multiaddr, PeerId};
 use nomos_core::{block::BlockNumber, da::BlobId};
-use nomos_da_network_core::{protocols::sampling::SubnetsConfig, SubnetworkId};
+use nomos_da_network_core::{
+    addressbook::AddressBookHandler as _, protocols::sampling::SubnetsConfig, SubnetworkId,
+};
 use overwatch::{
     services::{
         state::{NoOperator, ServiceState},
@@ -338,7 +340,7 @@ where
         loop {
             tokio::select! {
                 Some(msg) = inbound_relay.recv() => {
-                    Self::handle_network_service_message(msg, backend, &membership_storage, api_adapter, &self.subnet_settings).await;
+                    Self::handle_network_service_message(msg, backend, &membership_storage, api_adapter, &self.subnet_settings, addressbook).await;
                 }
                 Some((block_number, providers)) = stream.next() => {
                     tracing::debug!(
@@ -414,6 +416,7 @@ where
         membership_storage: &MembershipStorage<StorageAdapter, Membership, DaAddressbook>,
         api_adapter: &ApiAdapter,
         subnets_settings: &SubnetsConfig,
+        addressbook: &DaAddressbook,
     ) {
         match msg {
             DaNetworkMsg::Process(msg) => {
@@ -435,7 +438,7 @@ where
             } => {
                 // todo: handle errors properly when the usage of this function is known
                 // now we are just logging and returning an empty assignations
-                if let Some((membership, addressbook)) = membership_storage
+                if let Some(membership) = membership_storage
                     .get_historic_membership(block_number)
                     .await
                     .unwrap_or_else(|e| {
@@ -446,6 +449,19 @@ where
                     })
                 {
                     let assignations = membership.subnetworks();
+                    let addressbook = assignations
+                        .values()
+                        .flatten()
+                        .filter_map(|id| {
+                            addressbook
+                                .get_address(id)
+                                .map(|address| (*id, address))
+                                .or_else(|| {
+                                    tracing::error!("No address found for peer {id:?}");
+                                    None
+                                })
+                        })
+                        .collect::<AddressBookSnapshot<_>>();
                     sender.send(MembershipResponse { assignations, addressbook }).unwrap_or_else(|_| {
                                 tracing::warn!(
                                     "client hung up before a subnetwork assignations handle could be established"
@@ -511,7 +527,7 @@ where
                 None
             });
 
-        if let Some((membership, addressbook)) = membership {
+        if let Some(membership) = membership {
             let all_subnet_ids: Vec<_> = membership.subnetworks().keys().copied().collect();
 
             if all_subnet_ids.is_empty() {
@@ -519,6 +535,7 @@ where
                 return;
             }
 
+            let addressbook = HashMap::new(); // this is just so the code compiles after merge
             let selected_peers = Self::prepare_selected_peers(
                 backend,
                 &all_subnet_ids,

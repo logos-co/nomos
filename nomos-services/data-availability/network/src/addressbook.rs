@@ -6,44 +6,27 @@ use nomos_da_network_core::addressbook::AddressBookHandler;
 
 pub type AddressBookSnapshot<Id> = HashMap<Id, Multiaddr>;
 
-pub trait AddressBookMut: AddressBookHandler {
-    fn update(&self, new_peers: AddressBookSnapshot<Self::Id>);
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AddressBook {
-    peers: Arc<ArcSwap<AddressBookSnapshot<PeerId>>>,
-}
-
-impl Default for AddressBook {
-    fn default() -> Self {
-        Self {
-            peers: Arc::new(ArcSwap::from_pointee(AddressBookSnapshot::new())),
-        }
-    }
+    peers: Arc<ArcSwap<HashMap<PeerId, Multiaddr>>>,
 }
 
 impl AddressBookHandler for AddressBook {
     type Id = PeerId;
 
     fn get_address(&self, peer_id: &Self::Id) -> Option<Multiaddr> {
-        let peers = self.peers.load();
-        peers.get(peer_id).cloned()
+        self.peers.load().get(peer_id).cloned()
     }
+}
+
+pub trait AddressBookMut: AddressBookHandler {
+    fn update(&self, new_peers: AddressBookSnapshot<Self::Id>);
 }
 
 impl AddressBookMut for AddressBook {
     fn update(&self, new_peers: AddressBookSnapshot<Self::Id>) {
-        self.peers.store(Arc::new(new_peers));
-    }
-}
-
-// Implementations for Arc<T> to allow transparent usage
-impl<T> AddressBookMut for Arc<T>
-where
-    T: AddressBookMut,
-{
-    fn update(&self, new_peers: AddressBookSnapshot<Self::Id>) {
-        (**self).update(new_peers);
+        let mut new_map = (**self.peers.load()).clone();
+        new_map.extend(new_peers);
+        self.peers.store(Arc::new(new_map));
     }
 }

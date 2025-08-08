@@ -109,9 +109,8 @@ where
     pub async fn get_historic_membership(
         &self,
         block_number: BlockNumber,
-    ) -> Result<Option<(Membership, AddressBookSnapshot<Membership::Id>)>, DynError> {
+    ) -> Result<Option<Membership>, DynError> {
         let mut membership = None;
-        let mut addressbook = AddressBookSnapshot::default();
 
         if let Some(assignations) = self.membership_adapter.get(block_number).await? {
             membership = Some(self.membership_handler.membership().init(assignations));
@@ -122,19 +121,6 @@ where
             return Ok(None);
         }
 
-        for id in membership.as_ref().unwrap().members() {
-            // retrieve address for each member to get the most up-to-date addresses
-            // todo: implement bulk address retrieval
-            // for now, we retrieve addresses one by one
-            if let Some(address) = self.membership_adapter.get_address(id).await? {
-                addressbook.insert(id, address);
-            }
-        }
-
-        tracing::debug!(
-            "Historic membership for block {block_number} found with {} members",
-            addressbook.len()
-        );
-        Ok(Some((membership.unwrap(), addressbook)))
+        Ok(Some(membership.unwrap()))
     }
 }

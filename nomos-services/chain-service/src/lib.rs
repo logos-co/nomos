@@ -18,7 +18,7 @@ use std::{
 };
 
 use cryptarchia_engine::{PrunedBlocks, Slot};
-use cryptarchia_sync::GetTipResponse;
+use cryptarchia_sync::{GetTipResponse, ProviderResponse};
 use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
@@ -53,7 +53,7 @@ use services_utils::{
 };
 use thiserror::Error;
 use tokio::{
-    sync::{broadcast, oneshot},
+    sync::{broadcast, mpsc, oneshot},
     time::Instant,
 };
 use tracing::{debug, error, info, instrument, span, Level};
@@ -431,7 +431,7 @@ where
         + Sync
         + 'static,
     NetAdapter::Settings: Send + Sync + 'static,
-    NetAdapter::PeerId: Clone + Eq + Hash + Copy + Debug + Send + Sync + 'static,
+    NetAdapter::PeerId: Clone + Eq + Hash + Copy + Debug + Send + Sync + Unpin + 'static,
     BlendService: ServiceData<
             Message = nomos_blend_service::message::ServiceMessage<
                 <BlendService as BlendServiceExt>::BroadcastSettings,
@@ -452,6 +452,7 @@ where
         + DeserializeOwned
         + Send
         + Sync
+        + Unpin
         + 'static,
     ClPool::Key: Debug + Send + Sync,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
@@ -474,6 +475,7 @@ where
         + DeserializeOwned
         + Send
         + Sync
+        + Unpin
         + 'static,
     DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key> + Send + Sync + 'static,
     DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
@@ -783,11 +785,9 @@ where
 
                     Some(event) = chainsync_events.next() => {
                         if cryptarchia.state().is_online() {
-                            // Only process sync requests if we are in online mode
-                            // TODO: Reject chain sync requests explicitly, so that requesters aren't
-                            //       blocked for a long time.
-                            //       https://github.com/logos-co/nomos/issues/1451
                            Self::handle_chainsync_event(&cryptarchia, &sync_blocks_provider, event).await;
+                        } else {
+                            Self::reject_chain_sync_event(event).await;
                         }
                     }
                 }
@@ -1488,15 +1488,39 @@ where
             }
             ChainSyncEvent::ProvideTipRequest { reply_sender } => {
                 let tip = cryptarchia.consensus.tip_branch();
-                let response = GetTipResponse {
-                    id: tip.id(),
+                let response = ProviderResponse::Available(GetTipResponse::Tip {
+                    tip: tip.id(),
                     slot: tip.slot(),
-                };
+                });
+
                 info!("Sending tip response: {response:?}");
                 if let Err(e) = reply_sender.send(response).await {
                     error!("Failed to send tip header: {e}");
                 }
             }
+        }
+    }
+
+    async fn reject_chain_sync_event(event: ChainSyncEvent) {
+        debug!(target: LOG_TARGET, "Received chainsync event while in bootstrapping state. Ignoring it.");
+        match event {
+            ChainSyncEvent::ProvideBlocksRequest { reply_sender, .. } => {
+                Self::send_chain_sync_rejection(reply_sender).await;
+            }
+            ChainSyncEvent::ProvideTipRequest { reply_sender } => {
+                Self::send_chain_sync_rejection(reply_sender).await;
+            }
+        }
+    }
+
+    async fn send_chain_sync_rejection<ResponseType>(
+        sender: mpsc::Sender<ProviderResponse<ResponseType>>,
+    ) {
+        let response = ProviderResponse::Unavailable {
+            reason: "Node is not in online mode".to_owned(),
+        };
+        if let Err(e) = sender.send(response).await {
+            error!("Failed to send chain sync response: {e}");
         }
     }
 
