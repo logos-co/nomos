@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{HashMap, HashSet},
     num::{NonZero, NonZeroUsize},
     pin::Pin,
     task::{Context, Poll, Waker},
@@ -32,7 +32,7 @@ where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
 {
     /// Queue of blocks waiting to be fetched
-    pending_orphans_queue: BTreeMap<HeaderId, OrphanInfo>,
+    pending_orphans_queue: HashMap<HeaderId, OrphanInfo>,
     /// Network interface
     network_adapter: NetAdapter,
     /// Current state of the downloader with associated data
@@ -58,11 +58,11 @@ struct OrphanInfo {
 }
 
 impl OrphanInfo {
-    const fn new(block_id: HeaderId, local_tip: HeaderId, immutable_tip: HeaderId) -> Self {
+    const fn new(block_id: HeaderId, local_tip: HeaderId, lib: HeaderId) -> Self {
         Self {
             orphan_id: block_id,
             tip: local_tip,
-            lib: immutable_tip,
+            lib,
         }
     }
 }
@@ -102,13 +102,13 @@ where
     NetAdapter::Block: Clone + Send + Sync + 'static,
     RuntimeServiceId: Send + Sync + 'static,
 {
-    pub const fn new(
+    pub fn new(
         network_adapter: NetAdapter,
         max_pending_orphans: NonZeroUsize,
         security_param: NonZero<u32>,
     ) -> Self {
         Self {
-            pending_orphans_queue: BTreeMap::new(),
+            pending_orphans_queue: HashMap::new(),
             network_adapter,
             state: DownloaderState::Idle,
             max_pending_orphans,
@@ -118,12 +118,7 @@ where
         }
     }
 
-    pub fn enqueue_orphan(
-        &mut self,
-        block_id: HeaderId,
-        current_tip: HeaderId,
-        immutable_tip: HeaderId,
-    ) {
+    pub fn enqueue_orphan(&mut self, block_id: HeaderId, current_tip: HeaderId, lib: HeaderId) {
         if self.pending_orphans_queue.len() >= self.max_pending_orphans.get() {
             return;
         }
@@ -138,10 +133,8 @@ where
             return;
         }
 
-        self.pending_orphans_queue.insert(
-            block_id,
-            OrphanInfo::new(block_id, current_tip, immutable_tip),
-        );
+        self.pending_orphans_queue
+            .insert(block_id, OrphanInfo::new(block_id, current_tip, lib));
 
         if let Some(waker) = &self.waker {
             waker.wake_by_ref();
@@ -323,7 +316,6 @@ where
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::HashMap,
         pin,
         sync::{Arc, Mutex},
         time::Duration,
@@ -612,7 +604,14 @@ mod tests {
         let mut downloader = pin::pin!(downloader);
         let received_blocks = receive_blocks(&mut downloader, 6).await;
 
-        let expected = &[chain[0..=1].to_vec(), chain[5..=6].to_vec()].concat();
+        let first_block = received_blocks.first().unwrap();
+        let is_orphan_2_first = *first_block == chain[0];
+
+        let expected = if is_orphan_2_first {
+            &[chain[0..=1].to_vec(), chain[5..=6].to_vec()].concat()
+        } else {
+            &[chain[5..=6].to_vec(), chain[0..=1].to_vec()].concat()
+        };
         assert_eq!(&received_blocks, expected);
     }
 
@@ -631,7 +630,14 @@ mod tests {
         let mut downloader = pin::pin!(downloader);
         let received_blocks = receive_blocks(&mut downloader, 6).await;
 
-        let expected = &[chain[0..=2].to_vec(), chain[5..=7].to_vec()].concat();
+        let first_block = received_blocks.first().unwrap();
+        let is_orphan_2_first = *first_block == chain[0];
+
+        let expected = if is_orphan_2_first {
+            &[chain[0..=2].to_vec(), chain[5..=7].to_vec()].concat()
+        } else {
+            &[chain[5..=7].to_vec(), chain[0..=2].to_vec()].concat()
+        };
         assert_eq!(&received_blocks, expected);
     }
 
