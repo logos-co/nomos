@@ -254,6 +254,8 @@ where
                             self.state = DownloaderState::Idle;
                         }
 
+                        self.pending_orphans_queue.remove(&block_id);
+
                         cx.waker().wake_by_ref();
                         Poll::Ready(Some(block))
                     }
@@ -271,6 +273,7 @@ where
                         if let Some(last_block_id) = download.last_block_id {
                             let orphan_info = download.orphan_info.clone();
                             let known_blocks = HashSet::from([last_block_id]);
+
                             let request_blocks_stream_fut = Self::request_blocks_stream(
                                 self.network_adapter.clone(),
                                 orphan_info,
@@ -703,14 +706,13 @@ mod tests {
 
         assert_eq!(received_blocks.len(), 4);
 
-        let first_block = received_blocks[0];
-        let is_orphan_1_first = first_block == chain[0];
+        let is_orphan_1_first = received_blocks[0] == chain[0];
 
         if is_orphan_1_first {
             assert_eq!(received_blocks[0], chain[0]);
-            assert_eq!(received_blocks[1], chain[4]);
-            assert_eq!(received_blocks[2], chain[5]);
-            assert_eq!(received_blocks[3], chain[6]);
+            assert_eq!(received_blocks[1], chain[5]);
+            assert_eq!(received_blocks[2], chain[6]);
+            assert_eq!(received_blocks[3], chain[7]);
         } else {
             assert_eq!(received_blocks[0], chain[5]);
             assert_eq!(received_blocks[1], chain[0]);
