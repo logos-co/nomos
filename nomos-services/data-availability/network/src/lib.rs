@@ -587,7 +587,7 @@ where
             let selected_peer = subnet_members[rng.gen_range(0..subnet_members.len())];
 
             if let Some(address) = addressbook.get(&selected_peer) {
-                selected_peers.push((selected_peer, address.clone())); // Can have duplicates!
+                selected_peers.push((selected_peer, address.clone()));
             } else {
                 tracing::error!(
                 "No addresses found for peer {selected_peer:?} in addressbook at block {block_number}"
