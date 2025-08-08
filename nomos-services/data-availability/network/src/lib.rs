@@ -299,7 +299,7 @@ where
             .await?;
 
         let storage_adapter = StorageAdapter::new(storage_service_relay);
-        let mut membership_storage =
+        let membership_storage =
             MembershipStorage::new(storage_adapter, membership.clone(), addressbook.clone());
 
         let membership_service_adapter = MembershipServiceAdapter::new(membership_service_relay);
@@ -325,7 +325,7 @@ where
                         "Received membership update for block {}: {:?}",
                         block_number, providers
                     );
-                    Self::handle_membership_update(block_number, providers, &mut membership_storage).await;
+                    Self::handle_membership_update(block_number, providers, &membership_storage).await;
                 }
             }
         }
@@ -467,7 +467,7 @@ where
     async fn handle_membership_update(
         block_number: BlockNumber,
         update: HashMap<Membership::Id, Multiaddr>,
-        storage: &mut MembershipStorage<StorageAdapter, Membership, DaAddressbook>,
+        storage: &MembershipStorage<StorageAdapter, Membership, DaAddressbook>,
     ) {
         storage
             .update(block_number, update)

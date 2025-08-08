@@ -72,7 +72,7 @@ where
     }
 
     pub async fn update(
-        &mut self,
+        &self,
         block_number: BlockNumber,
         new_members: AddressBookSnapshot<Membership::Id>,
     ) -> Result<(), DynError> {
@@ -97,7 +97,7 @@ where
 
         // update in-memory latest membership
         self.membership_handler.update(updated_membership);
-        self.addressbook.update(new_members.clone());
+        self.addressbook.update(new_members.clone()).await;
 
         // update membership storage
         self.membership_adapter
