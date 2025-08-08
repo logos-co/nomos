@@ -174,9 +174,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Deps
+        if : matrix.os[1] == 'Linux'
         run: |
-          sudo apt update
-          sudo apt install -y libclang-dev clang
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev clang
 
       - name: Disable rustup override
         run: rustup override unset
