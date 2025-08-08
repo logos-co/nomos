@@ -765,7 +765,7 @@ where
                                 cryptarchia = new_cryptarchia;
                                 storage_blocks_to_remove = new_storage_blocks_to_remove;
 
-                                orphan_downloader.cancel_orphan(&block.header().id());
+                                orphan_downloader.remove_orphan(&block.header().id());
 
                                 info!(counter.consensus_processed_blocks = 1);
                             }
@@ -869,7 +869,7 @@ where
                             }
                             Err(e) => {
                                 error!(target: LOG_TARGET, "Error processing orphan downloader block: {e:?}");
-                                orphan_downloader.cancel_orphan(&block.header().id());
+                                orphan_downloader.cancel_active_download();
                             }
                         }
                     }

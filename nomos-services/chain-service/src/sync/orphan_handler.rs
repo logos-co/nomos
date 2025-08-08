@@ -155,15 +155,15 @@ where
             .map(|stream| ActiveDownload::new(orphan_info, stream))
     }
 
-    /// If the orphan block was previously added, it will be removed from the
-    /// queue. If it was the active download, it will be canceled.
-    pub fn cancel_orphan(&mut self, block_id: &HeaderId) {
+    pub fn remove_orphan(&mut self, block_id: &HeaderId) {
         self.pending_orphans_queue.remove(block_id);
+    }
 
+    pub fn cancel_active_download(&mut self) {
         if let DownloaderState::Downloading(download) = &mut self.state {
-            if download.orphan_block_id() == *block_id {
-                self.state = DownloaderState::Idle;
-            }
+            let orphan_id = download.orphan_block_id();
+            self.pending_orphans_queue.remove(&orphan_id);
+            self.state = DownloaderState::Idle;
         }
 
         if let Some(waker) = &self.waker {
@@ -690,21 +690,28 @@ mod tests {
             received_blocks.push(block);
         }
 
-        let is_from_orphan1 = received_blocks[0] == chain[0];
-        let first_orphan_id = if is_from_orphan1 { chain[2] } else { chain[7] };
+        let downloader_mut = downloader.as_mut().get_mut();
+        downloader_mut.cancel_active_download();
 
-        downloader
-            .as_mut()
-            .get_mut()
-            .cancel_orphan(&first_orphan_id);
-
-        let additional_blocks = receive_blocks(&mut downloader, 2).await;
+        let additional_blocks = receive_blocks(&mut downloader, 3).await;
         received_blocks.extend(additional_blocks);
 
-        assert_eq!(received_blocks.len(), 3);
-        assert_eq!(received_blocks[0], chain[0]);
-        assert_eq!(received_blocks[1], chain[5]);
-        assert_eq!(received_blocks[2], chain[6]);
+        assert_eq!(received_blocks.len(), 4);
+
+        let first_block = received_blocks[0];
+        let is_orphan_1_first = first_block == chain[0];
+
+        if is_orphan_1_first {
+            assert_eq!(received_blocks[0], chain[0]);
+            assert_eq!(received_blocks[1], chain[4]);
+            assert_eq!(received_blocks[2], chain[5]);
+            assert_eq!(received_blocks[3], chain[6]);
+        } else {
+            assert_eq!(received_blocks[0], chain[5]);
+            assert_eq!(received_blocks[1], chain[0]);
+            assert_eq!(received_blocks[2], chain[1]);
+            assert_eq!(received_blocks[3], chain[2]);
+        }
     }
 
     #[tokio::test]
@@ -758,16 +765,9 @@ mod tests {
 
         let mut cx = Context::from_waker(futures::task::noop_waker_ref());
         if let Poll::Ready(Some(block)) = downloader.as_mut().poll_next(&mut cx) {
-            let block_id = block;
             received_blocks.push(block);
 
-            let is_from_orphan1 = block_id == chain[0];
-            let first_orphan_id = if is_from_orphan1 { chain[3] } else { chain[7] };
-
-            downloader
-                .as_mut()
-                .get_mut()
-                .cancel_orphan(&first_orphan_id);
+            downloader.as_mut().get_mut().cancel_active_download();
         }
 
         let additional_blocks = receive_blocks(&mut downloader, 4).await;
