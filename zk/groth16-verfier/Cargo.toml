@@ -6,8 +6,18 @@ version = "0.1.0"
 
 [dependencies]
 ark-ec = "0.5"
+ark-ff = "0.5"
 ark-bn254 = "0.5"
 ark-groth16 = "0.5"
+serde = { version = "1.0", optional = true, features = ["derive"] }
+num-bigint = { version = "0.4", optional = true }
+
+[dev-dependencies]
+serde_json = "1.0"
 
 [lints]
 workspace = true
+
+[features]
+default = []
+deser = ["serde", "num-bigint", "num-bigint/serde"]

@@ -1,3 +1,4 @@
+mod curve;
 mod proof;
 mod protocol;
 mod verification_key;
