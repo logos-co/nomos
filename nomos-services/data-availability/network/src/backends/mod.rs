@@ -3,7 +3,6 @@ pub mod mock;
 
 use std::pin::Pin;
 
-use ::libp2p::PeerId;
 use futures::Stream;
 use nomos_core::{block::BlockNumber, da::BlobId};
 use nomos_da_network_core::addressbook::AddressBookHandler;
@@ -41,5 +40,4 @@ pub trait NetworkBackend<RuntimeServiceId> {
         blob_id: BlobId,
         membership: Self::HistoricMembership,
     );
-    fn local_peer_id(&self) -> PeerId;
 }
