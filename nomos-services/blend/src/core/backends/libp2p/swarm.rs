@@ -1,6 +1,6 @@
 use core::num::NonZeroU64;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{hash_map::Entry, HashMap, HashSet},
     time::Duration,
 };
 
@@ -33,17 +33,10 @@ pub enum BlendSwarmMessage {
 }
 
 struct DialAttempt {
+    /// Address of peer being dialed.
     address: Multiaddr,
-    attempt_number: u64,
-}
-
-impl From<Multiaddr> for DialAttempt {
-    fn from(value: Multiaddr) -> Self {
-        Self {
-            address: value,
-            attempt_number: 0,
-        }
-    }
+    /// The latest (ongoing) attempt number.
+    attempt_number: NonZeroU64,
 }
 
 pub(super) struct BlendSwarm<SessionStream, Rng>
@@ -113,7 +106,7 @@ where
     /// Dial random peers from the membership list,
     /// excluding the currently connected peers, the peers that we are already
     /// trying to dial, and the blocked peers.
-    fn dial_random_peers(&mut self, amount: usize, except: Option<PeerId>) {
+    fn dial_random_peers_except(&mut self, amount: usize, except: Option<PeerId>) {
         let exclude_peers: HashSet<PeerId> = self
             .swarm
             .connected_peers()
@@ -141,18 +134,43 @@ where
     /// dials. Any checks about the maximum allowed dials must be performed in
     /// the context of the calling function.
     fn dial(&mut self, peer_id: PeerId, address: Multiaddr) {
-        // Set to `1` if first dial or bump to the next value if retry.
-        let maybe_dial_entry = self
-            .ongoing_dials
-            .entry(peer_id)
-            .or_insert_with(|| address.clone().into());
-        let new_dial_attempt_number = maybe_dial_entry.attempt_number.checked_add(1).unwrap();
-        maybe_dial_entry.attempt_number = new_dial_attempt_number;
+        // Set to `1` if first dial or bump to the next value if a retry.
+        match self.ongoing_dials.entry(peer_id) {
+            Entry::Vacant(empty_entry) => {
+                empty_entry.insert(DialAttempt {
+                    address: address.clone(),
+                    attempt_number: 1.try_into().unwrap(),
+                });
+            }
+            Entry::Occupied(mut existing_entry) => {
+                let last_attempt_number = existing_entry.get().attempt_number;
+                existing_entry.get_mut().attempt_number =
+                    last_attempt_number.checked_add(1).unwrap();
+            }
+        }
 
         if let Err(e) = self.swarm.dial(address) {
             tracing::error!(target: LOG_TARGET, "Failed to dial peer {peer_id:?}: {e:?}");
             self.retry_dial(peer_id);
         }
+    }
+
+    /// Attempt to retry dialing the specified peer, if the maximum attempts
+    /// have not already been performed.
+    ///
+    /// It returns `None` if a new dial attempt is performed, `Some` otherwise
+    /// with the dial details of the peer that has been removed from the map
+    /// of ongoing dials.
+    fn retry_dial(&mut self, peer_id: PeerId) -> Option<DialAttempt> {
+        let DialAttempt {
+            address,
+            attempt_number,
+        } = self.ongoing_dials.get(&peer_id).unwrap();
+        if *attempt_number < self.max_dial_attempts_per_connection {
+            self.dial(peer_id, address.clone());
+            return None;
+        }
+        self.ongoing_dials.remove(&peer_id)
     }
 
     /// Dial new peers, if necessary, to maintain the peering degree.
@@ -166,26 +184,7 @@ where
             tracing::debug!(target: LOG_TARGET, "To maintain the minimum healthy peering degree the node would need to create {num_new_conns_needed} new connections, but only {available_connection_slots} slots are available.");
         }
         let connections_to_establish = num_new_conns_needed.min(available_connection_slots);
-        self.dial_random_peers(connections_to_establish, except);
-    }
-
-    /// Attempt to retry dialing the specified peer, if the maximum attempts
-    /// have not already been performed.
-    ///
-    /// It returns `true` if a new dial is performed, `false` otherwise. In case
-    /// `false` is returned, the entry for the peer is removed from the map of
-    /// ongoing dials.
-    fn retry_dial(&mut self, peer_id: PeerId) -> bool {
-        let DialAttempt {
-            address,
-            attempt_number,
-        } = self.ongoing_dials.get(&peer_id).unwrap();
-        if *attempt_number < self.max_dial_attempts_per_connection.get() {
-            self.dial(peer_id, address.clone());
-            return true;
-        }
-        self.ongoing_dials.remove(&peer_id);
-        false
+        self.dial_random_peers_except(connections_to_establish, except);
     }
 
     fn handle_disconnected_peer(&mut self, peer_id: PeerId, peer_state: NegotiatedPeerState) {
@@ -221,13 +220,14 @@ where
                 connection_id,
                 error,
             } => {
-                tracing::info!(
+                tracing::error!(
                     target: LOG_TARGET,
                     "Dialing error for peer: {peer_id:?} on connection: {connection_id:?}. Error: {error:?}"
                 );
                 // We don't retry if `peer_id` is `None` or if we've achieved the maximum number
-                // of retries.
-                let is_connection_retried = peer_id.is_some_and(|peer_id| self.retry_dial(peer_id));
+                // of retries for this peer.
+                let is_connection_retried =
+                    peer_id.is_some_and(|peer_id| self.retry_dial(peer_id).is_none());
                 if !is_connection_retried {
                     self.check_and_dial_new_peers_except(peer_id);
                 }
@@ -261,8 +261,8 @@ where
             }
             nomos_blend_network::core::with_core::behaviour::Event::OutboundConnectionUpgradeFailed(peer_id) => {
                 // If we ran out of dial attempts, we try to connect to another random peer that we are not yet connected to.
-                if !self.retry_dial(peer_id) {
-                    self.dial_random_peers(1, Some(peer_id));
+                if self.retry_dial(peer_id).is_some() {
+                    self.dial_random_peers_except(1, Some(peer_id));
                 }
             }
             nomos_blend_network::core::with_core::behaviour::Event::OutboundConnectionUpgradeSucceeded(peer_id) => {

@@ -25,8 +25,11 @@ use super::settings::Libp2pBlendBackendSettings;
 use crate::edge::backends::libp2p::LOG_TARGET;
 
 struct DialAttempt {
+    /// Address of peer being dialed.
     address: Multiaddr,
-    attempt_number: u64,
+    /// The latest (ongoing) attempt number.
+    attempt_number: NonZeroU64,
+    /// The message to send once the peer is successfully dialed.
     message: EncapsulatedMessage,
 }
 
@@ -98,6 +101,10 @@ where
         self.dial_and_schedule_message_except(msg, None);
     }
 
+    /// Schedule a dial with retries for a given message.
+    ///
+    /// The peer to send the message to is chosen at random, except the provided
+    /// peer, if specified.
     fn dial_and_schedule_message_except(
         &mut self,
         msg: EncapsulatedMessage,
@@ -107,21 +114,17 @@ where
             error!(target: LOG_TARGET, "No peers available to send the message to");
             return;
         };
-
-        self.first_dial(node.id, node.address, msg);
-    }
-
-    fn first_dial(&mut self, peer_id: PeerId, address: Multiaddr, message: EncapsulatedMessage) {
+        let (peer_id, address) = (node.id, node.address);
         let opts = dial_opts(peer_id, address.clone());
         let connection_id = opts.connection_id();
 
         let Entry::Vacant(empty_entry) = self.pending_dials.entry((peer_id, connection_id)) else {
-            panic!("First dial for peer {peer_id:?} and connection {connection_id:?} should not be present in storage.");
+            panic!("Dial attempt for peer {peer_id:?} and connection {connection_id:?} should not be present in storage.");
         };
         empty_entry.insert(DialAttempt {
             address,
-            attempt_number: 1,
-            message,
+            attempt_number: 1.try_into().unwrap(),
+            message: msg,
         });
 
         if let Err(e) = self.swarm.dial(opts) {
@@ -130,35 +133,31 @@ where
         }
     }
 
-    fn redial(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
-        let dial_entry = self
-            .pending_dials
-            .get_mut(&(peer_id, connection_id))
-            .unwrap();
-        let new_dial_attempt_number = dial_entry.attempt_number.checked_add(1).unwrap();
-        dial_entry.attempt_number = new_dial_attempt_number;
-
-        if let Err(e) = self
-            .swarm
-            .dial(dial_opts(peer_id, dial_entry.address.clone()))
-        {
-            error!(target: LOG_TARGET, "Failed to redial peer {peer_id:?} on connection {connection_id:?}: {e:?}");
-            self.retry_dial(peer_id, connection_id);
-        }
-    }
-
+    /// Attempt to retry dialing the specified peer, if the maximum attempts
+    /// have not already been performed.
+    ///
+    /// It returns `None` if a new dial attempt is performed, `Some` otherwise
+    /// with the dial details of the peer that has been removed from the map
+    /// of ongoing dials.
     fn retry_dial(&mut self, peer_id: PeerId, connection_id: ConnectionId) -> Option<DialAttempt> {
         let DialAttempt {
             address,
             attempt_number,
             ..
-        } = self.pending_dials.get(&(peer_id, connection_id)).unwrap();
-        if *attempt_number < self.max_dial_attempts_per_connection.get() {
-            let connection_id = dial_opts(peer_id, address.clone()).connection_id();
-            self.redial(peer_id, connection_id);
-            return None;
+        } = self
+            .pending_dials
+            .get_mut(&(peer_id, connection_id))
+            .unwrap();
+        if *attempt_number >= self.max_dial_attempts_per_connection {
+            return self.pending_dials.remove(&(peer_id, connection_id));
         }
-        self.pending_dials.remove(&(peer_id, connection_id))
+        *attempt_number = attempt_number.checked_add(1).unwrap();
+
+        if let Err(e) = self.swarm.dial(dial_opts(peer_id, address.clone())) {
+            error!(target: LOG_TARGET, "Failed to redial peer {peer_id:?} on connection {connection_id:?}: {e:?}");
+            self.retry_dial(peer_id, connection_id);
+        }
+        None
     }
 
     fn choose_peer_except(&mut self, except: Option<PeerId>) -> Option<Node<PeerId>> {
@@ -254,6 +253,8 @@ where
         (peer_id, connection_id): (PeerId, ConnectionId),
     ) {
         error!(target: LOG_TARGET, "Failed to send message: {error} to peer {peer_id:?} on connection {connection_id:?}.");
+        // If the maximum attempt count was reached for this peer, try to schedule the
+        // message for a different peer.
         if let Some(DialAttempt { message, .. }) = self.retry_dial(peer_id, connection_id) {
             self.dial_and_schedule_message_except(message, Some(peer_id));
         }
@@ -265,6 +266,8 @@ where
         (peer_id, connection_id): (PeerId, ConnectionId),
     ) {
         error!(target: LOG_TARGET, "Failed to open stream to {peer_id}: {error}");
+        // If the maximum attempt count was reached for this peer, try to schedule the
+        // message for a different peer.
         if let Some(DialAttempt { message, .. }) = self.retry_dial(peer_id, connection_id) {
             self.dial_and_schedule_message_except(message, Some(peer_id));
         }
@@ -279,9 +282,12 @@ where
         error!(target: LOG_TARGET, "Outgoing connection error: peer_id:{peer_id:?}, connection_id:{connection_id}: {error}");
 
         let Some(peer_id) = peer_id else {
+            debug!(target: LOG_TARGET, "No PeerId set. Ignoring: peer_id:{peer_id:?}, connection_id:{connection_id}");
             return;
         };
 
+        // If the maximum attempt count was reached for this peer, try to schedule the
+        // message for a different peer.
         if let Some(DialAttempt { message, .. }) = self.retry_dial(peer_id, connection_id) {
             self.dial_and_schedule_message_except(message, Some(peer_id));
         }
