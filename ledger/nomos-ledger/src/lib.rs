@@ -12,6 +12,7 @@ pub use config::Config;
 use cryptarchia::LedgerState as CryptarchiaLedger;
 pub use cryptarchia::{EpochState, UtxoTree};
 use cryptarchia_engine::Slot;
+use mantle::LedgerState as MantleLedger;
 use nomos_core::{
     mantle::{gas::GasConstants, AuthenticatedMantleTx, NoteId, Utxo},
     proofs::leader_proof,
@@ -34,6 +35,8 @@ pub enum LedgerError<Id> {
     Overflow,
     #[error("Zero value note")]
     ZeroValueNote,
+    #[error("Mantle error: {0}")]
+    Mantle(#[from] mantle::Error),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -115,7 +118,7 @@ where
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LedgerState {
     cryptarchia_ledger: CryptarchiaLedger,
-    mantle_ledger: (),
+    mantle_ledger: MantleLedger,
 }
 
 impl LedgerState {
@@ -152,7 +155,7 @@ impl LedgerState {
         // If we need to do something for mantle ops/rewards, this would be the place.
         Ok(Self {
             cryptarchia_ledger,
-            mantle_ledger: (),
+            mantle_ledger: self.mantle_ledger,
         })
     }
 
@@ -164,8 +167,8 @@ impl LedgerState {
         for tx in txs {
             let _balance;
             (self.cryptarchia_ledger, _balance) =
-                self.cryptarchia_ledger.try_apply_tx::<_, Constants>(tx)?;
-            // TODO: mantle ops
+                self.cryptarchia_ledger.try_apply_tx::<_, Constants>(&tx)?;
+            self.mantle_ledger = self.mantle_ledger.try_apply_tx::<Constants>(tx)?;
         }
         Ok(self)
     }
@@ -173,7 +176,7 @@ impl LedgerState {
     pub fn from_utxos(utxos: impl IntoIterator<Item = Utxo>) -> Self {
         Self {
             cryptarchia_ledger: CryptarchiaLedger::from_utxos(utxos),
-            mantle_ledger: (),
+            mantle_ledger: MantleLedger::default(),
         }
     }
 

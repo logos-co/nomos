@@ -15,6 +15,7 @@ pub mod tx;
 
 pub use gas::{GasConstants, GasCost};
 pub use ledger::{Note, NoteId, Utxo, Value};
+pub use ops::{Op, OpProof};
 pub use tx::{MantleTx, SignedMantleTx, TxHash};
 
 use crate::proofs::zksig::ZkSignatureProof;
@@ -41,6 +42,8 @@ pub trait AuthenticatedMantleTx: Transaction<Hash = TxHash> + GasCost {
 
     /// Returns the proof of the ledger transaction
     fn ledger_tx_proof(&self) -> &impl ZkSignatureProof;
+
+    fn ops_with_proof(&self) -> impl Iterator<Item = (&Op, Option<&OpProof>)>;
 }
 
 impl<T: Transaction> Transaction for &T {
@@ -59,6 +62,10 @@ impl<T: AuthenticatedMantleTx> AuthenticatedMantleTx for &T {
 
     fn ledger_tx_proof(&self) -> &impl ZkSignatureProof {
         T::ledger_tx_proof(self)
+    }
+
+    fn ops_with_proof(&self) -> impl Iterator<Item = (&Op, Option<&OpProof>)> {
+        T::ops_with_proof(self)
     }
 }
 
