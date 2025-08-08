@@ -653,7 +653,6 @@ where
         let mut orphan_downloader = Box::pin(OrphanBlocksDownloader::new(
             network_adapter.clone(),
             sync_config.orphan.max_orphan_cache_size,
-            ledger_config.consensus_config.security_param,
         ));
 
         self.service_resources_handle.status_updater.notify_ready();

@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    num::{NonZero, NonZeroUsize},
+    num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll, Waker},
 };
@@ -39,8 +39,6 @@ where
     state: DownloaderState<NetAdapter::Block>,
     /// Maximum number of orphans to queue
     max_pending_orphans: NonZeroUsize,
-    /// Maximum blocks to fetch per orphan
-    max_blocks_per_orphan: NonZero<u32>,
     /// Waker to notify when new work is available
     waker: Option<Waker>,
     _phantom: std::marker::PhantomData<RuntimeServiceId>,
@@ -102,17 +100,12 @@ where
     NetAdapter::Block: Clone + Send + Sync + 'static,
     RuntimeServiceId: Send + Sync + 'static,
 {
-    pub fn new(
-        network_adapter: NetAdapter,
-        max_pending_orphans: NonZeroUsize,
-        security_param: NonZero<u32>,
-    ) -> Self {
+    pub fn new(network_adapter: NetAdapter, max_pending_orphans: NonZeroUsize) -> Self {
         Self {
             pending_orphans_queue: HashMap::new(),
             network_adapter,
             state: DownloaderState::Idle,
             max_pending_orphans,
-            max_blocks_per_orphan: security_param,
             waker: None,
             _phantom: std::marker::PhantomData,
         }
@@ -210,8 +203,6 @@ where
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.waker = Some(cx.waker().clone());
 
-        let max_blocks = self.max_blocks_per_orphan.get() as usize;
-
         match &mut self.state {
             DownloaderState::Idle => {
                 let Some((orphan_info, known_blocks)) = self.get_next_stream_input() else {
@@ -258,10 +249,6 @@ where
                             .total_blocks_received
                             .checked_add(1)
                             .expect("Block count overflow");
-
-                        if download.total_blocks_received >= max_blocks {
-                            self.state = DownloaderState::Idle;
-                        }
 
                         Poll::Ready(Some(block))
                     }
@@ -334,7 +321,7 @@ mod tests {
 
     fn create_downloader() -> OrphanBlocksDownloader<MockNetworkAdapter, usize> {
         let network = MockNetworkAdapter::new();
-        OrphanBlocksDownloader::new(network, ORPHAN_CACHE_SIZE, SECURITY_PARAM)
+        OrphanBlocksDownloader::new(network, ORPHAN_CACHE_SIZE)
     }
 
     fn create_downloader_with_responses<T>(
@@ -364,7 +351,7 @@ mod tests {
             }
         }
 
-        OrphanBlocksDownloader::new(network, ORPHAN_CACHE_SIZE, SECURITY_PARAM)
+        OrphanBlocksDownloader::new(network, ORPHAN_CACHE_SIZE)
     }
 
     trait IntoBlockResult {
@@ -533,9 +520,6 @@ mod tests {
     const ORPHAN_CACHE_SIZE: NonZeroUsize =
         NonZeroUsize::new(5).expect("ORPHAN_CACHE_SIZE must be non-zero");
 
-    const SECURITY_PARAM: NonZero<u32> =
-        NonZero::new(100).expect("SECURITY_PARAM must be non-zero");
-
     const TEST_TIP: [u8; 32] = [10u8; 32];
     const TEST_LIB: [u8; 32] = [11u8; 32];
 
@@ -657,26 +641,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_max_blocks_limit() {
-        let chain = create_chain(5);
-
-        let mut downloader =
-            create_downloader_with_responses(&chain, vec![(4, vec![vec![0, 1, 2, 3, 4]])]);
-        downloader.max_blocks_per_orphan = NonZero::new(3).unwrap();
-
-        downloader.enqueue_orphan(chain[4], TEST_TIP.into(), TEST_LIB.into());
-
-        let mut downloader = pin::pin!(downloader);
-
-        let received_blocks = receive_blocks(&mut downloader, 10).await;
-
-        assert_eq!(received_blocks.len(), 3);
-        for (i, block) in received_blocks.iter().enumerate() {
-            assert_eq!(*block, chain[i]);
-        }
-    }
-
-    #[tokio::test]
     async fn test_multiple_streams() {
         let chain = create_chain(10);
 
@@ -684,7 +648,6 @@ mod tests {
             &chain,
             vec![(9, vec![vec![0, 1, 2], vec![3, 4, 5], Vec::<usize>::new()])],
         );
-        downloader.max_blocks_per_orphan = NonZero::new(10).unwrap();
 
         downloader.enqueue_orphan(chain[9], TEST_TIP.into(), TEST_LIB.into());
 
