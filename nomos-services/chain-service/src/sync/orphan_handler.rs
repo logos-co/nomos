@@ -250,6 +250,11 @@ where
                             .checked_add(1)
                             .expect("Block count overflow");
 
+                        if download.orphan_info.orphan_id == block_id {
+                            self.state = DownloaderState::Idle;
+                        }
+
+                        cx.waker().wake_by_ref();
                         Poll::Ready(Some(block))
                     }
                     Poll::Ready(Some(Err(e))) => {
@@ -811,5 +816,24 @@ mod tests {
 
         let all_blocks: Vec<_> = first_batch.into_iter().chain(second_batch).collect();
         assert_eq!(&all_blocks, &chain);
+    }
+
+    #[tokio::test]
+    async fn test_stop_at_orphan_block() {
+        let chain = create_chain(5);
+        let mut downloader =
+            create_downloader_with_responses(&chain, vec![(2, vec![vec![0, 1, 2, 3, 4]])]);
+
+        downloader.enqueue_orphan(chain[2], TEST_TIP.into(), TEST_LIB.into());
+
+        let mut downloader = pin::pin!(downloader);
+        let received_blocks = receive_blocks(&mut downloader, 3).await;
+
+        assert_eq!(&received_blocks, &chain[0..=2]);
+
+        assert!(matches!(
+            downloader.as_mut().get_mut().state,
+            DownloaderState::Idle
+        ));
     }
 }
