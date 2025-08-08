@@ -55,8 +55,8 @@ tokio                    = "1"
 tracing                  = { workspace = true }
 
 # openapi related dependencies
-utoipa            = "4.0"
-utoipa-swagger-ui = { version = "4.0" }
+utoipa            = { workspace = true }
+utoipa-swagger-ui = { workspace = true }
 
 # axum related dependencies
 axum       = { version = "0.6" }

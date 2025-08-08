@@ -1,3 +1,5 @@
+#![allow(clippy::needless_for_each, reason = "Utoipa implementation")]
+
 use std::{
     net::{Ipv4Addr, SocketAddr},
     sync::Arc,
@@ -312,7 +314,7 @@ mod todo {
     /// Delete Todo item by id
     ///
     /// Delete Todo item from in-memory storage by id. Returns either 200
-    /// success of 404 with TodoError if Todo is not found.
+    /// success of 404 with `TodoError` if Todo is not found.
     #[utoipa::path(
       delete,
       path = "/todo/{id}",

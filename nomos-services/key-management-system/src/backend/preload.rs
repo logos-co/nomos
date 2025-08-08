@@ -1,127 +1,129 @@
-use std::collections::HashMap;
-
-use bytes::Bytes;
-use overwatch::DynError;
-use serde::{Deserialize, Serialize};
-use zeroize::ZeroizeOnDrop;
-
-use super::KMSBackend;
-use crate::{keys::ed25519::Ed25519Key, secure_key::SecuredKey, KMSOperator};
-
-pub struct PreloadKMSBackend {
-    keys: HashMap<String, Key>,
-}
-
-/// This settings contain all [`Key`]s to be loaded into the
-/// [`PreloadKMSBackend`]. This implements [`serde::Serialize`] for users to
-/// populate the settings from bytes. The [`Key`] also implements
-/// [`zeroize::ZeroizeOnDrop`] for security.
-#[derive(Serialize, Deserialize)]
-pub struct PreloadKMSBackendSettings {
-    keys: HashMap<String, Key>,
-}
-
-#[async_trait::async_trait]
-impl KMSBackend for PreloadKMSBackend {
-    type SupportedKeyTypes = SupportedKeyTypes;
-    type KeyId = String;
-    type Settings = PreloadKMSBackendSettings;
-
-    fn new(settings: Self::Settings) -> Self {
-        Self {
-            keys: settings.keys,
-        }
-    }
-
-    /// This function just checks if the key_id was preloaded successfully.
-    /// It returns the `key_id` if the key was preloaded and the key type
-    /// matches.
-    fn register(
-        &mut self,
-        key_id: Self::KeyId,
-        key_type: Self::SupportedKeyTypes,
-    ) -> Result<Self::KeyId, DynError> {
-        let key = self
-            .keys
-            .get(&key_id)
-            .ok_or_else(|| Error::KeyNotRegistered(key_id.clone()))?;
-        if key.key_type() != key_type {
-            return Err(Error::KeyTypeMismatch(key.key_type(), key_type).into());
-        }
-        Ok(key_id)
-    }
-
-    fn public_key(&self, key_id: Self::KeyId) -> Result<Bytes, DynError> {
-        Ok(self
-            .keys
-            .get(&key_id)
-            .ok_or(Error::KeyNotRegistered(key_id))?
-            .as_pk())
-    }
-
-    fn sign(&self, key_id: Self::KeyId, data: Bytes) -> Result<Bytes, DynError> {
-        self.keys
-            .get(&key_id)
-            .ok_or(Error::KeyNotRegistered(key_id))?
-            .sign(data)
-    }
-
-    async fn execute(&mut self, key_id: Self::KeyId, mut op: KMSOperator) -> Result<(), DynError> {
-        op(self
-            .keys
-            .get_mut(&key_id)
-            .ok_or(Error::KeyNotRegistered(key_id))?)
-        .await
-    }
-}
-
-// This enum won't be used outside of this module
-// because [`PreloadKMSBackend`] doesn't support generating new keys.
-#[derive(Debug, PartialEq, Eq)]
-pub enum SupportedKeyTypes {
-    Ed25519,
-}
-
-#[derive(Serialize, Deserialize, ZeroizeOnDrop)]
-enum Key {
-    Ed25519(Ed25519Key),
-}
-
-impl SecuredKey for Key {
-    fn sign(&self, data: Bytes) -> Result<Bytes, DynError> {
-        match self {
-            Self::Ed25519(key) => key.sign(data),
-        }
-    }
-
-    fn as_pk(&self) -> Bytes {
-        match self {
-            Self::Ed25519(key) => key.as_pk(),
-        }
-    }
-}
-
-impl Key {
-    const fn key_type(&self) -> SupportedKeyTypes {
-        match self {
-            Self::Ed25519(_) => SupportedKeyTypes::Ed25519,
-        }
-    }
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("Key({0}) was not registered")]
-    KeyNotRegistered(String),
-    #[error("KeyType mismatch: {0:?} != {1:?}")]
-    KeyTypeMismatch(SupportedKeyTypes, SupportedKeyTypes),
-}
-
 #[cfg(test)]
 mod tests {
-    use rand::rngs::OsRng;
+    use std::collections::HashMap;
 
-    use super::*;
+    use bytes::Bytes;
+    use overwatch::DynError;
+    use rand::rngs::OsRng;
+    use serde::{Deserialize, Serialize};
+    use zeroize::ZeroizeOnDrop;
+
+    use crate::{
+        backend::KMSBackend, keys::ed25519::Ed25519Key, secure_key::SecuredKey, KMSOperator,
+    };
+
+    pub struct PreloadKMSBackend {
+        keys: HashMap<String, Key>,
+    }
+
+    /// This settings contain all [`Key`]s to be loaded into the
+    /// [`PreloadKMSBackend`]. This implements [`serde::Serialize`] for users to
+    /// populate the settings from bytes. The [`Key`] also implements
+    /// [`zeroize::ZeroizeOnDrop`] for security.
+    #[derive(Serialize, Deserialize)]
+    pub struct PreloadKMSBackendSettings {
+        keys: HashMap<String, Key>,
+    }
+
+    #[async_trait::async_trait]
+    impl KMSBackend for PreloadKMSBackend {
+        type SupportedKeyTypes = SupportedKeyTypes;
+        type KeyId = String;
+        type Settings = PreloadKMSBackendSettings;
+
+        fn new(settings: Self::Settings) -> Self {
+            Self {
+                keys: settings.keys,
+            }
+        }
+
+        /// This function just checks if the `key_id` was preloaded
+        /// successfully. It returns the `key_id` if the key was
+        /// preloaded and the key type matches.
+        fn register(
+            &mut self,
+            key_id: Self::KeyId,
+            key_type: Self::SupportedKeyTypes,
+        ) -> Result<Self::KeyId, DynError> {
+            let key = self
+                .keys
+                .get(&key_id)
+                .ok_or_else(|| Error::KeyNotRegistered(key_id.clone()))?;
+            if key.key_type() != key_type {
+                return Err(Error::KeyTypeMismatch(key.key_type(), key_type).into());
+            }
+            Ok(key_id)
+        }
+
+        fn public_key(&self, key_id: Self::KeyId) -> Result<Bytes, DynError> {
+            Ok(self
+                .keys
+                .get(&key_id)
+                .ok_or(Error::KeyNotRegistered(key_id))?
+                .as_pk())
+        }
+
+        fn sign(&self, key_id: Self::KeyId, data: Bytes) -> Result<Bytes, DynError> {
+            self.keys
+                .get(&key_id)
+                .ok_or(Error::KeyNotRegistered(key_id))?
+                .sign(data)
+        }
+
+        async fn execute(
+            &mut self,
+            key_id: Self::KeyId,
+            mut op: KMSOperator,
+        ) -> Result<(), DynError> {
+            op(self
+                .keys
+                .get_mut(&key_id)
+                .ok_or(Error::KeyNotRegistered(key_id))?)
+            .await
+        }
+    }
+
+    // This enum won't be used outside of this module
+    // because [`PreloadKMSBackend`] doesn't support generating new keys.
+    #[derive(Debug, PartialEq, Eq)]
+    pub enum SupportedKeyTypes {
+        Ed25519,
+    }
+
+    #[derive(Serialize, Deserialize, ZeroizeOnDrop)]
+    enum Key {
+        Ed25519(Ed25519Key),
+    }
+
+    impl SecuredKey for Key {
+        fn sign(&self, data: Bytes) -> Result<Bytes, DynError> {
+            match self {
+                Self::Ed25519(key) => key.sign(data),
+            }
+        }
+
+        fn as_pk(&self) -> Bytes {
+            match self {
+                Self::Ed25519(key) => key.as_pk(),
+            }
+        }
+    }
+
+    impl Key {
+        const fn key_type(&self) -> SupportedKeyTypes {
+            match self {
+                Self::Ed25519(_) => SupportedKeyTypes::Ed25519,
+            }
+        }
+    }
+
+    #[derive(thiserror::Error, Debug)]
+    pub enum Error {
+        #[error("Key({0}) was not registered")]
+        KeyNotRegistered(String),
+        #[error("KeyType mismatch: {0:?} != {1:?}")]
+        KeyTypeMismatch(SupportedKeyTypes, SupportedKeyTypes),
+    }
 
     #[tokio::test]
     async fn preload_backend() {

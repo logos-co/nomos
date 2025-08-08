@@ -279,7 +279,7 @@ mod tests {
 
     fn create_swarm_config(port: u16) -> nomos_libp2p::SwarmConfig {
         nomos_libp2p::SwarmConfig {
-            host: Ipv4Addr::new(127, 0, 0, 1),
+            host: Ipv4Addr::LOCALHOST,
             port,
             node_key: nomos_libp2p::ed25519::SecretKey::generate(),
             gossipsub_config: nomos_libp2p::gossipsub::Config::default(),

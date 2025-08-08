@@ -35,7 +35,7 @@ tokio                  = { version = "1", features = ["sync"] }
 tokio-stream           = "0.1"
 tracing                = { workspace = true }
 tracing-futures        = "0.2"
-utoipa                 = { version = "4.0", optional = true }
+utoipa                 = { workspace = true, optional = true }
 
 [dev-dependencies]
 kzgrs-backend = { workspace = true }

@@ -59,7 +59,7 @@ pub fn adjust_timeout(d: Duration) -> Duration {
 }
 
 fn node_address_from_port(port: u16) -> Multiaddr {
-    multiaddr(std::net::Ipv4Addr::new(127, 0, 0, 1), port)
+    multiaddr(std::net::Ipv4Addr::LOCALHOST, port)
 }
 
 #[must_use]
