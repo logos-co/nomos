@@ -846,7 +846,7 @@ where
                     }
 
                     Some(block) = orphan_downloader.next(), if orphan_downloader.should_poll() => {
-                        let header_id  =  block.header().id();
+                        let header_id= block.header().id();
                         info!("Processing block from orphan downloader: {header_id:?}");
 
                         if cryptarchia.has_block(&block.header().id()) {
