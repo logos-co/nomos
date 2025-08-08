@@ -8,7 +8,10 @@ use self::{
     with_core::behaviour::Behaviour as CoreToCoreBehaviour,
     with_edge::behaviour::Behaviour as CoreToEdgeBehaviour,
 };
-use crate::core::with_edge::behaviour::Config as CoreToEdgeConfig;
+use crate::core::{
+    with_core::behaviour::Config as CoreToCoreConfig,
+    with_edge::behaviour::Config as CoreToEdgeConfig,
+};
 
 /// A composed behaviour that wraps the two sub-behaviours for dealing with core
 /// and edge nodes.
@@ -39,6 +42,7 @@ impl<ObservationWindowClockProvider> NetworkBehaviour<ObservationWindowClockProv
 }
 
 pub struct Config {
+    pub with_core: CoreToCoreConfig,
     pub with_edge: CoreToEdgeConfig,
 }
 
@@ -47,11 +51,14 @@ impl<ObservationWindowClockProvider> NetworkBehaviour<ObservationWindowClockProv
         config: &Config,
         observation_window_clock_provider: ObservationWindowClockProvider,
         current_membership: Option<Membership<PeerId>>,
+        local_peer_id: PeerId,
     ) -> Self {
         Self {
             with_core: CoreToCoreBehaviour::new(
+                &config.with_core,
                 observation_window_clock_provider,
                 current_membership.clone(),
+                local_peer_id,
             ),
             with_edge: CoreToEdgeBehaviour::new(&config.with_edge, current_membership),
         }

@@ -6,6 +6,7 @@ use std::{
     marker::PhantomData,
 };
 
+use cryptarchia_sync::GetTipResponse;
 use futures::StreamExt as _;
 use nomos_core::header::HeaderId;
 use overwatch::DynError;
@@ -127,12 +128,18 @@ where
         latest_downloaded_block: Option<HeaderId>,
     ) -> Result<Option<Download<NetAdapter::PeerId, NetAdapter::Block>>, Error> {
         // Get the most recent peer's tip and set it as the target.
-        let target = self
+        let tip_response = self
             .network
             .request_tip(peer)
             .await
-            .map_err(Error::BlockProvider)?
-            .id;
+            .map_err(Error::BlockProvider)?;
+
+        let target = match tip_response {
+            GetTipResponse::Tip { tip, .. } => tip,
+            GetTipResponse::Failure(reason) => {
+                return Err(Error::BlockProvider(DynError::from(reason)));
+            }
+        };
 
         if !Self::should_download(&target, cryptarchia) {
             return Ok(None);
@@ -295,7 +302,6 @@ mod tests {
     use std::{iter::empty, num::NonZero};
 
     use cryptarchia_engine::{EpochConfig, Slot};
-    use cryptarchia_sync::GetTipResponse;
     use nomos_ledger::LedgerState;
     use nomos_network::{backends::NetworkBackend, message::ChainSyncEvent, NetworkService};
     use overwatch::{
@@ -723,8 +729,8 @@ mod tests {
         async fn request_tip(&self, peer: Self::PeerId) -> Result<GetTipResponse, DynError> {
             let provider = self.providers.get(&peer).unwrap();
             match provider.tip.clone() {
-                Ok(tip) => Ok(GetTipResponse {
-                    id: tip.id,
+                Ok(tip) => Ok(GetTipResponse::Tip {
+                    tip: tip.id,
                     slot: tip.slot,
                 }),
                 Err(()) => Err(DynError::from("Cannot provide tip")),

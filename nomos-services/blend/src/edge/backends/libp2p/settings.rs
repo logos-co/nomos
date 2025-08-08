@@ -1,3 +1,4 @@
+use libp2p::identity::Keypair;
 use nomos_libp2p::ed25519;
 use serde::{Deserialize, Serialize};
 
@@ -10,4 +11,11 @@ pub struct Libp2pBlendBackendSettings {
         default = "ed25519::SecretKey::generate"
     )]
     pub node_key: ed25519::SecretKey,
+}
+
+impl Libp2pBlendBackendSettings {
+    #[must_use]
+    pub fn keypair(&self) -> Keypair {
+        Keypair::from(ed25519::Keypair::from(self.node_key.clone()))
+    }
 }

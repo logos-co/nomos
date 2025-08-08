@@ -6,7 +6,7 @@ use std::{
 use futures::{Stream, StreamExt as _};
 use tracing::debug;
 
-const LOG_TARGET: &str = "blend::network::core::core::conn_maintenance";
+const LOG_TARGET: &str = "blend::network::core::core::conn::maintenance";
 
 /// Counts the number of messages received from a peer during
 /// an interval.
@@ -43,7 +43,7 @@ impl<ConnectionWindowClock> ConnectionMonitor<ConnectionWindowClock> {
             .current_window_message_count
             .checked_add(1)
             .unwrap_or_else(|| {
-                tracing::warn!("Skipping recording a message due to overflow");
+                tracing::warn!(target: LOG_TARGET, "Skipping recording a message due to overflow");
                 self.current_window_message_count
             });
     }
