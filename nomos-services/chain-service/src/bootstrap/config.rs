@@ -31,5 +31,5 @@ where
 }
 
 const fn default_delay_before_new_download() -> Duration {
-    Duration::from_secs(30)
+    Duration::from_secs(10)
 }
