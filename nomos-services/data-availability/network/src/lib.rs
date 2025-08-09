@@ -522,7 +522,7 @@ where
             let send = backend.start_historic_sampling(block_number, blob_id, membership);
             send.await;
         } else {
-            tracing::warn!("No membership found for block number {block_number}");
+            tracing::error!("No membership found for block number {block_number}");
         }
     }
 }
