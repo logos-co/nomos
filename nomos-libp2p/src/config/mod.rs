@@ -56,7 +56,7 @@ pub struct SwarmConfig {
 impl Default for SwarmConfig {
     fn default() -> Self {
         Self {
-            host: std::net::Ipv4Addr::new(0, 0, 0, 0),
+            host: std::net::Ipv4Addr::UNSPECIFIED,
             port: 60000,
             node_key: ed25519::SecretKey::generate(),
             gossipsub_config: libp2p::gossipsub::Config::default(),

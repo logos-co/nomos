@@ -67,7 +67,7 @@ impl EncodedData {
     }
 
     #[must_use]
-    pub const fn iter(&self) -> EncodedDataIterator {
+    pub const fn iter(&self) -> EncodedDataIterator<'_> {
         EncodedDataIterator::new(self)
     }
 }
