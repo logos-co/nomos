@@ -1,4 +1,4 @@
-use std::{io, time::Duration};
+use std::{io, marker::PhantomData, time::Duration};
 
 use futures::{stream, StreamExt as _};
 use kzgrs_backend::common::share::DaShare;
@@ -37,7 +37,7 @@ use crate::{
             monitor::MonitorEvent,
             policy::DAConnectionPolicy,
         },
-        validator::{SwarmSettings, ValidatorEventsStream},
+        validator::{SampleArgs, SwarmSettings, ValidatorEventsStream},
         BalancerStats, ConnectionBalancer, ConnectionMonitor, MonitorStats,
     },
     SubnetworkId,
@@ -53,9 +53,10 @@ pub struct ExecutorEventsStream {
     pub validator_events_stream: ValidatorEventsStream,
     pub dispersal_events_receiver: UnboundedReceiverStream<DispersalExecutorEvent>,
 }
-pub struct ExecutorSwarm<Membership, Addressbook>
+pub struct ExecutorSwarm<Membership, HistoricMembership, Addressbook>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + 'static,
+    HistoricMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + 'static,
     Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
 {
     swarm: Swarm<
@@ -69,11 +70,14 @@ where
     sampling_events_sender: UnboundedSender<SamplingEvent>,
     validation_events_sender: UnboundedSender<DaShare>,
     dispersal_events_sender: UnboundedSender<DispersalExecutorEvent>,
+    phantom: PhantomData<HistoricMembership>,
 }
 
-impl<Membership, Addressbook> ExecutorSwarm<Membership, Addressbook>
+impl<Membership, HistoricMembership, Addressbook>
+    ExecutorSwarm<Membership, HistoricMembership, Addressbook>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
+    HistoricMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
     Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
 {
     pub fn new(
@@ -131,6 +135,7 @@ where
                 sampling_events_sender,
                 validation_events_sender,
                 dispersal_events_sender,
+                phantom: PhantomData,
             },
             ExecutorEventsStream {
                 validator_events_stream: ValidatorEventsStream {
@@ -199,6 +204,14 @@ where
             .behaviour()
             .sampling_behaviour()
             .shares_request_channel()
+    }
+
+    pub fn historic_sample_request_channel(
+        &mut self,
+    ) -> UnboundedSender<SampleArgs<HistoricMembership>> {
+        // todo: implement this when behaviour is ready
+        let (sender, _receiver) = unbounded_channel();
+        sender
     }
 
     pub fn commitments_request_channel(&mut self) -> UnboundedSender<BlobId> {

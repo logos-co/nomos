@@ -6,11 +6,11 @@ use futures::{
 };
 use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;
-use nomos_core::da::BlobId;
+use nomos_core::{block::BlockNumber, da::BlobId};
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     swarm::{
-        validator::{SwarmSettings, ValidatorSwarm},
+        validator::{SampleArgs, SwarmSettings, ValidatorSwarm},
         BalancerStats, MonitorStats,
     },
     SubnetworkId,
@@ -32,9 +32,9 @@ use super::common::CommitmentsEvent;
 use crate::{
     backends::{
         libp2p::common::{
-            handle_balancer_command, handle_monitor_command, handle_sample_request,
-            handle_validator_events_stream, DaNetworkBackendSettings, SamplingEvent,
-            BROADCAST_CHANNEL_SIZE,
+            handle_balancer_command, handle_historic_sample_request, handle_monitor_command,
+            handle_sample_request, handle_validator_events_stream, DaNetworkBackendSettings,
+            SamplingEvent, BROADCAST_CHANNEL_SIZE,
         },
         NetworkBackend,
     },
@@ -82,6 +82,7 @@ pub struct DaNetworkValidatorBackend<Membership> {
     task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     shares_request_channel: UnboundedSender<BlobId>,
+    historic_sample_request_channel: UnboundedSender<SampleArgs<Membership>>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
@@ -107,6 +108,7 @@ where
     type Message = DaNetworkMessage<BalancerStats, MonitorStats>;
     type EventKind = DaNetworkEventKind;
     type NetworkEvent = DaNetworkEvent;
+    type HistoricMembership = Membership;
     type Membership = DaMembershipHandler<Membership>;
     type Addressbook = DaAddressbook;
 
@@ -148,6 +150,7 @@ where
             });
 
         let shares_request_channel = validator_swarm.shares_request_channel();
+        let historic_sample_request_channel = validator_swarm.historic_sample_request_channel();
         let balancer_command_sender = validator_swarm.balancer_command_channel();
         let monitor_command_sender = validator_swarm.monitor_command_channel();
 
@@ -182,6 +185,7 @@ where
             task,
             replies_task,
             shares_request_channel,
+            historic_sample_request_channel,
             balancer_command_sender,
             monitor_command_sender,
             sampling_broadcast_receiver,
@@ -247,5 +251,21 @@ where
                     .map(|share| Self::NetworkEvent::Verifying(Box::new(share))),
             ),
         }
+    }
+
+    async fn start_historic_sampling(
+        &self,
+        block_number: BlockNumber,
+        blob_id: BlobId,
+        membership: Self::HistoricMembership,
+    ) {
+        info_with_id!(&blob_id, "RequestHistoricSample");
+        handle_historic_sample_request(
+            &self.historic_sample_request_channel,
+            blob_id,
+            block_number,
+            membership,
+        )
+        .await;
     }
 }

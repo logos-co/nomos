@@ -8,11 +8,15 @@ use futures::{
 use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;
 use log::error;
-use nomos_core::da::BlobId;
+use nomos_core::{block::BlockNumber, da::BlobId};
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::dispersal::executor::behaviour::DispersalExecutorEvent,
-    swarm::{executor::ExecutorSwarm, validator::SwarmSettings, BalancerStats, MonitorStats},
+    swarm::{
+        executor::ExecutorSwarm,
+        validator::{SampleArgs, SwarmSettings},
+        BalancerStats, MonitorStats,
+    },
     SubnetworkId,
 };
 use nomos_libp2p::ed25519;
@@ -32,9 +36,9 @@ use super::common::CommitmentsEvent;
 use crate::{
     backends::{
         libp2p::common::{
-            handle_balancer_command, handle_commitments_request, handle_monitor_command,
-            handle_sample_request, handle_validator_events_stream, DaNetworkBackendSettings,
-            SamplingEvent, BROADCAST_CHANNEL_SIZE,
+            handle_balancer_command, handle_commitments_request, handle_historic_sample_request,
+            handle_monitor_command, handle_sample_request, handle_validator_events_stream,
+            DaNetworkBackendSettings, SamplingEvent, BROADCAST_CHANNEL_SIZE,
         },
         NetworkBackend,
     },
@@ -98,6 +102,7 @@ where
     verifier_replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     executor_replies_task: (AbortHandle, JoinHandle<Result<(), Aborted>>),
     shares_request_channel: UnboundedSender<BlobId>,
+    historic_sample_request_channel: UnboundedSender<SampleArgs<Membership>>,
     commitments_request_channel: UnboundedSender<BlobId>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
     commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
@@ -126,6 +131,7 @@ where
     type Message = ExecutorDaNetworkMessage<BalancerStats, MonitorStats>;
     type EventKind = DaNetworkEventKind;
     type NetworkEvent = DaNetworkEvent;
+    type HistoricMembership = Membership;
     type Membership = DaMembershipHandler<Membership>;
     type Addressbook = DaAddressbook;
 
@@ -170,6 +176,7 @@ where
             });
 
         let shares_request_channel = executor_swarm.shares_request_channel();
+        let historic_sample_request_channel = executor_swarm.historic_sample_request_channel();
         let commitments_request_channel = executor_swarm.commitments_request_channel();
         let dispersal_shares_sender = executor_swarm.dispersal_shares_channel();
         let balancer_command_sender = executor_swarm.balancer_command_channel();
@@ -224,6 +231,7 @@ where
             verifier_replies_task,
             executor_replies_task,
             shares_request_channel,
+            historic_sample_request_channel,
             commitments_request_channel,
             sampling_broadcast_receiver,
             commitments_broadcast_receiver,
@@ -315,6 +323,22 @@ where
                     .map(Self::NetworkEvent::Dispersal),
             ),
         }
+    }
+
+    async fn start_historic_sampling(
+        &self,
+        block_number: BlockNumber,
+        blob_id: BlobId,
+        membership: Self::HistoricMembership,
+    ) {
+        info_with_id!(&blob_id, "RequestHistoricSample");
+        handle_historic_sample_request(
+            &self.historic_sample_request_channel,
+            blob_id,
+            block_number,
+            membership,
+        )
+        .await;
     }
 }
 
