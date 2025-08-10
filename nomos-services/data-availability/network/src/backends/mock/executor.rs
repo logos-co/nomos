@@ -1,4 +1,4 @@
-use std::pin::Pin;
+use std::{collections::HashSet, pin::Pin};
 
 use futures::{Stream, StreamExt as _};
 use kzgrs_backend::common::{build_blob_id, share::DaShare};
@@ -128,7 +128,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
     async fn start_historic_sampling(
         &self,
         _block_number: BlockNumber,
-        _blob_id: BlobId,
+        _blob_ids: HashSet<BlobId>,
         _membership: Self::HistoricMembership,
     ) {
         todo!()
@@ -143,7 +143,7 @@ impl MembershipHandler for MockMembership {
 
     type Id = PeerId;
 
-    fn membership(&self, _id: &Self::Id) -> std::collections::HashSet<Self::NetworkId> {
+    fn membership(&self, _id: &Self::Id) -> HashSet<Self::NetworkId> {
         todo!()
     }
 
@@ -151,11 +151,11 @@ impl MembershipHandler for MockMembership {
         todo!()
     }
 
-    fn members_of(&self, _network_id: &Self::NetworkId) -> std::collections::HashSet<Self::Id> {
+    fn members_of(&self, _network_id: &Self::NetworkId) -> HashSet<Self::Id> {
         todo!()
     }
 
-    fn members(&self) -> std::collections::HashSet<Self::Id> {
+    fn members(&self) -> HashSet<Self::Id> {
         todo!()
     }
 

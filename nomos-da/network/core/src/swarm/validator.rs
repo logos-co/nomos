@@ -1,4 +1,4 @@
-use std::{io, marker::PhantomData, time::Duration};
+use std::{collections::HashSet, io, marker::PhantomData, time::Duration};
 
 use futures::{stream, StreamExt as _};
 use kzgrs_backend::common::share::DaShare;
@@ -41,7 +41,7 @@ use crate::{
     SubnetworkId,
 };
 
-pub type SampleArgs<Membership> = (BlobId, BlockNumber, Membership);
+pub type SampleArgs<Membership> = (HashSet<BlobId>, BlockNumber, Membership);
 
 // Metrics
 const EVENT_SAMPLING: &str = "sampling";

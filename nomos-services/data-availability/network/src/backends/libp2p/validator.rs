@@ -1,4 +1,4 @@
-use std::{fmt::Debug, marker::PhantomData, pin::Pin};
+use std::{collections::HashSet, fmt::Debug, marker::PhantomData, pin::Pin};
 
 use futures::{
     future::{AbortHandle, Abortable, Aborted},
@@ -256,13 +256,12 @@ where
     async fn start_historic_sampling(
         &self,
         block_number: BlockNumber,
-        blob_id: BlobId,
+        blob_ids: HashSet<BlobId>,
         membership: Self::HistoricMembership,
     ) {
-        info_with_id!(&blob_id, "RequestHistoricSample");
         handle_historic_sample_request(
             &self.historic_sample_request_channel,
-            blob_id,
+            blob_ids,
             block_number,
             membership,
         )

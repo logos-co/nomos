@@ -5,7 +5,7 @@ pub mod membership;
 pub mod storage;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{self, Debug, Display},
     marker::PhantomData,
     pin::Pin,
@@ -64,7 +64,7 @@ where
     },
     RequestHistoricSample {
         block_number: BlockNumber,
-        blob_id: BlobId,
+        blob_ids: HashSet<BlobId>,
     },
 }
 
@@ -93,11 +93,11 @@ where
             }
             Self::RequestHistoricSample {
                 block_number,
-                blob_id,
+                blob_ids,
             } => {
                 write!(
                     fmt,
-                    "DaNetworkMsg::RequestHistoricSample{{ block_number: {block_number}, blob_id: {blob_id:?} }}"
+                    "DaNetworkMsg::RequestHistoricSample{{ block_number: {block_number}, blob_ids: {blob_ids:?} }}"
                 )
             }
         }
@@ -479,13 +479,13 @@ where
             }
             DaNetworkMsg::RequestHistoricSample {
                 block_number,
-                blob_id,
+                blob_ids,
             } => {
                 Self::handle_historic_sample_request(
                     backend,
                     membership_storage,
                     block_number,
-                    blob_id,
+                    blob_ids,
                 )
                 .await;
             }
@@ -508,7 +508,7 @@ where
         backend: &Backend,
         membership_storage: &MembershipStorage<StorageAdapter, Membership, AddressBook>,
         block_number: u64,
-        blob_id: [u8; 32],
+        blob_ids: HashSet<[u8; 32]>,
     ) {
         let membership = membership_storage
             .get_historic_membership(block_number)
@@ -519,7 +519,7 @@ where
             });
 
         if let Some(membership) = membership {
-            let send = backend.start_historic_sampling(block_number, blob_id, membership);
+            let send = backend.start_historic_sampling(block_number, blob_ids, membership);
             send.await;
         } else {
             tracing::error!("No membership found for block number {block_number}");

@@ -1,7 +1,7 @@
 pub mod libp2p;
 pub mod mock;
 
-use std::pin::Pin;
+use std::{collections::HashSet, pin::Pin};
 
 use futures::Stream;
 use nomos_core::{block::BlockNumber, da::BlobId};
@@ -37,7 +37,7 @@ pub trait NetworkBackend<RuntimeServiceId> {
     async fn start_historic_sampling(
         &self,
         block_number: BlockNumber,
-        blob_id: BlobId,
+        blob_ids: HashSet<BlobId>,
         membership: Self::HistoricMembership,
     );
 }
