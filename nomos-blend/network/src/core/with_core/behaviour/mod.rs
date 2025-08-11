@@ -102,23 +102,31 @@ pub struct Behaviour<ObservationWindowClockProvider> {
 pub enum NegotiatedPeerState {
     Healthy,
     Unhealthy,
-    Spammy,
+    Spammy(SpamReason),
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+pub enum SpamReason {
+    UndeserializableMessage,
+    DuplicateMessage,
+    InvalidPublicHeader,
+    TooManyMessages,
 }
 
 impl NegotiatedPeerState {
     #[must_use]
-    pub fn is_healthy(&self) -> bool {
-        *self == Self::Healthy
+    pub const fn is_healthy(&self) -> bool {
+        matches!(*self, Self::Healthy)
     }
 
     #[must_use]
-    pub fn is_unhealthy(&self) -> bool {
-        *self == Self::Unhealthy
+    pub const fn is_unhealthy(&self) -> bool {
+        matches!(*self, Self::Unhealthy)
     }
 
     #[must_use]
-    pub fn is_spammy(&self) -> bool {
-        *self == Self::Spammy
+    pub const fn is_spammy(&self) -> bool {
+        matches!(*self, Self::Spammy(_))
     }
 }
 
@@ -497,10 +505,25 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
 
     /// Mark the connection with the sender of a malformed message as malicious
     /// and instruct its connection handler to drop the substream.
-    fn close_spammy_connection(&mut self, (peer_id, connection_id): (PeerId, ConnectionId)) {
+    fn close_spammy_connection(
+        &mut self,
+        (peer_id, connection_id): (PeerId, ConnectionId),
+        reason: SpamReason,
+    ) {
         tracing::debug!(target: LOG_TARGET, "Closing connection {connection_id:?} with spammy peer {peer_id:?}.");
-        self.set_connection_to_spammy((peer_id, connection_id));
+        self.set_connection_to_spammy((peer_id, connection_id), reason);
         self.close_connection((peer_id, connection_id));
+    }
+
+    fn set_connection_to_spammy(
+        &mut self,
+        (peer_id, connection_id): (PeerId, ConnectionId),
+        reason: SpamReason,
+    ) {
+        self.update_state_for_negotiated_peer(
+            (peer_id, connection_id),
+            NegotiatedPeerState::Spammy(reason),
+        );
     }
 
     /// Update the state of an already negotiated peer, returning the previous
@@ -527,13 +550,6 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         );
 
         mem::replace(&mut peer_details.negotiated_state, state)
-    }
-
-    fn set_connection_to_spammy(&mut self, (peer_id, connection_id): (PeerId, ConnectionId)) {
-        self.update_state_for_negotiated_peer(
-            (peer_id, connection_id),
-            NegotiatedPeerState::Spammy,
-        );
     }
 
     fn handle_unhealthy_connection(&mut self, (peer_id, connection_id): (PeerId, ConnectionId)) {
@@ -574,7 +590,10 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             deserialize_encapsulated_message(serialized_message)
         else {
             tracing::debug!(target: LOG_TARGET, "Failed to deserialize encapsulated message.");
-            self.close_spammy_connection((from_peer_id, from_connection_id));
+            self.close_spammy_connection(
+                (from_peer_id, from_connection_id),
+                SpamReason::UndeserializableMessage,
+            );
             return;
         };
 
@@ -591,7 +610,10 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         let Ok(validated_message) = deserialized_encapsulated_message.validate_public_header()
         else {
             tracing::debug!(target: LOG_TARGET, "Neighbor sent us a message with an invalid public header. Marking it as spammy.");
-            self.close_spammy_connection((from_peer_id, from_connection_id));
+            self.close_spammy_connection(
+                (from_peer_id, from_connection_id),
+                SpamReason::InvalidPublicHeader,
+            );
             return;
         };
 
@@ -615,7 +637,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             .or_default();
         if !exchanged_message_identifiers.insert(*message_id) {
             tracing::debug!(target: LOG_TARGET, "Neighbor {peer_id:?} on connection {connection_id:?} sent us a message previously already exchanged. Marking it as spammy.");
-            self.close_spammy_connection((peer_id, connection_id));
+            self.close_spammy_connection((peer_id, connection_id), SpamReason::DuplicateMessage);
             return Err(());
         }
         Ok(())
@@ -833,7 +855,10 @@ where
                 ToBehaviour::SpammyPeer => {
                     // We do not explicitly close the connection here since the connection handler
                     // will already do that for us.
-                    self.set_connection_to_spammy((peer_id, connection_id));
+                    self.set_connection_to_spammy(
+                        (peer_id, connection_id),
+                        SpamReason::TooManyMessages,
+                    );
                 }
                 ToBehaviour::UnhealthyPeer => {
                     self.handle_unhealthy_connection((peer_id, connection_id));

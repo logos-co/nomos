@@ -6,18 +6,14 @@ use test_log::test;
 use tokio::{select, time::sleep};
 
 use crate::core::with_core::behaviour::{
-    tests::utils::{IntervalProvider, TestEncapsulatedMessage, TestSwarm},
-    Behaviour, Event, NegotiatedPeerState,
+    tests::utils::{TestEncapsulatedMessage, TestSwarm},
+    Behaviour, Event, NegotiatedPeerState, SpamReason,
 };
 
 #[test(tokio::test)]
 async fn detect_spammy_peer() {
-    let mut dialing_swarm = TestSwarm::new(Behaviour::with_interval_provider(
-        IntervalProvider::new(Duration::from_secs(2)),
-    ));
-    let mut listening_swarm = TestSwarm::new(Behaviour::with_interval_provider(
-        IntervalProvider::new(Duration::from_secs(2)),
-    ));
+    let mut dialing_swarm = TestSwarm::new(Behaviour::default());
+    let mut listening_swarm = TestSwarm::new(Behaviour::default());
 
     let listening_address = listening_swarm.start_listening().await;
 
@@ -49,7 +45,7 @@ async fn detect_spammy_peer() {
         select! {
             _ = dialing_swarm.select_next_some() => {}
             listening_event = listening_swarm.select_next_some() => {
-                if let SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, NegotiatedPeerState::Spammy)) = listening_event {
+                if let SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, NegotiatedPeerState::Spammy(SpamReason::TooManyMessages))) = listening_event {
                     assert_eq!(peer_id, *dialing_swarm.local_peer_id());
                     assert!(listening_swarm.behaviour().negotiated_peers.is_empty());
                     break;
@@ -61,12 +57,8 @@ async fn detect_spammy_peer() {
 
 #[test(tokio::test)]
 async fn detect_unhealthy_peer() {
-    let mut dialing_swarm = TestSwarm::new(Behaviour::with_interval_provider(
-        IntervalProvider::new(Duration::from_secs(2)),
-    ));
-    let mut listening_swarm = TestSwarm::new(Behaviour::with_interval_provider(
-        IntervalProvider::new(Duration::from_secs(2)),
-    ));
+    let mut dialing_swarm = TestSwarm::new(Behaviour::default());
+    let mut listening_swarm = TestSwarm::new(Behaviour::default());
 
     let listening_address = listening_swarm.start_listening().await;
 
@@ -107,12 +99,8 @@ async fn detect_unhealthy_peer() {
 
 #[test(tokio::test)]
 async fn restore_healthy_peer() {
-    let mut dialing_swarm = TestSwarm::new(Behaviour::with_interval_provider(
-        IntervalProvider::new(Duration::from_secs(2)),
-    ));
-    let mut listening_swarm = TestSwarm::new(Behaviour::with_interval_provider(
-        IntervalProvider::new(Duration::from_secs(2)),
-    ));
+    let mut dialing_swarm = TestSwarm::new(Behaviour::default());
+    let mut listening_swarm = TestSwarm::new(Behaviour::default());
 
     let listening_address = listening_swarm.start_listening().await;
 

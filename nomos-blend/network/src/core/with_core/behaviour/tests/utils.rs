@@ -28,6 +28,12 @@ impl IntervalProvider {
     }
 }
 
+impl Default for IntervalProvider {
+    fn default() -> Self {
+        Self(Duration::from_secs(1))
+    }
+}
+
 impl IntervalStreamProvider for IntervalProvider {
     type IntervalStream = Box<dyn Stream<Item = RangeInclusive<u64>> + Send + Unpin + 'static>;
     type IntervalItem = RangeInclusive<u64>;
@@ -37,34 +43,28 @@ impl IntervalStreamProvider for IntervalProvider {
     }
 }
 
-impl Behaviour<IntervalProvider> {
-    #[must_use]
-    pub fn with_default_interval_provider() -> Self {
+impl Default for Behaviour<IntervalProvider> {
+    fn default() -> Self {
         Self {
             negotiated_peers: HashMap::new(),
             connections_waiting_upgrade: HashMap::new(),
             events: VecDeque::new(),
             waker: None,
             exchanged_message_identifiers: HashMap::new(),
-            observation_window_clock_provider: IntervalProvider::new(Duration::from_secs(1)),
+            observation_window_clock_provider: IntervalProvider::default(),
             current_membership: None,
             peering_degree: 1..=2,
             local_peer_id: PeerId::random(),
         }
     }
+}
 
+impl Behaviour<IntervalProvider> {
     #[must_use]
     pub fn with_interval_provider(provider: IntervalProvider) -> Self {
         Self {
-            negotiated_peers: HashMap::new(),
-            connections_waiting_upgrade: HashMap::new(),
-            events: VecDeque::new(),
-            waker: None,
-            exchanged_message_identifiers: HashMap::new(),
             observation_window_clock_provider: provider,
-            current_membership: None,
-            peering_degree: 1..=2,
-            local_peer_id: PeerId::random(),
+            ..Default::default()
         }
     }
 }
