@@ -1,12 +1,12 @@
-use ark_ec::{CurveGroup, pairing::Pairing};
+use ark_ec::pairing::Pairing;
 
 #[derive(Eq, PartialEq)]
 pub struct VerificationKey<E: Pairing> {
-    pub alpha_1: E::G1,
-    pub beta_2: E::G2,
-    pub gamma_2: E::G2,
-    pub delta_2: E::G2,
-    pub ic: &'static [E::G1],
+    pub alpha_1: E::G1Affine,
+    pub beta_2: E::G2Affine,
+    pub gamma_2: E::G2Affine,
+    pub delta_2: E::G2Affine,
+    pub ic: Vec<E::G1Affine>,
 }
 pub struct PreparedVerificationKey<E: Pairing> {
     vk: ark_groth16::PreparedVerifyingKey<E>,
@@ -23,11 +23,11 @@ impl<E: Pairing> From<VerificationKey<E>> for ark_groth16::VerifyingKey<E> {
         } = value;
 
         Self {
-            alpha_g1: alpha_1.into_affine(),
-            beta_g2: beta_2.into_affine(),
-            gamma_g2: gamma_2.into_affine(),
-            delta_g2: delta_2.into_affine(),
-            gamma_abc_g1: ic.iter().map(|x| x.into_affine()).collect(),
+            alpha_g1: alpha_1,
+            beta_g2: beta_2,
+            gamma_g2: gamma_2,
+            delta_g2: delta_2,
+            gamma_abc_g1: ic,
         }
     }
 }
