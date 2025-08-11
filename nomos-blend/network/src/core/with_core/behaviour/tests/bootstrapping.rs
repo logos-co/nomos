@@ -8,7 +8,7 @@ use crate::core::with_core::behaviour::{tests::utils::TestSwarm, Behaviour};
 
 #[test(tokio::test)]
 async fn dialing_peer_not_supporting_blend_protocol() {
-    let mut blend_swarm = TestSwarm::new(Behaviour::with_default_interval_provider());
+    let mut blend_swarm = TestSwarm::new(Behaviour::default());
     let mut dummy_swarm = TestSwarm::new(dummy::Behaviour);
 
     let blend_address = blend_swarm.start_listening().await;
@@ -44,7 +44,7 @@ async fn dialing_peer_not_supporting_blend_protocol() {
 
 #[test(tokio::test)]
 async fn listening_peer_not_supporting_blend_protocol() {
-    let mut blend_swarm = TestSwarm::new(Behaviour::with_default_interval_provider());
+    let mut blend_swarm = TestSwarm::new(Behaviour::default());
     let mut dummy_swarm = TestSwarm::new(dummy::Behaviour);
 
     let dummy_address = dummy_swarm.start_listening().await;
