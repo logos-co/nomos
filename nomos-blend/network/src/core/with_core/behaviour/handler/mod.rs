@@ -170,6 +170,17 @@ where
             gauge.pending_events_to_behaviour = self.pending_events_to_behaviour.len() as u64,
         );
 
+        // Short-circuit so that we do not poll the connection monitor anymore in case
+        // either of the two substreams has been dropped.
+        if matches!(self.inbound_substream, Some(InboundSubstreamState::Dropped))
+            || matches!(
+                self.outbound_substream,
+                Some(OutboundSubstreamState::Dropped)
+            )
+        {
+            return Poll::Pending;
+        }
+
         // Check if the monitor interval has elapsed, if exists.
         // TODO: Refactor this to a separate function.
         if let Poll::Ready(output) = self.monitor.poll(cx) {
@@ -253,7 +264,7 @@ where
                 // If the substream is idle, and if it's time to send a message, send it.
                 Some(OutboundSubstreamState::Idle(stream)) => {
                     if let Some(msg) = self.outbound_msgs.pop_front() {
-                        tracing::debug!(target: LOG_TARGET, "Sending message to outbound stream: {:?}", msg);
+                        tracing::debug!(target: LOG_TARGET, "Sending message to outbound stream.");
                         self.outbound_substream = Some(OutboundSubstreamState::PendingSend(
                             send_msg(stream, msg).boxed(),
                         ));

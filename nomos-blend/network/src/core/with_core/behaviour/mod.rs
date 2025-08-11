@@ -38,6 +38,9 @@ mod handler;
 #[cfg(feature = "tokio")]
 pub use self::handler::tokio::ObservationWindowTokioIntervalProvider;
 
+#[cfg(test)]
+mod tests;
+
 const LOG_TARGET: &str = "blend::network::core::core::behaviour";
 
 #[derive(Debug)]
@@ -100,6 +103,23 @@ pub enum NegotiatedPeerState {
     Healthy,
     Unhealthy,
     Spammy,
+}
+
+impl NegotiatedPeerState {
+    #[must_use]
+    pub fn is_healthy(&self) -> bool {
+        *self == Self::Healthy
+    }
+
+    #[must_use]
+    pub fn is_unhealthy(&self) -> bool {
+        *self == Self::Unhealthy
+    }
+
+    #[must_use]
+    pub fn is_spammy(&self) -> bool {
+        *self == Self::Spammy
+    }
 }
 
 #[derive(Debug)]
@@ -608,11 +628,7 @@ fn update_connection_id_and_direction(
     existing_connection: &mut RemotePeerConnectionDetails,
     new_connection_id: ConnectionId,
 ) {
-    existing_connection.role = if existing_connection.role == Endpoint::Dialer {
-        Endpoint::Listener
-    } else {
-        Endpoint::Dialer
-    };
+    existing_connection.role = existing_connection.role.reverse();
     existing_connection.connection_id = new_connection_id;
 }
 
@@ -743,7 +759,7 @@ where
         if let FromSwarm::ConnectionClosed(ConnectionClosed {
             peer_id,
             connection_id,
-            endpoint,
+            endpoint: local_endpoint,
             ..
         }) = event
         {
@@ -753,7 +769,7 @@ where
                 .remove(&(peer_id, connection_id))
             {
                 debug_assert!(
-                    endpoint.to_endpoint() == remote_peer_role,
+                    local_endpoint.to_endpoint().reverse() == remote_peer_role,
                     "Remote peer endpoint provided by event and the one stored do not match."
                 );
                 // If the closed connection was an outbound one, notify the swarm about it.
@@ -849,4 +865,17 @@ pub trait IntervalStreamProvider {
     type IntervalItem;
 
     fn interval_stream(&self) -> Self::IntervalStream;
+}
+
+trait Reverse: Sized {
+    fn reverse(self) -> Self;
+}
+
+impl Reverse for Endpoint {
+    fn reverse(self) -> Self {
+        match self {
+            Self::Dialer => Self::Listener,
+            Self::Listener => Self::Dialer,
+        }
+    }
 }
