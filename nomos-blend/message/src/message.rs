@@ -13,7 +13,7 @@ use crate::{
 pub const VERSION: u8 = 1;
 
 // A message header that is revealed to all nodes.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Header {
     version: u8,
 }
@@ -34,7 +34,7 @@ impl Default for Header {
 }
 
 // A public header that is revealed to all nodes.
-#[derive(Clone, Debug, Copy, Serialize, Deserialize)]
+#[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PublicHeader {
     pub signing_pubkey: Ed25519PublicKey,
     pub proof_of_quota: ProofOfQuota,

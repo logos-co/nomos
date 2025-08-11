@@ -18,7 +18,7 @@ use crate::{
 pub type MessageIdentifier = Ed25519PublicKey;
 
 /// An encapsulated message that is sent to the blend network.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
     /// A header that is not encapsulated.
     header: Header,
@@ -169,7 +169,7 @@ pub enum DecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
 /// Part of the message that should be encapsulated.
 // TODO: Consider having `InitializedPart`
 // that just finished the initialization step and doesn't have `decapsulate` method.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct EncapsulatedPart<const ENCAPSULATION_COUNT: usize> {
     private_header: EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
     payload: EncapsulatedPayload,
@@ -297,7 +297,7 @@ enum PartDecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
 /// headers.
 // TODO: Consider having `InitializedPrivateHeader`
 // that just finished the initialization step and doesn't have `decapsulate` method.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct EncapsulatedPrivateHeader<const ENCAPSULATION_COUNT: usize>(
     #[serde(with = "BigArray")] [EncapsulatedBlendingHeader; ENCAPSULATION_COUNT],
 );
@@ -465,7 +465,7 @@ enum PrivateHeaderDecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
 
 /// A blending header encapsulated zero or more times.
 // TODO: Consider having `SerializedBlendingHeader` (not encapsulated).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct EncapsulatedBlendingHeader(Vec<u8>);
 
 impl EncapsulatedBlendingHeader {
@@ -499,7 +499,7 @@ impl EncapsulatedBlendingHeader {
 
 /// A payload encapsulated zero or more times.
 // TODO: Consider having `SerializedPayload` (not encapsulated).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct EncapsulatedPayload(Vec<u8>);
 
 impl EncapsulatedPayload {
