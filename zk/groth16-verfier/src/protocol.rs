@@ -1,8 +1,7 @@
-#[cfg(feature = "serde")]
 use serde::Deserialize;
 
-#[cfg_attr(feature = "deser", derive(Deserialize))]
-#[cfg_attr(feature = "deser", serde(rename_all = "lowercase"))]
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Protocol {
     Groth16,

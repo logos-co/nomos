@@ -1,6 +1,10 @@
 use std::str::FromStr;
 
 use ark_bn254::{Fq, Fq2, G1Affine, G2Affine};
+
+pub type JsonG1 = [String; 3];
+pub type JsonG2 = [[String; 2]; 3];
+
 pub struct StringifiedG1(pub [String; 3]);
 
 impl TryFrom<StringifiedG1> for G1Affine {
@@ -23,5 +27,43 @@ impl TryFrom<StringifiedG2> for G2Affine {
         let x = Fq2::new(Fq::from_str(&x1)?, Fq::from_str(&y1)?);
         let y = Fq2::new(Fq::from_str(&x2)?, Fq::from_str(&y2)?);
         Ok(Self::new(x, y))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn stringified_g1() {
+        let _: G1Affine = StringifiedG1([
+            "8296175608850998036255335084231000907125502603097068078993517773809496732066"
+                .to_string(),
+            "8263160927867860156491312948728748265016489542834411322655068343855704802368"
+                .to_string(),
+            "1".to_string(),
+        ])
+        .try_into()
+        .unwrap();
+    }
+
+    #[test]
+    fn stringified_g2() {
+        let _: G2Affine = StringifiedG2([
+            [
+                "10857046999023057135944570762232829481370756359578518086990519993285655852781"
+                    .to_string(),
+                "11559732032986387107991004021392285783925812861821192530917403151452391805634"
+                    .to_string(),
+            ],
+            [
+                "8495653923123431417604973247489272438418190587263600148770280649306958101930"
+                    .to_string(),
+                "4082367875863433681332203403145435568316851327593401208105741076214120093531"
+                    .to_string(),
+            ],
+            ["1".to_string(), "0".to_string()],
+        ])
+        .try_into()
+        .unwrap();
     }
 }
