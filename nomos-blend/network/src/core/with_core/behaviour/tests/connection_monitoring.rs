@@ -7,7 +7,7 @@ use test_log::test;
 use tokio::{select, time::sleep};
 
 use crate::core::with_core::behaviour::{
-    tests::utils::{TestEncapsulatedMessage, TestSwarm},
+    tests::utils::{SwarmExt as _, TestEncapsulatedMessage, TestSwarm},
     Behaviour, Event, NegotiatedPeerState, SpamReason,
 };
 
@@ -17,19 +17,9 @@ async fn detect_spammy_peer() {
     let mut listening_swarm = TestSwarm::new(Behaviour::default());
 
     listening_swarm.listen().with_memory_addr_external().await;
-    dialing_swarm.connect(&mut listening_swarm).await;
-
-    loop {
-        select! {
-            dialing_event = dialing_swarm.select_next_some() => {
-                if let SwarmEvent::Behaviour(Event::OutboundConnectionUpgradeSucceeded(peer_id)) = dialing_event {
-                    assert_eq!(peer_id, *listening_swarm.local_peer_id());
-                    break;
-                }
-            }
-            _ = listening_swarm.select_next_some() => {}
-        }
-    }
+    dialing_swarm
+        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .await;
 
     // Send two messages when only one was expected.
     dialing_swarm
@@ -61,7 +51,9 @@ async fn detect_unhealthy_peer() {
     let mut listening_swarm = TestSwarm::new(Behaviour::default());
 
     listening_swarm.listen().with_memory_addr_external().await;
-    dialing_swarm.connect(&mut listening_swarm).await;
+    dialing_swarm
+        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .await;
 
     // Do not send any message from dialing to listening swarm.
 
@@ -102,20 +94,9 @@ async fn restore_healthy_peer() {
     let mut listening_swarm = TestSwarm::new(Behaviour::default());
 
     listening_swarm.listen().with_memory_addr_external().await;
-    dialing_swarm.connect(&mut listening_swarm).await;
-
-    // Wait for connection to be upgraded.
-    loop {
-        select! {
-            dialing_event = dialing_swarm.select_next_some() => {
-                if let SwarmEvent::Behaviour(Event::OutboundConnectionUpgradeSucceeded(peer_id)) = dialing_event {
-                    assert_eq!(peer_id, *listening_swarm.local_peer_id());
-                    break;
-                }
-            }
-            _ = listening_swarm.select_next_some() => {}
-        }
-    }
+    dialing_swarm
+        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .await;
 
     // Let the connection turn unhealthy.
     sleep(Duration::from_secs(4)).await;

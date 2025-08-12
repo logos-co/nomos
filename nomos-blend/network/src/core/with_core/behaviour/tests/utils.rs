@@ -6,20 +6,24 @@ use core::{
 };
 use std::collections::{HashMap, VecDeque};
 
-use futures::{Stream, StreamExt as _};
+use async_trait::async_trait;
+use futures::{select, Stream, StreamExt as _};
 use libp2p::{PeerId, Swarm};
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
-    crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, PROOF_OF_QUOTA_SIZE},
+    crypto::{
+        Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, Signature, PROOF_OF_QUOTA_SIZE,
+        SIGNATURE_SIZE,
+    },
     input::{EncapsulationInput, EncapsulationInputs},
     PayloadType,
 };
 use nomos_blend_scheduling::EncapsulatedMessage;
-use nomos_libp2p::NetworkBehaviour;
+use nomos_libp2p::{NetworkBehaviour, SwarmEvent};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
-use crate::core::with_core::behaviour::{Behaviour, IntervalStreamProvider};
+use crate::core::with_core::behaviour::{Behaviour, Event, IntervalStreamProvider};
 
 #[derive(Clone)]
 pub struct IntervalProvider(Duration);
@@ -108,7 +112,15 @@ pub struct TestEncapsulatedMessage(EncapsulatedMessage);
 
 impl TestEncapsulatedMessage {
     pub fn new(payload: &[u8]) -> Self {
-        Self(EncapsulatedMessage::new(&generate_inputs(), PayloadType::Data, payload).unwrap())
+        Self(
+            EncapsulatedMessage::new(&generate_valid_inputs(), PayloadType::Data, payload).unwrap(),
+        )
+    }
+
+    pub fn new_with_invalid_signature(payload: &[u8]) -> Self {
+        let mut self_instance = Self::new(payload);
+        self_instance.0.public_header_mut().signature = Signature::from([100u8; SIGNATURE_SIZE]);
+        self_instance
     }
 
     pub fn into_inner(self) -> EncapsulatedMessage {
@@ -116,9 +128,9 @@ impl TestEncapsulatedMessage {
     }
 }
 
-fn generate_inputs() -> EncapsulationInputs<3> {
+fn generate_valid_inputs() -> EncapsulationInputs<3> {
     EncapsulationInputs::new(
-        repeat_with(|| Ed25519PrivateKey::generate())
+        repeat_with(Ed25519PrivateKey::generate)
             .take(3)
             .map(|recipient_signing_key| {
                 let recipient_signing_pubkey = recipient_signing_key.public_key();
@@ -146,5 +158,33 @@ impl Deref for TestEncapsulatedMessage {
 impl DerefMut for TestEncapsulatedMessage {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+#[async_trait]
+pub trait SwarmExt: libp2p_swarm_test::SwarmExt {
+    async fn connect_and_wait_for_outbound_upgrade<T>(&mut self, other: &mut Swarm<T>)
+    where
+        T: NetworkBehaviour<ToSwarm: Debug> + Send;
+}
+
+#[async_trait]
+impl SwarmExt for Swarm<Behaviour<IntervalProvider>> {
+    async fn connect_and_wait_for_outbound_upgrade<T>(&mut self, other: &mut Swarm<T>)
+    where
+        T: NetworkBehaviour<ToSwarm: Debug> + Send,
+    {
+        self.connect(other).await;
+        select! {
+            swarm_event = self.select_next_some() => {
+                if let SwarmEvent::Behaviour(Event::OutboundConnectionUpgradeSucceeded(peer_id)) = swarm_event {
+                    if peer_id == *other.local_peer_id() {
+                        return;
+                    }
+                }
+            }
+            // Drive other swarm to keep polling
+            _ = other.select_next_some() => {}
+        }
     }
 }

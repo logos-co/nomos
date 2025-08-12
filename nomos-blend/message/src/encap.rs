@@ -130,6 +130,12 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
         // TODO: Add proof of quota verification
         Ok(())
     }
+
+    #[cfg(feature = "test-functions")]
+    #[must_use]
+    pub const fn public_header_mut(&mut self) -> &mut PublicHeader {
+        &mut self.public_header
+    }
 }
 
 #[derive(Clone, Debug)]
