@@ -26,7 +26,7 @@ impl TryFrom<StringifiedG2> for G2Affine {
         let [[x1, y1], [x2, y2], _] = value.0;
         let x = Fq2::new(Fq::from_str(&x1)?, Fq::from_str(&y1)?);
         let y = Fq2::new(Fq::from_str(&x2)?, Fq::from_str(&y2)?);
-        Ok(Self::new(x, y))
+        Ok(Self::new_unchecked(x, y))
     }
 }
 
