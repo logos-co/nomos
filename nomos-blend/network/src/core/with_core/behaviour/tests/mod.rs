@@ -1,16 +1,18 @@
+use core::time::Duration;
 use std::collections::HashSet;
 
 use futures::StreamExt as _;
+use libp2p::swarm::ConnectionError;
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_libp2p::SwarmEvent;
 use test_log::test;
-use tokio::select;
+use tokio::{select, time::sleep};
 
 use crate::{
     core::with_core::{
         behaviour::{
-            tests::utils::{SwarmExt as _, TestEncapsulatedMessage, TestSwarm},
-            Behaviour, Event,
+            tests::utils::{IntervalProvider, SwarmExt as _, TestEncapsulatedMessage, TestSwarm},
+            Behaviour, Event, NegotiatedPeerState, SpamReason,
         },
         error::Error,
     },
@@ -18,7 +20,7 @@ use crate::{
 };
 
 mod bootstrapping;
-mod connection_monitoring;
+mod connection_maintenance;
 mod utils;
 
 #[test(tokio::test)]
@@ -63,7 +65,7 @@ async fn message_sending_and_reception() {
 }
 
 #[test(tokio::test)]
-async fn invalid_message_publish() {
+async fn invalid_public_header_message_publish() {
     let mut dialing_swarm = TestSwarm::new(Behaviour::default());
 
     let invalid_signature_message = TestEncapsulatedMessage::new_with_invalid_signature(b"data");
@@ -73,4 +75,148 @@ async fn invalid_message_publish() {
             .validate_and_publish_message(invalid_signature_message.into_inner()),
         Err(Error::InvalidMessage)
     );
+}
+
+#[test(tokio::test)]
+async fn undeserializable_message_received() {
+    let mut dialing_swarm = TestSwarm::new(Behaviour::default());
+    let mut listening_swarm = TestSwarm::new(Behaviour::default());
+
+    listening_swarm.listen().with_memory_addr_external().await;
+    dialing_swarm
+        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .await;
+
+    dialing_swarm
+        .behaviour_mut()
+        .force_send_serialized_message_to_peer(b"msg".to_vec(), *listening_swarm.local_peer_id())
+        .unwrap();
+
+    let mut events_to_match = 2u8;
+    loop {
+        select! {
+            _ = dialing_swarm.select_next_some() => {}
+            listening_swarm_event = listening_swarm.select_next_some() => {
+                match listening_swarm_event {
+                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, peer_state)) => {
+                        assert_eq!(peer_id, *dialing_swarm.local_peer_id());
+                        assert_eq!(peer_state, NegotiatedPeerState::Spammy(SpamReason::UndeserializableMessage));
+                        events_to_match -= 1;
+                    }
+                    SwarmEvent::ConnectionClosed { peer_id, endpoint, cause, .. } => {
+                        assert_eq!(peer_id, *dialing_swarm.local_peer_id());
+                        assert!(endpoint.is_listener());
+                        assert!(matches!(cause, Some(ConnectionError::KeepAliveTimeout)));
+                        events_to_match -= 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if events_to_match == 0 {
+            break;
+        }
+    }
+}
+
+#[test(tokio::test)]
+async fn duplicate_message_received() {
+    let mut dialing_swarm = TestSwarm::new(Behaviour::with_interval_provider(
+        IntervalProvider::new(Duration::from_secs(1)),
+    ));
+    let mut listening_swarm = TestSwarm::new(Behaviour::with_interval_provider(
+        IntervalProvider::new(Duration::from_secs(1)),
+    ));
+
+    listening_swarm.listen().with_memory_addr_external().await;
+    dialing_swarm
+        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .await;
+
+    let test_message = TestEncapsulatedMessage::new(b"msg");
+    dialing_swarm
+        .behaviour_mut()
+        .validate_and_publish_message(test_message.clone())
+        .unwrap();
+
+    // Wait enough time to not considered spammy by the listener.
+    sleep(Duration::from_secs(3)).await;
+
+    // This is a duplicate message, so the listener will mark the dialer as spammy.
+    dialing_swarm
+        .behaviour_mut()
+        .force_send_message_to_peer(&test_message, *listening_swarm.local_peer_id())
+        .unwrap();
+
+    let mut events_to_match = 2u8;
+    loop {
+        select! {
+            _ = dialing_swarm.select_next_some() => {}
+            listening_swarm_event = listening_swarm.select_next_some() => {
+                match listening_swarm_event {
+                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, peer_state)) => {
+                        assert_eq!(peer_id, *dialing_swarm.local_peer_id());
+                        assert_eq!(peer_state, NegotiatedPeerState::Spammy(SpamReason::DuplicateMessage));
+                        events_to_match -= 1;
+                    }
+                    SwarmEvent::ConnectionClosed { peer_id, endpoint, cause, .. } => {
+                        assert_eq!(peer_id, *dialing_swarm.local_peer_id());
+                        assert!(endpoint.is_listener());
+                        assert!(matches!(cause, Some(ConnectionError::KeepAliveTimeout)));
+                        events_to_match -= 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if events_to_match == 0 {
+            break;
+        }
+    }
+}
+
+#[test(tokio::test)]
+async fn invalid_public_header_message_received() {
+    let mut dialing_swarm = TestSwarm::new(Behaviour::default());
+    let mut listening_swarm = TestSwarm::new(Behaviour::default());
+
+    listening_swarm.listen().with_memory_addr_external().await;
+    dialing_swarm
+        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .await;
+
+    let invalid_public_header_message = TestEncapsulatedMessage::new_with_invalid_signature(b"");
+    dialing_swarm
+        .behaviour_mut()
+        .force_send_message_to_peer(
+            &invalid_public_header_message,
+            *listening_swarm.local_peer_id(),
+        )
+        .unwrap();
+
+    let mut events_to_match = 2u8;
+    loop {
+        select! {
+            _ = dialing_swarm.select_next_some() => {}
+            listening_swarm_event = listening_swarm.select_next_some() => {
+                match listening_swarm_event {
+                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, peer_state)) => {
+                        assert_eq!(peer_id, *dialing_swarm.local_peer_id());
+                        assert_eq!(peer_state, NegotiatedPeerState::Spammy(SpamReason::InvalidPublicHeader));
+                        events_to_match -= 1;
+                    }
+                    SwarmEvent::ConnectionClosed { peer_id, endpoint, cause, .. } => {
+                        assert_eq!(peer_id, *dialing_swarm.local_peer_id());
+                        assert!(endpoint.is_listener());
+                        assert!(matches!(cause, Some(ConnectionError::KeepAliveTimeout)));
+                        events_to_match -= 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if events_to_match == 0 {
+            break;
+        }
+    }
 }
