@@ -38,3 +38,9 @@ repos:
         name: Generate dependency graph
         entry: ./hooks/generate-dependency-graph.sh
         stages: [pre-commit]
+      - id: cargo-hack-check
+        language: script
+        name: cargo hack check
+        entry: ./hooks/cargo-hack.sh
+        stages: [manual]
+
