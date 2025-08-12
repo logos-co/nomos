@@ -34,7 +34,7 @@ impl<E: Pairing> From<&Proof<E>> for ark_groth16::Proof<E> {
 impl TryFrom<ProofJsonDeser> for Proof<Bn254> {
     type Error = FromJsonError;
     fn try_from(value: ProofJsonDeser) -> Result<Self, Self::Error> {
-        if value.protocol != Protocol::Groth16 {
+        if !matches!(value.protocol, Protocol::Groth16) {
             return Err(Self::Error::WrongProtocol(
                 value.protocol.as_ref().to_string(),
             ));

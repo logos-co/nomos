@@ -24,12 +24,14 @@ pub struct VerificationKeyJsonDeser {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use std::{cell::LazyCell, ops::Deref};
+
+    use serde_json::{Value, json};
 
     use super::*;
-    #[test]
-    fn test_deserialize() {
-        let data = json!({
+
+    pub const VK: LazyCell<Value> = LazyCell::new(|| {
+        json!({
           "protocol": "groth16",
           "curve": "bn128",
           "nPublic": 8,
@@ -157,7 +159,10 @@ mod tests {
               "1"
             ]
           ]
-        });
-        let _: VerificationKeyJsonDeser = serde_json::from_value(data).unwrap();
+        })
+    });
+    #[test]
+    fn test_deserialize() {
+        let _: VerificationKeyJsonDeser = serde_json::from_value(VK.deref().clone()).unwrap();
     }
 }

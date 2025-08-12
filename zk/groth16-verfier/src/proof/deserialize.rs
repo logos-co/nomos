@@ -16,13 +16,13 @@ pub struct ProofJsonDeser {
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::json;
+pub mod tests {
+    use std::{cell::LazyCell, ops::Deref};
 
-    use super::*;
-    #[test]
-    fn deserialize() {
-        let data = json!({
+    use serde_json::{Value, json};
+
+    pub const PROOF: LazyCell<Value> = LazyCell::new(|| {
+        json!({
           "pi_a": [
             "8296175608850998036255335084231000907125502603097068078993517773809496732066",
             "8263160927867860156491312948728748265016489542834411322655068343855704802368",
@@ -49,7 +49,12 @@ mod tests {
           ],
           "protocol": "groth16",
           "curve": "bn128"
-        });
-        let _: ProofJsonDeser = serde_json::from_value(data).unwrap();
+        })
+    });
+
+    use super::*;
+    #[test]
+    fn deserialize() {
+        let _: ProofJsonDeser = serde_json::from_value(PROOF.deref().clone()).unwrap();
     }
 }

@@ -2,7 +2,7 @@
 pub mod deserialize;
 use ark_ec::pairing::Pairing;
 #[cfg(feature = "deser")]
-use deserialize::VerificationKeyJsonDeser;
+pub use deserialize::VerificationKeyJsonDeser;
 
 #[cfg(feature = "deser")]
 use crate::from_json_error::FromJsonError;
@@ -23,7 +23,7 @@ pub struct VerificationKey<E: Pairing> {
 impl TryFrom<VerificationKeyJsonDeser> for VerificationKey<ark_bn254::Bn254> {
     type Error = FromJsonError;
     fn try_from(value: VerificationKeyJsonDeser) -> Result<Self, Self::Error> {
-        if value.protocol != Protocol::Groth16 {
+        if !matches!(value.protocol, Protocol::Groth16) {
             return Err(Self::Error::WrongProtocol(
                 value.protocol.as_ref().to_string(),
             ));
