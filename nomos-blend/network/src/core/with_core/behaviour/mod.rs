@@ -273,6 +273,13 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         Err(Error::DuplicateMessage)
     }
 
+    #[cfg(test)]
+    pub const fn exchanged_message_identifiers(
+        &self,
+    ) -> &HashMap<PeerId, HashSet<MessageIdentifier>> {
+        &self.exchanged_message_identifiers
+    }
+
     /// Forwards a message to all connected and healthy peers except the
     /// excluded peer.
     ///
