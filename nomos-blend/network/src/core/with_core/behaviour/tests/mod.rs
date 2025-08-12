@@ -11,7 +11,7 @@ use tokio::{select, time::sleep};
 use crate::{
     core::with_core::{
         behaviour::{
-            tests::utils::{IntervalProvider, SwarmExt as _, TestEncapsulatedMessage, TestSwarm},
+            tests::utils::{SwarmExt as _, TestEncapsulatedMessage, TestSwarm},
             Behaviour, Event, NegotiatedPeerState, SpamReason,
         },
         error::Error,
@@ -121,12 +121,8 @@ async fn undeserializable_message_received() {
 
 #[test(tokio::test)]
 async fn duplicate_message_received() {
-    let mut dialing_swarm = TestSwarm::new(Behaviour::with_interval_provider(
-        IntervalProvider::new(Duration::from_secs(1)),
-    ));
-    let mut listening_swarm = TestSwarm::new(Behaviour::with_interval_provider(
-        IntervalProvider::new(Duration::from_secs(1)),
-    ));
+    let mut dialing_swarm = TestSwarm::new(Behaviour::with_interval(Duration::from_secs(1)));
+    let mut listening_swarm = TestSwarm::new(Behaviour::with_interval(Duration::from_secs(1)));
 
     listening_swarm.listen().with_memory_addr_external().await;
     dialing_swarm

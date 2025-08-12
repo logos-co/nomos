@@ -28,12 +28,6 @@ use crate::core::with_core::behaviour::{Behaviour, Event, IntervalStreamProvider
 #[derive(Clone)]
 pub struct IntervalProvider(Duration);
 
-impl IntervalProvider {
-    pub fn new(interval: Duration) -> Self {
-        Self(interval)
-    }
-}
-
 impl Default for IntervalProvider {
     fn default() -> Self {
         Self(Duration::from_secs(1))
@@ -67,9 +61,9 @@ impl Default for Behaviour<IntervalProvider> {
 
 impl Behaviour<IntervalProvider> {
     #[must_use]
-    pub fn with_interval_provider(provider: IntervalProvider) -> Self {
+    pub fn with_interval(interval: Duration) -> Self {
         Self {
-            observation_window_clock_provider: provider,
+            observation_window_clock_provider: IntervalProvider(interval),
             ..Default::default()
         }
     }
