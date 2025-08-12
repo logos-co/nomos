@@ -225,7 +225,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     pub fn num_healthy_peers(&self) -> usize {
         self.negotiated_peers
             .values()
-            .filter(|state| state.negotiated_state == NegotiatedPeerState::Healthy)
+            .filter(|state| state.negotiated_state.is_healthy())
             .count()
     }
 
@@ -316,7 +316,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             // Exclude the peer the message was received from.
             .filter(|(peer_id, _)| (excluded_peer != Some(**peer_id)))
             // Exclude from the list of candidate peers any peer that is not in a healthy state.
-            .filter(|(_, peer_state)| peer_state.negotiated_state == NegotiatedPeerState::Healthy)
+            .filter(|(_, peer_state)| peer_state.negotiated_state.is_healthy())
             .for_each(|(peer_id, RemotePeerConnectionDetails { connection_id, .. })| {
                 if self
                     .exchanged_message_identifiers
