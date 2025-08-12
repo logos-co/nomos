@@ -21,10 +21,11 @@ tokio-stream           = { version = "0.1", optional = true }
 tracing                = { workspace = true }
 
 [dev-dependencies]
-libp2p       = { workspace = true, features = ["ed25519", "quic", "tokio"] }
-test-log     = { version = "0.2.18", features = ["trace"] }
-tokio        = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
-tokio-stream = "0.1"
+libp2p            = { workspace = true, features = ["ed25519", "quic", "tokio"] }
+libp2p-swarm-test = { version = "0.5.0", features = ["tokio"] }
+test-log          = { version = "0.2.18", features = ["trace"] }
+tokio             = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tokio-stream      = "0.1"
 
 [features]
 default = ["tokio"]

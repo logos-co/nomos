@@ -1,5 +1,6 @@
 use futures::StreamExt as _;
 use libp2p::swarm::{dummy, ConnectionError};
+use libp2p_swarm_test::SwarmExt as _;
 use nomos_libp2p::SwarmEvent;
 use test_log::test;
 use tokio::select;
@@ -11,16 +12,11 @@ async fn dialing_peer_not_supporting_blend_protocol() {
     let mut blend_swarm = TestSwarm::new(Behaviour::default());
     let mut dummy_swarm = TestSwarm::new(dummy::Behaviour);
 
-    let blend_address = blend_swarm.start_listening().await;
-
-    dummy_swarm.dial(blend_address).unwrap();
+    blend_swarm.listen().with_memory_addr_external().await;
+    dummy_swarm.connect(&mut blend_swarm).await;
 
     let mut events_to_match = 2u8;
     loop {
-        if events_to_match == 0 {
-            break;
-        }
-
         select! {
             blend_event = blend_swarm.select_next_some() => {
                 if let SwarmEvent::ConnectionClosed { peer_id, endpoint, cause, .. } = blend_event {
@@ -38,6 +34,9 @@ async fn dialing_peer_not_supporting_blend_protocol() {
                     events_to_match -= 1;
                 }
             }
+        }
+        if events_to_match == 0 {
+            break;
         }
     }
 }
@@ -47,16 +46,11 @@ async fn listening_peer_not_supporting_blend_protocol() {
     let mut blend_swarm = TestSwarm::new(Behaviour::default());
     let mut dummy_swarm = TestSwarm::new(dummy::Behaviour);
 
-    let dummy_address = dummy_swarm.start_listening().await;
-
-    blend_swarm.dial(dummy_address).unwrap();
+    dummy_swarm.listen().with_memory_addr_external().await;
+    blend_swarm.connect(&mut dummy_swarm).await;
 
     let mut events_to_match = 2u8;
     loop {
-        if events_to_match == 0 {
-            break;
-        }
-
         select! {
             blend_event = blend_swarm.select_next_some() => {
                 if let SwarmEvent::ConnectionClosed { peer_id, endpoint, cause, .. } = blend_event {
@@ -74,6 +68,9 @@ async fn listening_peer_not_supporting_blend_protocol() {
                     events_to_match -= 1;
                 }
             }
+        }
+        if events_to_match == 0 {
+            break;
         }
     }
 }

@@ -240,6 +240,39 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             .saturating_sub(self.negotiated_peers.len())
     }
 
+    /// Force send a message to a peer (without validating it first), as long as
+    /// the peer is connected, no matter the state the connection is in.
+    #[cfg(test)]
+    pub fn force_send_message_to_peer(
+        &mut self,
+        message: &EncapsulatedMessage,
+        peer_id: PeerId,
+    ) -> Result<(), Error> {
+        let message_id = message.id();
+        let Some(RemotePeerConnectionDetails { connection_id, .. }) =
+            self.negotiated_peers.get(&peer_id)
+        else {
+            return Err(Error::NoPeers);
+        };
+        if self
+            .exchanged_message_identifiers
+            .entry(peer_id)
+            .or_default()
+            .insert(message_id)
+        {
+            let serialized_message = serialize_encapsulated_message(message);
+            tracing::debug!(target: LOG_TARGET, "Notifying handler with peer {peer_id:?} on connection {connection_id:?} to deliver message.");
+            self.events.push_back(ToSwarm::NotifyHandler {
+                peer_id,
+                handler: NotifyHandler::One(*connection_id),
+                event: Either::Left(FromBehaviour::Message(serialized_message)),
+            });
+            self.try_wake();
+            return Ok(());
+        }
+        Err(Error::DuplicateMessage)
+    }
+
     /// Forwards a message to all connected and healthy peers except the
     /// excluded peer.
     ///

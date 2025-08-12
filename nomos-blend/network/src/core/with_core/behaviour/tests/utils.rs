@@ -1,4 +1,5 @@
 use core::{
+    fmt::Debug,
     iter::repeat_with,
     ops::{Deref, DerefMut, RangeInclusive},
     time::Duration,
@@ -6,14 +7,15 @@ use core::{
 use std::collections::{HashMap, VecDeque};
 
 use futures::{Stream, StreamExt as _};
-use libp2p::{Multiaddr, PeerId, Swarm, SwarmBuilder};
+use libp2p::{PeerId, Swarm};
+use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
     crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, PROOF_OF_QUOTA_SIZE},
     input::{EncapsulationInput, EncapsulationInputs},
     PayloadType,
 };
 use nomos_blend_scheduling::EncapsulatedMessage;
-use nomos_libp2p::{NetworkBehaviour, SwarmEvent};
+use nomos_libp2p::NetworkBehaviour;
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
@@ -75,31 +77,10 @@ where
 
 impl<Behaviour> TestSwarm<Behaviour>
 where
-    Behaviour: NetworkBehaviour,
+    Behaviour: NetworkBehaviour<ToSwarm: Debug> + Send,
 {
     pub fn new(behaviour: Behaviour) -> Self {
-        Self(
-            SwarmBuilder::with_new_identity()
-                .with_tokio()
-                .with_quic()
-                .with_behaviour(|_| behaviour)
-                .unwrap()
-                .with_swarm_config(|config| {
-                    config.with_idle_connection_timeout(Duration::from_secs(1))
-                })
-                .build(),
-        )
-    }
-
-    pub async fn start_listening(&mut self) -> Multiaddr {
-        self.0
-            .listen_on("/ip4/127.0.0.1/udp/0/quic-v1".parse().unwrap())
-            .unwrap();
-        loop {
-            if let SwarmEvent::NewListenAddr { address, .. } = self.0.select_next_some().await {
-                break address;
-            }
-        }
+        Self(Swarm::new_ephemeral_tokio(|_| behaviour))
     }
 }
 

@@ -1,4 +1,5 @@
 use futures::StreamExt as _;
+use libp2p_swarm_test::SwarmExt as _;
 use nomos_libp2p::SwarmEvent;
 use test_log::test;
 use tokio::select;
@@ -8,7 +9,7 @@ use crate::{
         tests::utils::{TestEncapsulatedMessage, TestSwarm},
         Behaviour, Event,
     },
-    message::ValidateMessagePublicHeader,
+    message::ValidateMessagePublicHeader as _,
 };
 
 mod bootstrapping;
@@ -20,9 +21,8 @@ async fn message_sending_and_reception() {
     let mut dialing_swarm = TestSwarm::new(Behaviour::default());
     let mut listening_swarm = TestSwarm::new(Behaviour::default());
 
-    let listening_address = listening_swarm.start_listening().await;
-
-    dialing_swarm.dial(listening_address).unwrap();
+    listening_swarm.listen().with_memory_addr_external().await;
+    dialing_swarm.connect(&mut listening_swarm).await;
 
     loop {
         select! {
