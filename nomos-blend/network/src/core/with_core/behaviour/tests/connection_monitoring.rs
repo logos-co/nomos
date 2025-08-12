@@ -1,6 +1,7 @@
 use core::time::Duration;
 
 use futures::StreamExt as _;
+use libp2p_swarm_test::SwarmExt as _;
 use nomos_libp2p::SwarmEvent;
 use test_log::test;
 use tokio::{select, time::sleep};
@@ -15,9 +16,8 @@ async fn detect_spammy_peer() {
     let mut dialing_swarm = TestSwarm::new(Behaviour::default());
     let mut listening_swarm = TestSwarm::new(Behaviour::default());
 
-    let listening_address = listening_swarm.start_listening().await;
-
-    dialing_swarm.dial(listening_address).unwrap();
+    listening_swarm.listen().with_memory_addr_external().await;
+    dialing_swarm.connect(&mut listening_swarm).await;
 
     loop {
         select! {
@@ -60,9 +60,8 @@ async fn detect_unhealthy_peer() {
     let mut dialing_swarm = TestSwarm::new(Behaviour::default());
     let mut listening_swarm = TestSwarm::new(Behaviour::default());
 
-    let listening_address = listening_swarm.start_listening().await;
-
-    dialing_swarm.dial(listening_address).unwrap();
+    listening_swarm.listen().with_memory_addr_external().await;
+    dialing_swarm.connect(&mut listening_swarm).await;
 
     // Do not send any message from dialing to listening swarm.
 
@@ -84,7 +83,7 @@ async fn detect_unhealthy_peer() {
 
     loop {
         select! {
-            () = sleep(Duration::from_secs(3)) => {
+            () = sleep(Duration::from_secs(5)) => {
                 break;
             }
             _ = dialing_swarm.select_next_some() => {}
@@ -102,9 +101,8 @@ async fn restore_healthy_peer() {
     let mut dialing_swarm = TestSwarm::new(Behaviour::default());
     let mut listening_swarm = TestSwarm::new(Behaviour::default());
 
-    let listening_address = listening_swarm.start_listening().await;
-
-    dialing_swarm.dial(listening_address).unwrap();
+    listening_swarm.listen().with_memory_addr_external().await;
+    dialing_swarm.connect(&mut listening_swarm).await;
 
     // Wait for connection to be upgraded.
     loop {
@@ -119,18 +117,16 @@ async fn restore_healthy_peer() {
         }
     }
 
-    // Modify storage to mark peer as unhealthy.
-    listening_swarm
-        .behaviour_mut()
-        .negotiated_peers
-        .get_mut(dialing_swarm.local_peer_id())
-        .unwrap()
-        .negotiated_state = NegotiatedPeerState::Unhealthy;
+    // Let the connection turn unhealthy.
+    sleep(Duration::from_secs(4)).await;
 
     // Send a message to the listening swarm to revert from unhealthy to healthy.
     dialing_swarm
         .behaviour_mut()
-        .validate_and_publish_message(TestEncapsulatedMessage::new(b"msg").into_inner())
+        .force_send_message_to_peer(
+            &TestEncapsulatedMessage::new(b"msg"),
+            *listening_swarm.local_peer_id(),
+        )
         .unwrap();
 
     loop {
