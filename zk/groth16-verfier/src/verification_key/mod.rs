@@ -25,7 +25,7 @@ impl TryFrom<VerificationKeyJsonDeser> for VerificationKey<ark_bn254::Bn254> {
     fn try_from(value: VerificationKeyJsonDeser) -> Result<Self, Self::Error> {
         if !matches!(value.protocol, Protocol::Groth16) {
             return Err(Self::Error::WrongProtocol(
-                value.protocol.as_ref().to_string(),
+                value.protocol.as_ref().to_owned(),
             ));
         }
         let VerificationKeyJsonDeser {
@@ -55,7 +55,7 @@ impl TryFrom<VerificationKeyJsonDeser> for VerificationKey<ark_bn254::Bn254> {
             .collect::<Result<Vec<_>, _>>()
             .map_err(Self::Error::G2PointConversionError)?;
 
-        Ok(VerificationKey {
+        Ok(Self {
             alpha_1,
             beta_2,
             gamma_2,

@@ -12,7 +12,7 @@ pub use crate::proof::deserialize::ProofJsonDeser;
 #[cfg(feature = "deser")]
 use crate::protocol::Protocol;
 #[cfg(feature = "deser")]
-use crate::utils::*;
+use crate::utils::{JsonG1, JsonG2, StringifiedG1, StringifiedG2};
 
 pub struct Proof<E: Pairing> {
     pi_a: E::G1Affine,
@@ -36,7 +36,7 @@ impl TryFrom<ProofJsonDeser> for Proof<Bn254> {
     fn try_from(value: ProofJsonDeser) -> Result<Self, Self::Error> {
         if !matches!(value.protocol, Protocol::Groth16) {
             return Err(Self::Error::WrongProtocol(
-                value.protocol.as_ref().to_string(),
+                value.protocol.as_ref().to_owned(),
             ));
         }
         let ProofJsonDeser {
@@ -52,6 +52,6 @@ impl TryFrom<ProofJsonDeser> for Proof<Bn254> {
             .try_into()
             .map_err(Self::Error::G1PointConversionError)?;
 
-        Ok(Self { pi_b, pi_c, pi_a })
+        Ok(Self { pi_a, pi_b, pi_c })
     }
 }
