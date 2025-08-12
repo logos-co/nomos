@@ -9,7 +9,7 @@
     };
   };
 
-  outputs = { nixpkgs, rust-overlay, ... }:
+  outputs = { self, nixpkgs, rust-overlay, ... }:
     let
       systems = [ "x86_64-linux" "aarch64-darwin" "x86_64-windows" ];
       forAll = fn: builtins.listToAttrs (map (system: { name = system; value = fn system; }) systems);
@@ -25,8 +25,9 @@
 
         in
         {
-          default = pkgs.mkShell {
-            name = "nomos";
+          default = self.devShells.${system}.research;
+          research = pkgs.mkShell {
+            name = "research";
             buildInputs = with pkgs; [
               pkg-config
               # Updating the version here requires also updating the `rev` version in the `overlays` section above
