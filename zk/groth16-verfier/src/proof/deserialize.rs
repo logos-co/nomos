@@ -17,11 +17,11 @@ pub struct ProofJsonDeser {
 
 #[cfg(test)]
 pub mod tests {
-    use std::{cell::LazyCell, ops::Deref};
+    use std::{ops::Deref as _, sync::LazyLock};
 
     use serde_json::{Value, json};
 
-    pub const PROOF: LazyCell<Value> = LazyCell::new(|| {
+    static PROOF: LazyLock<Value> = LazyLock::new(|| {
         json!({
           "pi_a": [
             "8296175608850998036255335084231000907125502603097068078993517773809496732066",

@@ -16,7 +16,7 @@ pub fn groth16_verify<E: Pairing>(
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::LazyCell, ops::Deref};
+    use std::{ops::Deref as _, sync::LazyLock};
 
     use serde_json::{Value, json};
 
@@ -29,7 +29,7 @@ mod tests {
     use crate::{Groth16PublicInput, Groth16PublicInputDeser};
 
     #[cfg(feature = "deser")]
-    pub const VK: LazyCell<Value> = LazyCell::new(|| {
+    static VK: LazyLock<Value> = LazyLock::new(|| {
         json!({
           "protocol": "groth16",
           "curve": "bn128",
@@ -162,7 +162,7 @@ mod tests {
     });
 
     #[cfg(feature = "deser")]
-    pub const PROOF: LazyCell<Value> = LazyCell::new(|| {
+    static PROOF: LazyLock<Value> = LazyLock::new(|| {
         json!({
           "pi_a": [
             "8296175608850998036255335084231000907125502603097068078993517773809496732066",
@@ -193,7 +193,8 @@ mod tests {
         })
     });
 
-    const PI: LazyCell<Value> = LazyCell::new(|| {
+    #[cfg(feature = "deser")]
+    static PI: LazyLock<Value> = LazyLock::new(|| {
         json!([
             "20355411533518962316551583414021767695266024416654937381718858980374314628607",
             "10",

@@ -6,14 +6,14 @@ pub struct PublicInputDeser(pub String);
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::LazyCell, ops::Deref};
+    use std::{ops::Deref as _, sync::LazyLock};
 
     use ark_bn254::Bn254;
     use serde_json::{Value, json};
 
     use crate::public_input::{PublicInput, deserialize::PublicInputDeser};
 
-    const PI: LazyCell<Value> = LazyCell::new(|| {
+    static PI: LazyLock<Value> = LazyLock::new(|| {
         json!([
             "20355411533518962316551583414021767695266024416654937381718858980374314628607",
             "10",

@@ -24,13 +24,13 @@ pub struct VerificationKeyJsonDeser {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::LazyCell, ops::Deref};
+    use std::{ops::Deref as _, sync::LazyLock};
 
     use serde_json::{Value, json};
 
     use super::*;
 
-    pub const VK: LazyCell<Value> = LazyCell::new(|| {
+    pub static VK: LazyLock<Value> = LazyLock::new(|| {
         json!({
           "protocol": "groth16",
           "curve": "bn128",
