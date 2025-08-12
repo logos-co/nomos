@@ -58,8 +58,8 @@ pub mod test {
             let mut res = vec![];
             loop {
                 match validator.select_next_some().await {
-                    SwarmEvent::Behaviour(DispersalEvent::IncomingMessage { message }) => {
-                        res.push(message);
+                    SwarmEvent::Behaviour(DispersalEvent::IncomingShare(share)) => {
+                        res.push(share);
                     }
                     event => {
                         info!("Validator event: {event:?}");
