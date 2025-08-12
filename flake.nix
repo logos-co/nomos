@@ -41,6 +41,9 @@
               export LIBCLANG_PATH="${pkgs.llvmPackages_14.libclang.lib}/lib";
             '';
           };
+          circuits = pkgs.mkShell {
+            name = "circuits";
+          };
         }
       );
     };

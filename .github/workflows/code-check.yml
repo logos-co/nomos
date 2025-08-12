@@ -180,13 +180,6 @@ jobs:
           toolchain: 1.88.0
           override: true
 
-      - name: Deps
-        # if : matrix.os[1] == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libclang-dev clang
-          sudo apt-get install -y build-essential cmake libgmp-dev libsodium-dev nasm curl m4 nlohmann-json3-dev
-
       - name: Install Dependencies [Witness Generator]
         run: sudo apt install nlohmann-json3-dev
 
@@ -231,15 +224,20 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cargo test
-        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
-        env:
-          RISC0_DEV_MODE: true
-          CONSENSUS_SLOT_TIME: 5
-        with:
-          command: test
-          # We don't test benches as they take 6h+, leading to a timeout
-          args: --all --lib --bins --tests --examples --all-features
+      - name: Cargo test (via Nix devShell)
+        run: |
+          nix develop .#circuits --command bash -lc \
+            'RISC_DEV_MODE=true CONSENSUS_SLOT_TIME=5 cargo test --all --lib --bins --tests --examples --all-features'
+
+#      - name: Cargo test
+#        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
+#        env:
+#          RISC0_DEV_MODE: true
+#          CONSENSUS_SLOT_TIME: 5
+#        with:
+#          command: test
+#          # We don't test benches as they take 6h+, leading to a timeout
+#          args: --all --lib --bins --tests --examples --all-features
 
       - name: Update Cargo cache
         if: success() || failure()
