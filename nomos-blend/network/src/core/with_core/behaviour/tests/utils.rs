@@ -59,7 +59,7 @@ impl Default for Behaviour<IntervalProvider> {
             exchanged_message_identifiers: HashMap::new(),
             observation_window_clock_provider: IntervalProvider::default(),
             current_membership: None,
-            peering_degree: 1..=2,
+            peering_degree: 1..=1,
             local_peer_id: PeerId::random(),
         }
     }
