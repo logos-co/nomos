@@ -1,8 +1,5 @@
-use core::arch::x86_64::_rdtsc;
-use std::{ops::Deref, sync::LazyLock};
+use std::{hint::black_box, ops::Deref, sync::LazyLock};
 
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use criterion_cycles_per_byte::CyclesPerByte;
 use groth16_verifier::{
     Groth16Proof, Groth16ProofJsonDeser, Groth16PublicInput, Groth16PublicInputDeser,
     Groth16VerificationKey, Groth16VerificationKeyJsonDeser, groth16_verify,
@@ -335,7 +332,12 @@ static PI: LazyLock<Value> = LazyLock::new(|| {
     ])
 });
 
-fn groth16_verify_cycles(c: &mut Criterion<CyclesPerByte>) {
+// TODO: Remove this when we have the proper benches in the proofs
+// This test is just for calculatin the cycles for the above set of proofs. This
+// will be moved to the pertinen proof in the future.
+#[ignore]
+#[test]
+fn groth16_verify_cycles() {
     let proof: Groth16Proof =
         serde_json::from_value::<Groth16ProofJsonDeser>(PROOF.deref().clone())
             .unwrap()
@@ -356,14 +358,12 @@ fn groth16_verify_cycles(c: &mut Criterion<CyclesPerByte>) {
         .map(Groth16PublicInput::into_inner)
         .collect();
     let pvk = vk.into_prepared();
-    c.bench_function("groth16_verify", |b| {
-        b.iter(|| groth16_verify(&pvk, &proof, &pi))
-    });
+    const ITERS: u64 = 1000u64;
+    let pre = unsafe { core::arch::x86_64::_rdtsc() };
+    for _ in 0..ITERS {
+        black_box(groth16_verify(&pvk, &proof, &pi).expect("success"));
+    }
+    let post = unsafe { core::arch::x86_64::_rdtsc() };
+    let cycles = (post - pre) / ITERS;
+    println!("groth16-verify-cycles-count: {} cpu cycles", cycles);
 }
-
-criterion_group!(
-    name = bench_groth16_verify_cycles;
-    config = Criterion::default().with_measurement(CyclesPerByte);
-    targets = groth16_verify_cycles
-);
-criterion_main!(bench_groth16_verify_cycles);
