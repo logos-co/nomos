@@ -25,6 +25,9 @@ use crate::{
 
 mod handler;
 
+#[cfg(test)]
+mod tests;
+
 const LOG_TARGET: &str = "blend::network::core::edge::behaviour";
 
 #[derive(Debug)]
