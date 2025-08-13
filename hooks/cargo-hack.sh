@@ -1,3 +1,3 @@
 #!/bin/bash
 
-cargo hack --feature-powerset --no-dev-deps check
+RISC0_SKIP_BUILD=true RUSTFLAGS="-D warnings" cargo hack --feature-powerset --no-dev-deps check
