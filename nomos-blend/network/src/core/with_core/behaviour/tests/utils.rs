@@ -8,7 +8,10 @@ use std::collections::{HashMap, VecDeque};
 
 use async_trait::async_trait;
 use futures::{select, Stream, StreamExt as _};
-use libp2p::{PeerId, Swarm};
+use libp2p::{
+    identity::{ed25519::PublicKey, Keypair},
+    PeerId, Swarm,
+};
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
     crypto::{
@@ -26,11 +29,25 @@ use tokio_stream::wrappers::IntervalStream;
 use crate::core::with_core::behaviour::{Behaviour, Event, IntervalStreamProvider};
 
 #[derive(Clone)]
-pub struct IntervalProvider(Duration);
+pub struct IntervalProvider(Duration, RangeInclusive<u64>);
+
+impl IntervalProvider {
+    pub fn new(interval: Duration, range: RangeInclusive<u64>) -> Self {
+        Self(interval, range)
+    }
+
+    pub fn with_range(range: RangeInclusive<u64>) -> Self {
+        Self(Self::default().0, range)
+    }
+
+    pub fn with_interval(interval: Duration) -> Self {
+        Self(interval, Self::default().1)
+    }
+}
 
 impl Default for IntervalProvider {
     fn default() -> Self {
-        Self(Duration::from_secs(1))
+        Self(Duration::from_secs(1), 0..=1)
     }
 }
 
@@ -39,7 +56,8 @@ impl IntervalStreamProvider for IntervalProvider {
     type IntervalItem = RangeInclusive<u64>;
 
     fn interval_stream(&self) -> Self::IntervalStream {
-        Box::new(IntervalStream::new(interval(self.0)).map(|_| 1..=1))
+        let range = self.1.clone();
+        Box::new(IntervalStream::new(interval(self.0)).map(move |_| range.clone()))
     }
 }
 
@@ -61,11 +79,39 @@ impl Default for Behaviour<IntervalProvider> {
 
 impl Behaviour<IntervalProvider> {
     #[must_use]
-    pub fn with_interval(interval: Duration) -> Self {
+    pub fn with_local_peer_id(local_peer_id: PeerId) -> Self {
         Self {
-            observation_window_clock_provider: IntervalProvider(interval),
+            local_peer_id,
             ..Default::default()
         }
+    }
+
+    #[must_use]
+    pub fn with_local_peer_id_and_peering_degree(
+        local_peer_id: PeerId,
+        peering_degree: RangeInclusive<usize>,
+    ) -> Self {
+        Self {
+            peering_degree,
+            local_peer_id,
+            ..Default::default()
+        }
+    }
+
+    #[must_use]
+    pub fn with_identity(identity: &Keypair) -> Self {
+        Self {
+            local_peer_id: identity.public().to_peer_id(),
+            ..Default::default()
+        }
+    }
+
+    #[must_use]
+    pub fn with_identity_and_provider(identity: &Keypair, provider: IntervalProvider) -> Self {
+        let mut self_instance = Self::with_identity(identity);
+        self_instance.observation_window_clock_provider = provider;
+
+        self_instance
     }
 }
 
@@ -77,8 +123,11 @@ impl<Behaviour> TestSwarm<Behaviour>
 where
     Behaviour: NetworkBehaviour<ToSwarm: Debug> + Send,
 {
-    pub fn new(behaviour: Behaviour) -> Self {
-        Self(Swarm::new_ephemeral_tokio(|_| behaviour))
+    pub fn new<BehaviourConstructor>(behaviour_fn: BehaviourConstructor) -> Self
+    where
+        BehaviourConstructor: FnOnce(Keypair) -> Behaviour,
+    {
+        Self(Swarm::new_ephemeral_tokio(behaviour_fn))
     }
 }
 
@@ -139,6 +188,20 @@ fn generate_valid_inputs() -> EncapsulationInputs<3> {
             .into_boxed_slice(),
     )
     .unwrap()
+}
+
+/// Our test swarm generates random ed25519 identities. Hence, using `0`
+/// guarantees us that this value will always be smaller than the random
+/// identities.
+pub fn smallest_peer_id() -> PeerId {
+    PeerId::from_public_key(&PublicKey::try_from_bytes(&[0u8; 32]).unwrap().into())
+}
+
+/// Our test swarm generates random ed25519 identities. Hence, using `255`
+/// guarantees us that this value will always be larger than the random
+/// identities.
+pub fn largest_peer_id() -> PeerId {
+    PeerId::from_public_key(&PublicKey::try_from_bytes(&[255u8; 32]).unwrap().into())
 }
 
 impl Deref for TestEncapsulatedMessage {

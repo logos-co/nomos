@@ -50,7 +50,7 @@ pub struct Config {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct RemotePeerConnectionDetails {
+pub struct RemotePeerConnectionDetails {
     /// Role of the remote peer in this connection.
     role: Endpoint,
     /// Latest negotiated state of the peer.
@@ -264,6 +264,9 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         Ok(())
     }
 
+    /// Force send a serialized message to a peer (without trying to deserialize
+    /// nor validating it first), as long as the peer is connected, no
+    /// matter the state the connection is in.
     #[cfg(test)]
     pub fn force_send_serialized_message_to_peer(
         &mut self,
@@ -290,6 +293,11 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         &self,
     ) -> &HashMap<PeerId, HashSet<MessageIdentifier>> {
         &self.exchanged_message_identifiers
+    }
+
+    #[cfg(test)]
+    pub const fn negotiated_peers(&self) -> &HashMap<PeerId, RemotePeerConnectionDetails> {
+        &self.negotiated_peers
     }
 
     /// Forwards a message to all connected and healthy peers except the
@@ -386,6 +394,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             .connections_waiting_upgrade
             .remove(&(peer_id, connection_id))
         else {
+            tracing::trace!(target: LOG_TARGET, "Negotiated connection ({peer_id:?}, {connection_id:?}) not found in map of waiting connections. This is because a different substream event was used to upgrade or drop the connection");
             // We cannot assert anything here, since also for a connection we are not
             // willing to upgrade, there can be two connection handler events.
             return;
@@ -466,6 +475,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         (peer_id, new_connection_id): (PeerId, ConnectionId),
         new_role: Endpoint,
     ) {
+        tracing::trace!(target: LOG_TARGET, "Handling connection ({peer_id:?}, {new_connection_id:?}) where the peer is already negotiated.");
         let existing_connection = self
             .negotiated_peers
             .get(&peer_id)
@@ -516,6 +526,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             });
         // If the current connection is incoming, we close it if our peer ID is higher
         // than theirs.
+        tracing::trace!(target: LOG_TARGET, "Connection with already connected peer {peer_id:?} found with the following details: {existing_connection_details:?}.");
         let should_close_established = if existing_connection_details.role == Endpoint::Dialer {
             self.local_peer_id.to_base58() > peer_id.to_base58()
         } else {
@@ -937,7 +948,9 @@ pub trait IntervalStreamProvider {
     fn interval_stream(&self) -> Self::IntervalStream;
 }
 
+/// A trait for reversable types.
 trait Reverse: Sized {
+    /// Consumes `self` and returns its reverse.
     fn reverse(self) -> Self;
 }
 

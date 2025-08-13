@@ -131,7 +131,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
         Ok(())
     }
 
-    #[cfg(feature = "test-functions")]
+    #[cfg(feature = "unsafe-test-functions")]
     #[must_use]
     pub const fn public_header_mut(&mut self) -> &mut PublicHeader {
         &mut self.public_header
