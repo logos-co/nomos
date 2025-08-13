@@ -6,12 +6,12 @@ use nomos_libp2p::SwarmEvent;
 use test_log::test;
 use tokio::{select, time::sleep};
 
-use crate::core::with_core::behaviour::{
-    tests::utils::{
-        BehaviourBuilder, IntervalProviderBuilder, SwarmExt as _, TestEncapsulatedMessage,
-        TestSwarm,
+use crate::core::{
+    tests::utils::{TestEncapsulatedMessage, TestSwarm},
+    with_core::behaviour::{
+        tests::utils::{BehaviourBuilder, IntervalProviderBuilder, SwarmExt as _},
+        Event, NegotiatedPeerState, SpamReason,
     },
-    Event, NegotiatedPeerState, SpamReason,
 };
 
 #[test(tokio::test)]
