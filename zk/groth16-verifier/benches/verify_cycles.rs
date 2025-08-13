@@ -1,14 +1,13 @@
+use core::arch::x86_64::_rdtsc;
 use std::{ops::Deref, sync::LazyLock};
 
-use divan::{Bencher, black_box, counter::CyclesCount};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion_cycles_per_byte::CyclesPerByte;
 use groth16_verifier::{
     Groth16Proof, Groth16ProofJsonDeser, Groth16PublicInput, Groth16PublicInputDeser,
     Groth16VerificationKey, Groth16VerificationKeyJsonDeser, groth16_verify,
 };
 use serde_json::{Value, json};
-fn main() {
-    divan::main();
-}
 
 static VK: LazyLock<Value> = LazyLock::new(|| {
     json!({
@@ -335,33 +334,36 @@ static PI: LazyLock<Value> = LazyLock::new(|| {
         "1067876409446105758643738371900264082356921730859024709530278137185226768179"
     ])
 });
-#[divan::bench]
-fn groth16_verify_cycles(bencher: Bencher) {
-    bencher
-        .with_inputs(|| {
-            let proof: Groth16Proof =
-                serde_json::from_value::<Groth16ProofJsonDeser>(PROOF.deref().clone())
-                    .unwrap()
-                    .try_into()
-                    .unwrap();
-            let vk: Groth16VerificationKey =
-                serde_json::from_value::<Groth16VerificationKeyJsonDeser>(VK.deref().clone())
-                    .unwrap()
-                    .try_into()
-                    .unwrap();
-            let pi: Vec<_> =
-                serde_json::from_value::<Vec<Groth16PublicInputDeser>>(PI.deref().clone())
-                    .unwrap()
-                    .into_iter()
-                    .map(TryInto::<Groth16PublicInput>::try_into)
-                    .collect::<Result<Vec<_>, _>>()
-                    .unwrap()
-                    .into_iter()
-                    .map(Groth16PublicInput::into_inner)
-                    .collect();
-            let pvk = vk.into_prepared();
-            (pvk, proof, pi)
-        })
-        .input_counter(move |_| CyclesCount::new(usize::MAX))
-        .bench_refs(|(pvk, proof, pi)| black_box(groth16_verify(pvk, proof, pi).is_ok()));
+
+fn groth16_verify_cycles(c: &mut Criterion<CyclesPerByte>) {
+    let proof: Groth16Proof =
+        serde_json::from_value::<Groth16ProofJsonDeser>(PROOF.deref().clone())
+            .unwrap()
+            .try_into()
+            .unwrap();
+    let vk: Groth16VerificationKey =
+        serde_json::from_value::<Groth16VerificationKeyJsonDeser>(VK.deref().clone())
+            .unwrap()
+            .try_into()
+            .unwrap();
+    let pi: Vec<_> = serde_json::from_value::<Vec<Groth16PublicInputDeser>>(PI.deref().clone())
+        .unwrap()
+        .into_iter()
+        .map(TryInto::<Groth16PublicInput>::try_into)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+        .into_iter()
+        .map(Groth16PublicInput::into_inner)
+        .collect();
+    let pvk = vk.into_prepared();
+    c.bench_function("groth16_verify", |b| {
+        b.iter(|| groth16_verify(&pvk, &proof, &pi))
+    });
 }
+
+criterion_group!(
+    name = bench_groth16_verify_cycles;
+    config = Criterion::default().with_measurement(CyclesPerByte);
+    targets = groth16_verify_cycles
+);
+criterion_main!(bench_groth16_verify_cycles);
