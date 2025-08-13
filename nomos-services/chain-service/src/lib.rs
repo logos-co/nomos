@@ -59,7 +59,7 @@ use tokio::{
 use tracing::{debug, error, info, instrument, span, Level};
 use tracing_futures::Instrument as _;
 
-pub use crate::bootstrap::config::{BootstrapConfig, IbdConfig};
+pub use crate::bootstrap::config::{BootstrapConfig, IbdConfig, OfflineGracePeriodConfig};
 use crate::{
     blend::BlendAdapter,
     bootstrap::{ibd::InitialBlockDownload, state::choose_engine_state},
@@ -703,6 +703,13 @@ where
             Instant::now() + bootstrap_config.prolonged_bootstrap_period,
         ));
 
+        // Start the timer for periodic state recording for offline grace period
+        let mut state_recording_timer = tokio::time::interval(
+            bootstrap_config
+                .offline_grace_period
+                .state_recording_interval,
+        );
+
         let async_loop = async {
             loop {
                 tokio::select! {
@@ -789,6 +796,16 @@ where
                         } else {
                             Self::reject_chain_sync_event(event).await;
                         }
+                    }
+
+                    _ = state_recording_timer.tick() => {
+                        // Periodically record the current timestamp and engine state
+                        Self::update_state(
+                            &cryptarchia,
+                            &leader,
+                            storage_blocks_to_remove.clone(),
+                            &self.service_resources_handle.state_updater,
+                        );
                     }
                 }
             }
@@ -1345,7 +1362,12 @@ where
         >,
     ) -> (Cryptarchia, PrunedBlocks<HeaderId>, Leader) {
         let lib_id = self.initial_state.lib;
-        let state = choose_engine_state(lib_id, genesis_id, bootstrap_config);
+        let state = choose_engine_state(
+            lib_id,
+            genesis_id,
+            bootstrap_config,
+            self.initial_state.last_engine_state.as_ref(),
+        );
         let mut cryptarchia = Cryptarchia::from_lib(
             lib_id,
             self.initial_state.lib_ledger_state.clone(),
