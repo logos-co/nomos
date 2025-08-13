@@ -1,6 +1,9 @@
 pub mod with_core;
 pub mod with_edge;
 
+#[cfg(test)]
+mod tests;
+
 use libp2p::PeerId;
 use nomos_blend_scheduling::membership::Membership;
 
