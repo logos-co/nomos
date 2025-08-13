@@ -1,11 +1,15 @@
+#[cfg(target_arch = "x86_64")]
 use std::{hint::black_box, ops::Deref as _, sync::LazyLock};
 
+#[cfg(target_arch = "x86_64")]
 use groth16_verifier::{
     Groth16Proof, Groth16ProofJsonDeser, Groth16PublicInput, Groth16PublicInputDeser,
     Groth16VerificationKey, Groth16VerificationKeyJsonDeser, groth16_verify,
 };
+#[cfg(target_arch = "x86_64")]
 use serde_json::{Value, json};
 
+#[cfg(target_arch = "x86_64")]
 static VK: LazyLock<Value> = LazyLock::new(|| {
     json!({
      "protocol": "groth16",
@@ -263,6 +267,7 @@ static VK: LazyLock<Value> = LazyLock::new(|| {
     })
 });
 
+#[cfg(target_arch = "x86_64")]
 static PROOF: LazyLock<Value> = LazyLock::new(|| {
     json!({
       "pi_a": [
@@ -294,6 +299,7 @@ static PROOF: LazyLock<Value> = LazyLock::new(|| {
     })
 });
 
+#[cfg(target_arch = "x86_64")]
 static PI: LazyLock<Value> = LazyLock::new(|| {
     json!([
         "11102268276218687325310228860756729608041551000326452964785954128433899301016",
