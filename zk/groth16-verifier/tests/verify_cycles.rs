@@ -333,6 +333,7 @@ static PI: LazyLock<Value> = LazyLock::new(|| {
 });
 
 // TODO: Remove this when we have the proper benches in the proofs
+#[cfg(target_arch = "x86_64")]
 #[expect(
     clippy::undocumented_unsafe_blocks,
     reason = "This test is is just to measure cpu and should be run manually"
