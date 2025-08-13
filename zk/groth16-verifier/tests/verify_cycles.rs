@@ -1,4 +1,4 @@
-use std::{hint::black_box, ops::Deref, sync::LazyLock};
+use std::{hint::black_box, ops::Deref as _, sync::LazyLock};
 
 use groth16_verifier::{
     Groth16Proof, Groth16ProofJsonDeser, Groth16PublicInput, Groth16PublicInputDeser,
@@ -333,9 +333,11 @@ static PI: LazyLock<Value> = LazyLock::new(|| {
 });
 
 // TODO: Remove this when we have the proper benches in the proofs
-// This test is just for calculatin the cycles for the above set of proofs. This
-// will be moved to the pertinen proof in the future.
-#[ignore]
+#[expect(
+    clippy::undocumented_unsafe_blocks,
+    reason = "This test is is just to measure cpu and should be run manually"
+)]
+#[ignore = "This test is just for calculation the cycles for the above set of proofs. This will be moved to the pertinent proof in the future."]
 #[test]
 fn groth16_verify_cycles() {
     let proof: Groth16Proof =
@@ -358,12 +360,12 @@ fn groth16_verify_cycles() {
         .map(Groth16PublicInput::into_inner)
         .collect();
     let pvk = vk.into_prepared();
-    const ITERS: u64 = 1000u64;
+    let iters = 1000u64;
     let pre = unsafe { core::arch::x86_64::_rdtsc() };
-    for _ in 0..ITERS {
+    for _ in 0..iters {
         black_box(groth16_verify(&pvk, &proof, &pi).expect("success"));
     }
     let post = unsafe { core::arch::x86_64::_rdtsc() };
-    let cycles = (post - pre) / ITERS;
-    println!("groth16-verify-cycles-count: {} cpu cycles", cycles);
+    let cycles = (post - pre) / iters;
+    println!("groth16-verify-cycles-count: {cycles} cpu cycles");
 }
