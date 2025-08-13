@@ -209,16 +209,13 @@ where
 
         // Process inbound stream
         // TODO: Refactor this to a separate function.
-        tracing::debug!(target: LOG_TARGET, "Processing inbound stream");
         match self.inbound_substream.take() {
-            None => {
-                tracing::debug!(target: LOG_TARGET, "Inbound substream is not initialized yet. Doing nothing.");
-            }
+            None => {}
             Some(InboundSubstreamState::PendingRecv(mut msg_recv_fut)) => match msg_recv_fut
                 .poll_unpin(cx)
             {
                 Poll::Ready(Ok((stream, msg))) => {
-                    tracing::debug!(target: LOG_TARGET, "Received message from inbound stream. Notifying behaviour if necessary...");
+                    tracing::debug!(target: LOG_TARGET, "Received message from inbound stream. Notifying behaviour...");
 
                     // Record the message to the monitor.
                     self.monitor.record_message();
@@ -239,19 +236,16 @@ where
                     ));
                 }
                 Poll::Pending => {
-                    tracing::debug!(target: LOG_TARGET, "No message received from inbound stream yet. Waiting more...");
                     self.inbound_substream = Some(InboundSubstreamState::PendingRecv(msg_recv_fut));
                 }
             },
             Some(InboundSubstreamState::Dropped) => {
-                tracing::debug!(target: LOG_TARGET, "Inbound substream has been dropped proactively. Doing nothing.");
                 self.inbound_substream = Some(InboundSubstreamState::Dropped);
             }
         }
 
         // Process outbound stream
         // TODO: Refactor this to a separate function.
-        tracing::debug!(target: LOG_TARGET, "Processing outbound stream");
         loop {
             match self.outbound_substream.take() {
                 // If the request to open a new outbound substream is still being processed, wait
@@ -269,7 +263,6 @@ where
                             send_msg(stream, msg).boxed(),
                         ));
                     } else {
-                        tracing::debug!(target: LOG_TARGET, "Nothing to send to outbound stream");
                         self.outbound_substream = Some(OutboundSubstreamState::Idle(stream));
                         self.waker = Some(cx.waker().clone());
                         return Poll::Pending;
@@ -304,7 +297,7 @@ where
                 }
                 // If there is no outbound substream, request to open a new one.
                 None => {
-                    tracing::debug!(target: LOG_TARGET, "Outbound substream is not initialized yet. Reque.");
+                    tracing::debug!(target: LOG_TARGET, "Outbound substream is not initialized yet. Requesting the swarm to open one.");
                     self.outbound_substream = Some(OutboundSubstreamState::PendingOpenSubstream);
                     return Poll::Ready(ConnectionHandlerEvent::OutboundSubstreamRequest {
                         protocol: SubstreamProtocol::new(ReadyUpgrade::new(PROTOCOL_NAME), ()),

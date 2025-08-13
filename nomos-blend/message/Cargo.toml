@@ -20,4 +20,4 @@ thiserror       = "1"
 x25519-dalek    = { version = "2", features = ["serde", "static_secrets"] }
 
 [features]
-test-functions = []
+unsafe-test-functions = []
