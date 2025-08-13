@@ -46,7 +46,7 @@ digraph {
     44 [ label = "key-management-system" shape = box]
     45 [ label = "cfgsync" shape = box]
     46 [ label = "tests" shape = box]
-    47 [ label = "groth16-verfier" shape = box]
+    47 [ label = "groth16-verifier" shape = box]
     4 -> 5 [ style = dotted]
     6 -> 7 [ ]
     7 -> 4 [ ]
