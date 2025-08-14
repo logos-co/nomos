@@ -1,3 +1,5 @@
+use core::time::Duration;
+
 use futures::{select, StreamExt as _};
 use libp2p::PeerId;
 use libp2p_stream::Behaviour as StreamBehaviour;
@@ -45,6 +47,38 @@ async fn receive_valid_message() {
                     break;
                 }
             }
+        }
+    }
+}
+
+#[test(tokio::test)]
+async fn message_timeout() {
+    let mut core_swarm = TestSwarm::new(|_| {
+        BehaviourBuilder::default()
+            .with_edge_peer_membership(PeerId::random())
+            .with_timeout(Duration::from_secs(1))
+            .build()
+    });
+    let mut edge_swarm = TestSwarm::new(|_| StreamBehaviour::new());
+
+    core_swarm.listen().with_memory_addr_external().await;
+    let _stream = edge_swarm
+        .connect_and_upgrade_to_blend(&mut core_swarm)
+        .await;
+
+    // Do not send a message. Stream should be dropped when the timeout is
+    // reached, and connection closed when the swarm decides it.
+
+    loop {
+        select! {
+            edge_swarm_event = edge_swarm.select_next_some() => {
+                if let SwarmEvent::ConnectionClosed { peer_id, endpoint, .. } = edge_swarm_event {
+                    assert_eq!(peer_id, *core_swarm.local_peer_id());
+                    assert!(endpoint.is_dialer());
+                    break;
+                }
+            }
+            _ = core_swarm.select_next_some() => {}
         }
     }
 }
