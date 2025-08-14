@@ -184,7 +184,7 @@ async fn concurrent_incoming_connections() {
 
     // We check whether the dialer whose connection was dropped was also notified by
     // its behaviour that the dialed peer got disconnected.
-    assert!((dialer_1_dropped && dialer_1_notified) || (dialer_2_dropped && dialer_2_notified));
+    assert!((dialer_1_dropped && dialer_1_notified) ^ (dialer_2_dropped && dialer_2_notified));
 }
 
 #[test(tokio::test)]
