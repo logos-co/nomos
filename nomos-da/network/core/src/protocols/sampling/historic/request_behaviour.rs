@@ -169,13 +169,13 @@ where
     /// Schedule sampling tasks for blobs using the provided historic membership
     fn sample_historic(&mut self, sample_args: SampleArgs<Membership>) {
         let (blob_ids, block_number, block_id, membership) = sample_args;
-
-        // Get random subset of subnetworks for sampling
         let mut rng = rand::thread_rng();
-        let subnets: Vec<SubnetworkId> = (0..membership.last_subnetwork_id())
-            .choose_multiple(&mut rng, self.subnets_config.num_of_subnets);
 
         for blob_id in blob_ids {
+            // Get random subset of subnetworks for sampling
+            let subnets: Vec<SubnetworkId> = (0..membership.last_subnetwork_id())
+                .choose_multiple(&mut rng, self.subnets_config.num_of_subnets);
+
             // Sample shares from multiple subnetworks
             for subnetwork_id in &subnets {
                 let membership = membership.clone();
