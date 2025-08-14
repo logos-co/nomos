@@ -4,7 +4,6 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use futures::StreamExt;
 use libp2p::{
     identity::{ed25519::PublicKey, Keypair},
     PeerId, Swarm,
@@ -34,17 +33,6 @@ where
         BehaviourConstructor: FnOnce(Keypair) -> Behaviour,
     {
         Self(Swarm::new_ephemeral_tokio(behaviour_fn))
-    }
-}
-
-impl<Behaviour> TestSwarm<Behaviour>
-where
-    Behaviour: NetworkBehaviour,
-{
-    pub async fn loop_events(&mut self) {
-        loop {
-            let _ = self.0.select_next_some().await;
-        }
     }
 }
 

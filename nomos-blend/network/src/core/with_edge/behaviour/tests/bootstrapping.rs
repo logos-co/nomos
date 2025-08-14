@@ -1,12 +1,12 @@
 use core::time::Duration;
 
-use futures::{AsyncWriteExt as _, FutureExt, StreamExt as _};
+use futures::StreamExt as _;
 use libp2p::{swarm::dummy, PeerId};
 use libp2p_stream::{Behaviour as StreamBehaviour, OpenStreamError};
 use libp2p_swarm_test::SwarmExt;
 use nomos_libp2p::SwarmEvent;
 use test_log::test;
-use tokio::{join, select, spawn, time::sleep};
+use tokio::{select, spawn, time::sleep};
 
 use crate::{
     core::{
@@ -94,7 +94,8 @@ async fn incoming_connection_with_maximum_peering_degree() {
     blend_swarm.listen().with_memory_addr_external().await;
 
     // We wait that the first connection is established and upgraded.
-    let _ = edge_swarm_1
+    // We keep owning the stream or else the connection is dropped.
+    let _stream = edge_swarm_1
         .connect_and_upgrade_to_blend(&mut blend_swarm)
         .await;
 
@@ -149,52 +150,47 @@ async fn concurrent_incoming_connection_and_maximum_peering_degree_reached() {
 
     let (listening_address, _) = listening_swarm.listen().await;
 
-    // We poll the listening swarm to advance it.
-    spawn(async move {
-        listening_swarm.loop_events().await;
-    });
-
-    let _ = join!(
-        dialer_swarm_1.dial_and_wait(listening_address.clone()),
-        dialer_swarm_2.dial_and_wait(listening_address.clone())
-    );
-
-    let mut dialer_swarm_1_control = dialer_swarm_1.behaviour_mut().new_control();
-    let mut dialer_swarm_2_control = dialer_swarm_2.behaviour_mut().new_control();
-    let (mut dialer_swarm_1_stream, mut dialer_swarm_2_stream) = join!(
-        dialer_swarm_1_control
-            .open_stream(listening_swarm_peer_id, PROTOCOL_NAME)
-            .map(|r| r.unwrap()),
-        dialer_swarm_2_control
-            .open_stream(listening_swarm_peer_id, PROTOCOL_NAME)
-            .map(|r| r.unwrap()),
-    );
-    let _ = join!(
-        dialer_swarm_1_stream.write(b""),
-        dialer_swarm_2_stream.write(b""),
-    );
+    dialer_swarm_1.dial(listening_address.clone()).unwrap();
+    dialer_swarm_2.dial(listening_address.clone()).unwrap();
 
     let mut dialer_swarm_1_dropped = false;
     let mut dialer_swarm_2_dropped = false;
     loop {
         select! {
-            () = sleep(Duration::from_secs(12)) => {
+            () = sleep(Duration::from_secs(11)) => {
                 break;
             }
+            _ = listening_swarm.select_next_some() => {}
             dialer_swarm_1_event = dialer_swarm_1.select_next_some() => {
-                if let SwarmEvent::ConnectionClosed { peer_id, endpoint, .. } = dialer_swarm_1_event {
-                    assert_eq!(peer_id, listening_swarm_peer_id);
-                    assert!(endpoint.is_dialer());
-                    assert!(!dialer_swarm_2_dropped);
-                    dialer_swarm_1_dropped = true;
+                match dialer_swarm_1_event {
+                    SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+                        assert_eq!(peer_id, listening_swarm_peer_id);
+                        let mut control = dialer_swarm_1.behaviour_mut().new_control();
+                        spawn(async move { control.open_stream(listening_swarm_peer_id, PROTOCOL_NAME).await.unwrap(); });
+                    }
+                    SwarmEvent::ConnectionClosed { peer_id, endpoint, .. } => {
+                        assert_eq!(peer_id, listening_swarm_peer_id);
+                        assert!(endpoint.is_dialer());
+                        assert!(!dialer_swarm_2_dropped);
+                        dialer_swarm_1_dropped = true;
+                    }
+                    _ => {}
                 }
             }
             dialer_swarm_2_event = dialer_swarm_2.select_next_some() => {
-                if let SwarmEvent::ConnectionClosed { peer_id, endpoint, .. } = dialer_swarm_2_event {
-                    assert_eq!(peer_id, listening_swarm_peer_id);
-                    assert!(endpoint.is_dialer());
-                    assert!(!dialer_swarm_1_dropped);
-                    dialer_swarm_2_dropped = true;
+                match dialer_swarm_2_event {
+                    SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+                        assert_eq!(peer_id, listening_swarm_peer_id);
+                        let mut control = dialer_swarm_2.behaviour_mut().new_control();
+                        spawn(async move { control.open_stream(listening_swarm_peer_id, PROTOCOL_NAME).await.unwrap(); });
+                    }
+                    SwarmEvent::ConnectionClosed { peer_id, endpoint, .. } => {
+                        assert_eq!(peer_id, listening_swarm_peer_id);
+                        assert!(endpoint.is_dialer());
+                        assert!(!dialer_swarm_1_dropped);
+                        dialer_swarm_2_dropped = true;
+                    }
+                    _ => {}
                 }
             }
         }
