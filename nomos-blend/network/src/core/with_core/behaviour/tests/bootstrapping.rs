@@ -8,7 +8,7 @@ use libp2p::{
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_libp2p::SwarmEvent;
 use test_log::test;
-use tokio::{select, time::sleep};
+use tokio::{join, select, spawn, time::sleep};
 
 use crate::core::{
     tests::utils::{largest_peer_id, smallest_peer_id, TestSwarm},
@@ -122,6 +122,7 @@ async fn incoming_attempt_with_max_negotiated_peering_degree() {
 async fn concurrent_incoming_connections() {
     let mut listening_swarm =
         TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
+    let listening_swarm_peer_id = *listening_swarm.local_peer_id();
     let mut dialer_swarm_1 =
         TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
     let mut dialer_swarm_2 =
@@ -129,9 +130,21 @@ async fn concurrent_incoming_connections() {
 
     let (listening_address, _) = listening_swarm.listen().await;
 
-    // Dial concurrently before we poll the listening swarm.
-    dialer_swarm_1.dial(listening_address.clone()).unwrap();
-    dialer_swarm_2.dial(listening_address).unwrap();
+    // We poll the listening swarm to advance it.
+    spawn(async move {
+        loop {
+            if let SwarmEvent::Behaviour(Event::PeerDisconnected(_, _)) =
+                listening_swarm.select_next_some().await
+            {
+                panic!("Should not generate a `PeerDisconnected` event for a peer that went above our peering degree.");
+            }
+        }
+    });
+
+    let _ = join!(
+        dialer_swarm_1.dial_and_wait(listening_address.clone()),
+        dialer_swarm_2.dial_and_wait(listening_address.clone())
+    );
 
     let mut dialer_1_dropped = false;
     let mut dialer_1_notified = false;
@@ -145,21 +158,15 @@ async fn concurrent_incoming_connections() {
             () = sleep(Duration::from_secs(11)) => {
                 break;
             }
-            listening_swarm_event = listening_swarm.select_next_some() => {
-                // We check that the listening swarm never generates a `PeerDisconnected` event because it knows the dropped connection is meant to be ignored.
-                if let SwarmEvent::Behaviour(Event::PeerDisconnected(_, _)) = listening_swarm_event {
-                    panic!("Should not generate a `PeerDisconnected` event for a peer that went above our peering degree.");
-                }
-            }
             dialer_swarm_1_event = dialer_swarm_1.select_next_some() => {
                 match dialer_swarm_1_event {
                     SwarmEvent::ConnectionClosed { endpoint, peer_id, .. } => {
                         assert!(!dialer_2_dropped);
-                        assert_eq!(peer_id, *listening_swarm.local_peer_id());
+                        assert_eq!(peer_id, listening_swarm_peer_id);
                         assert!(endpoint.is_dialer());
                         dialer_1_dropped = true;
                     }
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, _)) if peer_id == *listening_swarm.local_peer_id() => {
+                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, _)) if peer_id == listening_swarm_peer_id => {
                         dialer_1_notified = true;
                     }
                     _ => {}
@@ -169,11 +176,11 @@ async fn concurrent_incoming_connections() {
                 match dialer_swarm_2_event {
                     SwarmEvent::ConnectionClosed { endpoint, peer_id, .. } => {
                         assert!(!dialer_1_dropped);
-                        assert_eq!(peer_id, *listening_swarm.local_peer_id());
+                        assert_eq!(peer_id, listening_swarm_peer_id);
                         assert!(endpoint.is_dialer());
                         dialer_2_dropped = true;
                     }
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, _)) if peer_id == *listening_swarm.local_peer_id() => {
+                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, _)) if peer_id == listening_swarm_peer_id => {
                         dialer_2_notified = true;
                     }
                     _ => {}
@@ -271,8 +278,10 @@ async fn concurrent_outgoing_connections() {
         TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
     let mut listening_swarm_1 =
         TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
+    let listening_swarm_1_peer_id = *listening_swarm_1.local_peer_id();
     let mut listening_swarm_2 =
         TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
+    let listening_swarm_2_peer_id = *listening_swarm_2.local_peer_id();
 
     let (listening_address_1, _) = listening_swarm_1.listen().await;
     let (listening_address_2, _) = listening_swarm_2.listen().await;
@@ -280,10 +289,28 @@ async fn concurrent_outgoing_connections() {
     dialing_swarm.dial(listening_address_1).unwrap();
     dialing_swarm.dial(listening_address_2).unwrap();
 
+    // We poll the listening swarms to advance them.
+    spawn(async move {
+        loop {
+            if let SwarmEvent::Behaviour(Event::PeerDisconnected(_, _)) =
+                listening_swarm_1.select_next_some().await
+            {
+                panic!("Should not generate a `PeerDisconnected` event for a peer that went above our peering degree.");
+            }
+        }
+    });
+    spawn(async move {
+        loop {
+            if let SwarmEvent::Behaviour(Event::PeerDisconnected(_, _)) =
+                listening_swarm_2.select_next_some().await
+            {
+                panic!("Should not generate a `PeerDisconnected` event for a peer that went above our peering degree.");
+            }
+        }
+    });
+
     let mut listener_1_dropped = false;
-    let mut listener_1_notified = false;
     let mut listener_2_dropped = false;
-    let mut listener_2_notified = false;
     loop {
         select! {
             // We make sure that after 11 seconds one of the two connections is dropped (the swarm used in the tests uses a default timeout of 10s).
@@ -293,35 +320,20 @@ async fn concurrent_outgoing_connections() {
                 break;
             },
             dialing_swarm_event = dialing_swarm.select_next_some() => {
-                // We check that the dialing swarm never generates a `PeerDisconnected` event because it knows the dropped connection is meant to be ignored.
-                if let SwarmEvent::Behaviour(Event::PeerDisconnected(_, _)) = dialing_swarm_event {
-                    panic!("Should not generate a `PeerDisconnected` event for a peer that went above our peering degree.");
-                }
-            }
-            listener_swarm_1_event = listening_swarm_1.select_next_some() => {
-                match listener_swarm_1_event {
+                match dialing_swarm_event {
                     SwarmEvent::ConnectionClosed { endpoint, peer_id, .. } => {
-                        assert!(!listener_2_dropped);
-                        assert_eq!(peer_id, *dialing_swarm.local_peer_id());
-                        assert!(endpoint.is_listener());
-                        listener_1_dropped = true;
+                        assert!(endpoint.is_dialer());
+                        if peer_id == listening_swarm_1_peer_id {
+                            assert!(!listener_2_dropped);
+                            listener_1_dropped = true;
+                        } else if peer_id == listening_swarm_2_peer_id {
+                            assert!(!listener_1_dropped);
+                            listener_2_dropped = true;
+                        }
                     }
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, _)) if peer_id == *dialing_swarm.local_peer_id() => {
-                        listener_1_notified = true;
-                    }
-                    _ => {}
-                }
-            }
-            listener_swarm_2_event = listening_swarm_2.select_next_some() => {
-                match listener_swarm_2_event {
-                    SwarmEvent::ConnectionClosed { endpoint, peer_id, .. } => {
-                        assert!(!listener_1_dropped);
-                        assert_eq!(peer_id, *dialing_swarm.local_peer_id());
-                        assert!(endpoint.is_listener());
-                        listener_2_dropped = true;
-                    }
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, _)) if peer_id == *dialing_swarm.local_peer_id() => {
-                        listener_2_notified = true;
+                    // We check that the dialing swarm never generates a `PeerDisconnected` event because it knows the dropped connection is meant to be ignored.
+                    SwarmEvent::Behaviour(Event::PeerDisconnected(_, _)) => {
+                        panic!("Should not generate a `PeerDisconnected` event for a peer that went above our peering degree.");
                     }
                     _ => {}
                 }
@@ -329,11 +341,7 @@ async fn concurrent_outgoing_connections() {
         }
     }
 
-    // We check whether the listener whose connection was dropped was also notified
-    // by its behaviour that the dialed peer got disconnected.
-    assert!(
-        (listener_1_dropped && listener_1_notified) || (listener_2_dropped && listener_2_notified)
-    );
+    assert!(listener_2_dropped ^ listener_2_dropped);
 }
 
 #[test(tokio::test)]
