@@ -1,6 +1,7 @@
 use std::{
     collections::{HashSet, VecDeque},
     convert::Infallible,
+    mem,
     task::{Context, Poll, Waker},
     time::Duration,
 };
@@ -47,8 +48,7 @@ pub struct Behaviour {
     events: VecDeque<ToSwarm<Event, Either<FromBehaviour, Infallible>>>,
     /// Waker that handles polling
     waker: Option<Waker>,
-    // TODO: Replace with the session stream and make this a non-Option
-    current_membership: Option<Membership<PeerId>>,
+    current_membership: Membership<PeerId>,
     // Timeout to close connection with an edge node if a message is not received on time.
     connection_timeout: Duration,
     upgraded_edge_peers: HashSet<(PeerId, ConnectionId)>,
@@ -57,7 +57,7 @@ pub struct Behaviour {
 
 impl Behaviour {
     #[must_use]
-    pub fn new(config: &Config, current_membership: Option<Membership<PeerId>>) -> Self {
+    pub fn new(config: &Config, current_membership: Membership<PeerId>) -> Self {
         Self {
             events: VecDeque::new(),
             waker: None,
@@ -65,6 +65,18 @@ impl Behaviour {
             connection_timeout: config.connection_timeout,
             upgraded_edge_peers: HashSet::with_capacity(config.max_incoming_connections),
             max_incoming_connections: config.max_incoming_connections,
+        }
+    }
+
+    pub fn start_new_session(&mut self, new_membership: Membership<PeerId>) {
+        tracing::debug!(target: LOG_TARGET, "Starting new session with membership {new_membership:?}.");
+        self.current_membership = new_membership;
+        // Close all the upgraded connections without waiting for the transition period,
+        // so that edge nodes can retry with the new membership.
+        // No need to maintain the transition period for messages that have not yet
+        // been fired.
+        for connection in mem::take(&mut self.upgraded_edge_peers) {
+            self.close_substream(connection);
         }
     }
 
@@ -107,16 +119,21 @@ impl Behaviour {
         // connection being dropped.
         if self.available_connection_slots() == 0 {
             tracing::debug!(target: LOG_TARGET, "Connection {connection:?} must be closed because peering degree limit has been reached.");
-            self.events.push_back(ToSwarm::NotifyHandler {
-                peer_id: connection.0,
-                handler: NotifyHandler::One(connection.1),
-                event: Either::Left(FromBehaviour::CloseSubstream),
-            });
-            self.try_wake();
+            self.close_substream(connection);
             return;
         }
         tracing::debug!(target: LOG_TARGET, "Connection {connection:?} has been negotiated.");
         self.upgraded_edge_peers.insert(connection);
+    }
+
+    fn close_substream(&mut self, (peer_id, connection_id): (PeerId, ConnectionId)) {
+        tracing::debug!(target: LOG_TARGET, "Closing substream for peer {peer_id:?} on connection {connection_id:?}.");
+        self.events.push_back(ToSwarm::NotifyHandler {
+            peer_id,
+            handler: NotifyHandler::One(connection_id),
+            event: Either::Left(FromBehaviour::CloseSubstream),
+        });
+        self.try_wake();
     }
 }
 
@@ -131,6 +148,10 @@ impl NetworkBehaviour for Behaviour {
         _: &Multiaddr,
         _: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
+        // TODO: Don't accept inbound conns if we are not a core node.
+        //       Refactor Membership to contain the local node.
+        //       https://github.com/logos-co/nomos/issues/1533
+
         // If the new peer makes the set of incoming connections too large, do not try
         // to upgrade the connection.
         if self.upgraded_edge_peers.len() >= self.max_incoming_connections {
@@ -138,11 +159,8 @@ impl NetworkBehaviour for Behaviour {
             return Ok(Either::Right(DummyConnectionHandler));
         }
 
-        let Some(membership) = &self.current_membership else {
-            return Ok(Either::Right(DummyConnectionHandler));
-        };
         // Allow only inbound connections from edge nodes.
-        Ok(if membership.contains_remote(&peer) {
+        Ok(if self.current_membership.contains_remote(&peer) {
             Either::Right(DummyConnectionHandler)
         } else {
             Either::Left(ConnectionHandler::new(self.connection_timeout))

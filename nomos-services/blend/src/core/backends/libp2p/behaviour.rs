@@ -49,7 +49,7 @@ impl BlendBehaviour {
                     },
                 },
                 observation_window_interval_provider,
-                Some(config.membership()),
+                config.membership(),
                 config.backend.peer_id(),
             ),
             limits: libp2p::connection_limits::Behaviour::new(
