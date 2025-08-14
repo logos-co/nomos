@@ -119,6 +119,12 @@ impl Behaviour {
             return;
         }
         tracing::debug!(target: LOG_TARGET, "Connection {connection:?} has been negotiated.");
+        self.events.push_back(ToSwarm::NotifyHandler {
+            peer_id: connection.0,
+            handler: NotifyHandler::One(connection.1),
+            event: Either::Left(FromBehaviour::StartReceiving),
+        });
+        self.try_wake();
         self.upgraded_edge_peers.insert(connection);
     }
 }

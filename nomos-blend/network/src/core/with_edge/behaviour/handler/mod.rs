@@ -86,8 +86,12 @@ impl ConnectionState {
 }
 
 trait StateTrait: Into<ConnectionState> {
-    fn on_behaviour_event(mut self, _event: FromBehaviour) -> ConnectionState {
-        DroppedState::new(None, self.take_waker()).into()
+    fn on_behaviour_event(mut self, event: FromBehaviour) -> ConnectionState {
+        if matches!(event, FromBehaviour::CloseSubstream) {
+            return DroppedState::new(None, self.take_waker()).into();
+        }
+        tracing::trace!(target: LOG_TARGET, "Ignore behaviour event: {event:?}.");
+        self.into()
     }
 
     fn on_connection_event(self, _event: ConnectionEvent) -> ConnectionState {
@@ -122,6 +126,7 @@ pub enum FailureReason {
 #[derive(Debug)]
 pub enum FromBehaviour {
     CloseSubstream,
+    StartReceiving,
 }
 
 #[derive(Debug)]
