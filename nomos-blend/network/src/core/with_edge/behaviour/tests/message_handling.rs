@@ -1,7 +1,7 @@
 use futures::{select, StreamExt as _};
 use libp2p::PeerId;
 use libp2p_stream::Behaviour as StreamBehaviour;
-use libp2p_swarm_test::SwarmExt;
+use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_scheduling::serialize_encapsulated_message;
 use nomos_libp2p::SwarmEvent;
 use test_log::test;
@@ -10,7 +10,7 @@ use crate::{
     core::{
         tests::utils::{TestEncapsulatedMessage, TestSwarm},
         with_edge::behaviour::{
-            tests::utils::{BehaviourBuilder, StreamBehaviourExt},
+            tests::utils::{BehaviourBuilder, StreamBehaviourExt as _},
             Event,
         },
     },
