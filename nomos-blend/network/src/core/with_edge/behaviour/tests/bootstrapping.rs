@@ -1,7 +1,8 @@
 use core::time::Duration;
+use std::sync::{Arc, Mutex};
 
 use futures::StreamExt as _;
-use libp2p::{swarm::dummy, PeerId};
+use libp2p::{swarm::dummy, PeerId, Stream};
 use libp2p_stream::{Behaviour as StreamBehaviour, OpenStreamError};
 use libp2p_swarm_test::SwarmExt;
 use nomos_libp2p::SwarmEvent;
@@ -155,6 +156,10 @@ async fn concurrent_incoming_connection_and_maximum_peering_degree_reached() {
 
     let mut dialer_swarm_1_dropped = false;
     let mut dialer_swarm_2_dropped = false;
+    // We need to hold a reference to the stream so that the estbalished connection
+    // is not dropped pro-actively and we can test this logic.
+    let s1: Arc<Mutex<Option<Stream>>> = Arc::new(Mutex::new(None));
+    let s2: Arc<Mutex<Option<Stream>>> = Arc::new(Mutex::new(None));
     loop {
         select! {
             () = sleep(Duration::from_secs(11)) => {
@@ -166,7 +171,9 @@ async fn concurrent_incoming_connection_and_maximum_peering_degree_reached() {
                     SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                         assert_eq!(peer_id, listening_swarm_peer_id);
                         let mut control = dialer_swarm_1.behaviour_mut().new_control();
-                        spawn(async move { control.open_stream(listening_swarm_peer_id, PROTOCOL_NAME).await.unwrap(); });
+                        let stream_ref = Arc::clone(&s1);
+                        // By the time this is called, the listening swarm might not be ready, so calling `await` and blocking this thread will result in a timeout. Hence we need to spawn a different task and store the stream into its mutex.
+                        spawn(async move { *stream_ref.lock().unwrap() = Some(control.open_stream(listening_swarm_peer_id, PROTOCOL_NAME).await.unwrap()); });
                     }
                     SwarmEvent::ConnectionClosed { peer_id, endpoint, .. } => {
                         assert_eq!(peer_id, listening_swarm_peer_id);
@@ -182,7 +189,8 @@ async fn concurrent_incoming_connection_and_maximum_peering_degree_reached() {
                     SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                         assert_eq!(peer_id, listening_swarm_peer_id);
                         let mut control = dialer_swarm_2.behaviour_mut().new_control();
-                        spawn(async move { control.open_stream(listening_swarm_peer_id, PROTOCOL_NAME).await.unwrap(); });
+                        let stream_ref = Arc::clone(&s2);
+                        spawn(async move { *stream_ref.lock().unwrap() = Some(control.open_stream(listening_swarm_peer_id, PROTOCOL_NAME).await.unwrap()); });
                     }
                     SwarmEvent::ConnectionClosed { peer_id, endpoint, .. } => {
                         assert_eq!(peer_id, listening_swarm_peer_id);
