@@ -50,6 +50,7 @@ members = [
   "tests",
   "utxotree",
   "zk/groth16-verifier",
+  "zk/poseidon2",
 ]
 resolver = "2"
 
