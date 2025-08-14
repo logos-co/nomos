@@ -31,26 +31,6 @@ use crate::core::with_core::behaviour::{Behaviour, Event, IntervalStreamProvider
 #[derive(Clone)]
 pub struct IntervalProvider(Duration, RangeInclusive<u64>);
 
-impl IntervalProvider {
-    pub fn new(interval: Duration, range: RangeInclusive<u64>) -> Self {
-        Self(interval, range)
-    }
-
-    pub fn with_range(range: RangeInclusive<u64>) -> Self {
-        Self(Self::default().0, range)
-    }
-
-    pub fn with_interval(interval: Duration) -> Self {
-        Self(interval, Self::default().1)
-    }
-}
-
-impl Default for IntervalProvider {
-    fn default() -> Self {
-        Self(Duration::from_secs(1), 0..=1)
-    }
-}
-
 impl IntervalStreamProvider for IntervalProvider {
     type IntervalStream = Box<dyn Stream<Item = RangeInclusive<u64>> + Send + Unpin + 'static>;
     type IntervalItem = RangeInclusive<u64>;
@@ -61,57 +41,79 @@ impl IntervalStreamProvider for IntervalProvider {
     }
 }
 
-impl Default for Behaviour<IntervalProvider> {
-    fn default() -> Self {
-        Self {
+#[derive(Default)]
+pub struct IntervalProviderBuilder {
+    range: Option<RangeInclusive<u64>>,
+}
+
+impl IntervalProviderBuilder {
+    pub fn with_range(mut self, range: RangeInclusive<u64>) -> Self {
+        self.range = Some(range);
+        self
+    }
+
+    pub fn build(self) -> IntervalProvider {
+        IntervalProvider(Duration::from_secs(1), self.range.unwrap_or(0..=1))
+    }
+}
+
+#[derive(Default)]
+pub struct BehaviourBuilder {
+    provider: Option<IntervalProvider>,
+    local_peer_id: Option<PeerId>,
+    peering_degree: Option<RangeInclusive<usize>>,
+    identity: Option<Keypair>,
+}
+
+impl BehaviourBuilder {
+    pub fn with_provider(mut self, provider: IntervalProvider) -> Self {
+        self.provider = Some(provider);
+        self
+    }
+
+    pub fn with_local_peer_id(mut self, local_peer_id: PeerId) -> Self {
+        assert!(
+            self.identity.is_none(),
+            "Cannot set local peer ID when identity keypair is also set."
+        );
+        self.local_peer_id = Some(local_peer_id);
+        self
+    }
+
+    pub fn with_peering_degree(mut self, peering_degree: RangeInclusive<usize>) -> Self {
+        self.peering_degree = Some(peering_degree);
+        self
+    }
+
+    pub fn with_identity(mut self, keypair: Keypair) -> Self {
+        assert!(
+            self.local_peer_id.is_none(),
+            "Cannot set identity when local peer ID is also set."
+        );
+        self.identity = Some(keypair);
+        self
+    }
+
+    pub fn build(self) -> Behaviour<IntervalProvider> {
+        let local_peer_id = match (self.local_peer_id, self.identity) {
+            (None, None) => PeerId::random(),
+            (Some(peer_id), None) => peer_id,
+            (None, Some(keypair)) => keypair.public().to_peer_id(),
+            (Some(_), Some(_)) => panic!("Cannot happen."),
+        };
+        Behaviour {
             negotiated_peers: HashMap::new(),
             connections_waiting_upgrade: HashMap::new(),
             events: VecDeque::new(),
             waker: None,
             exchanged_message_identifiers: HashMap::new(),
-            observation_window_clock_provider: IntervalProvider::default(),
+            observation_window_clock_provider: self
+                .provider
+                .unwrap_or_else(|| IntervalProviderBuilder::default().build()),
             current_membership: None,
-            peering_degree: 1..=1,
-            local_peer_id: PeerId::random(),
-        }
-    }
-}
-
-impl Behaviour<IntervalProvider> {
-    #[must_use]
-    pub fn with_local_peer_id(local_peer_id: PeerId) -> Self {
-        Self {
+            peering_degree: self.peering_degree.unwrap_or(1..=1),
             local_peer_id,
-            ..Default::default()
         }
-    }
-
-    #[must_use]
-    pub fn with_local_peer_id_and_peering_degree(
-        local_peer_id: PeerId,
-        peering_degree: RangeInclusive<usize>,
-    ) -> Self {
-        Self {
-            peering_degree,
-            local_peer_id,
-            ..Default::default()
-        }
-    }
-
-    #[must_use]
-    pub fn with_identity(identity: &Keypair) -> Self {
-        Self {
-            local_peer_id: identity.public().to_peer_id(),
-            ..Default::default()
-        }
-    }
-
-    #[must_use]
-    pub fn with_identity_and_provider(identity: &Keypair, provider: IntervalProvider) -> Self {
-        let mut self_instance = Self::with_identity(identity);
-        self_instance.observation_window_clock_provider = provider;
-
-        self_instance
     }
 }
 

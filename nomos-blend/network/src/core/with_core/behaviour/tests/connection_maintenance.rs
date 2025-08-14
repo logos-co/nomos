@@ -7,15 +7,22 @@ use test_log::test;
 use tokio::{select, time::sleep};
 
 use crate::core::with_core::behaviour::{
-    tests::utils::{IntervalProvider, SwarmExt as _, TestEncapsulatedMessage, TestSwarm},
-    Behaviour, Event, NegotiatedPeerState, SpamReason,
+    tests::utils::{
+        BehaviourBuilder, IntervalProviderBuilder, SwarmExt as _, TestEncapsulatedMessage,
+        TestSwarm,
+    },
+    Event, NegotiatedPeerState, SpamReason,
 };
 
 #[test(tokio::test)]
 async fn detect_spammy_peer() {
-    let mut dialing_swarm = TestSwarm::new(|id| Behaviour::with_identity(&id));
+    let mut dialing_swarm =
+        TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
     let mut listening_swarm = TestSwarm::new(|id| {
-        Behaviour::with_identity_and_provider(&id, IntervalProvider::with_range(1..=1))
+        BehaviourBuilder::default()
+            .with_identity(id)
+            .with_provider(IntervalProviderBuilder::default().with_range(1..=1).build())
+            .build()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
@@ -64,9 +71,13 @@ async fn detect_spammy_peer() {
 
 #[test(tokio::test)]
 async fn detect_unhealthy_peer() {
-    let mut dialing_swarm = TestSwarm::new(|id| Behaviour::with_identity(&id));
+    let mut dialing_swarm =
+        TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
     let mut listening_swarm = TestSwarm::new(|id| {
-        Behaviour::with_identity_and_provider(&id, IntervalProvider::with_range(1..=1))
+        BehaviourBuilder::default()
+            .with_identity(id)
+            .with_provider(IntervalProviderBuilder::default().with_range(1..=1).build())
+            .build()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
@@ -116,9 +127,13 @@ async fn detect_unhealthy_peer() {
 
 #[test(tokio::test)]
 async fn restore_healthy_peer() {
-    let mut dialing_swarm = TestSwarm::new(|id| Behaviour::with_identity(&id));
+    let mut dialing_swarm =
+        TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
     let mut listening_swarm = TestSwarm::new(|id| {
-        Behaviour::with_identity_and_provider(&id, IntervalProvider::with_range(1..=1))
+        BehaviourBuilder::default()
+            .with_identity(id)
+            .with_provider(IntervalProviderBuilder::default().with_range(1..=1).build())
+            .build()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
