@@ -81,11 +81,13 @@ impl Behaviour {
         let Ok(deserialized_encapsulated_message) =
             deserialize_encapsulated_message(serialized_message)
         else {
+            tracing::trace!(target: LOG_TARGET, "Failed to deserialize received message. Ignoring...");
             return;
         };
 
         let Ok(validated_message) = deserialized_encapsulated_message.validate_public_header()
         else {
+            tracing::trace!(target: LOG_TARGET, "Failed to validate public header of received message. Ignoring...");
             return;
         };
 
