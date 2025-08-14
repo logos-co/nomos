@@ -343,6 +343,10 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             bootstrap: chain_service::BootstrapConfig {
                 prolonged_bootstrap_period: Duration::from_secs(3),
                 force_bootstrap: false,
+                offline_grace_period: chain_service::OfflineGracePeriodConfig {
+                    grace_period: Duration::from_secs(20 * 60),
+                    state_recording_interval: Duration::from_secs(60),
+                },
                 ibd: chain_service::IbdConfig {
                     peers: HashSet::new(),
                     delay_before_new_download: Duration::from_secs(10),

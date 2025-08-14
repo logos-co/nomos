@@ -1,4 +1,4 @@
-use std::{collections::HashSet, hash::Hash, marker::PhantomData};
+use std::{collections::HashSet, hash::Hash, marker::PhantomData, time::SystemTime};
 
 use nomos_core::{header::HeaderId, mantle::Utxo};
 use nomos_ledger::LedgerState;
@@ -19,6 +19,8 @@ pub struct CryptarchiaConsensusState<TxS, BxS, NodeId, NetworkAdapterSettings, B
     /// been deleted from the persistence layer because of some unexpected
     /// error.
     pub(crate) storage_blocks_to_remove: HashSet<HeaderId>,
+    /// Last engine state and timestamp for offline grace period tracking
+    pub last_engine_state: Option<LastEngineState>,
     // Only neededed for the service state trait
     _markers: PhantomData<(
         TxS,
@@ -59,6 +61,10 @@ impl<TxS, BxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>
             lib_leader_utxos,
             lib_block_length,
             storage_blocks_to_remove,
+            last_engine_state: Some(LastEngineState {
+                timestamp: SystemTime::now(),
+                state: *cryptarchia.consensus.state(),
+            }),
             _markers: PhantomData,
         })
     }
@@ -84,10 +90,17 @@ where
                 lib_leader_utxos: settings.leader_config.utxos.clone(),
                 lib_block_length: 0,
                 storage_blocks_to_remove: HashSet::new(),
+                last_engine_state: None,
                 _markers: PhantomData,
             }
         })
     }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct LastEngineState {
+    pub timestamp: SystemTime,
+    pub state: cryptarchia_engine::State,
 }
 
 #[cfg(test)]
