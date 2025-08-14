@@ -8,8 +8,9 @@ use libp2p::Multiaddr;
 use multiaddr::Protocol;
 use tracing::info;
 
-use crate::behaviour::nat::address_mapper::{
-    errors::AddressMapperError, protocol::MappingProtocol,
+use crate::{
+    behaviour::nat::address_mapper::{errors::AddressMapperError, protocol::MappingProtocol},
+    config::NatMappingSettings,
 };
 
 type AddressWithProtocol = (SocketAddr, PortMappingProtocol);
@@ -17,11 +18,12 @@ type AddressWithProtocol = (SocketAddr, PortMappingProtocol);
 pub struct UpnpProtocol {
     gateway: Gateway<Tokio>,
     gateway_external_ip: IpAddr,
+    settings: NatMappingSettings,
 }
 
 #[async_trait::async_trait]
 impl MappingProtocol for UpnpProtocol {
-    async fn initialize() -> Result<Box<Self>, AddressMapperError>
+    async fn initialize(settings: NatMappingSettings) -> Result<Box<Self>, AddressMapperError>
     where
         Self: Sized,
     {
@@ -33,6 +35,7 @@ impl MappingProtocol for UpnpProtocol {
         Ok(Box::new(Self {
             gateway,
             gateway_external_ip,
+            settings,
         }))
     }
 
@@ -49,7 +52,7 @@ impl MappingProtocol for UpnpProtocol {
                 // Request the same port as the internal address
                 mapped_port,
                 internal_address,
-                0,
+                self.settings.lease_duration,
                 "libp2p UPnP mapping",
             )
             .await?;

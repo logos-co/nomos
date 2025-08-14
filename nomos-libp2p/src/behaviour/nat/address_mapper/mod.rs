@@ -1,4 +1,5 @@
 mod errors;
+mod nat_pmp;
 mod protocol;
 mod upnp;
 
@@ -15,8 +16,9 @@ use libp2p::{
 };
 use tracing::{info, warn};
 
-use crate::behaviour::nat::address_mapper::{
-    errors::AddressMapperError, protocol::ProtocolManager,
+use crate::{
+    behaviour::nat::address_mapper::{errors::AddressMapperError, protocol::ProtocolManager},
+    config::NatMappingSettings,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -27,15 +29,23 @@ pub enum Event {
     NewExternalMappedAddress(Multiaddr),
 }
 
-/// UPnP-based TCP address mapper
-#[derive(Default)]
 pub struct AddressMapperBehaviour {
     mapping_future: Option<BoxFuture<'static, Result<Multiaddr, AddressMapperError>>>,
     original_address: Option<Multiaddr>,
     waker: Option<Waker>,
+    settings: NatMappingSettings,
 }
 
 impl AddressMapperBehaviour {
+    pub fn new(settings: NatMappingSettings) -> Self {
+        Self {
+            mapping_future: None,
+            original_address: None,
+            waker: None,
+            settings,
+        }
+    }
+
     pub fn try_map_address(&mut self, address: Multiaddr) -> Result<(), AddressMapperError> {
         if self.mapping_future.is_some() {
             return Err(AddressMapperError::MappingAlreadyInProgress);
@@ -53,8 +63,9 @@ impl AddressMapperBehaviour {
     fn start_mapping(&mut self, address: Multiaddr) {
         self.original_address = Some(address.clone());
 
+        let settings = self.settings;
         let mapping_future = async move {
-            let mut protocol_manager = ProtocolManager::initialize().await?;
+            let mut protocol_manager = ProtocolManager::initialize(settings).await?;
             protocol_manager.try_map_address(&address).await
         }
         .boxed();

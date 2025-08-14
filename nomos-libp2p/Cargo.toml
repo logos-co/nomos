@@ -26,10 +26,13 @@ libp2p = { workspace = true, features = [
   "tokio",
 ] }
 multiaddr = "0.18"
+natpmp = { version = "0.5", features = ["tokio"] }
+nomos-utils = { workspace = true, features = ["time"] }
 
 async-trait = "0.1.88"
 rand        = "0.8"
 serde       = { version = "1.0.166", features = ["derive"] }
+serde_with  = { workspace = true }
 thiserror   = "1.0.40"
 tokio       = { version = "1", features = ["macros", "time"] }
 tracing     = { workspace = true }
