@@ -10,9 +10,12 @@ use nomos_libp2p::SwarmEvent;
 use test_log::test;
 use tokio::{select, time::sleep};
 
-use crate::core::with_core::behaviour::{
-    tests::utils::{largest_peer_id, smallest_peer_id, BehaviourBuilder, SwarmExt as _, TestSwarm},
-    Event,
+use crate::core::{
+    tests::utils::{largest_peer_id, smallest_peer_id, TestSwarm},
+    with_core::behaviour::{
+        tests::utils::{BehaviourBuilder, SwarmExt as _},
+        Event,
+    },
 };
 
 #[test(tokio::test)]
@@ -181,7 +184,7 @@ async fn concurrent_incoming_connections() {
 
     // We check whether the dialer whose connection was dropped was also notified by
     // its behaviour that the dialed peer got disconnected.
-    assert!((dialer_1_dropped && dialer_1_notified) || (dialer_2_dropped && dialer_2_notified));
+    assert!((dialer_1_dropped && dialer_1_notified) ^ (dialer_2_dropped && dialer_2_notified));
 }
 
 #[test(tokio::test)]

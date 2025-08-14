@@ -8,12 +8,15 @@ use test_log::test;
 use tokio::{select, time::sleep};
 
 use crate::{
-    core::with_core::{
-        behaviour::{
-            tests::utils::{BehaviourBuilder, SwarmExt as _, TestEncapsulatedMessage, TestSwarm},
-            Event, NegotiatedPeerState, SpamReason,
+    core::{
+        tests::utils::{TestEncapsulatedMessage, TestSwarm},
+        with_core::{
+            behaviour::{
+                tests::utils::{BehaviourBuilder, SwarmExt as _},
+                Event, NegotiatedPeerState, SpamReason,
+            },
+            error::Error,
         },
-        error::Error,
     },
     message::ValidateMessagePublicHeader as _,
 };

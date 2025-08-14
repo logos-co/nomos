@@ -10,7 +10,7 @@ use libp2p::{
 use crate::{
     core::with_edge::behaviour::handler::{
         dropped::DroppedState, receiving::ReceivingState, ConnectionState, FailureReason,
-        PollResult, StateTrait, TimerFuture, ToBehaviour, LOG_TARGET,
+        FromBehaviour, PollResult, StateTrait, TimerFuture, ToBehaviour, LOG_TARGET,
     },
     recv_msg,
 };
@@ -53,6 +53,22 @@ impl From<ReadyToReceiveState> for ConnectionState {
 }
 
 impl StateTrait for ReadyToReceiveState {
+    fn on_behaviour_event(mut self, event: FromBehaviour) -> ConnectionState {
+        match event {
+            FromBehaviour::CloseSubstream => DroppedState::new(None, self.take_waker()).into(),
+            FromBehaviour::StartReceiving => {
+                tracing::trace!(target: LOG_TARGET, "Transitioning from `ReadyToReceive` to `Receiving`.");
+                let waker = self.take_waker();
+                ReceivingState::new(
+                    self.timeout_timer,
+                    Box::pin(recv_msg(self.inbound_stream).map_ok(|(_, message)| message)),
+                    waker,
+                )
+                .into()
+            }
+        }
+    }
+
     // If the timer elapses, moves the state machine to `DroppedState` with a
     // timeout error. Otherwise, it moves it to `ReceivingState` with the `recv_msg`
     // future to fetch the first message from the stream.
@@ -64,21 +80,18 @@ impl StateTrait for ReadyToReceiveState {
                 DroppedState::new(Some(FailureReason::Timeout), Some(cx.waker().clone())).into(),
             );
         };
-        tracing::trace!(target: LOG_TARGET, "Transitioning from `ReadyToReceive` to `Receiving`.");
-        let receiving_state = ReceivingState::new(
-            self.timeout_timer,
-            Box::pin(recv_msg(self.inbound_stream).map_ok(|(_, message)| message)),
-            Some(cx.waker().clone()),
-        );
-        let poll_result = if self.behaviour_notified {
-            Poll::Pending
-        } else {
+        if !self.behaviour_notified {
             self.behaviour_notified = true;
-            Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                ToBehaviour::SubstreamOpened,
-            ))
-        };
-        (poll_result, receiving_state.into())
+            tracing::trace!(target: LOG_TARGET, "Notifying behaviour about ready to receive state.");
+            return (
+                Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                    ToBehaviour::SubstreamOpened,
+                )),
+                self.into(),
+            );
+        }
+        self.waker = Some(cx.waker().clone());
+        (Poll::Pending, self.into())
     }
 
     fn take_waker(&mut self) -> Option<Waker> {
