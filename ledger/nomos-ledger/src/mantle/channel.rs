@@ -38,20 +38,15 @@ impl Channels {
         msg: MsgId,
         signer: &PublicKey,
     ) -> Result<Self, Error> {
-        if !self.channels.contains_key(&channel_id) {
-            self.channels = self.channels.insert(
-                channel_id,
-                ChannelState {
-                    tip: MsgId::root(),
-                    keys: vec![*signer].into(),
-                },
-            );
-        }
-
         let channel = self
             .channels
             .get(&channel_id)
-            .expect("we initialize non-existing channels above");
+            .cloned()
+            .unwrap_or_else(|| ChannelState {
+                tip: MsgId::root(),
+                keys: vec![*signer].into(),
+            });
+
         if *parent != channel.tip {
             return Err(Error::InvalidParent {
                 channel_id,
