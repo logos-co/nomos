@@ -2,8 +2,7 @@ use std::num::NonZeroU64;
 
 use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
-    membership::{Membership, Node},
-    message_blend::CryptographicProcessorSettings,
+    membership::Membership, message_blend::CryptographicProcessorSettings,
     message_scheduler::session_info::SessionInfo,
 };
 use nomos_utils::math::NonNegativeF64;
@@ -11,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
-use crate::settings::TimingSettings;
+use crate::settings::{MembershipSettings, TimingSettings};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BlendConfig<BackendSettings, NodeId> {
@@ -19,7 +18,7 @@ pub struct BlendConfig<BackendSettings, NodeId> {
     pub crypto: CryptographicProcessorSettings,
     pub scheduler: SchedulerSettingsExt,
     pub time: TimingSettings,
-    pub membership: Vec<Node<NodeId>>,
+    pub membership: MembershipSettings<NodeId>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -76,17 +75,16 @@ where
 {
     pub(super) fn membership(&self) -> Membership<NodeId> {
         let local_signing_pubkey = self.crypto.signing_private_key.public_key();
-        Membership::new(&self.membership, Some(&local_signing_pubkey))
+        self.membership.membership(Some(&local_signing_pubkey))
     }
 }
 
 impl<BackendSettings, NodeId> BlendConfig<BackendSettings, NodeId> {
     pub(super) fn session_stream(&self) -> impl Stream<Item = SessionInfo> {
-        let membership_size = self.membership.len() + 1;
         let static_quota_for_membership =
             self.scheduler
                 .cover
-                .session_quota(&self.crypto, &self.time, membership_size);
+                .session_quota(&self.crypto, &self.time, self.membership.size());
         IntervalStream::new(interval(self.time.session_duration()))
             .enumerate()
             .map(move |(session_number, _)| SessionInfo {

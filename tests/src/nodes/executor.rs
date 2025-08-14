@@ -15,7 +15,7 @@ use nomos_api::http::membership::MembershipUpdateRequest;
 use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
 use nomos_blend_service::{
     core::settings::{CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt},
-    settings::TimingSettings,
+    settings::{MembershipSettings, TimingSettings},
 };
 use nomos_core::{block::BlockNumber, header::HeaderId, sdp::FinalizedBlockEvent};
 use nomos_da_dispersal::{
@@ -322,7 +322,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                         .expect("Maximum release delay between rounds cannot be zero."),
                 },
             },
-            membership: config.blend_config.membership,
+            membership: MembershipSettings::new(config.blend_config.membership),
         }),
         cryptarchia: CryptarchiaSettings {
             leader_config: config.consensus_config.leader_config,

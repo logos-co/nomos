@@ -15,7 +15,6 @@ use network::NetworkAdapter;
 use nomos_blend_message::{crypto::random_sized_bytes, encap::DecapsulationOutput, PayloadType};
 use nomos_blend_network::EncapsulatedMessageWithValidatedPublicHeader;
 use nomos_blend_scheduling::{
-    membership::Membership,
     message_blend::crypto::CryptographicProcessor,
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
     UninitializedMessageScheduler,
@@ -33,12 +32,11 @@ use rand::{seq::SliceRandom as _, RngCore, SeedableRng as _};
 use rand_chacha::ChaCha12Rng;
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
-use tokio::time::interval;
-use tokio_stream::wrappers::IntervalStream;
 
 use crate::{
     core::settings::BlendConfig,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
+    session_stream,
 };
 
 const LOG_TARGET: &str = "blend::service::core";
@@ -57,7 +55,6 @@ where
 {
     backend: Backend,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    membership: Membership<NodeId>,
 }
 
 impl<Backend, NodeId, Network, RuntimeServiceId> ServiceData
@@ -94,19 +91,17 @@ where
     ) -> Result<Self, overwatch::DynError> {
         let settings_reader = service_resources_handle.settings_handle.notifier();
         let blend_config = settings_reader.get_updated_settings();
-        let membership = blend_config.membership();
         Ok(Self {
             backend: <Backend as BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId>>::new(
                 settings_reader.get_updated_settings(),
                 service_resources_handle.overwatch_handle.clone(),
-                Box::pin(
-                    IntervalStream::new(interval(blend_config.time.session_duration()))
-                        .map(move |_| membership.clone()),
+                session_stream(
+                    blend_config.time.session_duration(),
+                    blend_config.membership(),
                 ),
                 ChaCha12Rng::from_entropy(),
             ),
             service_resources_handle,
-            membership: blend_config.membership(),
         })
     }
 
@@ -121,13 +116,19 @@ where
                     ..
                 },
             ref mut backend,
-            ref membership,
         } = self;
         let blend_config = settings_handle.notifier().get_updated_settings();
+        let mut session_stream = session_stream(
+            blend_config.time.session_duration(),
+            blend_config.membership(),
+        );
         let mut rng = ChaCha12Rng::from_entropy();
         let mut cryptographic_processor = CryptographicProcessor::new(
             blend_config.crypto.clone(),
-            membership.clone(),
+            session_stream
+                .next()
+                .await
+                .expect("The first session must be available"),
             rng.clone(),
         );
         let network_relay = overwatch_handle.relay::<NetworkService<_, _>>().await?;
@@ -175,6 +176,13 @@ where
                 }
                 Some(round_info) = message_scheduler.next() => {
                     handle_release_round(round_info, &mut cryptographic_processor, &mut rng, backend, &network_adapter).await;
+                }
+                Some(membership) = session_stream.next() => {
+                    cryptographic_processor = CryptographicProcessor::new(
+                        blend_config.crypto.clone(),
+                        membership,
+                        rng.clone(),
+                    );
                 }
             }
         }

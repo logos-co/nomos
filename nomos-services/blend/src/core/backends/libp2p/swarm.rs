@@ -400,7 +400,8 @@ where
                 }
                 Some(new_session_info) = self.session_stream.next() => {
                     self.latest_session_info = new_session_info;
-                    // TODO: Perform the session transition logic
+                    self.swarm.behaviour_mut().blend.with_core_mut().start_new_session(self.latest_session_info.clone());
+                    self.swarm.behaviour_mut().blend.with_edge_mut().start_new_session(self.latest_session_info.clone());
                 }
             }
         }

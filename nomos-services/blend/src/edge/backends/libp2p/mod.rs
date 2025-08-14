@@ -34,7 +34,7 @@ impl<RuntimeServiceId> BlendBackend<PeerId, RuntimeServiceId> for Libp2pBlendBac
         settings: Self::Settings,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         session_stream: Pin<Box<dyn Stream<Item = Membership<PeerId>> + Send>>,
-        current_membership: Option<Membership<PeerId>>,
+        current_membership: Membership<PeerId>,
         rng: Rng,
     ) -> Self
     where

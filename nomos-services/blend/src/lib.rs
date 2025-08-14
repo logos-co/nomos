@@ -1,13 +1,15 @@
 use std::{
     fmt::{Debug, Display},
     marker::PhantomData,
+    pin::Pin,
     time::Duration,
 };
 
 use async_trait::async_trait;
-use futures::StreamExt as _;
+use futures::{Stream, StreamExt as _};
 #[cfg(feature = "libp2p")]
 use libp2p::PeerId;
+use nomos_blend_scheduling::membership::Membership;
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -16,6 +18,8 @@ use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
 };
 use services_utils::wait_until_services_are_ready;
+use tokio::time::interval;
+use tokio_stream::wrappers::IntervalStream;
 use tracing::{debug, error, info};
 
 pub mod core;
@@ -96,6 +100,16 @@ where
 
         Ok(())
     }
+}
+
+pub(crate) fn session_stream<NodeId>(
+    session_duration: Duration,
+    membership: Membership<NodeId>,
+) -> Pin<Box<dyn Stream<Item = Membership<NodeId>> + Send>>
+where
+    NodeId: Clone + Send + 'static,
+{
+    Box::pin(IntervalStream::new(interval(session_duration)).map(move |_| membership.clone()))
 }
 
 /// Defines additional types required for communicating with [`BlendService`].

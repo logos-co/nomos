@@ -17,10 +17,9 @@ use rand::{RngCore, SeedableRng as _};
 use rand_chacha::ChaCha12Rng;
 use serde::Serialize;
 use settings::BlendConfig;
-use tokio::time::interval;
-use tokio_stream::{wrappers::IntervalStream, StreamExt as _};
+use tokio_stream::StreamExt as _;
 
-use crate::message::ServiceMessage;
+use crate::{message::ServiceMessage, session_stream};
 
 const LOG_TARGET: &str = "blend::service::edge";
 
@@ -64,14 +63,11 @@ where
             .notifier()
             .get_updated_settings();
         let membership = settings.membership();
-        let current_membership = Some(membership.clone());
+        let current_membership = membership.clone();
         let backend = <Backend as BlendBackend<NodeId, RuntimeServiceId>>::new(
             settings.backend,
             service_resources_handle.overwatch_handle.clone(),
-            Box::pin(
-                IntervalStream::new(interval(settings.time.session_duration()))
-                    .map(move |_| membership.clone()),
-            ),
+            session_stream(settings.time.session_duration(), membership),
             current_membership,
             ChaCha12Rng::from_entropy(),
         );

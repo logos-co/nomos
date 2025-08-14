@@ -41,7 +41,7 @@ where
     stream_control: libp2p_stream::Control,
     command_receiver: mpsc::Receiver<Command>,
     session_stream: SessionStream,
-    current_membership: Option<Membership<PeerId>>,
+    current_membership: Membership<PeerId>,
     rng: Rng,
     max_dial_attempts_per_connection: NonZeroU64,
     pending_dials: HashMap<(PeerId, ConnectionId), DialAttempt>,
@@ -59,7 +59,7 @@ where
     pub(super) fn new(
         settings: &Libp2pBlendBackendSettings,
         session_stream: SessionStream,
-        current_membership: Option<Membership<PeerId>>,
+        current_membership: Membership<PeerId>,
         rng: Rng,
         command_receiver: mpsc::Receiver<Command>,
     ) -> Self {
@@ -161,10 +161,7 @@ where
     }
 
     fn choose_peer_except(&mut self, except: Option<PeerId>) -> Option<Node<PeerId>> {
-        let Some(membership) = &self.current_membership else {
-            return None;
-        };
-        membership
+        self.current_membership
             .filter_and_choose_remote_nodes(&mut self.rng, 1, &except.into_iter().collect())
             .next()
             .cloned()
@@ -293,10 +290,8 @@ where
         }
     }
 
-    // TODO: Implement the actual session transition.
-    //       https://github.com/logos-co/nomos/issues/1462
     fn transition_session(&mut self, membership: Membership<PeerId>) {
-        self.current_membership = Some(membership);
+        self.current_membership = membership;
     }
 }
 
