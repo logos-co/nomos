@@ -15,7 +15,7 @@ impl Poseidon2Hasher {
         Self { state }
     }
 
-    fn update_one(&mut self, input: &[u8]) {
+    pub fn update_one(&mut self, input: &[u8]) {
         let input = Fr::from(BigUint::from_bytes_be(input));
         self.state[2] = &self.state[2] + &input;
         Poseidon2Bn254::permute_mut::<Poseidon2Bn254Params, 3>(&mut self.state);
@@ -43,7 +43,7 @@ mod tests {
     #[test]
     fn hash() {
         let mut hasher = Poseidon2Hasher::new();
-        hasher.update(0usize.to_be_bytes().as_ref());
+        hasher.update_one(BigUint::from(0u64).to_bytes_be().as_ref());
         let result = hasher.finalize();
         let expected = Fr::from(
             BigUint::from_str(
