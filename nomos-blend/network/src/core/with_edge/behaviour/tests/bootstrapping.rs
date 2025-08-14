@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use futures::StreamExt as _;
 use libp2p::{swarm::dummy, PeerId, Stream};
 use libp2p_stream::{Behaviour as StreamBehaviour, OpenStreamError};
-use libp2p_swarm_test::SwarmExt;
+use libp2p_swarm_test::SwarmExt as _;
 use nomos_libp2p::SwarmEvent;
 use test_log::test;
 use tokio::{select, spawn, time::sleep};

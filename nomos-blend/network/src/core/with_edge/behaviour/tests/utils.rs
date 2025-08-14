@@ -2,7 +2,6 @@ use core::time::Duration;
 use std::collections::{HashSet, VecDeque};
 
 use async_trait::async_trait;
-use futures::AsyncWriteExt as _;
 use libp2p::{Multiaddr, PeerId, Stream, Swarm};
 use libp2p_stream::Behaviour as StreamBehaviour;
 use libp2p_swarm_test::SwarmExt as _;
@@ -70,8 +69,8 @@ pub trait StreamBehaviourExt: libp2p_swarm_test::SwarmExt {
 #[async_trait]
 impl StreamBehaviourExt for Swarm<StreamBehaviour> {
     async fn connect_and_upgrade_to_blend(&mut self, other: &mut Swarm<Behaviour>) -> Stream {
-        // We connect and write an empty byte into the stream so the blend node does not
-        // close the connection with an EOF error.
+        // We connect and return the stream preventing it from being dropped so the
+        // blend node does not close the connection with an EOF error.
         self.connect(other).await;
         self.behaviour_mut()
             .new_control()
