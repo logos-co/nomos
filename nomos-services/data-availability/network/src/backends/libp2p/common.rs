@@ -8,7 +8,7 @@ use kzgrs_backend::common::{
     share::{DaLightShare, DaShare, DaSharesCommitments},
     ShareIndex,
 };
-use nomos_core::{block::BlockNumber, da::BlobId};
+use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::sampling::{
@@ -175,6 +175,10 @@ async fn handle_event(
                 error,
             );
         }
+        sampling::SamplingEvent::HistoricSamplingSuccess { .. } => todo!(),
+        sampling::SamplingEvent::HistoricSamplingError { .. } => {
+            todo!("Handle historic sampling error");
+        }
     }
 }
 
@@ -318,12 +322,13 @@ pub(crate) async fn handle_historic_sample_request<Membership>(
     historic_sample_request_channel: &UnboundedSender<SampleArgs<Membership>>,
     blob_ids: HashSet<BlobId>,
     block_number: BlockNumber,
+    block_id: HeaderId,
     membership: Membership,
 ) {
-    if let Err(SendError((blob_id, block_number, _))) =
-        historic_sample_request_channel.send((blob_ids, block_number, membership))
+    if let Err(SendError((blob_id, block_number, block_id, _))) =
+        historic_sample_request_channel.send((blob_ids, block_number, block_id, membership))
     {
-        error!("Error requesting historic sample for blob_id: {blob_id:?}, block_number: {block_number:?}");
+        error!("Error requesting historic sample for blob_id: {blob_id:?}, block_number: {block_number:?}, block_id: {block_id:?}");
     }
 }
 

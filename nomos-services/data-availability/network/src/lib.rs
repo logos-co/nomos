@@ -16,7 +16,7 @@ use backends::NetworkBackend;
 use futures::Stream;
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p::{Multiaddr, PeerId};
-use nomos_core::{block::BlockNumber, da::BlobId};
+use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::{addressbook::AddressBookHandler as _, SubnetworkId};
 use overwatch::{
     services::{
@@ -64,6 +64,7 @@ where
     },
     RequestHistoricSample {
         block_number: BlockNumber,
+        block_id: HeaderId,
         blob_ids: HashSet<BlobId>,
     },
 }
@@ -94,10 +95,11 @@ where
             Self::RequestHistoricSample {
                 block_number,
                 blob_ids,
+                block_id,
             } => {
                 write!(
                     fmt,
-                    "DaNetworkMsg::RequestHistoricSample{{ block_number: {block_number}, blob_ids: {blob_ids:?} }}"
+                    "DaNetworkMsg::RequestHistoricSample{{ block_number: {block_number}, blob_ids: {blob_ids:?}, block_id: {block_id} }}"
                 )
             }
         }
@@ -480,11 +482,13 @@ where
             DaNetworkMsg::RequestHistoricSample {
                 block_number,
                 blob_ids,
+                block_id,
             } => {
                 Self::handle_historic_sample_request(
                     backend,
                     membership_storage,
                     block_number,
+                    block_id,
                     blob_ids,
                 )
                 .await;
@@ -508,6 +512,7 @@ where
         backend: &Backend,
         membership_storage: &MembershipStorage<StorageAdapter, Membership, AddressBook>,
         block_number: u64,
+        block_id: HeaderId,
         blob_ids: HashSet<[u8; 32]>,
     ) {
         let membership = membership_storage
@@ -519,7 +524,8 @@ where
             });
 
         if let Some(membership) = membership {
-            let send = backend.start_historic_sampling(block_number, blob_ids, membership);
+            let send =
+                backend.start_historic_sampling(block_number, block_id, blob_ids, membership);
             send.await;
         } else {
             tracing::error!("No membership found for block number {block_number}");
