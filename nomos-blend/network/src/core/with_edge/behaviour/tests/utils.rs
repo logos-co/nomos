@@ -73,13 +73,10 @@ impl StreamBehaviourExt for Swarm<StreamBehaviour> {
         // We connect and write an empty byte into the stream so the blend node does not
         // close the connection with an EOF error.
         self.connect(other).await;
-        let mut stream = self
-            .behaviour_mut()
+        self.behaviour_mut()
             .new_control()
             .open_stream(*other.local_peer_id(), PROTOCOL_NAME)
             .await
-            .unwrap();
-        let _ = stream.write(b"").await.unwrap();
-        stream
+            .unwrap()
     }
 }
