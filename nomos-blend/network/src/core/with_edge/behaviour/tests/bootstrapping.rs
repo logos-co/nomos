@@ -94,7 +94,7 @@ async fn incoming_connection_with_maximum_peering_degree() {
     blend_swarm.listen().with_memory_addr_external().await;
 
     // We wait that the first connection is established and upgraded.
-    edge_swarm_1
+    let _ = edge_swarm_1
         .connect_and_upgrade_to_blend(&mut blend_swarm)
         .await;
 
