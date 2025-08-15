@@ -43,31 +43,28 @@ impl ProtocolManager {
 
 #[cfg(test)]
 mod real_gateway_tests {
-    use tokio::runtime::Runtime;
+    use rand::{thread_rng, Rng as _};
 
     use super::*;
 
-    #[test]
+    /// Run with: NAT_TEST_LOCAL_IP="192.168.1.100" cargo test
+    /// map_address_via_protocol_manager_real_gateway -- --ignored
+    #[tokio::test]
     #[ignore = "Runs against a real gateway"]
-    fn map_address_via_protocol_manager_real_gateway() {
-        let rt = Runtime::new().unwrap();
+    async fn map_address_via_protocol_manager_real_gateway() {
+        let local_ip = std::env::var("NAT_TEST_LOCAL_IP").expect("NAT_TEST_LOCAL_IP");
+        let random_port: u64 = thread_rng().gen_range(10000..=64000);
+        let internal_addr = format!("/ip4/{local_ip}/tcp/{random_port}");
 
-        rt.block_on(async {
-            let internal_addr: Multiaddr = "/ip4/192.168.1.35/tcp/12345"
-                .to_owned()
-                .parse()
-                .expect("valid multiaddr");
+        println!("Testing NAT mapping for internal address: {internal_addr}",);
 
-            let settings = NatMappingSettings::default();
+        let internal_addr: Multiaddr = internal_addr.parse().expect("valid multiaddr");
 
-            let external = ProtocolManager::try_map_address(settings, &internal_addr)
-                .await
-                .expect("initialize ProtocolManager");
+        let settings = NatMappingSettings::default();
+        let external = ProtocolManager::try_map_address(settings, &internal_addr)
+            .await
+            .expect("initialize ProtocolManager");
 
-            let expected_external: Multiaddr =
-                "/ip4/18.9.60.1/tcp/12345".to_owned().parse().unwrap();
-
-            assert_eq!(external, expected_external);
-        });
+        println!("Successfully mapped {internal_addr} to {external}");
     }
 }
