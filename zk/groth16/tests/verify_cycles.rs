@@ -2,7 +2,7 @@
 use std::{hint::black_box, ops::Deref as _, sync::LazyLock};
 
 #[cfg(all(target_arch = "x86_64", feature = "deser"))]
-use groth16_verifier::{
+use groth16::{
     Groth16Proof, Groth16ProofJsonDeser, Groth16PublicInput, Groth16PublicInputDeser,
     Groth16VerificationKey, Groth16VerificationKeyJsonDeser, groth16_verify,
 };

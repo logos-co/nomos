@@ -2,10 +2,6 @@
 # Make sure any excluded crates are still clipped in our CI. Also, make sure they use the same Clippy and rustc lints we specify in this file down below.
 exclude = ["nomos-core/proof_statements", "nomos-core/risc0_proofs"]
 members = [
-  "circuits/mantle/pol",
-  "circuits/prover",
-  "circuits/utils",
-  "circuits/verifier",
   "consensus/cryptarchia-engine",
   "consensus/cryptarchia-sync",
   "ledger/nomos-ledger",
@@ -49,7 +45,11 @@ members = [
   "testnet/cfgsync",
   "tests",
   "utxotree",
-  "zk/groth16-verifier",
+  "zk/circuits/prover",
+  "zk/circuits/utils",
+  "zk/circuits/verifier",
+  "zk/groth16",
+  "zk/mantle-proofs/pol",
 ]
 resolver = "2"
 
@@ -58,10 +58,10 @@ resolver = "2"
 bundler                  = { path = "./nomos-bundler" }
 cfgsync                  = { path = "./testnet/cfgsync" }
 chain-service            = { path = "./nomos-services/chain-service" }
-circuits-pol             = { path = "./circuits/mantle/pol" }
-circuits-prover          = { path = "./circuits/prover" }
-circuits-utils           = { path = "./circuits/utils" }
-circuits-verifier        = { path = "./circuits/verifier" }
+circuits-pol             = { path = "zk/mantle-proofs/pol" }
+circuits-prover          = { path = "zk/circuits/prover" }
+circuits-utils           = { path = "zk/circuits/utils" }
+circuits-verifier        = { path = "zk/circuits/verifier" }
 common-http-client       = { path = "./nodes/nomos-node/http-client" }
 cryptarchia-engine       = { path = "./consensus/cryptarchia-engine" }
 cryptarchia-sync         = { path = "./consensus/cryptarchia-sync" }
