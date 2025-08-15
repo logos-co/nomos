@@ -73,8 +73,11 @@ impl MappingProtocol for NatPmp {
         Ok(Box::new(Self { settings, nat_pmp }))
     }
 
-    async fn map_address(&mut self, address: &Multiaddr) -> Result<Multiaddr, AddressMapperError> {
-        let (port, protocol) = extract_port_and_protocol(address)?;
+    async fn map_address(
+        &mut self,
+        internal_address: &Multiaddr,
+    ) -> Result<Multiaddr, AddressMapperError> {
+        let (port, protocol) = extract_port_and_protocol(internal_address)?;
 
         self.send_map_request(protocol, port).await?;
 
@@ -94,7 +97,7 @@ impl MappingProtocol for NatPmp {
                 )
             })??;
 
-        public_address(address, public_ip, public_port)
+        build_public_address(internal_address, public_ip, public_port)
     }
 }
 
@@ -112,7 +115,7 @@ fn extract_port_and_protocol(addr: &Multiaddr) -> Result<(u16, Protocol), Addres
         })
 }
 
-pub fn public_address(
+fn build_public_address(
     internal: &Multiaddr,
     public_ip: Ipv4Addr,
     public_port: u16,
