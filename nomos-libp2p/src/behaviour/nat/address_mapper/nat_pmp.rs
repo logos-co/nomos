@@ -5,7 +5,7 @@ use natpmp::{new_tokio_natpmp, NatpmpAsync, Protocol, Response};
 use tokio::{net::UdpSocket, time::timeout};
 
 use crate::{
-    behaviour::nat::address_mapper::{errors::AddressMapperError, protocol::MappingProtocol},
+    behaviour::nat::address_mapper::{errors::AddressMapperError, protocol::NatMapper},
     config::NatMappingSettings,
 };
 
@@ -63,7 +63,7 @@ impl NatPmp {
 }
 
 #[async_trait::async_trait]
-impl MappingProtocol for NatPmp {
+impl NatMapper for NatPmp {
     async fn initialize(settings: NatMappingSettings) -> Result<Box<Self>, AddressMapperError>
     where
         Self: Sized,

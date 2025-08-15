@@ -7,9 +7,8 @@ use crate::{
     config::NatMappingSettings,
 };
 
-/// Trait for NAT mapping protocols
 #[async_trait::async_trait]
-pub trait MappingProtocol: Send + Sync + 'static {
+pub trait NatMapper: Send + Sync + 'static {
     /// Initialize the protocol
     async fn initialize(settings: NatMappingSettings) -> Result<Box<Self>, AddressMapperError>
     where
@@ -19,21 +18,28 @@ pub trait MappingProtocol: Send + Sync + 'static {
     async fn map_address(&mut self, address: &Multiaddr) -> Result<Multiaddr, AddressMapperError>;
 }
 
-pub struct ProtocolManager;
+pub struct ProtocolManager {
+    settings: NatMappingSettings,
+}
 
-impl ProtocolManager {
-    pub async fn try_map_address(
-        settings: NatMappingSettings,
-        address: &Multiaddr,
-    ) -> Result<Multiaddr, AddressMapperError> {
-        let mut nat_pmp = NatPmp::initialize(settings).await?;
+#[async_trait::async_trait]
+impl NatMapper for ProtocolManager {
+    async fn initialize(settings: NatMappingSettings) -> Result<Box<Self>, AddressMapperError>
+    where
+        Self: Sized,
+    {
+        Ok(Box::new(Self { settings }))
+    }
+
+    async fn map_address(&mut self, address: &Multiaddr) -> Result<Multiaddr, AddressMapperError> {
+        let mut nat_pmp = NatPmp::initialize(self.settings).await?;
         if let Ok(external_address) = nat_pmp.map_address(address).await {
             tracing::info!("Successfully mapped {address} to {external_address} using NAT-PMP");
 
             return Ok(external_address);
         }
 
-        let mut upnp = UpnpProtocol::initialize(settings).await?;
+        let mut upnp = UpnpProtocol::initialize(self.settings).await?;
         let external_address = upnp.map_address(address).await?;
         tracing::info!("Successfully mapped {address} to {external_address} using UPnP");
 
@@ -61,7 +67,9 @@ mod real_gateway_tests {
         let internal_addr: Multiaddr = internal_addr.parse().expect("valid multiaddr");
 
         let settings = NatMappingSettings::default();
-        let external = ProtocolManager::try_map_address(settings, &internal_addr)
+        let mut mapper = ProtocolManager::initialize(settings).await.unwrap();
+        let external = mapper
+            .map_address(&internal_addr)
             .await
             .expect("initialize ProtocolManager");
 

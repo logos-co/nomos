@@ -34,7 +34,7 @@ rand        = "0.8"
 serde       = { version = "1.0.166", features = ["derive"] }
 serde_with  = { workspace = true }
 thiserror   = "1.0.40"
-tokio       = { version = "1", features = ["macros", "time"] }
+tokio       = { version = "1", features = ["macros", "test-util", "time"] }
 tracing     = { workspace = true }
 
 [dev-dependencies]

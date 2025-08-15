@@ -9,7 +9,7 @@ use multiaddr::Protocol;
 use tracing::info;
 
 use crate::{
-    behaviour::nat::address_mapper::{errors::AddressMapperError, protocol::MappingProtocol},
+    behaviour::nat::address_mapper::{errors::AddressMapperError, protocol::NatMapper},
     config::NatMappingSettings,
 };
 
@@ -22,7 +22,7 @@ pub struct UpnpProtocol {
 }
 
 #[async_trait::async_trait]
-impl MappingProtocol for UpnpProtocol {
+impl NatMapper for UpnpProtocol {
     async fn initialize(settings: NatMappingSettings) -> Result<Box<Self>, AddressMapperError>
     where
         Self: Sized,
