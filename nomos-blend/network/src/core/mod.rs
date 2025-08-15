@@ -50,7 +50,7 @@ impl<ObservationWindowClockProvider> NetworkBehaviour<ObservationWindowClockProv
     pub fn new(
         config: &Config,
         observation_window_clock_provider: ObservationWindowClockProvider,
-        current_membership: Option<Membership<PeerId>>,
+        current_membership: Membership<PeerId>,
         local_peer_id: PeerId,
     ) -> Self {
         Self {
