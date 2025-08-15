@@ -142,6 +142,11 @@ impl MappedPublic {
         TestIfPublic { addr_to_test: addr }
     }
 
+    pub fn into_try_map_address(self) -> TryMapAddress {
+        let Self { addr } = self;
+        TryMapAddress { addr_to_map: addr }
+    }
+
     pub fn into_private(self) -> Private {
         let Self { addr } = self;
         Private { addr }
