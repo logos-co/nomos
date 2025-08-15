@@ -15,27 +15,19 @@ pub trait MappingProtocol: Send + Sync + 'static {
     where
         Self: Sized;
 
-    /// Map a TCP address and return the external address
+    /// Tries to map an address and returns the external address
     async fn map_address(&mut self, address: &Multiaddr) -> Result<Multiaddr, AddressMapperError>;
 }
 
-pub struct ProtocolManager {
-    nat_pmp: Box<dyn MappingProtocol>,
-    upnp: Box<dyn MappingProtocol>,
-}
+pub struct ProtocolManager;
 
 impl ProtocolManager {
-    pub async fn initialize(settings: NatMappingSettings) -> Result<Self, AddressMapperError> {
-        let upnp = UpnpProtocol::initialize(settings).await?;
-        let nat_pmp = NatPmp::initialize(settings).await?;
-        Ok(Self { nat_pmp, upnp })
-    }
-
     pub async fn try_map_address(
-        &mut self,
+        settings: NatMappingSettings,
         address: &Multiaddr,
     ) -> Result<Multiaddr, AddressMapperError> {
-        if let Ok(external_address) = self.nat_pmp.map_address(address).await {
+        let mut nat_pmp = NatPmp::initialize(settings).await?;
+        if let Ok(external_address) = nat_pmp.map_address(address).await {
             tracing::info!(
                 "Successfully mapped {} to {} using NAT-PMP",
                 address,
@@ -45,7 +37,8 @@ impl ProtocolManager {
             return Ok(external_address);
         }
 
-        let external_address = self.upnp.map_address(address).await?;
+        let mut upnp = UpnpProtocol::initialize(settings).await?;
+        let external_address = upnp.map_address(address).await?;
         tracing::info!(
             "Successfully mapped {} to {} using {}",
             address,
@@ -76,11 +69,9 @@ mod real_gateway_tests {
 
             let settings = NatMappingSettings::default();
 
-            let mut mgr = ProtocolManager::initialize(settings)
+            let external = ProtocolManager::try_map_address(settings, &internal_addr)
                 .await
                 .expect("initialize ProtocolManager");
-
-            let external = mgr.try_map_address(&internal_addr).await.unwrap();
 
             let expected_external: Multiaddr =
                 "/ip4/18.9.60.1/tcp/12345".to_owned().parse().unwrap();

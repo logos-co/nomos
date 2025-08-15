@@ -64,11 +64,8 @@ impl AddressMapperBehaviour {
         self.original_address = Some(address.clone());
 
         let settings = self.settings;
-        let mapping_future = async move {
-            let mut protocol_manager = ProtocolManager::initialize(settings).await?;
-            protocol_manager.try_map_address(&address).await
-        }
-        .boxed();
+        let mapping_future =
+            async move { ProtocolManager::try_map_address(settings, &address).await }.boxed();
 
         self.mapping_future = Some(mapping_future);
     }
