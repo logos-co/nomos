@@ -28,23 +28,14 @@ impl ProtocolManager {
     ) -> Result<Multiaddr, AddressMapperError> {
         let mut nat_pmp = NatPmp::initialize(settings).await?;
         if let Ok(external_address) = nat_pmp.map_address(address).await {
-            tracing::info!(
-                "Successfully mapped {} to {} using NAT-PMP",
-                address,
-                external_address
-            );
+            tracing::info!("Successfully mapped {address} to {external_address} using NAT-PMP");
 
             return Ok(external_address);
         }
 
         let mut upnp = UpnpProtocol::initialize(settings).await?;
         let external_address = upnp.map_address(address).await?;
-        tracing::info!(
-            "Successfully mapped {} to {} using {}",
-            address,
-            external_address,
-            "UPnP"
-        );
+        tracing::info!("Successfully mapped {address} to {external_address} using UPnP");
 
         Ok(external_address)
     }
