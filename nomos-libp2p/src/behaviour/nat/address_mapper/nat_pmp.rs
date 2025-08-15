@@ -138,24 +138,3 @@ fn build_public_address(
             )
         })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    #[ignore = "Needs real NAT-PMP gateway to test"]
-    async fn test_nat_pmp() {
-        let mut natpmp = NatPmp::initialize(NatMappingSettings {
-            lease_duration: 3600,
-            timeout: std::time::Duration::from_secs(5),
-        })
-        .await
-        .unwrap();
-
-        let addr: Multiaddr = "/ip4/127.0.0.1/tcp/54321".parse().unwrap();
-
-        let mapped = natpmp.map_address(&addr).await.unwrap();
-        assert_eq!(mapped, "/ip4/18.9.60.1/tcp/54321".parse().unwrap());
-    }
-}
