@@ -17,7 +17,7 @@ mod address_mapper;
 mod inner;
 mod state_machine;
 
-use crate::{behaviour::nat::inner::InnerNatBehaviour, AutonatClientSettings};
+use crate::{behaviour::nat::inner::InnerNatBehaviour, config::NatSettings};
 
 /// This behaviour is responsible for confirming that the addresses of the node
 /// are publicly reachable.
@@ -33,9 +33,9 @@ pub struct NatBehaviour<R: RngCore + 'static> {
 }
 
 impl<R: RngCore + 'static> NatBehaviour<R> {
-    pub fn new(rng: R, autonat_client_config: Option<AutonatClientSettings>) -> Self {
+    pub fn new(rng: R, nat_config: Option<NatSettings>) -> Self {
         let inner_behaviour =
-            Toggle::from(autonat_client_config.map(|config| InnerNatBehaviour::new(rng, config)));
+            Toggle::from(nat_config.map(|config| InnerNatBehaviour::new(rng, config)));
 
         Self {
             static_listen_addr: None,
@@ -168,10 +168,10 @@ mod tests {
 
     impl Client {
         pub fn new(public_key: identity::PublicKey) -> Self {
-            let nat = NatBehaviour::new(
-                OsRng,
-                Some(AutonatClientSettings::default().with_probe_interval_millisecs(10)),
-            );
+            let mut settings = NatSettings::default();
+            settings.autonat.probe_interval_millisecs = Some(10);
+
+            let nat = NatBehaviour::new(OsRng, Some(settings));
             let identify =
                 identify::Behaviour::new(identify::Config::new("/unittest".into(), public_key));
             Self { nat, identify }

@@ -287,8 +287,7 @@ mod tests {
                 ..Default::default()
             }),
             identify_config: Some(nomos_libp2p::IdentifySettings::default()),
-            autonat_client_config: is_boot
-                .then_some(nomos_libp2p::AutonatClientSettings::default()),
+            nat_config: is_boot.then_some(nomos_libp2p::NatSettings::default()),
             protocol_name_env: ProtocolName::Unittest,
         }
     }

@@ -15,7 +15,7 @@ use rand::RngCore;
 use thiserror::Error;
 
 use crate::{
-    behaviour::gossipsub::compute_message_id, protocol_name::ProtocolName, AutonatClientSettings,
+    behaviour::gossipsub::compute_message_id, config::NatSettings, protocol_name::ProtocolName,
     IdentifySettings, KademliaSettings,
 };
 
@@ -32,7 +32,7 @@ pub(crate) struct BehaviourConfig {
     pub gossipsub_config: libp2p::gossipsub::Config,
     pub kademlia_config: Option<KademliaSettings>,
     pub identify_config: Option<IdentifySettings>,
-    pub autonat_client_config: Option<AutonatClientSettings>,
+    pub nat_config: Option<NatSettings>,
     pub protocol_name: ProtocolName,
     pub public_key: identity::PublicKey,
 }
@@ -67,7 +67,7 @@ impl<R: Clone + Send + RngCore + 'static> Behaviour<R> {
             gossipsub_config,
             kademlia_config: kad_config,
             identify_config,
-            autonat_client_config,
+            nat_config,
             protocol_name,
             public_key,
         } = config;
@@ -96,7 +96,7 @@ impl<R: Clone + Send + RngCore + 'static> Behaviour<R> {
 
         let autonat_server = autonat::v2::server::Behaviour::new(rng.clone());
 
-        let nat = nat::NatBehaviour::new(rng, autonat_client_config);
+        let nat = nat::NatBehaviour::new(rng, nat_config);
 
         let chain_sync = cryptarchia_sync::Behaviour::default();
 
