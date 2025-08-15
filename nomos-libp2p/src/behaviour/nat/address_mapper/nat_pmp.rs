@@ -9,6 +9,8 @@ use crate::{
     config::NatMappingSettings,
 };
 
+type PortNumber = u16;
+
 pub struct NatPmp {
     settings: NatMappingSettings,
     nat_pmp: NatpmpAsync<UdpSocket>,
@@ -18,7 +20,7 @@ impl NatPmp {
     async fn send_map_request(
         &self,
         protocol: Protocol,
-        port: u16,
+        port: PortNumber,
     ) -> Result<(), AddressMapperError> {
         self.nat_pmp
             .send_port_mapping_request(protocol, port, port, self.settings.lease_duration)
@@ -26,7 +28,7 @@ impl NatPmp {
             .map_err(|e| AddressMapperError::PortMappingFailed(e.to_string()))
     }
 
-    async fn recv_map_response_public_port(&self) -> Result<u16, AddressMapperError> {
+    async fn recv_map_response_public_port(&self) -> Result<PortNumber, AddressMapperError> {
         match self
             .nat_pmp
             .read_response_or_retry()
@@ -101,7 +103,9 @@ impl MappingProtocol for NatPmp {
     }
 }
 
-fn extract_port_and_protocol(addr: &Multiaddr) -> Result<(u16, Protocol), AddressMapperError> {
+fn extract_port_and_protocol(
+    addr: &Multiaddr,
+) -> Result<(PortNumber, Protocol), AddressMapperError> {
     addr.iter()
         .find_map(|p| match p {
             MaProto::Tcp(p) => Some((p, Protocol::TCP)),
@@ -118,7 +122,7 @@ fn extract_port_and_protocol(addr: &Multiaddr) -> Result<(u16, Protocol), Addres
 fn build_public_address(
     internal: &Multiaddr,
     public_ip: Ipv4Addr,
-    public_port: u16,
+    public_port: PortNumber,
 ) -> Result<Multiaddr, AddressMapperError> {
     let with_ip = internal
         .replace(0, |_| Some(multiaddr::Protocol::Ip4(public_ip)))
