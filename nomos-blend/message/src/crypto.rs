@@ -87,7 +87,7 @@ impl TryFrom<[u8; KEY_SIZE]> for Ed25519PublicKey {
 
 pub const SIGNATURE_SIZE: usize = 64;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Signature(ed25519_dalek::Signature);
 
 impl From<ed25519_dalek::Signature> for Signature {

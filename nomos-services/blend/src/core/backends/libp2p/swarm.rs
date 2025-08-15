@@ -189,7 +189,7 @@ where
 
     fn handle_disconnected_peer(&mut self, peer_id: PeerId, peer_state: NegotiatedPeerState) {
         tracing::debug!(target: LOG_TARGET, "Peer {peer_id} disconnected with state {peer_state:?}.");
-        if peer_state == NegotiatedPeerState::Spammy {
+        if peer_state.is_spammy() {
             self.swarm.behaviour_mut().blocked_peers.block_peer(peer_id);
         }
         self.check_and_dial_new_peers_except(Some(peer_id));
