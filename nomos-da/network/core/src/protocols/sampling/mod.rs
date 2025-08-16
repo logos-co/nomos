@@ -1,5 +1,6 @@
 mod connections;
 pub mod errors;
+mod historic;
 mod requests;
 mod responses;
 mod streams;
@@ -14,7 +15,7 @@ use kzgrs_backend::common::{
     ShareIndex,
 };
 use libp2p::{swarm::NetworkBehaviour, PeerId};
-use nomos_core::da::BlobId;
+use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId};
 use nomos_da_messages::{common, sampling, sampling::SampleResponse};
 use serde::{Deserialize, Serialize};
 use streams::SampleStream;
@@ -24,9 +25,11 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::{
     addressbook::AddressBookHandler,
     protocols::sampling::{
+        historic::request_behaviour::HistoricRequestSamplingBehaviour,
         requests::request_behaviour::RequestSamplingBehaviour,
         responses::response_behaviour::ResponseSamplingBehaviour,
     },
+    swarm::validator::SampleArgs,
     SubnetworkId,
 };
 
@@ -130,6 +133,13 @@ pub enum SamplingEvent {
         subnetwork_id: SubnetworkId,
         light_share: Box<DaLightShare>,
     },
+    HistoricSamplingSuccess {
+        block_number: BlockNumber,
+        block_id: HeaderId,
+        blob_id: BlobId,
+        subnetwork_id: SubnetworkId,
+        light_share: Box<DaLightShare>,
+    },
     CommitmentsSuccess {
         blob_id: BlobId,
         commitments: Box<DaSharesCommitments>,
@@ -139,6 +149,11 @@ pub enum SamplingEvent {
         response_sender: Sender<BehaviourSampleRes>,
     },
     SamplingError {
+        error: SamplingError,
+    },
+    HistoricSamplingError {
+        block_number: BlockNumber,
+        block_id: HeaderId,
         error: SamplingError,
     },
 }
@@ -162,7 +177,45 @@ impl From<requests::SamplingEvent> for SamplingEvent {
                 blob_id,
                 commitments,
             },
+
             requests::SamplingEvent::SamplingError { error } => Self::SamplingError { error },
+        }
+    }
+}
+
+impl From<historic::HistoricSamplingEvent> for SamplingEvent {
+    fn from(value: historic::HistoricSamplingEvent) -> Self {
+        match value {
+            historic::HistoricSamplingEvent::SamplingSuccess {
+                block_number,
+                block_id,
+                blob_id,
+                subnetwork_id,
+                light_share,
+            } => Self::HistoricSamplingSuccess {
+                block_number,
+                block_id,
+                blob_id,
+                subnetwork_id,
+                light_share,
+            },
+            historic::HistoricSamplingEvent::CommitmentsSuccess {
+                blob_id,
+                commitments,
+                ..
+            } => Self::CommitmentsSuccess {
+                blob_id,
+                commitments,
+            },
+            historic::HistoricSamplingEvent::SamplingError {
+                block_number,
+                block_id,
+                error,
+            } => Self::HistoricSamplingError {
+                block_number,
+                block_id,
+                error,
+            },
         }
     }
 }
@@ -203,12 +256,13 @@ where
     Addressbook: AddressBookHandler,
 {
     requests: RequestSamplingBehaviour<Membership, Addressbook>,
+    historical_requests: HistoricRequestSamplingBehaviour<Membership, Addressbook>,
     responses: ResponseSamplingBehaviour,
 }
 
 impl<Membership, Addressbook> SamplingBehaviour<Membership, Addressbook>
 where
-    Membership: MembershipHandler + Clone + 'static,
+    Membership: MembershipHandler + Clone + Send + Sync + 'static,
     Membership::NetworkId: Send,
     Addressbook: AddressBookHandler + Clone + 'static,
 {
@@ -223,9 +277,14 @@ where
             requests: RequestSamplingBehaviour::new(
                 local_peer_id,
                 membership,
-                addressbook,
+                addressbook.clone(),
                 subnets_config,
                 refresh_signal,
+            ),
+            historical_requests: HistoricRequestSamplingBehaviour::new(
+                local_peer_id,
+                addressbook,
+                subnets_config,
             ),
             responses: ResponseSamplingBehaviour::new(subnets_config),
         }
@@ -237,6 +296,10 @@ where
 
     pub fn commitments_request_channel(&self) -> UnboundedSender<BlobId> {
         self.requests.commitments_request_channel()
+    }
+
+    pub fn historical_request_channel(&self) -> UnboundedSender<SampleArgs<Membership>> {
+        self.historical_requests.historic_request_channel()
     }
 }
 
@@ -266,7 +329,11 @@ mod test {
     async fn test_sampling_swarm(
         mut swarm: Swarm<
             SamplingBehaviour<
-                impl MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
+                impl MembershipHandler<Id = PeerId, NetworkId = SubnetworkId>
+                    + Clone
+                    + Send
+                    + Sync
+                    + 'static,
                 impl AddressBookHandler<Id = PeerId> + 'static,
             >,
         >,

@@ -9,7 +9,7 @@ use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, TransportError,
 };
 use log::debug;
-use nomos_core::{block::BlockNumber, da::BlobId};
+use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId};
 use subnetworks_assignations::MembershipHandler;
 use tokio::{
     sync::mpsc::{unbounded_channel, UnboundedSender},
@@ -41,7 +41,7 @@ use crate::{
     SubnetworkId,
 };
 
-pub type SampleArgs<Membership> = (HashSet<BlobId>, BlockNumber, Membership);
+pub type SampleArgs<Membership> = (HashSet<BlobId>, BlockNumber, HeaderId, Membership);
 
 // Metrics
 const EVENT_SAMPLING: &str = "sampling";
@@ -64,7 +64,8 @@ pub struct ValidatorEventsStream {
 
 pub struct ValidatorSwarm<Membership, HistoricMembership, Addressbook>
 where
-    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + 'static,
+    Membership:
+        MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send + Sync + 'static,
     HistoricMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + 'static,
     Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
 {
@@ -84,7 +85,7 @@ where
 impl<Membership, HistoricMembership, Addressbook>
     ValidatorSwarm<Membership, HistoricMembership, Addressbook>
 where
-    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
+    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send + Sync,
     HistoricMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
     Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
 {

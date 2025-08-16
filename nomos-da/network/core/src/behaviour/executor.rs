@@ -50,7 +50,7 @@ impl<Balancer, Monitor, Membership, Addressbook>
 where
     Balancer: ConnectionBalancer,
     Monitor: ConnectionMonitor,
-    Membership: MembershipHandler + Clone + Send + 'static,
+    Membership: MembershipHandler + Clone + Send + Sync + 'static,
     <Membership as MembershipHandler>::NetworkId: Send,
     Addressbook: AddressBookHandler + Clone + Send + 'static,
 {

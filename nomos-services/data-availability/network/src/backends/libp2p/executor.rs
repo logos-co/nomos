@@ -7,7 +7,7 @@ use futures::{
 use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;
 use log::error;
-use nomos_core::{block::BlockNumber, da::BlobId};
+use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::dispersal::executor::behaviour::DispersalExecutorEvent,
@@ -318,6 +318,7 @@ where
     async fn start_historic_sampling(
         &self,
         block_number: BlockNumber,
+        block_id: HeaderId,
         blob_ids: HashSet<BlobId>,
         membership: Self::HistoricMembership,
     ) {
@@ -325,6 +326,7 @@ where
             &self.historic_sample_request_channel,
             blob_ids,
             block_number,
+            block_id,
             membership,
         )
         .await;
