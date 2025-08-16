@@ -1,0 +1,18 @@
+[package]
+name = "mmr"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+digest = "0.10.7"
+rpds = "1.1.1"
+serde = { version = "1", features = ["derive"], optional = true }
+
+[dev-dependencies]
+proptest = "1.0.0"
+proptest-macro = "0.2"
+blake2 = "0.10.5"
+
+[lints]
+workspace = true
