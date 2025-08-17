@@ -11,6 +11,7 @@ use super::{
 };
 
 /// Auxiliary struct that binds a stream with the corresponding `PeerId`
+#[derive(Debug)]
 pub struct SampleStream {
     pub stream: Stream,
     pub peer_id: PeerId,

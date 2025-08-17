@@ -15,7 +15,7 @@ use kzgrs_backend::common::{
     ShareIndex,
 };
 use libp2p::{swarm::NetworkBehaviour, PeerId};
-use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId};
+use nomos_core::{da::BlobId, header::HeaderId};
 use nomos_da_messages::{common, sampling, sampling::SampleResponse};
 use serde::{Deserialize, Serialize};
 use streams::SampleStream;
@@ -134,11 +134,9 @@ pub enum SamplingEvent {
         light_share: Box<DaLightShare>,
     },
     HistoricSamplingSuccess {
-        block_number: BlockNumber,
         block_id: HeaderId,
-        blob_id: BlobId,
-        subnetwork_id: SubnetworkId,
-        light_share: Box<DaLightShare>,
+        shares: Vec<DaLightShare>,
+        commitments: Box<DaSharesCommitments>,
     },
     CommitmentsSuccess {
         blob_id: BlobId,
@@ -152,7 +150,6 @@ pub enum SamplingEvent {
         error: SamplingError,
     },
     HistoricSamplingError {
-        block_number: BlockNumber,
         block_id: HeaderId,
         error: SamplingError,
     },
@@ -187,35 +184,17 @@ impl From<historic::HistoricSamplingEvent> for SamplingEvent {
     fn from(value: historic::HistoricSamplingEvent) -> Self {
         match value {
             historic::HistoricSamplingEvent::SamplingSuccess {
-                block_number,
                 block_id,
-                blob_id,
-                subnetwork_id,
-                light_share,
+                commitments,
+                shares,
             } => Self::HistoricSamplingSuccess {
-                block_number,
                 block_id,
-                blob_id,
-                subnetwork_id,
-                light_share,
-            },
-            historic::HistoricSamplingEvent::CommitmentsSuccess {
-                blob_id,
                 commitments,
-                ..
-            } => Self::CommitmentsSuccess {
-                blob_id,
-                commitments,
+                shares,
             },
-            historic::HistoricSamplingEvent::SamplingError {
-                block_number,
-                block_id,
-                error,
-            } => Self::HistoricSamplingError {
-                block_number,
-                block_id,
-                error,
-            },
+            historic::HistoricSamplingEvent::SamplingError { block_id, error } => {
+                Self::HistoricSamplingError { block_id, error }
+            }
         }
     }
 }
@@ -334,7 +313,7 @@ mod test {
                     + Send
                     + Sync
                     + 'static,
-                impl AddressBookHandler<Id = PeerId> + 'static,
+                impl AddressBookHandler<Id = PeerId> + Send + Sync + 'static,
             >,
         >,
         msg_count: usize,
