@@ -135,26 +135,47 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
         self.store(commitments_key, shared_commitments).await
     }
 
-    async fn store_tx(&mut self, blob_id: Self::BlobId, tx: Self::Tx) -> Result<(), Self::Error> {
+    async fn store_tx(
+        &mut self,
+        blob_id: Self::BlobId,
+        assignations: u16,
+        tx: Self::Tx,
+    ) -> Result<(), Self::Error> {
         let tx_key = key_bytes(DA_TX_PREFIX, blob_id.as_ref());
-        let serialized_tx = SerdeOp::serialize(tx);
-        self.store(tx_key, serialized_tx).await
+        let serialized_tx_body = SerdeOp::serialize(tx);
+
+        let mut serialized_tx = Vec::with_capacity(2 + serialized_tx_body.len());
+        serialized_tx.extend_from_slice(&assignations.to_be_bytes());
+        serialized_tx.extend_from_slice(&serialized_tx_body);
+
+        self.store(tx_key, serialized_tx.into()).await
     }
 
-    async fn get_tx(&mut self, blob_id: Self::BlobId) -> Result<Option<Self::Tx>, Self::Error> {
+    async fn get_tx(
+        &mut self,
+        blob_id: Self::BlobId,
+    ) -> Result<Option<(u16, Self::Tx)>, Self::Error> {
         let tx_key = key_bytes(DA_TX_PREFIX, blob_id.as_ref());
         let tx_bytes = self.load(&tx_key).await?;
 
-        let tx = tx_bytes.map_or_else(
-            || None,
-            |bytes| match SerdeOp::deserialize::<Self::Tx>(bytes) {
-                Ok(tx) => Some(tx),
-                Err(e) => {
-                    error!("Failed to deserialize tx: {:?}", e);
-                    None
-                }
-            },
+        let Some(mut tx_bytes) = tx_bytes else {
+            return Ok(None);
+        };
+
+        let assignations = tx_bytes.split_off(2);
+        let assignations = u16::from_be_bytes(
+            assignations[..2]
+                .try_into()
+                .expect("assignations slice was splitoff at 2 bytes"),
         );
+
+        let tx = match SerdeOp::deserialize::<Self::Tx>(tx_bytes) {
+            Ok(tx) => Some((assignations, tx)),
+            Err(e) => {
+                error!("Failed to deserialize tx: {:?}", e);
+                None
+            }
+        };
 
         Ok(tx)
     }

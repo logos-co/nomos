@@ -102,7 +102,15 @@ impl SamplingEvent {
 
 #[derive(Debug, Clone)]
 pub enum VerificationEvent {
-    Tx(Box<SignedMantleTx>),
+    Tx {
+        // Number of subnetwork assignations that the node is assigned to at the moment of
+        // receiving a dispersal TX. This is added to the TX message received via the network
+        // because of dynamic assignations that can change depending
+        // on the DA session, and syncinc these moments preciselly between services even if some
+        // TX events might reach destination after the assignations has already changed.
+        assignations: u16,
+        tx: Box<SignedMantleTx>,
+    },
     Share(Box<DaShare>),
 }
 
@@ -112,9 +120,12 @@ impl From<DaShare> for VerificationEvent {
     }
 }
 
-impl From<Box<SignedMantleTx>> for VerificationEvent {
-    fn from(tx: Box<SignedMantleTx>) -> Self {
-        Self::Tx(tx)
+impl From<(u16, Box<SignedMantleTx>)> for VerificationEvent {
+    fn from(tx: (u16, Box<SignedMantleTx>)) -> Self {
+        Self::Tx {
+            assignations: tx.0,
+            tx: tx.1,
+        }
     }
 }
 

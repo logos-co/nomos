@@ -104,7 +104,15 @@ pub trait StorageDaApi {
         shared_commitments: Self::Commitments,
     ) -> Result<(), Self::Error>;
 
-    async fn store_tx(&mut self, blob_id: Self::BlobId, tx: Self::Tx) -> Result<(), Self::Error>;
+    async fn store_tx(
+        &mut self,
+        blob_id: Self::BlobId,
+        assignations: u16,
+        tx: Self::Tx,
+    ) -> Result<(), Self::Error>;
 
-    async fn get_tx(&mut self, blob_id: Self::BlobId) -> Result<Option<Self::Tx>, Self::Error>;
+    async fn get_tx(
+        &mut self,
+        blob_id: Self::BlobId,
+    ) -> Result<Option<(u16, Self::Tx)>, Self::Error>;
 }

@@ -105,7 +105,7 @@ macro_rules! adapter_for {
                 let stream = receiver.filter_map(move |msg| match msg {
                     $DaNetworkEvent::Verifying(verification_event) => match verification_event {
                         VerificationEvent::Share(share) => Some(*share),
-                        VerificationEvent::Tx(_) => None,
+                        VerificationEvent::Tx { .. } => None,
                     },
                     _ => None,
                 });
@@ -113,7 +113,7 @@ macro_rules! adapter_for {
                 Box::new(Box::pin(stream))
             }
 
-            async fn tx_stream(&self) -> Box<dyn Stream<Item = Self::Tx> + Unpin + Send> {
+            async fn tx_stream(&self) -> Box<dyn Stream<Item = (u16, Self::Tx)> + Unpin + Send> {
                 let (sender, receiver) = tokio::sync::oneshot::channel();
                 self.network_relay
                     .send(nomos_da_network_service::DaNetworkMsg::Subscribe {
@@ -127,7 +127,7 @@ macro_rules! adapter_for {
 
                 let stream = receiver.filter_map(move |msg| match msg {
                     $DaNetworkEvent::Verifying(verification_event) => match verification_event {
-                        VerificationEvent::Tx(tx) => Some(*tx),
+                        VerificationEvent::Tx { assignations, tx } => Some((assignations, *tx)),
                         VerificationEvent::Share(_) => None,
                     },
                     _ => None,

@@ -135,7 +135,7 @@ where
         mempool_adapter: &MempoolAdapter,
         share: ShareVerifier::DaShare,
     ) -> Result<(), DynError> {
-        if let Some(tx) = storage_adapter.get_tx(share.blob_id()).await? {
+        if let Some((assignations, tx)) = storage_adapter.get_tx(share.blob_id()).await? {
             if storage_adapter
                 .get_share(share.blob_id(), share.share_idx())
                 .await?
@@ -163,6 +163,7 @@ where
     async fn handle_new_tx(
         verifier: &TxVerifier,
         storage_adapter: &Storage,
+        assignations: u16,
         tx: TxVerifier::Tx,
     ) -> Result<(), DynError> {
         let blob_id = verifier.blob_id(&tx)?;
@@ -171,7 +172,7 @@ where
         } else {
             info_with_id!(blob_id.as_ref(), "VerifierAddTx");
             verifier.verify(&tx)?;
-            storage_adapter.add_tx(blob_id, tx).await?;
+            storage_adapter.add_tx(blob_id, assignations, tx).await?;
         }
         Ok(())
     }
@@ -360,8 +361,8 @@ where
                         error!("Error handling blob {blob_id:?} due to {err:?}");
                     }
                 }
-                Some(tx) = tx_stream.next() => {
-                    if let Err(err) =  Self::handle_new_tx(&tx_verifier, &storage_adapter, tx).await {
+                Some((assignations, tx)) = tx_stream.next() => {
+                    if let Err(err) =  Self::handle_new_tx(&tx_verifier, &storage_adapter, assignations, tx).await {
                         error!("Error handling tx due to {err:?}");
                     }
                 }
