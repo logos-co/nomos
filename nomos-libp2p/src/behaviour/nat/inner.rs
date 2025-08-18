@@ -27,7 +27,7 @@ use crate::{
         address_mapper::AddressMapperBehaviour,
         state_machine::{Command, StateMachine},
     },
-    AutonatClientSettings,
+    config::NatSettings,
 };
 
 type Task = BoxFuture<'static, Multiaddr>;
@@ -60,17 +60,19 @@ pub struct InnerNatBehaviour<R: RngCore + 'static> {
 }
 
 impl<R: RngCore + 'static> InnerNatBehaviour<R> {
-    pub fn new(rng: R, autonat_client_config: AutonatClientSettings) -> Self {
-        let address_mapper_behaviour = AddressMapperBehaviour::default();
+    pub fn new(rng: R, nat_config: NatSettings) -> Self {
+        let address_mapper_behaviour = AddressMapperBehaviour::new(nat_config.mapping);
         let autonat_client_behaviour =
-            autonat::v2::client::Behaviour::new(rng, autonat_client_config.to_libp2p_config());
+            autonat::v2::client::Behaviour::new(rng, nat_config.autonat.to_libp2p_config());
 
         let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let state_machine = StateMachine::new(command_tx);
 
         let autonat_client_tick_interval = Duration::from_millis(
-            autonat_client_config.retest_successful_external_addresses_interval_millisecs,
+            nat_config
+                .autonat
+                .retest_successful_external_addresses_interval_millisecs,
         );
 
         Self {
