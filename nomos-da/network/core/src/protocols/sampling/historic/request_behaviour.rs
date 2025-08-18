@@ -325,14 +325,13 @@ where
             )
             .into())
         }
-    }
+        let (response_result, new_stream) = streams::stream_sample(stream, request).await.unwrap();
 
-    async fn handle_share_request(
-        stream: SampleStream,
-        request: sampling::SampleRequest,
-    ) -> Result<(DaLightShare, SampleStream), Box<dyn std::error::Error>> {
-        // todo: handle error
-        let response = streams::stream_sample(stream, request).await.unwrap();
+        match response_result {
+            SampleResponse::Share(share) => Ok((share.data, new_stream)),
+            SampleResponse::Error(err) => Err(format!("Share request failed: {err:?}").into()),
+            SampleResponse::Commitments(_) => Err("Expected share response".into()),
+        }
         let new_stream = response.2;
 
         match response.1 {
