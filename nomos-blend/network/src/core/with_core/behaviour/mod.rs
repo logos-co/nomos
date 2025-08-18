@@ -698,6 +698,33 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         }
         Ok(())
     }
+
+    /// Return `True` if this peer has an established (negotiated or not)
+    /// outgoing connection with the specified peer, `False` otherwise.
+    fn has_outgoing_connection_with_peer(&self, remote_peer: &PeerId) -> bool {
+        self.has_negotiated_outgoing_connection_with_peer(remote_peer)
+            || self.has_pending_outgoing_connection_with_peer(remote_peer)
+    }
+
+    /// Return `true` if there is a negotiated outbound connection with the
+    /// provided peer.
+    fn has_negotiated_outgoing_connection_with_peer(&self, remote_peer: &PeerId) -> bool {
+        self.negotiated_peers
+            .get(remote_peer)
+            .is_some_and(|remote| remote.role.is_listener())
+    }
+
+    /// Return `true` if there is at least one outbound connection pending
+    /// upgrade with the provided peer.
+    // TODO: Find a different data structure to be able to perform this check in
+    // O(1).
+    fn has_pending_outgoing_connection_with_peer(&self, remote_peer: &PeerId) -> bool {
+        self.connections_waiting_upgrade
+            .iter()
+            .any(|((peer_id, _), remote_endpoint)| {
+                peer_id == remote_peer && remote_endpoint.is_listener()
+            })
+    }
 }
 
 /// Revert the direction of a connection and updates its ID with the provided
@@ -799,11 +826,7 @@ where
         // do not try to upgrade the new one as we already have an outbound connection.
         // Otherwise, we let the connection upgrade, and we will close one of the two
         // connections depending on the comparison result of local and remote peer IDs.
-        if let Some(RemotePeerConnectionDetails {
-            role: Endpoint::Listener,
-            ..
-        }) = self.negotiated_peers.get(&peer_id)
-        {
+        if self.has_outgoing_connection_with_peer(&peer_id) {
             tracing::trace!(target: LOG_TARGET, "Outbound connection {connection_id:?} with peer {peer_id:?} will not be upgraded since there is already an outbound connection established.");
             return Ok(Either::Right(DummyConnectionHandler));
         }

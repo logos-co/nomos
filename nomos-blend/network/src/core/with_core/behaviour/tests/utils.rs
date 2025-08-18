@@ -14,10 +14,7 @@ use libp2p::{
 };
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
-    crypto::{
-        Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, Signature, PROOF_OF_QUOTA_SIZE,
-        SIGNATURE_SIZE,
-    },
+    crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, Signature, SIGNATURE_SIZE},
     input::{EncapsulationInput, EncapsulationInputs},
     PayloadType,
 };
