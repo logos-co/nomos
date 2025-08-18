@@ -142,12 +142,6 @@ where
         let local_peer_id = self.local_peer_id;
 
         let request_future = async move {
-            // todo: handle errors and retries
-            let shares =
-                Self::sample_all_shares(&subnets, &membership, &local_peer_id, &blob_ids, &control)
-                    .await
-                    .unwrap();
-
             // todo: maybe reuse the connection for commitments
             let commitments = Self::sample_all_commitments(
                 &membership,
@@ -158,6 +152,12 @@ where
             )
             .await
             .unwrap();
+
+            // todo: handle errors and retries
+            let shares =
+                Self::sample_all_shares(&subnets, &membership, &local_peer_id, &blob_ids, &control)
+                    .await
+                    .unwrap();
 
             Ok((block_id, shares, commitments))
         }
