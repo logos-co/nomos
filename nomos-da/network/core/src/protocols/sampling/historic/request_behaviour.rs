@@ -152,6 +152,7 @@ where
                     .await
                     .unwrap();
 
+            // todo: maybe reuse the connection for commitments
             let commitments = Self::sample_all_commitments(
                 &membership,
                 &subnets,
