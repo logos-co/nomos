@@ -48,7 +48,7 @@ use crate::{
 };
 
 const MAX_PEER_RETRIES: usize = 5;
-const CONNECTION_WAIT_TIMEOUT: Duration = Duration::from_secs(3);
+const CONNECTION_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Error)]
 enum StreamSamplingError {
