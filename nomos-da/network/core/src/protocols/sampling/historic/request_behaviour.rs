@@ -48,7 +48,7 @@ use crate::{
 };
 
 const MAX_PEER_RETRIES: usize = 5;
-const CONNECTION_WAIT_TIMEOUT: u64 = 3;
+const CONNECTION_WAIT_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Error)]
 enum StreamSamplingError {
@@ -141,7 +141,7 @@ where
         match stream_result {
             Ok(stream) => Ok(SampleStream { stream, peer_id }),
             Err(OpenStreamError::Io(io_err)) if io_err.kind() == ErrorKind::ConnectionReset => {
-                let timer = sleep(Duration::from_secs(CONNECTION_WAIT_TIMEOUT));
+                let timer = sleep(CONNECTION_WAIT_TIMEOUT);
                 tokio::pin!(timer);
 
                 loop {
