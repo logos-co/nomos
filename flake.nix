@@ -41,9 +41,25 @@
               export LIBCLANG_PATH="${pkgs.llvmPackages_14.libclang.lib}/lib";
             '';
           };
+
           circuits = pkgs.mkShell {
             name = "circuits";
+            buildInputs = with pkgs; [
+              pkg-config
+              openssl
+              clang_14
+            ];
+            shellHook = ''
+              export LIBCLANG_PATH="${pkgs.llvmPackages_14.libclang.lib}/lib"
+              export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig"
+
+              # Proc-macros must build for the host; avoid forcing a target:
+              unset CARGO_BUILD_TARGET
+              unset RUSTFLAGS
+              unset RUSTC_WRAPPER  # avoid sccache/other wrappers while debugging
+            '';
           };
+
         }
       );
     };
