@@ -298,7 +298,13 @@ mod tests {
             },
             identify_config: nomos_libp2p::IdentifySettings::default(),
             chain_sync_config: nomos_libp2p::cryptarchia_sync::Config::default(),
-            autonat_client_config: nomos_libp2p::AutonatClientSettings::default(),
+            nat_config: Some(nomos_libp2p::NatSettings {
+                autonat: nomos_libp2p::AutonatClientSettings {
+                    probe_interval_millisecs: Some(1000),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
             protocol_name_env: ProtocolName::Unittest,
         }
     }
@@ -415,9 +421,7 @@ mod tests {
 
             for (idx, tx) in txs.iter().enumerate() {
                 let (reply, dump_rx) = oneshot::channel();
-                tx.send(Command::Discovery(DiscoveryCommand::DumpRoutingTable {
-                    reply,
-                }))
+                tx.send(Command::Discovery(DiscoveryCommand::DumpRoutingTable { reply }))
                     .await
                     .expect("Failed to send dump command");
 
