@@ -17,8 +17,11 @@ hex              = { default-features = false, version = "0.4.3" }
 igd-next         = { features = ["aio_tokio", "tokio"], version = "0.16.1" }
 libp2p           = { features = ["autonat", "dns", "gossipsub", "identify", "kad", "macros", "quic", "secp256k1", "tokio"], workspace = true }
 multiaddr        = { default-features = false, version = "0.18" }
+natpmp           = { features = ["tokio"], version = "0.5" }
+nomos-utils      = { features = ["time"], workspace = true }
 rand             = { default-features = false, version = "0.8" }
 serde            = { default-features = false, features = ["derive"], version = "1.0.166" }
+serde_with       = { workspace = true }
 thiserror        = "1.0.40"
 tokio            = { features = ["macros", "time"], version = "1" }
 tracing          = { workspace = true }

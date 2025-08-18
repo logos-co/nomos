@@ -48,10 +48,10 @@ impl<R: Clone + Send + RngCore + 'static> Swarm<R> {
             kademlia_config,
             identify_config,
             chain_sync_config,
+            nat_config,
             protocol_name_env,
             host,
             port,
-            autonat_client_config,
             ..
         } = config;
 
@@ -65,7 +65,7 @@ impl<R: Clone + Send + RngCore + 'static> Swarm<R> {
                         gossipsub_config,
                         kademlia_config: kademlia_config.clone(),
                         identify_config,
-                        autonat_client_config,
+                        nat_config,
                         protocol_name: protocol_name_env,
                         public_key: keypair.public(),
                         chain_sync_config,

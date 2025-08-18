@@ -1,15 +1,19 @@
-pub use autonat_client::Settings as AutonatClientSettings;
 pub use identify::Settings as IdentifySettings;
 pub use kademlia::Settings as KademliaSettings;
 use libp2p::identity::ed25519;
+pub use nat::{
+    autonat_client::Settings as AutonatClientSettings,
+    mapping::Settings as NatMappingSettings,
+    Settings as NatSettings,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::protocol_name::ProtocolName;
 
-mod autonat_client;
 mod gossipsub;
 mod identify;
 mod kademlia;
+mod nat;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SwarmConfig {
@@ -48,13 +52,15 @@ pub struct SwarmConfig {
     #[serde(default)]
     pub identify_config: identify::Settings,
 
-    /// Chain sync config
+    /// Nat config
+    /// When the value is None, NAT is disabled.
     #[serde(default)]
     pub chain_sync_config: cryptarchia_sync::Config,
 
-    /// AutoNAT client config (required)
+    /// Nat config
+    /// When the value is None, NAT is disabled.
     #[serde(default)]
-    pub autonat_client_config: autonat_client::Settings,
+    pub nat_config: Option<nat::Settings>,
 }
 
 impl Default for SwarmConfig {
@@ -68,7 +74,7 @@ impl Default for SwarmConfig {
             kademlia_config: kademlia::Settings::default(),
             identify_config: identify::Settings::default(),
             chain_sync_config: cryptarchia_sync::Config::default(),
-            autonat_client_config: autonat_client::Settings::default(),
+            nat_config: Some(nat::Settings::default()),
         }
     }
 }
@@ -107,7 +113,7 @@ mod tests {
         let serialized = serde_json::to_string(&config).unwrap();
         println!("{serialized}");
 
-        let deserialized: SwarmConfig = serde_json::from_str(serialized.as_str()).unwrap();
+        let deserialized: SwarmConfig = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized.host, config.host);
         assert_eq!(deserialized.port, config.port);
         assert_eq!(deserialized.node_key.as_ref(), config.node_key.as_ref());
