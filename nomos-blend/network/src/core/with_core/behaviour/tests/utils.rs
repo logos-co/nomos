@@ -182,7 +182,7 @@ fn generate_valid_inputs() -> EncapsulationInputs<3> {
                 EncapsulationInput::new(
                     Ed25519PrivateKey::generate(),
                     &recipient_signing_pubkey,
-                    ProofOfQuota::from([0u8; PROOF_OF_QUOTA_SIZE]),
+                    ProofOfQuota::dummy(),
                     ProofOfSelection::dummy(),
                 )
             })
