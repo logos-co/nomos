@@ -136,7 +136,7 @@ pub enum SamplingEvent {
     HistoricSamplingSuccess {
         block_id: HeaderId,
         shares: Vec<DaLightShare>,
-        commitments: Box<DaSharesCommitments>,
+        commitments: Vec<DaSharesCommitments>,
     },
     CommitmentsSuccess {
         blob_id: BlobId,

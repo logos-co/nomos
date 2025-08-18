@@ -10,7 +10,7 @@ pub mod request_behaviour;
 pub enum HistoricSamplingEvent {
     SamplingSuccess {
         block_id: HeaderId,
-        commitments: Box<DaSharesCommitments>,
+        commitments: Vec<DaSharesCommitments>,
         shares: Vec<DaLightShare>,
     },
     SamplingError {

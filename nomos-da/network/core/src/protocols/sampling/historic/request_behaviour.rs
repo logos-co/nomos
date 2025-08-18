@@ -1,4 +1,7 @@
-use std::task::{Context, Poll, Waker};
+use std::{
+    collections::HashSet,
+    task::{Context, Poll, Waker},
+};
 
 use either::Either;
 use futures::{
@@ -16,7 +19,7 @@ use libp2p::{
     Multiaddr, PeerId,
 };
 use libp2p_stream::Control;
-use nomos_core::header::HeaderId;
+use nomos_core::{da::BlobId, header::HeaderId};
 use nomos_da_messages::sampling::{self, SampleResponse};
 use rand::{rngs::ThreadRng, seq::IteratorRandom as _};
 use subnetworks_assignations::MembershipHandler;
@@ -36,7 +39,7 @@ use crate::{
     SubnetworkId,
 };
 
-type HistoricSamplingResponseSuccess = (HeaderId, Vec<DaLightShare>);
+type HistoricSamplingResponseSuccess = (HeaderId, Vec<DaLightShare>, Vec<DaSharesCommitments>);
 
 type HistoricFutureError = (HeaderId, SamplingError);
 
@@ -136,76 +139,139 @@ where
     /// Schedule sampling tasks for blobs using the provided historic membership
     fn sample_historic(&self, sample_args: SampleArgs<Membership>) {
         let (blob_ids, _, block_id, membership) = sample_args;
-
         let control = self.control.clone();
         let mut rng = rand::thread_rng();
         let subnets: Vec<SubnetworkId> = (0..membership.last_subnetwork_id())
             .choose_multiple(&mut rng, self.subnets_config.num_of_subnets);
-
-        let mut shares = Vec::new();
         let peer_id = self.local_peer_id;
 
         let request_future = async move {
-            let mut subnetwork_tasks = Vec::new();
+            // todo: handle errors and retries
+            let shares =
+                Self::sample_all_shares(subnets, &membership, &peer_id, &blob_ids, &control)
+                    .await
+                    .unwrap();
 
-            for subnetwork_id in subnets {
-                let mut rng = rand::thread_rng();
-                let peer_id =
-                    Self::pick_subnetwork_peer(subnetwork_id, &membership, &peer_id, &mut rng)
-                        .unwrap();
+            let commitments = Self::sample_all_commitments(&membership, &blob_ids, &control)
+                .await
+                .unwrap();
 
-                let control = control.clone();
-                let blob_ids = blob_ids.clone();
-
-                // create a task per subnetwork that will sample all blobs for the same
-                // subnetwork (peer) re-using the same stream for single peerid
-                let task = async move {
-                    let mut shares: Vec<DaLightShare> = Vec::new();
-
-                    // todo: dial new connections and pick new peer on retry, up to 5 times
-                    let mut stream = Self::open_stream(peer_id, control).await.unwrap();
-
-                    for blob_id in &blob_ids {
-                        let sample_request =
-                            sampling::SampleRequest::new_share(*blob_id, subnetwork_id);
-
-                        //todo: handle error response
-                        let response = streams::stream_sample(stream, sample_request)
-                            .await
-                            .unwrap();
-
-                        stream = response.2;
-
-                        match response.1 {
-                            SampleResponse::Share(share) => {
-                                shares.push(share.data);
-                            }
-                            SampleResponse::Commitments(_) => {
-                                todo!("implement commitments")
-                            }
-                            SampleResponse::Error(_) => todo!("handle error"),
-                        }
-                    }
-
-                    (subnetwork_id, shares)
-                };
-
-                subnetwork_tasks.push(task);
-            }
-
-            for task in subnetwork_tasks {
-                let (_, task_shares) = task.await;
-                shares.extend(task_shares);
-            }
-
-            Ok((block_id, shares))
+            Ok((block_id, shares, commitments))
         }
         .boxed();
 
         self.historic_request_tasks.push(request_future);
     }
 
-    // todo: sample commitments
+    async fn sample_all_shares(
+        subnets: Vec<SubnetworkId>,
+        membership: &Membership,
+        local_peer_id: &PeerId,
+        blob_ids: &HashSet<BlobId>,
+        control: &Control,
+    ) -> Result<Vec<DaLightShare>, Box<dyn std::error::Error>> {
+        let mut subnetwork_tasks = Vec::new();
+
+        for subnetwork_id in subnets {
+            let peer_id = {
+                let mut rng = rand::thread_rng();
+                Self::pick_subnetwork_peer(subnetwork_id, membership, local_peer_id, &mut rng)
+                    .unwrap()
+            };
+
+            let task = Self::sample_shares_for_subnetwork(
+                peer_id,
+                control.clone(),
+                blob_ids,
+                subnetwork_id,
+            );
+            subnetwork_tasks.push(task);
+        }
+
+        let mut all_shares = Vec::new();
+        for task in subnetwork_tasks {
+            let shares = task.await?;
+            all_shares.extend(shares);
+        }
+
+        Ok(all_shares)
+    }
+
+    async fn sample_shares_for_subnetwork(
+        peer_id: PeerId,
+        control: Control,
+        blob_ids: &HashSet<BlobId>,
+        subnetwork_id: SubnetworkId,
+    ) -> Result<Vec<DaLightShare>, Box<dyn std::error::Error>> {
+        let mut stream = Self::open_stream(peer_id, control).await?;
+        let mut shares = Vec::new();
+
+        for blob_id in blob_ids {
+            let request = sampling::SampleRequest::new_share(*blob_id, subnetwork_id);
+            let (share_data, new_stream) = Self::handle_share_request(stream, request).await?;
+            shares.push(share_data);
+            stream = new_stream;
+        }
+
+        Ok(shares)
+    }
+
+    async fn sample_all_commitments(
+        membership: &Membership,
+        blob_ids: &HashSet<BlobId>,
+        control: &Control,
+    ) -> Result<Vec<DaSharesCommitments>, Box<dyn std::error::Error>> {
+        let random_peer = {
+            let mut rng = rand::thread_rng();
+            membership
+                .members()
+                .into_iter()
+                .choose(&mut rng)
+                .ok_or("No peers available")?
+        };
+
+        let mut stream = Self::open_stream(random_peer, control.clone()).await?;
+        let mut commitments = Vec::new();
+
+        for blob_id in blob_ids {
+            let request = sampling::SampleRequest::new_commitments(*blob_id);
+            let (commitment, new_stream) = Self::handle_commitment_request(stream, request).await?;
+            commitments.push(commitment);
+            stream = new_stream;
+        }
+
+        Ok(commitments)
+    }
+
+    async fn handle_share_request(
+        stream: SampleStream,
+        request: sampling::SampleRequest,
+    ) -> Result<(DaLightShare, SampleStream), Box<dyn std::error::Error>> {
+        // todo: handle error
+        let response = streams::stream_sample(stream, request).await.unwrap();
+        let new_stream = response.2;
+
+        match response.1 {
+            SampleResponse::Share(share) => Ok((share.data, new_stream)),
+            SampleResponse::Error(err) => Err(format!("Share request failed: {err:?}").into()),
+            SampleResponse::Commitments(_) => Err("Expected share response".into()),
+        }
+    }
+
+    async fn handle_commitment_request(
+        stream: SampleStream,
+        request: sampling::SampleRequest,
+    ) -> Result<(DaSharesCommitments, SampleStream), Box<dyn std::error::Error>> {
+        // todo: handle errors and retries
+        let response = streams::stream_sample(stream, request).await.unwrap();
+        let new_stream = response.2;
+
+        match response.1 {
+            SampleResponse::Commitments(comm) => Ok((comm, new_stream)),
+            SampleResponse::Error(err) => Err(format!("Commitment request failed: {err:?}").into()),
+            SampleResponse::Share(_) => Err("Expected commitment response".into()),
+        }
+    }
 
     fn pick_subnetwork_peer(
         subnetwork_id: SubnetworkId,
@@ -227,8 +293,12 @@ where
         if let Poll::Ready(Some(future_result)) = self.historic_request_tasks.poll_next_unpin(cx) {
             cx.waker().wake_by_ref();
             match future_result {
-                Ok((block_id, shares)) => {
-                    return Some(Self::handle_historic_response(block_id, shares));
+                Ok((block_id, shares, commitments)) => {
+                    return Some(Self::handle_historic_response(
+                        block_id,
+                        shares,
+                        commitments,
+                    ));
                 }
                 Err((block_id, sampling_error)) => {
                     return Some(Self::handle_historic_error(block_id, sampling_error));
@@ -238,12 +308,11 @@ where
         None
     }
 
-    fn handle_historic_response(
+    const fn handle_historic_response(
         block_id: HeaderId,
         shares: Vec<DaLightShare>,
+        commitments: Vec<DaSharesCommitments>,
     ) -> Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
-        //todo: implement commitemtns
-        let commitments = Box::new(DaSharesCommitments::default());
         Poll::Ready(ToSwarm::GenerateEvent(
             HistoricSamplingEvent::SamplingSuccess {
                 block_id,
