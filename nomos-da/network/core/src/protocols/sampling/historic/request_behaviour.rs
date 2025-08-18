@@ -143,18 +143,24 @@ where
         let mut rng = rand::thread_rng();
         let subnets: Vec<SubnetworkId> = (0..membership.last_subnetwork_id())
             .choose_multiple(&mut rng, self.subnets_config.num_of_subnets);
-        let peer_id = self.local_peer_id;
+        let local_peer_id = self.local_peer_id;
 
         let request_future = async move {
             // todo: handle errors and retries
             let shares =
-                Self::sample_all_shares(subnets, &membership, &peer_id, &blob_ids, &control)
+                Self::sample_all_shares(&subnets, &membership, &local_peer_id, &blob_ids, &control)
                     .await
                     .unwrap();
 
-            let commitments = Self::sample_all_commitments(&membership, &blob_ids, &control)
-                .await
-                .unwrap();
+            let commitments = Self::sample_all_commitments(
+                &membership,
+                &subnets,
+                &local_peer_id,
+                &blob_ids,
+                &control,
+            )
+            .await
+            .unwrap();
 
             Ok((block_id, shares, commitments))
         }
@@ -164,7 +170,7 @@ where
     }
 
     async fn sample_all_shares(
-        subnets: Vec<SubnetworkId>,
+        subnets: &[SubnetworkId],
         membership: &Membership,
         local_peer_id: &PeerId,
         blob_ids: &HashSet<BlobId>,
@@ -175,7 +181,7 @@ where
         for subnetwork_id in subnets {
             let peer_id = {
                 let mut rng = rand::thread_rng();
-                Self::pick_subnetwork_peer(subnetwork_id, membership, local_peer_id, &mut rng)
+                Self::pick_subnetwork_peer(*subnetwork_id, membership, local_peer_id, &mut rng)
                     .unwrap()
             };
 
@@ -183,7 +189,7 @@ where
                 peer_id,
                 control.clone(),
                 blob_ids,
-                subnetwork_id,
+                *subnetwork_id,
             );
             subnetwork_tasks.push(task);
         }
@@ -218,16 +224,16 @@ where
 
     async fn sample_all_commitments(
         membership: &Membership,
+        subnets: &[SubnetworkId],
+        local_peer_id: &PeerId,
         blob_ids: &HashSet<BlobId>,
         control: &Control,
     ) -> Result<Vec<DaSharesCommitments>, Box<dyn std::error::Error>> {
         let random_peer = {
             let mut rng = rand::thread_rng();
-            membership
-                .members()
-                .into_iter()
-                .choose(&mut rng)
-                .ok_or("No peers available")?
+            let chosen_subnet = subnets.iter().choose(&mut rng).unwrap();
+            Self::pick_subnetwork_peer(*chosen_subnet, membership, local_peer_id, &mut rng)
+                .ok_or("No peers available in chosen subnet")?
         };
 
         let mut stream = Self::open_stream(random_peer, control.clone()).await?;
