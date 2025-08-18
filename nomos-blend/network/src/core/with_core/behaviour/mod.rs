@@ -38,6 +38,9 @@ mod handler;
 #[cfg(feature = "tokio")]
 pub use self::handler::tokio::ObservationWindowTokioIntervalProvider;
 
+#[cfg(test)]
+mod tests;
+
 const LOG_TARGET: &str = "blend::network::core::core::behaviour";
 
 #[derive(Debug)]
@@ -47,7 +50,7 @@ pub struct Config {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct RemotePeerConnectionDetails {
+pub struct RemotePeerConnectionDetails {
     /// Role of the remote peer in this connection.
     role: Endpoint,
     /// Latest negotiated state of the peer.
@@ -99,7 +102,32 @@ pub struct Behaviour<ObservationWindowClockProvider> {
 pub enum NegotiatedPeerState {
     Healthy,
     Unhealthy,
-    Spammy,
+    Spammy(SpamReason),
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+pub enum SpamReason {
+    UndeserializableMessage,
+    DuplicateMessage,
+    InvalidPublicHeader,
+    TooManyMessages,
+}
+
+impl NegotiatedPeerState {
+    #[must_use]
+    pub const fn is_healthy(&self) -> bool {
+        matches!(*self, Self::Healthy)
+    }
+
+    #[must_use]
+    pub const fn is_unhealthy(&self) -> bool {
+        matches!(*self, Self::Unhealthy)
+    }
+
+    #[must_use]
+    pub const fn is_spammy(&self) -> bool {
+        matches!(*self, Self::Spammy(_))
+    }
 }
 
 #[derive(Debug)]
@@ -197,7 +225,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     pub fn num_healthy_peers(&self) -> usize {
         self.negotiated_peers
             .values()
-            .filter(|state| state.negotiated_state == NegotiatedPeerState::Healthy)
+            .filter(|state| state.negotiated_state.is_healthy())
             .count()
     }
 
@@ -210,6 +238,66 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         self.peering_degree
             .end()
             .saturating_sub(self.negotiated_peers.len())
+    }
+
+    /// Force send a message to a peer (without validating it first), as long as
+    /// the peer is connected, no matter the state the connection is in.
+    #[cfg(test)]
+    pub fn force_send_message_to_peer(
+        &mut self,
+        message: &EncapsulatedMessage,
+        peer_id: PeerId,
+    ) -> Result<(), Error> {
+        let Some(RemotePeerConnectionDetails { connection_id, .. }) =
+            self.negotiated_peers.get(&peer_id)
+        else {
+            return Err(Error::NoPeers);
+        };
+        let serialized_message = serialize_encapsulated_message(message);
+        tracing::debug!(target: LOG_TARGET, "Notifying handler with peer {peer_id:?} on connection {connection_id:?} to deliver message.");
+        self.events.push_back(ToSwarm::NotifyHandler {
+            peer_id,
+            handler: NotifyHandler::One(*connection_id),
+            event: Either::Left(FromBehaviour::Message(serialized_message)),
+        });
+        self.try_wake();
+        Ok(())
+    }
+
+    /// Force send a serialized message to a peer (without trying to deserialize
+    /// nor validating it first), as long as the peer is connected, no
+    /// matter the state the connection is in.
+    #[cfg(test)]
+    pub fn force_send_serialized_message_to_peer(
+        &mut self,
+        serialized_message: Vec<u8>,
+        peer_id: PeerId,
+    ) -> Result<(), Error> {
+        let Some(RemotePeerConnectionDetails { connection_id, .. }) =
+            self.negotiated_peers.get(&peer_id)
+        else {
+            return Err(Error::NoPeers);
+        };
+        tracing::debug!(target: LOG_TARGET, "Notifying handler with peer {peer_id:?} on connection {connection_id:?} to deliver already-serialized message.");
+        self.events.push_back(ToSwarm::NotifyHandler {
+            peer_id,
+            handler: NotifyHandler::One(*connection_id),
+            event: Either::Left(FromBehaviour::Message(serialized_message)),
+        });
+        self.try_wake();
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub const fn exchanged_message_identifiers(
+        &self,
+    ) -> &HashMap<PeerId, HashSet<MessageIdentifier>> {
+        &self.exchanged_message_identifiers
+    }
+
+    #[cfg(test)]
+    pub const fn negotiated_peers(&self) -> &HashMap<PeerId, RemotePeerConnectionDetails> {
+        &self.negotiated_peers
     }
 
     /// Forwards a message to all connected and healthy peers except the
@@ -236,7 +324,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             // Exclude the peer the message was received from.
             .filter(|(peer_id, _)| (excluded_peer != Some(**peer_id)))
             // Exclude from the list of candidate peers any peer that is not in a healthy state.
-            .filter(|(_, peer_state)| peer_state.negotiated_state == NegotiatedPeerState::Healthy)
+            .filter(|(_, peer_state)| peer_state.negotiated_state.is_healthy())
             .for_each(|(peer_id, RemotePeerConnectionDetails { connection_id, .. })| {
                 if self
                     .exchanged_message_identifiers
@@ -306,14 +394,9 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             .connections_waiting_upgrade
             .remove(&(peer_id, connection_id))
         else {
-            // We expect not to find a connection to upgrade only if we have already
-            // processed it (e.g., we are processing a `FullyNegotiatedInbound` after we
-            // have already processed a `FullyNegotiatedOutbound` or viceversa).
-            // Otherwise, this is an inconsistency and we should panic.
-            assert!(
-                self.negotiated_peers.contains_key(&peer_id),
-                "Negotiated connection {connection_id:?} with peer {peer_id:?} not found in storage of pending connections."
-            );
+            tracing::trace!(target: LOG_TARGET, "Negotiated connection ({peer_id:?}, {connection_id:?}) not found in map of waiting connections. This is because a different substream event was used to upgrade or drop the connection");
+            // We cannot assert anything here, since also for a connection we are not
+            // willing to upgrade, there can be two connection handler events.
             return;
         };
 
@@ -392,6 +475,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         (peer_id, new_connection_id): (PeerId, ConnectionId),
         new_role: Endpoint,
     ) {
+        tracing::trace!(target: LOG_TARGET, "Handling connection ({peer_id:?}, {new_connection_id:?}) where the peer is already negotiated.");
         let existing_connection = self
             .negotiated_peers
             .get(&peer_id)
@@ -442,6 +526,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             });
         // If the current connection is incoming, we close it if our peer ID is higher
         // than theirs.
+        tracing::trace!(target: LOG_TARGET, "Connection with already connected peer {peer_id:?} found with the following details: {existing_connection_details:?}.");
         let should_close_established = if existing_connection_details.role == Endpoint::Dialer {
             self.local_peer_id.to_base58() > peer_id.to_base58()
         } else {
@@ -477,10 +562,25 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
 
     /// Mark the connection with the sender of a malformed message as malicious
     /// and instruct its connection handler to drop the substream.
-    fn close_spammy_connection(&mut self, (peer_id, connection_id): (PeerId, ConnectionId)) {
+    fn close_spammy_connection(
+        &mut self,
+        (peer_id, connection_id): (PeerId, ConnectionId),
+        reason: SpamReason,
+    ) {
         tracing::debug!(target: LOG_TARGET, "Closing connection {connection_id:?} with spammy peer {peer_id:?}.");
-        self.set_connection_to_spammy((peer_id, connection_id));
+        self.set_connection_to_spammy((peer_id, connection_id), reason);
         self.close_connection((peer_id, connection_id));
+    }
+
+    fn set_connection_to_spammy(
+        &mut self,
+        (peer_id, connection_id): (PeerId, ConnectionId),
+        reason: SpamReason,
+    ) {
+        self.update_state_for_negotiated_peer(
+            (peer_id, connection_id),
+            NegotiatedPeerState::Spammy(reason),
+        );
     }
 
     /// Update the state of an already negotiated peer, returning the previous
@@ -495,7 +595,6 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         (peer_id, connection_id): (PeerId, ConnectionId),
         state: NegotiatedPeerState,
     ) -> NegotiatedPeerState {
-        tracing::debug!(target: LOG_TARGET, "Marking peer {peer_id:?} as {state:?}.");
         let peer_details = self
             .negotiated_peers
             .get_mut(&peer_id)
@@ -507,13 +606,6 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         );
 
         mem::replace(&mut peer_details.negotiated_state, state)
-    }
-
-    fn set_connection_to_spammy(&mut self, (peer_id, connection_id): (PeerId, ConnectionId)) {
-        self.update_state_for_negotiated_peer(
-            (peer_id, connection_id),
-            NegotiatedPeerState::Spammy,
-        );
     }
 
     fn handle_unhealthy_connection(&mut self, (peer_id, connection_id): (PeerId, ConnectionId)) {
@@ -554,7 +646,10 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             deserialize_encapsulated_message(serialized_message)
         else {
             tracing::debug!(target: LOG_TARGET, "Failed to deserialize encapsulated message.");
-            self.close_spammy_connection((from_peer_id, from_connection_id));
+            self.close_spammy_connection(
+                (from_peer_id, from_connection_id),
+                SpamReason::UndeserializableMessage,
+            );
             return;
         };
 
@@ -571,7 +666,10 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         let Ok(validated_message) = deserialized_encapsulated_message.validate_public_header()
         else {
             tracing::debug!(target: LOG_TARGET, "Neighbor sent us a message with an invalid public header. Marking it as spammy.");
-            self.close_spammy_connection((from_peer_id, from_connection_id));
+            self.close_spammy_connection(
+                (from_peer_id, from_connection_id),
+                SpamReason::InvalidPublicHeader,
+            );
             return;
         };
 
@@ -595,10 +693,37 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             .or_default();
         if !exchanged_message_identifiers.insert(*message_id) {
             tracing::debug!(target: LOG_TARGET, "Neighbor {peer_id:?} on connection {connection_id:?} sent us a message previously already exchanged. Marking it as spammy.");
-            self.close_spammy_connection((peer_id, connection_id));
+            self.close_spammy_connection((peer_id, connection_id), SpamReason::DuplicateMessage);
             return Err(());
         }
         Ok(())
+    }
+
+    /// Return `True` if this peer has an established (negotiated or not)
+    /// outgoing connection with the specified peer, `False` otherwise.
+    fn has_outgoing_connection_with_peer(&self, remote_peer: &PeerId) -> bool {
+        self.has_negotiated_outgoing_connection_with_peer(remote_peer)
+            || self.has_pending_outgoing_connection_with_peer(remote_peer)
+    }
+
+    /// Return `true` if there is a negotiated outbound connection with the
+    /// provided peer.
+    fn has_negotiated_outgoing_connection_with_peer(&self, remote_peer: &PeerId) -> bool {
+        self.negotiated_peers
+            .get(remote_peer)
+            .is_some_and(|remote| remote.role.is_listener())
+    }
+
+    /// Return `true` if there is at least one outbound connection pending
+    /// upgrade with the provided peer.
+    // TODO: Find a different data structure to be able to perform this check in
+    // O(1).
+    fn has_pending_outgoing_connection_with_peer(&self, remote_peer: &PeerId) -> bool {
+        self.connections_waiting_upgrade
+            .iter()
+            .any(|((peer_id, _), remote_endpoint)| {
+                peer_id == remote_peer && remote_endpoint.is_listener()
+            })
     }
 }
 
@@ -608,11 +733,7 @@ fn update_connection_id_and_direction(
     existing_connection: &mut RemotePeerConnectionDetails,
     new_connection_id: ConnectionId,
 ) {
-    existing_connection.role = if existing_connection.role == Endpoint::Dialer {
-        Endpoint::Listener
-    } else {
-        Endpoint::Dialer
-    };
+    existing_connection.role = existing_connection.role.reverse();
     existing_connection.connection_id = new_connection_id;
 }
 
@@ -705,11 +826,7 @@ where
         // do not try to upgrade the new one as we already have an outbound connection.
         // Otherwise, we let the connection upgrade, and we will close one of the two
         // connections depending on the comparison result of local and remote peer IDs.
-        if let Some(RemotePeerConnectionDetails {
-            role: Endpoint::Listener,
-            ..
-        }) = self.negotiated_peers.get(&peer_id)
-        {
+        if self.has_outgoing_connection_with_peer(&peer_id) {
             tracing::trace!(target: LOG_TARGET, "Outbound connection {connection_id:?} with peer {peer_id:?} will not be upgraded since there is already an outbound connection established.");
             return Ok(Either::Right(DummyConnectionHandler));
         }
@@ -743,7 +860,7 @@ where
         if let FromSwarm::ConnectionClosed(ConnectionClosed {
             peer_id,
             connection_id,
-            endpoint,
+            endpoint: local_endpoint,
             ..
         }) = event
         {
@@ -753,7 +870,7 @@ where
                 .remove(&(peer_id, connection_id))
             {
                 debug_assert!(
-                    endpoint.to_endpoint() == remote_peer_role,
+                    local_endpoint.to_endpoint().reverse() == remote_peer_role,
                     "Remote peer endpoint provided by event and the one stored do not match."
                 );
                 // If the closed connection was an outbound one, notify the swarm about it.
@@ -817,7 +934,10 @@ where
                 ToBehaviour::SpammyPeer => {
                     // We do not explicitly close the connection here since the connection handler
                     // will already do that for us.
-                    self.set_connection_to_spammy((peer_id, connection_id));
+                    self.set_connection_to_spammy(
+                        (peer_id, connection_id),
+                        SpamReason::TooManyMessages,
+                    );
                 }
                 ToBehaviour::UnhealthyPeer => {
                     self.handle_unhealthy_connection((peer_id, connection_id));
@@ -849,4 +969,19 @@ pub trait IntervalStreamProvider {
     type IntervalItem;
 
     fn interval_stream(&self) -> Self::IntervalStream;
+}
+
+/// A trait for reversable types.
+trait Reverse: Sized {
+    /// Consumes `self` and returns its reverse.
+    fn reverse(self) -> Self;
+}
+
+impl Reverse for Endpoint {
+    fn reverse(self) -> Self {
+        match self {
+            Self::Dialer => Self::Listener,
+            Self::Listener => Self::Dialer,
+        }
+    }
 }

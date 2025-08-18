@@ -1,14 +1,14 @@
 use std::{
     collections::HashSet,
     net::SocketAddr,
-    num::NonZeroU64,
+    num::{NonZeroU64, NonZeroUsize},
     ops::Range,
     path::PathBuf,
     process::{Child, Command, Stdio},
     time::Duration,
 };
 
-use chain_service::{CryptarchiaInfo, CryptarchiaSettings};
+use chain_service::{CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, SyncConfig};
 use cryptarchia_engine::time::SlotConfig;
 use kzgrs_backend::common::share::DaShare;
 use nomos_api::http::membership::MembershipUpdateRequest;
@@ -375,6 +375,12 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 ibd: chain_service::IbdConfig {
                     peers: HashSet::new(),
                     delay_before_new_download: Duration::from_secs(10),
+                },
+            },
+            sync: SyncConfig {
+                orphan: OrphanConfig {
+                    max_orphan_cache_size: NonZeroUsize::new(5)
+                        .expect("Max orphan cache size must be non-zero"),
                 },
             },
         },

@@ -73,9 +73,14 @@ pub fn find_binary_in_path(binary_name: &str) -> Option<PathBuf> {
 ///
 /// An `Option<PathBuf>` that contains the path to the binary if found, or
 /// `None` if not found.
-#[must_use]
-pub fn find_binary(binary_name: &str, environment_variable: &str) -> Option<PathBuf> {
-    find_binary_in_crate(binary_name)
+pub fn find_binary(binary_name: &str, environment_variable: &str) -> Result<PathBuf, String> {
+    let binary = find_binary_in_crate(binary_name)
         .or_else(|| find_binary_in_environment_variable(binary_name, environment_variable))
-        .or_else(|| find_binary_in_path(binary_name))
+        .or_else(|| find_binary_in_path(binary_name));
+
+    binary.ok_or_else(||
+        format!(
+            "Binary '{binary_name}' not found in the crate-relative 'bin/' directory, environment variable ({environment_variable}), or system PATH.",
+        )
+    )
 }

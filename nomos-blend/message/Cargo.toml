@@ -18,3 +18,6 @@ serde-big-array = "0.5"
 serde_with      = "3"
 thiserror       = "1"
 x25519-dalek    = { version = "2", features = ["serde", "static_secrets"] }
+
+[features]
+unsafe-test-functions = []

@@ -14,21 +14,18 @@ pub fn groth16_verify<E: Pairing>(
     Groth16::<E, LibsnarkReduction>::verify_proof(vk.as_ref(), &proof, public_inputs)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "deser"))]
 mod tests {
     use std::{ops::Deref as _, sync::LazyLock};
 
     use serde_json::{Value, json};
 
     use super::*;
-    #[cfg(feature = "deser")]
     use crate::{
-        Groth16Proof, Groth16ProofJsonDeser, Groth16VerificationKey,
-        Groth16VerificationKeyJsonDeser,
+        Groth16Proof, Groth16ProofJsonDeser, Groth16PublicInput, Groth16PublicInputDeser,
+        Groth16VerificationKey, Groth16VerificationKeyJsonDeser,
     };
-    use crate::{Groth16PublicInput, Groth16PublicInputDeser};
 
-    #[cfg(feature = "deser")]
     static VK: LazyLock<Value> = LazyLock::new(|| {
         json!({
           "protocol": "groth16",
@@ -161,7 +158,6 @@ mod tests {
         })
     });
 
-    #[cfg(feature = "deser")]
     static PROOF: LazyLock<Value> = LazyLock::new(|| {
         json!({
           "pi_a": [
@@ -193,7 +189,6 @@ mod tests {
         })
     });
 
-    #[cfg(feature = "deser")]
     static PI: LazyLock<Value> = LazyLock::new(|| {
         json!([
             "20355411533518962316551583414021767695266024416654937381718858980374314628607",
@@ -206,7 +201,6 @@ mod tests {
             "516548"
         ])
     });
-    #[cfg(feature = "deser")]
     #[test]
     fn test_verify() {
         let proof: Groth16Proof =

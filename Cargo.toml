@@ -2,7 +2,7 @@
 # Make sure any excluded crates are still clipped in our CI. Also, make sure they use the same Clippy and rustc lints we specify in this file down below.
 exclude = ["nomos-core/proof_statements", "nomos-core/risc0_proofs"]
 members = [
-  "circuits/pol",
+  "circuits/mantle/pol",
   "circuits/prover",
   "circuits/utils",
   "circuits/verifier",
@@ -58,6 +58,10 @@ resolver = "2"
 bundler                  = { path = "./nomos-bundler" }
 cfgsync                  = { path = "./testnet/cfgsync" }
 chain-service            = { path = "./nomos-services/chain-service" }
+circuits-pol             = { path = "./circuits/mantle/pol" }
+circuits-prover          = { path = "./circuits/prover" }
+circuits-utils           = { path = "./circuits/utils" }
+circuits-verifier        = { path = "./circuits/verifier" }
 common-http-client       = { path = "./nodes/nomos-node/http-client" }
 cryptarchia-engine       = { path = "./consensus/cryptarchia-engine" }
 cryptarchia-sync         = { path = "./consensus/cryptarchia-sync" }
@@ -114,6 +118,7 @@ rand              = "0.8"
 reqwest           = "0.12"
 risc0-zkvm        = "2.3.0"
 serde_with        = "3.12.0"
+tempfile          = "3"
 tracing           = "0.1"
 utoipa            = { version = "4.0" }
 utoipa-swagger-ui = { version = "4.0" }

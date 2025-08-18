@@ -1,9 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    blob::BlobOp,
-    channel_keys::SetChannelKeysOp,
-    inscribe::InscriptionOp,
+    channel::{blob::BlobOp, inscribe::InscriptionOp, set_keys::SetKeysOp},
     leader_claim::LeaderClaimOp,
     native::NativeOp,
     opcode::{
@@ -18,16 +16,18 @@ use super::{
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum OpSer<'a> {
-    Inscribe(
+    ChannelInscribe(
         #[serde(serialize_with = "serde_::serialize_op_variant::<{INSCRIBE}, InscriptionOp, _>")]
         &'a InscriptionOp,
     ),
-    Blob(#[serde(serialize_with = "serde_::serialize_op_variant::<{BLOB}, BlobOp, _>")] &'a BlobOp),
-    SetChannelKeys(
+    ChannelBlob(
+        #[serde(serialize_with = "serde_::serialize_op_variant::<{BLOB}, BlobOp, _>")] &'a BlobOp,
+    ),
+    ChannelSetKeys(
         #[serde(
-            serialize_with = "serde_::serialize_op_variant::<{SET_CHANNEL_KEYS}, SetChannelKeysOp, _>"
+            serialize_with = "serde_::serialize_op_variant::<{SET_CHANNEL_KEYS}, SetKeysOp, _>"
         )]
-        &'a SetChannelKeysOp,
+        &'a SetKeysOp,
     ),
     Native(
         #[serde(serialize_with = "serde_::serialize_op_variant::<{NATIVE}, NativeOp, _>")]
@@ -58,9 +58,9 @@ pub enum OpSer<'a> {
 impl<'a> From<&'a Op> for OpSer<'a> {
     fn from(value: &'a Op) -> Self {
         match value {
-            Op::Inscribe(op) => OpSer::Inscribe(op),
-            Op::Blob(op) => OpSer::Blob(op),
-            Op::SetChannelKeys(op) => OpSer::SetChannelKeys(op),
+            Op::ChannelInscribe(op) => OpSer::ChannelInscribe(op),
+            Op::ChannelBlob(op) => OpSer::ChannelBlob(op),
+            Op::ChannelSetKeys(op) => OpSer::ChannelSetKeys(op),
             Op::Native(op) => OpSer::Native(op),
             Op::SDPDeclare(op) => OpSer::SDPDeclare(op),
             Op::SDPWithdraw(op) => OpSer::SDPWithdraw(op),
@@ -74,18 +74,20 @@ impl<'a> From<&'a Op> for OpSer<'a> {
 #[derive(Deserialize)]
 #[serde(untagged)]
 pub enum OpDe {
-    Inscribe(
+    ChannelInscribe(
         #[serde(
             deserialize_with = "serde_::deserialize_op_variant::<{INSCRIBE}, InscriptionOp, _>"
         )]
         InscriptionOp,
     ),
-    Blob(#[serde(deserialize_with = "serde_::deserialize_op_variant::<{BLOB}, BlobOp, _>")] BlobOp),
-    SetChannelKeys(
+    ChannelBlob(
+        #[serde(deserialize_with = "serde_::deserialize_op_variant::<{BLOB}, BlobOp, _>")] BlobOp,
+    ),
+    ChannelSetKeys(
         #[serde(
-            deserialize_with = "serde_::deserialize_op_variant::<{SET_CHANNEL_KEYS}, SetChannelKeysOp, _>"
+            deserialize_with = "serde_::deserialize_op_variant::<{SET_CHANNEL_KEYS}, SetKeysOp, _>"
         )]
-        SetChannelKeysOp,
+        SetKeysOp,
     ),
     Native(
         #[serde(deserialize_with = "serde_::deserialize_op_variant::<{NATIVE}, NativeOp, _>")]
@@ -120,9 +122,9 @@ pub enum OpDe {
 impl From<OpDe> for Op {
     fn from(value: OpDe) -> Self {
         match value {
-            OpDe::Inscribe(inscribe) => Self::Inscribe(inscribe),
-            OpDe::Blob(blob) => Self::Blob(blob),
-            OpDe::SetChannelKeys(set_channel_keys) => Self::SetChannelKeys(set_channel_keys),
+            OpDe::ChannelInscribe(inscribe) => Self::ChannelInscribe(inscribe),
+            OpDe::ChannelBlob(blob) => Self::ChannelBlob(blob),
+            OpDe::ChannelSetKeys(channel_set_keys) => Self::ChannelSetKeys(channel_set_keys),
             OpDe::Native(native) => Self::Native(native),
             OpDe::SDPDeclare(sdp_declare) => Self::SDPDeclare(sdp_declare),
             OpDe::SDPWithdraw(sdp_withdraw) => Self::SDPWithdraw(sdp_withdraw),
