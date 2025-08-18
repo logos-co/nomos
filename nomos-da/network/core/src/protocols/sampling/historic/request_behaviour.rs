@@ -212,7 +212,7 @@ where
 
         let mut all_shares = Vec::new();
 
-        for peer_id in candidate_peers {
+        'peers_loop: for peer_id in candidate_peers {
             if blob_ids.is_empty() {
                 break;
             }
@@ -221,7 +221,7 @@ where
                 Ok(mut stream) => {
                     let blob_ids_to_try: Vec<BlobId> = blob_ids.iter().copied().collect();
 
-                    'peers: for blob_id in blob_ids_to_try {
+                    for blob_id in blob_ids_to_try {
                         let request = sampling::SampleRequest::new_share(blob_id, subnetwork_id);
                         match Self::handle_share_request(stream, request).await {
                             Ok((share_data, new_stream)) => {
@@ -231,7 +231,8 @@ where
                             }
                             Err(err) => {
                                 log::error!("Failed to handle share request: {err}");
-                                break 'peers;
+                                continue 'peers_loop; // Try next peer with
+                                                      // remaining blobs
                             }
                         }
                     }
@@ -280,7 +281,7 @@ where
         let mut remaining_blob_ids = blob_ids.clone();
         let mut commitments = Vec::new();
 
-        'peers: for peer_id in candidate_peers {
+        'peers_loop: for peer_id in candidate_peers {
             if remaining_blob_ids.is_empty() {
                 break;
             }
@@ -299,7 +300,7 @@ where
                             }
                             Err(err) => {
                                 log::error!("Failed to get commitment from peer {peer_id}: {err}");
-                                break 'peers;
+                                continue 'peers_loop;
                             }
                         }
                     }
