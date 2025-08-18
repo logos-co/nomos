@@ -511,7 +511,7 @@ where
         local_addr: &Multiaddr,
         remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        self.connection_broadcast_sender.send(peer).unwrap();
+        let _ = self.connection_broadcast_sender.send(peer);
 
         self.stream_behaviour
             .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)
@@ -526,7 +526,7 @@ where
         role_override: Endpoint,
         port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        self.connection_broadcast_sender.send(peer).unwrap();
+        let _ = self.connection_broadcast_sender.send(peer);
 
         self.stream_behaviour
             .handle_established_outbound_connection(
