@@ -294,6 +294,7 @@ where
                             }
                             Err(err) => {
                                 log::error!("Failed to handle share request: {err}");
+                                // todo: close the stream
                                 continue 'peers_loop; // Try next peer with
                                                       // remaining blobs
                             }
@@ -365,6 +366,7 @@ where
                                 stream = new_stream;
                             }
                             Err(err) => {
+                                // todo: close the stream
                                 log::error!("Failed to get commitment from peer {peer_id}: {err}");
                                 continue 'peers_loop;
                             }
