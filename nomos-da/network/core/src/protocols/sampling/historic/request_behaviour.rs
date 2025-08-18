@@ -340,15 +340,14 @@ where
             SampleResponse::Error(err) => Err(format!("Share request failed: {err:?}").into()),
             SampleResponse::Commitments(_) => Err("Expected share response".into()),
         }
-    }
+        let (response_result, new_stream) = streams::stream_sample(stream, request).await.unwrap();
 
-    async fn handle_commitment_request(
-        stream: SampleStream,
-        request: sampling::SampleRequest,
-    ) -> Result<(DaSharesCommitments, SampleStream), Box<dyn std::error::Error>> {
-        // todo: handle errors and retries
-        let response = streams::stream_sample(stream, request).await.unwrap();
-        let new_stream = response.2;
+        match response_result {
+            SampleResponse::Commitments(comm) => Ok((comm, new_stream)),
+            SampleResponse::Error(err) => Err(format!("Commitment request failed: {err:?}").into()),
+            SampleResponse::Share(_) => Err("Expected commitment response".into()),
+        }
+    }
 
         match response.1 {
             SampleResponse::Commitments(comm) => Ok((comm, new_stream)),
