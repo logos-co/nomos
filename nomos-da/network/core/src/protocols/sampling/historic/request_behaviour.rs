@@ -124,12 +124,6 @@ where
     pub fn historic_request_channel(&self) -> UnboundedSender<SampleArgs<Membership>> {
         self.historic_request_sender.clone()
     }
-
-    pub fn try_wake(&mut self) {
-        if let Some(waker) = self.waker.take() {
-            waker.wake();
-        }
-    }
 }
 
 impl<Membership, Addressbook> HistoricRequestSamplingBehaviour<Membership, Addressbook>
@@ -393,11 +387,7 @@ where
             cx.waker().wake_by_ref();
             match future_result {
                 Ok((block_id, shares, commitments)) => {
-                    return Some(Self::handle_historic_response(
-                        block_id,
-                        shares,
-                        commitments,
-                    ));
+                    return Some(Self::handle_historic_success(block_id, shares, commitments));
                 }
                 Err((block_id, sampling_error)) => {
                     return Some(Self::handle_historic_error(block_id, sampling_error));
@@ -407,7 +397,7 @@ where
         None
     }
 
-    const fn handle_historic_response(
+    const fn handle_historic_success(
         block_id: HeaderId,
         shares: Vec<DaLightShare>,
         commitments: Vec<DaSharesCommitments>,
