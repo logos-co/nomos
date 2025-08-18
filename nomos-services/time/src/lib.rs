@@ -100,6 +100,9 @@ where
     }
 
     async fn run(self) -> Result<(), DynError> {
+        // 3 slots buffer should be enough
+        const SLOTS_BUFFER: usize = 3;
+
         let Self {
             service_resources_handle,
             backend,
@@ -107,8 +110,6 @@ where
         let mut inbound_relay = service_resources_handle.inbound_relay;
         let mut tick_stream = backend.tick_stream();
 
-        // 3 slots buffer should be enough
-        const SLOTS_BUFFER: usize = 3;
         let (broadcast_sender, broadcast_receiver) = broadcast::channel(SLOTS_BUFFER);
 
         service_resources_handle.status_updater.notify_ready();
