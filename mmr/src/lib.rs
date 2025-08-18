@@ -1,4 +1,4 @@
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 use digest::{Digest, OutputSizeUser};
 use rpds::StackSync;
@@ -94,15 +94,15 @@ fn hash<Item: AsRef<[u8]>, Hash: Digest<OutputSize = digest::typenum::U32>>(
 }
 
 fn empty_subtree_root<Hash: Digest<OutputSize = digest::typenum::U32>>(height: usize) -> [u8; 32] {
-    static PRECOMPUTED_EMPTY_ROOTS: OnceLock<[[u8; 32]; 32]> = OnceLock::new();
-    assert!(height < 32, "Height must be less than 32: {height}");
-    PRECOMPUTED_EMPTY_ROOTS.get_or_init(|| {
+    static PRECOMPUTED_EMPTY_ROOTS: LazyLock<[[u8; 32]; 32]> = LazyLock::new(|| {
         let mut hashes = [EMPTY_VALUE; 32];
         for i in 1..32 {
             hashes[i] = hash::<[u8; 32], Hash>(hashes[i - 1], hashes[i - 1]);
         }
         hashes
-    })[height]
+    });
+    assert!(height < 32, "Height must be less than 32: {height}");
+    PRECOMPUTED_EMPTY_ROOTS[height]
 }
 
 #[cfg(test)]
