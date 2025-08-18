@@ -12,14 +12,14 @@ use crate::{core::with_edge::behaviour::Behaviour, PROTOCOL_NAME};
 
 #[derive(Default)]
 pub struct BehaviourBuilder {
-    edge_peer_ids: Vec<PeerId>,
+    core_peer_ids: Vec<PeerId>,
     max_incoming_connections: Option<usize>,
     timeout: Option<Duration>,
 }
 
 impl BehaviourBuilder {
-    pub fn with_edge_peer_membership(mut self, edge_peer_id: PeerId) -> Self {
-        self.edge_peer_ids.push(edge_peer_id);
+    pub fn with_core_peer_membership(mut self, edge_peer_id: PeerId) -> Self {
+        self.core_peer_ids.push(edge_peer_id);
         self
     }
 
@@ -34,11 +34,11 @@ impl BehaviourBuilder {
     }
 
     pub fn build(self) -> Behaviour {
-        let current_membership = if self.edge_peer_ids.is_empty() {
+        let current_membership = if self.core_peer_ids.is_empty() {
             None
         } else {
             Some(Membership::new(
-                self.edge_peer_ids
+                self.core_peer_ids
                     .into_iter()
                     .map(|edge_peer_id| Node {
                         address: Multiaddr::empty(),

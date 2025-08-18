@@ -24,7 +24,7 @@ use crate::{
 async fn receive_valid_message() {
     let mut core_swarm = TestSwarm::new(|_| {
         BehaviourBuilder::default()
-            .with_edge_peer_membership(PeerId::random())
+            .with_core_peer_membership(PeerId::random())
             .build()
     });
     let mut edge_swarm = TestSwarm::new(|_| StreamBehaviour::new());
@@ -55,7 +55,7 @@ async fn receive_valid_message() {
 async fn message_timeout() {
     let mut core_swarm = TestSwarm::new(|_| {
         BehaviourBuilder::default()
-            .with_edge_peer_membership(PeerId::random())
+            .with_core_peer_membership(PeerId::random())
             .with_timeout(Duration::from_secs(1))
             .build()
     });
@@ -87,7 +87,7 @@ async fn message_timeout() {
 async fn receive_malformed_message() {
     let mut core_swarm = TestSwarm::new(|_| {
         BehaviourBuilder::default()
-            .with_edge_peer_membership(PeerId::random())
+            .with_core_peer_membership(PeerId::random())
             .build()
     });
     let mut edge_swarm = TestSwarm::new(|_| StreamBehaviour::new());

@@ -23,7 +23,7 @@ async fn edge_peer_not_supporting_blend() {
     let mut blend_swarm = TestSwarm::new(|_| {
         BehaviourBuilder::default()
             // Add random peer to membership so the dummy swarm is considered an edge node.
-            .with_edge_peer_membership(PeerId::random())
+            .with_core_peer_membership(PeerId::random())
             .build()
     });
 
@@ -59,7 +59,7 @@ async fn non_edge_peer() {
     let mut other_core_swarm = TestSwarm::new(|_| StreamBehaviour::new());
     let mut blend_swarm = TestSwarm::new(|_| {
         BehaviourBuilder::default()
-            .with_edge_peer_membership(*other_core_swarm.local_peer_id())
+            .with_core_peer_membership(*other_core_swarm.local_peer_id())
             .build()
     });
 
@@ -84,7 +84,7 @@ async fn incoming_connection_with_maximum_peering_degree() {
     let mut blend_swarm = TestSwarm::new(|_| {
         BehaviourBuilder::default()
             // Add random peer to membership so the two swarms are considered edge nodes.
-            .with_edge_peer_membership(PeerId::random())
+            .with_core_peer_membership(PeerId::random())
             // We increase the timeout to send a message so that the swarm will close the rejected
             // connection before the behaviour closes the second connection due to inactivity.
             .with_timeout(Duration::from_secs(13))
@@ -142,7 +142,7 @@ async fn concurrent_incoming_connection_and_maximum_peering_degree_reached() {
         BehaviourBuilder::default()
             .with_max_incoming_connections(1)
             .with_timeout(Duration::from_secs(13))
-            .with_edge_peer_membership(PeerId::random())
+            .with_core_peer_membership(PeerId::random())
             .build()
     });
     let listening_swarm_peer_id = *listening_swarm.local_peer_id();
@@ -211,7 +211,7 @@ async fn concurrent_incoming_connection_and_maximum_peering_degree_reached() {
 async fn outgoing_connection_to_edge_peer() {
     let mut core_swarm = TestSwarm::new(|_| {
         BehaviourBuilder::default()
-            .with_edge_peer_membership(PeerId::random())
+            .with_core_peer_membership(PeerId::random())
             .build()
     });
     let mut edge_swarm = TestSwarm::new(|_| StreamBehaviour::new());
