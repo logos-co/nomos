@@ -173,7 +173,7 @@ where
         blob_ids: &HashSet<BlobId>,
         control: &Control,
     ) -> Result<Vec<DaLightShare>, Box<dyn std::error::Error>> {
-        let mut subnetwork_tasks = Vec::new();
+        let mut subnetwork_tasks = FuturesUnordered::new();
 
         for subnetwork_id in subnets {
             let task = Self::sample_shares_for_subnetwork(
@@ -187,9 +187,11 @@ where
         }
 
         let mut all_shares = Vec::new();
-        for task in subnetwork_tasks {
-            let shares = task.await?;
-            all_shares.extend(shares);
+        while let Some(result) = subnetwork_tasks.next().await {
+            match result {
+                Ok(shares) => all_shares.extend(shares),
+                Err(err) => return Err(err),
+            }
         }
 
         Ok(all_shares)
