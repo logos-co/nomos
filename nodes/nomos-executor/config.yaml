@@ -286,7 +286,9 @@ cryptarchia:
             - value: 1
               pk: "0000000000000000000000000000000000000000000000000000000000000000"
         total_stake: 1
-    mantle_ledger: ~
+    mantle_ledger:
+      channels:
+        channels: {}
   time:
     slot_duration: [2, 0]
     chain_start_time: [2025, 41, 9, 38, 29, 993653000, 0, 0, 0]

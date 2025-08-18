@@ -33,19 +33,19 @@ impl<'de> Visitor<'de> for OpWireVisitor {
                 let payload = seq
                     .next_element()?
                     .ok_or_else(|| Error::custom("missing Inscription payload"))?;
-                Ok(Op::Inscribe(payload))
+                Ok(Op::ChannelInscribe(payload))
             }
             opcode::BLOB => {
                 let payload = seq
                     .next_element()?
                     .ok_or_else(|| Error::custom("missing Blob payload"))?;
-                Ok(Op::Blob(payload))
+                Ok(Op::ChannelBlob(payload))
             }
             opcode::SET_CHANNEL_KEYS => {
                 let payload = seq
                     .next_element()?
-                    .ok_or_else(|| Error::custom("missing SetChannelKeys payload"))?;
-                Ok(Op::SetChannelKeys(payload))
+                    .ok_or_else(|| Error::custom("missing ChannelSetKeys payload"))?;
+                Ok(Op::ChannelSetKeys(payload))
             }
             opcode::NATIVE => {
                 let payload = seq

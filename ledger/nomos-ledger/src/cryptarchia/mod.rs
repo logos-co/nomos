@@ -470,7 +470,7 @@ pub mod tests {
     fn full_ledger_state(cryptarchia_ledger: LedgerState) -> crate::LedgerState {
         crate::LedgerState {
             cryptarchia_ledger,
-            mantle_ledger: (),
+            mantle_ledger: crate::mantle::LedgerState::default(),
         }
     }
 
