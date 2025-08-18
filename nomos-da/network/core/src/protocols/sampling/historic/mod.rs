@@ -1,7 +1,6 @@
 use kzgrs_backend::common::share::{DaLightShare, DaSharesCommitments};
 use nomos_core::header::HeaderId;
-
-use crate::protocols::sampling::errors::SamplingError;
+use thiserror::Error;
 
 pub mod request_behaviour;
 
@@ -15,6 +14,14 @@ pub enum HistoricSamplingEvent {
     },
     SamplingError {
         block_id: HeaderId,
-        error: SamplingError,
+        error: HistoricSamplingError,
     },
+}
+
+#[derive(Error, Debug)]
+pub enum HistoricSamplingError {
+    #[error("Historic sampling failed")]
+    SamplingFailed,
+    #[error("Historic sampling error: ")]
+    SamplingError(String),
 }

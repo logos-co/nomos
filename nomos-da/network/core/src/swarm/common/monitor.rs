@@ -92,19 +92,11 @@ impl From<&SamplingEvent> for MonitorEvent {
                 }
                 _ => Self::Noop, // All other cases return Noop
             },
-            SamplingEvent::HistoricSamplingError { error, .. } => {
-                match error {
-                    // Only map Io or OpenStreamError to Self
-                    &SamplingError::Io { .. } | &SamplingError::OpenStream { .. } => {
-                        Self::Sampling(error.clone())
-                    }
-                    _ => Self::Noop, // All other cases return Noop
-                }
-            }
             SamplingEvent::SamplingSuccess { .. }
             | SamplingEvent::IncomingSample { .. }
             | SamplingEvent::CommitmentsSuccess { .. }
-            | SamplingEvent::HistoricSamplingSuccess { .. } => Self::Noop,
+            | SamplingEvent::HistoricSamplingSuccess { .. }
+            | SamplingEvent::HistoricSamplingError { .. } => Self::Noop,
         }
     }
 }

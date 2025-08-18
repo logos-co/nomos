@@ -25,7 +25,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::{
     addressbook::AddressBookHandler,
     protocols::sampling::{
-        historic::request_behaviour::HistoricRequestSamplingBehaviour,
+        historic::{request_behaviour::HistoricRequestSamplingBehaviour, HistoricSamplingError},
         requests::request_behaviour::RequestSamplingBehaviour,
         responses::response_behaviour::ResponseSamplingBehaviour,
     },
@@ -151,7 +151,7 @@ pub enum SamplingEvent {
     },
     HistoricSamplingError {
         block_id: HeaderId,
-        error: SamplingError,
+        error: HistoricSamplingError,
     },
 }
 

@@ -31,7 +31,7 @@ use crate::{
     protocol::SAMPLING_PROTOCOL,
     protocols::sampling::{
         errors::SamplingError,
-        historic::HistoricSamplingEvent,
+        historic::{HistoricSamplingError, HistoricSamplingEvent},
         streams::{self, SampleStream},
         SubnetsConfig,
     },
@@ -43,7 +43,7 @@ const MAX_PEER_RETRIES: usize = 5;
 
 type HistoricSamplingResponseSuccess = (HeaderId, Vec<DaLightShare>, Vec<DaSharesCommitments>);
 
-type HistoricFutureError = (HeaderId, SamplingError);
+type HistoricFutureError = (HeaderId, HistoricSamplingError);
 
 // Future that includes context with the original sampling future result
 type HistoricSamplingResponseFuture =
@@ -142,7 +142,6 @@ where
         let local_peer_id = self.local_peer_id;
 
         let request_future = async move {
-            // todo: maybe reuse the connection for commitments
             let commitments = Self::sample_all_commitments(
                 &membership,
                 &subnets,
@@ -151,13 +150,12 @@ where
                 &control,
             )
             .await
-            .unwrap();
+            .map_err(|err| (block_id, err))?;
 
-            // todo: handle errors and retries
             let shares =
                 Self::sample_all_shares(&subnets, &membership, &local_peer_id, &blob_ids, &control)
                     .await
-                    .unwrap();
+                    .map_err(|err| (block_id, err))?;
 
             Ok((block_id, shares, commitments))
         }
@@ -172,7 +170,7 @@ where
         local_peer_id: &PeerId,
         blob_ids: &HashSet<BlobId>,
         control: &Control,
-    ) -> Result<Vec<DaLightShare>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<DaLightShare>, HistoricSamplingError> {
         let mut subnetwork_tasks = FuturesUnordered::new();
 
         for subnetwork_id in subnets {
@@ -203,7 +201,7 @@ where
         control: Control,
         mut blob_ids: HashSet<BlobId>,
         subnetwork_id: SubnetworkId,
-    ) -> Result<Vec<DaLightShare>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<DaLightShare>, HistoricSamplingError> {
         // Pre-select up to MAX_PEER_RETRIES peers from the subnetwork
         let candidate_peers = {
             let mut rng = rand::thread_rng();
@@ -246,7 +244,7 @@ where
         if blob_ids.is_empty() {
             Ok(all_shares)
         } else {
-            Err("Sampling failed - could not collect all shares".into())
+            Err(HistoricSamplingError::SamplingFailed)
         }
     }
 
@@ -256,7 +254,7 @@ where
         local_peer_id: &PeerId,
         blob_ids: &HashSet<BlobId>,
         control: &Control,
-    ) -> Result<Vec<DaSharesCommitments>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<DaSharesCommitments>, HistoricSamplingError> {
         // Pre-select up to MAX_PEER_RETRIES peers from a random subnet
         let candidate_peers = {
             let mut peers = Vec::new();
@@ -275,7 +273,9 @@ where
         };
 
         if candidate_peers.is_empty() {
-            return Err("No peers available in chosen subnet".into());
+            return Err(HistoricSamplingError::SamplingError(
+                "No peers available for commitments".to_owned(),
+            ));
         }
 
         let mut remaining_blob_ids = blob_ids.clone();
@@ -314,11 +314,7 @@ where
         if remaining_blob_ids.is_empty() {
             Ok(commitments)
         } else {
-            Err(format!(
-                "Failed to collect all commitments - {} blobs remaining",
-                remaining_blob_ids.len()
-            )
-            .into())
+            Err(HistoricSamplingError::SamplingFailed)
         }
     }
 
@@ -414,14 +410,18 @@ where
 
     const fn handle_historic_error(
         block_id: HeaderId,
-        sampling_error: SamplingError,
+        sampling_error: HistoricSamplingError,
     ) -> Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
-        Poll::Ready(ToSwarm::GenerateEvent(
-            HistoricSamplingEvent::SamplingError {
-                block_id,
-                error: sampling_error,
-            },
-        ))
+        match sampling_error {
+            HistoricSamplingError::SamplingFailed | HistoricSamplingError::SamplingError(_) => {
+                Poll::Ready(ToSwarm::GenerateEvent(
+                    HistoricSamplingEvent::SamplingError {
+                        block_id,
+                        error: sampling_error,
+                    },
+                ))
+            }
+        }
     }
 }
 
