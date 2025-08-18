@@ -39,6 +39,8 @@ use crate::{
     SubnetworkId,
 };
 
+const MAX_PEER_RETRIES: usize = 5;
+
 type HistoricSamplingResponseSuccess = (HeaderId, Vec<DaLightShare>, Vec<DaSharesCommitments>);
 
 type HistoricFutureError = (HeaderId, SamplingError);
@@ -180,16 +182,11 @@ where
         let mut subnetwork_tasks = Vec::new();
 
         for subnetwork_id in subnets {
-            let peer_id = {
-                let mut rng = rand::thread_rng();
-                Self::pick_subnetwork_peer(*subnetwork_id, membership, local_peer_id, &mut rng)
-                    .unwrap()
-            };
-
             let task = Self::sample_shares_for_subnetwork(
-                peer_id,
+                membership,
+                local_peer_id,
                 control.clone(),
-                blob_ids,
+                blob_ids.clone(),
                 *subnetwork_id,
             );
             subnetwork_tasks.push(task);
@@ -205,22 +202,56 @@ where
     }
 
     async fn sample_shares_for_subnetwork(
-        peer_id: PeerId,
+        membership: &Membership,
+        local_peer_id: &PeerId,
         control: Control,
-        blob_ids: &HashSet<BlobId>,
+        mut blob_ids: HashSet<BlobId>,
         subnetwork_id: SubnetworkId,
     ) -> Result<Vec<DaLightShare>, Box<dyn std::error::Error>> {
-        let mut stream = Self::open_stream(peer_id, control).await?;
-        let mut shares = Vec::new();
+        // Pre-select up to MAX_PEER_RETRIES peers from the subnetwork
+        let candidate_peers = {
+            let mut rng = rand::thread_rng();
+            Self::pick_random_subnetwork_peers(subnetwork_id, membership, local_peer_id, &mut rng)
+        };
 
-        for blob_id in blob_ids {
-            let request = sampling::SampleRequest::new_share(*blob_id, subnetwork_id);
-            let (share_data, new_stream) = Self::handle_share_request(stream, request).await?;
-            shares.push(share_data);
-            stream = new_stream;
+        let mut all_shares = Vec::new();
+
+        for peer_id in candidate_peers {
+            if blob_ids.is_empty() {
+                break;
+            }
+
+            match Self::open_stream(peer_id, control.clone()).await {
+                Ok(mut stream) => {
+                    let blob_ids_to_try: Vec<BlobId> = blob_ids.iter().copied().collect();
+
+                    for blob_id in blob_ids_to_try {
+                        let request = sampling::SampleRequest::new_share(blob_id, subnetwork_id);
+                        match Self::handle_share_request(stream, request).await {
+                            Ok((share_data, new_stream)) => {
+                                all_shares.push(share_data);
+                                blob_ids.remove(&blob_id);
+                                stream = new_stream;
+                            }
+                            Err(err) => {
+                                log::error!("Failed to handle share request: {err}");
+                                break; // Break inner loop, try next peer with
+                                       // remaining blobs
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    log::error!("Failed to open stream to peer {peer_id}: {err}");
+                }
+            }
         }
 
-        Ok(shares)
+        if blob_ids.is_empty() {
+            Ok(all_shares)
+        } else {
+            Err("Sampling failed - could not collect all shares".into())
+        }
     }
 
     async fn sample_all_commitments(
@@ -230,24 +261,70 @@ where
         blob_ids: &HashSet<BlobId>,
         control: &Control,
     ) -> Result<Vec<DaSharesCommitments>, Box<dyn std::error::Error>> {
-        let random_peer = {
+        // Pre-select up to MAX_PEER_RETRIES peers from a random subnet
+        let candidate_peers = {
+            let mut peers = Vec::new();
             let mut rng = rand::thread_rng();
-            let chosen_subnet = subnets.iter().choose(&mut rng).unwrap();
-            Self::pick_subnetwork_peer(*chosen_subnet, membership, local_peer_id, &mut rng)
-                .ok_or("No peers available in chosen subnet")?
+
+            for _ in 0..MAX_PEER_RETRIES {
+                if let Some(subnet) = subnets.iter().choose(&mut rng) {
+                    if let Some(peer) =
+                        Self::pick_subnetwork_peer(*subnet, membership, local_peer_id, &mut rng)
+                    {
+                        peers.push(peer);
+                    }
+                }
+            }
+            peers
         };
 
-        let mut stream = Self::open_stream(random_peer, control.clone()).await?;
-        let mut commitments = Vec::new();
-
-        for blob_id in blob_ids {
-            let request = sampling::SampleRequest::new_commitments(*blob_id);
-            let (commitment, new_stream) = Self::handle_commitment_request(stream, request).await?;
-            commitments.push(commitment);
-            stream = new_stream;
+        if candidate_peers.is_empty() {
+            return Err("No peers available in chosen subnet".into());
         }
 
-        Ok(commitments)
+        let mut remaining_blob_ids = blob_ids.clone();
+        let mut commitments = Vec::new();
+
+        for peer_id in candidate_peers {
+            if remaining_blob_ids.is_empty() {
+                break;
+            }
+
+            match Self::open_stream(peer_id, control.clone()).await {
+                Ok(mut stream) => {
+                    let blob_ids_to_try: Vec<BlobId> = remaining_blob_ids.iter().copied().collect();
+
+                    for blob_id in blob_ids_to_try {
+                        let request = sampling::SampleRequest::new_commitments(blob_id);
+                        match Self::handle_commitment_request(stream, request).await {
+                            Ok((commitment, new_stream)) => {
+                                commitments.push(commitment);
+                                remaining_blob_ids.remove(&blob_id);
+                                stream = new_stream;
+                            }
+                            Err(err) => {
+                                log::error!("Failed to get commitment from peer {peer_id}: {err}");
+                                break; // Break inner loop, try next peer with
+                                       // remaining blobs
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    log::error!("Failed to open stream to peer {peer_id}: {err}");
+                }
+            }
+        }
+
+        if remaining_blob_ids.is_empty() {
+            Ok(commitments)
+        } else {
+            Err(format!(
+                "Failed to collect all commitments - {} blobs remaining",
+                remaining_blob_ids.len()
+            )
+            .into())
+        }
     }
 
     async fn handle_share_request(
@@ -291,6 +368,23 @@ where
             .into_iter()
             .filter(|peer| peer != local_peer_id)
             .choose(rng)
+    }
+
+    fn pick_random_subnetwork_peers(
+        subnetwork_id: SubnetworkId,
+        membership: &Membership,
+        local_peer_id: &PeerId,
+        rng: &mut ThreadRng,
+    ) -> Vec<PeerId> {
+        let candidates = membership.members_of(&subnetwork_id);
+        let available_peers: Vec<_> = candidates
+            .into_iter()
+            .filter(|peer| peer != local_peer_id)
+            .collect();
+
+        available_peers
+            .into_iter()
+            .choose_multiple(rng, MAX_PEER_RETRIES)
     }
 
     fn poll_historic_tasks(
