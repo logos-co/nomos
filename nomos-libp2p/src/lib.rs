@@ -8,7 +8,6 @@ pub use config::{
     SwarmConfig,
 };
 pub use cryptarchia_sync::{self, Event};
-
 pub use libp2p::{
     self,
     core::upgrade,

@@ -2,8 +2,7 @@ pub use identify::Settings as IdentifySettings;
 pub use kademlia::Settings as KademliaSettings;
 use libp2p::identity::ed25519;
 pub use nat::{
-    autonat_client::Settings as AutonatClientSettings,
-    mapping::Settings as NatMappingSettings,
+    autonat_client::Settings as AutonatClientSettings, mapping::Settings as NatMappingSettings,
     Settings as NatSettings,
 };
 use serde::{Deserialize, Serialize};
@@ -52,8 +51,7 @@ pub struct SwarmConfig {
     #[serde(default)]
     pub identify_config: identify::Settings,
 
-    /// Nat config
-    /// When the value is None, NAT is disabled.
+    /// Chain sync config
     #[serde(default)]
     pub chain_sync_config: cryptarchia_sync::Config,
 
