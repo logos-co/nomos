@@ -2,7 +2,7 @@ use std::{
     collections::HashSet,
     future::ready,
     io::ErrorKind,
-    task::{Context, Poll, Waker},
+    task::{Context, Poll},
 };
 
 use either::Either;
@@ -95,8 +95,6 @@ where
     subnets_config: SubnetsConfig,
     /// Broadcast channel for notifying about established connections
     connection_broadcast_sender: tokio::sync::broadcast::Sender<PeerId>,
-    /// Waker for sampling polling
-    waker: Option<Waker>,
 }
 
 impl<Membership, Addressbook> HistoricRequestSamplingBehaviour<Membership, Addressbook>
@@ -130,7 +128,6 @@ where
             historic_request_stream,
             subnets_config,
             connection_broadcast_sender,
-            waker: None,
         }
     }
 
@@ -311,6 +308,9 @@ where
                             }
                         }
                     }
+
+                    // close stream on success as well
+                    let _ = stream.stream.close().await;
                 }
                 Err(err) => {
                     log::error!("Failed to open stream to peer {peer_id}: {err}");
@@ -389,6 +389,9 @@ where
                             }
                         }
                     }
+
+                    // close stream on success as well
+                    let _ = stream.stream.close().await;
                 }
                 Err(err) => {
                     log::error!("Failed to open stream to peer {peer_id}: {err}");
@@ -578,8 +581,6 @@ where
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
-        self.waker = Some(cx.waker().clone());
-
         // Poll pending historic sampling requests
         if let Poll::Ready(Some(sample_args)) = self.historic_request_stream.poll_next_unpin(cx) {
             self.sample_historic(sample_args);
