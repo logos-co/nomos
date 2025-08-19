@@ -55,7 +55,7 @@ enum StreamSamplingError {
     #[error("Sampling error occurred: {0}")]
     SamplingError(#[from] SamplingError),
     #[error("Stream error occurred")]
-    StreamError(SampleStream),
+    StreamError(Option<SampleStream>),
 }
 
 type HistoricSamplingResponseSuccess = (
@@ -300,11 +300,11 @@ where
                                 stream = new_stream;
                             }
                             Err(err) => {
-                                log::error!("Failed to handle share request: {err}");
-
-                                if let StreamSamplingError::StreamError(mut new_stream) = err {
+                                if let StreamSamplingError::StreamError(Some(mut new_stream)) = err
+                                {
                                     let _ = new_stream.stream.close().await;
                                 }
+
                                 continue 'peers_loop; // Try next peer with
                                                       // remaining blobs
                             }
@@ -378,7 +378,8 @@ where
                                 stream = new_stream;
                             }
                             Err(err) => {
-                                if let StreamSamplingError::StreamError(mut new_stream) = err {
+                                if let StreamSamplingError::StreamError(Some(mut new_stream)) = err
+                                {
                                     let _ = new_stream.stream.close().await;
                                 }
 
@@ -404,13 +405,14 @@ where
         stream: SampleStream,
         request: sampling::SampleRequest,
     ) -> Result<(DaLightShare, SampleStream), StreamSamplingError> {
-        // todo: handle errors and retries
-        let (_, response_result, new_stream) =
-            streams::stream_sample(stream, request).await.unwrap();
+        let (_, response_result, new_stream) = streams::stream_sample(stream, request)
+            .await
+            .map_err(|(_, maybe_stream)| StreamSamplingError::StreamError(maybe_stream))?;
+
         if let SampleResponse::Share(share_data) = response_result {
             Ok((share_data.data, new_stream))
         } else {
-            Err(StreamSamplingError::StreamError(new_stream))
+            Err(StreamSamplingError::StreamError(Some(new_stream)))
         }
     }
 
@@ -418,14 +420,14 @@ where
         stream: SampleStream,
         request: sampling::SampleRequest,
     ) -> Result<(DaSharesCommitments, SampleStream), StreamSamplingError> {
-        // todo: handle errors and retries
-        let (_, response_result, new_stream) =
-            streams::stream_sample(stream, request).await.unwrap();
+        let (_, response_result, new_stream) = streams::stream_sample(stream, request)
+            .await
+            .map_err(|(_, maybe_stream)| StreamSamplingError::StreamError(maybe_stream))?;
 
         if let SampleResponse::Commitments(comm) = response_result {
             Ok((comm, new_stream))
         } else {
-            Err(StreamSamplingError::StreamError(new_stream))
+            Err(StreamSamplingError::StreamError(Some(new_stream)))
         }
     }
 
