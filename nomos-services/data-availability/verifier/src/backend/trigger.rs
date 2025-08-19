@@ -8,19 +8,28 @@ use std::{
     time::{Duration, Instant},
 };
 
+use nomos_utils::{
+    bounded_duration::{MinimalBoundedDuration, NANO, SECOND},
+    math::NonNegativeF64,
+};
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 
+#[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MempoolPublishTriggerConfig {
     /// A percentage of shares required for the transaction to be published
     /// after the a `share_duration`.
-    pub publish_threshold: f64,
+    pub publish_threshold: NonNegativeF64,
     /// Duration after which the transaction should be published if
     /// `publish_threshold` is reached, or marked as expired if not reached.
+    #[serde_as(as = "MinimalBoundedDuration<1, NANO>")]
     pub share_duration: Duration,
     /// A period after which expired states are removed from memory.
+    #[serde_as(as = "MinimalBoundedDuration<1, NANO>")]
     pub prune_duration: Duration,
     /// An interval for pruning expired states.
+    #[serde_as(as = "MinimalBoundedDuration<1, SECOND>")]
     pub prune_interval: Duration,
 }
 
@@ -98,8 +107,9 @@ impl<Id: Clone + Hash + Eq> MempoolPublishTrigger<Id> {
                 state.expired.store(true, Ordering::Release);
 
                 let count = state.count.load(Ordering::Acquire);
-                let threshold =
-                    (f64::from(state.assignations) * self.config.publish_threshold).ceil() as u16;
+                let threshold = (f64::from(state.assignations)
+                    * self.config.publish_threshold.get())
+                .ceil() as u16;
 
                 if count >= threshold {
                     to_publish.push(blob_id.clone());
@@ -137,7 +147,7 @@ mod tests {
 
     fn test_config() -> MempoolPublishTriggerConfig {
         MempoolPublishTriggerConfig {
-            publish_threshold: 0.5,
+            publish_threshold: NonNegativeF64::try_from(0.5).unwrap(),
             share_duration: Duration::from_secs(5),
             prune_duration: Duration::from_secs(10),
             prune_interval: Duration::from_secs(5),

@@ -416,7 +416,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 blob_storage_directory: "./".into(),
             },
             mempool_trigger_settings: MempoolPublishTriggerConfig {
-                publish_threshold: 0.8,
+                publish_threshold: NonNegativeF64::try_from(0.8).unwrap(),
                 share_duration: Duration::from_secs(5),
                 prune_duration: Duration::from_secs(30),
                 prune_interval: Duration::from_secs(5),
