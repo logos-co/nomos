@@ -9,8 +9,8 @@ workspace = true
 
 [dependencies]
 blake2 = { version = "0.10" }
-either = "1.13.0"
 cryptarchia-sync = { workspace = true, features = ["libp2p"] }
+either = "1.13.0"
 futures = "0.3"
 hex = "0.4.3"
 igd-next = { version = "0.16.1", features = ["aio_tokio", "tokio"] }

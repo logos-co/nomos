@@ -16,7 +16,7 @@ nomos-core       = { workspace = true }
 nomos-libp2p     = { workspace = true, optional = true }
 overwatch        = { workspace = true }
 rand             = { workspace = true, optional = true }
-rand_chacha = { version = "0.3", optional = true }
+rand_chacha      = { version = "0.3" }
 serde            = { version = "1.0", features = ["derive"] }
 tokio            = { version = "1", features = ["macros", "sync"] }
 tokio-stream     = "0.1"
