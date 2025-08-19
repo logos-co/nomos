@@ -156,13 +156,13 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
         blob_id: Self::BlobId,
     ) -> Result<Option<(u16, Self::Tx)>, Self::Error> {
         let tx_key = key_bytes(DA_TX_PREFIX, blob_id.as_ref());
-        let tx_bytes = self.load(&tx_key).await?;
+        let storage_bytes = self.load(&tx_key).await?;
 
-        let Some(mut tx_bytes) = tx_bytes else {
+        let Some(mut assignations) = storage_bytes else {
             return Ok(None);
         };
 
-        let assignations = tx_bytes.split_off(2);
+        let tx_bytes = assignations.split_off(2);
         let assignations = u16::from_be_bytes(
             assignations[..2]
                 .try_into()

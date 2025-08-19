@@ -6,11 +6,16 @@ pub mod storage;
 use std::{
     error::Error,
     fmt::{Debug, Display, Formatter},
+    hash::Hash,
     sync::Arc,
     time::Duration,
 };
 
-use backend::{tx::mock::MockTxVerifier, TxVerifierBackend, VerifierBackend};
+use backend::{
+    trigger::{MempoolPublishTrigger, MempoolPublishTriggerConfig},
+    tx::mock::MockTxVerifier,
+    TxVerifierBackend, VerifierBackend,
+};
 use mempool::DaMempoolAdapter;
 use network::NetworkAdapter;
 use nomos_core::da::blob::Share;
@@ -106,7 +111,7 @@ where
     ShareVerifier::DaShare: Debug + Send,
     ShareVerifier::Error: Error + Send + Sync,
     ShareVerifier::Settings: Clone,
-    <ShareVerifier::DaShare as Share>::BlobId: Clone + AsRef<[u8]> + Send,
+    <ShareVerifier::DaShare as Share>::BlobId: Clone + AsRef<[u8]> + Hash + Eq + Send,
     <ShareVerifier::DaShare as Share>::LightShare: Send,
     <ShareVerifier::DaShare as Share>::SharesCommitments: Send,
     TxVerifier: TxVerifierBackend<BlobId = <ShareVerifier::DaShare as Share>::BlobId> + Send + Sync,
@@ -132,6 +137,7 @@ where
     async fn handle_new_share(
         verifier: &ShareVerifier,
         storage_adapter: &Storage,
+        mempool_trigger: &MempoolPublishTrigger<<ShareVerifier::DaShare as Share>::BlobId>,
         mempool_adapter: &MempoolAdapter,
         share: ShareVerifier::DaShare,
     ) -> Result<(), DynError> {
@@ -151,7 +157,12 @@ where
                 storage_adapter
                     .add_share(blob_id.clone(), share_idx, commitments, light_share)
                     .await?;
-                mempool_adapter.post_tx(blob_id, tx).await?;
+                if matches!(
+                    mempool_trigger.update(blob_id.clone(), assignations),
+                    backend::trigger::ShareState::Complete
+                ) {
+                    mempool_adapter.post_tx(blob_id, tx).await?;
+                }
             }
         } else {
             error_with_id!(share.blob_id().as_ref(), "VerifierTxDoesNotExist");
@@ -230,7 +241,8 @@ where
     ShareVerifier::Settings: Clone + Send + Sync + 'static,
     ShareVerifier::DaShare: Debug + Send + Sync + 'static,
     ShareVerifier::Error: Error + Send + Sync + 'static,
-    <ShareVerifier::DaShare as Share>::BlobId: Clone + AsRef<[u8]> + Debug + Send + Sync + 'static,
+    <ShareVerifier::DaShare as Share>::BlobId:
+        Clone + AsRef<[u8]> + Debug + Hash + Eq + Send + Sync + 'static,
     <ShareVerifier::DaShare as Share>::LightShare: Debug + Send + Sync + 'static,
     <ShareVerifier::DaShare as Share>::SharesCommitments: Debug + Send + Sync + 'static,
     TxVerifier: TxVerifierBackend<BlobId = <ShareVerifier::DaShare as Share>::BlobId> + Send + Sync,
@@ -345,6 +357,12 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
+        let mempool_trigger = MempoolPublishTrigger::new(MempoolPublishTriggerConfig {
+            publish_threshold: 0.8,
+            share_timeout: Duration::from_secs(5),
+            prune_timeout: Duration::from_secs(10),
+        });
+
         wait_until_services_are_ready!(
             &service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
@@ -357,7 +375,13 @@ where
             tokio::select! {
                 Some(share) = share_stream.next() => {
                     let blob_id = share.blob_id();
-                    if let Err(err) =  Self::handle_new_share(&share_verifier, &storage_adapter, &mempool_adapter, share).await {
+                    if let Err(err) =  Self::handle_new_share(
+                        &share_verifier,
+                        &storage_adapter,
+                        &mempool_trigger,
+                        &mempool_adapter,
+                        share
+                    ).await {
                         error!("Error handling blob {blob_id:?} due to {err:?}");
                     }
                 }
@@ -370,7 +394,13 @@ where
                     match msg {
                         DaVerifierMsg::AddShare { share, reply_channel } => {
                             let blob_id = share.blob_id();
-                            match Self::handle_new_share(&share_verifier, &storage_adapter, &mempool_adapter, share).await {
+                            match Self::handle_new_share(
+                                &share_verifier,
+                                &storage_adapter,
+                                &mempool_trigger,
+                                &mempool_adapter,
+                                share
+                            ).await {
                                 Ok(attestation) => {
                                     if let Err(err) = reply_channel.send(Some(attestation)) {
                                         error!("Error replying attestation {err:?}");
