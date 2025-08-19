@@ -86,9 +86,9 @@ mod test {
             }
 
             pub fn from_elements_count(elements_count: usize) -> Self {
-                let kib = elements_for_kib(elements_count);
-                let label = format!("{kib}KiB");
-                Self::new(label, elements_count)
+                let label = format!("{elements_count}KiB");
+                let elements = elements_for_kib(elements_count);
+                Self::new(label, elements)
             }
         }
 
