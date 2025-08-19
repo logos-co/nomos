@@ -70,18 +70,38 @@ mod test {
 
     #[cfg(target_arch = "x86_64")]
     mod utils {
+        use crate::encoder::DaEncoderParams;
+
         pub struct Configuration {
-            pub label: &'static str,
+            pub label: String,
             pub elements_count: usize,
         }
 
         impl Configuration {
-            pub const fn new(label: &'static str, elements_count: usize) -> Self {
+            pub const fn new(label: String, elements_count: usize) -> Self {
                 Self {
                     label,
                     elements_count,
                 }
             }
+
+            pub fn from_elements_count(elements_count: usize) -> Self {
+                let kib = elements_for_kib(elements_count);
+                let label = format!("{kib}KiB");
+                Self::new(label, elements_count)
+            }
+        }
+
+        /// Returns the number of elements needed to generate `kib` KiB of data
+        /// before encoding. Assumes each element has size
+        /// [`DaEncoderParams::MAX_BLS12_381_ENCODING_CHUNK_SIZE`] (currently 31
+        /// bytes), as used by [`rand_data`](crate::encoder::test::rand_data).
+        ///
+        /// If either constant or function changes, this calculation must be
+        /// updated.
+        pub fn elements_for_kib(kib: usize) -> usize {
+            let bytes = kib * 1024;
+            bytes / DaEncoderParams::MAX_BLS12_381_ENCODING_CHUNK_SIZE
         }
     }
 
@@ -108,11 +128,20 @@ mod test {
         let cycles_diff = t1 - t0;
         let cycles_per_run = (t1 - t0) / iters;
 
-        println!("=== kzgrs-da-verify results [{}] ===", configuration.label);
-        println!("  - iterations     : {iters:>20} runs");
-        println!("  - cycles total   : {cycles_diff:>20} cpu cycles");
-        println!("  - cycles/run     : {cycles_per_run:>20} cpu cycles");
-        println!("==============================================");
+        let header = format!(
+            "=========== kzgrs-da-verify [{}] ===========",
+            configuration.label
+        );
+        let footer = "=".repeat(header.len());
+        println!("{header}",);
+        println!("  - iterations        : {iters:>20}");
+        println!(
+            "  - elements          : {:>20}",
+            configuration.elements_count
+        );
+        println!("  - cycles total      : {cycles_diff:>20}");
+        println!("  - cycles per run    : {cycles_per_run:>20}");
+        println!("{footer}\n");
     }
 
     // TODO: Remove this when we have the proper benches in the proofs
@@ -121,10 +150,11 @@ mod test {
     #[test]
     fn test_verify_cycles() {
         let iters = 1000u64;
+
         let configurations = [
-            utils::Configuration::new("32KB", 32),
-            utils::Configuration::new("256KB", 256),
-            utils::Configuration::new("1MB", 1024),
+            utils::Configuration::from_elements_count(32),
+            utils::Configuration::from_elements_count(256),
+            utils::Configuration::from_elements_count(1024),
         ];
 
         for configuration in &configurations {
