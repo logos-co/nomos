@@ -1,5 +1,7 @@
 use std::{
     collections::HashSet,
+    future::ready,
+    io::ErrorKind,
     task::{Context, Poll, Waker},
 };
 
@@ -18,13 +20,17 @@ use libp2p::{
     },
     Multiaddr, PeerId,
 };
-use libp2p_stream::Control;
+use libp2p_stream::{Control, OpenStreamError};
 use nomos_core::{da::BlobId, header::HeaderId};
 use nomos_da_messages::sampling::{self, SampleResponse};
 use rand::{rngs::ThreadRng, seq::IteratorRandom as _};
 use subnetworks_assignations::MembershipHandler;
-use tokio::sync::mpsc::{self, UnboundedSender};
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use thiserror::Error;
+use tokio::{
+    sync::mpsc::{self, UnboundedSender},
+    time::{sleep, Duration},
+};
+use tokio_stream::wrappers::{BroadcastStream, UnboundedReceiverStream};
 
 use crate::{
     addressbook::AddressBookHandler,
@@ -40,6 +46,15 @@ use crate::{
 };
 
 const MAX_PEER_RETRIES: usize = 5;
+const CONNECTION_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
+
+#[derive(Debug, Error)]
+enum StreamSamplingError {
+    #[error("Connection timed out")]
+    Timeout,
+    #[error("Sampling error occurred: {0}")]
+    SamplingError(#[from] SamplingError),
+}
 
 type HistoricSamplingResponseSuccess = (HeaderId, Vec<DaLightShare>, Vec<DaSharesCommitments>);
 
@@ -72,6 +87,8 @@ where
     historic_request_stream: BoxStream<'static, SampleArgs<Membership>>,
     /// Subnets sampling config that is used when picking new subnetwork peers
     subnets_config: SubnetsConfig,
+    /// Broadcast channel for notifying about established connections
+    connection_broadcast_sender: tokio::sync::broadcast::Sender<PeerId>,
     /// Waker for sampling polling
     waker: Option<Waker>,
 }
@@ -95,6 +112,8 @@ where
         let (historic_request_sender, receiver) = mpsc::unbounded_channel();
         let historic_request_stream = UnboundedReceiverStream::new(receiver).boxed();
 
+        let (connection_broadcast_sender, _) = tokio::sync::broadcast::channel(1024);
+
         Self {
             local_peer_id,
             stream_behaviour,
@@ -104,20 +123,49 @@ where
             historic_request_sender,
             historic_request_stream,
             subnets_config,
+            connection_broadcast_sender,
             waker: None,
         }
     }
 
-    /// Open a new stream from the underlying control to the provided peer
+    // Open the stream and wait for connection
     async fn open_stream(
         peer_id: PeerId,
         mut control: Control,
-    ) -> Result<SampleStream, SamplingError> {
-        let stream = control
-            .open_stream(peer_id, SAMPLING_PROTOCOL)
-            .await
-            .map_err(|error| SamplingError::OpenStream { peer_id, error })?;
-        Ok(SampleStream { stream, peer_id })
+        connection_receiver: tokio::sync::broadcast::Receiver<PeerId>,
+    ) -> Result<SampleStream, StreamSamplingError> {
+        let stream_result = control.open_stream(peer_id, SAMPLING_PROTOCOL).await;
+
+        match stream_result {
+            Ok(stream) => Ok(SampleStream { stream, peer_id }),
+            Err(OpenStreamError::Io(io_err)) if io_err.kind() == ErrorKind::ConnectionReset => {
+                let timer = sleep(CONNECTION_WAIT_TIMEOUT);
+                tokio::pin!(timer);
+
+                let mut connection_stream = BroadcastStream::new(connection_receiver)
+                    .filter(|result| ready(matches!(result, Ok(pid) if *pid == peer_id)));
+
+                tokio::select! {
+                    Some(_) = connection_stream.next() => {
+                        // Move on to retry
+                    }
+                    () = &mut timer => {
+                        return Err(StreamSamplingError::Timeout);
+                    }
+                }
+
+                // Retry once more after connection is established
+                let stream = control
+                    .open_stream(peer_id, SAMPLING_PROTOCOL)
+                    .await
+                    .map_err(|error| SamplingError::OpenStream { peer_id, error })?;
+
+                Ok(SampleStream { stream, peer_id })
+            }
+            Err(error) => Err(StreamSamplingError::SamplingError(
+                SamplingError::OpenStream { peer_id, error },
+            )),
+        }
     }
 
     /// Get a hook to the sender channel for historic sampling requests
@@ -141,6 +189,8 @@ where
             .choose_multiple(&mut rng, self.subnets_config.num_of_subnets);
         let local_peer_id = self.local_peer_id;
 
+        let connection_broadcast_sender = self.connection_broadcast_sender.clone();
+
         let request_future = async move {
             let commitments = Self::sample_all_commitments(
                 &membership,
@@ -148,14 +198,21 @@ where
                 &local_peer_id,
                 &blob_ids,
                 &control,
+                connection_broadcast_sender.subscribe(),
             )
             .await
             .map_err(|err| (block_id, err))?;
 
-            let shares =
-                Self::sample_all_shares(&subnets, &membership, &local_peer_id, &blob_ids, &control)
-                    .await
-                    .map_err(|err| (block_id, err))?;
+            let shares = Self::sample_all_shares(
+                &subnets,
+                &membership,
+                &local_peer_id,
+                &blob_ids,
+                &control,
+                &connection_broadcast_sender,
+            )
+            .await
+            .map_err(|err| (block_id, err))?;
 
             Ok((block_id, shares, commitments))
         }
@@ -170,6 +227,7 @@ where
         local_peer_id: &PeerId,
         blob_ids: &HashSet<BlobId>,
         control: &Control,
+        connection_sender: &tokio::sync::broadcast::Sender<PeerId>,
     ) -> Result<Vec<DaLightShare>, HistoricSamplingError> {
         let mut subnetwork_tasks = FuturesUnordered::new();
 
@@ -180,6 +238,7 @@ where
                 control.clone(),
                 blob_ids.clone(),
                 *subnetwork_id,
+                connection_sender.subscribe(),
             );
             subnetwork_tasks.push(task);
         }
@@ -201,6 +260,7 @@ where
         control: Control,
         mut blob_ids: HashSet<BlobId>,
         subnetwork_id: SubnetworkId,
+        connection_receiver: tokio::sync::broadcast::Receiver<PeerId>,
     ) -> Result<Vec<DaLightShare>, HistoricSamplingError> {
         // Pre-select up to MAX_PEER_RETRIES peers from the subnetwork
         let candidate_peers = {
@@ -215,7 +275,9 @@ where
                 break;
             }
 
-            match Self::open_stream(peer_id, control.clone()).await {
+            match Self::open_stream(peer_id, control.clone(), connection_receiver.resubscribe())
+                .await
+            {
                 Ok(mut stream) => {
                     let blob_ids_to_try: Vec<BlobId> = blob_ids.iter().copied().collect();
 
@@ -229,6 +291,7 @@ where
                             }
                             Err(err) => {
                                 log::error!("Failed to handle share request: {err}");
+                                // todo: close the stream
                                 continue 'peers_loop; // Try next peer with
                                                       // remaining blobs
                             }
@@ -254,6 +317,7 @@ where
         local_peer_id: &PeerId,
         blob_ids: &HashSet<BlobId>,
         control: &Control,
+        connection_receiver: tokio::sync::broadcast::Receiver<PeerId>,
     ) -> Result<Vec<DaSharesCommitments>, HistoricSamplingError> {
         // Pre-select up to MAX_PEER_RETRIES peers from a random subnet
         let candidate_peers = {
@@ -286,7 +350,9 @@ where
                 break;
             }
 
-            match Self::open_stream(peer_id, control.clone()).await {
+            match Self::open_stream(peer_id, control.clone(), connection_receiver.resubscribe())
+                .await
+            {
                 Ok(mut stream) => {
                     let blob_ids_to_try: Vec<BlobId> = remaining_blob_ids.iter().copied().collect();
 
@@ -299,6 +365,7 @@ where
                                 stream = new_stream;
                             }
                             Err(err) => {
+                                // todo: close the stream
                                 log::error!("Failed to get commitment from peer {peer_id}: {err}");
                                 continue 'peers_loop;
                             }
@@ -445,8 +512,8 @@ where
         local_addr: &Multiaddr,
         remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        // Accept all connections for historic sampling since we don't have current
-        // membership
+        let _ = self.connection_broadcast_sender.send(peer);
+
         self.stream_behaviour
             .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)
             .map(Either::Left)
@@ -460,6 +527,8 @@ where
         role_override: Endpoint,
         port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
+        let _ = self.connection_broadcast_sender.send(peer);
+
         self.stream_behaviour
             .handle_established_outbound_connection(
                 connection_id,
