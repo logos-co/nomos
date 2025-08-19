@@ -1,11 +1,14 @@
-#[cfg(target_arch = "x86_64")]
 #[cfg(test)]
 mod tests {
+    #[cfg(target_arch = "x86_64")]
     use std::hint::black_box;
 
+    #[cfg(target_arch = "x86_64")]
     use ed25519_dalek::{Signature, Signer as _, SigningKey};
+    #[cfg(target_arch = "x86_64")]
     use rand_core::{OsRng, TryRngCore as _};
 
+    #[cfg(target_arch = "x86_64")]
     #[expect(
         clippy::undocumented_unsafe_blocks,
         reason = "This test is just to measure cpu and should be run manually"
