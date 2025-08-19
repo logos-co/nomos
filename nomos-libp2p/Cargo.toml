@@ -27,16 +27,20 @@ libp2p = { workspace = true, features = [
 ] }
 multiaddr = "0.18"
 natpmp = { version = "0.5", features = ["tokio"] }
+netdev = "0.31"
 nomos-utils = { workspace = true, features = ["time"] }
 
 async-trait = "0.1.88"
 default-net = "0.14"
+backon      = "1.3.0"
+num_enum    = "0.7.4"
 rand        = "0.8"
 serde       = { version = "1.0.166", features = ["derive"] }
 serde_with  = { workspace = true }
 thiserror   = "1.0.40"
 tokio       = { version = "1", features = ["macros", "test-util", "time"] }
 tracing     = { workspace = true }
+zerocopy    = { version = "0.8.26", features = ["derive"] }
 
 [dev-dependencies]
 libp2p-swarm-test  = { version = "0.5.0", features = ["tokio"] }
