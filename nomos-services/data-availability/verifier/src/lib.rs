@@ -8,7 +8,7 @@ use std::{
     fmt::{Debug, Display, Formatter},
     hash::Hash,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use backend::{
@@ -194,7 +194,8 @@ where
         mempool_trigger: &MempoolPublishTrigger<<ShareVerifier::DaShare as Share>::BlobId>,
         mempool_adapter: &MempoolAdapter,
     ) -> Result<(), DynError> {
-        let blob_ids = mempool_trigger.prune();
+        let now = Instant::now();
+        let blob_ids = mempool_trigger.prune(now);
         for blob_id in blob_ids {
             if let Some((_, tx)) = storage_adapter.get_tx(blob_id.clone()).await? {
                 match mempool_adapter.post_tx(blob_id, tx).await {

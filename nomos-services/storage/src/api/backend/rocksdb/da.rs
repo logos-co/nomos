@@ -163,11 +163,15 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
         };
 
         let tx_bytes = assignations.split_off(2);
-        let assignations = u16::from_be_bytes(
-            assignations[..2]
-                .try_into()
-                .expect("assignations slice was splitoff at 2 bytes"),
-        );
+        let assignations_arr: [u8; 2] = match assignations[..2].try_into() {
+            Ok(arr) => arr,
+            Err(e) => {
+                error!("Failed to convert assignations: {:?}", e);
+                return Ok(None);
+            }
+        };
+
+        let assignations = u16::from_be_bytes(assignations_arr);
 
         let tx = match SerdeOp::deserialize::<Self::Tx>(tx_bytes) {
             Ok(tx) => Some((assignations, tx)),

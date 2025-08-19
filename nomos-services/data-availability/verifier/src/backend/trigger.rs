@@ -31,6 +31,7 @@ pub enum ShareState {
     Expired,
 }
 
+#[derive(Debug)]
 struct ShareEntry {
     count: AtomicU16,
     created_at: Instant,
@@ -81,8 +82,7 @@ impl<Id: Clone + Hash + Eq> MempoolPublishTrigger<Id> {
     }
 
     #[must_use]
-    pub fn prune(&self) -> Vec<Id> {
-        let now = Instant::now();
+    pub fn prune(&self, now: Instant) -> Vec<Id> {
         let mut to_publish = Vec::new();
 
         let mut map = self.received.write().unwrap();
@@ -138,9 +138,9 @@ mod tests {
     fn test_config() -> MempoolPublishTriggerConfig {
         MempoolPublishTriggerConfig {
             publish_threshold: 0.5,
-            share_duration: Duration::from_millis(50),
-            prune_duration: Duration::from_millis(100),
-            prune_interval: Duration::from_millis(50),
+            share_duration: Duration::from_secs(5),
+            prune_duration: Duration::from_secs(10),
+            prune_interval: Duration::from_secs(5),
         }
     }
 
@@ -172,15 +172,16 @@ mod tests {
     #[test]
     fn test_prune_and_publish() {
         let trigger = MempoolPublishTrigger::new(test_config());
+        let now = Instant::now();
 
         // 6 out of 10 shares received (60%).
         for _ in 0..6 {
             trigger.update(BLOB_ID, 10);
         }
 
-        thread::sleep(test_config().share_duration);
+        let later = now.checked_add(Duration::from_secs(6)).unwrap();
+        let to_publish = trigger.prune(later);
 
-        let to_publish = trigger.prune();
         assert_eq!(to_publish, vec![BLOB_ID]);
         assert_eq!(trigger.len(), 1);
     }
@@ -188,15 +189,16 @@ mod tests {
     #[test]
     fn test_prune_and_not_publish() {
         let trigger = MempoolPublishTrigger::new(test_config());
+        let now = Instant::now();
 
         // 4 out of 10 shares received (40%), which is < 50% threshold.
         for _ in 0..4 {
             trigger.update(BLOB_ID, 10);
         }
 
-        thread::sleep(test_config().share_duration);
+        let later = now.checked_add(test_config().share_duration).unwrap();
+        let to_publish = trigger.prune(later);
 
-        let to_publish = trigger.prune();
         assert!(to_publish.is_empty());
         assert_eq!(trigger.len(), 1);
     }
@@ -204,39 +206,41 @@ mod tests {
     #[test]
     fn test_prune_removes_old_entry() {
         let trigger = MempoolPublishTrigger::new(test_config());
+        let now = Instant::now();
 
         trigger.update(BLOB_ID, 10);
         assert_eq!(trigger.len(), 1);
 
-        thread::sleep(test_config().prune_duration);
+        let later = now.checked_add(Duration::from_secs(11)).unwrap();
+        let to_publish = trigger.prune(later);
 
-        let to_publish = trigger.prune();
         assert!(to_publish.is_empty());
         assert_eq!(trigger.len(), 0);
     }
 
     #[test]
     fn test_update_on_expired_entry() {
+        let now = Instant::now();
         let trigger = MempoolPublishTrigger::new(test_config());
         trigger.update(BLOB_ID, 10);
 
-        thread::sleep(test_config().share_duration);
+        let later = now.checked_add(Duration::from_secs(6)).unwrap();
+        let _ = trigger.prune(later);
 
-        let _ = trigger.prune();
         assert_eq!(trigger.update(BLOB_ID, 10), ShareState::Expired);
     }
 
     #[test]
     fn test_prune_publish_is_once() {
+        let now = Instant::now();
         let trigger = MempoolPublishTrigger::new(test_config());
         for _ in 0..5 {
             trigger.update(BLOB_ID, 10);
         }
 
-        thread::sleep(test_config().share_duration);
-
-        assert_eq!(trigger.prune(), vec![BLOB_ID]);
-        assert!(trigger.prune().is_empty());
+        let later = now.checked_add(Duration::from_secs(6)).unwrap();
+        assert_eq!(trigger.prune(later), vec![BLOB_ID]);
+        assert!(trigger.prune(later).is_empty());
     }
 
     #[test]
