@@ -44,6 +44,8 @@ impl DaVerifier {
 
 #[cfg(test)]
 mod test {
+    use std::hint::black_box;
+
     use nomos_core::da::{blob::Share as _, DaEncoder as _};
 
     use crate::{
@@ -63,5 +65,40 @@ mod test {
             let (light_share, commitments) = share.into_share_and_commitments();
             assert!(verifier.verify(&light_share, &commitments, domain_size));
         }
+    }
+
+    // TODO: Remove this when we have the proper benches in the proofs
+    #[cfg(target_arch = "x86_64")]
+    #[expect(
+        clippy::undocumented_unsafe_blocks,
+        reason = "This test is just to measure cpu and should be run manually"
+    )]
+    #[ignore = "This test is just for calculation the cycles for the above set of proofs. This will be moved to the pertinent proof in the future."]
+    #[test]
+    fn test_verify_cycles() {
+        let iters = 500u64;
+
+        let encoder = DaEncoder::new(DaEncoderParams::default_with(2));
+        let data = rand_data(32);
+        let domain_size = 2usize;
+        let verifier = DaVerifier::new(GLOBAL_PARAMETERS.clone());
+        let encoded_data = encoder.encode(&data).unwrap();
+
+        let t0 = unsafe { core::arch::x86_64::_rdtsc() };
+        for _ in 0..iters {
+            for share in &encoded_data {
+                let (light_share, commitments) = share.into_share_and_commitments();
+                black_box(verifier.verify(&light_share, &commitments, domain_size));
+            }
+        }
+        let t1 = unsafe { core::arch::x86_64::_rdtsc() };
+
+        let cycles_diff = t1 - t0;
+        let cycles_per_run = (t1 - t0) / iters;
+        println!("=== kzgrs-da-verify results ===");
+        println!("  - iterations     : {iters:>20} runs");
+        println!("  - cycles total   : {cycles_diff:>20} cpu cycles");
+        println!("  - cycles/run     : {cycles_per_run:>20} cpu cycles");
+        println!("================================");
     }
 }
