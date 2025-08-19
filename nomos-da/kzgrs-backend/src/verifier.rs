@@ -44,6 +44,7 @@ impl DaVerifier {
 
 #[cfg(test)]
 mod test {
+    #[cfg(target_arch = "x86_64")]
     use std::hint::black_box;
 
     use nomos_core::da::{blob::Share as _, DaEncoder as _};
