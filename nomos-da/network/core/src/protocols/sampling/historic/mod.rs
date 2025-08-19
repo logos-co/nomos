@@ -6,7 +6,6 @@ use thiserror::Error;
 
 pub mod request_behaviour;
 
-// Enhanced events that include block context
 #[derive(Debug)]
 pub enum HistoricSamplingEvent {
     SamplingSuccess {
