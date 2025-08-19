@@ -55,22 +55,17 @@ impl<Id: Clone + Hash + Eq> MempoolPublishTrigger<Id> {
     pub fn update(&self, blob_id: Id, assignations: u16) -> ShareState {
         let maybe_entry = self.received.read().unwrap().get(&blob_id).cloned();
 
-        let entry = maybe_entry.map_or_else(
-            || {
-                let mut map = self.received.write().unwrap();
-                Arc::<ShareEntry>::clone(&Arc::<ShareEntry>::clone(&Arc::<ShareEntry>::clone(
-                    map.entry(blob_id).or_insert_with(|| {
-                        Arc::new(ShareEntry {
-                            count: AtomicU16::new(0),
-                            created_at: Instant::now(),
-                            assignations,
-                            expired: AtomicBool::new(false),
-                        })
-                    }),
-                )))
-            },
-            |entry| entry,
-        );
+        let entry = maybe_entry.unwrap_or_else(|| {
+            let mut map = self.received.write().unwrap();
+            Arc::clone(map.entry(blob_id).or_insert_with(|| {
+                Arc::new(ShareEntry {
+                    count: AtomicU16::new(0),
+                    created_at: Instant::now(),
+                    assignations,
+                    expired: AtomicBool::new(false),
+                })
+            }))
+        });
 
         if entry.expired.load(Ordering::Acquire) {
             return ShareState::Expired;
