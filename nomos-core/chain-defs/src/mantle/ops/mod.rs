@@ -1,6 +1,4 @@
-pub mod blob;
-pub mod channel_keys;
-pub mod inscribe;
+pub mod channel;
 pub(crate) mod internal;
 mod leader_claim;
 pub mod native;
@@ -9,14 +7,16 @@ pub mod sdp;
 mod serde_;
 mod wire;
 
+use channel::{
+    blob::{BlobOp, DA_COLUMNS, DA_ELEMENT_SIZE},
+    inscribe::InscriptionOp,
+    set_keys::SetKeysOp,
+};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{
     gas::{Gas, GasConstants},
     ops::{
-        blob::{BlobOp, DA_COLUMNS, DA_ELEMENT_SIZE},
-        channel_keys::SetChannelKeysOp,
-        inscribe::InscriptionOp,
         leader_claim::LeaderClaimOp,
         native::NativeOp,
         opcode::{
@@ -30,8 +30,6 @@ use crate::mantle::ops::{
     internal::{OpDe, OpSer},
     wire::OpWireVisitor,
 };
-pub type Ed25519PublicKey = [u8; 32];
-pub type ChannelId = u64;
 
 /// Core set of supported Mantle operations.
 ///
@@ -46,14 +44,19 @@ pub type ChannelId = u64;
 /// appropriate variant.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Op {
-    Inscribe(InscriptionOp),
-    Blob(BlobOp),
-    SetChannelKeys(SetChannelKeysOp),
+    ChannelInscribe(InscriptionOp),
+    ChannelBlob(BlobOp),
+    ChannelSetKeys(SetKeysOp),
     Native(NativeOp),
     SDPDeclare(SDPDeclareOp),
     SDPWithdraw(SDPWithdrawOp),
     SDPActive(SDPActiveOp),
     LeaderClaim(LeaderClaimOp),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OpProof {
+    Ed25519Sig(ed25519::Signature),
 }
 
 /// Delegates serialization through the [`OpInternal`] representation.
@@ -95,9 +98,9 @@ impl Op {
     #[must_use]
     pub const fn opcode(&self) -> u8 {
         match self {
-            Self::Inscribe(_) => INSCRIBE,
-            Self::Blob(_) => BLOB,
-            Self::SetChannelKeys(_) => SET_CHANNEL_KEYS,
+            Self::ChannelInscribe(_) => INSCRIBE,
+            Self::ChannelBlob(_) => BLOB,
+            Self::ChannelSetKeys(_) => SET_CHANNEL_KEYS,
             Self::Native(_) => NATIVE,
             Self::SDPDeclare(_) => SDP_DECLARE,
             Self::SDPWithdraw(_) => SDP_WITHDRAW,
@@ -117,12 +120,12 @@ impl Op {
     #[must_use]
     pub fn execution_gas<Constants: GasConstants>(&self) -> Gas {
         match self {
-            Self::Inscribe(_) => Constants::CHANNEL_INSCRIBE,
-            Self::Blob(BlobOp { blob_size, .. }) => {
+            Self::ChannelInscribe(_) => Constants::CHANNEL_INSCRIBE,
+            Self::ChannelBlob(BlobOp { blob_size, .. }) => {
                 let sample_size = blob_size / (DA_COLUMNS * DA_ELEMENT_SIZE);
                 Constants::CHANNEL_BLOB_BASE + Constants::CHANNEL_BLOB_SIZED * sample_size
             }
-            Self::SetChannelKeys(_) => Constants::CHANNEL_SET_KEYS,
+            Self::ChannelSetKeys(_) => Constants::CHANNEL_SET_KEYS,
             Self::Native(_) => Gas::MAX,
             Self::SDPDeclare(_) => Constants::SDP_DECLARE,
             Self::SDPWithdraw(_) => Constants::SDP_WITHDRAW,
@@ -133,7 +136,7 @@ impl Op {
 
     #[must_use]
     pub fn da_gas_cost(&self) -> Gas {
-        if let Self::Blob(BlobOp {
+        if let Self::ChannelBlob(BlobOp {
             blob_size,
             da_storage_gas_price,
             ..
@@ -148,10 +151,21 @@ impl Op {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{json, Value};
+    use std::sync::LazyLock;
 
-    use super::{blob::BlobOp, Op};
+    use serde_json::json;
+
+    use super::{channel::blob::BlobOp, Op};
     use crate::wire;
+
+    // nothing special, just some valid bytes
+    static VK: LazyLock<ed25519_dalek::VerifyingKey> = LazyLock::new(|| {
+        ed25519_dalek::VerifyingKey::from_bytes(&[
+            215, 90, 152, 1, 130, 177, 10, 183, 213, 75, 254, 211, 201, 100, 7, 58, 14, 225, 114,
+            243, 218, 166, 35, 37, 175, 2, 26, 104, 247, 7, 81, 26,
+        ])
+        .unwrap()
+    });
 
     #[test]
     fn test_json_serialize_deserialize_blob_op() {
@@ -159,16 +173,17 @@ mod tests {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0
         ]);
-        let payload = json!({"channel": 0, "blob": zeros, "blob_size": 0, "after_tx": Value::Null, "signer": zeros, "da_storage_gas_price": 0});
+        let zero_string = "0000000000000000000000000000000000000000000000000000000000000000";
+        let payload = json!({"channel": zero_string, "blob": zeros, "blob_size": 0, "parent": zero_string, "signer": *VK, "da_storage_gas_price": 0});
         let repr = json!({"opcode": 0x01, "payload": payload});
         println!("{:?}", serde_json::to_string(&repr).unwrap());
-        let op = Op::Blob(BlobOp {
-            channel: 0,
+        let op = Op::ChannelBlob(BlobOp {
+            channel: [0; 32].into(),
             blob: [0; 32],
             blob_size: 0,
             da_storage_gas_price: 0,
-            after_tx: None,
-            signer: [0; 32],
+            parent: [0; 32].into(),
+            signer: *VK,
         });
         let serialized = serde_json::to_value(&op).unwrap();
         assert_eq!(serialized, repr);
@@ -179,22 +194,25 @@ mod tests {
     #[test]
     fn test_bincode_serialize_deserialize_blob_op() {
         // opcode + payload
+        // TODO: use more efficient repr for the ed25519 key
         let expected_bincode = vec![
             1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 0,
+            0, 0, 0, 0, 0, 215, 90, 152, 1, 130, 177, 10, 183, 213, 75, 254, 211, 201, 100, 7, 58,
+            14, 225, 114, 243, 218, 166, 35, 37, 175, 2, 26, 104, 247, 7, 81, 26,
         ];
 
         let blob_op = BlobOp {
-            channel: 0,
+            channel: [0; 32].into(),
             blob: [0; 32],
             blob_size: 0,
             da_storage_gas_price: 0,
-            after_tx: None,
-            signer: [0; 32],
+            parent: [0; 32].into(),
+            signer: *VK,
         };
-        let op = Op::Blob(blob_op);
+        let op = Op::ChannelBlob(blob_op);
 
         let serialized = wire::serialize(&op).unwrap();
         assert_eq!(serialized, expected_bincode);

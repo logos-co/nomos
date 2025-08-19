@@ -1,8 +1,9 @@
-use std::pin::Pin;
+use std::{collections::HashSet, pin::Pin};
 
 use futures::{Stream, StreamExt as _};
 use kzgrs_backend::common::{build_blob_id, share::DaShare};
 use libp2p::PeerId;
+use nomos_core::{block::BlockNumber, da::BlobId};
 use nomos_da_network_core::SubnetworkId;
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
 use serde::{Deserialize, Serialize};
@@ -74,6 +75,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
     type EventKind = EventKind;
     type NetworkEvent = Event;
     type Membership = MockMembership;
+    type HistoricMembership = MockMembership;
     type Addressbook = DaAddressbook;
 
     fn new(
@@ -122,6 +124,15 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
             ),
         }
     }
+
+    async fn start_historic_sampling(
+        &self,
+        _block_number: BlockNumber,
+        _blob_ids: HashSet<BlobId>,
+        _membership: Self::HistoricMembership,
+    ) {
+        todo!()
+    }
 }
 
 #[derive(Clone)]
@@ -132,7 +143,7 @@ impl MembershipHandler for MockMembership {
 
     type Id = PeerId;
 
-    fn membership(&self, _id: &Self::Id) -> std::collections::HashSet<Self::NetworkId> {
+    fn membership(&self, _id: &Self::Id) -> HashSet<Self::NetworkId> {
         todo!()
     }
 
@@ -140,11 +151,11 @@ impl MembershipHandler for MockMembership {
         todo!()
     }
 
-    fn members_of(&self, _network_id: &Self::NetworkId) -> std::collections::HashSet<Self::Id> {
+    fn members_of(&self, _network_id: &Self::NetworkId) -> HashSet<Self::Id> {
         todo!()
     }
 
-    fn members(&self) -> std::collections::HashSet<Self::Id> {
+    fn members(&self) -> HashSet<Self::Id> {
         todo!()
     }
 

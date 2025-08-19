@@ -185,6 +185,11 @@ where
         subnets: &[SubnetworkId],
         cooldown: Duration,
     ) -> Result<(), DynError> {
+        enum SampleOutcome {
+            Success(u16),
+            Retry(u16),
+        }
+
         let expected_count = subnets.len();
         let mut success_count = 0;
 
@@ -203,11 +208,6 @@ where
         self.start_sampling(blob_id).await?;
 
         let stream = stream_receiver.await.map_err(Box::new)?;
-
-        enum SampleOutcome {
-            Success(u16),
-            Retry(u16),
-        }
 
         let mut stream = tokio_stream::StreamExt::filter_map(stream, move |event| match event {
             DaNetworkEvent::Sampling(event) if event.has_blob_id(&blob_id) => match event {

@@ -1,9 +1,10 @@
 pub mod libp2p;
 pub mod mock;
 
-use std::pin::Pin;
+use std::{collections::HashSet, pin::Pin};
 
 use futures::Stream;
+use nomos_core::{block::BlockNumber, da::BlobId};
 use nomos_da_network_core::addressbook::AddressBookHandler;
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::ServiceState};
 use subnetworks_assignations::MembershipHandler;
@@ -18,6 +19,7 @@ pub trait NetworkBackend<RuntimeServiceId> {
     type EventKind: Debug + Send + Sync + 'static;
     type NetworkEvent: Debug + Send + Sync + 'static;
     type Membership: MembershipHandler + Clone;
+    type HistoricMembership: MembershipHandler + Clone;
     type Addressbook: AddressBookHandler + Clone;
 
     fn new(
@@ -32,4 +34,10 @@ pub trait NetworkBackend<RuntimeServiceId> {
         &mut self,
         event: Self::EventKind,
     ) -> Pin<Box<dyn Stream<Item = Self::NetworkEvent> + Send>>;
+    async fn start_historic_sampling(
+        &self,
+        block_number: BlockNumber,
+        blob_ids: HashSet<BlobId>,
+        membership: Self::HistoricMembership,
+    );
 }

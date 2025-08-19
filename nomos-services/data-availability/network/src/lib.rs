@@ -5,7 +5,7 @@ pub mod membership;
 pub mod storage;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{self, Debug, Display},
     marker::PhantomData,
     pin::Pin,
@@ -62,6 +62,10 @@ where
         blob_id: BlobId,
         sender: oneshot::Sender<Option<Commitments>>,
     },
+    RequestHistoricSample {
+        block_number: BlockNumber,
+        blob_ids: HashSet<BlobId>,
+    },
 }
 
 impl<Backend, Commitments, RuntimeServiceId> Debug
@@ -85,6 +89,15 @@ where
                 write!(
                     fmt,
                     "DaNetworkMsg::GetCommitments{{ blob_id: {blob_id:?} }}"
+                )
+            }
+            Self::RequestHistoricSample {
+                block_number,
+                blob_ids,
+            } => {
+                write!(
+                    fmt,
+                    "DaNetworkMsg::RequestHistoricSample{{ block_number: {block_number}, blob_ids: {blob_ids:?} }}"
                 )
             }
         }
@@ -211,8 +224,10 @@ where
     Backend: NetworkBackend<
             RuntimeServiceId,
             Membership = DaMembershipHandler<Membership>,
+            HistoricMembership = Membership,
             Addressbook = DaAddressbook,
         > + Send
+        + Sync
         + 'static,
     Backend::State: Send + Sync,
     Membership:
@@ -383,7 +398,8 @@ where
     ApiAdapter:
         ApiAdapterTrait<BlobId = BlobId, Commitments = DaSharesCommitments> + Send + Sync + 'static,
     ApiAdapter::Settings: Clone + Send,
-    Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
+    Backend:
+        NetworkBackend<RuntimeServiceId, HistoricMembership = Membership> + Send + Sync + 'static,
     Backend::State: Send + Sync,
     Membership:
         MembershipCreator<Id = PeerId, NetworkId = SubnetworkId> + Clone + Send + Sync + 'static,
@@ -440,26 +456,38 @@ where
                         })
                         .collect::<AddressBookSnapshot<_>>();
                     sender.send(MembershipResponse { assignations, addressbook }).unwrap_or_else(|_| {
-                        tracing::warn!(
-                            "client hung up before a subnetwork assignations handle could be established"
-                        );
-                    });
+                                tracing::warn!(
+                                    "client hung up before a subnetwork assignations handle could be established"
+                                );
+                            });
                 } else {
                     tracing::warn!("No membership found for block number {block_number}");
                     sender.send(MembershipResponse{
-                        assignations: SubnetworkAssignations::default(),
-                        addressbook: AddressBookSnapshot::default(),
-                    }).unwrap_or_else(|_| {
-                        tracing::warn!(
-                            "client hung up before a subnetwork assignations handle could be established"
-                        );
-                    });
+                                assignations: SubnetworkAssignations::default(),
+                                addressbook: AddressBookSnapshot::default(),
+                            }).unwrap_or_else(|_| {
+                                tracing::warn!(
+                                    "client hung up before a subnetwork assignations handle could be established"
+                                );
+                            });
                 }
             }
             DaNetworkMsg::GetCommitments { blob_id, sender } => {
                 if let Err(e) = api_adapter.request_commitments(blob_id, sender).await {
                     tracing::error!("Failed to request commitments: {e}");
                 }
+            }
+            DaNetworkMsg::RequestHistoricSample {
+                block_number,
+                blob_ids,
+            } => {
+                Self::handle_historic_sample_request(
+                    backend,
+                    membership_storage,
+                    block_number,
+                    blob_ids,
+                )
+                .await;
             }
         }
     }
@@ -475,6 +503,27 @@ where
             .unwrap_or_else(|e| {
                 tracing::error!("Failed to update membership at block {block_number}: {e}");
             });
+    }
+    async fn handle_historic_sample_request(
+        backend: &Backend,
+        membership_storage: &MembershipStorage<StorageAdapter, Membership, AddressBook>,
+        block_number: u64,
+        blob_ids: HashSet<[u8; 32]>,
+    ) {
+        let membership = membership_storage
+            .get_historic_membership(block_number)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::error!("Failed to get historic membership for block {block_number}: {e}");
+                None
+            });
+
+        if let Some(membership) = membership {
+            let send = backend.start_historic_sampling(block_number, blob_ids, membership);
+            send.await;
+        } else {
+            tracing::error!("No membership found for block number {block_number}");
+        }
     }
 }
 
