@@ -36,7 +36,8 @@ pub struct Swarm<R: Clone + Send + RngCore + 'static> {
 }
 
 impl<R: Clone + Send + RngCore + 'static> Swarm<R> {
-    /// Builds a [`Swarm`] configured for use with Nomos on top of a tokio executor.
+    /// Builds a [`Swarm`] configured for use with Nomos on top of a tokio
+    /// executor.
     pub fn build(config: SwarmConfig, rng: R) -> Result<Self, Box<dyn Error>> {
         let keypair =
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
@@ -72,7 +73,7 @@ impl<R: Clone + Send + RngCore + 'static> Swarm<R> {
                     },
                     rng,
                 )
-                    .expect("Behaviour should not fail to set up.")
+                .expect("Behaviour should not fail to set up.")
             })?
             .with_swarm_config(|c| c.with_idle_connection_timeout(IDLE_CONN_TIMEOUT))
             .build();
@@ -87,7 +88,6 @@ impl<R: Clone + Send + RngCore + 'static> Swarm<R> {
             Ok::<_, Box<dyn Error>>(s)
         }?;
 
-        // Do NOT add external address to Kademlia automatically.
         Ok(nomos_swarm)
     }
 
@@ -96,9 +96,7 @@ impl<R: Clone + Send + RngCore + 'static> Swarm<R> {
         let opt = DialOpts::from(peer_addr.clone());
         let connection_id = opt.connection_id();
 
-        tracing::debug!(
-            "attempting to dial {peer_addr}. connection_id:{connection_id:?}",
-        );
+        tracing::debug!("attempting to dial {peer_addr}. connection_id:{connection_id:?}",);
         self.swarm.dial(opt)?;
         Ok(connection_id)
     }

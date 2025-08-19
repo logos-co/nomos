@@ -8,7 +8,7 @@ const NATPMP_RECV_TIMEOUT_SEC: u64 = 1;
 const NATPMP_LIFETIME_SECS: u32 = 7200; // 2 hours
 
 #[serde_as]
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Settings {
     #[serde(default = "default_timeout")]
     #[serde_as(as = "MinimalBoundedDuration<1, SECOND>")]
@@ -23,4 +23,13 @@ const fn default_timeout() -> Duration {
 
 const fn default_lifetime() -> u32 {
     NATPMP_LIFETIME_SECS
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            timeout: default_timeout(),
+            lease_duration: default_lifetime(),
+        }
+    }
 }

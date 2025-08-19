@@ -6,15 +6,14 @@
 use std::error::Error;
 
 use cryptarchia_sync::ChainSyncError;
-use libp2p::{
-    autonat, identify, identity, kad,
-    swarm::NetworkBehaviour,
-    PeerId,
-};
+use libp2p::{autonat, identify, identity, kad, swarm::NetworkBehaviour, PeerId};
 use rand::RngCore;
 use thiserror::Error;
 
-use crate::{behaviour::gossipsub::compute_message_id, protocol_name::ProtocolName, AutonatClientSettings, IdentifySettings, KademliaSettings, NatSettings};
+use crate::{
+    behaviour::gossipsub::compute_message_id, protocol_name::ProtocolName, IdentifySettings,
+    KademliaSettings, NatSettings,
+};
 
 pub mod chainsync;
 pub mod gossipsub;
@@ -61,10 +60,10 @@ impl<R: Clone + Send + RngCore + 'static> Behaviour<R> {
             gossipsub_config,
             kademlia_config,
             identify_config,
+            chain_sync_config,
             nat_config,
             protocol_name,
             public_key,
-            chain_sync_config,
         } = config;
 
         let peer_id = PeerId::from(public_key.clone());

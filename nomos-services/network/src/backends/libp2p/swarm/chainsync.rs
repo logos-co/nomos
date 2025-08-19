@@ -1,7 +1,6 @@
 use std::{collections::HashSet, fmt::Debug};
 
 use nomos_libp2p::{
-    cryptarchia_sync,
     cryptarchia_sync::{BoxedStream, ChainSyncError, GetTipResponse, HeaderId, SerialisedBlock},
     PeerId,
 };
