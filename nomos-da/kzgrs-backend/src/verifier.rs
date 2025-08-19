@@ -81,6 +81,7 @@ mod test {
         }
     }
 
+    #[cfg(target_arch = "x86_64")]
     #[expect(
         clippy::undocumented_unsafe_blocks,
         reason = "This test is just to measure cpu and should be run manually"
