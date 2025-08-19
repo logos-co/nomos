@@ -147,7 +147,7 @@ where
 
                 tokio::select! {
                     Some(_) = connection_stream.next() => {
-                        // Connection established for our peer - retry once
+                        // Move on to retry
                     }
                     () = &mut timer => {
                         return Err(StreamSamplingError::Timeout);
