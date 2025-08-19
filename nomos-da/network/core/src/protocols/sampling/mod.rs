@@ -5,6 +5,8 @@ mod requests;
 mod responses;
 mod streams;
 
+use std::collections::HashSet;
+
 use errors::SamplingError;
 use futures::{
     channel::oneshot::{Receiver, Sender},
@@ -135,8 +137,8 @@ pub enum SamplingEvent {
     },
     HistoricSamplingSuccess {
         block_id: HeaderId,
-        shares: Vec<DaLightShare>,
-        commitments: Vec<DaSharesCommitments>,
+        shares: HashSet<DaLightShare>,
+        commitments: HashSet<DaSharesCommitments>,
     },
     CommitmentsSuccess {
         blob_id: BlobId,

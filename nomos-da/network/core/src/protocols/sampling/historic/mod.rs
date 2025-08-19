@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use kzgrs_backend::common::share::{DaLightShare, DaSharesCommitments};
 use nomos_core::header::HeaderId;
 use thiserror::Error;
@@ -9,8 +11,8 @@ pub mod request_behaviour;
 pub enum HistoricSamplingEvent {
     SamplingSuccess {
         block_id: HeaderId,
-        commitments: Vec<DaSharesCommitments>,
-        shares: Vec<DaLightShare>,
+        commitments: HashSet<DaSharesCommitments>,
+        shares: HashSet<DaLightShare>,
     },
     SamplingError {
         block_id: HeaderId,
