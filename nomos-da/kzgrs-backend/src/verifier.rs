@@ -67,38 +67,63 @@ mod test {
         }
     }
 
-    // TODO: Remove this when we have the proper benches in the proofs
-    #[cfg(target_arch = "x86_64")]
+    struct Configuration {
+        label: &'static str,
+        elements_count: usize,
+    }
+
+    impl Configuration {
+        const fn new(label: &'static str, elements_count: usize) -> Self {
+            Self {
+                label,
+                elements_count,
+            }
+        }
+    }
+
     #[expect(
         clippy::undocumented_unsafe_blocks,
         reason = "This test is just to measure cpu and should be run manually"
     )]
-    #[ignore = "This test is just for calculation the cycles for the above set of proofs. This will be moved to the pertinent proof in the future."]
-    #[test]
-    fn test_verify_cycles() {
-        let iters = 500u64;
-
-        let encoder = DaEncoder::new(DaEncoderParams::default_with(2));
-        let data = rand_data(32);
-        let domain_size = 2usize;
+    fn bench_verify_cycles(iters: u64, configuration: &Configuration) {
+        let domain_size = 2048usize;
+        let encoder = DaEncoder::new(DaEncoderParams::default_with(domain_size));
+        let data = rand_data(configuration.elements_count);
         let verifier = DaVerifier::new(GLOBAL_PARAMETERS.clone());
         let encoded_data = encoder.encode(&data).unwrap();
 
         let t0 = unsafe { core::arch::x86_64::_rdtsc() };
         for _ in 0..iters {
-            for share in &encoded_data {
-                let (light_share, commitments) = share.into_share_and_commitments();
-                black_box(verifier.verify(&light_share, &commitments, domain_size));
-            }
+            let share = encoded_data.iter().next().unwrap();
+            let (light_share, commitments) = share.into_share_and_commitments();
+            black_box(verifier.verify(&light_share, &commitments, domain_size));
         }
         let t1 = unsafe { core::arch::x86_64::_rdtsc() };
 
         let cycles_diff = t1 - t0;
         let cycles_per_run = (t1 - t0) / iters;
-        println!("=== kzgrs-da-verify results ===");
+
+        println!("=== kzgrs-da-verify results [{}] ===", configuration.label);
         println!("  - iterations     : {iters:>20} runs");
         println!("  - cycles total   : {cycles_diff:>20} cpu cycles");
         println!("  - cycles/run     : {cycles_per_run:>20} cpu cycles");
-        println!("================================");
+        println!("==============================================");
+    }
+
+    // TODO: Remove this when we have the proper benches in the proofs
+    #[cfg(target_arch = "x86_64")]
+    #[ignore = "This test is just for calculation the cycles for the above set of proofs. This will be moved to the pertinent proof in the future."]
+    #[test]
+    fn test_verify_cycles() {
+        let iters = 1000u64;
+        let configurations = [
+            Configuration::new("32KB", 32),
+            Configuration::new("256KB", 256),
+            Configuration::new("1MB", 1024),
+        ];
+
+        for configuration in &configurations {
+            bench_verify_cycles(iters, configuration);
+        }
     }
 }
