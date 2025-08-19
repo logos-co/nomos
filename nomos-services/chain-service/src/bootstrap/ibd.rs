@@ -312,7 +312,6 @@ mod tests {
         overwatch::OverwatchHandle,
         services::{relay::OutboundRelay, ServiceData},
     };
-    use rand::rngs::OsRng;
     use tokio_stream::wrappers::BroadcastStream;
 
     use super::*;
@@ -794,12 +793,10 @@ mod tests {
         type Message = ();
         type PubSubEvent = ();
         type ChainSyncEvent = ();
-        type Rng = OsRng;
 
         fn new(
             _config: Self::Settings,
             _overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-            _rng: Self::Rng,
         ) -> Self {
             unimplemented!()
         }
