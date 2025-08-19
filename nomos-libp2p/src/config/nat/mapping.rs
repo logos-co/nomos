@@ -15,6 +15,8 @@ pub struct Settings {
     pub timeout: Duration,
     #[serde(default = "default_lifetime")]
     pub lease_duration: u32,
+    #[serde(default = "default_max_retries")]
+    pub max_retries: u32,
 }
 
 const fn default_timeout() -> Duration {
@@ -25,11 +27,16 @@ const fn default_lifetime() -> u32 {
     NATPMP_LIFETIME_SECS
 }
 
+const fn default_max_retries() -> u32 {
+    3 // Default to 3 retry attempts
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
             timeout: default_timeout(),
             lease_duration: default_lifetime(),
+            max_retries: default_max_retries(),
         }
     }
 }

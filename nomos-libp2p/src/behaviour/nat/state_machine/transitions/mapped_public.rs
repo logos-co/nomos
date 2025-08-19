@@ -26,7 +26,7 @@ impl OnEvent for State<MappedPublic> {
                 self.boxed(MappedPublic::into_test_if_public)
             }
             Event::AddressMappingFailed(addr) if self.state.addr() == &addr => {
-                self.boxed(MappedPublic::into_try_map_address)
+                self.boxed(MappedPublic::into_private)
             }
             Event::ExternalAddressConfirmed(addr) => {
                 panic!(
@@ -53,7 +53,7 @@ mod tests {
 
     use super::Command;
     use crate::behaviour::nat::state_machine::{
-        states::{MappedPublic, TestIfPublic, TryMapAddress},
+        states::{MappedPublic, Private, TestIfPublic},
         transitions::fixtures::{
             all_events, autonat_failed, autonat_failed_address_mismatch, autonat_ok,
             autonat_ok_address_mismatch, external_address_confirmed,
@@ -111,14 +111,14 @@ mod tests {
     }
 
     #[test]
-    fn address_mapping_failed_causes_transition_to_try_map_address() {
+    fn address_mapping_failed_causes_transition_to_private() {
         let (tx, mut rx) = unbounded_channel();
         let mut state_machine = StateMachine::new(tx);
         state_machine.inner = Some(MappedPublic::for_test(ADDR.clone()));
         state_machine.on_test_event(mapping_failed());
         assert_eq!(
             state_machine.inner.as_ref().unwrap(),
-            &TryMapAddress::for_test(ADDR.clone())
+            &Private::for_test(ADDR.clone())
         );
         assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
     }
