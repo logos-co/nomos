@@ -29,15 +29,26 @@ use crate::{
 
 /// Renewal delay as a fraction of the lease duration
 const RENEWAL_DELAY_FRACTION: f64 = 0.8;
+
 /// Retry interval for failed mapping attempts
 const RETRY_INTERVAL: Duration = Duration::from_secs(30);
 
 type MappingFuture = BoxFuture<'static, Result<Multiaddr, AddressMapperError>>;
 
+type PollResult = Poll<ToSwarm<Event, Infallible>>;
+
+trait StateTrait {
+    fn poll<P: NatMapper>(
+        self,
+        cx: &mut Context<'_>,
+        settings: &NatMappingSettings,
+    ) -> (PollResult, State);
+}
+
 /// Events emitted by the NAT address mapper
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Event {
-    /// Address mapping failed for the given internal address
+    /// Address mapping failed for the given local address
     AddressMappingFailed(Multiaddr),
     /// The default gateway has changed
     DefaultGatewayChanged,
@@ -50,37 +61,181 @@ pub enum Event {
 /// Represents the current state of NAT address mapping
 enum State {
     /// No NAT mapping is currently active or in progress.
-    Idle,
+    Idle(IdleState),
 
     /// NAT mapping is being established or renewed.
-    Mapping {
-        /// Internal address being mapped.
-        address: Multiaddr,
-        /// Future for the mapping operation.
-        future: MappingFuture,
-        /// Whether this is the initial mapping (vs renewal).
-        is_initial: bool,
-        /// Number of retry attempts made.
-        retry_count: u32,
-    },
+    Mapping(MappingState),
 
     /// NAT mapping is active and being monitored for renewal.
-    Active {
-        /// Internal address that is currently mapped.
-        internal: Multiaddr,
-        /// Timer for when to renew the mapping.
-        renewal_timer: Pin<Box<Sleep>>,
-    },
+    Active(ActiveState),
 
     /// Waiting to retry after a failed mapping attempt.
-    Retry {
-        /// Internal address to retry mapping.
-        internal: Multiaddr,
-        /// Timer for when to retry.
-        retry_timer: Pin<Box<Sleep>>,
-        /// Number of retry attempts made so far.
-        retry_count: u32,
-    },
+    Retry(RetryState),
+}
+
+/// No NAT mapping is currently active or in progress.
+#[derive(Debug)]
+struct IdleState;
+
+/// NAT mapping is being established or renewed.
+struct MappingState {
+    /// Local address being mapped.
+    local_address: Multiaddr,
+    /// Future for the mapping operation.
+    future: MappingFuture,
+    /// Whether this is the initial mapping (vs renewal).
+    is_initial: bool,
+    /// Number of retry attempts made.
+    retry_count: u32,
+}
+
+/// NAT mapping is active and being monitored for renewal.
+#[derive(Debug)]
+struct ActiveState {
+    /// Local address that is currently mapped.
+    local_address: Multiaddr,
+    /// Timer for when to renew the mapping.
+    renewal_timer: Pin<Box<Sleep>>,
+}
+
+/// Waiting to retry after a failed mapping attempt.
+#[derive(Debug)]
+struct RetryState {
+    /// Local address to retry mapping.
+    local_address: Multiaddr,
+    /// Timer for when to retry.
+    retry_timer: Pin<Box<Sleep>>,
+    /// Number of retry attempts made so far.
+    retry_count: u32,
+}
+
+impl StateTrait for IdleState {
+    fn poll<P: NatMapper>(
+        self,
+        _cx: &mut Context<'_>,
+        _settings: &NatMappingSettings,
+    ) -> (PollResult, State) {
+        (Poll::Pending, State::Idle(self))
+    }
+}
+
+impl StateTrait for MappingState {
+    fn poll<P: NatMapper>(
+        mut self,
+        cx: &mut Context<'_>,
+        settings: &NatMappingSettings,
+    ) -> (PollResult, State) {
+        match self.future.poll_unpin(cx) {
+            Poll::Ready(Ok(external)) => Self::handle_success(self, external, settings),
+            Poll::Ready(Err(error)) => Self::handle_failure(self, &error, settings),
+            Poll::Pending => (Poll::Pending, State::Mapping(self)),
+        }
+    }
+}
+
+impl MappingState {
+    fn handle_success(
+        self,
+        external: Multiaddr,
+        settings: &NatMappingSettings,
+    ) -> (PollResult, State) {
+        info!(%self.local_address, %external, "NAT mapping established");
+
+        let new_state = State::active(self.local_address, settings.lease_duration);
+
+        let result = if self.is_initial {
+            Poll::Ready(ToSwarm::GenerateEvent(Event::NewExternalMappedAddress(
+                external,
+            )))
+        } else {
+            Poll::Pending
+        };
+
+        (result, new_state)
+    }
+
+    fn handle_failure(
+        self,
+        error: &AddressMapperError,
+        settings: &NatMappingSettings,
+    ) -> (PollResult, State) {
+        warn!(%self.local_address, %error, self.retry_count, "NAT mapping failed");
+
+        if self.retry_count < settings.max_retries {
+            (
+                Poll::Pending,
+                State::retry(
+                    self.local_address,
+                    self.retry_count,
+                    Box::pin(time::sleep(RETRY_INTERVAL)),
+                ),
+            )
+        } else {
+            (
+                Poll::Ready(ToSwarm::GenerateEvent(Event::AddressMappingFailed(
+                    self.local_address,
+                ))),
+                State::Idle(IdleState),
+            )
+        }
+    }
+}
+
+impl StateTrait for ActiveState {
+    fn poll<P: NatMapper>(
+        self,
+        cx: &mut Context<'_>,
+        settings: &NatMappingSettings,
+    ) -> (PollResult, State) {
+        let mut renewal_timer = self.renewal_timer;
+        if renewal_timer.poll_unpin(cx).is_ready() {
+            (
+                Poll::Pending,
+                State::mapping::<P>(self.local_address, *settings, false, 0),
+            )
+        } else {
+            (
+                Poll::Pending,
+                State::active(self.local_address, settings.lease_duration),
+            )
+        }
+    }
+}
+
+impl StateTrait for RetryState {
+    fn poll<P: NatMapper>(
+        self,
+        cx: &mut Context<'_>,
+        settings: &NatMappingSettings,
+    ) -> (PollResult, State) {
+        let mut retry_timer = self.retry_timer;
+        if retry_timer.poll_unpin(cx).is_ready() {
+            (
+                Poll::Pending,
+                State::mapping::<P>(self.local_address, *settings, false, self.retry_count + 1),
+            )
+        } else {
+            (
+                Poll::Pending,
+                State::retry(self.local_address, self.retry_count, retry_timer),
+            )
+        }
+    }
+}
+
+impl StateTrait for State {
+    fn poll<P: NatMapper>(
+        self,
+        cx: &mut Context<'_>,
+        settings: &NatMappingSettings,
+    ) -> (PollResult, State) {
+        match self {
+            Self::Idle(state) => state.poll::<P>(cx, settings),
+            Self::Mapping(state) => state.poll::<P>(cx, settings),
+            Self::Active(state) => state.poll::<P>(cx, settings),
+            Self::Retry(state) => state.poll::<P>(cx, settings),
+        }
+    }
 }
 
 impl State {
@@ -92,37 +247,41 @@ impl State {
     ) -> Self {
         debug!(%address, is_initial, retry_count, "Starting NAT mapping");
 
-        let internal = address.clone();
+        let local_address = address.clone();
         let future = async move {
             let mut mapper = P::initialize(settings).await?;
-            mapper.map_address(&internal).await
+            mapper.map_address(&local_address).await
         }
         .boxed();
 
-        Self::Mapping {
-            address,
+        Self::Mapping(MappingState {
+            local_address: address,
             future,
             is_initial,
             retry_count,
-        }
+        })
     }
 
-    fn active(internal: Multiaddr, lease_duration: u32) -> Self {
+    fn active(local_address: Multiaddr, lease_duration: u32) -> Self {
         let renewal_delay =
             Duration::from_secs_f64(f64::from(lease_duration) * RENEWAL_DELAY_FRACTION);
 
-        Self::Active {
-            internal,
+        Self::Active(ActiveState {
+            local_address,
             renewal_timer: Box::pin(time::sleep(renewal_delay)),
-        }
+        })
     }
 
-    fn retry_wait(internal: Multiaddr, retry_count: u32) -> Self {
-        Self::Retry {
-            internal,
-            retry_timer: Box::pin(time::sleep(RETRY_INTERVAL)),
+    const fn retry(
+        local_address: Multiaddr,
+        retry_count: u32,
+        retry_timer: Pin<Box<Sleep>>,
+    ) -> Self {
+        Self::Retry(RetryState {
+            local_address,
+            retry_timer,
             retry_count,
-        }
+        })
     }
 }
 
@@ -142,128 +301,36 @@ where
     /// Creates a new address mapper behaviour with the given settings
     pub const fn new(settings: NatMappingSettings) -> Self {
         Self {
-            state: State::Idle,
+            state: State::Idle(IdleState),
             settings,
             _phantom: std::marker::PhantomData,
         }
     }
 
-    /// Attempts to map the given internal address to an external address
+    /// Attempts to map the given local address to an external address
     ///
     /// Returns an error if mapping is already in progress for a different
     /// address. If the same address is already mapped, this is a no-op.
     pub fn try_map_address(&mut self, address: Multiaddr) -> Result<(), AddressMapperError> {
         match &self.state {
-            State::Idle => {
+            State::Idle(_) => {
                 self.state = State::mapping::<P>(address, self.settings, true, 0);
                 Ok(())
             }
-            State::Mapping { .. } | State::Retry { .. } => {
+            State::Mapping(_) | State::Retry(_) => {
                 Err(AddressMapperError::MappingAlreadyInProgress)
             }
-            State::Active { internal, .. } => {
-                if *internal == address {
+            State::Active(active_state) => {
+                if active_state.local_address == address {
                     return Ok(());
                 }
 
-                info!(old = %internal, new = %address, "Replacing active mapping with new address");
+                info!(old = %active_state.local_address, new = %address, "Replacing active mapping with new address");
                 self.state = State::mapping::<P>(address, self.settings, true, 0);
 
                 Ok(())
             }
         }
-    }
-
-    /// Polls the mapping future and handles completion or failure
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "It encapsulates the mapping future polling logic"
-    )]
-    fn poll_mapping(
-        &mut self,
-        cx: &mut Context<'_>,
-        address: Multiaddr,
-        mut future: MappingFuture,
-        is_initial: bool,
-        retry_count: u32,
-    ) -> Poll<ToSwarm<Event, Infallible>> {
-        match future.poll_unpin(cx) {
-            Poll::Ready(Ok(external)) => {
-                info!(%address, %external, "NAT mapping established");
-
-                self.state = State::active(address, self.settings.lease_duration);
-
-                if is_initial {
-                    Poll::Ready(ToSwarm::GenerateEvent(Event::NewExternalMappedAddress(
-                        external,
-                    )))
-                } else {
-                    Poll::Pending
-                }
-            }
-            Poll::Ready(Err(error)) => {
-                warn!(%address, %error, retry_count, "NAT mapping failed");
-
-                if retry_count < self.settings.max_retries {
-                    debug!(%address, retry_count, max_retries = self.settings.max_retries, "Scheduling retry");
-
-                    self.state = State::retry_wait(address, retry_count);
-                    Poll::Pending
-                } else {
-                    warn!(%address, retry_count, "Max retries reached");
-
-                    self.state = State::Idle;
-                    Poll::Ready(ToSwarm::GenerateEvent(Event::AddressMappingFailed(address)))
-                }
-            }
-            Poll::Pending => {
-                self.state = State::Mapping {
-                    address,
-                    future,
-                    is_initial,
-                    retry_count,
-                };
-                Poll::Pending
-            }
-        }
-    }
-
-    /// Polls the active state and handles renewal timer
-    fn poll_active(
-        &mut self,
-        cx: &mut Context<'_>,
-        internal: Multiaddr,
-        mut renewal_timer: Pin<Box<Sleep>>,
-    ) -> Poll<ToSwarm<Event, Infallible>> {
-        if renewal_timer.poll_unpin(cx).is_ready() {
-            self.state = State::mapping::<P>(internal, self.settings, false, 0);
-        } else {
-            self.state = State::Active {
-                internal,
-                renewal_timer,
-            };
-        }
-        Poll::Pending
-    }
-
-    /// Polls the retry wait state and handles retry timer
-    fn poll_retry_wait(
-        &mut self,
-        cx: &mut Context<'_>,
-        internal: Multiaddr,
-        mut retry_timer: Pin<Box<Sleep>>,
-        retry_count: u32,
-    ) -> Poll<ToSwarm<Event, Infallible>> {
-        if retry_timer.poll_unpin(cx).is_ready() {
-            self.state = State::mapping::<P>(internal, self.settings, false, retry_count + 1);
-        } else {
-            self.state = State::Retry {
-                internal,
-                retry_timer,
-                retry_count,
-            };
-        }
-        Poll::Pending
     }
 }
 
@@ -306,24 +373,13 @@ where
     }
 
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<ToSwarm<Event, Infallible>> {
-        match std::mem::replace(&mut self.state, State::Idle) {
-            State::Idle => Poll::Pending,
-            State::Mapping {
-                address,
-                future,
-                is_initial,
-                retry_count,
-            } => self.poll_mapping(cx, address, future, is_initial, retry_count),
-            State::Active {
-                internal,
-                renewal_timer,
-            } => self.poll_active(cx, internal, renewal_timer),
-            State::Retry {
-                internal,
-                retry_timer,
-                retry_count,
-            } => self.poll_retry_wait(cx, internal, retry_timer, retry_count),
-        }
+        let state = std::mem::replace(&mut self.state, State::Idle(IdleState));
+
+        let (poll_result, new_state) = state.poll::<P>(cx, &self.settings);
+
+        self.state = new_state;
+
+        poll_result
     }
 }
 
@@ -582,6 +638,6 @@ mod tests {
         let attempt_count = FailingMockMapper::get_mapping_attempts_count();
         assert!(attempt_count >= 3);
 
-        assert!(matches!(behaviour.state, State::Idle));
+        assert!(matches!(behaviour.state, State::Idle(_)));
     }
 }
