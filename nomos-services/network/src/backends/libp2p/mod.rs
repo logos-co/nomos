@@ -7,6 +7,7 @@ pub use nomos_libp2p::{
     PeerId,
 };
 use overwatch::overwatch::handle::OverwatchHandle;
+use rand::SeedableRng as _;
 use rand_chacha::ChaCha20Rng;
 use tokio::sync::{broadcast, broadcast::Sender, mpsc};
 use tokio_stream::wrappers::BroadcastStream;
@@ -35,13 +36,9 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Libp2p {
     type Message = Command;
     type PubSubEvent = Message;
     type ChainSyncEvent = ChainSyncEvent;
-    type Rng = ChaCha20Rng;
 
-    fn new(
-        config: Self::Settings,
-        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-        rng: Self::Rng,
-    ) -> Self {
+    fn new(config: Self::Settings, overwatch_handle: OverwatchHandle<RuntimeServiceId>) -> Self {
+        let rng = ChaCha20Rng::from_entropy();
         let (commands_tx, commands_rx) = mpsc::channel(BUFFER_SIZE);
 
         let (pubsub_events_tx, _) = broadcast::channel(BUFFER_SIZE);
