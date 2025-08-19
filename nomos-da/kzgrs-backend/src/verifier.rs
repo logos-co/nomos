@@ -92,10 +92,10 @@ mod test {
         let verifier = DaVerifier::new(GLOBAL_PARAMETERS.clone());
         let encoded_data = encoder.encode(&data).unwrap();
 
+        let share = encoded_data.iter().next().unwrap();
+        let (light_share, commitments) = share.into_share_and_commitments();
         let t0 = unsafe { core::arch::x86_64::_rdtsc() };
         for _ in 0..iters {
-            let share = encoded_data.iter().next().unwrap();
-            let (light_share, commitments) = share.into_share_and_commitments();
             black_box(verifier.verify(&light_share, &commitments, domain_size));
         }
         let t1 = unsafe { core::arch::x86_64::_rdtsc() };
