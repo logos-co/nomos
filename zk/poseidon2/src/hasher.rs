@@ -1,34 +1,40 @@
 use ark_bn254::Fr;
-use num_bigint::BigUint;
+use ark_ff::Field as _;
 
-use crate::{Poseidon2Bn254, Poseidon2Bn254Params, Poseidon2SpongeBn254};
+use crate::Poseidon2Bn254;
 
 pub struct Poseidon2Hasher {
     state: [Fr; 3],
 }
+impl Default for Poseidon2Hasher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Poseidon2Hasher {
     #[must_use]
-    pub fn new() -> Self {
-        let initial =
-            BigUint::from(2u64).pow(64) + BigUint::from(256u64).pow(3) + BigUint::from(1u64);
-        let state = [Fr::from(0u64), Fr::from(0u64), Fr::from(initial)];
+    pub const fn new() -> Self {
+        let state = [Fr::ZERO, Fr::ZERO, Fr::ZERO];
         Self { state }
     }
 
-    pub fn update_one(&mut self, input: &[u8]) {
-        let input = Fr::from(BigUint::from_bytes_be(input));
-        self.state[2] = &self.state[2] + &input;
-        Poseidon2Bn254::permute_mut::<Poseidon2Bn254Params, 3>(&mut self.state);
+    fn update_one(&mut self, input: &Fr) {
+        self.state[0] += input;
+        Poseidon2Bn254::permute_mut::<jf_poseidon2::constants::bn254::Poseidon2ParamsBn3, 3>(
+            &mut self.state,
+        );
     }
 
-    pub fn update(&mut self, input: &[u8]) {
-        for chunk in input.chunks(256) {
-            self.update_one(chunk);
+    pub fn update(&mut self, input: &[Fr]) {
+        for fr in input {
+            self.update_one(fr);
         }
+        self.update_one(&Fr::ONE);
     }
 
-    pub fn finalize(&mut self) -> Fr {
-        self.state[2]
+    pub const fn finalize(&self) -> Fr {
+        self.state[0]
     }
 }
 
@@ -36,22 +42,45 @@ impl Poseidon2Hasher {
 mod tests {
     use std::str::FromStr;
 
-    use ark_ff::BigInteger;
+    use ark_bn254::Fr;
+    use num_bigint::BigUint;
 
     use super::*;
 
-    #[test]
-    fn hash() {
+    fn test_hasher(input: &[Fr], expected: Fr) {
         let mut hasher = Poseidon2Hasher::new();
-        hasher.update_one(BigUint::from(0u64).to_bytes_be().as_ref());
+        hasher.update(input);
         let result = hasher.finalize();
-        let expected = Fr::from(
-            BigUint::from_str(
-                "10421270574331324177348727421681713543544081230097403733504870033499419662089",
-            )
-            .unwrap(),
-        );
         assert_eq!(result, expected);
-        println!("{:x?}", result.0.to_bytes_be());
+    }
+    #[test]
+    fn test_hashes() {
+        // 0
+        let expected_zero = Fr::from_str(
+            "14440562208246903332530876912784724937356723424375796042690034647976142142243",
+        )
+        .unwrap();
+        test_hasher(&[Fr::ZERO], expected_zero);
+        // 1
+        let expected_one = Fr::from_str(
+            "13955187255749411516377601857453481686854514827536340092448578824571923228920",
+        )
+        .unwrap();
+        test_hasher(&[Fr::ONE], expected_one);
+        // 2
+        let expected_two = Fr::from_str(
+            "9632004710537414903275898870712812796867229507472840228295932832943785232633",
+        )
+        .unwrap();
+        test_hasher(&[Fr::from(BigUint::from(2u8))], expected_two);
+        // 0, 1, 2
+        let expected_two = Fr::from_str(
+            "21739021971472524335152491270920095773040444510968189350907442466992269802900",
+        )
+        .unwrap();
+        test_hasher(
+            &[Fr::ZERO, Fr::ONE, Fr::from(BigUint::from(2u8))],
+            expected_two,
+        );
     }
 }
