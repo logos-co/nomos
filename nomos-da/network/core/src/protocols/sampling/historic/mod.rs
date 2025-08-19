@@ -22,6 +22,6 @@ pub enum HistoricSamplingEvent {
 pub enum HistoricSamplingError {
     #[error("Historic sampling failed")]
     SamplingFailed,
-    #[error("Historic sampling error: ")]
-    SamplingError(String),
+    #[error("Internal server error: {0}")]
+    InternalServerError(String),
 }

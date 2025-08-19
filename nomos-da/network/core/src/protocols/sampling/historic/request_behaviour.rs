@@ -9,7 +9,7 @@ use either::Either;
 use futures::{
     future::BoxFuture,
     stream::{BoxStream, FuturesUnordered},
-    FutureExt as _, StreamExt as _,
+    AsyncWriteExt as _, FutureExt as _, StreamExt as _,
 };
 use kzgrs_backend::common::share::{DaLightShare, DaSharesCommitments};
 use libp2p::{
@@ -54,6 +54,8 @@ enum StreamSamplingError {
     Timeout,
     #[error("Sampling error occurred: {0}")]
     SamplingError(#[from] SamplingError),
+    #[error("Stream error occurred")]
+    StreamError(SampleStream),
 }
 
 type HistoricSamplingResponseSuccess = (HeaderId, Vec<DaLightShare>, Vec<DaSharesCommitments>);
@@ -291,7 +293,10 @@ where
                             }
                             Err(err) => {
                                 log::error!("Failed to handle share request: {err}");
-                                // todo: close the stream
+
+                                if let StreamSamplingError::StreamError(mut new_stream) = err {
+                                    let _ = new_stream.stream.close().await;
+                                }
                                 continue 'peers_loop; // Try next peer with
                                                       // remaining blobs
                             }
@@ -337,7 +342,7 @@ where
         };
 
         if candidate_peers.is_empty() {
-            return Err(HistoricSamplingError::SamplingError(
+            return Err(HistoricSamplingError::InternalServerError(
                 "No peers available for commitments".to_owned(),
             ));
         }
@@ -365,8 +370,10 @@ where
                                 stream = new_stream;
                             }
                             Err(err) => {
-                                // todo: close the stream
-                                log::error!("Failed to get commitment from peer {peer_id}: {err}");
+                                if let StreamSamplingError::StreamError(mut new_stream) = err {
+                                    let _ = new_stream.stream.close().await;
+                                }
+
                                 continue 'peers_loop;
                             }
                         }
@@ -388,28 +395,29 @@ where
     async fn handle_share_request(
         stream: SampleStream,
         request: sampling::SampleRequest,
-    ) -> Result<(DaLightShare, SampleStream), Box<dyn std::error::Error>> {
+    ) -> Result<(DaLightShare, SampleStream), StreamSamplingError> {
         // todo: handle errors and retries
         let (_, response_result, new_stream) =
             streams::stream_sample(stream, request).await.unwrap();
-        match response_result {
-            SampleResponse::Share(share) => Ok((share.data, new_stream)),
-            SampleResponse::Error(err) => Err(format!("Share request failed: {err:?}").into()),
-            SampleResponse::Commitments(_) => Err("Expected share response".into()),
+        if let SampleResponse::Share(share_data) = response_result {
+            Ok((share_data.data, new_stream))
+        } else {
+            Err(StreamSamplingError::StreamError(new_stream))
         }
     }
 
     async fn handle_commitment_request(
         stream: SampleStream,
         request: sampling::SampleRequest,
-    ) -> Result<(DaSharesCommitments, SampleStream), Box<dyn std::error::Error>> {
+    ) -> Result<(DaSharesCommitments, SampleStream), StreamSamplingError> {
         // todo: handle errors and retries
         let (_, response_result, new_stream) =
             streams::stream_sample(stream, request).await.unwrap();
-        match response_result {
-            SampleResponse::Commitments(comm) => Ok((comm, new_stream)),
-            SampleResponse::Error(err) => Err(format!("Commitment request failed: {err:?}").into()),
-            SampleResponse::Share(_) => Err("Expected commitment response".into()),
+
+        if let SampleResponse::Commitments(comm) = response_result {
+            Ok((comm, new_stream))
+        } else {
+            Err(StreamSamplingError::StreamError(new_stream))
         }
     }
 
@@ -480,14 +488,13 @@ where
         sampling_error: HistoricSamplingError,
     ) -> Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
         match sampling_error {
-            HistoricSamplingError::SamplingFailed | HistoricSamplingError::SamplingError(_) => {
-                Poll::Ready(ToSwarm::GenerateEvent(
-                    HistoricSamplingEvent::SamplingError {
-                        block_id,
-                        error: sampling_error,
-                    },
-                ))
-            }
+            HistoricSamplingError::SamplingFailed
+            | HistoricSamplingError::InternalServerError(_) => Poll::Ready(ToSwarm::GenerateEvent(
+                HistoricSamplingEvent::SamplingError {
+                    block_id,
+                    error: sampling_error,
+                },
+            )),
         }
     }
 }
