@@ -11,6 +11,7 @@ use tests::{
 #[tokio::test]
 async fn test_orphan_handling() {
     let n_validators = 3;
+    let min_height = 5;
 
     let general_configs = create_general_configs(n_validators);
 
@@ -22,7 +23,8 @@ async fn test_orphan_handling() {
 
     println!("Initial validators started: {}", validators.len());
 
-    wait_for_validators_mode_and_height(&validators, cryptarchia_engine::State::Online, 0).await;
+    wait_for_validators_mode_and_height(&validators, cryptarchia_engine::State::Online, min_height)
+        .await;
 
     // Start the 3rd node, should catch up via orphan block handling
     println!("Starting 3rd node ...");
@@ -42,6 +44,8 @@ async fn test_orphan_handling() {
                 .collect()
                 .await;
 
+            // take min because we don't know which node will be the first to send an orphan
+            // block
             let initial_node_min_height = initial_heights.iter().min().unwrap();
 
             let behind_node_info = behind_node[0].consensus_info().await;
