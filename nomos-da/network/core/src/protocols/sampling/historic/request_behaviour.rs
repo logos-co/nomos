@@ -27,10 +27,7 @@ use rand::{rngs::ThreadRng, seq::IteratorRandom as _};
 use subnetworks_assignations::MembershipHandler;
 use thiserror::Error;
 use tokio::{
-    sync::{
-        broadcast::error::RecvError,
-        mpsc::{self, UnboundedSender},
-    },
+    sync::mpsc::{self, UnboundedSender},
     time::{sleep, Duration},
 };
 use tokio_stream::wrappers::{BroadcastStream, UnboundedReceiverStream};
@@ -263,7 +260,7 @@ where
         control: Control,
         mut blob_ids: HashSet<BlobId>,
         subnetwork_id: SubnetworkId,
-        mut connection_receiver: tokio::sync::broadcast::Receiver<PeerId>,
+        connection_receiver: tokio::sync::broadcast::Receiver<PeerId>,
     ) -> Result<Vec<DaLightShare>, HistoricSamplingError> {
         // Pre-select up to MAX_PEER_RETRIES peers from the subnetwork
         let candidate_peers = {
@@ -278,7 +275,9 @@ where
                 break;
             }
 
-            match Self::open_stream(peer_id, control.clone(), &mut connection_receiver).await {
+            match Self::open_stream(peer_id, control.clone(), connection_receiver.resubscribe())
+                .await
+            {
                 Ok(mut stream) => {
                     let blob_ids_to_try: Vec<BlobId> = blob_ids.iter().copied().collect();
 
@@ -293,7 +292,6 @@ where
                             Err(err) => {
                                 log::error!("Failed to handle share request: {err}");
                                 // todo: close the stream
-                                maybe.stream.close().await;
                                 continue 'peers_loop; // Try next peer with
                                                       // remaining blobs
                             }
@@ -319,7 +317,7 @@ where
         local_peer_id: &PeerId,
         blob_ids: &HashSet<BlobId>,
         control: &Control,
-        mut connection_receiver: tokio::sync::broadcast::Receiver<PeerId>,
+        connection_receiver: tokio::sync::broadcast::Receiver<PeerId>,
     ) -> Result<Vec<DaSharesCommitments>, HistoricSamplingError> {
         // Pre-select up to MAX_PEER_RETRIES peers from a random subnet
         let candidate_peers = {
@@ -352,7 +350,9 @@ where
                 break;
             }
 
-            match Self::open_stream(peer_id, control.clone(), &mut connection_receiver).await {
+            match Self::open_stream(peer_id, control.clone(), connection_receiver.resubscribe())
+                .await
+            {
                 Ok(mut stream) => {
                     let blob_ids_to_try: Vec<BlobId> = remaining_blob_ids.iter().copied().collect();
 
