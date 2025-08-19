@@ -47,8 +47,8 @@ mod real_gateway_tests {
 
     use super::*;
 
-    /// Run with: NAT_TEST_LOCAL_IP="192.168.1.100" cargo test
-    /// map_address_via_protocol_manager_real_gateway -- --ignored
+    /// Run with: `NAT_TEST_LOCAL_IP="192.168.1.100`" cargo test
+    /// `map_address_via_protocol_manager_real_gateway` -- --ignored
     #[tokio::test]
     #[ignore = "Runs against a real gateway"]
     async fn map_address_via_protocol_manager_real_gateway() {

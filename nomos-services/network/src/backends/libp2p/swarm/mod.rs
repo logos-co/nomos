@@ -297,7 +297,7 @@ mod tests {
                 nomos_libp2p::KademliaSettings::default()
             },
             identify_config: nomos_libp2p::IdentifySettings::default(),
-            chain_sync_config: nomos_libp2p::cryptarchia_sync::Config::default(),
+            chain_sync_config: cryptarchia_sync::Config::default(),
             nat_config: Some(nomos_libp2p::NatSettings {
                 autonat: nomos_libp2p::AutonatClientSettings {
                     probe_interval_millisecs: Some(1000),
@@ -421,9 +421,11 @@ mod tests {
 
             for (idx, tx) in txs.iter().enumerate() {
                 let (reply, dump_rx) = oneshot::channel();
-                tx.send(Command::Discovery(DiscoveryCommand::DumpRoutingTable { reply }))
-                    .await
-                    .expect("Failed to send dump command");
+                tx.send(Command::Discovery(DiscoveryCommand::DumpRoutingTable {
+                    reply,
+                }))
+                .await
+                .expect("Failed to send dump command");
 
                 let routing_table = dump_rx.await.expect("Failed to receive routing table dump");
 
@@ -460,8 +462,8 @@ mod tests {
             peer_id: bootstrap_node_peer_id,
             reply: closest_tx,
         }))
-            .await
-            .expect("Failed to send get closest peers command");
+        .await
+        .expect("Failed to send get closest peers command");
 
         let closest_peers = closest_rx.await.expect("Failed to get closest peers");
 
