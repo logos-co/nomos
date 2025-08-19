@@ -9,8 +9,6 @@ use overwatch::{
     },
     OpaqueServiceResourcesHandle,
 };
-use rand::SeedableRng as _;
-use rand_chacha::ChaCha20Rng;
 
 use crate::{config::NetworkConfig, message::BackendNetworkMsg};
 
@@ -40,7 +38,7 @@ where
 impl<Backend, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for NetworkService<Backend, RuntimeServiceId>
 where
-    Backend: NetworkBackend<RuntimeServiceId, Rng = ChaCha20Rng> + Send + 'static,
+    Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send,
 {
     fn init(
@@ -55,7 +53,6 @@ where
                     .get_updated_settings()
                     .backend,
                 service_resources_handle.overwatch_handle.clone(),
-                ChaCha20Rng::from_entropy(),
             ),
             service_resources_handle,
         })
