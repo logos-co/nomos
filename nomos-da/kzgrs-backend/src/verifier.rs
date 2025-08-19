@@ -67,16 +67,19 @@ mod test {
         }
     }
 
-    struct Configuration {
-        label: &'static str,
-        elements_count: usize,
-    }
+    #[cfg(target_arch = "x86_64")]
+    mod utils {
+        pub struct Configuration {
+            pub label: &'static str,
+            pub elements_count: usize,
+        }
 
-    impl Configuration {
-        const fn new(label: &'static str, elements_count: usize) -> Self {
-            Self {
-                label,
-                elements_count,
+        impl Configuration {
+            pub const fn new(label: &'static str, elements_count: usize) -> Self {
+                Self {
+                    label,
+                    elements_count,
+                }
             }
         }
     }
@@ -86,7 +89,7 @@ mod test {
         clippy::undocumented_unsafe_blocks,
         reason = "This test is just to measure cpu and should be run manually"
     )]
-    fn bench_verify_cycles(iters: u64, configuration: &Configuration) {
+    fn bench_verify_cycles(iters: u64, configuration: &utils::Configuration) {
         let domain_size = 2048usize;
         let encoder = DaEncoder::new(DaEncoderParams::default_with(domain_size));
         let data = rand_data(configuration.elements_count);
@@ -118,9 +121,9 @@ mod test {
     fn test_verify_cycles() {
         let iters = 1000u64;
         let configurations = [
-            Configuration::new("32KB", 32),
-            Configuration::new("256KB", 256),
-            Configuration::new("1MB", 1024),
+            utils::Configuration::new("32KB", 32),
+            utils::Configuration::new("256KB", 256),
+            utils::Configuration::new("1MB", 1024),
         ];
 
         for configuration in &configurations {
