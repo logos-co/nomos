@@ -46,12 +46,15 @@ pub async fn handle_sampling_event(
     }
 }
 
-pub async fn handle_replication_event<Membership: MembershipHandler + Send>(
+pub async fn handle_replication_event<Membership>(
     validation_events_sender: &UnboundedSender<DispersalEvent>,
     membership: &Membership,
     peer_id: &<Membership as MembershipHandler>::Id,
     event: ReplicationEvent,
-) {
+) where
+    Membership: MembershipHandler + Send + Sync,
+    <Membership as MembershipHandler>::Id: Send + Sync,
+{
     if let ReplicationEvent::IncomingMessage { message, .. } = event {
         let dispersal_event = match *message {
             ReplicationRequest::Share(share_request) => DispersalEvent::from(share_request.share),

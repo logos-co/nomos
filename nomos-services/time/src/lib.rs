@@ -26,6 +26,9 @@ use crate::backends::TimeBackend;
 
 pub mod backends;
 
+// 3 slots buffer should be enough
+const SLOTS_BUFFER: usize = 3;
+
 #[derive(Clone, Debug)]
 pub struct SlotTick {
     pub epoch: Epoch,
@@ -107,8 +110,6 @@ where
         let mut inbound_relay = service_resources_handle.inbound_relay;
         let mut tick_stream = backend.tick_stream();
 
-        // 3 slots buffer should be enough
-        const SLOTS_BUFFER: usize = 3;
         let (broadcast_sender, broadcast_receiver) = broadcast::channel(SLOTS_BUFFER);
 
         service_resources_handle.status_updater.notify_ready();

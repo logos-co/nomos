@@ -16,12 +16,13 @@ use backend::{
     tx::mock::MockTxVerifier,
     TxVerifierBackend, VerifierBackend,
 };
-use mempool::DaMempoolAdapter;
+use mempool::{DaMempoolAdapter, MempoolAdapterError};
 use network::NetworkAdapter;
 use nomos_core::da::blob::Share;
 use nomos_da_network_service::{
     membership::MembershipAdapter, storage::MembershipStorageAdapter, NetworkService,
 };
+use nomos_mempool::backend::MempoolError;
 use nomos_storage::StorageService;
 use nomos_tracing::{error_with_id, info_with_id};
 use overwatch::{
@@ -111,7 +112,7 @@ where
     ShareVerifier::DaShare: Debug + Send,
     ShareVerifier::Error: Error + Send + Sync,
     ShareVerifier::Settings: Clone,
-    <ShareVerifier::DaShare as Share>::BlobId: Clone + AsRef<[u8]> + Hash + Eq + Send,
+    <ShareVerifier::DaShare as Share>::BlobId: Clone + AsRef<[u8]> + Hash + Eq + Send + Sync,
     <ShareVerifier::DaShare as Share>::LightShare: Send,
     <ShareVerifier::DaShare as Share>::SharesCommitments: Send,
     TxVerifier: TxVerifierBackend<BlobId = <ShareVerifier::DaShare as Share>::BlobId> + Send + Sync,
@@ -184,6 +185,23 @@ where
             info_with_id!(blob_id.as_ref(), "VerifierAddTx");
             verifier.verify(&tx)?;
             storage_adapter.add_tx(blob_id, assignations, tx).await?;
+        }
+        Ok(())
+    }
+
+    async fn prune_pending_txs(
+        storage_adapter: &Storage,
+        mempool_trigger: &MempoolPublishTrigger<<ShareVerifier::DaShare as Share>::BlobId>,
+        mempool_adapter: &MempoolAdapter,
+    ) -> Result<(), DynError> {
+        let blob_ids = mempool_trigger.prune();
+        for blob_id in blob_ids {
+            if let Some((_, tx)) = storage_adapter.get_tx(blob_id.clone()).await? {
+                match mempool_adapter.post_tx(blob_id, tx).await {
+                    Ok(()) | Err(MempoolAdapterError::Mempool(MempoolError::ExistingItem)) => {}
+                    Err(err) => return Err(Box::new(err)),
+                };
+            }
         }
         Ok(())
     }
@@ -311,6 +329,10 @@ where
         })
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Run loop contains all handling for readablity"
+    )]
     async fn run(self) -> Result<(), DynError> {
         // This service will likely have to be modified later on.
         // Most probably the verifier itself need to be constructed/update for every
@@ -325,6 +347,7 @@ where
 
         let DaVerifierServiceSettings {
             network_adapter_settings,
+            mempool_trigger_settings,
             ..
         } = service_resources_handle
             .settings_handle
@@ -357,11 +380,8 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        let mempool_trigger = MempoolPublishTrigger::new(MempoolPublishTriggerConfig {
-            publish_threshold: 0.8,
-            share_timeout: Duration::from_secs(5),
-            prune_timeout: Duration::from_secs(10),
-        });
+        let mut prune_interval = tokio::time::interval(mempool_trigger_settings.prune_interval);
+        let mempool_trigger = MempoolPublishTrigger::new(mempool_trigger_settings);
 
         wait_until_services_are_ready!(
             &service_resources_handle.overwatch_handle,
@@ -431,6 +451,15 @@ where
                         },
                     }
                 }
+                _ = prune_interval.tick() => {
+                    if let Err(err) = Self::prune_pending_txs(
+                        &storage_adapter,
+                        &mempool_trigger,
+                        &mempool_adapter
+                    ).await {
+                        error!("Error pruning txs due to {err:?}");
+                    }
+                }
             }
         }
     }
@@ -447,4 +476,5 @@ pub struct DaVerifierServiceSettings<
     pub tx_verifier_settings: TxVerifierSettings,
     pub network_adapter_settings: NetworkSettings,
     pub storage_adapter_settings: StorageSettings,
+    pub mempool_trigger_settings: MempoolPublishTriggerConfig,
 }

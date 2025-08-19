@@ -74,7 +74,7 @@ where
 
 impl<Membership, Addressbook> ExecutorSwarm<Membership, Addressbook>
 where
-    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
+    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send + Sync,
     Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
 {
     pub fn new(

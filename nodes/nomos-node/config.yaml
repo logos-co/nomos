@@ -103,6 +103,17 @@ da_verifier:
   network_adapter_settings: null
   storage_adapter_settings:
     blob_storage_directory: ./
+  mempool_trigger_settings:
+    publish_threshold: 0.8
+    share_duration:
+      secs: 5
+      nanos: 0
+    prune_duration:
+      secs: 30 
+      nanos: 0
+    prune_interval:
+      secs: 5
+      nanos: 0
 da_sampling:
   share_verifier_settings:
     sk: 67cee9fdc9c5160671b40da60b17153558496a12fb57804c1e64ef51f5a29dca

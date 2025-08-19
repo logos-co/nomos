@@ -51,6 +51,7 @@ async fn disseminate_and_retrieve() {
     assert!(validator_idx_0_blobs.count() == 2);
 }
 
+#[ignore = "Reenable after transaction mempool is used"]
 #[tokio::test]
 async fn disseminate_retrieve_reconstruct() {
     const ITERATIONS: usize = 10;

@@ -8,10 +8,20 @@ use std::{
     time::{Duration, Instant},
 };
 
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MempoolPublishTriggerConfig {
+    /// A percentage of shares required for the transaction to be published
+    /// after the a `share_duration`.
     pub publish_threshold: f64,
-    pub share_timeout: Duration,
-    pub prune_timeout: Duration,
+    /// Duration after which the transaction should be published if
+    /// `publish_threshold` is reached, or marked as expired if not reached.
+    pub share_duration: Duration,
+    /// A period after which expired states are removed from memory.
+    pub prune_duration: Duration,
+    /// An interval for pruning expired states.
+    pub prune_interval: Duration,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +44,7 @@ pub struct MempoolPublishTrigger<Id> {
 }
 
 impl<Id: Clone + Hash + Eq> MempoolPublishTrigger<Id> {
+    #[must_use]
     pub fn new(config: MempoolPublishTriggerConfig) -> Self {
         Self {
             config,
@@ -44,22 +55,22 @@ impl<Id: Clone + Hash + Eq> MempoolPublishTrigger<Id> {
     pub fn update(&self, blob_id: Id, assignations: u16) -> ShareState {
         let maybe_entry = self.received.read().unwrap().get(&blob_id).cloned();
 
-        let entry = match maybe_entry {
-            Some(entry) => entry,
-            None => {
+        let entry = maybe_entry.map_or_else(
+            || {
                 let mut map = self.received.write().unwrap();
-                map.entry(blob_id)
-                    .or_insert_with(|| {
+                Arc::<ShareEntry>::clone(&Arc::<ShareEntry>::clone(&Arc::<ShareEntry>::clone(
+                    map.entry(blob_id).or_insert_with(|| {
                         Arc::new(ShareEntry {
                             count: AtomicU16::new(0),
                             created_at: Instant::now(),
                             assignations,
                             expired: AtomicBool::new(false),
                         })
-                    })
-                    .clone()
-            }
-        };
+                    }),
+                )))
+            },
+            |entry| entry,
+        );
 
         if entry.expired.load(Ordering::Acquire) {
             return ShareState::Expired;
@@ -74,6 +85,7 @@ impl<Id: Clone + Hash + Eq> MempoolPublishTrigger<Id> {
         }
     }
 
+    #[must_use]
     pub fn prune(&self) -> Vec<Id> {
         let now = Instant::now();
         let mut to_publish = Vec::new();
@@ -83,16 +95,16 @@ impl<Id: Clone + Hash + Eq> MempoolPublishTrigger<Id> {
         map.retain(|blob_id, state| {
             let elapsed = now.duration_since(state.created_at);
 
-            if elapsed >= self.config.prune_timeout {
+            if elapsed >= self.config.prune_duration {
                 return false;
             }
 
-            if !state.expired.load(Ordering::Acquire) && elapsed >= self.config.share_timeout {
+            if !state.expired.load(Ordering::Acquire) && elapsed >= self.config.share_duration {
                 state.expired.store(true, Ordering::Release);
 
                 let count = state.count.load(Ordering::Acquire);
                 let threshold =
-                    (state.assignations as f64 * self.config.publish_threshold).ceil() as u16;
+                    (f64::from(state.assignations) * self.config.publish_threshold).ceil() as u16;
 
                 if count >= threshold {
                     to_publish.push(blob_id.clone());
@@ -131,8 +143,9 @@ mod tests {
     fn test_config() -> MempoolPublishTriggerConfig {
         MempoolPublishTriggerConfig {
             publish_threshold: 0.5,
-            share_timeout: Duration::from_millis(50),
-            prune_timeout: Duration::from_millis(100),
+            share_duration: Duration::from_millis(50),
+            prune_duration: Duration::from_millis(100),
+            prune_interval: Duration::from_millis(50),
         }
     }
 
@@ -170,7 +183,7 @@ mod tests {
             trigger.update(BLOB_ID, 10);
         }
 
-        thread::sleep(test_config().share_timeout);
+        thread::sleep(test_config().share_duration);
 
         let to_publish = trigger.prune();
         assert_eq!(to_publish, vec![BLOB_ID]);
@@ -186,7 +199,7 @@ mod tests {
             trigger.update(BLOB_ID, 10);
         }
 
-        thread::sleep(test_config().share_timeout);
+        thread::sleep(test_config().share_duration);
 
         let to_publish = trigger.prune();
         assert!(to_publish.is_empty());
@@ -200,7 +213,7 @@ mod tests {
         trigger.update(BLOB_ID, 10);
         assert_eq!(trigger.len(), 1);
 
-        thread::sleep(test_config().prune_timeout);
+        thread::sleep(test_config().prune_duration);
 
         let to_publish = trigger.prune();
         assert!(to_publish.is_empty());
@@ -212,9 +225,9 @@ mod tests {
         let trigger = MempoolPublishTrigger::new(test_config());
         trigger.update(BLOB_ID, 10);
 
-        thread::sleep(test_config().share_timeout);
+        thread::sleep(test_config().share_duration);
 
-        trigger.prune();
+        let _ = trigger.prune();
         assert_eq!(trigger.update(BLOB_ID, 10), ShareState::Expired);
     }
 
@@ -225,7 +238,7 @@ mod tests {
             trigger.update(BLOB_ID, 10);
         }
 
-        thread::sleep(test_config().share_timeout);
+        thread::sleep(test_config().share_duration);
 
         assert_eq!(trigger.prune(), vec![BLOB_ID]);
         assert!(trigger.prune().is_empty());

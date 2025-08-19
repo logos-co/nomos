@@ -34,7 +34,7 @@ use nomos_da_sampling::{
     DaSamplingServiceSettings,
 };
 use nomos_da_verifier::{
-    backend::kzgrs::KzgrsDaVerifierSettings,
+    backend::{kzgrs::KzgrsDaVerifierSettings, trigger::MempoolPublishTriggerConfig},
     storage::adapters::rocksdb::RocksAdapterSettings as VerifierStorageAdapterSettings,
     DaVerifierServiceSettings,
 };
@@ -414,6 +414,12 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
             network_adapter_settings: (),
             storage_adapter_settings: VerifierStorageAdapterSettings {
                 blob_storage_directory: "./".into(),
+            },
+            mempool_trigger_settings: MempoolPublishTriggerConfig {
+                publish_threshold: 0.8,
+                share_duration: Duration::from_secs(5),
+                prune_duration: Duration::from_secs(30),
+                prune_interval: Duration::from_secs(5),
             },
         },
         tracing: config.tracing_config.tracing_settings,
