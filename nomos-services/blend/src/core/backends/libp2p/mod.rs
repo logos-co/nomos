@@ -28,6 +28,9 @@ pub mod settings;
 pub use settings::Libp2pBlendBackendSettings;
 mod swarm;
 
+#[cfg(test)]
+mod tests;
+
 /// A blend backend that uses the libp2p network stack.
 pub struct Libp2pBlendBackend {
     swarm_task_abort_handle: AbortHandle,

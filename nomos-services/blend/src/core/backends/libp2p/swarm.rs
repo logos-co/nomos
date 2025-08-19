@@ -270,6 +270,53 @@ where
             }
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn new_test<BehaviourConstructor>(
+        behaviour_constructor: BehaviourConstructor,
+        swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
+        incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithValidatedPublicHeader>,
+        session_stream: SessionStream,
+        latest_session_info: Membership<PeerId>,
+        rng: Rng,
+        max_dial_attempts_per_connection: NonZeroU64,
+    ) -> Self
+    where
+        BehaviourConstructor: FnOnce(libp2p::identity::Keypair) -> BlendBehaviour,
+    {
+        let inner_swarm = {
+            use libp2p::{core::transport::MemoryTransport, Transport as _};
+            use nomos_libp2p::upgrade::Version;
+
+            let identity = libp2p::identity::Keypair::generate_ed25519();
+            let peer_id = PeerId::from(identity.public());
+
+            let transport = MemoryTransport::default()
+                .upgrade(Version::V1)
+                .authenticate(libp2p::plaintext::Config::new(&identity))
+                .multiplex(libp2p::yamux::Config::default())
+                .timeout(Duration::ZERO)
+                .boxed();
+
+            Swarm::new(
+                transport,
+                behaviour_constructor(identity),
+                peer_id,
+                libp2p::swarm::Config::with_tokio_executor(),
+            )
+        };
+
+        Self {
+            incoming_message_sender,
+            latest_session_info,
+            max_dial_attempts_per_connection,
+            ongoing_dials: HashMap::new(),
+            rng,
+            session_stream,
+            swarm: inner_swarm,
+            swarm_messages_receiver,
+        }
+    }
 }
 
 impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
