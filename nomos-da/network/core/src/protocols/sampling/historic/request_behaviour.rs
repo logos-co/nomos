@@ -302,6 +302,7 @@ where
                             Err(err) => {
                                 if let StreamSamplingError::StreamError(Some(mut new_stream)) = err
                                 {
+                                    // try to send EOF to gracefully shutdown the stream
                                     let _ = new_stream.stream.close().await;
                                 }
 
@@ -380,6 +381,7 @@ where
                             Err(err) => {
                                 if let StreamSamplingError::StreamError(Some(mut new_stream)) = err
                                 {
+                                    // try to send EOF to gracefully shutdown the stream
                                     let _ = new_stream.stream.close().await;
                                 }
 
