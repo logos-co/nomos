@@ -1,5 +1,4 @@
 use overwatch::overwatch::handle::OverwatchHandle;
-use rand::RngCore;
 use tokio_stream::wrappers::BroadcastStream;
 
 use super::Debug;
@@ -16,13 +15,7 @@ pub trait NetworkBackend<RuntimeServiceId> {
     type Message: Debug + Send + Sync + 'static;
     type PubSubEvent: Debug + Send + Sync + 'static;
     type ChainSyncEvent: Debug + Send + Sync + 'static;
-    type Rng: Clone + Send + RngCore + 'static;
-
-    fn new(
-        config: Self::Settings,
-        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-        rng: Self::Rng,
-    ) -> Self;
+    fn new(config: Self::Settings, overwatch_handle: OverwatchHandle<RuntimeServiceId>) -> Self;
     async fn process(&self, msg: Self::Message);
     async fn subscribe_to_pubsub(&mut self) -> BroadcastStream<Self::PubSubEvent>;
 
