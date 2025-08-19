@@ -308,6 +308,9 @@ cryptarchia:
   bootstrap:
     prolonged_bootstrap_period: [86400, 0]
     force_bootstrap: false
+    offline_grace_period:
+      grace_period: [1200, 0]
+      state_recording_interval: [60, 0]
     ibd:
       peers: []
   sync:
