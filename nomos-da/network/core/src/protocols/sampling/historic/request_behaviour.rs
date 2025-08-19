@@ -1,5 +1,6 @@
 use std::{
     collections::HashSet,
+    future::ready,
     io::ErrorKind,
     task::{Context, Poll, Waker},
 };
@@ -32,7 +33,7 @@ use tokio::{
     },
     time::{sleep, Duration},
 };
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio_stream::wrappers::{BroadcastStream, UnboundedReceiverStream};
 
 use crate::{
     addressbook::AddressBookHandler,
@@ -134,7 +135,7 @@ where
     async fn open_stream(
         peer_id: PeerId,
         mut control: Control,
-        connection_receiver: &mut tokio::sync::broadcast::Receiver<PeerId>,
+        connection_receiver: tokio::sync::broadcast::Receiver<PeerId>,
     ) -> Result<SampleStream, StreamSamplingError> {
         let stream_result = control.open_stream(peer_id, SAMPLING_PROTOCOL).await;
 
@@ -144,18 +145,15 @@ where
                 let timer = sleep(CONNECTION_WAIT_TIMEOUT);
                 tokio::pin!(timer);
 
-                loop {
-                    tokio::select! {
-                        res = connection_receiver.recv() => match res {
-                            Ok(pid) if pid == peer_id => break,
-                            Ok(_) | Err(RecvError::Lagged(_)) => {  }
-                            Err(RecvError::Closed) => {
-                                return Err(StreamSamplingError::Timeout);
-                            }
-                        },
-                        () = &mut timer => {
-                            return Err(StreamSamplingError::Timeout);
-                        }
+                let mut connection_stream = BroadcastStream::new(connection_receiver)
+                    .filter(|result| ready(matches!(result, Ok(pid) if *pid == peer_id)));
+
+                tokio::select! {
+                    Some(_) = connection_stream.next() => {
+                        // Connection established for our peer - retry once
+                    }
+                    () = &mut timer => {
+                        return Err(StreamSamplingError::Timeout);
                     }
                 }
 
@@ -295,6 +293,7 @@ where
                             Err(err) => {
                                 log::error!("Failed to handle share request: {err}");
                                 // todo: close the stream
+                                maybe.stream.close().await;
                                 continue 'peers_loop; // Try next peer with
                                                       // remaining blobs
                             }
