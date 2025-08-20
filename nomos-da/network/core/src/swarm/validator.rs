@@ -77,13 +77,14 @@ where
     >,
     sampling_events_sender: UnboundedSender<SamplingEvent>,
     validation_events_sender: UnboundedSender<DispersalEvent>,
+    membership: Membership,
     phantom: PhantomData<HistoricMembership>,
 }
 
 impl<Membership, HistoricMembership, Addressbook>
     ValidatorSwarm<Membership, HistoricMembership, Addressbook>
 where
-    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
+    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send + Sync,
     HistoricMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
     Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
 {
@@ -130,7 +131,7 @@ where
             Self {
                 swarm: Self::build_swarm(
                     key,
-                    membership,
+                    membership.clone(),
                     addressbook,
                     balancer,
                     monitor,
@@ -141,6 +142,7 @@ where
                 ),
                 sampling_events_sender,
                 validation_events_sender,
+                membership,
                 phantom: PhantomData,
             },
             ValidatorEventsStream {
@@ -295,7 +297,13 @@ where
             self.swarm.behaviour_mut().monitor_behaviour_mut(),
             MonitorEvent::from(&event),
         );
-        handle_replication_event(&self.validation_events_sender, event).await;
+        handle_replication_event(
+            &self.validation_events_sender,
+            &self.membership,
+            self.local_peer_id(),
+            event,
+        )
+        .await;
     }
 
     #[expect(

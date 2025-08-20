@@ -15,12 +15,17 @@ libp2p                   = { workspace = true, features = ["ed25519"] }
 nomos-core               = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-da-network-service = { workspace = true }
+nomos-da-sampling        = { workspace = true }
+nomos-mempool            = { workspace = true, features = ["libp2p", "mock"] }
 nomos-storage            = { workspace = true }
 nomos-tracing            = { workspace = true }
+nomos-utils              = { workspace = true, features = ["time"] }
 overwatch                = { workspace = true }
 serde                    = { version = "1.0", features = ["derive"] }
+serde_with               = { workspace = true }
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
+thiserror                = "1.0"
 tokio                    = { version = "1", features = ["macros", "sync"] }
 tokio-stream             = "0.1.15"
 tracing                  = { workspace = true, features = ["attributes"] }

@@ -23,16 +23,15 @@ use nomos_core::{
         DaVerifier as CoreDaVerifier,
     },
     header::HeaderId,
-    mantle::Transaction,
+    mantle::{SignedMantleTx, Transaction},
 };
-use nomos_da_dispersal::adapters::mempool::DaMempoolAdapter;
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
     backends::libp2p::executor::DaNetworkExecutorBackend, membership::MembershipAdapter,
     storage::MembershipStorageAdapter,
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
-use nomos_da_verifier::backend::VerifierBackend;
+use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
 use nomos_http_api_common::paths;
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
@@ -75,7 +74,6 @@ pub struct AxumBackendSettings {
 }
 
 pub struct AxumBackend<
-    DaAttestation,
     DaShare,
     DaBlobInfo,
     Memebership,
@@ -90,11 +88,11 @@ pub struct AxumBackend<
     DaStorageConverter,
     DispersalBackend,
     DispersalNetworkAdapter,
-    DispersalMempoolAdapter,
     Metadata,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
+    VerifierMempoolAdapter,
     TimeBackend,
     ApiAdapter,
     HttpStorageAdapter,
@@ -104,7 +102,6 @@ pub struct AxumBackend<
     #[expect(clippy::allow_attributes_without_reason)]
     #[expect(clippy::type_complexity)]
     _phantom: core::marker::PhantomData<(
-        DaAttestation,
         DaShare,
         DaBlobInfo,
         Memebership,
@@ -119,11 +116,11 @@ pub struct AxumBackend<
         DaStorageConverter,
         DispersalBackend,
         DispersalNetworkAdapter,
-        DispersalMempoolAdapter,
         Metadata,
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
+        VerifierMempoolAdapter,
         TimeBackend,
         ApiAdapter,
         HttpStorageAdapter,
@@ -145,7 +142,6 @@ struct ApiDoc;
 
 #[async_trait::async_trait]
 impl<
-        DaAttestation,
         DaShare,
         DaBlobInfo,
         Membership,
@@ -160,11 +156,11 @@ impl<
         DaStorageConverter,
         DispersalBackend,
         DispersalNetworkAdapter,
-        DispersalMempoolAdapter,
         Metadata,
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
+        VerifierMempoolAdapter,
         TimeBackend,
         ApiAdapter,
         StorageAdapter,
@@ -172,7 +168,6 @@ impl<
         RuntimeServiceId,
     > Backend<RuntimeServiceId>
     for AxumBackend<
-        DaAttestation,
         DaShare,
         DaBlobInfo,
         Membership,
@@ -187,18 +182,17 @@ impl<
         DaStorageConverter,
         DispersalBackend,
         DispersalNetworkAdapter,
-        DispersalMempoolAdapter,
         Metadata,
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
+        VerifierMempoolAdapter,
         TimeBackend,
         ApiAdapter,
         StorageAdapter,
         SIZE,
     >
 where
-    DaAttestation: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     DaShare: Share + Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     <DaShare as Share>::BlobId: Clone + Serialize + DeserializeOwned + Send + Sync + 'static,
     <DaShare as Share>::ShareIndex:
@@ -268,15 +262,12 @@ where
         Serialize + for<'de> Deserialize<'de> + Ord + Debug + Send + Sync + 'static,
     DaStorageSerializer: StorageSerde + Send + Sync + 'static,
     <DaStorageSerializer as StorageSerde>::Error: Send + Sync,
-    DaStorageConverter: da::DaConverter<DaStorageBackend<DaStorageSerializer>, Share = DaShare>
+    DaStorageConverter: da::DaConverter<DaStorageBackend<DaStorageSerializer>, Share = DaShare, Tx = SignedMantleTx>
         + Send
         + Sync
         + 'static,
-    DispersalBackend: nomos_da_dispersal::backend::DispersalBackend<
-            NetworkAdapter = DispersalNetworkAdapter,
-            MempoolAdapter = DispersalMempoolAdapter,
-            Metadata = Metadata,
-        > + Send
+    DispersalBackend: nomos_da_dispersal::backend::DispersalBackend<NetworkAdapter = DispersalNetworkAdapter>
+        + Send
         + Sync
         + 'static,
     DispersalBackend::BlobId: Serialize,
@@ -285,7 +276,6 @@ where
             SubnetworkId = Membership::NetworkId,
         > + Send
         + 'static,
-    DispersalMempoolAdapter: DaMempoolAdapter + Send + 'static,
     Metadata: DeserializeOwned + metadata::Metadata + Debug + Send + 'static,
     SamplingBackend: DaSamplingServiceBackend<BlobId = <DaVerifiedBlobInfo as DispersedBlobInfo>::BlobId>
         + Send
@@ -304,6 +294,7 @@ where
         nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
     SamplingStorage:
         nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    VerifierMempoolAdapter: DaMempoolAdapter + Send + Sync + 'static,
     TimeBackend: nomos_time::backends::TimeBackend + Send + 'static,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_network_service::api::ApiAdapter + Send + Sync + 'static,
@@ -322,9 +313,6 @@ where
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
-                DaVerifierBackend,
-                DaVerifierNetwork,
-                DaVerifierStorage,
                 TimeBackend,
                 RuntimeServiceId,
                 SIZE,
@@ -337,6 +325,7 @@ where
                 DaVerifierBackend,
                 DaStorageSerializer,
                 DaStorageConverter,
+                VerifierMempoolAdapter,
                 RuntimeServiceId,
             >,
         >
@@ -349,9 +338,6 @@ where
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
-                DaVerifierBackend,
-                DaVerifierNetwork,
-                DaVerifierStorage,
                 TimeBackend,
                 RuntimeServiceId,
                 SIZE,
@@ -382,9 +368,7 @@ where
                     RuntimeServiceId,
                 >,
                 SamplingNetworkAdapter,
-                DaVerifierNetwork,
                 SamplingStorage,
-                DaVerifierStorage,
                 MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
                 RuntimeServiceId,
             >,
@@ -400,21 +384,11 @@ where
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
-                DaVerifierBackend,
-                DaVerifierNetwork,
-                DaVerifierStorage,
                 RuntimeServiceId,
             >,
         >
         + AsServiceId<
-            DaDispersal<
-                DispersalBackend,
-                DispersalNetworkAdapter,
-                DispersalMempoolAdapter,
-                Membership,
-                Metadata,
-                RuntimeServiceId,
-            >,
+            DaDispersal<DispersalBackend, DispersalNetworkAdapter, Membership, RuntimeServiceId>,
         >,
 {
     type Error = hyper::Error;
@@ -437,15 +411,15 @@ where
         wait_until_services_are_ready!(
             &overwatch_handle,
             Some(Duration::from_secs(60)),
-            Cryptarchia<_, _, _, _, _, _, _, _, _, _, SIZE>,
-            DaVerifier<_, _, _, _, _, _>,
-            DaIndexer<_, _, _, _, _, _, _, _, _, _, _, _, SIZE>,
+            Cryptarchia<_, _, _, _, _, _, _, SIZE>,
+            DaVerifier<_, _, _, _, _, _, _>,
+            DaIndexer<_, _, _, _, _, _, _, _, _, SIZE>,
             nomos_da_network_service::NetworkService<_, _, _,_, _, _>,
             nomos_network::NetworkService<_, _>,
             DaStorageService<_, _>,
-            TxMempoolService<_, _, _, _, _, _, _>,
-            DaMempoolService<_, _, _, _, _, _, _, _, _>,
-            DaDispersal<_, _, _, _, _, _>
+            TxMempoolService<_, _, _, _, _>,
+            DaMempoolService<_, _, _, _, _, _>,
+            DaDispersal<_, _, _, _>
         )
         .await
     }
@@ -477,27 +451,13 @@ where
             .route(
                 paths::CL_METRICS,
                 routing::get(
-                    cl_metrics::<
-                        Tx,
-                        SamplingNetworkAdapter,
-                        DaVerifierNetwork,
-                        SamplingStorage,
-                        DaVerifierStorage,
-                        RuntimeServiceId,
-                    >,
+                    cl_metrics::<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
                 ),
             )
             .route(
                 paths::CL_STATUS,
                 routing::post(
-                    cl_status::<
-                        Tx,
-                        SamplingNetworkAdapter,
-                        DaVerifierNetwork,
-                        SamplingStorage,
-                        DaVerifierStorage,
-                        RuntimeServiceId,
-                    >,
+                    cl_status::<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
                 ),
             )
             .route(
@@ -509,9 +469,6 @@ where
                         SamplingBackend,
                         SamplingNetworkAdapter,
                         SamplingStorage,
-                        DaVerifierBackend,
-                        DaVerifierNetwork,
-                        DaVerifierStorage,
                         TimeBackend,
                         RuntimeServiceId,
                         SIZE,
@@ -527,9 +484,6 @@ where
                         SamplingBackend,
                         SamplingNetworkAdapter,
                         SamplingStorage,
-                        DaVerifierBackend,
-                        DaVerifierNetwork,
-                        DaVerifierStorage,
                         TimeBackend,
                         RuntimeServiceId,
                         SIZE,
@@ -540,12 +494,12 @@ where
                 paths::DA_ADD_SHARE,
                 routing::post(
                     add_share::<
-                        DaAttestation,
                         DaShare,
                         DaVerifierNetwork,
                         DaVerifierBackend,
                         DaStorageSerializer,
                         DaStorageConverter,
+                        VerifierMempoolAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -561,9 +515,6 @@ where
                         SamplingBackend,
                         SamplingNetworkAdapter,
                         SamplingStorage,
-                        DaVerifierBackend,
-                        DaVerifierNetwork,
-                        DaVerifierStorage,
                         TimeBackend,
                         RuntimeServiceId,
                         SIZE,
@@ -617,14 +568,7 @@ where
             .route(
                 paths::MEMPOOL_ADD_TX,
                 routing::post(
-                    add_tx::<
-                        Tx,
-                        SamplingNetworkAdapter,
-                        DaVerifierNetwork,
-                        SamplingStorage,
-                        DaVerifierStorage,
-                        RuntimeServiceId,
-                    >,
+                    add_tx::<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
                 ),
             )
             .route(
@@ -635,9 +579,6 @@ where
                         SamplingBackend,
                         SamplingNetworkAdapter,
                         SamplingStorage,
-                        DaVerifierBackend,
-                        DaVerifierNetwork,
-                        DaVerifierStorage,
                         RuntimeServiceId,
                     >,
                 ),
@@ -648,9 +589,7 @@ where
                     disperse_data::<
                         DispersalBackend,
                         DispersalNetworkAdapter,
-                        DispersalMempoolAdapter,
                         Membership,
-                        Metadata,
                         RuntimeServiceId,
                     >,
                 ),

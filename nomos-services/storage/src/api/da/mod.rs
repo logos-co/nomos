@@ -21,8 +21,11 @@ type ServiceLightShare<Converter, Backend> =
 type ServiceSharedCommitments<Converter, Backend> =
     <<Converter as DaConverter<Backend>>::Share as Share>::SharesCommitments;
 
+type ServiceTx<Converter, Backend> = <Converter as DaConverter<Backend>>::Tx;
+
 pub trait DaConverter<Backend: StorageDaApi> {
     type Share: Share;
+    type Tx;
     type Error: Error + Send + Sync + 'static;
 
     fn blob_id_to_storage(
@@ -56,6 +59,10 @@ pub trait DaConverter<Backend: StorageDaApi> {
     fn commitments_from_storage(
         backend_commitments: Backend::Commitments,
     ) -> Result<ServiceSharedCommitments<Self, Backend>, Self::Error>;
+
+    fn tx_to_storage(service_tx: ServiceTx<Self, Backend>) -> Result<Backend::Tx, Self::Error>;
+
+    fn tx_from_storage(backend_tx: Backend::Tx) -> Result<ServiceTx<Self, Backend>, Self::Error>;
 }
 
 #[async_trait]
@@ -67,6 +74,7 @@ pub trait StorageDaApi {
     type ShareIndex: Send + Sync;
     type Id: Send + Sync;
     type NetworkId: Send + Sync;
+    type Tx: Send + Sync;
 
     async fn get_light_share(
         &mut self,
@@ -119,4 +127,16 @@ pub trait StorageDaApi {
     ) -> Result<(), Self::Error>;
 
     async fn get_address(&mut self, id: Self::Id) -> Result<Option<Multiaddr>, Self::Error>;
+
+    async fn store_tx(
+        &mut self,
+        blob_id: Self::BlobId,
+        assignations: u16,
+        tx: Self::Tx,
+    ) -> Result<(), Self::Error>;
+
+    async fn get_tx(
+        &mut self,
+        blob_id: Self::BlobId,
+    ) -> Result<Option<(u16, Self::Tx)>, Self::Error>;
 }

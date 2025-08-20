@@ -1,7 +1,7 @@
 use std::{fmt::Debug, hash::Hash, marker::PhantomData, path::PathBuf};
 
 use futures::try_join;
-use nomos_core::da::blob::Share;
+use nomos_core::{da::blob::Share, mantle::SignedMantleTx};
 use nomos_storage::{
     api::da::DaConverter,
     backends::{rocksdb::RocksBackend, StorageSerde},
@@ -34,11 +34,12 @@ where
     B::LightShare: Send + Sync + 'static,
     B::SharesCommitments: Send + Sync + 'static,
     S: StorageSerde + Send + Sync + 'static,
-    Converter: DaConverter<RocksBackend<S>, Share = B> + Send + Sync + 'static,
+    Converter: DaConverter<RocksBackend<S>, Share = B, Tx = SignedMantleTx> + Send + Sync + 'static,
 {
     type Backend = RocksBackend<S>;
     type Share = B;
     type Settings = RocksAdapterSettings;
+    type Tx = SignedMantleTx;
 
     async fn new(
         storage_relay: OutboundRelay<
@@ -96,6 +97,46 @@ where
             .await
             .map_err(DynError::from)?
             .map(|data| Converter::share_from_storage(data))
+            .transpose()
+            .map_err(DynError::from)
+    }
+
+    async fn add_tx(
+        &self,
+        blob_id: <Self::Share as Share>::BlobId,
+        assignations: u16,
+        tx: Self::Tx,
+    ) -> Result<(), DynError> {
+        let store_tx_msg =
+            StorageMsg::store_tx_request::<Converter>(blob_id.clone(), assignations, tx)?;
+
+        self.storage_relay
+            .send(store_tx_msg)
+            .await
+            .map_err(|(e, _)| DynError::from(e))?;
+
+        Ok(())
+    }
+
+    async fn get_tx(
+        &self,
+        blob_id: <Self::Share as Share>::BlobId,
+    ) -> Result<Option<(u16, Self::Tx)>, DynError> {
+        let (reply_channel, reply_rx) = tokio::sync::oneshot::channel();
+        self.storage_relay
+            .send(StorageMsg::get_tx_request::<Converter>(
+                blob_id.clone(),
+                reply_channel,
+            )?)
+            .await
+            .expect("Failed to send request to storage relay");
+
+        reply_rx
+            .await
+            .map_err(DynError::from)?
+            .map(|(assignations, data)| {
+                Converter::tx_from_storage(data).map(|tx| (assignations, tx))
+            })
             .transpose()
             .map_err(DynError::from)
     }

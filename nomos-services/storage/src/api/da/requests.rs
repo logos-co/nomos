@@ -5,6 +5,7 @@ use nomos_core::block::BlockNumber;
 use overwatch::DynError;
 use tokio::sync::oneshot::Sender;
 
+use super::ServiceTx;
 use crate::{
     api::{
         da::{
@@ -66,6 +67,15 @@ pub enum DaApiRequest<Backend: StorageBackend> {
         id: Backend::Id,
         response_tx: Sender<Option<Multiaddr>>,
     },
+    StoreTx {
+        blob_id: <Backend as StorageDaApi>::BlobId,
+        tx: <Backend as StorageDaApi>::Tx,
+        assignations: u16,
+    },
+    GetTx {
+        blob_id: <Backend as StorageDaApi>::BlobId,
+        response_tx: Sender<Option<(u16, <Backend as StorageDaApi>::Tx)>>,
+    },
 }
 
 impl<Backend> StorageOperation<Backend> for DaApiRequest<Backend>
@@ -112,6 +122,15 @@ where
             Self::GetAddress { id, response_tx } => {
                 handle_get_address(backend, id, response_tx).await
             }
+            Self::StoreTx {
+                blob_id,
+                assignations,
+                tx,
+            } => handle_store_tx(backend, blob_id, assignations, tx).await,
+            Self::GetTx {
+                blob_id,
+                response_tx,
+            } => handle_get_tx(backend, blob_id, response_tx).await,
         }
     }
 }
@@ -224,6 +243,18 @@ async fn handle_store_assignations<Backend: StorageBackend>(
         .map_err(|e| StorageServiceError::BackendError(e.into()))
 }
 
+async fn handle_store_tx<Backend: StorageBackend>(
+    backend: &mut Backend,
+    blob_id: Backend::BlobId,
+    assignations: u16,
+    tx: Backend::Tx,
+) -> Result<(), StorageServiceError> {
+    backend
+        .store_tx(blob_id, assignations, tx)
+        .await
+        .map_err(|e| StorageServiceError::BackendError(e.into()))
+}
+
 async fn handle_get_assignations<Backend: StorageBackend>(
     backend: &mut Backend,
     block_number: BlockNumber,
@@ -265,6 +296,24 @@ async fn handle_get_address<Backend: StorageBackend>(
     if response_tx.send(result).is_err() {
         return Err(StorageServiceError::ReplyError {
             message: "Failed to send reply for get address request".to_owned(),
+        });
+    }
+    Ok(())
+}
+
+async fn handle_get_tx<Backend: StorageBackend>(
+    backend: &mut Backend,
+    blob_id: <Backend as StorageDaApi>::BlobId,
+    response_tx: Sender<Option<(u16, <Backend as StorageDaApi>::Tx)>>,
+) -> Result<(), StorageServiceError> {
+    let result = backend
+        .get_tx(blob_id)
+        .await
+        .map_err(|e| StorageServiceError::BackendError(e.into()))?;
+
+    if response_tx.send(result).is_err() {
+        return Err(StorageServiceError::ReplyError {
+            message: "Failed to send reply for get tx for share".to_owned(),
         });
     }
     Ok(())
@@ -402,5 +451,34 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
         Self::Api {
             request: StorageApiRequest::Da(DaApiRequest::GetAddress { id, response_tx }),
         }
+    }
+
+    pub fn store_tx_request<Converter: DaConverter<Backend>>(
+        blob_id: ServiceBlobId<Converter, Backend>,
+        assignations: u16,
+        tx: ServiceTx<Converter, Backend>,
+    ) -> Result<Self, DynError> {
+        let blob_id = Converter::blob_id_to_storage(blob_id).map_err(Into::<DynError>::into)?;
+        let tx = Converter::tx_to_storage(tx)?;
+        Ok(Self::Api {
+            request: StorageApiRequest::Da(DaApiRequest::StoreTx {
+                blob_id,
+                tx,
+                assignations,
+            }),
+        })
+    }
+
+    pub fn get_tx_request<Converter: DaConverter<Backend>>(
+        blob_id: ServiceBlobId<Converter, Backend>,
+        response_tx: Sender<Option<(u16, <Backend as StorageDaApi>::Tx)>>,
+    ) -> Result<Self, DynError> {
+        let blob_id = Converter::blob_id_to_storage(blob_id).map_err(Into::<DynError>::into)?;
+        Ok(Self::Api {
+            request: StorageApiRequest::Da(DaApiRequest::GetTx {
+                blob_id,
+                response_tx,
+            }),
+        })
     }
 }

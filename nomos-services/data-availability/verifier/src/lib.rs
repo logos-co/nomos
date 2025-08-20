@@ -1,22 +1,30 @@
 pub mod backend;
+pub mod mempool;
 pub mod network;
 pub mod storage;
 
 use std::{
     error::Error,
     fmt::{Debug, Display, Formatter},
+    hash::Hash,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
-use backend::VerifierBackend;
+use backend::{
+    trigger::{MempoolPublishTrigger, MempoolPublishTriggerConfig},
+    tx::mock::MockTxVerifier,
+    TxVerifierBackend, VerifierBackend,
+};
+use mempool::{DaMempoolAdapter, MempoolAdapterError};
 use network::NetworkAdapter;
 use nomos_core::da::blob::Share;
 use nomos_da_network_service::{
     membership::MembershipAdapter, storage::MembershipStorageAdapter, NetworkService,
 };
+use nomos_mempool::backend::MempoolError;
 use nomos_storage::StorageService;
-use nomos_tracing::info_with_id;
+use nomos_tracing::{error_with_id, info_with_id};
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -31,6 +39,16 @@ use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot::Sender;
 use tokio_stream::StreamExt as _;
 use tracing::{error, instrument};
+
+pub type DaVerifierService<ShareVerifier, Network, Storage, MempoolAdapter, RuntimeServiceId> =
+    GenericDaVerifierService<
+        ShareVerifier,
+        MockTxVerifier,
+        Network,
+        Storage,
+        MempoolAdapter,
+        RuntimeServiceId,
+    >;
 
 pub enum DaVerifierMsg<Commitments, LightShare, Share, Answer> {
     AddShare {
@@ -57,90 +75,203 @@ impl<C: 'static, L: 'static, B: 'static, A: 'static> Debug for DaVerifierMsg<C, 
     }
 }
 
-pub struct DaVerifierService<Backend, Network, Storage, RuntimeServiceId>
-where
-    Backend: VerifierBackend,
-    Backend::Settings: Clone,
-    Backend::DaShare: 'static,
+pub struct GenericDaVerifierService<
+    ShareVerifier,
+    TxVerifier,
+    Network,
+    Storage,
+    MempoolAdapter,
+    RuntimeServiceId,
+> where
+    ShareVerifier: VerifierBackend,
+    ShareVerifier::Settings: Clone,
+    ShareVerifier::DaShare: 'static,
+    TxVerifier: TxVerifierBackend,
+    TxVerifier::Settings: Clone,
     Network: NetworkAdapter<RuntimeServiceId>,
     Network::Settings: Clone,
+    MempoolAdapter: DaMempoolAdapter,
     Storage: DaStorageAdapter<RuntimeServiceId>,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    verifier: Backend,
+    share_verifier: ShareVerifier,
+    tx_verifier: TxVerifier,
 }
 
-impl<Backend, Network, Storage, RuntimeServiceId>
-    DaVerifierService<Backend, Network, Storage, RuntimeServiceId>
+impl<ShareVerifier, TxVerifier, Network, Storage, MempoolAdapter, RuntimeServiceId>
+    GenericDaVerifierService<
+        ShareVerifier,
+        TxVerifier,
+        Network,
+        Storage,
+        MempoolAdapter,
+        RuntimeServiceId,
+    >
 where
-    Backend: VerifierBackend + Send + Sync + 'static,
-    Backend::DaShare: Debug + Send,
-    Backend::Error: Error + Send + Sync,
-    Backend::Settings: Clone,
-    <Backend::DaShare as Share>::BlobId: AsRef<[u8]>,
-    Network: NetworkAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + 'static,
+    ShareVerifier: VerifierBackend + Send + Sync + 'static,
+    ShareVerifier::DaShare: Debug + Send,
+    ShareVerifier::Error: Error + Send + Sync,
+    ShareVerifier::Settings: Clone,
+    <ShareVerifier::DaShare as Share>::BlobId: Clone + AsRef<[u8]> + Hash + Eq + Send + Sync,
+    <ShareVerifier::DaShare as Share>::LightShare: Send,
+    <ShareVerifier::DaShare as Share>::SharesCommitments: Send,
+    TxVerifier: TxVerifierBackend<BlobId = <ShareVerifier::DaShare as Share>::BlobId> + Send + Sync,
+    TxVerifier::Settings: Clone,
+    TxVerifier::Tx: Send,
+    TxVerifier::Error: Error + Send + Sync + 'static,
+    Network: NetworkAdapter<RuntimeServiceId, Share = ShareVerifier::DaShare, Tx = TxVerifier::Tx>
+        + Send
+        + 'static,
     Network::Settings: Clone,
-    Storage: DaStorageAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + Sync + 'static,
+    MempoolAdapter: DaMempoolAdapter<
+            BlobId = <ShareVerifier::DaShare as Share>::BlobId,
+            Tx = <TxVerifier as TxVerifierBackend>::Tx,
+        > + Send
+        + Sync
+        + 'static,
+    Storage: DaStorageAdapter<RuntimeServiceId, Share = ShareVerifier::DaShare, Tx = TxVerifier::Tx>
+        + Send
+        + Sync
+        + 'static,
 {
     #[instrument(skip_all)]
     async fn handle_new_share(
-        verifier: &Backend,
+        verifier: &ShareVerifier,
         storage_adapter: &Storage,
-        share: Backend::DaShare,
+        mempool_trigger: &MempoolPublishTrigger<<ShareVerifier::DaShare as Share>::BlobId>,
+        mempool_adapter: &MempoolAdapter,
+        share: ShareVerifier::DaShare,
     ) -> Result<(), DynError> {
-        if storage_adapter
-            .get_share(share.blob_id(), share.share_idx())
-            .await?
-            .is_some()
-        {
-            info_with_id!(share.blob_id().as_ref(), "VerifierShareExists");
+        if let Some((assignations, tx)) = storage_adapter.get_tx(share.blob_id()).await? {
+            if storage_adapter
+                .get_share(share.blob_id(), share.share_idx())
+                .await?
+                .is_some()
+            {
+                info_with_id!(share.blob_id().as_ref(), "VerifierShareExists");
+            } else {
+                info_with_id!(share.blob_id().as_ref(), "VerifierAddShare");
+                let (blob_id, share_idx) = (share.blob_id(), share.share_idx());
+                let (light_share, commitments) = share.into_share_and_commitments();
+                // TODO: remove TX if verification fails.
+                verifier.verify(&commitments, &light_share)?;
+                storage_adapter
+                    .add_share(blob_id.clone(), share_idx, commitments, light_share)
+                    .await?;
+                if matches!(
+                    mempool_trigger.update(blob_id.clone(), assignations),
+                    backend::trigger::ShareState::Complete
+                ) {
+                    mempool_adapter.post_tx(blob_id, tx).await?;
+                }
+            }
         } else {
-            info_with_id!(share.blob_id().as_ref(), "VerifierAddShare");
-            let (blob_id, share_idx) = (share.blob_id(), share.share_idx());
-            let (light_share, commitments) = share.into_share_and_commitments();
-            verifier.verify(&commitments, &light_share)?;
-            storage_adapter
-                .add_share(blob_id, share_idx, commitments, light_share)
-                .await?;
+            error_with_id!(share.blob_id().as_ref(), "VerifierTxDoesNotExist");
+            return Err("Transaction doesn't exist".into());
+        }
+        Ok(())
+    }
+
+    async fn handle_new_tx(
+        verifier: &TxVerifier,
+        storage_adapter: &Storage,
+        assignations: u16,
+        tx: TxVerifier::Tx,
+    ) -> Result<(), DynError> {
+        let blob_id = verifier.blob_id(&tx)?;
+        if storage_adapter.get_tx(blob_id.clone()).await?.is_some() {
+            info_with_id!(blob_id.as_ref(), "VerifierTxExists");
+        } else {
+            info_with_id!(blob_id.as_ref(), "VerifierAddTx");
+            verifier.verify(&tx)?;
+            storage_adapter.add_tx(blob_id, assignations, tx).await?;
+        }
+        Ok(())
+    }
+
+    async fn prune_pending_txs(
+        storage_adapter: &Storage,
+        mempool_trigger: &MempoolPublishTrigger<<ShareVerifier::DaShare as Share>::BlobId>,
+        mempool_adapter: &MempoolAdapter,
+    ) -> Result<(), DynError> {
+        let now = Instant::now();
+        let blob_ids = mempool_trigger.prune(now);
+        for blob_id in blob_ids {
+            if let Some((_, tx)) = storage_adapter.get_tx(blob_id.clone()).await? {
+                match mempool_adapter.post_tx(blob_id, tx).await {
+                    Ok(()) | Err(MempoolAdapterError::Mempool(MempoolError::ExistingItem)) => {}
+                    Err(err) => return Err(Box::new(err)),
+                };
+            }
         }
         Ok(())
     }
 }
 
-impl<Backend, Network, DaStorage, RuntimeServiceId> ServiceData
-    for DaVerifierService<Backend, Network, DaStorage, RuntimeServiceId>
+impl<ShareVerifier, TxVerifier, Network, DaStorage, MempoolAdapter, RuntimeServiceId> ServiceData
+    for GenericDaVerifierService<
+        ShareVerifier,
+        TxVerifier,
+        Network,
+        DaStorage,
+        MempoolAdapter,
+        RuntimeServiceId,
+    >
 where
-    Backend: VerifierBackend,
-    Backend::Settings: Clone,
+    ShareVerifier: VerifierBackend,
+    ShareVerifier::Settings: Clone,
+    TxVerifier: TxVerifierBackend,
+    TxVerifier::Settings: Clone,
     Network: NetworkAdapter<RuntimeServiceId>,
     Network::Settings: Clone,
     DaStorage: DaStorageAdapter<RuntimeServiceId>,
     DaStorage::Settings: Clone,
+    MempoolAdapter: DaMempoolAdapter,
 {
-    type Settings =
-        DaVerifierServiceSettings<Backend::Settings, Network::Settings, DaStorage::Settings>;
+    type Settings = DaVerifierServiceSettings<
+        ShareVerifier::Settings,
+        TxVerifier::Settings,
+        Network::Settings,
+        DaStorage::Settings,
+    >;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = DaVerifierMsg<
-        <Backend::DaShare as Share>::SharesCommitments,
-        <Backend::DaShare as Share>::LightShare,
-        Backend::DaShare,
+        <ShareVerifier::DaShare as Share>::SharesCommitments,
+        <ShareVerifier::DaShare as Share>::LightShare,
+        ShareVerifier::DaShare,
         (),
     >;
 }
 
 #[async_trait::async_trait]
-impl<Backend, Network, DaStorage, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for DaVerifierService<Backend, Network, DaStorage, RuntimeServiceId>
+impl<ShareVerifier, TxVerifier, Network, DaStorage, MempoolAdapter, RuntimeServiceId>
+    ServiceCore<RuntimeServiceId>
+    for GenericDaVerifierService<
+        ShareVerifier,
+        TxVerifier,
+        Network,
+        DaStorage,
+        MempoolAdapter,
+        RuntimeServiceId,
+    >
 where
-    Backend: VerifierBackend + Send + Sync + 'static,
-    Backend::Settings: Clone + Send + Sync + 'static,
-    Backend::DaShare: Debug + Send + Sync + 'static,
-    Backend::Error: Error + Send + Sync + 'static,
-    <Backend::DaShare as Share>::BlobId: AsRef<[u8]> + Debug + Send + Sync + 'static,
-    <Backend::DaShare as Share>::LightShare: Debug + Send + Sync + 'static,
-    <Backend::DaShare as Share>::SharesCommitments: Debug + Send + Sync + 'static,
-    Network: NetworkAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + Sync + 'static,
+    ShareVerifier: VerifierBackend + Send + Sync + 'static,
+    ShareVerifier::Settings: Clone + Send + Sync + 'static,
+    ShareVerifier::DaShare: Debug + Send + Sync + 'static,
+    ShareVerifier::Error: Error + Send + Sync + 'static,
+    <ShareVerifier::DaShare as Share>::BlobId:
+        Clone + AsRef<[u8]> + Debug + Hash + Eq + Send + Sync + 'static,
+    <ShareVerifier::DaShare as Share>::LightShare: Debug + Send + Sync + 'static,
+    <ShareVerifier::DaShare as Share>::SharesCommitments: Debug + Send + Sync + 'static,
+    TxVerifier: TxVerifierBackend<BlobId = <ShareVerifier::DaShare as Share>::BlobId> + Send + Sync,
+    TxVerifier::Tx: Send,
+    TxVerifier::Settings: Clone + Send + Sync + 'static,
+    TxVerifier::Error: Error + Send + Sync + 'static,
+    Network: NetworkAdapter<RuntimeServiceId, Share = ShareVerifier::DaShare, Tx = TxVerifier::Tx>
+        + Send
+        + Sync
+        + 'static,
     Network::Membership: MembershipHandler + Clone,
     Network::Settings: Clone + Send + Sync + 'static,
     Network::Storage: MembershipStorageAdapter<
@@ -150,8 +281,17 @@ where
         + Sync
         + 'static,
     Network::MembershipAdapter: MembershipAdapter,
-    DaStorage: DaStorageAdapter<RuntimeServiceId, Share = Backend::DaShare> + Send + Sync + 'static,
+    DaStorage: DaStorageAdapter<RuntimeServiceId, Share = ShareVerifier::DaShare, Tx = TxVerifier::Tx>
+        + Send
+        + Sync
+        + 'static,
     DaStorage::Settings: Clone + Send + Sync + 'static,
+    MempoolAdapter: DaMempoolAdapter<
+            BlobId = <ShareVerifier::DaShare as Share>::BlobId,
+            Tx = <TxVerifier as TxVerifierBackend>::Tx,
+        > + Send
+        + Sync
+        + 'static,
     RuntimeServiceId: Debug
         + Display
         + Sync
@@ -168,6 +308,7 @@ where
                 RuntimeServiceId,
             >,
         >
+        + AsServiceId<MempoolAdapter::MempoolService>
         + AsServiceId<StorageService<DaStorage::Backend, RuntimeServiceId>>,
 {
     fn init(
@@ -175,17 +316,24 @@ where
         _initial_state: Self::State,
     ) -> Result<Self, DynError> {
         let DaVerifierServiceSettings {
-            verifier_settings, ..
+            share_verifier_settings,
+            tx_verifier_settings,
+            ..
         } = service_resources_handle
             .settings_handle
             .notifier()
             .get_updated_settings();
         Ok(Self {
             service_resources_handle,
-            verifier: Backend::new(verifier_settings),
+            share_verifier: ShareVerifier::new(share_verifier_settings),
+            tx_verifier: TxVerifier::new(tx_verifier_settings),
         })
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Run loop contains all handling for readablity"
+    )]
     async fn run(self) -> Result<(), DynError> {
         // This service will likely have to be modified later on.
         // Most probably the verifier itself need to be constructed/update for every
@@ -194,11 +342,13 @@ where
         // in the above-mentioned list.
         let Self {
             mut service_resources_handle,
-            verifier,
+            share_verifier,
+            tx_verifier,
         } = self;
 
         let DaVerifierServiceSettings {
             network_adapter_settings,
+            mempool_trigger_settings,
             ..
         } = service_resources_handle
             .settings_handle
@@ -211,6 +361,13 @@ where
             .await?;
         let network_adapter = Network::new(network_adapter_settings, network_relay).await;
         let mut share_stream = network_adapter.share_stream().await;
+        let mut tx_stream = network_adapter.tx_stream().await;
+
+        let mempool_relay = service_resources_handle
+            .overwatch_handle
+            .relay::<MempoolAdapter::MempoolService>()
+            .await?;
+        let mempool_adapter = MempoolAdapter::new(mempool_relay);
 
         let storage_relay = service_resources_handle
             .overwatch_handle
@@ -224,6 +381,9 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
+        let mut prune_interval = tokio::time::interval(mempool_trigger_settings.prune_interval);
+        let mempool_trigger = MempoolPublishTrigger::new(mempool_trigger_settings);
+
         wait_until_services_are_ready!(
             &service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
@@ -236,15 +396,32 @@ where
             tokio::select! {
                 Some(share) = share_stream.next() => {
                     let blob_id = share.blob_id();
-                    if let Err(err) =  Self::handle_new_share(&verifier,&storage_adapter, share).await {
+                    if let Err(err) =  Self::handle_new_share(
+                        &share_verifier,
+                        &storage_adapter,
+                        &mempool_trigger,
+                        &mempool_adapter,
+                        share
+                    ).await {
                         error!("Error handling blob {blob_id:?} due to {err:?}");
+                    }
+                }
+                Some((assignations, tx)) = tx_stream.next() => {
+                    if let Err(err) =  Self::handle_new_tx(&tx_verifier, &storage_adapter, assignations, tx).await {
+                        error!("Error handling tx due to {err:?}");
                     }
                 }
                 Some(msg) = service_resources_handle.inbound_relay.recv() => {
                     match msg {
                         DaVerifierMsg::AddShare { share, reply_channel } => {
                             let blob_id = share.blob_id();
-                            match Self::handle_new_share(&verifier, &storage_adapter, share).await {
+                            match Self::handle_new_share(
+                                &share_verifier,
+                                &storage_adapter,
+                                &mempool_trigger,
+                                &mempool_adapter,
+                                share
+                            ).await {
                                 Ok(attestation) => {
                                     if let Err(err) = reply_channel.send(Some(attestation)) {
                                         error!("Error replying attestation {err:?}");
@@ -259,7 +436,7 @@ where
                             };
                         },
                         DaVerifierMsg::VerifyShare {commitments,  light_share, reply_channel } => {
-                            match verifier.verify(&commitments, &light_share) {
+                            match share_verifier.verify(&commitments, &light_share) {
                                 Ok(()) => {
                                     if let Err(err) = reply_channel.send(Ok(())) {
                                         error!("Error replying verification {err:?}");
@@ -273,7 +450,15 @@ where
                                 },
                             }
                         },
-
+                    }
+                }
+                _ = prune_interval.tick() => {
+                    if let Err(err) = Self::prune_pending_txs(
+                        &storage_adapter,
+                        &mempool_trigger,
+                        &mempool_adapter
+                    ).await {
+                        error!("Error pruning txs due to {err:?}");
                     }
                 }
             }
@@ -282,8 +467,15 @@ where
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DaVerifierServiceSettings<BackendSettings, NetworkSettings, StorageSettings> {
-    pub verifier_settings: BackendSettings,
+pub struct DaVerifierServiceSettings<
+    ShareVerifierSettings,
+    TxVerifierSettings,
+    NetworkSettings,
+    StorageSettings,
+> {
+    pub share_verifier_settings: ShareVerifierSettings,
+    pub tx_verifier_settings: TxVerifierSettings,
     pub network_adapter_settings: NetworkSettings,
     pub storage_adapter_settings: StorageSettings,
+    pub mempool_trigger_settings: MempoolPublishTriggerConfig,
 }

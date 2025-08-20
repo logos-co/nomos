@@ -9,7 +9,7 @@ use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, TransportError,
 };
 use log::debug;
-use nomos_core::da::BlobId;
+use nomos_core::{da::BlobId, mantle::SignedMantleTx};
 use subnetworks_assignations::MembershipHandler;
 use tokio::{
     sync::mpsc::{unbounded_channel, UnboundedSender},
@@ -70,13 +70,14 @@ where
     sampling_events_sender: UnboundedSender<SamplingEvent>,
     validation_events_sender: UnboundedSender<DispersalEvent>,
     dispersal_events_sender: UnboundedSender<DispersalExecutorEvent>,
+    membership: Membership,
     phantom: PhantomData<HistoricMembership>,
 }
 
 impl<Membership, HistoricMembership, Addressbook>
     ExecutorSwarm<Membership, HistoricMembership, Addressbook>
 where
-    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
+    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send + Sync,
     HistoricMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
     Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
 {
@@ -123,7 +124,7 @@ where
             Self {
                 swarm: Self::build_swarm(
                     key,
-                    membership,
+                    membership.clone(),
                     addressbook,
                     balancer,
                     monitor,
@@ -135,6 +136,7 @@ where
                 sampling_events_sender,
                 validation_events_sender,
                 dispersal_events_sender,
+                membership,
                 phantom: PhantomData,
             },
             ExecutorEventsStream {
@@ -230,6 +232,15 @@ where
             .shares_sender()
     }
 
+    pub fn dispersal_tx_channel(
+        &mut self,
+    ) -> UnboundedSender<(Membership::NetworkId, SignedMantleTx)> {
+        self.swarm
+            .behaviour()
+            .dispersal_executor_behaviour()
+            .tx_sender()
+    }
+
     pub fn dispersal_open_stream_sender(&mut self) -> UnboundedSender<PeerId> {
         self.swarm
             .behaviour()
@@ -318,7 +329,13 @@ where
             self.swarm.behaviour_mut().monitor_behaviour_mut(),
             MonitorEvent::from(&event),
         );
-        handle_replication_event(&self.validation_events_sender, event).await;
+        handle_replication_event(
+            &self.validation_events_sender,
+            &self.membership,
+            self.local_peer_id(),
+            event,
+        )
+        .await;
     }
 
     #[expect(
