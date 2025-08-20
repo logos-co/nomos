@@ -52,6 +52,7 @@ members = [
   "zk/circuits/witness_generators/pol",
   "zk/groth16",
   "zk/poseidon2",
+  "zk/proofs/pol",
 ]
 resolver = "2"
 
