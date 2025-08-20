@@ -10,17 +10,6 @@ network:
     port: 3000
     node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d
     initial_peers: []
-  nat_config:
-    mapping:
-      timeout:
-        secs: 1
-        nanos: 0
-      lease_duration: 7200
-      max_retries: 3
-      renewal_delay_fraction: 0.8
-      retry_interval:
-        secs: 30
-        nanos: 0
 blend:
   backend:
     listening_address: /ip4/127.0.0.1/udp/3001/quic-v1

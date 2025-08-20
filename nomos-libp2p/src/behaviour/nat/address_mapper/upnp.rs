@@ -15,49 +15,42 @@ use crate::{
 
 type AddressWithProtocol = (SocketAddr, PortMappingProtocol);
 
-pub struct UpnpProtocol {
-    gateway: Gateway<Tokio>,
-    gateway_external_ip: IpAddr,
-    settings: NatMappingSettings,
-}
+pub struct UpnpProtocol;
 
-#[async_trait::async_trait]
-impl NatMapper for UpnpProtocol {
-    async fn initialize(settings: NatMappingSettings) -> Result<Box<Self>, AddressMapperError>
-    where
-        Self: Sized,
-    {
+impl UpnpProtocol {
+    async fn search_gateway_and_get_ip() -> Result<(Gateway<Tokio>, IpAddr), AddressMapperError> {
         let gateway = igd_next::aio::tokio::search_gateway(SearchOptions::default()).await?;
         let gateway_external_ip = gateway.get_external_ip().await?;
 
         info!("UPnP gateway found: {gateway_external_ip}");
 
-        Ok(Box::new(Self {
-            gateway,
-            gateway_external_ip,
-            settings,
-        }))
+        Ok((gateway, gateway_external_ip))
     }
+}
 
+#[async_trait::async_trait]
+impl NatMapper for UpnpProtocol {
     async fn map_address(
-        &mut self,
         address_to_map: &Multiaddr,
+        settings: NatMappingSettings,
     ) -> Result<Multiaddr, AddressMapperError> {
         let (internal_address, protocol) = multiaddr_to_socketaddr(address_to_map)?;
         let mapped_port = internal_address.port();
 
-        self.gateway
+        let (gateway, gateway_external_ip) = Self::search_gateway_and_get_ip().await?;
+
+        gateway
             .add_port(
                 protocol,
                 // Request the same port as the internal address
                 mapped_port,
                 internal_address,
-                self.settings.lease_duration,
+                settings.lease_duration,
                 "libp2p UPnP mapping",
             )
             .await?;
 
-        let external_addr = external_address(self.gateway_external_ip, address_to_map);
+        let external_addr = external_address(gateway_external_ip, address_to_map);
 
         info!("Successfully added UPnP mapping: {external_addr}");
 

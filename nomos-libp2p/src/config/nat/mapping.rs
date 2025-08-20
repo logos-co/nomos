@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use nomos_utils::{
     bounded_duration::{MinimalBoundedDuration, SECOND},
-    math::NonZeroF64,
+    math::PositiveF64,
 };
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -23,7 +23,7 @@ pub struct Settings {
     #[serde(default = "default_max_retries")]
     pub max_retries: u32,
     #[serde(default = "default_renewal_delay_fraction")]
-    pub renewal_delay_fraction: NonZeroF64,
+    pub renewal_delay_fraction: PositiveF64,
     #[serde(default = "default_retry_interval")]
     pub retry_interval: Duration,
 }
@@ -40,8 +40,8 @@ const fn default_max_retries() -> u32 {
     3
 }
 
-fn default_renewal_delay_fraction() -> NonZeroF64 {
-    NonZeroF64::try_from(DEFAULT_RENEWAL_DELAY_FRACTION).expect("0.8 is non-zero")
+fn default_renewal_delay_fraction() -> PositiveF64 {
+    PositiveF64::try_from(DEFAULT_RENEWAL_DELAY_FRACTION).expect("0.8 is positive")
 }
 
 const fn default_retry_interval() -> Duration {

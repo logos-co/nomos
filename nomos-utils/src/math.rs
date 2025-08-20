@@ -41,22 +41,22 @@ impl TryFrom<f64> for NonNegativeF64 {
 
 #[derive(Clone, Copy, PartialEq, PartialOrd, Debug)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
-pub struct NonZeroF64(
+pub struct PositiveF64(
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "serde::deserialize_nonzero")
+        serde(deserialize_with = "serde::deserialize_positive")
     )]
     f64,
 );
 
-impl NonZeroF64 {
+impl PositiveF64 {
     #[must_use]
     pub const fn get(self) -> f64 {
         self.0
     }
 }
 
-impl Deref for NonZeroF64 {
+impl Deref for PositiveF64 {
     type Target = f64;
 
     fn deref(&self) -> &Self::Target {
@@ -64,17 +64,17 @@ impl Deref for NonZeroF64 {
     }
 }
 
-impl DerefMut for NonZeroF64 {
+impl DerefMut for PositiveF64 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl TryFrom<f64> for NonZeroF64 {
+impl TryFrom<f64> for PositiveF64 {
     type Error = ();
 
     fn try_from(value: f64) -> Result<Self, Self::Error> {
-        if value == 0f64 {
+        if value <= 0f64 {
             Err(())
         } else {
             Ok(Self(value))
@@ -86,7 +86,7 @@ impl TryFrom<f64> for NonZeroF64 {
 mod serde {
     use serde::Deserialize as _;
 
-    use crate::math::{NonNegativeF64, NonZeroF64};
+    use crate::math::{NonNegativeF64, PositiveF64};
 
     pub(super) fn deserialize<'de, Deserializer>(
         deserializer: Deserializer,
@@ -101,15 +101,15 @@ mod serde {
         Ok(inner)
     }
 
-    pub(super) fn deserialize_nonzero<'de, Deserializer>(
+    pub(super) fn deserialize_positive<'de, Deserializer>(
         deserializer: Deserializer,
     ) -> Result<f64, Deserializer::Error>
     where
         Deserializer: serde::Deserializer<'de>,
     {
         let inner = f64::deserialize(deserializer)?;
-        NonZeroF64::try_from(inner)
-            .map_err(|()| serde::de::Error::custom("Deserialized f64 must be non-zero."))?;
+        PositiveF64::try_from(inner)
+            .map_err(|()| serde::de::Error::custom("Deserialized f64 must be positive."))?;
         Ok(inner)
     }
 }
@@ -119,33 +119,50 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_non_negative_f64() {
+    fn non_negative_basic() {
         assert!(NonNegativeF64::try_from(0.0).is_ok());
         assert!(NonNegativeF64::try_from(1.0).is_ok());
-        assert!(NonNegativeF64::try_from(42.5).is_ok());
-        assert!(NonNegativeF64::try_from(-1.0).is_err());
         assert!(NonNegativeF64::try_from(-0.1).is_err());
     }
 
     #[test]
-    fn test_non_zero_f64() {
-        assert!(NonZeroF64::try_from(1.0).is_ok());
-        assert!(NonZeroF64::try_from(42.5).is_ok());
-        assert!(NonZeroF64::try_from(-1.0).is_ok());
-        assert!(NonZeroF64::try_from(-0.1).is_ok());
-        assert!(NonZeroF64::try_from(0.0).is_err());
-        assert!(NonZeroF64::try_from(-0.0).is_err());
+    fn positive_basic() {
+        assert!(PositiveF64::try_from(0.1).is_ok());
+        assert!(PositiveF64::try_from(0.0).is_err());
+        assert!(PositiveF64::try_from(-1.0).is_err());
     }
 
-    #[test]
-    fn test_non_zero_f64_deref() {
-        let value = NonZeroF64::try_from(2.5).unwrap();
-        assert!((*value - 2.5).abs() < f64::EPSILON);
-    }
+    #[cfg(feature = "serde")]
+    mod serde_tests {
+        use ::serde::Deserialize;
 
-    #[test]
-    fn test_non_zero_f64_get() {
-        let value = NonZeroF64::try_from(-2.5).unwrap();
-        assert!((value.get() - (-2.5)).abs() < f64::EPSILON);
+        use super::*;
+
+        #[derive(Debug, Deserialize)]
+        struct NonNegative {
+            value: NonNegativeF64,
+        }
+        #[derive(Debug, Deserialize)]
+        struct Positive {
+            value: PositiveF64,
+        }
+
+        #[test]
+        fn deser_non_negativef64() {
+            let ok: NonNegative = serde_json::from_str(r#"{"value": 0.1}"#).unwrap();
+            assert!((*ok.value - 0.1).abs() < f64::EPSILON);
+
+            assert!(serde_json::from_str::<NonNegative>(r#"{"value": 0.0}"#).is_ok());
+            assert!(serde_json::from_str::<NonNegative>(r#"{"value": -1.0}"#).is_err());
+        }
+
+        #[test]
+        fn deser_positivef64() {
+            let ok: Positive = serde_json::from_str(r#"{"value": 0.1}"#).unwrap();
+            assert!((*ok.value - 0.1).abs() < f64::EPSILON);
+
+            assert!(serde_json::from_str::<Positive>(r#"{"value": 0.0}"#).is_err());
+            assert!(serde_json::from_str::<Positive>(r#"{"value": -1.0}"#).is_err());
+        }
     }
 }

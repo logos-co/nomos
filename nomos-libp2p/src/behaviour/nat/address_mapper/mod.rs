@@ -19,7 +19,7 @@ use libp2p::{
     },
     PeerId,
 };
-use nomos_utils::math::NonZeroF64;
+use nomos_utils::math::PositiveF64;
 use tokio::time::{self, Sleep};
 use tracing::{debug, info, warn};
 
@@ -50,7 +50,12 @@ pub enum Event {
     /// The local address has changed
     LocalAddressChanged(Multiaddr),
     /// A new external address mapping has been successfully established
-    NewExternalMappedAddress(Multiaddr),
+    NewExternalMappedAddress {
+        /// The original local address that was mapped
+        local_address: Multiaddr,
+        /// The external address that was successfully mapped
+        external_address: Multiaddr,
+    },
 }
 
 /// Represents the current state of NAT address mapping
@@ -131,21 +136,23 @@ impl StateTrait for MappingState {
 impl MappingState {
     fn handle_success(
         self,
-        external: Multiaddr,
+        external_address: Multiaddr,
         settings: &NatMappingSettings,
     ) -> (PollResult, State) {
-        info!(%self.local_address, %external, "NAT mapping established");
+        info!(%self.local_address, %external_address, "NAT mapping established");
 
+        let local_address = self.local_address.clone();
         let new_state = State::active(
-            self.local_address,
+            local_address.clone(),
             settings.lease_duration,
             settings.renewal_delay_fraction,
         );
 
         let result = if self.is_initial {
-            Poll::Ready(ToSwarm::GenerateEvent(Event::NewExternalMappedAddress(
-                external,
-            )))
+            Poll::Ready(ToSwarm::GenerateEvent(Event::NewExternalMappedAddress {
+                local_address,
+                external_address,
+            }))
         } else {
             Poll::Pending
         };
@@ -251,11 +258,7 @@ impl State {
         debug!(%address, is_initial, retry_count, "Starting NAT mapping");
 
         let local_address = address.clone();
-        let future = async move {
-            let mut mapper = P::initialize(settings).await?;
-            mapper.map_address(&local_address).await
-        }
-        .boxed();
+        let future = async move { P::map_address(&local_address, settings).await }.boxed();
 
         Self::Mapping(MappingState {
             local_address: address,
@@ -268,7 +271,7 @@ impl State {
     fn active(
         local_address: Multiaddr,
         lease_duration: u32,
-        renewal_delay_fraction: NonZeroF64,
+        renewal_delay_fraction: PositiveF64,
     ) -> Self {
         let renewal_delay =
             Duration::from_secs_f64(f64::from(lease_duration) * renewal_delay_fraction.get());
@@ -430,16 +433,9 @@ mod tests {
 
     #[async_trait::async_trait]
     impl NatMapper for MockMapper {
-        async fn initialize(_settings: NatMappingSettings) -> Result<Box<Self>, AddressMapperError>
-        where
-            Self: Sized,
-        {
-            Ok(Box::new(Self))
-        }
-
         async fn map_address(
-            &mut self,
             _address: &Multiaddr,
+            _settings: NatMappingSettings,
         ) -> Result<Multiaddr, AddressMapperError> {
             CALL_COUNT.with(|c| c.fetch_add(1, Ordering::SeqCst));
             Ok(MOCK_EXTERNAL_ADDRESS.parse().unwrap())
@@ -448,16 +444,9 @@ mod tests {
 
     #[async_trait::async_trait]
     impl NatMapper for FailingMockMapper {
-        async fn initialize(_settings: NatMappingSettings) -> Result<Box<Self>, AddressMapperError>
-        where
-            Self: Sized,
-        {
-            Ok(Box::new(Self))
-        }
-
         async fn map_address(
-            &mut self,
             _address: &Multiaddr,
+            _settings: NatMappingSettings,
         ) -> Result<Multiaddr, AddressMapperError> {
             CALL_COUNT.with(|c| c.fetch_add(1, Ordering::SeqCst));
             Err(AddressMapperError::PortMappingFailed(
@@ -493,7 +482,7 @@ mod tests {
 
         let address: Multiaddr = "/ip4/192.168.1.100/tcp/8080".parse().unwrap();
 
-        behaviour.try_map_address(address).unwrap();
+        behaviour.try_map_address(address.clone()).unwrap();
 
         let event = poll_fn(|cx| match behaviour.poll(cx) {
             Poll::Ready(ToSwarm::GenerateEvent(e)) => Poll::Ready(Some(e)),
@@ -503,7 +492,7 @@ mod tests {
 
         let external_address: Multiaddr = MOCK_EXTERNAL_ADDRESS.parse().unwrap();
         assert!(
-            matches!(event, Some(Event::NewExternalMappedAddress(addr)) if addr == external_address)
+            matches!(event, Some(Event::NewExternalMappedAddress { external_address: external, local_address: local }) if external == external_address && local == address)
         );
     }
 
@@ -580,7 +569,10 @@ mod tests {
         })
         .await;
 
-        assert!(matches!(event, Some(Event::NewExternalMappedAddress(_))));
+        assert!(matches!(
+            event,
+            Some(Event::NewExternalMappedAddress { .. })
+        ));
         assert_eq!(MockMapper::get_mapping_attempts_count(), 2);
     }
 
