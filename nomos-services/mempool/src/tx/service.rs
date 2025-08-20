@@ -12,7 +12,6 @@ use std::{
 
 use futures::StreamExt as _;
 use nomos_da_sampling::backend::kzgrs::KzgrsSamplingBackend;
-use nomos_da_verifier::backend::kzgrs::KzgrsDaVerifier;
 use nomos_network::{message::BackendNetworkMsg, NetworkService};
 use overwatch::{
     services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},
@@ -34,70 +33,40 @@ use crate::{
     MempoolMetrics, MempoolMsg,
 };
 
-pub type DaSamplingService<
-    SamplingNetworkAdapter,
-    VerifierNetworkAdapter,
-    SamplingStorage,
-    VerifierStorage,
-    RuntimeServiceId,
-> = nomos_da_sampling::DaSamplingService<
-    KzgrsSamplingBackend,
-    SamplingNetworkAdapter,
-    SamplingStorage,
-    KzgrsDaVerifier,
-    VerifierNetworkAdapter,
-    VerifierStorage,
-    RuntimeServiceId,
->;
+pub type DaSamplingService<SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId> =
+    nomos_da_sampling::DaSamplingService<
+        KzgrsSamplingBackend,
+        SamplingNetworkAdapter,
+        SamplingStorage,
+        RuntimeServiceId,
+    >;
 
 /// A tx mempool service that uses a [`JsonFileBackend`] as a recovery
 /// mechanism.
 pub type TxMempoolService<
     MempoolNetworkAdapter,
     SamplingNetworkAdapter,
-    VerifierNetworkAdapter,
     SamplingStorage,
-    VerifierStorage,
     Pool,
     RuntimeServiceId,
 > = GenericTxMempoolService<
     Pool,
     MempoolNetworkAdapter,
-    SignedTxProcessor<
-        DaSamplingService<
-            SamplingNetworkAdapter,
-            VerifierNetworkAdapter,
-            SamplingStorage,
-            VerifierStorage,
-            RuntimeServiceId,
-        >,
-    >,
+    SignedTxProcessor<DaSamplingService<SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
     JsonFileBackend<
         TxMempoolState<
             <Pool as RecoverableMempool>::RecoveryState,
             <Pool as MemPool>::Settings,
             <MempoolNetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Settings,
             <SignedTxProcessor<
-                DaSamplingService<
-                    SamplingNetworkAdapter,
-                    VerifierNetworkAdapter,
-                    SamplingStorage,
-                    VerifierStorage,
-                    RuntimeServiceId,
-                >,
+                DaSamplingService<SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
             > as PayloadProcessor>::Settings,
         >,
         TxMempoolSettings<
             <Pool as MemPool>::Settings,
             <MempoolNetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Settings,
             <SignedTxProcessor<
-                DaSamplingService<
-                    SamplingNetworkAdapter,
-                    VerifierNetworkAdapter,
-                    SamplingStorage,
-                    VerifierStorage,
-                    RuntimeServiceId,
-                >,
+                DaSamplingService<SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
             > as PayloadProcessor>::Settings,
         >,
     >,

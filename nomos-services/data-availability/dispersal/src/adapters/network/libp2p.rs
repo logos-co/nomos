@@ -2,7 +2,7 @@ use std::{collections::HashSet, fmt::Debug, marker::PhantomData, pin::Pin, time:
 
 use futures::{stream::BoxStream, Stream, StreamExt as _};
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
-use nomos_core::da::BlobId;
+use nomos_core::{da::BlobId, mantle::SignedMantleTx};
 use nomos_da_network_core::{
     protocols::{
         dispersal::executor::behaviour::DispersalExecutorEvent, sampling::errors::SamplingError,
@@ -28,6 +28,11 @@ use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
 
 use crate::adapters::network::DispersalNetworkAdapter;
+
+enum SampleOutcome {
+    Success(u16),
+    Retry(u16),
+}
 
 pub struct Libp2pNetworkAdapter<
     Membership,
@@ -132,16 +137,32 @@ where
         }
     }
 
-    async fn disperse(
+    async fn disperse_share(
         &self,
         subnetwork_id: Self::SubnetworkId,
         da_share: DaShare,
     ) -> Result<(), DynError> {
         self.outbound_relay
             .send(DaNetworkMsg::Process(
-                ExecutorDaNetworkMessage::RequestDispersal {
+                ExecutorDaNetworkMessage::RequestShareDispersal {
                     subnetwork_id,
                     da_share: Box::new(da_share),
+                },
+            ))
+            .await
+            .map_err(|(e, _)| Box::new(e) as DynError)
+    }
+
+    async fn disperse_tx(
+        &self,
+        subnetwork_id: Self::SubnetworkId,
+        tx: SignedMantleTx,
+    ) -> Result<(), DynError> {
+        self.outbound_relay
+            .send(DaNetworkMsg::Process(
+                ExecutorDaNetworkMessage::RequestTxDispersal {
+                    subnetwork_id,
+                    tx: Box::new(tx),
                 },
             ))
             .await
@@ -208,11 +229,6 @@ where
         self.start_sampling(blob_id).await?;
 
         let stream = stream_receiver.await.map_err(Box::new)?;
-
-        enum SampleOutcome {
-            Success(u16),
-            Retry(u16),
-        }
 
         let mut stream = tokio_stream::StreamExt::filter_map(stream, move |event| match event {
             DaNetworkEvent::Sampling(event) if event.has_blob_id(&blob_id) => match event {

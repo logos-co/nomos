@@ -17,7 +17,6 @@ libp2p-identity          = { version = "0.2" }
 nomos-core               = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-da-network-service = { workspace = true }
-nomos-da-verifier        = { workspace = true }
 nomos-storage            = { workspace = true }
 nomos-tracing            = { workspace = true }
 overwatch                = { workspace = true }

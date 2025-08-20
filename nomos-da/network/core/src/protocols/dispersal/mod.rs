@@ -40,7 +40,7 @@ pub mod test {
         let mut validator = Swarm::new_ephemeral_tokio(|k2| {
             let p2 = PeerId::from_public_key(&k2.public());
             neighbours.add_neighbour(p2);
-            DispersalValidatorBehaviour::new(neighbours.clone())
+            DispersalValidatorBehaviour::new(p2, neighbours.clone())
         });
 
         validator.listen().with_memory_addr_external().await;

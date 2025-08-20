@@ -16,7 +16,6 @@ futures                = "0.3"
 nomos-blend-service    = { workspace = true }
 nomos-core             = { workspace = true }
 nomos-da-sampling      = { workspace = true }
-nomos-da-verifier      = { workspace = true }
 nomos-ledger           = { workspace = true, features = ["serde"] }
 nomos-mempool          = { workspace = true }
 nomos-network          = { workspace = true }

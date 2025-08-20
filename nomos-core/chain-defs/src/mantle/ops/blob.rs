@@ -20,3 +20,14 @@ pub struct BlobOp {
     pub after_tx: Option<TxHash>,
     pub signer: Ed25519PublicKey,
 }
+
+impl BlobOp {
+    #[must_use]
+    pub fn as_sign_bytes(&self) -> bytes::Bytes {
+        let mut buff = bytes::BytesMut::new();
+        buff.extend_from_slice(&self.channel.to_be_bytes());
+        buff.extend_from_slice(&self.blob);
+        buff.extend_from_slice(&self.signer);
+        buff.freeze()
+    }
+}

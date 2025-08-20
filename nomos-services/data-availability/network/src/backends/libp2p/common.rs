@@ -8,7 +8,7 @@ use kzgrs_backend::common::{
     share::{DaLightShare, DaShare, DaSharesCommitments},
     ShareIndex,
 };
-use nomos_core::da::BlobId;
+use nomos_core::{da::BlobId, mantle::SignedMantleTx};
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::{
@@ -100,12 +100,41 @@ impl SamplingEvent {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum VerificationEvent {
+    Tx {
+        // Number of subnetwork assignations that the node is assigned to at the moment of
+        // receiving a dispersal TX. This is added to the TX message received via the network
+        // because of dynamic assignations that can change depending
+        // on the DA session, and syncinc these moments preciselly between services even if some
+        // TX events might reach destination after the assignations has already changed.
+        assignations: u16,
+        tx: Box<SignedMantleTx>,
+    },
+    Share(Box<DaShare>),
+}
+
+impl From<DaShare> for VerificationEvent {
+    fn from(share: DaShare) -> Self {
+        Self::Share(Box::new(share))
+    }
+}
+
+impl From<(u16, Box<SignedMantleTx>)> for VerificationEvent {
+    fn from(tx: (u16, Box<SignedMantleTx>)) -> Self {
+        Self::Tx {
+            assignations: tx.0,
+            tx: tx.1,
+        }
+    }
+}
+
 /// Task that handles forwarding of events to the subscriptions channels/stream
 pub(crate) async fn handle_validator_events_stream(
     events_streams: ValidatorEventsStream,
     sampling_broadcast_sender: broadcast::Sender<SamplingEvent>,
     commitments_broadcast_sender: broadcast::Sender<CommitmentsEvent>,
-    validation_broadcast_sender: broadcast::Sender<DaShare>,
+    validation_broadcast_sender: broadcast::Sender<VerificationEvent>,
 ) {
     let ValidatorEventsStream {
         mut sampling_events_receiver,
@@ -127,19 +156,26 @@ pub(crate) async fn handle_validator_events_stream(
 }
 
 fn handle_dispersal_event(
-    validation_broadcast_sender: &broadcast::Sender<DaShare>,
+    validation_broadcast_sender: &broadcast::Sender<VerificationEvent>,
     dispersal_event: DispersalEvent,
 ) {
     match dispersal_event {
         DispersalEvent::IncomingShare(share) => {
-            if let Err(error) = validation_broadcast_sender.send(share.data) {
+            if let Err(error) = validation_broadcast_sender.send(share.data.into()) {
                 error!(
                     "Error in internal broadcast of validation for blob: {:?}",
                     error.0
                 );
             }
         }
-        DispersalEvent::IncomingTx(_) => todo!(),
+        DispersalEvent::IncomingTx(tx) => {
+            if let Err(error) = validation_broadcast_sender.send(tx.into()) {
+                error!(
+                    "Error in internal broadcast of validation for blob: {:?}",
+                    error.0
+                );
+            }
+        }
         DispersalEvent::DispersalError { error } => {
             error!("Error from dispersal behaviour: {error:?}");
         }

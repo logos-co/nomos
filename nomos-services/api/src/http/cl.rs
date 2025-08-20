@@ -12,31 +12,16 @@ use tokio::sync::oneshot;
 
 use crate::wait_with_timeout;
 
-pub type ClMempoolService<
-    Tx,
-    SamplingNetworkAdapter,
-    VerifierNetworkAdapter,
-    SamplingStorage,
-    VerifierStorage,
-    RuntimeServiceId,
-> = TxMempoolService<
-    MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
-    SamplingNetworkAdapter,
-    VerifierNetworkAdapter,
-    SamplingStorage,
-    VerifierStorage,
-    MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
-    RuntimeServiceId,
->;
+pub type ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId> =
+    TxMempoolService<
+        MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
+        SamplingNetworkAdapter,
+        SamplingStorage,
+        MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
+        RuntimeServiceId,
+    >;
 
-pub async fn cl_mempool_metrics<
-    Tx,
-    SamplingNetworkAdapter,
-    VerifierNetworkAdapter,
-    SamplingStorage,
-    VerifierStorage,
-    RuntimeServiceId,
->(
+pub async fn cl_mempool_metrics<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
 ) -> Result<MempoolMetrics, super::DynError>
 where
@@ -45,24 +30,12 @@ where
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SamplingNetworkAdapter:
         nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
-    VerifierNetworkAdapter:
-        nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
-    VerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     RuntimeServiceId: Debug
         + Sync
         + Send
         + Display
-        + AsServiceId<
-            ClMempoolService<
-                Tx,
-                SamplingNetworkAdapter,
-                VerifierNetworkAdapter,
-                SamplingStorage,
-                VerifierStorage,
-                RuntimeServiceId,
-            >,
-        >,
+        + AsServiceId<ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
@@ -80,14 +53,7 @@ where
     .await
 }
 
-pub async fn cl_mempool_status<
-    Tx,
-    SamplingNetworkAdapter,
-    VerifierNetworkAdapter,
-    SamplingStorage,
-    VerifierStorage,
-    RuntimeServiceId,
->(
+pub async fn cl_mempool_status<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
     items: Vec<<Tx as Transaction>::Hash>,
 ) -> Result<Vec<Status<HeaderId>>, super::DynError>
@@ -97,24 +63,12 @@ where
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SamplingNetworkAdapter:
         nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
-    VerifierNetworkAdapter:
-        nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
-    VerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     RuntimeServiceId: Debug
         + Sync
         + Send
         + Display
-        + AsServiceId<
-            ClMempoolService<
-                Tx,
-                SamplingNetworkAdapter,
-                VerifierNetworkAdapter,
-                SamplingStorage,
-                VerifierStorage,
-                RuntimeServiceId,
-            >,
-        >,
+        + AsServiceId<ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();

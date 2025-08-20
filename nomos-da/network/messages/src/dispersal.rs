@@ -1,10 +1,11 @@
-use nomos_core::{da::BlobId, mantle::SignedMantleTx};
+use kzgrs_backend::common::share::DaShare;
+use nomos_core::{
+    da::{blob, BlobId},
+    mantle::{ops::Op, SignedMantleTx},
+};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    common::{Share, ShareRequest},
-    SubnetworkId,
-};
+use crate::common::{Share, ShareRequest};
 
 #[repr(C)]
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -37,7 +38,7 @@ impl DispersalError {
 }
 
 #[repr(C)]
-#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum DispersalRequest {
     Share(ShareRequest),
     Tx(SignedMantleTx),
@@ -45,15 +46,31 @@ pub enum DispersalRequest {
 
 impl DispersalRequest {
     #[must_use]
-    pub const fn new_share(share: Share, subnetwork_id: SubnetworkId) -> Self {
+    pub fn blob_id(&self) -> Option<BlobId> {
+        match self {
+            Self::Share(share) => Some(share.share.blob_id),
+            Self::Tx(tx) => match tx.mantle_tx.ops.first() {
+                Some(Op::Blob(blob_op)) => Some(blob_op.blob),
+                _ => None,
+            },
+        }
+    }
+}
+
+impl From<DaShare> for DispersalRequest {
+    fn from(share: DaShare) -> Self {
         Self::Share(ShareRequest {
-            share,
-            subnetwork_id,
+            subnetwork_id: share.share_idx,
+            share: Share {
+                blob_id: blob::Share::blob_id(&share),
+                data: share,
+            },
         })
     }
+}
 
-    #[must_use]
-    pub const fn new_tx(tx: SignedMantleTx) -> Self {
+impl From<SignedMantleTx> for DispersalRequest {
+    fn from(tx: SignedMantleTx) -> Self {
         Self::Tx(tx)
     }
 }

@@ -13,7 +13,7 @@ use nomos_da_network_service::membership::adapters::service::MembershipServiceAd
 use nomos_da_sampling::{
     backend::kzgrs::KzgrsSamplingBackend, storage::adapters::rocksdb::converter::DaStorageConverter,
 };
-use nomos_da_verifier::backend::kzgrs::KzgrsDaVerifier;
+use nomos_da_verifier::{backend::kzgrs::KzgrsDaVerifier, mempool::kzgrs::KzgrsMempoolAdapter};
 use nomos_membership::{adapters::sdp::LedgerSdpAdapter, backends::mock::MockMembershipBackend};
 use nomos_mempool::backend::mockpool::MockPool;
 use nomos_sdp::{
@@ -28,7 +28,7 @@ use nomos_time::backends::NtpTimeBackend;
 
 use crate::{Wire, MB16};
 
-pub type TxMempoolService<SamplingNetworkAdapter, VerifierNetworkAdapter, RuntimeServiceId> =
+pub type TxMempoolService<SamplingNetworkAdapter, RuntimeServiceId> =
     nomos_mempool::TxMempoolService<
         nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
             SignedMantleTx,
@@ -36,13 +36,7 @@ pub type TxMempoolService<SamplingNetworkAdapter, VerifierNetworkAdapter, Runtim
             RuntimeServiceId,
         >,
         SamplingNetworkAdapter,
-        VerifierNetworkAdapter,
         nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<
-            DaShare,
-            Wire,
-            DaStorageConverter,
-        >,
-        nomos_da_verifier::storage::adapters::rocksdb::RocksAdapter<
             DaShare,
             Wire,
             DaStorageConverter,
@@ -53,62 +47,59 @@ pub type TxMempoolService<SamplingNetworkAdapter, VerifierNetworkAdapter, Runtim
 
 pub type TimeService<RuntimeServiceId> = nomos_time::TimeService<NtpTimeBackend, RuntimeServiceId>;
 
-pub type DaIndexerService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> =
-    nomos_da_indexer::DataIndexerService<
-        // Indexer specific.
-        DaShare,
-        nomos_da_indexer::storage::adapters::rocksdb::RocksAdapter<
-            Wire,
-            BlobInfo,
-            DaStorageConverter,
-        >,
-        CryptarchiaConsensusAdapter<SignedMantleTx, BlobInfo>,
-        // Cryptarchia specific, should be the same as in `Cryptarchia` type above.
-        chain_service::network::adapters::libp2p::LibP2pAdapter<
-            SignedMantleTx,
-            BlobInfo,
-            RuntimeServiceId,
-        >,
-        chain_service::blend::adapters::libp2p::LibP2pAdapter<
-            nomos_blend_service::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
-            SignedMantleTx,
-            BlobInfo,
-            RuntimeServiceId,
-        >,
-        MockPool<HeaderId, SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
-        nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-            SignedMantleTx,
-            <SignedMantleTx as Transaction>::Hash,
-            RuntimeServiceId,
-        >,
-        MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
-        nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-            BlobInfo,
-            <BlobInfo as DispersedBlobInfo>::BlobId,
-            RuntimeServiceId,
-        >,
-        nomos_core::mantle::select::FillSize<MB16, SignedMantleTx>,
-        nomos_core::da::blob::select::FillSize<MB16, BlobInfo>,
-        RocksBackend<Wire>,
-        KzgrsSamplingBackend,
-        SamplingAdapter,
-        nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<
-            DaShare,
-            Wire,
-            DaStorageConverter,
-        >,
-        KzgrsDaVerifier,
-        VerifierNetwork,
-        nomos_da_verifier::storage::adapters::rocksdb::RocksAdapter<
-            DaShare,
-            Wire,
-            DaStorageConverter,
-        >,
-        NtpTimeBackend,
+pub type DaIndexerService<SamplingAdapter, RuntimeServiceId> = nomos_da_indexer::DataIndexerService<
+    // Indexer specific.
+    DaShare,
+    nomos_da_indexer::storage::adapters::rocksdb::RocksAdapter<Wire, BlobInfo, DaStorageConverter>,
+    CryptarchiaConsensusAdapter<SignedMantleTx, BlobInfo>,
+    // Cryptarchia specific, should be the same as in `Cryptarchia` type above.
+    chain_service::network::adapters::libp2p::LibP2pAdapter<
+        SignedMantleTx,
+        BlobInfo,
         RuntimeServiceId,
-    >;
+    >,
+    chain_service::blend::adapters::libp2p::LibP2pAdapter<
+        nomos_blend_service::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
+        SignedMantleTx,
+        BlobInfo,
+        RuntimeServiceId,
+    >,
+    MockPool<HeaderId, SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
+    nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
+        SignedMantleTx,
+        <SignedMantleTx as Transaction>::Hash,
+        RuntimeServiceId,
+    >,
+    MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
+    nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
+        BlobInfo,
+        <BlobInfo as DispersedBlobInfo>::BlobId,
+        RuntimeServiceId,
+    >,
+    nomos_core::mantle::select::FillSize<MB16, SignedMantleTx>,
+    nomos_core::da::blob::select::FillSize<MB16, BlobInfo>,
+    RocksBackend<Wire>,
+    KzgrsSamplingBackend,
+    SamplingAdapter,
+    nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, Wire, DaStorageConverter>,
+    NtpTimeBackend,
+    RuntimeServiceId,
+>;
 
-pub type DaVerifierService<VerifierAdapter, RuntimeServiceId> =
+pub type VerifierMempoolAdapter<NetworkAdapter, RuntimeServiceId> = KzgrsMempoolAdapter<
+    nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
+        BlobInfo,
+        <BlobInfo as DispersedBlobInfo>::BlobId,
+        RuntimeServiceId,
+    >,
+    MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
+    KzgrsSamplingBackend,
+    NetworkAdapter,
+    nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, Wire, DaStorageConverter>,
+    RuntimeServiceId,
+>;
+
+pub type DaVerifierService<VerifierAdapter, MempoolAdapter, RuntimeServiceId> =
     nomos_da_verifier::DaVerifierService<
         KzgrsDaVerifier,
         VerifierAdapter,
@@ -117,10 +108,11 @@ pub type DaVerifierService<VerifierAdapter, RuntimeServiceId> =
             Wire,
             DaStorageConverter,
         >,
+        MempoolAdapter,
         RuntimeServiceId,
     >;
 
-pub type DaSamplingService<SamplingAdapter, VerifierNetworkAdapter, RuntimeServiceId> =
+pub type DaSamplingService<SamplingAdapter, RuntimeServiceId> =
     nomos_da_sampling::DaSamplingService<
         KzgrsSamplingBackend,
         SamplingAdapter,
@@ -129,86 +121,55 @@ pub type DaSamplingService<SamplingAdapter, VerifierNetworkAdapter, RuntimeServi
             Wire,
             DaStorageConverter,
         >,
-        KzgrsDaVerifier,
-        VerifierNetworkAdapter,
-        nomos_da_verifier::storage::adapters::rocksdb::RocksAdapter<
-            DaShare,
-            Wire,
-            DaStorageConverter,
-        >,
         RuntimeServiceId,
     >;
 
-pub type DaMempoolService<DaSamplingNetwork, VerifierNetwork, RuntimeServiceId> =
-    nomos_mempool::DaMempoolService<
-        nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-            BlobInfo,
-            <BlobInfo as DispersedBlobInfo>::BlobId,
-            RuntimeServiceId,
-        >,
-        MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
-        KzgrsSamplingBackend,
-        DaSamplingNetwork,
-        nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<
-            DaShare,
-            Wire,
-            DaStorageConverter,
-        >,
-        KzgrsDaVerifier,
-        VerifierNetwork,
-        nomos_da_verifier::storage::adapters::rocksdb::RocksAdapter<
-            DaShare,
-            Wire,
-            DaStorageConverter,
-        >,
+pub type DaMempoolService<DaSamplingNetwork, RuntimeServiceId> = nomos_mempool::DaMempoolService<
+    nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
+        BlobInfo,
+        <BlobInfo as DispersedBlobInfo>::BlobId,
         RuntimeServiceId,
-    >;
+    >,
+    MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
+    KzgrsSamplingBackend,
+    DaSamplingNetwork,
+    nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, Wire, DaStorageConverter>,
+    RuntimeServiceId,
+>;
 
-pub type CryptarchiaService<SamplingAdapter, VerifierNetwork, RuntimeServiceId> =
-    CryptarchiaConsensus<
-        chain_service::network::adapters::libp2p::LibP2pAdapter<
-            SignedMantleTx,
-            BlobInfo,
-            RuntimeServiceId,
-        >,
-        chain_service::blend::adapters::libp2p::LibP2pAdapter<
-            nomos_blend_service::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
-            SignedMantleTx,
-            BlobInfo,
-            RuntimeServiceId,
-        >,
-        MockPool<HeaderId, SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
-        nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-            SignedMantleTx,
-            <SignedMantleTx as Transaction>::Hash,
-            RuntimeServiceId,
-        >,
-        MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
-        nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-            BlobInfo,
-            <BlobInfo as DispersedBlobInfo>::BlobId,
-            RuntimeServiceId,
-        >,
-        nomos_core::mantle::select::FillSize<MB16, SignedMantleTx>,
-        nomos_core::da::blob::select::FillSize<MB16, BlobInfo>,
-        RocksBackend<Wire>,
-        KzgrsSamplingBackend,
-        SamplingAdapter,
-        nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<
-            DaShare,
-            Wire,
-            DaStorageConverter,
-        >,
-        KzgrsDaVerifier,
-        VerifierNetwork,
-        nomos_da_verifier::storage::adapters::rocksdb::RocksAdapter<
-            DaShare,
-            Wire,
-            DaStorageConverter,
-        >,
-        NtpTimeBackend,
+pub type CryptarchiaService<SamplingAdapter, RuntimeServiceId> = CryptarchiaConsensus<
+    chain_service::network::adapters::libp2p::LibP2pAdapter<
+        SignedMantleTx,
+        BlobInfo,
         RuntimeServiceId,
-    >;
+    >,
+    chain_service::blend::adapters::libp2p::LibP2pAdapter<
+        nomos_blend_service::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
+        SignedMantleTx,
+        BlobInfo,
+        RuntimeServiceId,
+    >,
+    MockPool<HeaderId, SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
+    nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
+        SignedMantleTx,
+        <SignedMantleTx as Transaction>::Hash,
+        RuntimeServiceId,
+    >,
+    MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
+    nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
+        BlobInfo,
+        <BlobInfo as DispersedBlobInfo>::BlobId,
+        RuntimeServiceId,
+    >,
+    nomos_core::mantle::select::FillSize<MB16, SignedMantleTx>,
+    nomos_core::da::blob::select::FillSize<MB16, BlobInfo>,
+    RocksBackend<Wire>,
+    KzgrsSamplingBackend,
+    SamplingAdapter,
+    nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, Wire, DaStorageConverter>,
+    NtpTimeBackend,
+    RuntimeServiceId,
+>;
 
 pub type MembershipService<RuntimeServiceId> = nomos_membership::MembershipService<
     MembershipBackend,
