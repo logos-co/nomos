@@ -1,11 +1,20 @@
-use core::{num::NonZeroU64, ops::RangeInclusive, time::Duration};
+use core::{
+    iter::repeat_with,
+    num::NonZeroU64,
+    ops::{Deref, DerefMut, RangeInclusive},
+    time::Duration,
+};
 
 use futures::{
     stream::{pending, Pending},
     StreamExt as _,
 };
 use libp2p::{allow_block_list, connection_limits, identity::Keypair, Multiaddr, PeerId};
-use nomos_blend_message::crypto::Ed25519PrivateKey;
+use nomos_blend_message::{
+    crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, Signature, SIGNATURE_SIZE},
+    input::{EncapsulationInput, EncapsulationInputs},
+    PayloadType,
+};
 use nomos_blend_network::{
     core::{
         with_core::behaviour::{Config as CoreToCoreConfig, IntervalStreamProvider},
@@ -14,7 +23,10 @@ use nomos_blend_network::{
     },
     EncapsulatedMessageWithValidatedPublicHeader,
 };
-use nomos_blend_scheduling::membership::{Membership, Node};
+use nomos_blend_scheduling::{
+    membership::{Membership, Node},
+    EncapsulatedMessage,
+};
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;
 use tokio::{
@@ -94,13 +106,22 @@ impl SwarmBuilder {
 }
 
 pub struct BlendBehaviourBuilder {
+    peer_id: PeerId,
     peering_degree: Option<RangeInclusive<usize>>,
     membership: Option<Membership<PeerId>>,
-    peer_id: Option<PeerId>,
     observation_window: Option<(Duration, RangeInclusive<u64>)>,
 }
 
 impl BlendBehaviourBuilder {
+    pub fn new(identity: &Keypair) -> Self {
+        Self {
+            peer_id: identity.public().to_peer_id(),
+            peering_degree: None,
+            membership: None,
+            observation_window: None,
+        }
+    }
+
     pub fn with_peering_degree(mut self, peering_degree: RangeInclusive<usize>) -> Self {
         self.peering_degree = Some(peering_degree);
         self
@@ -108,11 +129,6 @@ impl BlendBehaviourBuilder {
 
     pub fn with_membership(mut self, membership: Membership<PeerId>) -> Self {
         self.membership = Some(membership);
-        self
-    }
-
-    pub fn with_peer_id(mut self, peer_id: PeerId) -> Self {
-        self.peer_id = Some(peer_id);
         self
     }
 
@@ -134,7 +150,7 @@ impl BlendBehaviourBuilder {
             blend: NetworkBehaviour::new(
                 &Config {
                     with_core: CoreToCoreConfig {
-                        peering_degree: self.peering_degree.unwrap_or(1..=1),
+                        peering_degree: self.peering_degree.unwrap_or(1..=100),
                     },
                     with_edge: CoreToEdgeConfig {
                         connection_timeout: Duration::from_secs(1),
@@ -146,7 +162,7 @@ impl BlendBehaviourBuilder {
                     interval: observation_window_values.0,
                 },
                 self.membership,
-                self.peer_id.unwrap_or_else(PeerId::random),
+                self.peer_id,
             ),
             limits: connection_limits::Behaviour::new(
                 connection_limits::ConnectionLimits::default(),
@@ -183,4 +199,58 @@ impl IntervalStreamProvider for TestObservationWindowProvider {
                 .map(move |_| expected_message_range.clone()),
         )
     }
+}
+
+#[derive(Debug)]
+pub struct TestEncapsulatedMessage(EncapsulatedMessage);
+
+impl TestEncapsulatedMessage {
+    pub fn new(payload: &[u8]) -> Self {
+        Self(
+            EncapsulatedMessage::new(&generate_valid_inputs(), PayloadType::Data, payload).unwrap(),
+        )
+    }
+
+    pub fn new_with_invalid_signature(payload: &[u8]) -> Self {
+        let mut self_instance = Self::new(payload);
+        self_instance.0.public_header_mut().signature = Signature::from([100u8; SIGNATURE_SIZE]);
+        self_instance
+    }
+
+    pub fn into_inner(self) -> EncapsulatedMessage {
+        self.0
+    }
+}
+
+impl Deref for TestEncapsulatedMessage {
+    type Target = EncapsulatedMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for TestEncapsulatedMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+fn generate_valid_inputs() -> EncapsulationInputs<3> {
+    EncapsulationInputs::new(
+        repeat_with(Ed25519PrivateKey::generate)
+            .take(3)
+            .map(|recipient_signing_key| {
+                let recipient_signing_pubkey = recipient_signing_key.public_key();
+                EncapsulationInput::new(
+                    Ed25519PrivateKey::generate(),
+                    &recipient_signing_pubkey,
+                    ProofOfQuota::dummy(),
+                    ProofOfSelection::dummy(),
+                )
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+    )
+    .unwrap()
 }

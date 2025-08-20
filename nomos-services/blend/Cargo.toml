@@ -30,9 +30,10 @@ tokio-stream           = "0.1"
 tracing                = { workspace = true }
 
 [dev-dependencies]
-libp2p            = { workspace = true, features = ["plaintext", "tokio", "yamux"] }
-libp2p-swarm-test = { version = "0.5.0", features = ["tokio"] }
-test-log          = { version = "0.2.18", features = ["trace"] }
+libp2p              = { workspace = true, features = ["plaintext", "tcp", "tokio", "yamux"] }
+libp2p-swarm-test   = { version = "0.5.0", features = ["tokio"] }
+nomos-blend-message = { workspace = true, features = ["unsafe-test-functions"] }
+test-log            = { version = "0.2.18", features = ["trace"] }
 
 [features]
 default = []

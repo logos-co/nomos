@@ -10,10 +10,7 @@ use libp2p::{
 };
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
-    crypto::{
-        Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, Signature, PROOF_OF_QUOTA_SIZE,
-        SIGNATURE_SIZE,
-    },
+    crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, Signature, SIGNATURE_SIZE},
     input::{EncapsulationInput, EncapsulationInputs},
     PayloadType,
 };
@@ -85,7 +82,7 @@ fn generate_valid_inputs() -> EncapsulationInputs<3> {
                 EncapsulationInput::new(
                     Ed25519PrivateKey::generate(),
                     &recipient_signing_pubkey,
-                    ProofOfQuota::from([0u8; PROOF_OF_QUOTA_SIZE]),
+                    ProofOfQuota::dummy(),
                     ProofOfSelection::dummy(),
                 )
             })

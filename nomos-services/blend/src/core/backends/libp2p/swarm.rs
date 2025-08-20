@@ -1,4 +1,7 @@
-use core::{num::NonZeroU64, ops::RangeInclusive};
+use core::{
+    num::NonZeroU64,
+    ops::{Deref, RangeInclusive},
+};
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     time::Duration,
@@ -171,6 +174,11 @@ where
         }
     }
 
+    #[cfg(test)]
+    pub fn dial_peer_at_addr(&mut self, peer_id: PeerId, address: Multiaddr) {
+        self.dial(peer_id, address);
+    }
+
     /// Attempt to retry dialing the specified peer, if the maximum attempts
     /// have not already been performed.
     ///
@@ -309,6 +317,7 @@ where
             let peer_id = PeerId::from(identity.public());
 
             let transport = MemoryTransport::default()
+                .or_transport(libp2p::tcp::tokio::Transport::default())
                 .upgrade(Version::V1)
                 .authenticate(libp2p::plaintext::Config::new(&identity))
                 .multiplex(libp2p::yamux::Config::default())
@@ -376,7 +385,7 @@ where
             .with_core_mut()
             .publish_validated_message(msg)
         {
-            tracing::error!(target: LOG_TARGET, "Failed to forward message to blend network: {e:?}");
+            tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
             tracing::info!(counter.failed_outbound_messages = 1);
         } else {
             tracing::info!(counter.successful_outbound_messages = 1);
@@ -476,5 +485,33 @@ where
                 }
             }
         }
+    }
+}
+
+// We implement `Deref` so we are able to call swarm methods on our own swarm.
+impl<SessionStream, Rng, ObservationWindowProvider> Deref
+    for BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
+where
+    ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
+        + 'static,
+{
+    type Target = Swarm<BlendBehaviour<ObservationWindowProvider>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.swarm
+    }
+}
+
+#[cfg(test)]
+// We implement `DerefMut` only for tests, since we do not want to give people a
+// chance to bypass our API.
+impl<SessionStream, Rng, ObservationWindowProvider> core::ops::DerefMut
+    for BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
+where
+    ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
+        + 'static,
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.swarm
     }
 }
