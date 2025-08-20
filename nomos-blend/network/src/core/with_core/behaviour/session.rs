@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
     mem,
-    ops::RangeInclusive,
 };
 
 use libp2p::{core::Endpoint, swarm::ConnectionId, PeerId};
@@ -17,9 +16,9 @@ pub struct Sessions {
 }
 
 impl Sessions {
-    pub fn new(membership: Membership<PeerId>) -> Self {
+    pub fn new(membership: Membership<PeerId>, max_peering_degree: usize) -> Self {
         Self {
-            current: Session::new(membership),
+            current: Session::new(membership, max_peering_degree),
             previous: None,
         }
     }
@@ -32,11 +31,15 @@ impl Sessions {
     /// If there was a previous session not closed yet, it will be returned.
     /// It can happen if the new session started before the session transition
     /// period has passed (i.e. before the previous session is closed).
-    pub fn transition(&mut self, new_membership: Membership<PeerId>) -> Option<Session> {
+    pub fn transition(
+        &mut self,
+        new_membership: Membership<PeerId>,
+        max_peering_degree: usize,
+    ) -> Option<Session> {
         let previous = self.close_previous_session();
         self.previous = Some(mem::replace(
             &mut self.current,
-            Session::new(new_membership),
+            Session::new(new_membership, max_peering_degree),
         ));
         previous
     }
@@ -58,18 +61,18 @@ impl Sessions {
     }
 
     /// Returns a mutable reference to the session
-    /// that has the given negotiated peer.
-    pub fn session_mut(
+    /// that has the given negotiated connection.
+    pub fn session_mut_for_conn(
         &mut self,
-        negotiated_peer: &(PeerId, ConnectionId),
-    ) -> Option<&mut Session> {
-        if self.current.negotiated_conn(negotiated_peer).is_some() {
-            return Some(&mut self.current);
+        conn: &(PeerId, ConnectionId),
+    ) -> Option<SessionRef<'_>> {
+        if self.current.is_negotiated_conn(conn) {
+            return Some(SessionRef::Current(&mut self.current));
         }
 
         if let Some(previous) = &mut self.previous {
-            if previous.negotiated_conn(negotiated_peer).is_some() {
-                return Some(previous);
+            if previous.is_negotiated_conn(conn) {
+                return Some(SessionRef::Previous(previous));
             }
         }
 
@@ -82,35 +85,30 @@ impl Sessions {
     pub fn remove_connection_waiting_upgrade(
         &mut self,
         connection: &(PeerId, ConnectionId),
-    ) -> Option<(Endpoint, &mut Session)> {
-        if let Some(endpoint) = self.current.connections_waiting_upgrade.remove(connection) {
-            return Some((endpoint, &mut self.current));
+    ) -> Option<(Endpoint, SessionRef<'_>)> {
+        if let Some(endpoint) = self.current.pending_upgrades.remove(connection) {
+            return Some((endpoint, SessionRef::Current(&mut self.current)));
         }
 
         if let Some(previous) = &mut self.previous {
-            if let Some(endpoint) = previous.connections_waiting_upgrade.remove(connection) {
-                return Some((endpoint, previous));
+            if let Some(endpoint) = previous.pending_upgrades.remove(connection) {
+                return Some((endpoint, SessionRef::Previous(previous)));
             }
         }
 
         None
     }
+}
 
-    /// Checks if the given peer has been negotiated in either the current or
-    /// previous session.
-    pub fn is_negotiated(&self, peer_id: PeerId) -> bool {
-        self.current.negotiated_peer(&peer_id).is_some()
-            || self
-                .previous
-                .as_ref()
-                .and_then(|s| s.negotiated_peer(&peer_id))
-                .is_some()
-    }
+pub enum SessionRef<'sessions> {
+    Current(&'sessions mut Session),
+    Previous(&'sessions mut Session),
 }
 
 /// Represents a single session.
 pub struct Session {
     membership: Membership<PeerId>,
+    max_peering_degree: usize,
     /// Tracks connections between this node and other core nodes.
     ///
     /// Only connections with other core nodes that are established before the
@@ -122,7 +120,7 @@ pub struct Session {
     /// We use this to keep track of the role of the remote peer, to be used
     /// when deciding which connection to close when a duplicate connection to
     /// the same peer is detected.
-    connections_waiting_upgrade: HashMap<(PeerId, ConnectionId), Endpoint>,
+    pending_upgrades: HashMap<(PeerId, ConnectionId), Endpoint>,
     /// The session-bound storage keeping track, for each peer, what message
     /// identifiers have been exchanged between them.
     /// Sending a message with the same identifier more than once results in
@@ -131,13 +129,13 @@ pub struct Session {
 }
 
 impl Session {
-    fn new(membership: Membership<PeerId>) -> Self {
-        let membership_size = membership.size();
+    fn new(membership: Membership<PeerId>, max_peering_degree: usize) -> Self {
         Self {
             membership,
+            max_peering_degree,
             negotiated_peers: HashMap::new(),
-            connections_waiting_upgrade: HashMap::new(),
-            exchanged_message_identifiers: HashMap::with_capacity(membership_size),
+            pending_upgrades: HashMap::new(),
+            exchanged_message_identifiers: HashMap::new(),
         }
     }
 
@@ -149,9 +147,8 @@ impl Session {
         self.negotiated_peers.len()
     }
 
-    pub fn available_connection_slots(&self, peering_degree: &RangeInclusive<usize>) -> usize {
-        peering_degree
-            .end()
+    pub fn available_connection_slots(&self) -> usize {
+        self.max_peering_degree
             .saturating_sub(self.num_negotiated_peers())
     }
 
@@ -174,6 +171,10 @@ impl Session {
         self.negotiated_peers.get(peer_id)
     }
 
+    pub fn is_negotiated_peer(&self, peer_id: &PeerId) -> bool {
+        self.negotiated_peers.contains_key(peer_id)
+    }
+
     pub fn negotiated_peer_mut(
         &mut self,
         peer_id: &PeerId,
@@ -181,13 +182,17 @@ impl Session {
         self.negotiated_peers.get_mut(peer_id)
     }
 
-    fn negotiated_conn(
+    pub fn negotiated_conn(
         &self,
         (peer_id, connection_id): &(PeerId, ConnectionId),
     ) -> Option<&RemotePeerConnectionDetails> {
         self.negotiated_peers
             .get(peer_id)
             .filter(|details| details.connection_id == *connection_id)
+    }
+
+    pub fn is_negotiated_conn(&self, conn: &(PeerId, ConnectionId)) -> bool {
+        self.negotiated_conn(conn).is_some()
     }
 
     pub fn add_negotiated_peer(&mut self, peer_id: PeerId, details: RemotePeerConnectionDetails) {
@@ -205,12 +210,8 @@ impl Session {
             .map(|details| mem::replace(&mut details.negotiated_state, state))
     }
 
-    pub fn add_connection_waiting_upgrade(
-        &mut self,
-        conn: (PeerId, ConnectionId),
-        endpoint: Endpoint,
-    ) {
-        self.connections_waiting_upgrade.insert(conn, endpoint);
+    pub fn add_pending_upgrade(&mut self, conn: (PeerId, ConnectionId), endpoint: Endpoint) {
+        self.pending_upgrades.insert(conn, endpoint);
     }
 
     /// Adds a message identifier as exchanged with a peer.
