@@ -1,0 +1,11 @@
+[package]
+edition           = "2024"
+license.workspace = true
+name              = "pol"
+version           = "0.1.0"
+
+[dependencies]
+groth16 = { workspace = true }
+
+[lints]
+workspace = true
