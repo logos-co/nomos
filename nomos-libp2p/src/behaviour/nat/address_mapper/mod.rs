@@ -70,7 +70,7 @@ enum State {
     Active(ActiveState),
 
     /// Waiting to retry after a failed mapping attempt.
-    Retry(RetryState),
+    WaitRetry(WaitRetry),
 }
 
 /// No NAT mapping is currently active or in progress.
@@ -100,7 +100,7 @@ struct ActiveState {
 
 /// Waiting to retry after a failed mapping attempt.
 #[derive(Debug)]
-struct RetryState {
+struct WaitRetry {
     /// Local address to retry mapping.
     local_address: Multiaddr,
     /// Timer for when to retry.
@@ -170,7 +170,7 @@ impl MappingState {
         if self.retry_count < settings.max_retries {
             (
                 Poll::Pending,
-                State::retry(
+                State::wait_retry(
                     self.local_address,
                     self.retry_count,
                     Box::pin(time::sleep(settings.retry_interval)),
@@ -212,7 +212,7 @@ impl StateTrait for ActiveState {
     }
 }
 
-impl StateTrait for RetryState {
+impl StateTrait for WaitRetry {
     fn poll<P: NatMapper>(
         self,
         cx: &mut Context<'_>,
@@ -227,7 +227,7 @@ impl StateTrait for RetryState {
         } else {
             (
                 Poll::Pending,
-                State::retry(self.local_address, self.retry_count, retry_timer),
+                State::wait_retry(self.local_address, self.retry_count, retry_timer),
             )
         }
     }
@@ -243,7 +243,7 @@ impl StateTrait for State {
             Self::Idle(state) => state.poll::<P>(cx, settings),
             Self::Mapping(state) => state.poll::<P>(cx, settings),
             Self::Active(state) => state.poll::<P>(cx, settings),
-            Self::Retry(state) => state.poll::<P>(cx, settings),
+            Self::WaitRetry(state) => state.poll::<P>(cx, settings),
         }
     }
 }
@@ -282,12 +282,12 @@ impl State {
         })
     }
 
-    const fn retry(
+    const fn wait_retry(
         local_address: Multiaddr,
         retry_count: u32,
         retry_timer: Pin<Box<Sleep>>,
     ) -> Self {
-        Self::Retry(RetryState {
+        Self::WaitRetry(WaitRetry {
             local_address,
             retry_timer,
             retry_count,
@@ -327,7 +327,7 @@ where
                 self.state = State::mapping::<P>(address, self.settings, true, 0);
                 Ok(())
             }
-            State::Mapping(_) | State::Retry(_) => {
+            State::Mapping(_) | State::WaitRetry(_) => {
                 Err(AddressMapperError::MappingAlreadyInProgress)
             }
             State::Active(active_state) => {

@@ -10,8 +10,8 @@ use crate::behaviour::nat::state_machine::{
 ///
 /// ### Panics
 ///
-/// This state will panic if it receives a mapping event (success or failure)
-/// that does not match the expected address to map.
+/// This state will panic if it receives a mapping failure event that does not
+/// match the expected address to map.
 impl OnEvent for State<TryMapAddress> {
     fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent> {
         match event {
@@ -101,7 +101,7 @@ mod tests {
 
     #[should_panic = "State<TryMapAddress>: Address mapper reported success for address /memory/1, but /memory/0 was expected"]
     #[test]
-    fn success_address_mismatch_causes_panic() {
+    fn mapping_ok_address_mismatch_causes_panic() {
         let (tx, _) = unbounded_channel();
         let mut state_machine = StateMachine::new(tx);
         state_machine.inner = Some(TryMapAddress::for_test(ADDR.clone()));
