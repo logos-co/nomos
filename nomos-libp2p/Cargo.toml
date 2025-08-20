@@ -30,13 +30,13 @@ natpmp = { version = "0.5", features = ["tokio"] }
 nomos-utils = { workspace = true, features = ["time"] }
 
 async-trait = "0.1.88"
+default-net = "0.14"
 rand        = "0.8"
 serde       = { version = "1.0.166", features = ["derive"] }
 serde_with  = { workspace = true }
 thiserror   = "1.0.40"
 tokio       = { version = "1", features = ["macros", "test-util", "time"] }
 tracing     = { workspace = true }
-default-net = "0.14"
 
 [dev-dependencies]
 libp2p-swarm-test  = { version = "0.5.0", features = ["tokio"] }
