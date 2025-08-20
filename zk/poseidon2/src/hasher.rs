@@ -33,7 +33,7 @@ impl Poseidon2Hasher {
         self.update_one(&Fr::ONE);
     }
 
-    pub const fn finalize(&self) -> Fr {
+    pub const fn finalize(self) -> Fr {
         self.state[0]
     }
 }
@@ -42,7 +42,6 @@ impl Poseidon2Hasher {
 mod tests {
     use std::str::FromStr;
 
-    use ark_bn254::Fr;
     use num_bigint::BigUint;
 
     use super::*;
