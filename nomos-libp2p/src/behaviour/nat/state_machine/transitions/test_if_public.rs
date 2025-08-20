@@ -23,6 +23,12 @@ impl OnEvent for State<TestIfPublic> {
                 command_tx.force_send(Command::MapAddress(addr));
                 self.boxed(TestIfPublic::into_try_map_address)
             }
+            Event::DefaultGatewayChanged(_) => {
+                // Gateway changed, transition to TryMapAddress to re-map with new gateway
+                let addr = self.state.addr_to_test().clone();
+                command_tx.force_send(Command::MapAddress(addr));
+                self.boxed(TestIfPublic::into_try_map_address)
+            }
             Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestFailed(addr) => {
                 panic!(
                     "State<TestIfPublic>: Autonat client reported address {}, but {} was expected",
@@ -43,7 +49,7 @@ mod tests {
     use crate::behaviour::nat::state_machine::{
         states::{Public, TestIfPublic, TryMapAddress},
         transitions::fixtures::{
-            all_events, autonat_failed, autonat_failed_address_mismatch,
+            all_events, autonat_failed, autonat_failed_address_mismatch, default_gateway_changed,
             external_address_confirmed, external_address_confirmed_address_mismatch, ADDR,
         },
         StateMachine,
@@ -109,6 +115,7 @@ mod tests {
         let mut other_events = all_events();
         other_events.remove(&external_address_confirmed());
         other_events.remove(&autonat_failed());
+        other_events.remove(&default_gateway_changed());
 
         for event in other_events {
             state_machine.on_test_event(event);

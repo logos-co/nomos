@@ -14,6 +14,7 @@ use libp2p::{
 use rand::RngCore;
 
 mod address_mapper;
+mod gateway_monitor;
 mod inner;
 mod state_machine;
 

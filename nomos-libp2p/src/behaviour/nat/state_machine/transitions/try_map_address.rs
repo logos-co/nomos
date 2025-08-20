@@ -10,8 +10,8 @@ use crate::behaviour::nat::state_machine::{
 ///
 /// ### Panics
 ///
-/// This state will panic if it receives a mapping failure event that does not
-/// match the expected address to map.
+/// This state will panic if it receives a mapping event (success or failure)
+/// that does not match the expected address to map.
 impl OnEvent for State<TryMapAddress> {
     fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent> {
         match event {
@@ -22,13 +22,6 @@ impl OnEvent for State<TryMapAddress> {
                 command_tx.force_send(Command::NewExternalAddrCandidate(external_address.clone()));
                 self.boxed(|state| state.into_test_if_mapped_public(external_address))
             }
-            Event::NewExternalMappedAddress { local_address, .. } => {
-                panic!(
-                    "State<TryMapAddress>: Address mapper reported success for address {}, but {} was expected",
-                    local_address,
-                    self.state.addr_to_map(),
-                );
-            }
             Event::AddressMappingFailed(addr) if self.state.addr_to_map() == &addr => {
                 self.boxed(TryMapAddress::into_private)
             }
@@ -38,6 +31,19 @@ impl OnEvent for State<TryMapAddress> {
                     addr,
                     self.state.addr_to_map(),
                 );
+            }
+            Event::NewExternalMappedAddress { local_address, .. } => {
+                panic!(
+                    "State<TryMapAddress>: Address mapper reported success for address {}, but {} was expected",
+                    local_address,
+                    self.state.addr_to_map(),
+                );
+            }
+            Event::DefaultGatewayChanged(_) => {
+                // Gateway changed while already mapping, restart mapping with new gateway
+                let addr = self.state.addr_to_map().clone();
+                command_tx.force_send(Command::MapAddress(addr));
+                self
             }
             _ => self,
         }
@@ -57,6 +63,7 @@ mod tests {
         },
         StateMachine,
     };
+    use crate::behaviour::nat::state_machine::transitions::fixtures::default_gateway_changed;
 
     #[test]
     fn new_external_mapped_address_event_causes_transition_to_test_if_mapped_public() {
@@ -101,6 +108,16 @@ mod tests {
 
     #[should_panic = "State<TryMapAddress>: Address mapper reported success for address /memory/1, but /memory/0 was expected"]
     #[test]
+    fn mapping_success_address_mismatch_causes_panic() {
+        let (tx, _) = unbounded_channel();
+        let mut state_machine = StateMachine::new(tx);
+        state_machine.inner = Some(TryMapAddress::for_test(ADDR.clone()));
+        let event = mapping_ok_address_mismatch();
+        state_machine.on_test_event(event);
+    }
+
+    #[should_panic = "State<TryMapAddress>: Address mapper reported success for address /memory/1, but /memory/0 was expected"]
+    #[test]
     fn mapping_ok_address_mismatch_causes_panic() {
         let (tx, _) = unbounded_channel();
         let mut state_machine = StateMachine::new(tx);
@@ -119,6 +136,8 @@ mod tests {
         other_events.remove(&mapping_ok());
         other_events.remove(&mapping_ok_address_mismatch());
         other_events.remove(&mapping_failed());
+        other_events.remove(&mapping_failed_address_mismatch());
+        other_events.remove(&default_gateway_changed());
         other_events.remove(&mapping_failed_address_mismatch());
 
         for event in other_events {

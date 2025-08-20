@@ -19,12 +19,13 @@ use libp2p::{
 };
 use rand::RngCore;
 use tokio::sync::mpsc::UnboundedReceiver;
-use tracing::error;
+use tracing::{error, info, warn};
 
 use crate::{
     behaviour::nat::{
         address_mapper,
         address_mapper::{protocol::ProtocolManager, AddressMapperBehaviour},
+        gateway_monitor::{GatewayMonitor, GatewayMonitorSettings},
         state_machine::{Command, StateMachine},
     },
     config::NatSettings,
@@ -44,6 +45,9 @@ pub struct InnerNatBehaviour<R: RngCore + 'static> {
     /// perform any actual address mapping, and always generates a failure
     /// event.
     address_mapper_behaviour: AddressMapperBehaviour<ProtocolManager>,
+    /// Gateway monitor that periodically checks for gateway address changes
+    /// and triggers re-mapping when the gateway changes.
+    gateway_monitor: GatewayMonitor,
     /// The state machine reacts to events from the swarm and from the
     /// sub-behaviours of the `InnerNatBehaviour` and issues commands to the
     /// `InnerNatBehaviour`.
@@ -65,6 +69,12 @@ impl<R: RngCore + 'static> InnerNatBehaviour<R> {
         let autonat_client_behaviour =
             autonat::v2::client::Behaviour::new(rng, nat_config.autonat.to_libp2p_config());
 
+        let gateway_monitor = GatewayMonitor::new(GatewayMonitorSettings {
+            check_interval_secs: nat_config.gateway_monitor.check_interval_secs,
+            detection_timeout_secs: nat_config.gateway_monitor.detection_timeout_secs,
+            enabled: nat_config.gateway_monitor.enabled,
+        });
+
         let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let state_machine = StateMachine::new(command_tx);
@@ -78,6 +88,7 @@ impl<R: RngCore + 'static> InnerNatBehaviour<R> {
         Self {
             autonat_client_behaviour,
             address_mapper_behaviour,
+            gateway_monitor,
             state_machine,
             command_rx,
             next_autonat_client_tick: OptionFuture::default().fuse(),
@@ -189,6 +200,25 @@ impl<R: RngCore + 'static> NetworkBehaviour for InnerNatBehaviour<R> {
             // TODO: This is a placeholder for the missing API of the
             // autonat client
             // self.autonat_client_behaviour.retest_address(addr);
+        }
+
+        // Poll the gateway monitor
+        if let Poll::Ready(Some(event)) = self.gateway_monitor.poll(cx) {
+            // Handle gateway monitor events
+            match event {
+                crate::behaviour::nat::gateway_monitor::GatewayMonitorEvent::GatewayChanged { old_gateway, new_gateway } => {
+                    info!("Gateway changed from {:?} to {}", old_gateway, new_gateway);
+                    
+                    // When gateway changes, emit DefaultGatewayChanged event to the state machine
+                    // This will cause all states to transition to TryMapAddress and force re-mapping
+                    self.state_machine.on_event(&address_mapper::Event::DefaultGatewayChanged);
+                }
+                crate::behaviour::nat::gateway_monitor::GatewayMonitorEvent::GatewayDetectionFailed(error) => {
+                    warn!("Gateway detection failed: {}", error);
+                    // Don't emit any events on detection failure to avoid disrupting
+                    // the current state unnecessarily
+                }
+            }
         }
 
         if let Poll::Ready(Some(command)) = self.command_rx.poll_recv(cx) {

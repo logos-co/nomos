@@ -27,6 +27,12 @@ impl OnEvent for State<Public> {
             Event::AddressMappingFailed(addr) if self.state.addr() == &addr => {
                 self.boxed(Public::into_private)
             }
+            Event::DefaultGatewayChanged(_) => {
+                // Gateway changed, transition to TryMapAddress to re-map with new gateway
+                let addr = self.state.addr().clone();
+                command_tx.force_send(Command::MapAddress(addr));
+                self.boxed(|state| state.into_test_if_public().into_try_map_address())
+            }
             Event::ExternalAddressConfirmed(addr) => {
                 panic!(
                     "State<Public>: Swarm confirmed external address {}, but {} was expected",
@@ -55,7 +61,7 @@ mod tests {
         states::{Private, Public, TestIfPublic},
         transitions::fixtures::{
             all_events, autonat_failed, autonat_failed_address_mismatch, autonat_ok,
-            autonat_ok_address_mismatch, external_address_confirmed,
+            autonat_ok_address_mismatch, default_gateway_changed, external_address_confirmed,
             external_address_confirmed_address_mismatch, mapping_failed, ADDR,
         },
         StateMachine,
@@ -163,6 +169,7 @@ mod tests {
         other_events.remove(&autonat_ok());
         other_events.remove(&autonat_failed());
         other_events.remove(&mapping_failed());
+        other_events.remove(&default_gateway_changed());
 
         for event in other_events {
             state_machine.on_test_event(event);
