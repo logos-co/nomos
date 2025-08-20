@@ -1,4 +1,4 @@
-use core::num::NonZeroU64;
+use core::{num::NonZeroU64, ops::RangeInclusive};
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     time::Duration,
@@ -8,7 +8,9 @@ use futures::{Stream, StreamExt as _};
 use libp2p::{Multiaddr, PeerId, Swarm, SwarmBuilder};
 use nomos_blend_network::{
     core::{
-        with_core::behaviour::{Event as CoreToCoreEvent, NegotiatedPeerState},
+        with_core::behaviour::{
+            Event as CoreToCoreEvent, IntervalStreamProvider, NegotiatedPeerState,
+        },
         with_edge::behaviour::Event as CoreToEdgeEvent,
         NetworkBehaviourEvent,
     },
@@ -39,11 +41,13 @@ struct DialAttempt {
     attempt_number: NonZeroU64,
 }
 
-pub(super) struct BlendSwarm<SessionStream, Rng>
+pub(super) struct BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
 where
     Rng: 'static,
+    ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
+        + 'static,
 {
-    swarm: Swarm<BlendBehaviour>,
+    swarm: Swarm<BlendBehaviour<ObservationWindowProvider>>,
     swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
     incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithValidatedPublicHeader>,
     session_stream: SessionStream,
@@ -53,9 +57,13 @@ where
     ongoing_dials: HashMap<PeerId, DialAttempt>,
 }
 
-impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng>
+impl<SessionStream, Rng, ObservationWindowProvider>
+    BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
 where
     Rng: RngCore,
+    ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
+        + for<'c> From<&'c BlendConfig<Libp2pBlendBackendSettings, PeerId>>
+        + 'static,
 {
     pub(super) fn new(
         config: BlendConfig<Libp2pBlendBackendSettings, PeerId>,
@@ -102,7 +110,15 @@ where
 
         self_instance
     }
+}
 
+impl<SessionStream, Rng, ObservationWindowProvider>
+    BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
+where
+    Rng: RngCore,
+    ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
+        + 'static,
+{
     /// Dial random peers from the membership list,
     /// excluding the currently connected peers, the peers that we are already
     /// trying to dial, and the blocked peers.
@@ -200,7 +216,7 @@ where
         self.check_and_dial_new_peers_except(Some(peer_id));
     }
 
-    fn handle_event(&mut self, event: SwarmEvent<BlendBehaviourEvent>) {
+    fn handle_event(&mut self, event: SwarmEvent<BlendBehaviourEvent<ObservationWindowProvider>>) {
         match event {
             SwarmEvent::Behaviour(BlendBehaviourEvent::Blend(NetworkBehaviourEvent::WithCore(
                 e,
@@ -282,7 +298,8 @@ where
         max_dial_attempts_per_connection: NonZeroU64,
     ) -> Self
     where
-        BehaviourConstructor: FnOnce(libp2p::identity::Keypair) -> BlendBehaviour,
+        BehaviourConstructor:
+            FnOnce(libp2p::identity::Keypair) -> BlendBehaviour<ObservationWindowProvider>,
     {
         let inner_swarm = {
             use libp2p::{core::transport::MemoryTransport, Transport as _};
@@ -319,7 +336,12 @@ where
     }
 }
 
-impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
+impl<SessionStream, Rng, ObservationWindowProvider>
+    BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
+where
+    ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
+        + 'static,
+{
     fn handle_swarm_message(&mut self, msg: BlendSwarmMessage) {
         match msg {
             BlendSwarmMessage::Publish(msg) => {
@@ -431,10 +453,13 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
     }
 }
 
-impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng>
+impl<SessionStream, Rng, ObservationWindowProvider>
+    BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
 where
     Rng: RngCore,
     SessionStream: Stream<Item = Membership<PeerId>> + Unpin,
+    ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
+        + 'static,
 {
     pub(super) async fn run(mut self) {
         loop {

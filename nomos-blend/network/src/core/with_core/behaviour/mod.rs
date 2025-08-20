@@ -35,9 +35,6 @@ use crate::{
 
 mod handler;
 
-#[cfg(feature = "tokio")]
-pub use self::handler::tokio::ObservationWindowTokioIntervalProvider;
-
 #[cfg(test)]
 mod tests;
 

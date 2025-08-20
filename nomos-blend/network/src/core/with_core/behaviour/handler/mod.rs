@@ -25,9 +25,6 @@ use crate::{
 
 pub(super) mod conn_maintenance;
 
-#[cfg(feature = "tokio")]
-pub(super) mod tokio;
-
 // Metrics
 const VALUE_FULLY_NEGOTIATED_INBOUND: &str = "fully_negotiated_inbound";
 const VALUE_FULLY_NEGOTIATED_OUTBOUND: &str = "fully_negotiated_outbound";

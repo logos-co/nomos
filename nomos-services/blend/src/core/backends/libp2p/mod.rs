@@ -15,7 +15,10 @@ use tokio_stream::wrappers::BroadcastStream;
 
 use crate::core::{
     backends::{
-        libp2p::swarm::{BlendSwarm, BlendSwarmMessage},
+        libp2p::{
+            swarm::{BlendSwarm, BlendSwarmMessage},
+            tokio_provider::ObservationWindowTokioIntervalProvider,
+        },
         BlendBackend,
     },
     settings::BlendConfig,
@@ -27,6 +30,7 @@ mod behaviour;
 pub mod settings;
 pub use settings::Libp2pBlendBackendSettings;
 mod swarm;
+mod tokio_provider;
 
 #[cfg(test)]
 mod tests;
@@ -56,7 +60,7 @@ where
         let (swarm_message_sender, swarm_message_receiver) = mpsc::channel(CHANNEL_SIZE);
         let (incoming_message_sender, _) = broadcast::channel(CHANNEL_SIZE);
 
-        let swarm = BlendSwarm::new(
+        let swarm = BlendSwarm::<_, _, ObservationWindowTokioIntervalProvider>::new(
             config,
             session_stream,
             rng,
