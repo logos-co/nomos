@@ -33,7 +33,7 @@ type MappingFuture = BoxFuture<'static, Result<Multiaddr, AddressMapperError>>;
 type PollResult = Poll<ToSwarm<Event, Infallible>>;
 
 trait StateTrait {
-    fn poll<P: NatMapper>(
+    fn poll<Mapper: NatMapper>(
         self,
         cx: &mut Context<'_>,
         settings: &NatMappingSettings,
@@ -110,7 +110,7 @@ struct WaitRetry {
 }
 
 impl StateTrait for IdleState {
-    fn poll<P: NatMapper>(
+    fn poll<Mapper: NatMapper>(
         self,
         _cx: &mut Context<'_>,
         _settings: &NatMappingSettings,
@@ -120,7 +120,7 @@ impl StateTrait for IdleState {
 }
 
 impl StateTrait for MappingState {
-    fn poll<P: NatMapper>(
+    fn poll<Mapper: NatMapper>(
         mut self,
         cx: &mut Context<'_>,
         settings: &NatMappingSettings,
@@ -188,7 +188,7 @@ impl MappingState {
 }
 
 impl StateTrait for ActiveState {
-    fn poll<P: NatMapper>(
+    fn poll<Mapper: NatMapper>(
         self,
         cx: &mut Context<'_>,
         settings: &NatMappingSettings,
@@ -197,7 +197,7 @@ impl StateTrait for ActiveState {
         if renewal_timer.poll_unpin(cx).is_ready() {
             (
                 Poll::Pending,
-                State::mapping::<P>(self.local_address, *settings, false, 0),
+                State::mapping::<Mapper>(self.local_address, *settings, false, 0),
             )
         } else {
             (
@@ -213,7 +213,7 @@ impl StateTrait for ActiveState {
 }
 
 impl StateTrait for WaitRetry {
-    fn poll<P: NatMapper>(
+    fn poll<Mapper: NatMapper>(
         self,
         cx: &mut Context<'_>,
         settings: &NatMappingSettings,
@@ -222,7 +222,12 @@ impl StateTrait for WaitRetry {
         if retry_timer.poll_unpin(cx).is_ready() {
             (
                 Poll::Pending,
-                State::mapping::<P>(self.local_address, *settings, false, self.retry_count + 1),
+                State::mapping::<Mapper>(
+                    self.local_address,
+                    *settings,
+                    false,
+                    self.retry_count + 1,
+                ),
             )
         } else {
             (
@@ -234,22 +239,22 @@ impl StateTrait for WaitRetry {
 }
 
 impl StateTrait for State {
-    fn poll<P: NatMapper>(
+    fn poll<Mapper: NatMapper>(
         self,
         cx: &mut Context<'_>,
         settings: &NatMappingSettings,
     ) -> (PollResult, State) {
         match self {
-            Self::Idle(state) => state.poll::<P>(cx, settings),
-            Self::Mapping(state) => state.poll::<P>(cx, settings),
-            Self::Active(state) => state.poll::<P>(cx, settings),
-            Self::WaitRetry(state) => state.poll::<P>(cx, settings),
+            Self::Idle(state) => state.poll::<Mapper>(cx, settings),
+            Self::Mapping(state) => state.poll::<Mapper>(cx, settings),
+            Self::Active(state) => state.poll::<Mapper>(cx, settings),
+            Self::WaitRetry(state) => state.poll::<Mapper>(cx, settings),
         }
     }
 }
 
 impl State {
-    fn mapping<P: NatMapper>(
+    fn mapping<Mapper: NatMapper>(
         address: Multiaddr,
         settings: NatMappingSettings,
         is_initial: bool,
@@ -258,7 +263,7 @@ impl State {
         debug!(%address, is_initial, retry_count, "Starting NAT mapping");
 
         let local_address = address.clone();
-        let future = async move { P::map_address(&local_address, settings).await }.boxed();
+        let future = async move { Mapper::map_address(&local_address, settings).await }.boxed();
 
         Self::Mapping(MappingState {
             local_address: address,
@@ -296,17 +301,17 @@ impl State {
 }
 
 /// Network behaviour for managing NAT address mapping
-pub struct AddressMapperBehaviour<P> {
+pub struct AddressMapperBehaviour<Mapper> {
     /// Current state of the NAT mapping
     state: State,
     /// Configuration settings for NAT mapping
     settings: NatMappingSettings,
-    _phantom: std::marker::PhantomData<P>,
+    _phantom: std::marker::PhantomData<Mapper>,
 }
 
-impl<P> AddressMapperBehaviour<P>
+impl<Mapper> AddressMapperBehaviour<Mapper>
 where
-    P: NatMapper,
+    Mapper: NatMapper,
 {
     /// Creates a new address mapper behaviour with the given settings
     pub const fn new(settings: NatMappingSettings) -> Self {
@@ -324,7 +329,7 @@ where
     pub fn try_map_address(&mut self, address: Multiaddr) -> Result<(), AddressMapperError> {
         match &self.state {
             State::Idle(_) => {
-                self.state = State::mapping::<P>(address, self.settings, true, 0);
+                self.state = State::mapping::<Mapper>(address, self.settings, true, 0);
                 Ok(())
             }
             State::Mapping(_) | State::WaitRetry(_) => {
@@ -336,7 +341,7 @@ where
                 }
 
                 info!(old = %active_state.local_address, new = %address, "Replacing active mapping with new address");
-                self.state = State::mapping::<P>(address, self.settings, true, 0);
+                self.state = State::mapping::<Mapper>(address, self.settings, true, 0);
 
                 Ok(())
             }
@@ -344,9 +349,9 @@ where
     }
 }
 
-impl<P> NetworkBehaviour for AddressMapperBehaviour<P>
+impl<Mapper> NetworkBehaviour for AddressMapperBehaviour<Mapper>
 where
-    P: NatMapper,
+    Mapper: NatMapper,
 {
     type ConnectionHandler = ConnectionHandler;
     type ToSwarm = Event;
@@ -385,7 +390,7 @@ where
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<ToSwarm<Event, Infallible>> {
         let state = std::mem::replace(&mut self.state, State::Idle(IdleState));
 
-        let (poll_result, new_state) = state.poll::<P>(cx, &self.settings);
+        let (poll_result, new_state) = state.poll::<Mapper>(cx, &self.settings);
 
         self.state = new_state;
 
@@ -455,7 +460,9 @@ mod tests {
         }
     }
 
-    async fn poll_until_active<P: NatMapper>(behaviour: &mut AddressMapperBehaviour<P>) -> bool {
+    async fn poll_until_active<Mapper: NatMapper>(
+        behaviour: &mut AddressMapperBehaviour<Mapper>,
+    ) -> bool {
         time::timeout(Duration::from_secs(1), async {
             loop {
                 poll_fn(|cx| {
