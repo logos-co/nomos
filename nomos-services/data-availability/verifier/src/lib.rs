@@ -6,17 +6,23 @@ pub mod storage;
 use std::{
     error::Error,
     fmt::{Debug, Display, Formatter},
+    hash::Hash,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
-use backend::{tx::mock::MockTxVerifier, TxVerifierBackend, VerifierBackend};
-use mempool::DaMempoolAdapter;
+use backend::{
+    trigger::{MempoolPublishTrigger, MempoolPublishTriggerConfig},
+    tx::mock::MockTxVerifier,
+    TxVerifierBackend, VerifierBackend,
+};
+use mempool::{DaMempoolAdapter, MempoolAdapterError};
 use network::NetworkAdapter;
 use nomos_core::da::blob::Share;
 use nomos_da_network_service::{
     membership::MembershipAdapter, storage::MembershipStorageAdapter, NetworkService,
 };
+use nomos_mempool::backend::MempoolError;
 use nomos_storage::StorageService;
 use nomos_tracing::{error_with_id, info_with_id};
 use overwatch::{
@@ -106,7 +112,7 @@ where
     ShareVerifier::DaShare: Debug + Send,
     ShareVerifier::Error: Error + Send + Sync,
     ShareVerifier::Settings: Clone,
-    <ShareVerifier::DaShare as Share>::BlobId: Clone + AsRef<[u8]> + Send,
+    <ShareVerifier::DaShare as Share>::BlobId: Clone + AsRef<[u8]> + Hash + Eq + Send + Sync,
     <ShareVerifier::DaShare as Share>::LightShare: Send,
     <ShareVerifier::DaShare as Share>::SharesCommitments: Send,
     TxVerifier: TxVerifierBackend<BlobId = <ShareVerifier::DaShare as Share>::BlobId> + Send + Sync,
@@ -132,10 +138,11 @@ where
     async fn handle_new_share(
         verifier: &ShareVerifier,
         storage_adapter: &Storage,
+        mempool_trigger: &MempoolPublishTrigger<<ShareVerifier::DaShare as Share>::BlobId>,
         mempool_adapter: &MempoolAdapter,
         share: ShareVerifier::DaShare,
     ) -> Result<(), DynError> {
-        if let Some(tx) = storage_adapter.get_tx(share.blob_id()).await? {
+        if let Some((assignations, tx)) = storage_adapter.get_tx(share.blob_id()).await? {
             if storage_adapter
                 .get_share(share.blob_id(), share.share_idx())
                 .await?
@@ -151,7 +158,12 @@ where
                 storage_adapter
                     .add_share(blob_id.clone(), share_idx, commitments, light_share)
                     .await?;
-                mempool_adapter.post_tx(blob_id, tx).await?;
+                if matches!(
+                    mempool_trigger.update(blob_id.clone(), assignations),
+                    backend::trigger::ShareState::Complete
+                ) {
+                    mempool_adapter.post_tx(blob_id, tx).await?;
+                }
             }
         } else {
             error_with_id!(share.blob_id().as_ref(), "VerifierTxDoesNotExist");
@@ -163,6 +175,7 @@ where
     async fn handle_new_tx(
         verifier: &TxVerifier,
         storage_adapter: &Storage,
+        assignations: u16,
         tx: TxVerifier::Tx,
     ) -> Result<(), DynError> {
         let blob_id = verifier.blob_id(&tx)?;
@@ -171,7 +184,25 @@ where
         } else {
             info_with_id!(blob_id.as_ref(), "VerifierAddTx");
             verifier.verify(&tx)?;
-            storage_adapter.add_tx(blob_id, tx).await?;
+            storage_adapter.add_tx(blob_id, assignations, tx).await?;
+        }
+        Ok(())
+    }
+
+    async fn prune_pending_txs(
+        storage_adapter: &Storage,
+        mempool_trigger: &MempoolPublishTrigger<<ShareVerifier::DaShare as Share>::BlobId>,
+        mempool_adapter: &MempoolAdapter,
+    ) -> Result<(), DynError> {
+        let now = Instant::now();
+        let blob_ids = mempool_trigger.prune(now);
+        for blob_id in blob_ids {
+            if let Some((_, tx)) = storage_adapter.get_tx(blob_id.clone()).await? {
+                match mempool_adapter.post_tx(blob_id, tx).await {
+                    Ok(()) | Err(MempoolAdapterError::Mempool(MempoolError::ExistingItem)) => {}
+                    Err(err) => return Err(Box::new(err)),
+                };
+            }
         }
         Ok(())
     }
@@ -229,7 +260,8 @@ where
     ShareVerifier::Settings: Clone + Send + Sync + 'static,
     ShareVerifier::DaShare: Debug + Send + Sync + 'static,
     ShareVerifier::Error: Error + Send + Sync + 'static,
-    <ShareVerifier::DaShare as Share>::BlobId: Clone + AsRef<[u8]> + Debug + Send + Sync + 'static,
+    <ShareVerifier::DaShare as Share>::BlobId:
+        Clone + AsRef<[u8]> + Debug + Hash + Eq + Send + Sync + 'static,
     <ShareVerifier::DaShare as Share>::LightShare: Debug + Send + Sync + 'static,
     <ShareVerifier::DaShare as Share>::SharesCommitments: Debug + Send + Sync + 'static,
     TxVerifier: TxVerifierBackend<BlobId = <ShareVerifier::DaShare as Share>::BlobId> + Send + Sync,
@@ -298,6 +330,10 @@ where
         })
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Run loop contains all handling for readablity"
+    )]
     async fn run(self) -> Result<(), DynError> {
         // This service will likely have to be modified later on.
         // Most probably the verifier itself need to be constructed/update for every
@@ -312,6 +348,7 @@ where
 
         let DaVerifierServiceSettings {
             network_adapter_settings,
+            mempool_trigger_settings,
             ..
         } = service_resources_handle
             .settings_handle
@@ -344,6 +381,9 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
+        let mut prune_interval = tokio::time::interval(mempool_trigger_settings.prune_interval);
+        let mempool_trigger = MempoolPublishTrigger::new(mempool_trigger_settings);
+
         wait_until_services_are_ready!(
             &service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
@@ -356,12 +396,18 @@ where
             tokio::select! {
                 Some(share) = share_stream.next() => {
                     let blob_id = share.blob_id();
-                    if let Err(err) =  Self::handle_new_share(&share_verifier, &storage_adapter, &mempool_adapter, share).await {
+                    if let Err(err) =  Self::handle_new_share(
+                        &share_verifier,
+                        &storage_adapter,
+                        &mempool_trigger,
+                        &mempool_adapter,
+                        share
+                    ).await {
                         error!("Error handling blob {blob_id:?} due to {err:?}");
                     }
                 }
-                Some(tx) = tx_stream.next() => {
-                    if let Err(err) =  Self::handle_new_tx(&tx_verifier, &storage_adapter, tx).await {
+                Some((assignations, tx)) = tx_stream.next() => {
+                    if let Err(err) =  Self::handle_new_tx(&tx_verifier, &storage_adapter, assignations, tx).await {
                         error!("Error handling tx due to {err:?}");
                     }
                 }
@@ -369,7 +415,13 @@ where
                     match msg {
                         DaVerifierMsg::AddShare { share, reply_channel } => {
                             let blob_id = share.blob_id();
-                            match Self::handle_new_share(&share_verifier, &storage_adapter, &mempool_adapter, share).await {
+                            match Self::handle_new_share(
+                                &share_verifier,
+                                &storage_adapter,
+                                &mempool_trigger,
+                                &mempool_adapter,
+                                share
+                            ).await {
                                 Ok(attestation) => {
                                     if let Err(err) = reply_channel.send(Some(attestation)) {
                                         error!("Error replying attestation {err:?}");
@@ -400,6 +452,15 @@ where
                         },
                     }
                 }
+                _ = prune_interval.tick() => {
+                    if let Err(err) = Self::prune_pending_txs(
+                        &storage_adapter,
+                        &mempool_trigger,
+                        &mempool_adapter
+                    ).await {
+                        error!("Error pruning txs due to {err:?}");
+                    }
+                }
             }
         }
     }
@@ -416,4 +477,5 @@ pub struct DaVerifierServiceSettings<
     pub tx_verifier_settings: TxVerifierSettings,
     pub network_adapter_settings: NetworkSettings,
     pub storage_adapter_settings: StorageSettings,
+    pub mempool_trigger_settings: MempoolPublishTriggerConfig,
 }

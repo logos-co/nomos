@@ -69,11 +69,12 @@ where
     sampling_events_sender: UnboundedSender<SamplingEvent>,
     validation_events_sender: UnboundedSender<DispersalEvent>,
     dispersal_events_sender: UnboundedSender<DispersalExecutorEvent>,
+    membership: Membership,
 }
 
 impl<Membership, Addressbook> ExecutorSwarm<Membership, Addressbook>
 where
-    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
+    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send + Sync,
     Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
 {
     pub fn new(
@@ -119,7 +120,7 @@ where
             Self {
                 swarm: Self::build_swarm(
                     key,
-                    membership,
+                    membership.clone(),
                     addressbook,
                     balancer,
                     monitor,
@@ -131,6 +132,7 @@ where
                 sampling_events_sender,
                 validation_events_sender,
                 dispersal_events_sender,
+                membership,
             },
             ExecutorEventsStream {
                 validator_events_stream: ValidatorEventsStream {
@@ -314,7 +316,13 @@ where
             self.swarm.behaviour_mut().monitor_behaviour_mut(),
             MonitorEvent::from(&event),
         );
-        handle_replication_event(&self.validation_events_sender, event).await;
+        handle_replication_event(
+            &self.validation_events_sender,
+            &self.membership,
+            self.local_peer_id(),
+            event,
+        )
+        .await;
     }
 
     #[expect(

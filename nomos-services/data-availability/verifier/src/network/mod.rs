@@ -31,5 +31,5 @@ pub trait NetworkAdapter<RuntimeServiceId> {
     ) -> Self;
 
     async fn share_stream(&self) -> Box<dyn Stream<Item = Self::Share> + Unpin + Send>;
-    async fn tx_stream(&self) -> Box<dyn Stream<Item = Self::Tx> + Unpin + Send>;
+    async fn tx_stream(&self) -> Box<dyn Stream<Item = (u16, Self::Tx)> + Unpin + Send>;
 }

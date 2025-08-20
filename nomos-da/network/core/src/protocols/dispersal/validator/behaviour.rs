@@ -61,11 +61,10 @@ impl Clone for DispersalError {
 pub enum DispersalEvent {
     /// Received a network message.
     IncomingShare(Box<Share>),
-    IncomingTx(Box<SignedMantleTx>),
+    /// Number of currently assigned subnetworks to the node and TX for a blob.
+    IncomingTx((u16, Box<SignedMantleTx>)),
     /// Something went wrong receiving the blob
-    DispersalError {
-        error: DispersalError,
-    },
+    DispersalError { error: DispersalError },
 }
 
 impl DispersalEvent {
@@ -84,9 +83,9 @@ impl From<Share> for DispersalEvent {
     }
 }
 
-impl From<SignedMantleTx> for DispersalEvent {
-    fn from(tx: SignedMantleTx) -> Self {
-        Self::IncomingTx(Box::new(tx))
+impl From<(u16, SignedMantleTx)> for DispersalEvent {
+    fn from(tx: (u16, SignedMantleTx)) -> Self {
+        Self::IncomingTx((tx.0, Box::new(tx.1)))
     }
 }
 
@@ -94,6 +93,7 @@ type DispersalTask =
     BoxFuture<'static, Result<(PeerId, dispersal::DispersalRequest, Stream), DispersalError>>;
 
 pub struct DispersalValidatorBehaviour<Membership> {
+    local_peer_id: PeerId,
     stream_behaviour: libp2p_stream::Behaviour,
     incoming_streams: IncomingStreams,
     tasks: FuturesUnordered<DispersalTask>,
@@ -101,7 +101,7 @@ pub struct DispersalValidatorBehaviour<Membership> {
 }
 
 impl<Membership: MembershipHandler> DispersalValidatorBehaviour<Membership> {
-    pub fn new(membership: Membership) -> Self {
+    pub fn new(local_peer_id: PeerId, membership: Membership) -> Self {
         let stream_behaviour = libp2p_stream::Behaviour::new();
         let mut stream_control = stream_behaviour.new_control();
         let incoming_streams = stream_control
@@ -109,6 +109,7 @@ impl<Membership: MembershipHandler> DispersalValidatorBehaviour<Membership> {
             .expect("Just a single accept to protocol is valid");
         let tasks = FuturesUnordered::new();
         Self {
+            local_peer_id,
             stream_behaviour,
             incoming_streams,
             tasks,
@@ -235,6 +236,7 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         let Self {
+            local_peer_id,
             incoming_streams,
             tasks,
             ..
@@ -250,9 +252,11 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
                         )))
                     }
                     dispersal::DispersalRequest::Tx(signed_mantle_tx) => {
-                        Poll::Ready(ToSwarm::GenerateEvent(DispersalEvent::IncomingTx(
+                        let assignations = self.membership.membership(local_peer_id).len();
+                        Poll::Ready(ToSwarm::GenerateEvent(DispersalEvent::IncomingTx((
+                            assignations as u16,
                             Box::new(signed_mantle_tx),
-                        )))
+                        ))))
                     }
                 };
             }

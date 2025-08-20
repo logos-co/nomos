@@ -37,11 +37,12 @@ pub trait DaStorageAdapter<RuntimeServiceId> {
     async fn add_tx(
         &self,
         blob_id: <Self::Share as Share>::BlobId,
+        assignations: u16,
         tx: Self::Tx,
     ) -> Result<(), DynError>;
 
     async fn get_tx(
         &self,
         blob_id: <Self::Share as Share>::BlobId,
-    ) -> Result<Option<Self::Tx>, DynError>;
+    ) -> Result<Option<(u16, Self::Tx)>, DynError>;
 }

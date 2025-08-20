@@ -1,4 +1,5 @@
 pub mod kzgrs;
+pub mod trigger;
 pub mod tx;
 
 pub use nomos_core::da::DaVerifier;

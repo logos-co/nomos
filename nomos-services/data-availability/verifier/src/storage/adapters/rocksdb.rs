@@ -104,9 +104,11 @@ where
     async fn add_tx(
         &self,
         blob_id: <Self::Share as Share>::BlobId,
+        assignations: u16,
         tx: Self::Tx,
     ) -> Result<(), DynError> {
-        let store_tx_msg = StorageMsg::store_tx_request::<Converter>(blob_id.clone(), tx)?;
+        let store_tx_msg =
+            StorageMsg::store_tx_request::<Converter>(blob_id.clone(), assignations, tx)?;
 
         self.storage_relay
             .send(store_tx_msg)
@@ -119,7 +121,7 @@ where
     async fn get_tx(
         &self,
         blob_id: <Self::Share as Share>::BlobId,
-    ) -> Result<Option<Self::Tx>, DynError> {
+    ) -> Result<Option<(u16, Self::Tx)>, DynError> {
         let (reply_channel, reply_rx) = tokio::sync::oneshot::channel();
         self.storage_relay
             .send(StorageMsg::get_tx_request::<Converter>(
@@ -132,7 +134,9 @@ where
         reply_rx
             .await
             .map_err(DynError::from)?
-            .map(|data| Converter::tx_from_storage(data))
+            .map(|(assignations, data)| {
+                Converter::tx_from_storage(data).map(|tx| (assignations, tx))
+            })
             .transpose()
             .map_err(DynError::from)
     }
