@@ -1,7 +1,6 @@
-use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;
 use log::{debug, error};
-use nomos_da_messages::replication;
+use nomos_da_messages::replication::ReplicationRequest;
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -16,22 +15,19 @@ use crate::{
 };
 
 pub async fn handle_validator_dispersal_event<Membership>(
-    validation_events_sender: &UnboundedSender<DaShare>,
+    validation_events_sender: &UnboundedSender<DispersalEvent>,
     replication_behaviour: &mut ReplicationBehaviour<Membership>,
     event: DispersalEvent,
 ) where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>,
 {
     // Send message for replication
-    if let DispersalEvent::IncomingMessage { message } = event {
-        let share_message = message.share;
-        if let Err(e) = validation_events_sender.send(share_message.data.clone()) {
-            error!("Error sending blob to validation: {e:?}");
-        }
-        replication_behaviour.send_message(&replication::ReplicationRequest::new(
-            share_message,
-            message.subnetwork_id,
-        ));
+    if let Err(e) = validation_events_sender.send(event.clone()) {
+        error!("Error sending blob to validation: {e:?}");
+    }
+
+    if let DispersalEvent::IncomingShare(share) = event {
+        replication_behaviour.send_message(&ReplicationRequest::new_share(*share));
     }
 }
 
@@ -45,11 +41,17 @@ pub async fn handle_sampling_event(
 }
 
 pub async fn handle_replication_event(
-    validation_events_sender: &UnboundedSender<DaShare>,
+    validation_events_sender: &UnboundedSender<DispersalEvent>,
     event: ReplicationEvent,
 ) {
     if let ReplicationEvent::IncomingMessage { message, .. } = event {
-        if let Err(e) = validation_events_sender.send(message.share.data) {
+        let dispersal_event = match message.as_ref() {
+            ReplicationRequest::Share(share_request) => {
+                DispersalEvent::new_share(share_request.share.clone())
+            }
+            ReplicationRequest::Tx(_signed_mantle_tx) => todo!(),
+        };
+        if let Err(e) = validation_events_sender.send(dispersal_event) {
             error!("Error sending blob to validation: {e:?}");
         }
     }

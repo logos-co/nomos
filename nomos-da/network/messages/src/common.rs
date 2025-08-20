@@ -2,6 +2,8 @@ use kzgrs_backend::common::share::{DaLightShare, DaShare};
 use nomos_core::da::BlobId;
 use serde::{Deserialize, Serialize};
 
+use crate::SubnetworkId;
+
 #[repr(C)]
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Share {
@@ -28,6 +30,13 @@ impl LightShare {
     pub const fn new(blob_id: BlobId, data: DaLightShare) -> Self {
         Self { blob_id, data }
     }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ShareRequest {
+    pub share: Share,
+    pub subnetwork_id: SubnetworkId,
 }
 
 #[repr(u8)]
