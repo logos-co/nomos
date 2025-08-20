@@ -5,8 +5,9 @@ name              = "circuits-pol"
 version           = "0.1.0"
 
 [dependencies]
-circuits-utils = { workspace = true }
-tempfile       = { workspace = true }
+circuits-utils         = { workspace = true }
+tempfile               = { workspace = true }
+witness-generator-core = { workspace = true }
 
 [lints]
 workspace = true

@@ -2,125 +2,127 @@
 # Make sure any excluded crates are still clipped in our CI. Also, make sure they use the same Clippy and rustc lints we specify in this file down below.
 exclude = ["nomos-core/proof_statements", "nomos-core/risc0_proofs"]
 members = [
-    "consensus/cryptarchia-engine",
-    "consensus/cryptarchia-sync",
-    "ledger/nomos-ledger",
-    "nodes/api-common",
-    "nodes/nomos-executor/executor",
-    "nodes/nomos-executor/http-client",
-    "nodes/nomos-node/http-client",
-    "nodes/nomos-node/node",
-    "nomos-blend/message",
-    "nomos-blend/network",
-    "nomos-blend/scheduling",
-    "nomos-bundler",
-    "nomos-cli",
-    "nomos-core/chain-defs",
-    "nomos-da/kzgrs",
-    "nomos-da/kzgrs-backend",
-    "nomos-da/network/core",
-    "nomos-da/network/messages",
-    "nomos-da/network/subnetworks-assignations",
-    "nomos-libp2p",
-    "nomos-services/api",
-    "nomos-services/blend",
-    "nomos-services/chain-service",
-    "nomos-services/data-availability/dispersal",
-    "nomos-services/data-availability/indexer",
-    "nomos-services/data-availability/network",
-    "nomos-services/data-availability/sampling",
-    "nomos-services/data-availability/verifier",
-    "nomos-services/key-management-system",
-    "nomos-services/membership",
-    "nomos-services/mempool",
-    "nomos-services/network",
-    "nomos-services/sdp",
-    "nomos-services/storage",
-    "nomos-services/system-sig",
-    "nomos-services/time",
-    "nomos-services/tracing",
-    "nomos-services/utils",
-    "nomos-tracing",
-    "nomos-utils",
-    "testnet/cfgsync",
-    "tests",
-    "utxotree",
-    "zk/circuits/prover",
-    "zk/circuits/utils",
-    "zk/circuits/verifier",
-    "zk/groth16",
-    "zk/circuits/witness_generators/pol",
+  "consensus/cryptarchia-engine",
+  "consensus/cryptarchia-sync",
+  "ledger/nomos-ledger",
+  "nodes/api-common",
+  "nodes/nomos-executor/executor",
+  "nodes/nomos-executor/http-client",
+  "nodes/nomos-node/http-client",
+  "nodes/nomos-node/node",
+  "nomos-blend/message",
+  "nomos-blend/network",
+  "nomos-blend/scheduling",
+  "nomos-bundler",
+  "nomos-cli",
+  "nomos-core/chain-defs",
+  "nomos-da/kzgrs",
+  "nomos-da/kzgrs-backend",
+  "nomos-da/network/core",
+  "nomos-da/network/messages",
+  "nomos-da/network/subnetworks-assignations",
+  "nomos-libp2p",
+  "nomos-services/api",
+  "nomos-services/blend",
+  "nomos-services/chain-service",
+  "nomos-services/data-availability/dispersal",
+  "nomos-services/data-availability/indexer",
+  "nomos-services/data-availability/network",
+  "nomos-services/data-availability/sampling",
+  "nomos-services/data-availability/verifier",
+  "nomos-services/key-management-system",
+  "nomos-services/membership",
+  "nomos-services/mempool",
+  "nomos-services/network",
+  "nomos-services/sdp",
+  "nomos-services/storage",
+  "nomos-services/system-sig",
+  "nomos-services/time",
+  "nomos-services/tracing",
+  "nomos-services/utils",
+  "nomos-tracing",
+  "nomos-utils",
+  "testnet/cfgsync",
+  "tests",
+  "utxotree",
+  "zk/circuits/prover",
+  "zk/circuits/utils",
+  "zk/circuits/verifier",
+  "zk/circuits/witness_generators/core",
+  "zk/circuits/witness_generators/pol",
+  "zk/groth16",
 ]
 resolver = "2"
 
 [workspace.dependencies]
 # Internal
-bundler = { path = "./nomos-bundler" }
-cfgsync = { path = "./testnet/cfgsync" }
-chain-service = { path = "./nomos-services/chain-service" }
-circuits-pol = { path = "zk/circuits/witness_generators/pol" }
-circuits-prover = { path = "zk/circuits/prover" }
-circuits-utils = { path = "zk/circuits/utils" }
-circuits-verifier = { path = "zk/circuits/verifier" }
-common-http-client = { path = "./nodes/nomos-node/http-client" }
-cryptarchia-engine = { path = "./consensus/cryptarchia-engine" }
-cryptarchia-sync = { path = "./consensus/cryptarchia-sync" }
-executor-http-client = { path = "./nodes/nomos-executor/http-client" }
-key-management-system = { path = "./nomos-services/key-management-system" }
-kzgrs = { path = "./nomos-da/kzgrs" }
-kzgrs-backend = { path = "./nomos-da/kzgrs-backend" }
-nomos-api = { path = "./nomos-services/api" }
-nomos-blend-message = { path = "./nomos-blend/message" }
-nomos-blend-network = { path = "./nomos-blend/network" }
-nomos-blend-scheduling = { path = "./nomos-blend/scheduling" }
-nomos-blend-service = { path = "./nomos-services/blend" }
-nomos-cli = { path = "./nomos-cli" }
-nomos-core = { path = "./nomos-core/chain-defs" }
-nomos-da-dispersal = { path = "./nomos-services/data-availability/dispersal" }
-nomos-da-indexer = { path = "./nomos-services/data-availability/indexer" }
-nomos-da-messages = { path = "./nomos-da/network/messages" }
-nomos-da-network-core = { path = "./nomos-da/network/core" }
+bundler                  = { path = "./nomos-bundler" }
+cfgsync                  = { path = "./testnet/cfgsync" }
+chain-service            = { path = "./nomos-services/chain-service" }
+circuits-pol             = { path = "zk/circuits/witness_generators/pol" }
+circuits-prover          = { path = "zk/circuits/prover" }
+circuits-utils           = { path = "zk/circuits/utils" }
+circuits-verifier        = { path = "zk/circuits/verifier" }
+common-http-client       = { path = "./nodes/nomos-node/http-client" }
+cryptarchia-engine       = { path = "./consensus/cryptarchia-engine" }
+cryptarchia-sync         = { path = "./consensus/cryptarchia-sync" }
+executor-http-client     = { path = "./nodes/nomos-executor/http-client" }
+key-management-system    = { path = "./nomos-services/key-management-system" }
+kzgrs                    = { path = "./nomos-da/kzgrs" }
+kzgrs-backend            = { path = "./nomos-da/kzgrs-backend" }
+nomos-api                = { path = "./nomos-services/api" }
+nomos-blend-message      = { path = "./nomos-blend/message" }
+nomos-blend-network      = { path = "./nomos-blend/network" }
+nomos-blend-scheduling   = { path = "./nomos-blend/scheduling" }
+nomos-blend-service      = { path = "./nomos-services/blend" }
+nomos-cli                = { path = "./nomos-cli" }
+nomos-core               = { path = "./nomos-core/chain-defs" }
+nomos-da-dispersal       = { path = "./nomos-services/data-availability/dispersal" }
+nomos-da-indexer         = { path = "./nomos-services/data-availability/indexer" }
+nomos-da-messages        = { path = "./nomos-da/network/messages" }
+nomos-da-network-core    = { path = "./nomos-da/network/core" }
 nomos-da-network-service = { path = "./nomos-services/data-availability/network" }
-nomos-da-sampling = { path = "./nomos-services/data-availability/sampling" }
-nomos-da-verifier = { path = "./nomos-services/data-availability/verifier" }
-nomos-executor = { path = "./nodes/nomos-executor/executor", default-features = false }
-nomos-http-api-common = { path = "./nodes/api-common" }
-nomos-ledger = { path = "./ledger/nomos-ledger" }
-nomos-libp2p = { path = "./nomos-libp2p" }
-nomos-mantle-core = { path = "./nomos-mantle" }
-nomos-membership = { path = "./nomos-services/membership" }
-nomos-mempool = { path = "./nomos-services/mempool" }
-nomos-network = { path = "./nomos-services/network" }
-nomos-node = { path = "./nodes/nomos-node/node", default-features = false }
-nomos-sdp = { path = "./nomos-services/sdp" }
-nomos-storage = { path = "./nomos-services/storage" }
-nomos-system-sig = { path = "./nomos-services/system-sig" }
-nomos-time = { path = "./nomos-services/time" }
-nomos-tracing = { path = "./nomos-tracing" }
-nomos-tracing-service = { path = "./nomos-services/tracing" }
-nomos-utils = { path = "./nomos-utils" }
-nomos_proof_statements = { path = "./nomos-core/proof_statements" }
-services-utils = { path = "./nomos-services/utils" }
+nomos-da-sampling        = { path = "./nomos-services/data-availability/sampling" }
+nomos-da-verifier        = { path = "./nomos-services/data-availability/verifier" }
+nomos-executor           = { path = "./nodes/nomos-executor/executor", default-features = false }
+nomos-http-api-common    = { path = "./nodes/api-common" }
+nomos-ledger             = { path = "./ledger/nomos-ledger" }
+nomos-libp2p             = { path = "./nomos-libp2p" }
+nomos-mantle-core        = { path = "./nomos-mantle" }
+nomos-membership         = { path = "./nomos-services/membership" }
+nomos-mempool            = { path = "./nomos-services/mempool" }
+nomos-network            = { path = "./nomos-services/network" }
+nomos-node               = { path = "./nodes/nomos-node/node", default-features = false }
+nomos-sdp                = { path = "./nomos-services/sdp" }
+nomos-storage            = { path = "./nomos-services/storage" }
+nomos-system-sig         = { path = "./nomos-services/system-sig" }
+nomos-time               = { path = "./nomos-services/time" }
+nomos-tracing            = { path = "./nomos-tracing" }
+nomos-tracing-service    = { path = "./nomos-services/tracing" }
+nomos-utils              = { path = "./nomos-utils" }
+nomos_proof_statements   = { path = "./nomos-core/proof_statements" }
+services-utils           = { path = "./nomos-services/utils" }
 subnetworks-assignations = { path = "./nomos-da/network/subnetworks-assignations" }
-tests = { path = "./tests" }
-utxotree = { path = "./utxotree" }
+tests                    = { path = "./tests" }
+utxotree                 = { path = "./utxotree" }
+witness-generator-core   = { path = "./zk/circuits/witness_generators/core" }
 
 # External
-blake2 = "0.10"
-bytes = "1.3"
-cached = { version = "0.55.1", default-features = false }
-fork_stream = "0.1.0"
-libp2p = "0.55"
-libp2p-stream = "0.3.0-alpha"
-overwatch = { git = "https://github.com/logos-co/Overwatch", rev = "f5a9902" }
-overwatch-derive = { git = "https://github.com/logos-co/Overwatch", rev = "f5a9902" }
-rand = "0.8"
-reqwest = "0.12"
-risc0-zkvm = "2.3.0"
-serde_with = "3.12.0"
-tempfile = "3"
-tracing = "0.1"
-utoipa = { version = "4.0" }
+blake2            = "0.10"
+bytes             = "1.3"
+cached            = { version = "0.55.1", default-features = false }
+fork_stream       = "0.1.0"
+libp2p            = "0.55"
+libp2p-stream     = "0.3.0-alpha"
+overwatch         = { git = "https://github.com/logos-co/Overwatch", rev = "f5a9902" }
+overwatch-derive  = { git = "https://github.com/logos-co/Overwatch", rev = "f5a9902" }
+rand              = "0.8"
+reqwest           = "0.12"
+risc0-zkvm        = "2.3.0"
+serde_with        = "3.12.0"
+tempfile          = "3"
+tracing           = "0.1"
+utoipa            = { version = "4.0" }
 utoipa-swagger-ui = { version = "4.0" }
 
 [workspace.lints.clippy]
@@ -136,146 +138,146 @@ similar_names = { level = "allow" }
 # Restriction and allowed restriction warnings (new lints will warn by default)
 restriction = { level = "warn", priority = -1 }
 
-absolute_paths = { level = "allow" }
-alloc_instead_of_core = { level = "allow" }
-arbitrary_source_item_ordering = { level = "allow" }
-big_endian_bytes = { level = "allow" }
-blanket_clippy_restriction_lints = { level = "allow" }
-decimal_literal_representation = { level = "allow" }
-default_numeric_fallback = { level = "allow" }
-deref_by_slicing = { level = "allow" }
-else_if_without_else = { level = "allow" }
-exhaustive_enums = { level = "allow" }
-exhaustive_structs = { level = "allow" }
-exit = { level = "allow" }
-expect_used = { level = "allow" }
+absolute_paths                    = { level = "allow" }
+alloc_instead_of_core             = { level = "allow" }
+arbitrary_source_item_ordering    = { level = "allow" }
+big_endian_bytes                  = { level = "allow" }
+blanket_clippy_restriction_lints  = { level = "allow" }
+decimal_literal_representation    = { level = "allow" }
+default_numeric_fallback          = { level = "allow" }
+deref_by_slicing                  = { level = "allow" }
+else_if_without_else              = { level = "allow" }
+exhaustive_enums                  = { level = "allow" }
+exhaustive_structs                = { level = "allow" }
+exit                              = { level = "allow" }
+expect_used                       = { level = "allow" }
 field_scoped_visibility_modifiers = { level = "allow" }
-float_arithmetic = { level = "allow" }
-get_unwrap = { level = "allow" }
-host_endian_bytes = { level = "allow" }
-implicit_return = { level = "allow" }
-integer_division_remainder_used = { level = "allow" }
-iter_over_hash_type = { level = "allow" }
-let_underscore_must_use = { level = "allow" }
-let_underscore_untyped = { level = "allow" }
-little_endian_bytes = { level = "allow" }
-map_err_ignore = { level = "allow" }
-min_ident_chars = { level = "allow" }
-missing_asserts_for_indexing = { level = "allow" }
-missing_docs_in_private_items = { level = "allow" }
-missing_inline_in_public_items = { level = "allow" }
-missing_trait_methods = { level = "allow" }
-mixed_read_write_in_expression = { level = "allow" }
-mod_module_files = { level = "allow" }
-module_name_repetitions = { level = "allow" }
-modulo_arithmetic = { level = "allow" }
-panic = { level = "allow" }
-panic_in_result_fn = { level = "allow" }
-partial_pub_fields = { level = "allow" }
-print_stderr = { level = "allow" }
-print_stdout = { level = "allow" }
-pub_use = { level = "allow" }
-pub_with_shorthand = { level = "allow" }
-question_mark_used = { level = "allow" }
-self_named_module_files = { level = "allow" }
-semicolon_inside_block = { level = "allow" }
-single_call_fn = { level = "allow" }
-single_char_lifetime_names = { level = "allow" }
-std_instead_of_alloc = { level = "allow" }
-std_instead_of_core = { level = "allow" }
-struct_field_names = { level = "allow" }
-unseparated_literal_suffix = { level = "allow" }
-use_debug = { level = "allow" }
-wildcard_enum_match_arm = { level = "allow" }
+float_arithmetic                  = { level = "allow" }
+get_unwrap                        = { level = "allow" }
+host_endian_bytes                 = { level = "allow" }
+implicit_return                   = { level = "allow" }
+integer_division_remainder_used   = { level = "allow" }
+iter_over_hash_type               = { level = "allow" }
+let_underscore_must_use           = { level = "allow" }
+let_underscore_untyped            = { level = "allow" }
+little_endian_bytes               = { level = "allow" }
+map_err_ignore                    = { level = "allow" }
+min_ident_chars                   = { level = "allow" }
+missing_asserts_for_indexing      = { level = "allow" }
+missing_docs_in_private_items     = { level = "allow" }
+missing_inline_in_public_items    = { level = "allow" }
+missing_trait_methods             = { level = "allow" }
+mixed_read_write_in_expression    = { level = "allow" }
+mod_module_files                  = { level = "allow" }
+module_name_repetitions           = { level = "allow" }
+modulo_arithmetic                 = { level = "allow" }
+panic                             = { level = "allow" }
+panic_in_result_fn                = { level = "allow" }
+partial_pub_fields                = { level = "allow" }
+print_stderr                      = { level = "allow" }
+print_stdout                      = { level = "allow" }
+pub_use                           = { level = "allow" }
+pub_with_shorthand                = { level = "allow" }
+question_mark_used                = { level = "allow" }
+self_named_module_files           = { level = "allow" }
+semicolon_inside_block            = { level = "allow" }
+single_call_fn                    = { level = "allow" }
+single_char_lifetime_names        = { level = "allow" }
+std_instead_of_alloc              = { level = "allow" }
+std_instead_of_core               = { level = "allow" }
+struct_field_names                = { level = "allow" }
+unseparated_literal_suffix        = { level = "allow" }
+use_debug                         = { level = "allow" }
+wildcard_enum_match_arm           = { level = "allow" }
 
 # TODO: Address these allow-by-default lints at some point by either allowing them permanently or enforce them, and move them to the relative section according to the decision.
 # When doing so, please update the same table for all crates that are not part of the workspace.
-arithmetic_side_effects = { level = "allow" }
-as_conversions = { level = "allow" }
-as_pointer_underscore = { level = "allow" }
-as_underscore = { level = "allow" }
+arithmetic_side_effects     = { level = "allow" }
+as_conversions              = { level = "allow" }
+as_pointer_underscore       = { level = "allow" }
+as_underscore               = { level = "allow" }
 assertions_on_result_states = { level = "allow" }
-cast_possible_truncation = { level = "allow" }
-cast_possible_wrap = { level = "allow" }
-cast_precision_loss = { level = "allow" }
-cast_sign_loss = { level = "allow" }
-error_impl_error = { level = "allow" }
-impl_trait_in_params = { level = "allow" }
-indexing_slicing = { level = "allow" }
-infinite_loop = { level = "allow" }
-integer_division = { level = "allow" }
-large_stack_frames = { level = "allow" }
-missing_assert_message = { level = "allow" }
-missing_errors_doc = { level = "allow" }
-missing_panics_doc = { level = "allow" }
-pattern_type_mismatch = { level = "allow" }
-redundant_test_prefix = { level = "allow" }
-ref_patterns = { level = "allow" }
-renamed_function_params = { level = "allow" }
-same_name_method = { level = "allow" }
-shadow_reuse = { level = "allow" }
-shadow_same = { level = "allow" }
-shadow_unrelated = { level = "allow" }
-tests_outside_test_module = { level = "allow" }
-todo = { level = "allow" }
-unimplemented = { level = "allow" }
-unreachable = { level = "allow" }
-unwrap_in_result = { level = "allow" }
-unwrap_used = { level = "allow" }
+cast_possible_truncation    = { level = "allow" }
+cast_possible_wrap          = { level = "allow" }
+cast_precision_loss         = { level = "allow" }
+cast_sign_loss              = { level = "allow" }
+error_impl_error            = { level = "allow" }
+impl_trait_in_params        = { level = "allow" }
+indexing_slicing            = { level = "allow" }
+infinite_loop               = { level = "allow" }
+integer_division            = { level = "allow" }
+large_stack_frames          = { level = "allow" }
+missing_assert_message      = { level = "allow" }
+missing_errors_doc          = { level = "allow" }
+missing_panics_doc          = { level = "allow" }
+pattern_type_mismatch       = { level = "allow" }
+redundant_test_prefix       = { level = "allow" }
+ref_patterns                = { level = "allow" }
+renamed_function_params     = { level = "allow" }
+same_name_method            = { level = "allow" }
+shadow_reuse                = { level = "allow" }
+shadow_same                 = { level = "allow" }
+shadow_unrelated            = { level = "allow" }
+tests_outside_test_module   = { level = "allow" }
+todo                        = { level = "allow" }
+unimplemented               = { level = "allow" }
+unreachable                 = { level = "allow" }
+unwrap_in_result            = { level = "allow" }
+unwrap_used                 = { level = "allow" }
 
 [workspace.lints.rust]
 
 # Explicitly allowed lints
 
 unused_crate_dependencies = { level = "allow" } # Too many false positives especially around benchmarking and binaries, which do not have their own `dependencies` section yet. Plus, we have cargo-machete checking unused deps.
-unused_results = { level = "allow" } # We have Clippy lints to warn on unused `must_use` results. This is too pedantic as it complains on EVERY unused result.
+unused_results            = { level = "allow" } # We have Clippy lints to warn on unused `must_use` results. This is too pedantic as it complains on EVERY unused result.
 
 # Lints which are allow-by-default but have been changed to "warn"
 impl_trait_redundant_captures = { level = "warn" }
-missing_unsafe_on_extern = { level = "warn" }
-redundant_imports = { level = "warn" }
-redundant_lifetimes = { level = "warn" }
-single_use_lifetimes = { level = "warn" }
-trivial_numeric_casts = { level = "warn" }
-unsafe_attr_outside_unsafe = { level = "warn" }
-unsafe_op_in_unsafe_fn = { level = "warn" }
-unstable_features = { level = "warn" }
-unused_extern_crates = { level = "warn" }
-unused_import_braces = { level = "warn" }
-unused_lifetimes = { level = "warn" }
-unused_macro_rules = { level = "warn" }
-unused_qualifications = { level = "warn" }
+missing_unsafe_on_extern      = { level = "warn" }
+redundant_imports             = { level = "warn" }
+redundant_lifetimes           = { level = "warn" }
+single_use_lifetimes          = { level = "warn" }
+trivial_numeric_casts         = { level = "warn" }
+unsafe_attr_outside_unsafe    = { level = "warn" }
+unsafe_op_in_unsafe_fn        = { level = "warn" }
+unstable_features             = { level = "warn" }
+unused_extern_crates          = { level = "warn" }
+unused_import_braces          = { level = "warn" }
+unused_lifetimes              = { level = "warn" }
+unused_macro_rules            = { level = "warn" }
+unused_qualifications         = { level = "warn" }
 
 # TODO: Address these allow-by-default Rustc lints at some point by either allowing them permanently or enforce them, and move them to the relative section according to the decision.
 # When doing so, please update the same table for all crates that are not part of the workspace.
-absolute_paths_not_starting_with_crate = { level = "allow" }
-ambiguous_negative_literals = { level = "allow" }
-closure_returning_async_block = { level = "allow" }
-deprecated_safe_2024 = { level = "allow" }
-deref_into_dyn_supertrait = { level = "allow" }
-edition_2024_expr_fragment_specifier = { level = "allow" }
-elided_lifetimes_in_paths = { level = "allow" }
-ffi_unwind_calls = { level = "allow" }
-impl_trait_overcaptures = { level = "allow" }
-let_underscore_drop = { level = "allow" }
-linker_messages = { level = "allow" }
-macro_use_extern_crate = { level = "allow" }
-missing_copy_implementations = { level = "allow" }
-missing_debug_implementations = { level = "allow" }
-missing_docs = { level = "allow" }
-rust_2021_incompatible_closure_captures = { level = "allow" }
-rust_2021_incompatible_or_patterns = { level = "allow" }
-rust_2021_prefixes_incompatible_syntax = { level = "allow" }
-rust_2021_prelude_collisions = { level = "allow" }
+absolute_paths_not_starting_with_crate       = { level = "allow" }
+ambiguous_negative_literals                  = { level = "allow" }
+closure_returning_async_block                = { level = "allow" }
+deprecated_safe_2024                         = { level = "allow" }
+deref_into_dyn_supertrait                    = { level = "allow" }
+edition_2024_expr_fragment_specifier         = { level = "allow" }
+elided_lifetimes_in_paths                    = { level = "allow" }
+ffi_unwind_calls                             = { level = "allow" }
+impl_trait_overcaptures                      = { level = "allow" }
+let_underscore_drop                          = { level = "allow" }
+linker_messages                              = { level = "allow" }
+macro_use_extern_crate                       = { level = "allow" }
+missing_copy_implementations                 = { level = "allow" }
+missing_debug_implementations                = { level = "allow" }
+missing_docs                                 = { level = "allow" }
+rust_2021_incompatible_closure_captures      = { level = "allow" }
+rust_2021_incompatible_or_patterns           = { level = "allow" }
+rust_2021_prefixes_incompatible_syntax       = { level = "allow" }
+rust_2021_prelude_collisions                 = { level = "allow" }
 rust_2024_guarded_string_incompatible_syntax = { level = "allow" }
-rust_2024_incompatible_pat = { level = "allow" }
-rust_2024_prelude_collisions = { level = "allow" }
-tail_expr_drop_order = { level = "allow" }
-trivial_casts = { level = "allow" }
-unit_bindings = { level = "allow" }
-unreachable_pub = { level = "allow" }
-unsafe_code = { level = "allow" }
-variant_size_differences = { level = "allow" }
+rust_2024_incompatible_pat                   = { level = "allow" }
+rust_2024_prelude_collisions                 = { level = "allow" }
+tail_expr_drop_order                         = { level = "allow" }
+trivial_casts                                = { level = "allow" }
+unit_bindings                                = { level = "allow" }
+unreachable_pub                              = { level = "allow" }
+unsafe_code                                  = { level = "allow" }
+variant_size_differences                     = { level = "allow" }
 
 [workspace.package]
 license = "MIT or Apache-2.0"
