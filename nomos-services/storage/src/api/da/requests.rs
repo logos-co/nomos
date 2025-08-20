@@ -46,10 +46,11 @@ pub enum DaApiRequest<Backend: StorageBackend> {
     StoreTx {
         blob_id: <Backend as StorageDaApi>::BlobId,
         tx: <Backend as StorageDaApi>::Tx,
+        assignations: u16,
     },
     GetTx {
         blob_id: <Backend as StorageDaApi>::BlobId,
-        response_tx: Sender<Option<<Backend as StorageDaApi>::Tx>>,
+        response_tx: Sender<Option<(u16, <Backend as StorageDaApi>::Tx)>>,
     },
 }
 
@@ -85,7 +86,11 @@ where
                 blob_id,
                 response_tx,
             } => handle_get_blob_light_shares(backend, blob_id, response_tx).await,
-            Self::StoreTx { blob_id, tx } => handle_store_tx(backend, blob_id, tx).await,
+            Self::StoreTx {
+                blob_id,
+                assignations,
+                tx,
+            } => handle_store_tx(backend, blob_id, assignations, tx).await,
             Self::GetTx {
                 blob_id,
                 response_tx,
@@ -194,10 +199,11 @@ async fn handle_store_shared_commitments<Backend: StorageBackend>(
 async fn handle_store_tx<Backend: StorageBackend>(
     backend: &mut Backend,
     blob_id: Backend::BlobId,
+    assignations: u16,
     tx: Backend::Tx,
 ) -> Result<(), StorageServiceError> {
     backend
-        .store_tx(blob_id, tx)
+        .store_tx(blob_id, assignations, tx)
         .await
         .map_err(|e| StorageServiceError::BackendError(e.into()))
 }
@@ -205,7 +211,7 @@ async fn handle_store_tx<Backend: StorageBackend>(
 async fn handle_get_tx<Backend: StorageBackend>(
     backend: &mut Backend,
     blob_id: <Backend as StorageDaApi>::BlobId,
-    response_tx: Sender<Option<<Backend as StorageDaApi>::Tx>>,
+    response_tx: Sender<Option<(u16, <Backend as StorageDaApi>::Tx)>>,
 ) -> Result<(), StorageServiceError> {
     let result = backend
         .get_tx(blob_id)
@@ -313,18 +319,23 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
 
     pub fn store_tx_request<Converter: DaConverter<Backend>>(
         blob_id: ServiceBlobId<Converter, Backend>,
+        assignations: u16,
         tx: ServiceTx<Converter, Backend>,
     ) -> Result<Self, DynError> {
         let blob_id = Converter::blob_id_to_storage(blob_id).map_err(Into::<DynError>::into)?;
         let tx = Converter::tx_to_storage(tx)?;
         Ok(Self::Api {
-            request: StorageApiRequest::Da(DaApiRequest::StoreTx { blob_id, tx }),
+            request: StorageApiRequest::Da(DaApiRequest::StoreTx {
+                blob_id,
+                tx,
+                assignations,
+            }),
         })
     }
 
     pub fn get_tx_request<Converter: DaConverter<Backend>>(
         blob_id: ServiceBlobId<Converter, Backend>,
-        response_tx: Sender<Option<<Backend as StorageDaApi>::Tx>>,
+        response_tx: Sender<Option<(u16, <Backend as StorageDaApi>::Tx)>>,
     ) -> Result<Self, DynError> {
         let blob_id = Converter::blob_id_to_storage(blob_id).map_err(Into::<DynError>::into)?;
         Ok(Self::Api {

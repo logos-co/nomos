@@ -56,9 +56,9 @@ pub trait DaConverter<Backend: StorageDaApi> {
         backend_commitments: Backend::Commitments,
     ) -> Result<ServiceSharedCommitments<Self, Backend>, Self::Error>;
 
-    fn tx_to_storage(backend_tx: ServiceTx<Self, Backend>) -> Result<Backend::Tx, Self::Error>;
+    fn tx_to_storage(service_tx: ServiceTx<Self, Backend>) -> Result<Backend::Tx, Self::Error>;
 
-    fn tx_from_storage(service_tx: Backend::Tx) -> Result<ServiceTx<Self, Backend>, Self::Error>;
+    fn tx_from_storage(backend_tx: Backend::Tx) -> Result<ServiceTx<Self, Backend>, Self::Error>;
 }
 
 #[async_trait]
@@ -104,7 +104,15 @@ pub trait StorageDaApi {
         shared_commitments: Self::Commitments,
     ) -> Result<(), Self::Error>;
 
-    async fn store_tx(&mut self, blob_id: Self::BlobId, tx: Self::Tx) -> Result<(), Self::Error>;
+    async fn store_tx(
+        &mut self,
+        blob_id: Self::BlobId,
+        assignations: u16,
+        tx: Self::Tx,
+    ) -> Result<(), Self::Error>;
 
-    async fn get_tx(&mut self, blob_id: Self::BlobId) -> Result<Option<Self::Tx>, Self::Error>;
+    async fn get_tx(
+        &mut self,
+        blob_id: Self::BlobId,
+    ) -> Result<Option<(u16, Self::Tx)>, Self::Error>;
 }

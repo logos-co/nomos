@@ -1,7 +1,6 @@
 use std::{fs, net::Ipv4Addr, num::NonZero, path::PathBuf, sync::Arc, time::Duration};
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::post, Json, Router};
-use nomos_da_dispersal::backend::kzgrs::MempoolPublishStrategy;
 use nomos_da_network_core::swarm::{
     DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
 };
@@ -47,7 +46,6 @@ pub struct CfgSyncConfig {
     pub monitor_failure_time_window: Duration,
     #[serde_as(as = "MinimalBoundedDuration<0, SECOND>")]
     pub balancer_interval: Duration,
-    pub mempool_publish_strategy: MempoolPublishStrategy,
     pub replication_settings: ReplicationConfig,
     pub retry_shares_limit: usize,
     pub retry_commitments_limit: usize,
@@ -83,7 +81,6 @@ impl CfgSyncConfig {
             old_blobs_check_interval: self.old_blobs_check_interval,
             blobs_validity_duration: self.blobs_validity_duration,
             global_params_path: self.global_params_path.clone(),
-            mempool_strategy: self.mempool_publish_strategy.clone(),
             policy_settings: DAConnectionPolicySettings {
                 min_dispersal_peers: self.min_dispersal_peers,
                 min_replication_peers: self.min_replication_peers,

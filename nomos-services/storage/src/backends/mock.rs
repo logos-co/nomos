@@ -195,11 +195,19 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
         unimplemented!()
     }
 
-    async fn get_tx(&mut self, _blob_id: Self::BlobId) -> Result<Option<Self::Tx>, Self::Error> {
+    async fn get_tx(
+        &mut self,
+        _blob_id: Self::BlobId,
+    ) -> Result<Option<(u16, Self::Tx)>, Self::Error> {
         unimplemented!()
     }
 
-    async fn store_tx(&mut self, _blob_id: Self::BlobId, _tx: Self::Tx) -> Result<(), Self::Error> {
+    async fn store_tx(
+        &mut self,
+        _blob_id: Self::BlobId,
+        _assignations: u16,
+        _tx: Self::Tx,
+    ) -> Result<(), Self::Error> {
         unimplemented!()
     }
 }

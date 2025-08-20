@@ -633,6 +633,10 @@ where
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+        // Keep the most recent waker in case `send_message()` is called from
+        // outside the behaviour
+        self.waker = Some(cx.waker().clone());
+
         // The incoming message to be returned to the swarm **after** all the polling is
         // done, this way we don't starve the tasks that are polled later in the
         // sequence
@@ -666,10 +670,6 @@ where
         if let Some(incoming_message) = incoming_message {
             return incoming_message;
         }
-
-        // Keep the most recent waker in case `send_message()` is called from
-        // outside the behaviour
-        self.waker = Some(cx.waker().clone());
 
         Poll::Pending
     }

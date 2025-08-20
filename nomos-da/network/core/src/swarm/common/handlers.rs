@@ -31,7 +31,7 @@ pub async fn handle_validator_dispersal_event<Membership>(
             replication_behaviour.send_message(&ReplicationRequest::from(*share));
         }
         DispersalEvent::IncomingTx(signed_mantle_tx) => {
-            replication_behaviour.send_message(&ReplicationRequest::from(*signed_mantle_tx));
+            replication_behaviour.send_message(&ReplicationRequest::from(*signed_mantle_tx.1));
         }
         DispersalEvent::DispersalError { .. } => {} // Do not replicate errors.
     }
@@ -46,16 +46,22 @@ pub async fn handle_sampling_event(
     }
 }
 
-pub async fn handle_replication_event(
+pub async fn handle_replication_event<Membership>(
     validation_events_sender: &UnboundedSender<DispersalEvent>,
+    membership: &Membership,
+    peer_id: &<Membership as MembershipHandler>::Id,
     event: ReplicationEvent,
-) {
+) where
+    Membership: MembershipHandler + Send + Sync,
+    <Membership as MembershipHandler>::Id: Send + Sync,
+{
     if let ReplicationEvent::IncomingMessage { message, .. } = event {
-        let dispersal_event = match message.as_ref() {
-            ReplicationRequest::Share(share_request) => {
-                DispersalEvent::new_share(share_request.share.clone())
+        let dispersal_event = match *message {
+            ReplicationRequest::Share(share_request) => DispersalEvent::from(share_request.share),
+            ReplicationRequest::Tx(tx) => {
+                let assignations = membership.membership(peer_id).len();
+                DispersalEvent::from((assignations as u16, tx))
             }
-            ReplicationRequest::Tx(_signed_mantle_tx) => todo!(),
         };
         if let Err(e) = validation_events_sender.send(dispersal_event) {
             error!("Error sending blob to validation: {e:?}");
