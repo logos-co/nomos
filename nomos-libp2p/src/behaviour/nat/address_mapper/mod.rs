@@ -19,6 +19,7 @@ use libp2p::{
     },
     PeerId,
 };
+use nomos_utils::math::NonZeroF64;
 use tokio::time::{self, Sleep};
 use tracing::{debug, info, warn};
 
@@ -26,12 +27,6 @@ use crate::{
     behaviour::nat::address_mapper::{errors::AddressMapperError, protocol::NatMapper},
     config::NatMappingSettings,
 };
-
-/// Renewal delay as a fraction of the lease duration
-const RENEWAL_DELAY_FRACTION: f64 = 0.8;
-
-/// Retry interval for failed mapping attempts
-const RETRY_INTERVAL: Duration = Duration::from_secs(30);
 
 type MappingFuture = BoxFuture<'static, Result<Multiaddr, AddressMapperError>>;
 
@@ -141,7 +136,11 @@ impl MappingState {
     ) -> (PollResult, State) {
         info!(%self.local_address, %external, "NAT mapping established");
 
-        let new_state = State::active(self.local_address, settings.lease_duration);
+        let new_state = State::active(
+            self.local_address,
+            settings.lease_duration,
+            settings.renewal_delay_fraction,
+        );
 
         let result = if self.is_initial {
             Poll::Ready(ToSwarm::GenerateEvent(Event::NewExternalMappedAddress(
@@ -167,7 +166,7 @@ impl MappingState {
                 State::retry(
                     self.local_address,
                     self.retry_count,
-                    Box::pin(time::sleep(RETRY_INTERVAL)),
+                    Box::pin(time::sleep(settings.retry_interval)),
                 ),
             )
         } else {
@@ -196,7 +195,11 @@ impl StateTrait for ActiveState {
         } else {
             (
                 Poll::Pending,
-                State::active(self.local_address, settings.lease_duration),
+                State::active(
+                    self.local_address,
+                    settings.lease_duration,
+                    settings.renewal_delay_fraction,
+                ),
             )
         }
     }
@@ -262,9 +265,13 @@ impl State {
         })
     }
 
-    fn active(local_address: Multiaddr, lease_duration: u32) -> Self {
+    fn active(
+        local_address: Multiaddr,
+        lease_duration: u32,
+        renewal_delay_fraction: NonZeroF64,
+    ) -> Self {
         let renewal_delay =
-            Duration::from_secs_f64(f64::from(lease_duration) * RENEWAL_DELAY_FRACTION);
+            Duration::from_secs_f64(f64::from(lease_duration) * renewal_delay_fraction.get());
 
         Self::Active(ActiveState {
             local_address,
