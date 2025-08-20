@@ -354,7 +354,11 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             .then_some(current_session_behaviour!(self, session))
     }
 
-    /// Creates [`SessionBehaviour`] for the session that has the given negotiated connection.
+    /// Creates [`SessionBehaviour`] for the session that has the given
+    /// pending upgrade.
+    ///
+    /// The pending upgrade will be removed from the set of pending upgrades
+    /// in the session.
     fn session_behaviour_for_pending_upgrade(
         &mut self,
         conn: &(PeerId, ConnectionId),
