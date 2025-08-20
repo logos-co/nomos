@@ -1,13 +1,17 @@
-use nomos_core::da::BlobId;
+use nomos_core::{da::BlobId, mantle::SignedMantleTx};
 use serde::{Deserialize, Serialize};
 
-use crate::{common::Share, SubnetworkId};
+use crate::{
+    common::{Share, ShareRequest},
+    SubnetworkId,
+};
 
 #[repr(C)]
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum DispersalErrorType {
     ChunkSize,
-    Verification,
+    BlobVerification,
+    TxVerification,
 }
 
 #[repr(C)]
@@ -34,24 +38,30 @@ impl DispersalError {
 
 #[repr(C)]
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct DispersalRequest {
-    pub share: Share,
-    pub subnetwork_id: SubnetworkId,
+pub enum DispersalRequest {
+    Share(ShareRequest),
+    Tx(SignedMantleTx),
 }
 
 impl DispersalRequest {
     #[must_use]
-    pub const fn new(share: Share, subnetwork_id: SubnetworkId) -> Self {
-        Self {
+    pub const fn new_share(share: Share, subnetwork_id: SubnetworkId) -> Self {
+        Self::Share(ShareRequest {
             share,
             subnetwork_id,
-        }
+        })
+    }
+
+    #[must_use]
+    pub const fn new_tx(tx: SignedMantleTx) -> Self {
+        Self::Tx(tx)
     }
 }
 
 #[repr(C)]
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum DispersalResponse {
+    Tx(BlobId),
     BlobId(BlobId),
     Error(DispersalError),
 }

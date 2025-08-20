@@ -65,7 +65,7 @@ impl From<&DispersalExecutorEvent> for MonitorEvent {
 impl From<&DispersalValidatorEvent> for MonitorEvent {
     fn from(event: &DispersalValidatorEvent) -> Self {
         match event {
-            DispersalValidatorEvent::IncomingMessage { .. } => Self::Noop,
+            DispersalValidatorEvent::IncomingShare { .. } => Self::Noop,
             DispersalValidatorEvent::DispersalError { error } => {
                 Self::ValidatorDispersal(error.clone())
             }
