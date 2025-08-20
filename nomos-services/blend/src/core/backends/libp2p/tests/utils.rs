@@ -1,15 +1,19 @@
 use core::{
     iter::repeat_with,
-    num::NonZeroU64,
     ops::{Deref, DerefMut, RangeInclusive},
     time::Duration,
 };
 
+use async_trait::async_trait;
 use futures::{
     stream::{pending, Pending},
     StreamExt as _,
 };
-use libp2p::{allow_block_list, connection_limits, identity::Keypair, Multiaddr, PeerId};
+use libp2p::{
+    allow_block_list, connection_limits, core::transport::ListenerId, identity::Keypair, Multiaddr,
+    PeerId, Swarm,
+};
+use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
     crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, Signature, SIGNATURE_SIZE},
     input::{EncapsulationInput, EncapsulationInputs},
@@ -27,6 +31,7 @@ use nomos_blend_scheduling::{
     membership::{Membership, Node},
     EncapsulatedMessage,
 };
+use nomos_libp2p::{Protocol, SwarmEvent};
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;
 use tokio::{
@@ -50,7 +55,7 @@ pub struct TestSwarm {
 #[derive(Default)]
 pub struct SwarmBuilder {
     membership: Option<Membership<PeerId>>,
-    max_dial_attempts_per_peer: Option<NonZeroU64>,
+    keypair: Option<Keypair>,
 }
 
 impl SwarmBuilder {
@@ -59,11 +64,8 @@ impl SwarmBuilder {
         self
     }
 
-    pub fn with_max_dial_attempts_per_peer(
-        mut self,
-        max_dial_attempts_per_peer: NonZeroU64,
-    ) -> Self {
-        self.max_dial_attempts_per_peer = Some(max_dial_attempts_per_peer);
+    pub fn with_keypair(mut self, keypair: Keypair) -> Self {
+        self.keypair = Some(keypair);
         self
     }
 
@@ -93,8 +95,8 @@ impl SwarmBuilder {
                 )
             }),
             BlakeRng::from_entropy(),
-            self.max_dial_attempts_per_peer
-                .unwrap_or_else(|| 3u64.try_into().unwrap()),
+            3u64.try_into().unwrap(),
+            self.keypair,
         );
 
         TestSwarm {
@@ -253,4 +255,63 @@ fn generate_valid_inputs() -> EncapsulationInputs<3> {
             .into_boxed_slice(),
     )
     .unwrap()
+}
+
+#[async_trait]
+pub trait SwarmExt: libp2p_swarm_test::SwarmExt {
+    async fn listen_and_return_membership_entry(
+        &mut self,
+        addr: Option<Multiaddr>,
+    ) -> (Node<PeerId>, ListenerId);
+    async fn remove_listener_and_wait(&mut self, listener_id: ListenerId) -> bool;
+}
+
+#[async_trait]
+impl SwarmExt for Swarm<BlendBehaviour<TestObservationWindowProvider>> {
+    async fn listen_and_return_membership_entry(
+        &mut self,
+        addr: Option<Multiaddr>,
+    ) -> (Node<PeerId>, ListenerId) {
+        let memory_addr_listener_id = self
+            .listen_on(addr.unwrap_or_else(|| Protocol::Memory(0).into()))
+            .unwrap();
+
+        // block until we are actually listening
+        let address = self
+            .wait(|event| match event {
+                SwarmEvent::NewListenAddr {
+                    address,
+                    listener_id,
+                } => (listener_id == memory_addr_listener_id).then_some(address),
+                other => {
+                    panic!("Unexpected event while waiting for `NewListenAddr`: {other:?}")
+                }
+            })
+            .await;
+        (
+            Node {
+                address,
+                id: *self.local_peer_id(),
+                public_key: Ed25519PrivateKey::generate().public_key(),
+            },
+            memory_addr_listener_id,
+        )
+    }
+
+    async fn remove_listener_and_wait(&mut self, listener_id: ListenerId) -> bool {
+        if !self.remove_listener(listener_id) {
+            return false;
+        }
+        self.wait(|e| match e {
+            SwarmEvent::ListenerClosed {
+                listener_id: closed_listener_id,
+                ..
+            } => (closed_listener_id == listener_id).then_some(()),
+            other => {
+                panic!("Unexpected event while waiting for `NewListenAddr`: {other:?}")
+            }
+        })
+        .await;
+        true
+    }
 }

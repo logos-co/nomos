@@ -56,6 +56,23 @@ pub struct RemotePeerConnectionDetails {
     connection_id: ConnectionId,
 }
 
+impl RemotePeerConnectionDetails {
+    #[must_use]
+    pub const fn role(&self) -> Endpoint {
+        self.role
+    }
+
+    #[must_use]
+    pub const fn negotiated_state(&self) -> NegotiatedPeerState {
+        self.negotiated_state
+    }
+
+    #[must_use]
+    pub const fn connection_id(&self) -> ConnectionId {
+        self.connection_id
+    }
+}
+
 /// A [`NetworkBehaviour`] that processes incoming Blend messages, and
 /// propagates messages from the Blend service to the rest of the Blend network.
 ///
@@ -292,7 +309,6 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         &self.exchanged_message_identifiers
     }
 
-    #[cfg(test)]
     pub const fn negotiated_peers(&self) -> &HashMap<PeerId, RemotePeerConnectionDetails> {
         &self.negotiated_peers
     }

@@ -8,7 +8,7 @@ use std::{
 };
 
 use futures::{Stream, StreamExt as _};
-use libp2p::{Multiaddr, PeerId, Swarm, SwarmBuilder};
+use libp2p::{swarm::dial_opts::PeerCondition, Multiaddr, PeerId, Swarm, SwarmBuilder};
 use nomos_blend_network::{
     core::{
         with_core::behaviour::{
@@ -20,7 +20,7 @@ use nomos_blend_network::{
     EncapsulatedMessageWithValidatedPublicHeader,
 };
 use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage};
-use nomos_libp2p::SwarmEvent;
+use nomos_libp2p::{DialOpts, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
 
@@ -37,11 +37,21 @@ pub enum BlendSwarmMessage {
     Publish(EncapsulatedMessage),
 }
 
-struct DialAttempt {
+pub struct DialAttempt {
     /// Address of peer being dialed.
     address: Multiaddr,
     /// The latest (ongoing) attempt number.
     attempt_number: NonZeroU64,
+}
+
+impl DialAttempt {
+    pub const fn address(&self) -> &Multiaddr {
+        &self.address
+    }
+
+    pub const fn attempt_number(&self) -> NonZeroU64 {
+        self.attempt_number
+    }
 }
 
 pub(super) struct BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
@@ -153,6 +163,7 @@ where
     /// dials. Any checks about the maximum allowed dials must be performed in
     /// the context of the calling function.
     fn dial(&mut self, peer_id: PeerId, address: Multiaddr) {
+        tracing::trace!(target: LOG_TARGET, "Dialing peer {peer_id:?} at address {address:?}.");
         // Set to `1` if first dial or bump to the next value if a retry.
         match self.ongoing_dials.entry(peer_id) {
             Entry::Vacant(empty_entry) => {
@@ -168,7 +179,12 @@ where
             }
         }
 
-        if let Err(e) = self.swarm.dial(address) {
+        if let Err(e) = self.swarm.dial(
+            DialOpts::peer_id(peer_id)
+                .addresses(vec![address])
+                .condition(PeerCondition::Always)
+                .build(),
+        ) {
             tracing::error!(target: LOG_TARGET, "Failed to dial peer {peer_id:?}: {e:?}");
             self.retry_dial(peer_id);
         }
@@ -177,6 +193,11 @@ where
     #[cfg(test)]
     pub fn dial_peer_at_addr(&mut self, peer_id: PeerId, address: Multiaddr) {
         self.dial(peer_id, address);
+    }
+
+    #[cfg(test)]
+    pub fn ongoing_dials(&self) -> &HashMap<PeerId, DialAttempt> {
+        &self.ongoing_dials
     }
 
     /// Attempt to retry dialing the specified peer, if the maximum attempts
@@ -194,6 +215,7 @@ where
             self.dial(peer_id, address.clone());
             return None;
         }
+        tracing::trace!(target: LOG_TARGET, "Maximum attempts ({}) reached for peer {peer_id:?}. Re-dialing stopped.", self.max_dial_attempts_per_connection);
         self.ongoing_dials.remove(&peer_id)
     }
 
@@ -304,23 +326,27 @@ where
         latest_session_info: Membership<PeerId>,
         rng: Rng,
         max_dial_attempts_per_connection: NonZeroU64,
+        keypair: Option<libp2p::identity::Keypair>,
     ) -> Self
     where
         BehaviourConstructor:
             FnOnce(libp2p::identity::Keypair) -> BlendBehaviour<ObservationWindowProvider>,
     {
         let inner_swarm = {
-            use libp2p::{core::transport::MemoryTransport, Transport as _};
+            use libp2p::{
+                core::transport::MemoryTransport, identity, plaintext, swarm, tcp, yamux,
+                Transport as _,
+            };
             use nomos_libp2p::upgrade::Version;
 
-            let identity = libp2p::identity::Keypair::generate_ed25519();
+            let identity = keypair.unwrap_or_else(identity::Keypair::generate_ed25519);
             let peer_id = PeerId::from(identity.public());
 
             let transport = MemoryTransport::default()
-                .or_transport(libp2p::tcp::tokio::Transport::default())
+                .or_transport(tcp::tokio::Transport::default())
                 .upgrade(Version::V1)
-                .authenticate(libp2p::plaintext::Config::new(&identity))
-                .multiplex(libp2p::yamux::Config::default())
+                .authenticate(plaintext::Config::new(&identity))
+                .multiplex(yamux::Config::default())
                 .timeout(Duration::ZERO)
                 .boxed();
 
@@ -328,7 +354,7 @@ where
                 transport,
                 behaviour_constructor(identity),
                 peer_id,
-                libp2p::swarm::Config::with_tokio_executor(),
+                swarm::Config::with_tokio_executor(),
             )
         };
 
@@ -478,6 +504,47 @@ where
                 }
                 Some(event) = self.swarm.next() => {
                     self.handle_event(event);
+                }
+                Some(new_session_info) = self.session_stream.next() => {
+                    self.latest_session_info = new_session_info;
+                    // TODO: Perform the session transition logic
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub async fn poll_swarm(&mut self) {
+        tokio::select! {
+            Some(msg) = self.swarm_messages_receiver.recv() => {
+                self.handle_swarm_message(msg);
+            }
+            Some(event) = self.swarm.next() => {
+                self.handle_event(event);
+            }
+            Some(new_session_info) = self.session_stream.next() => {
+                self.latest_session_info = new_session_info;
+                // TODO: Perform the session transition logic
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub async fn poll_swarm_until<Predicate>(&mut self, predicate: Predicate)
+    where
+        Predicate: Fn(&SwarmEvent<BlendBehaviourEvent<ObservationWindowProvider>>) -> bool,
+    {
+        loop {
+            tokio::select! {
+                Some(msg) = self.swarm_messages_receiver.recv() => {
+                    self.handle_swarm_message(msg);
+                }
+                Some(event) = self.swarm.next() => {
+                    let should_exit = predicate(&event);
+                    self.handle_event(event);
+                    if should_exit {
+                        break;
+                    }
                 }
                 Some(new_session_info) = self.session_stream.next() => {
                     self.latest_session_info = new_session_info;
