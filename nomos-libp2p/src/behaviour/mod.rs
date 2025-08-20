@@ -51,7 +51,7 @@ pub struct Behaviour<R: Clone + Send + RngCore + 'static> {
     pub(crate) chain_sync: cryptarchia_sync::Behaviour,
     // The spec makes it mandatory to run an autonat server for a public node.
     pub(crate) autonat_server: autonat::v2::server::Behaviour<R>,
-    pub(crate) nat: nat::NatBehaviour<R>,
+    pub(crate) nat: nat::Behaviour<R>,
 }
 
 impl<R: Clone + Send + RngCore + 'static> Behaviour<R> {
@@ -87,7 +87,7 @@ impl<R: Clone + Send + RngCore + 'static> Behaviour<R> {
         );
 
         let autonat_server = autonat::v2::server::Behaviour::new(rng.clone());
-        let nat = nat::NatBehaviour::new(rng, nat_config);
+        let nat = nat::Behaviour::new(rng, nat_config);
 
         let chain_sync = cryptarchia_sync::Behaviour::new(chain_sync_config);
 

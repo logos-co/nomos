@@ -16,35 +16,37 @@ impl OnEvent for State<Public> {
     fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent> {
         match event {
             Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestOk(addr)
-                if self.state.addr() == &addr =>
+                if self.state.address() == &addr =>
             {
                 command_tx.force_send(Command::ScheduleAutonatClientTest(addr));
                 self
             }
-            Event::AutonatClientTestFailed(addr) if self.state.addr() == &addr => {
+            Event::AutonatClientTestFailed(addr) if self.state.address() == &addr => {
                 self.boxed(Public::into_test_if_public)
             }
-            Event::AddressMappingFailed(addr) if self.state.addr() == &addr => {
-                self.boxed(Public::into_private)
+            Event::AddressMappingFailed(addr) if self.state.address() == &addr => {
+                self.boxed(|state| state.into_private(addr))
             }
-            Event::DefaultGatewayChanged(_) => {
-                // Gateway changed, transition to TryMapAddress to re-map with new gateway
-                let addr = self.state.addr().clone();
-                command_tx.force_send(Command::MapAddress(addr));
-                self.boxed(|state| state.into_test_if_public().into_try_map_address())
+            Event::DefaultGatewayChanged { local_address, .. } => {
+                if let Some(addr) = local_address {
+                    command_tx.force_send(Command::MapAddress(addr));
+                    self.boxed(Public::into_try_map_address)
+                } else {
+                    self
+                }
             }
             Event::ExternalAddressConfirmed(addr) => {
                 panic!(
                     "State<Public>: Swarm confirmed external address {}, but {} was expected",
                     addr,
-                    self.state.addr(),
+                    self.state.address(),
                 );
             }
             Event::AutonatClientTestOk(addr) | Event::AutonatClientTestFailed(addr) => {
                 panic!(
                     "State<Public>: Autonat client reported address {}, but {} was expected",
                     addr,
-                    self.state.addr(),
+                    self.state.address(),
                 );
             }
             _ => self,
@@ -58,10 +60,11 @@ mod tests {
 
     use super::Command;
     use crate::behaviour::nat::state_machine::{
-        states::{Private, Public, TestIfPublic},
+        states::{Private, Public, TestIfPublic, TryMapAddress},
         transitions::fixtures::{
             all_events, autonat_failed, autonat_failed_address_mismatch, autonat_ok,
-            autonat_ok_address_mismatch, default_gateway_changed, external_address_confirmed,
+            autonat_ok_address_mismatch, default_gateway_changed,
+            default_gateway_changed_no_local_address, external_address_confirmed,
             external_address_confirmed_address_mismatch, mapping_failed, ADDR,
         },
         StateMachine,
@@ -159,6 +162,19 @@ mod tests {
     }
 
     #[test]
+    fn default_gateway_changed_event_causes_transition_to_try_map_address() {
+        let (tx, mut rx) = unbounded_channel();
+        let mut state_machine = StateMachine::new(tx);
+        state_machine.inner = Some(Public::for_test(ADDR.clone()));
+        state_machine.on_test_event(default_gateway_changed());
+        assert_eq!(
+            state_machine.inner.as_ref().unwrap(),
+            &TryMapAddress::for_test(ADDR.clone())
+        );
+        assert_eq!(rx.try_recv(), Ok(Command::MapAddress(ADDR.clone())));
+    }
+
+    #[test]
     fn other_events_are_ignored() {
         let (tx, mut rx) = unbounded_channel();
         let mut state_machine = StateMachine::new(tx);
@@ -170,6 +186,7 @@ mod tests {
         other_events.remove(&autonat_failed());
         other_events.remove(&mapping_failed());
         other_events.remove(&default_gateway_changed());
+        other_events.remove(&default_gateway_changed_no_local_address());
 
         for event in other_events {
             state_machine.on_test_event(event);

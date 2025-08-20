@@ -25,6 +25,12 @@ impl OnEvent for State<TryMapAddress> {
             Event::AddressMappingFailed(addr) if self.state.addr_to_map() == &addr => {
                 self.boxed(TryMapAddress::into_private)
             }
+            Event::DefaultGatewayChanged { local_address, .. } => {
+                if let Some(addr) = local_address {
+                    command_tx.force_send(Command::MapAddress(addr));
+                }
+                self
+            }
             Event::AddressMappingFailed(addr) => {
                 panic!(
                     "State<TryMapAddress>: Address mapper reported failure for address {}, but {} was expected",
@@ -39,12 +45,6 @@ impl OnEvent for State<TryMapAddress> {
                     self.state.addr_to_map(),
                 );
             }
-            Event::DefaultGatewayChanged(_) => {
-                // Gateway changed while already mapping, restart mapping with new gateway
-                let addr = self.state.addr_to_map().clone();
-                command_tx.force_send(Command::MapAddress(addr));
-                self
-            }
             _ => self,
         }
     }
@@ -58,12 +58,11 @@ mod tests {
     use crate::behaviour::nat::state_machine::{
         states::{Private, TestIfMappedPublic, TryMapAddress},
         transitions::fixtures::{
-            all_events, mapping_failed, mapping_failed_address_mismatch, mapping_ok,
-            mapping_ok_address_mismatch, ADDR,
+            all_events, default_gateway_changed, mapping_failed, mapping_failed_address_mismatch,
+            mapping_ok, mapping_ok_address_mismatch, ADDR,
         },
         StateMachine,
     };
-    use crate::behaviour::nat::state_machine::transitions::fixtures::default_gateway_changed;
 
     #[test]
     fn new_external_mapped_address_event_causes_transition_to_test_if_mapped_public() {
@@ -124,6 +123,20 @@ mod tests {
         state_machine.inner = Some(TryMapAddress::for_test(ADDR.clone()));
         let event = mapping_ok_address_mismatch();
         state_machine.on_test_event(event);
+    }
+
+    #[test]
+    fn default_gateway_changed_event_stays_in_try_map_address() {
+        let (tx, mut rx) = unbounded_channel();
+        let mut state_machine = StateMachine::new(tx);
+        state_machine.inner = Some(TryMapAddress::for_test(ADDR.clone()));
+        let event = default_gateway_changed();
+        state_machine.on_test_event(event);
+        assert_eq!(
+            state_machine.inner.as_ref().unwrap(),
+            &TryMapAddress::for_test(ADDR.clone())
+        );
+        assert_eq!(rx.try_recv(), Ok(Command::MapAddress(ADDR.clone())));
     }
 
     #[test]

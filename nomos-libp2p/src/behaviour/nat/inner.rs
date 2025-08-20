@@ -19,13 +19,15 @@ use libp2p::{
 };
 use rand::RngCore;
 use tokio::sync::mpsc::UnboundedReceiver;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::{
     behaviour::nat::{
         address_mapper,
-        address_mapper::{protocol::ProtocolManager, AddressMapperBehaviour},
-        gateway_monitor::{GatewayMonitor, GatewayMonitorSettings},
+        address_mapper::{protocol::ProtocolManager, AddressMapperBehaviour, NatMapper},
+        gateway_monitor::{
+            GatewayDetector, GatewayMonitor, GatewayMonitorEvent, SystemGatewayDetector,
+        },
         state_machine::{Command, StateMachine},
     },
     config::NatSettings,
@@ -33,21 +35,22 @@ use crate::{
 
 type Task = BoxFuture<'static, Multiaddr>;
 
-/// Provides dynamic NAT-status detection, improvement (via address mapping on
-/// the NAT-box), and periodic maintenance capabilities.
-pub struct InnerNatBehaviour<R: RngCore + 'static> {
+pub struct InnerNatBehaviour<R, Mapper, Detector>
+where
+    R: RngCore + 'static,
+    Mapper: NatMapper,
+    Detector: GatewayDetector,
+{
     /// `AutoNAT` client behaviour which is used to confirm if addresses of our
     /// node are indeed publicly reachable.
     autonat_client_behaviour: autonat::v2::client::Behaviour<R>,
     /// The address mapper behaviour is used to map the node's addresses at the
     /// default gateway using one of the protocols: `PCP`, `NAT-PMP`,
-    /// `UPNP-IGD`. The current implementation is a placeholder and does not
-    /// perform any actual address mapping, and always generates a failure
-    /// event.
-    address_mapper_behaviour: AddressMapperBehaviour<ProtocolManager>,
+    /// `UPNP-IGD`.
+    address_mapper_behaviour: AddressMapperBehaviour<Mapper>,
     /// Gateway monitor that periodically checks for gateway address changes
     /// and triggers re-mapping when the gateway changes.
-    gateway_monitor: GatewayMonitor,
+    gateway_monitor: GatewayMonitor<Detector>,
     /// The state machine reacts to events from the swarm and from the
     /// sub-behaviours of the `InnerNatBehaviour` and issues commands to the
     /// `InnerNatBehaviour`.
@@ -61,22 +64,40 @@ pub struct InnerNatBehaviour<R: RngCore + 'static> {
     next_autonat_client_tick: Fuse<OptionFuture<Task>>,
     /// Interval for the above ticker.
     autonat_client_tick_interval: Duration,
+    /// Current local address that is being managed
+    local_address: Option<Multiaddr>,
 }
 
-impl<R: RngCore + 'static> InnerNatBehaviour<R> {
+pub type NatBehaviour<R> = InnerNatBehaviour<R, ProtocolManager, SystemGatewayDetector>;
+
+impl<R: RngCore + 'static> NatBehaviour<R> {
     pub fn new(rng: R, nat_config: NatSettings) -> Self {
-        let address_mapper_behaviour = AddressMapperBehaviour::new(nat_config.mapping);
+        let address_mapper_behaviour =
+            AddressMapperBehaviour::<ProtocolManager>::new(nat_config.mapping);
+
+        let gateway_monitor =
+            GatewayMonitor::<SystemGatewayDetector>::new(nat_config.gateway_monitor);
+
+        Self::create(rng, nat_config, address_mapper_behaviour, gateway_monitor)
+    }
+}
+
+impl<R, Mapper, Detector> InnerNatBehaviour<R, Mapper, Detector>
+where
+    R: RngCore + 'static,
+    Mapper: NatMapper,
+    Detector: GatewayDetector,
+{
+    fn create(
+        rng: R,
+        nat_config: NatSettings,
+        address_mapper_behaviour: AddressMapperBehaviour<Mapper>,
+        gateway_monitor: GatewayMonitor<Detector>,
+    ) -> Self {
         let autonat_client_behaviour =
             autonat::v2::client::Behaviour::new(rng, nat_config.autonat.to_libp2p_config());
 
-        let gateway_monitor = GatewayMonitor::new(GatewayMonitorSettings {
-            check_interval_secs: nat_config.gateway_monitor.check_interval_secs,
-            detection_timeout_secs: nat_config.gateway_monitor.detection_timeout_secs,
-            enabled: nat_config.gateway_monitor.enabled,
-        });
-
         let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
-
         let state_machine = StateMachine::new(command_tx);
 
         let autonat_client_tick_interval = Duration::from_millis(
@@ -93,11 +114,17 @@ impl<R: RngCore + 'static> InnerNatBehaviour<R> {
             command_rx,
             next_autonat_client_tick: OptionFuture::default().fuse(),
             autonat_client_tick_interval,
+            local_address: None,
         }
     }
 }
 
-impl<R: RngCore + 'static> NetworkBehaviour for InnerNatBehaviour<R> {
+impl<R, Mapper, Detector> NetworkBehaviour for InnerNatBehaviour<R, Mapper, Detector>
+where
+    R: RngCore + 'static,
+    Mapper: NatMapper + 'static,
+    Detector: GatewayDetector + 'static,
+{
     type ConnectionHandler =
         <autonat::v2::client::Behaviour as NetworkBehaviour>::ConnectionHandler;
 
@@ -202,21 +229,22 @@ impl<R: RngCore + 'static> NetworkBehaviour for InnerNatBehaviour<R> {
             // self.autonat_client_behaviour.retest_address(addr);
         }
 
-        // Poll the gateway monitor
         if let Poll::Ready(Some(event)) = self.gateway_monitor.poll(cx) {
-            // Handle gateway monitor events
             match event {
-                crate::behaviour::nat::gateway_monitor::GatewayMonitorEvent::GatewayChanged { old_gateway, new_gateway } => {
-                    info!("Gateway changed from {:?} to {}", old_gateway, new_gateway);
-                    
-                    // When gateway changes, emit DefaultGatewayChanged event to the state machine
-                    // This will cause all states to transition to TryMapAddress and force re-mapping
-                    self.state_machine.on_event(&address_mapper::Event::DefaultGatewayChanged);
-                }
-                crate::behaviour::nat::gateway_monitor::GatewayMonitorEvent::GatewayDetectionFailed(error) => {
-                    warn!("Gateway detection failed: {}", error);
-                    // Don't emit any events on detection failure to avoid disrupting
-                    // the current state unnecessarily
+                GatewayMonitorEvent::GatewayChanged {
+                    old_gateway,
+                    new_gateway,
+                } => {
+                    info!(
+                        "Gateway changed from {old_gateway:?} to {new_gateway:?}, triggering address re-mapping",
+                    );
+
+                    self.state_machine
+                        .on_event(&address_mapper::Event::DefaultGatewayChanged {
+                            old_gateway,
+                            new_gateway,
+                            local_address: self.local_address.clone(),
+                        });
                 }
             }
         }

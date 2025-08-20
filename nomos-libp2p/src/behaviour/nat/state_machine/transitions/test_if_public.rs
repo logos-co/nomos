@@ -23,11 +23,13 @@ impl OnEvent for State<TestIfPublic> {
                 command_tx.force_send(Command::MapAddress(addr));
                 self.boxed(TestIfPublic::into_try_map_address)
             }
-            Event::DefaultGatewayChanged(_) => {
-                // Gateway changed, transition to TryMapAddress to re-map with new gateway
-                let addr = self.state.addr_to_test().clone();
-                command_tx.force_send(Command::MapAddress(addr));
-                self.boxed(TestIfPublic::into_try_map_address)
+            Event::DefaultGatewayChanged { local_address, .. } => {
+                if let Some(addr) = local_address {
+                    command_tx.force_send(Command::MapAddress(addr));
+                    self.boxed(TestIfPublic::into_try_map_address)
+                } else {
+                    self
+                }
             }
             Event::ExternalAddressConfirmed(addr) | Event::AutonatClientTestFailed(addr) => {
                 panic!(
@@ -50,7 +52,8 @@ mod tests {
         states::{Public, TestIfPublic, TryMapAddress},
         transitions::fixtures::{
             all_events, autonat_failed, autonat_failed_address_mismatch, default_gateway_changed,
-            external_address_confirmed, external_address_confirmed_address_mismatch, ADDR,
+            default_gateway_changed_no_local_address, external_address_confirmed,
+            external_address_confirmed_address_mismatch, ADDR,
         },
         StateMachine,
     };
@@ -107,6 +110,19 @@ mod tests {
     }
 
     #[test]
+    fn default_gateway_changed_event_causes_transition_to_try_map_address() {
+        let (tx, mut rx) = unbounded_channel();
+        let mut state_machine = StateMachine::new(tx);
+        state_machine.inner = Some(TestIfPublic::for_test(ADDR.clone()));
+        state_machine.on_test_event(default_gateway_changed());
+        assert_eq!(
+            state_machine.inner.as_ref().unwrap(),
+            &TryMapAddress::for_test(ADDR.clone())
+        );
+        assert_eq!(rx.try_recv(), Ok(Command::MapAddress(ADDR.clone())));
+    }
+
+    #[test]
     fn other_events_are_ignored() {
         let (tx, mut rx) = unbounded_channel();
         let mut state_machine = StateMachine::new(tx);
@@ -116,6 +132,7 @@ mod tests {
         other_events.remove(&external_address_confirmed());
         other_events.remove(&autonat_failed());
         other_events.remove(&default_gateway_changed());
+        other_events.remove(&default_gateway_changed_no_local_address());
 
         for event in other_events {
             state_machine.on_test_event(event);

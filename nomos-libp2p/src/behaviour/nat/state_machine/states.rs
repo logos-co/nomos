@@ -38,7 +38,9 @@ pub struct TestIfPublic {
 impl TestIfPublic {
     pub fn into_public(self) -> Public {
         let Self { addr_to_test } = self;
-        Public { addr: addr_to_test }
+        Public {
+            address: addr_to_test,
+        }
     }
 
     pub fn into_try_map_address(self) -> TryMapAddress {
@@ -61,19 +63,19 @@ pub struct TryMapAddress {
 }
 
 impl TryMapAddress {
-    #[expect(
-        clippy::unused_self,
-        reason = "The aim of the pattern is to consume self."
-    )]
     pub fn into_test_if_mapped_public(self, new_external_addr: Multiaddr) -> TestIfMappedPublic {
+        let Self { addr_to_map } = self;
         TestIfMappedPublic {
+            local_address: addr_to_map,
             addr_to_test: new_external_addr,
         }
     }
 
     pub fn into_private(self) -> Private {
         let Self { addr_to_map } = self;
-        Private { addr: addr_to_map }
+        Private {
+            local_address: addr_to_map,
+        }
     }
 
     pub const fn addr_to_map(&self) -> &Multiaddr {
@@ -86,18 +88,34 @@ impl TryMapAddress {
 /// test if the outside address of the NAT-box is indeed publicly reachable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestIfMappedPublic {
+    /// The original local address that was mapped
+    local_address: Multiaddr,
+    /// The external address to test (result of mapping)
     addr_to_test: Multiaddr,
 }
 
 impl TestIfMappedPublic {
     pub fn into_mapped_public(self) -> MappedPublic {
-        let Self { addr_to_test } = self;
-        MappedPublic { addr: addr_to_test }
+        let Self {
+            local_address,
+            addr_to_test,
+        } = self;
+        MappedPublic {
+            local_address,
+            external_address: addr_to_test,
+        }
     }
 
     pub fn into_private(self) -> Private {
-        let Self { addr_to_test } = self;
-        Private { addr: addr_to_test }
+        let Self { local_address, .. } = self;
+        Private { local_address }
+    }
+
+    pub fn into_try_map_address(self) -> TryMapAddress {
+        let Self { local_address, .. } = self;
+        TryMapAddress {
+            addr_to_map: local_address,
+        }
     }
 
     pub const fn addr_to_test(&self) -> &Multiaddr {
@@ -109,22 +127,35 @@ impl TestIfMappedPublic {
 /// confirmed by the `autonat` client.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Public {
-    addr: Multiaddr,
+    /// The address that was confirmed to be publicly reachable
+    address: Multiaddr,
 }
 
 impl Public {
     pub fn into_test_if_public(self) -> TestIfPublic {
-        let Self { addr } = self;
-        TestIfPublic { addr_to_test: addr }
+        let Self { address } = self;
+        TestIfPublic {
+            addr_to_test: address,
+        }
     }
 
-    pub fn into_private(self) -> Private {
-        let Self { addr } = self;
-        Private { addr }
+    #[expect(
+        clippy::unused_self,
+        reason = "The aim of the pattern is to consume self."
+    )]
+    pub fn into_private(self, local_address: Multiaddr) -> Private {
+        Private { local_address }
     }
 
-    pub const fn addr(&self) -> &Multiaddr {
-        &self.addr
+    pub fn into_try_map_address(self) -> TryMapAddress {
+        let Self { address } = self;
+        TryMapAddress {
+            addr_to_map: address,
+        }
+    }
+
+    pub const fn address(&self) -> &Multiaddr {
+        &self.address
     }
 }
 
@@ -133,27 +164,37 @@ impl Public {
 /// confirmed by the `autonat` client to be publicly reachable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MappedPublic {
-    addr: Multiaddr,
+    /// The original local address that was mapped
+    local_address: Multiaddr,
+    /// The external address that is confirmed to be publicly reachable
+    external_address: Multiaddr,
 }
 
 impl MappedPublic {
     pub fn into_test_if_public(self) -> TestIfPublic {
-        let Self { addr } = self;
-        TestIfPublic { addr_to_test: addr }
+        let Self {
+            external_address, ..
+        } = self;
+        TestIfPublic {
+            addr_to_test: external_address,
+        }
     }
 
     pub fn into_private(self) -> Private {
-        let Self { addr } = self;
-        Private { addr }
+        let Self { local_address, .. } = self;
+        Private { local_address }
     }
 
-    pub fn into_private(self) -> Private {
-        let Self { addr } = self;
-        Private { addr }
+
+    pub fn into_try_map_address(self) -> TryMapAddress {
+        let Self { local_address, .. } = self;
+        TryMapAddress {
+            addr_to_map: local_address,
+        }
     }
 
-    pub const fn addr(&self) -> &Multiaddr {
-        &self.addr
+    pub const fn external_address(&self) -> &Multiaddr {
+        &self.external_address
     }
 }
 
@@ -161,7 +202,7 @@ impl MappedPublic {
 /// not been successfully mapped to a publicly reachable address on the NAT-box.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Private {
-    addr: Multiaddr,
+    local_address: Multiaddr,
 }
 
 impl Private {
@@ -175,8 +216,16 @@ impl Private {
         }
     }
 
-    pub const fn addr(&self) -> &Multiaddr {
-        &self.addr
+    #[expect(
+        clippy::unused_self,
+        reason = "The aim of the pattern is to consume self."
+    )]
+    pub fn into_try_map_address(self, addr: Multiaddr) -> TryMapAddress {
+        TryMapAddress { addr_to_map: addr }
+    }
+
+    pub const fn local_address(&self) -> &Multiaddr {
+        &self.local_address
     }
 }
 
@@ -210,7 +259,10 @@ pub mod test_utils {
     impl TestIfMappedPublic {
         pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
             Box::new(State::<Self> {
-                state: Self { addr_to_test: addr },
+                state: Self {
+                    local_address: addr.clone(),
+                    addr_to_test: addr,
+                },
             })
         }
     }
@@ -218,7 +270,7 @@ pub mod test_utils {
     impl Public {
         pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
             Box::new(State::<Self> {
-                state: Self { addr },
+                state: Self { address: addr },
             })
         }
     }
@@ -226,7 +278,10 @@ pub mod test_utils {
     impl MappedPublic {
         pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
             Box::new(State::<Self> {
-                state: Self { addr },
+                state: Self {
+                    local_address: addr.clone(),
+                    external_address: addr,
+                },
             })
         }
     }
@@ -234,7 +289,9 @@ pub mod test_utils {
     impl Private {
         pub(crate) fn for_test(addr: Multiaddr) -> Box<dyn OnEvent> {
             Box::new(State::<Self> {
-                state: Self { addr },
+                state: Self {
+                    local_address: addr,
+                },
             })
         }
     }

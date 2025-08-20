@@ -18,11 +18,14 @@ mod gateway_monitor;
 mod inner;
 mod state_machine;
 
-use crate::{behaviour::nat::inner::InnerNatBehaviour, config::NatSettings};
+use crate::{
+    behaviour::nat::inner::{InnerNatBehaviour, NatBehaviour},
+    config::NatSettings,
+};
 
 /// This behaviour is responsible for confirming that the addresses of the node
 /// are publicly reachable.
-pub struct NatBehaviour<R: RngCore + 'static> {
+pub struct Behaviour<R: RngCore + 'static> {
     /// The static public listen address is passed through this variable to
     /// the `poll()` method. Unused if the node is not configured with a static
     /// public IP address.
@@ -30,10 +33,10 @@ pub struct NatBehaviour<R: RngCore + 'static> {
     /// Provides dynamic NAT-status detection, NAT-status improvement (via
     /// address mapping on the NAT-box), and periodic maintenance capabilities.
     /// Disabled if the node is configured with a static public IP address.
-    inner_behaviour: Toggle<InnerNatBehaviour<R>>,
+    inner_behaviour: Toggle<NatBehaviour<R>>,
 }
 
-impl<R: RngCore + 'static> NatBehaviour<R> {
+impl<R: RngCore + 'static> Behaviour<R> {
     pub fn new(rng: R, nat_config: Option<NatSettings>) -> Self {
         let inner_behaviour =
             Toggle::from(nat_config.map(|config| InnerNatBehaviour::new(rng, config)));
@@ -45,7 +48,7 @@ impl<R: RngCore + 'static> NatBehaviour<R> {
     }
 }
 
-impl<R: RngCore + 'static> NetworkBehaviour for NatBehaviour<R> {
+impl<R: RngCore + 'static> NetworkBehaviour for Behaviour<R> {
     type ConnectionHandler = ToggleConnectionHandler<
         <autonat::v2::client::Behaviour as NetworkBehaviour>::ConnectionHandler,
     >;
@@ -163,7 +166,7 @@ mod tests {
 
     #[derive(NetworkBehaviour)]
     pub struct Client {
-        nat: NatBehaviour<OsRng>,
+        nat: Behaviour<OsRng>,
         identify: identify::Behaviour,
     }
 
@@ -172,7 +175,7 @@ mod tests {
             let mut settings = NatSettings::default();
             settings.autonat.probe_interval_millisecs = Some(10);
 
-            let nat = NatBehaviour::new(OsRng, Some(settings));
+            let nat = Behaviour::new(OsRng, Some(settings));
             let identify =
                 identify::Behaviour::new(identify::Config::new("/unittest".into(), public_key));
             Self { nat, identify }
