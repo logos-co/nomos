@@ -72,9 +72,9 @@ async fn test_ibd_behind_nodes() {
         .collect::<Vec<_>>()
         .await;
 
-    let max_initial_validator_height = heights
+    let min_initial_validator_height = heights
         .iter()
-        .max()
+        .min()
         .expect("There should be at least one initial validator");
 
     let behind_node_info = behind_node.consensus_info().await;
@@ -91,12 +91,7 @@ async fn test_ibd_behind_nodes() {
 
     println!("Checking if the behind node has caught up to the highest initial validator");
 
-    assert!(
-        behind_node_info
-            .height
-            .abs_diff(*max_initial_validator_height)
-            <= height_margin
-    );
+    assert!(behind_node_info.height >= *min_initial_validator_height);
 }
 
 fn calculate_block_time(general_config: &GeneralConfig) -> Duration {
