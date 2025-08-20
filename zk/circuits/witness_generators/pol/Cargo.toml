@@ -1,7 +1,7 @@
 [package]
 edition           = "2024"
 license.workspace = true
-name              = "circuits-pol"
+name              = "pol-witness-generator"
 version           = "0.1.0"
 
 [dependencies]
