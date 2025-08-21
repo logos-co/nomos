@@ -26,3 +26,6 @@ nomos-blend-message = { workspace = true, features = ["unsafe-test-functions"] }
 test-log            = { version = "0.2.18", features = ["trace"] }
 tokio               = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 tokio-stream        = "0.1"
+
+[features]
+unsafe-test-functions = []

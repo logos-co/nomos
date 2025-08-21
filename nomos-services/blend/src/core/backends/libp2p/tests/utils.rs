@@ -15,7 +15,7 @@ use libp2p::{
 };
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
-    crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, Signature, SIGNATURE_SIZE},
+    crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection},
     input::{EncapsulationInput, EncapsulationInputs},
     PayloadType,
 };
@@ -55,17 +55,11 @@ pub struct TestSwarm {
 #[derive(Default)]
 pub struct SwarmBuilder {
     membership: Option<Membership<PeerId>>,
-    keypair: Option<Keypair>,
 }
 
 impl SwarmBuilder {
     pub fn with_membership(mut self, membership: Membership<PeerId>) -> Self {
         self.membership = Some(membership);
-        self
-    }
-
-    pub fn with_keypair(mut self, keypair: Keypair) -> Self {
-        self.keypair = Some(keypair);
         self
     }
 
@@ -88,7 +82,7 @@ impl SwarmBuilder {
                 .unwrap_or_else(|| Membership::new(&[], None)),
             BlakeRng::from_entropy(),
             3u64.try_into().unwrap(),
-            self.keypair,
+            None,
         );
 
         TestSwarm {
@@ -101,7 +95,6 @@ impl SwarmBuilder {
 
 pub struct BlendBehaviourBuilder {
     peer_id: PeerId,
-    peering_degree: Option<RangeInclusive<usize>>,
     membership: Option<Membership<PeerId>>,
     observation_window: Option<(Duration, RangeInclusive<u64>)>,
 }
@@ -110,15 +103,9 @@ impl BlendBehaviourBuilder {
     pub fn new(identity: &Keypair) -> Self {
         Self {
             peer_id: identity.public().to_peer_id(),
-            peering_degree: None,
             membership: None,
             observation_window: None,
         }
-    }
-
-    pub fn with_peering_degree(mut self, peering_degree: RangeInclusive<usize>) -> Self {
-        self.peering_degree = Some(peering_degree);
-        self
     }
 
     pub fn with_membership(mut self, membership: Membership<PeerId>) -> Self {
@@ -144,7 +131,7 @@ impl BlendBehaviourBuilder {
             blend: NetworkBehaviour::new(
                 &Config {
                     with_core: CoreToCoreConfig {
-                        peering_degree: self.peering_degree.unwrap_or(1..=100),
+                        peering_degree: 1..=100,
                     },
                     with_edge: CoreToEdgeConfig {
                         connection_timeout: Duration::from_secs(1),
@@ -203,12 +190,6 @@ impl TestEncapsulatedMessage {
         Self(
             EncapsulatedMessage::new(&generate_valid_inputs(), PayloadType::Data, payload).unwrap(),
         )
-    }
-
-    pub fn new_with_invalid_signature(payload: &[u8]) -> Self {
-        let mut self_instance = Self::new(payload);
-        self_instance.0.public_header_mut().signature = Signature::from([100u8; SIGNATURE_SIZE]);
-        self_instance
     }
 
     pub fn into_inner(self) -> EncapsulatedMessage {

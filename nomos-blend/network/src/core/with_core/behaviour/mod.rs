@@ -256,7 +256,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
 
     /// Force send a message to a peer (without validating it first), as long as
     /// the peer is connected, no matter the state the connection is in.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "unsafe-test-functions"))]
     pub fn force_send_message_to_peer(
         &mut self,
         message: &EncapsulatedMessage,

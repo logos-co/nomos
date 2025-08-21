@@ -44,6 +44,7 @@ pub struct DialAttempt {
     attempt_number: NonZeroU64,
 }
 
+#[cfg(test)]
 impl DialAttempt {
     pub const fn address(&self) -> &Multiaddr {
         &self.address
@@ -354,7 +355,7 @@ where
                 transport,
                 behaviour_constructor(identity),
                 peer_id,
-                swarm::Config::with_tokio_executor(),
+                swarm::Config::with_tokio_executor().with_idle_connection_timeout(Duration::ZERO),
             )
         };
 

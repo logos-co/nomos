@@ -51,13 +51,3 @@ async fn message_propagation() {
     let swarm_3_received_message = swarm_3_message_receiver.recv().await.unwrap();
     assert_eq!(swarm_3_received_message.into_inner(), message.into_inner());
 }
-
-#[test(tokio::test)]
-async fn message_forwarding() {
-    unimplemented!()
-}
-
-#[test(tokio::test)]
-async fn invalid_message_send_attempt() {
-    unimplemented!()
-}

@@ -1,13 +1,13 @@
 use core::{slice::from_ref, time::Duration};
 
 use libp2p::{Multiaddr, PeerId};
-use nomos_blend_scheduling::membership::{Membership, Node};
+use nomos_blend_scheduling::membership::Membership;
 use nomos_libp2p::{Protocol, SwarmEvent};
 use test_log::test;
 use tokio::{select, time::sleep};
 
 use crate::core::backends::libp2p::tests::utils::{
-    BlendBehaviourBuilder, SwarmBuilder, SwarmExt, TestSwarm,
+    BlendBehaviourBuilder, SwarmBuilder, SwarmExt as _, TestSwarm,
 };
 
 #[test(tokio::test)]
@@ -73,7 +73,8 @@ async fn redial_same_peer() {
         })
         .await;
 
-    // Storage map should be cleared up.
+    // Storage map should be cleared up, and since there is no other peer, there is
+    // no new peer that is dialed.
     assert!(dialing_swarm.ongoing_dials().is_empty());
 }
 
@@ -124,6 +125,14 @@ async fn redial_different_peer_after_redial_limit() {
         .with_core()
         .negotiated_peers()
         .contains_key(&listening_peer_id));
+    assert_eq!(
+        dialing_swarm
+            .behaviour()
+            .blend
+            .with_core()
+            .num_healthy_peers(),
+        1
+    );
     assert!(listening_swarm
         .behaviour()
         .blend
