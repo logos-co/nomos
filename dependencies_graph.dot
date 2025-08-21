@@ -48,6 +48,7 @@ digraph {
     46 [ label = "witness-generator-core" shape = box]
     47 [ label = "pol-witness-generator" shape = box]
     48 [ label = "groth16" shape = box]
+    49 [ label = "poseidon2" shape = box]
     0 -> 1 [ style = dotted]
     2 -> 3 [ ]
     3 -> 0 [ ]
