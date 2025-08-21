@@ -514,7 +514,7 @@ where
     }
 
     #[cfg(test)]
-    pub async fn poll_swarm(&mut self) {
+    pub async fn poll_next(&mut self) {
         tokio::select! {
             Some(msg) = self.swarm_messages_receiver.recv() => {
                 self.handle_swarm_message(msg);

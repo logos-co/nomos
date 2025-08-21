@@ -84,16 +84,8 @@ impl SwarmBuilder {
             swarm_message_receiver,
             incoming_message_sender,
             pending(),
-            self.membership.unwrap_or_else(|| {
-                Membership::new(
-                    &[Node {
-                        address: Multiaddr::empty(),
-                        id: PeerId::random(),
-                        public_key: Ed25519PrivateKey::generate().public_key(),
-                    }],
-                    None,
-                )
-            }),
+            self.membership
+                .unwrap_or_else(|| Membership::new(&[], None)),
             BlakeRng::from_entropy(),
             3u64.try_into().unwrap(),
             self.keypair,
