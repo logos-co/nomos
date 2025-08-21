@@ -94,12 +94,9 @@ where
         NetAdapter::PeerId: 'a,
         NetAdapter::Block: 'a,
     {
-        let mut downloads = Downloads::new(self.config.delay_before_new_download);
+        let downloads = Downloads::new(self.config.delay_before_new_download);
         for peer in &self.config.peers {
-            match self
-                .initiate_download(*peer, None, cryptarchia, downloads.targets())
-                .await
-            {
+            match self.initiate_download(*peer, None, cryptarchia).await {
                 Ok(Some(download)) => {
                     downloads.add_download(download);
                 }
@@ -124,8 +121,8 @@ where
     ///
     /// It gets the peer's tip, and requests a block stream to reach the tip.
     ///
-    /// If the peer's tip already exists in local, or if there is any duplicate
-    /// download for the tip, no download is initiated and [`None`] is returned.
+    /// If the peer's tip already exists in local,
+    /// no download is initiated and [`None`] is returned.
     ///
     /// If communication fails, an [`Error`] is returned.
     async fn initiate_download(
@@ -133,7 +130,6 @@ where
         peer: NetAdapter::PeerId,
         latest_downloaded_block: Option<HeaderId>,
         cryptarchia: &Cryptarchia,
-        targets_in_progress: &HashSet<HeaderId>,
     ) -> Result<Option<Download<NetAdapter::PeerId, NetAdapter::Block>>, Error> {
         // Get the most recent peer's tip.
         let tip_response = self
@@ -150,7 +146,7 @@ where
             }
         };
 
-        if !Self::should_download(&target, cryptarchia, targets_in_progress) {
+        if !Self::should_download(&target, cryptarchia) {
             return Ok(None);
         }
 
@@ -170,13 +166,8 @@ where
         Ok(Some(Download::new(peer, target, stream)))
     }
 
-    fn should_download(
-        target: &HeaderId,
-        cryptarchia: &Cryptarchia,
-        targets_in_progress: &HashSet<HeaderId>,
-    ) -> bool {
+    fn should_download(target: &HeaderId, cryptarchia: &Cryptarchia) -> bool {
         cryptarchia.consensus.branches().get(target).is_none()
-            && !targets_in_progress.contains(target)
     }
 
     /// Proceeds [`Downloads`] by reading/processing blocks.
@@ -263,19 +254,14 @@ where
         peer: NetAdapter::PeerId,
         latest_downloaded_block: Option<HeaderId>,
         cryptarchia: &Cryptarchia,
-        mut downloads: Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>,
+        downloads: Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>,
     ) -> Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>
     where
         NetAdapter::PeerId: 'a,
         NetAdapter::Block: 'a,
     {
         match self
-            .initiate_download(
-                peer,
-                latest_downloaded_block,
-                cryptarchia,
-                downloads.targets(),
-            )
+            .initiate_download(peer, latest_downloaded_block, cryptarchia)
             .await
         {
             Ok(Some(download)) => {

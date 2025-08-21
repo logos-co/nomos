@@ -1,5 +1,4 @@
 use std::{
-    collections::HashSet,
     fmt::{Debug, Formatter},
     pin::Pin,
     task::{Context, Poll},
@@ -9,7 +8,7 @@ use std::{
 use cryptarchia_sync::HeaderId;
 use futures::{future::BoxFuture, stream::FuturesUnordered, Stream, StreamExt as _};
 use overwatch::DynError;
-use tracing::{debug, info};
+use tracing::info;
 
 use crate::network::BoxedStream;
 
@@ -21,8 +20,6 @@ use crate::network::BoxedStream;
 pub struct Downloads<'a, NodeId, Block> {
     /// [`Future`]s that read a single block from a [`Download`].
     downloads: FuturesUnordered<BoxFuture<'a, DownloadResult<NodeId, Block>>>,
-    /// A set of blocks that are being targeted by [`Self::downloads`].
-    targets: HashSet<HeaderId>,
     /// [`Delay`] for peers that have no download needed at the moment.
     delays: FuturesUnordered<BoxFuture<'a, Delay<NodeId>>>,
     /// The duration of a delay.
@@ -67,15 +64,12 @@ where
         match self.downloads.poll_next_unpin(cx) {
             Poll::Ready(Some(result)) => match result {
                 Ok((Some((_, block)), download)) => {
-                    self.targets.remove(&download.target);
                     Poll::Ready(Some(DownloadsOutput::BlockReceived { block, download }))
                 }
                 Ok((None, download)) => {
-                    self.targets.remove(&download.target);
                     Poll::Ready(Some(DownloadsOutput::DownloadCompleted(download)))
                 }
                 Err((error, download)) => {
-                    self.targets.remove(&download.target);
                     Poll::Ready(Some(DownloadsOutput::Error { error, download }))
                 }
             },
@@ -97,29 +91,13 @@ where
     pub fn new(delay_duration: Duration) -> Self {
         Self {
             downloads: FuturesUnordered::new(),
-            targets: HashSet::new(),
             delays: FuturesUnordered::new(),
             delay_duration,
         }
     }
 
     /// Register a download to be processed.
-    ///
-    /// If there is already any registered download for the same target,
-    /// the download is ignored and a delay is scheduled for the peer.
-    pub fn add_download(&mut self, download: Download<NodeId, Block>) {
-        if !self.targets.insert(download.target) {
-            debug!(
-                "Download for target {:?} already exists. Delaying the peer {:?}",
-                download.target, download.peer
-            );
-            self.add_delay(Delay {
-                peer: download.peer,
-                latest_downloaded_block: download.last,
-            });
-            return;
-        }
-
+    pub fn add_download(&self, download: Download<NodeId, Block>) {
         // Register a future that reads only a single block from the stream.
         self.downloads.push(Box::pin(async move {
             let mut download = download;
@@ -141,10 +119,6 @@ where
             tokio::time::sleep(duration).await;
             delay
         }));
-    }
-
-    pub const fn targets(&self) -> &HashSet<HeaderId> {
-        &self.targets
     }
 
     /// Returns the number of peers currently registered
@@ -277,6 +251,8 @@ impl<NodeId> Delay<NodeId> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use futures::{stream, FutureExt as _, StreamExt as _};
 
     use super::*;
@@ -386,7 +362,6 @@ mod tests {
 
         // Add download to Downloads
         downloads.add_download(download);
-        assert!(downloads.targets().contains(&target));
         assert_eq!(downloads.num_peers(), 1);
 
         // Should yield a BlockReceived output
@@ -394,12 +369,10 @@ mod tests {
         else {
             panic!("Expected BlockReceived output");
         };
-        assert!(!downloads.targets().contains(&target));
         assert_eq!(block, 100);
 
         // Add download to Downloads again
         downloads.add_download(download);
-        assert!(downloads.targets().contains(&target));
         assert_eq!(downloads.num_peers(), 1);
 
         // Should yield a BlockReceived output
@@ -407,13 +380,11 @@ mod tests {
         else {
             panic!("Expected BlockReceived output");
         };
-        assert!(!downloads.targets().contains(&target));
         assert_eq!(downloads.num_peers(), 0);
         assert_eq!(block, 200);
 
         // Add download to Downloads again
         downloads.add_download(download);
-        assert!(downloads.targets().contains(&target));
         assert_eq!(downloads.num_peers(), 1);
 
         // Should yield a DownloadCompleted output
@@ -421,7 +392,6 @@ mod tests {
             downloads.next().await,
             Some(DownloadsOutput::DownloadCompleted(_))
         ));
-        assert!(!downloads.targets().contains(&target));
         assert_eq!(downloads.num_peers(), 0);
 
         // Should yield a None since no download is in the Downloads.
@@ -443,7 +413,6 @@ mod tests {
 
         // Add download to Downloads
         downloads.add_download(download);
-        assert!(downloads.targets().contains(&target));
         assert_eq!(downloads.num_peers(), 1);
 
         // Should yield a BlockReceived output
@@ -451,20 +420,17 @@ mod tests {
         else {
             panic!("Expected BlockReceived output");
         };
-        assert!(!downloads.targets().contains(&target));
         assert_eq!(downloads.num_peers(), 0);
         assert_eq!(block, 100);
 
         // Add download to Downloads again
         downloads.add_download(download);
-        assert!(downloads.targets().contains(&target));
         assert_eq!(downloads.num_peers(), 1);
 
         // Should yield a Error output
         let DownloadsOutput::Error { .. } = downloads.next().await.unwrap() else {
             panic!("Expected BlockReceived output");
         };
-        assert!(!downloads.targets().contains(&target));
         assert_eq!(downloads.num_peers(), 0);
 
         // Should yield a None since no download is in the Downloads.
@@ -492,8 +458,6 @@ mod tests {
         // Add all downloads to Downloads
         downloads.add_download(download1);
         downloads.add_download(download2);
-        assert!(downloads.targets().contains(&target1));
-        assert!(downloads.targets().contains(&target2));
         assert_eq!(downloads.num_peers(), 2);
 
         let mut expected_blocks = HashSet::<TestBlock>::from([100, 200, 300]);
@@ -576,36 +540,30 @@ mod tests {
         // Add all downloads to Downloads
         downloads.add_download(download1);
         downloads.add_download(download2);
-        // Should only have one target.
-        assert_eq!(downloads.targets(), &HashSet::from([target]));
-        // But, should have two peers (one for download and one for delay).
+        // Should have two downloads running, even though they have the same target.
         assert_eq!(downloads.num_peers(), 2);
-        // One peer should be delayed due to the duplicate target.
-        assert_eq!(downloads.delays.len(), 1);
+        assert_eq!(downloads.downloads.len(), 2);
 
-        // Should yield a BlockReceived output from peer1
-        let DownloadsOutput::BlockReceived { block, download } = downloads.next().await.unwrap()
-        else {
-            panic!("Expected BlockReceived output");
-        };
-        assert_eq!(downloads.num_peers(), 1);
-        assert_eq!(block, 100);
-        assert_eq!(download.peer(), &peer1);
+        let mut num_blocks_received = 0;
+        let mut num_downloads_completed = 0;
+        for _ in 0..4 {
+            match downloads.next().await {
+                Some(DownloadsOutput::BlockReceived { block, download }) => {
+                    assert_eq!(block, 100);
+                    num_blocks_received += 1;
+                    downloads.add_download(download);
+                }
+                Some(DownloadsOutput::DownloadCompleted(_)) => {
+                    num_downloads_completed += 1;
+                }
+                _ => panic!("Expected BlockReceived or DownloadCompleted output"),
+            }
+        }
 
-        downloads.add_download(download);
-        assert_eq!(downloads.num_peers(), 2);
+        assert_eq!(num_blocks_received, 2); // One from each download
+        assert_eq!(num_downloads_completed, 2);
 
-        // Should yield a DownloadCompleted output from peer1
-        let DownloadsOutput::DownloadCompleted(download) = downloads.next().await.unwrap() else {
-            panic!("Expected DownloadedCompleted output");
-        };
-        assert_eq!(downloads.num_peers(), 1);
-        assert_eq!(download.peer(), &peer1);
-
-        // Should yield a None since no download is in progress,
-        // even though there is a delay for peer2.
-        assert_eq!(downloads.num_peers(), 1);
-        assert_eq!(downloads.delays.len(), 1);
+        // Should yield a None since no download is in the Downloads.
         assert!(downloads.next().await.is_none());
     }
 

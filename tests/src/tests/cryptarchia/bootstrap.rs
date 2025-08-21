@@ -71,6 +71,7 @@ async fn test_ibd_behind_nodes() {
         .then(|n| async move { n.consensus_info().await.height })
         .collect::<Vec<_>>()
         .await;
+    println!("initial_validator_heights: {heights:?}");
 
     let max_initial_validator_height = heights
         .iter()
@@ -95,7 +96,10 @@ async fn test_ibd_behind_nodes() {
         behind_node_info
             .height
             .abs_diff(*max_initial_validator_height)
-            <= height_margin
+            <= height_margin,
+        "behind_node_info.height:{}, max_initial_validator_height:{}",
+        behind_node_info.height,
+        max_initial_validator_height,
     );
 }
 
