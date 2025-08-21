@@ -13,7 +13,7 @@ use crate::{
 };
 
 #[test(tokio::test)]
-async fn message_propagation() {
+async fn core_message_propagation() {
     let TestSwarm {
         swarm: mut swarm_1,
         swarm_message_sender: swarm_1_message_sender,
@@ -34,14 +34,14 @@ async fn message_propagation() {
     swarm_1.dial_peer_at_addr(*swarm_2.local_peer_id(), swarm_2_address);
     swarm_2.dial_peer_at_addr(*swarm_3.local_peer_id(), swarm_3_address);
 
-    let message = TestEncapsulatedMessage::new(b"test-payload");
-
     spawn(async move { swarm_1.run().await });
     spawn(async move { swarm_2.run().await });
     spawn(async move { swarm_3.run().await });
 
     // Wait for peers to establish connections with each other
     sleep(Duration::from_secs(1)).await;
+
+    let message = TestEncapsulatedMessage::new(b"test-payload");
 
     swarm_1_message_sender
         .send(BlendSwarmMessage::Publish(message.clone()))

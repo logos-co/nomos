@@ -354,7 +354,8 @@ where
                 transport,
                 behaviour_constructor(identity),
                 peer_id,
-                swarm::Config::with_tokio_executor().with_idle_connection_timeout(Duration::ZERO),
+                swarm::Config::with_tokio_executor()
+                    .with_idle_connection_timeout(Duration::from_secs(1)),
             )
         };
 
@@ -496,7 +497,7 @@ where
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {
-    pub(super) async fn run(mut self) {
+    pub(crate) async fn run(mut self) {
         loop {
             tokio::select! {
                 Some(msg) = self.swarm_messages_receiver.recv() => {

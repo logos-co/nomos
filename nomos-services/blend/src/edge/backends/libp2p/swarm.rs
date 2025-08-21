@@ -70,10 +70,9 @@ where
             .with_behaviour(|_| libp2p_stream::Behaviour::new())
             .expect("Behaviour should be built")
             .with_swarm_config(|cfg| {
-                // The idle timeout starts ticking once there are no active streams on a
-                // connection. We want the connection to be closed as soon as
-                // all streams are dropped.
-                cfg.with_idle_connection_timeout(Duration::ZERO)
+                // We cannot use zero as that would immediately close a connection with an edge
+                // node before they have a chance to upgrade the stream and send us a message.
+                cfg.with_idle_connection_timeout(Duration::from_secs(1))
             })
             .build();
         let stream_control = swarm.behaviour().new_control();
@@ -120,7 +119,8 @@ where
                 transport,
                 Behaviour::new(),
                 peer_id,
-                swarm::Config::with_tokio_executor().with_idle_connection_timeout(Duration::ZERO),
+                swarm::Config::with_tokio_executor()
+                    .with_idle_connection_timeout(Duration::from_secs(1)),
             )
         };
 
@@ -245,7 +245,7 @@ where
         peer_id: PeerId,
         connection_id: ConnectionId,
     ) {
-        debug!(target: LOG_TARGET, "Connection established: peer_id:{peer_id}, connection_id:{connection_id}");
+        debug!(target: LOG_TARGET, "Connection established: peer_id: {peer_id}, connection_id: {connection_id}");
 
         // We need to clone so we can access `&mut self` below.
         let message = self
