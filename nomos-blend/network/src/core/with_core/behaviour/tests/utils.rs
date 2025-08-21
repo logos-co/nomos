@@ -96,6 +96,7 @@ impl BehaviourBuilder {
             current_membership: None,
             peering_degree: self.peering_degree.unwrap_or(1..=1),
             local_peer_id,
+            old_session: None,
         }
     }
 }
