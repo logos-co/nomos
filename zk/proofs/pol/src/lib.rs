@@ -1,16 +1,8 @@
+mod proving_key;
 mod public_inputs;
+mod verification_key;
 
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use proving_key::PolProvingKey;
+pub use public_inputs::PolPublicInputs;
+pub use verification_key::PolVerifyingKey;
+pub type PoLProof = groth16::Groth16Proof;

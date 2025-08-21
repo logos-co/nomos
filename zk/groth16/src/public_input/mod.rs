@@ -11,6 +11,7 @@ pub mod deserialize;
 #[cfg(feature = "deser")]
 pub use deserialize::PublicInputDeser;
 
+#[derive(Copy, Clone)]
 pub struct PublicInput<E: Pairing>(<E as Pairing>::ScalarField);
 
 impl<E: Pairing> PublicInput<E> {
