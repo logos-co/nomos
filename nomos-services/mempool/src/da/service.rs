@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-use futures::StreamExt as _;
+use futures::{stream::FuturesUnordered, StreamExt as _};
 use nomos_da_sampling::{
     backend::DaSamplingServiceBackend, storage::DaStorageAdapter, DaSamplingService,
     DaSamplingServiceMsg,
@@ -261,6 +261,14 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
+        let mut trigger_sampling_tasks = FuturesUnordered::new();
+        let trigger_sampling_delay = self
+            .service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings()
+            .trigger_sampling_delay;
+
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
@@ -276,13 +284,26 @@ where
                     self.handle_mempool_message(relay_msg, network_service_relay.clone());
                 }
                 Some((key, item )) = network_items.next() => {
-                    sampling_relay.send(DaSamplingServiceMsg::TriggerSampling{blob_id: key.clone()}).await.unwrap_or_else(|_| panic!("Sampling trigger message needs to be sent"));
+                    let sampling_relay_clone = sampling_relay.clone();
+                    let blob_id = key.clone();
+                    trigger_sampling_tasks.push(async move {
+                        tokio::time::sleep(trigger_sampling_delay).await;
+                        sampling_relay_clone.send(DaSamplingServiceMsg::TriggerSampling{
+                            blob_id
+                        }).await
+                    });
+
                     self.pool.add_item(key, item).unwrap_or_else(|e| {
                         tracing::debug!("could not add item to the pool due to: {e}");
                     });
                     tracing::info!(counter.da_mempool_pending_items = self.pool.pending_item_count());
                     self.service_resources_handle.state_updater.update(Some(self.pool.save().into()));
                 }
+                Some(result) = trigger_sampling_tasks.next() => {
+                    if let Err((e, _)) = result {
+                        tracing::error!("coulnd not trigger sampling due to {e}");
+                    }
+                },
             }
         }
     }

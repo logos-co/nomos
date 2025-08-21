@@ -39,7 +39,7 @@ pub async fn handle_validator_dispersal_event<Membership>(
     };
 
     // Do not replicate if validation fails.
-    if let Err(DispersalValidationError) = validation_result {
+    if matches!(validation_result, Err(DispersalValidationError)) {
         error!("Error validating dispersal event: {event:?}");
         return;
     }

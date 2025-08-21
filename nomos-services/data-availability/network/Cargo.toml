@@ -19,6 +19,7 @@ libp2p-identity          = { version = "0.2" }
 log                      = "0.4.22"
 multiaddr                = "0.18"
 nomos-core               = { workspace = true }
+nomos-da-messages        = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-libp2p             = { workspace = true }
 nomos-membership         = { workspace = true }
