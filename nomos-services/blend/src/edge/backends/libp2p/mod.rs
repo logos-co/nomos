@@ -19,6 +19,9 @@ use super::BlendBackend;
 
 const LOG_TARGET: &str = "blend::service::edge::backend::libp2p";
 
+#[cfg(test)]
+mod tests;
+
 pub struct Libp2pBlendBackend {
     swarm_task_abort_handle: AbortHandle,
     swarm_command_sender: mpsc::Sender<swarm::Command>,

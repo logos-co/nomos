@@ -4,9 +4,12 @@ use libp2p_swarm_test::SwarmExt as _;
 use test_log::test;
 use tokio::{spawn, time::sleep};
 
-use crate::core::backends::libp2p::{
-    swarm::BlendSwarmMessage,
-    tests::utils::{BlendBehaviourBuilder, SwarmBuilder, TestEncapsulatedMessage, TestSwarm},
+use crate::{
+    core::backends::libp2p::{
+        swarm::BlendSwarmMessage,
+        tests::utils::{BlendBehaviourBuilder, SwarmBuilder, TestSwarm},
+    },
+    test_utils::TestEncapsulatedMessage,
 };
 
 #[test(tokio::test)]

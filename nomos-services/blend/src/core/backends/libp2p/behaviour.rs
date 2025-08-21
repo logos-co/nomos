@@ -4,17 +4,17 @@ use nomos_libp2p::NetworkBehaviour;
 use crate::core::{backends::libp2p::Libp2pBlendBackendSettings, settings::BlendConfig};
 
 #[derive(NetworkBehaviour)]
-pub(super) struct BlendBehaviour<ObservationWindowProvider> {
-    pub(super) blend: nomos_blend_network::core::NetworkBehaviour<ObservationWindowProvider>,
-    pub(super) limits: libp2p::connection_limits::Behaviour,
-    pub(super) blocked_peers: libp2p::allow_block_list::Behaviour<BlockedPeers>,
+pub struct BlendBehaviour<ObservationWindowProvider> {
+    pub blend: nomos_blend_network::core::NetworkBehaviour<ObservationWindowProvider>,
+    pub limits: libp2p::connection_limits::Behaviour,
+    pub blocked_peers: libp2p::allow_block_list::Behaviour<BlockedPeers>,
 }
 
 impl<ObservationWindowProvider> BlendBehaviour<ObservationWindowProvider>
 where
     ObservationWindowProvider: for<'c> From<&'c BlendConfig<Libp2pBlendBackendSettings, PeerId>>,
 {
-    pub(super) fn new(config: &BlendConfig<Libp2pBlendBackendSettings, PeerId>) -> Self {
+    pub fn new(config: &BlendConfig<Libp2pBlendBackendSettings, PeerId>) -> Self {
         let observation_window_interval_provider = ObservationWindowProvider::from(config);
         let minimum_core_healthy_peering_degree =
             *config.backend.core_peering_degree.start() as usize;

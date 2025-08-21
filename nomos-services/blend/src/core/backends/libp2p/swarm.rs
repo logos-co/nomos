@@ -55,7 +55,7 @@ impl DialAttempt {
     }
 }
 
-pub(super) struct BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
+pub struct BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
 where
     Rng: 'static,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
@@ -197,7 +197,7 @@ where
     }
 
     #[cfg(test)]
-    pub fn ongoing_dials(&self) -> &HashMap<PeerId, DialAttempt> {
+    pub const fn ongoing_dials(&self) -> &HashMap<PeerId, DialAttempt> {
         &self.ongoing_dials
     }
 
@@ -319,7 +319,7 @@ where
     }
 
     #[cfg(test)]
-    pub(crate) fn new_test<BehaviourConstructor>(
+    pub fn new_test<BehaviourConstructor>(
         behaviour_constructor: BehaviourConstructor,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
         incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithValidatedPublicHeader>,
@@ -327,7 +327,6 @@ where
         latest_session_info: Membership<PeerId>,
         rng: Rng,
         max_dial_attempts_per_connection: NonZeroU64,
-        keypair: Option<libp2p::identity::Keypair>,
     ) -> Self
     where
         BehaviourConstructor:
@@ -340,7 +339,7 @@ where
             };
             use nomos_libp2p::upgrade::Version;
 
-            let identity = keypair.unwrap_or_else(identity::Keypair::generate_ed25519);
+            let identity = identity::Keypair::generate_ed25519();
             let peer_id = PeerId::from(identity.public());
 
             let transport = MemoryTransport::default()

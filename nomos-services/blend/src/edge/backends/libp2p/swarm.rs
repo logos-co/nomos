@@ -89,6 +89,53 @@ where
         }
     }
 
+    #[cfg(test)]
+    pub fn new_test(
+        membership: Option<Membership<PeerId>>,
+        command_receiver: mpsc::Receiver<Command>,
+        max_dial_attempts_per_connection: NonZeroU64,
+        rng: Rng,
+        session_stream: SessionStream,
+    ) -> Self {
+        let inner_swarm = {
+            use libp2p::{
+                core::transport::MemoryTransport, identity, plaintext, swarm, tcp, yamux,
+                Transport as _,
+            };
+            use libp2p_stream::Behaviour;
+            use nomos_libp2p::upgrade::Version;
+
+            let identity = identity::Keypair::generate_ed25519();
+            let peer_id = PeerId::from(identity.public());
+
+            let transport = MemoryTransport::default()
+                .or_transport(tcp::tokio::Transport::default())
+                .upgrade(Version::V1)
+                .authenticate(plaintext::Config::new(&identity))
+                .multiplex(yamux::Config::default())
+                .timeout(Duration::from_secs(1))
+                .boxed();
+
+            Swarm::new(
+                transport,
+                Behaviour::new(),
+                peer_id,
+                swarm::Config::with_tokio_executor().with_idle_connection_timeout(Duration::ZERO),
+            )
+        };
+
+        Self {
+            command_receiver,
+            current_membership: membership,
+            max_dial_attempts_per_connection,
+            pending_dials: HashMap::new(),
+            rng,
+            session_stream,
+            stream_control: inner_swarm.behaviour().new_control(),
+            swarm: inner_swarm,
+        }
+    }
+
     fn handle_command(&mut self, command: Command) {
         match command {
             Command::SendMessage(msg) => {

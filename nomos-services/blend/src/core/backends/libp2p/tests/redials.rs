@@ -6,8 +6,9 @@ use nomos_libp2p::{Protocol, SwarmEvent};
 use test_log::test;
 use tokio::{select, time::sleep};
 
-use crate::core::backends::libp2p::tests::utils::{
-    BlendBehaviourBuilder, SwarmBuilder, SwarmExt as _, TestSwarm,
+use crate::core::backends::libp2p::{
+    core_swarm_test_utils::SwarmExt as _,
+    tests::utils::{BlendBehaviourBuilder, SwarmBuilder, TestSwarm},
 };
 
 #[test(tokio::test)]

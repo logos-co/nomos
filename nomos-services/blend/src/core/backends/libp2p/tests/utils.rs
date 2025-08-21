@@ -1,8 +1,4 @@
-use core::{
-    iter::repeat_with,
-    ops::{Deref, DerefMut, RangeInclusive},
-    time::Duration,
-};
+use core::{ops::RangeInclusive, time::Duration};
 
 use async_trait::async_trait;
 use futures::{
@@ -14,11 +10,7 @@ use libp2p::{
     PeerId, Swarm,
 };
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_message::{
-    crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection},
-    input::{EncapsulationInput, EncapsulationInputs},
-    PayloadType,
-};
+use nomos_blend_message::crypto::Ed25519PrivateKey;
 use nomos_blend_network::{
     core::{
         with_core::behaviour::{Config as CoreToCoreConfig, IntervalStreamProvider},
@@ -27,10 +19,7 @@ use nomos_blend_network::{
     },
     EncapsulatedMessageWithValidatedPublicHeader,
 };
-use nomos_blend_scheduling::{
-    membership::{Membership, Node},
-    EncapsulatedMessage,
-};
+use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_libp2p::{Protocol, SwarmEvent};
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;
@@ -59,7 +48,14 @@ pub struct SwarmBuilder {
 
 impl SwarmBuilder {
     pub fn with_membership(mut self, membership: Membership<PeerId>) -> Self {
+        assert!(self.membership.is_none());
         self.membership = Some(membership);
+        self
+    }
+
+    pub fn with_empty_membership(mut self) -> Self {
+        assert!(self.membership.is_none());
+        self.membership = Some(Membership::new(&[], None));
         self
     }
 
@@ -82,7 +78,6 @@ impl SwarmBuilder {
                 .unwrap_or_else(|| Membership::new(&[], None)),
             BlakeRng::from_entropy(),
             3u64.try_into().unwrap(),
-            None,
         );
 
         TestSwarm {
@@ -180,54 +175,6 @@ impl IntervalStreamProvider for TestObservationWindowProvider {
                 .map(move |_| expected_message_range.clone()),
         )
     }
-}
-
-#[derive(Debug)]
-pub struct TestEncapsulatedMessage(EncapsulatedMessage);
-
-impl TestEncapsulatedMessage {
-    pub fn new(payload: &[u8]) -> Self {
-        Self(
-            EncapsulatedMessage::new(&generate_valid_inputs(), PayloadType::Data, payload).unwrap(),
-        )
-    }
-
-    pub fn into_inner(self) -> EncapsulatedMessage {
-        self.0
-    }
-}
-
-impl Deref for TestEncapsulatedMessage {
-    type Target = EncapsulatedMessage;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for TestEncapsulatedMessage {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-fn generate_valid_inputs() -> EncapsulationInputs<3> {
-    EncapsulationInputs::new(
-        repeat_with(Ed25519PrivateKey::generate)
-            .take(3)
-            .map(|recipient_signing_key| {
-                let recipient_signing_pubkey = recipient_signing_key.public_key();
-                EncapsulationInput::new(
-                    Ed25519PrivateKey::generate(),
-                    &recipient_signing_pubkey,
-                    ProofOfQuota::dummy(),
-                    ProofOfSelection::dummy(),
-                )
-            })
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
-    )
-    .unwrap()
 }
 
 #[async_trait]

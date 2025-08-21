@@ -7,8 +7,11 @@ use nomos_blend_scheduling::membership::{Membership, Node};
 use test_log::test;
 use tokio::{select, time::sleep};
 
-use crate::core::backends::libp2p::tests::utils::{
-    BlendBehaviourBuilder, SwarmBuilder, SwarmExt as _, TestEncapsulatedMessage, TestSwarm,
+use crate::{
+    core::backends::libp2p::tests::utils::{
+        BlendBehaviourBuilder, SwarmBuilder, SwarmExt as _, TestSwarm,
+    },
+    test_utils::TestEncapsulatedMessage,
 };
 
 #[test(tokio::test)]

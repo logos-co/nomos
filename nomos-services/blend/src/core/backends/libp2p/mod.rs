@@ -26,14 +26,16 @@ use crate::core::{
 
 const LOG_TARGET: &str = "blend::backend::libp2p";
 
-mod behaviour;
+pub(crate) mod behaviour;
 pub mod settings;
-pub use settings::Libp2pBlendBackendSettings;
+pub use self::settings::Libp2pBlendBackendSettings;
 mod swarm;
-mod tokio_provider;
+pub(crate) mod tokio_provider;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+pub(crate) use self::tests::utils as core_swarm_test_utils;
 
 /// A blend backend that uses the libp2p network stack.
 pub struct Libp2pBlendBackend {
