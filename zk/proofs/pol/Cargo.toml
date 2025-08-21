@@ -1,14 +1,15 @@
 [package]
-edition           = "2024"
+edition = "2024"
 license.workspace = true
-name              = "pol"
-version           = "0.1.0"
+name = "pol"
+version = "0.1.0"
 
 [dependencies]
-groth16    = { workspace = true, features = ["deser"] }
-poseidon2  = { workspace = true }
+ark-bn254 = "0.4"
+groth16 = { workspace = true, features = ["deser"] }
+poseidon2 = { workspace = true }
 serde_json = { version = "1.0" }
-thiserror  = { workspace = true }
+thiserror = { workspace = true }
 
 [lints]
 workspace = true

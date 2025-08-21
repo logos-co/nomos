@@ -21,7 +21,13 @@ pub struct PolPublicInputsData {
 impl TryFrom<PolPublicInputsData> for PolPublicInputs {
     type Error = String;
 
-    fn try_from(value: PolPublicInputsData) -> Result<Self, Self::Error> {
+    fn try_from(
+        PolPublicInputsData {
+            slot_number,
+            epoch_nonce,
+            total_stake,
+        }: PolPublicInputsData,
+    ) -> Result<Self, Self::Error> {
         todo!()
     }
 }
