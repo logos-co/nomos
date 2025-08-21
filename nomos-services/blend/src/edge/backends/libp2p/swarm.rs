@@ -24,13 +24,29 @@ use tracing::{debug, error, trace};
 use super::settings::Libp2pBlendBackendSettings;
 use crate::edge::backends::libp2p::LOG_TARGET;
 
-struct DialAttempt {
+#[derive(Debug)]
+pub struct DialAttempt {
     /// Address of peer being dialed.
     address: Multiaddr,
     /// The latest (ongoing) attempt number.
     attempt_number: NonZeroU64,
     /// The message to send once the peer is successfully dialed.
     message: EncapsulatedMessage,
+}
+
+#[cfg(test)]
+impl DialAttempt {
+    pub const fn address(&self) -> &Multiaddr {
+        &self.address
+    }
+
+    pub const fn attempt_number(&self) -> NonZeroU64 {
+        self.attempt_number
+    }
+
+    pub const fn message(&self) -> &EncapsulatedMessage {
+        &self.message
+    }
 }
 
 pub(super) struct BlendSwarm<SessionStream, Rng>
@@ -136,6 +152,11 @@ where
         }
     }
 
+    #[cfg(test)]
+    pub const fn pending_dials(&self) -> &HashMap<(PeerId, ConnectionId), DialAttempt> {
+        &self.pending_dials
+    }
+
     fn handle_command(&mut self, command: Command) {
         match command {
             Command::SendMessage(msg) => {
@@ -187,21 +208,25 @@ where
     /// with the dial details of the peer that has been removed from the map
     /// of ongoing dials.
     fn retry_dial(&mut self, peer_id: PeerId, connection_id: ConnectionId) -> Option<DialAttempt> {
-        let DialAttempt {
-            address,
-            attempt_number,
-            ..
-        } = self
+        let dial_attempt = self
             .pending_dials
-            .get_mut(&(peer_id, connection_id))
+            .remove(&(peer_id, connection_id))
             .unwrap();
-        if *attempt_number >= self.max_dial_attempts_per_connection {
-            return self.pending_dials.remove(&(peer_id, connection_id));
+        let new_dial_attempt_number = dial_attempt.attempt_number.checked_add(1).unwrap();
+        if new_dial_attempt_number > self.max_dial_attempts_per_connection {
+            return Some(dial_attempt);
         }
-        *attempt_number = attempt_number.checked_add(1).unwrap();
+        let new_dial_opts = dial_opts(peer_id, dial_attempt.address.clone());
+        self.pending_dials.insert(
+            (peer_id, new_dial_opts.connection_id()),
+            DialAttempt {
+                attempt_number: new_dial_attempt_number,
+                ..dial_attempt
+            },
+        );
 
-        if let Err(e) = self.swarm.dial(dial_opts(peer_id, address.clone())) {
-            error!(target: LOG_TARGET, "Failed to redial peer {peer_id:?} on connection {connection_id:?}: {e:?}");
+        if let Err(e) = self.swarm.dial(new_dial_opts) {
+            error!(target: LOG_TARGET, "Failed to redial peer {peer_id:?}: {e:?}");
             self.retry_dial(peer_id, connection_id);
         }
         None
@@ -345,6 +370,16 @@ where
     fn transition_session(&mut self, membership: Membership<PeerId>) {
         self.current_membership = Some(membership);
     }
+
+    #[cfg(test)]
+    pub fn send_message(&mut self, msg: EncapsulatedMessage) {
+        self.handle_send_message_command(msg);
+    }
+
+    #[cfg(test)]
+    pub fn send_message_to_anyone_except(&mut self, peer_id: PeerId, msg: EncapsulatedMessage) {
+        self.dial_and_schedule_message_except(msg, Some(peer_id));
+    }
 }
 
 async fn close_stream(mut stream: libp2p::Stream, peer_id: PeerId, connection_id: ConnectionId) {
@@ -370,6 +405,30 @@ where
             tokio::select! {
                 Some(event) = self.swarm.next() => {
                     self.handle_swarm_event(event).await;
+                }
+                Some(command) = self.command_receiver.recv() => {
+                    self.handle_command(command);
+                }
+                Some(new_session) = self.session_stream.next() => {
+                    self.transition_session(new_session);
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub async fn poll_next_until<Predicate>(&mut self, predicate: Predicate)
+    where
+        Predicate: Fn(&SwarmEvent<()>) -> bool,
+    {
+        loop {
+            tokio::select! {
+                Some(event) = self.swarm.next() => {
+                    let should_exit = predicate(&event);
+                    self.handle_swarm_event(event).await;
+                    if should_exit {
+                        break;
+                    }
                 }
                 Some(command) = self.command_receiver.recv() => {
                     self.handle_command(command);

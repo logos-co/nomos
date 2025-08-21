@@ -48,7 +48,14 @@ pub struct SwarmBuilder {
 
 impl SwarmBuilder {
     pub fn with_membership(mut self, membership: Membership<PeerId>) -> Self {
+        assert!(self.membership.is_none());
         self.membership = Some(membership);
+        self
+    }
+
+    pub fn with_empty_membership(mut self) -> Self {
+        assert!(self.membership.is_none());
+        self.membership = Some(Membership::new(&[], None));
         self
     }
 
@@ -97,7 +104,14 @@ impl BlendBehaviourBuilder {
     }
 
     pub fn with_membership(mut self, membership: Membership<PeerId>) -> Self {
+        assert!(self.membership.is_none());
         self.membership = Some(membership);
+        self
+    }
+
+    pub fn with_empty_membership(mut self) -> Self {
+        assert!(self.membership.is_none());
+        self.membership = Some(Membership::new(&[], None));
         self
     }
 

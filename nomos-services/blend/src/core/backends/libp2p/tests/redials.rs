@@ -12,7 +12,7 @@ use crate::core::backends::libp2p::{
 };
 
 #[test(tokio::test)]
-async fn redial_same_peer() {
+async fn core_redial_same_peer() {
     let TestSwarm {
         swarm: mut dialing_swarm,
         ..
@@ -80,7 +80,7 @@ async fn redial_same_peer() {
 }
 
 #[test(tokio::test)]
-async fn redial_different_peer_after_redial_limit() {
+async fn core_redial_different_peer_after_redial_limit() {
     let TestSwarm {
         swarm: mut listening_swarm,
         ..
