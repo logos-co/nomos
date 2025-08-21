@@ -36,6 +36,8 @@ pub enum Event {
     /// A message received from one of the edge peers, after its public header
     /// has been verified.
     Message(EncapsulatedMessageWithValidatedPublicHeader),
+    /// An inbound connection request has been negotiated.
+    InboundConnectionUpgradeSucceeded(PeerId),
 }
 
 #[derive(Debug)]
@@ -137,6 +139,9 @@ impl Behaviour {
             handler: NotifyHandler::One(connection.1),
             event: Either::Left(FromBehaviour::StartReceiving),
         });
+        self.events.push_back(ToSwarm::GenerateEvent(
+            Event::InboundConnectionUpgradeSucceeded(connection.0),
+        ));
         self.try_wake();
         self.upgraded_edge_peers.insert(connection);
     }

@@ -380,6 +380,7 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
                 // Bubble up to service for decapsulation and delaying.
                 self.report_message_to_service(msg);
             }
+            _ => {}
         }
     }
 }
