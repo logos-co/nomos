@@ -378,7 +378,6 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                         shares_retry_limit: config.da_config.retry_shares_limit,
                         commitments_retry_limit: config.da_config.retry_commitments_limit,
                     },
-                    refresh_interval: config.da_config.subnets_refresh_interval,
                 },
                 num_subnets: config.da_config.num_subnets,
             },
@@ -387,6 +386,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 api_port: config.api_config.address.port(),
                 is_secure: false,
             },
+            subnet_refresh_interval: config.da_config.subnets_refresh_interval,
         },
         da_indexer: IndexerSettings {
             storage: IndexerStorageAdapterSettings {

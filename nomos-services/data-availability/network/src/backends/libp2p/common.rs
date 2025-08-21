@@ -49,7 +49,6 @@ pub struct DaNetworkBackendSettings {
     pub redial_cooldown: Duration,
     pub replication_settings: ReplicationConfig,
     pub subnets_settings: SubnetsConfig,
-    pub refresh_interval: Duration,
 }
 
 /// Sampling events coming from da network
