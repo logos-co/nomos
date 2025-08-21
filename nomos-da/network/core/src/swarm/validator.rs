@@ -16,6 +16,7 @@ use tokio::{
 };
 use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
 
+use super::DispersalValidatorEvent;
 use crate::{
     addressbook::AddressBookHandler,
     behaviour::validator::{ValidatorBehaviour, ValidatorBehaviourEvent},
@@ -58,7 +59,7 @@ pub struct SwarmSettings {
 
 pub struct ValidatorEventsStream {
     pub sampling_events_receiver: UnboundedReceiverStream<SamplingEvent>,
-    pub validation_events_receiver: UnboundedReceiverStream<DispersalEvent>,
+    pub validation_events_receiver: UnboundedReceiverStream<DispersalValidatorEvent>,
 }
 
 pub struct ValidatorSwarm<Membership, HistoricMembership, Addressbook>
@@ -76,7 +77,7 @@ where
         >,
     >,
     sampling_events_sender: UnboundedSender<SamplingEvent>,
-    validation_events_sender: UnboundedSender<DispersalEvent>,
+    validation_events_sender: UnboundedSender<DispersalValidatorEvent>,
     membership: Membership,
     phantom: PhantomData<HistoricMembership>,
 }

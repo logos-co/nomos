@@ -19,7 +19,8 @@ use nomos_da_network_core::{
     },
     swarm::{
         validator::{SampleArgs, ValidatorEventsStream},
-        DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
+        DAConnectionMonitorSettings, DAConnectionPolicySettings, DispersalValidationError,
+        DispersalValidationResult, DispersalValidatorEvent, ReplicationConfig,
     },
 };
 use nomos_libp2p::{ed25519, secret_key_serde, Multiaddr};
@@ -32,6 +33,8 @@ use tokio::sync::{
 use tracing::error;
 
 pub(crate) const BROADCAST_CHANNEL_SIZE: usize = 128;
+
+pub type BroadcastValidationResultSender = Option<mpsc::Sender<DispersalValidationResult>>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DaNetworkBackendSettings {
@@ -110,21 +113,35 @@ pub enum VerificationEvent {
         // TX events might reach destination after the assignations has already changed.
         assignations: u16,
         tx: Box<SignedMantleTx>,
+        response_sender: BroadcastValidationResultSender,
     },
-    Share(Box<DaShare>),
+    Share {
+        share: Box<DaShare>,
+        response_sender: BroadcastValidationResultSender,
+    },
 }
 
-impl From<DaShare> for VerificationEvent {
-    fn from(share: DaShare) -> Self {
-        Self::Share(Box::new(share))
+impl From<(DaShare, BroadcastValidationResultSender)> for VerificationEvent {
+    fn from((share, response_sender): (DaShare, BroadcastValidationResultSender)) -> Self {
+        Self::Share {
+            share: Box::new(share),
+            response_sender,
+        }
     }
 }
 
-impl From<(u16, Box<SignedMantleTx>)> for VerificationEvent {
-    fn from(tx: (u16, Box<SignedMantleTx>)) -> Self {
+impl From<(u16, Box<SignedMantleTx>, BroadcastValidationResultSender)> for VerificationEvent {
+    fn from(
+        (assignations, tx, response_sender): (
+            u16,
+            Box<SignedMantleTx>,
+            BroadcastValidationResultSender,
+        ),
+    ) -> Self {
         Self::Tx {
-            assignations: tx.0,
-            tx: tx.1,
+            assignations,
+            tx,
+            response_sender,
         }
     }
 }
@@ -149,31 +166,73 @@ pub(crate) async fn handle_validator_events_stream(
                 handle_sampling_event(&sampling_broadcast_sender, &commitments_broadcast_sender, sampling_event).await;
             }
             Some(dispersal_event) = StreamExt::next(&mut validation_events_receiver) => {
-                handle_dispersal_event(&validation_broadcast_sender, dispersal_event);
+                handle_dispersal_event(&validation_broadcast_sender, dispersal_event).await;
             }
         }
     }
 }
 
-fn handle_dispersal_event(
+async fn handle_dispersal_event(
     validation_broadcast_sender: &broadcast::Sender<VerificationEvent>,
-    dispersal_event: DispersalEvent,
+    dispersal_event: DispersalValidatorEvent,
 ) {
-    match dispersal_event {
+    match dispersal_event.event {
         DispersalEvent::IncomingShare(share) => {
-            if let Err(error) = validation_broadcast_sender.send(share.data.into()) {
-                error!(
-                    "Error in internal broadcast of validation for blob: {:?}",
-                    error.0
-                );
+            if let Some(behaviour_sender) = dispersal_event.sender {
+                let (service_sender, mut service_receiver) =
+                    mpsc::channel::<DispersalValidationResult>(BROADCAST_CHANNEL_SIZE);
+                if let Err(error) =
+                    validation_broadcast_sender.send((share.data, Some(service_sender)).into())
+                {
+                    let _ = behaviour_sender.send(Err(DispersalValidationError));
+                    error!(
+                        "Error in internal broadcast of validation for blob: {:?}",
+                        error.0
+                    );
+                    return;
+                }
+                let validation_response = service_receiver
+                    .recv()
+                    .await
+                    .unwrap_or_else(|| Err(DispersalValidationError));
+                let _ = behaviour_sender.send(validation_response);
+            } else {
+                if let Err(error) = validation_broadcast_sender.send((share.data, None).into()) {
+                    error!(
+                        "Error in internal broadcast of validation for blob: {:?}",
+                        error.0
+                    );
+                }
             }
         }
-        DispersalEvent::IncomingTx(tx) => {
-            if let Err(error) = validation_broadcast_sender.send(tx.into()) {
-                error!(
-                    "Error in internal broadcast of validation for blob: {:?}",
-                    error.0
-                );
+        DispersalEvent::IncomingTx((assignations, tx)) => {
+            if let Some(behaviour_sender) = dispersal_event.sender {
+                let (service_sender, mut service_receiver) =
+                    mpsc::channel::<DispersalValidationResult>(BROADCAST_CHANNEL_SIZE);
+                if let Err(error) = validation_broadcast_sender
+                    .send((assignations, tx, Some(service_sender)).into())
+                {
+                    let _ = behaviour_sender.send(Err(DispersalValidationError));
+                    error!(
+                        "Error in internal broadcast of validation for blob: {:?}",
+                        error.0
+                    );
+                    return;
+                }
+                let validation_response = service_receiver
+                    .recv()
+                    .await
+                    .unwrap_or_else(|| Err(DispersalValidationError));
+                let _ = behaviour_sender.send(validation_response);
+            } else {
+                if let Err(error) =
+                    validation_broadcast_sender.send((assignations, tx, None).into())
+                {
+                    error!(
+                        "Error in internal broadcast of validation for blob: {:?}",
+                        error.0
+                    );
+                }
             }
         }
         DispersalEvent::DispersalError { error } => {

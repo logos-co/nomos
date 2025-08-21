@@ -90,7 +90,9 @@ macro_rules! adapter_for {
                 }
             }
 
-            async fn share_stream(&self) -> Box<dyn Stream<Item = Self::Share> + Unpin + Send> {
+            async fn share_stream(
+                &self,
+            ) -> Box<dyn Stream<Item = ValidationRequest<Self::Share>> + Unpin + Send> {
                 let (sender, receiver) = tokio::sync::oneshot::channel();
                 self.network_relay
                     .send(nomos_da_network_service::DaNetworkMsg::Subscribe {
@@ -104,7 +106,13 @@ macro_rules! adapter_for {
 
                 let stream = receiver.filter_map(move |msg| match msg {
                     $DaNetworkEvent::Verifying(verification_event) => match verification_event {
-                        VerificationEvent::Share(share) => Some(*share),
+                        VerificationEvent::Share {
+                            share,
+                            response_sender,
+                        } => Some(ValidationRequest {
+                            item: *share,
+                            sender: response_sender,
+                        }),
                         VerificationEvent::Tx { .. } => None,
                     },
                     _ => None,
@@ -113,7 +121,9 @@ macro_rules! adapter_for {
                 Box::new(Box::pin(stream))
             }
 
-            async fn tx_stream(&self) -> Box<dyn Stream<Item = (u16, Self::Tx)> + Unpin + Send> {
+            async fn tx_stream(
+                &self,
+            ) -> Box<dyn Stream<Item = ValidationRequest<(u16, Self::Tx)>> + Unpin + Send> {
                 let (sender, receiver) = tokio::sync::oneshot::channel();
                 self.network_relay
                     .send(nomos_da_network_service::DaNetworkMsg::Subscribe {
@@ -127,8 +137,15 @@ macro_rules! adapter_for {
 
                 let stream = receiver.filter_map(move |msg| match msg {
                     $DaNetworkEvent::Verifying(verification_event) => match verification_event {
-                        VerificationEvent::Tx { assignations, tx } => Some((assignations, *tx)),
-                        VerificationEvent::Share(_) => None,
+                        VerificationEvent::Tx {
+                            assignations,
+                            tx,
+                            response_sender,
+                        } => Some(ValidationRequest {
+                            item: (assignations, *tx),
+                            sender: response_sender,
+                        }),
+                        VerificationEvent::Share { .. } => None,
                     },
                     _ => None,
                 });

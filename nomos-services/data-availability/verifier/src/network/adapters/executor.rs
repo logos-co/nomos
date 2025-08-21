@@ -18,6 +18,6 @@ use overwatch::services::{relay::OutboundRelay, ServiceData};
 use subnetworks_assignations::MembershipHandler;
 use tokio_stream::StreamExt as _;
 
-use crate::network::{adapters::common::adapter_for, NetworkAdapter};
+use crate::network::{adapters::common::adapter_for, NetworkAdapter, ValidationRequest};
 
 adapter_for!(DaNetworkExecutorBackend, DaNetworkEventKind, DaNetworkEvent);
