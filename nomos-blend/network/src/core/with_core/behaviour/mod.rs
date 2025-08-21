@@ -194,6 +194,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     /// by shifting the current session to the old one.
     ///
     /// It should be called as soon as the new session starts.
+    /// even if the transition period has not passed yet.
     /// After the transition period has passed, the caller must call
     /// [`Self::close_old_session`] separately.
     pub fn start_new_session(&mut self, new_membership: Membership<PeerId>) {
