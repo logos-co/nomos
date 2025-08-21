@@ -278,8 +278,8 @@ where
                     self.check_and_dial_new_peers_except(peer_id);
                 }
             }
-            _ => {
-                tracing::debug!(target: LOG_TARGET, "Received event from blend network that will be ignored.");
+            event => {
+                tracing::debug!(target: LOG_TARGET, "Received event from blend network that will be ignored: {event:?}");
                 tracing::info!(counter.ignored_event = 1);
             }
         }
@@ -347,7 +347,7 @@ where
                 .upgrade(Version::V1)
                 .authenticate(plaintext::Config::new(&identity))
                 .multiplex(yamux::Config::default())
-                .timeout(Duration::ZERO)
+                .timeout(Duration::from_secs(1))
                 .boxed();
 
             Swarm::new(
@@ -530,7 +530,7 @@ where
     }
 
     #[cfg(test)]
-    pub async fn poll_swarm_until<Predicate>(&mut self, predicate: Predicate)
+    pub async fn poll_next_until<Predicate>(&mut self, predicate: Predicate)
     where
         Predicate: Fn(&SwarmEvent<BlendBehaviourEvent<ObservationWindowProvider>>) -> bool,
     {

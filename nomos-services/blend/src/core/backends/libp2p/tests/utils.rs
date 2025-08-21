@@ -255,7 +255,6 @@ pub trait SwarmExt: libp2p_swarm_test::SwarmExt {
         &mut self,
         addr: Option<Multiaddr>,
     ) -> (Node<PeerId>, ListenerId);
-    async fn remove_listener_and_wait(&mut self, listener_id: ListenerId) -> bool;
 }
 
 #[async_trait]
@@ -288,22 +287,5 @@ impl SwarmExt for Swarm<BlendBehaviour<TestObservationWindowProvider>> {
             },
             memory_addr_listener_id,
         )
-    }
-
-    async fn remove_listener_and_wait(&mut self, listener_id: ListenerId) -> bool {
-        if !self.remove_listener(listener_id) {
-            return false;
-        }
-        self.wait(|e| match e {
-            SwarmEvent::ListenerClosed {
-                listener_id: closed_listener_id,
-                ..
-            } => (closed_listener_id == listener_id).then_some(()),
-            other => {
-                panic!("Unexpected event while waiting for `NewListenAddr`: {other:?}")
-            }
-        })
-        .await;
-        true
     }
 }
