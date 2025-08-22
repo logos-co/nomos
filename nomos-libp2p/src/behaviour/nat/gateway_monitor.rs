@@ -69,56 +69,59 @@ impl<Detector: GatewayDetector> GatewayMonitor<Detector> {
             monitor.settings.check_interval
         );
 
-        monitor.perform_initial_check();
+        if let Some(gateway) = Self::detect_gateway() {
+            info!("Initial gateway detected: {gateway}");
+            monitor.current_gateway = Some(gateway);
+        }
 
         monitor
     }
 
     pub fn poll(&mut self, cx: &mut Context<'_>) -> Poll<Option<GatewayMonitorEvent>> {
         if self.check_timer.as_mut().poll_unpin(cx).is_ready() {
-            let event = self.check_gateway();
-
             self.check_timer = Box::pin(tokio::time::sleep(self.settings.check_interval));
 
-            if event.is_some() {
-                return Poll::Ready(event);
+            if let Some(event) = self.check_gateway() {
+                return Poll::Ready(Some(event));
             }
         }
 
         Poll::Pending
     }
 
-    /// Run the initial gateway check
-    fn perform_initial_check(&mut self) {
+    fn detect_gateway() -> Option<IpAddr> {
         match Detector::detect() {
-            Ok(gateway) => {
-                info!("Initial gateway detected: {gateway}");
-                self.current_gateway = Some(gateway);
-            }
+            Ok(gateway) => Some(gateway),
             Err(e) => {
-                warn!("Failed to detect initial gateway: {e}");
+                warn!("Failed to detect gateway: {e}");
+                None
             }
         }
     }
 
     fn check_gateway(&mut self) -> Option<GatewayMonitorEvent> {
-        match Detector::detect() {
-            Ok(new_gateway) => match self.current_gateway {
-                Some(old_gateway) if old_gateway != new_gateway => {
-                    info!("Gateway address changed from {old_gateway} to {new_gateway}");
-                    self.current_gateway = Some(new_gateway);
+        let new_gateway = Self::detect_gateway()?;
 
-                    Some(GatewayMonitorEvent::GatewayChanged {
-                        old_gateway: Some(old_gateway),
-                        new_gateway,
-                    })
-                }
-                _ => None,
-            },
-            Err(e) => {
-                warn!("Failed to detect gateway: {e}");
-                None
+        match self.current_gateway {
+            Some(old_gateway) if old_gateway != new_gateway => {
+                info!("Gateway address changed from {old_gateway} to {new_gateway}");
+
+                self.current_gateway = Some(new_gateway);
+
+                Some(GatewayMonitorEvent::GatewayChanged {
+                    old_gateway: Some(old_gateway),
+                    new_gateway,
+                })
             }
+            None => {
+                self.current_gateway = Some(new_gateway);
+
+                Some(GatewayMonitorEvent::GatewayChanged {
+                    old_gateway: None,
+                    new_gateway,
+                })
+            }
+            _ => None,
         }
     }
 }
