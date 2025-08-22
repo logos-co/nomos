@@ -34,17 +34,17 @@ impl NatMapper for UpnpProtocol {
         address_to_map: &Multiaddr,
         settings: NatMappingSettings,
     ) -> Result<Multiaddr, AddressMapperError> {
-        let (internal_address, protocol) = multiaddr_to_socketaddr(address_to_map)?;
-        let mapped_port = internal_address.port();
+        let (local_address, protocol) = multiaddr_to_socketaddr(address_to_map)?;
+        let mapped_port = local_address.port();
 
         let (gateway, gateway_external_ip) = Self::search_gateway_and_get_ip().await?;
 
         gateway
             .add_port(
                 protocol,
-                // Request the same port as the internal address
+                // Request the same port as the local address
                 mapped_port,
-                internal_address,
+                local_address,
                 settings.lease_duration,
                 "libp2p UPnP mapping",
             )
@@ -82,13 +82,13 @@ fn multiaddr_to_socketaddr(addr: &Multiaddr) -> Result<AddressWithProtocol, Addr
 
 /// Replace the IP in the Multiaddr with an external IP address.
 /// Port is not changed.
-fn external_address(external_address: IpAddr, internal_address: &Multiaddr) -> Multiaddr {
+fn external_address(external_address: IpAddr, local_address: &Multiaddr) -> Multiaddr {
     let addr = match external_address {
         IpAddr::V4(ip) => Protocol::Ip4(ip),
         IpAddr::V6(ip) => Protocol::Ip6(ip),
     };
 
-    internal_address
+    local_address
         .replace(0, |_| Some(addr))
         .expect("multiaddr should be valid")
 }

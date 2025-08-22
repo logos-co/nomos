@@ -50,17 +50,17 @@ mod real_gateway_tests {
     async fn map_address_via_protocol_manager_real_gateway() {
         let local_ip = std::env::var("NAT_TEST_LOCAL_IP").expect("NAT_TEST_LOCAL_IP");
         let random_port: u64 = thread_rng().gen_range(10000..=64000);
-        let internal_addr = format!("/ip4/{local_ip}/tcp/{random_port}");
+        let local_address = format!("/ip4/{local_ip}/tcp/{random_port}");
 
-        println!("Testing NAT mapping for internal address: {internal_addr}",);
+        println!("Testing NAT mapping for local address: {local_address}",);
 
-        let internal_addr: Multiaddr = internal_addr.parse().expect("valid multiaddr");
+        let local_address: Multiaddr = local_address.parse().expect("valid multiaddr");
 
         let settings = NatMappingSettings::default();
-        let external = ProtocolManager::map_address(&internal_addr, settings)
+        let external = ProtocolManager::map_address(&local_address, settings)
             .await
             .expect("map address");
 
-        println!("Successfully mapped {internal_addr} to {external}");
+        println!("Successfully mapped {local_address} to {external}");
     }
 }

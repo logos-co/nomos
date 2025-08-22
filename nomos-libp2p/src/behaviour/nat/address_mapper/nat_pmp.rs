@@ -65,10 +65,10 @@ impl NatPmp {
 #[async_trait::async_trait]
 impl NatMapper for NatPmp {
     async fn map_address(
-        internal_address: &Multiaddr,
+        local_address: &Multiaddr,
         settings: NatMappingSettings,
     ) -> Result<Multiaddr, AddressMapperError> {
-        let (port, protocol) = extract_port_and_protocol(internal_address)?;
+        let (port, protocol) = extract_port_and_protocol(local_address)?;
 
         let mut nat_pmp = new_tokio_natpmp()
             .await
@@ -95,7 +95,7 @@ impl NatMapper for NatPmp {
                 )
             })??;
 
-        build_public_address(internal_address, public_ip, public_port)
+        build_public_address(local_address, public_ip, public_port)
     }
 }
 
@@ -116,11 +116,11 @@ fn extract_port_and_protocol(
 }
 
 fn build_public_address(
-    internal: &Multiaddr,
+    local_address: &Multiaddr,
     public_ip: Ipv4Addr,
     public_port: PortNumber,
 ) -> Result<Multiaddr, AddressMapperError> {
-    let with_ip = internal
+    let with_ip = local_address
         .replace(0, |_| Some(multiaddr::Protocol::Ip4(public_ip)))
         .ok_or_else(|| {
             AddressMapperError::MultiaddrParseError("No IP address found in multiaddr".to_owned())
