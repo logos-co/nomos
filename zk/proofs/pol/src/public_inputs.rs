@@ -6,21 +6,21 @@ use std::{
 use ark_bn254::Fq;
 use ark_ec::pairing::Pairing;
 use ark_ff::{BigInt, BigInteger};
-use groth16::{Bn254, Fr, Groth16PublicInput};
+use groth16::{Bn254, Fr, Groth16Input};
 use num_bigint::BigUint;
 use primitive_types::U256;
 use thiserror::Error;
 
 pub struct PolPublicInputs {
-    slot_number: Groth16PublicInput,
-    epoch_nonce: Groth16PublicInput,
-    lottery_0: Groth16PublicInput,
-    lottery_1: Groth16PublicInput,
-    aged_root: Groth16PublicInput,
-    latest_root: Groth16PublicInput,
-    leader_pk_1: Groth16PublicInput,
-    leader_pk_2: Groth16PublicInput,
-    entropy_contribution: Groth16PublicInput,
+    slot_number: Groth16Input,
+    epoch_nonce: Groth16Input,
+    lottery_0: Groth16Input,
+    lottery_1: Groth16Input,
+    aged_root: Groth16Input,
+    latest_root: Groth16Input,
+    leader_pk_1: Groth16Input,
+    leader_pk_2: Groth16Input,
+    entropy_contribution: Groth16Input,
 }
 
 pub struct PolPublicInputsData {
@@ -96,27 +96,27 @@ impl TryFrom<PolPublicInputsData> for PolPublicInputs {
         let lottery_1 = P.sub(T1_CONSTANT.div(total_stake.pow(U256::from(2u8))));
 
         Ok(Self {
-            slot_number: Groth16PublicInput::new(Fr::from(BigUint::from_bytes_le(
+            slot_number: Groth16Input::new(Fr::from(BigUint::from_bytes_le(
                 slot_number.to_little_endian().as_ref(),
             ))),
-            epoch_nonce: Groth16PublicInput::new(Fr::from(BigUint::from_bytes_le(
+            epoch_nonce: Groth16Input::new(Fr::from(BigUint::from_bytes_le(
                 epoch_nonce.to_little_endian().as_ref(),
             ))),
-            lottery_0: Groth16PublicInput::new(Fr::from(BigUint::from_bytes_le(
+            lottery_0: Groth16Input::new(Fr::from(BigUint::from_bytes_le(
                 lottery_0.to_little_endian().as_ref(),
             ))),
-            lottery_1: Groth16PublicInput::new(Fr::from(BigUint::from_bytes_le(
+            lottery_1: Groth16Input::new(Fr::from(BigUint::from_bytes_le(
                 lottery_1.to_little_endian().as_ref(),
             ))),
-            aged_root: Groth16PublicInput::new(Fr::from(BigUint::from_bytes_le(
+            aged_root: Groth16Input::new(Fr::from(BigUint::from_bytes_le(
                 aged_root.as_ref(),
             ))),
-            latest_root: Groth16PublicInput::new(Fr::from(BigUint::from_bytes_le(
+            latest_root: Groth16Input::new(Fr::from(BigUint::from_bytes_le(
                 latest_root.as_ref(),
             ))),
-            leader_pk_1: Groth16PublicInput::new(Fr::from(BigUint::from_bytes_le(pk1.as_ref()))),
-            leader_pk_2: Groth16PublicInput::new(Fr::from(BigUint::from_bytes_le(pk2.as_ref()))),
-            entropy_contribution: Groth16PublicInput::new(Fr::from(BigUint::from_bytes_le(
+            leader_pk_1: Groth16Input::new(Fr::from(BigUint::from_bytes_le(pk1.as_ref()))),
+            leader_pk_2: Groth16Input::new(Fr::from(BigUint::from_bytes_le(pk2.as_ref()))),
+            entropy_contribution: Groth16Input::new(Fr::from(BigUint::from_bytes_le(
                 entropy_contribution.as_ref(),
             ))),
         })
