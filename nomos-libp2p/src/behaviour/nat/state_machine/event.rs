@@ -15,7 +15,10 @@ pub enum Event {
     ExternalAddressConfirmed(Multiaddr),
     LocalAddressChanged(Multiaddr),
     NewExternalAddressCandidate(Multiaddr),
-    NewExternalMappedAddress(Multiaddr),
+    NewExternalMappedAddress {
+        local_address: Multiaddr,
+        external_address: Multiaddr,
+    },
 }
 
 impl TryFrom<&autonat::v2::client::Event> for Event {
@@ -49,9 +52,13 @@ impl TryFrom<&address_mapper::Event> for Event {
             address_mapper::Event::LocalAddressChanged(addr) => {
                 Self::LocalAddressChanged(addr.clone())
             }
-            address_mapper::Event::NewExternalMappedAddress(addr) => {
-                Self::NewExternalMappedAddress(addr.clone())
-            }
+            address_mapper::Event::NewExternalMappedAddress {
+                local_address,
+                external_address,
+            } => Self::NewExternalMappedAddress {
+                local_address: local_address.clone(),
+                external_address: external_address.clone(),
+            },
         })
     }
 }

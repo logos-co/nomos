@@ -24,7 +24,7 @@ use tracing::error;
 use crate::{
     behaviour::nat::{
         address_mapper,
-        address_mapper::AddressMapperBehaviour,
+        address_mapper::{protocol::ProtocolManager, AddressMapperBehaviour},
         state_machine::{Command, StateMachine},
     },
     config::NatSettings,
@@ -43,7 +43,7 @@ pub struct InnerNatBehaviour<R: RngCore + 'static> {
     /// `UPNP-IGD`. The current implementation is a placeholder and does not
     /// perform any actual address mapping, and always generates a failure
     /// event.
-    address_mapper_behaviour: AddressMapperBehaviour,
+    address_mapper_behaviour: AddressMapperBehaviour<ProtocolManager>,
     /// The state machine reacts to events from the swarm and from the
     /// sub-behaviours of the `InnerNatBehaviour` and issues commands to the
     /// `InnerNatBehaviour`.
