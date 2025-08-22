@@ -7,12 +7,14 @@ version = "0.1.0"
 [dependencies]
 ark-bn254 = "0.4"
 ark-ec = "0.4"
-primitive-types = "0.13"
+ark-ff = "0.4"
+fixed = "1.29"
 groth16 = { workspace = true, features = ["deser"] }
 poseidon2 = { workspace = true }
+num-bigint = "0.4"
+primitive-types = "0.13"
 serde_json = { version = "1.0" }
 thiserror = "2.0"
-fixed = "1.29"
 
 [lints]
 workspace = true
