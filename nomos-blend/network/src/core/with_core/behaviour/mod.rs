@@ -25,8 +25,11 @@ use nomos_blend_scheduling::{
 
 use crate::{
     core::with_core::{
-        behaviour::handler::{
-            conn_maintenance::ConnectionMonitor, ConnectionHandler, FromBehaviour, ToBehaviour,
+        behaviour::{
+            handler::{
+                conn_maintenance::ConnectionMonitor, ConnectionHandler, FromBehaviour, ToBehaviour,
+            },
+            old_session::OldSession,
         },
         error::Error,
     },
@@ -34,6 +37,7 @@ use crate::{
 };
 
 mod handler;
+mod old_session;
 
 #[cfg(feature = "tokio")]
 pub use self::handler::tokio::ObservationWindowTokioIntervalProvider;
@@ -87,8 +91,6 @@ pub struct Behaviour<ObservationWindowClockProvider> {
     /// identifiers have been exchanged between them.
     /// Sending a message with the same identifier more than once results in
     /// the peer being flagged as malicious, and the connection dropped.
-    // TODO: This cache should be cleared after the session transition period has
-    // passed.
     exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
     observation_window_clock_provider: ObservationWindowClockProvider,
     // TODO: Replace with the session stream and make this a non-Option
@@ -96,6 +98,9 @@ pub struct Behaviour<ObservationWindowClockProvider> {
     /// The [minimum, maximum] peering degree of this node.
     peering_degree: RangeInclusive<usize>,
     local_peer_id: PeerId,
+    /// States for processing messages from the old session
+    /// before the transition period has passed.
+    old_session: OldSession,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
@@ -134,7 +139,10 @@ impl NegotiatedPeerState {
 pub enum Event {
     /// A message received from one of the core peers, after its public header
     /// has been verified.
-    Message(Box<EncapsulatedMessageWithValidatedPublicHeader>, PeerId),
+    Message(
+        Box<EncapsulatedMessageWithValidatedPublicHeader>,
+        (PeerId, ConnectionId),
+    ),
     /// A peer on a given connection has been detected as unhealthy.
     UnhealthyPeer(PeerId),
     /// A peer on a given connection that was previously unhealthy has returned
@@ -175,7 +183,24 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             peering_degree: config.peering_degree.clone(),
             connections_waiting_upgrade: HashMap::new(),
             local_peer_id,
+            old_session: OldSession::new(),
         }
+    }
+
+    pub fn start_new_session(&mut self, new_membership: Membership<PeerId>) {
+        self.connections_waiting_upgrade.clear();
+        self.current_membership = Some(new_membership);
+        self.old_session.start(
+            mem::take(&mut self.negotiated_peers)
+                .into_iter()
+                .map(|(peer_id, details)| (peer_id, details.connection_id))
+                .collect(),
+            mem::take(&mut self.exchanged_message_identifiers),
+        );
+    }
+
+    pub fn finish_session_transition(&mut self) {
+        self.old_session.stop();
     }
 
     /// Publish an already-encapsulated message to all connected peers.
@@ -205,7 +230,12 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         Ok(())
     }
 
-    /// Forwards a message to all healthy connections except the specified one.
+    /// Forwards a message to all healthy connections except the [`from`]
+    /// connection.
+    ///
+    /// If the [`from`] connection is part of the old session, the message is
+    /// forwarded to the connections in the old session.
+    /// Otherwise, it is forwarded to the connections in the current session.
     ///
     /// Public header validation checks are skipped, since the message is
     /// assumed to have been properly formed.
@@ -215,10 +245,15 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     pub fn forward_validated_message(
         &mut self,
         message: &EncapsulatedMessageWithValidatedPublicHeader,
-        excluded_peer: PeerId,
+        from: (PeerId, ConnectionId),
     ) -> Result<(), Error> {
-        self.forward_validated_message_and_maybe_exclude(message, Some(excluded_peer))?;
-        Ok(())
+        if self.old_session.is_negotiated(&from) {
+            tracing::debug!(target: LOG_TARGET, "Forwarding message to the conns in the old session, except {from:?}.");
+            self.old_session.forward_validated_message(message, from.0)
+        } else {
+            tracing::debug!(target: LOG_TARGET, "Forwarding message to the conns in the current session, except {from:?}.");
+            self.forward_validated_message_and_maybe_exclude(message, Some(from.0))
+        }
     }
 
     #[must_use]
@@ -583,56 +618,54 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         );
     }
 
-    /// Update the state of an already negotiated peer, returning the previous
-    /// state.
-    ///
-    /// # Panics
-    ///
-    /// If there is no entry with the specified peer ID in the map of negotiated
-    /// peers.
+    /// Update the state of an already negotiated peer if exists,
+    /// returning the previous state.
     fn update_state_for_negotiated_peer(
         &mut self,
         (peer_id, connection_id): (PeerId, ConnectionId),
         state: NegotiatedPeerState,
-    ) -> NegotiatedPeerState {
-        let peer_details = self
-            .negotiated_peers
-            .get_mut(&peer_id)
-            .unwrap_or_else(|| panic!("Connection with peer {peer_id:?} not found in storage.",));
+    ) -> Option<NegotiatedPeerState> {
+        let peer_details = self.negotiated_peers.get_mut(&peer_id)?;
         // We double check we are dealing with the expected connection.
         debug_assert!(
             peer_details.connection_id == connection_id,
             "Stored connection ID and provided connection ID do not match for the provided peer ID."
         );
 
-        mem::replace(&mut peer_details.negotiated_state, state)
+        Some(mem::replace(&mut peer_details.negotiated_state, state))
     }
 
+    /// Handle an unhealthy connection if it exists in the current session.
+    /// If not, it is ignored.
     fn handle_unhealthy_connection(&mut self, (peer_id, connection_id): (PeerId, ConnectionId)) {
         // Notify swarm only on first transition into unhealthy state.
-        if self.update_state_for_negotiated_peer(
+        if let Some(prev_state) = self.update_state_for_negotiated_peer(
             (peer_id, connection_id),
             NegotiatedPeerState::Unhealthy,
-        ) != NegotiatedPeerState::Unhealthy
-        {
-            tracing::debug!(target: LOG_TARGET, "Peer {peer_id:?} has been marked as unhealthy.");
-            self.events
-                .push_back(ToSwarm::GenerateEvent(Event::UnhealthyPeer(peer_id)));
-            self.try_wake();
+        ) {
+            if prev_state != NegotiatedPeerState::Unhealthy {
+                tracing::debug!(target: LOG_TARGET, "Peer {peer_id:?} has been marked as unhealthy.");
+                self.events
+                    .push_back(ToSwarm::GenerateEvent(Event::UnhealthyPeer(peer_id)));
+                self.try_wake();
+            }
         }
     }
 
+    /// Handle a unhealthy connection if it exists in the current session.
+    /// If not, it is ignored.
     fn handle_healthy_connection(&mut self, (peer_id, connection_id): (PeerId, ConnectionId)) {
         // Notify swarm only on first transition into healthy state.
-        if self.update_state_for_negotiated_peer(
+        if let Some(prev_state) = self.update_state_for_negotiated_peer(
             (peer_id, connection_id),
             NegotiatedPeerState::Healthy,
-        ) != NegotiatedPeerState::Healthy
-        {
-            tracing::debug!(target: LOG_TARGET, "Peer {peer_id:?} has been marked as healthy.");
-            self.events
-                .push_back(ToSwarm::GenerateEvent(Event::HealthyPeer(peer_id)));
-            self.try_wake();
+        ) {
+            if prev_state != NegotiatedPeerState::Healthy {
+                tracing::debug!(target: LOG_TARGET, "Peer {peer_id:?} has been marked as healthy.");
+                self.events
+                    .push_back(ToSwarm::GenerateEvent(Event::HealthyPeer(peer_id)));
+                self.try_wake();
+            }
         }
     }
 
@@ -677,7 +710,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         // processed by the core protocol module.
         self.events.push_back(ToSwarm::GenerateEvent(Event::Message(
             Box::new(validated_message),
-            from_peer_id,
+            (from_peer_id, from_connection_id),
         )));
         self.try_wake();
     }
@@ -864,6 +897,10 @@ where
             ..
         }) = event
         {
+            // Try to close the connection if it exists in the old session.
+            self.old_session
+                .handle_closed_connection(&(peer_id, connection_id));
+
             // We notify the swarm of any outbound connection that failed to be upgraded.
             if let Some(remote_peer_role) = self
                 .connections_waiting_upgrade
@@ -920,10 +957,18 @@ where
             Either::Left(event) => match event {
                 // A message was forwarded from the peer.
                 ToBehaviour::Message(message) => {
-                    self.handle_received_serialized_encapsulated_message(
-                        &message,
-                        (peer_id, connection_id),
-                    );
+                    if self.old_session.is_negotiated(&(peer_id, connection_id)) {
+                        self.old_session
+                            .handle_received_serialized_encapsulated_message(
+                                &message,
+                                (peer_id, connection_id),
+                            );
+                    } else {
+                        self.handle_received_serialized_encapsulated_message(
+                            &message,
+                            (peer_id, connection_id),
+                        );
+                    }
                 }
                 // The inbound/outbound connection was fully negotiated by the peer,
                 // which means that the peer supports the blend protocol. We consider them healthy
@@ -955,6 +1000,10 @@ where
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+        if let Poll::Ready(event) = self.old_session.poll(cx) {
+            return Poll::Ready(event);
+        }
+
         if let Some(event) = self.events.pop_front() {
             Poll::Ready(event)
         } else {
