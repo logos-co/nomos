@@ -3,8 +3,8 @@ use std::{hint::black_box, ops::Deref as _, sync::LazyLock};
 
 #[cfg(all(target_arch = "x86_64", feature = "deser"))]
 use groth16::{
-    Groth16Proof, Groth16ProofJsonDeser, Groth16PublicInput, Groth16PublicInputDeser,
-    Groth16VerificationKey, Groth16VerificationKeyJsonDeser, groth16_verify,
+    Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser, Groth16VerificationKey,
+    Groth16VerificationKeyJsonDeser, groth16_verify,
 };
 #[cfg(all(target_arch = "x86_64", feature = "deser"))]
 use serde_json::{Value, json};
@@ -177,14 +177,14 @@ fn poc_cpu_cycles() {
             .unwrap()
             .try_into()
             .unwrap();
-    let pi: Vec<_> = serde_json::from_value::<Vec<Groth16PublicInputDeser>>(PI.deref().clone())
+    let pi: Vec<_> = serde_json::from_value::<Vec<Groth16InputDeser>>(PI.deref().clone())
         .unwrap()
         .into_iter()
-        .map(TryInto::<Groth16PublicInput>::try_into)
+        .map(TryInto::<Groth16Input>::try_into)
         .collect::<Result<Vec<_>, _>>()
         .unwrap()
         .into_iter()
-        .map(Groth16PublicInput::into_inner)
+        .map(Groth16Input::into_inner)
         .collect();
     let pvk = vk.into_prepared();
     let iters = 1000u64;
