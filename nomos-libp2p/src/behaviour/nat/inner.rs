@@ -38,8 +38,6 @@ type Task = BoxFuture<'static, Multiaddr>;
 pub struct InnerNatBehaviour<R, Mapper, Detector>
 where
     R: RngCore + 'static,
-    Mapper: NatMapper,
-    Detector: GatewayDetector,
 {
     /// `AutoNAT` client behaviour which is used to confirm if addresses of our
     /// node are indeed publicly reachable.
@@ -85,8 +83,6 @@ impl<R: RngCore + 'static> NatBehaviour<R> {
 impl<R, Mapper, Detector> InnerNatBehaviour<R, Mapper, Detector>
 where
     R: RngCore + 'static,
-    Mapper: NatMapper,
-    Detector: GatewayDetector,
 {
     fn create(
         rng: R,

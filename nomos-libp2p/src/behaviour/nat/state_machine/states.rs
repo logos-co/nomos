@@ -185,7 +185,6 @@ impl MappedPublic {
         Private { local_address }
     }
 
-
     pub fn into_try_map_address(self) -> TryMapAddress {
         let Self { local_address, .. } = self;
         TryMapAddress {
