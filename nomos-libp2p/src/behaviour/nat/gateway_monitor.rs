@@ -26,6 +26,12 @@ pub trait GatewayDetector: Send + Sync {
     fn detect() -> Result<IpAddr, String>;
 }
 
+/// System gateway detector that uses the OS's routing table to find the default
+/// gateway.
+///
+/// This detector queries the system's network configuration to identify the
+/// current default gateway IP address, which is typically the router or NAT
+/// device that provides internet connectivity.
 pub struct SystemGatewayDetector;
 
 impl GatewayDetector for SystemGatewayDetector {
