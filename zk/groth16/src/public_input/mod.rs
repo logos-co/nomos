@@ -15,6 +15,12 @@ pub use deserialize::PublicInputDeser;
 pub struct PublicInput<E: Pairing>(<E as Pairing>::ScalarField);
 
 impl<E: Pairing> PublicInput<E> {
+    pub const fn new(value: E::ScalarField) -> Self {
+        Self(value)
+    }
+}
+
+impl<E: Pairing> PublicInput<E> {
     pub const fn into_inner(self) -> E::ScalarField {
         self.0
     }
