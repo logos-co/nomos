@@ -1,12 +1,11 @@
-pub mod adapters;
 pub mod backends;
 
-use std::{fmt::Display, pin::Pin};
+use std::{fmt::Display, marker::PhantomData, pin::Pin};
 
 use async_trait::async_trait;
-use backends::{SdpBackend, SdpBackendError, ServicesRepository};
+use backends::{SdpBackend, SdpBackendError};
 use futures::{Stream, StreamExt as _};
-use nomos_core::{block::BlockNumber, sdp::FinalizedBlockEvent};
+use nomos_core::sdp::FinalizedBlockEvent;
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -17,73 +16,45 @@ use overwatch::{
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::adapters::{
-    declaration::repository::SdpDeclarationAdapter,
-    services::services_repository::SdpServicesAdapter,
-};
-
 const BROADCAST_CHANNEL_SIZE: usize = 128;
 
 pub type FinalizedBlockUpdateStream =
     Pin<Box<dyn Stream<Item = FinalizedBlockEvent> + Send + Sync + Unpin>>;
 
-pub enum SdpMessage<B: SdpBackend> {
-    Process {
-        block_number: BlockNumber,
-        message: B::Message,
-    },
-
-    MarkInBlock {
-        block_number: BlockNumber,
-        result_sender: oneshot::Sender<Result<(), SdpBackendError>>,
-    },
-    DiscardBlock(BlockNumber),
+pub enum SdpMessage {
+    ProcessNewBlock,
+    ProcessLibBlock,
     Subscribe {
         result_sender: oneshot::Sender<FinalizedBlockUpdateStream>,
     },
 }
 
-pub struct SdpService<
-    Backend: SdpBackend + Send + Sync + 'static,
-    DeclarationAdapter,
-    ServicesAdapter,
-    Metadata,
-    RuntimeServiceId,
-> where
-    DeclarationAdapter: SdpDeclarationAdapter + Send + Sync,
-    ServicesAdapter: SdpServicesAdapter + Send + Sync,
+pub struct SdpService<Backend: SdpBackend + Send + Sync + 'static, Metadata, RuntimeServiceId>
+where
     Metadata: Send + Sync + 'static,
 {
-    backend: Backend,
+    backend: PhantomData<Backend>,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     finalized_update_tx: broadcast::Sender<FinalizedBlockEvent>,
 }
 
-impl<Backend, DeclarationAdapter, ServicesAdapter, Metadata, RuntimeServiceId> ServiceData
-    for SdpService<Backend, DeclarationAdapter, ServicesAdapter, Metadata, RuntimeServiceId>
+impl<Backend, Metadata, RuntimeServiceId> ServiceData
+    for SdpService<Backend, Metadata, RuntimeServiceId>
 where
     Backend: SdpBackend + Send + Sync + 'static,
-    DeclarationAdapter: SdpDeclarationAdapter + Send + Sync,
-    ServicesAdapter: SdpServicesAdapter + Send + Sync,
     Metadata: Send + Sync + 'static,
 {
     type Settings = ();
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
-    type Message = SdpMessage<Backend>;
+    type Message = SdpMessage;
 }
 
 #[async_trait]
-impl<Backend, DeclarationAdapter, ServicesAdapter, Metadata, RuntimeServiceId>
-    ServiceCore<RuntimeServiceId>
-    for SdpService<Backend, DeclarationAdapter, ServicesAdapter, Metadata, RuntimeServiceId>
+impl<Backend, Metadata, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for SdpService<Backend, Metadata, RuntimeServiceId>
 where
-    Backend: SdpBackend<DeclarationAdapter = DeclarationAdapter, ServicesAdapter = ServicesAdapter>
-        + Send
-        + Sync
-        + 'static,
-    DeclarationAdapter: SdpDeclarationAdapter + Send + Sync,
-    ServicesAdapter: ServicesRepository + SdpServicesAdapter + Send + Sync,
+    Backend: SdpBackend + Send + Sync + 'static,
     Metadata: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + Sync + 'static,
 {
@@ -91,12 +62,10 @@ where
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
-        let declaration_adapter = DeclarationAdapter::new();
-        let services_adapter = ServicesAdapter::new();
         let (finalized_update_tx, _) = broadcast::channel(BROADCAST_CHANNEL_SIZE);
 
         Ok(Self {
-            backend: Backend::init(declaration_adapter, services_adapter),
+            backend: PhantomData,
             service_resources_handle,
             finalized_update_tx,
         })
@@ -110,61 +79,22 @@ where
         );
 
         while let Some(msg) = self.service_resources_handle.inbound_relay.recv().await {
-            self.handle_sdp_message(msg).await;
+            match msg {
+                SdpMessage::ProcessNewBlock | SdpMessage::ProcessLibBlock => {
+                    todo!()
+                }
+                SdpMessage::Subscribe { result_sender } => {
+                    let receiver = self.finalized_update_tx.subscribe();
+                    let stream = make_finalized_stream(receiver);
+
+                    if result_sender.send(stream).is_err() {
+                        tracing::error!("Error sending finalized updates receiver");
+                    }
+                }
+            }
         }
 
         Ok(())
-    }
-}
-
-impl<
-        Backend: SdpBackend + Send + Sync + 'static,
-        DeclarationAdapter: SdpDeclarationAdapter + Send + Sync,
-        ServicesAdapter: SdpServicesAdapter + Send + Sync,
-        Metadata: Send + Sync + 'static,
-        RuntimeServiceId: Send + Sync + 'static,
-    > SdpService<Backend, DeclarationAdapter, ServicesAdapter, Metadata, RuntimeServiceId>
-{
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "TODO: Address this at some point"
-    )]
-    async fn handle_sdp_message(&mut self, msg: SdpMessage<Backend>) {
-        match msg {
-            SdpMessage::Process {
-                block_number,
-                message,
-            } => {
-                if let Err(e) = self
-                    .backend
-                    .process_sdp_message(block_number, message)
-                    .await
-                {
-                    tracing::error!("Error processing SDP message: {:?}", e);
-                }
-            }
-            SdpMessage::MarkInBlock {
-                block_number,
-                result_sender,
-            } => {
-                let result = self.backend.mark_in_block(block_number).await;
-                let result = result_sender.send(result);
-                if let Err(e) = result {
-                    tracing::error!("Error sending result: {:?}", e);
-                }
-            }
-            SdpMessage::DiscardBlock(block_number) => {
-                self.backend.discard_block(block_number);
-            }
-            SdpMessage::Subscribe { result_sender } => {
-                let receiver = self.finalized_update_tx.subscribe();
-                let stream = make_finalized_stream(receiver);
-
-                if result_sender.send(stream).is_err() {
-                    tracing::error!("Error sending finalized updates receiver");
-                }
-            }
-        }
     }
 }
 

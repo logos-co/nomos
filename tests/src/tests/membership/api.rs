@@ -36,7 +36,7 @@ async fn test_update_get_membership_http() {
             updates: vec![FinalizedBlockEventUpdate {
                 service_type: nomos_core::sdp::ServiceType::DataAvailability,
                 provider_id: *provider_id,
-                state: nomos_core::sdp::DeclarationState::Active,
+                state: nomos_core::sdp::FinalizedDeclarationState::Active,
                 locators: locators.clone(),
             }],
         })
@@ -59,7 +59,7 @@ async fn test_update_get_membership_http() {
             updates: vec![FinalizedBlockEventUpdate {
                 service_type: nomos_core::sdp::ServiceType::DataAvailability,
                 provider_id: some_provider_id,
-                state: nomos_core::sdp::DeclarationState::Active,
+                state: nomos_core::sdp::FinalizedDeclarationState::Active,
                 locators: locators.clone(),
             }],
         })
