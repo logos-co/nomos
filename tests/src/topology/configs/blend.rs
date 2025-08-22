@@ -7,6 +7,7 @@ use nomos_blend_service::core::backends::libp2p::Libp2pBlendBackendSettings;
 use nomos_libp2p::{
     ed25519::{self, Keypair as Ed25519Keypair},
     identity::Keypair,
+    protocol_name::StreamProtocol,
     Multiaddr, PeerId,
 };
 
@@ -46,6 +47,7 @@ pub fn create_blend_configs(ids: &[[u8; 32]]) -> Vec<GeneralBlendConfig> {
                     max_edge_node_incoming_connections: 300,
                     max_dial_attempts_per_peer: NonZeroU64::try_from(3)
                         .expect("Max dial attempts per peer cannot be zero."),
+                    protocol_name: StreamProtocol::new("/blend/integration-tests"),
                 },
                 private_key: Ed25519PrivateKey::generate(),
                 membership: Vec::new(),

@@ -13,7 +13,7 @@ use libp2p::{
         ConnectionId, FromSwarm, NetworkBehaviour, NotifyHandler, THandler, THandlerInEvent,
         THandlerOutEvent, ToSwarm,
     },
-    Multiaddr, PeerId,
+    Multiaddr, PeerId, StreamProtocol,
 };
 use nomos_blend_scheduling::{deserialize_encapsulated_message, membership::Membership};
 
@@ -56,11 +56,16 @@ pub struct Behaviour {
     connection_timeout: Duration,
     upgraded_edge_peers: HashSet<(PeerId, ConnectionId)>,
     max_incoming_connections: usize,
+    protocol_name: StreamProtocol,
 }
 
 impl Behaviour {
     #[must_use]
-    pub fn new(config: &Config, current_membership: Option<Membership<PeerId>>) -> Self {
+    pub fn new(
+        config: &Config,
+        current_membership: Option<Membership<PeerId>>,
+        protocol_name: StreamProtocol,
+    ) -> Self {
         Self {
             events: VecDeque::new(),
             waker: None,
@@ -68,6 +73,7 @@ impl Behaviour {
             connection_timeout: config.connection_timeout,
             upgraded_edge_peers: HashSet::with_capacity(config.max_incoming_connections),
             max_incoming_connections: config.max_incoming_connections,
+            protocol_name,
         }
     }
 
@@ -156,7 +162,10 @@ impl NetworkBehaviour for Behaviour {
         Ok(if membership.contains_remote(&peer) {
             Either::Right(DummyConnectionHandler)
         } else {
-            Either::Left(ConnectionHandler::new(self.connection_timeout))
+            Either::Left(ConnectionHandler::new(
+                self.connection_timeout,
+                self.protocol_name.clone(),
+            ))
         })
     }
 

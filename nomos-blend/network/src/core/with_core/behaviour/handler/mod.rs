@@ -20,7 +20,7 @@ use crate::{
     core::with_core::behaviour::handler::conn_maintenance::{
         ConnectionMonitor, ConnectionMonitorOutput,
     },
-    recv_msg, send_msg, PROTOCOL_NAME,
+    recv_msg, send_msg,
 };
 
 pub(super) mod conn_maintenance;
@@ -42,6 +42,7 @@ pub struct ConnectionHandler<ConnectionWindowClock> {
     outbound_msgs: VecDeque<Vec<u8>>,
     pending_events_to_behaviour: VecDeque<ToBehaviour>,
     monitor: ConnectionMonitor<ConnectionWindowClock>,
+    protocol_name: StreamProtocol,
     waker: Option<Waker>,
 }
 
@@ -67,7 +68,10 @@ enum OutboundSubstreamState {
 }
 
 impl<ConnectionWindowClock> ConnectionHandler<ConnectionWindowClock> {
-    pub fn new(monitor: ConnectionMonitor<ConnectionWindowClock>) -> Self {
+    pub fn new(
+        monitor: ConnectionMonitor<ConnectionWindowClock>,
+        protocol_name: StreamProtocol,
+    ) -> Self {
         tracing::trace!(target: LOG_TARGET, "Initializing core->core connection handler.");
         Self {
             inbound_substream: None,
@@ -75,6 +79,7 @@ impl<ConnectionWindowClock> ConnectionHandler<ConnectionWindowClock> {
             outbound_msgs: VecDeque::new(),
             pending_events_to_behaviour: VecDeque::new(),
             monitor,
+            protocol_name,
             waker: None,
         }
     }
@@ -150,7 +155,7 @@ where
 
     #[expect(deprecated, reason = "Self::InboundOpenInfo is deprecated")]
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, Self::InboundOpenInfo> {
-        SubstreamProtocol::new(ReadyUpgrade::new(PROTOCOL_NAME), ())
+        SubstreamProtocol::new(ReadyUpgrade::new(self.protocol_name.clone()), ())
     }
 
     #[expect(deprecated, reason = "Self::OutboundOpenInfo is deprecated")]
@@ -300,7 +305,10 @@ where
                     tracing::debug!(target: LOG_TARGET, "Outbound substream is not initialized yet. Requesting the swarm to open one.");
                     self.outbound_substream = Some(OutboundSubstreamState::PendingOpenSubstream);
                     return Poll::Ready(ConnectionHandlerEvent::OutboundSubstreamRequest {
-                        protocol: SubstreamProtocol::new(ReadyUpgrade::new(PROTOCOL_NAME), ()),
+                        protocol: SubstreamProtocol::new(
+                            ReadyUpgrade::new(self.protocol_name.clone()),
+                            (),
+                        ),
                     });
                 }
             }

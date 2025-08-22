@@ -8,7 +8,7 @@ use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::crypto::Ed25519PrivateKey;
 use nomos_blend_scheduling::membership::{Membership, Node};
 
-use crate::{core::with_edge::behaviour::Behaviour, PROTOCOL_NAME};
+use crate::core::{tests::utils::PROTOCOL_NAME, with_edge::behaviour::Behaviour};
 
 #[derive(Default)]
 pub struct BehaviourBuilder {
@@ -57,6 +57,7 @@ impl BehaviourBuilder {
             connection_timeout: self.timeout.unwrap_or(Duration::from_secs(1)),
             upgraded_edge_peers: HashSet::new(),
             max_incoming_connections: self.max_incoming_connections.unwrap_or(100),
+            protocol_name: PROTOCOL_NAME,
         }
     }
 }

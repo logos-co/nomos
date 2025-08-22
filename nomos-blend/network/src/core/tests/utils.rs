@@ -6,7 +6,7 @@ use core::{
 
 use libp2p::{
     identity::{ed25519::PublicKey, Keypair},
-    PeerId, Swarm,
+    PeerId, StreamProtocol, Swarm,
 };
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
@@ -19,6 +19,8 @@ use nomos_blend_message::{
 };
 use nomos_blend_scheduling::EncapsulatedMessage;
 use nomos_libp2p::NetworkBehaviour;
+
+pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/blend/core-behaviour/test");
 
 pub struct TestSwarm<Behaviour>(Swarm<Behaviour>)
 where

@@ -51,6 +51,7 @@ impl BlendBehaviour {
                 observation_window_interval_provider,
                 Some(config.membership()),
                 config.backend.peer_id(),
+                config.backend.protocol_name.clone().into_inner(),
             ),
             limits: libp2p::connection_limits::Behaviour::new(
                 ConnectionLimits::default()

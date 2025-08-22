@@ -9,7 +9,10 @@ use nomos_libp2p::{NetworkBehaviour, SwarmEvent};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
-use crate::core::with_core::behaviour::{Behaviour, Event, IntervalStreamProvider};
+use crate::core::{
+    tests::utils::PROTOCOL_NAME,
+    with_core::behaviour::{Behaviour, Event, IntervalStreamProvider},
+};
 
 #[derive(Clone)]
 pub struct IntervalProvider(Duration, RangeInclusive<u64>);
@@ -96,6 +99,7 @@ impl BehaviourBuilder {
             current_membership: None,
             peering_degree: self.peering_degree.unwrap_or(1..=1),
             local_peer_id,
+            protocol_name: PROTOCOL_NAME,
         }
     }
 }
