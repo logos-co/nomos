@@ -43,8 +43,8 @@ impl TryFrom<InputDeser> for Input<Bn254> {
 }
 
 #[cfg(feature = "deser")]
-impl From<Input<Bn254>> for InputDeser {
-    fn from(value: Input<Bn254>) -> Self {
+impl From<&Input<Bn254>> for InputDeser {
+    fn from(value: &Input<Bn254>) -> Self {
         Self(value.0.to_string())
     }
 }
