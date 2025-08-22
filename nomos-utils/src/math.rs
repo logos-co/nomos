@@ -46,13 +46,13 @@ pub struct PositiveF64(
         feature = "serde",
         serde(deserialize_with = "serde::deserialize_positive")
     )]
-    f64,
+    NonNegativeF64,
 );
 
 impl PositiveF64 {
     #[must_use]
     pub const fn get(self) -> f64 {
-        self.0
+        self.0.get()
     }
 }
 
@@ -74,7 +74,16 @@ impl TryFrom<f64> for PositiveF64 {
     type Error = ();
 
     fn try_from(value: f64) -> Result<Self, Self::Error> {
-        if value <= 0f64 {
+        let non_negative = NonNegativeF64::try_from(value)?;
+        Self::try_from(non_negative)
+    }
+}
+
+impl TryFrom<NonNegativeF64> for PositiveF64 {
+    type Error = ();
+
+    fn try_from(value: NonNegativeF64) -> Result<Self, Self::Error> {
+        if value.get() == 0.0 {
             Err(())
         } else {
             Ok(Self(value))
@@ -103,11 +112,11 @@ mod serde {
 
     pub(super) fn deserialize_positive<'de, Deserializer>(
         deserializer: Deserializer,
-    ) -> Result<f64, Deserializer::Error>
+    ) -> Result<NonNegativeF64, Deserializer::Error>
     where
         Deserializer: serde::Deserializer<'de>,
     {
-        let inner = f64::deserialize(deserializer)?;
+        let inner = NonNegativeF64::deserialize(deserializer)?;
         PositiveF64::try_from(inner)
             .map_err(|()| serde::de::Error::custom("Deserialized f64 must be positive."))?;
         Ok(inner)
