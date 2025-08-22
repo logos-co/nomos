@@ -413,13 +413,13 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                     shares_retry_limit: config.da_config.retry_shares_limit,
                     commitments_retry_limit: config.da_config.retry_commitments_limit,
                 },
-                refresh_interval: config.da_config.subnets_refresh_interval,
             },
             membership: config.da_config.membership.clone(),
             api_adapter_settings: ApiAdapterSettings {
                 api_port: config.api_config.address.port(),
                 is_secure: false,
             },
+            subnet_refresh_interval: config.da_config.subnets_refresh_interval,
         },
         da_indexer: IndexerSettings {
             storage: IndexerStorageAdapterSettings {
@@ -488,6 +488,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         mempool: MempoolConfig {
             cl_pool_recovery_path: "./recovery/cl_mempool.json".into(),
             da_pool_recovery_path: "./recovery/da_mempool.json".into(),
+            trigger_sampling_delay: adjust_timeout(Duration::from_secs(5)),
         },
         membership: config.membership_config.service_settings,
         sdp: (),

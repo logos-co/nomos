@@ -19,6 +19,7 @@ use backend::{
 use mempool::{DaMempoolAdapter, MempoolAdapterError};
 use network::NetworkAdapter;
 use nomos_core::da::blob::Share;
+use nomos_da_network_core::swarm::DispersalValidationError;
 use nomos_da_network_service::{
     membership::MembershipAdapter, storage::MembershipStorageAdapter, NetworkService,
 };
@@ -39,6 +40,8 @@ use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot::Sender;
 use tokio_stream::StreamExt as _;
 use tracing::{error, instrument};
+
+use crate::network::ValidationRequest;
 
 pub type DaVerifierService<ShareVerifier, Network, Storage, MempoolAdapter, RuntimeServiceId> =
     GenericDaVerifierService<
@@ -394,7 +397,7 @@ where
 
         loop {
             tokio::select! {
-                Some(share) = share_stream.next() => {
+                Some(ValidationRequest{item: share, sender}) = share_stream.next() => {
                     let blob_id = share.blob_id();
                     if let Err(err) =  Self::handle_new_share(
                         &share_verifier,
@@ -403,12 +406,26 @@ where
                         &mempool_adapter,
                         share
                     ).await {
+                        if let Some(sender) = sender {
+                            let _ = sender.send(Err(DispersalValidationError)).await;
+                        }
                         error!("Error handling blob {blob_id:?} due to {err:?}");
+                        continue;
+                    }
+                    if let Some(sender) = sender {
+                        let _ = sender.send(Ok(())).await;
                     }
                 }
-                Some((assignations, tx)) = tx_stream.next() => {
+                Some(ValidationRequest{ item: (assignations, tx), sender }) = tx_stream.next() => {
                     if let Err(err) =  Self::handle_new_tx(&tx_verifier, &storage_adapter, assignations, tx).await {
+                        if let Some(sender) = sender {
+                            let _ = sender.send(Err(DispersalValidationError)).await;
+                        }
                         error!("Error handling tx due to {err:?}");
+                        continue;
+                    }
+                    if let Some(sender) = sender {
+                        let _ = sender.send(Ok(())).await;
                     }
                 }
                 Some(msg) = service_resources_handle.inbound_relay.recv() => {

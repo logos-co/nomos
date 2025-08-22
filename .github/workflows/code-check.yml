@@ -221,6 +221,7 @@ jobs:
         if: failure()
         with:
           name: integration-test-artifacts
+          include-hidden-files: true
           path: tests/.tmp*
   
   build-docker:

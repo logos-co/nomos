@@ -38,7 +38,8 @@ use crate::{
             policy::DAConnectionPolicy,
         },
         validator::{SampleArgs, SwarmSettings, ValidatorEventsStream},
-        BalancerStats, ConnectionBalancer, ConnectionMonitor, MonitorStats,
+        BalancerStats, ConnectionBalancer, ConnectionMonitor, DispersalValidatorEvent,
+        MonitorStats,
     },
     SubnetworkId,
 };
@@ -69,7 +70,7 @@ where
         >,
     >,
     sampling_events_sender: UnboundedSender<SamplingEvent>,
-    validation_events_sender: UnboundedSender<DispersalEvent>,
+    validation_events_sender: UnboundedSender<DispersalValidatorEvent>,
     dispersal_events_sender: UnboundedSender<DispersalExecutorEvent>,
     membership: Membership,
     phantom: PhantomData<HistoricMembership>,

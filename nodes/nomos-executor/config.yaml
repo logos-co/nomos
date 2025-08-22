@@ -75,9 +75,6 @@ da_network:
         num_of_subnets: 20
         shares_retry_limit: 5
         commitments_retry_limit: 5
-      refresh_interval:
-        secs: 30
-        nanos: 0
     num_subnets: 2
   membership:
     subnetwork_size: 2
@@ -88,6 +85,9 @@ da_network:
   api_adapter_settings:
     api_port: 8722
     is_secure: false
+  subnet_refresh_interval:
+    secs: 30
+    nanos: 0
 da_dispersal:
   backend:
     encoder_settings:
@@ -332,6 +332,9 @@ storage:
 mempool:
   cl_pool_recovery_path: ./recovery/cl_mempool.json
   da_pool_recovery_path: ./recovery/da_mempool.json
+  trigger_sampling_delay:
+    secs: 5
+    nanos: 0
 membership:
   backend:
     settings_per_service: {}

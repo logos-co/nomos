@@ -1,3 +1,4 @@
+use futures::channel::oneshot;
 use libp2p::PeerId;
 use log::{debug, error};
 use nomos_da_messages::replication::ReplicationRequest;
@@ -11,21 +12,39 @@ use crate::{
         replication::behaviour::{ReplicationBehaviour, ReplicationEvent},
         sampling::SamplingEvent,
     },
+    swarm::{DispersalValidationError, DispersalValidatorEvent},
     SubnetworkId,
 };
 
 pub async fn handle_validator_dispersal_event<Membership>(
-    validation_events_sender: &UnboundedSender<DispersalEvent>,
+    validation_events_sender: &UnboundedSender<DispersalValidatorEvent>,
     replication_behaviour: &mut ReplicationBehaviour<Membership>,
     event: DispersalEvent,
 ) where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>,
 {
-    // Send message for replication
-    if let Err(e) = validation_events_sender.send(event.clone()) {
+    let (sender, receiver) = oneshot::channel();
+    let validation_event = DispersalValidatorEvent {
+        event: event.clone(),
+        sender: Some(sender),
+    };
+
+    if let Err(e) = validation_events_sender.send(validation_event) {
         error!("Error sending blob to validation: {e:?}");
     }
 
+    let Ok(validation_result) = receiver.await else {
+        error!("Error receiving dispersal validation result");
+        return;
+    };
+
+    // Do not replicate if validation fails.
+    if matches!(validation_result, Err(DispersalValidationError)) {
+        error!("Error validating dispersal event: {event:?}");
+        return;
+    }
+
+    // Send message for replication
     match event {
         DispersalEvent::IncomingShare(share) => {
             replication_behaviour.send_message(&ReplicationRequest::from(*share));
@@ -47,7 +66,7 @@ pub async fn handle_sampling_event(
 }
 
 pub async fn handle_replication_event<Membership>(
-    validation_events_sender: &UnboundedSender<DispersalEvent>,
+    validation_events_sender: &UnboundedSender<DispersalValidatorEvent>,
     membership: &Membership,
     peer_id: &<Membership as MembershipHandler>::Id,
     event: ReplicationEvent,
@@ -63,7 +82,13 @@ pub async fn handle_replication_event<Membership>(
                 DispersalEvent::from((assignations as u16, tx))
             }
         };
-        if let Err(e) = validation_events_sender.send(dispersal_event) {
+
+        let validation_event = DispersalValidatorEvent {
+            event: dispersal_event,
+            sender: None,
+        };
+
+        if let Err(e) = validation_events_sender.send(validation_event) {
             error!("Error sending blob to validation: {e:?}");
         }
     }

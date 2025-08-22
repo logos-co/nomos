@@ -69,7 +69,7 @@ impl Default for DaParams {
                 seen_message_cache_size: 1000,
                 seen_message_ttl: Duration::from_secs(3600),
             },
-            subnets_refresh_interval: Duration::from_secs(1),
+            subnets_refresh_interval: Duration::from_secs(30),
             retry_shares_limit: 1,
             retry_commitments_limit: 1,
         }

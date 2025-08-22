@@ -27,6 +27,7 @@ pub trait NetworkBackend<RuntimeServiceId> {
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Self::Membership,
         addressbook: Self::Addressbook,
+        subnet_refresh_signal: impl Stream<Item = ()> + Send + 'static,
     ) -> Self;
     fn shutdown(&mut self);
     async fn process(&self, msg: Self::Message);

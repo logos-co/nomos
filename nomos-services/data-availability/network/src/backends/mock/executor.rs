@@ -83,6 +83,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
         _: OverwatchHandle<RuntimeServiceId>,
         _membership: Self::Membership,
         _addressbook: Self::Addressbook,
+        _subnet_refresh_signal: impl Stream<Item = ()> + Send + 'static,
     ) -> Self {
         let (commands_tx, _) = mpsc::channel(BUFFER_SIZE);
         let (events_tx, _) = broadcast::channel(BUFFER_SIZE);
