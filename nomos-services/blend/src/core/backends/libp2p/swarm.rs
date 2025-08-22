@@ -57,7 +57,6 @@ impl DialAttempt {
 
 pub struct BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
 where
-    Rng: 'static,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {
@@ -183,7 +182,7 @@ where
         if let Err(e) = self.swarm.dial(
             DialOpts::peer_id(peer_id)
                 .addresses(vec![address])
-                .condition(PeerCondition::Always)
+                .condition(PeerCondition::DisconnectedAndNotDialing)
                 .build(),
         ) {
             tracing::error!(target: LOG_TARGET, "Failed to dial peer {peer_id:?}: {e:?}");
@@ -279,8 +278,8 @@ where
                     self.check_and_dial_new_peers_except(peer_id);
                 }
             }
-            event => {
-                tracing::debug!(target: LOG_TARGET, "Received event from blend network that will be ignored: {event:?}");
+            _ => {
+                tracing::debug!(target: LOG_TARGET, "Received event from blend network that will be ignored.");
                 tracing::info!(counter.ignored_event = 1);
             }
         }
@@ -332,32 +331,7 @@ where
         BehaviourConstructor:
             FnOnce(libp2p::identity::Keypair) -> BlendBehaviour<ObservationWindowProvider>,
     {
-        let inner_swarm = {
-            use libp2p::{
-                core::transport::MemoryTransport, identity, plaintext, swarm, tcp, yamux,
-                Transport as _,
-            };
-            use nomos_libp2p::upgrade::Version;
-
-            let identity = identity::Keypair::generate_ed25519();
-            let peer_id = PeerId::from(identity.public());
-
-            let transport = MemoryTransport::default()
-                .or_transport(tcp::tokio::Transport::default())
-                .upgrade(Version::V1)
-                .authenticate(plaintext::Config::new(&identity))
-                .multiplex(yamux::Config::default())
-                .timeout(Duration::from_secs(1))
-                .boxed();
-
-            Swarm::new(
-                transport,
-                behaviour_constructor(identity),
-                peer_id,
-                swarm::Config::with_tokio_executor()
-                    .with_idle_connection_timeout(Duration::from_secs(1)),
-            )
-        };
+        use crate::test_utils::memory_test_swarm;
 
         Self {
             incoming_message_sender,
@@ -366,7 +340,7 @@ where
             ongoing_dials: HashMap::new(),
             rng,
             session_stream,
-            swarm: inner_swarm,
+            swarm: memory_test_swarm(Duration::from_secs(1), behaviour_constructor),
             swarm_messages_receiver,
         }
     }
@@ -499,58 +473,52 @@ where
 {
     pub(crate) async fn run(mut self) {
         loop {
-            tokio::select! {
-                Some(msg) = self.swarm_messages_receiver.recv() => {
-                    self.handle_swarm_message(msg);
-                }
-                Some(event) = self.swarm.next() => {
-                    self.handle_event(event);
-                }
-                Some(new_session_info) = self.session_stream.next() => {
-                    self.latest_session_info = new_session_info;
-                    // TODO: Perform the session transition logic
-                }
+            self.poll_next_internal().await;
+        }
+    }
+
+    async fn poll_next_internal(&mut self) {
+        self.poll_next_and_match(|_| false).await;
+    }
+
+    async fn poll_next_and_match<Predicate>(
+        &mut self,
+        swarm_event_match_predicate: Predicate,
+    ) -> bool
+    where
+        Predicate: Fn(&SwarmEvent<BlendBehaviourEvent<ObservationWindowProvider>>) -> bool,
+    {
+        tokio::select! {
+            Some(msg) = self.swarm_messages_receiver.recv() => {
+                self.handle_swarm_message(msg);
+                false
+            }
+            Some(event) = self.swarm.next() => {
+                let predicate_matched = swarm_event_match_predicate(&event);
+                self.handle_event(event);
+                predicate_matched
+            }
+            Some(new_session_info) = self.session_stream.next() => {
+                self.latest_session_info = new_session_info;
+                // TODO: Perform the session transition logic
+                false
             }
         }
     }
 
     #[cfg(test)]
     pub async fn poll_next(&mut self) {
-        tokio::select! {
-            Some(msg) = self.swarm_messages_receiver.recv() => {
-                self.handle_swarm_message(msg);
-            }
-            Some(event) = self.swarm.next() => {
-                self.handle_event(event);
-            }
-            Some(new_session_info) = self.session_stream.next() => {
-                self.latest_session_info = new_session_info;
-                // TODO: Perform the session transition logic
-            }
-        }
+        self.poll_next_internal().await;
     }
 
     #[cfg(test)]
-    pub async fn poll_next_until<Predicate>(&mut self, predicate: Predicate)
+    pub async fn poll_next_until<Predicate>(&mut self, swarm_event_match_predicate: Predicate)
     where
-        Predicate: Fn(&SwarmEvent<BlendBehaviourEvent<ObservationWindowProvider>>) -> bool,
+        Predicate: Fn(&SwarmEvent<BlendBehaviourEvent<ObservationWindowProvider>>) -> bool + Copy,
     {
         loop {
-            tokio::select! {
-                Some(msg) = self.swarm_messages_receiver.recv() => {
-                    self.handle_swarm_message(msg);
-                }
-                Some(event) = self.swarm.next() => {
-                    let should_exit = predicate(&event);
-                    self.handle_event(event);
-                    if should_exit {
-                        break;
-                    }
-                }
-                Some(new_session_info) = self.session_stream.next() => {
-                    self.latest_session_info = new_session_info;
-                    // TODO: Perform the session transition logic
-                }
+            if self.poll_next_and_match(swarm_event_match_predicate).await {
+                break;
             }
         }
     }

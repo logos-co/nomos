@@ -11,10 +11,10 @@ use libp2p::{
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
     crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, Signature, SIGNATURE_SIZE},
-    input::{EncapsulationInput, EncapsulationInputs},
+    input::EncapsulationInput,
     PayloadType,
 };
-use nomos_blend_scheduling::EncapsulatedMessage;
+use nomos_blend_scheduling::{message_blend::crypto::EncapsulationInputs, EncapsulatedMessage};
 use nomos_libp2p::NetworkBehaviour;
 
 pub struct TestSwarm<Behaviour>(Swarm<Behaviour>)
@@ -73,7 +73,7 @@ impl TestEncapsulatedMessage {
     }
 }
 
-fn generate_valid_inputs() -> EncapsulationInputs<3> {
+fn generate_valid_inputs() -> EncapsulationInputs {
     EncapsulationInputs::new(
         repeat_with(Ed25519PrivateKey::generate)
             .take(3)

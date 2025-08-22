@@ -5,7 +5,7 @@ use nomos_blend_message::{
         DecapsulationOutput as InternalDecapsulationOutput,
         EncapsulatedMessage as InternalEncapsulatedMessage,
     },
-    input::{EncapsulationInput, EncapsulationInputs},
+    input::{EncapsulationInput, EncapsulationInputs as InternalEncapsulationInputs},
     Error, PayloadType,
 };
 use nomos_core::wire;
@@ -16,6 +16,7 @@ use crate::{membership::Membership, serde::ed25519_privkey_hex};
 
 const ENCAPSULATION_COUNT: usize = 3;
 pub type EncapsulatedMessage = InternalEncapsulatedMessage<ENCAPSULATION_COUNT>;
+pub type EncapsulationInputs = InternalEncapsulationInputs<ENCAPSULATION_COUNT>;
 pub type UnwrappedMessage = InternalDecapsulationOutput<ENCAPSULATION_COUNT>;
 
 /// [`CryptographicProcessor`] is responsible for wrapping and unwrapping
@@ -121,7 +122,7 @@ where
             .map(|node| node.public_key)
             .collect::<Vec<_>>();
 
-        let inputs = EncapsulationInputs::<ENCAPSULATION_COUNT>::new(
+        let inputs = EncapsulationInputs::new(
             blend_node_signing_keys
                 .iter()
                 .map(|blend_node_signing_key| {

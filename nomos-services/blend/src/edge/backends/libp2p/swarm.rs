@@ -87,7 +87,7 @@ where
             .expect("Behaviour should be built")
             .with_swarm_config(|cfg| {
                 // We cannot use zero as that would immediately close a connection with an edge
-                // node before they have a chance to upgrade the stream and send us a message.
+                // node before they have a chance to upgrade the stream and send the message.
                 cfg.with_idle_connection_timeout(Duration::from_secs(1))
             })
             .build();
@@ -112,33 +112,10 @@ where
         rng: Rng,
         session_stream: SessionStream,
     ) -> Self {
-        let inner_swarm = {
-            use libp2p::{
-                core::transport::MemoryTransport, identity, plaintext, swarm, tcp, yamux,
-                Transport as _,
-            };
-            use libp2p_stream::Behaviour;
-            use nomos_libp2p::upgrade::Version;
+        use crate::test_utils::memory_test_swarm;
 
-            let identity = identity::Keypair::generate_ed25519();
-            let peer_id = PeerId::from(identity.public());
-
-            let transport = MemoryTransport::default()
-                .or_transport(tcp::tokio::Transport::default())
-                .upgrade(Version::V1)
-                .authenticate(plaintext::Config::new(&identity))
-                .multiplex(yamux::Config::default())
-                .timeout(Duration::from_secs(1))
-                .boxed();
-
-            Swarm::new(
-                transport,
-                Behaviour::new(),
-                peer_id,
-                swarm::Config::with_tokio_executor()
-                    .with_idle_connection_timeout(Duration::from_secs(1)),
-            )
-        };
+        let inner_swarm =
+            memory_test_swarm(Duration::from_secs(1), |_| libp2p_stream::Behaviour::new());
 
         Self {
             command_receiver,
@@ -373,7 +350,7 @@ where
 
     #[cfg(test)]
     pub fn send_message(&mut self, msg: EncapsulatedMessage) {
-        self.handle_send_message_command(msg);
+        self.dial_and_schedule_message_except(msg, None);
     }
 
     #[cfg(test)]
@@ -402,16 +379,31 @@ where
 {
     pub(super) async fn run(mut self) {
         loop {
-            tokio::select! {
-                Some(event) = self.swarm.next() => {
-                    self.handle_swarm_event(event).await;
-                }
-                Some(command) = self.command_receiver.recv() => {
-                    self.handle_command(command);
-                }
-                Some(new_session) = self.session_stream.next() => {
-                    self.transition_session(new_session);
-                }
+            self.poll_next_internal().await;
+        }
+    }
+
+    async fn poll_next_internal(&mut self) {
+        self.poll_next_and_match(|_| false).await;
+    }
+
+    async fn poll_next_and_match<Predicate>(&mut self, predicate: Predicate) -> bool
+    where
+        Predicate: Fn(&SwarmEvent<()>) -> bool,
+    {
+        tokio::select! {
+            Some(event) = self.swarm.next() => {
+                let predicate_matched = predicate(&event);
+                self.handle_swarm_event(event).await;
+                predicate_matched
+            }
+            Some(command) = self.command_receiver.recv() => {
+                self.handle_command(command);
+                false
+            }
+            Some(new_session) = self.session_stream.next() => {
+                self.transition_session(new_session);
+                false
             }
         }
     }
@@ -419,23 +411,11 @@ where
     #[cfg(test)]
     pub async fn poll_next_until<Predicate>(&mut self, predicate: Predicate)
     where
-        Predicate: Fn(&SwarmEvent<()>) -> bool,
+        Predicate: Fn(&SwarmEvent<()>) -> bool + Copy,
     {
         loop {
-            tokio::select! {
-                Some(event) = self.swarm.next() => {
-                    let should_exit = predicate(&event);
-                    self.handle_swarm_event(event).await;
-                    if should_exit {
-                        break;
-                    }
-                }
-                Some(command) = self.command_receiver.recv() => {
-                    self.handle_command(command);
-                }
-                Some(new_session) = self.session_stream.next() => {
-                    self.transition_session(new_session);
-                }
+            if self.poll_next_and_match(predicate).await {
+                break;
             }
         }
     }
