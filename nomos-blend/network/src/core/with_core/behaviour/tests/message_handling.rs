@@ -12,7 +12,7 @@ use crate::{
         tests::utils::{TestEncapsulatedMessage, TestSwarm},
         with_core::{
             behaviour::{
-                tests::utils::{BehaviourBuilder, SwarmExt as _},
+                tests::utils::{BehaviourBuilder, SwarmExt as _, TestBehaviourEvent},
                 Event, NegotiatedPeerState, SpamReason,
             },
             error::Error,
@@ -38,6 +38,7 @@ async fn message_sending_and_reception() {
     let test_message_id = test_message.id();
     dialing_swarm
         .behaviour_mut()
+        .current_session
         .validate_and_publish_message(test_message.clone())
         .unwrap();
 
@@ -45,7 +46,7 @@ async fn message_sending_and_reception() {
         select! {
             _ = dialing_swarm.select_next_some() => {}
             listening_event = listening_swarm.select_next_some() => {
-                if let SwarmEvent::Behaviour(Event::Message(encapsulated_message, peer_id)) = listening_event {
+                if let SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::Message(encapsulated_message, peer_id))) = listening_event {
                     assert_eq!(peer_id, *dialing_swarm.local_peer_id());
                     assert_eq!(*encapsulated_message, test_message.clone().validate_public_header().unwrap());
                     break;
@@ -57,6 +58,7 @@ async fn message_sending_and_reception() {
     assert_eq!(
         dialing_swarm
             .behaviour()
+            .current_session
             .exchanged_message_identifiers
             .get(listening_swarm.local_peer_id())
             .unwrap(),
@@ -73,6 +75,7 @@ async fn invalid_public_header_message_publish() {
     assert_eq!(
         dialing_swarm
             .behaviour_mut()
+            .current_session
             .validate_and_publish_message(invalid_signature_message.into_inner()),
         Err(Error::InvalidMessage)
     );
@@ -92,6 +95,7 @@ async fn undeserializable_message_received() {
 
     dialing_swarm
         .behaviour_mut()
+        .current_session
         .force_send_serialized_message_to_peer(b"msg".to_vec(), *listening_swarm.local_peer_id())
         .unwrap();
 
@@ -101,7 +105,7 @@ async fn undeserializable_message_received() {
             _ = dialing_swarm.select_next_some() => {}
             listening_swarm_event = listening_swarm.select_next_some() => {
                 match listening_swarm_event {
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, peer_state)) => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(peer_id, peer_state))) => {
                         assert_eq!(peer_id, *dialing_swarm.local_peer_id());
                         assert_eq!(peer_state, NegotiatedPeerState::Spammy(SpamReason::UndeserializableMessage));
                         events_to_match -= 1;
@@ -136,6 +140,7 @@ async fn duplicate_message_received() {
     let test_message = TestEncapsulatedMessage::new(b"msg");
     dialing_swarm
         .behaviour_mut()
+        .current_session
         .validate_and_publish_message(test_message.clone())
         .unwrap();
 
@@ -145,6 +150,7 @@ async fn duplicate_message_received() {
     // This is a duplicate message, so the listener will mark the dialer as spammy.
     dialing_swarm
         .behaviour_mut()
+        .current_session
         .force_send_message_to_peer(&test_message, *listening_swarm.local_peer_id())
         .unwrap();
 
@@ -154,7 +160,7 @@ async fn duplicate_message_received() {
             _ = dialing_swarm.select_next_some() => {}
             listening_swarm_event = listening_swarm.select_next_some() => {
                 match listening_swarm_event {
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, peer_state)) => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(peer_id, peer_state))) => {
                         assert_eq!(peer_id, *dialing_swarm.local_peer_id());
                         assert_eq!(peer_state, NegotiatedPeerState::Spammy(SpamReason::DuplicateMessage));
                         events_to_match -= 1;
@@ -189,6 +195,7 @@ async fn invalid_public_header_message_received() {
     let invalid_public_header_message = TestEncapsulatedMessage::new_with_invalid_signature(b"");
     dialing_swarm
         .behaviour_mut()
+        .current_session
         .force_send_message_to_peer(
             &invalid_public_header_message,
             *listening_swarm.local_peer_id(),
@@ -201,7 +208,7 @@ async fn invalid_public_header_message_received() {
             _ = dialing_swarm.select_next_some() => {}
             listening_swarm_event = listening_swarm.select_next_some() => {
                 match listening_swarm_event {
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, peer_state)) => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(peer_id, peer_state))) => {
                         assert_eq!(peer_id, *dialing_swarm.local_peer_id());
                         assert_eq!(peer_state, NegotiatedPeerState::Spammy(SpamReason::InvalidPublicHeader));
                         events_to_match -= 1;

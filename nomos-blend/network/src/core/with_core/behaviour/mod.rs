@@ -34,6 +34,7 @@ use crate::{
 };
 
 mod handler;
+pub mod old_session;
 
 #[cfg(feature = "tokio")]
 pub use self::handler::tokio::ObservationWindowTokioIntervalProvider;
@@ -87,8 +88,6 @@ pub struct Behaviour<ObservationWindowClockProvider> {
     /// identifiers have been exchanged between them.
     /// Sending a message with the same identifier more than once results in
     /// the peer being flagged as malicious, and the connection dropped.
-    // TODO: This cache should be cleared after the session transition period has
-    // passed.
     exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
     observation_window_clock_provider: ObservationWindowClockProvider,
     // TODO: Replace with the session stream and make this a non-Option
@@ -176,6 +175,21 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             connections_waiting_upgrade: HashMap::new(),
             local_peer_id,
         }
+    }
+
+    pub fn start_new_session(
+        &mut self,
+        new_membership: Membership<PeerId>,
+    ) -> (
+        HashMap<PeerId, RemotePeerConnectionDetails>,
+        HashMap<PeerId, HashSet<MessageIdentifier>>,
+    ) {
+        self.connections_waiting_upgrade.clear();
+        self.current_membership = Some(new_membership);
+        (
+            mem::take(&mut self.negotiated_peers),
+            mem::take(&mut self.exchanged_message_identifiers),
+        )
     }
 
     /// Publish an already-encapsulated message to all connected peers.
@@ -567,6 +581,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         (peer_id, connection_id): (PeerId, ConnectionId),
         reason: SpamReason,
     ) {
+        tracing::warn!("Closing spammy connection");
         tracing::debug!(target: LOG_TARGET, "Closing connection {connection_id:?} with spammy peer {peer_id:?}.");
         self.set_connection_to_spammy((peer_id, connection_id), reason);
         self.close_connection((peer_id, connection_id));
@@ -583,56 +598,52 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         );
     }
 
-    /// Update the state of an already negotiated peer, returning the previous
-    /// state.
-    ///
-    /// # Panics
-    ///
-    /// If there is no entry with the specified peer ID in the map of negotiated
-    /// peers.
+    /// Update the state of an already negotiated peer if exists,
+    /// returning the previous state.
     fn update_state_for_negotiated_peer(
         &mut self,
         (peer_id, connection_id): (PeerId, ConnectionId),
         state: NegotiatedPeerState,
-    ) -> NegotiatedPeerState {
-        let peer_details = self
-            .negotiated_peers
-            .get_mut(&peer_id)
-            .unwrap_or_else(|| panic!("Connection with peer {peer_id:?} not found in storage.",));
+    ) -> Option<NegotiatedPeerState> {
+        let peer_details = self.negotiated_peers.get_mut(&peer_id)?;
         // We double check we are dealing with the expected connection.
         debug_assert!(
             peer_details.connection_id == connection_id,
             "Stored connection ID and provided connection ID do not match for the provided peer ID."
         );
 
-        mem::replace(&mut peer_details.negotiated_state, state)
+        Some(mem::replace(&mut peer_details.negotiated_state, state))
     }
 
     fn handle_unhealthy_connection(&mut self, (peer_id, connection_id): (PeerId, ConnectionId)) {
+        tracing::warn!("Handling unhealthy connection");
         // Notify swarm only on first transition into unhealthy state.
-        if self.update_state_for_negotiated_peer(
+        if let Some(prev_state) = self.update_state_for_negotiated_peer(
             (peer_id, connection_id),
             NegotiatedPeerState::Unhealthy,
-        ) != NegotiatedPeerState::Unhealthy
-        {
-            tracing::debug!(target: LOG_TARGET, "Peer {peer_id:?} has been marked as unhealthy.");
-            self.events
-                .push_back(ToSwarm::GenerateEvent(Event::UnhealthyPeer(peer_id)));
-            self.try_wake();
+        ) {
+            if prev_state != NegotiatedPeerState::Unhealthy {
+                tracing::debug!(target: LOG_TARGET, "Peer {peer_id:?} has been marked as unhealthy.");
+                self.events
+                    .push_back(ToSwarm::GenerateEvent(Event::UnhealthyPeer(peer_id)));
+                self.try_wake();
+            }
         }
     }
 
     fn handle_healthy_connection(&mut self, (peer_id, connection_id): (PeerId, ConnectionId)) {
+        tracing::warn!("Handling healthy connection");
         // Notify swarm only on first transition into healthy state.
-        if self.update_state_for_negotiated_peer(
+        if let Some(prev_state) = self.update_state_for_negotiated_peer(
             (peer_id, connection_id),
             NegotiatedPeerState::Healthy,
-        ) != NegotiatedPeerState::Healthy
-        {
-            tracing::debug!(target: LOG_TARGET, "Peer {peer_id:?} has been marked as healthy.");
-            self.events
-                .push_back(ToSwarm::GenerateEvent(Event::HealthyPeer(peer_id)));
-            self.try_wake();
+        ) {
+            if prev_state != NegotiatedPeerState::Healthy {
+                tracing::debug!(target: LOG_TARGET, "Peer {peer_id:?} has been marked as healthy.");
+                self.events
+                    .push_back(ToSwarm::GenerateEvent(Event::HealthyPeer(peer_id)));
+                self.try_wake();
+            }
         }
     }
 

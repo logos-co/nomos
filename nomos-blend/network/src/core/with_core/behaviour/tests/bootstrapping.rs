@@ -13,7 +13,7 @@ use tokio::{select, time::sleep};
 use crate::core::{
     tests::utils::{largest_peer_id, smallest_peer_id, TestSwarm},
     with_core::behaviour::{
-        tests::utils::{BehaviourBuilder, SwarmExt as _},
+        tests::utils::{BehaviourBuilder, SwarmExt as _, TestBehaviourEvent},
         Event,
     },
 };
@@ -147,7 +147,7 @@ async fn concurrent_incoming_connections() {
             }
             listening_swarm_event = listening_swarm.select_next_some() => {
                 // We check that the listening swarm never generates a `PeerDisconnected` event because it knows the dropped connection is meant to be ignored.
-                if let SwarmEvent::Behaviour(Event::PeerDisconnected(_, _)) = listening_swarm_event {
+                if let SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(_, _))) = listening_swarm_event {
                     panic!("Should not generate a `PeerDisconnected` event for a peer that went above our peering degree.");
                 }
             }
@@ -159,7 +159,7 @@ async fn concurrent_incoming_connections() {
                         assert!(endpoint.is_dialer());
                         dialer_1_dropped = true;
                     }
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, _)) if peer_id == *listening_swarm.local_peer_id() => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(peer_id, _))) if peer_id == *listening_swarm.local_peer_id() => {
                         dialer_1_notified = true;
                     }
                     _ => {}
@@ -173,7 +173,7 @@ async fn concurrent_incoming_connections() {
                         assert!(endpoint.is_dialer());
                         dialer_2_dropped = true;
                     }
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, _)) if peer_id == *listening_swarm.local_peer_id() => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(peer_id, _))) if peer_id == *listening_swarm.local_peer_id() => {
                         dialer_2_notified = true;
                     }
                     _ => {}
@@ -214,7 +214,7 @@ async fn incoming_attempt_with_duplicate_connection() {
                         assert!(endpoint.is_listener());
                     }
                     // Listener swarm should not know about this
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, _)) => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(peer_id, _))) => {
                         assert!(peer_id != *dialer_swarm_1.local_peer_id());
                     }
                     _ => {}
@@ -222,7 +222,7 @@ async fn incoming_attempt_with_duplicate_connection() {
             }
             // Neither should the dialer
             dialer_swarm_event = dialer_swarm_1.select_next_some() => {
-                if let SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, _)) = dialer_swarm_event {
+                if let SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(peer_id, _))) = dialer_swarm_event {
                     assert!(peer_id != *dialer_swarm_1.local_peer_id());
                 }
             }
@@ -294,7 +294,7 @@ async fn concurrent_outgoing_connections() {
             },
             dialing_swarm_event = dialing_swarm.select_next_some() => {
                 // We check that the dialing swarm never generates a `PeerDisconnected` event because it knows the dropped connection is meant to be ignored.
-                if let SwarmEvent::Behaviour(Event::PeerDisconnected(_, _)) = dialing_swarm_event {
+                if let SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(_, _))) = dialing_swarm_event {
                     panic!("Should not generate a `PeerDisconnected` event for a peer that went above our peering degree.");
                 }
             }
@@ -306,7 +306,7 @@ async fn concurrent_outgoing_connections() {
                         assert!(endpoint.is_listener());
                         listener_1_dropped = true;
                     }
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, _)) if peer_id == *dialing_swarm.local_peer_id() => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(peer_id, _))) if peer_id == *dialing_swarm.local_peer_id() => {
                         listener_1_notified = true;
                     }
                     _ => {}
@@ -320,7 +320,7 @@ async fn concurrent_outgoing_connections() {
                         assert!(endpoint.is_listener());
                         listener_2_dropped = true;
                     }
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, _)) if peer_id == *dialing_swarm.local_peer_id() => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(peer_id, _))) if peer_id == *dialing_swarm.local_peer_id() => {
                         listener_2_notified = true;
                     }
                     _ => {}
@@ -363,7 +363,7 @@ async fn outgoing_attempt_with_duplicate_connection() {
                         assert!(endpoint.is_listener());
                     }
                     // Listener swarm should not know about this
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, _)) => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(peer_id, _))) => {
                         assert!(peer_id != *dialer_swarm.local_peer_id());
                     }
                     _ => {}
@@ -371,7 +371,7 @@ async fn outgoing_attempt_with_duplicate_connection() {
             }
             // Neither should the dialer
             dialer_swarm_event = dialer_swarm.select_next_some() => {
-                if let SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, _)) = dialer_swarm_event {
+                if let SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(peer_id, _))) = dialer_swarm_event {
                     assert!(peer_id != *dialer_swarm.local_peer_id());
                 }
             }
@@ -413,7 +413,7 @@ async fn concurrent_same_direction_connections_between_peers() {
                             panic!("Only one connection should be closed.");
                         }
                     }
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, _)) if peer_id == *dialer_swarm.local_peer_id() => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(peer_id, _))) if peer_id == *dialer_swarm.local_peer_id() => {
                         panic!("No `PeerDisconnected` event should be generated for a listener which is dialed twice by the same peer.");
                     }
                     _ => {}
@@ -430,7 +430,7 @@ async fn concurrent_same_direction_connections_between_peers() {
                             panic!("Only one connection should be closed.");
                         }
                     }
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, _)) if peer_id == *listening_swarm.local_peer_id() => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(peer_id, _))) if peer_id == *listening_swarm.local_peer_id() => {
                         panic!("No `PeerDisconnected` event should be generated for a dialer which dials twice the same peer.");
                     }
                     _ => {}
@@ -490,7 +490,7 @@ async fn concurrent_reverse_connections_between_peers() {
                         }
                         swarm_1_notified = true;
                     }
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, _)) if peer_id == *swarm_2.local_peer_id() => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(peer_id, _))) if peer_id == *swarm_2.local_peer_id() => {
                         panic!("No `PeerDisconnected` event should be generated for duplicate connections to the same peer.");
                     }
                     _ => {}
@@ -521,7 +521,7 @@ async fn concurrent_reverse_connections_between_peers() {
                         }
                         swarm_2_notified = true;
                     }
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, _)) if peer_id == *swarm_2.local_peer_id() => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(peer_id, _))) if peer_id == *swarm_2.local_peer_id() => {
                         panic!("No `PeerDisconnected` event should be generated for duplicate connections to the same peer.");
                     }
                     _ => {}
@@ -534,6 +534,7 @@ async fn concurrent_reverse_connections_between_peers() {
 
     let swarm_2_details_for_swarm_1 = swarm_1
         .behaviour()
+        .current_session
         .negotiated_peers
         .get(swarm_2.local_peer_id())
         .unwrap();
@@ -549,6 +550,7 @@ async fn concurrent_reverse_connections_between_peers() {
     );
     let swarm_1_details_for_swarm_2 = swarm_2
         .behaviour()
+        .current_session
         .negotiated_peers
         .get(swarm_1.local_peer_id())
         .unwrap();
@@ -607,7 +609,7 @@ async fn replace_existing_with_new_connection() {
                         assert!(!smaller_swarm_connection_dropped);
                         smaller_swarm_connection_dropped = true;
                     }
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(_, _)) => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(_, _))) => {
                         panic!("No `PeerDisconnected` event should be generated when an outgoing connection is replaced with an incoming one.");
                     }
                     _ => {}
@@ -622,10 +624,10 @@ async fn replace_existing_with_new_connection() {
                         assert!(!larger_swarm_connection_dropped);
                         larger_swarm_connection_dropped = true;
                     }
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(_, _)) => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(_, _))) => {
                         panic!("No `PeerDisconnected` event should be generated when an incoming connection is replaced with an outgoing one.");
                     }
-                    SwarmEvent::Behaviour(Event::OutboundConnectionUpgradeSucceeded(peer_id)) => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::OutboundConnectionUpgradeSucceeded(peer_id))) => {
                         assert_eq!(peer_id, *smaller_swarm.local_peer_id());
                         assert!(!larger_swarm_connection_upgrade_notified);
                         larger_swarm_connection_upgrade_notified = true;
@@ -644,11 +646,13 @@ async fn replace_existing_with_new_connection() {
 
     let larger_swarm_details_for_smaller_swarm = *smaller_swarm
         .behaviour()
+        .current_session
         .negotiated_peers()
         .get(larger_swarm.local_peer_id())
         .unwrap();
     let smaller_swarm_details_for_larger_swarm = *larger_swarm
         .behaviour()
+        .current_session
         .negotiated_peers()
         .get(smaller_swarm.local_peer_id())
         .unwrap();
@@ -707,10 +711,10 @@ async fn discard_new_for_existing_connection() {
                         assert!(!smaller_swarm_connection_dropped);
                         smaller_swarm_connection_dropped = true;
                     }
-                    SwarmEvent::Behaviour(Event::OutboundConnectionUpgradeSucceeded(_)) => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::OutboundConnectionUpgradeSucceeded(_))) => {
                         panic!("No new `OutboundConnectionUpgradeSucceeded` event should be generated when an outgoing connection is ignored for an existing incoming one.");
                     }
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(_, _)) => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(_, _))) => {
                         panic!("No `PeerDisconnected` event should be generated when an outgoing connection is ignored for an existing incoming one.");
                     }
                     _ => {}
@@ -725,7 +729,7 @@ async fn discard_new_for_existing_connection() {
                         assert!(!larger_swarm_connection_dropped);
                         larger_swarm_connection_dropped = true;
                     }
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(_, _)) => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(_, _))) => {
                         panic!("No `PeerDisconnected` event should be generated when an incoming connection is ignored for an existing outgoing one.");
                     }
                     _ => {}
@@ -738,11 +742,13 @@ async fn discard_new_for_existing_connection() {
 
     let larger_swarm_details_for_smaller_swarm = *smaller_swarm
         .behaviour()
+        .current_session
         .negotiated_peers()
         .get(larger_swarm.local_peer_id())
         .unwrap();
     let smaller_swarm_details_for_larger_swarm = *larger_swarm
         .behaviour()
+        .current_session
         .negotiated_peers()
         .get(smaller_swarm.local_peer_id())
         .unwrap();

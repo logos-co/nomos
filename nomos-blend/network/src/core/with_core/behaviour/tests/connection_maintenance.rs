@@ -9,7 +9,9 @@ use tokio::{select, time::sleep};
 use crate::core::{
     tests::utils::{TestEncapsulatedMessage, TestSwarm},
     with_core::behaviour::{
-        tests::utils::{BehaviourBuilder, IntervalProviderBuilder, SwarmExt as _},
+        tests::utils::{
+            BehaviourBuilder, IntervalProviderBuilder, SwarmExt as _, TestBehaviourEvent,
+        },
         Event, NegotiatedPeerState, SpamReason,
     },
 };
@@ -36,10 +38,12 @@ async fn detect_spammy_peer() {
     // Send two messages when only one was expected.
     dialing_swarm
         .behaviour_mut()
+        .current_session
         .validate_and_publish_message(TestEncapsulatedMessage::new(b"msg1").into_inner())
         .unwrap();
     dialing_swarm
         .behaviour_mut()
+        .current_session
         .validate_and_publish_message(TestEncapsulatedMessage::new(b"msg2").into_inner())
         .unwrap();
 
@@ -49,9 +53,9 @@ async fn detect_spammy_peer() {
             _ = dialing_swarm.select_next_some() => {}
             listening_event = listening_swarm.select_next_some() => {
                 match listening_event {
-                    SwarmEvent::Behaviour(Event::PeerDisconnected(peer_id, NegotiatedPeerState::Spammy(SpamReason::TooManyMessages))) => {
+                    SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::PeerDisconnected(peer_id, NegotiatedPeerState::Spammy(SpamReason::TooManyMessages)))) => {
                         assert_eq!(peer_id, *dialing_swarm.local_peer_id());
-                        assert!(listening_swarm.behaviour().negotiated_peers.is_empty());
+                        assert!(listening_swarm.behaviour().current_session.negotiated_peers.is_empty());
                         events_to_match -= 1;
                     }
                     SwarmEvent::ConnectionClosed { peer_id, endpoint, .. } => {
@@ -91,7 +95,7 @@ async fn detect_unhealthy_peer() {
         select! {
             _ = dialing_swarm.select_next_some() => {}
             listening_event = listening_swarm.select_next_some() => {
-                if let SwarmEvent::Behaviour(Event::UnhealthyPeer(peer_id)) = listening_event {
+                if let SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::UnhealthyPeer(peer_id))) = listening_event {
                     assert_eq!(peer_id, *dialing_swarm.local_peer_id());
                     break;
                 }
@@ -109,7 +113,7 @@ async fn detect_unhealthy_peer() {
             }
             _ = dialing_swarm.select_next_some() => {}
             listening_event = listening_swarm.select_next_some() => {
-                if let SwarmEvent::Behaviour(Event::UnhealthyPeer(peer_id)) = listening_event {
+                if let SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::UnhealthyPeer(peer_id))) = listening_event {
                     assert!(peer_id != *dialing_swarm.local_peer_id());
                 }
             }
@@ -118,6 +122,7 @@ async fn detect_unhealthy_peer() {
 
     assert!(listening_swarm
         .behaviour()
+        .current_session
         .negotiated_peers
         .get(dialing_swarm.local_peer_id())
         .unwrap()
@@ -147,6 +152,7 @@ async fn restore_healthy_peer() {
     // Send a message to the listening swarm to revert from unhealthy to healthy.
     dialing_swarm
         .behaviour_mut()
+        .current_session
         .force_send_message_to_peer(
             &TestEncapsulatedMessage::new(b"msg"),
             *listening_swarm.local_peer_id(),
@@ -157,7 +163,7 @@ async fn restore_healthy_peer() {
         select! {
             _ = dialing_swarm.select_next_some() => {}
             listening_event = listening_swarm.select_next_some() => {
-                if let SwarmEvent::Behaviour(Event::HealthyPeer(peer_id)) = listening_event {
+                if let SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::HealthyPeer(peer_id))) = listening_event {
                     assert_eq!(peer_id, *dialing_swarm.local_peer_id());
                     break;
                 }
@@ -167,6 +173,7 @@ async fn restore_healthy_peer() {
 
     assert!(listening_swarm
         .behaviour()
+        .current_session
         .negotiated_peers
         .get(dialing_swarm.local_peer_id())
         .unwrap()

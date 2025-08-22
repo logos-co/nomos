@@ -3,13 +3,18 @@ use std::collections::{HashMap, VecDeque};
 
 use async_trait::async_trait;
 use futures::{select, Stream, StreamExt as _};
-use libp2p::{identity::Keypair, PeerId, Swarm};
+use libp2p::{identity::Keypair, Multiaddr, PeerId, Swarm};
 use libp2p_swarm_test::SwarmExt as _;
+use nomos_blend_message::crypto::Ed25519PrivateKey;
+use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_libp2p::{NetworkBehaviour, SwarmEvent};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
-use crate::core::with_core::behaviour::{Behaviour, Event, IntervalStreamProvider};
+use crate::core::{
+    tests::utils::TestSwarm,
+    with_core::behaviour::{old_session, Behaviour, Event, IntervalStreamProvider},
+};
 
 #[derive(Clone)]
 pub struct IntervalProvider(Duration, RangeInclusive<u64>);
@@ -77,27 +82,36 @@ impl BehaviourBuilder {
         self
     }
 
-    pub fn build(self) -> Behaviour<IntervalProvider> {
+    pub fn build(self) -> TestBehaviour<IntervalProvider> {
         let local_peer_id = match (self.local_peer_id, self.identity) {
             (None, None) => PeerId::random(),
             (Some(peer_id), None) => peer_id,
             (None, Some(keypair)) => keypair.public().to_peer_id(),
             (Some(_), Some(_)) => panic!("Cannot happen."),
         };
-        Behaviour {
-            negotiated_peers: HashMap::new(),
-            connections_waiting_upgrade: HashMap::new(),
-            events: VecDeque::new(),
-            waker: None,
-            exchanged_message_identifiers: HashMap::new(),
-            observation_window_clock_provider: self
-                .provider
-                .unwrap_or_else(|| IntervalProviderBuilder::default().build()),
-            current_membership: None,
-            peering_degree: self.peering_degree.unwrap_or(1..=1),
-            local_peer_id,
+        TestBehaviour {
+            current_session: Behaviour {
+                negotiated_peers: HashMap::new(),
+                connections_waiting_upgrade: HashMap::new(),
+                events: VecDeque::new(),
+                waker: None,
+                exchanged_message_identifiers: HashMap::new(),
+                observation_window_clock_provider: self
+                    .provider
+                    .unwrap_or_else(|| IntervalProviderBuilder::default().build()),
+                current_membership: None,
+                peering_degree: self.peering_degree.unwrap_or(1..=1),
+                local_peer_id,
+            },
+            old_session: old_session::Behaviour::new(),
         }
     }
+}
+
+#[derive(NetworkBehaviour)]
+pub struct TestBehaviour<IntervalProvider> {
+    pub current_session: Behaviour<IntervalProvider>,
+    pub old_session: old_session::Behaviour<IntervalProvider>,
 }
 
 #[async_trait]
@@ -108,7 +122,7 @@ pub trait SwarmExt: libp2p_swarm_test::SwarmExt {
 }
 
 #[async_trait]
-impl SwarmExt for Swarm<Behaviour<IntervalProvider>> {
+impl SwarmExt for Swarm<TestBehaviour<IntervalProvider>> {
     async fn connect_and_wait_for_outbound_upgrade<T>(&mut self, other: &mut Swarm<T>)
     where
         T: NetworkBehaviour<ToSwarm: Debug> + Send,
@@ -116,7 +130,7 @@ impl SwarmExt for Swarm<Behaviour<IntervalProvider>> {
         self.connect(other).await;
         select! {
             swarm_event = self.select_next_some() => {
-                if let SwarmEvent::Behaviour(Event::OutboundConnectionUpgradeSucceeded(peer_id)) = swarm_event {
+                if let SwarmEvent::Behaviour(TestBehaviourEvent::CurrentSession(Event::OutboundConnectionUpgradeSucceeded(peer_id))) = swarm_event {
                     if peer_id == *other.local_peer_id() {
                         return;
                     }
@@ -126,4 +140,21 @@ impl SwarmExt for Swarm<Behaviour<IntervalProvider>> {
             _ = other.select_next_some() => {}
         }
     }
+}
+
+pub fn build_memberships<Behaviour: NetworkBehaviour>(
+    swarms: &[&TestSwarm<Behaviour>],
+) -> Vec<Membership<PeerId>> {
+    let nodes = swarms
+        .iter()
+        .map(|swarm| Node {
+            id: *swarm.local_peer_id(),
+            address: Multiaddr::empty(),
+            public_key: Ed25519PrivateKey::generate().public_key(),
+        })
+        .collect::<Vec<_>>();
+    nodes
+        .iter()
+        .map(|node| Membership::new(&nodes, Some(&node.public_key)))
+        .collect()
 }
