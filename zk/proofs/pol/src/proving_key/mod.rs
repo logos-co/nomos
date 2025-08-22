@@ -1,6 +1,4 @@
-use std::{convert::Into, sync::LazyLock};
-
-use crate::verification_key::PolVerifyingKey;
+use std::sync::LazyLock;
 
 pub struct PolProvingKey(Box<[u8]>);
 

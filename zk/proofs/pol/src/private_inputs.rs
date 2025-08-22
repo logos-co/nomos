@@ -3,8 +3,6 @@ use groth16::{Fr, Groth16Input, Groth16InputDeser};
 use num_bigint::BigUint;
 use serde::Serialize;
 
-use crate::PolPublicInputs;
-
 #[derive(Clone)]
 pub struct PolPrivateInputs {
     secret_key: Groth16Input,
@@ -39,7 +37,7 @@ pub struct PolPrivateInputsData {
 }
 
 #[derive(Serialize)]
-pub(crate) struct PolPrivateInputsJson {
+pub struct PolPrivateInputsJson {
     secret_key: Groth16InputDeser,
     note_value: Groth16InputDeser,
     transaction_hash: Groth16InputDeser,
@@ -78,17 +76,11 @@ impl From<&PolPrivateInputs> for PolPrivateInputsJson {
             transaction_hash: transaction_hash.into(),
             output_numer: output_numer.into(),
             aged_proof: aged_proof.into(),
-            aged_path: aged_path.into_iter().map(|input| input.into()).collect(),
-            aged_selector: aged_selector
-                .into_iter()
-                .map(|input| input.into())
-                .collect(),
+            aged_path: aged_path.iter().map(Into::into).collect(),
+            aged_selector: aged_selector.iter().map(Into::into).collect(),
             latest_proof: latest_proof.into(),
-            latest_path: latest_path.into_iter().map(|input| input.into()).collect(),
-            latest_selector: latest_selector
-                .into_iter()
-                .map(|input| input.into())
-                .collect(),
+            latest_path: latest_path.iter().map(Into::into).collect(),
+            latest_selector: latest_selector.iter().map(Into::into).collect(),
             slot_secret: slot_secret.into(),
             secrets_root: secrets_root.into(),
             starting_slot: starting_slot.into(),
