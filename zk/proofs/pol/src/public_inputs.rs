@@ -1,12 +1,9 @@
 use std::{
-    ops::{Add, Div, Sub},
+    ops::{Div as _, Sub as _},
     sync::LazyLock,
 };
 
-use ark_bn254::Fq;
-use ark_ec::pairing::Pairing;
-use ark_ff::{BigInt, BigInteger};
-use groth16::{Bn254, Fr, Groth16Input, Groth16InputDeser};
+use groth16::{Fr, Groth16Input, Groth16InputDeser};
 use num_bigint::BigUint;
 use primitive_types::U256;
 use serde::Serialize;
@@ -36,7 +33,7 @@ pub struct PolPublicInputsData {
 }
 
 #[derive(Serialize)]
-pub(crate) struct PolPublicInputsJson {
+pub struct PolPublicInputsJson {
     entropy_contribution: Groth16InputDeser,
     slot_number: Groth16InputDeser,
     epoch_nonce: Groth16InputDeser,
@@ -165,6 +162,7 @@ impl TryFrom<PolPublicInputsData> for PolPublicInputs {
 }
 
 impl PolPublicInputs {
+    #[must_use]
     pub const fn to_inputs(&self) -> [Fr; 9] {
         [
             self.entropy_contribution.into_inner(),
