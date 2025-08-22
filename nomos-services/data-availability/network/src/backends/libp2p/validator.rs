@@ -37,7 +37,7 @@ use crate::{
         },
         NetworkBackend,
     },
-    membership::handler::DaMembershipHandler,
+    membership::handler::{DaMembershipHandler, SharedMembershipHandler},
     DaAddressbook,
 };
 
@@ -81,7 +81,8 @@ pub struct DaNetworkValidatorBackend<Membership> {
     task_abort_handle: AbortHandle,
     replies_task_abort_handle: AbortHandle,
     shares_request_channel: UnboundedSender<BlobId>,
-    historic_sample_request_channel: UnboundedSender<SampleArgs<Membership>>,
+    historic_sample_request_channel:
+        UnboundedSender<SampleArgs<SharedMembershipHandler<Membership>>>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
@@ -107,7 +108,7 @@ where
     type Message = DaNetworkMessage<BalancerStats, MonitorStats>;
     type EventKind = DaNetworkEventKind;
     type NetworkEvent = DaNetworkEvent;
-    type HistoricMembership = Membership;
+    type HistoricMembership = SharedMembershipHandler<Membership>;
     type Membership = DaMembershipHandler<Membership>;
     type Addressbook = DaAddressbook;
 

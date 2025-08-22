@@ -34,7 +34,10 @@ use tokio_stream::StreamExt as _;
 use crate::{
     addressbook::{AddressBook, AddressBookSnapshot},
     api::ApiAdapter as ApiAdapterTrait,
-    membership::{handler::DaMembershipHandler, MembershipAdapter},
+    membership::{
+        handler::{DaMembershipHandler, SharedMembershipHandler},
+        MembershipAdapter,
+    },
 };
 
 pub type DaAddressbook = AddressBook;
@@ -226,7 +229,7 @@ where
     Backend: NetworkBackend<
             RuntimeServiceId,
             Membership = DaMembershipHandler<Membership>,
-            HistoricMembership = Membership,
+            HistoricMembership = SharedMembershipHandler<Membership>,
             Addressbook = DaAddressbook,
         > + Send
         + Sync
@@ -400,8 +403,10 @@ where
     ApiAdapter:
         ApiAdapterTrait<BlobId = BlobId, Commitments = DaSharesCommitments> + Send + Sync + 'static,
     ApiAdapter::Settings: Clone + Send,
-    Backend:
-        NetworkBackend<RuntimeServiceId, HistoricMembership = Membership> + Send + Sync + 'static,
+    Backend: NetworkBackend<RuntimeServiceId, HistoricMembership = SharedMembershipHandler<Membership>>
+        + Send
+        + Sync
+        + 'static,
     Backend::State: Send + Sync,
     Membership:
         MembershipCreator<Id = PeerId, NetworkId = SubnetworkId> + Clone + Send + Sync + 'static,
@@ -524,6 +529,7 @@ where
             });
 
         if let Some(membership) = membership {
+            let membership = SharedMembershipHandler::new(membership);
             let send =
                 backend.start_historic_sampling(block_number, block_id, blob_ids, membership);
             send.await;
