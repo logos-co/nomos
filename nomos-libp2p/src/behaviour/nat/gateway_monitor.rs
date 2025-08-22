@@ -43,7 +43,7 @@ impl GatewayDetector for SystemGatewayDetector {
 }
 
 /// Gateway monitoring behavior that periodically checks for gateway changes
-pub struct GatewayMonitor<Detector: GatewayDetector> {
+pub struct GatewayMonitor<Detector> {
     /// Configuration settings
     settings: GatewaySettings,
     /// Current gateway address (if known)
