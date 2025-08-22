@@ -38,6 +38,7 @@ pub fn all_events<'a>() -> HashSet<TestEvent<'a>> {
         autonat_ok(),
         mapping_failed(),
         mapping_ok(),
+        mapping_ok_address_mismatch(),
         new_external_address_candidate(),
         external_address_confirmed(),
         default_gateway_changed(),
@@ -226,9 +227,17 @@ pub fn mapping_failed_address_mismatch<'a>() -> TestEvent<'a> {
 }
 
 pub fn mapping_ok<'a>() -> TestEvent<'a> {
-    TestEvent::AddressMapping(address_mapper::Event::NewExternalMappedAddress(
-        ADDR.clone(),
-    ))
+    TestEvent::AddressMapping(address_mapper::Event::NewExternalMappedAddress {
+        local_address: ADDR.clone(),
+        external_address: ADDR.clone(),
+    })
+}
+
+pub fn mapping_ok_address_mismatch<'a>() -> TestEvent<'a> {
+    TestEvent::AddressMapping(address_mapper::Event::NewExternalMappedAddress {
+        local_address: ADDR_1.clone(),
+        external_address: ADDR.clone(),
+    })
 }
 
 pub fn new_external_address_candidate<'a>() -> TestEvent<'a> {

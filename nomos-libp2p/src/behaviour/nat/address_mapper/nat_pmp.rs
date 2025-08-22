@@ -5,32 +5,30 @@ use natpmp::{new_tokio_natpmp, NatpmpAsync, Protocol, Response};
 use tokio::{net::UdpSocket, time::timeout};
 
 use crate::{
-    behaviour::nat::address_mapper::{errors::AddressMapperError, protocol::MappingProtocol},
-    config::NatMappingSettings,
+    behaviour::nat::address_mapper::errors::AddressMapperError, config::NatMappingSettings,
 };
 
 type PortNumber = u16;
 
-pub struct NatPmp {
-    settings: NatMappingSettings,
-    nat_pmp: NatpmpAsync<UdpSocket>,
-}
+pub struct NatPmp;
 
 impl NatPmp {
     async fn send_map_request(
-        &self,
+        nat_pmp: &NatpmpAsync<UdpSocket>,
         protocol: Protocol,
         port: PortNumber,
+        lease_duration: u32,
     ) -> Result<(), AddressMapperError> {
-        self.nat_pmp
-            .send_port_mapping_request(protocol, port, port, self.settings.lease_duration)
+        nat_pmp
+            .send_port_mapping_request(protocol, port, port, lease_duration)
             .await
             .map_err(|e| AddressMapperError::PortMappingFailed(e.to_string()))
     }
 
-    async fn recv_map_response_public_port(&self) -> Result<PortNumber, AddressMapperError> {
-        match self
-            .nat_pmp
+    async fn recv_map_response_public_port(
+        nat_pmp: &NatpmpAsync<UdpSocket>,
+    ) -> Result<PortNumber, AddressMapperError> {
+        match nat_pmp
             .read_response_or_retry()
             .await
             .map_err(|e| AddressMapperError::PortMappingFailed(e.to_string()))?
@@ -42,14 +40,15 @@ impl NatPmp {
         }
     }
 
-    async fn query_public_ip(&mut self) -> Result<Ipv4Addr, AddressMapperError> {
-        self.nat_pmp
+    async fn query_public_ip(
+        nat_pmp: &mut NatpmpAsync<UdpSocket>,
+    ) -> Result<Ipv4Addr, AddressMapperError> {
+        nat_pmp
             .send_public_address_request()
             .await
             .map_err(|e| AddressMapperError::GatewayDiscoveryFailed(e.to_string()))?;
 
-        match self
-            .nat_pmp
+        match nat_pmp
             .read_response_or_retry()
             .await
             .map_err(|e| AddressMapperError::GatewayDiscoveryFailed(e.to_string()))?
@@ -62,36 +61,31 @@ impl NatPmp {
     }
 }
 
-#[async_trait::async_trait]
-impl MappingProtocol for NatPmp {
-    async fn initialize(settings: NatMappingSettings) -> Result<Box<Self>, AddressMapperError>
-    where
-        Self: Sized,
-    {
-        let nat_pmp = new_tokio_natpmp()
+impl NatPmp {
+    pub async fn map_address(
+        local_address: &Multiaddr,
+        settings: NatMappingSettings,
+    ) -> Result<Multiaddr, AddressMapperError> {
+        let (port, protocol) = extract_port_and_protocol(local_address)?;
+
+        let mut nat_pmp = new_tokio_natpmp()
             .await
             .map_err(|e| AddressMapperError::PortMappingFailed(e.to_string()))?;
 
-        Ok(Box::new(Self { settings, nat_pmp }))
-    }
+        Self::send_map_request(&nat_pmp, protocol, port, settings.lease_duration).await?;
 
-    async fn map_address(
-        &mut self,
-        internal_address: &Multiaddr,
-    ) -> Result<Multiaddr, AddressMapperError> {
-        let (port, protocol) = extract_port_and_protocol(internal_address)?;
+        let public_port = timeout(
+            settings.timeout,
+            Self::recv_map_response_public_port(&nat_pmp),
+        )
+        .await
+        .map_err(|_| {
+            AddressMapperError::PortMappingFailed(
+                "Timeout waiting for NAT-PMP mapping response".to_owned(),
+            )
+        })??;
 
-        self.send_map_request(protocol, port).await?;
-
-        let public_port = timeout(self.settings.timeout, self.recv_map_response_public_port())
-            .await
-            .map_err(|_| {
-                AddressMapperError::PortMappingFailed(
-                    "Timeout waiting for NAT-PMP mapping response".to_owned(),
-                )
-            })??;
-
-        let public_ip = timeout(self.settings.timeout, self.query_public_ip())
+        let public_ip = timeout(settings.timeout, Self::query_public_ip(&mut nat_pmp))
             .await
             .map_err(|_| {
                 AddressMapperError::PortMappingFailed(
@@ -99,7 +93,7 @@ impl MappingProtocol for NatPmp {
                 )
             })??;
 
-        build_public_address(internal_address, public_ip, public_port)
+        build_public_address(local_address, public_ip, public_port)
     }
 }
 
@@ -120,11 +114,11 @@ fn extract_port_and_protocol(
 }
 
 fn build_public_address(
-    internal: &Multiaddr,
+    local_address: &Multiaddr,
     public_ip: Ipv4Addr,
     public_port: PortNumber,
 ) -> Result<Multiaddr, AddressMapperError> {
-    let with_ip = internal
+    let with_ip = local_address
         .replace(0, |_| Some(multiaddr::Protocol::Ip4(public_ip)))
         .ok_or_else(|| {
             AddressMapperError::MultiaddrParseError("No IP address found in multiaddr".to_owned())

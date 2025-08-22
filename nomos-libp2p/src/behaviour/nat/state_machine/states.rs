@@ -118,6 +118,11 @@ impl Public {
         TestIfPublic { addr_to_test: addr }
     }
 
+    pub fn into_private(self) -> Private {
+        let Self { addr } = self;
+        Private { addr }
+    }
+
     pub const fn addr(&self) -> &Multiaddr {
         &self.addr
     }
@@ -135,6 +140,11 @@ impl MappedPublic {
     pub fn into_test_if_public(self) -> TestIfPublic {
         let Self { addr } = self;
         TestIfPublic { addr_to_test: addr }
+    }
+
+    pub fn into_private(self) -> Private {
+        let Self { addr } = self;
+        Private { addr }
     }
 
     pub const fn addr(&self) -> &Multiaddr {
