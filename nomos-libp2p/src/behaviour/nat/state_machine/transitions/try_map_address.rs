@@ -15,11 +15,19 @@ use crate::behaviour::nat::state_machine::{
 impl OnEvent for State<TryMapAddress> {
     fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent> {
         match event {
-            Event::NewExternalMappedAddress(external_addr_of_nat_box) => {
-                command_tx.force_send(Command::NewExternalAddrCandidate(
-                    external_addr_of_nat_box.clone(),
-                ));
-                self.boxed(|state| state.into_test_if_mapped_public(external_addr_of_nat_box))
+            Event::NewExternalMappedAddress {
+                local_address,
+                external_address,
+            } if &local_address == self.state.addr_to_map() => {
+                command_tx.force_send(Command::NewExternalAddrCandidate(external_address.clone()));
+                self.boxed(|state| state.into_test_if_mapped_public(external_address))
+            }
+            Event::NewExternalMappedAddress { local_address, .. } => {
+                panic!(
+                    "State<TryMapAddress>: Address mapper reported success for address {}, but {} was expected",
+                    local_address,
+                    self.state.addr_to_map(),
+                );
             }
             Event::AddressMappingFailed(addr) if self.state.addr_to_map() == &addr => {
                 self.boxed(TryMapAddress::into_private)
@@ -44,7 +52,8 @@ mod tests {
     use crate::behaviour::nat::state_machine::{
         states::{Private, TestIfMappedPublic, TryMapAddress},
         transitions::fixtures::{
-            all_events, mapping_failed, mapping_failed_address_mismatch, mapping_ok, ADDR,
+            all_events, mapping_failed, mapping_failed_address_mismatch, mapping_ok,
+            mapping_ok_address_mismatch, ADDR,
         },
         StateMachine,
     };
@@ -90,6 +99,16 @@ mod tests {
         state_machine.on_test_event(event);
     }
 
+    #[should_panic = "State<TryMapAddress>: Address mapper reported success for address /memory/1, but /memory/0 was expected"]
+    #[test]
+    fn mapping_ok_address_mismatch_causes_panic() {
+        let (tx, _) = unbounded_channel();
+        let mut state_machine = StateMachine::new(tx);
+        state_machine.inner = Some(TryMapAddress::for_test(ADDR.clone()));
+        let event = mapping_ok_address_mismatch();
+        state_machine.on_test_event(event);
+    }
+
     #[test]
     fn other_events_are_ignored() {
         let (tx, mut rx) = unbounded_channel();
@@ -98,7 +117,9 @@ mod tests {
 
         let mut other_events = all_events();
         other_events.remove(&mapping_ok());
+        other_events.remove(&mapping_ok_address_mismatch());
         other_events.remove(&mapping_failed());
+        other_events.remove(&mapping_failed_address_mismatch());
 
         for event in other_events {
             state_machine.on_test_event(event);

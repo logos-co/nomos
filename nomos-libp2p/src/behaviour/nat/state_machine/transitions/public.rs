@@ -24,6 +24,9 @@ impl OnEvent for State<Public> {
             Event::AutonatClientTestFailed(addr) if self.state.addr() == &addr => {
                 self.boxed(Public::into_test_if_public)
             }
+            Event::AddressMappingFailed(addr) if self.state.addr() == &addr => {
+                self.boxed(Public::into_private)
+            }
             Event::ExternalAddressConfirmed(addr) => {
                 panic!(
                     "State<Public>: Swarm confirmed external address {}, but {} was expected",
@@ -49,11 +52,11 @@ mod tests {
 
     use super::Command;
     use crate::behaviour::nat::state_machine::{
-        states::{Public, TestIfPublic},
+        states::{Private, Public, TestIfPublic},
         transitions::fixtures::{
             all_events, autonat_failed, autonat_failed_address_mismatch, autonat_ok,
             autonat_ok_address_mismatch, external_address_confirmed,
-            external_address_confirmed_address_mismatch, ADDR,
+            external_address_confirmed_address_mismatch, mapping_failed, ADDR,
         },
         StateMachine,
     };
@@ -106,6 +109,19 @@ mod tests {
         assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
     }
 
+    #[test]
+    fn address_mapping_failed_causes_transition_to_private() {
+        let (tx, mut rx) = unbounded_channel();
+        let mut state_machine = StateMachine::new(tx);
+        state_machine.inner = Some(Public::for_test(ADDR.clone()));
+        state_machine.on_test_event(mapping_failed());
+        assert_eq!(
+            state_machine.inner.as_ref().unwrap(),
+            &Private::for_test(ADDR.clone())
+        );
+        assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
+    }
+
     #[should_panic = "State<Public>: Swarm confirmed external address /memory/1, but /memory/0 was expected"]
     #[test]
     fn address_mismatch_in_external_address_confirmed_event_causes_panic() {
@@ -146,6 +162,7 @@ mod tests {
         other_events.remove(&external_address_confirmed());
         other_events.remove(&autonat_ok());
         other_events.remove(&autonat_failed());
+        other_events.remove(&mapping_failed());
 
         for event in other_events {
             state_machine.on_test_event(event);
