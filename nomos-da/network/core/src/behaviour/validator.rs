@@ -26,27 +26,30 @@ use crate::{
 /// 3) Replication is the least important (and probably the least used), it is
 ///    also dependant of dispersal.
 #[derive(NetworkBehaviour)]
-pub struct ValidatorBehaviour<Balancer, Monitor, Membership, Addressbook>
+pub struct ValidatorBehaviour<Balancer, Monitor, Membership, HistoricMembership, Addressbook>
 where
     Balancer: ConnectionBalancer,
     Monitor: ConnectionMonitor,
     Membership: MembershipHandler,
+    HistoricMembership: MembershipHandler,
     Addressbook: AddressBookHandler,
 {
-    sampling: SamplingBehaviour<Membership, Addressbook>,
+    sampling: SamplingBehaviour<Membership, HistoricMembership, Addressbook>,
     dispersal: DispersalValidatorBehaviour<Membership>,
     replication: ReplicationBehaviour<Membership>,
     balancer: ConnectionBalancerBehaviour<Balancer, Addressbook>,
     monitor: ConnectionMonitorBehaviour<Monitor>,
 }
 
-impl<Balancer, BalancerStats, Monitor, Membership, Addressbook>
-    ValidatorBehaviour<Balancer, Monitor, Membership, Addressbook>
+impl<Balancer, BalancerStats, Monitor, Membership, HistoricMembership, Addressbook>
+    ValidatorBehaviour<Balancer, Monitor, Membership, HistoricMembership, Addressbook>
 where
     Balancer: ConnectionBalancer<Stats = BalancerStats>,
     Monitor: ConnectionMonitor,
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
     <Membership as MembershipHandler>::NetworkId: Send,
+    HistoricMembership: MembershipHandler + Clone + Send + Sync + 'static,
+    <HistoricMembership as MembershipHandler>::NetworkId: Send,
     Addressbook: AddressBookHandler + Clone + Send + 'static,
 {
     pub fn new(
@@ -76,7 +79,9 @@ where
         }
     }
 
-    pub const fn sampling_behaviour(&self) -> &SamplingBehaviour<Membership, Addressbook> {
+    pub const fn sampling_behaviour(
+        &self,
+    ) -> &SamplingBehaviour<Membership, HistoricMembership, Addressbook> {
         &self.sampling
     }
 
@@ -90,7 +95,7 @@ where
 
     pub const fn sampling_behaviour_mut(
         &mut self,
-    ) -> &mut SamplingBehaviour<Membership, Addressbook> {
+    ) -> &mut SamplingBehaviour<Membership, HistoricMembership, Addressbook> {
         &mut self.sampling
     }
 
