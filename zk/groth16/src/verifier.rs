@@ -9,7 +9,7 @@ pub fn groth16_verify<E: Pairing>(
     vk: &PreparedVerificationKey<E>,
     proof: &Proof<E>,
     public_inputs: &[E::ScalarField],
-) -> Result<bool, impl Error> {
+) -> Result<bool, impl Error + use<E>> {
     let proof: ark_groth16::Proof<E> = proof.into();
     Groth16::<E, LibsnarkReduction>::verify_proof(vk.as_ref(), &proof, public_inputs)
 }
