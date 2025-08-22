@@ -6,21 +6,23 @@ use std::{
 use ark_bn254::Fq;
 use ark_ec::pairing::Pairing;
 use ark_ff::{BigInt, BigInteger};
-use groth16::{Bn254, Fr, Groth16Input};
+use groth16::{Bn254, Fr, Groth16Input, Groth16InputDeser};
 use num_bigint::BigUint;
 use primitive_types::U256;
+use serde::Serialize;
 use thiserror::Error;
 
+#[derive(Copy, Clone)]
 pub struct PolPublicInputs {
+    entropy_contribution: Groth16Input,
     slot_number: Groth16Input,
     epoch_nonce: Groth16Input,
     lottery_0: Groth16Input,
     lottery_1: Groth16Input,
     aged_root: Groth16Input,
     latest_root: Groth16Input,
-    leader_pk_1: Groth16Input,
-    leader_pk_2: Groth16Input,
-    entropy_contribution: Groth16Input,
+    leader_pk1: Groth16Input,
+    leader_pk2: Groth16Input,
 }
 
 pub struct PolPublicInputsData {
@@ -31,6 +33,49 @@ pub struct PolPublicInputsData {
     aged_root: [u8; 32],
     latest_root: [u8; 32],
     leader_pk: ([u8; 16], [u8; 16]),
+}
+
+#[derive(Serialize)]
+pub(crate) struct PolPublicInputsJson {
+    entropy_contribution: Groth16InputDeser,
+    slot_number: Groth16InputDeser,
+    epoch_nonce: Groth16InputDeser,
+    lottery_0: Groth16InputDeser,
+    lottery_1: Groth16InputDeser,
+    aged_root: Groth16InputDeser,
+    latest_root: Groth16InputDeser,
+    #[serde(rename = "one_time_key_part_one")]
+    leader_pk1: Groth16InputDeser,
+    #[serde(rename = "one_time_key_part_two")]
+    leader_pk2: Groth16InputDeser,
+}
+
+impl From<&PolPublicInputs> for PolPublicInputsJson {
+    fn from(
+        PolPublicInputs {
+            slot_number,
+            epoch_nonce,
+            lottery_0,
+            lottery_1,
+            aged_root,
+            latest_root,
+            leader_pk1: leader_pk_1,
+            leader_pk2: leader_pk_2,
+            entropy_contribution,
+        }: &PolPublicInputs,
+    ) -> Self {
+        Self {
+            entropy_contribution: entropy_contribution.into(),
+            slot_number: slot_number.into(),
+            epoch_nonce: epoch_nonce.into(),
+            lottery_0: lottery_0.into(),
+            lottery_1: lottery_1.into(),
+            aged_root: aged_root.into(),
+            latest_root: latest_root.into(),
+            leader_pk1: leader_pk_1.into(),
+            leader_pk2: leader_pk_2.into(),
+        }
+    }
 }
 
 static P: LazyLock<U256> = LazyLock::new(|| {
@@ -108,14 +153,10 @@ impl TryFrom<PolPublicInputsData> for PolPublicInputs {
             lottery_1: Groth16Input::new(Fr::from(BigUint::from_bytes_le(
                 lottery_1.to_little_endian().as_ref(),
             ))),
-            aged_root: Groth16Input::new(Fr::from(BigUint::from_bytes_le(
-                aged_root.as_ref(),
-            ))),
-            latest_root: Groth16Input::new(Fr::from(BigUint::from_bytes_le(
-                latest_root.as_ref(),
-            ))),
-            leader_pk_1: Groth16Input::new(Fr::from(BigUint::from_bytes_le(pk1.as_ref()))),
-            leader_pk_2: Groth16Input::new(Fr::from(BigUint::from_bytes_le(pk2.as_ref()))),
+            aged_root: Groth16Input::new(Fr::from(BigUint::from_bytes_le(aged_root.as_ref()))),
+            latest_root: Groth16Input::new(Fr::from(BigUint::from_bytes_le(latest_root.as_ref()))),
+            leader_pk1: Groth16Input::new(Fr::from(BigUint::from_bytes_le(pk1.as_ref()))),
+            leader_pk2: Groth16Input::new(Fr::from(BigUint::from_bytes_le(pk2.as_ref()))),
             entropy_contribution: Groth16Input::new(Fr::from(BigUint::from_bytes_le(
                 entropy_contribution.as_ref(),
             ))),
@@ -133,8 +174,8 @@ impl PolPublicInputs {
             self.lottery_1.into_inner(),
             self.aged_root.into_inner(),
             self.latest_root.into_inner(),
-            self.leader_pk_1.into_inner(),
-            self.leader_pk_2.into_inner(),
+            self.leader_pk1.into_inner(),
+            self.leader_pk2.into_inner(),
         ]
     }
 }
