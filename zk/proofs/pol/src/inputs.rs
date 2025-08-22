@@ -13,6 +13,7 @@ pub struct PolInputs {
 }
 
 impl PolInputs {
+    #[must_use]
     pub const fn from_public_and_private(
         public: PolPublicInputs,
         private: PolPrivateInputs,

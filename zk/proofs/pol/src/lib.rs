@@ -4,7 +4,6 @@ mod proving_key;
 mod public_inputs;
 mod verification_key;
 
-use groth16::Groth16Input;
 pub use inputs::PolInputs;
 pub use private_inputs::{PolPrivateInputs, PolPrivateInputsData};
 pub use proving_key::PolProvingKey;
