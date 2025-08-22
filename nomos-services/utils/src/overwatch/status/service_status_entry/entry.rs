@@ -24,7 +24,6 @@ impl<RuntimeServiceId> ServiceStatusEntry<RuntimeServiceId> {
 impl<RuntimeServiceId: Display> Display for ServiceStatusEntry<RuntimeServiceId> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let Self { id, status } = self;
-        let id = id.to_string();
         write!(f, "{id}: {status}")
     }
 }
@@ -32,7 +31,6 @@ impl<RuntimeServiceId: Display> Display for ServiceStatusEntry<RuntimeServiceId>
 impl<RuntimeServiceId: Display> Debug for ServiceStatusEntry<RuntimeServiceId> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let Self { id, status } = self;
-        let id = id.to_string();
         write!(f, "ServiceStatusEntry {{ id: {id}, status: {status:?} }}")
     }
 }
