@@ -3,7 +3,7 @@ use thiserror::Error;
 use super::{DeclarationState, EventType, ServiceParameters};
 use crate::block::BlockNumber;
 
-#[derive(Error, Debug)]
+#[derive(Error, Clone, Debug, PartialEq, Eq)]
 pub enum ActiveStateError {
     #[error("Active declaration state can happen only when provider is created")]
     ActiveNotOnCreated,
@@ -61,7 +61,7 @@ impl<'a> ActiveState<'a> {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Clone, Debug, PartialEq, Eq)]
 pub enum InactiveStateError {
     #[error("Inactive can not transition to active during {0:?} event")]
     ActiveInvalidEvent(EventType),
@@ -115,8 +115,8 @@ impl<'a> InactiveState<'a> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct WithdrawnState<'a>(&'a mut DeclarationState);
 
-#[derive(Error, Debug)]
-pub enum ProviderStateError {
+#[derive(Error, Clone, PartialEq, Eq, Debug)]
+pub enum DeclarationStateError {
     #[error(transparent)]
     Active(#[from] ActiveStateError),
     #[error(transparent)]
@@ -139,9 +139,9 @@ impl<'a> TransientDeclarationState<'a> {
         block_number: BlockNumber,
         declaration_state: &'a mut DeclarationState,
         service_params: &ServiceParameters,
-    ) -> Result<Self, ProviderStateError> {
+    ) -> Result<Self, DeclarationStateError> {
         if declaration_state.created > block_number {
-            return Err(ProviderStateError::BlockFromPast);
+            return Err(DeclarationStateError::BlockFromPast);
         }
 
         if declaration_state.withdrawn.is_some() {
@@ -189,20 +189,20 @@ impl<'a> TransientDeclarationState<'a> {
         self,
         block_number: BlockNumber,
         event_type: EventType,
-    ) -> Result<Self, ProviderStateError> {
+    ) -> Result<Self, DeclarationStateError> {
         if self.last_block_number() > block_number {
-            return Err(ProviderStateError::BlockFromPast);
+            return Err(DeclarationStateError::BlockFromPast);
         }
         match self {
             Self::Active(active_state) => active_state
                 .try_into_updated(block_number, event_type)
                 .map(Into::into)
-                .map_err(ProviderStateError::from),
+                .map_err(DeclarationStateError::from),
             Self::Inactive(inactive_state) => inactive_state
                 .try_into_active(block_number, event_type)
                 .map(Into::into)
-                .map_err(ProviderStateError::from),
-            Self::Withdrawn(_) => Err(ProviderStateError::WithdrawnToOtherState),
+                .map_err(DeclarationStateError::from),
+            Self::Withdrawn(_) => Err(DeclarationStateError::WithdrawnToOtherState),
         }
     }
 
@@ -211,20 +211,20 @@ impl<'a> TransientDeclarationState<'a> {
         block_number: BlockNumber,
         event_type: EventType,
         service_params: &ServiceParameters,
-    ) -> Result<Self, ProviderStateError> {
+    ) -> Result<Self, DeclarationStateError> {
         if self.last_block_number() > block_number {
-            return Err(ProviderStateError::BlockFromPast);
+            return Err(DeclarationStateError::BlockFromPast);
         }
         match self {
             Self::Active(active_state) => active_state
                 .try_into_withdrawn(block_number, event_type, service_params)
                 .map(Into::into)
-                .map_err(ProviderStateError::from),
+                .map_err(DeclarationStateError::from),
             Self::Inactive(inactive_state) => inactive_state
                 .try_into_withdrawn(block_number, event_type, service_params)
                 .map(Into::into)
-                .map_err(ProviderStateError::from),
-            Self::Withdrawn(_) => Err(ProviderStateError::WithdrawnToOtherState),
+                .map_err(DeclarationStateError::from),
+            Self::Withdrawn(_) => Err(DeclarationStateError::WithdrawnToOtherState),
         }
     }
 }
@@ -342,7 +342,7 @@ mod tests {
         // Provider created in block 3, trying to convert to state in block 2.
         let res =
             TransientDeclarationState::try_from_state(2, &mut declaration_state, &service_params);
-        assert!(matches!(res, Err(ProviderStateError::BlockFromPast)));
+        assert!(matches!(res, Err(DeclarationStateError::BlockFromPast)));
 
         // Provider activity recorded in block 5, trying to withdraw in block 4.
         let active_state =
@@ -352,7 +352,7 @@ mod tests {
             .try_into_active(5, EventType::Activity)
             .unwrap();
         let res = active_recorded.try_into_withdrawn(4, EventType::Withdrawal, &service_params);
-        assert!(matches!(res, Err(ProviderStateError::BlockFromPast)));
+        assert!(matches!(res, Err(DeclarationStateError::BlockFromPast)));
     }
 
     #[test]
@@ -424,7 +424,7 @@ mod tests {
         let res = late_withdrawal.try_into_withdrawn(15, EventType::Activity, &service_params);
         assert!(matches!(
             res,
-            Err(ProviderStateError::WithdrawnToOtherState)
+            Err(DeclarationStateError::WithdrawnToOtherState)
         ));
 
         // Withdrawal can't be activity recorded in future.

@@ -268,6 +268,7 @@ mod tests {
         assert_eq!(result.1.len(), 0);
     }
 
+    #[expect(clippy::too_many_lines, reason = "comprehensive test case")]
     #[tokio::test]
     async fn test_get_snapshot_at_with_data() {
         let service_type = ServiceType::BlendNetwork;

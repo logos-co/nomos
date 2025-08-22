@@ -189,7 +189,7 @@ pub struct ActiveMessage<Metadata> {
     pub metadata: Option<Metadata>,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum EventType {
     Declaration,
     Activity,
