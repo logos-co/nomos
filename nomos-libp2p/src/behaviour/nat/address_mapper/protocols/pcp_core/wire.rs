@@ -11,7 +11,7 @@ use zerocopy::{
     FromBytes, FromZeros as _, Immutable, IntoBytes, KnownLayout, Unaligned,
 };
 
-use crate::behaviour::nat::address_mapper::protocols::pcp::client::PcpError;
+use crate::behaviour::nat::address_mapper::protocols::pcp_core::client::PcpError;
 
 pub const PCP_VERSION: u8 = 2;
 pub const PCP_ANNOUNCE_SIZE: usize = 24;
