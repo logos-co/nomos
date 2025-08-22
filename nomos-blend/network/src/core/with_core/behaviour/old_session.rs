@@ -45,8 +45,9 @@ impl OldSession {
 
     /// Starts an old session with the given states.
     ///
-    /// If it still has the old session that is not stopped yet, it stops it first.
-    /// This can happen if this method was called before [`Self::stop`] is called.
+    /// If it still has the old session that is not stopped yet, it stops it
+    /// first. This can happen if this method was called before
+    /// [`Self::stop`] is called.
     pub fn start(
         &mut self,
         negotiated_peers: HashMap<PeerId, ConnectionId>,
@@ -57,7 +58,8 @@ impl OldSession {
         self.exchanged_message_identifiers = exchanged_message_identifiers;
     }
 
-    /// Stops the old session, notifying all peers that it is closing substreams.
+    /// Stops the old session, notifying all peers that it is closing
+    /// substreams.
     ///
     /// It should be called once the session transition period has passed.
     pub fn stop(&mut self) {
