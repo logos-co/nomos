@@ -9,8 +9,7 @@ use multiaddr::Protocol;
 use tracing::info;
 
 use crate::{
-    behaviour::nat::address_mapper::{errors::AddressMapperError, protocol::NatMapper},
-    config::NatMappingSettings,
+    behaviour::nat::address_mapper::errors::AddressMapperError, config::NatMappingSettings,
 };
 
 type AddressWithProtocol = (SocketAddr, PortMappingProtocol);
@@ -28,9 +27,8 @@ impl UpnpProtocol {
     }
 }
 
-#[async_trait::async_trait]
-impl NatMapper for UpnpProtocol {
-    async fn map_address(
+impl UpnpProtocol {
+    pub async fn map_address(
         address_to_map: &Multiaddr,
         settings: NatMappingSettings,
     ) -> Result<Multiaddr, AddressMapperError> {

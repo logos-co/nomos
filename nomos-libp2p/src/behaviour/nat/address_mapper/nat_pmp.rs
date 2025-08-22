@@ -5,8 +5,7 @@ use natpmp::{new_tokio_natpmp, NatpmpAsync, Protocol, Response};
 use tokio::{net::UdpSocket, time::timeout};
 
 use crate::{
-    behaviour::nat::address_mapper::{errors::AddressMapperError, protocol::NatMapper},
-    config::NatMappingSettings,
+    behaviour::nat::address_mapper::errors::AddressMapperError, config::NatMappingSettings,
 };
 
 type PortNumber = u16;
@@ -62,9 +61,8 @@ impl NatPmp {
     }
 }
 
-#[async_trait::async_trait]
-impl NatMapper for NatPmp {
-    async fn map_address(
+impl NatPmp {
+    pub async fn map_address(
         local_address: &Multiaddr,
         settings: NatMappingSettings,
     ) -> Result<Multiaddr, AddressMapperError> {
