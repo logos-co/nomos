@@ -22,6 +22,7 @@ pub const DA_SHARED_COMMITMENTS_PREFIX: &str = concat!("da/verified/", "sc");
 pub const DA_SHARE_PREFIX: &str = concat!("da/verified/", "bl");
 pub const DA_ASSIGNATIONS_PREFIX: &str = concat!("da/membership/", "as");
 pub const DA_ADDRESSBOOK_PREFIX: &str = concat!("da/membership/", "ab");
+pub const DA_TX_PREFIX: &str = concat!("da/verified/", "tx");
 
 #[async_trait]
 impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBackend<SerdeOp> {
@@ -29,6 +30,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
     type BlobId = BlobId;
     type Share = Bytes;
     type Commitments = Bytes;
+    type Tx = Bytes;
     type ShareIndex = [u8; 2];
     type NetworkId = u16;
     type Id = PeerId;
@@ -238,5 +240,54 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
                 Ok(Some(address))
             },
         )
+    }
+
+    async fn store_tx(
+        &mut self,
+        blob_id: Self::BlobId,
+        assignations: u16,
+        tx: Self::Tx,
+    ) -> Result<(), Self::Error> {
+        let tx_key = key_bytes(DA_TX_PREFIX, blob_id.as_ref());
+        let serialized_tx_body = SerdeOp::serialize(tx);
+
+        let mut serialized_tx = Vec::with_capacity(2 + serialized_tx_body.len());
+        serialized_tx.extend_from_slice(&assignations.to_be_bytes());
+        serialized_tx.extend_from_slice(&serialized_tx_body);
+
+        self.store(tx_key, serialized_tx.into()).await
+    }
+
+    async fn get_tx(
+        &mut self,
+        blob_id: Self::BlobId,
+    ) -> Result<Option<(u16, Self::Tx)>, Self::Error> {
+        let tx_key = key_bytes(DA_TX_PREFIX, blob_id.as_ref());
+        let storage_bytes = self.load(&tx_key).await?;
+
+        let Some(mut assignations) = storage_bytes else {
+            return Ok(None);
+        };
+
+        let tx_bytes = assignations.split_off(2);
+        let assignations_arr: [u8; 2] = match assignations[..2].try_into() {
+            Ok(arr) => arr,
+            Err(e) => {
+                error!("Failed to convert assignations: {:?}", e);
+                return Ok(None);
+            }
+        };
+
+        let assignations = u16::from_be_bytes(assignations_arr);
+
+        let tx = match SerdeOp::deserialize::<Self::Tx>(tx_bytes) {
+            Ok(tx) => Some((assignations, tx)),
+            Err(e) => {
+                error!("Failed to deserialize tx: {:?}", e);
+                None
+            }
+        };
+
+        Ok(tx)
     }
 }

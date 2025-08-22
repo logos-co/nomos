@@ -1,9 +1,10 @@
 use std::{fmt::Debug, marker::PhantomData};
 
-use kzgrs_backend::dispersal::{self, BlobInfo};
+use kzgrs_backend::dispersal::{BlobInfo, Index, Metadata};
 use nomos_core::{
     da::{blob::info::DispersedBlobInfo, BlobId},
     header::HeaderId,
+    mantle::SignedMantleTx,
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_mempool::{
@@ -15,7 +16,7 @@ use overwatch::services::{relay::OutboundRelay, ServiceData};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
-use super::{DaMempoolAdapter, DaMempoolAdapterError};
+use super::{DaMempoolAdapter, MempoolAdapterError};
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
 
@@ -25,9 +26,6 @@ pub struct KzgrsMempoolAdapter<
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
-    DaVerifierBackend,
-    DaVerifierNetwork,
-    DaVerifierStorage,
     RuntimeServiceId,
 > where
     DaPool: MemPool<BlockId = HeaderId>,
@@ -38,7 +36,6 @@ pub struct KzgrsMempoolAdapter<
 {
     pub mempool_relay: MempoolRelay<DaPoolAdapter::Payload, DaPool::Item, DaPool::Key>,
     _phantom: PhantomData<(SamplingBackend, SamplingNetworkAdapter, SamplingStorage)>,
-    _phantom2: PhantomData<(DaVerifierBackend, DaVerifierNetwork, DaVerifierStorage)>,
 }
 
 #[async_trait::async_trait]
@@ -48,9 +45,6 @@ impl<
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
         RuntimeServiceId,
     > DaMempoolAdapter
     for KzgrsMempoolAdapter<
@@ -59,9 +53,6 @@ impl<
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
         RuntimeServiceId,
     >
 where
@@ -79,11 +70,6 @@ where
     SamplingNetworkAdapter:
         nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
-    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
-    DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + Sync + 'static,
-    DaVerifierBackend::Settings: Clone,
-    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
-    DaVerifierNetwork::Settings: Clone,
 {
     type MempoolService = DaMempoolService<
         DaPoolAdapter,
@@ -91,27 +77,30 @@ where
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
         RuntimeServiceId,
     >;
     type BlobId = BlobId;
-    type Metadata = dispersal::Metadata;
+    type Tx = SignedMantleTx;
 
     fn new(mempool_relay: OutboundRelay<<Self::MempoolService as ServiceData>::Message>) -> Self {
         Self {
             mempool_relay,
             _phantom: PhantomData,
-            _phantom2: PhantomData,
         }
     }
 
-    async fn post_blob_id(
+    // This adapter implementation uses old da mempool. Until chain service
+    // and indexer are updated to use transaction mempool, old da mempool is
+    // used for general DA flow testing in integration tests.
+    async fn post_tx(
         &self,
         blob_id: Self::BlobId,
-        metadata: Self::Metadata,
-    ) -> Result<(), DaMempoolAdapterError> {
+        _tx: Self::Tx,
+    ) -> Result<(), MempoolAdapterError> {
+        // Metadata will not be used in transaction mempool, it's mocked here for da
+        // mempool only.
+        let metadata = Metadata::new([0; 32], Index::from(0));
+
         let (reply_channel, receiver) = oneshot::channel();
         self.mempool_relay
             .send(MempoolMsg::Add {
@@ -120,8 +109,8 @@ where
                 reply_channel,
             })
             .await
-            .map_err(|(e, _)| DaMempoolAdapterError::from(e))?;
+            .map_err(|(e, _)| MempoolAdapterError::Other(Box::new(e)))?;
 
-        receiver.await?.map_err(DaMempoolAdapterError::Mempool)
+        receiver.await?.map_err(MempoolAdapterError::Mempool)
     }
 }

@@ -5,7 +5,6 @@ use nomos_core::{da::blob::info::DispersedBlobInfo, header::HeaderId};
 use nomos_da_sampling::{
     backend::DaSamplingServiceBackend, network::NetworkAdapter as DaSamplingNetworkAdapter,
 };
-use nomos_da_verifier::backend::VerifierBackend;
 use nomos_mempool::{
     backend::mockpool::MockPool, network::NetworkAdapter, DaMempoolService, MempoolMsg,
     TxMempoolService,
@@ -21,9 +20,7 @@ pub async fn add_tx<
     MempoolNetworkBackend,
     MempoolNetworkAdapter,
     SamplingNetworkAdapter,
-    VerifierNetworkAdapter,
     SamplingStorage,
-    VerifierStorage,
     Item,
     Key,
     RuntimeServiceId,
@@ -40,10 +37,7 @@ where
         + 'static,
     MempoolNetworkAdapter::Settings: Send + Sync,
     SamplingNetworkAdapter: DaSamplingNetworkAdapter<RuntimeServiceId> + Send + Sync,
-    VerifierNetworkAdapter:
-        nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
-    VerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     Item: Clone + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     Key: Clone + Debug + Ord + Hash + Send + Serialize + for<'de> Deserialize<'de> + 'static,
     RuntimeServiceId: Debug
@@ -54,9 +48,7 @@ where
             TxMempoolService<
                 MempoolNetworkAdapter,
                 SamplingNetworkAdapter,
-                VerifierNetworkAdapter,
                 SamplingStorage,
-                VerifierStorage,
                 MockPool<HeaderId, Item, Key>,
                 RuntimeServiceId,
             >,
@@ -87,9 +79,6 @@ pub async fn add_blob_info<
     SamplingBackend,
     SamplingAdapter,
     SamplingStorage,
-    DaVerifierBackend,
-    DaVerifierNetwork,
-    DaVerifierStorage,
     RuntimeServiceId,
 >(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
@@ -109,11 +98,6 @@ where
     SamplingBackend::Settings: Clone,
     SamplingAdapter: DaSamplingNetworkAdapter<RuntimeServiceId> + Send,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
-    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
-    DaVerifierBackend: VerifierBackend + Send + 'static,
-    DaVerifierBackend::Settings: Clone,
-    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
-    DaVerifierNetwork::Settings: Clone,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -124,9 +108,6 @@ where
                 SamplingBackend,
                 SamplingAdapter,
                 SamplingStorage,
-                DaVerifierBackend,
-                DaVerifierNetwork,
-                DaVerifierStorage,
                 RuntimeServiceId,
             >,
         >,

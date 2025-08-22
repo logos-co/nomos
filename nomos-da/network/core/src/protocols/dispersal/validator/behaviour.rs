@@ -14,7 +14,7 @@ use libp2p::{
 };
 use libp2p_stream::IncomingStreams;
 use log::debug;
-use nomos_core::mantle::ops::{blob::BlobOp, Op};
+use nomos_core::mantle::{ops::channel::blob::BlobOp, Op, SignedMantleTx};
 use nomos_da_messages::{
     common::Share,
     dispersal,
@@ -58,22 +58,31 @@ impl Clone for DispersalError {
 pub enum DispersalEvent {
     /// Received a network message.
     IncomingShare(Box<Share>),
+    /// Number of currently assigned subnetworks to the node and TX for a blob.
+    IncomingTx((u16, Box<SignedMantleTx>)),
     /// Something went wrong receiving the blob
     DispersalError { error: DispersalError },
 }
 
 impl DispersalEvent {
     #[must_use]
-    pub fn new_share(share: Share) -> Self {
-        Self::IncomingShare(Box::new(share))
-    }
-
-    #[must_use]
     pub fn share_size(&self) -> Option<usize> {
         match self {
             Self::IncomingShare(share) => Some(share.data.column_len()),
-            Self::DispersalError { .. } => None,
+            Self::IncomingTx { .. } | Self::DispersalError { .. } => None,
         }
+    }
+}
+
+impl From<Share> for DispersalEvent {
+    fn from(share: Share) -> Self {
+        Self::IncomingShare(Box::new(share))
+    }
+}
+
+impl From<(u16, SignedMantleTx)> for DispersalEvent {
+    fn from(tx: (u16, SignedMantleTx)) -> Self {
+        Self::IncomingTx((tx.0, Box::new(tx.1)))
     }
 }
 
@@ -81,6 +90,7 @@ type DispersalTask =
     BoxFuture<'static, Result<(PeerId, dispersal::DispersalRequest, Stream), DispersalError>>;
 
 pub struct DispersalValidatorBehaviour<Membership> {
+    local_peer_id: PeerId,
     stream_behaviour: libp2p_stream::Behaviour,
     incoming_streams: IncomingStreams,
     tasks: FuturesUnordered<DispersalTask>,
@@ -88,7 +98,7 @@ pub struct DispersalValidatorBehaviour<Membership> {
 }
 
 impl<Membership: MembershipHandler> DispersalValidatorBehaviour<Membership> {
-    pub fn new(membership: Membership) -> Self {
+    pub fn new(local_peer_id: PeerId, membership: Membership) -> Self {
         let stream_behaviour = libp2p_stream::Behaviour::new();
         let mut stream_control = stream_behaviour.new_control();
         let incoming_streams = stream_control
@@ -96,6 +106,7 @@ impl<Membership: MembershipHandler> DispersalValidatorBehaviour<Membership> {
             .expect("Just a single accept to protocol is valid");
         let tasks = FuturesUnordered::new();
         Self {
+            local_peer_id,
             stream_behaviour,
             incoming_streams,
             tasks,
@@ -112,7 +123,8 @@ impl<Membership: MembershipHandler> DispersalValidatorBehaviour<Membership> {
                 Some(dispersal::DispersalResponse::BlobId(blob_id))
             }
             dispersal::DispersalRequest::Tx(signed_mantle_tx) => {
-                if let Some(Op::Blob(BlobOp { blob, .. })) = signed_mantle_tx.mantle_tx.ops.first()
+                if let Some(Op::ChannelBlob(BlobOp { blob, .. })) =
+                    signed_mantle_tx.mantle_tx.ops.first()
                 {
                     Some(dispersal::DispersalResponse::Tx(*blob))
                 } else {
@@ -222,6 +234,7 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         let Self {
+            local_peer_id,
             incoming_streams,
             tasks,
             ..
@@ -236,7 +249,13 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
                             Box::new(share_request.share),
                         )))
                     }
-                    dispersal::DispersalRequest::Tx(_signed_mantle_tx) => todo!(),
+                    dispersal::DispersalRequest::Tx(signed_mantle_tx) => {
+                        let assignations = self.membership.membership(local_peer_id).len();
+                        Poll::Ready(ToSwarm::GenerateEvent(DispersalEvent::IncomingTx((
+                            assignations as u16,
+                            Box::new(signed_mantle_tx),
+                        ))))
+                    }
                 };
             }
             Poll::Ready(Some(Err(error))) => {

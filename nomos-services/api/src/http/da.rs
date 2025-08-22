@@ -13,12 +13,11 @@ use nomos_core::{
         BlobId, DaVerifier as CoreDaVerifier,
     },
     header::HeaderId,
-    mantle::{select::FillSize as FillSizeWithTx, Transaction},
+    mantle::{select::FillSize as FillSizeWithTx, SignedMantleTx, Transaction},
 };
 use nomos_da_dispersal::{
-    adapters::{mempool::DaMempoolAdapter, network::DispersalNetworkAdapter},
-    backend::DispersalBackend,
-    DaDispersalMsg, DispersalService,
+    adapters::network::DispersalNetworkAdapter, backend::DispersalBackend, DaDispersalMsg,
+    DispersalService,
 };
 use nomos_da_indexer::{
     consensus::adapters::cryptarchia::CryptarchiaConsensusAdapter,
@@ -37,8 +36,9 @@ use nomos_da_sampling::{
     backend::DaSamplingServiceBackend, storage::adapters::rocksdb::converter::DaStorageConverter,
 };
 use nomos_da_verifier::{
-    backend::VerifierBackend, storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
-    DaVerifierMsg, DaVerifierService,
+    backend::VerifierBackend, mempool::DaMempoolAdapter,
+    storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter, DaVerifierMsg,
+    DaVerifierService,
 };
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
@@ -63,9 +63,6 @@ pub type DaIndexer<
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
-    DaVerifierBackend,
-    DaVerifierNetwork,
-    DaVerifierStorage,
     TimeBackend,
     RuntimeServiceId,
     const SIZE: usize,
@@ -87,9 +84,6 @@ pub type DaIndexer<
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
-    DaVerifierBackend,
-    DaVerifierNetwork,
-    DaVerifierStorage,
     TimeBackend,
     RuntimeServiceId,
 >;
@@ -116,29 +110,18 @@ pub type DaVerifier<
     VerifierBackend,
     StorageSerializer,
     DaStorageConverter,
+    VerifierMempoolAdapter,
     RuntimeServiceId,
 > = DaVerifierService<
     VerifierBackend,
     NetworkAdapter,
     VerifierStorageAdapter<Blob, StorageSerializer, DaStorageConverter>,
+    VerifierMempoolAdapter,
     RuntimeServiceId,
 >;
 
-pub type DaDispersal<
-    Backend,
-    NetworkAdapter,
-    MempoolAdapter,
-    Membership,
-    Metadata,
-    RuntimeServiceId,
-> = DispersalService<
-    Backend,
-    NetworkAdapter,
-    MempoolAdapter,
-    Membership,
-    Metadata,
-    RuntimeServiceId,
->;
+pub type DaDispersal<Backend, NetworkAdapter, Membership, RuntimeServiceId> =
+    DispersalService<Backend, NetworkAdapter, Membership, RuntimeServiceId>;
 
 pub type DaNetwork<
     Backend,
@@ -156,28 +139,50 @@ pub type DaNetwork<
     RuntimeServiceId,
 >;
 
-pub async fn add_share<A, S, N, VB, SS, DaStorageConverter, RuntimeServiceId>(
+pub async fn add_share<
+    DaShare,
+    VerifierNetwork,
+    ShareVerifier,
+    SerdeOp,
+    DaStorageConverter,
+    VerifierMempoolAdapter,
+    RuntimeServiceId,
+>(
     handle: &OverwatchHandle<RuntimeServiceId>,
-    share: S,
+    share: DaShare,
 ) -> Result<Option<()>, DynError>
 where
-    A: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
-    S: Share + Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
-    <S as Share>::BlobId: Clone + Send + Sync + 'static,
-    <S as Share>::ShareIndex: Clone + Eq + Hash + Send + Sync + 'static,
-    <S as Share>::LightShare: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
-    <S as Share>::SharesCommitments: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
-    N: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
-    N::Settings: Clone,
-    VB: VerifierBackend + CoreDaVerifier<DaShare = S>,
-    <VB as VerifierBackend>::Settings: Clone,
-    <VB as CoreDaVerifier>::Error: Error,
-    SS: StorageSerde + Send + Sync + 'static,
-    DaStorageConverter: DaConverter<RocksBackend<SS>, Share = S> + Send + Sync + 'static,
+    DaShare: Share + Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
+    <DaShare as Share>::BlobId: Clone + Send + Sync + 'static,
+    <DaShare as Share>::ShareIndex: Clone + Eq + Hash + Send + Sync + 'static,
+    <DaShare as Share>::LightShare: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
+    <DaShare as Share>::SharesCommitments:
+        Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
+    VerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
+    VerifierNetwork::Settings: Clone,
+    ShareVerifier: VerifierBackend + CoreDaVerifier<DaShare = DaShare>,
+    <ShareVerifier as VerifierBackend>::Settings: Clone,
+    <ShareVerifier as CoreDaVerifier>::Error: Error,
+    SerdeOp: StorageSerde + Send + Sync + 'static,
+    DaStorageConverter: DaConverter<RocksBackend<SerdeOp>, Share = DaShare, Tx = SignedMantleTx>
+        + Send
+        + Sync
+        + 'static,
+    VerifierMempoolAdapter: DaMempoolAdapter,
     RuntimeServiceId: Debug
         + Sync
         + Display
-        + AsServiceId<DaVerifier<S, N, VB, SS, DaStorageConverter, RuntimeServiceId>>,
+        + AsServiceId<
+            DaVerifier<
+                DaShare,
+                VerifierNetwork,
+                ShareVerifier,
+                SerdeOp,
+                DaStorageConverter,
+                VerifierMempoolAdapter,
+                RuntimeServiceId,
+            >,
+        >,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
@@ -200,9 +205,6 @@ pub async fn get_range<
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
-    DaVerifierBackend,
-    DaVerifierNetwork,
-    DaVerifierStorage,
     TimeBackend,
     RuntimeServiceId,
     const SIZE: usize,
@@ -248,11 +250,6 @@ where
     SamplingBackend::BlobId: Debug + 'static,
     SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
-    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
-    DaVerifierBackend: VerifierBackend + Send + 'static,
-    DaVerifierBackend::Settings: Clone,
-    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
-    DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     RuntimeServiceId: Debug
@@ -268,9 +265,6 @@ where
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
-                DaVerifierBackend,
-                DaVerifierNetwork,
-                DaVerifierStorage,
                 TimeBackend,
                 RuntimeServiceId,
                 SIZE,
@@ -291,17 +285,9 @@ where
     wait_with_timeout(receiver, "Timeout while waiting for get range".to_owned()).await
 }
 
-pub async fn disperse_data<
-    Backend,
-    NetworkAdapter,
-    MempoolAdapter,
-    Membership,
-    Metadata,
-    RuntimeServiceId,
->(
+pub async fn disperse_data<Backend, NetworkAdapter, Membership, RuntimeServiceId>(
     handle: &OverwatchHandle<RuntimeServiceId>,
     data: Vec<u8>,
-    metadata: Metadata,
 ) -> Result<Backend::BlobId, DynError>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
@@ -310,38 +296,20 @@ where
         + Send
         + Sync
         + 'static,
-    Backend: DispersalBackend<
-            NetworkAdapter = NetworkAdapter,
-            MempoolAdapter = MempoolAdapter,
-            Metadata = Metadata,
-        > + Send
-        + Sync
-        + 'static,
+    Backend: DispersalBackend<NetworkAdapter = NetworkAdapter> + Send + Sync + 'static,
     Backend::Settings: Clone + Send + Sync,
     Backend::BlobId: Serialize,
     NetworkAdapter: DispersalNetworkAdapter<SubnetworkId = Membership::NetworkId> + Send,
-    MempoolAdapter: DaMempoolAdapter,
-    Metadata: metadata::Metadata + Debug + Send + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
-        + AsServiceId<
-            DaDispersal<
-                Backend,
-                NetworkAdapter,
-                MempoolAdapter,
-                Membership,
-                Metadata,
-                RuntimeServiceId,
-            >,
-        >,
+        + AsServiceId<DaDispersal<Backend, NetworkAdapter, Membership, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
     relay
         .send(DaDispersalMsg::Disperse {
             data,
-            metadata,
             reply_channel: sender,
         })
         .await

@@ -65,6 +65,7 @@ macro_rules! adapter_for {
             type Backend = $DaNetworkBackend<Membership>;
             type Settings = ();
             type Share = DaShare;
+            type Tx = SignedMantleTx;
             type Membership = Membership;
             type Storage = StorageAdapter;
             type MembershipAdapter = MembershipServiceAdapter;
@@ -102,7 +103,33 @@ macro_rules! adapter_for {
                 let receiver = receiver.await.expect("Blob stream should be received");
 
                 let stream = receiver.filter_map(move |msg| match msg {
-                    $DaNetworkEvent::Verifying(blob) => Some(*blob),
+                    $DaNetworkEvent::Verifying(verification_event) => match verification_event {
+                        VerificationEvent::Share(share) => Some(*share),
+                        VerificationEvent::Tx { .. } => None,
+                    },
+                    _ => None,
+                });
+
+                Box::new(Box::pin(stream))
+            }
+
+            async fn tx_stream(&self) -> Box<dyn Stream<Item = (u16, Self::Tx)> + Unpin + Send> {
+                let (sender, receiver) = tokio::sync::oneshot::channel();
+                self.network_relay
+                    .send(nomos_da_network_service::DaNetworkMsg::Subscribe {
+                        kind: $DaNetworksEventKind::Verifying,
+                        sender,
+                    })
+                    .await
+                    .expect("Network backend should be ready");
+
+                let receiver = receiver.await.expect("Blob stream should be received");
+
+                let stream = receiver.filter_map(move |msg| match msg {
+                    $DaNetworkEvent::Verifying(verification_event) => match verification_event {
+                        VerificationEvent::Tx { assignations, tx } => Some((assignations, *tx)),
+                        VerificationEvent::Share(_) => None,
+                    },
                     _ => None,
                 });
 

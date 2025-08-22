@@ -69,7 +69,7 @@ where
                 subnets_config,
                 refresh_signal,
             ),
-            dispersal: DispersalValidatorBehaviour::new(membership.clone()),
+            dispersal: DispersalValidatorBehaviour::new(peer_id, membership.clone()),
             replication: ReplicationBehaviour::new(replication_config, peer_id, membership),
             balancer: ConnectionBalancerBehaviour::new(addressbook, balancer),
             monitor: ConnectionMonitorBehaviour::new(monitor, redial_cooldown),

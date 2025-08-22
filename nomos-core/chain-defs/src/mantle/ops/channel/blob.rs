@@ -30,4 +30,13 @@ impl BlobOp {
         hasher.update(self.signer.as_ref());
         MsgId(hasher.finalize().into())
     }
+
+    #[must_use]
+    pub fn as_sign_bytes(&self) -> bytes::Bytes {
+        let mut buff = bytes::BytesMut::new();
+        buff.extend_from_slice(self.channel.as_ref());
+        buff.extend_from_slice(&self.blob);
+        buff.extend_from_slice(self.signer.as_ref());
+        buff.freeze()
+    }
 }

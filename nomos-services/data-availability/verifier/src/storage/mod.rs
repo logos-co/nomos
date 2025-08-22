@@ -12,6 +12,7 @@ pub trait DaStorageAdapter<RuntimeServiceId> {
     type Backend: StorageBackend + Send + Sync + 'static;
     type Settings: Clone;
     type Share: Share + Clone;
+    type Tx;
 
     async fn new(
         storage_relay: OutboundRelay<
@@ -32,4 +33,16 @@ pub trait DaStorageAdapter<RuntimeServiceId> {
         blob_id: <Self::Share as Share>::BlobId,
         share_idx: <Self::Share as Share>::ShareIndex,
     ) -> Result<Option<<Self::Share as Share>::LightShare>, DynError>;
+
+    async fn add_tx(
+        &self,
+        blob_id: <Self::Share as Share>::BlobId,
+        assignations: u16,
+        tx: Self::Tx,
+    ) -> Result<(), DynError>;
+
+    async fn get_tx(
+        &self,
+        blob_id: <Self::Share as Share>::BlobId,
+    ) -> Result<Option<(u16, Self::Tx)>, DynError>;
 }

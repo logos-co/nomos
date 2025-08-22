@@ -4,7 +4,6 @@ use futures::{
     future::{AbortHandle, Abortable},
     Stream, StreamExt as _,
 };
-use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;
 use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::{
@@ -27,13 +26,12 @@ use tokio::{
 use tokio_stream::wrappers::{BroadcastStream, IntervalStream};
 use tracing::instrument;
 
-use super::common::CommitmentsEvent;
 use crate::{
     backends::{
         libp2p::common::{
             handle_balancer_command, handle_historic_sample_request, handle_monitor_command,
-            handle_sample_request, handle_validator_events_stream, DaNetworkBackendSettings,
-            SamplingEvent, BROADCAST_CHANNEL_SIZE,
+            handle_sample_request, handle_validator_events_stream, CommitmentsEvent,
+            DaNetworkBackendSettings, SamplingEvent, VerificationEvent, BROADCAST_CHANNEL_SIZE,
         },
         NetworkBackend,
     },
@@ -70,7 +68,7 @@ pub enum DaNetworkEventKind {
 pub enum DaNetworkEvent {
     Sampling(SamplingEvent),
     Commitments(CommitmentsEvent),
-    Verifying(Box<DaShare>),
+    Verifying(VerificationEvent),
 }
 
 /// DA network backend for validators
@@ -86,7 +84,7 @@ pub struct DaNetworkValidatorBackend<Membership> {
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
     commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
-    verifying_broadcast_receiver: broadcast::Receiver<DaShare>,
+    verifying_broadcast_receiver: broadcast::Receiver<VerificationEvent>,
     _membership: PhantomData<Membership>,
 }
 
@@ -243,7 +241,7 @@ where
             DaNetworkEventKind::Verifying => Box::pin(
                 BroadcastStream::new(self.verifying_broadcast_receiver.resubscribe())
                     .filter_map(|event| async { event.ok() })
-                    .map(|share| Self::NetworkEvent::Verifying(Box::new(share))),
+                    .map(Self::NetworkEvent::Verifying),
             ),
         }
     }

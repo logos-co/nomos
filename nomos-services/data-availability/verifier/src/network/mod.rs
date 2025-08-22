@@ -10,6 +10,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
     type Backend: NetworkBackend<RuntimeServiceId> + Send + 'static;
     type Settings;
     type Share;
+    type Tx;
     type Membership: MembershipHandler + Clone;
     type Storage;
     type MembershipAdapter;
@@ -30,4 +31,5 @@ pub trait NetworkAdapter<RuntimeServiceId> {
     ) -> Self;
 
     async fn share_stream(&self) -> Box<dyn Stream<Item = Self::Share> + Unpin + Send>;
+    async fn tx_stream(&self) -> Box<dyn Stream<Item = (u16, Self::Tx)> + Unpin + Send>;
 }

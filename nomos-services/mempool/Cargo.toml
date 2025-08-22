@@ -22,7 +22,6 @@ linked-hash-map       = { version = "0.5.6", optional = true, features = ["serde
 nomos-core            = { workspace = true }
 nomos-da-network-core = { workspace = true }
 nomos-da-sampling     = { workspace = true, features = ["rocksdb-backend"] }
-nomos-da-verifier     = { workspace = true, features = ["rocksdb-backend"] }
 nomos-network         = { workspace = true }
 overwatch             = { workspace = true }
 rand                  = { workspace = true }

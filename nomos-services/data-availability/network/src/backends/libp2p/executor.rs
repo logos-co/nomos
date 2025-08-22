@@ -7,7 +7,7 @@ use futures::{
 use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;
 use log::error;
-use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId};
+use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId, mantle::SignedMantleTx};
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::dispersal::executor::behaviour::DispersalExecutorEvent,
@@ -30,7 +30,7 @@ use tokio::{
 use tokio_stream::wrappers::{BroadcastStream, IntervalStream, UnboundedReceiverStream};
 use tracing::instrument;
 
-use super::common::CommitmentsEvent;
+use super::common::{CommitmentsEvent, VerificationEvent};
 use crate::{
     backends::{
         libp2p::common::{
@@ -54,9 +54,13 @@ pub enum ExecutorDaNetworkMessage<BalancerStats, MonitorStats> {
     RequestCommitments {
         blob_id: BlobId,
     },
-    RequestDispersal {
+    RequestShareDispersal {
         subnetwork_id: SubnetworkId,
         da_share: Box<DaShare>,
+    },
+    RequestTxDispersal {
+        subnetwork_id: SubnetworkId,
+        tx: Box<SignedMantleTx>,
     },
     MonitorRequest(ConnectionMonitorCommand<MonitorStats>),
     BalancerStats(oneshot::Sender<BalancerStats>),
@@ -78,7 +82,7 @@ pub enum DaNetworkEventKind {
 pub enum DaNetworkEvent {
     Sampling(SamplingEvent),
     Commitments(CommitmentsEvent),
-    Verifying(Box<DaShare>),
+    Verifying(VerificationEvent),
     Dispersal(DispersalExecutorEvent),
 }
 
@@ -104,9 +108,10 @@ where
     commitments_request_channel: UnboundedSender<BlobId>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
     commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
-    verifying_broadcast_receiver: broadcast::Receiver<DaShare>,
+    verifying_broadcast_receiver: broadcast::Receiver<VerificationEvent>,
     dispersal_broadcast_receiver: broadcast::Receiver<DispersalExecutorEvent>,
     dispersal_shares_sender: UnboundedSender<(Membership::NetworkId, DaShare)>,
+    dispersal_tx_sender: UnboundedSender<(Membership::NetworkId, SignedMantleTx)>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
     _membership: PhantomData<Membership>,
@@ -177,6 +182,7 @@ where
         let historic_sample_request_channel = executor_swarm.historic_sample_request_channel();
         let commitments_request_channel = executor_swarm.commitments_request_channel();
         let dispersal_shares_sender = executor_swarm.dispersal_shares_channel();
+        let dispersal_tx_sender = executor_swarm.dispersal_tx_channel();
         let balancer_command_sender = executor_swarm.balancer_command_channel();
         let monitor_command_sender = executor_swarm.monitor_command_channel();
 
@@ -228,6 +234,7 @@ where
             verifying_broadcast_receiver,
             dispersal_broadcast_receiver,
             dispersal_shares_sender,
+            dispersal_tx_sender,
             balancer_command_sender,
             monitor_command_sender,
             _membership: PhantomData,
@@ -257,16 +264,21 @@ where
                 info_with_id!(&blob_id, "RequestSample");
                 handle_commitments_request(&self.commitments_request_channel, blob_id).await;
             }
-            ExecutorDaNetworkMessage::RequestDispersal {
+            ExecutorDaNetworkMessage::RequestShareDispersal {
                 subnetwork_id,
                 da_share,
             } => {
-                info_with_id!(&da_share.blob_id(), "RequestDispersal");
+                info_with_id!(&da_share.blob_id(), "RequestShareDispersal");
                 if let Err(e) = self
                     .dispersal_shares_sender
                     .send((subnetwork_id, *da_share))
                 {
                     error!("Could not send internal blob to underlying dispersal behaviour: {e}");
+                }
+            }
+            ExecutorDaNetworkMessage::RequestTxDispersal { subnetwork_id, tx } => {
+                if let Err(e) = self.dispersal_tx_sender.send((subnetwork_id, *tx)) {
+                    error!("Could not send internal tx to underlying dispersal behaviour: {e}");
                 }
             }
             ExecutorDaNetworkMessage::MonitorRequest(command) => {
@@ -305,7 +317,7 @@ where
             DaNetworkEventKind::Verifying => Box::pin(
                 BroadcastStream::new(self.verifying_broadcast_receiver.resubscribe())
                     .filter_map(|event| async { event.ok() })
-                    .map(|share| Self::NetworkEvent::Verifying(Box::new(share))),
+                    .map(Self::NetworkEvent::Verifying),
             ),
             DaNetworkEventKind::Dispersal => Box::pin(
                 BroadcastStream::new(self.dispersal_broadcast_receiver.resubscribe())
