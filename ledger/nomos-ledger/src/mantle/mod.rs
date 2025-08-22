@@ -1,4 +1,5 @@
 pub mod channel;
+pub mod sdp;
 
 use ed25519::signature::Verifier as _;
 use nomos_core::mantle::{
@@ -25,6 +26,8 @@ pub enum Error {
     UnsupportedOp,
     #[error("Invalid signature")]
     InvalidSignature,
+    #[error("Sdp error")]
+    SdpError,
 }
 
 /// Tracks mantle ops
