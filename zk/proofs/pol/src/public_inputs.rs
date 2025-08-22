@@ -9,6 +9,7 @@ use ark_ff::{BigInt, BigInteger};
 use groth16::{Bn254, Fr, Groth16PublicInput};
 use num_bigint::BigUint;
 use primitive_types::U256;
+use thiserror::Error;
 
 pub struct PolPublicInputs {
     slot_number: Groth16PublicInput,
@@ -59,8 +60,16 @@ static T1_CONSTANT: LazyLock<U256> = LazyLock::new(|| {
     .expect("Constant must be a valid hex string")
 });
 
+#[derive(Debug, Error)]
+pub enum PolInputsFromDataError {
+    #[error("Slot number is greater than P")]
+    SlotGreaterThanP,
+    #[error("Epoch nonce is greater than P")]
+    EpochGreaterThanP,
+}
+
 impl TryFrom<PolPublicInputsData> for PolPublicInputs {
-    type Error = String;
+    type Error = PolInputsFromDataError;
 
     fn try_from(
         PolPublicInputsData {
@@ -75,11 +84,11 @@ impl TryFrom<PolPublicInputsData> for PolPublicInputs {
     ) -> Result<Self, Self::Error> {
         let slot_number = U256::from(slot_number);
         if slot_number > *P {
-            return Err("Slot number is greater than P".to_string());
+            return Err(PolInputsFromDataError::SlotGreaterThanP);
         }
         let epoch_nonce = U256::from(epoch_nonce);
         if epoch_nonce > *P {
-            return Err("Epoch nonce is greater than P".to_string());
+            return Err(PolInputsFromDataError::EpochGreaterThanP);
         }
         let total_stake = U256::from(total_stake);
 
