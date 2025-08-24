@@ -6,7 +6,7 @@ use nomos_da_messages::http::da::{
     DASharesCommitmentsRequest, DaSamplingRequest, GetSharesRequest,
 };
 use nomos_http_api_common::paths::{
-    DA_GET_LIGHT_SHARE, DA_GET_SHARES, DA_GET_SHARES_COMMITMENTS, MEMPOOL_ADD_TX,
+    DA_GET_LIGHT_SHARE, DA_GET_SHARES, DA_GET_STORAGE_SHARES_COMMITMENTS, MEMPOOL_ADD_TX,
 };
 use reqwest::{Client, ClientBuilder, RequestBuilder, StatusCode, Url};
 use serde::{de::DeserializeOwned, Serialize};
@@ -103,7 +103,7 @@ impl CommonHttpClient {
         <S as Share>::BlobId: Serialize + Send + Sync,
     {
         let request: DASharesCommitmentsRequest<S> = DASharesCommitmentsRequest { blob_id };
-        let path = DA_GET_SHARES_COMMITMENTS.trim_start_matches('/');
+        let path = DA_GET_STORAGE_SHARES_COMMITMENTS.trim_start_matches('/');
         let request_url = base_url.join(path).map_err(Error::Url)?;
         self.get(request_url, &request).await
     }

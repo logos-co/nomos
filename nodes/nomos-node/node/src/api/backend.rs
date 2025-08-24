@@ -30,7 +30,7 @@ use nomos_da_network_service::{
     backends::libp2p::validator::DaNetworkValidatorBackend, membership::MembershipAdapter,
     storage::MembershipStorageAdapter,
 };
-use nomos_da_sampling::backend::DaSamplingServiceBackend;
+use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
 use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
 use nomos_http_api_common::paths;
 use nomos_libp2p::PeerId;
@@ -57,7 +57,8 @@ use utoipa_swagger_ui::SwaggerUi;
 use super::handlers::{
     add_blob_info, add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer,
     cl_metrics, cl_status, cryptarchia_headers, cryptarchia_info, da_get_commitments,
-    da_get_light_share, da_get_shares, get_range, libp2p_info, monitor_stats, unblock_peer,
+    da_get_light_share, da_get_shares, da_get_storage_commitments, get_range, libp2p_info,
+    monitor_stats, unblock_peer,
 };
 
 pub(crate) type DaStorageBackend<SerdeOp> = RocksBackend<SerdeOp>;
@@ -352,6 +353,14 @@ where
                 SamplingStorage,
                 RuntimeServiceId,
             >,
+        >
+        + AsServiceId<
+            DaSamplingService<
+                SamplingBackend,
+                SamplingNetworkAdapter,
+                SamplingStorage,
+                RuntimeServiceId,
+            >,
         >,
 {
     type Error = hyper::Error;
@@ -579,6 +588,18 @@ where
                 paths::DA_GET_SHARES_COMMITMENTS,
                 routing::get(
                     da_get_commitments::<
+                        DaVerifiedBlobInfo::BlobId,
+                        SamplingBackend,
+                        SamplingNetworkAdapter,
+                        SamplingStorage,
+                        RuntimeServiceId,
+                    >,
+                ),
+            )
+            .route(
+                paths::DA_GET_STORAGE_SHARES_COMMITMENTS,
+                routing::get(
+                    da_get_storage_commitments::<
                         DaStorageSerializer,
                         DaStorageConverter,
                         StorageAdapter,
