@@ -90,19 +90,43 @@ macro_rules! adapter_for {
                     .map_err(|error| Box::new(error) as DynError)
             }
 
-            async fn get_commitments(
+            async fn listen_to_commitments_messages(
                 &self,
-                blob_id: BlobId,
-            ) -> Result<Option<DaSharesCommitments>, DynError> {
-                let (sender, reply_receiver) = oneshot::channel();
+            ) -> Result<Pin<Box<dyn Stream<Item = CommitmentsEvent> + Send>>, DynError> {
+                let (stream_sender, stream_receiver) = oneshot::channel();
                 self.network_relay
-                    .send(DaNetworkMsg::GetCommitments {
-                        blob_id,
-                        sender,
+                    .send(DaNetworkMsg::Subscribe {
+                        kind: $DaEventKind::Commitments,
+                        sender: stream_sender,
                     })
                     .await
+                    .map_err(|(error, _)| error)?;
+                stream_receiver
+                    .await
+                    .map(|stream| {
+                        tokio_stream::StreamExt::filter_map(stream, |event| match event {
+                            $DaNetworkEvent::Commitments(event) => {
+                                Some(event)
+                            }
+                            _ => {
+                                unreachable!("Subscribing to commitments events should return a commitments only event stream");
+                            }
+                        }).boxed()
+                    })
+                    .map_err(|error| Box::new(error) as DynError)
+            }
+
+            async fn request_commitments(
+                &self,
+                blob_id: BlobId,
+            ) -> Result<(), DynError> {
+                self.network_relay
+                    .send(DaNetworkMsg::Process($DaNetworkMessage::RequestCommitments {
+                        blob_id,
+                    }))
+                    .await
                     .expect("RequestCommitments message should have been sent");
-                reply_receiver.await.map_err(DynError::from)
+                Ok(())
             }
         }
     }

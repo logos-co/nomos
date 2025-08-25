@@ -10,14 +10,14 @@ use std::{
 
 use chain_service::{CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, SyncConfig};
 use cryptarchia_engine::time::SlotConfig;
-use kzgrs_backend::common::share::DaShare;
+use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use nomos_api::http::membership::MembershipUpdateRequest;
 use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
 use nomos_blend_service::{
     core::settings::{CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt},
     settings::TimingSettings,
 };
-use nomos_core::{block::Block, mantle::SignedMantleTx, sdp::FinalizedBlockEvent};
+use nomos_core::{block::Block, da::BlobId, mantle::SignedMantleTx, sdp::FinalizedBlockEvent};
 use nomos_da_indexer::{
     storage::adapters::rocksdb::RocksAdapterSettings as IndexerStorageAdapterSettings,
     IndexerSettings,
@@ -42,7 +42,7 @@ use nomos_da_verifier::{
 };
 use nomos_http_api_common::paths::{
     CL_METRICS, CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_RANGE,
-    DA_MONITOR_STATS, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
+    DA_GET_SHARES_COMMITMENTS, DA_MONITOR_STATS, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
 };
 use nomos_mempool::MempoolMetrics;
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
@@ -175,6 +175,19 @@ impl Validator {
             .await
             .unwrap()
             .json::<Option<Block<SignedMantleTx, BlobInfo>>>()
+            .await
+            .unwrap()
+    }
+
+    pub async fn get_commitments(&self, blob_id: BlobId) -> Option<DaSharesCommitments> {
+        CLIENT
+            .post(format!("http://{}{}", self.addr, DA_GET_SHARES_COMMITMENTS))
+            .header("Content-Type", "application/json")
+            .body(serde_json::to_string(&blob_id).unwrap())
+            .send()
+            .await
+            .unwrap()
+            .json::<Option<DaSharesCommitments>>()
             .await
             .unwrap()
     }
@@ -462,6 +475,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 global_params_path: config.da_config.global_params_path,
                 domain_size: config.da_config.num_subnets as usize,
             },
+            commitments_wait_duration: Duration::from_secs(1),
         },
         storage: RocksBackendSettings {
             db_path: "./db".into(),

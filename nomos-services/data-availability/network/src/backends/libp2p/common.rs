@@ -69,6 +69,23 @@ pub enum SamplingEvent {
     SamplingError { error: SamplingError },
 }
 
+impl SamplingEvent {
+    #[must_use]
+    pub fn blob_id(&self) -> Option<&BlobId> {
+        match self {
+            Self::SamplingRequest { blob_id, .. } | Self::SamplingSuccess { blob_id, .. } => {
+                Some(blob_id)
+            }
+            Self::SamplingError { error } => error.blob_id(),
+        }
+    }
+
+    #[must_use]
+    pub fn has_blob_id(&self, target: &BlobId) -> bool {
+        self.blob_id() == Some(target)
+    }
+}
+
 /// Commitments events coming from da network.
 #[derive(Debug, Clone)]
 pub enum CommitmentsEvent {
@@ -86,20 +103,15 @@ pub enum CommitmentsEvent {
     CommitmentsError { error: SamplingError },
 }
 
-impl SamplingEvent {
+impl CommitmentsEvent {
     #[must_use]
     pub fn blob_id(&self) -> Option<&BlobId> {
         match self {
-            Self::SamplingRequest { blob_id, .. } | Self::SamplingSuccess { blob_id, .. } => {
+            Self::CommitmentsRequest { blob_id, .. } | Self::CommitmentsSuccess { blob_id, .. } => {
                 Some(blob_id)
             }
-            Self::SamplingError { error } => error.blob_id(),
+            Self::CommitmentsError { error } => error.blob_id(),
         }
-    }
-
-    #[must_use]
-    pub fn has_blob_id(&self, target: &BlobId) -> bool {
-        self.blob_id() == Some(target)
     }
 }
 
@@ -462,15 +474,6 @@ pub(crate) async fn handle_historic_sample_request<Membership>(
         historic_sample_request_channel.send((blob_ids, block_number, block_id, membership))
     {
         error!("Error requesting historic sample for blob_id: {blob_id:?}, block_number: {block_number:?}, block_id: {block_id:?}");
-    }
-}
-
-pub(crate) async fn handle_commitments_request(
-    commitments_request_channel: &UnboundedSender<BlobId>,
-    blob_id: BlobId,
-) {
-    if let Err(SendError(blob_id)) = commitments_request_channel.send(blob_id) {
-        error!("Error requesting commitments for blob_id: {blob_id:?}");
     }
 }
 

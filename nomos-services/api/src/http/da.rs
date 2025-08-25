@@ -5,7 +5,7 @@ use std::{
     hash::Hash,
 };
 
-use kzgrs_backend::common::share::DaShare;
+use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use nomos_core::{
     block::BlockNumber,
     da::{
@@ -34,6 +34,7 @@ use nomos_da_network_service::{
 };
 use nomos_da_sampling::{
     backend::DaSamplingServiceBackend, storage::adapters::rocksdb::converter::DaStorageConverter,
+    DaSamplingService, DaSamplingServiceMsg,
 };
 use nomos_da_verifier::{
     backend::VerifierBackend, mempool::DaMempoolAdapter,
@@ -278,6 +279,35 @@ where
             app_id,
             range,
             reply_channel: sender,
+        })
+        .await
+        .map_err(|(e, _)| e)?;
+
+    wait_with_timeout(receiver, "Timeout while waiting for get range".to_owned()).await
+}
+
+pub async fn get_commitments<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>(
+    handle: &OverwatchHandle<RuntimeServiceId>,
+    blob_id: SamplingBackend::BlobId,
+) -> Result<Option<DaSharesCommitments>, DynError>
+where
+    SamplingBackend: DaSamplingServiceBackend,
+    <SamplingBackend as DaSamplingServiceBackend>::BlobId: Send + 'static,
+    SamplingNetwork: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + AsServiceId<
+            DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>,
+        >,
+{
+    let relay = handle.relay().await?;
+    let (sender, receiver) = oneshot::channel();
+    relay
+        .send(DaSamplingServiceMsg::GetCommitments {
+            blob_id,
+            response_sender: sender,
         })
         .await
         .map_err(|(e, _)| e)?;

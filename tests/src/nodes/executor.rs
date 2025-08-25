@@ -429,6 +429,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 global_params_path: config.da_config.global_params_path.clone(),
                 domain_size: config.da_config.num_subnets as usize,
             },
+            commitments_wait_duration: Duration::from_secs(1),
         },
         storage: RocksBackendSettings {
             db_path: "./db".into(),
