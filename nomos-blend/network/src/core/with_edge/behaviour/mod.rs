@@ -51,7 +51,7 @@ pub struct Behaviour {
     events: VecDeque<ToSwarm<Event, Either<FromBehaviour, Infallible>>>,
     /// Waker that handles polling
     waker: Option<Waker>,
-    // TODO: Replace with the session stream and make this a non-Option
+    // TODO: Make this a non-Option by refactoring tests
     current_membership: Option<Membership<PeerId>>,
     // Timeout to close connection with an edge node if a message is not received on time.
     connection_timeout: Duration,

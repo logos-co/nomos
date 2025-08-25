@@ -93,7 +93,7 @@ pub struct Behaviour<ObservationWindowClockProvider> {
     /// the peer being flagged as malicious, and the connection dropped.
     exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
     observation_window_clock_provider: ObservationWindowClockProvider,
-    // TODO: Replace with the session stream and make this a non-Option
+    // TODO: Make this a non-Option by refactoring tests
     current_membership: Option<Membership<PeerId>>,
     /// The [minimum, maximum] peering degree of this node.
     peering_degree: RangeInclusive<usize>,
