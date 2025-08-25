@@ -327,36 +327,40 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 initial_peers: config.network_config.initial_peers,
             },
         },
-        blend: BlendConfig::new(nomos_blend_service::core::settings::BlendConfig {
-            backend: config.blend_config.backend,
-            crypto: CryptographicProcessorSettings {
-                signing_private_key: config.blend_config.private_key.clone(),
-                num_blend_layers: 1,
-            },
-            time: TimingSettings {
-                round_duration: Duration::from_secs(1),
-                rounds_per_interval: NonZeroU64::try_from(30u64)
-                    .expect("Rounds per interval cannot be zero."),
-                // (21,600 blocks * 30s per block) / 1s per round = 648,000 rounds
-                rounds_per_session: NonZeroU64::try_from(648_000u64)
-                    .expect("Rounds per session cannot be zero."),
-                rounds_per_observation_window: NonZeroU64::try_from(30u64)
-                    .expect("Rounds per observation window cannot be zero."),
-            },
-            scheduler: SchedulerSettingsExt {
-                cover: CoverTrafficSettingsExt {
-                    intervals_for_safety_buffer: 100,
-                    message_frequency_per_round: NonNegativeF64::try_from(1f64)
-                        .expect("Message frequency per round cannot be negative."),
-                    redundancy_parameter: 0,
+        blend: BlendConfig::new(
+            nomos_blend_service::core::settings::BlendConfig {
+                backend: config.blend_config.backend,
+                crypto: CryptographicProcessorSettings {
+                    signing_private_key: config.blend_config.private_key.clone(),
+                    num_blend_layers: 1,
                 },
-                delayer: MessageDelayerSettingsExt {
-                    maximum_release_delay_in_rounds: NonZeroU64::try_from(3u64)
-                        .expect("Maximum release delay between rounds cannot be zero."),
+                time: TimingSettings {
+                    round_duration: Duration::from_secs(1),
+                    rounds_per_interval: NonZeroU64::try_from(30u64)
+                        .expect("Rounds per interval cannot be zero."),
+                    // (21,600 blocks * 30s per block) / 1s per round = 648,000 rounds
+                    rounds_per_session: NonZeroU64::try_from(648_000u64)
+                        .expect("Rounds per session cannot be zero."),
+                    rounds_per_observation_window: NonZeroU64::try_from(30u64)
+                        .expect("Rounds per observation window cannot be zero."),
                 },
+                scheduler: SchedulerSettingsExt {
+                    cover: CoverTrafficSettingsExt {
+                        intervals_for_safety_buffer: 100,
+                        message_frequency_per_round: NonNegativeF64::try_from(1f64)
+                            .expect("Message frequency per round cannot be negative."),
+                        redundancy_parameter: 0,
+                    },
+                    delayer: MessageDelayerSettingsExt {
+                        maximum_release_delay_in_rounds: NonZeroU64::try_from(3u64)
+                            .expect("Maximum release delay between rounds cannot be zero."),
+                    },
+                },
+                membership: config.blend_config.membership,
             },
-            membership: config.blend_config.membership,
-        }),
+            1.try_into()
+                .expect("Minimum Blend network size cannot be zero."),
+        ),
         cryptarchia: CryptarchiaSettings {
             leader_config: config.consensus_config.leader_config,
             config: config.consensus_config.ledger_config,
