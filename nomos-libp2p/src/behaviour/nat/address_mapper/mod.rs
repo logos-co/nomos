@@ -1,7 +1,5 @@
 mod errors;
-mod nat_pmp;
-pub mod protocol;
-mod upnp;
+pub mod protocols;
 
 use std::{
     convert::Infallible,
@@ -24,7 +22,7 @@ use tokio::time::{self, Sleep};
 use tracing::{debug, info, warn};
 
 use crate::{
-    behaviour::nat::address_mapper::{errors::AddressMapperError, protocol::NatMapper},
+    behaviour::nat::address_mapper::{errors::AddressMapperError, protocols::NatMapper},
     config::NatMappingSettings,
 };
 

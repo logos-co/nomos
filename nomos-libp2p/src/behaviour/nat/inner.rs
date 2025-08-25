@@ -24,7 +24,7 @@ use tracing::error;
 use crate::{
     behaviour::nat::{
         address_mapper,
-        address_mapper::{protocol::ProtocolManager, AddressMapperBehaviour},
+        address_mapper::{protocols::ProtocolManager, AddressMapperBehaviour},
         state_machine::{Command, StateMachine},
     },
     config::NatSettings,
