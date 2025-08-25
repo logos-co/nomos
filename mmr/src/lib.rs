@@ -1,15 +1,16 @@
 use std::sync::OnceLock;
+
 use digest::Digest;
 use rpds::StackSync;
 
 const EMPTY_VALUE: [u8; 32] = [0; 32];
 
-/// An append-only persistent Merkle Mountain Range (MMR). 
-/// 
+/// An append-only persistent Merkle Mountain Range (MMR).
+///
 /// Compared to other merkle tree variants, this does not store leaves but
-/// only the necessary internal nodes to update the root hash with new additions.
-/// This makes it very space efficient, especially for large trees, as we only
-/// need to store O(log n) nodes for n leaves.
+/// only the necessary internal nodes to update the root hash with new
+/// additions. This makes it very space efficient, especially for large trees,
+/// as we only need to store O(log n) nodes for n leaves.
 ///
 /// Note on (de)serialization: serde will not preserve structural sharing since
 /// it does not know which nodes are shared. This is ok if you only
@@ -42,7 +43,7 @@ impl<const MAX_HEIGHT: u8, T, Hash> Default for MerkleMountainRange<T, Hash, MAX
 where
     T: AsRef<[u8]>,
     Hash: Digest<OutputSize = digest::typenum::U32>,
- {
+{
     fn default() -> Self {
         Self::new()
     }
@@ -55,7 +56,10 @@ where
 {
     #[must_use]
     pub fn new() -> Self {
-        assert!(MAX_HEIGHT <= 32, "MAX_HEIGHT must be less than or equal to 32");
+        assert!(
+            MAX_HEIGHT <= 32,
+            "MAX_HEIGHT must be less than or equal to 32"
+        );
         Self {
             roots: StackSync::new_sync(),
             _hash: std::marker::PhantomData,
@@ -81,7 +85,10 @@ where
                 };
                 // we want the frontier root to have a fixed height, so each individual root
                 // must be less than MAX_HEIGHT
-                assert!(last_root.height < MAX_HEIGHT, "Height must be less than {MAX_HEIGHT}");
+                assert!(
+                    last_root.height < MAX_HEIGHT,
+                    "Height must be less than {MAX_HEIGHT}"
+                );
             } else {
                 break;
             }
@@ -167,7 +174,10 @@ mod test {
         elements: impl IntoIterator<Item = impl AsRef<[u8]>>,
         height: u8,
     ) -> Vec<[u8; 32]> {
-        let mut leaves = elements.into_iter().map(|e| leaf(e.as_ref())).collect::<Vec<_>>();
+        let mut leaves = elements
+            .into_iter()
+            .map(|e| leaf(e.as_ref()))
+            .collect::<Vec<_>>();
         let pad = (1 << height as usize) - leaves.len();
         leaves.extend(std::iter::repeat_n([0; 32], pad));
         leaves
