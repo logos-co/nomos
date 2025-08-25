@@ -19,12 +19,15 @@ use libp2p::{
 };
 use rand::RngCore;
 use tokio::sync::mpsc::UnboundedReceiver;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::{
     behaviour::nat::{
         address_mapper,
-        address_mapper::{protocol::ProtocolManager, AddressMapperBehaviour},
+        address_mapper::{protocol::ProtocolManager, AddressMapperBehaviour, NatMapper},
+        gateway_monitor::{
+            GatewayDetector, GatewayMonitor, GatewayMonitorEvent, SystemGatewayDetector,
+        },
         state_machine::{Command, StateMachine},
     },
     config::NatSettings,
@@ -32,18 +35,20 @@ use crate::{
 
 type Task = BoxFuture<'static, Multiaddr>;
 
-/// Provides dynamic NAT-status detection, improvement (via address mapping on
-/// the NAT-box), and periodic maintenance capabilities.
-pub struct InnerNatBehaviour<R: RngCore + 'static> {
+pub struct InnerNatBehaviour<R, Mapper, Detector>
+where
+    R: RngCore + 'static,
+{
     /// `AutoNAT` client behaviour which is used to confirm if addresses of our
     /// node are indeed publicly reachable.
     autonat_client_behaviour: autonat::v2::client::Behaviour<R>,
     /// The address mapper behaviour is used to map the node's addresses at the
     /// default gateway using one of the protocols: `PCP`, `NAT-PMP`,
-    /// `UPNP-IGD`. The current implementation is a placeholder and does not
-    /// perform any actual address mapping, and always generates a failure
-    /// event.
-    address_mapper_behaviour: AddressMapperBehaviour<ProtocolManager>,
+    /// `UPNP-IGD`.
+    address_mapper_behaviour: AddressMapperBehaviour<Mapper>,
+    /// Gateway monitor that periodically checks for gateway address changes
+    /// and triggers re-mapping when the gateway changes.
+    gateway_monitor: GatewayMonitor<Detector>,
     /// The state machine reacts to events from the swarm and from the
     /// sub-behaviours of the `InnerNatBehaviour` and issues commands to the
     /// `InnerNatBehaviour`.
@@ -57,16 +62,38 @@ pub struct InnerNatBehaviour<R: RngCore + 'static> {
     next_autonat_client_tick: Fuse<OptionFuture<Task>>,
     /// Interval for the above ticker.
     autonat_client_tick_interval: Duration,
+    /// Current local address that is being managed
+    local_address: Option<Multiaddr>,
 }
 
-impl<R: RngCore + 'static> InnerNatBehaviour<R> {
+pub type NatBehaviour<R> = InnerNatBehaviour<R, ProtocolManager, SystemGatewayDetector>;
+
+impl<R: RngCore + 'static> NatBehaviour<R> {
     pub fn new(rng: R, nat_config: NatSettings) -> Self {
-        let address_mapper_behaviour = AddressMapperBehaviour::new(nat_config.mapping);
+        let address_mapper_behaviour =
+            AddressMapperBehaviour::<ProtocolManager>::new(nat_config.mapping);
+
+        let gateway_monitor =
+            GatewayMonitor::<SystemGatewayDetector>::new(nat_config.gateway_monitor);
+
+        Self::create(rng, nat_config, address_mapper_behaviour, gateway_monitor)
+    }
+}
+
+impl<R, Mapper, Detector> InnerNatBehaviour<R, Mapper, Detector>
+where
+    R: RngCore + 'static,
+{
+    fn create(
+        rng: R,
+        nat_config: NatSettings,
+        address_mapper_behaviour: AddressMapperBehaviour<Mapper>,
+        gateway_monitor: GatewayMonitor<Detector>,
+    ) -> Self {
         let autonat_client_behaviour =
             autonat::v2::client::Behaviour::new(rng, nat_config.autonat.to_libp2p_config());
 
         let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
-
         let state_machine = StateMachine::new(command_tx);
 
         let autonat_client_tick_interval = Duration::from_millis(
@@ -78,15 +105,22 @@ impl<R: RngCore + 'static> InnerNatBehaviour<R> {
         Self {
             autonat_client_behaviour,
             address_mapper_behaviour,
+            gateway_monitor,
             state_machine,
             command_rx,
             next_autonat_client_tick: OptionFuture::default().fuse(),
             autonat_client_tick_interval,
+            local_address: None,
         }
     }
 }
 
-impl<R: RngCore + 'static> NetworkBehaviour for InnerNatBehaviour<R> {
+impl<R, Mapper, Detector> NetworkBehaviour for InnerNatBehaviour<R, Mapper, Detector>
+where
+    R: RngCore + 'static,
+    Mapper: NatMapper + 'static,
+    Detector: GatewayDetector + 'static,
+{
     type ConnectionHandler =
         <autonat::v2::client::Behaviour as NetworkBehaviour>::ConnectionHandler;
 
@@ -189,6 +223,26 @@ impl<R: RngCore + 'static> NetworkBehaviour for InnerNatBehaviour<R> {
             // TODO: This is a placeholder for the missing API of the
             // autonat client
             // self.autonat_client_behaviour.retest_address(addr);
+        }
+
+        if let Poll::Ready(Some(event)) = self.gateway_monitor.poll(cx) {
+            match event {
+                GatewayMonitorEvent::GatewayChanged {
+                    old_gateway,
+                    new_gateway,
+                } => {
+                    info!(
+                        "Gateway changed from {old_gateway:?} to {new_gateway:?}, triggering address re-mapping",
+                    );
+
+                    self.state_machine
+                        .on_event(&address_mapper::Event::DefaultGatewayChanged {
+                            old_gateway,
+                            new_gateway,
+                            local_address: self.local_address.clone(),
+                        });
+                }
+            }
         }
 
         if let Poll::Ready(Some(command)) = self.command_rx.poll_recv(cx) {
