@@ -1,11 +1,14 @@
-use libp2p::Multiaddr;
+use multiaddr::Multiaddr;
+use upnp::UpnpProtocol;
 
 use crate::{
-    behaviour::nat::address_mapper::{
-        errors::AddressMapperError, nat_pmp::NatPmp, upnp::UpnpProtocol,
-    },
+    behaviour::nat::address_mapper::{errors::AddressMapperError, protocols::nat_pmp::NatPmp},
     config::NatMappingSettings,
 };
+
+mod nat_pmp;
+mod pcp;
+mod upnp;
 
 #[async_trait::async_trait]
 pub trait NatMapper: Send + Sync + 'static {
