@@ -12,13 +12,15 @@ pub struct ServiceStatusEntriesError<RuntimeServiceId: Display> {
 
 impl<RuntimeServiceId: Display> Display for ServiceStatusEntriesError<RuntimeServiceId> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let entries: Vec<String> = self
-            .service_status_entries
-            .iter()
-            .map(ToString::to_string)
-            .collect();
-        let entries = entries.join(", ");
-        write!(f, "ServiceStatuses: {entries}")
+        let mut iter = self.service_status_entries.iter();
+        write!(f, "ServiceStatuses: [")?;
+        if let Some(elem) = iter.next() {
+            write!(f, "{elem}")?;
+        }
+        for elem in iter {
+            write!(f, ", {elem}")?;
+        }
+        write!(f, "]")
     }
 }
 
