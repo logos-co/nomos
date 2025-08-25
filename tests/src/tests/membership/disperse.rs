@@ -52,7 +52,7 @@ async fn update_membership_and_dissiminate() {
             finalized_block_event_updates.push(FinalizedBlockEventUpdate {
                 service_type: nomos_core::sdp::ServiceType::DataAvailability,
                 provider_id: provider,
-                state: nomos_core::sdp::DeclarationState::Active,
+                state: nomos_core::sdp::FinalizedDeclarationState::Active,
                 locators,
             });
         }
