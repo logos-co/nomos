@@ -1,7 +1,6 @@
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     convert::Infallible,
-    mem,
     task::{Context, Poll, Waker},
 };
 
@@ -34,45 +33,32 @@ pub struct OldSession {
 
 impl OldSession {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new(
+        negotiated_peers: HashMap<PeerId, ConnectionId>,
+        exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
+    ) -> Self {
         Self {
-            negotiated_peers: HashMap::new(),
-            exchanged_message_identifiers: HashMap::new(),
+            negotiated_peers,
+            exchanged_message_identifiers,
             events: VecDeque::new(),
             waker: None,
         }
     }
 
-    /// Starts an old session with the given states.
-    ///
-    /// If it still has the old session that is not stopped yet, it stops it
-    /// first. This can happen if this method was called before
-    /// [`Self::stop`] is called.
-    pub fn start(
-        &mut self,
-        negotiated_peers: HashMap<PeerId, ConnectionId>,
-        exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
-    ) {
-        self.stop();
-        self.negotiated_peers = negotiated_peers;
-        self.exchanged_message_identifiers = exchanged_message_identifiers;
-    }
-
-    /// Stops the old session, notifying all peers that it is closing
-    /// substreams.
+    /// Stops the old session by returning events to close all the substreams
+    /// in the old session.
     ///
     /// It should be called once the session transition period has passed.
-    pub fn stop(&mut self) {
-        let peers = mem::take(&mut self.negotiated_peers);
-        for (&peer_id, &connection_id) in &peers {
-            self.events.push_back(ToSwarm::NotifyHandler {
+    pub fn stop(self) -> VecDeque<ToSwarm<Event, Either<FromBehaviour, Infallible>>> {
+        let mut events = VecDeque::with_capacity(self.negotiated_peers.len());
+        for (&peer_id, &connection_id) in &self.negotiated_peers {
+            events.push_back(ToSwarm::NotifyHandler {
                 peer_id,
                 handler: NotifyHandler::One(connection_id),
                 event: Either::Left(FromBehaviour::CloseSubstreams),
             });
-            self.try_wake();
         }
-        self.exchanged_message_identifiers.clear();
+        events
     }
 
     /// Checks if the connection is part of the old session.
@@ -138,7 +124,8 @@ impl OldSession {
     /// # Returns
     /// - [`Ok(false)`] if the connection is not part of the session.
     /// - [`Ok(true)`] if the message was successfully processed and forwarded.
-    /// - [`Err(Error)`] if the message is invalid or has already been exchanged.
+    /// - [`Err(Error)`] if the message is invalid or has already been
+    ///   exchanged.
     pub fn handle_received_serialized_encapsulated_message(
         &mut self,
         serialized_message: &[u8],
@@ -195,14 +182,20 @@ impl OldSession {
 
     /// Should be called when a connection is detected as closed.
     ///
-    /// It removes the connection from the states.
-    pub fn handle_closed_connection(&mut self, (peer_id, connection_id): &(PeerId, ConnectionId)) {
+    /// It removes the connection from the states and returns [`true`]
+    /// if the connection was part of the old session.
+    pub fn handle_closed_connection(
+        &mut self,
+        (peer_id, connection_id): &(PeerId, ConnectionId),
+    ) -> bool {
         if let Entry::Occupied(entry) = self.negotiated_peers.entry(*peer_id) {
             if entry.get() == connection_id {
                 entry.remove();
                 self.exchanged_message_identifiers.remove(peer_id);
+                return true;
             }
         }
+        false
     }
 
     fn try_wake(&mut self) {

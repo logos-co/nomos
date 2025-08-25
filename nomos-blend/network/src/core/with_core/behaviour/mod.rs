@@ -100,7 +100,7 @@ pub struct Behaviour<ObservationWindowClockProvider> {
     local_peer_id: PeerId,
     /// States for processing messages from the old session
     /// before the transition period has passed.
-    old_session: OldSession,
+    old_session: Option<OldSession>,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
@@ -183,24 +183,37 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             peering_degree: config.peering_degree.clone(),
             connections_waiting_upgrade: HashMap::new(),
             local_peer_id,
-            old_session: OldSession::new(),
+            old_session: None,
         }
     }
 
     pub fn start_new_session(&mut self, new_membership: Membership<PeerId>) {
         self.connections_waiting_upgrade.clear();
         self.current_membership = Some(new_membership);
-        self.old_session.start(
+
+        self.stop_old_session();
+        self.old_session = Some(OldSession::new(
             mem::take(&mut self.negotiated_peers)
                 .into_iter()
                 .map(|(peer_id, details)| (peer_id, details.connection_id))
                 .collect(),
             mem::take(&mut self.exchanged_message_identifiers),
-        );
+        ));
     }
 
     pub fn finish_session_transition(&mut self) {
-        self.old_session.stop();
+        self.stop_old_session();
+    }
+
+    fn stop_old_session(&mut self) {
+        if let Some(old_session) = self.old_session.take() {
+            let mut events = old_session.stop();
+            let num_events = events.len();
+            self.events.append(&mut events);
+            if num_events > 0 {
+                self.try_wake();
+            }
+        }
     }
 
     /// Publish an already-encapsulated message to all connected peers.
@@ -247,11 +260,10 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         message: &EncapsulatedMessageWithValidatedPublicHeader,
         except: (PeerId, ConnectionId),
     ) -> Result<(), Error> {
-        if self
-            .old_session
-            .forward_validated_message(message, &except)?
-        {
-            return Ok(());
+        if let Some(old_session) = &mut self.old_session {
+            if old_session.forward_validated_message(message, &except)? {
+                return Ok(());
+            }
         }
         self.forward_validated_message_and_maybe_exclude(message, Some(except.0))
     }
@@ -674,6 +686,25 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         serialized_message: &[u8],
         (from_peer_id, from_connection_id): (PeerId, ConnectionId),
     ) {
+        // First, try to handle the message in the context of the old session.
+        // If it is not part of the old session, try with the current session.
+        if let Some(old_session) = &mut self.old_session {
+            match old_session.handle_received_serialized_encapsulated_message(
+                serialized_message,
+                (from_peer_id, from_connection_id),
+            ) {
+                Ok(handled) => {
+                    if handled {
+                        return;
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(target: LOG_TARGET, "Failed to handle message from the old session: {e:?}");
+                    return;
+                }
+            }
+        }
+
         // Mark a peer as malicious if it sends a un-deserializable message: https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df8172927bebb75d8b988e.
         let Ok(deserialized_encapsulated_message) =
             deserialize_encapsulated_message(serialized_message)
@@ -898,8 +929,11 @@ where
         }) = event
         {
             // Try to close the connection if it exists in the old session.
-            self.old_session
-                .handle_closed_connection(&(peer_id, connection_id));
+            if let Some(old_session) = &mut self.old_session {
+                if old_session.handle_closed_connection(&(peer_id, connection_id)) {
+                    return;
+                }
+            }
 
             // We notify the swarm of any outbound connection that failed to be upgraded.
             if let Some(remote_peer_role) = self
@@ -957,19 +991,10 @@ where
             Either::Left(event) => match event {
                 // A message was forwarded from the peer.
                 ToBehaviour::Message(message) => {
-                    if self
-                        .old_session
-                        .handle_received_serialized_encapsulated_message(
-                            &message,
-                            (peer_id, connection_id),
-                        )
-                        == Ok(false)
-                    {
-                        self.handle_received_serialized_encapsulated_message(
-                            &message,
-                            (peer_id, connection_id),
-                        );
-                    }
+                    self.handle_received_serialized_encapsulated_message(
+                        &message,
+                        (peer_id, connection_id),
+                    );
                 }
                 // The inbound/outbound connection was fully negotiated by the peer,
                 // which means that the peer supports the blend protocol. We consider them healthy
@@ -1001,8 +1026,10 @@ where
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
-        if let Poll::Ready(event) = self.old_session.poll(cx) {
-            return Poll::Ready(event);
+        if let Some(old_session) = &mut self.old_session {
+            if let Poll::Ready(event) = old_session.poll(cx) {
+                return Poll::Ready(event);
+            }
         }
 
         if let Some(event) = self.events.pop_front() {
