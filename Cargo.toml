@@ -5,6 +5,7 @@ members = [
   "consensus/cryptarchia-engine",
   "consensus/cryptarchia-sync",
   "ledger/nomos-ledger",
+  "mmr",
   "nodes/api-common",
   "nodes/nomos-executor/executor",
   "nodes/nomos-executor/http-client",
@@ -70,6 +71,7 @@ executor-http-client     = { path = "./nodes/nomos-executor/http-client" }
 key-management-system    = { path = "./nomos-services/key-management-system" }
 kzgrs                    = { path = "./nomos-da/kzgrs" }
 kzgrs-backend            = { path = "./nomos-da/kzgrs-backend" }
+mmr                      = { path = "./mmr" }
 nomos-api                = { path = "./nomos-services/api" }
 nomos-blend-message      = { path = "./nomos-blend/message" }
 nomos-blend-network      = { path = "./nomos-blend/network" }
