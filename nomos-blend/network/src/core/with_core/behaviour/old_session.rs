@@ -83,7 +83,7 @@ impl OldSession {
             .is_some_and(|&id| id == *connection_id)
     }
 
-    /// Forwards a message to all connections except the [`from`] peer.
+    /// Forwards a message to all connections except the [`except`] peer.
     ///
     /// Public header validation checks are skipped, since the message is
     /// assumed to have been properly formed.
@@ -92,14 +92,14 @@ impl OldSession {
     pub fn forward_validated_message(
         &mut self,
         message: &EncapsulatedMessageWithValidatedPublicHeader,
-        from: PeerId,
+        except: PeerId,
     ) -> Result<(), Error> {
         let message_id = message.id();
         let serialized_message = serialize_encapsulated_message(message);
         let mut at_least_one_receiver = false;
         self.negotiated_peers
             .iter()
-            .filter(|(&peer_id, _)| peer_id != from)
+            .filter(|(&peer_id, _)| peer_id != except)
             .for_each(|(&peer_id, &connection_id)| {
                 if Self::check_and_update_message_cache(
                     &mut self.exchanged_message_identifiers,

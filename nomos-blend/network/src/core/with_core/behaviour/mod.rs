@@ -230,10 +230,10 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         Ok(())
     }
 
-    /// Forwards a message to all healthy connections except the [`from`]
+    /// Forwards a message to all healthy connections except the [`execpt`]
     /// connection.
     ///
-    /// If the [`from`] connection is part of the old session, the message is
+    /// If the [`execpt`] connection is part of the old session, the message is
     /// forwarded to the connections in the old session.
     /// Otherwise, it is forwarded to the connections in the current session.
     ///
@@ -245,14 +245,15 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     pub fn forward_validated_message(
         &mut self,
         message: &EncapsulatedMessageWithValidatedPublicHeader,
-        from: (PeerId, ConnectionId),
+        except: (PeerId, ConnectionId),
     ) -> Result<(), Error> {
-        if self.old_session.is_negotiated(&from) {
-            tracing::debug!(target: LOG_TARGET, "Forwarding message to the conns in the old session, except {from:?}.");
-            self.old_session.forward_validated_message(message, from.0)
+        if self.old_session.is_negotiated(&except) {
+            tracing::debug!(target: LOG_TARGET, "Forwarding message to the conns in the old session, except {except:?}.");
+            self.old_session
+                .forward_validated_message(message, except.0)
         } else {
-            tracing::debug!(target: LOG_TARGET, "Forwarding message to the conns in the current session, except {from:?}.");
-            self.forward_validated_message_and_maybe_exclude(message, Some(from.0))
+            tracing::debug!(target: LOG_TARGET, "Forwarding message to the conns in the current session, except {except:?}.");
+            self.forward_validated_message_and_maybe_exclude(message, Some(except.0))
         }
     }
 

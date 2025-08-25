@@ -317,14 +317,14 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
     fn forward_validated_swarm_message(
         &mut self,
         msg: &EncapsulatedMessageWithValidatedPublicHeader,
-        from: (PeerId, ConnectionId),
+        except: (PeerId, ConnectionId),
     ) {
         if let Err(e) = self
             .swarm
             .behaviour_mut()
             .blend
             .with_core_mut()
-            .forward_validated_message(msg, from)
+            .forward_validated_message(msg, except)
         {
             tracing::error!(target: LOG_TARGET, "Failed to forward message to blend network: {e:?}");
             tracing::info!(counter.failed_outbound_messages = 1);
