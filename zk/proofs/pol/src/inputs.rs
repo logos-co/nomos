@@ -23,7 +23,7 @@ impl PolInputs {
 }
 
 #[derive(Serialize)]
-struct PolInputsJson {
+pub struct PolInputsJson {
     #[serde(flatten)]
     pub private: PolPrivateInputsJson,
     #[serde(flatten)]

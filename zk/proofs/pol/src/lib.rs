@@ -3,6 +3,7 @@ mod private_inputs;
 mod proving_key;
 mod public_inputs;
 mod verification_key;
+mod witness;
 
 use std::error::Error;
 
