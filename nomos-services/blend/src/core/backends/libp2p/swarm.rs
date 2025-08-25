@@ -182,7 +182,9 @@ where
         if let Err(e) = self.swarm.dial(
             DialOpts::peer_id(peer_id)
                 .addresses(vec![address])
-                .condition(PeerCondition::DisconnectedAndNotDialing)
+                // We use `Always` since we want to be able to dial a peer even if we already have
+                // an established connection with it that belongs to the previous session.
+                .condition(PeerCondition::Always)
                 .build(),
         ) {
             tracing::error!(target: LOG_TARGET, "Failed to dial peer {peer_id:?}: {e:?}");
