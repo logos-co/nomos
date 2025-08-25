@@ -90,7 +90,7 @@ async fn update_membership_and_dissiminate() {
 
     for i in 0..ITERATIONS {
         println!("iteration {i}");
-        disseminate_with_metadata(executor, &data, metadata).await;
+        let _ = disseminate_with_metadata(executor, &data, metadata).await;
 
         wait_for_indexed_blob(executor, app_id, from, to, num_subnets).await;
 

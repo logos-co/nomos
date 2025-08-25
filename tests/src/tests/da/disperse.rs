@@ -22,7 +22,7 @@ async fn disseminate_and_retrieve() {
         kzgrs_backend::dispersal::Metadata::new(app_id.clone().try_into().unwrap(), 0u64.into());
 
     tokio::time::sleep(Duration::from_secs(15)).await;
-    disseminate_with_metadata(executor, &data, metadata).await;
+    let _ = disseminate_with_metadata(executor, &data, metadata).await;
     tokio::time::sleep(Duration::from_secs(20)).await;
 
     let from = 0u64.to_be_bytes();
@@ -70,7 +70,7 @@ async fn disseminate_retrieve_reconstruct() {
         println!("disseminating {data_size} bytes");
         let data = &data[..data_size]; // test increasing size data
         let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(i as u64));
-        disseminate_with_metadata(executor, data, metadata).await;
+        let _ = disseminate_with_metadata(executor, data, metadata).await;
 
         let from = i.to_be_bytes();
         let to = (i + 1).to_be_bytes();
@@ -142,7 +142,7 @@ async fn four_subnets_disseminate_retrieve_reconstruct() {
         println!("disseminating {data_size} bytes");
         let data = &data[..data_size]; // test increasing size data
         let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(i as u64));
-        disseminate_with_metadata(executor, data, metadata).await;
+        let _ = disseminate_with_metadata(executor, data, metadata).await;
 
         let from = i.to_be_bytes();
         let to = (i + 1).to_be_bytes();
@@ -206,7 +206,7 @@ async fn disseminate_same_data() {
     let to = 1u64.to_be_bytes();
 
     for _ in 0..ITERATIONS {
-        disseminate_with_metadata(executor, &data, metadata).await;
+        let _ = disseminate_with_metadata(executor, &data, metadata).await;
 
         wait_for_indexed_blob(executor, app_id, from, to, num_subnets).await;
 
@@ -231,7 +231,7 @@ async fn local_testnet() {
 
     let mut index = 0u64;
     loop {
-        disseminate_with_metadata(
+        let _ = disseminate_with_metadata(
             executor,
             &generate_data(index),
             create_metadata(&app_id, index),
@@ -296,5 +296,5 @@ async fn split_2025_death_payload() {
         128, 84, 169, 217, 162, 189, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
-    disseminate_with_metadata(executor, &data, create_metadata(&app_id, 0u64)).await;
+    let _ = disseminate_with_metadata(executor, &data, create_metadata(&app_id, 0u64)).await;
 }

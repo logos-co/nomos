@@ -7,10 +7,12 @@ use std::{
     collections::{BTreeSet, HashMap},
     fmt::{Debug, Display},
     marker::PhantomData,
+    pin::Pin,
     time::Duration,
 };
 
 use backend::{DaSamplingServiceBackend, SamplingState};
+use futures::Stream;
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use network::NetworkAdapter;
 use nomos_core::da::BlobId;
@@ -70,6 +72,7 @@ pub enum DaSamplingServiceMsg<BlobId> {
 pub struct DaSamplingServiceSettings<BackendSettings, ShareVerifierSettings> {
     pub sampling_settings: BackendSettings,
     pub share_verifier_settings: ShareVerifierSettings,
+    pub commitments_wait_duration: Duration,
 }
 
 pub struct GenericDaSamplingService<
@@ -133,7 +136,7 @@ where
             SharesCommitments = DaSharesCommitments,
         > + Send,
     SamplingBackend::Settings: Clone,
-    SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,
     ShareVerifier: VerifierBackend<DaShare = DaShare> + Send + Sync,
 {
@@ -143,7 +146,7 @@ where
         network_adapter: &mut SamplingNetwork,
         storage_adapter: &SamplingStorage,
         sampler: &mut SamplingBackend,
-        pending_commitment_requests: &mut PendingCommitmentRequests,
+        commitments_wait_duration: Duration,
     ) {
         match msg {
             DaSamplingServiceMsg::TriggerSampling { blob_id } => {
@@ -152,7 +155,7 @@ where
                     if let Some(commitments) = Self::request_commitments(
                         storage_adapter,
                         network_adapter,
-                        pending_commitment_requests,
+                        commitments_wait_duration,
                         blob_id,
                     )
                     .await
@@ -179,7 +182,7 @@ where
                 let commitments = Self::request_commitments(
                     storage_adapter,
                     network_adapter,
-                    pending_commitment_requests,
+                    commitments_wait_duration,
                     blob_id,
                 )
                 .await;
@@ -260,21 +263,18 @@ where
         }
     }
 
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "nested error check when writing into response sender"
+    )]
     async fn handle_commitments_message(
         storage_adapter: &SamplingStorage,
-        pending_commitment_requests: &mut PendingCommitmentRequests,
         commitments_message: CommitmentsEvent,
     ) {
         match commitments_message {
-            CommitmentsEvent::CommitmentsSuccess {
-                blob_id,
-                ref commitments,
-            } => {
-                Self::respond_commitments(
-                    pending_commitment_requests,
-                    blob_id,
-                    Some(commitments.as_ref()),
-                );
+            CommitmentsEvent::CommitmentsSuccess { .. } => {
+                // Handled on demand with `wait_commitments`, this stream
+                // handler ignores such messages.
             }
             CommitmentsEvent::CommitmentsRequest {
                 blob_id,
@@ -288,7 +288,7 @@ where
             }
             CommitmentsEvent::CommitmentsError { error } => match error.blob_id() {
                 Some(blob_id) => {
-                    Self::respond_commitments(pending_commitment_requests, *blob_id, None);
+                    error_with_id!(blob_id, "Commitments response error: {error}");
                 }
                 None => {
                     tracing::error!("Commitments response error: {error}");
@@ -300,7 +300,7 @@ where
     async fn request_commitments(
         storage_adapter: &SamplingStorage,
         network_adapter: &SamplingNetwork,
-        pending_commitment_requests: &mut PendingCommitmentRequests,
+        wait_duration: Duration,
         blob_id: SamplingBackend::BlobId,
     ) -> Option<DaSharesCommitments> {
         // First try to get from storage which most of the time should be the case
@@ -310,26 +310,15 @@ where
 
         // Fall back to API request
         let (sender, receiver) = oneshot::channel();
-        let reqs = pending_commitment_requests.entry(blob_id).or_default();
-        reqs.push(sender);
+        let Ok(stream) = network_adapter.listen_to_commitments_messages().await else {
+            tracing::error!("Error subscribing to commitments stream");
+            return None;
+        };
 
         network_adapter.request_commitments(blob_id).await.ok()?;
-        receiver.await.ok().flatten()
-    }
+        tokio::spawn(wait_commitments(stream, wait_duration, sender, blob_id));
 
-    fn respond_commitments(
-        pending_commitment_requests: &mut PendingCommitmentRequests,
-        blob_id: SamplingBackend::BlobId,
-        commitments: Option<&DaSharesCommitments>,
-    ) {
-        let Some(blob_requests) = pending_commitment_requests.remove(&blob_id) else {
-            return;
-        };
-        for sender in blob_requests {
-            if let Err(err) = sender.send(commitments.cloned()) {
-                tracing::error!("Couldn't send commitments response: {err:?}");
-            }
-        }
+        receiver.await.ok().flatten()
     }
 }
 
@@ -370,7 +359,7 @@ where
             SharesCommitments = DaSharesCommitments,
         > + Send,
     SamplingBackend::Settings: Clone + Send + Sync,
-    SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
     SamplingNetwork::Settings: Send + Sync,
     SamplingNetwork::Membership: MembershipHandler + Clone + 'static,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,
@@ -408,6 +397,7 @@ where
         let DaSamplingServiceSettings {
             sampling_settings,
             share_verifier_settings,
+            commitments_wait_duration,
         } = service_resources_handle
             .settings_handle
             .notifier()
@@ -438,8 +428,6 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        let mut pending_commitment_requests: PendingCommitmentRequests = HashMap::new();
-
         wait_until_services_are_ready!(
             &service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
@@ -456,7 +444,7 @@ where
                         &mut network_adapter,
                         &storage_adapter,
                         &mut sampler,
-                        &mut pending_commitment_requests
+                        commitments_wait_duration,
                     ).await;
                 }
                 Some(sampling_message) = sampling_message_stream.next() => {
@@ -470,7 +458,6 @@ where
                 Some(commitments_message) = commitments_message_stream.next() => {
                     Self::handle_commitments_message(
                         &storage_adapter,
-                        &mut pending_commitment_requests,
                         commitments_message
                     ).await;
                 }
@@ -478,8 +465,31 @@ where
                 _ = next_prune_tick.tick() => {
                     sampler.prune();
                 }
-
             }
         }
     }
+}
+
+async fn wait_commitments(
+    mut stream: Pin<Box<dyn Stream<Item = CommitmentsEvent> + Send>>,
+    wait_duration: Duration,
+    sender: oneshot::Sender<Option<DaSharesCommitments>>,
+    requested_blob_id: BlobId,
+) {
+    let _ = tokio::time::timeout(wait_duration, async {
+        while let Some(message) = stream.next().await {
+            if let CommitmentsEvent::CommitmentsSuccess {
+                blob_id,
+                commitments,
+            } = message
+            {
+                if blob_id == requested_blob_id {
+                    let _ = sender.send(Some(*commitments));
+                    return;
+                }
+            }
+        }
+        let _ = sender.send(None);
+    })
+    .await;
 }

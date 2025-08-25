@@ -92,7 +92,7 @@ impl CommonHttpClient {
     }
 
     /// Get the commitments for a Blob
-    pub async fn get_commitments<S>(
+    pub async fn get_storage_commitments<S>(
         &self,
         base_url: Url,
         blob_id: S::BlobId,

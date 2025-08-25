@@ -586,7 +586,7 @@ where
             )
             .route(
                 paths::DA_GET_SHARES_COMMITMENTS,
-                routing::get(
+                routing::post(
                     da_get_commitments::<
                         DaVerifiedBlobInfo::BlobId,
                         SamplingBackend,

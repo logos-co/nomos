@@ -50,7 +50,9 @@ impl ExecutorHttpClient {
         <S as Share>::BlobId: Serialize + Send + Sync,
         <S as Share>::SharesCommitments: DeserializeOwned + Send + Sync,
     {
-        self.client.get_commitments::<S>(base_url, blob_id).await
+        self.client
+            .get_storage_commitments::<S>(base_url, blob_id)
+            .await
     }
 
     /// Get share by blob id and share index
