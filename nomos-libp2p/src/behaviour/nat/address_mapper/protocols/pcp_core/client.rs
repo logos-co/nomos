@@ -8,7 +8,7 @@ use thiserror::Error;
 #[cfg(test)]
 use zerocopy::IntoBytes as _;
 
-use crate::behaviour::nat::address_mapper::protocols::pcp::{
+use crate::behaviour::nat::address_mapper::protocols::pcp_core::{
     connection::{generate_nonce, PcpConnection},
     mapping::Mapping,
     wire::{PcpAnnounceRequest, PcpAnnounceResponse, PcpMapRequest, Protocol, ResultCode},
@@ -240,7 +240,7 @@ impl PcpClient {
     ) -> Result<(), PcpError> {
         use zerocopy::FromBytes as _;
 
-        use crate::behaviour::nat::address_mapper::protocols::pcp::wire::{
+        use crate::behaviour::nat::address_mapper::protocols::pcp_core::wire::{
             PcpMapResponse, PCP_MAP_SIZE,
         };
 

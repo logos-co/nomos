@@ -2,7 +2,7 @@ use std::{net::Ipv4Addr, num::NonZeroU16};
 
 use zerocopy::FromBytes as _;
 
-use crate::behaviour::nat::address_mapper::protocols::pcp::{
+use crate::behaviour::nat::address_mapper::protocols::pcp_core::{
     client::PcpError,
     wire::{ipv6_mapped_to_ipv4, PcpMapResponse, Protocol, ResultCode, PCP_MAP_SIZE},
 };
@@ -102,7 +102,7 @@ mod tests {
     use zerocopy::{FromZeros as _, IntoBytes as _};
 
     use super::*;
-    use crate::behaviour::nat::address_mapper::protocols::pcp::wire::{
+    use crate::behaviour::nat::address_mapper::protocols::pcp_core::wire::{
         ipv4_to_ipv6_mapped, OPCODE_MAP, PCP_VERSION,
     };
 

@@ -8,7 +8,7 @@ use tokio::{
 };
 use zerocopy::IntoBytes as _;
 
-use crate::behaviour::nat::address_mapper::protocols::pcp::{
+use crate::behaviour::nat::address_mapper::protocols::pcp_core::{
     client::{PcpConfig, PcpError},
     wire::{PcpAnnounceRequest, PcpMapRequest},
 };
