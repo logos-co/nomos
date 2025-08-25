@@ -1,0 +1,25 @@
+[package]
+edition           = "2024"
+license.workspace = true
+name              = "mmr"
+version           = "0.1.0"
+
+[dependencies]
+digest = "0.10.7"
+rpds   = "1.1.1"
+serde  = { features = ["derive"], optional = true, version = "1" }
+
+[dev-dependencies]
+blake2         = "0.10.5"
+proptest       = "1.0"
+proptest-macro = "0.2"
+
+[lints]
+workspace = true
+
+[features]
+serde = ["dep:serde", "rpds/serde"]
+
+[package.metadata.cargo-machete]
+# False positives.
+ignored = ["proptest"]
