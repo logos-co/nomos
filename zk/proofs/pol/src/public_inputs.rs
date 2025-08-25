@@ -6,7 +6,7 @@ use std::{
 use groth16::{Fr, Groth16Input, Groth16InputDeser};
 use num_bigint::BigUint;
 use primitive_types::U256;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Copy, Clone)]
@@ -32,7 +32,7 @@ pub struct PolPublicInputsData {
     leader_pk: ([u8; 16], [u8; 16]),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct PolPublicInputsJson {
     entropy_contribution: Groth16InputDeser,
     slot_number: Groth16InputDeser,
@@ -45,6 +45,36 @@ pub struct PolPublicInputsJson {
     leader_pk1: Groth16InputDeser,
     #[serde(rename = "one_time_key_part_two")]
     leader_pk2: Groth16InputDeser,
+}
+
+impl TryFrom<PolPublicInputsJson> for PolPublicInputs {
+    type Error = <Groth16Input as TryFrom<Groth16InputDeser>>::Error;
+
+    fn try_from(
+        PolPublicInputsJson {
+            entropy_contribution,
+            slot_number,
+            epoch_nonce,
+            lottery_0,
+            lottery_1,
+            aged_root,
+            latest_root,
+            leader_pk1,
+            leader_pk2,
+        }: PolPublicInputsJson,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            entropy_contribution: entropy_contribution.try_into()?,
+            slot_number: slot_number.try_into()?,
+            epoch_nonce: epoch_nonce.try_into()?,
+            lottery_0: lottery_0.try_into()?,
+            lottery_1: lottery_1.try_into()?,
+            aged_root: aged_root.try_into()?,
+            latest_root: latest_root.try_into()?,
+            leader_pk1: leader_pk1.try_into()?,
+            leader_pk2: leader_pk2.try_into()?,
+        })
+    }
 }
 
 impl From<&PolPublicInputs> for PolPublicInputsJson {

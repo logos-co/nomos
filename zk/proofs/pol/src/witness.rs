@@ -1,17 +1,14 @@
-use std::error::Error;
-
-use pol_witness_generator::PolWitnessGenerator;
-use witness_generator_core::WitnessGenerator as _;
-
 use crate::{PolInputs, inputs::PolInputsJson};
 
 pub struct Witness(Vec<u8>);
 
 impl Witness {
+    #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
+    #[must_use]
     pub fn into_inner(self) -> Vec<u8> {
         self.0
     }
@@ -23,9 +20,9 @@ impl AsRef<[u8]> for Witness {
     }
 }
 
-fn generate_witness(inputs: PolInputs) -> Result<Witness, impl Error> {
+pub fn generate_witness(inputs: &PolInputs) -> Result<Witness, std::io::Error> {
     let pol_inputs_json: PolInputsJson = inputs.into();
     let str_inputs: String =
         serde_json::to_string(&pol_inputs_json).expect("Failed to serialize inputs");
-    PolWitnessGenerator::generate_witness(&str_inputs).map(Witness)
+    pol_witness_generator::generate_witness(&str_inputs).map(Witness)
 }
