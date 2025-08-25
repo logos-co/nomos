@@ -10,8 +10,8 @@ use crate::behaviour::nat::state_machine::{
 ///
 /// ### Panics
 ///
-/// This state will panic if it receives a mapping failure event that does not
-/// match the expected address to map.
+/// This state will panic if it receives a mapping event (success or failure)
+/// that does not match the expected address to map.
 impl OnEvent for State<TryMapAddress> {
     fn on_event(self: Box<Self>, event: Event, command_tx: &CommandTx) -> Box<dyn OnEvent> {
         match event {
@@ -22,20 +22,26 @@ impl OnEvent for State<TryMapAddress> {
                 command_tx.force_send(Command::NewExternalAddrCandidate(external_address.clone()));
                 self.boxed(|state| state.into_test_if_mapped_public(external_address))
             }
-            Event::NewExternalMappedAddress { local_address, .. } => {
-                panic!(
-                    "State<TryMapAddress>: Address mapper reported success for address {}, but {} was expected",
-                    local_address,
-                    self.state.addr_to_map(),
-                );
-            }
             Event::AddressMappingFailed(addr) if self.state.addr_to_map() == &addr => {
                 self.boxed(TryMapAddress::into_private)
+            }
+            Event::DefaultGatewayChanged { local_address, .. } => {
+                if let Some(addr) = local_address {
+                    command_tx.force_send(Command::MapAddress(addr));
+                }
+                self
             }
             Event::AddressMappingFailed(addr) => {
                 panic!(
                     "State<TryMapAddress>: Address mapper reported failure for address {}, but {} was expected",
                     addr,
+                    self.state.addr_to_map(),
+                );
+            }
+            Event::NewExternalMappedAddress { local_address, .. } => {
+                panic!(
+                    "State<TryMapAddress>: Address mapper reported success for address {}, but {} was expected",
+                    local_address,
                     self.state.addr_to_map(),
                 );
             }
@@ -52,8 +58,8 @@ mod tests {
     use crate::behaviour::nat::state_machine::{
         states::{Private, TestIfMappedPublic, TryMapAddress},
         transitions::fixtures::{
-            all_events, mapping_failed, mapping_failed_address_mismatch, mapping_ok,
-            mapping_ok_address_mismatch, ADDR,
+            all_events, default_gateway_changed, mapping_failed, mapping_failed_address_mismatch,
+            mapping_ok, mapping_ok_address_mismatch, ADDR,
         },
         StateMachine,
     };
@@ -101,12 +107,36 @@ mod tests {
 
     #[should_panic = "State<TryMapAddress>: Address mapper reported success for address /memory/1, but /memory/0 was expected"]
     #[test]
+    fn mapping_success_address_mismatch_causes_panic() {
+        let (tx, _) = unbounded_channel();
+        let mut state_machine = StateMachine::new(tx);
+        state_machine.inner = Some(TryMapAddress::for_test(ADDR.clone()));
+        let event = mapping_ok_address_mismatch();
+        state_machine.on_test_event(event);
+    }
+
+    #[should_panic = "State<TryMapAddress>: Address mapper reported success for address /memory/1, but /memory/0 was expected"]
+    #[test]
     fn mapping_ok_address_mismatch_causes_panic() {
         let (tx, _) = unbounded_channel();
         let mut state_machine = StateMachine::new(tx);
         state_machine.inner = Some(TryMapAddress::for_test(ADDR.clone()));
         let event = mapping_ok_address_mismatch();
         state_machine.on_test_event(event);
+    }
+
+    #[test]
+    fn default_gateway_changed_event_stays_in_try_map_address() {
+        let (tx, mut rx) = unbounded_channel();
+        let mut state_machine = StateMachine::new(tx);
+        state_machine.inner = Some(TryMapAddress::for_test(ADDR.clone()));
+        let event = default_gateway_changed();
+        state_machine.on_test_event(event);
+        assert_eq!(
+            state_machine.inner.as_ref().unwrap(),
+            &TryMapAddress::for_test(ADDR.clone())
+        );
+        assert_eq!(rx.try_recv(), Ok(Command::MapAddress(ADDR.clone())));
     }
 
     #[test]
@@ -119,6 +149,8 @@ mod tests {
         other_events.remove(&mapping_ok());
         other_events.remove(&mapping_ok_address_mismatch());
         other_events.remove(&mapping_failed());
+        other_events.remove(&mapping_failed_address_mismatch());
+        other_events.remove(&default_gateway_changed());
         other_events.remove(&mapping_failed_address_mismatch());
 
         for event in other_events {

@@ -1,10 +1,11 @@
-mod errors;
+pub mod errors;
 mod nat_pmp;
 pub mod protocol;
 mod upnp;
 
 use std::{
     convert::Infallible,
+    net::IpAddr,
     pin::Pin,
     task::{Context, Poll},
     time::Duration,
@@ -20,12 +21,12 @@ use libp2p::{
     PeerId,
 };
 use nomos_utils::math::PositiveF64;
+pub use protocol::NatMapper;
 use tokio::time::{self, Sleep};
 use tracing::{debug, info, warn};
 
 use crate::{
-    behaviour::nat::address_mapper::{errors::AddressMapperError, protocol::NatMapper},
-    config::NatMappingSettings,
+    behaviour::nat::address_mapper::errors::AddressMapperError, config::NatMappingSettings,
 };
 
 type MappingFuture = BoxFuture<'static, Result<Multiaddr, AddressMapperError>>;
@@ -46,7 +47,14 @@ pub enum Event {
     /// Address mapping failed for the given local address
     AddressMappingFailed(Multiaddr),
     /// The default gateway has changed
-    DefaultGatewayChanged,
+    DefaultGatewayChanged {
+        /// Previous gateway address
+        old_gateway: Option<IpAddr>,
+        /// New gateway address
+        new_gateway: IpAddr,
+        /// Local address that needs to be re-mapped (if available)
+        local_address: Option<Multiaddr>,
+    },
     /// The local address has changed
     LocalAddressChanged(Multiaddr),
     /// A new external address mapping has been successfully established
