@@ -19,3 +19,7 @@ workspace = true
 
 [features]
 serde = ["dep:serde", "rpds/serde"]
+
+[package.metadata.cargo-machete]
+# False positives.
+ignored = ["proptest"]
