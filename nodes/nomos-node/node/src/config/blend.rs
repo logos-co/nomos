@@ -20,6 +20,7 @@ impl BlendConfig {
                 max_dial_attempts_per_peer_per_message: 3
                     .try_into()
                     .expect("Max dial attempts per peer per message cannot be zero."),
+                protocol_name: self.0.backend.protocol_name.clone(),
             },
             crypto: self.0.crypto.clone(),
             time: self.0.time.clone(),

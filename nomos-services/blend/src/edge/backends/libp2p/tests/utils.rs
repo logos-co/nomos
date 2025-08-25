@@ -5,7 +5,10 @@ use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;
 use tokio::sync::mpsc;
 
-use crate::edge::backends::libp2p::{swarm::Command, BlendSwarm};
+use crate::{
+    edge::backends::libp2p::{swarm::Command, BlendSwarm},
+    test_utils::PROTOCOL_NAME,
+};
 
 pub struct TestSwarm {
     pub swarm: BlendSwarm<Pending<Membership<PeerId>>, BlakeRng>,
@@ -32,6 +35,7 @@ impl SwarmBuilder {
             3u64.try_into().unwrap(),
             BlakeRng::from_entropy(),
             pending(),
+            PROTOCOL_NAME,
         );
 
         TestSwarm {

@@ -29,9 +29,12 @@ use tokio::{
 };
 use tokio_stream::wrappers::IntervalStream;
 
-use crate::core::{
-    backends::libp2p::{behaviour::BlendBehaviour, swarm::BlendSwarmMessage, BlendSwarm},
-    settings::BlendConfig,
+use crate::{
+    core::{
+        backends::libp2p::{behaviour::BlendBehaviour, swarm::BlendSwarmMessage, BlendSwarm},
+        settings::BlendConfig,
+    },
+    test_utils::PROTOCOL_NAME,
 };
 
 pub struct TestSwarm {
@@ -146,6 +149,7 @@ impl BlendBehaviourBuilder {
                 },
                 self.membership,
                 self.peer_id,
+                PROTOCOL_NAME,
             ),
             limits: connection_limits::Behaviour::new(
                 connection_limits::ConnectionLimits::default(),

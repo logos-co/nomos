@@ -8,10 +8,10 @@ use std::{
 use futures::{AsyncWriteExt as _, Stream, StreamExt as _};
 use libp2p::{
     swarm::{dial_opts::PeerCondition, ConnectionId},
-    Multiaddr, PeerId, Swarm, SwarmBuilder,
+    Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder,
 };
 use libp2p_stream::OpenStreamError;
-use nomos_blend_network::{send_msg, PROTOCOL_NAME};
+use nomos_blend_network::send_msg;
 use nomos_blend_scheduling::{
     membership::{Membership, Node},
     serialize_encapsulated_message, EncapsulatedMessage,
@@ -61,6 +61,7 @@ where
     rng: Rng,
     max_dial_attempts_per_connection: NonZeroU64,
     pending_dials: HashMap<(PeerId, ConnectionId), DialAttempt>,
+    protocol_name: StreamProtocol,
 }
 
 #[derive(Debug)]
@@ -78,6 +79,7 @@ where
         current_membership: Option<Membership<PeerId>>,
         rng: Rng,
         command_receiver: mpsc::Receiver<Command>,
+        protocol_name: StreamProtocol,
     ) -> Self {
         let keypair = settings.keypair();
         let swarm = SwarmBuilder::with_existing_identity(keypair)
@@ -101,6 +103,7 @@ where
             rng,
             pending_dials: HashMap::new(),
             max_dial_attempts_per_connection: settings.max_dial_attempts_per_peer_per_message,
+            protocol_name,
         }
     }
 
@@ -111,6 +114,7 @@ where
         max_dial_attempts_per_connection: NonZeroU64,
         rng: Rng,
         session_stream: SessionStream,
+        protocol_name: StreamProtocol,
     ) -> Self {
         use crate::test_utils::memory_test_swarm;
 
@@ -126,6 +130,7 @@ where
             session_stream,
             stream_control: inner_swarm.behaviour().new_control(),
             swarm: inner_swarm,
+            protocol_name,
         }
     }
 
@@ -258,7 +263,7 @@ where
 
         match self
             .stream_control
-            .open_stream(peer_id, PROTOCOL_NAME)
+            .open_stream(peer_id, self.protocol_name.clone())
             .await
         {
             Ok(stream) => {
