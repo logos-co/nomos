@@ -141,7 +141,7 @@ where
     async fn handle_new_share(
         verifier: &ShareVerifier,
         storage_adapter: &Storage,
-        mempool_trigger: &MempoolPublishTrigger<<ShareVerifier::DaShare as Share>::BlobId>,
+        mempool_trigger: &mut MempoolPublishTrigger<<ShareVerifier::DaShare as Share>::BlobId>,
         mempool_adapter: &MempoolAdapter,
         share: ShareVerifier::DaShare,
     ) -> Result<(), DynError> {
@@ -194,7 +194,7 @@ where
 
     async fn prune_pending_txs(
         storage_adapter: &Storage,
-        mempool_trigger: &MempoolPublishTrigger<<ShareVerifier::DaShare as Share>::BlobId>,
+        mempool_trigger: &mut MempoolPublishTrigger<<ShareVerifier::DaShare as Share>::BlobId>,
         mempool_adapter: &MempoolAdapter,
     ) -> Result<(), DynError> {
         let now = Instant::now();
@@ -385,7 +385,7 @@ where
         );
 
         let mut prune_interval = tokio::time::interval(mempool_trigger_settings.prune_interval);
-        let mempool_trigger = MempoolPublishTrigger::new(mempool_trigger_settings);
+        let mut mempool_trigger = MempoolPublishTrigger::new(mempool_trigger_settings);
 
         wait_until_services_are_ready!(
             &service_resources_handle.overwatch_handle,
@@ -402,7 +402,7 @@ where
                     if let Err(err) =  Self::handle_new_share(
                         &share_verifier,
                         &storage_adapter,
-                        &mempool_trigger,
+                        &mut mempool_trigger,
                         &mempool_adapter,
                         share
                     ).await {
@@ -435,7 +435,7 @@ where
                             match Self::handle_new_share(
                                 &share_verifier,
                                 &storage_adapter,
-                                &mempool_trigger,
+                                &mut mempool_trigger,
                                 &mempool_adapter,
                                 share
                             ).await {
@@ -472,7 +472,7 @@ where
                 _ = prune_interval.tick() => {
                     if let Err(err) = Self::prune_pending_txs(
                         &storage_adapter,
-                        &mempool_trigger,
+                        &mut mempool_trigger,
                         &mempool_adapter
                     ).await {
                         error!("Error pruning txs due to {err:?}");
