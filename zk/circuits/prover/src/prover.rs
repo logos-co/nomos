@@ -6,8 +6,7 @@ pub trait Prover {
     ///
     /// # Arguments
     ///
-    /// * `circuit_contents` - A byte slice containing the circuit (proving
-    ///   key).
+    /// * `proving_key` - A byte slice containing the circuit proving key.
     /// * `witness_contents` - A byte slice containing the witness.
     ///
     /// # Returns
@@ -15,7 +14,7 @@ pub trait Prover {
     /// A [`Result`] which contains the proof and public inputs as strings if
     /// successful,
     fn generate_proof(
-        circuit_contents: &[u8],
+        proving_key: &[u8],
         witness_contents: &[u8],
     ) -> Result<(Vec<u8>, Vec<u8>), Self::Error>;
 }
