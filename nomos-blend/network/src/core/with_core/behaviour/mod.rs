@@ -1033,11 +1033,11 @@ where
         }
 
         if let Some(event) = self.events.pop_front() {
-            Poll::Ready(event)
-        } else {
-            self.waker = Some(cx.waker().clone());
-            Poll::Pending
+            return Poll::Ready(event);
         }
+
+        self.waker = Some(cx.waker().clone());
+        Poll::Pending
     }
 }
 
