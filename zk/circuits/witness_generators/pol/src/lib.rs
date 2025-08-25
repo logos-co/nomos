@@ -1,4 +1,3 @@
 mod pol;
-mod wrappers;
 
-pub use pol::PolWitnessGenerator;
+pub use pol::*;
