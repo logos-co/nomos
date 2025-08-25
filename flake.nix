@@ -48,6 +48,7 @@
               pkg-config
               glibc
               gcc
+              vim
               rust-bin.stable."1.88.0".default
               openssl
               clang_14
@@ -57,10 +58,10 @@
             ];
             shellHook = ''
               # Tooling hints for clang/openssl
-              export GLIBC=''$(nix eval --raw nixpkgs#glibc.outPath)
-              export GCCLIB=''$(nix eval --raw nixpkgs#gcc.lib.outPath)
-              export LIBCLANG_PATH="''${pkgs.llvmPackages_14.libclang.lib}/lib"
-              export PKG_CONFIG_PATH="''${pkgs.openssl.dev}/lib/pkgconfig"
+              export GLIBC="''$(nix eval --raw nixpkgs#glibc.outPath)"
+              export GCCLIB="''$(nix eval --raw nixpkgs#gcc.lib.outPath)"
+              export LIBCLANG_PATH="${pkgs.llvmPackages_14.libclang.lib}/lib"
+              export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig"
 
               # Cache locations (respect existing values)
               export CARGO_HOME="''${CARGO_HOME:-$HOME/.cargo}"
