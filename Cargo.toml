@@ -27,7 +27,6 @@ members = [
   "nomos-services/blend",
   "nomos-services/chain-service",
   "nomos-services/data-availability/dispersal",
-  "nomos-services/data-availability/indexer",
   "nomos-services/data-availability/network",
   "nomos-services/data-availability/sampling",
   "nomos-services/data-availability/verifier",
@@ -80,7 +79,6 @@ nomos-blend-service      = { path = "./nomos-services/blend" }
 nomos-cli                = { path = "./nomos-cli" }
 nomos-core               = { path = "./nomos-core/chain-defs" }
 nomos-da-dispersal       = { path = "./nomos-services/data-availability/dispersal" }
-nomos-da-indexer         = { path = "./nomos-services/data-availability/indexer" }
 nomos-da-messages        = { path = "./nomos-da/network/messages" }
 nomos-da-network-core    = { path = "./nomos-da/network/core" }
 nomos-da-network-service = { path = "./nomos-services/data-availability/network" }

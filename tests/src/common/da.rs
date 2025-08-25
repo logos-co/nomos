@@ -31,15 +31,16 @@ pub async fn wait_for_indexed_blob(
     num_subnets: usize,
 ) {
     let shares_fut = async {
-        let mut num_shares = 0;
+        let num_shares = 0;
         while num_shares < num_subnets {
-            let executor_shares = executor.get_indexer_range(app_id, from..to).await;
-            num_shares = executor_shares
-                .into_iter()
-                .filter(|(i, _)| i == &from)
-                .flat_map(|(_, shares)| shares)
-                .count();
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            todo!();
+            //let executor_shares = executor.get_indexer_range(app_id,
+            // from..to).await; num_shares = executor_shares
+            //    .into_iter()
+            //    .filter(|(i, _)| i == &from)
+            //    .flat_map(|(_, shares)| shares)
+            //    .count();
+            //tokio::time::sleep(Duration::from_millis(100)).await;
         }
     };
 

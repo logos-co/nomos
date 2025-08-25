@@ -90,17 +90,6 @@ pub(crate) type DaDispersalService = DispersalService<
     RuntimeServiceId,
 >;
 
-pub(crate) type DaIndexerService = nomos_node::generic_services::DaIndexerService<
-    nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
-        NomosDaMembership,
-        DaMembershipAdapter<RuntimeServiceId>,
-        DaMembershipStorage,
-        DaNetworkApiAdapter,
-        RuntimeServiceId,
-    >,
-    RuntimeServiceId,
->;
-
 pub(crate) type DaVerifierService = nomos_node::generic_services::DaVerifierService<
     VerifierNetworkAdapter<
         NomosDaMembership,
@@ -245,7 +234,6 @@ pub struct NomosExecutor {
     blend_core: BlendCoreService,
     blend_edge: BlendEdgeService,
     da_dispersal: DaDispersalService,
-    da_indexer: DaIndexerService,
     da_verifier: DaVerifierService,
     da_sampling: DaSamplingService,
     da_network: DaNetworkService,

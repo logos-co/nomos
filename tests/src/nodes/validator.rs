@@ -2,7 +2,6 @@ use std::{
     collections::HashSet,
     net::SocketAddr,
     num::{NonZeroU64, NonZeroUsize},
-    ops::Range,
     path::PathBuf,
     process::{Child, Command, Stdio},
     time::Duration,
@@ -10,7 +9,6 @@ use std::{
 
 use chain_service::{CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, SyncConfig};
 use cryptarchia_engine::time::SlotConfig;
-use kzgrs_backend::common::share::DaShare;
 use nomos_api::http::membership::MembershipUpdateRequest;
 use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
 use nomos_blend_service::{
@@ -18,10 +16,6 @@ use nomos_blend_service::{
     settings::TimingSettings,
 };
 use nomos_core::{block::Block, mantle::SignedMantleTx, sdp::FinalizedBlockEvent};
-use nomos_da_indexer::{
-    storage::adapters::rocksdb::RocksAdapterSettings as IndexerStorageAdapterSettings,
-    IndexerSettings,
-};
 use nomos_da_network_core::{
     protocols::sampling::SubnetsConfig,
     swarm::{BalancerStats, DAConnectionPolicySettings, MonitorStats},
@@ -41,8 +35,8 @@ use nomos_da_verifier::{
     DaVerifierServiceSettings,
 };
 use nomos_http_api_common::paths::{
-    CL_METRICS, CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_RANGE,
-    DA_MONITOR_STATS, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
+    CL_METRICS, CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_MONITOR_STATS,
+    STORAGE_BLOCK, UPDATE_MEMBERSHIP,
 };
 use nomos_mempool::MempoolMetrics;
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
@@ -62,7 +56,7 @@ use reqwest::Url;
 use tempfile::NamedTempFile;
 use tokio::time::error::Elapsed;
 
-use super::{create_tempdir, persist_tempdir, GetRangeReq, CLIENT};
+use super::{create_tempdir, persist_tempdir, CLIENT};
 use crate::{
     adjust_timeout, get_available_port, nodes::LOGS_PREFIX, topology::configs::GeneralConfig,
     IS_DEBUG_TRACING,
@@ -118,8 +112,6 @@ impl Validator {
                 .storage_adapter_settings
                 .blob_storage_directory,
         );
-        dir.path()
-            .clone_into(&mut config.da_indexer.storage.blob_storage_directory);
 
         serde_yaml::to_writer(&mut file, &config).unwrap();
         let child = Command::new(std::env::current_dir().unwrap().join(BIN_PATH))
@@ -196,23 +188,6 @@ impl Validator {
             pending_items: res["pending_items"].as_u64().unwrap() as usize,
             last_item_timestamp: res["last_item_timestamp"].as_u64().unwrap(),
         }
-    }
-
-    pub async fn get_indexer_range(
-        &self,
-        app_id: [u8; 32],
-        range: Range<[u8; 8]>,
-    ) -> Vec<([u8; 8], Vec<DaShare>)> {
-        CLIENT
-            .post(format!("http://{}{}", self.addr, DA_GET_RANGE))
-            .header("Content-Type", "application/json")
-            .body(serde_json::to_string(&GetRangeReq { app_id, range }).unwrap())
-            .send()
-            .await
-            .unwrap()
-            .json::<Vec<([u8; 8], Vec<DaShare>)>>()
-            .await
-            .unwrap()
     }
 
     pub async fn update_membership(
@@ -420,11 +395,6 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 is_secure: false,
             },
             subnet_refresh_interval: config.da_config.subnets_refresh_interval,
-        },
-        da_indexer: IndexerSettings {
-            storage: IndexerStorageAdapterSettings {
-                blob_storage_directory: "./".into(),
-            },
         },
         da_verifier: DaVerifierServiceSettings {
             share_verifier_settings: KzgrsDaVerifierSettings {
