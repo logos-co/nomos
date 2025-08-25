@@ -8,8 +8,8 @@ use libp2p::{
     core::{transport::PortUse, Endpoint},
     futures::stream::FuturesUnordered,
     swarm::{
-        behaviour::ConnectionEstablished, ConnectionClosed, ConnectionDenied, ConnectionHandler,
-        ConnectionId, FromSwarm, NetworkBehaviour, THandlerInEvent, ToSwarm,
+        ConnectionDenied, ConnectionHandler, ConnectionId, FromSwarm, NetworkBehaviour,
+        THandlerInEvent, ToSwarm,
     },
     Multiaddr, PeerId, Stream as Libp2pStream, Stream, StreamProtocol,
 };
@@ -22,7 +22,7 @@ use crate::{
     config::Config,
     libp2p::{
         downloader::Downloader,
-        errors::{ChainSyncError, ChainSyncErrorKind},
+        errors::ChainSyncError,
         provider::{Provider, ReceivingRequestStream, MAX_ADDITIONAL_BLOCKS},
     },
     messages::{DownloadBlocksRequest, GetTipResponse, RequestMessage, SerialisedBlock},
@@ -124,8 +124,6 @@ pub struct Behaviour {
     control: Control,
     /// A handle to listen to incoming stream requests.
     incoming_streams: IncomingStreams,
-    /// List of connected peers.
-    connected_peers: HashSet<PeerId>,
     /// Futures for reading incoming requests. This is common to both tip and
     /// block because initially we don't know which request we receive over
     /// stream. After reading the request, we use dedicated `FuturesUnordered`,
@@ -169,7 +167,6 @@ impl Behaviour {
             stream_behaviour,
             control,
             incoming_streams,
-            connected_peers: HashSet::new(),
             receiving_block_responses: FuturesUnordered::new(),
             sending_block_responses: FuturesUnordered::new(),
             receiving_requests: FuturesUnordered::new(),
@@ -183,26 +180,11 @@ impl Behaviour {
         }
     }
 
-    fn add_peer(&mut self, peer: PeerId) {
-        self.connected_peers.insert(peer);
-    }
-
-    fn remove_peer(&mut self, peer: &PeerId) {
-        self.connected_peers.remove(peer);
-    }
-
     pub fn request_tip(
         &self,
         peer_id: PeerId,
         reply_sender: oneshot::Sender<Result<GetTipResponse, ChainSyncError>>,
     ) -> Result<(), ChainSyncError> {
-        if !self.connected_peers.contains(&peer_id) {
-            return Err(ChainSyncError {
-                peer: peer_id,
-                kind: ChainSyncErrorKind::RequestTipError("Peer is not connected".to_owned()),
-            });
-        }
-
         let mut control = self.control.clone();
 
         self.sending_tip_requests.push(
@@ -224,17 +206,7 @@ impl Behaviour {
         additional_blocks: HashSet<HeaderId>,
         reply_sender: oneshot::Sender<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>,
     ) -> Result<(), ChainSyncError> {
-        if !self.connected_peers.contains(&peer_id) {
-            return Err(ChainSyncError {
-                peer: peer_id,
-                kind: ChainSyncErrorKind::RequestBlocksDownloadError(
-                    "Peer is neither connected nor known".to_owned(),
-                ),
-            });
-        }
-
         let control = self.control.clone();
-
         let request = DownloadBlocksRequest::new(
             target_block,
             local_tip,
@@ -430,15 +402,6 @@ impl NetworkBehaviour for Behaviour {
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm) {
-        match event {
-            FromSwarm::ConnectionEstablished(ConnectionEstablished { peer_id, .. }) => {
-                self.add_peer(peer_id);
-            }
-            FromSwarm::ConnectionClosed(ConnectionClosed { peer_id, .. }) => {
-                self.remove_peer(&peer_id);
-            }
-            _ => {}
-        }
         self.stream_behaviour.on_swarm_event(event);
     }
 
@@ -589,23 +552,6 @@ mod tests {
 
         assert_eq!(blocks.len(), 200);
         assert_eq!(errors.len(), 0);
-    }
-
-    #[tokio::test]
-    async fn test_download_with_no_peers() {
-        let (response_tx, _response_rx) = oneshot::channel();
-        let err = Behaviour::new(Config::default())
-            .start_blocks_download(
-                PeerId::random(),
-                HeaderId::from([0; 32]),
-                HeaderId::from([0; 32]),
-                HeaderId::from([0; 32]),
-                HashSet::new(),
-                response_tx,
-            )
-            .unwrap_err();
-
-        matches!(err.kind, ChainSyncErrorKind::RequestBlocksDownloadError(_));
     }
 
     #[tokio::test]

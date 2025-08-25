@@ -9,6 +9,7 @@ pub enum Libp2pNetworkLayout {
     #[default]
     Star,
     Chain,
+    Full,
 }
 
 #[derive(Default)]
@@ -45,7 +46,7 @@ pub fn create_network_configs(
         })
         .collect();
 
-    let all_initial_peers = initial_peers_by_network_layout(swarm_configs.clone(), network_params);
+    let all_initial_peers = initial_peers_by_network_layout(&swarm_configs, network_params);
 
     swarm_configs
         .iter()
@@ -58,29 +59,40 @@ pub fn create_network_configs(
 }
 
 fn initial_peers_by_network_layout(
-    mut swarm_configs: Vec<SwarmConfig>,
+    swarm_configs: &[SwarmConfig],
     network_params: &NetworkParams,
 ) -> Vec<Vec<Multiaddr>> {
     let mut all_initial_peers = vec![];
-    let first_swarm = swarm_configs.remove(0);
-    let first_addr = node_address_from_port(first_swarm.port);
 
     match network_params.libp2p_network_layout {
         Libp2pNetworkLayout::Star => {
-            let other_initial_peers = vec![first_addr];
-            all_initial_peers.push(vec![]); // First node has no initial peers.
+            // First node is the hub - has no initial peers
+            all_initial_peers.push(vec![]);
+            let first_addr = node_address_from_port(swarm_configs[0].port);
 
-            for _ in swarm_configs {
-                all_initial_peers.push(other_initial_peers.clone());
+            // All other nodes connect to the first node
+            for _ in 1..swarm_configs.len() {
+                all_initial_peers.push(vec![first_addr.clone()]);
             }
         }
         Libp2pNetworkLayout::Chain => {
-            let mut prev_addr = first_addr;
-            all_initial_peers.push(vec![]); // First node has no initial peers.
+            // First node has no initial peers
+            all_initial_peers.push(vec![]);
 
-            for swarm in swarm_configs {
+            // Each subsequent node connects to the previous one
+            for i in 1..swarm_configs.len() {
+                let prev_addr = node_address_from_port(swarm_configs[i - 1].port);
                 all_initial_peers.push(vec![prev_addr]);
-                prev_addr = node_address_from_port(swarm.port);
+            }
+        }
+        Libp2pNetworkLayout::Full => {
+            // Each node connects to all previous nodes, unidirectional connections
+            for i in 0..swarm_configs.len() {
+                let mut peers = vec![];
+                for swarm_config in swarm_configs.iter().take(i) {
+                    peers.push(node_address_from_port(swarm_config.port));
+                }
+                all_initial_peers.push(peers);
             }
         }
     }

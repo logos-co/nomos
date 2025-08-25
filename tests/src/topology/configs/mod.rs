@@ -43,6 +43,14 @@ pub struct GeneralConfig {
 
 #[must_use]
 pub fn create_general_configs(n_nodes: usize) -> Vec<GeneralConfig> {
+    create_general_configs_with_network(n_nodes, &NetworkParams::default())
+}
+
+#[must_use]
+pub fn create_general_configs_with_network(
+    n_nodes: usize,
+    network_params: &NetworkParams,
+) -> Vec<GeneralConfig> {
     let mut ids = vec![[0; 32]; n_nodes];
     let mut ports = vec![];
 
@@ -54,7 +62,7 @@ pub fn create_general_configs(n_nodes: usize) -> Vec<GeneralConfig> {
     let consensus_params = ConsensusParams::default_for_participants(n_nodes);
     let consensus_configs = consensus::create_consensus_configs(&ids, &consensus_params);
     let bootstrap_config = bootstrap::create_bootstrap_configs(&ids, Duration::from_secs(20));
-    let network_configs = network::create_network_configs(&ids, &NetworkParams::default());
+    let network_configs = network::create_network_configs(&ids, network_params);
     let da_configs = da::create_da_configs(&ids, &DaParams::default(), &ports);
     let api_configs = api::create_api_configs(&ids);
     let blend_configs = blend::create_blend_configs(&ids);

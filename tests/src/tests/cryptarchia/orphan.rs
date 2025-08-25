@@ -5,7 +5,10 @@ use tests::{
     adjust_timeout,
     common::sync::wait_for_validators_mode_and_height,
     nodes::validator::{create_validator_config, Validator},
-    topology::configs::create_general_configs,
+    topology::configs::{
+        create_general_configs_with_network,
+        network::{Libp2pNetworkLayout, NetworkParams},
+    },
 };
 
 #[tokio::test]
@@ -13,7 +16,10 @@ async fn test_orphan_handling() {
     let n_validators = 3;
     let min_height = 5;
 
-    let general_configs = create_general_configs(n_validators);
+    let network_params = NetworkParams {
+        libp2p_network_layout: Libp2pNetworkLayout::Full,
+    };
+    let general_configs = create_general_configs_with_network(n_validators, &network_params);
 
     let mut validators = vec![];
     for config in general_configs.iter().take(2) {
