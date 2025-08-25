@@ -78,7 +78,7 @@ where
 impl<Backend, NodeId, Network, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for BlendService<Backend, NodeId, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId> + Send + Sync,
+    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId, Error: Debug> + Send + Sync,
     NodeId: Clone + Send + Sync + 'static,
     Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
@@ -106,7 +106,10 @@ where
                         .map(move |_| membership.clone()),
                 ),
                 ChaCha12Rng::from_entropy(),
-            ),
+            )
+            // TODO: Replace `expect` with something that fails with a warning and tries again at
+            // the beginning of the next session.
+            .expect("Blend swarm did not start."),
             service_resources_handle,
             membership: blend_config.membership(),
         })

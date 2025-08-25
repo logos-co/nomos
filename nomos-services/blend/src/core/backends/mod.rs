@@ -12,15 +12,16 @@ use crate::core::settings::BlendConfig;
 
 /// A trait for blend backends that send messages to the blend network.
 #[async_trait::async_trait]
-pub trait BlendBackend<NodeId, Rng, RuntimeServiceId> {
+pub trait BlendBackend<NodeId, Rng, RuntimeServiceId>: Sized {
     type Settings: Clone + Debug + Send + Sync + 'static;
+    type Error;
 
     fn new(
         service_config: BlendConfig<Self::Settings, NodeId>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         session_stream: Pin<Box<dyn Stream<Item = Membership<NodeId>> + Send>>,
         rng: Rng,
-    ) -> Self;
+    ) -> Result<Self, Self::Error>;
     fn shutdown(&mut self);
     /// Publish a message to the blend network.
     async fn publish(&self, msg: EncapsulatedMessage);

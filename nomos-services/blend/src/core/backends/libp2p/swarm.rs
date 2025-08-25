@@ -1,5 +1,5 @@
 use core::{
-    num::NonZeroU64,
+    num::{NonZeroU64, NonZeroUsize},
     ops::{Deref, RangeInclusive},
 };
 use std::{
@@ -55,6 +55,11 @@ impl DialAttempt {
     }
 }
 
+#[derive(Debug)]
+pub enum CreationError {
+    BlendNetworkTooSmall,
+}
+
 pub struct BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
 where
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
@@ -84,8 +89,13 @@ where
         rng: Rng,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
         incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithValidatedPublicHeader>,
-    ) -> Self {
+        minimum_network_size: NonZeroUsize,
+    ) -> Result<Self, CreationError> {
         let membership = config.membership();
+        if membership.size() < minimum_network_size.get() {
+            return Err(CreationError::BlendNetworkTooSmall);
+        }
+
         let keypair = config.backend.keypair();
         let mut swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
@@ -121,7 +131,7 @@ where
 
         self_instance.check_and_dial_new_peers_except(None);
 
-        self_instance
+        Ok(self_instance)
     }
 }
 

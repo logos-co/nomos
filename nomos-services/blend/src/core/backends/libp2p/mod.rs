@@ -1,3 +1,4 @@
+use core::num::NonZeroUsize;
 use std::pin::Pin;
 
 use async_trait::async_trait;
@@ -16,7 +17,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use crate::core::{
     backends::{
         libp2p::{
-            swarm::{BlendSwarm, BlendSwarmMessage},
+            swarm::{BlendSwarm, BlendSwarmMessage, CreationError},
             tokio_provider::ObservationWindowTokioIntervalProvider,
         },
         BlendBackend,
@@ -52,34 +53,38 @@ where
     Rng: RngCore + Clone + Send + 'static,
 {
     type Settings = Libp2pBlendBackendSettings;
+    type Error = CreationError;
 
     fn new(
         config: BlendConfig<Self::Settings, PeerId>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         session_stream: Pin<Box<dyn Stream<Item = Membership<PeerId>> + Send>>,
         rng: Rng,
-    ) -> Self {
+    ) -> Result<Self, Self::Error> {
         let (swarm_message_sender, swarm_message_receiver) = mpsc::channel(CHANNEL_SIZE);
         let (incoming_message_sender, _) = broadcast::channel(CHANNEL_SIZE);
 
+        let minimum_membership_size: NonZeroUsize =
+            config.minimum_membership_size.try_into().unwrap();
         let swarm = BlendSwarm::<_, _, ObservationWindowTokioIntervalProvider>::new(
             config,
             session_stream,
             rng,
             swarm_message_receiver,
             incoming_message_sender.clone(),
-        );
+            minimum_membership_size,
+        )?;
 
         let (swarm_task_abort_handle, swarm_task_abort_registration) = AbortHandle::new_pair();
         overwatch_handle
             .runtime()
             .spawn(Abortable::new(swarm.run(), swarm_task_abort_registration));
 
-        Self {
+        Ok(Self {
             swarm_task_abort_handle,
             swarm_message_sender,
             incoming_message_sender,
-        }
+        })
     }
 
     fn shutdown(&mut self) {
