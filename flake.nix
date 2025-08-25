@@ -58,8 +58,6 @@
             ];
             shellHook = ''
               # Tooling hints for clang/openssl
-              export GLIBC="''$(nix eval --raw nixpkgs#glibc.outPath)"
-              export GCCLIB="''$(nix eval --raw nixpkgs#gcc.lib.outPath)"
               export LIBCLANG_PATH="${pkgs.llvmPackages_14.libclang.lib}/lib"
               export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig"
 
