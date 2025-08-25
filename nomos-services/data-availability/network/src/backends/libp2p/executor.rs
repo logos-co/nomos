@@ -37,7 +37,7 @@ use crate::{
         },
         NetworkBackend,
     },
-    membership::handler::DaMembershipHandler,
+    membership::handler::{DaMembershipHandler, SharedMembershipHandler},
     DaAddressbook,
 };
 
@@ -101,7 +101,8 @@ where
     verifier_replies_task_abort_handle: AbortHandle,
     executor_replies_task_abort_handle: AbortHandle,
     shares_request_channel: UnboundedSender<BlobId>,
-    historic_sample_request_channel: UnboundedSender<SampleArgs<Membership>>,
+    historic_sample_request_channel:
+        UnboundedSender<SampleArgs<SharedMembershipHandler<Membership>>>,
     commitments_request_channel: UnboundedSender<BlobId>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
     commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
@@ -131,7 +132,7 @@ where
     type Message = ExecutorDaNetworkMessage<BalancerStats, MonitorStats>;
     type EventKind = DaNetworkEventKind;
     type NetworkEvent = DaNetworkEvent;
-    type HistoricMembership = Membership;
+    type HistoricMembership = SharedMembershipHandler<Membership>;
     type Membership = DaMembershipHandler<Membership>;
     type Addressbook = DaAddressbook;
 
