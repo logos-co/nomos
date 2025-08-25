@@ -11,7 +11,14 @@ pub enum Event {
     AutonatClientTestFailed(Multiaddr),
     AutonatClientTestOk(Multiaddr),
     AddressMappingFailed(Multiaddr),
-    DefaultGatewayChanged(Option<Multiaddr> /* gateway lost / new gateway addr */),
+    DefaultGatewayChanged {
+        /// Previous gateway address
+        old_gateway: Option<std::net::IpAddr>,
+        /// New gateway address
+        new_gateway: std::net::IpAddr,
+        /// Local address that needs to be re-mapped (if available)
+        local_address: Option<Multiaddr>,
+    },
     ExternalAddressConfirmed(Multiaddr),
     LocalAddressChanged(Multiaddr),
     NewExternalAddressCandidate(Multiaddr),
@@ -48,7 +55,15 @@ impl TryFrom<&address_mapper::Event> for Event {
             address_mapper::Event::AddressMappingFailed(addr) => {
                 Self::AddressMappingFailed(addr.clone())
             }
-            address_mapper::Event::DefaultGatewayChanged => Self::DefaultGatewayChanged(None),
+            address_mapper::Event::DefaultGatewayChanged {
+                old_gateway,
+                new_gateway,
+                local_address,
+            } => Self::DefaultGatewayChanged {
+                old_gateway: *old_gateway,
+                new_gateway: *new_gateway,
+                local_address: local_address.clone(),
+            },
             address_mapper::Event::LocalAddressChanged(addr) => {
                 Self::LocalAddressChanged(addr.clone())
             }

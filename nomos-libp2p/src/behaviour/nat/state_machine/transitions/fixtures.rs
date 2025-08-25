@@ -266,7 +266,19 @@ pub fn other_from_swarm_event<'a>() -> TestEvent<'a> {
 }
 
 pub fn default_gateway_changed<'a>() -> TestEvent<'a> {
-    TestEvent::AddressMapping(address_mapper::Event::DefaultGatewayChanged)
+    TestEvent::AddressMapping(address_mapper::Event::DefaultGatewayChanged {
+        old_gateway: Some("192.168.1.1".parse().unwrap()),
+        new_gateway: "192.168.1.254".parse().unwrap(),
+        local_address: Some(ADDR.clone()),
+    })
+}
+
+pub fn default_gateway_changed_no_local_address<'a>() -> TestEvent<'a> {
+    TestEvent::AddressMapping(address_mapper::Event::DefaultGatewayChanged {
+        old_gateway: Some("192.168.1.1".parse().unwrap()),
+        new_gateway: "192.168.1.254".parse().unwrap(),
+        local_address: None,
+    })
 }
 
 pub fn local_address_changed<'a>() -> TestEvent<'a> {
