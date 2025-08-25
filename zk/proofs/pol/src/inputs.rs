@@ -30,6 +30,15 @@ pub struct PolInputsJson {
     pub public: PolPublicInputsJson,
 }
 
+impl From<&PolInputs> for PolInputsJson {
+    fn from(inputs: &PolInputs) -> Self {
+        Self {
+            private: (&inputs.private).into(),
+            public: (&inputs.public).into(),
+        }
+    }
+}
+
 impl From<PolInputs> for PolInputsJson {
     fn from(inputs: PolInputs) -> Self {
         Self {
