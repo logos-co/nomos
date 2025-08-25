@@ -46,7 +46,6 @@
             name = "circuits";
             buildInputs = with pkgs; [
               pkg-config
-              glibc
               gcc
               vim
               rust-bin.stable."1.88.0".default
