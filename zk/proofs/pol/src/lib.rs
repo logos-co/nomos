@@ -8,7 +8,6 @@ use std::error::Error;
 
 pub use inputs::PolInputs;
 pub use private_inputs::{PolPrivateInputs, PolPrivateInputsData};
-pub use proving_key::PolProvingKey;
 pub use public_inputs::{PolPublicInputs, PolPublicInputsData};
 pub use verification_key::PolVerifyingKey;
 pub type PoLProof = groth16::Groth16Proof;
