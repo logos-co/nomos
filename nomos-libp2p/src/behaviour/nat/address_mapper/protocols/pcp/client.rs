@@ -1,17 +1,15 @@
-use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    num::NonZeroU16,
-    time::Duration,
-};
+use std::{net::Ipv4Addr, num::NonZeroU16, time::Duration};
 
 use thiserror::Error;
-#[cfg(test)]
-use zerocopy::IntoBytes as _;
+use tracing::info;
 
-use crate::behaviour::nat::address_mapper::protocols::pcp::{
+use super::{
     connection::{generate_nonce, PcpConnection},
     mapping::Mapping,
-    wire::{PcpAnnounceRequest, PcpAnnounceResponse, PcpMapRequest, Protocol, ResultCode},
+    wire::{
+        PcpAnnounceRequest, PcpAnnounceResponse, PcpMapRequest, PcpMapResponse, Protocol,
+        ResultCode, PCP_MAP_SIZE,
+    },
 };
 
 pub type IpPort = (Ipv4Addr, NonZeroU16);
@@ -36,35 +34,32 @@ pub enum PcpError {
     Timeout(#[source] tokio::time::error::Elapsed),
     #[error("Invalid response size: expected {expected} bytes, got {actual} bytes")]
     InvalidSize { expected: usize, actual: usize },
-    #[error("PCP requires IPv4 server address, got IPv6: {0}")]
-    IPv6ServerNotSupported(SocketAddr),
     #[error("Cannot get default gateway")]
     CannotGetGateway,
 }
 
-pub const PCP_PORT: u16 = 5351;
-pub const DEFAULT_MAPPING_LIFETIME: u32 = 7200; // 2 hours
+pub(super) const PCP_PORT: u16 = 5351;
 
 #[derive(Debug, Clone)]
 pub struct PcpConfig {
-    /// Default mapping lifetime in seconds
-    pub mapping_lifetime: u32,
-    /// Initial retry delay in milliseconds
-    pub initial_retry_ms: u64,
-    /// Maximum retry delay in seconds
-    pub max_retry_delay_secs: u64,
+    /// Default mapping lifetime
+    pub(super) mapping_lifetime: Duration,
+    /// Initial retry delay
+    pub(super) initial_retry: Duration,
+    /// Maximum retry delay
+    pub(super) max_retry_delay: Duration,
     /// Maximum number of retry attempts
-    pub max_retries: usize,
+    pub(super) max_retries: usize,
     /// Request timeout duration
-    pub request_timeout: Duration,
+    pub(super) request_timeout: Duration,
 }
 
 impl Default for PcpConfig {
     fn default() -> Self {
         Self {
-            mapping_lifetime: DEFAULT_MAPPING_LIFETIME,
-            initial_retry_ms: 250,
-            max_retry_delay_secs: 1,
+            mapping_lifetime: Duration::from_secs(7200),
+            initial_retry: Duration::from_millis(250),
+            max_retry_delay: Duration::from_secs(1),
             max_retries: 5,
             request_timeout: Duration::from_secs(1),
         }
@@ -74,63 +69,75 @@ impl Default for PcpConfig {
 /// PCP (RFC 6887) client for NAT port mapping.
 ///
 /// Protocol flow:
-/// 1. ANNOUNCE: Discovers PCP server and learns external IP (0-byte lifetime)
+/// 1. ANNOUNCE: Discovers PCP server and learns external IP
 /// 2. MAP: Creates port mappings with nonce-based request/response matching
 /// 3. DELETE: Removes mappings via MAP with 0-byte lifetime
 ///
-/// All requests use UDP port 5351 with exponential backoff retry.
+/// All requests use server UDP port 5351 with exponential backoff retry.
 /// Nonce prevent replay attacks and ensure response authenticity.
 #[derive(Debug, Clone)]
 pub struct PcpClient {
-    gateway: SocketAddr,
     client_addr: Ipv4Addr,
+    config: PcpConfig,
+}
+
+/// Active PCP client that has confirmed gateway support and can create port
+/// mappings.
+#[derive(Debug, Clone)]
+pub struct ActivePcpClient {
+    client_addr: Ipv4Addr,
+    gateway_ip: Ipv4Addr,
     config: PcpConfig,
 }
 
 impl PcpClient {
     /// Creates a new PCP client with the specified configuration.
-    ///
-    /// Automatically discovers the default gateway for PCP communication.
-    pub fn new(client_addr: Ipv4Addr, config: PcpConfig) -> Result<Self, PcpError> {
-        let gateway_ip = Self::get_default_gateway()?;
-        let gateway = SocketAddr::new(IpAddr::V4(gateway_ip), PCP_PORT);
-        Ok(Self {
-            gateway,
+    pub const fn new(client_addr: Ipv4Addr, config: PcpConfig) -> Self {
+        Self {
             client_addr,
             config,
-        })
+        }
     }
 
     /// Tests if a PCP server is available by sending an ANNOUNCE request.
     ///
-    /// Returns `true` if the server responds successfully, `false` otherwise.
-    pub async fn probe_available(&self) -> bool {
-        self.announce().await.is_ok()
-    }
+    /// Returns an `ActivePcpClient` if the server responds successfully, which
+    /// can then be used to create port mappings.
+    ///
+    /// Automatically discovers the default gateway for PCP communication.
+    pub async fn probe_available(self) -> Result<ActivePcpClient, PcpError> {
+        let gateway_ip = Self::get_default_gateway()?;
 
-    /// Sends an ANNOUNCE request to discover the PCP server.
-    pub async fn announce(&self) -> Result<(), PcpError> {
-        tracing::debug!("Sending PCP ANNOUNCE to {}", self.gateway);
+        tracing::debug!("Probing PCP support at gateway {gateway_ip}");
 
         let connection =
-            PcpConnection::connect(self.client_addr, self.gateway, self.config.clone()).await?;
+            PcpConnection::open(self.client_addr, gateway_ip, self.config.clone()).await?;
 
         let request = PcpAnnounceRequest::new(self.client_addr);
 
-        let response = connection.send_announce_request(&request).await?;
+        // Discard the response - getting a valid PCP response proves the gateway
+        // is reachable and speaks PCP protocol
+        let _: PcpAnnounceResponse = connection.send_request(&request).await?;
 
-        match PcpAnnounceResponse::validate(&response) {
-            Ok(()) => {
-                tracing::debug!("PCP ANNOUNCE successful");
-                Ok(())
-            }
-            Err(e) => {
-                tracing::warn!("PCP ANNOUNCE failed: {}", e);
-                Err(e)
-            }
-        }
+        Ok(ActivePcpClient {
+            client_addr: self.client_addr,
+            gateway_ip,
+            config: self.config,
+        })
     }
 
+    fn get_default_gateway() -> Result<Ipv4Addr, PcpError> {
+        if let Ok(ipv4_addrs) = netdev::get_default_gateway().map(|g| g.ipv4) {
+            if let Some(gw) = ipv4_addrs.first() {
+                return Ok(*gw);
+            }
+        }
+
+        Err(PcpError::CannotGetGateway)
+    }
+}
+
+impl ActivePcpClient {
     /// Requests a port mapping from the PCP server.
     ///
     /// Creates a mapping for the specified protocol and internal port.
@@ -147,62 +154,39 @@ impl PcpClient {
 
         let request = PcpMapRequest::new(
             self.client_addr,
-            protocol as u8,
+            protocol,
             internal_port.get(),
             preferred_external.map(|(addr, port)| (addr, port.get())),
-            self.config.mapping_lifetime,
+            self.config.mapping_lifetime.as_secs() as u32,
             nonce,
         );
 
         let connection =
-            PcpConnection::connect(self.client_addr, self.gateway, self.config.clone()).await?;
+            PcpConnection::open(self.client_addr, self.gateway_ip, self.config.clone()).await?;
 
-        let response = connection.send_map_request(&request).await?;
+        let response: PcpMapResponse = connection.send_request(&request).await?;
 
-        let gateway_ip = match self.gateway.ip() {
-            IpAddr::V4(v4) => v4,
-            IpAddr::V6(_) => {
-                return Err(PcpError::IPv6ServerNotSupported(self.gateway));
-            }
-        };
-
-        match Mapping::from_map_response(
+        let mapping = Mapping::from_map_response(
             &response,
             protocol,
             internal_port,
             nonce,
             self.client_addr,
-            gateway_ip,
-        ) {
-            Ok(mapping) => {
-                Self::log_mapping_success(&mapping);
-                Ok(mapping)
-            }
-            Err(e) => {
-                tracing::warn!("PCP mapping failed: {}", e);
-                Err(e)
-            }
-        }
+            self.gateway_ip,
+        )?;
+
+        Self::log_mapping_success(&mapping);
+
+        Ok(mapping)
     }
 
     fn log_mapping_success(mapping: &Mapping) {
         tracing::info!(
-            "PCP mapping created: {}:{} -> {}:{} (lifetime: {}s)",
-            mapping.local_ip,
-            mapping.local_port,
-            mapping.external_address,
-            mapping.external_port,
-            mapping.lifetime_seconds
+            "PCP mapping created: {}:{} (lifetime: {}s)",
+            mapping.external_address(),
+            mapping.external_port(),
+            mapping.lifetime_seconds()
         );
-    }
-
-    fn get_default_gateway() -> Result<Ipv4Addr, PcpError> {
-        if let Ok(ipv4_addrs) = netdev::get_default_gateway().map(|g| g.ipv4) {
-            if let Some(gw) = ipv4_addrs.first() {
-                return Ok(*gw);
-            }
-        }
-        Err(PcpError::CannotGetGateway)
     }
 
     /// Releases an existing port mapping by sending a DELETE request.
@@ -210,130 +194,81 @@ impl PcpClient {
     /// Uses the mapping's original nonce to identify and delete the specific
     /// mapping.
     #[cfg(test)]
-    pub async fn release_mapping(&self, mapping: &Mapping) -> Result<(), PcpError> {
+    pub(crate) async fn release_mapping(&self, mapping: Mapping) -> Result<(), PcpError> {
+        info!(
+            "Releasing PCP mapping: {}:{}",
+            mapping.external_address(),
+            mapping.external_port()
+        );
         self.send_delete_request(mapping).await?;
-        Self::log_release_success(mapping);
+
+        info!("PCP mapping released");
         Ok(())
     }
 
     #[cfg(test)]
-    async fn send_delete_request(&self, mapping: &Mapping) -> Result<(), PcpError> {
+    async fn send_delete_request(&self, mapping: Mapping) -> Result<(), PcpError> {
         let connection =
-            PcpConnection::connect(self.client_addr, self.gateway, self.config.clone()).await?;
+            PcpConnection::open(self.client_addr, self.gateway_ip, self.config.clone()).await?;
 
-        let request = PcpMapRequest::new_delete(
-            mapping.local_ip,
-            mapping.protocol as u8,
-            mapping.local_port.get(),
-            mapping.nonce,
-        );
+        let request = mapping.into_delete_request();
 
-        let response = connection.send_with_retry(request.as_bytes()).await?;
+        let response: PcpMapResponse = connection.send_request(&request).await?;
 
-        Self::validate_delete_response(&response, &request.nonce)
-    }
-
-    #[cfg(test)]
-    fn validate_delete_response(
-        response: &[u8],
-        expected_nonce: &[u8; 12],
-    ) -> Result<(), PcpError> {
-        use zerocopy::FromBytes as _;
-
-        use crate::behaviour::nat::address_mapper::protocols::pcp::wire::{
-            PcpMapResponse, PCP_MAP_SIZE,
-        };
-
-        if response.len() != PCP_MAP_SIZE {
-            return Err(PcpError::InvalidSize {
-                expected: PCP_MAP_SIZE,
-                actual: response.len(),
-            });
-        }
-
-        let map_response = PcpMapResponse::read_from_bytes(response)
-            .map_err(|e| PcpError::ParseError(format!("Failed to parse MAP response: {e}")))?;
-
-        if &map_response.nonce != expected_nonce {
+        if response.payload.nonce != request.payload.nonce {
             return Err(PcpError::NonceMismatch);
         }
 
-        let Ok(result_code) = ResultCode::try_from(map_response.result_code) else {
-            tracing::warn!(
-                "Unknown PCP result code in MAP delete response: {}",
-                map_response.result_code
-            );
-
-            return Err(PcpError::InvalidResponse(format!(
-                "Unknown result code: {}",
-                map_response.result_code
-            )));
-        };
-
-        if result_code != ResultCode::Success {
-            return Err(PcpError::ServerError(result_code));
-        }
-
         Ok(())
-    }
-
-    #[cfg(test)]
-    fn log_release_success(mapping: &Mapping) {
-        tracing::info!(
-            "PCP mapping released: {}:{} -> {}:{}",
-            mapping.local_ip,
-            mapping.local_port,
-            mapping.external_address,
-            mapping.external_port
-        );
     }
 }
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
     /// Run with: `PCP_CLIENT_IP=192.168.1.100 cargo test
     /// test_request_port_mapping -- --ignored`
     #[tokio::test]
-    #[ignore = "Integration test - requires PCP_CLIENT_IP env var"]
+    #[ignore = "Integration test - requires gateway"]
     async fn test_request_port_mapping() {
         let client_ip = std::env::var("PCP_CLIENT_IP")
             .expect("PCP_CLIENT_IP environment variable required")
             .parse()
             .expect("PCP_CLIENT_IP must be valid IPv4 address");
 
-        let client =
-            PcpClient::new(client_ip, PcpConfig::default()).expect("Failed to create PCP client");
+        let client = PcpClient::new(client_ip, PcpConfig::default());
 
-        if client.probe_available().await {
-            println!("PCP server is available");
+        match client.probe_available().await {
+            Ok(active_client) => {
+                println!("PCP server is available");
 
-            println!("Requesting port mapping...");
-            match client
-                .request_mapping(Protocol::Tcp, NonZeroU16::new(8080).unwrap(), None)
-                .await
-            {
-                Ok(mapping) => {
-                    println!("Got mapping: {mapping:?}");
+                println!("Requesting port mapping...");
+                match active_client
+                    .request_mapping(Protocol::Tcp, NonZeroU16::new(8080).unwrap(), None)
+                    .await
+                {
+                    Ok(mapping) => {
+                        println!(
+                            "Got mapping: {}:{} (lifetime: {}s)",
+                            mapping.external_address(),
+                            mapping.external_port(),
+                            mapping.lifetime_seconds()
+                        );
 
-                    assert_eq!(mapping.protocol, Protocol::Tcp);
-                    assert_eq!(mapping.local_port.get(), 8080);
-                    assert!(mapping.lifetime_seconds > 0);
-
-                    match client.release_mapping(&mapping).await {
-                        Ok(()) => println!("Mapping released successfully"),
-                        Err(e) => println!("Failed to release: {e}"),
+                        match active_client.release_mapping(mapping).await {
+                            Ok(()) => println!("Mapping released successfully"),
+                            Err(e) => println!("Failed to release: {e}"),
+                        }
+                    }
+                    Err(e) => {
+                        println!("Port mapping failed: {e}");
                     }
                 }
-                Err(e) => {
-                    println!("Port mapping failed: {e}");
-                }
             }
-        } else {
-            println!("PCP server not available");
+            Err(e) => {
+                println!("PCP server not available: {e}");
+            }
         }
-        panic!("Panic");
     }
 }

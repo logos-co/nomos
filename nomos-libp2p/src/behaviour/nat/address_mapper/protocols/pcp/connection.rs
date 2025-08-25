@@ -1,4 +1,7 @@
-use std::net::{Ipv4Addr, SocketAddr};
+use std::{
+    fmt::Debug,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+};
 
 use backon::{ExponentialBuilder, Retryable as _};
 use rand::RngCore as _;
@@ -6,12 +9,9 @@ use tokio::{
     net::UdpSocket,
     time::{timeout, Duration},
 };
-use zerocopy::IntoBytes as _;
+use zerocopy::{Immutable, IntoBytes};
 
-use crate::behaviour::nat::address_mapper::protocols::pcp::{
-    client::{PcpConfig, PcpError},
-    wire::{PcpAnnounceRequest, PcpMapRequest},
-};
+use crate::behaviour::nat::address_mapper::protocols::pcp::client::{PcpConfig, PcpError};
 
 const BUFFER_SIZE: usize = 1024;
 /// Let OS choose any available port for client socket
@@ -27,34 +27,43 @@ pub struct PcpConnection {
 }
 
 impl PcpConnection {
-    pub async fn connect(
+    pub async fn open(
         client_addr: Ipv4Addr,
-        server_addr: SocketAddr,
+        gateway_ip: Ipv4Addr,
         config: PcpConfig,
     ) -> Result<Self, PcpError> {
         let socket = UdpSocket::bind((client_addr, ANY_PORT)).await?;
 
+        let server_addr = SocketAddr::new(IpAddr::V4(gateway_ip), super::client::PCP_PORT);
         socket.connect(server_addr).await?;
 
         Ok(Self { socket, config })
     }
 
-    pub async fn send_with_retry(&self, request: &[u8]) -> Result<Vec<u8>, PcpError> {
+    pub(super) async fn send_request<Request, Response>(
+        &self,
+        request: &Request,
+    ) -> Result<Response, PcpError>
+    where
+        Request: IntoBytes + Immutable + Sync,
+        Response: for<'a> TryFrom<&'a [u8], Error: Debug>,
+    {
         let backoff = create_backoff(
-            self.config.initial_retry_ms,
-            self.config.max_retry_delay_secs,
+            self.config.initial_retry,
+            self.config.max_retry_delay,
             self.config.max_retries,
         );
 
         (|| async {
-            self.socket.send(request).await?;
+            self.socket.send(request.as_bytes()).await?;
 
             let mut buffer = vec![0u8; BUFFER_SIZE];
 
             match timeout(self.config.request_timeout, self.socket.recv(&mut buffer)).await {
                 Ok(Ok(size)) => {
                     buffer.truncate(size);
-                    Ok(buffer)
+                    Response::try_from(buffer.as_slice())
+                        .map_err(|e| PcpError::InvalidResponse(format!("{e:?}")))
                 }
                 Ok(Err(e)) => Err(PcpError::from(e)),
                 Err(elapsed) => Err(PcpError::Timeout(elapsed)),
@@ -63,30 +72,19 @@ impl PcpConnection {
         .retry(&backoff)
         .await
     }
-
-    pub async fn send_announce_request(
-        &self,
-        request: &PcpAnnounceRequest,
-    ) -> Result<Vec<u8>, PcpError> {
-        self.send_with_retry(request.as_bytes()).await
-    }
-
-    pub async fn send_map_request(&self, request: &PcpMapRequest) -> Result<Vec<u8>, PcpError> {
-        self.send_with_retry(request.as_bytes()).await
-    }
 }
 
 /// Implements exponential backoff as specified in RFC 6887 Section 8.1.1:
 /// "Clients should use exponential backoff with jitter to avoid thundering
 /// herd"
 fn create_backoff(
-    initial_retry_ms: u64,
-    max_delay_secs: u64,
+    initial_retry: Duration,
+    max_delay: Duration,
     max_retries: usize,
 ) -> ExponentialBuilder {
     ExponentialBuilder::default()
-        .with_min_delay(Duration::from_millis(initial_retry_ms))
-        .with_max_delay(Duration::from_secs(max_delay_secs))
+        .with_min_delay(initial_retry)
+        .with_max_delay(max_delay)
         .with_max_times(max_retries)
         .with_jitter()
 }

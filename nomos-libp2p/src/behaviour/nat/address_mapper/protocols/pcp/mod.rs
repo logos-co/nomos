@@ -89,8 +89,7 @@
 //!
 //! PCP defines standard result codes (0=success, 1-13=various errors).
 //! Unknown codes are logged and treated as `InvalidResponse` errors.
-//! Network errors trigger retry with increasing delays (250ms → 1s, max 5
-//! attempts).
+//! Network errors trigger retry with increasing delays.
 
 #![allow(
     dead_code,
