@@ -21,6 +21,7 @@ const EMPTY_VALUE: [u8; 32] = [0; 32];
 #[derive(Debug, Clone)]
 pub struct MerkleMountainRange<T, Hash, const MAX_HEIGHT: u8 = 32> {
     roots: StackSync<Root>,
+    len: usize,
     _hash: std::marker::PhantomData<(T, Hash)>,
 }
 
@@ -62,6 +63,7 @@ where
         );
         Self {
             roots: StackSync::new_sync(),
+            len: 0,
             _hash: std::marker::PhantomData,
         }
     }
@@ -98,6 +100,7 @@ where
 
         Self {
             roots,
+            len: self.len + 1,
             _hash: std::marker::PhantomData,
         }
     }
@@ -124,6 +127,10 @@ where
         assert_eq!(height, MAX_HEIGHT);
 
         root
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
     }
 }
 
@@ -223,6 +230,7 @@ mod test {
         assert_eq!(mmr.roots.peek().unwrap().root, leaf(b"hello"));
 
         mmr = mmr.push(b"world".as_ref());
+        assert_eq!(mmr.roots.size(), 1);
 
         assert_eq!(mmr.roots.size(), 1);
         assert_eq!(mmr.roots.peek().unwrap().height, 2);
@@ -232,6 +240,7 @@ mod test {
         );
 
         mmr = mmr.push(b"!".as_ref());
+        assert_eq!(mmr.roots.size(), 2);
 
         assert_eq!(mmr.roots.size(), 2);
         let top_root = mmr.roots.iter().last().unwrap();
@@ -244,6 +253,7 @@ mod test {
         assert_eq!(mmr.roots.peek().unwrap().root, leaf(b"!"));
 
         mmr = mmr.push(b"!".as_ref());
+        assert_eq!(mmr.roots.size(), 3);
 
         assert_eq!(mmr.roots.size(), 1);
         assert_eq!(mmr.roots.peek().unwrap().height, 3);

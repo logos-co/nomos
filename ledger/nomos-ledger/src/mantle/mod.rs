@@ -1,26 +1,23 @@
 pub mod channel;
-
+pub mod leader;
 use ed25519::signature::Verifier as _;
 use nomos_core::mantle::{
-    ops::{channel::ChannelId, Op, OpProof},
+    ops::{
+        leader_claim::VoucherCm,
+        Op, OpProof,
+    },
     AuthenticatedMantleTx, GasConstants,
 };
+use cryptarchia_engine::Epoch;
+
+use crate::Balance;
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum Error {
-    #[error("Invalid parent {parent:?} for channel {channel_id:?}, expected {actual:?}")]
-    InvalidParent {
-        channel_id: ChannelId,
-        parent: [u8; 32],
-        actual: [u8; 32],
-    },
-    #[error("Unauthorized signer {signer:?} for channel {channel_id:?}")]
-    UnauthorizedSigner {
-        channel_id: ChannelId,
-        signer: String,
-    },
-    #[error("Invalid keys for channel {channel_id:?}")]
-    EmptyKeys { channel_id: ChannelId },
+    #[error(transparent)]
+    Channel(#[from] channel::Error),
+    #[error(transparent)]
+    Leader(#[from] leader::Error),
     #[error("Unsupported operation")]
     UnsupportedOp,
     #[error("Invalid signature")]
@@ -32,6 +29,7 @@ pub enum Error {
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct LedgerState {
     channels: channel::Channels,
+    leaders: leader::LeaderState,
 }
 
 impl Default for LedgerState {
@@ -45,14 +43,25 @@ impl LedgerState {
     pub fn new() -> Self {
         Self {
             channels: channel::Channels::new(),
+            leaders: leader::LeaderState::new(),
         }
+    }
+
+    pub fn try_apply_header(
+        mut self,
+        epoch: Epoch,
+        voucher: VoucherCm, 
+    ) -> Result<Self, Error> {
+        self.leaders = self.leaders.try_apply_header(epoch, voucher)?;
+        Ok(self)
     }
 
     pub fn try_apply_tx<Constants: GasConstants>(
         mut self,
         tx: impl AuthenticatedMantleTx,
-    ) -> Result<Self, Error> {
+    ) -> Result<(Self, Balance), Error> {
         let tx_hash = tx.hash();
+        let mut balance = 0;
         for (op, proof) in tx.ops_with_proof() {
             match (op, proof) {
                 (Op::ChannelBlob(op), Some(OpProof::Ed25519Sig(sig))) => {
@@ -76,13 +85,21 @@ impl LedgerState {
                 (Op::ChannelSetKeys(op), Some(OpProof::Ed25519Sig(sig))) => {
                     self.channels = self.channels.set_keys(op.channel, op, sig, &tx_hash)?;
                 }
+                (Op::LeaderClaim(op), None) => {
+                    // Correct derivation of the voucher nullifier and membership in the merkle tree
+                    // can be verified outside of this function since public inputs are already available.
+                    // Callers are expected to validate the proof before calling this function.
+                    let leader_balance;
+                    (self.leaders, leader_balance) = self.leaders.claim(op)?;
+                    balance += leader_balance;
+                }
                 _ => {
                     return Err(Error::UnsupportedOp);
                 }
             }
         }
 
-        Ok(self)
+        Ok((self, balance))
     }
 }
 
@@ -93,7 +110,9 @@ mod tests {
         mantle::{
             gas::MainnetGasConstants,
             ledger::Tx as LedgerTx,
-            ops::channel::{blob::BlobOp, inscribe::InscriptionOp, set_keys::SetKeysOp, MsgId},
+            ops::channel::{
+                blob::BlobOp, inscribe::InscriptionOp, set_keys::SetKeysOp, ChannelId, MsgId,
+            },
             MantleTx, SignedMantleTx, Transaction as _,
         },
         proofs::zksig::DummyZkSignature,
@@ -183,7 +202,7 @@ mod tests {
         let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx);
         assert!(result.is_ok());
 
-        let new_state = result.unwrap();
+        let (new_state, _) = result.unwrap();
         assert!(new_state.channels.channels.contains_key(&channel_id));
     }
 
@@ -202,7 +221,7 @@ mod tests {
         let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx);
         assert!(result.is_ok());
 
-        let new_state = result.unwrap();
+        let (new_state, _) = result.unwrap();
         assert!(new_state.channels.channels.contains_key(&channel_id));
         assert_eq!(
             new_state.channels.channels.get(&channel_id).unwrap().keys,
@@ -285,7 +304,8 @@ mod tests {
         let first_tx = create_signed_tx(Op::ChannelBlob(first_blob), &signing_key);
         ledger_state = ledger_state
             .try_apply_tx::<MainnetGasConstants>(first_tx)
-            .unwrap();
+            .unwrap()
+            .0;
 
         // Now try to add a message with wrong parent
         let wrong_parent = MsgId::from([99; 32]);
@@ -302,7 +322,10 @@ mod tests {
         let result = ledger_state
             .clone()
             .try_apply_tx::<MainnetGasConstants>(second_tx);
-        assert!(matches!(result, Err(Error::InvalidParent { .. })));
+        assert!(matches!(
+            result,
+            Err(Error::Channel(channel::Error::InvalidParent { .. }))
+        ));
 
         // Writing into an empty channel with a parent != MsgId::root() should also fail
         let empty_channel_id = ChannelId::from([8; 32]);
@@ -317,7 +340,10 @@ mod tests {
 
         let empty_tx = create_signed_tx(Op::ChannelBlob(empty_blob), &signing_key);
         let empty_result = ledger_state.try_apply_tx::<MainnetGasConstants>(empty_tx);
-        assert!(matches!(empty_result, Err(Error::InvalidParent { .. })));
+        assert!(matches!(
+            empty_result,
+            Err(Error::Channel(channel::Error::InvalidParent { .. }))
+        ));
     }
 
     #[test]
@@ -341,7 +367,8 @@ mod tests {
         let first_tx = create_signed_tx(Op::ChannelBlob(first_blob), &signing_key);
         ledger_state = ledger_state
             .try_apply_tx::<MainnetGasConstants>(first_tx)
-            .unwrap();
+            .unwrap()
+            .0;
 
         // Now try to add a message with unauthorized signer
         let second_blob = BlobOp {
@@ -355,7 +382,10 @@ mod tests {
 
         let second_tx = create_signed_tx(Op::ChannelBlob(second_blob), &unauthorized_signing_key);
         let result = ledger_state.try_apply_tx::<MainnetGasConstants>(second_tx);
-        assert!(matches!(result, Err(Error::UnauthorizedSigner { .. })));
+        assert!(matches!(
+            result,
+            Err(Error::Channel(channel::Error::UnauthorizedSigner { .. }))
+        ));
     }
 
     #[test]
@@ -371,7 +401,10 @@ mod tests {
 
         let tx = create_signed_tx(Op::ChannelSetKeys(set_keys_op), &signing_key);
         let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx);
-        assert_eq!(result, Err(Error::EmptyKeys { channel_id }));
+        assert_eq!(
+            result,
+            Err(Error::Channel(channel::Error::EmptyKeys { channel_id }))
+        );
     }
 
     #[test]
@@ -427,14 +460,14 @@ mod tests {
         ];
         let tx = create_multi_signed_tx(ops, vec![&sk1, &sk2, &sk1, &sk4]);
 
-        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx);
-        assert!(result.is_ok());
+        let (result, _) = ledger_state
+            .try_apply_tx::<MainnetGasConstants>(tx)
+            .unwrap();
 
-        let new_state = result.unwrap();
-        assert!(new_state.channels.channels.contains_key(&channel1));
-        assert!(new_state.channels.channels.contains_key(&channel2));
+        assert!(result.channels.channels.contains_key(&channel1));
+        assert!(result.channels.channels.contains_key(&channel2));
         assert_eq!(
-            new_state.channels.channels.get(&channel1).unwrap().tip,
+            result.channels.channels.get(&channel1).unwrap().tip,
             blob_op2.id()
         );
     }
