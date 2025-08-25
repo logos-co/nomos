@@ -247,14 +247,13 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         message: &EncapsulatedMessageWithValidatedPublicHeader,
         except: (PeerId, ConnectionId),
     ) -> Result<(), Error> {
-        if self.old_session.is_negotiated(&except) {
-            tracing::debug!(target: LOG_TARGET, "Forwarding message to the conns in the old session, except {except:?}.");
-            self.old_session
-                .forward_validated_message(message, except.0)
-        } else {
-            tracing::debug!(target: LOG_TARGET, "Forwarding message to the conns in the current session, except {except:?}.");
-            self.forward_validated_message_and_maybe_exclude(message, Some(except.0))
+        if self
+            .old_session
+            .forward_validated_message(message, &except)?
+        {
+            return Ok(());
         }
+        self.forward_validated_message_and_maybe_exclude(message, Some(except.0))
     }
 
     #[must_use]
@@ -958,13 +957,14 @@ where
             Either::Left(event) => match event {
                 // A message was forwarded from the peer.
                 ToBehaviour::Message(message) => {
-                    if self.old_session.is_negotiated(&(peer_id, connection_id)) {
-                        self.old_session
-                            .handle_received_serialized_encapsulated_message(
-                                &message,
-                                (peer_id, connection_id),
-                            );
-                    } else {
+                    if self
+                        .old_session
+                        .handle_received_serialized_encapsulated_message(
+                            &message,
+                            (peer_id, connection_id),
+                        )
+                        == Ok(false)
+                    {
                         self.handle_received_serialized_encapsulated_message(
                             &message,
                             (peer_id, connection_id),
