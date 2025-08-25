@@ -50,7 +50,7 @@ impl<RuntimeServiceId> BlendBackend<PeerId, RuntimeServiceId> for Libp2pBlendBac
             current_membership,
             rng,
             swarm_command_receiver,
-            settings.protocol_name.clone().into_inner() ,
+            settings.protocol_name.clone().into_inner(),
         );
 
         let (swarm_task_abort_handle, swarm_task_abort_registration) = AbortHandle::new_pair();
