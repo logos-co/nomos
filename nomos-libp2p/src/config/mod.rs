@@ -2,8 +2,8 @@ pub use identify::Settings as IdentifySettings;
 pub use kademlia::Settings as KademliaSettings;
 use libp2p::identity::ed25519;
 pub use nat::{
-    autonat_client::Settings as AutonatClientSettings, mapping::Settings as NatMappingSettings,
-    Settings as NatSettings,
+    autonat_client::Settings as AutonatClientSettings, gateway::Settings as GatewaySettings,
+    mapping::Settings as NatMappingSettings, Settings as NatSettings,
 };
 use serde::{Deserialize, Serialize};
 
