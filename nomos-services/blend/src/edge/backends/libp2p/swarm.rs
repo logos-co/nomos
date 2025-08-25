@@ -1,4 +1,4 @@
-use core::num::NonZeroU64;
+use core::num::{NonZeroU64, NonZeroUsize};
 use std::{
     collections::{hash_map::Entry, HashMap},
     io,
@@ -22,7 +22,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, trace};
 
 use super::settings::Libp2pBlendBackendSettings;
-use crate::edge::backends::libp2p::LOG_TARGET;
+use crate::{edge::backends::libp2p::LOG_TARGET, utils::CreationError};
 
 #[derive(Debug)]
 pub struct DialAttempt {
@@ -80,7 +80,8 @@ where
         rng: Rng,
         command_receiver: mpsc::Receiver<Command>,
         protocol_name: StreamProtocol,
-    ) -> Self {
+        minimum_network_size: NonZeroUsize,
+    ) -> Result<Self, CreationError> {
         let keypair = settings.keypair();
         let swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()

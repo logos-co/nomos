@@ -35,6 +35,8 @@ pub mod edge;
 pub mod message;
 pub mod settings;
 
+mod utils;
+
 #[cfg(test)]
 mod test_utils;
 

@@ -24,12 +24,15 @@ use nomos_libp2p::{DialOpts, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
 
-use crate::core::{
-    backends::libp2p::{
-        behaviour::{BlendBehaviour, BlendBehaviourEvent},
-        Libp2pBlendBackendSettings, LOG_TARGET,
+use crate::{
+    core::{
+        backends::libp2p::{
+            behaviour::{BlendBehaviour, BlendBehaviourEvent},
+            Libp2pBlendBackendSettings, LOG_TARGET,
+        },
+        settings::BlendConfig,
     },
-    settings::BlendConfig,
+    utils::CreationError,
 };
 
 #[derive(Debug)]
@@ -53,11 +56,6 @@ impl DialAttempt {
     pub const fn attempt_number(&self) -> NonZeroU64 {
         self.attempt_number
     }
-}
-
-#[derive(Debug)]
-pub enum CreationError {
-    BlendNetworkTooSmall,
 }
 
 pub struct BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
