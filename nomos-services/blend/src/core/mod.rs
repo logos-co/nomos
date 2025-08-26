@@ -22,6 +22,7 @@ use nomos_blend_scheduling::{
 };
 use nomos_core::wire;
 use nomos_network::NetworkService;
+use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -30,7 +31,6 @@ use overwatch::{
     OpaqueServiceResourcesHandle,
 };
 use rand::{seq::SliceRandom as _, RngCore, SeedableRng as _};
-use rand_chacha::ChaCha12Rng;
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use tokio::time::interval;
@@ -54,7 +54,7 @@ const LOG_TARGET: &str = "blend::service::core";
 /// backend.
 pub struct BlendService<Backend, NodeId, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId>,
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
@@ -63,7 +63,7 @@ where
 impl<Backend, NodeId, Network, RuntimeServiceId> ServiceData
     for BlendService<Backend, NodeId, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId>,
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     type Settings = BlendConfig<Backend::Settings, NodeId>;
@@ -77,7 +77,7 @@ impl<Backend, NodeId, Network, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for BlendService<Backend, NodeId, Network, RuntimeServiceId>
 where
     Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId> + Send + Sync,
-    NodeId: Clone + Eq + Hash + Send + Sync + 'static,
+    NodeId: Clone + Send + Sync + 'static,
     Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
         + AsServiceId<Self>
@@ -135,7 +135,7 @@ where
                 <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
             );
         } else {
-            let mut rng = ChaCha12Rng::from_entropy();
+            let mut rng = BlakeRng::from_entropy();
             let mut cryptographic_processor = CryptographicProcessor::new(
                 blend_config.crypto.clone(),
                 membership.clone(),
@@ -163,14 +163,14 @@ where
             .await;
 
             let session_duration = blend_config.time.session_duration();
-            let mut backend = <Backend as BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId>>::new(
+            let mut backend = <Backend as BlendBackend<NodeId, BlakeRng, RuntimeServiceId>>::new(
                 blend_config,
                 service_resources_handle.overwatch_handle.clone(),
                 Box::pin(
                     IntervalStream::new(interval(session_duration))
                         .map(move |_| membership.clone()),
                 ),
-                ChaCha12Rng::from_entropy(),
+                BlakeRng::from_entropy(),
             );
 
             // Yields new messages received via Blend peers.
@@ -232,7 +232,7 @@ async fn handle_local_data_message<
 ) where
     NodeId: Eq + Hash + Send,
     Rng: RngCore + Send,
-    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId> + Sync,
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Sync,
     BroadcastSettings: Serialize,
 {
     let ServiceMessage::Blend(message_payload) = local_data_message;
@@ -313,7 +313,7 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
 ) where
     NodeId: Eq + Hash,
     Rng: RngCore + Send,
-    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId> + Sync,
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Sync,
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Sync,
 {
     let mut processed_messages_relay_futures = processed_messages

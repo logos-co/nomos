@@ -6,6 +6,7 @@ use std::{fmt::Display, hash::Hash};
 use backends::BlendBackend;
 use nomos_blend_scheduling::message_blend::crypto::CryptographicProcessor;
 use nomos_core::wire;
+use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -14,7 +15,6 @@ use overwatch::{
     OpaqueServiceResourcesHandle,
 };
 use rand::{RngCore, SeedableRng as _};
-use rand_chacha::ChaCha12Rng;
 use serde::Serialize;
 use settings::BlendConfig;
 use tokio::time::interval;
@@ -104,7 +104,7 @@ where
             let mut cryptoraphic_processor = CryptographicProcessor::new(
                 settings.crypto.clone(),
                 settings.membership(),
-                ChaCha12Rng::from_entropy(),
+                BlakeRng::from_entropy(),
             );
             let mut messages_to_blend =
                 service_resources_handle
@@ -121,7 +121,7 @@ where
                         .map(move |_| membership.clone()),
                 ),
                 current_membership,
-                ChaCha12Rng::from_entropy(),
+                BlakeRng::from_entropy(),
             );
 
             service_resources_handle.status_updater.notify_ready();
