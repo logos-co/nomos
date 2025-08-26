@@ -68,7 +68,7 @@ impl MembershipBackend for MockMembershipBackend {
         let block_number = update.block_number;
 
         tracing::debug!(
-            "Uupdating membership: {:?}, block {}, latest_block_number: {}",
+            "Updating membership: {:?}, block {}, latest_block_number: {}",
             update,
             block_number,
             self.latest_block_number
