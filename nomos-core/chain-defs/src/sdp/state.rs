@@ -1,5 +1,3 @@
-use std::cmp::max;
-
 use thiserror::Error;
 
 use super::{DeclarationState, ServiceParameters};
@@ -22,13 +20,13 @@ impl<'a> ActiveState<'a> {
 
     const fn try_into_withdrawn(
         self,
-        block_number: BlockNumber,
+        current_block_number: BlockNumber,
         service_params: &'_ ServiceParameters,
     ) -> Result<WithdrawnState<'a>, ActiveStateError> {
-        if self.0.created.wrapping_add(service_params.lock_period) >= block_number {
+        if self.0.created.wrapping_add(service_params.lock_period) >= current_block_number {
             return Err(ActiveStateError::WithdrawalWhileLocked);
         }
-        self.0.withdrawn = Some(block_number);
+        self.0.withdrawn = Some(current_block_number);
         Ok(WithdrawnState::<'a>(self.0))
     }
 }
@@ -50,13 +48,13 @@ impl<'a> InactiveState<'a> {
 
     const fn try_into_withdrawn(
         self,
-        block_number: BlockNumber,
+        current_block_number: BlockNumber,
         service_params: &ServiceParameters,
     ) -> Result<WithdrawnState<'a>, InactiveStateError> {
-        if self.0.created.wrapping_add(service_params.lock_period) >= block_number {
+        if self.0.created.wrapping_add(service_params.lock_period) >= current_block_number {
             return Err(InactiveStateError::WithdrawalWhileLocked);
         }
-        self.0.withdrawn = Some(block_number);
+        self.0.withdrawn = Some(current_block_number);
         Ok(WithdrawnState(self.0))
     }
 }
@@ -85,11 +83,11 @@ pub enum TransientDeclarationState<'a> {
 
 impl<'a> TransientDeclarationState<'a> {
     pub fn try_from_state(
-        block_number: BlockNumber,
+        current_block_number: BlockNumber,
         declaration_state: &'a mut DeclarationState,
         service_params: &ServiceParameters,
     ) -> Result<Self, DeclarationStateError> {
-        if declaration_state.created > block_number {
+        if declaration_state.created > current_block_number {
             return Err(DeclarationStateError::BlockFromPast);
         }
 
@@ -102,15 +100,16 @@ impl<'a> TransientDeclarationState<'a> {
         if declaration_state
             .created
             .wrapping_add(service_params.inactivity_period)
-            > block_number
+            > current_block_number
         {
             return Ok(ActiveState(declaration_state).into());
         }
 
         // Check if provider has ever got the activity recorded first and then see if
         // the activity record was recent.
-        let activity = max(declaration_state.active, declaration_state.created);
-        if block_number.wrapping_sub(activity) <= service_params.inactivity_period {
+        if current_block_number.wrapping_sub(declaration_state.active)
+            <= service_params.inactivity_period
+        {
             return Ok(ActiveState(declaration_state).into());
         }
 
@@ -118,7 +117,7 @@ impl<'a> TransientDeclarationState<'a> {
     }
 
     #[must_use]
-    fn last_block_number(&self) -> BlockNumber {
+    const fn last_block_number(&self) -> BlockNumber {
         let declaration_state: &DeclarationState = match self {
             Self::Active(active_state) => active_state.0,
             Self::Inactive(inactive_state) => inactive_state.0,
@@ -127,35 +126,42 @@ impl<'a> TransientDeclarationState<'a> {
         if let Some(withdrawn_timestamp) = declaration_state.withdrawn {
             return withdrawn_timestamp;
         }
-        max(declaration_state.active, declaration_state.created)
+        declaration_state.active
     }
 
-    pub fn try_into_active(self, block_number: BlockNumber) -> Result<Self, DeclarationStateError> {
-        if self.last_block_number() > block_number {
+    pub fn try_into_active(
+        self,
+        current_block_number: BlockNumber,
+    ) -> Result<Self, DeclarationStateError> {
+        if self.last_block_number() > current_block_number {
             return Err(DeclarationStateError::BlockFromPast);
         }
         match self {
-            Self::Active(active_state) => Ok(active_state.into_updated(block_number).into()),
-            Self::Inactive(inactive_state) => Ok(inactive_state.into_active(block_number).into()),
+            Self::Active(active_state) => {
+                Ok(active_state.into_updated(current_block_number).into())
+            }
+            Self::Inactive(inactive_state) => {
+                Ok(inactive_state.into_active(current_block_number).into())
+            }
             Self::Withdrawn(_) => Err(DeclarationStateError::WithdrawnToOtherState),
         }
     }
 
     pub fn try_into_withdrawn(
         self,
-        block_number: BlockNumber,
+        current_block_number: BlockNumber,
         service_params: &ServiceParameters,
     ) -> Result<Self, DeclarationStateError> {
-        if self.last_block_number() > block_number {
+        if self.last_block_number() > current_block_number {
             return Err(DeclarationStateError::BlockFromPast);
         }
         match self {
             Self::Active(active_state) => active_state
-                .try_into_withdrawn(block_number, service_params)
+                .try_into_withdrawn(current_block_number, service_params)
                 .map(Into::into)
                 .map_err(DeclarationStateError::from),
             Self::Inactive(inactive_state) => inactive_state
-                .try_into_withdrawn(block_number, service_params)
+                .try_into_withdrawn(current_block_number, service_params)
                 .map(Into::into)
                 .map_err(DeclarationStateError::from),
             Self::Withdrawn(_) => Err(DeclarationStateError::WithdrawnToOtherState),
