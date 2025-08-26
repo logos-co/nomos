@@ -2,7 +2,7 @@ use nomos_core::{
     block::BlockNumber,
     sdp::{
         state::{DeclarationStateError, TransientDeclarationState},
-        DeclarationId, DeclarationState, EventType, Nonce, ServiceParameters,
+        DeclarationId, DeclarationState, Nonce, ServiceParameters,
     },
 };
 #[cfg(feature = "serde")]
@@ -80,7 +80,7 @@ impl SdpLedger {
         }
 
         TransientDeclarationState::try_from_state(block_number, current_state, service_params)?
-            .try_into_active(block_number, EventType::Activity)?;
+            .try_into_active(block_number)?;
 
         current_state.nonce = nonce;
 
@@ -103,7 +103,7 @@ impl SdpLedger {
         }
 
         TransientDeclarationState::try_from_state(block_number, current_state, service_params)?
-            .try_into_withdrawn(block_number, EventType::Withdrawal, service_params)?;
+            .try_into_withdrawn(block_number, service_params)?;
 
         current_state.nonce = nonce;
 
