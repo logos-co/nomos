@@ -21,19 +21,19 @@ pub struct PolPrivateInputs {
 }
 
 pub struct PolPrivateInputsData {
-    secret_key: [u8; 32],
-    note_value: u64,
-    transaction_hash: [u8; 32],
-    output_numer: u64,
-    aged_proof: [u8; 32],
-    aged_path: Vec<[u8; 32]>,
-    aged_selector: Vec<bool>,
-    latest_proof: [u8; 32],
-    latest_path: Vec<[u8; 32]>,
-    latest_selector: Vec<bool>,
-    slot_secret: [u8; 32],
-    secrets_root: [u8; 32],
-    starting_slot: u64,
+    pub secret_key: [u8; 32],
+    pub note_value: u64,
+    pub transaction_hash: [u8; 32],
+    pub output_numer: u64,
+    pub aged_proof: [u8; 32],
+    pub aged_path: Vec<[u8; 32]>,
+    pub aged_selector: Vec<bool>,
+    pub latest_proof: [u8; 32],
+    pub latest_path: Vec<[u8; 32]>,
+    pub latest_selector: Vec<bool>,
+    pub slot_secret: [u8; 32],
+    pub secrets_root: [u8; 32],
+    pub starting_slot: u64,
 }
 
 #[derive(Serialize)]
