@@ -329,8 +329,7 @@ mempool:
     nanos: 0
 membership:
   backend:
-    settings_per_service: {}
-    initial_membership: {}
-    initial_locators_mapping: {}
-    latest_block_number: 0
+    session_size_blocks: 4320
+    session_zero_membership: {}
+    session_zero_locators_mapping: {}
 sdp:
