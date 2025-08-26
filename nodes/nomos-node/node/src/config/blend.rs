@@ -1,5 +1,3 @@
-use core::num::NonZeroU64;
-
 use nomos_blend_service::settings::NetworkSettings;
 use overwatch::services::ServiceData;
 use serde::{Deserialize, Serialize};
@@ -7,39 +5,33 @@ use serde::{Deserialize, Serialize};
 use crate::{BlendCoreService, BlendEdgeService, BlendService};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct BlendConfig {
-    #[serde(flatten)]
-    core: <BlendCoreService as ServiceData>::Settings,
-    minimum_network_size: NonZeroU64,
-}
+pub struct BlendConfig(<BlendCoreService as ServiceData>::Settings);
 
 impl BlendConfig {
     #[must_use]
     pub const fn new(core: <BlendCoreService as ServiceData>::Settings) -> Self {
-        Self {
-            core,
-            minimum_network_size,
-        }
+        Self(core)
     }
 
     fn edge(&self) -> <BlendEdgeService as ServiceData>::Settings {
         nomos_blend_service::edge::settings::BlendConfig {
             backend: nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackendSettings {
-                node_key: self.core.backend.node_key.clone(),
+                node_key: self.0.backend.node_key.clone(),
                 // TODO: Allow for edge service settings to be included here.
                 max_dial_attempts_per_peer_per_message: 3
                     .try_into()
                     .expect("Max dial attempts per peer per message cannot be zero."),
-                protocol_name: self.core.backend.protocol_name.clone(),
+                protocol_name: self.0.backend.protocol_name.clone(),
             },
-            crypto: self.core.crypto.clone(),
-            time: self.core.time.clone(),
-            membership: self.core.membership.clone(),
+            crypto: self.0.crypto.clone(),
+            time: self.0.time.clone(),
+            membership: self.0.membership.clone(),
+            minimum_membership_size: self.0.minimum_membership_size,
         }
     }
 
     pub const fn get_mut(&mut self) -> &mut <BlendCoreService as ServiceData>::Settings {
-        &mut self.core
+        &mut self.0
     }
 }
 
@@ -54,10 +46,10 @@ impl From<BlendConfig>
         let edge = config.edge();
         (
             NetworkSettings {
-                membership: config.core.membership.clone(),
-                minimal_network_size: config.minimum_network_size,
+                membership: config.0.membership.clone(),
+                minimal_network_size: config.0.minimum_membership_size,
             },
-            config.core,
+            config.0,
             edge,
         )
     }
