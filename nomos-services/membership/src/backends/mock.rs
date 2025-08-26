@@ -201,7 +201,7 @@ mod tests {
             }),
             DeclarationState {
                 created: block_number,
-                active: None,
+                active: block_number,
                 withdrawn: None,
                 nonce: 0,
             },
@@ -236,7 +236,7 @@ mod tests {
             },
             DeclarationState {
                 created: 0,
-                active: Some(1),
+                active: 1,
                 withdrawn: None,
                 nonce: 1,
             },

@@ -2,28 +2,22 @@ use std::cmp::max;
 
 use thiserror::Error;
 
-use super::{DeclarationState, EventType, ServiceParameters};
+use super::{DeclarationState, ServiceParameters};
 use crate::block::BlockNumber;
 
 #[derive(Error, Clone, Debug, PartialEq, Eq)]
 pub enum ActiveStateError {
-    #[error("Active declaration state can happen only when provider is created")]
-    ActiveNotOnCreated,
-    #[error("Active state can not be updated to active state during withdrawal event")]
-    ActiveDuringWithdrawal,
     #[error("Locked period did not pass yet")]
     WithdrawalWhileLocked,
-    #[error("Active can not transition to withdrawn during {0:?} event")]
-    WithdrawalInvalidEvent(EventType),
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct ActiveState<'a>(&'a mut DeclarationState);
 
 impl<'a> ActiveState<'a> {
-    const fn try_into_updated(self, block_number: BlockNumber) -> Result<Self, ActiveStateError> {
+    const fn into_updated(self, block_number: BlockNumber) -> Self {
         self.0.active = block_number;
-        Ok(self)
+        self
     }
 
     const fn try_into_withdrawn(
@@ -41,24 +35,17 @@ impl<'a> ActiveState<'a> {
 
 #[derive(Error, Clone, Debug, PartialEq, Eq)]
 pub enum InactiveStateError {
-    #[error("Inactive can not transition to active during {0:?} event")]
-    ActiveInvalidEvent(EventType),
     #[error("Locked period did not pass yet")]
     WithdrawalWhileLocked,
-    #[error("Inactive can not transition to withdrawn during {0:?} event")]
-    WithdrawalInvalidEvent(EventType),
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct InactiveState<'a>(&'a mut DeclarationState);
 
 impl<'a> InactiveState<'a> {
-    const fn try_into_active(
-        self,
-        block_number: BlockNumber,
-    ) -> Result<ActiveState<'a>, InactiveStateError> {
+    const fn into_active(self, block_number: BlockNumber) -> ActiveState<'a> {
         self.0.active = block_number;
-        Ok(ActiveState(self.0))
+        ActiveState(self.0)
     }
 
     const fn try_into_withdrawn(
@@ -148,14 +135,8 @@ impl<'a> TransientDeclarationState<'a> {
             return Err(DeclarationStateError::BlockFromPast);
         }
         match self {
-            Self::Active(active_state) => active_state
-                .try_into_updated(block_number)
-                .map(Into::into)
-                .map_err(DeclarationStateError::from),
-            Self::Inactive(inactive_state) => inactive_state
-                .try_into_active(block_number)
-                .map(Into::into)
-                .map_err(DeclarationStateError::from),
+            Self::Active(active_state) => Ok(active_state.into_updated(block_number).into()),
+            Self::Inactive(inactive_state) => Ok(inactive_state.into_active(block_number).into()),
             Self::Withdrawn(_) => Err(DeclarationStateError::WithdrawnToOtherState),
         }
     }
