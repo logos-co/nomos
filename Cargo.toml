@@ -104,6 +104,7 @@ nomos-tracing-service    = { path = "./nomos-services/tracing" }
 nomos-utils              = { path = "./nomos-utils" }
 nomos_proof_statements   = { path = "./nomos-core/proof_statements" }
 pol-witness-generator    = { path = "zk/circuits/witness_generators/pol" }
+poseidon2                = { path = "zk/poseidon2" }
 services-utils           = { path = "./nomos-services/utils" }
 subnetworks-assignations = { path = "./nomos-da/network/subnetworks-assignations" }
 tests                    = { path = "./tests" }
