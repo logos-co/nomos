@@ -12,11 +12,13 @@ workspace = true
 anyhow                 = "1.0"
 async-trait            = { version = "0.1" }
 bincode                = "1.3"
+blake2                 = { version = "0.10" }
 bytes                  = { workspace = true }
 const-hex              = "1"
 cryptarchia-engine     = { workspace = true, features = ["serde"] }
 ed25519                = { version = "2.2", features = ["serde"] }
 ed25519-dalek          = { version = "2.2.0", features = ["serde"] }
+groth16                = { workspace = true }
 hex                    = { version = "0.4" }
 multiaddr              = "0.18"
 nomos_proof_statements = { workspace = true }

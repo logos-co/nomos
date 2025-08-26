@@ -11,6 +11,7 @@ mod verification_key;
 mod verifier;
 
 use ark_bn254::Bn254;
+pub use ark_bn254::Fr;
 pub use verifier::groth16_verify;
 
 pub type Groth16Proof = proof::Proof<Bn254>;

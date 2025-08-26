@@ -10,7 +10,7 @@ use crate::{
 pub type Value = u64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NoteId(pub [u8; 32]);
+pub struct NoteId(pub Fr);
 
 serde_bytes_newtype!(NoteId, 32);
 

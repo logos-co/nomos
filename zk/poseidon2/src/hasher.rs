@@ -1,7 +1,7 @@
 use ark_bn254::Fr;
 use ark_ff::Field as _;
 
-use crate::{Hasher, Poseidon2Bn254};
+use crate::{Digest, Poseidon2Bn254};
 
 pub struct Poseidon2Hasher {
     state: [Fr; 3],
@@ -38,16 +38,23 @@ impl Poseidon2Hasher {
     }
 }
 
-impl Hasher for Poseidon2Hasher {
+impl Digest for Poseidon2Hasher {
+    fn digest(inputs: &[Fr]) -> Fr {
+        let mut hasher = Self::new();
+        hasher.update(inputs);
+        hasher.finalize()
+    }
+
     fn new() -> Self {
         Self::new()
     }
 
-    fn update(&mut self, input: &[Fr]) {
-        Self::update(self, input);
+    fn update(&mut self, input: &Fr) {
+        Self::update_one(self, input);
     }
 
-    fn finalize(self) -> Fr {
+    fn finalize(mut self) -> Fr {
+        Self::update_one(&mut self, &Fr::ONE);
         Self::finalize(self)
     }
 }
