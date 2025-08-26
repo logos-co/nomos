@@ -4,18 +4,22 @@ use std::{
     num::{NonZeroU64, NonZeroUsize},
     path::PathBuf,
     process::{Child, Command, Stdio},
+    str::FromStr as _,
     time::Duration,
 };
 
 use chain_service::{CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, SyncConfig};
+use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
+use futures::Stream;
+use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_api::http::membership::MembershipUpdateRequest;
 use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
 use nomos_blend_service::{
     core::settings::{CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt},
     settings::TimingSettings,
 };
-use nomos_core::{block::Block, mantle::SignedMantleTx, sdp::FinalizedBlockEvent};
+use nomos_core::{block::Block, da::BlobId, mantle::SignedMantleTx, sdp::FinalizedBlockEvent};
 use nomos_da_network_core::{
     protocols::sampling::SubnetsConfig,
     swarm::{BalancerStats, DAConnectionPolicySettings, MonitorStats},
@@ -35,8 +39,8 @@ use nomos_da_verifier::{
     DaVerifierServiceSettings,
 };
 use nomos_http_api_common::paths::{
-    CL_METRICS, CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_MONITOR_STATS,
-    STORAGE_BLOCK, UPDATE_MEMBERSHIP,
+    CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_MONITOR_STATS, STORAGE_BLOCK,
+    UPDATE_MEMBERSHIP,
 };
 use nomos_mempool::MempoolMetrics;
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
@@ -75,6 +79,7 @@ pub struct Validator {
     tempdir: tempfile::TempDir,
     child: Child,
     config: Config,
+    http_client: CommonHttpClient,
 }
 
 impl Drop for Validator {
@@ -126,6 +131,7 @@ impl Validator {
             child,
             tempdir: dir,
             config,
+            http_client: CommonHttpClient::new_with_client(CLIENT.clone(), None),
         };
 
         tokio::time::timeout(adjust_timeout(Duration::from_secs(10)), async {
@@ -150,7 +156,7 @@ impl Validator {
 
     async fn wait_online(&self) {
         loop {
-            let res = self.get(CL_METRICS).await;
+            let res = self.get(CRYPTARCHIA_INFO).await;
             if res.is_ok() && res.unwrap().status().is_success() {
                 break;
             }
@@ -284,6 +290,33 @@ impl Validator {
             .json()
             .await
             .unwrap()
+    }
+
+    pub async fn get_shares(
+        &self,
+        blob_id: BlobId,
+        requested_shares: HashSet<[u8; 2]>,
+        filter_shares: HashSet<[u8; 2]>,
+        return_available: bool,
+    ) -> Result<impl Stream<Item = DaLightShare>, common_http_client::Error> {
+        self.http_client
+            .get_shares::<DaShare>(
+                Url::from_str(&format!("http://{}", self.addr))?,
+                blob_id,
+                requested_shares,
+                filter_shares,
+                return_available,
+            )
+            .await
+    }
+
+    pub async fn get_commitments(
+        &self,
+        blob_id: BlobId,
+    ) -> Result<Option<DaSharesCommitments>, common_http_client::Error> {
+        self.http_client
+            .get_commitments::<DaShare>(Url::from_str(&format!("http://{}", self.addr))?, blob_id)
+            .await
     }
 }
 
