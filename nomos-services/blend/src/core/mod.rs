@@ -42,6 +42,8 @@ use crate::{
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
 };
 
+pub(super) mod service_components;
+
 const LOG_TARGET: &str = "blend::service::core";
 
 /// A blend service that sends messages to the blend network
