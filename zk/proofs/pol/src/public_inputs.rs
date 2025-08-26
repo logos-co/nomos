@@ -23,13 +23,13 @@ pub struct PolPublicInputs {
 }
 
 pub struct PolPublicInputsData {
-    entropy_contribution: [u8; 32],
-    slot_number: u64,
-    epoch_nonce: u64,
-    total_stake: u64,
-    aged_root: [u8; 32],
-    latest_root: [u8; 32],
-    leader_pk: ([u8; 16], [u8; 16]),
+    pub entropy_contribution: [u8; 32],
+    pub slot_number: u64,
+    pub epoch_nonce: u64,
+    pub total_stake: u64,
+    pub aged_root: [u8; 32],
+    pub latest_root: [u8; 32],
+    pub leader_pk: ([u8; 16], [u8; 16]),
 }
 
 #[derive(Deserialize, Serialize)]
