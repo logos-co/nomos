@@ -5,12 +5,14 @@ use crate::{
     message::ServiceMessage,
 };
 
+/// Helper trait to help the Blend proxy service rely on the concrete types of
+/// the core Blend service without having to specify all the generics the core
+/// service expects.
 pub trait ServiceComponents<RuntimeServiceId> {
     type NetworkAdapter;
     type BlendBackend;
     type NodeId;
     type Rng;
-    type Message;
 }
 
 impl<Backend, NodeId, Network, RuntimeServiceId> ServiceComponents<RuntimeServiceId>
@@ -23,35 +25,25 @@ where
     type BlendBackend = Backend;
     type NodeId = NodeId;
     type Rng = ChaCha12Rng;
-    type Message = ServiceMessage<Network::BroadcastSettings>;
 }
 
 pub type NetworkBackendOfService<Service, RuntimeServiceId> = <<Service as ServiceComponents<
     RuntimeServiceId,
 >>::NetworkAdapter as crate::core::network::NetworkAdapter<RuntimeServiceId>>::Backend;
-pub type NetworkBroadcastSettingsOfService<Service, RuntimeServiceId> = <<Service as ServiceComponents<
-    RuntimeServiceId,
->>::NetworkAdapter as crate::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings;
 
 pub trait MessageComponents {
     type Payload;
     type BroadcastSettings;
 
-    fn payload(&self) -> &Self::Payload;
-    fn broadcast_settings(&self) -> &Self::BroadcastSettings;
+    fn into_components(self) -> (Self::Payload, Self::BroadcastSettings);
 }
 
 impl<BroadcastSettings> MessageComponents for ServiceMessage<BroadcastSettings> {
     type Payload = Vec<u8>;
     type BroadcastSettings = BroadcastSettings;
 
-    fn payload(&self) -> &Self::Payload {
+    fn into_components(self) -> (Self::Payload, Self::BroadcastSettings) {
         let Self::Blend(network_message) = self;
-        &network_message.message
-    }
-
-    fn broadcast_settings(&self) -> &Self::BroadcastSettings {
-        let Self::Blend(network_message) = self;
-        &network_message.broadcast_settings
+        (network_message.message, network_message.broadcast_settings)
     }
 }

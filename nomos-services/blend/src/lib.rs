@@ -22,10 +22,7 @@ use tracing::{debug, error, info};
 use crate::{
     core::{
         network::NetworkAdapter as NetworkAdapterTrait,
-        service_components::{
-            MessageComponents, NetworkBackendOfService, NetworkBroadcastSettingsOfService,
-            ServiceComponents,
-        },
+        service_components::{MessageComponents, NetworkBackendOfService, ServiceComponents},
     },
     settings::NetworkSettings,
 };
@@ -58,26 +55,18 @@ where
     type Settings = NetworkSettings<CoreService::NodeId>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
-    type Message = <CoreService as ServiceComponents<RuntimeServiceId>>::Message;
+    type Message = CoreService::Message;
 }
 
 #[async_trait]
 impl<CoreService, EdgeService, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for BlendService<CoreService, EdgeService, RuntimeServiceId>
 where
-    CoreService: ServiceData<Message = <CoreService as ServiceComponents<RuntimeServiceId>>::Message>
+    CoreService: ServiceData<Message: MessageComponents<Payload: Into<Vec<u8>>> + Send + 'static>
         + ServiceComponents<
             RuntimeServiceId,
-            NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId, BroadcastSettings: Clone> + Send,
+            NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId, BroadcastSettings = <<CoreService as ServiceData>::Message as MessageComponents>::BroadcastSettings> + Send,
             NodeId: Clone + Send + Sync,
-            Message: MessageComponents<
-                BroadcastSettings = NetworkBroadcastSettingsOfService<
-                    CoreService,
-                    RuntimeServiceId,
-                >,
-                Payload: Clone + Into<Vec<u8>>,
-            > + Send
-                         + 'static,
         > + Send,
     EdgeService: ServiceData<Message = <CoreService as ServiceData>::Message> + Send,
     RuntimeServiceId: AsServiceId<Self>
@@ -166,11 +155,12 @@ where
                 <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
             );
             while let Some(message) = inbound_relay.next().await {
-                debug!(target: LOG_TARGET, "Blend network too small. Broadcasting via gossipsub.");
+                info!(target: LOG_TARGET, "Blend network too small. Broadcasting via gossipsub.");
+                let (payload, broadcast_settings) = message.into_components();
                 core_network_adapter
                     .broadcast(
-                        message.payload().clone().into(),
-                        message.broadcast_settings().clone(),
+                        payload.into(),
+                        broadcast_settings,
                     )
                     .await;
             }
