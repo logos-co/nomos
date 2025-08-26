@@ -1,4 +1,5 @@
 use bytes::{Bytes, BytesMut};
+use groth16::Fr;
 use serde::{Deserialize, Serialize};
 
 use crate::{

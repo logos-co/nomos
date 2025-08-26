@@ -6,6 +6,15 @@ use crate::{Digest, Poseidon2Bn254};
 pub struct Poseidon2Hasher {
     state: [Fr; 3],
 }
+
+impl Clone for Poseidon2Hasher {
+    fn clone(&self) -> Self {
+        Self {
+            state: self.state.to_vec().try_into().unwrap(),
+        }
+    }
+}
+
 impl Default for Poseidon2Hasher {
     fn default() -> Self {
         Self::new()

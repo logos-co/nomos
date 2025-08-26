@@ -3,23 +3,24 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use digest::Digest;
+use ark_ff::Field;
+use poseidon2::{Digest, Fr};
 use rpds::RedBlackTreeSetSync;
 
 use crate::CompressedUtxoTree;
 
-const EMPTY_VALUE: [u8; 32] = [0; 32];
+const EMPTY_VALUE: Fr = <Fr as Field>::ZERO;
 
-fn empty_subtree_root<Hash: Digest<OutputSize = digest::typenum::U32>>(height: usize) -> [u8; 32] {
-    static PRECOMPUTED_EMPTY_ROOTS: OnceLock<[[u8; 32]; 32]> = OnceLock::new();
+fn empty_subtree_root<Hash: Digest>(height: usize) -> Fr {
+    static PRECOMPUTED_EMPTY_ROOTS: OnceLock<[Fr; 32]> = OnceLock::new();
     assert!(height < 32, "Height must be less than 32: {height}");
     PRECOMPUTED_EMPTY_ROOTS.get_or_init(|| {
         let mut hashes = [EMPTY_VALUE; 32];
         for i in 1..32 {
             let mut hasher = Hash::new();
-            hasher.update(hashes[i - 1]);
-            hasher.update(hashes[i - 1]);
-            hashes[i] = hasher.finalize().into();
+            hasher.update(&hashes[i - 1]);
+            hasher.update(&hashes[i - 1]);
+            hashes[i] = hasher.finalize();
         }
         hashes
     })[height]
@@ -31,7 +32,7 @@ enum Node<Item> {
     Inner {
         left: Arc<Node<Item>>,
         right: Arc<Node<Item>>,
-        value: [u8; 32],
+        value: Fr,
         right_subtree_size: usize,
         left_subtree_size: usize,
         height: usize,
@@ -48,28 +49,25 @@ enum Node<Item> {
     },
 }
 
-fn hash<Item: AsRef<[u8]>, Hash: Digest<OutputSize = digest::typenum::U32>>(
-    left: &Node<Item>,
-    right: &Node<Item>,
-) -> [u8; 32] {
+fn hash<Item: AsRef<Fr>, Hash: Digest>(left: &Node<Item>, right: &Node<Item>) -> Fr {
     let mut hasher = Hash::new();
     match left {
         Node::Inner { value, .. } => hasher.update(value),
         Node::Leaf { item } => {
-            hasher.update(item.as_ref().map_or(EMPTY_VALUE.as_ref(), AsRef::as_ref));
+            hasher.update(item.as_ref().map_or(&EMPTY_VALUE, AsRef::as_ref));
         }
         Node::Empty { .. } => panic!("Empty node in left subtree is not allowed"),
     }
     match right {
         Node::Inner { value, .. } => hasher.update(value),
         Node::Leaf { item } => {
-            hasher.update(item.as_ref().map_or(EMPTY_VALUE.as_ref(), AsRef::as_ref));
+            hasher.update(item.as_ref().map_or(&EMPTY_VALUE, AsRef::as_ref));
         }
         Node::Empty { height } => {
-            hasher.update(empty_subtree_root::<Hash>(*height));
+            hasher.update(&empty_subtree_root::<Hash>(*height));
         }
     }
-    hasher.finalize().into()
+    hasher.finalize()
 }
 
 impl<Item> Node<Item> {
@@ -102,10 +100,10 @@ impl<Item> Node<Item> {
     }
 }
 
-impl<Item: AsRef<[u8]>> Node<Item> {
+impl<Item: AsRef<Fr>> Node<Item> {
     fn new_inner<Hash>(left: Arc<Self>, right: Arc<Self>) -> Self
     where
-        Hash: Digest<OutputSize = digest::typenum::U32>,
+        Hash: Digest,
     {
         Self::Inner {
             right_subtree_size: right.size(),
@@ -123,7 +121,7 @@ impl<Item: AsRef<[u8]>> Node<Item> {
         f: F,
     ) -> Arc<Self>
     where
-        Hash: Digest<OutputSize = digest::typenum::U32>,
+        Hash: Digest,
     {
         match self.as_ref() {
             Self::Inner { left, right, .. } => {
@@ -172,7 +170,7 @@ impl<Item: AsRef<[u8]>> Node<Item> {
 
     fn insert_at<Hash>(self: &Arc<Self>, index: usize, item: Item) -> Arc<Self>
     where
-        Hash: Digest<OutputSize = digest::typenum::U32>,
+        Hash: Digest,
     {
         self.insert_or_modify::<Hash, _>(index, |node| match node {
             Self::Leaf { item: None } | Self::Empty { .. } => Self::new(item),
@@ -183,7 +181,7 @@ impl<Item: AsRef<[u8]>> Node<Item> {
 
     fn remove_at<Hash>(self: &Arc<Self>, index: usize) -> Arc<Self>
     where
-        Hash: Digest<OutputSize = digest::typenum::U32>,
+        Hash: Digest,
     {
         self.insert_or_modify::<Hash, _>(index, move |node| match node {
             Self::Leaf { item: Some(_) } => Self::Leaf { item: None },
@@ -205,9 +203,7 @@ pub struct DynamicMerkleTree<Item, Hash> {
     _hash: PhantomData<Hash>,
 }
 
-impl<Item: AsRef<[u8]>, Hash: Digest<OutputSize = digest::typenum::U32>>
-    DynamicMerkleTree<Item, Hash>
-{
+impl<Item: AsRef<Fr>, Hash: Digest> DynamicMerkleTree<Item, Hash> {
     pub fn new() -> Self {
         let holes = RedBlackTreeSetSync::new_sync();
         Self {
@@ -255,7 +251,7 @@ impl<Item: AsRef<[u8]>, Hash: Digest<OutputSize = digest::typenum::U32>>
         }
     }
 
-    pub fn root(&self) -> [u8; 32] {
+    pub fn root(&self) -> Fr {
         match self.root.as_ref() {
             Node::Inner { value, .. } => *value,
             Node::Leaf { .. } => {
@@ -289,9 +285,7 @@ impl<Item: AsRef<[u8]>, Hash: Digest<OutputSize = digest::typenum::U32>>
     }
 }
 
-impl<Item: AsRef<[u8]> + Clone, Hash: Digest<OutputSize = digest::typenum::U32>>
-    DynamicMerkleTree<Item, Hash>
-{
+impl<Item: AsRef<Fr> + Clone, Hash: Digest> DynamicMerkleTree<Item, Hash> {
     pub(crate) fn from_compressed_tree<T>(comp: &CompressedUtxoTree<Item, T>) -> Self {
         let mut tree = Self::new();
         let mut current_pos = 0;
@@ -311,8 +305,8 @@ impl<Item: AsRef<[u8]> + Clone, Hash: Digest<OutputSize = digest::typenum::U32>>
 
 impl<Item, Hash> PartialEq for DynamicMerkleTree<Item, Hash>
 where
-    Item: AsRef<[u8]> + PartialEq,
-    Hash: Digest<OutputSize = digest::typenum::U32>,
+    Item: AsRef<Fr> + PartialEq,
+    Hash: Digest,
 {
     fn eq(&self, other: &Self) -> bool {
         self.root() == other.root()
@@ -321,8 +315,8 @@ where
 
 impl<Item, Hash> Eq for DynamicMerkleTree<Item, Hash>
 where
-    Item: AsRef<[u8]> + Eq,
-    Hash: Digest<OutputSize = digest::typenum::U32>,
+    Item: AsRef<Fr> + Eq,
+    Hash: Digest,
 {
 }
 
@@ -381,7 +375,7 @@ pub mod serde {
 #[cfg(test)]
 mod tests {
     use super::*;
-    type TestHash = blake2::Blake2b<digest::typenum::U32>;
+    type TestHash = poseidon2::Poseidon2Bn254Hasher;
 
     #[test]
     fn test_empty_tree() {

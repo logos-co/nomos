@@ -2,8 +2,8 @@ mod merkle;
 
 use std::collections::BTreeMap;
 
-use digest::Digest;
 use merkle::DynamicMerkleTree;
+use poseidon2::{Digest, Fr};
 use rpds::HashTrieMapSync;
 use thiserror::Error;
 
@@ -28,8 +28,8 @@ where
 
 impl<Key, Item, Hash> Default for UtxoTree<Key, Item, Hash>
 where
-    Key: AsRef<[u8]> + Clone + std::hash::Hash + Eq,
-    Hash: Digest<OutputSize = digest::typenum::U32>,
+    Key: AsRef<Fr> + Clone + std::hash::Hash + Eq,
+    Hash: Digest,
 {
     fn default() -> Self {
         Self::new()
@@ -38,8 +38,8 @@ where
 
 impl<Key, Item, Hash> UtxoTree<Key, Item, Hash>
 where
-    Key: AsRef<[u8]> + Clone + std::hash::Hash + Eq,
-    Hash: Digest<OutputSize = digest::typenum::U32>,
+    Key: AsRef<Fr> + Clone + std::hash::Hash + Eq,
+    Hash: Digest,
 {
     #[must_use]
     pub fn new() -> Self {
@@ -63,8 +63,8 @@ pub enum Error {
 
 impl<Key, Item, Hash> UtxoTree<Key, Item, Hash>
 where
-    Key: AsRef<[u8]> + Clone + std::hash::Hash + Eq,
-    Hash: Digest<OutputSize = digest::typenum::U32>,
+    Key: AsRef<Fr> + Clone + std::hash::Hash + Eq,
+    Hash: Digest,
     Item: Clone,
 {
     pub fn insert(&self, key: Key, item: Item) -> (Self, usize) {
@@ -93,7 +93,7 @@ where
     }
 
     #[must_use]
-    pub fn root(&self) -> [u8; 32] {
+    pub fn root(&self) -> Fr {
         self.merkle.root()
     }
 
@@ -119,9 +119,9 @@ where
 
 impl<Key, Item, Hash> PartialEq for UtxoTree<Key, Item, Hash>
 where
-    Key: AsRef<[u8]> + std::hash::Hash + Eq,
+    Key: AsRef<Fr> + std::hash::Hash + Eq,
     Item: PartialEq,
-    Hash: Digest<OutputSize = digest::typenum::U32>,
+    Hash: Digest,
 {
     fn eq(&self, other: &Self) -> bool {
         self.items == other.items && self.merkle == other.merkle
@@ -130,16 +130,16 @@ where
 
 impl<Key, Item, Hash> Eq for UtxoTree<Key, Item, Hash>
 where
-    Key: AsRef<[u8]> + std::hash::Hash + Eq,
+    Key: AsRef<Fr> + std::hash::Hash + Eq,
     Item: Eq,
-    Hash: Digest<OutputSize = digest::typenum::U32>,
+    Hash: Digest,
 {
 }
 
 impl<Key, Item, Hash> FromIterator<(Key, Item)> for UtxoTree<Key, Item, Hash>
 where
-    Key: AsRef<[u8]> + Clone + std::hash::Hash + Eq,
-    Hash: Digest<OutputSize = digest::typenum::U32>,
+    Key: AsRef<Fr> + Clone + std::hash::Hash + Eq,
+    Hash: Digest,
     Item: Clone,
 {
     fn from_iter<I: IntoIterator<Item = (Key, Item)>>(iter: I) -> Self {
@@ -154,8 +154,8 @@ where
 
 impl<Key, Item, Hash> From<CompressedUtxoTree<Key, Item>> for UtxoTree<Key, Item, Hash>
 where
-    Key: AsRef<[u8]> + Clone + std::hash::Hash + Eq,
-    Hash: Digest<OutputSize = digest::typenum::U32>,
+    Key: AsRef<Fr> + Clone + std::hash::Hash + Eq,
+    Hash: Digest,
     Item: Clone,
 {
     fn from(compressed: CompressedUtxoTree<Key, Item>) -> Self {
@@ -181,14 +181,14 @@ pub struct CompressedUtxoTree<Key, Item> {
 
 #[cfg(feature = "serde")]
 mod serde {
-    use digest::Digest;
+    use poseidon2::{Digest, Fr};
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     impl<Key, Item, Hash> Serialize for super::UtxoTree<Key, Item, Hash>
     where
-        Key: Serialize + Clone + AsRef<[u8]> + std::hash::Hash + Eq,
+        Key: Serialize + Clone + AsRef<Fr> + std::hash::Hash + Eq,
         Item: Serialize + Clone,
-        Hash: Digest<OutputSize = digest::typenum::U32>,
+        Hash: Digest,
     {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
@@ -200,9 +200,9 @@ mod serde {
 
     impl<'de, Key, Item, Hash> Deserialize<'de> for super::UtxoTree<Key, Item, Hash>
     where
-        Key: AsRef<[u8]> + Clone + std::hash::Hash + Eq + Deserialize<'de>,
+        Key: AsRef<Fr> + Clone + std::hash::Hash + Eq + Deserialize<'de>,
         Item: Deserialize<'de> + Clone,
-        Hash: Digest<OutputSize = digest::typenum::U32>,
+        Hash: Digest,
     {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
@@ -220,7 +220,7 @@ mod tests {
     use quickcheck_macros::quickcheck;
 
     use super::*;
-    type TestHash = blake2::Blake2b<digest::typenum::U32>;
+    type TestHash = poseidon2::Poseidon2Bn254Hasher;
 
     #[test]
     fn test_empty_tree() {
