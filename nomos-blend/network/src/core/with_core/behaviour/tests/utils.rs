@@ -3,14 +3,16 @@ use std::collections::{HashMap, VecDeque};
 
 use async_trait::async_trait;
 use futures::{select, Stream, StreamExt as _};
-use libp2p::{identity::Keypair, PeerId, Swarm};
+use libp2p::{identity::Keypair, Multiaddr, PeerId, Swarm};
 use libp2p_swarm_test::SwarmExt as _;
+use nomos_blend_message::crypto::Ed25519PrivateKey;
+use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_libp2p::{NetworkBehaviour, SwarmEvent};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
 use crate::core::{
-    tests::utils::PROTOCOL_NAME,
+    tests::utils::{TestSwarm, PROTOCOL_NAME},
     with_core::behaviour::{Behaviour, Event, IntervalStreamProvider},
 };
 
@@ -100,6 +102,7 @@ impl BehaviourBuilder {
             peering_degree: self.peering_degree.unwrap_or(1..=1),
             local_peer_id,
             protocol_name: PROTOCOL_NAME,
+            old_session: None,
         }
     }
 }
@@ -130,4 +133,21 @@ impl SwarmExt for Swarm<Behaviour<IntervalProvider>> {
             _ = other.select_next_some() => {}
         }
     }
+}
+
+pub fn build_memberships<Behaviour: NetworkBehaviour>(
+    swarms: &[&TestSwarm<Behaviour>],
+) -> Vec<Membership<PeerId>> {
+    let nodes = swarms
+        .iter()
+        .map(|swarm| Node {
+            id: *swarm.local_peer_id(),
+            address: Multiaddr::empty(),
+            public_key: Ed25519PrivateKey::generate().public_key(),
+        })
+        .collect::<Vec<_>>();
+    nodes
+        .iter()
+        .map(|node| Membership::new(&nodes, Some(&node.public_key)))
+        .collect()
 }

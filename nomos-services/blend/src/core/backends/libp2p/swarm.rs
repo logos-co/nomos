@@ -8,7 +8,10 @@ use std::{
 };
 
 use futures::{Stream, StreamExt as _};
-use libp2p::{swarm::dial_opts::PeerCondition, Multiaddr, PeerId, Swarm, SwarmBuilder};
+use libp2p::{
+    swarm::{dial_opts::PeerCondition, ConnectionId},
+    Multiaddr, PeerId, Swarm, SwarmBuilder,
+};
 use nomos_blend_network::{
     core::{
         with_core::behaviour::{
@@ -289,9 +292,9 @@ where
 
     fn handle_blend_core_behaviour_event(&mut self, blend_event: CoreToCoreEvent) {
         match blend_event {
-            nomos_blend_network::core::with_core::behaviour::Event::Message(msg, peer_id) => {
+            nomos_blend_network::core::with_core::behaviour::Event::Message(msg, conn) => {
                 // Forward message received from node to all other core nodes.
-                self.forward_validated_swarm_message(&msg, peer_id);
+                self.forward_validated_swarm_message(&msg, conn);
                 // Bubble up to service for decapsulation and delaying.
                 self.report_message_to_service(*msg);
             }
@@ -398,7 +401,7 @@ where
     fn forward_validated_swarm_message(
         &mut self,
         msg: &EncapsulatedMessageWithValidatedPublicHeader,
-        except: PeerId,
+        except: (PeerId, ConnectionId),
     ) {
         if let Err(e) = self
             .swarm
