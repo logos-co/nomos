@@ -1,3 +1,5 @@
+use std::cmp::max;
+
 use thiserror::Error;
 
 use super::{DeclarationState, EventType, ServiceParameters};
@@ -33,7 +35,7 @@ impl<'a> ActiveState<'a> {
                 }
             }
             EventType::Activity => {
-                self.0.active = Some(block_number);
+                self.0.active = block_number;
                 Ok(self)
             }
             EventType::Withdrawal => Err(ActiveStateError::ActiveDuringWithdrawal),
@@ -82,7 +84,7 @@ impl<'a> InactiveState<'a> {
     ) -> Result<ActiveState<'a>, InactiveStateError> {
         match event_type {
             EventType::Activity => {
-                self.0.active = Some(block_number);
+                self.0.active = block_number;
                 Ok(ActiveState(self.0))
             }
             EventType::Declaration | EventType::Withdrawal => {
@@ -160,17 +162,16 @@ impl<'a> TransientDeclarationState<'a> {
 
         // Check if provider has ever got the activity recorded first and then see if
         // the activity record was recent.
-        if let Some(activity) = declaration_state.active {
-            if block_number.wrapping_sub(activity) <= service_params.inactivity_period {
-                return Ok(ActiveState(declaration_state).into());
-            }
+        let activity = max(declaration_state.active, declaration_state.created);
+        if block_number.wrapping_sub(activity) <= service_params.inactivity_period {
+            return Ok(ActiveState(declaration_state).into());
         }
 
         Ok(InactiveState(declaration_state).into())
     }
 
     #[must_use]
-    const fn last_block_number(&self) -> BlockNumber {
+    fn last_block_number(&self) -> BlockNumber {
         let declaration_state: &DeclarationState = match self {
             Self::Active(active_state) => active_state.0,
             Self::Inactive(inactive_state) => inactive_state.0,
@@ -179,10 +180,7 @@ impl<'a> TransientDeclarationState<'a> {
         if let Some(withdrawn_timestamp) = declaration_state.withdrawn {
             return withdrawn_timestamp;
         }
-        if let Some(activity_timestamp) = declaration_state.active {
-            return activity_timestamp;
-        }
-        declaration_state.created
+        max(declaration_state.active, declaration_state.created)
     }
 
     pub fn try_into_active(
@@ -278,7 +276,7 @@ mod tests {
     fn test_info_to_inactive_active_state() {
         let service_params = default_service_params();
         let mut declaration_state = DeclarationState::new(100);
-        declaration_state.active = Some(110);
+        declaration_state.active = 110;
 
         let inactive_activity_record_state =
             TransientDeclarationState::try_from_state(200, &mut declaration_state, &service_params)
@@ -305,7 +303,7 @@ mod tests {
     fn test_info_to_active_recorded_state() {
         let service_params = default_service_params();
         let mut declaration_state = DeclarationState::new(100);
-        declaration_state.active = Some(110);
+        declaration_state.active = 110;
 
         let active_recorded_state =
             TransientDeclarationState::try_from_state(111, &mut declaration_state, &service_params)
@@ -321,7 +319,7 @@ mod tests {
     fn test_info_to_withdrawn_state() {
         let service_params = default_service_params();
         let mut declaration_state = DeclarationState::new(100);
-        declaration_state.active = Some(111);
+        declaration_state.active = 111;
         declaration_state.withdrawn = Some(121);
 
         let withdrawn_state =

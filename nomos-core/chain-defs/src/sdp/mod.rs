@@ -127,7 +127,7 @@ impl DeclarationInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeclarationState {
     pub created: BlockNumber,
-    pub active: Option<BlockNumber>,
+    pub active: BlockNumber,
     pub withdrawn: Option<BlockNumber>,
     pub nonce: Nonce,
 }
@@ -137,7 +137,7 @@ impl DeclarationState {
     pub const fn new(block_number: BlockNumber) -> Self {
         Self {
             created: block_number,
-            active: None,
+            active: block_number,
             withdrawn: None,
             nonce: 0,
         }
