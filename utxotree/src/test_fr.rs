@@ -10,6 +10,7 @@ impl TestFr {
         Self(BigUint::from(rng.next_u64()).into())
     }
 
+    #[must_use]
     pub fn from_usize(n: usize) -> Self {
         Self(BigUint::from(n).into())
     }

@@ -5,15 +5,13 @@ use serde::{Deserialize, Serialize};
 use crate::{
     crypto::Digest as _,
     mantle::{gas::GasConstants, keys::PublicKey, tx::TxHash, Transaction, TransactionHasher},
-    utils::serde_bytes_newtype,
 };
 
 pub type Value = u64;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NoteId(pub Fr);
-
-serde_bytes_newtype!(NoteId, 32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct NoteId(#[serde(with = serde_fr)] pub Fr);
 
 impl NoteId {
     #[must_use]

@@ -257,8 +257,8 @@ mod tests {
         let mut current_tree = tree;
 
         for (i, item) in items.iter().enumerate() {
-            let key = item.clone();
-            let (new_tree, pos) = current_tree.insert(key, *item);
+            let key = item;
+            let (new_tree, pos) = current_tree.insert(*key, *item);
             current_tree = new_tree;
             assert_eq!(current_tree.size(), i + 1);
             assert_eq!(pos, i);
@@ -273,7 +273,7 @@ mod tests {
 
         let item = TestFr::from_rng(&mut rng());
         let key = item;
-        let (tree_with_item, _) = tree.insert(key.clone(), item.clone());
+        let (tree_with_item, _) = tree.insert(key, item);
 
         let result = tree_with_item.remove(&key);
         assert!(result.is_ok());
@@ -288,7 +288,7 @@ mod tests {
         let tree: UtxoTree<TestFr, TestFr, TestHash> = UtxoTree::new();
 
         let item = TestFr::from_rng(&mut rng());
-        let key = item.clone();
+        let key = item;
         let (tree_with_item, _) = tree.insert(key, item);
 
         let non_existing_key = TestFr::from_rng(&mut rng());
@@ -314,8 +314,8 @@ mod tests {
         let key1 = item1;
         let key2 = item2;
 
-        let (tree1, _) = tree.insert(key1.clone(), key1);
-        let (tree2, _) = tree1.insert(key2.clone(), key2);
+        let (tree1, _) = tree.insert(key1, key1);
+        let (tree2, _) = tree1.insert(key2, key2);
 
         assert_eq!(tree.size(), 0);
         assert_eq!(tree1.size(), 1);
@@ -329,8 +329,8 @@ mod tests {
         let empty_root = tree.root();
 
         let item = TestFr::from_rng(&mut rng());
-        let key = item.clone();
-        let (tree_with_item, _) = tree.insert(key.clone(), item);
+        let key = item;
+        let (tree_with_item, _) = tree.insert(key, item);
         let root_with_item = tree_with_item.root();
 
         assert_ne!(empty_root, root_with_item);
@@ -356,8 +356,8 @@ mod tests {
         let mut current_tree2 = tree2;
 
         for item in items {
-            let key = item.clone();
-            let (new_tree1, _) = current_tree1.insert(key.clone(), item.clone());
+            let key = item;
+            let (new_tree1, _) = current_tree1.insert(key, item);
             let (new_tree2, _) = current_tree2.insert(key, item);
             current_tree1 = new_tree1;
             current_tree2 = new_tree2;
@@ -379,8 +379,8 @@ mod tests {
         ];
 
         for item in &items {
-            let key = item.clone();
-            let (new_tree, _) = current_tree.insert(key, item.clone());
+            let key = item;
+            let (new_tree, _) = current_tree.insert(*key, *item);
             current_tree = new_tree;
         }
         assert_eq!(current_tree.size(), 4);
@@ -392,7 +392,7 @@ mod tests {
         assert_eq!(tree_after_removal2.size(), 2);
 
         let new_item = TestFr::from_rng(&mut rng());
-        let new_key = new_item.clone();
+        let new_key = new_item;
         let (final_tree, _) = tree_after_removal2.insert(new_key, new_item);
         assert_eq!(final_tree.size(), 3);
     }
@@ -418,8 +418,8 @@ mod tests {
         let mut positions = Vec::new();
 
         for item in &items {
-            let key = item.clone();
-            let (new_tree, pos) = current_tree.insert(key, item.clone());
+            let key = item;
+            let (new_tree, pos) = current_tree.insert(*key, *item);
             current_tree = new_tree;
             positions.push(pos);
         }
@@ -436,7 +436,7 @@ mod tests {
 
         for i in 0..num_items {
             let item = TestFr::from_usize(i);
-            let key = item.clone();
+            let key = item;
             let (new_tree, pos) = current_tree.insert(key, item);
             current_tree = new_tree;
             assert_eq!(pos, i);
@@ -462,8 +462,8 @@ mod tests {
             let mut items = (0..num_items).map(TestFr::from_usize).collect::<Vec<_>>();
 
             for item in &items {
-                let key = item.clone();
-                tree = tree.insert(key, item.clone()).0;
+                let key = item;
+                tree = tree.insert(*key, *item).0;
             }
 
             // Remove some items randomly
