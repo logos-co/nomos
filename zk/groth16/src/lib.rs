@@ -6,6 +6,9 @@ mod proof;
 #[cfg(feature = "deser")]
 mod protocol;
 mod public_input;
+
+#[cfg(feature = "deser")]
+pub mod serde;
 pub(crate) mod utils;
 mod verification_key;
 mod verifier;
