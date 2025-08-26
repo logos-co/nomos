@@ -92,6 +92,7 @@ async fn main() -> Result<()> {
                     id: <BlobInfo as DispersedBlobInfo>::blob_id,
                 },
                 recovery_path: config.mempool.da_pool_recovery_path,
+                trigger_sampling_delay: config.mempool.trigger_sampling_delay,
             },
             da_dispersal: config.da_dispersal,
             da_network: config.da_network,

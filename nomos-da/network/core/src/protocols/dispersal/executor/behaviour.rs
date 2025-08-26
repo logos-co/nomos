@@ -19,9 +19,8 @@ use libp2p::{
     Multiaddr, PeerId, Stream,
 };
 use libp2p_stream::{Control, OpenStreamError};
-use nomos_core::{da::BlobId, wire};
+use nomos_core::{da::BlobId, mantle::SignedMantleTx, wire};
 use nomos_da_messages::{
-    common::Share,
     dispersal,
     packing::{pack_to_writer, unpack_from_reader},
 };
@@ -53,6 +52,8 @@ pub enum DispersalError {
         subnetwork_id: SubnetworkId,
         error: dispersal::DispersalError,
     },
+    #[error("Message has no blob id")]
+    NoBlobId,
     #[error("Error dialing peer [{peer_id}]: {error}")]
     OpenStreamError {
         peer_id: PeerId,
@@ -70,7 +71,7 @@ impl DispersalError {
                 error: dispersal::DispersalError { blob_id, .. },
                 ..
             } => Some(*blob_id),
-            Self::OpenStreamError { .. } => None,
+            Self::NoBlobId | Self::OpenStreamError { .. } => None,
         }
     }
 
@@ -80,7 +81,7 @@ impl DispersalError {
             Self::Io { subnetwork_id, .. }
             | Self::Serialization { subnetwork_id, .. }
             | Self::Protocol { subnetwork_id, .. } => Some(*subnetwork_id),
-            Self::OpenStreamError { .. } => None,
+            Self::NoBlobId | Self::OpenStreamError { .. } => None,
         }
     }
 
@@ -123,6 +124,7 @@ impl Clone for DispersalError {
                 subnetwork_id: *subnetwork_id,
                 error: error.clone(),
             },
+            Self::NoBlobId => Self::NoBlobId,
             Self::OpenStreamError { peer_id, error } => Self::OpenStreamError {
                 peer_id: *peer_id,
                 error: match error {
@@ -183,9 +185,10 @@ where
     /// Address book handler to get addresses of peers
     addressbook: Addressbook,
     /// Pending blobs that need to be dispersed by `PeerId`
-    to_disperse: HashMap<PeerId, VecDeque<(Membership::NetworkId, DaShare)>>,
+    to_disperse: HashMap<PeerId, VecDeque<(Membership::NetworkId, dispersal::DispersalRequest)>>,
     /// Pending blobs from disconnected networks
-    disconnected_pending_shares: HashMap<Membership::NetworkId, VecDeque<DaShare>>,
+    disconnected_pending_shares:
+        HashMap<Membership::NetworkId, VecDeque<dispersal::DispersalRequest>>,
     /// Already connected peers connection Ids
     connected_peers: HashMap<PeerId, ConnectionId>,
     /// List of peers that already has pending open stream request.
@@ -200,7 +203,11 @@ where
     pending_shares_sender: UnboundedSender<(Membership::NetworkId, DaShare)>,
     /// Pending blobs stream
     pending_shares_stream: BoxStream<'static, (Membership::NetworkId, DaShare)>,
-    /// Waker for dispersal polling
+    /// Dispersal hook of pending tx channel
+    pending_tx_sender: UnboundedSender<(Membership::NetworkId, SignedMantleTx)>,
+    /// Pending tx stream
+    pending_tx_stream: BoxStream<'static, (Membership::NetworkId, SignedMantleTx)>,
+    /// Waker for dispersal pollin
     waker: Option<Waker>,
 }
 
@@ -227,6 +234,8 @@ where
 
         let (pending_shares_sender, receiver) = mpsc::unbounded_channel();
         let pending_shares_stream = UnboundedReceiverStream::new(receiver).boxed();
+        let (pending_tx_sender, receiver) = mpsc::unbounded_channel();
+        let pending_tx_stream = UnboundedReceiverStream::new(receiver).boxed();
         let disconnected_pending_shares = HashMap::new();
 
         Self {
@@ -244,6 +253,8 @@ where
             pending_out_streams,
             pending_shares_sender,
             pending_shares_stream,
+            pending_tx_sender,
+            pending_tx_stream,
             waker: None,
         }
     }
@@ -270,16 +281,19 @@ where
         self.pending_shares_sender.clone()
     }
 
+    /// Get a hook to the sender channel of the shares dispersal events
+    pub fn tx_sender(&self) -> UnboundedSender<(Membership::NetworkId, SignedMantleTx)> {
+        self.pending_tx_sender.clone()
+    }
+
     /// Task for handling streams, one message at a time
     /// Writes the blob to the stream and waits for an acknowledgment response
     async fn stream_disperse(
         mut stream: DispersalStream,
-        message: DaShare,
+        message: dispersal::DispersalRequest,
         subnetwork_id: SubnetworkId,
     ) -> Result<StreamHandlerFutureSuccess, DispersalError> {
-        let blob_id = message.blob_id();
-        let blob_id: BlobId = blob_id.clone().try_into().unwrap();
-        let message = dispersal::DispersalRequest::new(Share::new(blob_id, message), subnetwork_id);
+        let blob_id = message.blob_id().ok_or(DispersalError::NoBlobId)?;
         let peer_id = stream.peer_id;
         pack_to_writer(&message, &mut stream.stream)
             .map_err(|error| DispersalError::Io {
@@ -315,7 +329,7 @@ where
     /// it will get scheduled to run otherwise it is parked as idle.
     fn handle_stream(
         tasks: &FuturesUnordered<StreamHandlerFuture>,
-        to_disperse: &mut HashMap<PeerId, VecDeque<(SubnetworkId, DaShare)>>,
+        to_disperse: &mut HashMap<PeerId, VecDeque<(SubnetworkId, dispersal::DispersalRequest)>>,
         idle_streams: &mut HashMap<PeerId, DispersalStream>,
         stream: DispersalStream,
         cx: &Context<'_>,
@@ -335,8 +349,8 @@ where
     /// Get a pending request if its available
     fn next_request(
         peer_id: &PeerId,
-        to_disperse: &mut HashMap<PeerId, VecDeque<(SubnetworkId, DaShare)>>,
-    ) -> Option<(SubnetworkId, DaShare)> {
+        to_disperse: &mut HashMap<PeerId, VecDeque<(SubnetworkId, dispersal::DispersalRequest)>>,
+    ) -> Option<(SubnetworkId, dispersal::DispersalRequest)> {
         to_disperse.get_mut(peer_id).and_then(VecDeque::pop_front)
     }
 
@@ -354,33 +368,29 @@ where
 {
     /// Schedule a new task for sending the blob, if stream is not available
     /// queue messages for later processing.
-    fn disperse_share(
-        tasks: &FuturesUnordered<StreamHandlerFuture>,
-        idle_streams: &mut HashMap<Membership::Id, DispersalStream>,
-        membership: &Membership,
-        connected_peers: &HashMap<PeerId, ConnectionId>,
-        to_disperse: &mut HashMap<PeerId, VecDeque<(Membership::NetworkId, DaShare)>>,
+    fn disperse_request(
+        &mut self,
         subnetwork_id: SubnetworkId,
-        share: &DaShare,
+        request: &dispersal::DispersalRequest,
     ) {
-        let members = membership.members_of(&subnetwork_id);
+        let members = self.membership.members_of(&subnetwork_id);
         let peers = members
             .iter()
-            .filter(|peer_id| connected_peers.contains_key(peer_id));
+            .filter(|peer_id| self.connected_peers.contains_key(peer_id));
 
         // We may be connected to more than a single node. Usually will be one, but that
         // is an internal decision of the executor itself.
         for peer in peers {
-            if let Some(stream) = idle_streams.remove(peer) {
+            if let Some(stream) = self.idle_streams.remove(peer) {
                 // push a task if the stream is immediately available
-                let fut = Self::stream_disperse(stream, share.clone(), subnetwork_id).boxed();
-                tasks.push(fut);
+                let fut = Self::stream_disperse(stream, request.clone(), subnetwork_id).boxed();
+                self.tasks.push(fut);
             } else {
                 // otherwise queue the blob
-                to_disperse
+                self.to_disperse
                     .entry(*peer)
                     .or_default()
-                    .push_back((subnetwork_id, share.clone()));
+                    .push_back((subnetwork_id, request.clone()));
             }
         }
     }
@@ -388,8 +398,11 @@ where
     fn reschedule_shares_for_peer_stream(
         stream: &DispersalStream,
         membership: &Membership,
-        to_disperse: &mut HashMap<PeerId, VecDeque<(SubnetworkId, DaShare)>>,
-        disconnected_pending_shares: &mut HashMap<SubnetworkId, VecDeque<DaShare>>,
+        to_disperse: &mut HashMap<PeerId, VecDeque<(SubnetworkId, dispersal::DispersalRequest)>>,
+        disconnected_pending_shares: &mut HashMap<
+            SubnetworkId,
+            VecDeque<dispersal::DispersalRequest>,
+        >,
     ) {
         let peer_id = stream.peer_id;
         let subnetworks = membership.membership(&peer_id);
@@ -401,41 +414,38 @@ where
         }
     }
 
-    fn try_open_stream(
-        pending_out_streams_sender: &UnboundedSender<PeerId>,
-        membership: &Membership,
-        connected_peers: &HashMap<PeerId, ConnectionId>,
-        pending_peer_open_stream_requests: &mut HashSet<PeerId>,
-        subnetwork_id: SubnetworkId,
-    ) {
-        let members = membership.members_of(&subnetwork_id);
+    fn try_open_stream(&mut self, subnetwork_id: SubnetworkId) {
+        let members = self.membership.members_of(&subnetwork_id);
         let peers: Vec<_> = members
             .iter()
-            .filter(|peer_id| connected_peers.contains_key(peer_id))
-            .filter(|peer_id| !pending_peer_open_stream_requests.contains(peer_id))
+            .filter(|peer_id| self.connected_peers.contains_key(peer_id))
+            .filter(|peer_id| !self.pending_peer_open_stream_requests.contains(peer_id))
             .collect();
 
         for peer in peers {
-            if let Err(e) = pending_out_streams_sender.send(*peer) {
+            if let Err(e) = self.pending_out_streams_sender.send(*peer) {
                 error!("Error requesting stream for peer {peer}: {e}");
             } else {
-                pending_peer_open_stream_requests.insert(*peer);
+                self.pending_peer_open_stream_requests.insert(*peer);
             }
         }
     }
 
-    fn prune_shares_for_peer(&mut self, peer_id: PeerId) -> VecDeque<(SubnetworkId, DaShare)> {
+    fn prune_shares_for_peer(
+        &mut self,
+        peer_id: PeerId,
+    ) -> VecDeque<(SubnetworkId, dispersal::DispersalRequest)> {
         self.to_disperse.remove(&peer_id).unwrap_or_default()
     }
 
     fn recover_shares_for_disconnected_subnetworks(&mut self, peer_id: PeerId) {
         // push missing blobs into pending ones
         let disconnected_pending_shares = self.prune_shares_for_peer(peer_id);
-        for (subnetwork_id, share) in disconnected_pending_shares {
+        for (subnetwork_id, req) in disconnected_pending_shares {
             self.disconnected_pending_shares
                 .entry(subnetwork_id)
                 .or_default()
-                .push_back(share);
+                .push_back(req);
         }
     }
 
@@ -485,27 +495,28 @@ where
             self.pending_shares_stream.poll_next_unpin(cx)
         {
             if self.subnetwork_open_streams.contains(&subnetwork_id) {
-                Self::disperse_share(
-                    &self.tasks,
-                    &mut self.idle_streams,
-                    &self.membership,
-                    &self.connected_peers,
-                    &mut self.to_disperse,
-                    subnetwork_id,
-                    &share,
-                );
+                self.disperse_request(subnetwork_id, &dispersal::DispersalRequest::from(share));
             } else {
-                Self::try_open_stream(
-                    &self.pending_out_streams_sender,
-                    &self.membership,
-                    &self.connected_peers,
-                    &mut self.pending_peer_open_stream_requests,
-                    subnetwork_id,
-                );
+                self.try_open_stream(subnetwork_id);
                 self.disconnected_pending_shares
                     .entry(subnetwork_id)
                     .or_default()
-                    .push_back(share);
+                    .push_back(dispersal::DispersalRequest::from(share));
+            }
+            cx.waker().wake_by_ref();
+        }
+    }
+
+    fn poll_pending_txs(&mut self, cx: &mut Context<'_>) {
+        if let Poll::Ready(Some((subnetwork_id, tx))) = self.pending_tx_stream.poll_next_unpin(cx) {
+            if self.subnetwork_open_streams.contains(&subnetwork_id) {
+                self.disperse_request(subnetwork_id, &dispersal::DispersalRequest::from(tx));
+            } else {
+                self.try_open_stream(subnetwork_id);
+                self.disconnected_pending_shares
+                    .entry(subnetwork_id)
+                    .or_default()
+                    .push_back(dispersal::DispersalRequest::from(tx));
             }
             cx.waker().wake_by_ref();
         }
@@ -635,6 +646,8 @@ where
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+        self.waker = Some(cx.waker().clone());
+
         // Poll tasks generated by streams and share requests.
         if let Some(event) = self.poll_pending_tasks(cx) {
             return Poll::Ready(ToSwarm::GenerateEvent(event));
@@ -642,6 +655,9 @@ where
 
         // Poll and process any pending shares for dispersal.
         self.poll_pending_shares(cx);
+
+        // Poll and process any pending transactions for dispersal.
+        self.poll_pending_txs(cx);
 
         // Poll for newly opened outbound streams.
         if let Some(event) = self.poll_pending_streams(cx) {
@@ -653,7 +669,6 @@ where
             return Poll::Ready(event);
         }
 
-        self.waker = Some(cx.waker().clone());
         Poll::Pending
     }
 }

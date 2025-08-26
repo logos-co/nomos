@@ -86,7 +86,7 @@ impl blob::Share for DaShare {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub struct DaLightShare {
     pub share_idx: ShareIndex,
     pub column: Column,
@@ -105,7 +105,7 @@ impl blob::LightShare for DaLightShare {
     }
 }
 
-#[derive(Debug, Clone, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub struct DaSharesCommitments {
     #[serde(
         serialize_with = "serialize_vec_canonical",

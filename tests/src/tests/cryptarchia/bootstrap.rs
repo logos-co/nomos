@@ -1,10 +1,12 @@
-use std::{collections::HashSet, time::Duration};
+use std::{
+    collections::HashSet,
+    time::{Duration, Instant},
+};
 
 use futures::stream::{self, StreamExt as _};
 use nomos_libp2p::PeerId;
 use tests::{
-    adjust_timeout,
-    common::sync::wait_for_validators_mode_and_height,
+    common::sync::{wait_for_validators_mode, wait_for_validators_mode_and_height},
     nodes::validator::{create_validator_config, Validator},
     secret_key_to_peer_id,
     topology::configs::{create_general_configs, GeneralConfig},
@@ -55,22 +57,32 @@ async fn test_ibd_behind_nodes() {
 
     let mut config = create_validator_config(general_configs[3].clone());
     config.cryptarchia.bootstrap.ibd.peers = initial_peer_ids.clone();
+    // Shorten the delay to quickly catching up with peers that grow during IBD.
+    // e.g. We start a download only for peer1 because two peers have the same tip
+    //      at the moment. But, the peer2 may grow faster than peer1 before IBD is
+    // done.      So, we want to check peer1's progress frequently with a very
+    // short delay.
+    config.cryptarchia.bootstrap.ibd.delay_before_new_download = Duration::from_millis(10);
+    // Disable the prolonged bootstrap period for the behind node
+    // because we want to check the height of the behind node
+    // as soon as it finishes IBD.
+    // Currently, checking the mode is only one way to check if IBD is done.
+    config.cryptarchia.bootstrap.prolonged_bootstrap_period = Duration::ZERO;
 
     let behind_node = Validator::spawn(config)
         .await
         .expect("Behind node should start successfully");
 
-    println!("Behind node started, waiting for it to sync...");
-
-    // 1 second is enough to catch up to the initial validators
-    let conservative_ibd_duration = adjust_timeout(Duration::from_secs(1));
-    tokio::time::sleep(conservative_ibd_duration).await;
+    println!("Behind node started, waiting for it to finish IBD and switch to online mode...");
+    wait_for_validators_mode(&[&behind_node], cryptarchia_engine::State::Online).await;
 
     // Check if the behind node has caught up to the highest initial validator.
+    let height_check_timestamp = Instant::now();
     let heights = stream::iter(&initial_validators)
         .then(|n| async move { n.consensus_info().await.height })
         .collect::<Vec<_>>()
         .await;
+    println!("initial validator heights: {heights:?}");
 
     let max_initial_validator_height = heights
         .iter()
@@ -80,23 +92,28 @@ async fn test_ibd_behind_nodes() {
     let behind_node_info = behind_node.consensus_info().await;
     println!("behind node info: {behind_node_info:?}");
 
-    let block_time = calculate_block_time(general_configs.first().unwrap());
-    println!("Estimated block time: {block_time:?}");
-
-    let conservative_height_check_duration = Duration::from_secs(1);
-    let time_buffer = conservative_ibd_duration + conservative_height_check_duration;
-
-    let height_margin = time_buffer.div_duration_f64(block_time).ceil() as u64;
-    println!("Estimated height margin: {height_margin}");
+    // We spent some time for checking the heights of nodes
+    // after the behind node finishes IBD.
+    // So, calculate an acceptable height margin for safe comparison.
+    let height_margin = acceptable_height_margin(
+        general_configs.first().unwrap(),
+        height_check_timestamp.elapsed(),
+    );
 
     println!("Checking if the behind node has caught up to the highest initial validator");
-
     assert!(
         behind_node_info
             .height
             .abs_diff(*max_initial_validator_height)
-            <= height_margin
+            <= height_margin,
     );
+}
+
+fn acceptable_height_margin(general_config: &GeneralConfig, duration: Duration) -> u64 {
+    let block_time = calculate_block_time(general_config);
+    let margin = duration.div_duration_f64(block_time).ceil() as u64;
+    println!("Acceptable height margin:{margin} for duration {duration:?} with block time {block_time:?}");
+    margin
 }
 
 fn calculate_block_time(general_config: &GeneralConfig) -> Duration {

@@ -50,7 +50,7 @@ impl<Balancer, Monitor, Membership, Addressbook>
 where
     Balancer: ConnectionBalancer,
     Monitor: ConnectionMonitor,
-    Membership: MembershipHandler + Clone + Send + 'static,
+    Membership: MembershipHandler + Clone + Send + Sync + 'static,
     <Membership as MembershipHandler>::NetworkId: Send,
     Addressbook: AddressBookHandler + Clone + Send + 'static,
 {
@@ -78,7 +78,7 @@ where
                 membership.clone(),
                 addressbook.clone(),
             ),
-            validator_dispersal: DispersalValidatorBehaviour::new(membership.clone()),
+            validator_dispersal: DispersalValidatorBehaviour::new(peer_id, membership.clone()),
             replication: ReplicationBehaviour::new(replication_config, peer_id, membership),
             balancer: ConnectionBalancerBehaviour::new(addressbook, balancer),
             monitor: ConnectionMonitorBehaviour::new(monitor, redial_cooldown),

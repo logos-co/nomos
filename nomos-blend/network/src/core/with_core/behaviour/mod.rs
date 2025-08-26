@@ -15,7 +15,7 @@ use libp2p::{
         ConnectionId, FromSwarm, NetworkBehaviour, NotifyHandler, THandler, THandlerInEvent,
         THandlerOutEvent, ToSwarm,
     },
-    Multiaddr, PeerId,
+    Multiaddr, PeerId, StreamProtocol,
 };
 use nomos_blend_message::MessageIdentifier;
 use nomos_blend_scheduling::{
@@ -39,9 +39,6 @@ use crate::{
 mod handler;
 mod old_session;
 
-#[cfg(feature = "tokio")]
-pub use self::handler::tokio::ObservationWindowTokioIntervalProvider;
-
 #[cfg(test)]
 mod tests;
 
@@ -61,6 +58,23 @@ pub struct RemotePeerConnectionDetails {
     negotiated_state: NegotiatedPeerState,
     /// The ID of the connection with the peer.
     connection_id: ConnectionId,
+}
+
+impl RemotePeerConnectionDetails {
+    #[must_use]
+    pub const fn role(&self) -> Endpoint {
+        self.role
+    }
+
+    #[must_use]
+    pub const fn negotiated_state(&self) -> NegotiatedPeerState {
+        self.negotiated_state
+    }
+
+    #[must_use]
+    pub const fn connection_id(&self) -> ConnectionId {
+        self.connection_id
+    }
 }
 
 /// A [`NetworkBehaviour`] that processes incoming Blend messages, and
@@ -98,6 +112,7 @@ pub struct Behaviour<ObservationWindowClockProvider> {
     /// The [minimum, maximum] peering degree of this node.
     peering_degree: RangeInclusive<usize>,
     local_peer_id: PeerId,
+    protocol_name: StreamProtocol,
     /// States for processing messages from the old session
     /// before the transition period has passed.
     old_session: Option<OldSession>,
@@ -167,6 +182,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         observation_window_clock_provider: ObservationWindowClockProvider,
         current_membership: Option<Membership<PeerId>>,
         local_peer_id: PeerId,
+        protocol_name: StreamProtocol,
     ) -> Self {
         Self {
             negotiated_peers: HashMap::with_capacity(*config.peering_degree.end()),
@@ -183,6 +199,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             peering_degree: config.peering_degree.clone(),
             connections_waiting_upgrade: HashMap::new(),
             local_peer_id,
+            protocol_name,
             old_session: None,
         }
     }
@@ -289,7 +306,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
 
     /// Force send a message to a peer (without validating it first), as long as
     /// the peer is connected, no matter the state the connection is in.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "unsafe-test-functions"))]
     pub fn force_send_message_to_peer(
         &mut self,
         message: &EncapsulatedMessage,
@@ -342,7 +359,6 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         &self.exchanged_message_identifiers
     }
 
-    #[cfg(test)]
     pub const fn negotiated_peers(&self) -> &HashMap<PeerId, RemotePeerConnectionDetails> {
         &self.negotiated_peers
     }
@@ -851,6 +867,7 @@ where
                 .insert((peer_id, connection_id), Endpoint::Dialer);
             return Ok(Either::Left(ConnectionHandler::new(
                 ConnectionMonitor::new(self.observation_window_clock_provider.interval_stream()),
+                self.protocol_name.clone(),
             )));
         };
 
@@ -858,9 +875,10 @@ where
             tracing::debug!(target: LOG_TARGET, "Upgrading inbound connection {connection_id:?} with core peer {peer_id:?}.");
             self.connections_waiting_upgrade
                 .insert((peer_id, connection_id), Endpoint::Dialer);
-            Either::Left(ConnectionHandler::new(ConnectionMonitor::new(
-                self.observation_window_clock_provider.interval_stream(),
-            )))
+            Either::Left(ConnectionHandler::new(
+                ConnectionMonitor::new(self.observation_window_clock_provider.interval_stream()),
+                self.protocol_name.clone(),
+            ))
         } else {
             tracing::debug!(target: LOG_TARGET, "Denying inbound connection {connection_id:?} with edge peer {peer_id:?}.");
             Either::Right(DummyConnectionHandler)
@@ -903,6 +921,7 @@ where
                 .insert((peer_id, connection_id), Endpoint::Listener);
             return Ok(Either::Left(ConnectionHandler::new(
                 ConnectionMonitor::new(self.observation_window_clock_provider.interval_stream()),
+                self.protocol_name.clone(),
             )));
         };
 
@@ -910,9 +929,10 @@ where
             tracing::debug!(target: LOG_TARGET, "Upgrading outbound connection {connection_id:?} with core peer {peer_id:?}.");
             self.connections_waiting_upgrade
                 .insert((peer_id, connection_id), Endpoint::Listener);
-            Either::Left(ConnectionHandler::new(ConnectionMonitor::new(
-                self.observation_window_clock_provider.interval_stream(),
-            )))
+            Either::Left(ConnectionHandler::new(
+                ConnectionMonitor::new(self.observation_window_clock_provider.interval_stream()),
+                self.protocol_name.clone(),
+            ))
         } else {
             tracing::debug!(target: LOG_TARGET, "Denying outbound connection {connection_id:?} with edge peer {peer_id:?}.");
             Either::Right(DummyConnectionHandler)

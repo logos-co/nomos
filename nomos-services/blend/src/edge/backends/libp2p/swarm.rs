@@ -8,10 +8,10 @@ use std::{
 use futures::{AsyncWriteExt as _, Stream, StreamExt as _};
 use libp2p::{
     swarm::{dial_opts::PeerCondition, ConnectionId},
-    Multiaddr, PeerId, Swarm, SwarmBuilder,
+    Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder,
 };
 use libp2p_stream::OpenStreamError;
-use nomos_blend_network::{send_msg, PROTOCOL_NAME};
+use nomos_blend_network::send_msg;
 use nomos_blend_scheduling::{
     membership::{Membership, Node},
     serialize_encapsulated_message, EncapsulatedMessage,
@@ -24,13 +24,29 @@ use tracing::{debug, error, trace};
 use super::settings::Libp2pBlendBackendSettings;
 use crate::edge::backends::libp2p::LOG_TARGET;
 
-struct DialAttempt {
+#[derive(Debug)]
+pub struct DialAttempt {
     /// Address of peer being dialed.
     address: Multiaddr,
     /// The latest (ongoing) attempt number.
     attempt_number: NonZeroU64,
     /// The message to send once the peer is successfully dialed.
     message: EncapsulatedMessage,
+}
+
+#[cfg(test)]
+impl DialAttempt {
+    pub const fn address(&self) -> &Multiaddr {
+        &self.address
+    }
+
+    pub const fn attempt_number(&self) -> NonZeroU64 {
+        self.attempt_number
+    }
+
+    pub const fn message(&self) -> &EncapsulatedMessage {
+        &self.message
+    }
 }
 
 pub(super) struct BlendSwarm<SessionStream, Rng>
@@ -45,6 +61,7 @@ where
     rng: Rng,
     max_dial_attempts_per_connection: NonZeroU64,
     pending_dials: HashMap<(PeerId, ConnectionId), DialAttempt>,
+    protocol_name: StreamProtocol,
 }
 
 #[derive(Debug)]
@@ -62,6 +79,7 @@ where
         current_membership: Option<Membership<PeerId>>,
         rng: Rng,
         command_receiver: mpsc::Receiver<Command>,
+        protocol_name: StreamProtocol,
     ) -> Self {
         let keypair = settings.keypair();
         let swarm = SwarmBuilder::with_existing_identity(keypair)
@@ -70,10 +88,9 @@ where
             .with_behaviour(|_| libp2p_stream::Behaviour::new())
             .expect("Behaviour should be built")
             .with_swarm_config(|cfg| {
-                // The idle timeout starts ticking once there are no active streams on a
-                // connection. We want the connection to be closed as soon as
-                // all streams are dropped.
-                cfg.with_idle_connection_timeout(Duration::ZERO)
+                // We cannot use zero as that would immediately close a connection with an edge
+                // node before they have a chance to upgrade the stream and send the message.
+                cfg.with_idle_connection_timeout(Duration::from_secs(1))
             })
             .build();
         let stream_control = swarm.behaviour().new_control();
@@ -86,7 +103,40 @@ where
             rng,
             pending_dials: HashMap::new(),
             max_dial_attempts_per_connection: settings.max_dial_attempts_per_peer_per_message,
+            protocol_name,
         }
+    }
+
+    #[cfg(test)]
+    pub fn new_test(
+        membership: Option<Membership<PeerId>>,
+        command_receiver: mpsc::Receiver<Command>,
+        max_dial_attempts_per_connection: NonZeroU64,
+        rng: Rng,
+        session_stream: SessionStream,
+        protocol_name: StreamProtocol,
+    ) -> Self {
+        use crate::test_utils::memory_test_swarm;
+
+        let inner_swarm =
+            memory_test_swarm(Duration::from_secs(1), |_| libp2p_stream::Behaviour::new());
+
+        Self {
+            command_receiver,
+            current_membership: membership,
+            max_dial_attempts_per_connection,
+            pending_dials: HashMap::new(),
+            rng,
+            session_stream,
+            stream_control: inner_swarm.behaviour().new_control(),
+            swarm: inner_swarm,
+            protocol_name,
+        }
+    }
+
+    #[cfg(test)]
+    pub const fn pending_dials(&self) -> &HashMap<(PeerId, ConnectionId), DialAttempt> {
+        &self.pending_dials
     }
 
     fn handle_command(&mut self, command: Command) {
@@ -140,21 +190,25 @@ where
     /// with the dial details of the peer that has been removed from the map
     /// of ongoing dials.
     fn retry_dial(&mut self, peer_id: PeerId, connection_id: ConnectionId) -> Option<DialAttempt> {
-        let DialAttempt {
-            address,
-            attempt_number,
-            ..
-        } = self
+        let dial_attempt = self
             .pending_dials
-            .get_mut(&(peer_id, connection_id))
+            .remove(&(peer_id, connection_id))
             .unwrap();
-        if *attempt_number >= self.max_dial_attempts_per_connection {
-            return self.pending_dials.remove(&(peer_id, connection_id));
+        let new_dial_attempt_number = dial_attempt.attempt_number.checked_add(1).unwrap();
+        if new_dial_attempt_number > self.max_dial_attempts_per_connection {
+            return Some(dial_attempt);
         }
-        *attempt_number = attempt_number.checked_add(1).unwrap();
+        let new_dial_opts = dial_opts(peer_id, dial_attempt.address.clone());
+        self.pending_dials.insert(
+            (peer_id, new_dial_opts.connection_id()),
+            DialAttempt {
+                attempt_number: new_dial_attempt_number,
+                ..dial_attempt
+            },
+        );
 
-        if let Err(e) = self.swarm.dial(dial_opts(peer_id, address.clone())) {
-            error!(target: LOG_TARGET, "Failed to redial peer {peer_id:?} on connection {connection_id:?}: {e:?}");
+        if let Err(e) = self.swarm.dial(new_dial_opts) {
+            error!(target: LOG_TARGET, "Failed to redial peer {peer_id:?}: {e:?}");
             self.retry_dial(peer_id, connection_id);
         }
         None
@@ -198,7 +252,7 @@ where
         peer_id: PeerId,
         connection_id: ConnectionId,
     ) {
-        debug!(target: LOG_TARGET, "Connection established: peer_id:{peer_id}, connection_id:{connection_id}");
+        debug!(target: LOG_TARGET, "Connection established: peer_id: {peer_id}, connection_id: {connection_id}");
 
         // We need to clone so we can access `&mut self` below.
         let message = self
@@ -209,7 +263,7 @@ where
 
         match self
             .stream_control
-            .open_stream(peer_id, PROTOCOL_NAME)
+            .open_stream(peer_id, self.protocol_name.clone())
             .await
         {
             Ok(stream) => {
@@ -298,6 +352,16 @@ where
     fn transition_session(&mut self, membership: Membership<PeerId>) {
         self.current_membership = Some(membership);
     }
+
+    #[cfg(test)]
+    pub fn send_message(&mut self, msg: EncapsulatedMessage) {
+        self.dial_and_schedule_message_except(msg, None);
+    }
+
+    #[cfg(test)]
+    pub fn send_message_to_anyone_except(&mut self, peer_id: PeerId, msg: EncapsulatedMessage) {
+        self.dial_and_schedule_message_except(msg, Some(peer_id));
+    }
 }
 
 async fn close_stream(mut stream: libp2p::Stream, peer_id: PeerId, connection_id: ConnectionId) {
@@ -320,16 +384,43 @@ where
 {
     pub(super) async fn run(mut self) {
         loop {
-            tokio::select! {
-                Some(event) = self.swarm.next() => {
-                    self.handle_swarm_event(event).await;
-                }
-                Some(command) = self.command_receiver.recv() => {
-                    self.handle_command(command);
-                }
-                Some(new_session) = self.session_stream.next() => {
-                    self.transition_session(new_session);
-                }
+            self.poll_next_internal().await;
+        }
+    }
+
+    async fn poll_next_internal(&mut self) {
+        self.poll_next_and_match(|_| false).await;
+    }
+
+    async fn poll_next_and_match<Predicate>(&mut self, predicate: Predicate) -> bool
+    where
+        Predicate: Fn(&SwarmEvent<()>) -> bool,
+    {
+        tokio::select! {
+            Some(event) = self.swarm.next() => {
+                let predicate_matched = predicate(&event);
+                self.handle_swarm_event(event).await;
+                predicate_matched
+            }
+            Some(command) = self.command_receiver.recv() => {
+                self.handle_command(command);
+                false
+            }
+            Some(new_session) = self.session_stream.next() => {
+                self.transition_session(new_session);
+                false
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub async fn poll_next_until<Predicate>(&mut self, predicate: Predicate)
+    where
+        Predicate: Fn(&SwarmEvent<()>) -> bool + Copy,
+    {
+        loop {
+            if self.poll_next_and_match(predicate).await {
+                break;
             }
         }
     }

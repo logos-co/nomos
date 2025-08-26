@@ -114,6 +114,9 @@ impl Op {
         let mut buff = bytes::BytesMut::new();
         buff.extend_from_slice(&[self.opcode()]);
         // TODO: add ops payload
+        if let Self::ChannelBlob(blob_op) = self {
+            buff.extend_from_slice(&blob_op.as_sign_bytes());
+        }
         buff.freeze()
     }
 

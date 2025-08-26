@@ -4,9 +4,8 @@ use futures::{
     future::{AbortHandle, Abortable},
     Stream, StreamExt as _,
 };
-use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;
-use nomos_core::{block::BlockNumber, da::BlobId};
+use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     swarm::{
@@ -20,20 +19,16 @@ use nomos_tracing::info_with_id;
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
 use serde::Serialize;
 use subnetworks_assignations::MembershipHandler;
-use tokio::{
-    sync::{broadcast, mpsc::UnboundedSender, oneshot},
-    time,
-};
-use tokio_stream::wrappers::{BroadcastStream, IntervalStream};
+use tokio::sync::{broadcast, mpsc::UnboundedSender, oneshot};
+use tokio_stream::wrappers::BroadcastStream;
 use tracing::instrument;
 
-use super::common::CommitmentsEvent;
 use crate::{
     backends::{
         libp2p::common::{
             handle_balancer_command, handle_historic_sample_request, handle_monitor_command,
-            handle_sample_request, handle_validator_events_stream, DaNetworkBackendSettings,
-            SamplingEvent, BROADCAST_CHANNEL_SIZE,
+            handle_sample_request, handle_validator_events_stream, CommitmentsEvent,
+            DaNetworkBackendSettings, SamplingEvent, VerificationEvent, BROADCAST_CHANNEL_SIZE,
         },
         NetworkBackend,
     },
@@ -70,7 +65,7 @@ pub enum DaNetworkEventKind {
 pub enum DaNetworkEvent {
     Sampling(SamplingEvent),
     Commitments(CommitmentsEvent),
-    Verifying(Box<DaShare>),
+    Verifying(VerificationEvent),
 }
 
 /// DA network backend for validators
@@ -86,7 +81,7 @@ pub struct DaNetworkValidatorBackend<Membership> {
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
     commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
-    verifying_broadcast_receiver: broadcast::Receiver<DaShare>,
+    verifying_broadcast_receiver: broadcast::Receiver<VerificationEvent>,
     _membership: PhantomData<Membership>,
 }
 
@@ -116,13 +111,8 @@ where
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Self::Membership,
         addressbook: Self::Addressbook,
+        subnet_refresh_signal: impl Stream<Item = ()> + Send + 'static,
     ) -> Self {
-        // TODO: If there is no requirement to subscribe to block number events in chain
-        // service, and an approximate duration is enough for sampling to hold
-        // temporal connections - remove this message.
-        let subnet_refresh_signal =
-            Box::pin(IntervalStream::new(time::interval(config.refresh_interval)).map(|_| ()));
-
         let keypair =
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
         let (mut validator_swarm, validator_events_stream) = ValidatorSwarm::new(
@@ -243,7 +233,7 @@ where
             DaNetworkEventKind::Verifying => Box::pin(
                 BroadcastStream::new(self.verifying_broadcast_receiver.resubscribe())
                     .filter_map(|event| async { event.ok() })
-                    .map(|share| Self::NetworkEvent::Verifying(Box::new(share))),
+                    .map(Self::NetworkEvent::Verifying),
             ),
         }
     }
@@ -251,6 +241,7 @@ where
     async fn start_historic_sampling(
         &self,
         block_number: BlockNumber,
+        block_id: HeaderId,
         blob_ids: HashSet<BlobId>,
         membership: Self::HistoricMembership,
     ) {
@@ -258,6 +249,7 @@ where
             &self.historic_sample_request_channel,
             blob_ids,
             block_number,
+            block_id,
             membership,
         )
         .await;

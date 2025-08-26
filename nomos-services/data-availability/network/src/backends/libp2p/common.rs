@@ -8,27 +8,34 @@ use kzgrs_backend::common::{
     share::{DaLightShare, DaShare, DaSharesCommitments},
     ShareIndex,
 };
-use nomos_core::{block::BlockNumber, da::BlobId};
+use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId, mantle::SignedMantleTx};
+use nomos_da_messages::common::Share;
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
-    protocols::sampling::{
-        self, errors::SamplingError, BehaviourSampleReq, BehaviourSampleRes, SubnetsConfig,
+    protocols::{
+        dispersal::validator::behaviour::DispersalEvent,
+        sampling::{
+            self, errors::SamplingError, BehaviourSampleReq, BehaviourSampleRes, SubnetsConfig,
+        },
     },
     swarm::{
         validator::{SampleArgs, ValidatorEventsStream},
-        DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
+        DAConnectionMonitorSettings, DAConnectionPolicySettings, DispersalValidationError,
+        DispersalValidationResult, DispersalValidatorEvent, ReplicationConfig,
     },
 };
 use nomos_libp2p::{ed25519, secret_key_serde, Multiaddr};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{
-    broadcast, mpsc,
-    mpsc::{error::SendError, UnboundedSender},
+    broadcast,
+    mpsc::{self, error::SendError, UnboundedSender},
     oneshot,
 };
 use tracing::error;
 
 pub(crate) const BROADCAST_CHANNEL_SIZE: usize = 128;
+
+pub type BroadcastValidationResultSender = Option<mpsc::Sender<DispersalValidationResult>>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DaNetworkBackendSettings {
@@ -42,7 +49,6 @@ pub struct DaNetworkBackendSettings {
     pub redial_cooldown: Duration,
     pub replication_settings: ReplicationConfig,
     pub subnets_settings: SubnetsConfig,
-    pub refresh_interval: Duration,
 }
 
 /// Sampling events coming from da network
@@ -97,12 +103,55 @@ impl SamplingEvent {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum VerificationEvent {
+    Tx {
+        // Number of subnetwork assignations that the node is assigned to at the moment of
+        // receiving a dispersal TX. This is added to the TX message received via the network
+        // because of dynamic assignations that can change depending
+        // on the DA session, and syncinc these moments preciselly between services even if some
+        // TX events might reach destination after the assignations has already changed.
+        assignations: u16,
+        tx: Box<SignedMantleTx>,
+        response_sender: BroadcastValidationResultSender,
+    },
+    Share {
+        share: Box<DaShare>,
+        response_sender: BroadcastValidationResultSender,
+    },
+}
+
+impl From<(DaShare, BroadcastValidationResultSender)> for VerificationEvent {
+    fn from((share, response_sender): (DaShare, BroadcastValidationResultSender)) -> Self {
+        Self::Share {
+            share: Box::new(share),
+            response_sender,
+        }
+    }
+}
+
+impl From<(u16, Box<SignedMantleTx>, BroadcastValidationResultSender)> for VerificationEvent {
+    fn from(
+        (assignations, tx, response_sender): (
+            u16,
+            Box<SignedMantleTx>,
+            BroadcastValidationResultSender,
+        ),
+    ) -> Self {
+        Self::Tx {
+            assignations,
+            tx,
+            response_sender,
+        }
+    }
+}
+
 /// Task that handles forwarding of events to the subscriptions channels/stream
 pub(crate) async fn handle_validator_events_stream(
     events_streams: ValidatorEventsStream,
     sampling_broadcast_sender: broadcast::Sender<SamplingEvent>,
     commitments_broadcast_sender: broadcast::Sender<CommitmentsEvent>,
-    validation_broadcast_sender: broadcast::Sender<DaShare>,
+    validation_broadcast_sender: broadcast::Sender<VerificationEvent>,
 ) {
     let ValidatorEventsStream {
         mut sampling_events_receiver,
@@ -114,18 +163,102 @@ pub(crate) async fn handle_validator_events_stream(
         // safe set: https://docs.rs/tokio/latest/tokio/macro.select.html#cancellation-safety
         tokio::select! {
             Some(sampling_event) = StreamExt::next(&mut sampling_events_receiver) => {
-                handle_event(&sampling_broadcast_sender, &commitments_broadcast_sender, sampling_event).await;
+                handle_sampling_event(&sampling_broadcast_sender, &commitments_broadcast_sender, sampling_event).await;
             }
-            Some(da_share) = StreamExt::next(&mut validation_events_receiver) => {
-                if let Err(error) = validation_broadcast_sender.send(da_share) {
-                    error!("Error in internal broadcast of validation for blob: {:?}", error.0);
-                }
+            Some(dispersal_event) = StreamExt::next(&mut validation_events_receiver) => {
+                handle_dispersal_event(&validation_broadcast_sender, dispersal_event).await;
             }
         }
     }
 }
 
-async fn handle_event(
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "complex comunication between libp2p behaviour and service"
+)]
+async fn handle_dispersal_event(
+    validation_broadcast_sender: &broadcast::Sender<VerificationEvent>,
+    dispersal_event: DispersalValidatorEvent,
+) {
+    match (dispersal_event.event, dispersal_event.sender) {
+        (DispersalEvent::IncomingShare(share), Some(sender)) => {
+            handle_incoming_share_with_response(validation_broadcast_sender, sender, share).await;
+        }
+        (DispersalEvent::IncomingShare(share), None) => {
+            if let Err(error) = validation_broadcast_sender.send((share.data, None).into()) {
+                error!(
+                    "Error in internal broadcast of validation for blob: {:?}",
+                    error.0
+                );
+            }
+        }
+        (DispersalEvent::IncomingTx((assignations, tx)), Some(sender)) => {
+            handle_incoming_tx_with_response(validation_broadcast_sender, sender, assignations, tx)
+                .await;
+        }
+        (DispersalEvent::IncomingTx((assignations, tx)), None) => {
+            if let Err(error) = validation_broadcast_sender.send((assignations, tx, None).into()) {
+                error!(
+                    "Error in internal broadcast of validation for blob: {:?}",
+                    error.0
+                );
+            }
+        }
+        (DispersalEvent::DispersalError { error }, _) => {
+            error!("Error from dispersal behaviour: {error:?}");
+        }
+    }
+}
+
+async fn handle_incoming_share_with_response(
+    validation_broadcast_sender: &broadcast::Sender<VerificationEvent>,
+    behaviour_sender: Sender<DispersalValidationResult>,
+    share: Box<Share>,
+) {
+    let (service_sender, mut service_receiver) =
+        mpsc::channel::<DispersalValidationResult>(BROADCAST_CHANNEL_SIZE);
+    if let Err(error) = validation_broadcast_sender.send((share.data, Some(service_sender)).into())
+    {
+        let _ = behaviour_sender.send(Err(DispersalValidationError));
+        error!(
+            "Error in internal broadcast of validation for blob: {:?}",
+            error.0
+        );
+        return;
+    }
+    let validation_response = service_receiver
+        .recv()
+        .await
+        .unwrap_or(Err(DispersalValidationError));
+    let _ = behaviour_sender.send(validation_response);
+}
+
+async fn handle_incoming_tx_with_response(
+    validation_broadcast_sender: &broadcast::Sender<VerificationEvent>,
+    behaviour_sender: Sender<DispersalValidationResult>,
+    assignations: u16,
+    tx: Box<SignedMantleTx>,
+) {
+    let (service_sender, mut service_receiver) =
+        mpsc::channel::<DispersalValidationResult>(BROADCAST_CHANNEL_SIZE);
+    if let Err(error) =
+        validation_broadcast_sender.send((assignations, tx, Some(service_sender)).into())
+    {
+        let _ = behaviour_sender.send(Err(DispersalValidationError));
+        error!(
+            "Error in internal broadcast of validation for blob: {:?}",
+            error.0
+        );
+        return;
+    }
+    let validation_response = service_receiver
+        .recv()
+        .await
+        .unwrap_or(Err(DispersalValidationError));
+    let _ = behaviour_sender.send(validation_response);
+}
+
+async fn handle_sampling_event(
     sampling_broadcast_sender: &broadcast::Sender<SamplingEvent>,
     commitments_broadcast_sender: &broadcast::Sender<CommitmentsEvent>,
     sampling_event: sampling::SamplingEvent,
@@ -160,7 +293,7 @@ async fn handle_event(
             request_receiver,
             response_sender,
         } => {
-            handle_request(
+            handle_sampling_request(
                 sampling_broadcast_sender,
                 commitments_broadcast_sender,
                 request_receiver,
@@ -169,16 +302,20 @@ async fn handle_event(
             .await;
         }
         sampling::SamplingEvent::SamplingError { error } => {
-            handle_error(
+            handle_sampling_error(
                 sampling_broadcast_sender,
                 commitments_broadcast_sender,
                 error,
             );
         }
+        sampling::SamplingEvent::HistoricSamplingSuccess { .. } => todo!(),
+        sampling::SamplingEvent::HistoricSamplingError { .. } => {
+            todo!("Handle historic sampling error");
+        }
     }
 }
 
-fn handle_error(
+fn handle_sampling_error(
     sampling_broadcast_sender: &broadcast::Sender<SamplingEvent>,
     commitments_broadcast_sender: &broadcast::Sender<CommitmentsEvent>,
     error: SamplingError,
@@ -194,7 +331,7 @@ fn handle_error(
     }
 }
 
-async fn handle_request(
+async fn handle_sampling_request(
     sampling_broadcast_sender: &broadcast::Sender<SamplingEvent>,
     commitments_broadcast_sender: &broadcast::Sender<CommitmentsEvent>,
     request_receiver: Receiver<BehaviourSampleReq>,
@@ -318,12 +455,13 @@ pub(crate) async fn handle_historic_sample_request<Membership>(
     historic_sample_request_channel: &UnboundedSender<SampleArgs<Membership>>,
     blob_ids: HashSet<BlobId>,
     block_number: BlockNumber,
+    block_id: HeaderId,
     membership: Membership,
 ) {
-    if let Err(SendError((blob_id, block_number, _))) =
-        historic_sample_request_channel.send((blob_ids, block_number, membership))
+    if let Err(SendError((blob_id, block_number, block_id, _))) =
+        historic_sample_request_channel.send((blob_ids, block_number, block_id, membership))
     {
-        error!("Error requesting historic sample for blob_id: {blob_id:?}, block_number: {block_number:?}");
+        error!("Error requesting historic sample for blob_id: {blob_id:?}, block_number: {block_number:?}, block_id: {block_id:?}");
     }
 }
 

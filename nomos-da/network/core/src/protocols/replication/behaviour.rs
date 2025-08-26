@@ -110,7 +110,12 @@ impl ReplicationEvent {
     #[must_use]
     pub fn share_size(&self) -> Option<usize> {
         match self {
-            Self::IncomingMessage { message, .. } => Some(message.share.data.column_len()),
+            Self::IncomingMessage { message, .. } => match message.as_ref() {
+                ReplicationRequest::Share(share_request) => {
+                    Some(share_request.share.data.column_len())
+                }
+                ReplicationRequest::Tx(_) => None,
+            },
             Self::ReplicationError { .. } => None,
         }
     }
@@ -318,20 +323,32 @@ where
         }
         self.seen_message_cache.cache_set(message_id, ());
 
-        // Push a message in the queue for every single peer connected that is a member
-        // of the selected subnetwork_id
-        let peers = self.no_loopback_member_peers_of(message.subnetwork_id);
         // At least one message was enqueued
         let mut queued = false;
 
-        self.connected
-            .iter()
-            .filter(|peer_id| peers.contains(peer_id))
-            .for_each(|peer_id| {
-                self.pending_outbound
-                    .enqueue_message(*peer_id, message.clone());
-                queued = true;
-            });
+        match &message {
+            ReplicationRequest::Share(share_request) => {
+                // Push a message in the queue for every single peer connected that is a member
+                // of the selected subnetwork_id
+                let peers = self.no_loopback_member_peers_of(share_request.subnetwork_id);
+                self.connected
+                    .iter()
+                    .filter(|peer_id| peers.contains(peer_id))
+                    .for_each(|peer_id| {
+                        self.pending_outbound
+                            .enqueue_message(*peer_id, message.clone());
+                        queued = true;
+                    });
+            }
+            ReplicationRequest::Tx(_signed_mantle_tx) => {
+                // Push Tx to all connected peers
+                self.connected.iter().for_each(|peer_id| {
+                    self.pending_outbound
+                        .enqueue_message(*peer_id, message.clone());
+                    queued = true;
+                });
+            }
+        }
 
         if queued {
             waker.map(Waker::wake_by_ref);
@@ -616,6 +633,10 @@ where
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+        // Keep the most recent waker in case `send_message()` is called from
+        // outside the behaviour
+        self.waker = Some(cx.waker().clone());
+
         // The incoming message to be returned to the swarm **after** all the polling is
         // done, this way we don't starve the tasks that are polled later in the
         // sequence
@@ -649,10 +670,6 @@ where
         if let Some(incoming_message) = incoming_message {
             return incoming_message;
         }
-
-        // Keep the most recent waker in case `send_message()` is called from
-        // outside the behaviour
-        self.waker = Some(cx.waker().clone());
 
         Poll::Pending
     }

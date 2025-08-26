@@ -2,7 +2,6 @@ use std::{
     collections::HashSet, env, path::PathBuf, str::FromStr as _, sync::LazyLock, time::Duration,
 };
 
-use nomos_da_dispersal::backend::kzgrs::{MempoolPublishStrategy, SampleSubnetworks};
 use nomos_da_network_core::swarm::{
     DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
 };
@@ -32,7 +31,6 @@ pub struct DaParams {
     pub old_blobs_check_interval: Duration,
     pub blobs_validity_duration: Duration,
     pub global_params_path: String,
-    pub mempool_strategy: MempoolPublishStrategy,
     pub policy_settings: DAConnectionPolicySettings,
     pub monitor_settings: DAConnectionMonitorSettings,
     pub balancer_interval: Duration,
@@ -53,11 +51,6 @@ impl Default for DaParams {
             old_blobs_check_interval: Duration::from_secs(5),
             blobs_validity_duration: Duration::from_secs(60),
             global_params_path: GLOBAL_PARAMS_PATH.to_string(),
-            mempool_strategy: MempoolPublishStrategy::SampleSubnetworks(SampleSubnetworks {
-                sample_threshold: 2,
-                timeout: Duration::from_secs(10),
-                cooldown: Duration::from_millis(100),
-            }),
             policy_settings: DAConnectionPolicySettings {
                 min_dispersal_peers: 1,
                 min_replication_peers: 1,
@@ -76,7 +69,7 @@ impl Default for DaParams {
                 seen_message_cache_size: 1000,
                 seen_message_ttl: Duration::from_secs(3600),
             },
-            subnets_refresh_interval: Duration::from_secs(5),
+            subnets_refresh_interval: Duration::from_secs(30),
             retry_shares_limit: 1,
             retry_commitments_limit: 1,
         }
@@ -95,7 +88,6 @@ pub struct GeneralDaConfig {
     pub verifier_index: HashSet<u16>,
     pub num_samples: u16,
     pub num_subnets: u16,
-    pub mempool_strategy: MempoolPublishStrategy,
     pub old_blobs_check_interval: Duration,
     pub blobs_validity_duration: Duration,
     pub policy_settings: DAConnectionPolicySettings,
@@ -159,7 +151,6 @@ pub fn create_da_configs(
                 num_subnets: da_params.num_subnets,
                 old_blobs_check_interval: da_params.old_blobs_check_interval,
                 blobs_validity_duration: da_params.blobs_validity_duration,
-                mempool_strategy: da_params.mempool_strategy.clone(),
                 policy_settings: da_params.policy_settings.clone(),
                 monitor_settings: da_params.monitor_settings.clone(),
                 balancer_interval: da_params.balancer_interval,

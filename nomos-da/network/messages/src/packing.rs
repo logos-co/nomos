@@ -99,8 +99,7 @@ mod tests {
         let blob_id = BlobId::from([0; 32]);
         let share = get_da_share(None);
         let share = Share::new(blob_id, share);
-        let subnetwork_id = 0;
-        let message = DispersalRequest::new(share, subnetwork_id);
+        let message = DispersalRequest::from(share.data);
 
         let packed_message = pack(&message)?;
         let unpacked_message: DispersalRequest = unpack(&packed_message)?;
@@ -114,8 +113,7 @@ mod tests {
         let blob_id = BlobId::from([0; 32]);
         let data = get_da_share(None);
         let share = Share::new(blob_id, data);
-        let subnetwork_id = 0;
-        let message = DispersalRequest::new(share, subnetwork_id);
+        let message = DispersalRequest::from(share.data);
 
         let mut writer = Vec::new();
         pack_to_writer(&message, &mut writer).await?;

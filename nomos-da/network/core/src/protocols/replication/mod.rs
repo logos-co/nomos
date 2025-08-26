@@ -2,14 +2,39 @@ pub mod behaviour;
 
 #[cfg(test)]
 mod test {
-    use std::{collections::VecDeque, ops::Range, path::PathBuf, sync::LazyLock, time::Duration};
+    use std::{
+        collections::{HashSet, VecDeque},
+        ops::Range,
+        path::PathBuf,
+        sync::LazyLock,
+        time::Duration,
+    };
 
     use futures::StreamExt as _;
     use kzgrs_backend::testutils;
-    use libp2p::{identity::Keypair, quic, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
+    use libp2p::{
+        identity::{Keypair, PublicKey},
+        quic,
+        swarm::SwarmEvent,
+        Multiaddr, PeerId, Swarm,
+    };
     use libp2p_swarm_test::SwarmExt as _;
     use log::info;
-    use nomos_da_messages::{common::Share, replication::ReplicationRequest};
+    use nomos_core::{
+        mantle::{
+            ledger::Tx as LedgerTx,
+            ops::{
+                channel::{blob::BlobOp, ChannelId, Ed25519PublicKey, MsgId},
+                Op,
+            },
+            MantleTx, SignedMantleTx, Transaction as _,
+        },
+        proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
+    };
+    use nomos_da_messages::{
+        common::Share,
+        replication::{ReplicationRequest, ReplicationResponseId},
+    };
     use tokio::sync::mpsc;
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
@@ -77,7 +102,7 @@ mod test {
                     message, ..
                 }) = swarm.select_next_some().await
                 {
-                    if &message == expected_message {
+                    if *message == *expected_message.as_ref() {
                         break;
                     }
                 }
@@ -103,17 +128,14 @@ mod test {
         let messages = (0..20u8)
             .map(|i| {
                 blob_id[31] = i;
-                ReplicationRequest {
-                    share: Share {
-                        blob_id,
-                        data: {
-                            let mut data = testutils::get_default_da_blob_data();
-                            *data.last_mut().unwrap() = i;
-                            testutils::get_da_share(Some(data))
-                        },
+                ReplicationRequest::from(Share {
+                    blob_id,
+                    data: {
+                        let mut data = testutils::get_default_da_blob_data();
+                        *data.last_mut().unwrap() = i;
+                        testutils::get_da_share(Some(data))
                     },
-                    subnetwork_id: 0,
-                }
+                })
             })
             .collect::<Vec<_>>();
         let serialized = bincode::serialize(&messages).unwrap();
@@ -279,5 +301,108 @@ mod test {
                 panic!("task two should not finish before 1");
             }
         }
+    }
+
+    fn get_ed25519_bytes(pubkey: PublicKey) -> Option<[u8; 32]> {
+        pubkey.try_into_ed25519().ok().map(|pk| pk.to_bytes())
+    }
+
+    #[tokio::test]
+    async fn test_tx_replication() {
+        const TX_COUNT: u64 = 5;
+        let k1 = Keypair::generate_ed25519();
+        let k2 = Keypair::generate_ed25519();
+        let peer_id2 = PeerId::from_public_key(&k2.public());
+        let signer_bytes_k2 = get_ed25519_bytes(k1.public()).expect("Public key must be Ed25519");
+
+        let neighbours = make_neighbours(&[&k1, &k2]);
+
+        let mut swarm1 = get_swarm(k1, neighbours.clone());
+        let mut swarm2 = get_swarm(k2, neighbours);
+
+        let base_op = Op::ChannelBlob(BlobOp {
+            channel: ChannelId::from([2; 32]),
+            blob: [0u8; 32],
+            blob_size: 0,
+            da_storage_gas_price: 0,
+            parent: MsgId::root(),
+            signer: Ed25519PublicKey::from_bytes(&signer_bytes_k2).unwrap(),
+        });
+
+        let base_mantle_tx = MantleTx {
+            ops: vec![base_op],
+            ledger_tx: LedgerTx::new(vec![], vec![]),
+            storage_gas_price: 0,
+            execution_gas_price: 0,
+        };
+
+        let base_signed_tx = SignedMantleTx {
+            ops_profs: Vec::new(),
+            ledger_tx_proof: DummyZkSignature::prove(ZkSignaturePublic {
+                msg_hash: base_mantle_tx.hash().into(),
+                pks: vec![],
+            }),
+            mantle_tx: base_mantle_tx,
+        };
+
+        let addr1: Multiaddr = "/ip4/127.0.0.1/udp/5056/quic-v1".parse().unwrap();
+        swarm1.listen_on(addr1.clone()).unwrap();
+
+        let task1 = async move {
+            swarm2.dial_and_wait(addr1).await;
+
+            for i in 0..TX_COUNT {
+                let mut unique_signed_tx = base_signed_tx.clone();
+                // Mantle op payload is not yet included in the signed bytes for tx hash, but
+                // storage_gas_price also affect the hash and is enough in this test case.
+                unique_signed_tx.mantle_tx.storage_gas_price = i;
+
+                let tx_message = ReplicationRequest::from(unique_signed_tx.clone());
+
+                // Send each message two times.
+                swarm2.behaviour_mut().send_message(&tx_message);
+                swarm2.behaviour_mut().send_message(&tx_message);
+            }
+
+            swarm2.loop_on_next().await;
+        };
+
+        tokio::spawn(task1);
+
+        wait_for_incoming_connection(&mut swarm1, peer_id2).await;
+
+        let mut received_tx_ids: HashSet<ReplicationResponseId> = HashSet::new();
+        let mut duplicate_messages_count = 0;
+
+        for _ in 0..TX_COUNT {
+            let event = tokio::time::timeout(
+                Duration::from_secs(5),
+                swarm1.wait(|event| {
+                    if let SwarmEvent::Behaviour(ReplicationEvent::IncomingMessage {
+                        message,
+                        ..
+                    }) = event
+                    {
+                        if let ReplicationRequest::Tx(_) = message.as_ref() {
+                            return Some(message);
+                        }
+                    }
+                    None
+                }),
+            )
+            .await
+            .expect("Swarm1 should receive all Tx messages within timeout");
+
+            let received_tx_id = event.id();
+            if !received_tx_ids.insert(received_tx_id) {
+                duplicate_messages_count += 1;
+            }
+        }
+
+        assert_eq!(received_tx_ids.len(), TX_COUNT as usize, "Txs not received");
+        assert_eq!(
+            duplicate_messages_count, 0,
+            "No duplicate Tx messages should be replicated."
+        );
     }
 }

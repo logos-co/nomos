@@ -23,6 +23,9 @@ pub mod edge;
 pub mod message;
 pub mod settings;
 
+#[cfg(test)]
+mod test_utils;
+
 const LOG_TARGET: &str = "blend::service";
 
 pub struct BlendService<CoreService, EdgeService, RuntimeServiceId>

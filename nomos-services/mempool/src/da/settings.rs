@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use services_utils::overwatch::recovery::backends::FileBackendSettings;
@@ -12,6 +12,8 @@ pub struct DaMempoolSettings<PoolSettings, NetworkAdapterSettings> {
     pub network_adapter: NetworkAdapterSettings,
     /// The recovery file path, for the service's [`RecoveryOperator`].
     pub recovery_path: PathBuf,
+    /// Trigger sampling delay.
+    pub trigger_sampling_delay: Duration,
 }
 
 impl<PoolSettings, NetworkAdapterSettings> FileBackendSettings

@@ -12,10 +12,10 @@ use kzgrs::Commitment;
 use rayon::iter::{IntoParallelRefIterator as _, ParallelIterator};
 use serde::{ser::SerializeSeq as _, Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize, Hash)]
 pub struct Chunk(pub Vec<u8>);
 pub struct Row(pub Vec<Chunk>);
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct Column(pub Vec<Chunk>);
 pub struct ChunksMatrix(pub Vec<Row>);
 pub type ShareIndex = u16;

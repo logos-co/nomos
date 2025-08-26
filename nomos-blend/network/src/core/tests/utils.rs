@@ -6,19 +6,18 @@ use core::{
 
 use libp2p::{
     identity::{ed25519::PublicKey, Keypair},
-    PeerId, Swarm,
+    PeerId, StreamProtocol, Swarm,
 };
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
-    crypto::{
-        Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, Signature, PROOF_OF_QUOTA_SIZE,
-        SIGNATURE_SIZE,
-    },
-    input::{EncapsulationInput, EncapsulationInputs},
+    crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, Signature, SIGNATURE_SIZE},
+    input::EncapsulationInput,
     PayloadType,
 };
-use nomos_blend_scheduling::EncapsulatedMessage;
+use nomos_blend_scheduling::{message_blend::crypto::EncapsulationInputs, EncapsulatedMessage};
 use nomos_libp2p::NetworkBehaviour;
+
+pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/blend/core-behaviour/test");
 
 pub struct TestSwarm<Behaviour>(Swarm<Behaviour>)
 where
@@ -76,7 +75,7 @@ impl TestEncapsulatedMessage {
     }
 }
 
-fn generate_valid_inputs() -> EncapsulationInputs<3> {
+fn generate_valid_inputs() -> EncapsulationInputs {
     EncapsulationInputs::new(
         repeat_with(Ed25519PrivateKey::generate)
             .take(3)
@@ -85,7 +84,7 @@ fn generate_valid_inputs() -> EncapsulationInputs<3> {
                 EncapsulationInput::new(
                     Ed25519PrivateKey::generate(),
                     &recipient_signing_pubkey,
-                    ProofOfQuota::from([0u8; PROOF_OF_QUOTA_SIZE]),
+                    ProofOfQuota::dummy(),
                     ProofOfSelection::dummy(),
                 )
             })

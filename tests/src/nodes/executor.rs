@@ -37,9 +37,13 @@ use nomos_da_network_service::{
     },
     MembershipResponse, NetworkConfig as DaNetworkConfig,
 };
-use nomos_da_sampling::{backend::kzgrs::KzgrsSamplingBackendSettings, DaSamplingServiceSettings};
+use nomos_da_sampling::{
+    backend::kzgrs::KzgrsSamplingBackendSettings,
+    verifier::kzgrs::KzgrsDaVerifierSettings as SamplingVerifierSettings,
+    DaSamplingServiceSettings,
+};
 use nomos_da_verifier::{
-    backend::kzgrs::KzgrsDaVerifierSettings,
+    backend::{kzgrs::KzgrsDaVerifierSettings, trigger::MempoolPublishTriggerConfig},
     storage::adapters::rocksdb::RocksAdapterSettings as VerifierStorageAdapterSettings,
     DaVerifierServiceSettings,
 };
@@ -374,7 +378,6 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                         shares_retry_limit: config.da_config.retry_shares_limit,
                         commitments_retry_limit: config.da_config.retry_commitments_limit,
                     },
-                    refresh_interval: config.da_config.subnets_refresh_interval,
                 },
                 num_subnets: config.da_config.num_subnets,
             },
@@ -383,6 +386,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 api_port: config.api_config.address.port(),
                 is_secure: false,
             },
+            subnet_refresh_interval: config.da_config.subnets_refresh_interval,
         },
         da_indexer: IndexerSettings {
             storage: IndexerStorageAdapterSettings {
@@ -390,13 +394,20 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             },
         },
         da_verifier: DaVerifierServiceSettings {
-            verifier_settings: KzgrsDaVerifierSettings {
+            share_verifier_settings: KzgrsDaVerifierSettings {
                 global_params_path: config.da_config.global_params_path.clone(),
                 domain_size: config.da_config.num_subnets as usize,
             },
+            tx_verifier_settings: (),
             network_adapter_settings: (),
             storage_adapter_settings: VerifierStorageAdapterSettings {
                 blob_storage_directory: "./".into(),
+            },
+            mempool_trigger_settings: MempoolPublishTriggerConfig {
+                publish_threshold: NonNegativeF64::try_from(0.8).unwrap(),
+                share_duration: Duration::from_secs(5),
+                prune_duration: Duration::from_secs(30),
+                prune_interval: Duration::from_secs(5),
             },
         },
         tracing: config.tracing_config.tracing_settings,
@@ -414,6 +425,10 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 old_blobs_check_interval: config.da_config.old_blobs_check_interval,
                 blobs_validity_duration: config.da_config.blobs_validity_duration,
             },
+            share_verifier_settings: SamplingVerifierSettings {
+                global_params_path: config.da_config.global_params_path.clone(),
+                domain_size: config.da_config.num_subnets as usize,
+            },
         },
         storage: RocksBackendSettings {
             db_path: "./db".into(),
@@ -428,7 +443,6 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                     global_params_path: config.da_config.global_params_path,
                 },
                 dispersal_timeout: Duration::from_secs(20),
-                mempool_strategy: config.da_config.mempool_strategy,
             },
         },
         time: TimeServiceSettings {
@@ -450,6 +464,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         mempool: MempoolConfig {
             cl_pool_recovery_path: "./recovery/cl_mempool.json".into(),
             da_pool_recovery_path: "./recovery/da_mempool.json".into(),
+            trigger_sampling_delay: adjust_timeout(Duration::from_secs(5)),
         },
         membership: config.membership_config.service_settings,
         sdp: (),

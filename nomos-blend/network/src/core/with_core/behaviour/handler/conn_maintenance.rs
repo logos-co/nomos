@@ -89,6 +89,7 @@ where
         };
         // First tick is used to set the range for the new observation window.
         if self.expected_message_range.is_none() {
+            debug!(target: LOG_TARGET, "First tick received. Starting monitoring connection from now on at every tick...");
             self.reset(new_expected_message_count_range);
             cx.waker().wake_by_ref();
             return Poll::Pending;
@@ -100,7 +101,7 @@ where
         } else {
             ConnectionMonitorOutput::Healthy
         };
-        debug!(target: LOG_TARGET, "Monitor clock. Received messages = {:#?}, expected range = {:#?}", self.current_window_message_count, self.expected_message_range);
+        debug!(target: LOG_TARGET, "Monitor clock. Received messages = {:#?}, expected range = {:#?} -> Outcome = {outcome:?}.", self.current_window_message_count, self.expected_message_range);
         self.reset(new_expected_message_count_range);
         Poll::Ready(Some(outcome))
     }

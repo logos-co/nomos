@@ -158,6 +158,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
     type BlobId = [u8; 32];
     type Share = Bytes;
     type Commitments = Bytes;
+    type Tx = ();
     type ShareIndex = [u8; 2];
     type Id = PeerId;
     type NetworkId = u16;
@@ -231,6 +232,22 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
     }
 
     async fn get_address(&mut self, _id: Self::Id) -> Result<Option<Multiaddr>, Self::Error> {
+        unimplemented!()
+    }
+
+    async fn get_tx(
+        &mut self,
+        _blob_id: Self::BlobId,
+    ) -> Result<Option<(u16, Self::Tx)>, Self::Error> {
+        unimplemented!()
+    }
+
+    async fn store_tx(
+        &mut self,
+        _blob_id: Self::BlobId,
+        _assignations: u16,
+        _tx: Self::Tx,
+    ) -> Result<(), Self::Error> {
         unimplemented!()
     }
 }

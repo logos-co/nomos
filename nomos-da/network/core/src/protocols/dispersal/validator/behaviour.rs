@@ -14,7 +14,9 @@ use libp2p::{
 };
 use libp2p_stream::IncomingStreams;
 use log::debug;
+use nomos_core::mantle::{ops::channel::blob::BlobOp, Op, SignedMantleTx};
 use nomos_da_messages::{
+    common::Share,
     dispersal,
     packing::{pack_to_writer, unpack_from_reader},
 };
@@ -52,12 +54,12 @@ impl Clone for DispersalError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DispersalEvent {
-    /// Received a n
-    IncomingMessage {
-        message: Box<dispersal::DispersalRequest>,
-    },
+    /// Received a network message.
+    IncomingShare(Box<Share>),
+    /// Number of currently assigned subnetworks to the node and TX for a blob.
+    IncomingTx((u16, Box<SignedMantleTx>)),
     /// Something went wrong receiving the blob
     DispersalError { error: DispersalError },
 }
@@ -66,9 +68,21 @@ impl DispersalEvent {
     #[must_use]
     pub fn share_size(&self) -> Option<usize> {
         match self {
-            Self::IncomingMessage { message } => Some(message.share.data.column_len()),
-            Self::DispersalError { .. } => None,
+            Self::IncomingShare(share) => Some(share.data.column_len()),
+            Self::IncomingTx { .. } | Self::DispersalError { .. } => None,
         }
+    }
+}
+
+impl From<Share> for DispersalEvent {
+    fn from(share: Share) -> Self {
+        Self::IncomingShare(Box::new(share))
+    }
+}
+
+impl From<(u16, SignedMantleTx)> for DispersalEvent {
+    fn from(tx: (u16, SignedMantleTx)) -> Self {
+        Self::IncomingTx((tx.0, Box::new(tx.1)))
     }
 }
 
@@ -76,6 +90,7 @@ type DispersalTask =
     BoxFuture<'static, Result<(PeerId, dispersal::DispersalRequest, Stream), DispersalError>>;
 
 pub struct DispersalValidatorBehaviour<Membership> {
+    local_peer_id: PeerId,
     stream_behaviour: libp2p_stream::Behaviour,
     incoming_streams: IncomingStreams,
     tasks: FuturesUnordered<DispersalTask>,
@@ -83,7 +98,7 @@ pub struct DispersalValidatorBehaviour<Membership> {
 }
 
 impl<Membership: MembershipHandler> DispersalValidatorBehaviour<Membership> {
-    pub fn new(membership: Membership) -> Self {
+    pub fn new(local_peer_id: PeerId, membership: Membership) -> Self {
         let stream_behaviour = libp2p_stream::Behaviour::new();
         let mut stream_control = stream_behaviour.new_control();
         let incoming_streams = stream_control
@@ -91,10 +106,35 @@ impl<Membership: MembershipHandler> DispersalValidatorBehaviour<Membership> {
             .expect("Just a single accept to protocol is valid");
         let tasks = FuturesUnordered::new();
         Self {
+            local_peer_id,
             stream_behaviour,
             incoming_streams,
             tasks,
             membership,
+        }
+    }
+
+    fn process_dispersal_request(
+        request: &dispersal::DispersalRequest,
+    ) -> Option<dispersal::DispersalResponse> {
+        match request {
+            dispersal::DispersalRequest::Share(share_request) => {
+                let blob_id = share_request.share.blob_id;
+                Some(dispersal::DispersalResponse::BlobId(blob_id))
+            }
+            dispersal::DispersalRequest::Tx(signed_mantle_tx) => {
+                if let Some(Op::ChannelBlob(BlobOp { blob, .. })) =
+                    signed_mantle_tx.mantle_tx.ops.first()
+                {
+                    Some(dispersal::DispersalResponse::Tx(*blob))
+                } else {
+                    // Validator does not acknowledge malformed Tx at network level, but validation
+                    // happens at the service level.
+                    // If transaction is invalid in term of ledger, responsible services might
+                    // terminate the connection to this peer.
+                    None
+                }
+            }
         }
     }
 
@@ -105,23 +145,21 @@ impl<Membership: MembershipHandler> DispersalValidatorBehaviour<Membership> {
         peer_id: PeerId,
         mut stream: Stream,
     ) -> Result<(PeerId, dispersal::DispersalRequest, Stream), DispersalError> {
-        let message: dispersal::DispersalRequest = unpack_from_reader(&mut stream)
+        let request: dispersal::DispersalRequest = unpack_from_reader(&mut stream)
             .await
             .map_err(|error| DispersalError::Io { peer_id, error })?;
 
-        let blob_id = message.share.blob_id;
-        let response = dispersal::DispersalResponse::BlobId(blob_id);
+        if let Some(response) = Self::process_dispersal_request(&request) {
+            pack_to_writer(&response, &mut stream)
+                .await
+                .map_err(|error| DispersalError::Io { peer_id, error })?;
 
-        pack_to_writer(&response, &mut stream)
-            .await
-            .map_err(|error| DispersalError::Io { peer_id, error })?;
-
-        stream
-            .flush()
-            .await
-            .map_err(|error| DispersalError::Io { peer_id, error })?;
-
-        Ok((peer_id, message, stream))
+            stream
+                .flush()
+                .await
+                .map_err(|error| DispersalError::Io { peer_id, error })?;
+        }
+        Ok((peer_id, request, stream))
     }
 }
 
@@ -196,6 +234,7 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         let Self {
+            local_peer_id,
             incoming_streams,
             tasks,
             ..
@@ -204,9 +243,20 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
             Poll::Ready(Some(Ok((peer_id, message, stream)))) => {
                 tasks.push(Self::handle_new_stream(peer_id, stream).boxed());
                 cx.waker().wake_by_ref();
-                return Poll::Ready(ToSwarm::GenerateEvent(DispersalEvent::IncomingMessage {
-                    message: Box::new(message),
-                }));
+                return match message {
+                    dispersal::DispersalRequest::Share(share_request) => {
+                        Poll::Ready(ToSwarm::GenerateEvent(DispersalEvent::IncomingShare(
+                            Box::new(share_request.share),
+                        )))
+                    }
+                    dispersal::DispersalRequest::Tx(signed_mantle_tx) => {
+                        let assignations = self.membership.membership(local_peer_id).len();
+                        Poll::Ready(ToSwarm::GenerateEvent(DispersalEvent::IncomingTx((
+                            assignations as u16,
+                            Box::new(signed_mantle_tx),
+                        ))))
+                    }
+                };
             }
             Poll::Ready(Some(Err(error))) => {
                 debug!("Error on dispersal stream {error:?}");

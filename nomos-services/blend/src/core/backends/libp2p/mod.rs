@@ -15,7 +15,10 @@ use tokio_stream::wrappers::BroadcastStream;
 
 use crate::core::{
     backends::{
-        libp2p::swarm::{BlendSwarm, BlendSwarmMessage},
+        libp2p::{
+            swarm::{BlendSwarm, BlendSwarmMessage},
+            tokio_provider::ObservationWindowTokioIntervalProvider,
+        },
         BlendBackend,
     },
     settings::BlendConfig,
@@ -23,10 +26,16 @@ use crate::core::{
 
 const LOG_TARGET: &str = "blend::backend::libp2p";
 
-mod behaviour;
+pub(crate) mod behaviour;
 pub mod settings;
-pub use settings::Libp2pBlendBackendSettings;
+pub use self::settings::Libp2pBlendBackendSettings;
 mod swarm;
+pub(crate) mod tokio_provider;
+
+#[cfg(test)]
+mod tests;
+#[cfg(test)]
+pub(crate) use self::tests::utils as core_swarm_test_utils;
 
 /// A blend backend that uses the libp2p network stack.
 pub struct Libp2pBlendBackend {
@@ -53,7 +62,7 @@ where
         let (swarm_message_sender, swarm_message_receiver) = mpsc::channel(CHANNEL_SIZE);
         let (incoming_message_sender, _) = broadcast::channel(CHANNEL_SIZE);
 
-        let swarm = BlendSwarm::new(
+        let swarm = BlendSwarm::<_, _, ObservationWindowTokioIntervalProvider>::new(
             config,
             session_stream,
             rng,

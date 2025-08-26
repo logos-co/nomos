@@ -40,7 +40,7 @@ pub mod test {
         let mut validator = Swarm::new_ephemeral_tokio(|k2| {
             let p2 = PeerId::from_public_key(&k2.public());
             neighbours.add_neighbour(p2);
-            DispersalValidatorBehaviour::new(neighbours.clone())
+            DispersalValidatorBehaviour::new(p2, neighbours.clone())
         });
 
         validator.listen().with_memory_addr_external().await;
@@ -58,8 +58,8 @@ pub mod test {
             let mut res = vec![];
             loop {
                 match validator.select_next_some().await {
-                    SwarmEvent::Behaviour(DispersalEvent::IncomingMessage { message }) => {
-                        res.push(message);
+                    SwarmEvent::Behaviour(DispersalEvent::IncomingShare(share)) => {
+                        res.push(share);
                     }
                     event => {
                         info!("Validator event: {event:?}");

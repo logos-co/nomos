@@ -1,7 +1,6 @@
 use std::{collections::HashSet, io, marker::PhantomData, time::Duration};
 
 use futures::{stream, StreamExt as _};
-use kzgrs_backend::common::share::DaShare;
 use libp2p::{
     core::transport::ListenerId,
     identity::Keypair,
@@ -9,7 +8,7 @@ use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, TransportError,
 };
 use log::debug;
-use nomos_core::{block::BlockNumber, da::BlobId};
+use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId};
 use subnetworks_assignations::MembershipHandler;
 use tokio::{
     sync::mpsc::{unbounded_channel, UnboundedSender},
@@ -17,6 +16,7 @@ use tokio::{
 };
 use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
 
+use super::DispersalValidatorEvent;
 use crate::{
     addressbook::AddressBookHandler,
     behaviour::validator::{ValidatorBehaviour, ValidatorBehaviourEvent},
@@ -41,7 +41,7 @@ use crate::{
     SubnetworkId,
 };
 
-pub type SampleArgs<Membership> = (HashSet<BlobId>, BlockNumber, Membership);
+pub type SampleArgs<Membership> = (HashSet<BlobId>, BlockNumber, HeaderId, Membership);
 
 // Metrics
 const EVENT_SAMPLING: &str = "sampling";
@@ -59,14 +59,15 @@ pub struct SwarmSettings {
 
 pub struct ValidatorEventsStream {
     pub sampling_events_receiver: UnboundedReceiverStream<SamplingEvent>,
-    pub validation_events_receiver: UnboundedReceiverStream<DaShare>,
+    pub validation_events_receiver: UnboundedReceiverStream<DispersalValidatorEvent>,
 }
 
 pub struct ValidatorSwarm<Membership, HistoricMembership, Addressbook>
 where
-    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + 'static,
+    Membership:
+        MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send + Sync + 'static,
     HistoricMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + 'static,
-    Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
+    Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + Sync + 'static,
 {
     swarm: Swarm<
         ValidatorBehaviour<
@@ -77,16 +78,17 @@ where
         >,
     >,
     sampling_events_sender: UnboundedSender<SamplingEvent>,
-    validation_events_sender: UnboundedSender<DaShare>,
+    validation_events_sender: UnboundedSender<DispersalValidatorEvent>,
+    membership: Membership,
     phantom: PhantomData<HistoricMembership>,
 }
 
 impl<Membership, HistoricMembership, Addressbook>
     ValidatorSwarm<Membership, HistoricMembership, Addressbook>
 where
-    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
+    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send + Sync,
     HistoricMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
-    Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + 'static,
+    Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + Sync + 'static,
 {
     pub fn new(
         key: Keypair,
@@ -131,7 +133,7 @@ where
             Self {
                 swarm: Self::build_swarm(
                     key,
-                    membership,
+                    membership.clone(),
                     addressbook,
                     balancer,
                     monitor,
@@ -142,6 +144,7 @@ where
                 ),
                 sampling_events_sender,
                 validation_events_sender,
+                membership,
                 phantom: PhantomData,
             },
             ValidatorEventsStream {
@@ -296,7 +299,13 @@ where
             self.swarm.behaviour_mut().monitor_behaviour_mut(),
             MonitorEvent::from(&event),
         );
-        handle_replication_event(&self.validation_events_sender, event).await;
+        handle_replication_event(
+            &self.validation_events_sender,
+            &self.membership,
+            self.local_peer_id(),
+            event,
+        )
+        .await;
     }
 
     #[expect(

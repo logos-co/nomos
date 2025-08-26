@@ -2,7 +2,7 @@ use std::time::Duration;
 
 #[derive(Clone)]
 pub struct GeneralBootstrapConfig {
-    pub(crate) prolonged_bootstrap_period: Duration,
+    pub prolonged_bootstrap_period: Duration,
 }
 
 #[must_use]

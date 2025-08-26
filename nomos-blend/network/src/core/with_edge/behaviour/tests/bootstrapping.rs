@@ -9,12 +9,9 @@ use nomos_libp2p::SwarmEvent;
 use test_log::test;
 use tokio::{select, spawn, time::sleep};
 
-use crate::{
-    core::{
-        tests::utils::TestSwarm,
-        with_edge::behaviour::tests::utils::{BehaviourBuilder, StreamBehaviourExt as _},
-    },
-    PROTOCOL_NAME,
+use crate::core::{
+    tests::utils::{TestSwarm, PROTOCOL_NAME},
+    with_edge::behaviour::tests::utils::{BehaviourBuilder, StreamBehaviourExt as _},
 };
 
 #[test(tokio::test)]

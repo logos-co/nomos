@@ -287,7 +287,6 @@ pub fn create_membership_configs(ids: &[[u8; 32]], hosts: &[Host]) -> Vec<Genera
 mod cfgsync_tests {
     use std::{net::Ipv4Addr, num::NonZero, str::FromStr as _, time::Duration};
 
-    use nomos_da_dispersal::backend::kzgrs::MempoolPublishStrategy;
     use nomos_da_network_core::swarm::{
         DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
     };
@@ -327,7 +326,6 @@ mod cfgsync_tests {
                 old_blobs_check_interval: Duration::from_secs(5),
                 blobs_validity_duration: Duration::from_secs(u64::MAX),
                 global_params_path: String::new(),
-                mempool_strategy: MempoolPublishStrategy::Immediately,
                 policy_settings: DAConnectionPolicySettings::default(),
                 monitor_settings: DAConnectionMonitorSettings::default(),
                 balancer_interval: Duration::ZERO,

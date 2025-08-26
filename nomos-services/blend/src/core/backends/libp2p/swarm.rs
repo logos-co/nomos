@@ -1,21 +1,29 @@
-use core::num::NonZeroU64;
+use core::{
+    num::NonZeroU64,
+    ops::{Deref, RangeInclusive},
+};
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     time::Duration,
 };
 
 use futures::{Stream, StreamExt as _};
-use libp2p::{swarm::ConnectionId, Multiaddr, PeerId, Swarm, SwarmBuilder};
+use libp2p::{
+    swarm::{dial_opts::PeerCondition, ConnectionId},
+    Multiaddr, PeerId, Swarm, SwarmBuilder,
+};
 use nomos_blend_network::{
     core::{
-        with_core::behaviour::{Event as CoreToCoreEvent, NegotiatedPeerState},
+        with_core::behaviour::{
+            Event as CoreToCoreEvent, IntervalStreamProvider, NegotiatedPeerState,
+        },
         with_edge::behaviour::Event as CoreToEdgeEvent,
         NetworkBehaviourEvent,
     },
     EncapsulatedMessageWithValidatedPublicHeader,
 };
 use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage};
-use nomos_libp2p::SwarmEvent;
+use nomos_libp2p::{DialOpts, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
 
@@ -32,18 +40,30 @@ pub enum BlendSwarmMessage {
     Publish(EncapsulatedMessage),
 }
 
-struct DialAttempt {
+pub struct DialAttempt {
     /// Address of peer being dialed.
     address: Multiaddr,
     /// The latest (ongoing) attempt number.
     attempt_number: NonZeroU64,
 }
 
-pub(super) struct BlendSwarm<SessionStream, Rng>
+#[cfg(test)]
+impl DialAttempt {
+    pub const fn address(&self) -> &Multiaddr {
+        &self.address
+    }
+
+    pub const fn attempt_number(&self) -> NonZeroU64 {
+        self.attempt_number
+    }
+}
+
+pub struct BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
 where
-    Rng: 'static,
+    ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
+        + 'static,
 {
-    swarm: Swarm<BlendBehaviour>,
+    swarm: Swarm<BlendBehaviour<ObservationWindowProvider>>,
     swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
     incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithValidatedPublicHeader>,
     session_stream: SessionStream,
@@ -53,9 +73,13 @@ where
     ongoing_dials: HashMap<PeerId, DialAttempt>,
 }
 
-impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng>
+impl<SessionStream, Rng, ObservationWindowProvider>
+    BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
 where
     Rng: RngCore,
+    ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
+        + for<'c> From<&'c BlendConfig<Libp2pBlendBackendSettings, PeerId>>
+        + 'static,
 {
     pub(super) fn new(
         config: BlendConfig<Libp2pBlendBackendSettings, PeerId>,
@@ -102,7 +126,15 @@ where
 
         self_instance
     }
+}
 
+impl<SessionStream, Rng, ObservationWindowProvider>
+    BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
+where
+    Rng: RngCore,
+    ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
+        + 'static,
+{
     /// Dial random peers from the membership list,
     /// excluding the currently connected peers, the peers that we are already
     /// trying to dial, and the blocked peers.
@@ -134,6 +166,7 @@ where
     /// dials. Any checks about the maximum allowed dials must be performed in
     /// the context of the calling function.
     fn dial(&mut self, peer_id: PeerId, address: Multiaddr) {
+        tracing::trace!(target: LOG_TARGET, "Dialing peer {peer_id:?} at address {address:?}.");
         // Set to `1` if first dial or bump to the next value if a retry.
         match self.ongoing_dials.entry(peer_id) {
             Entry::Vacant(empty_entry) => {
@@ -149,10 +182,27 @@ where
             }
         }
 
-        if let Err(e) = self.swarm.dial(address) {
+        if let Err(e) = self.swarm.dial(
+            DialOpts::peer_id(peer_id)
+                .addresses(vec![address])
+                // We use `Always` since we want to be able to dial a peer even if we already have
+                // an established connection with it that belongs to the previous session.
+                .condition(PeerCondition::Always)
+                .build(),
+        ) {
             tracing::error!(target: LOG_TARGET, "Failed to dial peer {peer_id:?}: {e:?}");
             self.retry_dial(peer_id);
         }
+    }
+
+    #[cfg(test)]
+    pub fn dial_peer_at_addr(&mut self, peer_id: PeerId, address: Multiaddr) {
+        self.dial(peer_id, address);
+    }
+
+    #[cfg(test)]
+    pub const fn ongoing_dials(&self) -> &HashMap<PeerId, DialAttempt> {
+        &self.ongoing_dials
     }
 
     /// Attempt to retry dialing the specified peer, if the maximum attempts
@@ -170,6 +220,7 @@ where
             self.dial(peer_id, address.clone());
             return None;
         }
+        tracing::trace!(target: LOG_TARGET, "Maximum attempts ({}) reached for peer {peer_id:?}. Re-dialing stopped.", self.max_dial_attempts_per_connection);
         self.ongoing_dials.remove(&peer_id)
     }
 
@@ -200,7 +251,7 @@ where
         self.check_and_dial_new_peers_except(Some(peer_id));
     }
 
-    fn handle_event(&mut self, event: SwarmEvent<BlendBehaviourEvent>) {
+    fn handle_event(&mut self, event: SwarmEvent<BlendBehaviourEvent<ObservationWindowProvider>>) {
         match event {
             SwarmEvent::Behaviour(BlendBehaviourEvent::Blend(NetworkBehaviourEvent::WithCore(
                 e,
@@ -270,9 +321,42 @@ where
             }
         }
     }
+
+    #[cfg(test)]
+    pub fn new_test<BehaviourConstructor>(
+        behaviour_constructor: BehaviourConstructor,
+        swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
+        incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithValidatedPublicHeader>,
+        session_stream: SessionStream,
+        latest_session_info: Membership<PeerId>,
+        rng: Rng,
+        max_dial_attempts_per_connection: NonZeroU64,
+    ) -> Self
+    where
+        BehaviourConstructor:
+            FnOnce(libp2p::identity::Keypair) -> BlendBehaviour<ObservationWindowProvider>,
+    {
+        use crate::test_utils::memory_test_swarm;
+
+        Self {
+            incoming_message_sender,
+            latest_session_info,
+            max_dial_attempts_per_connection,
+            ongoing_dials: HashMap::new(),
+            rng,
+            session_stream,
+            swarm: memory_test_swarm(Duration::from_secs(1), behaviour_constructor),
+            swarm_messages_receiver,
+        }
+    }
 }
 
-impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
+impl<SessionStream, Rng, ObservationWindowProvider>
+    BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
+where
+    ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
+        + 'static,
+{
     fn handle_swarm_message(&mut self, msg: BlendSwarmMessage) {
         match msg {
             BlendSwarmMessage::Publish(msg) => {
@@ -307,7 +391,7 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
             .with_core_mut()
             .publish_validated_message(msg)
         {
-            tracing::error!(target: LOG_TARGET, "Failed to forward message to blend network: {e:?}");
+            tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
             tracing::info!(counter.failed_outbound_messages = 1);
         } else {
             tracing::info!(counter.successful_outbound_messages = 1);
@@ -384,25 +468,91 @@ impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng> {
     }
 }
 
-impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng>
+impl<SessionStream, Rng, ObservationWindowProvider>
+    BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
 where
     Rng: RngCore,
     SessionStream: Stream<Item = Membership<PeerId>> + Unpin,
+    ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
+        + 'static,
 {
-    pub(super) async fn run(mut self) {
+    pub(crate) async fn run(mut self) {
         loop {
-            tokio::select! {
-                Some(msg) = self.swarm_messages_receiver.recv() => {
-                    self.handle_swarm_message(msg);
-                }
-                Some(event) = self.swarm.next() => {
-                    self.handle_event(event);
-                }
-                Some(new_session_info) = self.session_stream.next() => {
-                    self.latest_session_info = new_session_info;
-                    // TODO: Perform the session transition logic
-                }
+            self.poll_next_internal().await;
+        }
+    }
+
+    async fn poll_next_internal(&mut self) {
+        self.poll_next_and_match(|_| false).await;
+    }
+
+    async fn poll_next_and_match<Predicate>(
+        &mut self,
+        swarm_event_match_predicate: Predicate,
+    ) -> bool
+    where
+        Predicate: Fn(&SwarmEvent<BlendBehaviourEvent<ObservationWindowProvider>>) -> bool,
+    {
+        tokio::select! {
+            Some(msg) = self.swarm_messages_receiver.recv() => {
+                self.handle_swarm_message(msg);
+                false
+            }
+            Some(event) = self.swarm.next() => {
+                let predicate_matched = swarm_event_match_predicate(&event);
+                self.handle_event(event);
+                predicate_matched
+            }
+            Some(new_session_info) = self.session_stream.next() => {
+                self.latest_session_info = new_session_info;
+                // TODO: Perform the session transition logic
+                false
             }
         }
+    }
+
+    #[cfg(test)]
+    pub async fn poll_next(&mut self) {
+        self.poll_next_internal().await;
+    }
+
+    #[cfg(test)]
+    pub async fn poll_next_until<Predicate>(&mut self, swarm_event_match_predicate: Predicate)
+    where
+        Predicate: Fn(&SwarmEvent<BlendBehaviourEvent<ObservationWindowProvider>>) -> bool + Copy,
+    {
+        loop {
+            if self.poll_next_and_match(swarm_event_match_predicate).await {
+                break;
+            }
+        }
+    }
+}
+
+// We implement `Deref` so we are able to call swarm methods on our own swarm.
+impl<SessionStream, Rng, ObservationWindowProvider> Deref
+    for BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
+where
+    ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
+        + 'static,
+{
+    type Target = Swarm<BlendBehaviour<ObservationWindowProvider>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.swarm
+    }
+}
+
+#[cfg(test)]
+// We implement `DerefMut` only for tests, since we do not want to give people a
+// chance to bypass our API.
+impl<SessionStream, Rng, ObservationWindowProvider> core::ops::DerefMut
+    for BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
+where
+    ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
+        + 'static,
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.swarm
     }
 }

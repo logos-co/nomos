@@ -12,7 +12,7 @@ use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
 use crate::core::{
-    tests::utils::TestSwarm,
+    tests::utils::{TestSwarm, PROTOCOL_NAME},
     with_core::behaviour::{Behaviour, Event, IntervalStreamProvider},
 };
 
@@ -101,6 +101,7 @@ impl BehaviourBuilder {
             current_membership: None,
             peering_degree: self.peering_degree.unwrap_or(1..=1),
             local_peer_id,
+            protocol_name: PROTOCOL_NAME,
             old_session: None,
         }
     }

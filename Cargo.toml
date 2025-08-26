@@ -5,6 +5,7 @@ members = [
   "consensus/cryptarchia-engine",
   "consensus/cryptarchia-sync",
   "ledger/nomos-ledger",
+  "mmr",
   "nodes/api-common",
   "nodes/nomos-executor/executor",
   "nodes/nomos-executor/http-client",
@@ -48,8 +49,10 @@ members = [
   "zk/circuits/prover",
   "zk/circuits/utils",
   "zk/circuits/verifier",
+  "zk/circuits/witness_generators/core",
+  "zk/circuits/witness_generators/pol",
   "zk/groth16",
-  "zk/mantle-proofs/pol",
+  "zk/poseidon2",
 ]
 resolver = "2"
 
@@ -58,7 +61,6 @@ resolver = "2"
 bundler                  = { path = "./nomos-bundler" }
 cfgsync                  = { path = "./testnet/cfgsync" }
 chain-service            = { path = "./nomos-services/chain-service" }
-circuits-pol             = { path = "zk/mantle-proofs/pol" }
 circuits-prover          = { path = "zk/circuits/prover" }
 circuits-utils           = { path = "zk/circuits/utils" }
 circuits-verifier        = { path = "zk/circuits/verifier" }
@@ -69,6 +71,7 @@ executor-http-client     = { path = "./nodes/nomos-executor/http-client" }
 key-management-system    = { path = "./nomos-services/key-management-system" }
 kzgrs                    = { path = "./nomos-da/kzgrs" }
 kzgrs-backend            = { path = "./nomos-da/kzgrs-backend" }
+mmr                      = { path = "./mmr" }
 nomos-api                = { path = "./nomos-services/api" }
 nomos-blend-message      = { path = "./nomos-blend/message" }
 nomos-blend-network      = { path = "./nomos-blend/network" }
@@ -100,10 +103,12 @@ nomos-tracing            = { path = "./nomos-tracing" }
 nomos-tracing-service    = { path = "./nomos-services/tracing" }
 nomos-utils              = { path = "./nomos-utils" }
 nomos_proof_statements   = { path = "./nomos-core/proof_statements" }
+pol-witness-generator    = { path = "zk/circuits/witness_generators/pol" }
 services-utils           = { path = "./nomos-services/utils" }
 subnetworks-assignations = { path = "./nomos-da/network/subnetworks-assignations" }
 tests                    = { path = "./tests" }
 utxotree                 = { path = "./utxotree" }
+witness-generator-core   = { path = "./zk/circuits/witness_generators/core" }
 
 # External
 blake2            = "0.10"

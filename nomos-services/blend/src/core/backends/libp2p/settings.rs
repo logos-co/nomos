@@ -2,7 +2,7 @@ use core::time::Duration;
 use std::{num::NonZeroU64, ops::RangeInclusive};
 
 use libp2p::{identity::Keypair, Multiaddr, PeerId};
-use nomos_libp2p::ed25519;
+use nomos_libp2p::{ed25519, protocol_name::StreamProtocol};
 use nomos_utils::math::NonNegativeF64;
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +25,7 @@ pub struct Libp2pBlendBackendSettings {
     pub edge_node_connection_timeout: Duration,
     pub max_edge_node_incoming_connections: u64,
     pub max_dial_attempts_per_peer: NonZeroU64,
+    pub protocol_name: StreamProtocol,
 }
 
 impl Libp2pBlendBackendSettings {

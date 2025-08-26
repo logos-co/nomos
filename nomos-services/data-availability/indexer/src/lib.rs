@@ -53,9 +53,6 @@ pub struct DataIndexerService<
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
-    DaVerifierBackend,
-    DaVerifierNetwork,
-    DaVerifierStorage,
     TimeBackend,
     RuntimeServiceId,
 > where
@@ -88,11 +85,6 @@ pub struct DataIndexerService<
     SamplingBackend::BlobId: Debug + 'static,
     SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
-    DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send + 'static,
-    DaVerifierBackend::Settings: Clone,
-    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
-    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
-    DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
 {
@@ -139,9 +131,6 @@ impl<
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
         TimeBackend,
         RuntimeServiceId,
     > ServiceData
@@ -161,9 +150,6 @@ impl<
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
         TimeBackend,
         RuntimeServiceId,
     >
@@ -197,11 +183,6 @@ where
     SamplingBackend::BlobId: Debug + 'static,
     SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
-    DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send,
-    DaVerifierBackend::Settings: Clone,
-    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
-    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
-    DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
 {
@@ -227,9 +208,6 @@ impl<
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
         TimeBackend,
         RuntimeServiceId,
     >
@@ -249,9 +227,6 @@ impl<
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
         TimeBackend,
         RuntimeServiceId,
     >
@@ -287,11 +262,6 @@ where
     SamplingBackend::BlobId: Debug + 'static,
     SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
-    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
-    DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send,
-    DaVerifierBackend::Settings: Clone,
-    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
-    DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
 {
@@ -350,9 +320,6 @@ impl<
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
         TimeBackend,
         RuntimeServiceId,
     > ServiceCore<RuntimeServiceId>
@@ -372,9 +339,6 @@ impl<
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
         TimeBackend,
         RuntimeServiceId,
     >
@@ -435,11 +399,6 @@ where
     SamplingBackend::BlobId: Debug + 'static,
     SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
-    DaVerifierStorage: nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId>,
-    DaVerifierBackend: nomos_da_verifier::backend::VerifierBackend + Send,
-    DaVerifierBackend::Settings: Clone,
-    DaVerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
-    DaVerifierNetwork::Settings: Clone,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     RuntimeServiceId: Debug
@@ -461,9 +420,6 @@ where
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
-                DaVerifierBackend,
-                DaVerifierNetwork,
-                DaVerifierStorage,
                 TimeBackend,
                 RuntimeServiceId,
             >,
@@ -486,7 +442,7 @@ where
 
         let consensus_relay = service_resources_handle
             .overwatch_handle
-            .relay::<CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _>>()
+            .relay::<CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _, _, _, _, _>>()
             .await
             .expect("Relay connection with ConsensusService should succeed");
         let storage_relay = service_resources_handle
@@ -509,7 +465,7 @@ where
             &service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
             StorageService<_, _>,
-            CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _>
+            CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _, _, _, _, _>
         )
         .await?;
 

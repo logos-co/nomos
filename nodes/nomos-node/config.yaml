@@ -25,6 +25,7 @@ blend:
       start: 4
       end: 8
     max_dial_attempts_per_peer: 3      
+    protocol_name: /nomos/blend/1.0.0
   crypto:
     signing_private_key: 32e4b52b78e0e8273f31e2ae0826d09b0348d4c66824af4f51ec4ef338082211
     num_blend_layers: 1
@@ -74,9 +75,6 @@ da_network:
       num_of_subnets: 20
       shares_retry_limit: 5
       commitments_retry_limit: 5
-    refresh_interval:
-      secs: 30
-      nanos: 0
   membership:
     replication_factor: 2
     subnetwork_size: 2
@@ -86,21 +84,37 @@ da_network:
   api_adapter_settings:
     api_port: 8722
     is_secure: false
+  subnet_refresh_interval:
+    secs: 30
+    nanos: 0
 da_indexer:
   storage:
     blob_storage_directory: ./
 da_verifier:
-  verifier_settings:
+  share_verifier_settings:
     sk: 67cee9fdc9c5160671b40da60b17153558496a12fb57804c1e64ef51f5a29dca
     index:
       - 1
       - 0
     global_params_path: ./tests/kzgrs/kzgrs_test_params
     domain_size: 2
+  tx_verifier_settings: null
   network_adapter_settings: null
   storage_adapter_settings:
     blob_storage_directory: ./
+  mempool_trigger_settings:
+    publish_threshold: 0.8
+    share_duration: [5, 0]
+    prune_duration: [30, 0]
+    prune_interval: [5, 0]
 da_sampling:
+  share_verifier_settings:
+    sk: 67cee9fdc9c5160671b40da60b17153558496a12fb57804c1e64ef51f5a29dca
+    index:
+      - 1
+      - 0
+    global_params_path: ./tests/kzgrs/kzgrs_test_params
+    domain_size: 2
   sampling_settings:
     num_samples: 1
     num_subnets: 2
@@ -310,6 +324,9 @@ storage:
 mempool:
   cl_pool_recovery_path: ./recovery/cl_mempool.json
   da_pool_recovery_path: ./recovery/da_mempool.json
+  trigger_sampling_delay:
+    secs: 5
+    nanos: 0
 membership:
   backend:
     settings_per_service: {}

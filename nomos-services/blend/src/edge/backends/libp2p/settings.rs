@@ -1,7 +1,7 @@
 use core::num::NonZeroU64;
 
 use libp2p::identity::Keypair;
-use nomos_libp2p::ed25519;
+use nomos_libp2p::{ed25519, protocol_name::StreamProtocol};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -14,6 +14,7 @@ pub struct Libp2pBlendBackendSettings {
     )]
     pub node_key: ed25519::SecretKey,
     pub max_dial_attempts_per_peer_per_message: NonZeroU64,
+    pub protocol_name: StreamProtocol,
 }
 
 impl Libp2pBlendBackendSettings {

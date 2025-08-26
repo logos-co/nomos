@@ -9,14 +9,15 @@ use std::{
     fmt::{self, Debug, Display},
     marker::PhantomData,
     pin::Pin,
+    time::Duration,
 };
 
 use async_trait::async_trait;
 use backends::NetworkBackend;
-use futures::Stream;
+use futures::{stream::select, Stream};
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p::{Multiaddr, PeerId};
-use nomos_core::{block::BlockNumber, da::BlobId};
+use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::{addressbook::AddressBookHandler as _, SubnetworkId};
 use overwatch::{
     services::{
@@ -26,10 +27,17 @@ use overwatch::{
     OpaqueServiceResourcesHandle,
 };
 use serde::{Deserialize, Serialize};
+use services_utils::wait_until_services_are_ready;
 use storage::{MembershipStorage, MembershipStorageAdapter};
 use subnetworks_assignations::{MembershipCreator, MembershipHandler, SubnetworkAssignations};
-use tokio::sync::oneshot;
-use tokio_stream::StreamExt as _;
+use tokio::sync::{
+    mpsc::{self, Sender},
+    oneshot,
+};
+use tokio_stream::{
+    wrappers::{IntervalStream, ReceiverStream},
+    StreamExt as _,
+};
 
 use crate::{
     addressbook::{AddressBook, AddressBookSnapshot},
@@ -64,6 +72,7 @@ where
     },
     RequestHistoricSample {
         block_number: BlockNumber,
+        block_id: HeaderId,
         blob_ids: HashSet<BlobId>,
     },
 }
@@ -94,10 +103,11 @@ where
             Self::RequestHistoricSample {
                 block_number,
                 blob_ids,
+                block_id,
             } => {
                 write!(
                     fmt,
-                    "DaNetworkMsg::RequestHistoricSample{{ block_number: {block_number}, blob_ids: {blob_ids:?} }}"
+                    "DaNetworkMsg::RequestHistoricSample{{ block_number: {block_number}, blob_ids: {blob_ids:?}, block_id: {block_id} }}"
                 )
             }
         }
@@ -114,6 +124,7 @@ pub struct NetworkConfig<
     pub backend: Backend::Settings,
     pub membership: Membership,
     pub api_adapter_settings: ApiAdapterSettings,
+    pub subnet_refresh_interval: Duration,
 }
 
 impl<
@@ -148,6 +159,7 @@ pub struct NetworkService<
     addressbook: DaAddressbook,
     api_adapter: ApiAdapter,
     phantom: PhantomData<MembershipServiceAdapter>,
+    subnet_refresh_sender: Sender<()>,
 }
 
 pub struct NetworkState<
@@ -254,7 +266,8 @@ where
         + Sync
         + Debug
         + AsServiceId<MembershipServiceAdapter::MembershipService>
-        + AsServiceId<StorageAdapter::StorageService>,
+        + AsServiceId<StorageAdapter::StorageService>
+        + 'static,
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
@@ -274,18 +287,28 @@ where
             addressbook.clone(),
         );
 
+        // Sampling subnetwork peers need to be updatedd periodically.
+        // They also need to be updated when the assignations change.
+        let (subnet_refresh_sender, refresh_rx) = mpsc::channel(1);
+        let interval = tokio::time::interval(settings.subnet_refresh_interval);
+        let refresh_ticker = IntervalStream::new(interval).map(|_| ());
+        let refresh_signal = ReceiverStream::new(refresh_rx);
+        let subnet_refresh_signal = select(refresh_ticker, refresh_signal);
+
         Ok(Self {
             backend: <Backend as NetworkBackend<RuntimeServiceId>>::new(
                 settings.backend,
                 service_resources_handle.overwatch_handle.clone(),
                 membership.clone(),
                 addressbook.clone(),
+                subnet_refresh_signal,
             ),
             service_resources_handle,
             membership,
             addressbook,
             api_adapter,
             phantom: PhantomData,
+            subnet_refresh_sender,
         })
     }
 
@@ -302,6 +325,7 @@ where
             ref membership,
             ref api_adapter,
             ref addressbook,
+            ref subnet_refresh_sender,
             ..
         } = self;
 
@@ -318,6 +342,13 @@ where
             MembershipStorage::new(storage_adapter, membership.clone(), addressbook.clone());
 
         let membership_service_adapter = MembershipServiceAdapter::new(membership_service_relay);
+
+        wait_until_services_are_ready!(
+            &self.service_resources_handle.overwatch_handle,
+            Some(Duration::from_secs(60)),
+            <MembershipServiceAdapter as MembershipAdapter>::MembershipService
+        )
+        .await?;
 
         let mut stream = membership_service_adapter.subscribe().await.map_err(|e| {
             tracing::error!("Failed to subscribe to membership service: {e}");
@@ -341,6 +372,7 @@ where
                         block_number, providers
                     );
                     Self::handle_membership_update(block_number, providers, &membership_storage).await;
+                    let _ = subnet_refresh_sender.send(()).await;
                 }
             }
         }
@@ -480,11 +512,13 @@ where
             DaNetworkMsg::RequestHistoricSample {
                 block_number,
                 blob_ids,
+                block_id,
             } => {
                 Self::handle_historic_sample_request(
                     backend,
                     membership_storage,
                     block_number,
+                    block_id,
                     blob_ids,
                 )
                 .await;
@@ -508,6 +542,7 @@ where
         backend: &Backend,
         membership_storage: &MembershipStorage<StorageAdapter, Membership, AddressBook>,
         block_number: u64,
+        block_id: HeaderId,
         blob_ids: HashSet<[u8; 32]>,
     ) {
         let membership = membership_storage
@@ -519,7 +554,8 @@ where
             });
 
         if let Some(membership) = membership {
-            let send = backend.start_historic_sampling(block_number, blob_ids, membership);
+            let send =
+                backend.start_historic_sampling(block_number, block_id, blob_ids, membership);
             send.await;
         } else {
             tracing::error!("No membership found for block number {block_number}");
@@ -542,6 +578,7 @@ where
             backend: self.backend.clone(),
             membership: self.membership.clone(),
             api_adapter_settings: self.api_adapter_settings.clone(),
+            subnet_refresh_interval: self.subnet_refresh_interval,
         }
     }
 }

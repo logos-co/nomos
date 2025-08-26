@@ -12,12 +12,9 @@ use libp2p::{
     StreamProtocol,
 };
 
-use crate::{
-    core::with_edge::behaviour::handler::{
-        dropped::DroppedState, ready_to_receive::ReadyToReceiveState, receiving::ReceivingState,
-        starting::StartingState,
-    },
-    PROTOCOL_NAME,
+use crate::core::with_edge::behaviour::handler::{
+    dropped::DroppedState, ready_to_receive::ReadyToReceiveState, receiving::ReceivingState,
+    starting::StartingState,
 };
 
 mod dropped;
@@ -105,13 +102,15 @@ trait StateTrait: Into<ConnectionState> {
 
 pub struct ConnectionHandler {
     state: Option<ConnectionState>,
+    protocol_name: StreamProtocol,
 }
 
 impl ConnectionHandler {
-    pub fn new(connection_timeout: Duration) -> Self {
+    pub fn new(connection_timeout: Duration, protocol_name: StreamProtocol) -> Self {
         tracing::trace!(target: LOG_TARGET, "Initializing core->edge connection handler with timeout duration {connection_timeout:?}.");
         Self {
             state: Some(StartingState::new(connection_timeout).into()),
+            protocol_name,
         }
     }
 }
@@ -147,7 +146,7 @@ impl libp2p::swarm::ConnectionHandler for ConnectionHandler {
 
     #[expect(deprecated, reason = "Self::InboundOpenInfo is deprecated")]
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, Self::InboundOpenInfo> {
-        SubstreamProtocol::new(ReadyUpgrade::new(PROTOCOL_NAME), ())
+        SubstreamProtocol::new(ReadyUpgrade::new(self.protocol_name.clone()), ())
     }
 
     fn on_behaviour_event(&mut self, event: Self::FromBehaviour) {

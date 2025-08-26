@@ -1,27 +1,43 @@
-use nomos_core::da::BlobId;
+use nomos_core::{
+    da::BlobId,
+    mantle::{SignedMantleTx, Transaction as _},
+};
 use serde::{Deserialize, Serialize};
 
-use crate::{common::Share, SubnetworkId};
+use crate::{
+    common::{Share, ShareRequest},
+    SubnetworkId,
+};
 
 #[repr(C)]
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ReplicationRequest {
-    pub share: Share,
-    pub subnetwork_id: SubnetworkId,
+pub enum ReplicationRequest {
+    Share(ShareRequest),
+    Tx(SignedMantleTx),
 }
 
 impl ReplicationRequest {
     #[must_use]
-    pub const fn new(share: Share, subnetwork_id: SubnetworkId) -> Self {
-        Self {
-            share,
-            subnetwork_id,
+    pub fn id(&self) -> ReplicationResponseId {
+        match self {
+            Self::Share(share) => (share.share.blob_id, share.subnetwork_id).into(),
+            Self::Tx(tx) => tx.into(),
         }
     }
+}
 
-    #[must_use]
-    pub fn id(&self) -> ReplicationResponseId {
-        (self.share.blob_id, self.subnetwork_id).into()
+impl From<SignedMantleTx> for ReplicationRequest {
+    fn from(tx: SignedMantleTx) -> Self {
+        Self::Tx(tx)
+    }
+}
+
+impl From<Share> for ReplicationRequest {
+    fn from(share: Share) -> Self {
+        Self::Share(ShareRequest {
+            subnetwork_id: share.data.share_idx,
+            share,
+        })
     }
 }
 
@@ -33,6 +49,14 @@ impl From<(BlobId, SubnetworkId)> for ReplicationResponseId {
         let mut id = [0; 34];
         id[..32].copy_from_slice(&blob_id);
         id[32..].copy_from_slice(&subnetwork_id.to_be_bytes());
+        Self(id)
+    }
+}
+
+impl From<&SignedMantleTx> for ReplicationResponseId {
+    fn from(tx: &SignedMantleTx) -> Self {
+        let mut id = [0; 34];
+        id[..32].copy_from_slice(&tx.hash().0);
         Self(id)
     }
 }
