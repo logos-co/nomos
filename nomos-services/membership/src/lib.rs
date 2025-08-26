@@ -238,7 +238,7 @@ where
                 }
 
                 let snapshot = snapshot.unwrap();
-                
+
                 // The list of all providers for each updated service type is sent to
                 // appropriate subscribers per service type
                 for (service_type, snapshot) in snapshot {
