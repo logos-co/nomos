@@ -238,6 +238,7 @@ pub fn create_membership_configs(ids: &[[u8; 32]], hosts: &[Host]) -> Vec<Genera
     }
 
     let mut initial_locators_mapping = HashMap::new();
+    initial_locators_mapping.insert(ServiceType::DataAvailability, HashMap::new());
     let mut membership_entry = HashMap::new();
     let mut providers = HashSet::new();
 
@@ -252,7 +253,10 @@ pub fn create_membership_configs(ids: &[[u8; 32]], hosts: &[Host]) -> Vec<Genera
         if let Some(locator) = locators.get(&provider_id) {
             locs.insert(locator.clone());
         }
-        initial_locators_mapping.insert(provider_id, locs);
+        initial_locators_mapping
+            .get_mut(&ServiceType::DataAvailability)
+            .unwrap()
+            .insert(provider_id, locs);
     }
 
     let mock_backend_settings = MockMembershipBackendSettings {

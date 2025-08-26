@@ -43,6 +43,8 @@ async fn update_membership_and_dissiminate() {
             .service_settings
             .backend
             .session_zero_locators_mapping
+            .get(&nomos_core::sdp::ServiceType::DataAvailability)
+            .expect("Expected data availability service type")
             .get(provider)
             .expect("Expected locators for provider")
             .clone();
