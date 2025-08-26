@@ -13,19 +13,13 @@ use super::Error;
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum SdpLedgerError {
     #[error("Invalid Sdp state transition: {0:?}")]
-    SdpStateError(DeclarationStateError),
+    SdpStateError(#[from] DeclarationStateError),
     #[error("Sdp declaration id not found: {0:?}")]
     SdpDeclarationNotFound(DeclarationId),
     #[error("Invalid sdp message nonce: {0:?}")]
     SdpInvalidNonce(Nonce),
     #[error("Duplicate sdp declaration id: {0:?}")]
     SdpDuplicateDeclaration(DeclarationId),
-}
-
-impl From<DeclarationStateError> for SdpLedgerError {
-    fn from(err: DeclarationStateError) -> Self {
-        Self::SdpStateError(err)
-    }
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

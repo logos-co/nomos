@@ -31,13 +31,7 @@ pub enum Error {
     #[error("Invalid signature")]
     InvalidSignature,
     #[error("Sdp ledger error: {0:?}")]
-    Sdp(SdpLedgerError),
-}
-
-impl From<SdpLedgerError> for Error {
-    fn from(err: SdpLedgerError) -> Self {
-        Self::Sdp(err)
-    }
+    Sdp(#[from] SdpLedgerError),
 }
 
 impl From<DeclarationStateError> for Error {
