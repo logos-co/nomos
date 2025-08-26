@@ -73,7 +73,7 @@ where
             .get_updated_settings();
         let membership = settings.membership();
         let current_membership = Some(membership.clone());
-        let minimum_membership_size = settings.minimum_membership_size;
+        let minimum_network_size = settings.minimum_network_size;
 
         // TODO: Add logic to try process new sessions. I.e:
         // * If the old session membership was too small and the new one is large
@@ -89,7 +89,7 @@ where
         // session is too small. Yet, the service itself must be resilient in case of
         // bugs where the proxy service does not do that, hence the need for this
         // additional logic.
-        if membership.size() < minimum_membership_size.get() as usize {
+        if membership.size() < minimum_network_size.get() as usize {
             tracing::warn!(target: LOG_TARGET, "Blend network size is smaller than the required minimum. Not starting swarm, hence no messages will be blended in this session.");
             // We still mark the service as ready, albeit other services won't be able to
             // interact with this service by sending messages to it, and it indeed should

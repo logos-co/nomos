@@ -26,7 +26,7 @@ impl BlendConfig {
             crypto: self.0.crypto.clone(),
             time: self.0.time.clone(),
             membership: self.0.membership.clone(),
-            minimum_membership_size: self.0.minimum_membership_size,
+            minimum_network_size: self.0.minimum_network_size,
         }
     }
 
@@ -47,7 +47,7 @@ impl From<BlendConfig>
         (
             NetworkSettings {
                 membership: config.0.membership.clone(),
-                minimal_network_size: config.0.minimum_membership_size,
+                minimal_network_size: config.0.minimum_network_size,
             },
             config.0,
             edge,

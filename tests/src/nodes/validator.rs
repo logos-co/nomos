@@ -380,7 +380,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 },
             },
             membership: config.blend_config.membership,
-            minimum_membership_size: 1
+            minimum_network_size: 1
                 .try_into()
                 .expect("Minimum Blend network size cannot be zero."),
         }),
