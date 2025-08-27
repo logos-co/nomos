@@ -1,4 +1,5 @@
 use groth16::{serde::serde_fr, Fr};
+use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -50,9 +51,21 @@ impl From<Fr> for SecretKey {
     }
 }
 
+impl From<BigUint> for SecretKey {
+    fn from(value: BigUint) -> Self {
+        Self(value.into())
+    }
+}
+
 impl From<Fr> for PublicKey {
     fn from(key: Fr) -> Self {
         Self::new(key)
+    }
+}
+
+impl From<BigUint> for PublicKey {
+    fn from(value: BigUint) -> Self {
+        Self(value.into())
     }
 }
 

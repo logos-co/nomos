@@ -108,6 +108,8 @@ mod tests {
     use std::num::NonZero;
 
     use cryptarchia_engine::State::Bootstrapping;
+    use groth16::Fr;
+    use num_bigint::BigUint;
 
     use super::*;
 
@@ -191,7 +193,7 @@ mod tests {
         );
 
         // Empty leader utxos.
-        let leader = Leader::new(vec![], [0; 16].into(), ledger_config);
+        let leader = Leader::new(vec![], Fr::from(BigUint::from(1u8)).into(), ledger_config);
 
         // Build [`CryptarchiaConsensusState`] with the pruned blocks.
         let pruned_stale_blocks = pruned_blocks

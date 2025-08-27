@@ -1,7 +1,10 @@
+use groth16::{serde::serde_fr, Fr};
 use serde::{Deserialize, Serialize};
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ZkSignaturePublic {
-    pub msg_hash: [u8; 32],
-    pub pks: Vec<[u8; 32]>,
+    #[serde(with = "serde_fr")]
+    pub msg_hash: Fr,
+    // TODO: implement serde for this
+    #[serde(skip)]
+    pub pks: Vec<Fr>,
 }

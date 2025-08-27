@@ -1,6 +1,7 @@
 use std::sync::LazyLock;
 
 use blake2::digest::{Update as _, VariableOutput as _};
+use bytes::Bytes;
 use groth16::{serde::serde_fr, Fr};
 use num_bigint::BigUint;
 use poseidon2::{Digest, Poseidon2Bn254Hasher};
@@ -20,6 +21,11 @@ impl NoteId {
     #[must_use]
     pub const fn as_fr(&self) -> &Fr {
         &self.0
+    }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> Bytes {
+        self.0 .0 .0.iter().flat_map(|b| b.to_le_bytes()).collect()
     }
 }
 

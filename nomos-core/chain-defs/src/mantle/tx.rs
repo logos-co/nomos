@@ -4,6 +4,7 @@ use blake2::{
     digest::{Update as _, VariableOutput as _},
     Blake2bVar,
 };
+use bytes::Bytes;
 use groth16::{serde::serde_fr, Fr};
 use num_bigint::BigUint;
 use poseidon2::{Digest, Poseidon2Bn254Hasher};
@@ -31,6 +32,12 @@ impl From<Fr> for TxHash {
     }
 }
 
+impl From<BigUint> for TxHash {
+    fn from(value: BigUint) -> Self {
+        Self(value.into())
+    }
+}
+
 impl From<TxHash> for Fr {
     fn from(hash: TxHash) -> Self {
         hash.0
@@ -48,6 +55,11 @@ impl TxHash {
     #[cfg(test)]
     pub fn random(mut rng: impl rand::RngCore) -> Self {
         Self(BigUint::from(rng.next_u64()).into())
+    }
+
+    #[must_use]
+    pub fn as_signing_bytes(&self) -> Bytes {
+        self.0 .0 .0.iter().flat_map(|b| b.to_le_bytes()).collect()
     }
 }
 
