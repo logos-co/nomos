@@ -102,6 +102,7 @@ impl BehaviourBuilder {
             peering_degree: self.peering_degree.unwrap_or(1..=1),
             local_peer_id,
             protocol_name: PROTOCOL_NAME,
+            minimal_network_size: 1usize.try_into().unwrap(),
             old_session: None,
         }
     }

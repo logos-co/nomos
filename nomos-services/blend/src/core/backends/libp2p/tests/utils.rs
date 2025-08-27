@@ -138,10 +138,12 @@ impl BlendBehaviourBuilder {
                 &Config {
                     with_core: CoreToCoreConfig {
                         peering_degree: 1..=100,
+                        minimum_network_size: 1.try_into().unwrap(),
                     },
                     with_edge: CoreToEdgeConfig {
                         connection_timeout: Duration::from_secs(1),
                         max_incoming_connections: 300,
+                        minimum_network_size: 1.try_into().unwrap(),
                     },
                 },
                 TestObservationWindowProvider {

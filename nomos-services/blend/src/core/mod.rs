@@ -168,6 +168,7 @@ where
 
         loop {
             tokio::select! {
+                // Core blend service is supposed to be used only through the proxy service. As an additional protection, if it is used directly with a network that is too small, the service will simply not accept any incoming messages to be blended.
                 Some(local_data_message) = inbound_relay.next(), if membership_size >= minimum_network_size.get() as usize => {
                     handle_local_data_message(local_data_message, &mut cryptographic_processor, backend, &mut message_scheduler).await;
                 }

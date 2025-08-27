@@ -58,6 +58,7 @@ impl BehaviourBuilder {
             upgraded_edge_peers: HashSet::new(),
             max_incoming_connections: self.max_incoming_connections.unwrap_or(100),
             protocol_name: PROTOCOL_NAME,
+            minimal_network_size: 1usize.try_into().unwrap(),
         }
     }
 }

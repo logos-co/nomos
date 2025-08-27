@@ -331,6 +331,7 @@ where
     }
 
     #[cfg(test)]
+    #[expect(clippy::too_many_arguments, reason = "Test-only constructor.")]
     pub fn new_test<BehaviourConstructor>(
         behaviour_constructor: BehaviourConstructor,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
