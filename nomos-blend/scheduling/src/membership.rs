@@ -13,9 +13,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::serde::ed25519_pubkey_hex;
 
+/// A set of core nodes in a session.
 #[derive(Clone, Debug)]
 pub struct Membership<NodeId> {
+    /// All nodes, including local and remote.
     nodes: HashMap<NodeId, Node<NodeId>>,
+    /// IDs of remote nodes only, excluding the local node if present.
+    /// Kept as a separate [`Vec`] to enable efficient random sampling,
+    /// which is faster than sampling from the keys in [`HashMap`].
     remote_nodes: Vec<NodeId>,
 }
 
