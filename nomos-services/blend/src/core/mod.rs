@@ -320,15 +320,3 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
     join_all(processed_messages_relay_futures).await;
     tracing::debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
 }
-
-impl<Backend, NodeId, Network, RuntimeServiceId> Drop
-    for BlendService<Backend, NodeId, Network, RuntimeServiceId>
-where
-    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
-    Network: NetworkAdapter<RuntimeServiceId>,
-{
-    fn drop(&mut self) {
-        tracing::info!(target: LOG_TARGET, "Shutting down Blend backend");
-        self.backend.shutdown();
-    }
-}

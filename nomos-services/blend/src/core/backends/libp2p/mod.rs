@@ -84,12 +84,8 @@ where
         }
     }
 
-    fn shutdown(&mut self) {
-        let Self {
-            swarm_task_abort_handle,
-            ..
-        } = self;
-        swarm_task_abort_handle.abort();
+    fn shutdown(self) {
+        drop(self);
     }
 
     async fn publish(&self, msg: EncapsulatedMessage) {
@@ -109,5 +105,15 @@ where
             BroadcastStream::new(self.incoming_message_sender.subscribe())
                 .filter_map(|event| async { event.ok() }),
         )
+    }
+}
+
+impl Drop for Libp2pBlendBackend {
+    fn drop(&mut self) {
+        let Self {
+            swarm_task_abort_handle,
+            ..
+        } = self;
+        swarm_task_abort_handle.abort();
     }
 }
