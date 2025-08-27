@@ -6,7 +6,7 @@ mod config;
 pub mod cryptarchia;
 pub mod mantle;
 
-use std::{collections::HashMap, hash::Hash};
+use std::{cmp::Ordering, collections::HashMap, hash::Hash};
 
 pub use config::Config;
 use cryptarchia::LedgerState as CryptarchiaLedger;
@@ -14,10 +14,15 @@ pub use cryptarchia::{EpochState, UtxoTree};
 use cryptarchia_engine::Slot;
 use mantle::LedgerState as MantleLedger;
 use nomos_core::{
-    mantle::{gas::GasConstants, AuthenticatedMantleTx, NoteId, Utxo},
+    mantle::{gas::GasConstants, AuthenticatedMantleTx, NoteId, Utxo, ops::leader_claim::VoucherCm},
     proofs::leader_proof,
 };
 use thiserror::Error;
+
+// While individual notes are constrained to be `u64`, intermediate calculations
+// may overflow, so we use `i128` to avoid that and to easily represent negative
+// balances which may arise in special circumstances (e.g. rewards calculation).
+pub type Balance = i128;
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum LedgerError<Id> {
@@ -31,6 +36,8 @@ pub enum LedgerError<Id> {
     InvalidNote(NoteId),
     #[error("Insufficient balance")]
     InsufficientBalance,
+    #[error("Unbalanced transaction, balance does not match fees")]
+    UnbalancedTransaction,
     #[error("Overflow while calculating balance")]
     Overflow,
     #[error("Zero value note")]
@@ -64,6 +71,7 @@ where
         parent_id: Id,
         slot: Slot,
         proof: &LeaderProof,
+        voucher: VoucherCm,
         txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
     ) -> Result<Self, LedgerError<Id>>
     where
@@ -78,7 +86,7 @@ where
         let new_state =
             parent_state
                 .clone()
-                .try_update::<_, _, Constants>(slot, proof, txs, &self.config)?;
+                .try_update::<_, _, Constants>(slot, proof, voucher, txs, &self.config)?;
 
         let mut states = self.states.clone();
         states.insert(id, new_state);
@@ -126,6 +134,7 @@ impl LedgerState {
         self,
         slot: Slot,
         proof: &LeaderProof,
+        voucher: VoucherCm,
         txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
         config: &Config,
     ) -> Result<Self, LedgerError<Id>>
@@ -133,7 +142,7 @@ impl LedgerState {
         LeaderProof: leader_proof::LeaderProof,
         Constants: GasConstants,
     {
-        self.try_apply_header(slot, proof, config)?
+        self.try_apply_header(slot, proof, voucher, config)?
             .try_apply_contents::<_, Constants>(txs)
     }
 
@@ -144,6 +153,7 @@ impl LedgerState {
         self,
         slot: Slot,
         proof: &LeaderProof,
+        voucher: VoucherCm,
         config: &Config,
     ) -> Result<Self, LedgerError<Id>>
     where
@@ -152,10 +162,11 @@ impl LedgerState {
         let cryptarchia_ledger = self
             .cryptarchia_ledger
             .try_apply_header::<LeaderProof, Id>(slot, proof, config)?;
-        // If we need to do something for mantle ops/rewards, this would be the place.
+        let mantle_ledger = self.mantle_ledger
+            .try_apply_header(config.epoch(slot), voucher)?;
         Ok(Self {
             cryptarchia_ledger,
-            mantle_ledger: self.mantle_ledger,
+            mantle_ledger,
         })
     }
 
@@ -165,10 +176,22 @@ impl LedgerState {
         txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
     ) -> Result<Self, LedgerError<Id>> {
         for tx in txs {
-            let _balance;
-            (self.cryptarchia_ledger, _balance) =
+            let balance;
+            (self.cryptarchia_ledger, balance) =
                 self.cryptarchia_ledger.try_apply_tx::<_, Constants>(&tx)?;
-            self.mantle_ledger = self.mantle_ledger.try_apply_tx::<Constants>(tx)?;
+            let additional_balance;
+
+            (self.mantle_ledger, additional_balance) =
+                self.mantle_ledger.try_apply_tx::<Constants>(&tx)?;
+
+            let total_balance = balance
+                .checked_add(additional_balance)
+                .ok_or(LedgerError::Overflow)?;
+            match total_balance.cmp(&tx.gas_cost::<Constants>().into()) {
+                Ordering::Less => return Err(LedgerError::InsufficientBalance),
+                Ordering::Greater => return Err(LedgerError::UnbalancedTransaction),
+                Ordering::Equal => {} // OK!
+            }
         }
         Ok(self)
     }
@@ -211,8 +234,8 @@ mod tests {
     use cryptarchia::tests::{config, generate_proof, utxo};
     use nomos_core::{
         mantle::{
-            gas::MainnetGasConstants, ledger::Tx as LedgerTx, MantleTx, Note, SignedMantleTx,
-            Transaction as _,
+            gas::MainnetGasConstants, ledger::Tx as LedgerTx, GasCost, MantleTx, Note,
+            SignedMantleTx, Transaction as _,
         },
         proofs::zksig::DummyZkSignature,
     };
@@ -261,8 +284,12 @@ mod tests {
     fn test_ledger_try_update_with_transaction() {
         let (ledger, genesis_id, utxo) = create_test_ledger();
 
-        let output_note = Note::new(1, [1; 32].into());
+        let mut output_note = Note::new(1, [1; 32].into());
         let pk = [0; 32];
+        // determine fees
+        let tx = create_tx(vec![utxo.id()], vec![output_note], vec![pk]);
+        let fees = tx.gas_cost::<MainnetGasConstants>();
+        output_note.value = utxo.note.value - fees;
         let tx = create_tx(vec![utxo.id()], vec![output_note], vec![pk]);
 
         // Create a dummy proof (using same structure as in cryptarchia tests)

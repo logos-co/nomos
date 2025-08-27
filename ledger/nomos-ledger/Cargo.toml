@@ -19,6 +19,7 @@ rpds                   = "1.1.1"
 serde                  = { version = "1.0", features = ["derive"], optional = true }
 thiserror              = "1"
 utxotree               = { workspace = true }
+mmr                    = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
 ed25519-dalek = "2.0.0"
