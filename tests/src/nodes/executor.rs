@@ -313,6 +313,8 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                     .expect("Rounds per session cannot be zero."),
                 rounds_per_observation_window: NonZeroU64::try_from(30u64)
                     .expect("Rounds per observation window cannot be zero."),
+                rounds_per_session_transition: NonZeroU64::try_from(30u64)
+                    .expect("Rounds per session transition cannot be zero."),
             },
             scheduler: SchedulerSettingsExt {
                 cover: CoverTrafficSettingsExt {

@@ -1,10 +1,9 @@
 #[cfg(feature = "libp2p")]
 pub mod libp2p;
 
-use std::pin::Pin;
-
-use futures::Stream;
-use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage};
+use nomos_blend_scheduling::{
+    membership::Membership, session::SessionEventStream, EncapsulatedMessage,
+};
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
 
@@ -19,7 +18,7 @@ where
     fn new<Rng>(
         settings: Self::Settings,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-        session_stream: Pin<Box<dyn Stream<Item = Membership<NodeId>> + Send>>,
+        session_stream: SessionEventStream<Membership<NodeId>>,
         current_membership: Option<Membership<NodeId>>,
         rng: Rng,
     ) -> Self
