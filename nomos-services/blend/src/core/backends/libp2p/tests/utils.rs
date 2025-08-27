@@ -81,6 +81,7 @@ impl SwarmBuilder {
                 .unwrap_or_else(|| Membership::new(&[], None)),
             BlakeRng::from_entropy(),
             3u64.try_into().unwrap(),
+            1usize.try_into().unwrap(),
         );
 
         TestSwarm {

@@ -57,6 +57,7 @@ where
     Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
 {
+    backend: Backend,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
 }
 
@@ -92,120 +93,92 @@ where
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
+        let settings_reader = service_resources_handle.settings_handle.notifier();
+        let blend_config = settings_reader.get_updated_settings();
+        let membership = blend_config.membership();
         Ok(Self {
+            backend: <Backend as BlendBackend<NodeId, BlakeRng, RuntimeServiceId>>::new(
+                settings_reader.get_updated_settings(),
+                service_resources_handle.overwatch_handle.clone(),
+                Box::pin(
+                    IntervalStream::new(interval(blend_config.time.session_duration()))
+                        .map(move |_| membership.clone()),
+                ),
+                BlakeRng::from_entropy(),
+            ),
             service_resources_handle,
         })
     }
 
     async fn run(mut self) -> Result<(), overwatch::DynError> {
         let Self {
-            ref mut service_resources_handle,
+            service_resources_handle:
+                OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
+                    ref mut inbound_relay,
+                    ref overwatch_handle,
+                    ref settings_handle,
+                    ref status_updater,
+                    ..
+                },
+            ref mut backend,
         } = self;
 
-        let blend_config = service_resources_handle
-            .settings_handle
-            .notifier()
-            .get_updated_settings();
+        let blend_config = settings_handle.notifier().get_updated_settings();
         let membership = blend_config.membership();
+        let membership_size = membership.size();
         let minimum_network_size = blend_config.minimum_network_size;
+        let mut rng = BlakeRng::from_entropy();
+        let mut cryptographic_processor = CryptographicProcessor::new(
+            blend_config.crypto.clone(),
+            membership.clone(),
+            rng.clone(),
+        );
+        let network_relay = overwatch_handle.relay::<NetworkService<_, _>>().await?;
+        let network_adapter = Network::new(network_relay);
 
-        // TODO: Add logic to try process new sessions. I.e:
-        // * If the old session membership was too small and the new one is large
-        //   enough, create a new backend and start receiving messages to blend on the
-        //   inbound channel.
-        // * If the old and new session membership are both too small, do nothing.
-        // * If the old session membership was large and the new one too small, perform
-        //   the session rotation on the backend but stop listening on the inbound
-        //   channel, since we don't want to blend new messages.
-        // * If the old and new session membership are both large enough, perform
-        //   session rotation and keep listening on incoming messages.
-        // Ideally, this service would be stopped altogether by the proxy service when a
-        // session is too small. Yet, the service itself must be resilient in case of
-        // bugs where the proxy service does not do that, hence the need for this
-        // additional logic.
-        if membership.size() < minimum_network_size.get() as usize {
-            tracing::warn!(target: LOG_TARGET, "Blend network size is smaller than the required minimum. Not starting swarm, hence no messages will be blended nor any Blend message will be received in this session.");
-            // We still mark the service as ready, albeit other services won't be able to
-            // interact with this service by sending messages to it, and it indeed should
-            // not happen, as all interactions should happen via the proxy service.
-            service_resources_handle.status_updater.notify_ready();
-            tracing::info!(
-                target: LOG_TARGET,
-                "Service '{}' is ready.",
-                <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
-            );
-        } else {
-            let mut rng = BlakeRng::from_entropy();
-            let mut cryptographic_processor = CryptographicProcessor::new(
-                blend_config.crypto.clone(),
-                membership.clone(),
-                rng.clone(),
-            );
-            let network_relay = service_resources_handle
-                .overwatch_handle
-                .relay::<NetworkService<_, _>>()
-                .await?;
-            let network_adapter = Network::new(network_relay);
+        // Yields once every randomly-scheduled release round.
+        let mut message_scheduler = UninitializedMessageScheduler::<
+            _,
+            _,
+            ProcessedMessage<Network::BroadcastSettings>,
+        >::new(
+            blend_config.session_stream(),
+            blend_config.scheduler_settings(),
+            rng.clone(),
+        )
+        .wait_next_session_start()
+        .await;
 
-            // Incoming streams
+        // Yields new messages received via Blend peers.
+        let mut blend_messages = backend.listen_to_incoming_messages();
 
-            // Yields once every randomly-scheduled release round.
-            let mut message_scheduler = UninitializedMessageScheduler::<
-                _,
-                _,
-                ProcessedMessage<Network::BroadcastSettings>,
-            >::new(
-                blend_config.session_stream(),
-                blend_config.scheduler_settings(),
-                rng.clone(),
-            )
-            .wait_next_session_start()
-            .await;
+        wait_until_services_are_ready!(
+            &overwatch_handle,
+            Some(Duration::from_secs(60)),
+            NetworkService<_, _>
+        )
+        .await?;
 
-            let session_duration = blend_config.time.session_duration();
-            let mut backend = <Backend as BlendBackend<NodeId, BlakeRng, RuntimeServiceId>>::new(
-                blend_config,
-                service_resources_handle.overwatch_handle.clone(),
-                Box::pin(
-                    IntervalStream::new(interval(session_duration))
-                        .map(move |_| membership.clone()),
-                ),
-                BlakeRng::from_entropy(),
-            );
+        status_updater.notify_ready();
+        tracing::info!(
+            target: LOG_TARGET,
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
 
-            // Yields new messages received via Blend peers.
-            let mut blend_messages = backend.listen_to_incoming_messages();
-
-            service_resources_handle.status_updater.notify_ready();
-            tracing::info!(
-                target: LOG_TARGET,
-                "Service '{}' is ready.",
-                <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
-            );
-
-            wait_until_services_are_ready!(
-                &service_resources_handle.overwatch_handle,
-                Some(Duration::from_secs(60)),
-                NetworkService<_, _>
-            )
-            .await?;
-
-            loop {
-                tokio::select! {
-                    Some(local_data_message) = service_resources_handle.inbound_relay.next() => {
-                        handle_local_data_message(local_data_message, &mut cryptographic_processor, &backend, &mut message_scheduler).await;
-                    }
-                    Some(incoming_message) = blend_messages.next() => {
-                        handle_incoming_blend_message(incoming_message, &mut message_scheduler, &cryptographic_processor);
-                    }
-                    Some(round_info) = message_scheduler.next() => {
-                        handle_release_round(round_info, &mut cryptographic_processor, &mut rng, &backend, &network_adapter).await;
-                    }
+        loop {
+            tokio::select! {
+                Some(local_data_message) = inbound_relay.next(), if membership_size >= minimum_network_size.get() as usize => {
+                    handle_local_data_message(local_data_message, &mut cryptographic_processor, backend, &mut message_scheduler).await;
+                }
+                Some(incoming_message) = blend_messages.next() => {
+                    handle_incoming_blend_message(incoming_message, &mut message_scheduler, &cryptographic_processor);
+                }
+                Some(round_info) = message_scheduler.next() => {
+                    handle_release_round(round_info, &mut cryptographic_processor, &mut rng, backend, &network_adapter).await;
                 }
             }
         }
-
-        Ok(())
     }
 }
 
@@ -345,4 +318,16 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
     // Release all messages concurrently, and wait for all of them to be sent.
     join_all(processed_messages_relay_futures).await;
     tracing::debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
+}
+
+impl<Backend, NodeId, Network, RuntimeServiceId> Drop
+    for BlendService<Backend, NodeId, Network, RuntimeServiceId>
+where
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
+    Network: NetworkAdapter<RuntimeServiceId>,
+{
+    fn drop(&mut self) {
+        tracing::info!(target: LOG_TARGET, "Shutting down Blend backend");
+        self.backend.shutdown();
+    }
 }
