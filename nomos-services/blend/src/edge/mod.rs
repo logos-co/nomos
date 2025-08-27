@@ -77,14 +77,12 @@ where
 
         // TODO: Add logic to try process new sessions. I.e:
         // * If the old session membership was too small and the new one is large
-        //   enough, create a new backend and start receiving messages to blend on the
-        //   inbound channel.
+        //   enough, create a new backend and start blending incoming messages.
         // * If the old and new session membership are both too small, do nothing.
-        // * If the old session membership was large and the new one too small, perform
-        //   the session rotation on the backend but stop listening on the inbound
-        //   channel, since we don't want to blend new messages.
+        // * If the old session membership was large and the new one too small, simply
+        //   drop the backend.
         // * If the old and new session membership are both large enough, perform
-        //   session rotation and keep listening on incoming messages.
+        //   session rotation logic and maintain the swarm backend.
         // Ideally, this service would be stopped altogether by the proxy service when a
         // session is too small. Yet, the service itself must be resilient in case of
         // bugs where the proxy service does not do that, hence the need for this
