@@ -269,3 +269,302 @@ where
         Poll::Pending
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::RefCell, pin::Pin};
+
+    use libp2p::{
+        autonat::v2::server,
+        core::{
+            transport::{DialOpts, ListenerId, MemoryTransport, Transport, TransportError},
+            upgrade::Version,
+        },
+        identify,
+        identity::Keypair,
+        plaintext,
+        swarm::{NetworkBehaviour, SwarmEvent},
+        yamux, Swarm,
+    };
+    use libp2p_swarm_test::SwarmExt as _;
+    use rand::{
+        rngs::{OsRng, StdRng},
+        SeedableRng as _,
+    };
+
+    use super::*;
+    use crate::{
+        behaviour::nat::address_mapper::errors::AddressMapperError, config::NatMappingSettings,
+    };
+
+    const TEST_PROTOCOL_VERSION: &str = "/test/1.0.0";
+
+    thread_local! {
+        static EXPECTED_ADDRESS: RefCell<Option<Multiaddr>> = const { RefCell::new(None) };
+    }
+
+    #[tokio::test]
+    async fn nat_mapping_happy_flow() {
+        let (server, server_addr) = create_server_with_blocking_transport();
+
+        let expected_addr: Multiaddr = format!("/memory/{}", rand::random::<u32>())
+            .parse()
+            .unwrap();
+        EXPECTED_ADDRESS.with(|a| *a.borrow_mut() = Some(expected_addr.clone()));
+
+        let mut client = create_client::<TestMapper>(false);
+        client.listen_on(expected_addr.clone()).unwrap();
+
+        client.dial(server_addr).unwrap();
+
+        let actual_events = collect_nat_events(client, server, expected_addr)
+            .await
+            .expect("Happy flow should complete");
+
+        let expected_events = vec![
+            "NewExternalAddrCandidate(private)",
+            "AutoNATFailure",
+            "NewExternalMappedAddress",
+            "NewExternalAddrCandidate(mapped)",
+            "NewExternalAddrCandidate(mapped)",
+            "ExternalAddrConfirmed",
+        ];
+
+        assert_eq!(actual_events, expected_events);
+    }
+
+    #[tokio::test]
+    async fn nat_mapping_failure_flow() {
+        let (server, server_addr) = create_server_with_blocking_transport();
+
+        let expected_addr: Multiaddr = format!("/memory/{}", rand::random::<u32>())
+            .parse()
+            .unwrap();
+
+        EXPECTED_ADDRESS.with(|a| *a.borrow_mut() = None);
+
+        let mut client = create_client::<TestMapper>(false);
+        client.listen_on(expected_addr.clone()).unwrap();
+
+        client.dial(server_addr).unwrap();
+
+        let actual_events = collect_nat_events(client, server, expected_addr)
+            .await
+            .expect("Failure flow should complete");
+
+        let expected_events = vec![
+            "NewExternalAddrCandidate(private)",
+            "AutoNATFailure",
+            "MappingFailed",
+        ];
+
+        assert_eq!(actual_events, expected_events);
+    }
+
+    struct TestMapper;
+
+    #[async_trait::async_trait]
+    impl NatMapper for TestMapper {
+        async fn map_address(
+            _address_to_map: &Multiaddr,
+            _settings: NatMappingSettings,
+        ) -> Result<Multiaddr, AddressMapperError> {
+            EXPECTED_ADDRESS.with(|a| {
+                a.borrow().clone().map_or_else(
+                    || {
+                        Err(AddressMapperError::PortMappingFailed(
+                            "All protocols failed".to_owned(),
+                        ))
+                    },
+                    Ok,
+                )
+            })
+        }
+    }
+
+    /// Transport that blocks the first dial attempt, then allows subsequent
+    /// dials. This simulates a network scenario where the initial `AutoNAT`
+    /// test fails (e.g., private address unreachable), triggering NAT
+    /// mapping, and then subsequent connections succeed (e.g., to test the
+    /// mapped address).
+    #[derive(Default)]
+    struct FirstDialBlockingTransport {
+        inner: MemoryTransport,
+        has_blocked_once: bool,
+    }
+
+    impl Transport for FirstDialBlockingTransport {
+        type Output = <MemoryTransport as Transport>::Output;
+        type Error = <MemoryTransport as Transport>::Error;
+        type ListenerUpgrade = <MemoryTransport as Transport>::ListenerUpgrade;
+        type Dial = <MemoryTransport as Transport>::Dial;
+
+        fn listen_on(
+            &mut self,
+            id: ListenerId,
+            addr: Multiaddr,
+        ) -> Result<(), TransportError<Self::Error>> {
+            self.inner.listen_on(id, addr)
+        }
+
+        fn remove_listener(&mut self, id: ListenerId) -> bool {
+            self.inner.remove_listener(id)
+        }
+
+        fn dial(
+            &mut self,
+            addr: Multiaddr,
+            opts: DialOpts,
+        ) -> Result<Self::Dial, TransportError<Self::Error>> {
+            if !self.has_blocked_once {
+                self.has_blocked_once = true;
+                return Err(TransportError::MultiaddrNotSupported(addr));
+            }
+
+            self.inner.dial(addr, opts)
+        }
+
+        fn poll(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+        ) -> Poll<libp2p::core::transport::TransportEvent<Self::ListenerUpgrade, Self::Error>>
+        {
+            Pin::new(&mut self.inner).poll(cx)
+        }
+    }
+
+    #[derive(NetworkBehaviour)]
+    struct Server {
+        autonat: server::Behaviour<OsRng>,
+        identify: identify::Behaviour,
+    }
+
+    #[derive(NetworkBehaviour)]
+    struct Client<Mapper: NatMapper + 'static> {
+        nat: InnerNatBehaviour<StdRng, Mapper, SystemGatewayDetector>,
+        identify: identify::Behaviour,
+    }
+
+    fn create_memory_swarm<Behaviour, BehaviourFactory>(
+        use_blocking: bool,
+        behaviour_fn: BehaviourFactory,
+    ) -> Swarm<Behaviour>
+    where
+        Behaviour: NetworkBehaviour,
+        BehaviourFactory: FnOnce(&Keypair) -> Behaviour,
+    {
+        let keypair = Keypair::generate_ed25519();
+        let transport = if use_blocking {
+            FirstDialBlockingTransport::default()
+                .upgrade(Version::V1)
+                .authenticate(plaintext::Config::new(&keypair))
+                .multiplex(yamux::Config::default())
+                .boxed()
+        } else {
+            MemoryTransport::default()
+                .upgrade(Version::V1)
+                .authenticate(plaintext::Config::new(&keypair))
+                .multiplex(yamux::Config::default())
+                .boxed()
+        };
+
+        libp2p::SwarmBuilder::with_existing_identity(keypair)
+            .with_tokio()
+            .with_other_transport(|_| transport)
+            .expect("transport should be supported")
+            .with_behaviour(behaviour_fn)
+            .expect("behaviour should be supported")
+            .build()
+    }
+
+    fn create_server_with_blocking_transport() -> (Swarm<Server>, Multiaddr) {
+        let mut swarm = create_memory_swarm(true, |keypair| Server {
+            autonat: server::Behaviour::new(OsRng),
+            identify: identify::Behaviour::new(identify::Config::new(
+                TEST_PROTOCOL_VERSION.to_owned(),
+                keypair.public(),
+            )),
+        });
+
+        let server_addr: Multiaddr = format!("/memory/{}", rand::random::<u32>())
+            .parse()
+            .unwrap();
+
+        swarm.listen_on(server_addr.clone()).unwrap();
+
+        (swarm, server_addr)
+    }
+
+    fn create_client<Mapper: NatMapper + 'static>(use_blocking: bool) -> Swarm<Client<Mapper>> {
+        let mut nat_settings = NatSettings::default();
+        nat_settings.autonat.probe_interval_millisecs = Some(500);
+        nat_settings.mapping.max_retries = 0;
+
+        create_memory_swarm(use_blocking, move |keypair| {
+            let nat = InnerNatBehaviour::create(
+                StdRng::from_entropy(),
+                nat_settings,
+                AddressMapperBehaviour::<Mapper>::new(nat_settings.mapping),
+                GatewayMonitor::<SystemGatewayDetector>::new(nat_settings.gateway_monitor),
+            );
+
+            let identify = identify::Behaviour::new(identify::Config::new(
+                TEST_PROTOCOL_VERSION.to_owned(),
+                keypair.public(),
+            ));
+
+            Client { nat, identify }
+        })
+    }
+
+    async fn collect_nat_events<
+        Mapper: NatMapper + 'static,
+        ServerBehaviour: NetworkBehaviour + Send,
+    >(
+        mut client: Swarm<Client<Mapper>>,
+        mut server: Swarm<ServerBehaviour>,
+        expected_addr: Multiaddr,
+    ) -> Result<Vec<String>, String>
+    where
+        ServerBehaviour::ToSwarm: std::fmt::Debug,
+    {
+        tokio::time::timeout(Duration::from_secs(30), async {
+            let mut actual_events = Vec::new();
+
+            loop {
+                tokio::select! {
+                    event = client.next_swarm_event() => {
+                        match &event {
+                            SwarmEvent::ExternalAddrConfirmed { address } => {
+                                actual_events.push("ExternalAddrConfirmed".to_owned());
+                                if *address == expected_addr { break; }
+                            }
+                            SwarmEvent::Behaviour(ClientEvent::Nat(Either::Right(mapping_event))) => {
+                                match mapping_event {
+                                    address_mapper::Event::NewExternalMappedAddress { .. } => {
+                                        actual_events.push("NewExternalMappedAddress".to_owned());
+                                    }
+                                    address_mapper::Event::AddressMappingFailed(_) => {
+                                        actual_events.push("MappingFailed".to_owned());
+                                        break;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            SwarmEvent::Behaviour(ClientEvent::Nat(Either::Left(autonat_event))) => {
+                                actual_events.push(if autonat_event.result.is_err() { "AutoNATFailure" } else { "AutoNATSuccess" }.to_owned());
+                            }
+                            SwarmEvent::NewExternalAddrCandidate { address } => {
+                                actual_events.push(if *address == expected_addr { "NewExternalAddrCandidate(mapped)" } else { "NewExternalAddrCandidate(private)" }.to_owned());
+                            }
+                            _ => {}
+                        }
+                    },
+                    _ = server.next_swarm_event() => {}
+                }
+            }
+
+            Ok::<Vec<String>, String>(actual_events)
+        }).await.map_err(|_| "Test timeout".to_owned())?
+    }
+}
