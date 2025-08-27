@@ -4,6 +4,7 @@ use std::{
 };
 
 use ark_ff::Field;
+#[cfg(feature = "serde")]
 use groth16::serde::serde_fr;
 use poseidon2::{Digest, Fr};
 use rpds::RedBlackTreeSetSync;
