@@ -93,7 +93,7 @@ where
             (updated_membership, assignations)
         };
 
-        tracing::debug!("Updating membership at block {session_id} with {assignations:?}");
+        tracing::debug!("Updating membership at session {session_id} with {assignations:?}");
 
         // update in-memory latest membership
         self.membership_handler.update(updated_membership);
@@ -117,7 +117,7 @@ where
         }
 
         if membership.is_none() {
-            tracing::debug!("No membership found for block {session_id}");
+            tracing::debug!("No membership found for session {session_id}");
             return Ok(None);
         }
 
