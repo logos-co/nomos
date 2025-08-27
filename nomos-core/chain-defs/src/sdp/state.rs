@@ -23,7 +23,11 @@ impl<'a> ActiveState<'a> {
         current_block_number: BlockNumber,
         service_params: &'_ ServiceParameters,
     ) -> Result<WithdrawnState<'a>, ActiveStateError> {
-        if self.0.created.wrapping_add(service_params.lock_period) >= current_block_number {
+        let Some(unlocked_at_block_number) = self.0.created.checked_add(service_params.lock_period)
+        else {
+            panic!("Adding lock period overflowed unlocked_at_block_number");
+        };
+        if unlocked_at_block_number >= current_block_number {
             return Err(ActiveStateError::WithdrawalWhileLocked);
         }
         self.0.withdrawn = Some(current_block_number);
@@ -51,7 +55,11 @@ impl<'a> InactiveState<'a> {
         current_block_number: BlockNumber,
         service_params: &ServiceParameters,
     ) -> Result<WithdrawnState<'a>, InactiveStateError> {
-        if self.0.created.wrapping_add(service_params.lock_period) >= current_block_number {
+        let Some(unlocked_at_block_number) = self.0.created.checked_add(service_params.lock_period)
+        else {
+            panic!("Adding lock period overflowed unlocked_at_block_number");
+        };
+        if unlocked_at_block_number >= current_block_number {
             return Err(InactiveStateError::WithdrawalWhileLocked);
         }
         self.0.withdrawn = Some(current_block_number);
@@ -97,19 +105,24 @@ impl<'a> TransientDeclarationState<'a> {
 
         // This section checks if recently created provider is still considered active
         // even without having activity recorded yet.
-        if declaration_state
+        let Some(incative_at_block_number) = declaration_state
             .created
-            .wrapping_add(service_params.inactivity_period)
-            > current_block_number
-        {
+            .checked_add(service_params.inactivity_period)
+        else {
+            panic!("Adding inactivity period overflowed inactive_at_block_number");
+        };
+        if incative_at_block_number > current_block_number {
             return Ok(ActiveState(declaration_state).into());
         }
 
         // Check if provider has ever got the activity recorded first and then see if
         // the activity record was recent.
-        if current_block_number.wrapping_sub(declaration_state.active)
-            <= service_params.inactivity_period
-        {
+        let Some(since_last_activity_block_number) =
+            current_block_number.checked_sub(declaration_state.active)
+        else {
+            panic!("Subtracting last active block number from current block number overflowed");
+        };
+        if since_last_activity_block_number <= service_params.inactivity_period {
             return Ok(ActiveState(declaration_state).into());
         }
 
