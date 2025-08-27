@@ -1,10 +1,15 @@
 pub mod channel;
+pub mod sdp;
 
 use ed25519::signature::Verifier as _;
-use nomos_core::mantle::{
-    ops::{channel::ChannelId, Op, OpProof},
-    AuthenticatedMantleTx, GasConstants,
+use nomos_core::{
+    mantle::{
+        ops::{channel::ChannelId, Op, OpProof},
+        AuthenticatedMantleTx, GasConstants,
+    },
+    sdp::state::DeclarationStateError,
 };
+use sdp::SdpLedgerError;
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -25,6 +30,14 @@ pub enum Error {
     UnsupportedOp,
     #[error("Invalid signature")]
     InvalidSignature,
+    #[error("Sdp ledger error: {0:?}")]
+    Sdp(#[from] SdpLedgerError),
+}
+
+impl From<DeclarationStateError> for Error {
+    fn from(err: DeclarationStateError) -> Self {
+        Self::Sdp(SdpLedgerError::SdpStateError(err))
+    }
 }
 
 /// Tracks mantle ops

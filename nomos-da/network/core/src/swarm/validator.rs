@@ -48,6 +48,16 @@ const EVENT_SAMPLING: &str = "sampling";
 const EVENT_VALIDATOR_DISPERSAL: &str = "validator_dispersal";
 const EVENT_REPLICATION: &str = "replication";
 
+type ValidatorSwarmType<Membership, HistoricMembership, Addressbook> = Swarm<
+    ValidatorBehaviour<
+        ConnectionBalancer<Membership>,
+        ConnectionMonitor<Membership>,
+        Membership,
+        HistoricMembership,
+        Addressbook,
+    >,
+>;
+
 pub struct SwarmSettings {
     pub policy_settings: DAConnectionPolicySettings,
     pub monitor_settings: DAConnectionMonitorSettings,
@@ -66,17 +76,11 @@ pub struct ValidatorSwarm<Membership, HistoricMembership, Addressbook>
 where
     Membership:
         MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send + Sync + 'static,
-    HistoricMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + 'static,
+    HistoricMembership:
+        MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send + Sync + 'static,
     Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + Sync + 'static,
 {
-    swarm: Swarm<
-        ValidatorBehaviour<
-            ConnectionBalancer<Membership>,
-            ConnectionMonitor<Membership>,
-            Membership,
-            Addressbook,
-        >,
-    >,
+    swarm: ValidatorSwarmType<Membership, HistoricMembership, Addressbook>,
     sampling_events_sender: UnboundedSender<SamplingEvent>,
     validation_events_sender: UnboundedSender<DispersalValidatorEvent>,
     membership: Membership,
@@ -87,7 +91,8 @@ impl<Membership, HistoricMembership, Addressbook>
     ValidatorSwarm<Membership, HistoricMembership, Addressbook>
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send + Sync,
-    HistoricMembership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send,
+    HistoricMembership:
+        MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + Clone + Send + Sync,
     Addressbook: AddressBookHandler<Id = PeerId> + Clone + Send + Sync + 'static,
 {
     pub fn new(
@@ -163,14 +168,7 @@ where
         replication_config: ReplicationConfig,
         subnets_config: SubnetsConfig,
         refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
-    ) -> Swarm<
-        ValidatorBehaviour<
-            ConnectionBalancer<Membership>,
-            ConnectionMonitor<Membership>,
-            Membership,
-            Addressbook,
-        >,
-    > {
+    ) -> ValidatorSwarmType<Membership, HistoricMembership, Addressbook> {
         SwarmBuilder::with_existing_identity(key)
             .with_tokio()
             .with_quic()
@@ -216,9 +214,10 @@ where
     pub fn historic_sample_request_channel(
         &mut self,
     ) -> UnboundedSender<SampleArgs<HistoricMembership>> {
-        // todo: implement this when behaviour is ready
-        let (sender, _receiver) = unbounded_channel();
-        sender
+        self.swarm
+            .behaviour()
+            .sampling_behaviour()
+            .historical_request_channel()
     }
 
     pub fn commitments_request_channel(&mut self) -> UnboundedSender<BlobId> {
@@ -249,27 +248,13 @@ where
 
     pub const fn protocol_swarm(
         &self,
-    ) -> &Swarm<
-        ValidatorBehaviour<
-            ConnectionBalancer<Membership>,
-            ConnectionMonitor<Membership>,
-            Membership,
-            Addressbook,
-        >,
-    > {
+    ) -> &ValidatorSwarmType<Membership, HistoricMembership, Addressbook> {
         &self.swarm
     }
 
     pub const fn protocol_swarm_mut(
         &mut self,
-    ) -> &mut Swarm<
-        ValidatorBehaviour<
-            ConnectionBalancer<Membership>,
-            ConnectionMonitor<Membership>,
-            Membership,
-            Addressbook,
-        >,
-    > {
+    ) -> &mut ValidatorSwarmType<Membership, HistoricMembership, Addressbook> {
         &mut self.swarm
     }
 
@@ -318,6 +303,7 @@ where
             ConnectionBalancer<Membership>,
             ConnectionMonitor<Membership>,
             Membership,
+            HistoricMembership,
             Addressbook,
         >,
     ) {

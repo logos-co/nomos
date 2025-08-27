@@ -20,13 +20,7 @@ use nomos_da_verifier::{backend::kzgrs::KzgrsDaVerifier, mempool::kzgrs::KzgrsMe
 use nomos_libp2p::PeerId;
 use nomos_membership::{adapters::sdp::LedgerSdpAdapter, backends::mock::MockMembershipBackend};
 use nomos_mempool::backend::mockpool::MockPool;
-use nomos_sdp::{
-    adapters::{
-        declaration::repository::LedgerDeclarationAdapter,
-        services::services_repository::LedgerServicesAdapter,
-    },
-    backends::ledger::SdpLedger,
-};
+use nomos_sdp::backends::mock::MockSdpBackend;
 use nomos_storage::backends::rocksdb::RocksBackend;
 use nomos_time::backends::NtpTimeBackend;
 
@@ -189,33 +183,17 @@ pub type MembershipService<RuntimeServiceId> = nomos_membership::MembershipServi
 
 pub type MembershipBackend = MockMembershipBackend;
 
-pub type MembershipSdp<RuntimeServiceId> = LedgerSdpAdapter<
-    SdpLedger<LedgerDeclarationAdapter, LedgerServicesAdapter, Metadata>,
-    LedgerDeclarationAdapter,
-    LedgerServicesAdapter,
-    Metadata,
-    RuntimeServiceId,
->;
+pub type MembershipSdp<RuntimeServiceId> =
+    LedgerSdpAdapter<MockSdpBackend, Metadata, RuntimeServiceId>;
 
 pub type DaMembershipAdapter<RuntimeServiceId> = MembershipServiceAdapter<
     MockMembershipBackend,
-    LedgerSdpAdapter<
-        SdpLedger<LedgerDeclarationAdapter, LedgerServicesAdapter, Metadata>,
-        LedgerDeclarationAdapter,
-        LedgerServicesAdapter,
-        Metadata,
-        RuntimeServiceId,
-    >,
+    LedgerSdpAdapter<MockSdpBackend, Metadata, RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
-pub type SdpService<RuntimeServiceId> = nomos_sdp::SdpService<
-    SdpLedger<LedgerDeclarationAdapter, LedgerServicesAdapter, Metadata>,
-    LedgerDeclarationAdapter,
-    LedgerServicesAdapter,
-    Metadata,
-    RuntimeServiceId,
->;
+pub type SdpService<RuntimeServiceId> =
+    nomos_sdp::SdpService<MockSdpBackend, Metadata, RuntimeServiceId>;
 
 pub type DaMembershipStorageGeneric<RuntimeServiceId> =
     RocksAdapter<RocksBackend<Wire>, RuntimeServiceId>;
