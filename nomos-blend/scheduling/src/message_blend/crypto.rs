@@ -1,3 +1,5 @@
+use std::hash::Hash;
+
 use derivative::Derivative;
 use nomos_blend_message::{
     crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, X25519PrivateKey},
@@ -76,6 +78,7 @@ impl<NodeId, Rng> CryptographicProcessor<NodeId, Rng> {
 
 impl<NodeId, Rng> CryptographicProcessor<NodeId, Rng>
 where
+    NodeId: Eq + Hash,
     Rng: RngCore,
 {
     pub fn encapsulate_cover_payload(

@@ -1,7 +1,7 @@
 pub mod backends;
 pub mod settings;
 
-use std::{fmt::Display, marker::PhantomData};
+use std::{fmt::Display, hash::Hash, marker::PhantomData};
 
 use backends::BlendBackend;
 use nomos_blend_scheduling::message_blend::crypto::CryptographicProcessor;
@@ -51,7 +51,7 @@ impl<Backend, NodeId, BroadcastSettings, RuntimeServiceId> ServiceCore<RuntimeSe
     for BlendService<Backend, NodeId, BroadcastSettings, RuntimeServiceId>
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Send + Sync,
-    NodeId: Clone + Send + Sync + 'static,
+    NodeId: Clone + Eq + Hash + Send + Sync + 'static,
     BroadcastSettings: Serialize + Send,
     RuntimeServiceId: AsServiceId<Self> + Display + Clone + Send,
 {
@@ -129,7 +129,7 @@ async fn handle_messages_to_blend<NodeId, Rng, Backend, RuntimeServiceId>(
     cryptographic_processor: &mut CryptographicProcessor<NodeId, Rng>,
     backend: &Backend,
 ) where
-    NodeId: Clone + Send,
+    NodeId: Eq + Hash + Clone + Send,
     Rng: RngCore + Send,
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
 {
