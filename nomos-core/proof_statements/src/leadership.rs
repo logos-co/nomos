@@ -1,4 +1,4 @@
-use crypto_bigint::{CheckedMul as _, CheckedSub as _, Encoding, U256};
+use crypto_bigint::{CheckedMul as _, CheckedSub as _, Encoding as _, U256};
 use groth16::{serde::serde_fr, Fr};
 use num_bigint::BigUint;
 use poseidon2::{Digest as _, Poseidon2Bn254Hasher};
