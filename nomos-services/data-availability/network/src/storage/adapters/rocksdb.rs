@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use libp2p::{Multiaddr, PeerId};
-use nomos_core::block::BlockNumber;
+use nomos_core::block::SessionNumber;
 use nomos_da_network_core::SubnetworkId;
 use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
 use overwatch::{services::relay::OutboundRelay, DynError};
@@ -35,11 +35,11 @@ where
 
     async fn store(
         &self,
-        block_number: BlockNumber,
+        session_id: SessionNumber,
         assignations: Assignations<PeerId, SubnetworkId>,
     ) -> Result<(), DynError> {
         let store_assignations_msg =
-            StorageMsg::store_assignations_request(block_number, assignations);
+            StorageMsg::store_assignations_request(session_id, assignations);
         self.storage_relay
             .send(store_assignations_msg)
             .await
@@ -50,11 +50,10 @@ where
 
     async fn get(
         &self,
-        block_number: BlockNumber,
+        session_id: SessionNumber,
     ) -> Result<Option<Assignations<PeerId, SubnetworkId>>, DynError> {
         let (reply_channel, reply_rx) = tokio::sync::oneshot::channel();
-        let get_assignations_msg =
-            StorageMsg::get_assignations_request(block_number, reply_channel);
+        let get_assignations_msg = StorageMsg::get_assignations_request(session_id, reply_channel);
 
         self.storage_relay
             .send(get_assignations_msg)

@@ -496,7 +496,7 @@ where
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
     let message = DaNetworkMsg::GetMembership {
-        block_number,
+        session_id: block_number,
         sender,
     };
     relay.send(message).await.map_err(|(e, _)| e)?;

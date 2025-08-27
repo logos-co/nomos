@@ -33,7 +33,7 @@ where
 
     relay
         .send(MembershipMessage::Update {
-            block_number,
+            session_id: block_number,
             update_event: payload.update_event,
         })
         .await
