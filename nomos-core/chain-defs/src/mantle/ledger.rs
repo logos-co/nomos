@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use blake2::digest::{Update, VariableOutput};
+use blake2::digest::{Update as _, VariableOutput as _};
 use groth16::{serde::serde_fr, Fr};
 use num_bigint::BigUint;
 use poseidon2::{Digest, Poseidon2Bn254Hasher};
@@ -60,10 +60,17 @@ pub struct Utxo {
     pub note: Note,
 }
 
-impl Utxo {
-    const NOMOS_NOTE_ID_V1: LazyLock<Fr> =
-        LazyLock::new(|| BigUint::from_bytes_le(b"NOMOS_NOTE_ID_V1".as_slice()).into());
+static NOMOS_NOTE_ID_V1: LazyLock<Fr> = LazyLock::new(|| {
+    let mut hasher = blake2::Blake2bVar::new(31).expect("blake2 initialization error");
+    hasher.update(b"NOMOS_NOTE_ID_V1");
+    let mut buff = [0u8; 31];
+    hasher
+        .finalize_variable(&mut buff)
+        .expect("blake2 variable hashing error");
+    BigUint::from_bytes_le(buff.as_slice()).into()
+});
 
+impl Utxo {
     #[must_use]
     pub fn id(&self) -> NoteId {
         // constants and structure as defined in the Mantle spec:
@@ -76,7 +83,7 @@ impl Utxo {
         let note_value: Fr =
             BigUint::from_bytes_le(self.note.value.to_le_bytes().as_slice()).into();
         let note_pk: Fr = self.note.pk.into();
-        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &Utxo::NOMOS_NOTE_ID_V1);
+        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &NOMOS_NOTE_ID_V1);
         <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &tx_hash);
         <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &output_index);
         <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &note_value);
@@ -87,46 +94,44 @@ impl Utxo {
     }
 }
 
+static NOMOS_LEDGER_TXHASH_V1_FR: LazyLock<Fr> = LazyLock::new(|| {
+    let mut hasher = blake2::Blake2bVar::new(31).expect("blake2 initialization error");
+    hasher.update(b"NOMOS_LEDGER_TXHASH_V1");
+    let mut buff = [0u8; 31];
+    hasher
+        .finalize_variable(&mut buff)
+        .expect("blake2 variable hashing error");
+    BigUint::from_bytes_le(buff.as_slice()).into()
+});
+
+static INOUT_SEP_FR: LazyLock<Fr> = LazyLock::new(|| {
+    let mut hasher = blake2::Blake2bVar::new(31).expect("blake2 initialization error");
+    hasher.update(b"INOUT_SEP");
+    let mut buff = [0u8; 31];
+    hasher
+        .finalize_variable(&mut buff)
+        .expect("blake2 variable hashing error");
+    BigUint::from_bytes_le(buff.as_slice()).into()
+});
+
 impl Tx {
     #[must_use]
     pub const fn new(inputs: Vec<NoteId>, outputs: Vec<Note>) -> Self {
         Self { inputs, outputs }
     }
 
-    const NOMOS_LEDGER_TXHASH_V1: &'static [u8] = b"NOMOS_LEDGER_TXHASH_V1";
-    const NOMOS_LEDGER_TXHASH_V1_FR: LazyLock<Fr> = LazyLock::new(|| {
-        let mut hasher = blake2::Blake2bVar::new(31).expect("blake2 initialization error");
-        hasher.update(&Self::NOMOS_LEDGER_TXHASH_V1);
-        let mut buff = [0u8; 31];
-        hasher
-            .finalize_variable(&mut buff)
-            .expect("blake2 variable hashing error");
-        BigUint::from_bytes_le(buff.as_slice()).into()
-    });
-
-    const INOUT_SEP: &'static [u8] = b"INOUT_SEP";
-    const INOUT_SEP_FR: LazyLock<Fr> = LazyLock::new(|| {
-        let mut hasher = blake2::Blake2bVar::new(31).expect("blake2 initialization error");
-        hasher.update(&Self::INOUT_SEP);
-        let mut buff = [0u8; 31];
-        hasher
-            .finalize_variable(&mut buff)
-            .expect("blake2 variable hashing error");
-        BigUint::from_bytes_le(buff.as_slice()).into()
-    });
-
     #[must_use]
     pub fn as_signing_fr(&self) -> Fr {
         // constants and structure as defined in the Mantle spec:
         // https://www.notion.so/Mantle-Specification-21c261aa09df810c8820fab1d78b53d9
 
-        let mut output = vec![*Self::NOMOS_LEDGER_TXHASH_V1_FR];
+        let mut output = vec![*NOMOS_LEDGER_TXHASH_V1_FR];
 
         for note in &self.inputs {
             output.push(*note.as_fr());
         }
 
-        output.push(*Self::INOUT_SEP_FR);
+        output.push(*INOUT_SEP_FR);
 
         for note in &self.outputs {
             output.extend(note.as_fr_components());

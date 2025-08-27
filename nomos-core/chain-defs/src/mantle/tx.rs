@@ -1,5 +1,12 @@
-use blake2::Digest as _;
+use std::sync::LazyLock;
+
+use blake2::{
+    digest::{Update as _, VariableOutput as _},
+    Blake2bVar,
+};
 use groth16::{serde::serde_fr, Fr};
+use num_bigint::BigUint;
+use poseidon2::{Digest, Poseidon2Bn254Hasher};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -42,11 +49,6 @@ impl TxHash {
     pub fn random(mut rng: impl rand::RngCore) -> Self {
         Self(BigUint::from(rng.next_u64()).into())
     }
-
-    #[must_use]
-    pub fn hex(&self) -> String {
-        hex::encode(self.0 .0 .0)
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -56,30 +58,55 @@ pub struct MantleTx {
     pub execution_gas_price: Gas,
     pub storage_gas_price: Gas,
 }
+static NOMOS_MANTLE_TXHASH_V1_FR: LazyLock<Fr> = LazyLock::new(|| {
+    let mut hasher = Blake2bVar::new(31).expect("Blak2b variable output should be able to build");
+    hasher.update(b"NOMOS_MANTLE_TXHASH_V1");
+    let mut buff = [0u8; 31];
+    hasher
+        .finalize_variable(&mut buff)
+        .expect("Hash should be built");
+    BigUint::from_bytes_be(&buff).into()
+});
+
+static END_OPS_FR: LazyLock<Fr> = LazyLock::new(|| {
+    let mut hasher = Blake2bVar::new(31).expect("Blak2b variable output should be able to build");
+    hasher.update(b"END_OPS");
+    let mut buff = [0u8; 31];
+    hasher
+        .finalize_variable(&mut buff)
+        .expect("Hash should be built");
+    BigUint::from_bytes_be(&buff).into()
+});
 
 impl Transaction for MantleTx {
-    const HASHER: TransactionHasher<Self> =
-        |tx| <[u8; 32]>::from(crate::crypto::Hasher::digest(tx.as_sign_bytes())).into();
+    const HASHER: TransactionHasher<Self> = |tx| {
+        let mut hasher = Poseidon2Bn254Hasher::default();
+        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &tx.as_signing_fr());
+        hasher.finalize().into()
+    };
     type Hash = TxHash;
 
-    fn as_sign_bytes(&self) -> bytes::Bytes {
+    fn as_signing_fr(&self) -> Fr {
         // constant and structure as defined in the Mantle specification:
         // https://www.notion.so/Mantle-Specification-21c261aa09df810c8820fab1d78b53d9
-        const NOMOS_MANTLE_TXHASH_V1: &[u8] = b"NOMOS_MANTLE_TXHASH_V1";
-        const END_OPS: &[u8] = b"END_OPS";
 
-        let mut buff = bytes::BytesMut::new();
-        buff.extend_from_slice(NOMOS_MANTLE_TXHASH_V1);
-        for op in &self.ops {
-            buff.extend_from_slice(op.as_sign_bytes().as_ref());
+        let mut hasher = Poseidon2Bn254Hasher::default();
+        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &NOMOS_MANTLE_TXHASH_V1_FR);
+
+        for payload in self.ops.iter().flat_map(Op::as_signing_fr) {
+            <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &payload);
         }
-        buff.extend_from_slice(END_OPS);
-
-        buff.extend_from_slice(self.storage_gas_price.to_le_bytes().as_ref());
-        buff.extend_from_slice(self.execution_gas_price.to_le_bytes().as_ref());
-
-        buff.extend_from_slice(&self.ledger_tx.hash().0);
-        buff.freeze()
+        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &END_OPS_FR);
+        <Poseidon2Bn254Hasher as Digest>::update(
+            &mut hasher,
+            &BigUint::from(self.storage_gas_price).into(),
+        );
+        <Poseidon2Bn254Hasher as Digest>::update(
+            &mut hasher,
+            &BigUint::from(self.execution_gas_price).into(),
+        );
+        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &self.ledger_tx.as_signing_fr());
+        hasher.finalize()
     }
 }
 
@@ -98,12 +125,15 @@ pub struct SignedMantleTx {
 }
 
 impl Transaction for SignedMantleTx {
-    const HASHER: TransactionHasher<Self> =
-        |tx| <[u8; 32]>::from(crate::crypto::Hasher::digest(tx.as_sign_bytes())).into();
+    const HASHER: TransactionHasher<Self> = |tx| {
+        let mut hasher = Poseidon2Bn254Hasher::default();
+        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &tx.as_signing_fr());
+        hasher.finalize().into()
+    };
     type Hash = TxHash;
 
-    fn as_sign_bytes(&self) -> bytes::Bytes {
-        self.mantle_tx.as_sign_bytes()
+    fn as_signing_fr(&self) -> Fr {
+        self.mantle_tx.as_signing_fr()
     }
 }
 

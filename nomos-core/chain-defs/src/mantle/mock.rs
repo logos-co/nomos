@@ -4,13 +4,11 @@ use blake2::{
     digest::{Update as _, VariableOutput as _},
     Blake2bVar,
 };
-use bytes::{Bytes, BytesMut};
 use groth16::Fr;
 use serde::Serialize;
 
 use crate::{
     mantle::{Transaction, TransactionHasher},
-    wire,
     wire::serialize,
 };
 
@@ -32,14 +30,6 @@ impl<M: Serialize> MockTransaction<M> {
 
     pub const fn id(&self) -> MockTxId {
         self.id
-    }
-
-    fn as_bytes(&self) -> Bytes {
-        let mut buff = BytesMut::new();
-        wire::serializer_into_buffer(&mut buff)
-            .serialize_into(&self)
-            .expect("MockTransaction serialization to buffer failed");
-        buff.freeze()
     }
 }
 
