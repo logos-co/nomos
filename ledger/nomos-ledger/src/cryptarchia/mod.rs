@@ -226,8 +226,9 @@ impl LedgerState {
             self.utxos = self.utxos.insert(utxo.id(), note).0;
         }
 
+        let gas_cost = tx.gas_cost::<Constants>();
         balance = balance
-            .checked_sub(tx.gas_cost::<Constants>())
+            .checked_sub(gas_cost)
             .ok_or(LedgerError::InsufficientBalance)?;
 
         Ok((self, balance))
@@ -698,7 +699,7 @@ pub mod tests {
 
     #[test]
     fn test_tx_processing_valid_transaction() {
-        let input_note = Note::new(10000, Fr::from(BigUint::from(1u8)).into());
+        let input_note = Note::new(11000, Fr::from(BigUint::from(1u8)).into());
         let input_utxo = Utxo {
             tx_hash: Fr::from(BigUint::from(1u8)).into(),
             output_index: 0,
