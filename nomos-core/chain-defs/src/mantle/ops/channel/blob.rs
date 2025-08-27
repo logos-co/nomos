@@ -38,13 +38,4 @@ impl BlobOp {
         buff.extend_from_slice(self.signer.as_ref());
         buff.freeze()
     }
-
-    #[must_use]
-    pub fn as_sign_bytes(&self) -> Bytes {
-        let mut buff = BytesMut::new();
-        buff.extend_from_slice(self.channel.as_ref());
-        buff.extend_from_slice(&self.blob);
-        buff.extend_from_slice(self.signer.as_ref());
-        buff.freeze()
-    }
 }
