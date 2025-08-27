@@ -66,7 +66,8 @@ impl TestEncapsulatedMessage {
 
     pub fn new_with_invalid_signature(payload: &[u8]) -> Self {
         let mut self_instance = Self::new(payload);
-        self_instance.0.public_header_mut().signature = Signature::from([100u8; SIGNATURE_SIZE]);
+        *self_instance.0.public_header_mut().signature_mut() =
+            Signature::from([100u8; SIGNATURE_SIZE]);
         self_instance
     }
 

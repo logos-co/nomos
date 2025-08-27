@@ -62,3 +62,48 @@ where
         self.membership.load().subnetworks()
     }
 }
+
+#[derive(Clone)]
+pub struct SharedMembershipHandler<Membership> {
+    membership: Arc<Membership>,
+}
+
+impl<Membership> SharedMembershipHandler<Membership> {
+    pub fn new(membership: Membership) -> Self {
+        Self {
+            membership: Arc::new(membership),
+        }
+    }
+}
+
+impl<Membership> MembershipHandler for SharedMembershipHandler<Membership>
+where
+    Membership: MembershipHandler + Clone,
+{
+    type NetworkId = Membership::NetworkId;
+    type Id = Membership::Id;
+
+    fn membership(&self, id: &Self::Id) -> HashSet<Self::NetworkId> {
+        self.membership.membership(id)
+    }
+
+    fn is_allowed(&self, id: &Self::Id) -> bool {
+        self.membership.is_allowed(id)
+    }
+
+    fn members_of(&self, network_id: &Self::NetworkId) -> HashSet<Self::Id> {
+        self.membership.members_of(network_id)
+    }
+
+    fn members(&self) -> HashSet<Self::Id> {
+        self.membership.members()
+    }
+
+    fn last_subnetwork_id(&self) -> Self::NetworkId {
+        self.membership.last_subnetwork_id()
+    }
+
+    fn subnetworks(&self) -> SubnetworkAssignations<Self::NetworkId, Self::Id> {
+        self.membership.subnetworks()
+    }
+}

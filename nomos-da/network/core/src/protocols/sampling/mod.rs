@@ -231,20 +231,24 @@ pub struct SubnetsConfig {
 
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "SamplingEvent")]
-pub struct SamplingBehaviour<Membership, Addressbook>
+pub struct SamplingBehaviour<Membership, HistoricMembership, Addressbook>
 where
     Membership: MembershipHandler,
+    HistoricMembership: MembershipHandler,
     Addressbook: AddressBookHandler,
 {
     requests: RequestSamplingBehaviour<Membership, Addressbook>,
-    historical_requests: HistoricRequestSamplingBehaviour<Membership, Addressbook>,
+    historical_requests: HistoricRequestSamplingBehaviour<HistoricMembership, Addressbook>,
     responses: ResponseSamplingBehaviour,
 }
 
-impl<Membership, Addressbook> SamplingBehaviour<Membership, Addressbook>
+impl<Membership, HistoricMembership, Addressbook>
+    SamplingBehaviour<Membership, HistoricMembership, Addressbook>
 where
     Membership: MembershipHandler + Clone + Send + Sync + 'static,
     Membership::NetworkId: Send,
+    HistoricMembership: MembershipHandler + Clone + Send + Sync + 'static,
+    HistoricMembership::NetworkId: Send,
     Addressbook: AddressBookHandler + Clone + 'static,
 {
     pub fn new(
@@ -279,7 +283,7 @@ where
         self.requests.commitments_request_channel()
     }
 
-    pub fn historical_request_channel(&self) -> UnboundedSender<SampleArgs<Membership>> {
+    pub fn historical_request_channel(&self) -> UnboundedSender<SampleArgs<HistoricMembership>> {
         self.historical_requests.historic_request_channel()
     }
 }
@@ -310,6 +314,11 @@ mod test {
     async fn test_sampling_swarm(
         mut swarm: Swarm<
             SamplingBehaviour<
+                impl MembershipHandler<Id = PeerId, NetworkId = SubnetworkId>
+                    + Clone
+                    + Send
+                    + Sync
+                    + 'static,
                 impl MembershipHandler<Id = PeerId, NetworkId = SubnetworkId>
                     + Clone
                     + Send
@@ -391,7 +400,7 @@ mod test {
         let p2_addresses = vec![(PeerId::from_public_key(&k1.public()), p1_address.clone())];
         neighbours_p2.update_addresses(p2_addresses);
 
-        let p1_behavior = SamplingBehaviour::new(
+        let p1_behavior: SamplingBehaviour<_, AllNeighbours, _> = SamplingBehaviour::new(
             PeerId::from_public_key(&k1.public()),
             neighbours_p1.clone(),
             neighbours_p1.clone(),
@@ -405,7 +414,7 @@ mod test {
 
         let mut p1 = new_swarm_in_memory(&k1, p1_behavior);
 
-        let p2_behavior = SamplingBehaviour::new(
+        let p2_behavior: SamplingBehaviour<_, AllNeighbours, _> = SamplingBehaviour::new(
             PeerId::from_public_key(&k2.public()),
             neighbours_p2.clone(),
             neighbours_p2.clone(),

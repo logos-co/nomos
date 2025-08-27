@@ -92,7 +92,7 @@ impl MembershipBackend for MockMembershipBackend {
                 .or_default();
 
             match state {
-                nomos_core::sdp::DeclarationState::Active => {
+                nomos_core::sdp::FinalizedDeclarationState::Active => {
                     self.forming_session_locators
                         .entry(service_type)
                         .or_default()
@@ -100,8 +100,8 @@ impl MembershipBackend for MockMembershipBackend {
 
                     service_data.insert(provider_id);
                 }
-                nomos_core::sdp::DeclarationState::Inactive
-                | nomos_core::sdp::DeclarationState::Withdrawn => {
+                nomos_core::sdp::FinalizedDeclarationState::Inactive
+                | nomos_core::sdp::FinalizedDeclarationState::Withdrawn => {
                     service_data.remove(&provider_id);
                     self.forming_session_locators
                         .entry(service_type)
@@ -182,12 +182,11 @@ mod tests {
 
     use multiaddr::multiaddr;
     use nomos_core::sdp::{
-        DeclarationState, FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId,
-        ServiceType,
+        FinalizedBlockEvent, FinalizedBlockEventUpdate, FinalizedDeclarationState, Locator,
+        ProviderId, ServiceType,
     };
 
     use super::{MembershipBackend as _, MockMembershipBackend, MockMembershipBackendSettings};
-    use crate::backends::MembershipBackendError;
 
     fn pid(seed: u8) -> ProviderId {
         let mut b = [0u8; 32];
@@ -209,7 +208,7 @@ mod tests {
     fn update(
         service: ServiceType,
         provider_id: ProviderId,
-        state: DeclarationState,
+        state: FinalizedDeclarationState,
         locators: BTreeSet<Locator>,
     ) -> FinalizedBlockEventUpdate {
         FinalizedBlockEventUpdate {
@@ -290,7 +289,7 @@ mod tests {
             updates: vec![update(
                 service,
                 p2,
-                DeclarationState::Active,
+                FinalizedDeclarationState::Active,
                 p2_locs.clone(),
             )],
         };
@@ -310,7 +309,7 @@ mod tests {
             updates: vec![update(
                 service,
                 p1,
-                DeclarationState::Withdrawn,
+                FinalizedDeclarationState::Withdrawn,
                 BTreeSet::new(),
             )],
         };
@@ -329,96 +328,5 @@ mod tests {
         let (sid_a2, prov_a2) = backend.get_latest_providers(service).await.unwrap();
         assert_eq!(sid_a2, 1);
         assert_eq!(prov_a2, *prov_promoted);
-    }
-
-    #[tokio::test]
-    async fn locators_are_replaced_before_promotion() {
-        let service = ServiceType::DataAvailability;
-
-        let p1 = pid(1);
-        let p1_locs_initial = locs::<1>(1);
-        let p1_locs_new = locs::<2>(21);
-
-        // Seed S=0 with P1
-        let mut session0_membership = HashMap::new();
-        session0_membership.insert(service, HashSet::from([p1]));
-        let mut session0_locators = HashMap::new();
-        session0_locators.insert(service, HashMap::new());
-        session0_locators
-            .get_mut(&service)
-            .unwrap()
-            .insert(p1, p1_locs_initial.clone());
-
-        let settings = MockMembershipBackendSettings {
-            session_size_blocks: 3, // blocks {0,1,2} -> S=0; boundary after block 2
-            session_zero_membership: session0_membership,
-            session_zero_locators_mapping: session0_locators,
-        };
-        let mut backend = MockMembershipBackend::init(settings);
-
-        // Block 1: update forming S=1, not yet boundary -> None
-        let r1 = backend
-            .update(FinalizedBlockEvent {
-                block_number: 1,
-                updates: vec![update(
-                    service,
-                    p1,
-                    DeclarationState::Active,
-                    p1_locs_new.clone(),
-                )],
-            })
-            .await
-            .unwrap();
-        assert!(r1.is_none(), "no promotion yet inside session");
-
-        // Block 2: end of S=0 -> promotion -> Some(...)
-        let r2 = backend
-            .update(FinalizedBlockEvent {
-                block_number: 2,
-                updates: vec![],
-            })
-            .await
-            .unwrap();
-
-        let promoted = r2.expect("promotion at end of session 0");
-        let (_, prov) = promoted.get(&service).unwrap();
-        assert_eq!(prov.get(&p1).unwrap(), &p1_locs_new);
-
-        // Latest reflects new locators
-        let (_, latest) = backend.get_latest_providers(service).await.unwrap();
-        assert_eq!(latest.get(&p1).unwrap(), &p1_locs_new);
-    }
-
-    #[tokio::test]
-    async fn block_from_past_is_rejected() {
-        let settings = MockMembershipBackendSettings {
-            session_size_blocks: 3,
-            session_zero_membership: HashMap::new(),
-            session_zero_locators_mapping: HashMap::new(),
-        };
-
-        let mut backend = MockMembershipBackend::init(settings);
-
-        let ok = backend
-            .update(FinalizedBlockEvent {
-                block_number: 10,
-                updates: vec![],
-            })
-            .await;
-        assert!(ok.is_ok());
-
-        // Same block number again -> should fail with BlockFromPast
-        let err = backend
-            .update(FinalizedBlockEvent {
-                block_number: 10,
-                updates: vec![],
-            })
-            .await
-            .unwrap_err();
-
-        match err {
-            MembershipBackendError::BlockFromPast => {}
-            MembershipBackendError::Other(err) => panic!("Expected BlockFromPast, got {err}"),
-        }
     }
 }

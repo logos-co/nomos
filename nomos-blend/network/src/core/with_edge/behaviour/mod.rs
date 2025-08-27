@@ -1,6 +1,7 @@
 use std::{
     collections::{HashSet, VecDeque},
     convert::Infallible,
+    mem,
     task::{Context, Poll, Waker},
     time::Duration,
 };
@@ -50,7 +51,7 @@ pub struct Behaviour {
     events: VecDeque<ToSwarm<Event, Either<FromBehaviour, Infallible>>>,
     /// Waker that handles polling
     waker: Option<Waker>,
-    // TODO: Replace with the session stream and make this a non-Option
+    // TODO: Make this a non-Option by refactoring tests
     current_membership: Option<Membership<PeerId>>,
     // Timeout to close connection with an edge node if a message is not received on time.
     connection_timeout: Duration,
@@ -74,6 +75,16 @@ impl Behaviour {
             upgraded_edge_peers: HashSet::with_capacity(config.max_incoming_connections),
             max_incoming_connections: config.max_incoming_connections,
             protocol_name,
+        }
+    }
+
+    pub fn start_new_session(&mut self, new_membership: Membership<PeerId>) {
+        self.current_membership = Some(new_membership);
+        // Close all the connections without waiting for the transition period,
+        // so that edge nodes can retry with the new membership.
+        let peers = mem::take(&mut self.upgraded_edge_peers);
+        for conn in &peers {
+            self.close_substream(*conn);
         }
     }
 
@@ -118,12 +129,7 @@ impl Behaviour {
         // connection being dropped.
         if self.available_connection_slots() == 0 {
             tracing::debug!(target: LOG_TARGET, "Connection {connection:?} must be closed because peering degree limit has been reached.");
-            self.events.push_back(ToSwarm::NotifyHandler {
-                peer_id: connection.0,
-                handler: NotifyHandler::One(connection.1),
-                event: Either::Left(FromBehaviour::CloseSubstream),
-            });
-            self.try_wake();
+            self.close_substream(connection);
             return;
         }
         tracing::debug!(target: LOG_TARGET, "Connection {connection:?} has been negotiated.");
@@ -134,6 +140,15 @@ impl Behaviour {
         });
         self.try_wake();
         self.upgraded_edge_peers.insert(connection);
+    }
+
+    fn close_substream(&mut self, (peer_id, connection_id): (PeerId, ConnectionId)) {
+        self.events.push_back(ToSwarm::NotifyHandler {
+            peer_id,
+            handler: NotifyHandler::One(connection_id),
+            event: Either::Left(FromBehaviour::CloseSubstream),
+        });
+        self.try_wake();
     }
 }
 

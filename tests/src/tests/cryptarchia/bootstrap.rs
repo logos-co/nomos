@@ -9,7 +9,11 @@ use tests::{
     common::sync::{wait_for_validators_mode, wait_for_validators_mode_and_height},
     nodes::validator::{create_validator_config, Validator},
     secret_key_to_peer_id,
-    topology::configs::{create_general_configs, GeneralConfig},
+    topology::configs::{
+        create_general_configs_with_network,
+        network::{Libp2pNetworkLayout, NetworkParams},
+        GeneralConfig,
+    },
 };
 
 #[tokio::test]
@@ -17,7 +21,10 @@ async fn test_ibd_behind_nodes() {
     let n_validators = 4;
     let n_initial_validators = 2;
 
-    let general_configs = create_general_configs(n_validators);
+    let network_params = NetworkParams {
+        libp2p_network_layout: Libp2pNetworkLayout::Full,
+    };
+    let general_configs = create_general_configs_with_network(n_validators, &network_params);
 
     let mut initial_validators = vec![];
     for config in general_configs.iter().take(n_initial_validators) {

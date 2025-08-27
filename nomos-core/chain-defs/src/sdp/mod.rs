@@ -109,32 +109,39 @@ pub struct DeclarationInfo {
     pub service: ServiceType,
     pub locators: Vec<Locator>,
     pub zk_id: ZkPublicKey,
-    pub created: BlockNumber,
-    pub active: Option<BlockNumber>,
-    pub withdrawn: Option<BlockNumber>,
 }
 
 impl DeclarationInfo {
     #[must_use]
-    pub fn new(created: BlockNumber, msg: DeclarationMessage) -> Self {
+    pub fn new(msg: DeclarationMessage) -> Self {
         Self {
             id: msg.declaration_id(),
             provider_id: msg.provider_id,
             service: msg.service_type,
             locators: msg.locators,
             zk_id: msg.zk_id,
-            created,
-            active: None,
-            withdrawn: None,
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum DeclarationState {
-    Active,
-    Inactive,
-    Withdrawn,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeclarationState {
+    pub created: BlockNumber,
+    pub active: BlockNumber,
+    pub withdrawn: Option<BlockNumber>,
+    pub nonce: Nonce,
+}
+
+impl DeclarationState {
+    #[must_use]
+    pub const fn new(block_number: BlockNumber) -> Self {
+        Self {
+            created: block_number,
+            active: block_number,
+            withdrawn: None,
+            nonce: 0,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
@@ -182,7 +189,7 @@ pub struct ActiveMessage<Metadata> {
     pub metadata: Option<Metadata>,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum EventType {
     Declaration,
     Activity,
@@ -214,6 +221,13 @@ impl<Metadata> SdpMessage<Metadata> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FinalizedDeclarationState {
+    Active,
+    Inactive,
+    Withdrawn,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FinalizedBlockEvent {
     pub block_number: BlockNumber,
     pub updates: Vec<FinalizedBlockEventUpdate>,
@@ -223,6 +237,6 @@ pub struct FinalizedBlockEvent {
 pub struct FinalizedBlockEventUpdate {
     pub service_type: ServiceType,
     pub provider_id: ProviderId,
-    pub state: DeclarationState,
+    pub state: FinalizedDeclarationState,
     pub locators: BTreeSet<Locator>,
 }

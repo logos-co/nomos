@@ -10,44 +10,50 @@ use crate::{
     error::Error,
 };
 
-pub const VERSION: u8 = 1;
-
-// A message header that is revealed to all nodes.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Header {
-    version: u8,
-}
-
-impl Header {
-    /// Create a header with the current version
-    /// since this module implements the blend protocol version 1.
-    #[must_use]
-    pub(crate) const fn new() -> Self {
-        Self { version: VERSION }
-    }
-}
-
-impl Default for Header {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+const LATEST_BLEND_MESSAGE_VERSION: u8 = 1;
 
 // A public header that is revealed to all nodes.
 #[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PublicHeader {
-    pub signing_pubkey: Ed25519PublicKey,
-    pub proof_of_quota: ProofOfQuota,
-    pub signature: Signature,
+    version: u8,
+    signing_pubkey: Ed25519PublicKey,
+    proof_of_quota: ProofOfQuota,
+    signature: Signature,
 }
 
 impl PublicHeader {
+    pub const fn new(
+        signing_pubkey: Ed25519PublicKey,
+        proof_of_quota: ProofOfQuota,
+        signature: Signature,
+    ) -> Self {
+        Self {
+            proof_of_quota,
+            signature,
+            signing_pubkey,
+            version: LATEST_BLEND_MESSAGE_VERSION,
+        }
+    }
+
     pub fn verify_signature(&self, body: &[u8]) -> Result<(), Error> {
         if self.signing_pubkey.verify_signature(body, &self.signature) {
             Ok(())
         } else {
             Err(Error::SignatureVerificationFailed)
         }
+    }
+
+    pub const fn signing_pubkey(&self) -> &Ed25519PublicKey {
+        &self.signing_pubkey
+    }
+
+    pub const fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    #[cfg(any(test, feature = "unsafe-test-functions"))]
+    pub const fn signature_mut(&mut self) -> &mut Signature {
+        &mut self.signature
     }
 }
 

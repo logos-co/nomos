@@ -12,7 +12,7 @@ use crate::{
     },
     error::Error,
     input::EncapsulationInputs,
-    message::{BlendingHeader, Header, Payload, PayloadType, PublicHeader},
+    message::{BlendingHeader, Payload, PayloadType, PublicHeader},
 };
 
 pub type MessageIdentifier = Ed25519PublicKey;
@@ -20,8 +20,6 @@ pub type MessageIdentifier = Ed25519PublicKey;
 /// An encapsulated message that is sent to the blend network.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
-    /// A header that is not encapsulated.
-    header: Header,
     /// A public header that is not encapsulated.
     public_header: PublicHeader,
     /// Encapsulated parts
@@ -61,14 +59,13 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
         );
 
         // Construct the public header.
-        let public_header = PublicHeader {
-            signing_pubkey: signing_key.public_key(),
+        let public_header = PublicHeader::new(
+            signing_key.public_key(),
             proof_of_quota,
-            signature: part.sign(&signing_key),
-        };
+            part.sign(&signing_key),
+        );
 
         Ok(Self {
-            header: Header::new(),
             public_header,
             encapsulated_part: part,
         })
@@ -90,13 +87,12 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
     ) -> Result<DecapsulationOutput<ENCAPSULATION_COUNT>, Error> {
         // Derive the shared key.
         let shared_key =
-            private_key.derive_shared_key(&self.public_header.signing_pubkey.derive_x25519());
+            private_key.derive_shared_key(&self.public_header.signing_pubkey().derive_x25519());
 
         // Decapsulate the encapsulated part.
         match self.encapsulated_part.decapsulate(&shared_key)? {
             PartDecapsulationOutput::Incompleted((encapsulated_part, public_header)) => {
                 Ok(DecapsulationOutput::Incompleted(Self {
-                    header: self.header,
                     public_header,
                     encapsulated_part,
                 }))
@@ -118,7 +114,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
 
     #[must_use]
     pub const fn id(&self) -> MessageIdentifier {
-        self.public_header.signing_pubkey
+        *self.public_header.signing_pubkey()
     }
 
     pub fn verify_public_header(&self) -> Result<(), Error> {
@@ -399,11 +395,11 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
         }
 
         // Build a new public header with the values in the first blending header.
-        let public_header = PublicHeader {
-            signing_pubkey: first_blending_header.signing_pubkey,
-            proof_of_quota: first_blending_header.proof_of_quota,
-            signature: first_blending_header.signature,
-        };
+        let public_header = PublicHeader::new(
+            first_blending_header.signing_pubkey,
+            first_blending_header.proof_of_quota,
+            first_blending_header.signature,
+        );
 
         // Shift blending headers one leftward.
         self.shift_left();
