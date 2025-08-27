@@ -10,11 +10,11 @@ use crate::mantle::NoteId;
 
 #[must_use]
 pub fn padded_leaves<const N: usize>(elements: &[NoteId]) -> [Fr; N] {
-    let mut leaves = Vec::new();
+    let mut leaves = vec![BigUint::from(0u8).into(); N];
 
     for (i, element) in elements.iter().enumerate() {
         assert!(i < N);
-        leaves.push(leaf(element.as_fr()));
+        leaves[i] = leaf(element.as_fr());
     }
 
     leaves.try_into().expect("Size is asserted per loop")
