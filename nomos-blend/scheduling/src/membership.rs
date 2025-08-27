@@ -105,9 +105,10 @@ impl<NodeId> Membership<NodeId> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use nomos_blend_message::crypto::Ed25519PrivateKey;
     use rand::rngs::OsRng;
+
+    use super::*;
 
     #[test]
     fn test_membership_new_with_local_node() {
