@@ -1,6 +1,5 @@
 use std::hash::Hash;
 
-use bytes::Bytes;
 use thiserror::Error;
 
 pub mod gas;
@@ -14,6 +13,7 @@ pub mod select;
 pub mod tx;
 
 pub use gas::{GasConstants, GasCost};
+use groth16::Fr;
 pub use ledger::{Note, NoteId, Utxo, Value};
 pub use ops::{Op, OpProof};
 pub use tx::{MantleTx, SignedMantleTx, TxHash};
@@ -33,7 +33,7 @@ pub trait Transaction {
     /// The resulting bytes are then used by the `HASHER`
     /// to produce the transaction's unique hash, which is what is typically
     /// signed by the transaction originator.
-    fn as_sign_bytes(&self) -> Bytes;
+    fn as_signing_fr(&self) -> Fr;
 }
 
 pub trait AuthenticatedMantleTx: Transaction<Hash = TxHash> + GasCost {
@@ -50,8 +50,8 @@ impl<T: Transaction> Transaction for &T {
     const HASHER: TransactionHasher<Self> = |tx| T::HASHER(tx);
     type Hash = T::Hash;
 
-    fn as_sign_bytes(&self) -> Bytes {
-        T::as_sign_bytes(self)
+    fn as_signing_fr(&self) -> Fr {
+        T::as_signing_fr(self)
     }
 }
 

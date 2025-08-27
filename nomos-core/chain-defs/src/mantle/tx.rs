@@ -1,4 +1,5 @@
 use blake2::Digest as _;
+use groth16::{serde::serde_fr, Fr};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -9,28 +10,28 @@ use crate::{
         AuthenticatedMantleTx, Transaction, TransactionHasher,
     },
     proofs::zksig::{DummyZkSignature as ZkSignature, ZkSignatureProof},
-    utils::serde_bytes_newtype,
 };
 /// The hash of a transaction
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, PartialOrd, Ord)]
-pub struct TxHash(pub [u8; 32]);
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Hash, PartialOrd, Ord, Serialize, Deserialize,
+)]
+#[serde(transparent)]
+pub struct TxHash(#[serde(with = "serde_fr")] pub Fr);
 
-serde_bytes_newtype!(TxHash, 32);
-
-impl From<[u8; 32]> for TxHash {
-    fn from(bytes: [u8; 32]) -> Self {
-        Self(bytes)
+impl From<Fr> for TxHash {
+    fn from(fr: Fr) -> Self {
+        Self(fr)
     }
 }
 
-impl From<TxHash> for [u8; 32] {
+impl From<TxHash> for Fr {
     fn from(hash: TxHash) -> Self {
         hash.0
     }
 }
 
-impl AsRef<[u8; 32]> for TxHash {
-    fn as_ref(&self) -> &[u8; 32] {
+impl AsRef<Fr> for TxHash {
+    fn as_ref(&self) -> &Fr {
         &self.0
     }
 }
@@ -39,14 +40,12 @@ impl TxHash {
     /// For testing purposes
     #[cfg(test)]
     pub fn random(mut rng: impl rand::RngCore) -> Self {
-        let mut sk = [0u8; 32];
-        rng.fill_bytes(&mut sk);
-        Self(sk)
+        Self(BigUint::from(rng.next_u64()).into())
     }
 
     #[must_use]
     pub fn hex(&self) -> String {
-        hex::encode(self.0)
+        hex::encode(self.0 .0 .0)
     }
 }
 

@@ -5,6 +5,7 @@ use blake2::{
     Blake2bVar,
 };
 use bytes::{Bytes, BytesMut};
+use groth16::Fr;
 use serde::Serialize;
 
 use crate::{
@@ -46,8 +47,8 @@ impl<M: Serialize> Transaction for MockTransaction<M> {
     const HASHER: TransactionHasher<Self> = Self::id;
     type Hash = MockTxId;
 
-    fn as_sign_bytes(&self) -> Bytes {
-        Self::as_bytes(self)
+    fn as_signing_fr(&self) -> Fr {
+        todo!()
     }
 }
 

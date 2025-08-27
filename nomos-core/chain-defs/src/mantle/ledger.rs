@@ -1,34 +1,31 @@
-use bytes::{Bytes, BytesMut};
-use groth16::Fr;
+use std::sync::LazyLock;
+
+use blake2::digest::{Update, VariableOutput};
+use groth16::{serde::serde_fr, Fr};
+use num_bigint::BigUint;
+use poseidon2::{Digest, Poseidon2Bn254Hasher};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    crypto::Digest as _,
-    mantle::{gas::GasConstants, keys::PublicKey, tx::TxHash, Transaction, TransactionHasher},
+use crate::mantle::{
+    gas::GasConstants, keys::PublicKey, tx::TxHash, Transaction, TransactionHasher,
 };
 
 pub type Value = u64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct NoteId(#[serde(with = serde_fr)] pub Fr);
+pub struct NoteId(#[serde(with = "serde_fr")] pub Fr);
 
 impl NoteId {
     #[must_use]
-    pub const fn as_bytes(&self) -> &[u8; 32] {
+    pub const fn as_fr(&self) -> &Fr {
         &self.0
     }
 }
 
-impl AsRef<[u8; 32]> for NoteId {
-    fn as_ref(&self) -> &[u8; 32] {
+impl AsRef<Fr> for NoteId {
+    fn as_ref(&self) -> &Fr {
         &self.0
-    }
-}
-
-impl AsRef<[u8]> for NoteId {
-    fn as_ref(&self) -> &[u8] {
-        &self.0[..]
     }
 }
 
@@ -45,11 +42,8 @@ impl Note {
     }
 
     #[must_use]
-    pub fn to_bytes(&self) -> [u8; 40] {
-        let mut bytes = [0u8; 40];
-        bytes[..8].copy_from_slice(&self.value.to_le_bytes());
-        bytes[8..].copy_from_slice(&self.pk.as_bytes()[..]);
-        bytes
+    pub fn as_fr_components(&self) -> [Fr; 2] {
+        [BigUint::from(self.value).into(), *self.pk.as_fr()]
     }
 }
 
@@ -67,22 +61,29 @@ pub struct Utxo {
 }
 
 impl Utxo {
+    const NOMOS_NOTE_ID_V1: LazyLock<Fr> =
+        LazyLock::new(|| BigUint::from_bytes_le(b"NOMOS_NOTE_ID_V1".as_slice()).into());
+
     #[must_use]
     pub fn id(&self) -> NoteId {
         // constants and structure as defined in the Mantle spec:
         // https://www.notion.so/Mantle-Specification-21c261aa09df810c8820fab1d78b53d9
-        const NOMOS_NOTE_ID_V1: &[u8] = b"NOMOS_NOTE_ID_V1";
 
-        let mut hasher = crate::crypto::Hasher::new();
-
-        hasher.update(NOMOS_NOTE_ID_V1);
-        hasher.update(self.tx_hash.0);
-        hasher.update(self.output_index.to_le_bytes());
-        hasher.update(self.note.value.to_le_bytes());
-        hasher.update(self.note.pk.as_bytes());
+        let mut hasher = Poseidon2Bn254Hasher::default();
+        let tx_hash: Fr = *self.tx_hash.as_ref();
+        let output_index: Fr =
+            BigUint::from_bytes_le(self.output_index.to_le_bytes().as_slice()).into();
+        let note_value: Fr =
+            BigUint::from_bytes_le(self.note.value.to_le_bytes().as_slice()).into();
+        let note_pk: Fr = self.note.pk.into();
+        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &Utxo::NOMOS_NOTE_ID_V1);
+        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &tx_hash);
+        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &output_index);
+        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &note_value);
+        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &note_pk);
 
         let hash = hasher.finalize();
-        NoteId(hash.into())
+        NoteId(hash)
     }
 }
 
@@ -92,26 +93,46 @@ impl Tx {
         Self { inputs, outputs }
     }
 
+    const NOMOS_LEDGER_TXHASH_V1: &'static [u8] = b"NOMOS_LEDGER_TXHASH_V1";
+    const NOMOS_LEDGER_TXHASH_V1_FR: LazyLock<Fr> = LazyLock::new(|| {
+        let mut hasher = blake2::Blake2bVar::new(31).expect("blake2 initialization error");
+        hasher.update(&Self::NOMOS_LEDGER_TXHASH_V1);
+        let mut buff = [0u8; 31];
+        hasher
+            .finalize_variable(&mut buff)
+            .expect("blake2 variable hashing error");
+        BigUint::from_bytes_le(buff.as_slice()).into()
+    });
+
+    const INOUT_SEP: &'static [u8] = b"INOUT_SEP";
+    const INOUT_SEP_FR: LazyLock<Fr> = LazyLock::new(|| {
+        let mut hasher = blake2::Blake2bVar::new(31).expect("blake2 initialization error");
+        hasher.update(&Self::INOUT_SEP);
+        let mut buff = [0u8; 31];
+        hasher
+            .finalize_variable(&mut buff)
+            .expect("blake2 variable hashing error");
+        BigUint::from_bytes_le(buff.as_slice()).into()
+    });
+
     #[must_use]
-    pub fn as_sign_bytes(&self) -> Bytes {
+    pub fn as_signing_fr(&self) -> Fr {
         // constants and structure as defined in the Mantle spec:
         // https://www.notion.so/Mantle-Specification-21c261aa09df810c8820fab1d78b53d9
-        const NOMOS_LEDGER_TXHASH_V1: &[u8] = b"NOMOS_LEDGER_TXHASH_V1";
-        const INOUT_SEP: &[u8] = b"INOUT_SEP";
 
-        let mut bytes = BytesMut::from(NOMOS_LEDGER_TXHASH_V1);
+        let mut output = vec![*Self::NOMOS_LEDGER_TXHASH_V1_FR];
 
-        for input in &self.inputs {
-            bytes.extend(input.as_bytes());
+        for note in &self.inputs {
+            output.push(*note.as_fr());
         }
 
-        bytes.extend_from_slice(INOUT_SEP);
+        output.push(*Self::INOUT_SEP_FR);
 
-        for output in &self.outputs {
-            bytes.extend_from_slice(output.to_bytes().as_ref());
+        for note in &self.outputs {
+            output.extend(note.as_fr_components());
         }
 
-        bytes.freeze()
+        Poseidon2Bn254Hasher::digest(&output)
     }
 
     #[must_use]
@@ -142,28 +163,32 @@ impl Tx {
 }
 
 impl Transaction for Tx {
-    const HASHER: TransactionHasher<Self> =
-        |tx| <[u8; 32]>::from(crate::crypto::Hasher::digest(tx.as_sign_bytes())).into();
+    const HASHER: TransactionHasher<Self> = |tx| {
+        let mut hasher = Poseidon2Bn254Hasher::default();
+        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &tx.as_signing_fr());
+        hasher.finalize().into()
+    };
     type Hash = TxHash;
 
-    fn as_sign_bytes(&self) -> Bytes {
-        self.as_sign_bytes()
+    fn as_signing_fr(&self) -> Fr {
+        Self::as_signing_fr(self)
     }
 }
 
 #[cfg(test)]
 mod test {
-
     use super::*;
-
     #[test]
     fn test_utxo_by_index() {
+        let pk0 = PublicKey::from(Fr::from(BigUint::from(0u8)));
+        let pk1 = PublicKey::from(Fr::from(BigUint::from(0u8)));
+        let pk2 = PublicKey::from(Fr::from(BigUint::from(0u8)));
         let tx = Tx {
-            inputs: vec![NoteId([0; 32])],
+            inputs: vec![NoteId(BigUint::from(0u8).into())],
             outputs: vec![
-                Note::new(100, [0; 32].into()),
-                Note::new(200, [1; 32].into()),
-                Note::new(300, [2; 32].into()),
+                Note::new(100, pk0),
+                Note::new(200, pk1),
+                Note::new(300, pk2),
             ],
         };
         assert_eq!(
@@ -171,7 +196,7 @@ mod test {
             Some(Utxo {
                 tx_hash: tx.hash(),
                 output_index: 0,
-                note: Note::new(100, [0; 32].into()),
+                note: Note::new(100, pk0),
             })
         );
         assert_eq!(
@@ -179,7 +204,7 @@ mod test {
             Some(Utxo {
                 tx_hash: tx.hash(),
                 output_index: 1,
-                note: Note::new(200, [1; 32].into()),
+                note: Note::new(200, pk1),
             })
         );
         assert_eq!(
@@ -187,7 +212,7 @@ mod test {
             Some(Utxo {
                 tx_hash: tx.hash(),
                 output_index: 2,
-                note: Note::new(300, [2; 32].into()),
+                note: Note::new(300, pk2),
             })
         );
 
