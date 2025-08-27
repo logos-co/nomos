@@ -12,6 +12,17 @@ impl BlendConfig {
         Self(core)
     }
 
+    fn proxy(&self) -> <BlendService as ServiceData>::Settings {
+        nomos_blend_service::Settings {
+            time: self.0.time.clone(),
+            membership: self.0.membership.clone(),
+        }
+    }
+
+    fn core(&self) -> <BlendCoreService as ServiceData>::Settings {
+        self.0.clone()
+    }
+
     fn edge(&self) -> <BlendEdgeService as ServiceData>::Settings {
         nomos_blend_service::edge::settings::BlendConfig {
             backend: nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackendSettings {
@@ -41,7 +52,6 @@ impl From<BlendConfig>
     )
 {
     fn from(config: BlendConfig) -> Self {
-        let edge = config.edge();
-        ((), config.0, edge)
+        (config.proxy(), config.core(), config.edge())
     }
 }

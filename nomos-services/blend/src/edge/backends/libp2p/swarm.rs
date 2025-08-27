@@ -14,7 +14,9 @@ use libp2p_stream::OpenStreamError;
 use nomos_blend_network::send_msg;
 use nomos_blend_scheduling::{
     membership::{Membership, Node},
-    serialize_encapsulated_message, EncapsulatedMessage,
+    serialize_encapsulated_message,
+    session::SessionEvent,
+    EncapsulatedMessage,
 };
 use nomos_libp2p::{DialError, DialOpts, SwarmEvent};
 use rand::RngCore;
@@ -347,8 +349,6 @@ where
         }
     }
 
-    // TODO: Implement the actual session transition.
-    //       https://github.com/logos-co/nomos/issues/1462
     fn transition_session(&mut self, membership: Membership<PeerId>) {
         self.current_membership = Some(membership);
     }
@@ -380,7 +380,7 @@ fn dial_opts(peer_id: PeerId, address: Multiaddr) -> DialOpts {
 impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng>
 where
     Rng: RngCore + 'static,
-    SessionStream: Stream<Item = Membership<PeerId>> + Unpin,
+    SessionStream: Stream<Item = SessionEvent<Membership<PeerId>>> + Unpin,
 {
     pub(super) async fn run(mut self) {
         loop {
@@ -406,7 +406,7 @@ where
                 self.handle_command(command);
                 false
             }
-            Some(new_session) = self.session_stream.next() => {
+            Some(SessionEvent::NewSession(new_session)) = self.session_stream.next() => {
                 self.transition_session(new_session);
                 false
             }

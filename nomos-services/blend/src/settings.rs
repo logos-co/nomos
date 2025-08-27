@@ -15,12 +15,21 @@ pub struct TimingSettings {
     /// Duration of a round.
     pub round_duration: Duration,
     pub rounds_per_observation_window: NonZeroU64,
+    /// Session transition period
+    pub rounds_per_session_transition: NonZeroU64,
 }
 
 impl TimingSettings {
     #[must_use]
     pub const fn session_duration(&self) -> Duration {
         Duration::from_secs(self.rounds_per_session.get() * self.round_duration.as_secs())
+    }
+
+    #[must_use]
+    pub const fn session_transition_period(&self) -> Duration {
+        Duration::from_secs(
+            self.rounds_per_session_transition.get() * self.round_duration.as_secs(),
+        )
     }
 
     #[must_use]

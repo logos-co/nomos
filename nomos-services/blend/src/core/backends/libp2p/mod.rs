@@ -7,7 +7,9 @@ use futures::{
 };
 use libp2p::PeerId;
 use nomos_blend_network::EncapsulatedMessageWithValidatedPublicHeader;
-use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage};
+use nomos_blend_scheduling::{
+    membership::Membership, session::SessionEventStream, EncapsulatedMessage,
+};
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
@@ -56,7 +58,7 @@ where
     fn new(
         config: BlendConfig<Self::Settings, PeerId>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-        session_stream: Pin<Box<dyn Stream<Item = Membership<PeerId>> + Send>>,
+        session_stream: SessionEventStream<Membership<PeerId>>,
         rng: Rng,
     ) -> Self {
         let (swarm_message_sender, swarm_message_receiver) = mpsc::channel(CHANNEL_SIZE);

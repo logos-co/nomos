@@ -68,6 +68,7 @@ type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
         RuntimeServiceId
     >,
+    PeerId,
     RuntimeServiceId,
 >;
 

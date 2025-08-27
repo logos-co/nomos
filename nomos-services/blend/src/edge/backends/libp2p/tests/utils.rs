@@ -1,6 +1,6 @@
 use futures::stream::{pending, Pending};
 use libp2p::PeerId;
-use nomos_blend_scheduling::membership::Membership;
+use nomos_blend_scheduling::{membership::Membership, session::SessionEvent};
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;
 use tokio::sync::mpsc;
@@ -11,7 +11,7 @@ use crate::{
 };
 
 pub struct TestSwarm {
-    pub swarm: BlendSwarm<Pending<Membership<PeerId>>, BlakeRng>,
+    pub swarm: BlendSwarm<Pending<SessionEvent<Membership<PeerId>>>, BlakeRng>,
     pub command_sender: mpsc::Sender<Command>,
 }
 

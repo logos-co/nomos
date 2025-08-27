@@ -108,7 +108,7 @@ pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
 >;
 
 pub(crate) type BlendService =
-    nomos_blend_service::BlendService<BlendCoreService, BlendEdgeService, RuntimeServiceId>;
+    nomos_blend_service::BlendService<BlendCoreService, BlendEdgeService, PeerId, RuntimeServiceId>;
 
 pub(crate) type DaIndexerService = generic_services::DaIndexerService<
     nomos_da_sampling::network::adapters::validator::Libp2pAdapter<

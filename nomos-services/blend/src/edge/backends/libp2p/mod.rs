@@ -1,14 +1,11 @@
 mod settings;
 mod swarm;
 
-use std::pin::Pin;
-
-use futures::{
-    future::{AbortHandle, Abortable},
-    Stream,
-};
+use futures::future::{AbortHandle, Abortable};
 use libp2p::PeerId;
-use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage};
+use nomos_blend_scheduling::{
+    membership::Membership, session::SessionEventStream, EncapsulatedMessage,
+};
 use overwatch::overwatch::OverwatchHandle;
 use rand::RngCore;
 pub use settings::Libp2pBlendBackendSettings;
@@ -36,7 +33,7 @@ impl<RuntimeServiceId> BlendBackend<PeerId, RuntimeServiceId> for Libp2pBlendBac
     fn new<Rng>(
         settings: Self::Settings,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-        session_stream: Pin<Box<dyn Stream<Item = Membership<PeerId>> + Send>>,
+        session_stream: SessionEventStream<Membership<PeerId>>,
         current_membership: Option<Membership<PeerId>>,
         rng: Rng,
     ) -> Self

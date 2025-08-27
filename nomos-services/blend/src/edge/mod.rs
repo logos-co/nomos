@@ -4,7 +4,10 @@ pub mod settings;
 use std::{fmt::Display, marker::PhantomData};
 
 use backends::BlendBackend;
-use nomos_blend_scheduling::message_blend::crypto::CryptographicProcessor;
+use futures::StreamExt as _;
+use nomos_blend_scheduling::{
+    message_blend::crypto::CryptographicProcessor, session::SessionEvent,
+};
 use nomos_core::wire;
 use overwatch::{
     services::{
@@ -17,10 +20,8 @@ use rand::{RngCore, SeedableRng as _};
 use rand_chacha::ChaCha12Rng;
 use serde::Serialize;
 use settings::BlendConfig;
-use tokio::time::interval;
-use tokio_stream::{wrappers::IntervalStream, StreamExt as _};
 
-use crate::message::ServiceMessage;
+use crate::{message::ServiceMessage, session_stream};
 
 const LOG_TARGET: &str = "blend::service::edge";
 
@@ -68,9 +69,10 @@ where
         let backend = <Backend as BlendBackend<NodeId, RuntimeServiceId>>::new(
             settings.backend,
             service_resources_handle.overwatch_handle.clone(),
-            Box::pin(
-                IntervalStream::new(interval(settings.time.session_duration()))
-                    .map(move |_| membership.clone()),
+            session_stream(
+                settings.time.session_duration(),
+                settings.time.session_transition_period(),
+                membership,
             ),
             current_membership,
             ChaCha12Rng::from_entropy(),
@@ -97,9 +99,17 @@ where
         } = self;
 
         let settings = settings_handle.notifier().get_updated_settings();
+
+        let membership = settings.membership();
+        let mut session_stream = session_stream(
+            settings.time.session_duration(),
+            settings.time.session_transition_period(),
+            membership.clone(),
+        );
+
         let mut cryptoraphic_processor = CryptographicProcessor::new(
             settings.crypto.clone(),
-            settings.membership(),
+            membership,
             ChaCha12Rng::from_entropy(),
         );
 
@@ -115,11 +125,20 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        while let Some(message) = messages_to_blend.next().await {
-            handle_messages_to_blend(message, &mut cryptoraphic_processor, backend).await;
+        loop {
+            tokio::select! {
+                Some(message) = messages_to_blend.next() => {
+                    handle_messages_to_blend(message, &mut cryptoraphic_processor, backend).await;
+                }
+                Some(SessionEvent::NewSession(membership)) = session_stream.next() => {
+                    cryptoraphic_processor = CryptographicProcessor::new(
+                        settings.crypto.clone(),
+                        membership,
+                        ChaCha12Rng::from_entropy(),
+                    );
+                }
+            }
         }
-
-        Ok(())
     }
 }
 
