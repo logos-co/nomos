@@ -1,6 +1,5 @@
 use std::sync::LazyLock;
 
-use blake2::digest::{Update as _, VariableOutput as _};
 use groth16::{serde::serde_fr, Fr};
 use num_bigint::BigUint;
 use poseidon2::{Digest, Poseidon2Bn254Hasher};
@@ -20,15 +19,9 @@ pub fn padded_leaves<const N: usize>(elements: &[NoteId]) -> [Fr; N] {
     leaves.try_into().expect("Size is asserted per loop")
 }
 
-static NOMOS_MERKLE_LEAF: LazyLock<Fr> = LazyLock::new(|| {
-    let mut hasher = blake2::Blake2bVar::new(31).expect("blake2 var hasher should be able build");
-    hasher.update(b"NOMOS_MERKLE_LEAF");
-    let mut buff = [0; 31];
-    hasher
-        .finalize_variable(&mut buff)
-        .expect("blake2 var hasher should be able to finalize");
-    BigUint::from_bytes_be(&buff).into()
-});
+static NOMOS_MERKLE_LEAF: LazyLock<Fr> =
+    LazyLock::new(|| BigUint::from_bytes_be(b"NOMOS_MERKLE_LEAF").into());
+
 #[must_use]
 pub fn leaf(data: &Fr) -> Fr {
     let mut hasher = Poseidon2Bn254Hasher::default();
@@ -37,15 +30,8 @@ pub fn leaf(data: &Fr) -> Fr {
     hasher.finalize()
 }
 
-static NOMOS_MERKLE_NODE: LazyLock<Fr> = LazyLock::new(|| {
-    let mut hasher = blake2::Blake2bVar::new(31).expect("blake2 var hasher should be able build");
-    hasher.update(b"NOMOS_MERKLE_NODE");
-    let mut buff = [0; 31];
-    hasher
-        .finalize_variable(&mut buff)
-        .expect("blake2 var hasher should be able to finalize");
-    BigUint::from_bytes_be(&buff).into()
-});
+static NOMOS_MERKLE_NODE: LazyLock<Fr> =
+    LazyLock::new(|| BigUint::from_bytes_be(b"NOMOS_MERKLE_NODE").into());
 
 #[must_use]
 pub fn node(a: &Fr, b: &Fr) -> Fr {

@@ -1,9 +1,5 @@
 use std::sync::LazyLock;
 
-use blake2::{
-    digest::{Update as _, VariableOutput as _},
-    Blake2bVar,
-};
 use bytes::Bytes;
 use groth16::{serde::serde_fr, Fr};
 use num_bigint::BigUint;
@@ -70,25 +66,11 @@ pub struct MantleTx {
     pub execution_gas_price: Gas,
     pub storage_gas_price: Gas,
 }
-static NOMOS_MANTLE_TXHASH_V1_FR: LazyLock<Fr> = LazyLock::new(|| {
-    let mut hasher = Blake2bVar::new(31).expect("Blak2b variable output should be able to build");
-    hasher.update(b"NOMOS_MANTLE_TXHASH_V1");
-    let mut buff = [0u8; 31];
-    hasher
-        .finalize_variable(&mut buff)
-        .expect("Hash should be built");
-    BigUint::from_bytes_be(&buff).into()
-});
 
-static END_OPS_FR: LazyLock<Fr> = LazyLock::new(|| {
-    let mut hasher = Blake2bVar::new(31).expect("Blak2b variable output should be able to build");
-    hasher.update(b"END_OPS");
-    let mut buff = [0u8; 31];
-    hasher
-        .finalize_variable(&mut buff)
-        .expect("Hash should be built");
-    BigUint::from_bytes_be(&buff).into()
-});
+static NOMOS_MANTLE_TXHASH_V1_FR: LazyLock<Fr> =
+    LazyLock::new(|| BigUint::from_bytes_be(b"NOMOS_MANTLE_TXHASH_V1").into());
+
+static END_OPS_FR: LazyLock<Fr> = LazyLock::new(|| BigUint::from_bytes_be(b"END_OPS").into());
 
 impl Transaction for MantleTx {
     const HASHER: TransactionHasher<Self> = |tx| {

@@ -1,6 +1,5 @@
 use std::sync::LazyLock;
 
-use blake2::digest::{Update as _, VariableOutput as _};
 use bytes::Bytes;
 use groth16::{serde::serde_fr, Fr};
 use num_bigint::BigUint;
@@ -72,15 +71,8 @@ pub struct Utxo {
     pub note: Note,
 }
 
-static NOMOS_NOTE_ID_V1: LazyLock<Fr> = LazyLock::new(|| {
-    let mut hasher = blake2::Blake2bVar::new(31).expect("blake2 initialization error");
-    hasher.update(b"NOMOS_NOTE_ID_V1");
-    let mut buff = [0u8; 31];
-    hasher
-        .finalize_variable(&mut buff)
-        .expect("blake2 variable hashing error");
-    BigUint::from_bytes_le(buff.as_slice()).into()
-});
+static NOMOS_NOTE_ID_V1: LazyLock<Fr> =
+    LazyLock::new(|| BigUint::from_bytes_le(b"NOMOS_NOTE_ID_V1").into());
 
 impl Utxo {
     #[must_use]
@@ -106,25 +98,10 @@ impl Utxo {
     }
 }
 
-static NOMOS_LEDGER_TXHASH_V1_FR: LazyLock<Fr> = LazyLock::new(|| {
-    let mut hasher = blake2::Blake2bVar::new(31).expect("blake2 initialization error");
-    hasher.update(b"NOMOS_LEDGER_TXHASH_V1");
-    let mut buff = [0u8; 31];
-    hasher
-        .finalize_variable(&mut buff)
-        .expect("blake2 variable hashing error");
-    BigUint::from_bytes_le(buff.as_slice()).into()
-});
+static NOMOS_LEDGER_TXHASH_V1_FR: LazyLock<Fr> =
+    LazyLock::new(|| BigUint::from_bytes_le(b"NOMOS_LEDGER_TXHASH_V1").into());
 
-static INOUT_SEP_FR: LazyLock<Fr> = LazyLock::new(|| {
-    let mut hasher = blake2::Blake2bVar::new(31).expect("blake2 initialization error");
-    hasher.update(b"INOUT_SEP");
-    let mut buff = [0u8; 31];
-    hasher
-        .finalize_variable(&mut buff)
-        .expect("blake2 variable hashing error");
-    BigUint::from_bytes_le(buff.as_slice()).into()
-});
+static INOUT_SEP_FR: LazyLock<Fr> = LazyLock::new(|| BigUint::from_bytes_le(b"INOUT_SEP").into());
 
 impl Tx {
     #[must_use]
