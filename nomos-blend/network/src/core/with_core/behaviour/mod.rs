@@ -116,7 +116,7 @@ pub struct Behaviour<ObservationWindowClockProvider> {
     local_peer_id: PeerId,
     protocol_name: StreamProtocol,
     /// The minimum Blend network size for messages to be relayed between peers.
-    minimal_network_size: NonZeroUsize,
+    minimum_network_size: NonZeroUsize,
     /// States for processing messages from the old session
     /// before the transition period has passed.
     old_session: Option<OldSession>,
@@ -204,7 +204,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             connections_waiting_upgrade: HashMap::new(),
             local_peer_id,
             protocol_name,
-            minimal_network_size: config.minimum_network_size,
+            minimum_network_size: config.minimum_network_size,
             old_session: None,
         }
     }
@@ -443,7 +443,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
 
     fn is_network_large_enough(&self) -> bool {
         self.current_membership.as_ref().map_or(1, Membership::size)
-            >= self.minimal_network_size.get()
+            >= self.minimum_network_size.get()
     }
 
     /// Handle a new negotiated connection.
@@ -873,6 +873,7 @@ where
         // nodes.
         let Some(membership) = &self.current_membership else {
             if !self.is_network_large_enough() {
+                tracing::debug!(target: LOG_TARGET, "Denying inbound connection {connection_id:?} with core peer {peer_id:?} because membership size is too small.");
                 return Ok(Either::Right(DummyConnectionHandler));
             }
             tracing::debug!(target: LOG_TARGET, "Upgrading inbound connection {connection_id:?} with core peer {peer_id:?}.");
@@ -884,22 +885,21 @@ where
             )));
         };
 
-        Ok(
-            if membership.contains(&peer_id) && self.is_network_large_enough() {
-                tracing::debug!(target: LOG_TARGET, "Upgrading inbound connection {connection_id:?} with core peer {peer_id:?}.");
-                self.connections_waiting_upgrade
-                    .insert((peer_id, connection_id), Endpoint::Dialer);
-                Either::Left(ConnectionHandler::new(
-                    ConnectionMonitor::new(
-                        self.observation_window_clock_provider.interval_stream(),
-                    ),
-                    self.protocol_name.clone(),
-                ))
-            } else {
-                tracing::debug!(target: LOG_TARGET, "Denying inbound connection {connection_id:?} with edge peer {peer_id:?}.");
-                Either::Right(DummyConnectionHandler)
-            },
-        )
+        Ok(if !self.is_network_large_enough() {
+            tracing::debug!(target: LOG_TARGET, "Denying inbound connection {connection_id:?} with peer {peer_id:?} because membership size is too small.");
+            Either::Right(DummyConnectionHandler)
+        } else if membership.contains(&peer_id) {
+            tracing::debug!(target: LOG_TARGET, "Upgrading inbound connection {connection_id:?} with core peer {peer_id:?}.");
+            self.connections_waiting_upgrade
+                .insert((peer_id, connection_id), Endpoint::Dialer);
+            Either::Left(ConnectionHandler::new(
+                ConnectionMonitor::new(self.observation_window_clock_provider.interval_stream()),
+                self.protocol_name.clone(),
+            ))
+        } else {
+            tracing::debug!(target: LOG_TARGET, "Denying inbound connection {connection_id:?} with edge peer {peer_id:?}.");
+            Either::Right(DummyConnectionHandler)
+        })
     }
 
     #[expect(
@@ -934,6 +934,7 @@ where
         // nodes.
         let Some(membership) = &self.current_membership else {
             if !self.is_network_large_enough() {
+                tracing::debug!(target: LOG_TARGET, "Denying outbound connection {connection_id:?} with core peer {peer_id:?} because membership size is too small.");
                 return Ok(Either::Right(DummyConnectionHandler));
             }
             tracing::debug!(target: LOG_TARGET, "Upgrading outbound connection {connection_id:?} with core peer {peer_id:?}.");
@@ -945,22 +946,21 @@ where
             )));
         };
 
-        Ok(
-            if membership.contains(&peer_id) && self.is_network_large_enough() {
-                tracing::debug!(target: LOG_TARGET, "Upgrading outbound connection {connection_id:?} with core peer {peer_id:?}.");
-                self.connections_waiting_upgrade
-                    .insert((peer_id, connection_id), Endpoint::Listener);
-                Either::Left(ConnectionHandler::new(
-                    ConnectionMonitor::new(
-                        self.observation_window_clock_provider.interval_stream(),
-                    ),
-                    self.protocol_name.clone(),
-                ))
-            } else {
-                tracing::debug!(target: LOG_TARGET, "Denying outbound connection {connection_id:?} with edge peer {peer_id:?}.");
-                Either::Right(DummyConnectionHandler)
-            },
-        )
+        Ok(if !self.is_network_large_enough() {
+            tracing::debug!(target: LOG_TARGET, "Denying outbound connection {connection_id:?} with peer {peer_id:?} because membership size is too small.");
+            Either::Right(DummyConnectionHandler)
+        } else if membership.contains(&peer_id) {
+            tracing::debug!(target: LOG_TARGET, "Upgrading outbound connection {connection_id:?} with core peer {peer_id:?}.");
+            self.connections_waiting_upgrade
+                .insert((peer_id, connection_id), Endpoint::Listener);
+            Either::Left(ConnectionHandler::new(
+                ConnectionMonitor::new(self.observation_window_clock_provider.interval_stream()),
+                self.protocol_name.clone(),
+            ))
+        } else {
+            tracing::debug!(target: LOG_TARGET, "Denying outbound connection {connection_id:?} with edge peer {peer_id:?}.");
+            Either::Right(DummyConnectionHandler)
+        })
     }
 
     /// Informs the behaviour about an event from the [`Swarm`].

@@ -60,7 +60,7 @@ pub struct Behaviour {
     upgraded_edge_peers: HashSet<(PeerId, ConnectionId)>,
     max_incoming_connections: usize,
     protocol_name: StreamProtocol,
-    minimal_network_size: NonZeroUsize,
+    minimum_network_size: NonZeroUsize,
 }
 
 impl Behaviour {
@@ -78,7 +78,7 @@ impl Behaviour {
             upgraded_edge_peers: HashSet::with_capacity(config.max_incoming_connections),
             max_incoming_connections: config.max_incoming_connections,
             protocol_name,
-            minimal_network_size: config.minimum_network_size,
+            minimum_network_size: config.minimum_network_size,
         }
     }
 
@@ -156,8 +156,8 @@ impl Behaviour {
     }
 
     fn is_network_large_enough(&self) -> bool {
-        self.current_membership.as_ref().map_or(0, Membership::size)
-            >= self.minimal_network_size.get()
+        self.current_membership.as_ref().map_or(1, Membership::size)
+            >= self.minimum_network_size.get()
     }
 }
 
