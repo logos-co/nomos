@@ -101,13 +101,15 @@ impl<'de> Deserialize<'de> for Risc0LeaderProof {
 
 #[cfg(test)]
 mod test {
+    use groth16::Fr;
+
     use super::*;
-    use crate::mantle::{merkle, Note, Utxo};
+    use crate::mantle::{merkle, Note, NoteId, Utxo};
 
     const MAX_NOTE_COMMS: usize = 1 << 8;
 
-    fn note_id_leaves(note_ids: &[Utxo]) -> [[u8; 32]; MAX_NOTE_COMMS] {
-        let note_comm_bytes: Vec<Vec<u8>> = note_ids.iter().map(|c| c.id().0.to_vec()).collect();
+    fn note_id_leaves(note_ids: &[Utxo]) -> [NoteId; MAX_NOTE_COMMS] {
+        let note_comm_bytes: Vec<Vec<u8>> = note_ids.iter().map(|c| c.id()).collect();
         merkle::padded_leaves::<MAX_NOTE_COMMS>(&note_comm_bytes)
     }
 

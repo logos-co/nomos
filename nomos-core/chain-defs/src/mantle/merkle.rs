@@ -1,38 +1,63 @@
+use std::sync::LazyLock;
+
+use blake2::digest::{Update, VariableOutput};
+use groth16::{serde::serde_fr, Fr};
+use num_bigint::BigUint;
+use poseidon2::{Digest, Poseidon2Bn254Hasher};
 use serde::{Deserialize, Serialize};
 
-use crate::crypto::{Digest as _, Hasher};
+use crate::mantle::NoteId;
 
 #[must_use]
-pub fn padded_leaves<const N: usize>(elements: &[Vec<u8>]) -> [[u8; 32]; N] {
-    let mut leaves = [[0u8; 32]; N];
+pub fn padded_leaves<const N: usize>(elements: &[NoteId]) -> [Fr; N] {
+    let mut leaves = Vec::new();
 
     for (i, element) in elements.iter().enumerate() {
         assert!(i < N);
-        leaves[i] = leaf(element);
+        leaves.push(leaf(element.as_fr()));
     }
 
-    leaves
+    leaves.try_into().expect("Size is asserted per loop")
 }
 
-#[must_use]
-pub fn leaf(data: &[u8]) -> [u8; 32] {
-    let mut hasher = Hasher::new();
+const NOMOS_MERKLE_LEAF: LazyLock<Fr> = LazyLock::new(|| {
+    let mut hasher = blake2::Blake2bVar::new(31).expect("blake2 var hasher should be able build");
     hasher.update(b"NOMOS_MERKLE_LEAF");
-    hasher.update(data);
-    hasher.finalize().into()
+    let mut buff = [0; 31];
+    hasher
+        .finalize_variable(&mut buff)
+        .expect("blake2 var hasher should be able to finalize");
+    BigUint::from_bytes_be(&buff).into()
+});
+#[must_use]
+pub fn leaf(data: &Fr) -> Fr {
+    let mut hasher = Poseidon2Bn254Hasher::default();
+    <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &NOMOS_MERKLE_LEAF);
+    <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, data);
+    hasher.finalize()
 }
 
-#[must_use]
-pub fn node(a: [u8; 32], b: [u8; 32]) -> [u8; 32] {
-    let mut hasher = Hasher::new();
+const NOMOS_MERKLE_NODE: LazyLock<Fr> = LazyLock::new(|| {
+    let mut hasher = blake2::Blake2bVar::new(31).expect("blake2 var hasher should be able build");
     hasher.update(b"NOMOS_MERKLE_NODE");
-    hasher.update(a);
-    hasher.update(b);
-    hasher.finalize().into()
+    let mut buff = [0; 31];
+    hasher
+        .finalize_variable(&mut buff)
+        .expect("blake2 var hasher should be able to finalize");
+    BigUint::from_bytes_be(&buff).into()
+});
+
+#[must_use]
+pub fn node(a: Fr, b: Fr) -> Fr {
+    let mut hasher = Poseidon2Bn254Hasher::default();
+    <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &NOMOS_MERKLE_NODE);
+    <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &a);
+    <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &b);
+    hasher.finalize()
 }
 
 #[must_use]
-pub fn root<const N: usize>(elements: [[u8; 32]; N]) -> [u8; 32] {
+pub fn root<const N: usize>(elements: [Fr; N]) -> Fr {
     let n = elements.len();
 
     assert!(n.is_power_of_two());
@@ -50,12 +75,12 @@ pub fn root<const N: usize>(elements: [[u8; 32]; N]) -> [u8; 32] {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PathNode {
-    Left([u8; 32]),
-    Right([u8; 32]),
+    Left(#[serde(with = "serde_fr")] Fr),
+    Right(#[serde(with = "serde_fr")] Fr),
 }
 
 #[must_use]
-pub fn path_root(leaf: [u8; 32], path: &[PathNode]) -> [u8; 32] {
+pub fn path_root(leaf: Fr, path: &[PathNode]) -> Fr {
     let mut computed_hash = leaf;
 
     for path_node in path {
@@ -73,7 +98,7 @@ pub fn path_root(leaf: [u8; 32], path: &[PathNode]) -> [u8; 32] {
 }
 
 #[must_use]
-pub fn path<const N: usize>(leaves: [[u8; 32]; N], idx: usize) -> Vec<PathNode> {
+pub fn path<const N: usize>(leaves: [Fr; N], idx: usize) -> Vec<PathNode> {
     assert!(N.is_power_of_two());
     assert!(idx < N);
 
