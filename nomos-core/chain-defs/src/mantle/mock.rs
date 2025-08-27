@@ -37,7 +37,7 @@ impl<M: Serialize> Transaction for MockTransaction<M> {
     const HASHER: TransactionHasher<Self> = Self::id;
     type Hash = MockTxId;
 
-    fn as_signing_fr(&self) -> Fr {
+    fn as_signing_frs(&self) -> Vec<Fr> {
         todo!()
     }
 }

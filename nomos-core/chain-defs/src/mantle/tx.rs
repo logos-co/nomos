@@ -3,10 +3,11 @@ use std::sync::LazyLock;
 use bytes::Bytes;
 use groth16::{serde::serde_fr, Fr};
 use num_bigint::BigUint;
-use poseidon2::{Digest, Poseidon2Bn254Hasher};
+use poseidon2::Digest;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    crypto::ZkHasher,
     mantle::{
         gas::{Gas, GasConstants, GasCost},
         ledger::Tx as LedgerTx,
@@ -15,6 +16,7 @@ use crate::{
     },
     proofs::zksig::{DummyZkSignature as ZkSignature, ZkSignatureProof},
 };
+
 /// The hash of a transaction
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Default, Hash, PartialOrd, Ord, Serialize, Deserialize,
@@ -73,34 +75,21 @@ static NOMOS_MANTLE_TXHASH_V1_FR: LazyLock<Fr> =
 static END_OPS_FR: LazyLock<Fr> = LazyLock::new(|| BigUint::from_bytes_be(b"END_OPS").into());
 
 impl Transaction for MantleTx {
-    const HASHER: TransactionHasher<Self> = |tx| {
-        let mut hasher = Poseidon2Bn254Hasher::default();
-        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &tx.as_signing_fr());
-        hasher.finalize().into()
-    };
+    const HASHER: TransactionHasher<Self> =
+        |tx| <ZkHasher as Digest>::digest(&tx.as_signing_frs()).into();
     type Hash = TxHash;
 
-    fn as_signing_fr(&self) -> Fr {
+    fn as_signing_frs(&self) -> Vec<Fr> {
         // constant and structure as defined in the Mantle specification:
         // https://www.notion.so/Mantle-Specification-21c261aa09df810c8820fab1d78b53d9
 
-        let mut hasher = Poseidon2Bn254Hasher::default();
-        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &NOMOS_MANTLE_TXHASH_V1_FR);
-
-        for payload in self.ops.iter().flat_map(Op::as_signing_fr) {
-            <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &payload);
-        }
-        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &END_OPS_FR);
-        <Poseidon2Bn254Hasher as Digest>::update(
-            &mut hasher,
-            &BigUint::from(self.storage_gas_price).into(),
-        );
-        <Poseidon2Bn254Hasher as Digest>::update(
-            &mut hasher,
-            &BigUint::from(self.execution_gas_price).into(),
-        );
-        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &self.ledger_tx.as_signing_fr());
-        hasher.finalize()
+        let mut output: Vec<Fr> = vec![*NOMOS_MANTLE_TXHASH_V1_FR];
+        output.extend(self.ops.iter().flat_map(Op::as_signing_fr));
+        output.push(*END_OPS_FR);
+        output.push(BigUint::from(self.storage_gas_price).into());
+        output.push(BigUint::from(self.execution_gas_price).into());
+        output.extend(self.ledger_tx.as_signing_frs());
+        output
     }
 }
 
@@ -119,15 +108,12 @@ pub struct SignedMantleTx {
 }
 
 impl Transaction for SignedMantleTx {
-    const HASHER: TransactionHasher<Self> = |tx| {
-        let mut hasher = Poseidon2Bn254Hasher::default();
-        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &tx.as_signing_fr());
-        hasher.finalize().into()
-    };
+    const HASHER: TransactionHasher<Self> =
+        |tx| <ZkHasher as Digest>::digest(&tx.as_signing_frs()).into();
     type Hash = TxHash;
 
-    fn as_signing_fr(&self) -> Fr {
-        self.mantle_tx.as_signing_fr()
+    fn as_signing_frs(&self) -> Vec<Fr> {
+        self.mantle_tx.as_signing_frs()
     }
 }
 

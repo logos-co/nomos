@@ -110,23 +110,14 @@ impl Tx {
     }
 
     #[must_use]
-    pub fn as_signing_fr(&self) -> Fr {
+    pub fn as_signing_frs(&self) -> Vec<Fr> {
         // constants and structure as defined in the Mantle spec:
         // https://www.notion.so/Mantle-Specification-21c261aa09df810c8820fab1d78b53d9
-
         let mut output = vec![*NOMOS_LEDGER_TXHASH_V1_FR];
-
-        for note in &self.inputs {
-            output.push(*note.as_fr());
-        }
-
+        output.extend(self.inputs.iter().map(NoteId::as_fr));
         output.push(*INOUT_SEP_FR);
-
-        for note in &self.outputs {
-            output.extend(note.as_fr_components());
-        }
-
-        Poseidon2Bn254Hasher::digest(&output)
+        output.extend(self.outputs.iter().flat_map(Note::as_fr_components));
+        output
     }
 
     #[must_use]
@@ -157,15 +148,12 @@ impl Tx {
 }
 
 impl Transaction for Tx {
-    const HASHER: TransactionHasher<Self> = |tx| {
-        let mut hasher = Poseidon2Bn254Hasher::default();
-        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &tx.as_signing_fr());
-        hasher.finalize().into()
-    };
+    const HASHER: TransactionHasher<Self> =
+        |tx| <Poseidon2Bn254Hasher as Digest>::digest(&tx.as_signing_frs()).into();
     type Hash = TxHash;
 
-    fn as_signing_fr(&self) -> Fr {
-        Self::as_signing_fr(self)
+    fn as_signing_frs(&self) -> Vec<Fr> {
+        Self::as_signing_frs(self)
     }
 }
 

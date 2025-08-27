@@ -33,7 +33,7 @@ pub trait Transaction {
     /// The resulting bytes are then used by the `HASHER`
     /// to produce the transaction's unique hash, which is what is typically
     /// signed by the transaction originator.
-    fn as_signing_fr(&self) -> Fr;
+    fn as_signing_frs(&self) -> Vec<Fr>;
 }
 
 pub trait AuthenticatedMantleTx: Transaction<Hash = TxHash> + GasCost {
@@ -50,8 +50,8 @@ impl<T: Transaction> Transaction for &T {
     const HASHER: TransactionHasher<Self> = |tx| T::HASHER(tx);
     type Hash = T::Hash;
 
-    fn as_signing_fr(&self) -> Fr {
-        T::as_signing_fr(self)
+    fn as_signing_frs(&self) -> Vec<Fr> {
+        T::as_signing_frs(self)
     }
 }
 
