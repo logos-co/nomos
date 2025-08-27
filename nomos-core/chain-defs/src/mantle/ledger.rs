@@ -29,6 +29,12 @@ impl AsRef<Fr> for NoteId {
     }
 }
 
+impl From<Fr> for NoteId {
+    fn from(n: Fr) -> Self {
+        Self(n)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub struct Note {
     pub value: Value,
