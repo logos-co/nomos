@@ -19,7 +19,6 @@ cryptarchia-engine     = { workspace = true, features = ["serde"] }
 ed25519                = { version = "2.2", features = ["serde"] }
 ed25519-dalek          = { version = "2.2.0", features = ["serde"] }
 groth16                = { workspace = true, features = ["deser"] }
-hex                    = { version = "0.4" }
 multiaddr              = "0.18"
 nomos_proof_statements = { workspace = true }
 nomos_risc0_proofs     = { path = "../risc0_proofs" }
