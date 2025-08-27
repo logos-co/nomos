@@ -169,14 +169,12 @@ impl<'a> TransientDeclarationState<'a> {
             return Err(DeclarationStateError::BlockFromPast);
         }
         match self {
-            Self::Active(active_state) => active_state
-                .try_into_withdrawn(current_block_number, service_params)
-                .map(Into::into)
-                .map_err(DeclarationStateError::from),
-            Self::Inactive(inactive_state) => inactive_state
-                .try_into_withdrawn(current_block_number, service_params)
-                .map(Into::into)
-                .map_err(DeclarationStateError::from),
+            Self::Active(active_state) => Ok(active_state
+                .try_into_withdrawn(current_block_number, service_params)?
+                .into()),
+            Self::Inactive(inactive_state) => Ok(inactive_state
+                .try_into_withdrawn(current_block_number, service_params)?
+                .into()),
             Self::Withdrawn(_) => Err(DeclarationStateError::WithdrawnToOtherState),
         }
     }
