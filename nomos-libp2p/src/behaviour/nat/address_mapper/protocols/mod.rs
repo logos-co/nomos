@@ -1,11 +1,18 @@
-use libp2p::Multiaddr;
+use multiaddr::Multiaddr;
+use upnp::UpnpProtocol;
 
 use crate::{
     behaviour::nat::address_mapper::{
-        errors::AddressMapperError, nat_pmp::NatPmp, upnp::UpnpProtocol,
+        errors::AddressMapperError,
+        protocols::{nat_pmp::NatPmp, pcp::PcpProtocol},
     },
     config::NatMappingSettings,
 };
+
+mod nat_pmp;
+mod pcp;
+mod pcp_core;
+mod upnp;
 
 #[async_trait::async_trait]
 pub trait NatMapper: Send + Sync + 'static {
@@ -24,6 +31,11 @@ impl NatMapper for ProtocolManager {
         address: &Multiaddr,
         settings: NatMappingSettings,
     ) -> Result<Multiaddr, AddressMapperError> {
+        if let Ok(external_address) = PcpProtocol::map_address(address, settings).await {
+            tracing::info!("Successfully mapped {address} to {external_address} using PCP");
+            return Ok(external_address);
+        }
+
         if let Ok(external_address) = NatPmp::map_address(address, settings).await {
             tracing::info!("Successfully mapped {address} to {external_address} using NAT-PMP");
 
