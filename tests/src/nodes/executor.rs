@@ -17,7 +17,7 @@ use nomos_blend_service::{
     core::settings::{CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt},
     settings::TimingSettings,
 };
-use nomos_core::{block::BlockNumber, header::HeaderId, sdp::FinalizedBlockEvent};
+use nomos_core::{block::SessionNumber, header::HeaderId, sdp::FinalizedBlockEvent};
 use nomos_da_dispersal::{
     backend::kzgrs::{DispersalKZGRSBackendSettings, EncoderSettings},
     DispersalServiceSettings,
@@ -265,7 +265,7 @@ impl Executor {
 
     pub async fn da_get_membership(
         &self,
-        block_number: BlockNumber,
+        session_id: SessionNumber,
     ) -> Result<MembershipResponse, reqwest::Error> {
         let response = CLIENT
             .post(format!(
@@ -273,7 +273,7 @@ impl Executor {
                 self.testing_http_addr, DA_GET_MEMBERSHIP
             ))
             .header("Content-Type", "application/json")
-            .body(serde_json::to_string(&block_number).unwrap())
+            .body(serde_json::to_string(&session_id).unwrap())
             .send()
             .await;
 
