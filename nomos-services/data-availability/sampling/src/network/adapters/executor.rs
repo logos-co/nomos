@@ -23,7 +23,7 @@ use overwatch::{
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
 
-use crate::network::{adapters::common::adapter_for, NetworkAdapter};
+use crate::network::{adapters::common::adapter_for, CommitmentsEvent, NetworkAdapter};
 
 adapter_for!(
     DaNetworkExecutorBackend,

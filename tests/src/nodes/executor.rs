@@ -54,7 +54,8 @@ use nomos_da_verifier::{
 use nomos_executor::{api::backend::AxumBackendSettings, config::Config};
 use nomos_http_api_common::paths::{
     CL_METRICS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER,
-    DA_GET_MEMBERSHIP, DA_MONITOR_STATS, DA_UNBLOCK_PEER, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
+    DA_GET_MEMBERSHIP, DA_GET_SHARES_COMMITMENTS, DA_MONITOR_STATS, DA_UNBLOCK_PEER, STORAGE_BLOCK,
+    UPDATE_MEMBERSHIP,
 };
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
@@ -264,12 +265,28 @@ impl Executor {
             .await
     }
 
-    pub async fn get_commitments(
+    pub async fn get_commitments(&self, blob_id: BlobId) -> Option<DaSharesCommitments> {
+        CLIENT
+            .post(format!("http://{}{}", self.addr, DA_GET_SHARES_COMMITMENTS))
+            .header("Content-Type", "application/json")
+            .body(serde_json::to_string(&blob_id).unwrap())
+            .send()
+            .await
+            .unwrap()
+            .json::<Option<DaSharesCommitments>>()
+            .await
+            .unwrap()
+    }
+
+    pub async fn get_storage_commitments(
         &self,
         blob_id: BlobId,
     ) -> Result<Option<DaSharesCommitments>, common_http_client::Error> {
         self.http_client
-            .get_commitments::<DaShare>(Url::from_str(&format!("http://{}", self.addr))?, blob_id)
+            .get_storage_commitments::<DaShare>(
+                Url::from_str(&format!("http://{}", self.addr))?,
+                blob_id,
+            )
             .await
     }
 
@@ -458,6 +475,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 global_params_path: config.da_config.global_params_path.clone(),
                 domain_size: config.da_config.num_subnets as usize,
             },
+            commitments_wait_duration: Duration::from_secs(1),
         },
         storage: RocksBackendSettings {
             db_path: "./db".into(),

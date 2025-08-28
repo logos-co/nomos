@@ -31,7 +31,7 @@ use nomos_da_messages::http::da::{
 use nomos_da_network_service::{
     api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend, NetworkService,
 };
-use nomos_da_sampling::backend::DaSamplingServiceBackend;
+use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
 use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
 use nomos_http_api_common::paths;
 use nomos_libp2p::PeerId;
@@ -520,11 +520,49 @@ where
     get,
     path = paths::DA_GET_SHARES_COMMITMENTS,
     responses(
-        (status = 200, description = "Request the commitments for an specific `BlobId`", body = DASharesCommitmentsRequest<DaShare>),
+        (status = 200, description = "Request the commitments for an specific `BlobId` that the node stores locally or otherwise requests from the subnetwork peers", body = DASharesCommitmentsRequest<DaShare>),
         (status = 500, description = "Internal server error", body = String),
     )
 )]
 pub async fn da_get_commitments<
+    DaBlobId,
+    SamplingBackend,
+    SamplingNetwork,
+    SamplingStorage,
+    RuntimeServiceId,
+>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+    Json(blob_id): Json<DaBlobId>,
+) -> Response
+where
+    DaBlobId: Serialize + for<'de> Deserialize<'de> + Send + 'static,
+    SamplingBackend: DaSamplingServiceBackend<BlobId = DaBlobId>,
+    SamplingNetwork: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + AsServiceId<
+            DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>,
+        >,
+{
+    make_request_and_return_response!(da::get_commitments::<
+        SamplingBackend,
+        SamplingNetwork,
+        SamplingStorage,
+        RuntimeServiceId,
+    >(&handle, blob_id))
+}
+
+#[utoipa::path(
+    get,
+    path = paths::DA_GET_STORAGE_SHARES_COMMITMENTS,
+    responses(
+        (status = 200, description = "Request the commitments for an specific `BlobId` that the node stores locally", body = DASharesCommitmentsRequest<DaShare>),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
+pub async fn da_get_storage_commitments<
     StorageOp,
     DaStorageConverter,
     HttpStorageAdapter,

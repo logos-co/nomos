@@ -77,7 +77,7 @@ async fn disseminate_retrieve_reconstruct() {
 
         wait_for_blob_onchain(executor, blob_id).await;
 
-        let share_commitments = executor.get_commitments(blob_id).await.unwrap().unwrap();
+        let share_commitments = executor.get_commitments(blob_id).await.unwrap();
         let mut executor_shares = executor
             .get_shares(blob_id, [].into(), [].into(), true)
             .await
@@ -151,11 +151,7 @@ async fn four_subnets_disseminate_retrieve_reconstruct() {
 
         wait_for_blob_onchain(executor, blob_id).await;
 
-        let share_commitments = validator_subnet_1
-            .get_commitments(blob_id)
-            .await
-            .unwrap()
-            .unwrap();
+        let share_commitments = validator_subnet_1.get_commitments(blob_id).await.unwrap();
 
         let mut validator_subnet_0_shares = validator_subnet_0
             .get_shares(blob_id, [].into(), [].into(), true)

@@ -39,8 +39,8 @@ use nomos_da_verifier::{
     DaVerifierServiceSettings,
 };
 use nomos_http_api_common::paths::{
-    CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_MONITOR_STATS, STORAGE_BLOCK,
-    UPDATE_MEMBERSHIP,
+    CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_SHARES_COMMITMENTS,
+    DA_MONITOR_STATS, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
 };
 use nomos_mempool::MempoolMetrics;
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
@@ -173,6 +173,19 @@ impl Validator {
             .await
             .unwrap()
             .json::<Option<Block<SignedMantleTx, BlobInfo>>>()
+            .await
+            .unwrap()
+    }
+
+    pub async fn get_commitments(&self, blob_id: BlobId) -> Option<DaSharesCommitments> {
+        CLIENT
+            .post(format!("http://{}{}", self.addr, DA_GET_SHARES_COMMITMENTS))
+            .header("Content-Type", "application/json")
+            .body(serde_json::to_string(&blob_id).unwrap())
+            .send()
+            .await
+            .unwrap()
+            .json::<Option<DaSharesCommitments>>()
             .await
             .unwrap()
     }
@@ -310,12 +323,15 @@ impl Validator {
             .await
     }
 
-    pub async fn get_commitments(
+    pub async fn get_storage_commitments(
         &self,
         blob_id: BlobId,
     ) -> Result<Option<DaSharesCommitments>, common_http_client::Error> {
         self.http_client
-            .get_commitments::<DaShare>(Url::from_str(&format!("http://{}", self.addr))?, blob_id)
+            .get_storage_commitments::<DaShare>(
+                Url::from_str(&format!("http://{}", self.addr))?,
+                blob_id,
+            )
             .await
     }
 }
@@ -465,6 +481,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 global_params_path: config.da_config.global_params_path,
                 domain_size: config.da_config.num_subnets as usize,
             },
+            commitments_wait_duration: Duration::from_secs(1),
         },
         storage: RocksBackendSettings {
             db_path: "./db".into(),
