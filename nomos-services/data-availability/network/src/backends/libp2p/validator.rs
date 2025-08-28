@@ -46,6 +46,9 @@ where
     RequestSample {
         blob_id: BlobId,
     },
+    RequestCommitments {
+        blob_id: BlobId,
+    },
     MonitorRequest(ConnectionMonitorCommand<MonitorStats>),
     BalancerStats(oneshot::Sender<BalancerStats>),
 }
@@ -76,6 +79,7 @@ pub struct DaNetworkValidatorBackend<Membership> {
     task_abort_handle: AbortHandle,
     replies_task_abort_handle: AbortHandle,
     shares_request_channel: UnboundedSender<BlobId>,
+    commitments_request_channel: UnboundedSender<BlobId>,
     historic_sample_request_channel:
         UnboundedSender<SampleArgs<SharedMembershipHandler<Membership>>>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
@@ -140,6 +144,7 @@ where
             });
 
         let shares_request_channel = validator_swarm.shares_request_channel();
+        let commitments_request_channel = validator_swarm.commitments_request_channel();
         let historic_sample_request_channel = validator_swarm.historic_sample_request_channel();
         let balancer_command_sender = validator_swarm.balancer_command_channel();
         let monitor_command_sender = validator_swarm.monitor_command_channel();
@@ -171,6 +176,7 @@ where
             task_abort_handle,
             replies_task_abort_handle,
             shares_request_channel,
+            commitments_request_channel,
             historic_sample_request_channel,
             balancer_command_sender,
             monitor_command_sender,
@@ -197,6 +203,10 @@ where
             DaNetworkMessage::RequestSample { blob_id } => {
                 info_with_id!(&blob_id, "RequestSample");
                 handle_sample_request(&self.shares_request_channel, blob_id).await;
+            }
+            DaNetworkMessage::RequestCommitments { blob_id } => {
+                info_with_id!(&blob_id, "RequestSample");
+                handle_sample_request(&self.commitments_request_channel, blob_id).await;
             }
             DaNetworkMessage::MonitorRequest(command) => {
                 match command.peer_id() {

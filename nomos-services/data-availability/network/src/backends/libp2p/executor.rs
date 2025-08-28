@@ -31,9 +31,9 @@ use super::common::{CommitmentsEvent, VerificationEvent};
 use crate::{
     backends::{
         libp2p::common::{
-            handle_balancer_command, handle_commitments_request, handle_historic_sample_request,
-            handle_monitor_command, handle_sample_request, handle_validator_events_stream,
-            DaNetworkBackendSettings, SamplingEvent, BROADCAST_CHANNEL_SIZE,
+            handle_balancer_command, handle_historic_sample_request, handle_monitor_command,
+            handle_sample_request, handle_validator_events_stream, DaNetworkBackendSettings,
+            SamplingEvent, BROADCAST_CHANNEL_SIZE,
         },
         NetworkBackend,
     },
@@ -253,7 +253,7 @@ where
             }
             ExecutorDaNetworkMessage::RequestCommitments { blob_id } => {
                 info_with_id!(&blob_id, "RequestSample");
-                handle_commitments_request(&self.commitments_request_channel, blob_id).await;
+                handle_sample_request(&self.commitments_request_channel, blob_id).await;
             }
             ExecutorDaNetworkMessage::RequestShareDispersal {
                 subnetwork_id,

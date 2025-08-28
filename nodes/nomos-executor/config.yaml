@@ -136,6 +136,9 @@ da_sampling:
   network_adapter_settings: null
   storage_adapter_settings:
     blob_storage_directory: ./
+  commitments_wait_duration:
+    secs: 2 
+    nanos: 0
 http:
   backend_settings:
     address: 127.0.0.1:8722

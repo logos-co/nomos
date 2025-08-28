@@ -107,7 +107,7 @@ where
         };
         match self
             .client
-            .get_commitments::<Self::Share>(address, blob_id)
+            .get_storage_commitments::<Self::Share>(address, blob_id)
             .await
         {
             Ok(commitments) => {
