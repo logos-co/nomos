@@ -227,7 +227,7 @@ mod test {
     #[ignore = "This test is just for calculation the cycles for the above set of proofs. This will be moved to the pertinent proof in the future."]
     #[test]
     fn test_verify_cycles() {
-        let iters = 1000u64;
+        let iters = 50u64;
 
         let configurations = [
             utils::Configuration::from_elements_count(32),
@@ -244,7 +244,7 @@ mod test {
     #[ignore = "This test is just for calculation the cycles for the above set of proofs. This will be moved to the pertinent proof in the future."]
     #[test]
     fn test_batch_verify_cycles() {
-        let iters = 1000u64;
+        let iters = 50u64;
 
         let configurations = [
             utils::Configuration::from_elements_count(32),
