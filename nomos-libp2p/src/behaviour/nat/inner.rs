@@ -269,3 +269,207 @@ where
         Poll::Pending
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::RefCell, pin::Pin};
+
+    use libp2p::{
+        autonat::v2::server,
+        core::{
+            transport::{DialOpts, ListenerId, MemoryTransport, Transport, TransportError},
+            upgrade::Version,
+        },
+        identify,
+        identity::Keypair,
+        plaintext,
+        swarm::{NetworkBehaviour, SwarmEvent},
+        yamux,
+    };
+    use libp2p_swarm_test::SwarmExt as _;
+    use rand::{
+        rngs::{OsRng, StdRng},
+        SeedableRng as _,
+    };
+
+    use super::*;
+    use crate::{
+        behaviour::nat::address_mapper::errors::AddressMapperError, config::NatMappingSettings,
+    };
+
+    thread_local! {
+        static MAPPER_CALLED: RefCell<bool> = const { RefCell::new(false) };
+    }
+
+    #[tokio::test]
+    async fn test_nat_mapping_happy_flow() {
+        let (mut server, server_addr) = create_server_with_blocking_transport();
+        let (mut client, expected_addr) = create_mapped_client();
+
+        client.dial(server_addr).unwrap();
+
+        tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                tokio::select! {
+                    event = client.next_swarm_event() => {
+                        if let SwarmEvent::ExternalAddrConfirmed { address } = event {
+                            if address == expected_addr {
+                                return;
+                            }
+                        }
+                    },
+                    _ = server.next_swarm_event() => {}
+                }
+            }
+        })
+        .await
+        .unwrap();
+
+        assert!(
+            MAPPER_CALLED.with(|called| *called.borrow()),
+            "Mapper should have been called"
+        );
+    }
+
+    struct TestMapper;
+
+    #[async_trait::async_trait]
+    impl NatMapper for TestMapper {
+        async fn map_address(
+            _address_to_map: &Multiaddr,
+            _settings: NatMappingSettings,
+        ) -> Result<Multiaddr, AddressMapperError> {
+            MAPPER_CALLED.with(|called| *called.borrow_mut() = true);
+            Ok("/memory/2000".parse().unwrap())
+        }
+    }
+
+    #[derive(Default)]
+    struct FirstDialBlockingTransport {
+        inner: MemoryTransport,
+        has_blocked_once: bool,
+    }
+
+    impl Transport for FirstDialBlockingTransport {
+        type Output = <MemoryTransport as Transport>::Output;
+        type Error = <MemoryTransport as Transport>::Error;
+        type ListenerUpgrade = <MemoryTransport as Transport>::ListenerUpgrade;
+        type Dial = <MemoryTransport as Transport>::Dial;
+
+        fn listen_on(
+            &mut self,
+            id: ListenerId,
+            addr: Multiaddr,
+        ) -> Result<(), TransportError<Self::Error>> {
+            self.inner.listen_on(id, addr)
+        }
+
+        fn remove_listener(&mut self, id: ListenerId) -> bool {
+            self.inner.remove_listener(id)
+        }
+
+        fn dial(
+            &mut self,
+            addr: Multiaddr,
+            opts: DialOpts,
+        ) -> Result<Self::Dial, TransportError<Self::Error>> {
+            if !self.has_blocked_once {
+                self.has_blocked_once = true;
+                return Err(TransportError::MultiaddrNotSupported(addr));
+            }
+
+            self.inner.dial(addr, opts)
+        }
+
+        fn poll(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+        ) -> Poll<libp2p::core::transport::TransportEvent<Self::ListenerUpgrade, Self::Error>>
+        {
+            Pin::new(&mut self.inner).poll(cx)
+        }
+    }
+
+    #[derive(NetworkBehaviour)]
+    struct Server {
+        autonat: server::Behaviour<OsRng>,
+        identify: identify::Behaviour,
+    }
+
+    #[derive(NetworkBehaviour)]
+    struct Client {
+        nat: InnerNatBehaviour<StdRng, TestMapper, SystemGatewayDetector>,
+        identify: identify::Behaviour,
+    }
+
+    fn create_memory_swarm<Behaviour, BehaviourFn>(
+        use_blocking: bool,
+        behaviour_fn: BehaviourFn,
+    ) -> libp2p::Swarm<Behaviour>
+    where
+        Behaviour: NetworkBehaviour,
+        BehaviourFn: FnOnce(&Keypair) -> Behaviour,
+    {
+        let keypair = Keypair::generate_ed25519();
+
+        let transport = if use_blocking {
+            FirstDialBlockingTransport::default()
+                .upgrade(Version::V1)
+                .authenticate(plaintext::Config::new(&keypair))
+                .multiplex(yamux::Config::default())
+                .boxed()
+        } else {
+            MemoryTransport::default()
+                .upgrade(Version::V1)
+                .authenticate(plaintext::Config::new(&keypair))
+                .multiplex(yamux::Config::default())
+                .boxed()
+        };
+
+        libp2p::SwarmBuilder::with_existing_identity(keypair)
+            .with_tokio()
+            .with_other_transport(|_| transport)
+            .expect("transport should be supported")
+            .with_behaviour(behaviour_fn)
+            .expect("behaviour should be supported")
+            .build()
+    }
+
+    fn create_server_with_blocking_transport() -> (libp2p::Swarm<Server>, Multiaddr) {
+        let mut swarm = create_memory_swarm(true, |keypair| Server {
+            autonat: server::Behaviour::new(OsRng),
+            identify: identify::Behaviour::new(identify::Config::new(
+                "/test/1.0.0".to_owned(),
+                keypair.public(),
+            )),
+        });
+
+        let server_addr: Multiaddr = "/memory/3000".parse().unwrap();
+        swarm.listen_on(server_addr.clone()).unwrap();
+
+        (swarm, server_addr)
+    }
+
+    fn create_mapped_client() -> (libp2p::Swarm<Client>, Multiaddr) {
+        let mut nat_settings = NatSettings::default();
+        nat_settings.autonat.probe_interval_millisecs = Some(500);
+
+        let mut swarm = create_memory_swarm(false, move |keypair| Client {
+            nat: InnerNatBehaviour::create(
+                StdRng::from_entropy(),
+                nat_settings,
+                AddressMapperBehaviour::<TestMapper>::new(nat_settings.mapping),
+                GatewayMonitor::<SystemGatewayDetector>::new(nat_settings.gateway_monitor),
+            ),
+            identify: identify::Behaviour::new(identify::Config::new(
+                "/test/1.0.0".to_owned(),
+                keypair.public(),
+            )),
+        });
+
+        let expected_addr: Multiaddr = "/memory/2000".parse().unwrap();
+        swarm.listen_on(expected_addr.clone()).unwrap();
+
+        (swarm, expected_addr)
+    }
+}
