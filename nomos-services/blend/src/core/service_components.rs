@@ -15,8 +15,9 @@ pub trait ServiceComponents<RuntimeServiceId> {
     type Rng;
 }
 
-impl<Backend, NodeId, Network, RuntimeServiceId> ServiceComponents<RuntimeServiceId>
-    for BlendService<Backend, NodeId, Network, RuntimeServiceId>
+impl<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId>
+    ServiceComponents<RuntimeServiceId>
+    for BlendService<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId>
 where
     Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
     Network: crate::core::network::NetworkAdapter<RuntimeServiceId>,
