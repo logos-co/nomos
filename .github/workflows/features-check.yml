@@ -1,0 +1,24 @@
+on:
+    workflow_dispatch:
+    push:
+        branches:
+            - aa/features-optimization
+
+name: Check dependencies features
+
+concurrency:
+  group: ${{ github.workflow }}@${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+    check-features:
+        name: Check features
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
+            - name: Install cargo-features-manager
+              run: cargo install cargo-features-manager@0.10.0
+            - name: Run cargo-features-manager
+              run: cargo features prune --dry-run
+        
