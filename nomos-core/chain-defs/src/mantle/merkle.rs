@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use groth16::{serde::serde_fr, Fr};
+use groth16::{serde::serde_fr, Field as _, Fr};
 use num_bigint::BigUint;
 use poseidon2::{Digest, Poseidon2Bn254Hasher};
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use crate::mantle::NoteId;
 
 #[must_use]
 pub fn padded_leaves<const N: usize>(elements: &[NoteId]) -> [Fr; N] {
-    let mut leaves = vec![BigUint::from(0u8).into(); N];
+    let mut leaves = vec![Fr::ZERO; N];
 
     for (i, element) in elements.iter().enumerate() {
         assert!(i < N);
