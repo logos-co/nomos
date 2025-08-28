@@ -3,11 +3,12 @@ use std::sync::LazyLock;
 use bytes::Bytes;
 use groth16::{serde::serde_fr, Fr};
 use num_bigint::BigUint;
-use poseidon2::{Digest, Poseidon2Bn254Hasher};
+use poseidon2::Digest;
 use serde::{Deserialize, Serialize};
 
-use crate::mantle::{
-    gas::GasConstants, keys::PublicKey, tx::TxHash, Transaction, TransactionHasher,
+use crate::{
+    crypto::ZkHasher,
+    mantle::{gas::GasConstants, keys::PublicKey, tx::TxHash, Transaction, TransactionHasher},
 };
 
 pub type Value = u64;
@@ -80,18 +81,18 @@ impl Utxo {
         // constants and structure as defined in the Mantle spec:
         // https://www.notion.so/Mantle-Specification-21c261aa09df810c8820fab1d78b53d9
 
-        let mut hasher = Poseidon2Bn254Hasher::default();
+        let mut hasher = ZkHasher::default();
         let tx_hash: Fr = *self.tx_hash.as_ref();
         let output_index: Fr =
             BigUint::from_bytes_le(self.output_index.to_le_bytes().as_slice()).into();
         let note_value: Fr =
             BigUint::from_bytes_le(self.note.value.to_le_bytes().as_slice()).into();
         let note_pk: Fr = self.note.pk.into();
-        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &NOMOS_NOTE_ID_V1);
-        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &tx_hash);
-        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &output_index);
-        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &note_value);
-        <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &note_pk);
+        <ZkHasher as Digest>::update(&mut hasher, &NOMOS_NOTE_ID_V1);
+        <ZkHasher as Digest>::update(&mut hasher, &tx_hash);
+        <ZkHasher as Digest>::update(&mut hasher, &output_index);
+        <ZkHasher as Digest>::update(&mut hasher, &note_value);
+        <ZkHasher as Digest>::update(&mut hasher, &note_pk);
 
         let hash = hasher.finalize();
         NoteId(hash)
@@ -149,7 +150,7 @@ impl Tx {
 
 impl Transaction for Tx {
     const HASHER: TransactionHasher<Self> =
-        |tx| <Poseidon2Bn254Hasher as Digest>::digest(&tx.as_signing_frs()).into();
+        |tx| <ZkHasher as Digest>::digest(&tx.as_signing_frs()).into();
     type Hash = TxHash;
 
     fn as_signing_frs(&self) -> Vec<Fr> {
