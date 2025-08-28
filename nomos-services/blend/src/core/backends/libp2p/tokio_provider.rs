@@ -1,4 +1,5 @@
 use core::{num::NonZeroU64, ops::RangeInclusive, time::Duration};
+use std::hash::Hash;
 
 use futures::StreamExt as _;
 use nomos_blend_network::core::with_core::behaviour::IntervalStreamProvider;
@@ -55,7 +56,7 @@ impl IntervalStreamProvider for ObservationWindowTokioIntervalProvider {
 impl<NodeId> From<&BlendConfig<Libp2pBlendBackendSettings, NodeId>>
     for ObservationWindowTokioIntervalProvider
 where
-    NodeId: Clone,
+    NodeId: Clone + Eq + Hash,
 {
     fn from(config: &BlendConfig<Libp2pBlendBackendSettings, NodeId>) -> Self {
         Self {

@@ -1,4 +1,4 @@
-use std::num::NonZeroU64;
+use std::{hash::Hash, num::NonZeroU64};
 
 use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
@@ -72,7 +72,7 @@ pub struct MessageDelayerSettingsExt {
 
 impl<BackendSettings, NodeId> BlendConfig<BackendSettings, NodeId>
 where
-    NodeId: Clone,
+    NodeId: Eq + Hash + Clone,
 {
     pub(super) fn membership(&self) -> Membership<NodeId> {
         let local_signing_pubkey = self.crypto.signing_private_key.public_key();

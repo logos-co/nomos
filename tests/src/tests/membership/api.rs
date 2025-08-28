@@ -16,11 +16,9 @@ async fn test_update_get_membership_http() {
         .config()
         .membership
         .backend
-        .initial_membership
-        .get(&0)
-        .expect("Expected at least one membership entry")
+        .session_zero_membership
         .get(&nomos_core::sdp::ServiceType::DataAvailability)
-        .expect("Expected at least one provider ID in the membership set")
+        .expect("Expected data availability membership")
         .iter()
         .next()
         .expect("Expected at least one provider ID in the membership set");

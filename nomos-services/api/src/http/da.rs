@@ -1,27 +1,17 @@
-use core::ops::Range;
 use std::{
     error::Error,
     fmt::{Debug, Display},
     hash::Hash,
 };
 
-use kzgrs_backend::common::share::DaShare;
 use nomos_core::{
     block::BlockNumber,
-    da::{
-        blob::{info::DispersedBlobInfo, metadata, select::FillSize as FillSizeWithBlobs, Share},
-        BlobId, DaVerifier as CoreDaVerifier,
-    },
-    header::HeaderId,
-    mantle::{select::FillSize as FillSizeWithTx, SignedMantleTx, Transaction},
+    da::{blob::Share, DaVerifier as CoreDaVerifier},
+    mantle::SignedMantleTx,
 };
 use nomos_da_dispersal::{
     adapters::network::DispersalNetworkAdapter, backend::DispersalBackend, DaDispersalMsg,
     DispersalService,
-};
-use nomos_da_indexer::{
-    consensus::adapters::cryptarchia::CryptarchiaConsensusAdapter,
-    storage::adapters::rocksdb::RocksAdapter as IndexerStorageAdapter, DaMsg, DataIndexerService,
 };
 use nomos_da_network_core::{maintenance::monitor::ConnectionMonitorCommand, SubnetworkId};
 use nomos_da_network_service::{
@@ -32,77 +22,22 @@ use nomos_da_network_service::{
     },
     DaNetworkMsg, MembershipResponse, NetworkService,
 };
-use nomos_da_sampling::{
-    backend::DaSamplingServiceBackend, storage::adapters::rocksdb::converter::DaStorageConverter,
-};
 use nomos_da_verifier::{
     backend::VerifierBackend, mempool::DaMempoolAdapter,
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter, DaVerifierMsg,
     DaVerifierService,
 };
 use nomos_libp2p::PeerId;
-use nomos_mempool::{
-    backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
-};
 use nomos_storage::{
     api::da::DaConverter,
     backends::{rocksdb::RocksBackend, StorageSerde},
 };
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
 
 use crate::wait_with_timeout;
-
-pub type DaIndexer<
-    Tx,
-    C,
-    V,
-    SS,
-    SamplingBackend,
-    SamplingNetworkAdapter,
-    SamplingStorage,
-    TimeBackend,
-    RuntimeServiceId,
-    const SIZE: usize,
-> = DataIndexerService<
-    // Indexer specific.
-    DaShare,
-    IndexerStorageAdapter<SS, V, DaStorageConverter>,
-    CryptarchiaConsensusAdapter<Tx, V>,
-    // Cryptarchia specific, should be the same as in `Cryptarchia` type above.
-    chain_service::network::adapters::libp2p::LibP2pAdapter<Tx, V, RuntimeServiceId>,
-    BlendService<RuntimeServiceId>,
-    MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
-    MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
-    MockPool<HeaderId, V, [u8; 32]>,
-    MempoolNetworkAdapter<C, <C as DispersedBlobInfo>::BlobId, RuntimeServiceId>,
-    FillSizeWithTx<SIZE, Tx>,
-    FillSizeWithBlobs<SIZE, V>,
-    RocksBackend<SS>,
-    SamplingBackend,
-    SamplingNetworkAdapter,
-    SamplingStorage,
-    TimeBackend,
-    RuntimeServiceId,
->;
-
-type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
-    nomos_blend_service::core::BlendService<
-        nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
-        PeerId,
-        nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
-        RuntimeServiceId,
-    >,
-    nomos_blend_service::edge::BlendService<
-        nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
-        PeerId,
-        <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
-        RuntimeServiceId
-    >,
-    RuntimeServiceId,
->;
 
 pub type DaVerifier<
     Blob,
@@ -195,94 +130,6 @@ where
         .map_err(|(e, _)| e)?;
 
     wait_with_timeout(receiver, "Timeout while waiting for add share".to_owned()).await
-}
-
-pub async fn get_range<
-    Tx,
-    C,
-    V,
-    SS,
-    SamplingBackend,
-    SamplingNetworkAdapter,
-    SamplingStorage,
-    TimeBackend,
-    RuntimeServiceId,
-    const SIZE: usize,
->(
-    handle: &OverwatchHandle<RuntimeServiceId>,
-    app_id: <V as metadata::Metadata>::AppId,
-    range: Range<<V as metadata::Metadata>::Index>,
-) -> Result<Vec<(<V as metadata::Metadata>::Index, Vec<DaShare>)>, DynError>
-where
-    Tx: Transaction + Eq + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
-    <Tx as Transaction>::Hash:
-        Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    C: DispersedBlobInfo<BlobId = [u8; 32]>
-        + Clone
-        + Debug
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
-    <C as DispersedBlobInfo>::BlobId: Clone + Send + Sync,
-    V: DispersedBlobInfo<BlobId = [u8; 32]>
-        + From<C>
-        + Eq
-        + Debug
-        + metadata::Metadata
-        + Hash
-        + Clone
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
-    <V as DispersedBlobInfo>::BlobId: Debug + Clone + Ord + Hash,
-    <V as metadata::Metadata>::AppId: AsRef<[u8]> + Serialize + Clone + Send + Sync,
-    <V as metadata::Metadata>::Index:
-        AsRef<[u8]> + Serialize + DeserializeOwned + Clone + PartialOrd + Send + Sync,
-    SS: StorageSerde + Send + Sync + 'static,
-    <SS as StorageSerde>::Error: Error + Send + Sync,
-    SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
-    SamplingBackend::Settings: Clone,
-    SamplingBackend::Share: Debug + 'static,
-    SamplingBackend::BlobId: Debug + 'static,
-    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
-    TimeBackend: nomos_time::backends::TimeBackend,
-    TimeBackend::Settings: Clone + Send + Sync,
-    RuntimeServiceId: Debug
-        + Sync
-        + Display
-        + 'static
-        + AsServiceId<
-            DaIndexer<
-                Tx,
-                C,
-                V,
-                SS,
-                SamplingBackend,
-                SamplingNetworkAdapter,
-                SamplingStorage,
-                TimeBackend,
-                RuntimeServiceId,
-                SIZE,
-            >,
-        >,
-{
-    let relay = handle.relay().await?;
-    let (sender, receiver) = oneshot::channel();
-    relay
-        .send(DaMsg::GetRange {
-            app_id,
-            range,
-            reply_channel: sender,
-        })
-        .await
-        .map_err(|(e, _)| e)?;
-
-    wait_with_timeout(receiver, "Timeout while waiting for get range".to_owned()).await
 }
 
 pub async fn disperse_data<Backend, NetworkAdapter, Membership, RuntimeServiceId>(

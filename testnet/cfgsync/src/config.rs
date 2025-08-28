@@ -8,10 +8,7 @@ use std::{
 use nomos_blend_scheduling::membership::Node;
 use nomos_core::sdp::{Locator, ServiceType};
 use nomos_libp2p::{ed25519, multiaddr, Multiaddr, PeerId};
-use nomos_membership::{
-    backends::{mock::MockMembershipBackendSettings, MembershipBackendServiceSettings},
-    MembershipServiceSettings,
-};
+use nomos_membership::{backends::mock::MockMembershipBackendSettings, MembershipServiceSettings};
 use nomos_tracing_service::{LoggerLayer, MetricsLayer, TracingLayer, TracingSettings};
 use rand::{thread_rng, Rng as _};
 use tests::{
@@ -220,13 +217,6 @@ fn update_tracing_identifier(
 
 #[must_use]
 pub fn create_membership_configs(ids: &[[u8; 32]], hosts: &[Host]) -> Vec<GeneralMembershipConfig> {
-    let settings_per_service = HashMap::from([(
-        ServiceType::DataAvailability,
-        MembershipBackendServiceSettings {
-            historical_block_delta: 8,
-        },
-    )]);
-
     let mut provider_ids = vec![];
     let mut locators = HashMap::new();
 
@@ -247,8 +237,8 @@ pub fn create_membership_configs(ids: &[[u8; 32]], hosts: &[Host]) -> Vec<Genera
         locators.insert(provider_id, Locator::new(listening_address));
     }
 
-    let mut initial_membership = HashMap::new();
     let mut initial_locators_mapping = HashMap::new();
+    initial_locators_mapping.insert(ServiceType::DataAvailability, HashMap::new());
     let mut membership_entry = HashMap::new();
     let mut providers = HashSet::new();
 
@@ -257,21 +247,22 @@ pub fn create_membership_configs(ids: &[[u8; 32]], hosts: &[Host]) -> Vec<Genera
     }
 
     membership_entry.insert(ServiceType::DataAvailability, providers.clone());
-    initial_membership.insert(0u64, membership_entry);
 
     for provider_id in providers {
         let mut locs = BTreeSet::new();
         if let Some(locator) = locators.get(&provider_id) {
             locs.insert(locator.clone());
         }
-        initial_locators_mapping.insert(provider_id, locs);
+        initial_locators_mapping
+            .get_mut(&ServiceType::DataAvailability)
+            .unwrap()
+            .insert(provider_id, locs);
     }
 
     let mock_backend_settings = MockMembershipBackendSettings {
-        settings_per_service,
-        initial_membership,
-        initial_locators_mapping,
-        latest_block_number: 0,
+        session_size_blocks: 1,
+        session_zero_membership: membership_entry,
+        session_zero_locators_mapping: initial_locators_mapping,
     };
 
     let config = GeneralMembershipConfig {

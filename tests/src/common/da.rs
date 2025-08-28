@@ -1,6 +1,11 @@
 use std::time::Duration;
 
+use chain_service::CryptarchiaInfo;
+use common_http_client::Error;
 use executor_http_client::ExecutorHttpClient;
+use futures::StreamExt as _;
+use nomos_core::da::BlobId;
+use nomos_node::DispersedBlobInfo as _;
 use reqwest::Url;
 
 use crate::{adjust_timeout, nodes::executor::Executor};
@@ -11,41 +16,56 @@ pub async fn disseminate_with_metadata(
     executor: &Executor,
     data: &[u8],
     metadata: kzgrs_backend::dispersal::Metadata,
-) {
+) -> Result<BlobId, Error> {
     let executor_config = executor.config();
     let backend_address = executor_config.http.backend_settings.address;
     let client = ExecutorHttpClient::new(None);
     let exec_url = Url::parse(&format!("http://{backend_address}")).unwrap();
 
-    client
-        .publish_blob(exec_url, data.to_vec(), metadata)
-        .await
-        .unwrap();
+    client.publish_blob(exec_url, data.to_vec(), metadata).await
 }
 
-pub async fn wait_for_indexed_blob(
-    executor: &Executor,
-    app_id: [u8; 32],
-    from: [u8; 8],
-    to: [u8; 8],
-    num_subnets: usize,
-) {
+/// `wait_for_blob_onchain` tracks the latest chain updates, if new blocks
+/// doesn't contain the provided `blob_id` it will wait for ever.
+pub async fn wait_for_blob_onchain(executor: &Executor, blob_id: BlobId) {
+    let block_fut = async {
+        let mut onchain = false;
+        while !onchain {
+            let CryptarchiaInfo { tip, .. } = executor.consensus_info().await;
+            if let Some(block) = executor.get_block(tip).await {
+                if block.blobs().any(|blob| blob.blob_id() == blob_id) {
+                    onchain = true;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    };
+
+    let timeout = adjust_timeout(Duration::from_secs(DA_TESTS_TIMEOUT));
+    assert!(
+        (tokio::time::timeout(timeout, block_fut).await).is_ok(),
+        "timed out waiting for blob shares"
+    );
+}
+
+pub async fn wait_for_shares_number(executor: &Executor, blob_id: BlobId, num_shares: usize) {
     let shares_fut = async {
-        let mut num_shares = 0;
-        while num_shares < num_subnets {
-            let executor_shares = executor.get_indexer_range(app_id, from..to).await;
-            num_shares = executor_shares
-                .into_iter()
-                .filter(|(i, _)| i == &from)
-                .flat_map(|(_, shares)| shares)
-                .count();
-            tokio::time::sleep(Duration::from_millis(100)).await;
+        let mut got_shares = 0;
+        while got_shares < num_shares {
+            got_shares = executor
+                .get_shares(blob_id, [].into(), [].into(), true)
+                .await
+                .unwrap()
+                .collect::<Vec<_>>()
+                .await
+                .len();
+            tokio::time::sleep(Duration::from_millis(200)).await;
         }
     };
 
     let timeout = adjust_timeout(Duration::from_secs(DA_TESTS_TIMEOUT));
     assert!(
         (tokio::time::timeout(timeout, shares_fut).await).is_ok(),
-        "timed out waiting for indexed blob"
+        "timed out waiting for blob shares"
     );
 }

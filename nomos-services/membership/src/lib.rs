@@ -41,11 +41,6 @@ pub struct MembershipServiceSettings<BackendSettings> {
 }
 
 pub enum MembershipMessage {
-    GetSnapshotAt {
-        reply_channel: oneshot::Sender<Result<MembershipProviders, MembershipBackendError>>,
-        block_number: BlockNumber,
-        service_type: nomos_core::sdp::ServiceType,
-    },
     Subscribe {
         service_type: nomos_core::sdp::ServiceType,
         result_sender: oneshot::Sender<Result<MembershipSnapshotStream, MembershipBackendError>>,
@@ -172,19 +167,6 @@ where
     )]
     async fn handle_message(&mut self, msg: MembershipMessage) {
         match msg {
-            MembershipMessage::GetSnapshotAt {
-                reply_channel,
-                block_number,
-                service_type,
-            } => {
-                let result = self
-                    .backend
-                    .get_providers_at(service_type, block_number)
-                    .await;
-                if let Err(e) = reply_channel.send(result) {
-                    tracing::error!("Failed to send response: {:?}", e);
-                }
-            }
             MembershipMessage::Subscribe {
                 service_type,
                 result_sender,
@@ -250,6 +232,13 @@ where
     async fn handle_sdp_update(&mut self, sdp_msg: nomos_core::sdp::FinalizedBlockEvent) {
         match self.backend.update(sdp_msg).await {
             Ok(snapshot) => {
+                if snapshot.is_none() {
+                    // no new sessions
+                    return;
+                }
+
+                let snapshot = snapshot.unwrap();
+
                 // The list of all providers for each updated service type is sent to
                 // appropriate subscribers per service type
                 for (service_type, snapshot) in snapshot {

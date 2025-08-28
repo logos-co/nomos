@@ -1,10 +1,14 @@
 use std::time::Duration;
 
-use kzgrs_backend::{dispersal::Index, reconstruction::reconstruct_without_missing_data};
-use nomos_core::da::blob::Share as _;
+use futures::StreamExt as _;
+use kzgrs_backend::{
+    common::share::DaShare, dispersal::Index, reconstruction::reconstruct_without_missing_data,
+};
 use subnetworks_assignations::MembershipHandler as _;
 use tests::{
-    common::da::{disseminate_with_metadata, wait_for_indexed_blob, APP_ID},
+    common::da::{
+        disseminate_with_metadata, wait_for_blob_onchain, wait_for_shares_number, APP_ID,
+    },
     secret_key_to_peer_id,
     topology::{Topology, TopologyConfig},
 };
@@ -22,33 +26,31 @@ async fn disseminate_and_retrieve() {
         kzgrs_backend::dispersal::Metadata::new(app_id.clone().try_into().unwrap(), 0u64.into());
 
     tokio::time::sleep(Duration::from_secs(15)).await;
-    disseminate_with_metadata(executor, &data, metadata).await;
+    let blob_id = disseminate_with_metadata(executor, &data, metadata)
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_secs(20)).await;
 
-    let from = 0u64.to_be_bytes();
-    let to = 1u64.to_be_bytes();
+    wait_for_blob_onchain(executor, blob_id).await;
 
-    let executor_blobs = executor
-        .get_indexer_range(app_id.clone().try_into().unwrap(), from..to)
+    let executor_shares = executor
+        .get_shares(blob_id, [].into(), [].into(), true)
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
         .await;
 
-    let validator_blobs = validator
-        .get_indexer_range(app_id.try_into().unwrap(), from..to)
+    let validator_shares = validator
+        .get_shares(blob_id, [].into(), [].into(), true)
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
         .await;
 
-    let executor_idx_0_blobs = executor_blobs
-        .iter()
-        .filter(|(i, _)| i == &from)
-        .flat_map(|(_, blobs)| blobs);
-    let validator_idx_0_blobs = validator_blobs
-        .iter()
-        .filter(|(i, _)| i == &from)
-        .flat_map(|(_, blobs)| blobs);
-
-    // Index zero shouldn't be empty, validator replicated both blobs to executor
-    // because they both are in the same subnetwork.
-    assert!(executor_idx_0_blobs.count() == 2);
-    assert!(validator_idx_0_blobs.count() == 2);
+    // Index zero shouldn't be empty, validator replicated both blobs to
+    // executor because they both are in the same subnetwork.
+    assert!(executor_shares.len() == 2);
+    assert!(validator_shares.len() == 2);
 }
 
 #[ignore = "Reenable after transaction mempool is used"]
@@ -58,7 +60,6 @@ async fn disseminate_retrieve_reconstruct() {
 
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
-    let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
     let app_id = hex::decode(APP_ID).unwrap();
     let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
@@ -70,23 +71,25 @@ async fn disseminate_retrieve_reconstruct() {
         println!("disseminating {data_size} bytes");
         let data = &data[..data_size]; // test increasing size data
         let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(i as u64));
-        disseminate_with_metadata(executor, data, metadata).await;
+        let blob_id = disseminate_with_metadata(executor, data, metadata)
+            .await
+            .unwrap();
 
-        let from = i.to_be_bytes();
-        let to = (i + 1).to_be_bytes();
+        wait_for_blob_onchain(executor, blob_id).await;
 
-        wait_for_indexed_blob(executor, app_id, from, to, num_subnets).await;
+        let share_commitments = executor.get_commitments(blob_id).await.unwrap().unwrap();
+        let mut executor_shares = executor
+            .get_shares(blob_id, [].into(), [].into(), true)
+            .await
+            .unwrap()
+            .map(|light_share| DaShare::from((light_share, share_commitments.clone())))
+            .collect::<Vec<_>>()
+            .await;
 
-        let executor_blobs = executor.get_indexer_range(app_id, from..to).await;
-        let executor_idx_0_blobs: Vec<_> = executor_blobs
-            .iter()
-            .filter(|(i, _)| i == &from)
-            .flat_map(|(_, blobs)| blobs)
-            .collect();
+        executor_shares.sort_by_key(|share| share.share_idx);
 
         // Reconstruction is performed from the one of the two blobs.
-        let blobs = vec![executor_idx_0_blobs[0].clone()];
-        let reconstructed = reconstruct_without_missing_data(&blobs);
+        let reconstructed = reconstruct_without_missing_data(&executor_shares);
         assert_eq!(reconstructed, data);
     }
 
@@ -142,37 +145,39 @@ async fn four_subnets_disseminate_retrieve_reconstruct() {
         println!("disseminating {data_size} bytes");
         let data = &data[..data_size]; // test increasing size data
         let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(i as u64));
-        disseminate_with_metadata(executor, data, metadata).await;
+        let blob_id = disseminate_with_metadata(executor, data, metadata)
+            .await
+            .unwrap();
 
-        let from = i.to_be_bytes();
-        let to = (i + 1).to_be_bytes();
+        wait_for_blob_onchain(executor, blob_id).await;
 
-        // Executor is participating only in two subnetworks out of 4. We are waiting
-        // here for shares availability in executor for both of those
-        // subnetworks, thats why we are passing `2` instead of `num_subnets`.
-        wait_for_indexed_blob(executor, app_id, from, to, 2).await;
+        let share_commitments = validator_subnet_1
+            .get_commitments(blob_id)
+            .await
+            .unwrap()
+            .unwrap();
 
-        tokio::time::sleep(Duration::from_secs(10)).await;
+        let mut validator_subnet_0_shares = validator_subnet_0
+            .get_shares(blob_id, [].into(), [].into(), true)
+            .await
+            .unwrap()
+            .map(|light_share| DaShare::from((light_share, share_commitments.clone())))
+            .collect::<Vec<_>>()
+            .await;
+        validator_subnet_0_shares.sort_by_key(|share| share.share_idx);
 
-        let validator_subnet_0_idx_0 = validator_subnet_0.get_indexer_range(app_id, from..to).await;
-        let validator_idx_0_blobs: Vec<_> = validator_subnet_0_idx_0
-            .iter()
-            .filter(|(i, _)| i == &from)
-            .flat_map(|(_, blobs)| blobs)
-            .filter(|share| share.share_idx() == [0, 0])
-            .collect();
-
-        let validator_subnet_1_idx_0 = validator_subnet_1.get_indexer_range(app_id, from..to).await;
-        let validator_1_blobs: Vec<_> = validator_subnet_1_idx_0
-            .iter()
-            .filter(|(i, _)| i == &from)
-            .flat_map(|(_, blobs)| blobs)
-            .filter(|share| share.share_idx() == [0, 1])
-            .collect();
+        let mut validator_subnet_1_shares = validator_subnet_1
+            .get_shares(blob_id, [].into(), [].into(), true)
+            .await
+            .unwrap()
+            .map(|light_share| DaShare::from((light_share, share_commitments.clone())))
+            .collect::<Vec<_>>()
+            .await;
+        validator_subnet_1_shares.sort_by_key(|share| share.share_idx);
 
         let reconstruction_shares = vec![
-            validator_idx_0_blobs[0].clone(),
-            validator_1_blobs[0].clone(),
+            validator_subnet_0_shares[0].clone(),
+            validator_subnet_1_shares[0].clone(),
         ];
 
         // Reconstruction is performed from the one of the two blobs.
@@ -202,23 +207,28 @@ async fn disseminate_same_data() {
     let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
     let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(0));
 
-    let from = 0u64.to_be_bytes();
-    let to = 1u64.to_be_bytes();
-
+    let mut onchain = false;
     for _ in 0..ITERATIONS {
-        disseminate_with_metadata(executor, &data, metadata).await;
+        let blob_id = disseminate_with_metadata(executor, &data, metadata)
+            .await
+            .unwrap();
 
-        wait_for_indexed_blob(executor, app_id, from, to, num_subnets).await;
+        if !onchain {
+            wait_for_blob_onchain(executor, blob_id).await;
+            onchain = true;
+        }
 
-        let executor_blobs = executor.get_indexer_range(app_id, from..to).await;
-        let executor_idx_0_blobs = executor_blobs
-            .iter()
-            .filter(|(i, _)| i == &from)
-            .flat_map(|(_, blobs)| blobs);
+        wait_for_shares_number(executor, blob_id, num_subnets).await;
+        let executor_shares = executor
+            .get_shares(blob_id, [].into(), [].into(), true)
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
 
-        // Index zero shouldn't be empty, validator replicated both blobs to executor
-        // because they both are in the same subnetwork.
-        assert!(executor_idx_0_blobs.count() == 2);
+        // Index zero shouldn't be empty, validator replicated both blobs to
+        // executor because they both are in the same subnetwork.
+        assert!(executor_shares.len() == 2);
     }
 }
 
@@ -231,12 +241,13 @@ async fn local_testnet() {
 
     let mut index = 0u64;
     loop {
-        disseminate_with_metadata(
+        let _ = disseminate_with_metadata(
             executor,
             &generate_data(index),
             create_metadata(&app_id, index),
         )
-        .await;
+        .await
+        .unwrap();
 
         index += 1;
         tokio::time::sleep(Duration::from_secs(30)).await;
@@ -296,5 +307,7 @@ async fn split_2025_death_payload() {
         128, 84, 169, 217, 162, 189, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
-    disseminate_with_metadata(executor, &data, create_metadata(&app_id, 0u64)).await;
+    let _ = disseminate_with_metadata(executor, &data, create_metadata(&app_id, 0u64))
+        .await
+        .unwrap();
 }

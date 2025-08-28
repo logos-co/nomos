@@ -29,7 +29,6 @@ kzgrs-backend            = { workspace = true }
 nomos-api                = { workspace = true }
 nomos-blend-service      = { workspace = true, features = ["libp2p"] }
 nomos-core               = { workspace = true }
-nomos-da-indexer         = { workspace = true, features = ["rocksdb-backend"] }
 nomos-da-messages        = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-da-network-service = { workspace = true }

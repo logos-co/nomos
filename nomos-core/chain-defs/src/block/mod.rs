@@ -9,6 +9,8 @@ pub type TxHash = [u8; 32];
 
 pub type BlockNumber = u64;
 
+pub type SessionNumber = u64;
+
 /// A block
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Block<Tx: Clone + Eq, BlobCertificate: Clone + Eq> {

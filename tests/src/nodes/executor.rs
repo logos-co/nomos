@@ -2,29 +2,33 @@ use std::{
     collections::HashSet,
     net::SocketAddr,
     num::{NonZeroU64, NonZeroUsize},
-    ops::Range,
     path::PathBuf,
     process::{Child, Command, Stdio},
+    str::FromStr as _,
     time::Duration,
 };
 
-use chain_service::{CryptarchiaSettings, OrphanConfig, SyncConfig};
+use chain_service::{CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, SyncConfig};
+use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
-use kzgrs_backend::common::share::DaShare;
+use futures::Stream;
+use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_api::http::membership::MembershipUpdateRequest;
 use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
 use nomos_blend_service::{
     core::settings::{CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt},
     settings::TimingSettings,
 };
-use nomos_core::{block::BlockNumber, header::HeaderId, sdp::FinalizedBlockEvent};
+use nomos_core::{
+    block::{Block, BlockNumber},
+    da::BlobId,
+    header::HeaderId,
+    mantle::SignedMantleTx,
+    sdp::FinalizedBlockEvent,
+};
 use nomos_da_dispersal::{
     backend::kzgrs::{DispersalKZGRSBackendSettings, EncoderSettings},
     DispersalServiceSettings,
-};
-use nomos_da_indexer::{
-    storage::adapters::rocksdb::RocksAdapterSettings as IndexerStorageAdapterSettings,
-    IndexerSettings,
 };
 use nomos_da_network_core::{
     protocols::sampling::SubnetsConfig,
@@ -49,13 +53,13 @@ use nomos_da_verifier::{
 };
 use nomos_executor::{api::backend::AxumBackendSettings, config::Config};
 use nomos_http_api_common::paths::{
-    CL_METRICS, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER, DA_GET_MEMBERSHIP,
-    DA_GET_RANGE, DA_MONITOR_STATS, DA_UNBLOCK_PEER, UPDATE_MEMBERSHIP,
+    CL_METRICS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER,
+    DA_GET_MEMBERSHIP, DA_MONITOR_STATS, DA_UNBLOCK_PEER, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
 };
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
     config::{blend::BlendConfig, mempool::MempoolConfig},
-    RocksBackendSettings,
+    BlobInfo, RocksBackendSettings,
 };
 use nomos_time::{
     backends::{ntp::async_client::NTPClientSettings, NtpTimeBackendSettings},
@@ -64,9 +68,10 @@ use nomos_time::{
 use nomos_tracing::logging::local::FileConfig;
 use nomos_tracing_service::LoggerLayer;
 use nomos_utils::math::NonNegativeF64;
+use reqwest::Url;
 use tempfile::NamedTempFile;
 
-use super::{create_tempdir, persist_tempdir, GetRangeReq, CLIENT};
+use super::{create_tempdir, persist_tempdir, CLIENT};
 use crate::{
     adjust_timeout, get_available_port, nodes::LOGS_PREFIX, topology::configs::GeneralConfig,
     IS_DEBUG_TRACING,
@@ -82,6 +87,7 @@ pub struct Executor {
     tempdir: tempfile::TempDir,
     child: Child,
     config: Config,
+    http_client: CommonHttpClient,
 }
 
 impl Drop for Executor {
@@ -119,8 +125,6 @@ impl Executor {
                 .storage_adapter_settings
                 .blob_storage_directory,
         );
-        dir.path()
-            .clone_into(&mut config.da_indexer.storage.blob_storage_directory);
 
         serde_yaml::to_writer(&mut file, &config).unwrap();
         let child = Command::new(std::env::current_dir().unwrap().join(BIN_PATH))
@@ -135,6 +139,7 @@ impl Executor {
             child,
             tempdir: dir,
             config,
+            http_client: CommonHttpClient::new_with_client(CLIENT.clone(), None),
         };
         tokio::time::timeout(adjust_timeout(Duration::from_secs(10)), async {
             node.wait_online().await;
@@ -143,23 +148,6 @@ impl Executor {
         .unwrap();
 
         node
-    }
-
-    pub async fn get_indexer_range(
-        &self,
-        app_id: [u8; 32],
-        range: Range<[u8; 8]>,
-    ) -> Vec<([u8; 8], Vec<DaShare>)> {
-        CLIENT
-            .post(format!("http://{}{}", self.addr, DA_GET_RANGE))
-            .header("Content-Type", "application/json")
-            .body(serde_json::to_string(&GetRangeReq { app_id, range }).unwrap())
-            .send()
-            .await
-            .unwrap()
-            .json::<Vec<([u8; 8], Vec<DaShare>)>>()
-            .await
-            .unwrap()
     }
 
     pub async fn block_peer(&self, peer_id: String) -> bool {
@@ -237,6 +225,52 @@ impl Executor {
             .json()
             .await
             .unwrap()
+    }
+
+    pub async fn consensus_info(&self) -> CryptarchiaInfo {
+        let res = self.get(CRYPTARCHIA_INFO).await;
+        println!("{res:?}");
+        res.unwrap().json().await.unwrap()
+    }
+
+    pub async fn get_block(&self, id: HeaderId) -> Option<Block<SignedMantleTx, BlobInfo>> {
+        CLIENT
+            .post(format!("http://{}{}", self.addr, STORAGE_BLOCK))
+            .header("Content-Type", "application/json")
+            .body(serde_json::to_string(&id).unwrap())
+            .send()
+            .await
+            .unwrap()
+            .json::<Option<Block<SignedMantleTx, BlobInfo>>>()
+            .await
+            .unwrap()
+    }
+
+    pub async fn get_shares(
+        &self,
+        blob_id: BlobId,
+        requested_shares: HashSet<[u8; 2]>,
+        filter_shares: HashSet<[u8; 2]>,
+        return_available: bool,
+    ) -> Result<impl Stream<Item = DaLightShare>, common_http_client::Error> {
+        self.http_client
+            .get_shares::<DaShare>(
+                Url::from_str(&format!("http://{}", self.addr))?,
+                blob_id,
+                requested_shares,
+                filter_shares,
+                return_available,
+            )
+            .await
+    }
+
+    pub async fn get_commitments(
+        &self,
+        blob_id: BlobId,
+    ) -> Result<Option<DaSharesCommitments>, common_http_client::Error> {
+        self.http_client
+            .get_commitments::<DaShare>(Url::from_str(&format!("http://{}", self.addr))?, blob_id)
+            .await
     }
 
     pub async fn update_membership(
@@ -387,11 +421,6 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 is_secure: false,
             },
             subnet_refresh_interval: config.da_config.subnets_refresh_interval,
-        },
-        da_indexer: IndexerSettings {
-            storage: IndexerStorageAdapterSettings {
-                blob_storage_directory: "./".into(),
-            },
         },
         da_verifier: DaVerifierServiceSettings {
             share_verifier_settings: KzgrsDaVerifierSettings {

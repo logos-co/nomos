@@ -174,7 +174,7 @@ impl NetworkBehaviour for Behaviour {
             return Ok(Either::Right(DummyConnectionHandler));
         };
         // Allow only inbound connections from edge nodes.
-        Ok(if membership.contains_remote(&peer) {
+        Ok(if membership.contains(&peer) {
             Either::Right(DummyConnectionHandler)
         } else {
             Either::Left(ConnectionHandler::new(

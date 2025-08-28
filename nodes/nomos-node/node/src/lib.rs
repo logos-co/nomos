@@ -110,17 +110,6 @@ pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
 pub(crate) type BlendService =
     nomos_blend_service::BlendService<BlendCoreService, BlendEdgeService, RuntimeServiceId>;
 
-pub(crate) type DaIndexerService = generic_services::DaIndexerService<
-    nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
-        NomosDaMembership,
-        DaMembershipAdapter<RuntimeServiceId>,
-        DaMembershipStorage,
-        DaNetworkApiAdapter,
-        RuntimeServiceId,
-    >,
-    RuntimeServiceId,
->;
-
 pub(crate) type DaVerifierService = generic_services::DaVerifierService<
     VerifierNetworkAdapter<
         NomosDaMembership,
@@ -245,7 +234,6 @@ pub struct Nomos {
     blend: BlendService,
     blend_core: BlendCoreService,
     blend_edge: BlendEdgeService,
-    da_indexer: DaIndexerService,
     da_verifier: DaVerifierService,
     da_sampling: DaSamplingService,
     da_network: DaNetworkService,

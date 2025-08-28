@@ -45,10 +45,10 @@ async fn test_ibd_behind_nodes() {
 
     let failing_behind_node = Validator::spawn(config).await;
 
-    tokio::time::sleep(Duration::from_secs(2)).await;
-
     // IBD failed and node stopped
     assert!(failing_behind_node.is_err());
+    // Kill the node process.
+    drop(failing_behind_node);
 
     let minimum_height = 10;
     println!("Waiting for initial validators to switch to online mode and reach height {minimum_height}...", );
