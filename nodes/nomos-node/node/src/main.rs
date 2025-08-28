@@ -61,7 +61,6 @@ async fn main() -> Result<()> {
                 trigger_sampling_delay: config.mempool.trigger_sampling_delay,
             },
             da_network: config.da_network,
-            da_indexer: config.da_indexer,
             da_sampling: config.da_sampling,
             da_verifier: config.da_verifier,
             cryptarchia: config.cryptarchia,
@@ -103,7 +102,6 @@ async fn get_services_to_start(
 
     if !must_da_service_group_start {
         let da_service_ids = [
-            RuntimeServiceId::DaIndexer,
             RuntimeServiceId::DaVerifier,
             RuntimeServiceId::DaSampling,
             RuntimeServiceId::DaNetwork,

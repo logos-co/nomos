@@ -2,14 +2,14 @@ use std::collections::HashSet;
 
 use common_http_client::CommonHttpClient;
 use futures_util::stream::StreamExt as _;
-use kzgrs_backend::common::share::{DaLightShare, DaShare};
-use nomos_core::da::blob::{LightShare as _, Share as _};
+use kzgrs_backend::common::share::DaShare;
+use nomos_core::da::blob::LightShare as _;
 use nomos_da_network_service::membership::adapters::service::peer_id_from_provider_id;
 use nomos_libp2p::ed25519;
 use rand::{rngs::OsRng, RngCore as _};
 use reqwest::Url;
 use tests::{
-    common::da::{disseminate_with_metadata, wait_for_indexed_blob, APP_ID},
+    common::da::{disseminate_with_metadata, wait_for_blob_onchain, APP_ID},
     secret_key_to_peer_id,
     topology::{Topology, TopologyConfig},
 };
@@ -18,50 +18,26 @@ use tests::{
 async fn test_get_share_data() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
-    let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
     let data = [1u8; 31];
     let app_id = hex::decode(APP_ID).unwrap();
     let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
     let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
 
-    disseminate_with_metadata(executor, &data, metadata).await;
-
-    let from = 0u64.to_be_bytes();
-    let to = 1u64.to_be_bytes();
-
-    wait_for_indexed_blob(executor, app_id, from, to, num_subnets).await;
-
-    let executor_blobs = executor.get_indexer_range(app_id, from..to).await;
-
-    let share = executor_blobs
-        .iter()
-        .flat_map(|(_, shares)| shares)
-        .next()
-        .unwrap();
-
-    let exec_url =
-        Url::parse(format!("http://{}", executor.config().http.backend_settings.address).as_str())
-            .unwrap();
-
-    let client = CommonHttpClient::new(None);
-    let commitments = client
-        .get_commitments::<DaShare>(exec_url.clone(), share.blob_id().try_into().unwrap())
+    let blob_id = disseminate_with_metadata(executor, &data, metadata)
         .await
         .unwrap();
 
-    assert!(commitments.is_some());
+    wait_for_blob_onchain(executor, blob_id).await;
 
-    let share_data = client
-        .get_share::<DaShare, DaLightShare>(
-            exec_url,
-            share.blob_id().try_into().unwrap(),
-            share.share_idx(),
-        )
+    let executor_shares = executor
+        .get_shares(blob_id, HashSet::new(), HashSet::new(), true)
         .await
-        .unwrap();
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await;
 
-    assert!(share_data.is_some());
+    assert!(executor_shares.len() == 2);
 }
 
 #[tokio::test]
@@ -138,19 +114,11 @@ async fn test_get_shares() {
     let app_id: [u8; 32] = app_id.try_into().unwrap();
     let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
 
-    disseminate_with_metadata(executor, &data, metadata).await;
-
-    let from = 0u64.to_be_bytes();
-    let to = 1u64.to_be_bytes();
-    wait_for_indexed_blob(executor, app_id, from, to, num_subnets).await;
-
-    let executor_blobs = executor.get_indexer_range(app_id, from..to).await;
-    let blob = executor_blobs
-        .iter()
-        .flat_map(|(_, blobs)| blobs)
-        .next()
+    let blob_id = disseminate_with_metadata(executor, &data, metadata)
+        .await
         .unwrap();
-    let blob_id = blob.blob_id().try_into().unwrap();
+
+    wait_for_blob_onchain(executor, blob_id).await;
 
     let exec_url = Url::parse(&format!(
         "http://{}",
@@ -190,7 +158,8 @@ async fn test_get_shares() {
     assert_eq!(shares.len(), 1);
     assert_eq!(shares[0].share_idx(), [0, 0]);
 
-    // Test case 3: Request only the first share but return all available shares
+    // Test case 3: Request only the first share but return all available
+    // shares
     let shares_stream = client
         .get_shares::<DaShare>(
             exec_url.clone(),

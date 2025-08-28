@@ -871,7 +871,7 @@ where
             )));
         };
 
-        Ok(if membership.contains_remote(&peer_id) {
+        Ok(if membership.contains(&peer_id) {
             tracing::debug!(target: LOG_TARGET, "Upgrading inbound connection {connection_id:?} with core peer {peer_id:?}.");
             self.connections_waiting_upgrade
                 .insert((peer_id, connection_id), Endpoint::Dialer);
@@ -925,7 +925,7 @@ where
             )));
         };
 
-        Ok(if membership.contains_remote(&peer_id) {
+        Ok(if membership.contains(&peer_id) {
             tracing::debug!(target: LOG_TARGET, "Upgrading outbound connection {connection_id:?} with core peer {peer_id:?}.");
             self.connections_waiting_upgrade
                 .insert((peer_id, connection_id), Endpoint::Listener);

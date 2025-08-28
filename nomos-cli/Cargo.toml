@@ -10,18 +10,14 @@ version     = "0.1.0"
 workspace = true
 
 [dependencies]
-clap                  = { version = "4", features = ["derive"] }
-executor-http-client  = { workspace = true }
-hex                   = "0.4.3"
-kzgrs-backend         = { workspace = true }
-nomos-core            = { workspace = true }
-nomos-da-messages     = { workspace = true }
-nomos-http-api-common = { workspace = true }
-nomos-node            = { workspace = true }
-nomos-tracing         = { workspace = true }
-reqwest               = { workspace = true, features = ["json"] }
-serde                 = { version = "1.0", features = ["derive"] }
-serde_json            = "1"
-tokio                 = { version = "1", features = ["sync"] }
-tracing               = { workspace = true }
-tracing-subscriber    = "0.3"
+clap                 = { version = "4", features = ["derive"] }
+executor-http-client = { workspace = true }
+hex                  = "0.4.3"
+kzgrs-backend        = { workspace = true }
+nomos-core           = { workspace = true }
+nomos-tracing        = { workspace = true }
+reqwest              = { workspace = true, features = ["json"] }
+serde_json           = "1"
+tokio                = { version = "1", features = ["sync"] }
+tracing              = { workspace = true }
+tracing-subscriber   = "0.3"

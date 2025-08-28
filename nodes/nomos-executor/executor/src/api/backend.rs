@@ -12,7 +12,7 @@ use hyper::header::{CONTENT_TYPE, USER_AGENT};
 use nomos_api::{
     http::{
         consensus::Cryptarchia,
-        da::{DaDispersal, DaIndexer, DaVerifier},
+        da::{DaDispersal, DaVerifier},
         storage,
     },
     Backend,
@@ -42,7 +42,7 @@ use nomos_node::{
     api::handlers::{
         add_blob_info, add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer,
         cl_metrics, cl_status, cryptarchia_headers, cryptarchia_info, da_get_commitments,
-        da_get_light_share, da_get_shares, get_range, libp2p_info, monitor_stats, unblock_peer,
+        da_get_light_share, da_get_shares, libp2p_info, monitor_stats, unblock_peer,
     },
     RocksBackend,
 };
@@ -330,20 +330,6 @@ where
             >,
         >
         + AsServiceId<
-            DaIndexer<
-                Tx,
-                DaBlobInfo,
-                DaVerifiedBlobInfo,
-                DaStorageSerializer,
-                SamplingBackend,
-                SamplingNetworkAdapter,
-                SamplingStorage,
-                TimeBackend,
-                RuntimeServiceId,
-                SIZE,
-            >,
-        >
-        + AsServiceId<
             nomos_da_network_service::NetworkService<
                 DaNetworkExecutorBackend<Membership>,
                 Membership,
@@ -413,7 +399,6 @@ where
             Some(Duration::from_secs(60)),
             Cryptarchia<_, _, _, _, _, _, _, SIZE>,
             DaVerifier<_, _, _, _, _, _, _>,
-            DaIndexer<_, _, _, _, _, _, _, _, _, SIZE>,
             nomos_da_network_service::NetworkService<_, _, _,_, _, _>,
             nomos_network::NetworkService<_, _>,
             DaStorageService<_, _>,
@@ -501,23 +486,6 @@ where
                         DaStorageConverter,
                         VerifierMempoolAdapter,
                         RuntimeServiceId,
-                    >,
-                ),
-            )
-            .route(
-                paths::DA_GET_RANGE,
-                routing::post(
-                    get_range::<
-                        Tx,
-                        DaBlobInfo,
-                        DaVerifiedBlobInfo,
-                        DaStorageSerializer,
-                        SamplingBackend,
-                        SamplingNetworkAdapter,
-                        SamplingStorage,
-                        TimeBackend,
-                        RuntimeServiceId,
-                        SIZE,
                     >,
                 ),
             )

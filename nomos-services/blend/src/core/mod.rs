@@ -5,6 +5,7 @@ pub mod settings;
 use std::{
     fmt::{Debug, Display},
     future::Future,
+    hash::Hash,
     time::Duration,
 };
 
@@ -77,7 +78,7 @@ impl<Backend, NodeId, Network, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for BlendService<Backend, NodeId, Network, RuntimeServiceId>
 where
     Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId> + Send + Sync,
-    NodeId: Clone + Send + Sync + 'static,
+    NodeId: Clone + Eq + Hash + Send + Sync + 'static,
     Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
         + AsServiceId<Self>
@@ -202,7 +203,7 @@ async fn handle_local_data_message<
     backend: &Backend,
     scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
 ) where
-    NodeId: Send,
+    NodeId: Eq + Hash + Send,
     Rng: RngCore + Send,
     Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId> + Sync,
     BroadcastSettings: Serialize,
@@ -283,6 +284,7 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
     backend: &Backend,
     network_adapter: &NetAdapter,
 ) where
+    NodeId: Eq + Hash,
     Rng: RngCore + Send,
     Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId> + Sync,
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Sync,
