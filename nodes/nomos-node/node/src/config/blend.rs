@@ -1,3 +1,4 @@
+use nomos_blend_service::settings::NetworkSettings;
 use overwatch::services::ServiceData;
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +26,7 @@ impl BlendConfig {
             crypto: self.0.crypto.clone(),
             time: self.0.time.clone(),
             membership: self.0.membership.clone(),
+            minimum_network_size: self.0.minimum_network_size,
         }
     }
 
@@ -42,6 +44,13 @@ impl From<BlendConfig>
 {
     fn from(config: BlendConfig) -> Self {
         let edge = config.edge();
-        ((), config.0, edge)
+        (
+            NetworkSettings {
+                membership: config.0.membership.clone(),
+                minimal_network_size: config.0.minimum_network_size,
+            },
+            config.0,
+            edge,
+        )
     }
 }

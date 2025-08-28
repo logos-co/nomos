@@ -27,10 +27,12 @@ where
                     with_core: nomos_blend_network::core::with_core::behaviour::Config {
                         peering_degree: minimum_core_healthy_peering_degree
                             ..=maximum_core_peering_degree,
+                        minimum_network_size: config.minimum_network_size.try_into().unwrap(),
                     },
                     with_edge: nomos_blend_network::core::with_edge::behaviour::Config {
                         connection_timeout: config.backend.edge_node_connection_timeout,
                         max_incoming_connections: maximum_edge_incoming_connections,
+                        minimum_network_size: config.minimum_network_size.try_into().unwrap(),
                     },
                 },
                 observation_window_interval_provider,

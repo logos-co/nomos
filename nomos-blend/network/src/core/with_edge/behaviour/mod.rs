@@ -1,3 +1,4 @@
+use core::num::NonZeroUsize;
 use std::{
     collections::{HashSet, VecDeque},
     convert::Infallible,
@@ -42,6 +43,7 @@ pub enum Event {
 pub struct Config {
     pub connection_timeout: Duration,
     pub max_incoming_connections: usize,
+    pub minimum_network_size: NonZeroUsize,
 }
 
 /// A [`NetworkBehaviour`]:
@@ -58,6 +60,7 @@ pub struct Behaviour {
     upgraded_edge_peers: HashSet<(PeerId, ConnectionId)>,
     max_incoming_connections: usize,
     protocol_name: StreamProtocol,
+    minimum_network_size: NonZeroUsize,
 }
 
 impl Behaviour {
@@ -75,6 +78,7 @@ impl Behaviour {
             upgraded_edge_peers: HashSet::with_capacity(config.max_incoming_connections),
             max_incoming_connections: config.max_incoming_connections,
             protocol_name,
+            minimum_network_size: config.minimum_network_size,
         }
     }
 
@@ -150,6 +154,11 @@ impl Behaviour {
         });
         self.try_wake();
     }
+
+    fn is_network_large_enough(&self) -> bool {
+        self.current_membership.as_ref().map_or(1, Membership::size)
+            >= self.minimum_network_size.get()
+    }
 }
 
 impl NetworkBehaviour for Behaviour {
@@ -173,15 +182,18 @@ impl NetworkBehaviour for Behaviour {
         let Some(membership) = &self.current_membership else {
             return Ok(Either::Right(DummyConnectionHandler));
         };
-        // Allow only inbound connections from edge nodes.
-        Ok(if membership.contains(&peer) {
-            Either::Right(DummyConnectionHandler)
-        } else {
-            Either::Left(ConnectionHandler::new(
-                self.connection_timeout,
-                self.protocol_name.clone(),
-            ))
-        })
+        // Allow only inbound connections from edge nodes, if the Blend network is large
+        // enough.
+        Ok(
+            if membership.contains(&peer) || !self.is_network_large_enough() {
+                Either::Right(DummyConnectionHandler)
+            } else {
+                Either::Left(ConnectionHandler::new(
+                    self.connection_timeout,
+                    self.protocol_name.clone(),
+                ))
+            },
+        )
     }
 
     fn handle_established_outbound_connection(

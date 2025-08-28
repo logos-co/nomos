@@ -1,4 +1,4 @@
-use core::{fmt::Debug, ops::RangeInclusive, time::Duration};
+use core::{fmt::Debug, num::NonZeroUsize, ops::RangeInclusive, time::Duration};
 use std::collections::{HashMap, VecDeque};
 
 use async_trait::async_trait;
@@ -51,6 +51,7 @@ pub struct BehaviourBuilder {
     local_peer_id: Option<PeerId>,
     peering_degree: Option<RangeInclusive<usize>>,
     identity: Option<Keypair>,
+    minimum_network_size: Option<NonZeroUsize>,
 }
 
 impl BehaviourBuilder {
@@ -82,6 +83,11 @@ impl BehaviourBuilder {
         self
     }
 
+    pub fn with_minimum_network_size(mut self, minimum_network_size: usize) -> Self {
+        self.minimum_network_size = Some(minimum_network_size.try_into().unwrap());
+        self
+    }
+
     pub fn build(self) -> Behaviour<IntervalProvider> {
         let local_peer_id = match (self.local_peer_id, self.identity) {
             (None, None) => PeerId::random(),
@@ -102,6 +108,9 @@ impl BehaviourBuilder {
             peering_degree: self.peering_degree.unwrap_or(1..=1),
             local_peer_id,
             protocol_name: PROTOCOL_NAME,
+            minimum_network_size: self
+                .minimum_network_size
+                .unwrap_or_else(|| 1usize.try_into().unwrap()),
             old_session: None,
         }
     }
