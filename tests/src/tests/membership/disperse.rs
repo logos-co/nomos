@@ -26,6 +26,7 @@ async fn update_membership_and_dissiminate() {
         ports.push(get_available_port());
     }
 
+    // start with empty membership
     let topology = Topology::spawn_with_empty_membership(topology_config, &ids, &ports).await;
 
     let non_empty_membership_configs = create_membership_configs(&ids, &ports)[0].clone();
@@ -64,8 +65,26 @@ async fn update_membership_and_dissiminate() {
     };
 
     for validator in topology.validators() {
+        // add the needed provider in block 1
         let res = validator
             .update_membership(finalize_block_event.clone())
+            .await;
+        assert!(res.is_ok(), "Failed to update membership on validator");
+        // add 2 more blocks to form the finalized session
+
+        let res = validator
+            .update_membership(FinalizedBlockEvent {
+                block_number: 2,
+                updates: vec![],
+            })
+            .await;
+        assert!(res.is_ok(), "Failed to update membership on validator");
+
+        let res = validator
+            .update_membership(FinalizedBlockEvent {
+                block_number: 3,
+                updates: vec![],
+            })
             .await;
         assert!(res.is_ok(), "Failed to update membership on validator");
     }
@@ -73,6 +92,23 @@ async fn update_membership_and_dissiminate() {
     for executor in topology.executors() {
         let res = executor
             .update_membership(finalize_block_event.clone())
+            .await;
+        assert!(res.is_ok(), "Failed to update membership on executor");
+
+        // add 2 more blocks to form the finalized session
+        let res = executor
+            .update_membership(FinalizedBlockEvent {
+                block_number: 2,
+                updates: vec![],
+            })
+            .await;
+        assert!(res.is_ok(), "Failed to update membership on executor");
+
+        let res = executor
+            .update_membership(FinalizedBlockEvent {
+                block_number: 3,
+                updates: vec![],
+            })
             .await;
         assert!(res.is_ok(), "Failed to update membership on executor");
     }
