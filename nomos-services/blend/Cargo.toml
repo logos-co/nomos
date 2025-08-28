@@ -9,7 +9,7 @@ workspace = true
 
 [dependencies]
 async-trait            = "0.1"
-futures                = "0.3"
+futures                = { version = "0.3", default-features = false }
 libp2p                 = { workspace = true, features = ["ed25519"] }
 libp2p-stream          = { workspace = true }
 nomos-blend-message    = { workspace = true }
@@ -21,20 +21,20 @@ nomos-network          = { workspace = true }
 nomos-utils            = { workspace = true, features = ["time"] }
 overwatch              = { workspace = true }
 rand                   = { workspace = true }
-rand_chacha            = "0.3"
-serde                  = { version = "1.0", features = ["derive"] }
+rand_chacha            = { version = "0.3", default-features = false }
+serde                  = { version = "1.0", default-features = false, features = ["derive"] }
 serde_with             = { workspace = true }
 services-utils         = { workspace = true }
-tokio                  = { version = "1", features = ["macros", "sync"] }
-tokio-stream           = "0.1"
+tokio                  = { version = "1", default-features = false, features = ["macros", "sync"] }
+tokio-stream           = { version = "0.1", default-features = false }
 tracing                = { workspace = true }
 
 [dev-dependencies]
-libp2p              = { workspace = true, features = ["plaintext", "tcp", "tokio", "yamux"] }
-libp2p-swarm-test   = { version = "0.5.0", features = ["tokio"] }
+libp2p              = { workspace = true, default-features = false, features = ["plaintext", "tcp", "tokio", "yamux"] }
+libp2p-swarm-test   = { version = "0.5.0", default-features = false, features = ["tokio"] }
 nomos-blend-message = { workspace = true, features = ["unsafe-test-functions"] }
 nomos-blend-network = { workspace = true, features = ["unsafe-test-functions"] }
-test-log            = { version = "0.2.18", features = ["trace"] }
+test-log            = { version = "0.2.18", default-features = false, features = ["trace"] }
 
 [features]
 default = []

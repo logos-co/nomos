@@ -16,7 +16,7 @@ instrumentation = []
 async-trait              = "0.1"
 bytes                    = { workspace = true }
 chain-service            = { workspace = true, features = ["libp2p"] }
-futures                  = "0.3.31"
+futures                  = { version = "0.3.31", default-features = false }
 kzgrs-backend            = { workspace = true }
 nomos-blend-service      = { workspace = true, features = ["libp2p"] }
 nomos-core               = { workspace = true }
@@ -32,15 +32,15 @@ nomos-network            = { workspace = true }
 nomos-storage            = { workspace = true, features = ["rocksdb-backend"] }
 nomos-time               = { workspace = true }
 overwatch                = { workspace = true }
-serde                    = { version = "1", features = ["derive"] }
-serde_json               = "1.0.140"
+serde                    = { version = "1", default-features = false, features = ["derive"] }
+serde_json               = { version = "1.0.140", default-features = false }
 subnetworks-assignations = { workspace = true }
-tokio                    = { version = "1", default-features = false, features = ["sync"] }
-tracing                  = "0.1"
+tokio                    = { version = "1", default-features = false }
+tracing                  = { version = "0.1", default-features = false }
 
 # axum related dependencies
-axum  = { version = "0.6", optional = true }
-hyper = { version = "0.14", features = ["full"], optional = true }
+axum  = { version = "0.6", optional = true, default-features = false }
+hyper = { version = "0.14", features = ["full"], optional = true, default-features = false }
 
 # openapi related dependencies
 utoipa            = { workspace = true }
@@ -49,8 +49,8 @@ utoipa-swagger-ui = { workspace = true }
 [dev-dependencies]
 axum              = "0.6"
 hyper             = { version = "0.14", features = ["full"] }
-reqwest           = { workspace = true, features = ["blocking", "json"] }
+reqwest           = { workspace = true, default-features = false, features = ["blocking", "json"] }
 serde             = { version = "1", features = ["derive"] }
 serde_json        = "1"
 tracing           = { workspace = true }
-utoipa-swagger-ui = { workspace = true, features = ["axum"] }
+utoipa-swagger-ui = { workspace = true, default-features = false, features = ["axum"] }

@@ -9,8 +9,8 @@ workspace = true
 
 [dependencies]
 common-http-client    = { workspace = true }
-futures               = "0.3.31"
+futures               = { version = "0.3.31", default-features = false }
 nomos-core            = { workspace = true }
 nomos-http-api-common = { workspace = true }
 reqwest               = { workspace = true }
-serde                 = "1.0"
+serde                 = { version = "1.0", default-features = false }

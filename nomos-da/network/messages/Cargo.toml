@@ -8,12 +8,12 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-futures       = "0.3.31"
+futures       = { version = "0.3.31", default-features = false }
 kzgrs-backend = { workspace = true }
 nomos-core    = { workspace = true }
-serde         = { version = "1.0.215", features = ["derive"] }
+serde         = { version = "1.0.215", default-features = false, features = ["derive"] }
 tokio         = "1"
 
 [dev-dependencies]
 kzgrs-backend = { workspace = true, features = ["testutils"] }
-tokio         = { version = "1", features = ["macros"] }
+tokio         = { version = "1", default-features = false, features = ["macros"] }

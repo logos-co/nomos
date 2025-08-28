@@ -9,21 +9,22 @@ workspace = true
 
 [dependencies]
 async-trait = "0.1"
-blake2      = { version = "0.10", optional = true }
+blake2      = { version = "0.10", optional = true, default-features = false }
 cipher      = { version = "0.4" }
-const-hex   = "1"
+const-hex   = { version = "1", default-features = false }
 humantime   = { version = "2.1", optional = true }
 overwatch   = { workspace = true }
 rand        = { workspace = true }
-serde       = { version = "1.0", optional = true, features = ["derive"] }
+serde       = { version = "1.0", optional = true, default-features = false, features = ["derive"] }
 serde_with  = { workspace = true, optional = true }
-time        = { version = "0.3", optional = true, features = ["serde-human-readable"] }
+time        = { version = "0.3", optional = true, default-features = false, features = ["serde-human-readable"] }
 
 [features]
-rng  = ["blake2"]
-time = ["dep:humantime", "dep:serde_with", "dep:time", "serde"]
+rng   = ["blake2"]
+serde = []
+time  = ["dep:humantime", "dep:serde", "dep:serde_with", "dep:time"]
 
 [dev-dependencies]
 nistrs      = "0.1.2"
-rand_chacha = "0.3"
-serde_json  = "1.0"
+rand_chacha = { version = "0.3", default-features = false }
+serde_json  = { version = "1.0", default-features = false }

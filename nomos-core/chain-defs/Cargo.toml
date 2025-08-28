@@ -9,28 +9,28 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-anyhow                 = "1.0"
+anyhow                 = { version = "1.0", default-features = false }
 async-trait            = { version = "0.1" }
 bincode                = "1.3"
-blake2                 = { version = "0.10" }
+blake2                 = { version = "0.10", default-features = false }
 bytes                  = { workspace = true }
-const-hex              = "1"
+const-hex              = { version = "1", default-features = false }
 cryptarchia-engine     = { workspace = true, features = ["serde"] }
-ed25519                = { version = "2.2", features = ["serde"] }
-ed25519-dalek          = { version = "2.2.0", features = ["serde"] }
-hex                    = { version = "0.4" }
-multiaddr              = "0.18"
+ed25519                = { version = "2.2", default-features = false, features = ["serde"] }
+ed25519-dalek          = { version = "2.2.0", default-features = false, features = ["serde"] }
+hex                    = { version = "0.4", default-features = false }
+multiaddr              = { version = "0.18", default-features = false }
 nomos_proof_statements = { workspace = true }
 nomos_risc0_proofs     = { path = "../risc0_proofs" }
 risc0-zkvm             = { workspace = true }
-serde                  = { version = "1.0", features = ["derive"] }
+serde                  = { version = "1.0", default-features = false, features = ["derive"] }
 thiserror              = "1.0"
 tracing                = { workspace = true }
 
 [dev-dependencies]
 rand       = { workspace = true }
 risc0-zkvm = { workspace = true }
-serde_json = "1.0"
+serde_json = { version = "1.0", default-features = false }
 
 [features]
 default = []

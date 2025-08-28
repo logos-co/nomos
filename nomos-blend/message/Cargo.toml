@@ -9,15 +9,15 @@ workspace = true
 
 [dependencies]
 blake2          = { workspace = true }
-ed25519-dalek   = { version = "2", features = ["rand_core", "serde"] }
-itertools       = "0.14"
+ed25519-dalek   = { version = "2", default-features = false, features = ["rand_core", "serde"] }
+itertools       = { version = "0.14", default-features = false }
 nomos-core      = { workspace = true }
 nomos-utils     = { workspace = true, features = ["rng"] }
-serde           = { version = "1", features = ["derive"] }
+serde           = { version = "1", default-features = false, features = ["derive"] }
 serde-big-array = "0.5"
-serde_with      = "3"
+serde_with      = { version = "3", default-features = false }
 thiserror       = "1"
-x25519-dalek    = { version = "2", features = ["serde", "static_secrets"] }
+x25519-dalek    = { version = "2", default-features = false, features = ["serde", "static_secrets"] }
 
 [features]
 unsafe-test-functions = []

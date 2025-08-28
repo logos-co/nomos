@@ -8,12 +8,12 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-futures               = "0.3.31"
+futures               = { version = "0.3.31", default-features = false }
 nomos-core            = { workspace = true }
 nomos-da-messages     = { workspace = true }
 nomos-http-api-common = { workspace = true }
 reqwest               = { workspace = true }
-serde                 = "1.0"
-serde_json            = "1.0.140"
+serde                 = { version = "1.0", default-features = false }
+serde_json            = { version = "1.0.140", default-features = false }
 thiserror             = "1.0"
-url                   = "2.5.4"
+url                   = { version = "2.5.4", default-features = false }
