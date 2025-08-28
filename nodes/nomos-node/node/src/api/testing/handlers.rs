@@ -5,7 +5,7 @@ use nomos_api::http::{
     da::{self},
     membership::{self, MembershipUpdateRequest},
 };
-use nomos_core::block::BlockNumber;
+use nomos_core::block::SessionNumber;
 use nomos_da_network_service::{
     api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend, NetworkService,
 };
@@ -46,7 +46,7 @@ pub async fn da_get_membership<
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
-    Json(block_number): Json<BlockNumber>,
+    Json(session_id): Json<SessionNumber>,
 ) -> Response
 where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
@@ -76,5 +76,5 @@ where
         MembershipStorage,
         ApiAdapter,
         RuntimeServiceId,
-    >(handle, block_number))
+    >(handle, session_id))
 }

@@ -58,7 +58,7 @@ pub fn create_membership_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<General
     }
 
     let mock_backend_settings = MockMembershipBackendSettings {
-        session_size_blocks: 1,
+        session_size_blocks: 4,
         session_zero_membership: initial_membership,
         session_zero_locators_mapping: initial_locators_mapping,
     };
@@ -80,7 +80,7 @@ pub fn create_empty_membership_configs(n_participants: usize) -> Vec<GeneralMemb
         membership_configs.push(GeneralMembershipConfig {
             service_settings: MembershipServiceSettings {
                 backend: MockMembershipBackendSettings {
-                    session_size_blocks: 1,
+                    session_size_blocks: 4,
                     session_zero_membership: HashMap::new(),
                     session_zero_locators_mapping: HashMap::new(),
                 },
