@@ -1,4 +1,5 @@
-use ark_ff::PrimeField as _;
+use ark_bls12_381::Bls12_381;
+use ark_ff::{Field, PrimeField as _};
 use ark_poly::EvaluationDomain as _;
 use kzgrs::{FieldElement, GlobalParameters, PolynomialEvaluationDomain};
 
@@ -40,6 +41,34 @@ impl DaVerifier {
             &self.global_parameters,
         )
     }
+
+    #[must_use]
+    pub fn batch_verify(
+        &self,
+        shares: &[DaLightShare],
+        commitmentss: &[DaSharesCommitments],
+        rows_domain_size: usize,
+    ) -> bool {
+        let columns: Vec<Vec<FieldElement>> = shares
+            .iter()
+            .map(|share| {
+                share.column
+                    .iter()
+                    .map(|Chunk(b)| FieldElement::from_le_bytes_mod_order(b))
+                    .collect::<Vec<FieldElement>>()
+            })
+            .collect();
+        let rows_domain = PolynomialEvaluationDomain::new(rows_domain_size)
+            .expect("Domain should be able to build");
+        kzgrs::bdfg_proving::verify_multiple_columns(
+            &shares.iter().map(|share| share.share_idx as usize).collect(),
+            &columns,
+            &commitmentss.iter().map(|commits| &commits.rows_commitments).collect(),
+            &shares.iter().map(|share| share.combined_column_proof).collect(),
+            rows_domain,
+            &self.global_parameters,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -54,6 +83,7 @@ mod test {
         global::GLOBAL_PARAMETERS,
         verifier::DaVerifier,
     };
+    use crate::common::share::{DaLightShare, DaSharesCommitments};
 
     #[test]
     fn test_verify() {
@@ -144,6 +174,54 @@ mod test {
         println!("{footer}\n");
     }
 
+    #[cfg(target_arch = "x86_64")]
+    #[expect(
+        clippy::undocumented_unsafe_blocks,
+        reason = "This test is just to measure cpu and should be run manually"
+    )]
+    fn bench_batch_verify_cycles(iters: u64, max_batch_size: usize, configuration: &utils::Configuration) {
+        let domain_size = 2048usize;
+        let encoder = DaEncoder::new(DaEncoderParams::default_with(domain_size));
+        let mut shares : Vec<DaLightShare> = vec![];
+        let mut commitmentss: Vec<DaSharesCommitments> = vec![];
+        let verifier = DaVerifier::new(GLOBAL_PARAMETERS.clone());
+        for _ in 0..max_batch_size {
+            let data = rand_data(configuration.elements_count);
+            let encoded_data = encoder.encode(&data).unwrap();
+            let share = encoded_data.iter().next().unwrap();
+            let (light_share, commitments) = share.into_share_and_commitments();
+            (&mut shares).append(&mut vec![light_share]);
+            (&mut commitmentss).append(&mut vec![commitments]);
+        }
+
+        for batch_size in (10..max_batch_size+1).step_by(10) {
+            let t0 = unsafe { core::arch::x86_64::_rdtsc() };
+            for _ in 0..iters {
+                black_box(verifier.batch_verify(&shares[0..batch_size], &commitmentss[0..batch_size], domain_size));
+            }
+            let t1 = unsafe { core::arch::x86_64::_rdtsc() };
+
+            let cycles_diff = t1 - t0;
+            let cycles_per_run = (t1 - t0) / iters;
+
+            let header = format!(
+                "=========== kzgrs-da-batch-verify [{}] ===========",
+                configuration.label
+            );
+            let footer = "=".repeat(header.len());
+            println!("{header}", );
+            println!("  - iterations        : {iters:>20}");
+            println!(
+                "  - elements          : {:>20}",
+                configuration.elements_count
+            );
+            println!("  - batch size        : {batch_size:>20}");
+            println!("  - cycles total      : {cycles_diff:>20}");
+            println!("  - cycles per run    : {cycles_per_run:>20}");
+            println!("{footer}\n");
+        }
+    }
+
     // TODO: Remove this when we have the proper benches in the proofs
     #[cfg(target_arch = "x86_64")]
     #[ignore = "This test is just for calculation the cycles for the above set of proofs. This will be moved to the pertinent proof in the future."]
@@ -159,6 +237,23 @@ mod test {
 
         for configuration in &configurations {
             bench_verify_cycles(iters, configuration);
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[ignore = "This test is just for calculation the cycles for the above set of proofs. This will be moved to the pertinent proof in the future."]
+    #[test]
+    fn test_batch_verify_cycles() {
+        let iters = 1000u64;
+
+        let configurations = [
+            utils::Configuration::from_elements_count(32),
+            utils::Configuration::from_elements_count(256),
+            utils::Configuration::from_elements_count(1024),
+        ];
+
+        for configuration in &configurations {
+            bench_batch_verify_cycles(iters,200, configuration);
         }
     }
 }

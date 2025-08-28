@@ -1,8 +1,9 @@
 use std::{io::Cursor, ops::Mul as _};
-
-use ark_bls12_381::{Fr, G1Projective};
-use ark_ec::CurveGroup as _;
-use ark_ff::{Field as _, PrimeField as _};
+use std::ops::Neg;
+use ark_std::rand::thread_rng;
+use ark_bls12_381::{Bls12_381, Fr, G1Projective};
+use ark_ec::{VariableBaseMSM, CurveGroup as _, pairing::Pairing as _};
+use ark_ff::{UniformRand, Field as _, PrimeField as _};
 use ark_poly::EvaluationDomain as _;
 use ark_poly_commit::kzg10::Commitment as KzgCommitment;
 use ark_serialize::CanonicalSerialize as _;
@@ -230,6 +231,95 @@ pub fn verify_column(
         domain,
         global_parameters,
     )
+}
+
+#[must_use]
+pub fn verify_multiple_columns(
+    column_idxs: &Vec<usize>,
+    columns: &Vec<Vec<Fr>>,
+    row_commitments: &Vec<&Vec<Commitment>>,
+    column_proofs: &Vec<Proof>,
+    domain: PolynomialEvaluationDomain,
+    global_parameters: &GlobalParameters,
+) -> bool {
+    let row_commitments_hashes: Vec<Vec<u8>> = row_commitments
+        .iter()
+        .map(|r| {
+            generate_row_commitments_hash(&r)
+        })
+        .collect();
+    let hs : Vec<Fr> = row_commitments_hashes
+        .iter()
+        .map(|commits_hash| {
+            Fr::from_le_bytes_mod_order(&commits_hash)
+        })
+        .collect();
+    let h_roots : Vec<Vec<Fr>> = hs
+        .iter()
+        .enumerate()
+        .map(|(i, &root)| {
+            compute_h_roots(root, columns[i].len())
+        })
+        .collect();
+    let aggregated_elements: Vec<Fr> = columns
+        .iter()
+        .enumerate()
+        .map(|(i, x)| {
+            x
+                .iter()
+                .enumerate()
+                .map(|(j, y)| y.mul(&h_roots[i][j]))
+                .sum()
+        })
+        .collect();
+    let aggregated_commitments: Vec<ark_bls12_381::G1Affine> = row_commitments
+        .iter()
+        .enumerate()
+        .map(|(i, commits)| {
+            let bases: Vec<ark_bls12_381::G1Affine> = commits
+                .iter()
+                .map(|c| c.0) // use .0 instead of .comm
+                .collect();
+            G1Projective::msm(&bases, &h_roots[i]).unwrap().into_affine()
+        })
+        .collect();
+
+    let proofs: Vec<ark_bls12_381::G1Affine> = column_proofs
+        .iter()
+        .map(|proof| {
+            proof.w
+        })
+        .collect();
+
+    let mut rng = thread_rng();
+    let r: Fr = Fr::rand(&mut rng);
+    let r_roots = compute_h_roots(r, column_proofs.len());
+    let r_sum : Fr = r_roots
+        .iter()
+        .map(|x| x)
+        .sum();
+
+    let batched_commitment = G1Projective::msm(&aggregated_commitments,&r_roots).unwrap().into_affine();
+
+    let batched_elements: Fr = aggregated_elements
+        .iter()
+        .enumerate()
+        .map(|(i, x)| x.mul(&r_roots[i]))
+        .sum();
+
+    let batched_proof =  G1Projective::msm(&proofs,&r_roots).unwrap().into_affine();
+
+    let batched_index : Fr = column_idxs
+        .iter()
+        .enumerate()
+        .map(|(i, &x)| domain.element(x as usize).mul(&r_roots[i]))
+        .sum();
+
+    let commitment_check_g1 = batched_commitment + global_parameters.powers_of_g[0].mul(batched_elements).neg();
+    let proof_check_g2 = global_parameters.beta_h.mul(r_sum) + global_parameters.h.mul(batched_index).neg();
+    let lhs = Bls12_381::pairing(commitment_check_g1, global_parameters.h);
+    let rhs = Bls12_381::pairing(batched_proof, proof_check_g2);
+    lhs == rhs
 }
 
 fn compute_h_roots(h: Fr, size: usize) -> Vec<Fr> {
