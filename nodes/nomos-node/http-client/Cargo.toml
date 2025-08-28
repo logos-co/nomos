@@ -12,8 +12,8 @@ futures               = { version = "0.3.31", default-features = false }
 nomos-core            = { workspace = true }
 nomos-da-messages     = { workspace = true }
 nomos-http-api-common = { workspace = true }
-reqwest               = { workspace = true }
+reqwest               = { workspace = true, features = ["json", "stream"] }
 serde                 = { version = "1.0", default-features = false }
-serde_json            = { version = "1.0.140", default-features = false }
+serde_json            = { version = "1.0.140", default-features = false, features = ["std"] }
 thiserror             = "1.0"
 url                   = { version = "2.5.4", default-features = false }

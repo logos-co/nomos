@@ -72,7 +72,7 @@ kzgrs                    = { path = "./nomos-da/kzgrs", default-features = false
 kzgrs-backend            = { path = "./nomos-da/kzgrs-backend", default-features = false }
 mmr                      = { path = "./mmr" }
 nomos-api                = { path = "./nomos-services/api", default-features = false }
-nomos-blend-message      = { path = "./nomos-blend/message" }
+nomos-blend-message      = { path = "./nomos-blend/message", default-features = false }
 nomos-blend-network      = { path = "./nomos-blend/network" }
 nomos-blend-scheduling   = { path = "./nomos-blend/scheduling" }
 nomos-blend-service      = { path = "./nomos-services/blend", default-features = false }
@@ -99,7 +99,7 @@ nomos-system-sig         = { path = "./nomos-services/system-sig" }
 nomos-time               = { path = "./nomos-services/time" }
 nomos-tracing            = { path = "./nomos-tracing" }
 nomos-tracing-service    = { path = "./nomos-services/tracing" }
-nomos-utils              = { path = "./nomos-utils" }
+nomos-utils              = { path = "./nomos-utils", default-features = false }
 nomos_proof_statements   = { path = "./nomos-core/proof_statements" }
 pol-witness-generator    = { path = "zk/circuits/witness_generators/pol" }
 services-utils           = { path = "./nomos-services/utils" }
@@ -124,7 +124,7 @@ serde_with        = { version = "3.12.0", default-features = false }
 tempfile          = { version = "3", default-features = false }
 tracing           = { version = "0.1", default-features = false }
 utoipa            = { version = "4.0" }
-utoipa-swagger-ui = { version = "4.0" }
+utoipa-swagger-ui = { version = "4.0", default-features = false }
 
 [workspace.lints.clippy]
 

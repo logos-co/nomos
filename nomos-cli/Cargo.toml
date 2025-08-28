@@ -10,14 +10,14 @@ version     = "0.1.0"
 workspace = true
 
 [dependencies]
-clap                 = { version = "4", default-features = false, features = ["derive"] }
+clap                 = { version = "4", default-features = false, features = ["derive", "std"] }
 executor-http-client = { workspace = true }
 hex                  = { version = "0.4.3", default-features = false }
 kzgrs-backend        = { workspace = true }
 nomos-core           = { workspace = true }
 nomos-tracing        = { workspace = true }
 reqwest              = { workspace = true, features = ["json"] }
-serde_json           = { version = "1", default-features = false }
+serde_json           = { version = "1", default-features = false, features = ["std"] }
 tokio                = { version = "1", default-features = false, features = ["sync"] }
 tracing              = { workspace = true }
 tracing-subscriber   = { version = "0.3", default-features = false }

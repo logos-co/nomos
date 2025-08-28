@@ -22,6 +22,7 @@ utxotree               = { workspace = true }
 
 [dev-dependencies]
 ed25519-dalek = { version = "2.0.0", default-features = false }
+rand          = { workspace = true, features = ["std"] }
 
 [features]
 serde = ["cryptarchia-engine/serde", "dep:nomos-utils", "dep:serde", "utxotree/serde"]

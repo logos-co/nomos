@@ -15,12 +15,13 @@ hex                 = { version = "0.4", default-features = false }
 multiaddr           = { version = "0.18", default-features = false }
 nomos-blend-message = { workspace = true }
 nomos-core          = { workspace = true }
-rand                = { workspace = true }
+rand                = { workspace = true, features = ["alloc"] }
 serde               = { version = "1.0", default-features = false, features = ["derive"] }
 tokio               = { version = "1", default-features = false, features = ["macros", "sync", "time"] }
 tokio-stream        = { version = "0.1", default-features = false, features = ["sync"] }
 tracing             = { workspace = true }
 
 [dev-dependencies]
-nomos-utils = { workspace = true, default-features = false, features = ["rng"] }
+nomos-utils = { workspace = true, features = ["rng"] }
+rand        = { workspace = true, features = ["getrandom"] }
 tokio       = { version = "1", default-features = false, features = ["rt-multi-thread", "time"] }

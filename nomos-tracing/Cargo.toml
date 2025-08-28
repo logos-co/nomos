@@ -31,7 +31,7 @@ tokio = "1"
 tracing = { workspace = true }
 tracing-appender = "0.2"
 tracing-gelf = "0.7"
-tracing-loki = { version = "0.2.5", default-features = false }
-tracing-opentelemetry = { version = "0.27", default-features = false }
+tracing-loki = { version = "0.2.5", default-features = false, features = ["compat-0-2-1"] }
+tracing-opentelemetry = { version = "0.27", default-features = false, features = ["metrics"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "json", "registry"] }
 url = { version = "2", default-features = false, features = ["serde"] }

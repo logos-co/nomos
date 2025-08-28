@@ -7,7 +7,7 @@ version           = "0.1.0"
 [dependencies]
 digest    = { version = "0.10", default-features = false }
 rpds      = { version = "1", default-features = false, features = ["serde"] }
-serde     = { version = "1.0", default-features = false, features = ["derive", "rc"], optional = true }
+serde     = { version = "1.0", default-features = false, features = ["derive", "rc", "std"], optional = true }
 thiserror = "1.0"
 
 [dev-dependencies]

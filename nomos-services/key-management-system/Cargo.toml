@@ -21,7 +21,7 @@ zeroize       = { version = "1", default-features = false, features = ["zeroize_
 
 [dev-dependencies]
 ed25519-dalek = { version = "2", default-features = false, features = ["rand_core"] }
-rand          = { workspace = true }
+rand          = { workspace = true, features = ["getrandom"] }
 
 [features]
 default = ["preload"]

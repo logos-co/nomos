@@ -8,7 +8,7 @@ version           = "0.1.0"
 bytes              = { workspace = true }
 cryptarchia-engine = { workspace = true }
 futures            = { version = "0.3", default-features = false }
-libp2p             = { workspace = true, features = ["quic", "tokio", "yamux"], optional = true }
+libp2p             = { workspace = true, features = ["dns", "quic", "tokio", "yamux"], optional = true }
 libp2p-stream      = { workspace = true, optional = true }
 nomos-core         = { workspace = true }
 rand               = { workspace = true }

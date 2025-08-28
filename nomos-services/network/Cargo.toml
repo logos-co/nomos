@@ -9,7 +9,7 @@ workspace = true
 
 [dependencies]
 async-trait      = "0.1"
-chrono           = { version = "0.4", default-features = false, optional = true }
+chrono           = { version = "0.4", default-features = false, optional = true, features = ["now"] }
 cryptarchia-sync = { workspace = true }
 futures          = { version = "0.3", default-features = false }
 nomos-core       = { workspace = true }
@@ -24,7 +24,7 @@ utoipa           = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio              = { version = "1", default-features = false, features = ["full"] }
-tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt"] }
 
 [features]
 default = []

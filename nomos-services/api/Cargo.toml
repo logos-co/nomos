@@ -33,7 +33,7 @@ nomos-storage            = { workspace = true, features = ["rocksdb-backend"] }
 nomos-time               = { workspace = true }
 overwatch                = { workspace = true }
 serde                    = { version = "1", default-features = false, features = ["derive"] }
-serde_json               = { version = "1.0.140", default-features = false }
+serde_json               = { version = "1.0.140", default-features = false, features = ["std"] }
 subnetworks-assignations = { workspace = true }
 tokio                    = { version = "1", default-features = false }
 tracing                  = { version = "0.1", default-features = false }
@@ -51,6 +51,5 @@ axum              = "0.6"
 hyper             = { version = "0.14", features = ["full"] }
 reqwest           = { workspace = true, default-features = false, features = ["blocking", "json"] }
 serde             = { version = "1", features = ["derive"] }
-serde_json        = "1"
 tracing           = { workspace = true }
 utoipa-swagger-ui = { workspace = true, default-features = false, features = ["axum"] }

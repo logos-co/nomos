@@ -29,4 +29,4 @@ tokio = "1"
 tracing = { workspace = true }
 
 [dev-dependencies]
-serde_json = { version = "1.0.99", default-features = false }
+serde_json = { version = "1.0.99", default-features = false, features = ["std"] }
