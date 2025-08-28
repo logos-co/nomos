@@ -58,7 +58,14 @@ impl SwarmBuilder {
 
     pub fn with_empty_membership(mut self) -> Self {
         assert!(self.membership.is_none());
-        self.membership = Some(Membership::new(&[], None));
+        self.membership = Some(Membership::new(
+            &[Node {
+                address: Multiaddr::empty(),
+                id: PeerId::random(),
+                public_key: Ed25519PrivateKey::generate().public_key(),
+            }],
+            None,
+        ));
         self
     }
 
@@ -115,7 +122,14 @@ impl BlendBehaviourBuilder {
 
     pub fn with_empty_membership(mut self) -> Self {
         assert!(self.membership.is_none());
-        self.membership = Some(Membership::new(&[], None));
+        self.membership = Some(Membership::new(
+            &[Node {
+                address: Multiaddr::empty(),
+                id: PeerId::random(),
+                public_key: Ed25519PrivateKey::generate().public_key(),
+            }],
+            None,
+        ));
         self
     }
 
