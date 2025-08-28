@@ -370,9 +370,9 @@ where
                 Some(msg) = inbound_relay.recv() => {
                     Self::handle_network_service_message(msg, backend, &membership_storage, api_adapter, addressbook).await;
                 }
-                Some((session_id, providers)) = stream.next() => {
+                Some((session_id, providers)) = membership_updates_stream.next() => {
                     tracing::debug!(
-                        "Received membership update for block {}: {:?}",
+                        "Received membership update for session {}: {:?}",
                         session_id, providers
                     );
                     Self::handle_membership_update(session_id, providers, &membership_storage).await;
