@@ -677,7 +677,20 @@ where
                 (cryptarchia, storage_blocks_to_remove)
             }
             Err(e) => {
-                panic!("Initial Block Download failed: {e:?}");
+                error!("Initial Block Download failed: {e:?}. Initiating graceful shutdown.");
+
+                if let Err(shutdown_err) = self
+                    .service_resources_handle
+                    .overwatch_handle
+                    .shutdown()
+                    .await
+                {
+                    error!("Failed to shutdown overwatch: {shutdown_err:?}");
+                }
+
+                return Err(DynError::from(format!(
+                    "Initial Block Download failed: {e:?}"
+                )));
             }
         };
 

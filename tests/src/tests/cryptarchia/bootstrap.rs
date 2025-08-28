@@ -6,6 +6,7 @@ use std::{
 use futures::stream::{self, StreamExt as _};
 use nomos_libp2p::PeerId;
 use tests::{
+    adjust_timeout,
     common::sync::{wait_for_validators_mode, wait_for_validators_mode_and_height},
     nodes::validator::{create_validator_config, Validator},
     secret_key_to_peer_id,
@@ -43,12 +44,14 @@ async fn test_ibd_behind_nodes() {
     let mut config = create_validator_config(general_configs[n_initial_validators].clone());
     config.cryptarchia.bootstrap.ibd.peers = initial_peer_ids.clone();
 
-    let failing_behind_node = Validator::spawn(config).await;
-
-    // IBD failed and node stopped
-    assert!(failing_behind_node.is_err());
-    // Kill the node process.
-    drop(failing_behind_node);
+    // Try to spawn the node - it should fail during IBD when peers are
+    // bootstrapping
+    if let Ok(mut node) = Validator::spawn(config).await {
+        assert!(
+            node.wait_for_exit(Duration::from_secs(5)).await,
+            "Expected node to fail during IBD when peers are bootstrapping"
+        );
+    }
 
     let minimum_height = 10;
     println!("Waiting for initial validators to switch to online mode and reach height {minimum_height}...", );
@@ -57,6 +60,7 @@ async fn test_ibd_behind_nodes() {
         &initial_validators,
         cryptarchia_engine::State::Online,
         minimum_height,
+        adjust_timeout(Duration::from_secs(300)),
     )
     .await;
 
@@ -81,7 +85,12 @@ async fn test_ibd_behind_nodes() {
         .expect("Behind node should start successfully");
 
     println!("Behind node started, waiting for it to finish IBD and switch to online mode...");
-    wait_for_validators_mode(&[&behind_node], cryptarchia_engine::State::Online).await;
+    wait_for_validators_mode(
+        &[&behind_node],
+        cryptarchia_engine::State::Online,
+        adjust_timeout(Duration::from_secs(10)),
+    )
+    .await;
 
     // Check if the behind node has caught up to the highest initial validator.
     let height_check_timestamp = Instant::now();
