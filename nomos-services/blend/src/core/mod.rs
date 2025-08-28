@@ -77,8 +77,8 @@ where
 impl<Backend, NodeId, Network, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for BlendService<Backend, NodeId, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId> + Send + Sync,
-    NodeId: Clone + Send + Sync + 'static,
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Send + Sync,
+    NodeId: Clone + Send + Eq + Hash + Sync + 'static,
     Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
         + AsServiceId<Self>
