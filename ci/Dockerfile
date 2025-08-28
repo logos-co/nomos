@@ -25,5 +25,5 @@ USER jenkins
 
 RUN cargo install cargo-binstall --locked
 RUN cargo install rzup --version 0.4.1 --locked
-RUN /home/jenkins/.cargo/bin/rzup install cargo-risczero 2.3.0
+RUN /home/jenkins/.cargo/bin/rzup install cargo-risczero 2.3.2
 RUN /home/jenkins/.cargo/bin/rzup install rust 1.88.0
