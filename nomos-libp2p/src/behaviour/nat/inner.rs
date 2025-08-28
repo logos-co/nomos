@@ -24,7 +24,7 @@ use tracing::{error, info};
 use crate::{
     behaviour::nat::{
         address_mapper,
-        address_mapper::{protocol::ProtocolManager, AddressMapperBehaviour, NatMapper},
+        address_mapper::{protocols::ProtocolManager, AddressMapperBehaviour, NatMapper},
         gateway_monitor::{
             GatewayDetector, GatewayMonitor, GatewayMonitorEvent, SystemGatewayDetector,
         },

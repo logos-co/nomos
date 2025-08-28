@@ -1,7 +1,5 @@
 pub mod errors;
-mod nat_pmp;
-pub mod protocol;
-mod upnp;
+pub mod protocols;
 
 use std::{
     convert::Infallible,
@@ -21,7 +19,7 @@ use libp2p::{
     PeerId,
 };
 use nomos_utils::math::PositiveF64;
-pub use protocol::NatMapper;
+pub use protocols::NatMapper;
 use tokio::time::{self, Sleep};
 use tracing::{debug, info, warn};
 
