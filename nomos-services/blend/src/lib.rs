@@ -6,8 +6,6 @@ use std::{
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
-#[cfg(feature = "libp2p")]
-use libp2p::PeerId;
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -23,6 +21,8 @@ pub mod edge;
 pub mod message;
 pub mod settings;
 
+mod service_components;
+pub use service_components::ServiceComponents;
 #[cfg(test)]
 mod test_utils;
 
@@ -99,44 +99,4 @@ where
 
         Ok(())
     }
-}
-
-/// Defines additional types required for communicating with [`BlendService`].
-///
-/// In particular, this trait extends the [`ServiceData`] by introducing types
-/// that are not covered by [`ServiceData`] but are necessary to construct
-/// messages send to a [`BlendService`].
-pub trait ServiceExt {
-    /// A type for broadcast settings required for
-    /// [`crate::message::ServiceMessage`].
-    ///
-    /// This depends on the the [`core::network::NetworkAdapter`] of the
-    /// [`core::BlendService`] that is not exposed to the users of
-    /// [`BlendService`].
-    /// Therefore, this type must be specified for [`BlendService`]s
-    /// that depend on concrete types of [`core::network::NetworkAdapter`].
-    type BroadcastSettings;
-}
-
-/// Implementing [`ServiceExt`] for [`BlendService`]
-/// that depends on the libp2p-based [`core::BlendService`] and
-/// [`edge::BlendService`].
-#[cfg(feature = "libp2p")]
-impl<RuntimeServiceId> ServiceExt
-    for BlendService<
-        core::BlendService<
-            core::backends::libp2p::Libp2pBlendBackend,
-            PeerId,
-            core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
-            RuntimeServiceId,
-        >,
-        edge::BlendService<edge::backends::libp2p::Libp2pBlendBackend, PeerId,
-            <core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings, RuntimeServiceId>,
-        RuntimeServiceId,
-    >
-{
-    type BroadcastSettings =
-        <core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as core::network::NetworkAdapter<
-            RuntimeServiceId,
-        >>::BroadcastSettings;
 }

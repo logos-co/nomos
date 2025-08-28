@@ -1,4 +1,5 @@
 pub mod backends;
+pub(crate) mod service_components;
 pub mod settings;
 
 use std::{fmt::Display, hash::Hash, marker::PhantomData};

@@ -22,7 +22,7 @@ use cryptarchia_sync::{GetTipResponse, ProviderResponse};
 use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
-pub use nomos_blend_service::ServiceExt as BlendServiceExt;
+pub use nomos_blend_service::ServiceComponents as BlendServiceComponents;
 use nomos_core::{
     block::{builder::BlockBuilder, Block},
     da::blob::{info::DispersedBlobInfo, metadata::Metadata as BlobMetadata, BlobSelect},
@@ -261,7 +261,7 @@ pub struct CryptarchiaConsensus<
     NetAdapter::Backend: 'static,
     NetAdapter::Settings: Send,
     NetAdapter::PeerId: Clone + Eq + Hash,
-    BlendService: BlendServiceExt,
+    BlendService: nomos_blend_service::ServiceComponents,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone,
@@ -330,7 +330,7 @@ where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Settings: Send,
     NetAdapter::PeerId: Clone + Eq + Hash,
-    BlendService: BlendServiceExt,
+    BlendService: nomos_blend_service::ServiceComponents,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone,
@@ -363,14 +363,14 @@ where
         BS::Settings,
         NetAdapter::PeerId,
         NetAdapter::Settings,
-        <BlendService as BlendServiceExt>::BroadcastSettings,
+        BlendService::BroadcastSettings,
     >;
     type State = CryptarchiaConsensusState<
         TxS::Settings,
         BS::Settings,
         NetAdapter::PeerId,
         NetAdapter::Settings,
-        <BlendService as BlendServiceExt>::BroadcastSettings,
+        BlendService::BroadcastSettings,
     >;
     type StateOperator = RecoveryOperator<JsonFileBackend<Self::State, Self::Settings>>;
     type Message = ConsensusMsg<Block<ClPool::Item, DaPool::Item>>;
@@ -418,14 +418,12 @@ where
     NetAdapter::Settings: Send + Sync + 'static,
     NetAdapter::PeerId: Clone + Eq + Hash + Copy + Debug + Send + Sync + Unpin + 'static,
     BlendService: ServiceData<
-            Message = nomos_blend_service::message::ServiceMessage<
-                <BlendService as BlendServiceExt>::BroadcastSettings,
-            >,
-        > + BlendServiceExt
+            Message = nomos_blend_service::message::ServiceMessage<BlendService::BroadcastSettings>,
+        > + nomos_blend_service::ServiceComponents
         + Send
         + Sync
         + 'static,
-    <BlendService as BlendServiceExt>::BroadcastSettings: Clone + Send + Sync,
+    BlendService::BroadcastSettings: Clone + Send + Sync,
     ClPool: RecoverableMempool<BlockId = HeaderId> + Send + Sync + 'static,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone + Send + Sync + 'static,
@@ -911,14 +909,12 @@ where
     NetAdapter::Settings: Send + Sync + 'static,
     NetAdapter::PeerId: Clone + Eq + Hash + Copy + Debug + Send + Sync,
     BlendService: ServiceData<
-            Message = nomos_blend_service::message::ServiceMessage<
-                <BlendService as BlendServiceExt>::BroadcastSettings,
-            >,
-        > + BlendServiceExt
+            Message = nomos_blend_service::message::ServiceMessage<BlendService::BroadcastSettings>,
+        > + nomos_blend_service::ServiceComponents
         + Send
         + Sync
         + 'static,
-    <BlendService as BlendServiceExt>::BroadcastSettings: Send + Sync,
+    BlendService::BroadcastSettings: Send + Sync,
     ClPool: RecoverableMempool<BlockId = HeaderId> + Send + Sync + 'static,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone + Send + Sync + 'static,
@@ -1058,7 +1054,7 @@ where
                     BS::Settings,
                     NetAdapter::PeerId,
                     NetAdapter::Settings,
-                    <BlendService as BlendServiceExt>::BroadcastSettings,
+                    BlendService::BroadcastSettings,
                 >,
             >,
         >,
@@ -1095,7 +1091,7 @@ where
                     BS::Settings,
                     NetAdapter::PeerId,
                     NetAdapter::Settings,
-                    <BlendService as BlendServiceExt>::BroadcastSettings,
+                    BlendService::BroadcastSettings,
                 >,
             >,
         >,

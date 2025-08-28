@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use chain_service::{network::NetworkAdapter, BlendServiceExt, CryptarchiaConsensus};
+use chain_service::{network::NetworkAdapter, BlendServiceComponents, CryptarchiaConsensus};
 use consensus::ConsensusAdapter;
 use futures::StreamExt as _;
 use nomos_core::{
@@ -347,7 +347,7 @@ where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Settings: Send,
     NetAdapter::PeerId: Clone + Eq + Hash,
-    BlendService: BlendServiceExt,
+    BlendService: BlendServiceComponents,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     ClPool: RecoverableMempool<BlockId = HeaderId>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
