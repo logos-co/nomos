@@ -688,6 +688,9 @@ where
                     error!("Failed to shutdown overwatch: {shutdown_err:?}");
                 }
 
+                error!("Initial Block Download did not complete successfully: {e}. Common causes: unresponsive initial peers, \
+                network issues, or incorrect peer addresses. Consider retrying with different bootstrap peers.");
+
                 return Err(DynError::from(format!(
                     "Initial Block Download failed: {e:?}"
                 )));
