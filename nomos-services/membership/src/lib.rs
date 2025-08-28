@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use backends::{MembershipBackend, MembershipBackendError};
 use futures::{Stream, StreamExt as _};
 use nomos_core::{
-    block::SessionNumber,
+    block::{BlockNumber, SessionNumber},
     sdp::{Locator, ProviderId},
 };
 use overwatch::{
@@ -48,7 +48,7 @@ pub enum MembershipMessage {
 
     // This should be used only for testing purposes
     Update {
-        session_id: SessionNumber,
+        block_number: BlockNumber,
         update_event: nomos_core::sdp::FinalizedBlockEvent,
     },
 }
@@ -216,12 +216,12 @@ where
             }
 
             MembershipMessage::Update {
-                session_id,
+                block_number,
                 update_event,
             } => {
                 tracing::debug!(
-                    "Received update for session ID {}: {:?}",
-                    session_id,
+                    "Received update for block number {}: {:?}",
+                    block_number,
                     update_event
                 );
                 self.handle_sdp_update(update_event).await;
