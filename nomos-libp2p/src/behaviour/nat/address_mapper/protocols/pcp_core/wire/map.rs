@@ -6,7 +6,7 @@ use zerocopy::{
 };
 
 use super::{Ipv4MappedIpv6, PcpRequest, PcpResponse, Protocol, ResultCode, PCP_VERSION};
-use crate::behaviour::nat::address_mapper::protocols::pcp::client::PcpError;
+use crate::behaviour::nat::address_mapper::protocols::pcp_core::client::PcpError;
 
 pub const OPCODE_MAP: u8 = 1;
 pub const PCP_MAP_SIZE: usize = 60;

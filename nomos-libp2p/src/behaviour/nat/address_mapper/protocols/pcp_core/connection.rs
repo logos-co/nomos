@@ -11,7 +11,7 @@ use tokio::{
 };
 use zerocopy::{Immutable, IntoBytes};
 
-use crate::behaviour::nat::address_mapper::protocols::pcp::client::{PcpConfig, PcpError};
+use crate::behaviour::nat::address_mapper::protocols::pcp_core::client::{PcpConfig, PcpError};
 
 const BUFFER_SIZE: usize = 1024;
 /// Let OS choose any available port for client socket

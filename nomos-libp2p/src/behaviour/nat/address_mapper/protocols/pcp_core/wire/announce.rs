@@ -3,7 +3,7 @@ use std::net::Ipv4Addr;
 use zerocopy::{FromBytes, FromZeros as _, Immutable, IntoBytes, KnownLayout, Unaligned};
 
 use super::{PcpRequest, PcpResponse, PcpResponseHeader, ResultCode, PCP_VERSION};
-use crate::behaviour::nat::address_mapper::protocols::pcp::client::PcpError;
+use crate::behaviour::nat::address_mapper::protocols::pcp_core::client::PcpError;
 
 pub const OPCODE_ANNOUNCE: u8 = 0;
 pub const PCP_ANNOUNCE_SIZE: usize = 24;
