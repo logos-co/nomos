@@ -1,4 +1,4 @@
-use std::sync::LazyLock;
+use std::{str::FromStr as _, sync::LazyLock};
 
 use bytes::Bytes;
 use groth16::{serde::serde_fr, Fr};
@@ -73,7 +73,12 @@ pub struct Utxo {
 }
 
 static NOMOS_NOTE_ID_V1: LazyLock<Fr> =
-    LazyLock::new(|| BigUint::from_bytes_le(b"NOMOS_NOTE_ID_V1").into());
+    // Constant for Fr(b"NOMOS_NOTE_ID_V1")
+    LazyLock::new(|| {
+        BigUint::from_str("65580641562429851895355409762135920462")
+            .expect("BigUint should load from constant string")
+            .into()
+    });
 
 impl Utxo {
     #[must_use]
