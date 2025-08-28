@@ -64,16 +64,37 @@ async fn test_update_get_membership_http() {
         .await
         .unwrap();
 
-    // The first membership (block 1) is from config initial peers and has 2
+    // The first membership (block 0) is from config initial peers and has 2
     // subnetworks and 2 peerids in addressbook.
-    let membership = executor.da_get_membership(1).await.unwrap();
+    let membership = executor.da_get_membership(0).await.unwrap();
     assert_eq!(membership.assignations.len(), 2);
     assert_eq!(membership.assignations.get(&0).unwrap().len(), 2);
     assert_eq!(membership.addressbook.len(), 2);
 
+    // The second membership is still not formed as the session is size 4, we need 3
+    // more blocks to form the session
+    let membership = executor.da_get_membership(1).await.unwrap();
+    assert_eq!(membership.assignations.len(), 0);
+
+    executor
+        .update_membership(FinalizedBlockEvent {
+            block_number: 3,
+            updates: vec![],
+        })
+        .await
+        .unwrap();
+
+    executor
+        .update_membership(FinalizedBlockEvent {
+            block_number: 4,
+            updates: vec![],
+        })
+        .await
+        .unwrap();
+
     // The second membership (block 2) is from the update and has 2 subnetworks and
     // 3 peerids in addressbook.
-    let membership = executor.da_get_membership(2).await.unwrap();
+    let membership = executor.da_get_membership(1).await.unwrap();
     assert_eq!(membership.assignations.len(), 2);
     assert!(membership.assignations.contains_key(&0));
     assert_eq!(membership.addressbook.len(), 3);
