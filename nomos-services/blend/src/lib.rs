@@ -80,7 +80,7 @@ where
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<CoreService>
         + AsServiceId<EdgeService>
-+ AsServiceId<MembershipService<EdgeService>>
+        + AsServiceId<MembershipService<EdgeService>>
         + AsServiceId<
             NetworkService<
                 NetworkBackendOfService<CoreService, RuntimeServiceId>,
