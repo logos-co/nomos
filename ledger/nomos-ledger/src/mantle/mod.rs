@@ -3,6 +3,7 @@ pub mod sdp;
 
 use ed25519::signature::Verifier as _;
 use nomos_core::{
+    block::BlockNumber,
     mantle::{
         ops::{channel::ChannelId, Op, OpProof},
         AuthenticatedMantleTx, GasConstants,
@@ -45,6 +46,7 @@ impl From<DeclarationStateError> for Error {
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct LedgerState {
     channels: channel::Channels,
+    sdp: sdp::SdpLedger,
 }
 
 impl Default for LedgerState {
@@ -58,11 +60,14 @@ impl LedgerState {
     pub fn new() -> Self {
         Self {
             channels: channel::Channels::new(),
+            sdp: sdp::SdpLedger::new(),
         }
     }
 
     pub fn try_apply_tx<Constants: GasConstants>(
         mut self,
+        current_block_number: BlockNumber,
+        service_params: &nomos_core::sdp::ServiceParameters,
         tx: impl AuthenticatedMantleTx,
     ) -> Result<Self, Error> {
         let tx_hash = tx.hash();
@@ -88,6 +93,31 @@ impl LedgerState {
                 }
                 (Op::ChannelSetKeys(op), Some(OpProof::Ed25519Sig(sig))) => {
                     self.channels = self.channels.set_keys(op.channel, op, sig, &tx_hash)?;
+                }
+                (Op::SDPDeclare(op), Some(OpProof::Ed25519Sig(_sig))) => {
+                    // WIP TODO: Verify proofs.
+                    // WIP TODO: Add locked note.
+                    self.sdp = self
+                        .sdp
+                        .apply_declare_msg(current_block_number, &op.declaration_id())?;
+                }
+                (Op::SDPActive(op), Some(OpProof::Ed25519Sig(_sig))) => {
+                    // WIP TODO: Verify proofs.
+                    self.sdp = self.sdp.apply_active_msg(
+                        current_block_number,
+                        service_params,
+                        &op.declaration_id,
+                        op.nonce,
+                    )?;
+                }
+                (Op::SDPWithdraw(op), Some(OpProof::Ed25519Sig(_sig))) => {
+                    // WIP TODO: Verify proofs.
+                    self.sdp = self.sdp.apply_withdrawn_msg(
+                        current_block_number,
+                        service_params,
+                        &op.declaration_id,
+                        op.nonce,
+                    )?;
                 }
                 _ => {
                     return Err(Error::UnsupportedOp);

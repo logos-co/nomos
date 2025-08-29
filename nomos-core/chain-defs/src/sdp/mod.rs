@@ -17,7 +17,7 @@ pub struct MinStake {
     pub timestamp: BlockNumber,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServiceParameters {
     pub lock_period: u64,
     pub inactivity_period: u64,
