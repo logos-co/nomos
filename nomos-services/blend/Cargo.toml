@@ -10,8 +10,8 @@ workspace = true
 [dependencies]
 async-trait            = "0.1"
 futures                = "0.3"
-libp2p                 = { workspace = true, features = ["ed25519"] }
-libp2p-stream          = { workspace = true }
+libp2p                 = { workspace = true, features = ["ed25519"], optional = true }
+libp2p-stream          = { workspace = true, optional = true }
 nomos-blend-message    = { workspace = true }
 nomos-blend-network    = { workspace = true }
 nomos-blend-scheduling = { workspace = true }
@@ -39,4 +39,4 @@ test-log            = { version = "0.2.18", features = ["trace"] }
 
 [features]
 default = []
-libp2p  = ["dep:nomos-libp2p", "nomos-network/libp2p"]
+libp2p  = ["dep:libp2p", "dep:libp2p-stream", "dep:nomos-libp2p", "nomos-network/libp2p"]

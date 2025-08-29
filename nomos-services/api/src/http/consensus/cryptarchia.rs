@@ -83,6 +83,7 @@ type BlendMembershipAdapter<RuntimeServiceId> = nomos_blend_service::membership:
         LedgerSdpAdapter<MockSdpBackend, Metadata, RuntimeServiceId>,
         RuntimeServiceId,
     >,
+    PeerId,
 >;
 
 pub async fn cryptarchia_info<

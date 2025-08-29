@@ -1,11 +1,9 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, hash::Hash, marker::PhantomData};
 
 use futures::StreamExt as _;
-use libp2p::{core::signed_envelope::DecodingError, PeerId};
 use nomos_blend_message::crypto::Ed25519PublicKey;
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_core::sdp::{Locator, ProviderId, ServiceType};
-use nomos_libp2p::ed25519;
 use nomos_membership::{
     backends::MembershipBackendError, MembershipMessage, MembershipSnapshotStream,
 };
@@ -16,9 +14,9 @@ use overwatch::{
 use tokio::sync::oneshot;
 use tracing::warn;
 
-use crate::membership::{MembershipStream, ServiceMessage};
+use crate::membership::{node_id, MembershipStream, ServiceMessage};
 
-pub struct Adapter<Service>
+pub struct Adapter<Service, NodeId>
 where
     Service: ServiceData,
 {
@@ -27,15 +25,17 @@ where
     /// A signing public key of the local node, required to
     /// build a [`Membership`] instance.
     signing_public_key: Ed25519PublicKey,
+    _phantom: PhantomData<NodeId>,
 }
 
 #[async_trait::async_trait]
-impl<Service> super::Adapter for Adapter<Service>
+impl<Service, NodeId> super::Adapter for Adapter<Service, NodeId>
 where
     Service: ServiceData<Message = MembershipMessage>,
+    NodeId: node_id::TryFrom + Clone + Hash + Eq + Sync,
 {
     type Service = Service;
-    type NodeId = PeerId;
+    type NodeId = NodeId;
     type Error = Error;
 
     fn new(
@@ -45,6 +45,7 @@ where
         Self {
             relay,
             signing_public_key,
+            _phantom: PhantomData,
         }
     }
 
@@ -60,7 +61,7 @@ where
                     providers_map
                         .iter()
                         .filter_map(|(provider_id, locators)| {
-                            node_from_provider(provider_id, locators)
+                            node_from_provider::<NodeId>(provider_id, locators)
                         })
                         .collect::<Vec<_>>()
                 })
@@ -69,9 +70,10 @@ where
     }
 }
 
-impl<Service> Adapter<Service>
+impl<Service, NodeId> Adapter<Service, NodeId>
 where
     Service: ServiceData<Message = MembershipMessage>,
+    NodeId: Sync,
 {
     /// Subscribe to membership updates for the given service type.
     async fn subscribe_stream(
@@ -98,15 +100,18 @@ where
 /// Builds a [`Node`] from a [`ProviderId`] and a set of [`Locator`]s.
 /// Returns [`None`] if the locators set is empty or if the provider ID cannot
 /// be decoded.
-fn node_from_provider(
+fn node_from_provider<NodeId>(
     provider_id: &ProviderId,
     locators: &BTreeSet<Locator>,
-) -> Option<Node<PeerId>> {
+) -> Option<Node<NodeId>>
+where
+    NodeId: node_id::TryFrom,
+{
     let provider_id = provider_id.0;
     let address = locators.first()?.0.clone();
-    let id = peer_id_from_provider_id(&provider_id)
+    let id = NodeId::try_from_provider_id(&provider_id)
         .map_err(|e| {
-            warn!("Failed to decode provider_id to peer_id: {e:?}");
+            warn!("Failed to decode provider_id to node ID: {e:?}");
         })
         .ok()?;
     let public_key = provider_id
@@ -120,12 +125,6 @@ fn node_from_provider(
         address,
         public_key,
     })
-}
-
-fn peer_id_from_provider_id(provider_id: &[u8]) -> Result<PeerId, DecodingError> {
-    Ok(PeerId::from_public_key(
-        &ed25519::PublicKey::try_from_bytes(provider_id)?.into(),
-    ))
 }
 
 #[derive(Debug, thiserror::Error)]
