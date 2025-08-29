@@ -14,6 +14,7 @@ pub use cryptarchia::{EpochState, UtxoTree};
 use cryptarchia_engine::Slot;
 use mantle::LedgerState as MantleLedger;
 use nomos_core::{
+    block::BlockNumber,
     mantle::{gas::GasConstants, AuthenticatedMantleTx, NoteId, Utxo},
     proofs::leader_proof,
 };
@@ -63,6 +64,7 @@ where
         id: Id,
         parent_id: Id,
         slot: Slot,
+        current_block_number: BlockNumber,
         proof: &LeaderProof,
         txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
     ) -> Result<Self, LedgerError<Id>>
@@ -75,10 +77,13 @@ where
             .get(&parent_id)
             .ok_or(LedgerError::ParentNotFound(parent_id))?;
 
-        let new_state =
-            parent_state
-                .clone()
-                .try_update::<_, _, Constants>(slot, proof, txs, &self.config)?;
+        let new_state = parent_state.clone().try_update::<_, _, Constants>(
+            slot,
+            proof,
+            current_block_number,
+            txs,
+            &self.config,
+        )?;
 
         let mut states = self.states.clone();
         states.insert(id, new_state);
@@ -126,6 +131,7 @@ impl LedgerState {
         self,
         slot: Slot,
         proof: &LeaderProof,
+        current_block_number: BlockNumber,
         txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
         config: &Config,
     ) -> Result<Self, LedgerError<Id>>
@@ -134,7 +140,7 @@ impl LedgerState {
         Constants: GasConstants,
     {
         self.try_apply_header(slot, proof, config)?
-            .try_apply_contents::<_, Constants>(txs)
+            .try_apply_contents::<_, Constants>(current_block_number, config, txs)
     }
 
     /// Apply header-related changed to the ledger state. These include
@@ -162,13 +168,19 @@ impl LedgerState {
     /// Apply the contents of an update to the ledger state.
     fn try_apply_contents<Id, Constants: GasConstants>(
         mut self,
+        current_block_number: BlockNumber,
+        config: &Config,
         txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
     ) -> Result<Self, LedgerError<Id>> {
         for tx in txs {
             let _balance;
             (self.cryptarchia_ledger, _balance) =
                 self.cryptarchia_ledger.try_apply_tx::<_, Constants>(&tx)?;
-            self.mantle_ledger = self.mantle_ledger.try_apply_tx::<Constants>(tx)?;
+            self.mantle_ledger = self.mantle_ledger.try_apply_tx::<Constants>(
+                current_block_number,
+                &config.service_params,
+                tx,
+            )?;
         }
         Ok(self)
     }
