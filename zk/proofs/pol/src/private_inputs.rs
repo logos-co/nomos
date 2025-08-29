@@ -1,5 +1,4 @@
-use ark_ff::{AdditiveGroup as _, fields::Field as _};
-use groth16::{Fr, Groth16Input, Groth16InputDeser};
+use groth16::{Field as _, Fr, Groth16Input, Groth16InputDeser};
 use num_bigint::BigUint;
 use serde::Serialize;
 
