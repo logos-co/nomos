@@ -14,8 +14,6 @@ use overwatch::{services::AsServiceId, DynError};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
-use crate::wait_with_timeout;
-
 pub async fn add_tx<
     MempoolNetworkBackend,
     MempoolNetworkAdapter,
@@ -66,8 +64,9 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(receiver, "Timeout while waiting for add_tx".to_owned())
-        .await?
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to add tx"))?
         .map_err(DynError::from)
 }
 
@@ -124,10 +123,8 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for add_blob_info".to_owned(),
-    )
-    .await?
-    .map_err(DynError::from)
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to add blob info"))?
+        .map_err(DynError::from)
 }

@@ -21,7 +21,7 @@ use overwatch::{
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::oneshot;
 
-use crate::{http::storage::StorageAdapter, wait_with_timeout};
+use crate::http::storage::StorageAdapter;
 
 pub struct RocksAdapter<StorageOp, RuntimeServiceId>
 where
@@ -147,11 +147,7 @@ where
             .await
             .map_err(|(e, _)| e)?;
 
-        let result = wait_with_timeout(
-            reply_rcv,
-            "Timeout while waiting for light share".to_owned(),
-        )
-        .await?;
+        let result = reply_rcv.await.map_err(|e| Box::new(e) as DynError)?;
 
         result
             .map(|data| Converter::share_from_storage(data))
@@ -221,11 +217,7 @@ where
             .await
             .map_err(|(e, _)| e)?;
 
-        let result = wait_with_timeout(
-            reply_rcv,
-            "Timeout while waiting for shared commitments".to_owned(),
-        )
-        .await?;
+        let result = reply_rcv.await.map_err(|e| Box::new(e) as DynError)?;
 
         result
             .map(|data| {
@@ -248,10 +240,9 @@ where
         let (msg, receiver) = StorageMsg::new_load_message(Bytes::copy_from_slice(&key));
         storage_relay.send(msg).await.map_err(|(e, _)| e)?;
 
-        wait_with_timeout(
-            receiver.recv(),
-            "Timeout while waiting for block".to_owned(),
-        )
-        .await
+        receiver
+            .recv()
+            .await
+            .map_err(|e| Box::new(e) as crate::http::DynError)
     }
 }

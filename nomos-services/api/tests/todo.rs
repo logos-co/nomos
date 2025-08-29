@@ -112,7 +112,6 @@ fn test_todo() {
     let settings = NomosApiServiceSettings {
         http: ApiServiceSettings {
             backend_settings: addr,
-            request_timeout: None,
         },
     };
     let app = OverwatchRunner::<NomosApi>::run(settings, None).unwrap();
