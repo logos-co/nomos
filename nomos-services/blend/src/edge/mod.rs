@@ -62,8 +62,7 @@ where
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
     BroadcastSettings: Serialize + Send,
     MembershipAdapter: membership::Adapter + Send,
-    <<MembershipAdapter as membership::Adapter>::Service as ServiceData>::Message:
-        Send + Sync + 'static,
+    membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
     <MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<Self>

@@ -16,7 +16,7 @@ use overwatch::{
 use tokio::sync::oneshot;
 use tracing::warn;
 
-use crate::membership::MembershipStream;
+use crate::membership::{MembershipStream, ServiceMessage};
 
 pub struct Adapter<Service>
 where
@@ -39,7 +39,7 @@ where
     type Error = Error;
 
     fn new(
-        relay: OutboundRelay<<Self::Service as ServiceData>::Message>,
+        relay: OutboundRelay<ServiceMessage<Self>>,
         signing_public_key: Ed25519PublicKey,
     ) -> Self {
         Self {

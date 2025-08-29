@@ -84,8 +84,7 @@ where
     NodeId: Clone + Send + Eq + Hash + Sync + 'static,
     Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync,
     MembershipAdapter: membership::Adapter + Send,
-    <<MembershipAdapter as membership::Adapter>::Service as ServiceData>::Message:
-        Send + Sync + 'static,
+    membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
     <MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
         + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>

@@ -76,12 +76,11 @@ where
     EdgeService: ServiceData<Message = <CoreService as ServiceData>::Message> + edge::ServiceComponents +  Send,
     EdgeService::MembershipAdapter: membership::Adapter + Send,
     <EdgeService::MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
-    <<EdgeService::MembershipAdapter as membership::Adapter>::Service as ServiceData>::Message:
-        Send + Sync + 'static,
+    membership::ServiceMessage<EdgeService::MembershipAdapter>: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<CoreService>
         + AsServiceId<EdgeService>
-        + AsServiceId<<EdgeService::MembershipAdapter as membership::Adapter>::Service>
++ AsServiceId<MembershipService<EdgeService>>
         + AsServiceId<
             NetworkService<
                 NetworkBackendOfService<CoreService, RuntimeServiceId>,

@@ -10,6 +10,9 @@ use overwatch::services::{relay::OutboundRelay, ServiceData};
 pub type MembershipStream<NodeId> =
     Pin<Box<dyn Stream<Item = Membership<NodeId>> + Send + Sync + 'static>>;
 
+pub type ServiceMessage<MembershipAdapter> =
+    <<MembershipAdapter as Adapter>::Service as ServiceData>::Message;
+
 /// An adapter for the membership service.
 #[async_trait::async_trait]
 pub trait Adapter {
@@ -18,7 +21,7 @@ pub trait Adapter {
     type Error: std::error::Error;
 
     fn new(
-        relay: OutboundRelay<<Self::Service as ServiceData>::Message>,
+        relay: OutboundRelay<ServiceMessage<Self>>,
         signing_public_key: Ed25519PublicKey,
     ) -> Self;
 
