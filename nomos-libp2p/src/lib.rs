@@ -1,9 +1,12 @@
 pub mod behaviour;
 mod config;
+mod error;
 pub mod protocol_name;
 mod swarm;
 
+pub use crate::swarm::*;
 pub use config::{secret_key_serde, IdentifySettings, KademliaSettings, SwarmConfig};
+pub use error::Error;
 pub use libp2p::{
     self,
     core::upgrade,
@@ -14,4 +17,5 @@ pub use libp2p::{
 };
 pub use multiaddr::{multiaddr, Multiaddr, Protocol};
 
-pub use crate::swarm::*;
+/// Alias that uses the local error
+pub type Result<T> = core::result::Result<T, Error>;

@@ -4,7 +4,6 @@
 )]
 
 use std::{
-    error::Error,
     net::Ipv4Addr,
     pin::Pin,
     task::{Context, Poll},
@@ -44,9 +43,7 @@ pub struct Swarm {
 impl Swarm {
     /// Builds a [`Swarm`] configured for use with Nomos on top of a tokio
     /// executor.
-    //
-    // TODO: define error types
-    pub fn build(config: SwarmConfig) -> Result<Self, Box<dyn Error>> {
+    pub fn build(config: SwarmConfig) -> crate::Result<Self> {
         let keypair =
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
         let peer_id = PeerId::from(keypair.public());
@@ -60,7 +57,7 @@ impl Swarm {
             ..
         } = config;
 
-        let mut swarm = libp2p::SwarmBuilder::with_existing_identity(keypair)
+        let rslt = libp2p::SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()
             .with_dns()?
@@ -74,7 +71,9 @@ impl Swarm {
                     keypair.public(),
                 )
                 .expect("Behaviour should not fail to set up.")
-            })?
+            });
+        let Ok(builder) = rslt;
+        let mut swarm = builder
             .with_swarm_config(|c| c.with_idle_connection_timeout(IDLE_CONN_TIMEOUT))
             .build();
 

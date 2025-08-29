@@ -3,8 +3,6 @@
     reason = "We split the `Behaviour` impls into different modules for better code modularity."
 )]
 
-use std::error::Error;
-
 use cryptarchia_sync::ChainSyncError;
 use libp2p::{identity, kad, swarm::NetworkBehaviour, PeerId};
 use thiserror::Error;
@@ -47,7 +45,7 @@ impl Behaviour {
         chain_sync_config: cryptarchia_sync::Config,
         protocol_name: ProtocolName,
         public_key: identity::PublicKey,
-    ) -> Result<Self, Box<dyn Error>> {
+    ) -> crate::Result<Self> {
         let peer_id = PeerId::from(public_key.clone());
         let gossipsub = libp2p::gossipsub::Behaviour::new(
             libp2p::gossipsub::MessageAuthenticity::Author(peer_id),
@@ -56,7 +54,8 @@ impl Behaviour {
                 .message_id_fn(compute_message_id)
                 .max_transmit_size(DATA_LIMIT)
                 .build()?,
-        )?;
+        )
+        .map_err(|err| crate::Error::BehaviourError(err))?;
 
         let identify = libp2p::identify::Behaviour::new(
             identify_config.to_libp2p_config(public_key, protocol_name),
