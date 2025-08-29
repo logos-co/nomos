@@ -3,6 +3,7 @@ use std::str::FromStr;
 
 #[cfg(feature = "deser")]
 use ark_bn254::Bn254;
+use ark_bn254::Fr;
 use ark_ec::pairing::Pairing;
 
 #[cfg(feature = "deser")]
@@ -28,6 +29,12 @@ impl<E: Pairing> Input<E> {
 impl<E: Pairing> AsRef<E::ScalarField> for Input<E> {
     fn as_ref(&self) -> &E::ScalarField {
         &self.0
+    }
+}
+
+impl From<Fr> for Input<Bn254> {
+    fn from(value: Fr) -> Self {
+        Self(value)
     }
 }
 
