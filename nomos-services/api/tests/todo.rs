@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use axum::{routing, Router, Server};
+use axum::{routing, Router};
 use nomos_api::{ApiService, ApiServiceSettings, Backend};
 use overwatch::{
     derive_services,
@@ -65,7 +65,7 @@ pub struct WebServer {
 
 #[async_trait::async_trait]
 impl Backend<RuntimeServiceId> for WebServer {
-    type Error = hyper::Error;
+    type Error = std::io::Error;
 
     type Settings = SocketAddr;
 
@@ -98,9 +98,11 @@ impl Backend<RuntimeServiceId> for WebServer {
             )
             .with_state(store);
 
-        Server::bind(&self.addr)
-            .serve(app.into_make_service())
+        let listener = tokio::net::TcpListener::bind(&self.addr)
             .await
+            .expect("Failed to bind address");
+
+        axum::serve(listener, app).await
     }
 }
 
