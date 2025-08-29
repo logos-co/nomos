@@ -194,23 +194,44 @@ fn poc_cpu_cycles() {
     }
     let post = unsafe { core::arch::x86_64::_rdtsc() };
     let cycles = (post - pre) / iters;
+    println!("This proof has {} public inputs", pi.len()-1);
     println!("proof-of-claim-cycles-count: {cycles} cpu cycles");
 
 
-    let proofs_batch: Vec<Groth16Proof> = (0..10)
-        .map(|_| {
-            serde_json::from_value::<Groth16ProofJsonDeser>(PROOF.deref().clone())
-                .unwrap()
-                .try_into()
-                .unwrap()
-        })
-        .collect();
-    let pi_batch: Vec<Vec<_>> = std::iter::repeat_with(|| pi.clone()).take(10).collect();
-    let pre = unsafe { core::arch::x86_64::_rdtsc() };
-    for _ in 0..iters {
-        black_box(groth16_batch_verify(&pvk, &proofs_batch, &pi_batch));
+    for batch_size in 1..10 {
+        let proofs_batch: Vec<Groth16Proof> = (0..batch_size)
+            .map(|_| {
+                serde_json::from_value::<Groth16ProofJsonDeser>(PROOF.deref().clone())
+                    .unwrap()
+                    .try_into()
+                    .unwrap()
+            })
+            .collect();
+        let pi_batch: Vec<Vec<_>> = std::iter::repeat_with(|| pi.clone()).take(batch_size).collect();
+        let pre = unsafe { core::arch::x86_64::_rdtsc() };
+        for _ in 0..iters {
+            black_box(groth16_batch_verify(&pvk, &proofs_batch, &pi_batch));
+        }
+        let post = unsafe { core::arch::x86_64::_rdtsc() };
+        let cycles = (post - pre) / iters;
+        println!("batched-proof-of-claim-cycles-count: {cycles} cpu cycles for batch {batch_size} batches");
     }
-    let post = unsafe { core::arch::x86_64::_rdtsc() };
-    let cycles = (post - pre) / iters;
-    println!("batched-proof-of-claim-cycles-count: {cycles} cpu cycles");
+    for batch_size in (10..201).step_by(10) {
+        let proofs_batch: Vec<Groth16Proof> = (0..batch_size)
+            .map(|_| {
+                serde_json::from_value::<Groth16ProofJsonDeser>(PROOF.deref().clone())
+                    .unwrap()
+                    .try_into()
+                    .unwrap()
+            })
+            .collect();
+        let pi_batch: Vec<Vec<_>> = std::iter::repeat_with(|| pi.clone()).take(batch_size).collect();
+        let pre = unsafe { core::arch::x86_64::_rdtsc() };
+        for _ in 0..iters {
+            black_box(groth16_batch_verify(&pvk, &proofs_batch, &pi_batch));
+        }
+        let post = unsafe { core::arch::x86_64::_rdtsc() };
+        let cycles = (post - pre) / iters;
+        println!("batched-proof-of-claim-cycles-count: {cycles} cpu cycles for batch {batch_size} batches");
+    }
 }

@@ -375,9 +375,10 @@ fn zk_signature_cpu_cycles() {
     }
     let post = unsafe { core::arch::x86_64::_rdtsc() };
     let cycles = (post - pre) / iters;
+    println!("This proof has {} public inputs", pi.len()-1);
     println!("zk-signature-cycles-count: {cycles} cpu cycles");
 
-    for batch_size in (1..11) {
+    for batch_size in 1..10 {
         let proofs_batch: Vec<Groth16Proof> = (0..batch_size)
             .map(|_| {
                 serde_json::from_value::<Groth16ProofJsonDeser>(PROOF.deref().clone())
