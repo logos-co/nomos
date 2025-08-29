@@ -9,22 +9,22 @@ workspace = true
 
 [dependencies]
 async-trait        = "0.1"
-cfg_eval           = { version = "0.1", optional = true }
-cryptarchia-engine = { workspace = true, features = ["serde", "tokio"] }
-futures            = "0.3"
+cfg_eval           = { optional = true, version = "0.1" }
+cryptarchia-engine = { features = ["tokio"], workspace = true }
+futures            = { default-features = false, version = "0.3" }
 log                = "0.4.22"
-nomos-utils        = { workspace = true, features = ["time"], optional = true }
+nomos-utils        = { optional = true, workspace = true }
 overwatch          = { workspace = true }
-serde              = { version = "1.0", optional = true, features = ["derive"] }
-serde_with         = { workspace = true, optional = true }
-sntpc              = { version = "0.5", optional = true, features = ["tokio-socket"] }
-thiserror          = { version = "2.0", optional = true }
-time               = "0.3"
-tokio              = { version = "1", features = ["macros", "sync"] }
-tokio-stream       = "0.1"
-tracing            = "0.1"
+serde              = { default-features = false, features = ["derive"], optional = true, version = "1.0" }
+serde_with         = { optional = true, workspace = true }
+sntpc              = { default-features = false, features = ["std", "tokio-socket"], optional = true, version = "0.5" }
+thiserror          = { default-features = false, optional = true, version = "2.0" }
+time               = { default-features = false, features = ["std"], version = "0.3" }
+tokio              = { default-features = false, version = "1" }
+tokio-stream       = { default-features = false, version = "0.1" }
+tracing            = { default-features = false, version = "0.1" }
 
 [features]
-ntp       = ["dep:sntpc", "dep:thiserror"]
-serde     = ["dep:cfg_eval", "dep:nomos-utils", "dep:serde", "dep:serde_with"]
+ntp       = ["dep:sntpc", "dep:thiserror", "tokio/net"]
+serde     = ["cryptarchia-engine/serde", "dep:cfg_eval", "dep:nomos-utils", "dep:serde", "dep:serde_with"]
 testutils = []

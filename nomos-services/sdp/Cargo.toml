@@ -9,10 +9,10 @@ workspace = true
 
 [dependencies]
 async-trait  = "0.1"
-futures      = "0.3"
+futures      = { default-features = false, version = "0.3" }
 nomos-core   = { workspace = true }
 overwatch    = { workspace = true }
 thiserror    = "1"
-tokio        = { version = "1", features = ["macros", "sync"] }
-tokio-stream = "0.1"
-tracing      = { workspace = true, features = ["attributes"] }
+tokio        = { default-features = false, version = "1" }
+tokio-stream = { default-features = false, version = "0.1" }
+tracing      = { workspace = true }

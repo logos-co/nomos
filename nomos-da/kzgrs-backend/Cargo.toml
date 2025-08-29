@@ -11,18 +11,17 @@ workspace = true
 ark-ff        = "0.4"
 ark-poly      = "0.4.2"
 ark-serialize = "0.4.2"
-blake2        = "0.10"
-itertools     = "0.12"
+blake2        = { default-features = false, version = "0.10" }
+itertools     = { default-features = false, version = "0.12" }
 kzgrs         = { workspace = true }
 nomos-core    = { workspace = true }
-rand          = { version = "0.8" }
-rayon         = { version = "1.10.0", optional = true }
-serde         = { version = "1.0", features = ["derive"] }
+rand          = { default-features = false, features = ["std"], workspace = true }
+rayon         = { optional = true, version = "1.10.0" }
+serde         = { default-features = false, version = "1.0" }
 
 [dev-dependencies]
-ark-bls12-381 = "0.4.0"
-divan         = "0.1"
-rand          = { workspace = true }
+ark-bls12-381 = { default-features = false, version = "0.4.0" }
+divan         = { default-features = false, version = "0.1" }
 
 [features]
 default   = []

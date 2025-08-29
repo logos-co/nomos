@@ -8,4 +8,4 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
+serde = { default-features = false, features = ["alloc", "derive"], version = "1.0" }

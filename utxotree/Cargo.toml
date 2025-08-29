@@ -5,15 +5,18 @@ name              = "utxotree"
 version           = "0.1.0"
 
 [dependencies]
-digest    = "0.10"
-rpds      = { version = "1", features = ["serde"] }
-serde     = { version = "1.0", features = ["derive", "rc"], optional = true }
+digest    = { default-features = false, version = "0.10" }
+rpds      = { default-features = false, features = ["serde"], version = "1" }
+serde     = { default-features = false, features = ["alloc", "derive", "rc"], optional = true, version = "1.0" }
 thiserror = "1.0"
 
 [dev-dependencies]
-blake2            = "0.10"
-quickcheck        = "1.0"
+blake2            = { default-features = false, version = "0.10" }
+quickcheck        = { default-features = false, version = "1.0" }
 quickcheck_macros = "1.0"
 
 [lints]
 workspace = true
+
+[features]
+serde = ["dep:serde"]

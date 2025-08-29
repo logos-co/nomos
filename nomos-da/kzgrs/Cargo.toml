@@ -8,22 +8,23 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-ark-bls12-381   = { version = "0.4.0" }
+ark-bls12-381   = { default-features = false, features = ["curve", "scalar_field"], version = "0.4.0" }
 ark-ec          = "0.4.2"
 ark-ff          = { version = "0.4.2" }
 ark-poly        = { version = "0.4.2" }
-ark-poly-commit = { version = "0.4.0" }
+ark-poly-commit = { default-features = false, features = ["std"], version = "0.4.0" }
 ark-serialize   = { version = "0.4" }
-blake2          = "0.10"
+blake2          = { default-features = false, version = "0.10" }
 blst            = "0.3.11"
-num-bigint      = "0.4.4"
-num-traits      = "0.2.18"
-rand            = "0.8.5"
-rayon           = { version = "1.10", optional = true }
+num-bigint      = { default-features = false, version = "0.4.4" }
+num-traits      = { default-features = false, version = "0.2.18" }
+rand            = { default-features = false, version = "0.8.5" }
+rayon           = { optional = true, version = "1.10" }
 thiserror       = "1.0.58"
 
 [dev-dependencies]
-divan = "0.1"
+divan = { default-features = false, version = "0.1" }
+rand  = { default-features = false, features = ["std"], version = "0.8.5" }
 rayon = "1.10"
 
 [[bench]]

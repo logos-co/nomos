@@ -5,19 +5,19 @@ name              = "groth16"
 version           = "0.1.0"
 
 [dependencies]
-ark-bn254   = "0.5"
+ark-bn254   = { default-features = false, features = ["curve"], version = "0.5" }
 ark-ec      = "0.5"
-ark-groth16 = "0.5"
-serde       = { version = "1.0", optional = true, features = ["derive"] }
-serde_json  = { version = "1.0", optional = true }
-thiserror   = { version = "2.0", optional = true }
+ark-groth16 = { default-features = false, features = ["std"], version = "0.5" }
+serde       = { default-features = false, features = ["derive"], optional = true, version = "1.0" }
+serde_json  = { default-features = false, optional = true, version = "1.0" }
+thiserror   = { default-features = false, optional = true, version = "2.0" }
 
 [dev-dependencies]
-serde_json = "1.0"
+serde_json = { default-features = false, features = ["alloc"], version = "1.0" }
 
 [lints]
 workspace = true
 
 [features]
 default = []
-deser   = ["serde", "serde_json", "thiserror"]
+deser   = ["dep:serde", "dep:serde_json", "dep:thiserror"]

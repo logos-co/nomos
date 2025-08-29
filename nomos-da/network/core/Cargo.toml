@@ -9,33 +9,33 @@ workspace = true
 
 [dependencies]
 cached                   = { workspace = true }
-either                   = "1.13.0"
-fixed                    = { version = "1", features = ["serde-str"] }
-futures                  = "0.3"
-indexmap                 = "2.2"
+either                   = { default-features = false, version = "1.13.0" }
+fixed                    = { default-features = false, features = ["serde-str"], version = "1" }
+futures                  = { default-features = false, version = "0.3" }
+indexmap                 = { default-features = false, version = "2.2" }
 kzgrs-backend            = { workspace = true }
-libp2p                   = { workspace = true, features = ["macros", "quic", "tokio"] }
+libp2p                   = { features = ["macros", "quic", "tokio"], workspace = true }
 libp2p-stream            = "0.3.0-alpha"
 log                      = "0.4"
 nomos-core               = { workspace = true }
 nomos-da-messages        = { workspace = true }
-nomos-utils              = { workspace = true, features = ["time"] }
-rand                     = "0.8"
-serde                    = "1.0"
+nomos-utils              = { workspace = true }
+rand                     = { default-features = false, version = "0.8" }
+serde                    = { default-features = false, version = "1.0" }
 serde_with               = { workspace = true }
 subnetworks-assignations = { workspace = true }
 thiserror                = "1.0"
 tokio                    = { version = "1" }
-tokio-stream             = "0.1"
+tokio-stream             = { default-features = false, version = "0.1" }
 tracing                  = { workspace = true }
-tracing-subscriber       = "0.3.18"
+tracing-subscriber       = { default-features = false, version = "0.3.18" }
 
 [dev-dependencies]
 bincode            = "1.3"
 kzgrs              = { workspace = true }
-kzgrs-backend      = { workspace = true, features = ["testutils"] }
-libp2p             = { workspace = true, features = ["ed25519", "macros", "noise", "ping", "plaintext", "quic", "tcp", "yamux"] }
-libp2p-swarm-test  = { version = "0.5.0", features = ["tokio"] }
-rstest             = "0.25"
-tokio              = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+kzgrs-backend      = { features = ["testutils"], workspace = true }
+libp2p             = { features = ["plaintext", "yamux"], workspace = true }
+libp2p-swarm-test  = { default-features = false, features = ["tokio"], version = "0.5.0" }
+rstest             = { default-features = false, version = "0.25" }
+tokio              = { default-features = false, version = "1" }
+tracing-subscriber = { default-features = false, features = ["env-filter", "fmt", "std"], version = "0.3" }

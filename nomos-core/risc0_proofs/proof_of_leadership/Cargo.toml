@@ -8,7 +8,7 @@ version = "0.1.0"
 
 [dependencies]
 nomos_proof_statements = { path = "../../proof_statements" }
-risc0-zkvm             = { version = "2.3.2", default-features = false, features = ['std'] }
+risc0-zkvm             = { default-features = false, features = ['std'], version = "2.3.2" }
 
 [patch.crates-io]
 # add RISC Zero accelerator support for all downstream usages of the following crates.

@@ -20,35 +20,35 @@ workspace = true
 
 [dependencies]
 async-trait              = "0.1"
-axum                     = { version = "0.6" }
-clap                     = { version = "4.5.13", features = ["derive"] }
-color-eyre               = "0.6.0"
-futures                  = "0.3"
-hyper                    = { version = "0.14", features = ["full"] }
+axum                     = { default-features = false, version = "0.6" }
+clap                     = { default-features = false, features = ["derive"], version = "4.5.13" }
+color-eyre               = { default-features = false, version = "0.6.0" }
+futures                  = { default-features = false, version = "0.3" }
+hyper                    = { default-features = false, version = "0.14" }
 kzgrs-backend            = { workspace = true }
 nomos-api                = { workspace = true }
-nomos-blend-service      = { workspace = true, features = ["libp2p"] }
+nomos-blend-service      = { workspace = true }
 nomos-core               = { workspace = true }
 nomos-da-dispersal       = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-da-network-service = { workspace = true }
-nomos-da-sampling        = { workspace = true, features = ["rocksdb-backend"] }
-nomos-da-verifier        = { workspace = true, features = ["libp2p", "rocksdb-backend"] }
+nomos-da-sampling        = { workspace = true }
+nomos-da-verifier        = { workspace = true }
 nomos-http-api-common    = { workspace = true }
 nomos-libp2p             = { workspace = true }
 nomos-membership         = { workspace = true }
-nomos-mempool            = { workspace = true, features = ["libp2p", "mock"] }
-nomos-network            = { workspace = true, features = ["libp2p"] }
+nomos-mempool            = { workspace = true }
+nomos-network            = { workspace = true }
 nomos-node               = { workspace = true }
-nomos-storage            = { workspace = true, features = ["rocksdb-backend"] }
+nomos-storage            = { workspace = true }
 nomos-time               = { workspace = true }
 overwatch                = { workspace = true }
-serde                    = { version = "1", features = ["derive"] }
+serde                    = { default-features = false, version = "1" }
 serde_yaml               = "0.9"
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
 tokio                    = "1"
-tower-http               = { version = "0.4", features = ["cors", "trace"] }
+tower-http               = { default-features = false, version = "0.4" }
 tracing                  = { workspace = true }
 utoipa                   = { workspace = true }
 utoipa-swagger-ui        = { workspace = true }

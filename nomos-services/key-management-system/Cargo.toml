@@ -10,18 +10,19 @@ workspace = true
 [dependencies]
 async-trait   = "0.1"
 bytes         = { workspace = true }
-ed25519-dalek = { version = "2", features = ["serde", "zeroize"] }
+ed25519-dalek = { default-features = false, features = ["serde", "zeroize"], version = "2" }
 log           = "0.4.22"
 overwatch     = { workspace = true }
-serde         = { version = "1", features = ["derive"] }
-thiserror     = "2"
-tokio         = { version = "1", features = ["macros"] }
-tracing       = "0.1"
-zeroize       = { version = "1", features = ["zeroize_derive"] }
+serde         = { default-features = false, features = ["derive"], version = "1" }
+thiserror     = { default-features = false, version = "2" }
+tokio         = { default-features = false, version = "1" }
+tracing       = { default-features = false, version = "0.1" }
+zeroize       = { default-features = false, features = ["zeroize_derive"], version = "1" }
 
 [dev-dependencies]
-ed25519-dalek = { version = "2", features = ["rand_core"] }
-rand          = { workspace = true }
+ed25519-dalek = { default-features = false, features = ["rand_core"], version = "2" }
+rand          = { features = ["getrandom"], workspace = true }
+serde         = { default-features = false, features = ["std"], version = "1" }
 
 [features]
 default = ["preload"]

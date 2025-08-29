@@ -12,13 +12,13 @@ ignored = ["nomos-utils"]
 workspace = true
 
 [dependencies]
-cfg_eval    = { version = "0.1", optional = true }
-nomos-utils = { workspace = true, features = ["time"], optional = true }
-serde       = { version = "1.0", features = ["derive"], optional = true }
-serde_with  = { workspace = true, optional = true }
+cfg_eval    = { optional = true, version = "0.1" }
+nomos-utils = { features = ["time"], optional = true, workspace = true }
+serde       = { default-features = false, optional = true, version = "1.0" }
+serde_with  = { features = ["macros"], optional = true, workspace = true }
 thiserror   = "1"
-time        = { version = "0.3", features = ["serde"] }
-tokio       = { version = "1", optional = true, features = ["time"] }
+time        = { default-features = false, version = "0.3" }
+tokio       = { default-features = false, features = ["time"], optional = true, version = "1" }
 tracing     = { workspace = true }
 
 [features]
