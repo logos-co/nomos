@@ -172,6 +172,7 @@ where
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     RuntimeServiceId: Debug
+        + Send
         + Sync
         + Display
         + 'static
@@ -235,6 +236,7 @@ where
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     RuntimeServiceId: Debug
+        + Send
         + Sync
         + Display
         + 'static

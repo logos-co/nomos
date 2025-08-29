@@ -48,6 +48,7 @@ blend:
     - id: 12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
       address: /ip4/127.0.0.1/udp/8721/quic-v1
       public_key: 92f041e26306548444400e88eefa622dc125a45f3e3119a04ba1ffe4946dd4e6
+  minimum_network_size: 1
 da_network:
   backend:
     validator_settings:

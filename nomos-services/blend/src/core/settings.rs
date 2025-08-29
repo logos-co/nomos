@@ -20,6 +20,7 @@ pub struct BlendConfig<BackendSettings, NodeId> {
     pub scheduler: SchedulerSettingsExt,
     pub time: TimingSettings,
     pub membership: Vec<Node<NodeId>>,
+    pub minimum_network_size: NonZeroU64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

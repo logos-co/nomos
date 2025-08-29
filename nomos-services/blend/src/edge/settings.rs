@@ -1,3 +1,4 @@
+use core::num::NonZeroU64;
 use std::hash::Hash;
 
 use nomos_blend_scheduling::{
@@ -14,6 +15,7 @@ pub struct BlendConfig<BackendSettings, NodeId> {
     pub crypto: CryptographicProcessorSettings,
     pub time: TimingSettings,
     pub membership: Vec<Node<NodeId>>,
+    pub minimum_network_size: NonZeroU64,
 }
 
 impl<BackendSettings, NodeId> BlendConfig<BackendSettings, NodeId>

@@ -205,8 +205,8 @@ where
         TxS::Settings: Sync,
         BS::Settings: Sync,
         NetworkAdapter::Settings: Sync + Send,
-        BlendService: nomos_blend_service::ServiceExt,
-        <BlendService as nomos_blend_service::ServiceExt>::BroadcastSettings: Send + Sync,
+        BlendService: nomos_blend_service::ServiceComponents,
+        BlendService::BroadcastSettings: Send + Sync,
         <BlendService as ServiceData>::Message: Send + 'static,
         SamplingNetworkAdapter:
             nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,

@@ -97,6 +97,29 @@ impl Drop for Validator {
 }
 
 impl Validator {
+    /// Check if the validator process is still running
+    pub fn is_running(&mut self) -> bool {
+        match self.child.try_wait() {
+            Ok(None) => true,
+            Ok(Some(_)) | Err(_) => false,
+        }
+    }
+
+    /// Wait for the validator process to exit, with a timeout
+    /// Returns true if the process exited within the timeout, false otherwise
+    pub async fn wait_for_exit(&mut self, timeout: Duration) -> bool {
+        tokio::time::timeout(timeout, async {
+            loop {
+                if !self.is_running() {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .is_ok()
+    }
+
     pub async fn spawn(mut config: Config) -> Result<Self, Elapsed> {
         let dir = create_tempdir().unwrap();
         let mut file = NamedTempFile::new().unwrap();
@@ -380,6 +403,9 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 },
             },
             membership: config.blend_config.membership,
+            minimum_network_size: 1
+                .try_into()
+                .expect("Minimum Blend network size cannot be zero."),
         }),
         cryptarchia: CryptarchiaSettings {
             leader_config: config.consensus_config.leader_config,

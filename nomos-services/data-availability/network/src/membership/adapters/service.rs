@@ -75,7 +75,7 @@ where
     async fn subscribe(&self) -> Result<PeerMultiaddrStream<Self::Id>, MembershipAdapterError> {
         let input_stream = self.subscribe_stream(ServiceType::DataAvailability).await?;
 
-        let converted_stream = input_stream.map(|(block_number, providers_map)| {
+        let converted_stream = input_stream.map(|(session_id, providers_map)| {
             let peers_map: HashMap<PeerId, Multiaddr> = providers_map
                 .into_iter()
                 .filter_map(|(provider_id, locators)| {
@@ -95,7 +95,7 @@ where
                 })
                 .collect();
 
-            (block_number, peers_map)
+            (session_id, peers_map)
         });
 
         Ok(Box::pin(converted_stream))

@@ -1,9 +1,6 @@
 use std::marker::PhantomData;
 
-use nomos_blend_service::{
-    message::{NetworkMessage, ServiceMessage},
-    ServiceExt as BlendServiceExt,
-};
+use nomos_blend_service::message::{NetworkMessage, ServiceMessage};
 use nomos_core::{block::Block, wire};
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 use serde::Serialize;
@@ -13,20 +10,20 @@ use crate::LOG_TARGET;
 
 pub struct BlendAdapter<BlendService>
 where
-    BlendService: ServiceData + BlendServiceExt,
+    BlendService: ServiceData + nomos_blend_service::ServiceComponents,
 {
     relay: OutboundRelay<<BlendService as ServiceData>::Message>,
-    broadcast_settings: <BlendService as BlendServiceExt>::BroadcastSettings,
+    broadcast_settings: BlendService::BroadcastSettings,
     _phantom: PhantomData<BlendService>,
 }
 
 impl<BlendService> BlendAdapter<BlendService>
 where
-    BlendService: ServiceData + BlendServiceExt,
+    BlendService: ServiceData + nomos_blend_service::ServiceComponents,
 {
     pub const fn new(
         relay: OutboundRelay<<BlendService as ServiceData>::Message>,
-        broadcast_settings: <BlendService as BlendServiceExt>::BroadcastSettings,
+        broadcast_settings: BlendService::BroadcastSettings,
     ) -> Self {
         Self {
             relay,
@@ -38,11 +35,11 @@ where
 
 impl<BlendService> BlendAdapter<BlendService>
 where
-    BlendService: ServiceData<Message = ServiceMessage<<BlendService as BlendServiceExt>::BroadcastSettings>>
-        + BlendServiceExt
+    BlendService: ServiceData<Message = ServiceMessage<BlendService::BroadcastSettings>>
+        + nomos_blend_service::ServiceComponents
         + Sync,
     <BlendService as ServiceData>::Message: Send,
-    <BlendService as BlendServiceExt>::BroadcastSettings: Clone + Sync,
+    BlendService::BroadcastSettings: Clone + Sync,
 {
     pub async fn publish_block<Tx, BlobCert>(&self, block: Block<Tx, BlobCert>)
     where

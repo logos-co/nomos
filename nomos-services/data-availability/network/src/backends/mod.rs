@@ -4,7 +4,7 @@ pub mod mock;
 use std::{collections::HashSet, pin::Pin};
 
 use futures::Stream;
-use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId};
+use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::addressbook::AddressBookHandler;
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::ServiceState};
 use subnetworks_assignations::MembershipHandler;
@@ -37,7 +37,7 @@ pub trait NetworkBackend<RuntimeServiceId> {
     ) -> Pin<Box<dyn Stream<Item = Self::NetworkEvent> + Send>>;
     async fn start_historic_sampling(
         &self,
-        block_number: BlockNumber,
+        session_id: SessionNumber,
         block_id: HeaderId,
         blob_ids: HashSet<BlobId>,
         membership: Self::HistoricMembership,

@@ -25,7 +25,7 @@ where
     ) -> Self
     where
         Rng: RngCore + Send + 'static;
-    fn shutdown(&mut self);
+    fn shutdown(self);
     /// Send a message to the blend network.
     async fn send(&self, msg: EncapsulatedMessage);
 }

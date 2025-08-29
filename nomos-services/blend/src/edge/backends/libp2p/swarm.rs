@@ -1,4 +1,4 @@
-use core::num::NonZeroU64;
+use core::num::{NonZeroU64, NonZeroUsize};
 use std::{
     collections::{hash_map::Entry, HashMap},
     io,
@@ -19,7 +19,7 @@ use nomos_blend_scheduling::{
 use nomos_libp2p::{DialError, DialOpts, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::mpsc;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, trace, warn};
 
 use super::settings::Libp2pBlendBackendSettings;
 use crate::edge::backends::libp2p::LOG_TARGET;
@@ -62,6 +62,7 @@ where
     max_dial_attempts_per_connection: NonZeroU64,
     pending_dials: HashMap<(PeerId, ConnectionId), DialAttempt>,
     protocol_name: StreamProtocol,
+    replication_factor: NonZeroUsize,
 }
 
 #[derive(Debug)]
@@ -94,6 +95,14 @@ where
             })
             .build();
         let stream_control = swarm.behaviour().new_control();
+
+        let replication_factor: NonZeroUsize = settings.replication_factor.try_into().unwrap();
+        let membership_size = current_membership.as_ref().map_or(0, Membership::size);
+
+        if membership_size < replication_factor.get() {
+            warn!(target: LOG_TARGET, "Replication factor configured to {replication_factor} but only {membership_size} peers are available.");
+        }
+
         Self {
             swarm,
             stream_control,
@@ -104,6 +113,7 @@ where
             pending_dials: HashMap::new(),
             max_dial_attempts_per_connection: settings.max_dial_attempts_per_peer_per_message,
             protocol_name,
+            replication_factor,
         }
     }
 
@@ -115,6 +125,7 @@ where
         rng: Rng,
         session_stream: SessionStream,
         protocol_name: StreamProtocol,
+        replication_factor: NonZeroUsize,
     ) -> Self {
         use crate::test_utils::memory_test_swarm;
 
@@ -131,6 +142,7 @@ where
             stream_control: inner_swarm.behaviour().new_control(),
             swarm: inner_swarm,
             protocol_name,
+            replication_factor,
         }
     }
 
@@ -142,12 +154,12 @@ where
     fn handle_command(&mut self, command: Command) {
         match command {
             Command::SendMessage(msg) => {
-                self.handle_send_message_command(msg);
+                self.handle_send_message_command(&msg);
             }
         }
     }
 
-    fn handle_send_message_command(&mut self, msg: EncapsulatedMessage) {
+    fn handle_send_message_command(&mut self, msg: &EncapsulatedMessage) {
         self.dial_and_schedule_message_except(msg, None);
     }
 
@@ -157,29 +169,33 @@ where
     /// peer, if specified.
     fn dial_and_schedule_message_except(
         &mut self,
-        msg: EncapsulatedMessage,
+        msg: &EncapsulatedMessage,
         except: Option<PeerId>,
     ) {
-        let Some(node) = self.choose_peer_except(except) else {
+        let peers = self.choose_peers_except(except);
+        if peers.is_empty() {
             error!(target: LOG_TARGET, "No peers available to send the message to");
             return;
-        };
-        let (peer_id, address) = (node.id, node.address);
-        let opts = dial_opts(peer_id, address.clone());
-        let connection_id = opts.connection_id();
+        }
+        for node in peers {
+            let (peer_id, address) = (node.id, node.address);
+            let opts = dial_opts(peer_id, address.clone());
+            let connection_id = opts.connection_id();
 
-        let Entry::Vacant(empty_entry) = self.pending_dials.entry((peer_id, connection_id)) else {
-            panic!("Dial attempt for peer {peer_id:?} and connection {connection_id:?} should not be present in storage.");
-        };
-        empty_entry.insert(DialAttempt {
-            address,
-            attempt_number: 1.try_into().unwrap(),
-            message: msg,
-        });
+            let Entry::Vacant(empty_entry) = self.pending_dials.entry((peer_id, connection_id))
+            else {
+                panic!("Dial attempt for peer {peer_id:?} and connection {connection_id:?} should not be present in storage.");
+            };
+            empty_entry.insert(DialAttempt {
+                address,
+                attempt_number: 1.try_into().unwrap(),
+                message: msg.clone(),
+            });
 
-        if let Err(e) = self.swarm.dial(opts) {
-            error!(target: LOG_TARGET, "Failed to dial peer {peer_id:?} on connection {connection_id:?}: {e:?}");
-            self.retry_dial(peer_id, connection_id);
+            if let Err(e) = self.swarm.dial(opts) {
+                error!(target: LOG_TARGET, "Failed to dial peer {peer_id:?} on connection {connection_id:?}: {e:?}");
+                self.retry_dial(peer_id, connection_id);
+            }
         }
     }
 
@@ -214,14 +230,19 @@ where
         None
     }
 
-    fn choose_peer_except(&mut self, except: Option<PeerId>) -> Option<Node<PeerId>> {
+    fn choose_peers_except(&mut self, except: Option<PeerId>) -> Vec<Node<PeerId>> {
         let Some(membership) = &self.current_membership else {
-            return None;
+            return vec![];
         };
+        let peers_to_choose = membership.size().min(self.replication_factor.get());
         membership
-            .filter_and_choose_remote_nodes(&mut self.rng, 1, &except.into_iter().collect())
-            .next()
+            .filter_and_choose_remote_nodes(
+                &mut self.rng,
+                peers_to_choose,
+                &except.into_iter().collect(),
+            )
             .cloned()
+            .collect()
     }
 
     async fn handle_swarm_event(&mut self, event: SwarmEvent<()>) {
@@ -310,7 +331,7 @@ where
         // If the maximum attempt count was reached for this peer, try to schedule the
         // message for a different peer.
         if let Some(DialAttempt { message, .. }) = self.retry_dial(peer_id, connection_id) {
-            self.dial_and_schedule_message_except(message, Some(peer_id));
+            self.dial_and_schedule_message_except(&message, Some(peer_id));
         }
     }
 
@@ -323,7 +344,7 @@ where
         // If the maximum attempt count was reached for this peer, try to schedule the
         // message for a different peer.
         if let Some(DialAttempt { message, .. }) = self.retry_dial(peer_id, connection_id) {
-            self.dial_and_schedule_message_except(message, Some(peer_id));
+            self.dial_and_schedule_message_except(&message, Some(peer_id));
         }
     }
 
@@ -343,23 +364,27 @@ where
         // If the maximum attempt count was reached for this peer, try to schedule the
         // message for a different peer.
         if let Some(DialAttempt { message, .. }) = self.retry_dial(peer_id, connection_id) {
-            self.dial_and_schedule_message_except(message, Some(peer_id));
+            self.dial_and_schedule_message_except(&message, Some(peer_id));
         }
     }
 
     // TODO: Implement the actual session transition.
     //       https://github.com/logos-co/nomos/issues/1462
     fn transition_session(&mut self, membership: Membership<PeerId>) {
+        let membership_size = membership.size();
+        if membership_size < self.replication_factor.get() {
+            warn!(target: LOG_TARGET, "New membership has less peers ({membership_size}) than the currently configured replication factor ({}).", self.replication_factor.get());
+        }
         self.current_membership = Some(membership);
     }
 
     #[cfg(test)]
-    pub fn send_message(&mut self, msg: EncapsulatedMessage) {
+    pub fn send_message(&mut self, msg: &EncapsulatedMessage) {
         self.dial_and_schedule_message_except(msg, None);
     }
 
     #[cfg(test)]
-    pub fn send_message_to_anyone_except(&mut self, peer_id: PeerId, msg: EncapsulatedMessage) {
+    pub fn send_message_to_anyone_except(&mut self, peer_id: PeerId, msg: &EncapsulatedMessage) {
         self.dial_and_schedule_message_except(msg, Some(peer_id));
     }
 }

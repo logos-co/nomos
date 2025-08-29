@@ -6,7 +6,7 @@ use std::{
 
 use kzgrs_backend::common::share::DaSharesCommitments;
 use nomos_core::{
-    block::BlockNumber,
+    block::SessionNumber,
     da::{blob::Share, DaVerifier as CoreDaVerifier},
     mantle::SignedMantleTx,
 };
@@ -350,7 +350,7 @@ pub async fn da_get_membership<
     RuntimeServiceId,
 >(
     handle: OverwatchHandle<RuntimeServiceId>,
-    block_number: BlockNumber,
+    session_id: SessionNumber,
 ) -> Result<MembershipResponse, DynError>
 where
     Backend: NetworkBackend<RuntimeServiceId> + 'static + Send,
@@ -375,10 +375,7 @@ where
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
-    let message = DaNetworkMsg::GetMembership {
-        block_number,
-        sender,
-    };
+    let message = DaNetworkMsg::GetMembership { session_id, sender };
     relay.send(message).await.map_err(|(e, _)| e)?;
 
     wait_with_timeout(

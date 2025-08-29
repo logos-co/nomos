@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use backends::{MembershipBackend, MembershipBackendError};
 use futures::{Stream, StreamExt as _};
 use nomos_core::{
-    block::BlockNumber,
+    block::{BlockNumber, SessionNumber},
     sdp::{Locator, ProviderId},
 };
 use overwatch::{
@@ -28,7 +28,7 @@ use tokio_stream::wrappers::BroadcastStream;
 pub mod adapters;
 pub mod backends;
 
-pub type MembershipProviders = (BlockNumber, HashMap<ProviderId, BTreeSet<Locator>>);
+pub type MembershipProviders = (SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>);
 
 pub type MembershipSnapshotStream =
     Pin<Box<dyn Stream<Item = MembershipProviders> + Send + Sync + Unpin>>;
@@ -182,8 +182,8 @@ where
                 let stream = make_pin_broadcast_stream(tx.subscribe());
                 let providers = self.backend.get_latest_providers(service_type).await;
 
-                if let Ok((block_number, providers)) = providers {
-                    if !providers.is_empty() && tx.send((block_number, providers)).is_err() {
+                if let Ok((session_id, providers)) = providers {
+                    if !providers.is_empty() && tx.send((session_id, providers)).is_err() {
                         tracing::error!(
                             "Error sending initial membership snapshot for service type: {:?}",
                             service_type

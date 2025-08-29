@@ -1,11 +1,18 @@
 pub mod backends;
+pub(crate) mod service_components;
 pub mod settings;
 
-use std::{fmt::Display, hash::Hash, marker::PhantomData};
+use std::{
+    fmt::{Debug, Display},
+    hash::Hash,
+    marker::PhantomData,
+    time::Duration,
+};
 
 use backends::BlendBackend;
 use nomos_blend_scheduling::message_blend::crypto::CryptographicProcessor;
 use nomos_core::wire;
+use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -14,28 +21,28 @@ use overwatch::{
     OpaqueServiceResourcesHandle,
 };
 use rand::{RngCore, SeedableRng as _};
-use rand_chacha::ChaCha12Rng;
 use serde::Serialize;
+pub(crate) use service_components::ServiceComponents;
+use services_utils::wait_until_services_are_ready;
 use settings::BlendConfig;
 use tokio::time::interval;
 use tokio_stream::{wrappers::IntervalStream, StreamExt as _};
 
-use crate::message::ServiceMessage;
+use crate::{membership, message::ServiceMessage};
 
 const LOG_TARGET: &str = "blend::service::edge";
 
-pub struct BlendService<Backend, NodeId, BroadcastSettings, RuntimeServiceId>
+pub struct BlendService<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone,
 {
-    backend: Backend,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    _phantom: PhantomData<BroadcastSettings>,
+    _phantom: PhantomData<MembershipAdapter>,
 }
 
-impl<Backend, NodeId, BroadcastSettings, RuntimeServiceId> ServiceData
-    for BlendService<Backend, NodeId, BroadcastSettings, RuntimeServiceId>
+impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId> ServiceData
+    for BlendService<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone,
@@ -47,37 +54,30 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Backend, NodeId, BroadcastSettings, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for BlendService<Backend, NodeId, BroadcastSettings, RuntimeServiceId>
+impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
+    ServiceCore<RuntimeServiceId>
+    for BlendService<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Send + Sync,
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
     BroadcastSettings: Serialize + Send,
-    RuntimeServiceId: AsServiceId<Self> + Display + Clone + Send,
+    MembershipAdapter: membership::Adapter + Send,
+    membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
+    <MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
+    RuntimeServiceId: AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
+        + AsServiceId<Self>
+        + Display
+        + Debug
+        + Clone
+        + Send
+        + Sync
+        + 'static,
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
-        let settings = service_resources_handle
-            .settings_handle
-            .notifier()
-            .get_updated_settings();
-        let membership = settings.membership();
-        let current_membership = Some(membership.clone());
-        let backend = <Backend as BlendBackend<NodeId, RuntimeServiceId>>::new(
-            settings.backend,
-            service_resources_handle.overwatch_handle.clone(),
-            Box::pin(
-                IntervalStream::new(interval(settings.time.session_duration()))
-                    .map(move |_| membership.clone()),
-            ),
-            current_membership,
-            ChaCha12Rng::from_entropy(),
-        );
-
         Ok(Self {
-            backend,
             service_resources_handle,
             _phantom: PhantomData,
         })
@@ -85,38 +85,92 @@ where
 
     async fn run(mut self) -> Result<(), overwatch::DynError> {
         let Self {
-            service_resources_handle:
-                OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
-                    ref mut inbound_relay,
-                    ref settings_handle,
-                    ref status_updater,
-                    ..
-                },
-            ref mut backend,
+            service_resources_handle,
             ..
         } = self;
 
-        let settings = settings_handle.notifier().get_updated_settings();
-        let mut cryptoraphic_processor = CryptographicProcessor::new(
-            settings.crypto.clone(),
-            settings.membership(),
-            ChaCha12Rng::from_entropy(),
+        let settings = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
+        let membership = settings.membership();
+        let current_membership = Some(membership.clone());
+        let minimum_network_size = settings.minimum_network_size;
+
+        let membership_adapter = MembershipAdapter::new(
+            service_resources_handle
+                .overwatch_handle
+                .relay::<<MembershipAdapter as membership::Adapter>::Service>()
+                .await?,
+            settings.crypto.signing_private_key.public_key(),
         );
+        let mut _membership_stream = membership_adapter.subscribe().await?;
+        // TODO: Use membership_stream as a session stream: https://github.com/logos-co/nomos/issues/1532
 
-        let mut messages_to_blend = inbound_relay.map(|ServiceMessage::Blend(message)| {
-            wire::serialize(&message)
-                .expect("Message from internal services should not fail to serialize")
-        });
+        wait_until_services_are_ready!(
+            &service_resources_handle.overwatch_handle,
+            Some(Duration::from_secs(60)),
+            <MembershipAdapter as membership::Adapter>::Service
+        )
+        .await?;
 
-        status_updater.notify_ready();
-        tracing::info!(
-            target: LOG_TARGET,
-            "Service '{}' is ready.",
-            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
-        );
+        // TODO: Add logic to try process new sessions. I.e:
+        // * If the old session membership was too small and the new one is large
+        //   enough, create a new backend and start blending incoming messages.
+        // * If the old and new session membership are both too small, do nothing.
+        // * If the old session membership was large and the new one too small, simply
+        //   drop the backend.
+        // * If the old and new session membership are both large enough, perform
+        //   session rotation logic and maintain the swarm backend.
+        // Ideally, this service would be stopped altogether by the proxy service when a
+        // session is too small. Yet, the service itself must be resilient in case of
+        // bugs where the proxy service does not do that, hence the need for this
+        // additional logic.
+        if membership.size() < minimum_network_size.get() as usize {
+            tracing::warn!(target: LOG_TARGET, "Blend network size is smaller than the required minimum. Not starting swarm, hence no messages will be blended in this session.");
+            // We still mark the service as ready, albeit other services won't be able to
+            // interact with this service by sending messages to it, and it indeed should
+            // not happen, as all interactions should happen via the proxy service.
+            service_resources_handle.status_updater.notify_ready();
+            tracing::info!(
+                target: LOG_TARGET,
+                "Service '{}' is ready.",
+                <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+            );
+        } else {
+            let mut cryptoraphic_processor = CryptographicProcessor::new(
+                settings.crypto.clone(),
+                settings.membership(),
+                BlakeRng::from_entropy(),
+            );
+            let mut messages_to_blend =
+                service_resources_handle
+                    .inbound_relay
+                    .map(|ServiceMessage::Blend(message)| {
+                        wire::serialize(&message)
+                            .expect("Message from internal services should not fail to serialize")
+                    });
+            let backend = <Backend as BlendBackend<NodeId, RuntimeServiceId>>::new(
+                settings.backend,
+                service_resources_handle.overwatch_handle.clone(),
+                Box::pin(
+                    IntervalStream::new(interval(settings.time.session_duration()))
+                        .map(move |_| membership.clone()),
+                ),
+                current_membership,
+                BlakeRng::from_entropy(),
+            );
 
-        while let Some(message) = messages_to_blend.next().await {
-            handle_messages_to_blend(message, &mut cryptoraphic_processor, backend).await;
+            service_resources_handle.status_updater.notify_ready();
+            tracing::info!(
+                target: LOG_TARGET,
+                "Service '{}' is ready.",
+                <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+            );
+
+            while let Some(message) = messages_to_blend.next().await {
+                handle_messages_to_blend(message, &mut cryptoraphic_processor, &backend).await;
+            }
         }
 
         Ok(())

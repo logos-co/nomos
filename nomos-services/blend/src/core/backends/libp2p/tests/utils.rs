@@ -58,7 +58,14 @@ impl SwarmBuilder {
 
     pub fn with_empty_membership(mut self) -> Self {
         assert!(self.membership.is_none());
-        self.membership = Some(Membership::new(&[], None));
+        self.membership = Some(Membership::new(
+            &[Node {
+                address: Multiaddr::empty(),
+                id: PeerId::random(),
+                public_key: Ed25519PrivateKey::generate().public_key(),
+            }],
+            None,
+        ));
         self
     }
 
@@ -81,6 +88,7 @@ impl SwarmBuilder {
                 .unwrap_or_else(|| Membership::new(&[], None)),
             BlakeRng::from_entropy(),
             3u64.try_into().unwrap(),
+            1usize.try_into().unwrap(),
         );
 
         TestSwarm {
@@ -114,7 +122,14 @@ impl BlendBehaviourBuilder {
 
     pub fn with_empty_membership(mut self) -> Self {
         assert!(self.membership.is_none());
-        self.membership = Some(Membership::new(&[], None));
+        self.membership = Some(Membership::new(
+            &[Node {
+                address: Multiaddr::empty(),
+                id: PeerId::random(),
+                public_key: Ed25519PrivateKey::generate().public_key(),
+            }],
+            None,
+        ));
         self
     }
 
@@ -137,10 +152,12 @@ impl BlendBehaviourBuilder {
                 &Config {
                     with_core: CoreToCoreConfig {
                         peering_degree: 1..=100,
+                        minimum_network_size: 1.try_into().unwrap(),
                     },
                     with_edge: CoreToEdgeConfig {
                         connection_timeout: Duration::from_secs(1),
                         max_incoming_connections: 300,
+                        minimum_network_size: 1.try_into().unwrap(),
                     },
                 },
                 TestObservationWindowProvider {

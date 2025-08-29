@@ -10,21 +10,22 @@ workspace = true
 [dependencies]
 async-trait            = "0.1"
 futures                = { version = "0.3", default-features = false }
-libp2p                 = { workspace = true }
-libp2p-stream          = { workspace = true }
+libp2p                 = { workspace = true, optional = true }
+libp2p-stream          = { workspace = true, optional = true }
 nomos-blend-message    = { workspace = true }
 nomos-blend-network    = { workspace = true }
 nomos-blend-scheduling = { workspace = true }
 nomos-core             = { workspace = true }
 nomos-libp2p           = { workspace = true, optional = true }
+nomos-membership       = { workspace = true }
 nomos-network          = { workspace = true }
-nomos-utils            = { workspace = true }
+nomos-utils            = { workspace = true, features = ["serde"] }
 overwatch              = { workspace = true }
 rand                   = { workspace = true }
-rand_chacha            = { version = "0.3", default-features = false }
 serde                  = { version = "1.0", default-features = false }
 serde_with             = { workspace = true }
 services-utils         = { workspace = true }
+thiserror              = { version = "1", default-features = false }
 tokio                  = { version = "1", default-features = false }
 tokio-stream           = { version = "0.1", default-features = false }
 tracing                = { workspace = true }
@@ -38,4 +39,4 @@ test-log            = { version = "0.2.18", default-features = false }
 
 [features]
 default = []
-libp2p  = ["dep:nomos-libp2p", "nomos-network/libp2p"]
+libp2p  = ["dep:libp2p", "dep:libp2p-stream", "dep:nomos-libp2p", "nomos-network/libp2p"]
