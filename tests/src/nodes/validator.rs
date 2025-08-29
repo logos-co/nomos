@@ -527,7 +527,6 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 address: config.api_config.address,
                 ..Default::default()
             },
-            request_timeout: None,
         },
         da_sampling: DaSamplingServiceSettings {
             sampling_settings: KzgrsSamplingBackendSettings {
@@ -577,7 +576,6 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 address: testing_http_address,
                 ..Default::default()
             },
-            request_timeout: None,
         },
     }
 }

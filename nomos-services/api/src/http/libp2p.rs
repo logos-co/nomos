@@ -8,8 +8,6 @@ use nomos_network::{
 use overwatch::services::AsServiceId;
 use tokio::sync::oneshot;
 
-use crate::wait_with_timeout;
-
 pub async fn libp2p_info<RuntimeServiceId>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
 ) -> Result<Libp2pInfo, overwatch::DynError>
@@ -27,9 +25,7 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for cl_mempool_metrics".to_owned(),
-    )
-    .await
+    receiver
+        .await
+        .map_err(|e| Box::new(e) as overwatch::DynError)
 }

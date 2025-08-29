@@ -13,8 +13,6 @@ use overwatch::services::AsServiceId;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
-use crate::wait_with_timeout;
-
 pub type ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId> =
     TxMempoolService<
         MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
@@ -56,11 +54,7 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for cl_mempool_metrics".to_owned(),
-    )
-    .await
+    receiver.await.map_err(|e| Box::new(e) as super::DynError)
 }
 
 pub async fn cl_mempool_status<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>(
@@ -97,9 +91,5 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for cl_mempool_status".to_owned(),
-    )
-    .await
+    receiver.await.map_err(|e| Box::new(e) as super::DynError)
 }
