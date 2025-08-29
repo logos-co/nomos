@@ -13,9 +13,8 @@ impl super::TryFrom for PeerId {
 
 #[cfg(test)]
 mod tests {
-    use crate::membership::node_id::TryFrom as _;
-
     use super::*;
+    use crate::membership::node_id::TryFrom as _;
 
     #[test]
     fn test_try_from_provider_id() {
