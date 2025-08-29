@@ -20,7 +20,7 @@ pub struct TestSwarm {
 #[derive(Default)]
 pub struct SwarmBuilder {
     membership: Option<Membership<PeerId>>,
-    propagation_factor: Option<NonZeroUsize>,
+    replication_factor: Option<NonZeroUsize>,
 }
 
 impl SwarmBuilder {
@@ -29,8 +29,8 @@ impl SwarmBuilder {
         self
     }
 
-    pub fn with_propagation_factor(mut self, propagation_factor: usize) -> Self {
-        self.propagation_factor = Some(propagation_factor.try_into().unwrap());
+    pub fn with_replication_factor(mut self, replication_factor: usize) -> Self {
+        self.replication_factor = Some(replication_factor.try_into().unwrap());
         self
     }
 
@@ -44,7 +44,7 @@ impl SwarmBuilder {
             BlakeRng::from_entropy(),
             pending(),
             PROTOCOL_NAME,
-            self.propagation_factor
+            self.replication_factor
                 .unwrap_or_else(|| 1usize.try_into().unwrap()),
         );
 

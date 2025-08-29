@@ -58,9 +58,9 @@ async fn edge_message_propagation() {
         swarm: edge_swarm,
         command_sender: edge_swarm_command_sender,
     } = EdgeSwarmBuilder::default()
-        // We test that we can pick the `min` between the propagation factor and the available
+        // We test that we can pick the `min` between the replication factor and the available
         // peers.
-        .with_propagation_factor(usize::MAX)
+        .with_replication_factor(usize::MAX)
         .with_membership(membership_for_edge_swarm)
         .build();
     spawn(async move { edge_swarm.run().await });
@@ -82,7 +82,7 @@ async fn edge_message_propagation() {
 }
 
 #[test(tokio::test)]
-async fn propagation_factor() {
+async fn replication_factor() {
     let CoreTestSwarm {
         swarm: mut core_swarm_1,
         incoming_message_receiver: mut core_swarm_1_incoming_message_receiver,
@@ -127,7 +127,7 @@ async fn propagation_factor() {
     spawn(async move { core_swarm_3.run().await });
 
     // We pass all 3 swarms to the edge swarm, and we test that only 2 of them
-    // (propagation factor) are picked.
+    // (replication factor) are picked.
     let membership_for_edge_swarm = Membership::new(
         &[
             swarm_1_membership_entry,
@@ -141,7 +141,7 @@ async fn propagation_factor() {
         command_sender: edge_swarm_command_sender,
     } = EdgeSwarmBuilder::default()
         .with_membership(membership_for_edge_swarm)
-        .with_propagation_factor(2)
+        .with_replication_factor(2)
         .build();
     spawn(async move { edge_swarm.run().await });
 
