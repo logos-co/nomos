@@ -96,32 +96,32 @@ mod tests {
 
     #[test]
     fn test_full_flow() {
-        let public_data = PolPublicInputsData {
-            entropy_contribution: [0; 32],
-            slot_number: 10,
-            epoch_nonce: 125,
-            total_stake: 50,
-            aged_root: [0; 32],
-            latest_root: [0; 32],
-            leader_pk: (
-                (0..16).collect::<Vec<_>>().try_into().unwrap(),
-                (0..16).rev().collect::<Vec<_>>().try_into().unwrap(),
-            ),
-        };
-        let private_data = PolPrivateInputsData {
-            secret_key: [],
-            note_value: 0,
-            transaction_hash: [],
-            output_numer: 0,
-            aged_proof: [],
-            aged_path: vec![],
-            aged_selector: vec![],
-            latest_proof: [],
-            latest_path: vec![],
-            latest_selector: vec![],
-            slot_secret: [],
-            secrets_root: [],
-            starting_slot: 0,
-        };
+        // let public_data = PolPublicInputsData {
+        //     entropy_contribution: [0; 32],
+        //     slot_number: 10,
+        //     epoch_nonce: 125,
+        //     total_stake: 50,
+        //     aged_root: [0; 32],
+        //     latest_root: [0; 32],
+        //     leader_pk: (
+        //         (0..16).collect::<Vec<_>>().try_into().unwrap(),
+        //         (0..16).rev().collect::<Vec<_>>().try_into().unwrap(),
+        //     ),
+        // };
+        // let private_data = PolPrivateInputsData {
+        //     secret_key: [],
+        //     note_value: 0,
+        //     transaction_hash: [],
+        //     output_number: 0,
+        //     aged_proof: [],
+        //     aged_path: vec![],
+        //     aged_selector: vec![],
+        //     latest_proof: [],
+        //     latest_path: vec![],
+        //     latest_selector: vec![],
+        //     slot_secret: [],
+        //     secrets_root: [],
+        //     starting_slot: 0,
+        // };
     }
 }

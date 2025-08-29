@@ -23,13 +23,13 @@ pub struct PolPublicInputs {
 }
 
 pub struct PolPublicInputsData {
-    pub entropy_contribution: [u8; 32],
+    pub entropy_contribution: Fr,
     pub slot_number: u64,
     pub epoch_nonce: u64,
     pub total_stake: u64,
-    pub aged_root: [u8; 32],
-    pub latest_root: [u8; 32],
-    pub leader_pk: ([u8; 16], [u8; 16]),
+    pub aged_root: Fr,
+    pub latest_root: Fr,
+    pub leader_pk: (Fr, Fr),
 }
 
 #[derive(Deserialize, Serialize)]
@@ -180,13 +180,11 @@ impl TryFrom<PolPublicInputsData> for PolPublicInputs {
             lottery_1: Groth16Input::new(Fr::from(BigUint::from_bytes_le(
                 lottery_1.to_little_endian().as_ref(),
             ))),
-            aged_root: Groth16Input::new(Fr::from(BigUint::from_bytes_le(aged_root.as_ref()))),
-            latest_root: Groth16Input::new(Fr::from(BigUint::from_bytes_le(latest_root.as_ref()))),
-            leader_pk1: Groth16Input::new(Fr::from(BigUint::from_bytes_le(pk1.as_ref()))),
-            leader_pk2: Groth16Input::new(Fr::from(BigUint::from_bytes_le(pk2.as_ref()))),
-            entropy_contribution: Groth16Input::new(Fr::from(BigUint::from_bytes_le(
-                entropy_contribution.as_ref(),
-            ))),
+            aged_root: aged_root.into(),
+            latest_root: latest_root.into(),
+            leader_pk1: pk1.into(),
+            leader_pk2: pk2.into(),
+            entropy_contribution: entropy_contribution.into(),
         })
     }
 }
