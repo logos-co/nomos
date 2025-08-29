@@ -56,7 +56,7 @@ where
         Ok(Box::pin(
             self.subscribe_stream(ServiceType::BlendNetwork)
                 .await?
-                .map(|(_block_number, providers_map)| {
+                .map(|(_, providers_map)| {
                     providers_map
                         .iter()
                         .filter_map(|(provider_id, locators)| {
