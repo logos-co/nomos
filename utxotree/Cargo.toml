@@ -7,7 +7,7 @@ version           = "0.1.0"
 [dependencies]
 digest    = { version = "0.10", default-features = false }
 rpds      = { version = "1", default-features = false, features = ["serde"] }
-serde     = { version = "1.0", default-features = false, features = ["derive", "rc", "std"], optional = true }
+serde     = { version = "1.0", default-features = false, optional = true, features = ["alloc", "derive", "rc"] }
 thiserror = "1.0"
 
 [dev-dependencies]
@@ -17,3 +17,6 @@ quickcheck_macros = "1.0"
 
 [lints]
 workspace = true
+
+[features]
+serde = ["dep:serde"]

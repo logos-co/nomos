@@ -11,24 +11,24 @@ workspace = true
 async-trait              = "0.1"
 futures                  = { version = "0.3", default-features = false }
 kzgrs-backend            = { workspace = true }
-libp2p                   = { workspace = true, features = ["ed25519"] }
+libp2p                   = { workspace = true }
 nomos-core               = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-da-network-service = { workspace = true }
 nomos-da-sampling        = { workspace = true }
-nomos-mempool            = { workspace = true, features = ["libp2p", "mock"] }
+nomos-mempool            = { workspace = true }
 nomos-storage            = { workspace = true }
 nomos-tracing            = { workspace = true }
-nomos-utils              = { workspace = true, features = ["serde", "time"] }
+nomos-utils              = { workspace = true }
 overwatch                = { workspace = true }
-serde                    = { version = "1.0", default-features = false, features = ["derive"] }
-serde_with               = { workspace = true, features = ["std"] }
+serde                    = { version = "1.0", default-features = false }
+serde_with               = { workspace = true }
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
 thiserror                = "1.0"
-tokio                    = { version = "1", default-features = false, features = ["macros", "sync"] }
+tokio                    = { version = "1", default-features = false }
 tokio-stream             = { version = "0.1.15", default-features = false }
-tracing                  = { workspace = true, features = ["attributes"] }
+tracing                  = { workspace = true }
 
 [features]
 libp2p          = []

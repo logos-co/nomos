@@ -18,13 +18,13 @@ bytes                    = { workspace = true }
 chain-service            = { workspace = true, features = ["libp2p"] }
 futures                  = { version = "0.3.31", default-features = false }
 kzgrs-backend            = { workspace = true }
-nomos-blend-service      = { workspace = true, features = ["libp2p"] }
+nomos-blend-service      = { workspace = true }
 nomos-core               = { workspace = true }
 nomos-da-dispersal       = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-da-network-service = { workspace = true }
-nomos-da-sampling        = { workspace = true, features = ["rocksdb-backend"] }
-nomos-da-verifier        = { workspace = true, features = ["libp2p", "rocksdb-backend"] }
+nomos-da-sampling        = { workspace = true }
+nomos-da-verifier        = { workspace = true, features = ["rocksdb-backend"] }
 nomos-libp2p             = { workspace = true }
 nomos-membership         = { workspace = true }
 nomos-mempool            = { workspace = true, features = ["libp2p", "mock", "openapi"] }
@@ -32,24 +32,24 @@ nomos-network            = { workspace = true }
 nomos-storage            = { workspace = true, features = ["rocksdb-backend"] }
 nomos-time               = { workspace = true }
 overwatch                = { workspace = true }
-serde                    = { version = "1", default-features = false, features = ["derive"] }
-serde_json               = { version = "1.0.140", default-features = false, features = ["std"] }
+serde                    = { version = "1", default-features = false }
+serde_json               = { version = "1.0.140", default-features = false }
 subnetworks-assignations = { workspace = true }
 tokio                    = { version = "1", default-features = false }
 tracing                  = { version = "0.1", default-features = false }
 
 # axum related dependencies
 axum  = { version = "0.6", optional = true, default-features = false }
-hyper = { version = "0.14", features = ["full"], optional = true, default-features = false }
+hyper = { version = "0.14", optional = true, default-features = false }
 
 # openapi related dependencies
 utoipa            = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
 
 [dev-dependencies]
-axum              = "0.6"
-hyper             = { version = "0.14", features = ["full"] }
-reqwest           = { workspace = true, default-features = false, features = ["blocking", "json"] }
-serde             = { version = "1", features = ["derive"] }
+axum              = { version = "0.6", default-features = false, features = ["tokio"] }
+hyper             = { version = "0.14", default-features = false }
+reqwest           = { workspace = true, default-features = false }
+serde             = { version = "1", default-features = false }
 tracing           = { workspace = true }
 utoipa-swagger-ui = { workspace = true, default-features = false, features = ["axum"] }

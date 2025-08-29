@@ -13,12 +13,12 @@ futures        = { version = "0.3", default-features = false }
 nomos-core     = { workspace = true }
 nomos-sdp      = { workspace = true }
 overwatch      = { workspace = true }
-serde          = { version = "1.0", default-features = false, features = ["derive"] }
+serde          = { version = "1.0", default-features = false }
 services-utils = { workspace = true }
 thiserror      = "1"
-tokio          = { version = "1", default-features = false, features = ["macros", "sync"] }
+tokio          = { version = "1", default-features = false }
 tokio-stream   = { version = "0.1", default-features = false }
-tracing        = { workspace = true, features = ["attributes"] }
+tracing        = { workspace = true }
 
 [dev-dependencies]
 multiaddr = { version = "0.18", default-features = false }

@@ -16,12 +16,12 @@ multiaddr           = { version = "0.18", default-features = false }
 nomos-blend-message = { workspace = true }
 nomos-core          = { workspace = true }
 rand                = { workspace = true, features = ["alloc"] }
-serde               = { version = "1.0", default-features = false, features = ["derive"] }
-tokio               = { version = "1", default-features = false, features = ["macros", "sync", "time"] }
-tokio-stream        = { version = "0.1", default-features = false, features = ["sync"] }
+serde               = { version = "1.0", default-features = false }
+tokio               = { version = "1", default-features = false }
+tokio-stream        = { version = "0.1", default-features = false }
 tracing             = { workspace = true }
 
 [dev-dependencies]
-nomos-utils = { workspace = true, features = ["rng"] }
+nomos-utils = { workspace = true }
 rand        = { workspace = true, features = ["getrandom"] }
-tokio       = { version = "1", default-features = false, features = ["rt-multi-thread", "time"] }
+tokio       = { version = "1", default-features = false }

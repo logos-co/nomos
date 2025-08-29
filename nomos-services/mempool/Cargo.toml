@@ -18,18 +18,18 @@ workspace = true
 async-trait           = "0.1"
 futures               = { version = "0.3", default-features = false }
 kzgrs-backend         = { workspace = true }
-linked-hash-map       = { version = "0.5.6", optional = true, default-features = false, features = ["serde_impl"] }
+linked-hash-map       = { version = "0.5.6", optional = true, default-features = false }
 nomos-core            = { workspace = true }
 nomos-da-network-core = { workspace = true }
-nomos-da-sampling     = { workspace = true, features = ["rocksdb-backend"] }
+nomos-da-sampling     = { workspace = true }
 nomos-network         = { workspace = true }
 overwatch             = { workspace = true }
 rand                  = { workspace = true }
-serde                 = { version = "1.0", default-features = false, features = ["derive"] }
-serde_json            = { version = "1", default-features = false, features = ["std"], optional = true }
+serde                 = { version = "1.0", default-features = false }
+serde_json            = { version = "1", default-features = false, optional = true }
 services-utils        = { workspace = true }
 thiserror             = "1.0"
-tokio                 = { version = "1", default-features = false, features = ["macros", "sync"] }
+tokio                 = { version = "1", default-features = false }
 tokio-stream          = { version = "0.1", default-features = false }
 tracing               = { workspace = true }
 utoipa                = { workspace = true, optional = true }
@@ -39,7 +39,7 @@ nomos-mempool         = { path = ".", features = ["mock"] }
 nomos-tracing-service = { workspace = true }
 nomos-utils           = { workspace = true }
 overwatch-derive      = { workspace = true }
-tokio                 = { version = "1", default-features = false, features = ["full"] }
+tokio                 = { version = "1", default-features = false }
 
 [features]
 default         = []

@@ -9,25 +9,25 @@ workspace = true
 
 [dependencies]
 async-trait      = "0.1"
-chrono           = { version = "0.4", default-features = false, optional = true, features = ["now"] }
 cryptarchia-sync = { workspace = true }
 futures          = { version = "0.3", default-features = false }
 nomos-core       = { workspace = true }
 nomos-libp2p     = { workspace = true, optional = true }
 overwatch        = { workspace = true }
-rand             = { workspace = true, optional = true }
-serde            = { version = "1.0", default-features = false, features = ["derive"] }
-tokio            = { version = "1", default-features = false, features = ["macros", "sync"] }
+rand             = { workspace = true, optional = true, features = ["std"] }
+serde            = { version = "1.0", default-features = false }
+tokio            = { version = "1", default-features = false }
 tokio-stream     = { version = "0.1", default-features = false }
 tracing          = { workspace = true }
 utoipa           = { workspace = true, optional = true }
 
 [dev-dependencies]
-tokio              = { version = "1", default-features = false, features = ["full"] }
-tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt"] }
+chrono             = { version = "0.4", default-features = false, features = ["now"] }
+tokio              = { version = "1", default-features = false }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "std"] }
 
 [features]
 default = []
 libp2p  = ["cryptarchia-sync/libp2p", "dep:nomos-libp2p", "dep:rand"]
-mock    = ["dep:chrono", "dep:rand"]
+mock    = ["dep:rand"]
 openapi = ["dep:utoipa"]

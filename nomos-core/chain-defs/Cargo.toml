@@ -16,21 +16,20 @@ blake2                 = { version = "0.10", default-features = false }
 bytes                  = { workspace = true }
 const-hex              = { version = "1", default-features = false, features = ["alloc"] }
 cryptarchia-engine     = { workspace = true, features = ["serde"] }
-ed25519                = { version = "2.2", default-features = false, features = ["serde"] }
+ed25519                = { version = "2.2", default-features = false }
 ed25519-dalek          = { version = "2.2.0", default-features = false, features = ["serde"] }
 hex                    = { version = "0.4", default-features = false }
 multiaddr              = { version = "0.18", default-features = false }
 nomos_proof_statements = { workspace = true }
 nomos_risc0_proofs     = { path = "../risc0_proofs" }
 risc0-zkvm             = { workspace = true, features = ["client"] }
-serde                  = { version = "1.0", default-features = false, features = ["derive"] }
+serde                  = { version = "1.0", default-features = false }
 thiserror              = "1.0"
 tracing                = { workspace = true }
 
 [dev-dependencies]
 rand       = { workspace = true }
-risc0-zkvm = { workspace = true }
-serde_json = { version = "1.0", default-features = false, features = ["std"] }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 
 [features]
 default = []

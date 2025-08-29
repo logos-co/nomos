@@ -16,8 +16,8 @@ hex                  = { version = "0.4.3", default-features = false }
 kzgrs-backend        = { workspace = true }
 nomos-core           = { workspace = true }
 nomos-tracing        = { workspace = true }
-reqwest              = { workspace = true, features = ["json"] }
-serde_json           = { version = "1", default-features = false, features = ["std"] }
-tokio                = { version = "1", default-features = false, features = ["sync"] }
+reqwest              = { workspace = true }
+serde_json           = { version = "1", default-features = false }
+tokio                = { version = "1", default-features = false }
 tracing              = { workspace = true }
 tracing-subscriber   = { version = "0.3", default-features = false }

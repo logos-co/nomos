@@ -9,13 +9,13 @@ workspace = true
 
 [dependencies]
 blake2          = { workspace = true }
-ed25519-dalek   = { version = "2", default-features = false, features = ["rand_core", "serde"] }
+ed25519-dalek   = { version = "2", default-features = false, features = ["rand_core"] }
 itertools       = { version = "0.14", default-features = false }
 nomos-core      = { workspace = true }
 nomos-utils     = { workspace = true, features = ["rng"] }
-serde           = { version = "1", default-features = false, features = ["derive"] }
+serde           = { version = "1", default-features = false }
 serde-big-array = "0.5"
-serde_with      = { version = "3", default-features = false, features = ["macros", "std"] }
+serde_with      = { version = "3", default-features = false, features = ["alloc"] }
 thiserror       = "1"
 x25519-dalek    = { version = "2", default-features = false, features = ["serde", "static_secrets"] }
 
