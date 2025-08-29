@@ -16,6 +16,7 @@ use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBac
 use nomos_http_api_common::{
     paths::{DA_GET_MEMBERSHIP, UPDATE_MEMBERSHIP},
     settings::AxumBackendSettings,
+    utils::create_rate_limit_layer,
 };
 use nomos_membership::MembershipService as MembershipServiceTrait;
 pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
@@ -129,6 +130,7 @@ where
             .layer(ConcurrencyLimitLayer::new(
                 self.settings.max_concurrent_requests,
             ))
+            .layer(create_rate_limit_layer(&self.settings))
             .layer(TraceLayer::new_for_http())
             .layer(
                 builder
