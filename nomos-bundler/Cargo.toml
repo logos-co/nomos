@@ -11,7 +11,7 @@ workspace = true
 clap          = { version = "4.5.27", default-features = false }
 env_logger    = { version = "0.11.6", default-features = false }
 log           = "0.4.22"
-serde_json    = { version = "1.0.135", default-features = false, features = ["alloc"] }
+serde_json    = { version = "1.0.135", default-features = false }
 tauri-bundler = { version = "2.4.0", default-features = false }
 tauri-utils   = "2.1.1"
 
