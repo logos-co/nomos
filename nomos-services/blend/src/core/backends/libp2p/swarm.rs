@@ -22,7 +22,7 @@ use nomos_blend_network::{
     },
     EncapsulatedMessageWithValidatedPublicHeader,
 };
-use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage};
+use nomos_blend_scheduling::{membership::Membership, session::SessionEvent, EncapsulatedMessage};
 use nomos_libp2p::{DialOpts, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
@@ -483,7 +483,7 @@ impl<SessionStream, Rng, ObservationWindowProvider>
     BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
 where
     Rng: RngCore,
-    SessionStream: Stream<Item = Membership<PeerId>> + Unpin,
+    SessionStream: Stream<Item = SessionEvent<Membership<PeerId>>> + Unpin,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {
@@ -514,9 +514,17 @@ where
                 self.handle_event(event);
                 predicate_matched
             }
-            Some(new_session_info) = self.session_stream.next() => {
-                self.latest_session_info = new_session_info;
-                // TODO: Perform the session transition logic
+            Some(event) = self.session_stream.next() => {
+                match event {
+                    SessionEvent::NewSession(membership) => {
+                        self.latest_session_info = membership.clone();
+                        self.swarm.behaviour_mut().blend.with_core_mut().start_new_session(membership.clone());
+                        self.swarm.behaviour_mut().blend.with_edge_mut().start_new_session(membership);
+                    },
+                    SessionEvent::TransitionPeriodExpired => {
+                        self.swarm.behaviour_mut().blend.with_core_mut().finish_session_transition();
+                    },
+                }
                 false
             }
         }
