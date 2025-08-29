@@ -169,8 +169,8 @@ mod test {
     #[test]
     fn test_utxo_by_index() {
         let pk0 = PublicKey::from(Fr::from(BigUint::from(0u8)));
-        let pk1 = PublicKey::from(Fr::from(BigUint::from(0u8)));
-        let pk2 = PublicKey::from(Fr::from(BigUint::from(0u8)));
+        let pk1 = PublicKey::from(Fr::from(BigUint::from(1u8)));
+        let pk2 = PublicKey::from(Fr::from(BigUint::from(2u8)));
         let tx = Tx {
             inputs: vec![NoteId(BigUint::from(0u8).into())],
             outputs: vec![
