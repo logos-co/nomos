@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use futures::{AsyncWriteExt as _, Stream, StreamExt as _};
+use futures::{AsyncWriteExt as _, StreamExt as _};
 use libp2p::{
     swarm::{dial_opts::PeerCondition, ConnectionId},
     Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder,
@@ -49,15 +49,14 @@ impl DialAttempt {
     }
 }
 
-pub(super) struct BlendSwarm<SessionStream, Rng>
+pub(super) struct BlendSwarm<Rng>
 where
     Rng: RngCore + 'static,
 {
     swarm: Swarm<libp2p_stream::Behaviour>,
     stream_control: libp2p_stream::Control,
     command_receiver: mpsc::Receiver<Command>,
-    session_stream: SessionStream,
-    current_membership: Option<Membership<PeerId>>,
+    membership: Membership<PeerId>,
     rng: Rng,
     max_dial_attempts_per_connection: NonZeroU64,
     pending_dials: HashMap<(PeerId, ConnectionId), DialAttempt>,
@@ -69,14 +68,13 @@ pub enum Command {
     SendMessage(EncapsulatedMessage),
 }
 
-impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng>
+impl<Rng> BlendSwarm<Rng>
 where
     Rng: RngCore + 'static,
 {
     pub(super) fn new(
         settings: &Libp2pBlendBackendSettings,
-        session_stream: SessionStream,
-        current_membership: Option<Membership<PeerId>>,
+        membership: Membership<PeerId>,
         rng: Rng,
         command_receiver: mpsc::Receiver<Command>,
         protocol_name: StreamProtocol,
@@ -98,8 +96,7 @@ where
             swarm,
             stream_control,
             command_receiver,
-            session_stream,
-            current_membership,
+            membership,
             rng,
             pending_dials: HashMap::new(),
             max_dial_attempts_per_connection: settings.max_dial_attempts_per_peer_per_message,
@@ -109,11 +106,10 @@ where
 
     #[cfg(test)]
     pub fn new_test(
-        membership: Option<Membership<PeerId>>,
+        membership: Membership<PeerId>,
         command_receiver: mpsc::Receiver<Command>,
         max_dial_attempts_per_connection: NonZeroU64,
         rng: Rng,
-        session_stream: SessionStream,
         protocol_name: StreamProtocol,
     ) -> Self {
         use crate::test_utils::memory_test_swarm;
@@ -123,11 +119,10 @@ where
 
         Self {
             command_receiver,
-            current_membership: membership,
+            membership,
             max_dial_attempts_per_connection,
             pending_dials: HashMap::new(),
             rng,
-            session_stream,
             stream_control: inner_swarm.behaviour().new_control(),
             swarm: inner_swarm,
             protocol_name,
@@ -215,10 +210,7 @@ where
     }
 
     fn choose_peer_except(&mut self, except: Option<PeerId>) -> Option<Node<PeerId>> {
-        let Some(membership) = &self.current_membership else {
-            return None;
-        };
-        membership
+        self.membership
             .filter_and_choose_remote_nodes(&mut self.rng, 1, &except.into_iter().collect())
             .next()
             .cloned()
@@ -347,12 +339,6 @@ where
         }
     }
 
-    // TODO: Implement the actual session transition.
-    //       https://github.com/logos-co/nomos/issues/1462
-    fn transition_session(&mut self, membership: Membership<PeerId>) {
-        self.current_membership = Some(membership);
-    }
-
     #[cfg(test)]
     pub fn send_message(&mut self, msg: EncapsulatedMessage) {
         self.dial_and_schedule_message_except(msg, None);
@@ -377,10 +363,9 @@ fn dial_opts(peer_id: PeerId, address: Multiaddr) -> DialOpts {
         .build()
 }
 
-impl<SessionStream, Rng> BlendSwarm<SessionStream, Rng>
+impl<Rng> BlendSwarm<Rng>
 where
     Rng: RngCore + 'static,
-    SessionStream: Stream<Item = Membership<PeerId>> + Unpin,
 {
     pub(super) async fn run(mut self) {
         loop {
@@ -404,10 +389,6 @@ where
             }
             Some(command) = self.command_receiver.recv() => {
                 self.handle_command(command);
-                false
-            }
-            Some(new_session) = self.session_stream.next() => {
-                self.transition_session(new_session);
                 false
             }
         }

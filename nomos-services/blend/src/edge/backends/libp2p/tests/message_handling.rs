@@ -57,9 +57,7 @@ async fn edge_message_propagation() {
     let EdgeTestSwarm {
         swarm: edge_swarm,
         command_sender: edge_swarm_command_sender,
-    } = EdgeSwarmBuilder::default()
-        .with_membership(membership_for_edge_swarm)
-        .build();
+    } = EdgeSwarmBuilder::with_membership(membership_for_edge_swarm).build();
     spawn(async move { edge_swarm.run().await });
 
     // Send message
