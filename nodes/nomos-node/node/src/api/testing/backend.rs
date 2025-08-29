@@ -168,6 +168,7 @@ where
             .layer(ConcurrencyLimitLayer::new(
                 self.settings.max_concurrent_requests,
             ))
+            .layer(create_rate_limit_layer(&self.settings))
             .layer(TraceLayer::new_for_http())
             .layer(
                 builder

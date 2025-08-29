@@ -18,6 +18,13 @@ pub struct AxumBackendSettings {
     /// Maximum number of concurrent requests (default: 500)
     #[serde(default = "default_max_concurrent_requests")]
     pub max_concurrent_requests: usize,
+    /// Rate limit per IP - requests per second (default: 50)
+    #[serde(default = "default_rate_limit_per_second")]
+    pub rate_limit_per_second: u64,
+    /// Rate limit burst size - maximum requests allowed in a short burst before
+    /// rate limiting kicks in (default: 150)
+    #[serde(default = "default_rate_limit_burst")]
+    pub rate_limit_burst: u32,
 }
 
 impl Default for AxumBackendSettings {
@@ -28,6 +35,8 @@ impl Default for AxumBackendSettings {
             timeout: default_timeout(),
             max_body_size: default_max_body_size(),
             max_concurrent_requests: default_max_concurrent_requests(),
+            rate_limit_per_second: default_rate_limit_per_second(),
+            rate_limit_burst: default_rate_limit_burst(),
         }
     }
 }
@@ -37,9 +46,17 @@ const fn default_timeout() -> Duration {
 }
 
 const fn default_max_body_size() -> usize {
-    10 * 1024 * 1024 // 10MB
+    10 * 1024 * 1024
 }
 
 const fn default_max_concurrent_requests() -> usize {
     500
+}
+
+const fn default_rate_limit_per_second() -> u64 {
+    50
+}
+
+const fn default_rate_limit_burst() -> u32 {
+    150
 }

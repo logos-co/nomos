@@ -33,8 +33,8 @@ use nomos_da_network_service::{
 };
 use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
 use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
-use nomos_http_api_common::paths;
 pub use nomos_http_api_common::settings::AxumBackendSettings;
+use nomos_http_api_common::{paths, utils::create_rate_limit_layer};
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
     backend::mockpool::MockPool, tx::service::openapi::Status, DaMempoolService, MempoolMetrics,
@@ -623,6 +623,7 @@ where
             .layer(ConcurrencyLimitLayer::new(
                 self.settings.max_concurrent_requests,
             ))
+            .layer(create_rate_limit_layer(&self.settings))
             .layer(TraceLayer::new_for_http())
             .layer(
                 builder
