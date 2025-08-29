@@ -1,7 +1,7 @@
 [toolchain]
 # Keep this version in sync also in the following places:
 # * Dockerfile
-# * shell.nix
+# * flake.nix
 # * ci/Dockerfile
 # * testnet/Dockerfile
 # * testnet/Dockerfile.debug

@@ -31,9 +31,9 @@ pipeline {
         stages {
           stage('Check') {
             steps { script {
-              nix.shell("cargo check --all --no-default-features --features ${FEATURES}")
-              nix.shell("cargo fmt -- --check")
-              nix.shell("cargo clippy --all --no-default-features --features ${FEATURES} -- --deny warnings")
+              nix.develop("cargo check --all --no-default-features --features ${FEATURES}")
+              nix.develop("cargo fmt -- --check")
+              nix.develop("cargo clippy --all --no-default-features --features ${FEATURES} -- --deny warnings")
             } }
           }
 
@@ -44,13 +44,13 @@ pipeline {
             stages {
               stage('Build') {
                 steps { script {
-                  nix.shell("cargo build --all --no-default-features --features ${FEATURES}")
+                  nix.develop("cargo build --all --no-default-features --features ${FEATURES}")
                 } }
               }
 
               stage('Test') {
                 steps { script {
-                  nix.shell("cargo test --all --no-default-features --features ${FEATURES}")
+                  nix.develop("cargo test --all --no-default-features --features ${FEATURES}")
                 } }
               }
             }
