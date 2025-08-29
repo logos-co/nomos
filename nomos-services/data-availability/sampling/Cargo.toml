@@ -10,8 +10,8 @@ workspace = true
 [dependencies]
 async-trait              = "0.1"
 bytes                    = { workspace = true }
-futures                  = { version = "0.3", default-features = false }
-hex                      = { version = "0.4.3", default-features = false }
+futures                  = { default-features = false, version = "0.3" }
+hex                      = { default-features = false, version = "0.4.3" }
 kzgrs-backend            = { workspace = true }
 libp2p-identity          = { version = "0.2" }
 nomos-core               = { workspace = true }
@@ -21,11 +21,11 @@ nomos-storage            = { workspace = true }
 nomos-tracing            = { workspace = true }
 overwatch                = { workspace = true }
 rand                     = { workspace = true }
-serde                    = { version = "1.0", default-features = false }
+serde                    = { default-features = false, version = "1.0" }
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
-tokio                    = { version = "1", default-features = false }
-tokio-stream             = { version = "0.1.15", default-features = false }
+tokio                    = { default-features = false, version = "1" }
+tokio-stream             = { default-features = false, version = "0.1.15" }
 tracing                  = { workspace = true }
 
 [dev-dependencies]

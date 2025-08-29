@@ -20,11 +20,11 @@ workspace = true
 
 [dependencies]
 async-trait              = "0.1"
-axum                     = { version = "0.6", default-features = false }
-clap                     = { version = "4.5.13", default-features = false, features = ["derive"] }
-color-eyre               = { version = "0.6.0", default-features = false }
-futures                  = { version = "0.3", default-features = false }
-hyper                    = { version = "0.14", default-features = false }
+axum                     = { default-features = false, version = "0.6" }
+clap                     = { default-features = false, features = ["derive"], version = "4.5.13" }
+color-eyre               = { default-features = false, version = "0.6.0" }
+futures                  = { default-features = false, version = "0.3" }
+hyper                    = { default-features = false, version = "0.14" }
 kzgrs-backend            = { workspace = true }
 nomos-api                = { workspace = true }
 nomos-blend-service      = { workspace = true }
@@ -43,12 +43,12 @@ nomos-node               = { workspace = true }
 nomos-storage            = { workspace = true }
 nomos-time               = { workspace = true }
 overwatch                = { workspace = true }
-serde                    = { version = "1", default-features = false }
+serde                    = { default-features = false, version = "1" }
 serde_yaml               = "0.9"
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
 tokio                    = "1"
-tower-http               = { version = "0.4", default-features = false }
+tower-http               = { default-features = false, version = "0.4" }
 tracing                  = { workspace = true }
 utoipa                   = { workspace = true }
 utoipa-swagger-ui        = { workspace = true }

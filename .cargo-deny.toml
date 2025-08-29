@@ -28,7 +28,6 @@ allow = [
   "BSL-1.0",
   "BlueOak-1.0.0",
   "CC0-1.0",
-  "CDLA-Permissive-2.0",
   "ISC",
   "MIT",
   "MPL-2.0",
@@ -41,7 +40,7 @@ unused-allowed-license = "deny"
 
 [[licenses.clarify]]
 expression    = "MIT AND ISC"
-license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+license-files = [{ hash = 0xbd0eed23, path = "LICENSE" }]
 name          = "ring"
 
 [sources]

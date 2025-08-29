@@ -11,19 +11,19 @@ workspace = true
 async-trait        = "0.1"
 bytes              = { workspace = true }
 cryptarchia-engine = { workspace = true }
-libp2p-identity    = { version = "0.2", default-features = false, features = ["serde"] }
-multiaddr          = { version = "0.18", default-features = false }
+libp2p-identity    = { default-features = false, features = ["serde"], version = "0.2" }
+multiaddr          = { default-features = false, version = "0.18" }
 nomos-core         = { workspace = true }
 overwatch          = { workspace = true }
-rocksdb            = { version = "0.24", optional = true, default-features = false, features = ["bindgen-runtime"] }
-serde              = { version = "1.0", default-features = false }
+rocksdb            = { default-features = false, features = ["bindgen-runtime"], optional = true, version = "0.24" }
+serde              = { default-features = false, version = "1.0" }
 thiserror          = "1.0"
-tokio              = { version = "1", default-features = false }
+tokio              = { default-features = false, version = "1" }
 tracing            = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-tokio    = { version = "1", default-features = false }
+tokio    = { default-features = false, version = "1" }
 
 [features]
 default         = []

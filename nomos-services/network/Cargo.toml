@@ -10,21 +10,21 @@ workspace = true
 [dependencies]
 async-trait      = "0.1"
 cryptarchia-sync = { workspace = true }
-futures          = { version = "0.3", default-features = false }
+futures          = { default-features = false, version = "0.3" }
 nomos-core       = { workspace = true }
-nomos-libp2p     = { workspace = true, optional = true }
+nomos-libp2p     = { optional = true, workspace = true }
 overwatch        = { workspace = true }
-rand             = { workspace = true, optional = true, features = ["std"] }
-serde            = { version = "1.0", default-features = false }
-tokio            = { version = "1", default-features = false }
-tokio-stream     = { version = "0.1", default-features = false }
+rand             = { features = ["std"], optional = true, workspace = true }
+serde            = { default-features = false, version = "1.0" }
+tokio            = { default-features = false, version = "1" }
+tokio-stream     = { default-features = false, version = "0.1" }
 tracing          = { workspace = true }
-utoipa           = { workspace = true, optional = true }
+utoipa           = { optional = true, workspace = true }
 
 [dev-dependencies]
-chrono             = { version = "0.4", default-features = false, features = ["now"] }
-tokio              = { version = "1", default-features = false }
-tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "std"] }
+chrono             = { default-features = false, features = ["now"], version = "0.4" }
+tokio              = { default-features = false, version = "1" }
+tracing-subscriber = { default-features = false, features = ["env-filter", "fmt", "std"], version = "0.3" }
 
 [features]
 default = []

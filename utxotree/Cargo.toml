@@ -5,14 +5,14 @@ name              = "utxotree"
 version           = "0.1.0"
 
 [dependencies]
-digest    = { version = "0.10", default-features = false }
-rpds      = { version = "1", default-features = false, features = ["serde"] }
-serde     = { version = "1.0", default-features = false, optional = true, features = ["alloc", "derive", "rc"] }
+digest    = { default-features = false, version = "0.10" }
+rpds      = { default-features = false, features = ["serde"], version = "1" }
+serde     = { default-features = false, features = ["alloc", "derive", "rc"], optional = true, version = "1.0" }
 thiserror = "1.0"
 
 [dev-dependencies]
-blake2            = { version = "0.10", default-features = false }
-quickcheck        = { version = "1.0", default-features = false }
+blake2            = { default-features = false, version = "0.10" }
+quickcheck        = { default-features = false, version = "1.0" }
 quickcheck_macros = "1.0"
 
 [lints]

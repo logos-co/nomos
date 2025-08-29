@@ -7,20 +7,20 @@ version           = "0.1.0"
 [dependencies]
 bytes              = { workspace = true }
 cryptarchia-engine = { workspace = true }
-futures            = { version = "0.3", default-features = false }
-libp2p             = { workspace = true, optional = true }
-libp2p-stream      = { workspace = true, optional = true }
+futures            = { default-features = false, version = "0.3" }
+libp2p             = { optional = true, workspace = true }
+libp2p-stream      = { optional = true, workspace = true }
 nomos-core         = { workspace = true }
 rand               = { workspace = true }
-serde              = { version = "1", default-features = false }
+serde              = { default-features = false, version = "1" }
 serde_with         = { workspace = true }
 thiserror          = "1"
-tokio              = { version = "1", default-features = false }
-tracing            = { version = "0.1", default-features = false }
+tokio              = { default-features = false, version = "1" }
+tracing            = { default-features = false, version = "0.1" }
 
 [dev-dependencies]
-libp2p            = { workspace = true, features = ["dns", "quic", "tokio"] }
-libp2p-swarm-test = { version = "0.5", default-features = false }
+libp2p            = { features = ["dns", "quic", "tokio"], workspace = true }
+libp2p-swarm-test = { default-features = false, version = "0.5" }
 
 [features]
 default = []

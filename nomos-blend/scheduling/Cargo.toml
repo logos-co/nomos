@@ -10,18 +10,18 @@ workspace = true
 [dependencies]
 derivative          = "2"
 fork_stream         = { workspace = true }
-futures             = { version = "0.3", default-features = false }
-hex                 = { version = "0.4", default-features = false }
-multiaddr           = { version = "0.18", default-features = false }
+futures             = { default-features = false, version = "0.3" }
+hex                 = { default-features = false, version = "0.4" }
+multiaddr           = { default-features = false, version = "0.18" }
 nomos-blend-message = { workspace = true }
 nomos-core          = { workspace = true }
-rand                = { workspace = true, features = ["alloc"] }
-serde               = { version = "1.0", default-features = false }
-tokio               = { version = "1", default-features = false }
-tokio-stream        = { version = "0.1", default-features = false }
+rand                = { features = ["alloc"], workspace = true }
+serde               = { default-features = false, version = "1.0" }
+tokio               = { default-features = false, version = "1" }
+tokio-stream        = { default-features = false, version = "0.1" }
 tracing             = { workspace = true }
 
 [dev-dependencies]
 nomos-utils = { workspace = true }
-rand        = { workspace = true, features = ["getrandom"] }
-tokio       = { version = "1", default-features = false }
+rand        = { features = ["getrandom"], workspace = true }
+tokio       = { default-features = false, version = "1" }

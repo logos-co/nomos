@@ -9,7 +9,7 @@ workspace = true
 
 [dependencies]
 async-trait              = "0.1"
-futures                  = { version = "0.3", default-features = false }
+futures                  = { default-features = false, version = "0.3" }
 kzgrs-backend            = { workspace = true }
 libp2p                   = { workspace = true }
 nomos-core               = { workspace = true }
@@ -21,13 +21,13 @@ nomos-storage            = { workspace = true }
 nomos-tracing            = { workspace = true }
 nomos-utils              = { workspace = true }
 overwatch                = { workspace = true }
-serde                    = { version = "1.0", default-features = false }
+serde                    = { default-features = false, version = "1.0" }
 serde_with               = { workspace = true }
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
 thiserror                = "1.0"
-tokio                    = { version = "1", default-features = false }
-tokio-stream             = { version = "0.1.15", default-features = false }
+tokio                    = { default-features = false, version = "1" }
+tokio-stream             = { default-features = false, version = "0.1.15" }
 tracing                  = { workspace = true }
 
 [features]
