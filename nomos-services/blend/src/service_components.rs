@@ -1,6 +1,6 @@
 use overwatch::services::ServiceData;
 
-use crate::{edge, BlendService};
+use crate::{core, edge, BlendService};
 
 /// Exposes associated types for external modules that depend on
 /// [`BlendService`], without requiring them to specify its generic parameters.
@@ -13,7 +13,7 @@ pub trait ServiceComponents {
 impl<CoreService, EdgeService, RuntimeServiceId> ServiceComponents
     for BlendService<CoreService, EdgeService, RuntimeServiceId>
 where
-    CoreService: ServiceData,
+    CoreService: ServiceData + core::service_components::ServiceComponents<RuntimeServiceId>,
     EdgeService: ServiceData + edge::service_components::ServiceComponents,
 {
     type BroadcastSettings = EdgeService::BroadcastSettings;

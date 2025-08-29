@@ -1,5 +1,6 @@
 use std::{num::NonZeroU64, time::Duration};
 
+use nomos_blend_scheduling::membership::Node;
 use serde::{Deserialize, Serialize};
 
 #[serde_with::serde_as]
@@ -27,4 +28,11 @@ impl TimingSettings {
     pub fn intervals_per_session(&self) -> NonZeroU64 {
         NonZeroU64::try_from(self.rounds_per_session.get() / self.rounds_per_interval.get()).expect("Obtained `0` when calculating the number of intervals per session, which is not allowed.")
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct NetworkSettings<NodeId> {
+    pub minimal_network_size: NonZeroU64,
+    // TODO: Replace with SDP membership stream.
+    pub membership: Vec<Node<NodeId>>,
 }

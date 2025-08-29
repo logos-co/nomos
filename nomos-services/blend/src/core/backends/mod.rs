@@ -21,7 +21,7 @@ pub trait BlendBackend<NodeId, Rng, RuntimeServiceId> {
         session_stream: Pin<Box<dyn Stream<Item = Membership<NodeId>> + Send>>,
         rng: Rng,
     ) -> Self;
-    fn shutdown(&mut self);
+    fn shutdown(self);
     /// Publish a message to the blend network.
     async fn publish(&self, msg: EncapsulatedMessage);
     /// Listen to messages received from the blend network.

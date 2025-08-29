@@ -12,7 +12,7 @@ use hyper::header::{CONTENT_TYPE, USER_AGENT};
 use nomos_api::{
     http::{
         consensus::Cryptarchia,
-        da::{DaDispersal, DaIndexer, DaVerifier},
+        da::{DaDispersal, DaVerifier},
         storage,
     },
     Backend,
@@ -30,7 +30,7 @@ use nomos_da_network_service::{
     backends::libp2p::executor::DaNetworkExecutorBackend, membership::MembershipAdapter,
     storage::MembershipStorageAdapter,
 };
-use nomos_da_sampling::backend::DaSamplingServiceBackend;
+use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
 use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
 use nomos_http_api_common::paths;
 use nomos_libp2p::PeerId;
@@ -42,7 +42,8 @@ use nomos_node::{
     api::handlers::{
         add_blob_info, add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer,
         cl_metrics, cl_status, cryptarchia_headers, cryptarchia_info, da_get_commitments,
-        da_get_light_share, da_get_shares, get_range, libp2p_info, monitor_stats, unblock_peer,
+        da_get_light_share, da_get_shares, da_get_storage_commitments, libp2p_info, monitor_stats,
+        unblock_peer,
     },
     RocksBackend,
 };
@@ -330,20 +331,6 @@ where
             >,
         >
         + AsServiceId<
-            DaIndexer<
-                Tx,
-                DaBlobInfo,
-                DaVerifiedBlobInfo,
-                DaStorageSerializer,
-                SamplingBackend,
-                SamplingNetworkAdapter,
-                SamplingStorage,
-                TimeBackend,
-                RuntimeServiceId,
-                SIZE,
-            >,
-        >
-        + AsServiceId<
             nomos_da_network_service::NetworkService<
                 DaNetworkExecutorBackend<Membership>,
                 Membership,
@@ -389,6 +376,14 @@ where
         >
         + AsServiceId<
             DaDispersal<DispersalBackend, DispersalNetworkAdapter, Membership, RuntimeServiceId>,
+        >
+        + AsServiceId<
+            DaSamplingService<
+                SamplingBackend,
+                SamplingNetworkAdapter,
+                SamplingStorage,
+                RuntimeServiceId,
+            >,
         >,
 {
     type Error = hyper::Error;
@@ -413,7 +408,6 @@ where
             Some(Duration::from_secs(60)),
             Cryptarchia<_, _, _, _, _, _, _, SIZE>,
             DaVerifier<_, _, _, _, _, _, _>,
-            DaIndexer<_, _, _, _, _, _, _, _, _, SIZE>,
             nomos_da_network_service::NetworkService<_, _, _,_, _, _>,
             nomos_network::NetworkService<_, _>,
             DaStorageService<_, _>,
@@ -505,23 +499,6 @@ where
                 ),
             )
             .route(
-                paths::DA_GET_RANGE,
-                routing::post(
-                    get_range::<
-                        Tx,
-                        DaBlobInfo,
-                        DaVerifiedBlobInfo,
-                        DaStorageSerializer,
-                        SamplingBackend,
-                        SamplingNetworkAdapter,
-                        SamplingStorage,
-                        TimeBackend,
-                        RuntimeServiceId,
-                        SIZE,
-                    >,
-                ),
-            )
-            .route(
                 paths::DA_BLOCK_PEER,
                 routing::post(
                     block_peer::<
@@ -596,8 +573,20 @@ where
             )
             .route(
                 paths::DA_GET_SHARES_COMMITMENTS,
-                routing::get(
+                routing::post(
                     da_get_commitments::<
+                        DaVerifiedBlobInfo::BlobId,
+                        SamplingBackend,
+                        SamplingNetworkAdapter,
+                        SamplingStorage,
+                        RuntimeServiceId,
+                    >,
+                ),
+            )
+            .route(
+                paths::DA_GET_STORAGE_SHARES_COMMITMENTS,
+                routing::get(
+                    da_get_storage_commitments::<
                         DaStorageSerializer,
                         DaStorageConverter,
                         StorageAdapter,

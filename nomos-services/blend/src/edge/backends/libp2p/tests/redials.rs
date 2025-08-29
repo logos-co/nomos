@@ -117,7 +117,6 @@ async fn edge_redial_same_peer() {
 #[test(tokio::test)]
 async fn edge_redial_different_peer_after_redial_limit() {
     let random_peer_id = PeerId::random();
-    println!("Random peer ID: {random_peer_id:?}");
     let empty_multiaddr: Multiaddr = Protocol::Memory(0).into();
 
     let CoreTestSwarm {
@@ -133,7 +132,6 @@ async fn edge_redial_different_peer_after_redial_limit() {
         });
     let (core_swarm_membership_entry, _) =
         core_swarm.listen_and_return_membership_entry(None).await;
-    println!("Core swarm peer ID: {:?}", core_swarm_membership_entry.id);
 
     // We include both the core and the unreachable swarm in the membership.
     let edge_membership = Membership::new(

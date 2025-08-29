@@ -85,6 +85,64 @@ async fn listening_peer_not_supporting_blend_protocol() {
 }
 
 #[test(tokio::test)]
+async fn incoming_connection_network_too_small() {
+    let mut dialing_swarm =
+        TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
+    let mut listening_swarm = TestSwarm::new(|id| {
+        BehaviourBuilder::default()
+            // Minimum network size of 2 with one-node (local) membership.
+            .with_minimum_network_size(2)
+            .with_identity(id)
+            .build()
+    });
+
+    listening_swarm.listen().with_memory_addr_external().await;
+    dialing_swarm.connect(&mut listening_swarm).await;
+
+    loop {
+        select! {
+            _ = dialing_swarm.select_next_some() => {}
+            listening_swarm_event = listening_swarm.select_next_some() => {
+                if let SwarmEvent::ConnectionClosed { peer_id, endpoint, .. } = listening_swarm_event {
+                    assert_eq!(peer_id, *dialing_swarm.local_peer_id());
+                    assert!(endpoint.is_listener());
+                    break;
+                }
+            }
+        }
+    }
+}
+
+#[test(tokio::test)]
+async fn outgoing_connection_network_too_small() {
+    let mut listening_swarm =
+        TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
+    let mut dialing_swarm = TestSwarm::new(|id| {
+        BehaviourBuilder::default()
+            // Minimum network size of 2 with one-node (local) membership.
+            .with_minimum_network_size(2)
+            .with_identity(id)
+            .build()
+    });
+
+    listening_swarm.listen().with_memory_addr_external().await;
+    dialing_swarm.connect(&mut listening_swarm).await;
+
+    loop {
+        select! {
+            dialing_swarm_event = dialing_swarm.select_next_some() => {
+                if let SwarmEvent::ConnectionClosed { peer_id, endpoint, .. } = dialing_swarm_event {
+                    assert_eq!(peer_id, *listening_swarm.local_peer_id());
+                    assert!(endpoint.is_dialer());
+                    break;
+                }
+            }
+            _ = listening_swarm.select_next_some() => {}
+        }
+    }
+}
+
+#[test(tokio::test)]
 async fn incoming_attempt_with_max_negotiated_peering_degree() {
     let mut listening_swarm =
         TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());

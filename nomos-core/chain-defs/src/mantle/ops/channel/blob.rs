@@ -4,9 +4,7 @@ pub(crate) const DA_COLUMNS: u64 = 1024;
 pub(crate) const DA_ELEMENT_SIZE: u64 = 32;
 
 use super::{ChannelId, Ed25519PublicKey, MsgId};
-use crate::{crypto::Digest as _, mantle::gas::Gas};
-
-pub type BlobId = [u8; 32];
+use crate::{crypto::Digest as _, da::BlobId, mantle::gas::Gas};
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct BlobOp {

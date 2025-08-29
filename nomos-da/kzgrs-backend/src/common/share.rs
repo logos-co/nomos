@@ -44,6 +44,17 @@ impl DaShare {
     }
 }
 
+impl From<(DaLightShare, DaSharesCommitments)> for DaShare {
+    fn from((share, commitments): (DaLightShare, DaSharesCommitments)) -> Self {
+        Self {
+            column: share.column,
+            share_idx: share.share_idx,
+            combined_column_proof: share.combined_column_proof,
+            rows_commitments: commitments.rows_commitments,
+        }
+    }
+}
+
 impl blob::Share for DaShare {
     type BlobId = [u8; 32];
     type ShareIndex = [u8; 2];

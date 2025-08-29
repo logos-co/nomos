@@ -8,7 +8,6 @@ use nomos_core::{
     header::HeaderId,
     mantle::{SignedMantleTx, Transaction},
 };
-use nomos_da_indexer::consensus::adapters::cryptarchia::CryptarchiaConsensusAdapter;
 use nomos_da_network_service::{
     membership::adapters::service::MembershipServiceAdapter,
     storage::adapters::rocksdb::RocksAdapter,
@@ -58,40 +57,6 @@ pub type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
         RuntimeServiceId
     >,
-    RuntimeServiceId,
->;
-
-pub type DaIndexerService<SamplingAdapter, RuntimeServiceId> = nomos_da_indexer::DataIndexerService<
-    // Indexer specific.
-    DaShare,
-    nomos_da_indexer::storage::adapters::rocksdb::RocksAdapter<Wire, BlobInfo, DaStorageConverter>,
-    CryptarchiaConsensusAdapter<SignedMantleTx, BlobInfo>,
-    // Cryptarchia specific, should be the same as in `Cryptarchia` type above.
-    chain_service::network::adapters::libp2p::LibP2pAdapter<
-        SignedMantleTx,
-        BlobInfo,
-        RuntimeServiceId,
-    >,
-    BlendService<RuntimeServiceId>,
-    MockPool<HeaderId, SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
-    nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-        SignedMantleTx,
-        <SignedMantleTx as Transaction>::Hash,
-        RuntimeServiceId,
-    >,
-    MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
-    nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-        BlobInfo,
-        <BlobInfo as DispersedBlobInfo>::BlobId,
-        RuntimeServiceId,
-    >,
-    nomos_core::mantle::select::FillSize<MB16, SignedMantleTx>,
-    nomos_core::da::blob::select::FillSize<MB16, BlobInfo>,
-    RocksBackend<Wire>,
-    KzgrsSamplingBackend,
-    SamplingAdapter,
-    nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, Wire, DaStorageConverter>,
-    NtpTimeBackend,
     RuntimeServiceId,
 >;
 

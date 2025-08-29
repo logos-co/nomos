@@ -61,6 +61,7 @@ where
     ) -> Self {
         let (swarm_message_sender, swarm_message_receiver) = mpsc::channel(CHANNEL_SIZE);
         let (incoming_message_sender, _) = broadcast::channel(CHANNEL_SIZE);
+        let minimum_network_size = config.minimum_network_size.try_into().unwrap();
 
         let swarm = BlendSwarm::<_, _, ObservationWindowTokioIntervalProvider>::new(
             config,
@@ -68,6 +69,7 @@ where
             rng,
             swarm_message_receiver,
             incoming_message_sender.clone(),
+            minimum_network_size,
         );
 
         let (swarm_task_abort_handle, swarm_task_abort_registration) = AbortHandle::new_pair();
@@ -82,12 +84,8 @@ where
         }
     }
 
-    fn shutdown(&mut self) {
-        let Self {
-            swarm_task_abort_handle,
-            ..
-        } = self;
-        swarm_task_abort_handle.abort();
+    fn shutdown(self) {
+        drop(self);
     }
 
     async fn publish(&self, msg: EncapsulatedMessage) {
@@ -107,5 +105,15 @@ where
             BroadcastStream::new(self.incoming_message_sender.subscribe())
                 .filter_map(|event| async { event.ok() }),
         )
+    }
+}
+
+impl Drop for Libp2pBlendBackend {
+    fn drop(&mut self) {
+        let Self {
+            swarm_task_abort_handle,
+            ..
+        } = self;
+        swarm_task_abort_handle.abort();
     }
 }

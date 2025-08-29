@@ -1,67 +1,82 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Duration};
 
 use common_http_client::CommonHttpClient;
 use futures_util::stream::StreamExt as _;
-use kzgrs_backend::common::share::{DaLightShare, DaShare};
-use nomos_core::da::blob::{LightShare as _, Share as _};
+use kzgrs_backend::common::share::DaShare;
+use nomos_core::da::blob::LightShare as _;
 use nomos_da_network_service::membership::adapters::service::peer_id_from_provider_id;
 use nomos_libp2p::ed25519;
 use rand::{rngs::OsRng, RngCore as _};
 use reqwest::Url;
 use tests::{
-    common::da::{disseminate_with_metadata, wait_for_indexed_blob, APP_ID},
+    adjust_timeout,
+    common::da::{disseminate_with_metadata, wait_for_blob_onchain, APP_ID, DA_TESTS_TIMEOUT},
+    nodes::validator::{create_validator_config, Validator},
     secret_key_to_peer_id,
-    topology::{Topology, TopologyConfig},
+    topology::{configs::create_general_configs, Topology, TopologyConfig},
 };
 
 #[tokio::test]
 async fn test_get_share_data() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
-    let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
     let data = [1u8; 31];
     let app_id = hex::decode(APP_ID).unwrap();
     let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
     let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
 
-    disseminate_with_metadata(executor, &data, metadata).await;
-
-    let from = 0u64.to_be_bytes();
-    let to = 1u64.to_be_bytes();
-
-    wait_for_indexed_blob(executor, app_id, from, to, num_subnets).await;
-
-    let executor_blobs = executor.get_indexer_range(app_id, from..to).await;
-
-    let share = executor_blobs
-        .iter()
-        .flat_map(|(_, shares)| shares)
-        .next()
-        .unwrap();
-
-    let exec_url =
-        Url::parse(format!("http://{}", executor.config().http.backend_settings.address).as_str())
-            .unwrap();
-
-    let client = CommonHttpClient::new(None);
-    let commitments = client
-        .get_commitments::<DaShare>(exec_url.clone(), share.blob_id().try_into().unwrap())
+    let blob_id = disseminate_with_metadata(executor, &data, metadata)
         .await
         .unwrap();
 
-    assert!(commitments.is_some());
+    wait_for_blob_onchain(executor, blob_id).await;
 
-    let share_data = client
-        .get_share::<DaShare, DaLightShare>(
-            exec_url,
-            share.blob_id().try_into().unwrap(),
-            share.share_idx(),
-        )
+    let executor_shares = executor
+        .get_shares(blob_id, HashSet::new(), HashSet::new(), true)
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await;
+
+    assert!(executor_shares.len() == 2);
+}
+
+#[tokio::test]
+async fn test_get_commitments_from_peers() {
+    let interconnected_topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
+    let validator = &interconnected_topology.validators()[0];
+    let executor = &interconnected_topology.executors()[0];
+
+    // Create independent node that only knows about membership of
+    // `interconnected_topology` nodes. This validator will not receive any data
+    // from the previous two, so it will need to query the DA network over the
+    // sampling protocol for the share commitments.
+    let lone_general_config = create_general_configs(1).into_iter().next().unwrap();
+    let mut lone_validator_config = create_validator_config(lone_general_config);
+    lone_validator_config.membership = validator.config().membership.clone();
+    let lone_validator = Validator::spawn(lone_validator_config).await.unwrap();
+
+    let data = [1u8; 31];
+    let app_id = hex::decode(APP_ID).unwrap();
+    let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
+    let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
+
+    let blob_id = disseminate_with_metadata(executor, &data, metadata)
         .await
         .unwrap();
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    lone_validator.get_commitments(blob_id).await.unwrap();
 
-    assert!(share_data.is_some());
+    let timeout = adjust_timeout(Duration::from_secs(DA_TESTS_TIMEOUT));
+    assert!(
+        (tokio::time::timeout(timeout, async {
+            lone_validator.get_commitments(blob_id).await
+        })
+        .await)
+            .is_ok(),
+        "timed out waiting for share commitments"
+    );
 }
 
 #[tokio::test]
@@ -138,19 +153,11 @@ async fn test_get_shares() {
     let app_id: [u8; 32] = app_id.try_into().unwrap();
     let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
 
-    disseminate_with_metadata(executor, &data, metadata).await;
-
-    let from = 0u64.to_be_bytes();
-    let to = 1u64.to_be_bytes();
-    wait_for_indexed_blob(executor, app_id, from, to, num_subnets).await;
-
-    let executor_blobs = executor.get_indexer_range(app_id, from..to).await;
-    let blob = executor_blobs
-        .iter()
-        .flat_map(|(_, blobs)| blobs)
-        .next()
+    let blob_id = disseminate_with_metadata(executor, &data, metadata)
+        .await
         .unwrap();
-    let blob_id = blob.blob_id().try_into().unwrap();
+
+    wait_for_blob_onchain(executor, blob_id).await;
 
     let exec_url = Url::parse(&format!(
         "http://{}",
@@ -190,7 +197,8 @@ async fn test_get_shares() {
     assert_eq!(shares.len(), 1);
     assert_eq!(shares[0].share_idx(), [0, 0]);
 
-    // Test case 3: Request only the first share but return all available shares
+    // Test case 3: Request only the first share but return all available
+    // shares
     let shares_stream = client
         .get_shares::<DaShare>(
             exec_url.clone(),

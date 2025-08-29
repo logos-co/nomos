@@ -10,7 +10,7 @@ pub const KEY_SIZE: usize = 32;
 pub struct Ed25519PrivateKey(ed25519_dalek::SigningKey);
 
 impl Ed25519PrivateKey {
-    /// Generates a new Ed25519 private key using the [`ChaCha12Rng`].
+    /// Generates a new Ed25519 private key using the [`BlakeRng`].
     #[must_use]
     pub fn generate() -> Self {
         Self(ed25519_dalek::SigningKey::generate(

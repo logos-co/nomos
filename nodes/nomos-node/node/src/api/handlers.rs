@@ -14,24 +14,24 @@ use http::{header, StatusCode};
 use nomos_api::http::{
     cl::{self, ClMempoolService},
     consensus::{self, Cryptarchia},
-    da::{self, BalancerMessageFactory, DaIndexer, DaVerifier, MonitorMessageFactory},
+    da::{self, BalancerMessageFactory, DaVerifier, MonitorMessageFactory},
     libp2p, mempool, storage,
 };
 use nomos_core::{
     da::{
-        blob::{info::DispersedBlobInfo, metadata::Metadata, LightShare, Share},
+        blob::{info::DispersedBlobInfo, LightShare, Share},
         BlobId, DaVerifier as CoreDaVerifier,
     },
     header::HeaderId,
     mantle::{SignedMantleTx, Transaction},
 };
 use nomos_da_messages::http::da::{
-    DASharesCommitmentsRequest, DaSamplingRequest, GetRangeReq, GetSharesRequest,
+    DASharesCommitmentsRequest, DaSamplingRequest, GetSharesRequest,
 };
 use nomos_da_network_service::{
     api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend, NetworkService,
 };
-use nomos_da_sampling::backend::DaSamplingServiceBackend;
+use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
 use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
 use nomos_http_api_common::paths;
 use nomos_libp2p::PeerId;
@@ -312,101 +312,6 @@ where
 
 #[utoipa::path(
     post,
-    path = paths::DA_GET_RANGE,
-    responses(
-        (status = 200, description = "Range of blobs", body = Vec<([u8;8], Vec<DaShare>)>),
-        (status = 500, description = "Internal server error", body = String),
-    )
-)]
-pub async fn get_range<
-    Tx,
-    C,
-    V,
-    SS,
-    SamplingBackend,
-    SamplingNetworkAdapter,
-    SamplingStorage,
-    TimeBackend,
-    RuntimeServiceId,
-    const SIZE: usize,
->(
-    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
-    Json(GetRangeReq { app_id, range }): Json<GetRangeReq<V>>,
-) -> Response
-where
-    Tx: Transaction + Eq + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
-    <Tx as Transaction>::Hash:
-        Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    C: DispersedBlobInfo<BlobId = [u8; 32]>
-        + Clone
-        + Debug
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
-    <C as DispersedBlobInfo>::BlobId: Clone + Send + Sync,
-    V: DispersedBlobInfo<BlobId = [u8; 32]>
-        + From<C>
-        + Eq
-        + Debug
-        + Metadata
-        + Hash
-        + Clone
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
-    <V as DispersedBlobInfo>::BlobId: Debug + Clone + Ord + Hash,
-    <V as Metadata>::AppId: AsRef<[u8]> + Clone + Serialize + DeserializeOwned + Send + Sync,
-    <V as Metadata>::Index:
-        AsRef<[u8]> + Clone + Serialize + DeserializeOwned + PartialOrd + Send + Sync,
-    SS: StorageSerde + Send + Sync + 'static,
-    <SS as StorageSerde>::Error: Send + Sync + 'static,
-    SamplingBackend: DaSamplingServiceBackend<BlobId = <V as DispersedBlobInfo>::BlobId> + Send,
-    SamplingBackend::Settings: Clone,
-    SamplingBackend::Share: Debug + 'static,
-    SamplingBackend::BlobId: Debug + 'static,
-    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
-    TimeBackend: nomos_time::backends::TimeBackend,
-    TimeBackend::Settings: Clone + Send + Sync,
-    RuntimeServiceId: Debug
-        + Sync
-        + Display
-        + 'static
-        + AsServiceId<
-            DaIndexer<
-                Tx,
-                C,
-                V,
-                SS,
-                SamplingBackend,
-                SamplingNetworkAdapter,
-                SamplingStorage,
-                TimeBackend,
-                RuntimeServiceId,
-                SIZE,
-            >,
-        >,
-{
-    make_request_and_return_response!(da::get_range::<
-        Tx,
-        C,
-        V,
-        SS,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingStorage,
-        TimeBackend,
-        RuntimeServiceId,
-        SIZE,
-    >(&handle, app_id, range))
-}
-
-#[utoipa::path(
-    post,
     path = paths::DA_BLOCK_PEER,
     responses(
         (status = 200, description = "Block a peer", body = bool),
@@ -615,11 +520,49 @@ where
     get,
     path = paths::DA_GET_SHARES_COMMITMENTS,
     responses(
-        (status = 200, description = "Request the commitments for an specific `BlobId`", body = DASharesCommitmentsRequest<DaShare>),
+        (status = 200, description = "Request the commitments for an specific `BlobId` that the node stores locally or otherwise requests from the subnetwork peers", body = DASharesCommitmentsRequest<DaShare>),
         (status = 500, description = "Internal server error", body = String),
     )
 )]
 pub async fn da_get_commitments<
+    DaBlobId,
+    SamplingBackend,
+    SamplingNetwork,
+    SamplingStorage,
+    RuntimeServiceId,
+>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+    Json(blob_id): Json<DaBlobId>,
+) -> Response
+where
+    DaBlobId: Serialize + for<'de> Deserialize<'de> + Send + 'static,
+    SamplingBackend: DaSamplingServiceBackend<BlobId = DaBlobId>,
+    SamplingNetwork: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + AsServiceId<
+            DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>,
+        >,
+{
+    make_request_and_return_response!(da::get_commitments::<
+        SamplingBackend,
+        SamplingNetwork,
+        SamplingStorage,
+        RuntimeServiceId,
+    >(&handle, blob_id))
+}
+
+#[utoipa::path(
+    get,
+    path = paths::DA_GET_STORAGE_SHARES_COMMITMENTS,
+    responses(
+        (status = 200, description = "Request the commitments for an specific `BlobId` that the node stores locally", body = DASharesCommitmentsRequest<DaShare>),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
+pub async fn da_get_storage_commitments<
     StorageOp,
     DaStorageConverter,
     HttpStorageAdapter,

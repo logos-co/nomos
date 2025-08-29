@@ -1,8 +1,9 @@
+use futures::StreamExt as _;
 use kzgrs_backend::dispersal::Index;
 use nomos_core::sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate};
 use rand::{thread_rng, Rng as _};
 use tests::{
-    common::da::{disseminate_with_metadata, wait_for_indexed_blob, APP_ID},
+    common::da::{disseminate_with_metadata, wait_for_blob_onchain, APP_ID},
     get_available_port,
     topology::{configs::membership::create_membership_configs, Topology, TopologyConfig},
 };
@@ -77,30 +78,33 @@ async fn update_membership_and_dissiminate() {
     }
 
     let executor = &topology.executors()[0];
-    let num_subnets = executor.config().da_network.backend.num_subnets as usize;
     let data = [1u8; 31];
 
     let app_id = hex::decode(APP_ID).unwrap();
     let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
     let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(0));
 
-    let from = 0u64.to_be_bytes();
-    let to = 1u64.to_be_bytes();
-
+    let mut onchain = false;
     for i in 0..ITERATIONS {
         println!("iteration {i}");
-        disseminate_with_metadata(executor, &data, metadata).await;
+        let blob_id = disseminate_with_metadata(executor, &data, metadata)
+            .await
+            .unwrap();
 
-        wait_for_indexed_blob(executor, app_id, from, to, num_subnets).await;
+        if !onchain {
+            wait_for_blob_onchain(executor, blob_id).await;
+            onchain = true;
+        }
 
-        let executor_blobs = executor.get_indexer_range(app_id, from..to).await;
-        let executor_idx_0_blobs = executor_blobs
-            .iter()
-            .filter(|(i, _)| i == &from)
-            .flat_map(|(_, blobs)| blobs);
+        let shares = executor
+            .get_shares(blob_id, [].into(), [].into(), true)
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
 
-        // Index zero shouldn't be empty, validator replicated both blobs to executor
-        // because they both are in the same subnetwork.
-        assert!(executor_idx_0_blobs.count() == 2);
+        // Validator replicated both blobs to
+        // executor because they both are in the same subnetwork.
+        assert!(shares.len() == 2);
     }
 }

@@ -11,9 +11,8 @@ use overwatch::services::ServiceData;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ApiService, CryptarchiaService, DaDispersalService, DaIndexerService, DaNetworkService,
-    DaSamplingService, DaVerifierService, NetworkService, RuntimeServiceId, StorageService,
-    TimeService,
+    ApiService, CryptarchiaService, DaDispersalService, DaNetworkService, DaSamplingService,
+    DaVerifierService, NetworkService, RuntimeServiceId, StorageService, TimeService,
 };
 
 #[derive(Deserialize, Debug, Clone, Serialize)]
@@ -24,7 +23,6 @@ pub struct Config {
     pub blend: BlendConfig,
     pub da_dispersal: <DaDispersalService as ServiceData>::Settings,
     pub da_network: <DaNetworkService as ServiceData>::Settings,
-    pub da_indexer: <DaIndexerService as ServiceData>::Settings,
     pub membership: <MembershipService<RuntimeServiceId> as ServiceData>::Settings,
     pub sdp: <SdpService<RuntimeServiceId> as ServiceData>::Settings,
     pub da_verifier: <DaVerifierService as ServiceData>::Settings,

@@ -16,13 +16,13 @@ use network::NetworkAdapter;
 use nomos_blend_message::{crypto::random_sized_bytes, encap::DecapsulationOutput, PayloadType};
 use nomos_blend_network::EncapsulatedMessageWithValidatedPublicHeader;
 use nomos_blend_scheduling::{
-    membership::Membership,
     message_blend::crypto::CryptographicProcessor,
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
     UninitializedMessageScheduler,
 };
 use nomos_core::wire;
 use nomos_network::NetworkService;
+use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -31,7 +31,6 @@ use overwatch::{
     OpaqueServiceResourcesHandle,
 };
 use rand::{seq::SliceRandom as _, RngCore, SeedableRng as _};
-use rand_chacha::ChaCha12Rng;
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use tokio::time::interval;
@@ -41,6 +40,8 @@ use crate::{
     core::settings::BlendConfig,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
 };
+
+pub(super) mod service_components;
 
 const LOG_TARGET: &str = "blend::service::core";
 
@@ -53,18 +54,17 @@ const LOG_TARGET: &str = "blend::service::core";
 /// backend.
 pub struct BlendService<Backend, NodeId, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId>,
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     backend: Backend,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    membership: Membership<NodeId>,
 }
 
 impl<Backend, NodeId, Network, RuntimeServiceId> ServiceData
     for BlendService<Backend, NodeId, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId>,
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     type Settings = BlendConfig<Backend::Settings, NodeId>;
@@ -77,8 +77,8 @@ where
 impl<Backend, NodeId, Network, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for BlendService<Backend, NodeId, Network, RuntimeServiceId>
 where
-    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId> + Send + Sync,
-    NodeId: Clone + Eq + Hash + Send + Sync + 'static,
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Send + Sync,
+    NodeId: Clone + Send + Eq + Hash + Sync + 'static,
     Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
         + AsServiceId<Self>
@@ -97,17 +97,16 @@ where
         let blend_config = settings_reader.get_updated_settings();
         let membership = blend_config.membership();
         Ok(Self {
-            backend: <Backend as BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId>>::new(
+            backend: <Backend as BlendBackend<NodeId, BlakeRng, RuntimeServiceId>>::new(
                 settings_reader.get_updated_settings(),
                 service_resources_handle.overwatch_handle.clone(),
                 Box::pin(
                     IntervalStream::new(interval(blend_config.time.session_duration()))
                         .map(move |_| membership.clone()),
                 ),
-                ChaCha12Rng::from_entropy(),
+                BlakeRng::from_entropy(),
             ),
             service_resources_handle,
-            membership: blend_config.membership(),
         })
     }
 
@@ -122,10 +121,13 @@ where
                     ..
                 },
             ref mut backend,
-            ref membership,
         } = self;
+
         let blend_config = settings_handle.notifier().get_updated_settings();
-        let mut rng = ChaCha12Rng::from_entropy();
+        let membership = blend_config.membership();
+        let membership_size = membership.size();
+        let minimum_network_size = blend_config.minimum_network_size;
+        let mut rng = BlakeRng::from_entropy();
         let mut cryptographic_processor = CryptographicProcessor::new(
             blend_config.crypto.clone(),
             membership.clone(),
@@ -133,8 +135,6 @@ where
         );
         let network_relay = overwatch_handle.relay::<NetworkService<_, _>>().await?;
         let network_adapter = Network::new(network_relay);
-
-        // Incoming streams
 
         // Yields once every randomly-scheduled release round.
         let mut message_scheduler = UninitializedMessageScheduler::<
@@ -152,6 +152,13 @@ where
         // Yields new messages received via Blend peers.
         let mut blend_messages = backend.listen_to_incoming_messages();
 
+        wait_until_services_are_ready!(
+            &overwatch_handle,
+            Some(Duration::from_secs(60)),
+            NetworkService<_, _>
+        )
+        .await?;
+
         status_updater.notify_ready();
         tracing::info!(
             target: LOG_TARGET,
@@ -159,16 +166,10 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        wait_until_services_are_ready!(
-            &self.service_resources_handle.overwatch_handle,
-            Some(Duration::from_secs(60)),
-            NetworkService<_, _>
-        )
-        .await?;
-
         loop {
             tokio::select! {
-                Some(local_data_message) = inbound_relay.next() => {
+                // Core blend service is supposed to be used only through the proxy service. As an additional protection, if it is used directly with a network that is too small, the service will simply not accept any incoming messages to be blended.
+                Some(local_data_message) = inbound_relay.next(), if membership_size >= minimum_network_size.get() as usize => {
                     handle_local_data_message(local_data_message, &mut cryptographic_processor, backend, &mut message_scheduler).await;
                 }
                 Some(incoming_message) = blend_messages.next() => {
@@ -205,7 +206,7 @@ async fn handle_local_data_message<
 ) where
     NodeId: Eq + Hash + Send,
     Rng: RngCore + Send,
-    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId> + Sync,
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Sync,
     BroadcastSettings: Serialize,
 {
     let ServiceMessage::Blend(message_payload) = local_data_message;
@@ -286,7 +287,7 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
 ) where
     NodeId: Eq + Hash,
     Rng: RngCore + Send,
-    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId> + Sync,
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Sync,
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Sync,
 {
     let mut processed_messages_relay_futures = processed_messages
@@ -318,16 +319,4 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
     // Release all messages concurrently, and wait for all of them to be sent.
     join_all(processed_messages_relay_futures).await;
     tracing::debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
-}
-
-impl<Backend, NodeId, Network, RuntimeServiceId> Drop
-    for BlendService<Backend, NodeId, Network, RuntimeServiceId>
-where
-    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId>,
-    Network: NetworkAdapter<RuntimeServiceId>,
-{
-    fn drop(&mut self) {
-        tracing::info!(target: LOG_TARGET, "Shutting down Blend backend");
-        self.backend.shutdown();
-    }
 }
