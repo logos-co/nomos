@@ -8,6 +8,7 @@ use groth16::{
 };
 #[cfg(all(target_arch = "x86_64", feature = "deser"))]
 use serde_json::{Value, json};
+use groth16::groth16_batch_verify;
 
 #[cfg(all(target_arch = "x86_64", feature = "deser"))]
 static VK: LazyLock<Value> = LazyLock::new(|| {
@@ -367,7 +368,7 @@ fn zk_signature_cpu_cycles() {
         .map(Groth16PublicInput::into_inner)
         .collect();
     let pvk = vk.into_prepared();
-    let iters = 1000u64;
+    let iters = 100u64;
     let pre = unsafe { core::arch::x86_64::_rdtsc() };
     for _ in 0..iters {
         black_box(groth16_verify(&pvk, &proof, &pi).expect("success"));
@@ -375,4 +376,41 @@ fn zk_signature_cpu_cycles() {
     let post = unsafe { core::arch::x86_64::_rdtsc() };
     let cycles = (post - pre) / iters;
     println!("zk-signature-cycles-count: {cycles} cpu cycles");
+
+    for batch_size in (1..11) {
+        let proofs_batch: Vec<Groth16Proof> = (0..batch_size)
+            .map(|_| {
+                serde_json::from_value::<Groth16ProofJsonDeser>(PROOF.deref().clone())
+                    .unwrap()
+                    .try_into()
+                    .unwrap()
+            })
+            .collect();
+        let pi_batch: Vec<Vec<_>> = std::iter::repeat_with(|| pi.clone()).take(batch_size).collect();
+        let pre = unsafe { core::arch::x86_64::_rdtsc() };
+        for _ in 0..iters {
+            black_box(groth16_batch_verify(&pvk, &proofs_batch, &pi_batch));
+        }
+        let post = unsafe { core::arch::x86_64::_rdtsc() };
+        let cycles = (post - pre) / iters;
+        println!("batched-zk-signature-cycles-count: {cycles} cpu cycles for batch {batch_size} batches");
+    }
+    for batch_size in (10..201).step_by(10) {
+        let proofs_batch: Vec<Groth16Proof> = (0..batch_size)
+            .map(|_| {
+                serde_json::from_value::<Groth16ProofJsonDeser>(PROOF.deref().clone())
+                    .unwrap()
+                    .try_into()
+                    .unwrap()
+            })
+            .collect();
+        let pi_batch: Vec<Vec<_>> = std::iter::repeat_with(|| pi.clone()).take(batch_size).collect();
+        let pre = unsafe { core::arch::x86_64::_rdtsc() };
+        for _ in 0..iters {
+            black_box(groth16_batch_verify(&pvk, &proofs_batch, &pi_batch));
+        }
+        let post = unsafe { core::arch::x86_64::_rdtsc() };
+        let cycles = (post - pre) / iters;
+        println!("batched-zk-signature-cycles-count: {cycles} cpu cycles for batch {batch_size} batches");
+    }
 }
