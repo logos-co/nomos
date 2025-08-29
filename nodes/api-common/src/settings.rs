@@ -15,14 +15,16 @@ pub struct AxumBackendSettings {
     /// Maximum request body size in bytes (default: 10MB)
     #[serde(default = "default_max_body_size")]
     pub max_body_size: usize,
-    /// Maximum number of concurrent requests (default: 500)
+    /// Maximum number of concurrent requests
     #[serde(default = "default_max_concurrent_requests")]
     pub max_concurrent_requests: usize,
-    /// Rate limit per IP - requests per second (default: 50)
+    /// Set the interval after which one element of the quota is replenished in
+    /// seconds.
     #[serde(default = "default_rate_limit_per_second")]
     pub rate_limit_per_second: u64,
-    /// Rate limit burst size - maximum requests allowed in a short burst before
-    /// rate limiting kicks in (default: 150)
+    /// Set quota size that defines how many requests can occur before the
+    /// governor middleware starts blocking requests from an IP address and
+    /// clients have to wait until the elements of the quota are replenished.
     #[serde(default = "default_rate_limit_burst")]
     pub rate_limit_burst: u32,
 }
@@ -54,9 +56,9 @@ const fn default_max_concurrent_requests() -> usize {
 }
 
 const fn default_rate_limit_per_second() -> u64 {
-    50
+    100
 }
 
 const fn default_rate_limit_burst() -> u32 {
-    150
+    20
 }

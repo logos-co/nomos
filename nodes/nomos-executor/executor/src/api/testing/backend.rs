@@ -143,6 +143,7 @@ where
             .await
             .expect("Failed to bind address");
 
+        let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
         axum::serve(listener, app).await
     }
 }
