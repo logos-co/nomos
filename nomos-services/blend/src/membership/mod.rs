@@ -1,3 +1,4 @@
+pub mod node_id;
 pub mod service;
 
 use std::pin::Pin;

@@ -56,7 +56,7 @@ pub(crate) type BlendCoreService = nomos_blend_service::core::BlendService<
     BlendBackend,
     PeerId,
     BlendNetworkAdapter<RuntimeServiceId>,
-    BlendMembershipAdapter<MembershipService<RuntimeServiceId>>,
+    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
     RuntimeServiceId,
 >;
 
@@ -66,7 +66,7 @@ pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
     <BlendNetworkAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<
         RuntimeServiceId,
     >>::BroadcastSettings,
-    BlendMembershipAdapter<MembershipService<RuntimeServiceId>>,
+    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
     RuntimeServiceId,
 >;
 

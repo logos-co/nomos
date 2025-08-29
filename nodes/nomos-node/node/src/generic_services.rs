@@ -63,7 +63,7 @@ pub type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
 >;
 
 type BlendMembershipAdapter<RuntimeServiceId> =
-    nomos_blend_service::membership::service::Adapter<MembershipService<RuntimeServiceId>>;
+    nomos_blend_service::membership::service::Adapter<MembershipService<RuntimeServiceId>, PeerId>;
 
 pub type VerifierMempoolAdapter<NetworkAdapter, RuntimeServiceId> = KzgrsMempoolAdapter<
     nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
