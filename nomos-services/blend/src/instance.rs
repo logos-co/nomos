@@ -501,11 +501,12 @@ mod tests {
             let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
 
             // Core -> BroadcastAfterCore
+            let local_node = 99;
             let minimal_network_size = 1;
             let instance = instance
                 .handle_session_event(
                     // With an empty membership smaller than the minimal size.
-                    SessionEvent::NewSession(membership(&[], None)),
+                    SessionEvent::NewSession(membership(&[], local_node)),
                     handle,
                     minimal_network_size,
                 )
@@ -527,7 +528,7 @@ mod tests {
             // Broadcast -> Edge
             let instance = instance
                 .handle_session_event(
-                    SessionEvent::NewSession(membership(&[1], None)),
+                    SessionEvent::NewSession(membership(&[1], local_node)),
                     handle,
                     minimal_network_size,
                 )
@@ -538,7 +539,7 @@ mod tests {
             // Edge -> Edge (stay)
             let instance = instance
                 .handle_session_event(
-                    SessionEvent::NewSession(membership(&[1], None)),
+                    SessionEvent::NewSession(membership(&[1], local_node)),
                     handle,
                     minimal_network_size,
                 )
@@ -549,7 +550,7 @@ mod tests {
             // Edge -> Core
             let instance = instance
                 .handle_session_event(
-                    SessionEvent::NewSession(membership(&[1], Some(1))),
+                    SessionEvent::NewSession(membership(&[1], 1)),
                     handle,
                     minimal_network_size,
                 )
@@ -668,7 +669,7 @@ mod tests {
 
     type NodeId = u8;
 
-    fn membership(ids: &[NodeId], local_id: Option<NodeId>) -> Membership<NodeId> {
+    fn membership(ids: &[NodeId], local_id: NodeId) -> Membership<NodeId> {
         let nodes = ids
             .iter()
             .copied()
@@ -678,8 +679,8 @@ mod tests {
                 public_key: key(id).1,
             })
             .collect::<Vec<_>>();
-        let local_public_key = local_id.map(|id| key(id).1);
-        Membership::new(&nodes, local_public_key.as_ref())
+        let local_public_key = key(local_id).1;
+        Membership::new(&nodes, &local_public_key)
     }
 
     fn key(id: u8) -> (Ed25519PrivateKey, Ed25519PublicKey) {

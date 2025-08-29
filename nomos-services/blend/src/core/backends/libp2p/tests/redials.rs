@@ -1,6 +1,7 @@
 use core::{slice::from_ref, time::Duration};
 
 use libp2p::{Multiaddr, PeerId};
+use nomos_blend_message::crypto::Ed25519PrivateKey;
 use nomos_blend_scheduling::membership::Membership;
 use nomos_libp2p::{Protocol, SwarmEvent};
 use test_log::test;
@@ -88,7 +89,10 @@ async fn core_redial_different_peer_after_redial_limit() {
     let (membership_entry, _) = listening_swarm
         .listen_and_return_membership_entry(None)
         .await;
-    let membership = Membership::new(from_ref(&membership_entry), None);
+    let membership = Membership::new(
+        from_ref(&membership_entry),
+        &Ed25519PrivateKey::generate().public_key(),
+    );
     let listening_peer_id = membership_entry.id;
 
     // Build dialing swarm with the listening info of the listening swarm.

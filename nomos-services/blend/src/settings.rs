@@ -24,7 +24,7 @@ where
 {
     pub(crate) fn membership(&self) -> Membership<NodeId> {
         let local_signing_pubkey = self.crypto.signing_private_key.public_key();
-        Membership::new(&self.membership, Some(&local_signing_pubkey))
+        Membership::new(&self.membership, &local_signing_pubkey)
     }
 }
 
@@ -64,6 +64,8 @@ impl TimingSettings {
     }
 }
 
+/// A stream that repeatedly yields the same membership at fixed intervals.
+/// The first item is yielded immediately.
 // TODO: Replace with SDP membership stream.
 pub(crate) fn constant_membership_stream<NodeId>(
     membership: Membership<NodeId>,

@@ -24,16 +24,15 @@ async fn edge_redial_same_peer() {
     let empty_multiaddr: Multiaddr = Protocol::Memory(0).into();
 
     // Configure swarm with an unreachable member.
-    let EdgeTestSwarm { mut swarm, .. } = EdgeSwarmBuilder::default()
-        .with_membership(Membership::new(
-            from_ref(&Node {
-                address: empty_multiaddr.clone(),
-                id: random_peer_id,
-                public_key: Ed25519PrivateKey::generate().public_key(),
-            }),
-            None,
-        ))
-        .build();
+    let EdgeTestSwarm { mut swarm, .. } = EdgeSwarmBuilder::new(Membership::new(
+        from_ref(&Node {
+            address: empty_multiaddr.clone(),
+            id: random_peer_id,
+            public_key: Ed25519PrivateKey::generate().public_key(),
+        }),
+        &Ed25519PrivateKey::generate().public_key(),
+    ))
+    .build();
     let message = TestEncapsulatedMessage::new(b"test-payload");
     swarm.send_message(&message);
 
@@ -143,14 +142,12 @@ async fn edge_redial_different_peer_after_redial_limit() {
                 public_key: Ed25519PrivateKey::generate().public_key(),
             },
         ],
-        None,
+        &Ed25519PrivateKey::generate().public_key(),
     );
     let EdgeTestSwarm {
         swarm: mut edge_swarm,
         ..
-    } = EdgeSwarmBuilder::default()
-        .with_membership(edge_membership)
-        .build();
+    } = EdgeSwarmBuilder::new(edge_membership).build();
 
     let message = TestEncapsulatedMessage::new(b"test-payload");
 
