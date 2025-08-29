@@ -10,7 +10,7 @@ workspace = true
 [dependencies]
 cached                   = { workspace = true }
 either                   = { version = "1.13.0", default-features = false }
-fixed                    = { version = "1", default-features = false, features = ["serde"] }
+fixed                    = { version = "1", default-features = false, features = ["serde-str"] }
 futures                  = { version = "0.3", default-features = false }
 indexmap                 = { version = "2.2", default-features = false }
 kzgrs-backend            = { workspace = true }
