@@ -1,6 +1,10 @@
 use std::error::Error;
-
-use ark_ec::pairing::Pairing;
+use std::ops::{Mul as _, MulAssign, Neg};
+use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup, VariableBaseMSM};
+use ark_ff::{One, Field, UniformRand};
+use ark_std::rand::thread_rng;
+use ark_bn254::{Bn254, Fr, G1Projective, G1Affine, G2Affine, G2Projective};
+use ark_relations::r1cs::SynthesisError;
 use ark_groth16::{Groth16, r1cs_to_qap::LibsnarkReduction};
 
 use crate::{proof::Proof, verification_key::PreparedVerificationKey};
@@ -12,6 +16,91 @@ pub fn groth16_verify<E: Pairing>(
 ) -> Result<bool, impl Error> {
     let proof: ark_groth16::Proof<E> = proof.into();
     Groth16::<E, LibsnarkReduction>::verify_proof(vk.as_ref(), &proof, public_inputs)
+}
+
+pub fn groth16__batch_verify(
+    vk: &PreparedVerificationKey<Bn254>,
+    proofs: &Vec<Proof<Bn254>>,
+    public_inputs: &Vec<&Vec<Fr>>,
+) -> bool {
+
+    let mut rng = thread_rng();
+    let r = Fr::rand(&mut rng);
+    let r_roots = compute_r_powers(r, proofs.len());
+    let r_sum : Fr = r_roots
+        .iter()
+        .sum();
+
+    let pis_a : Vec<G1Affine> = proofs
+        .iter()
+        .map(|proof| {
+            proof.pi_a
+        })
+        .collect();
+    let pis_b : Vec<G2Affine> = proofs
+        .iter()
+        .map(|proof| {
+            proof.pi_b
+        })
+        .collect();
+    let pis_c : Vec<G1Affine> = proofs
+        .iter()
+        .map(|proof| {
+            proof.pi_c
+        })
+        .collect();
+
+    let batched_pi_a = G1Projective::msm(&pis_a,&r_roots).unwrap().into_affine();
+    let batched_pi_b = G2Projective::msm(&pis_b,&r_roots).unwrap().into_affine();
+    let batched_pi_c = G1Projective::msm(&pis_c,&r_roots).unwrap().into_affine();
+
+    let batched_public_inputs : Vec<Fr> = std::iter::once(r_sum)
+        .chain(
+            (0..public_inputs.len()).map(|j| {
+                r_roots
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &w)| w * public_inputs[i][j])
+                    .sum()
+            }),
+        )
+        .collect();
+
+    let batched_ic = G1Projective::msm(&vk.vk.vk.gamma_abc_g1,&batched_public_inputs).unwrap().into_affine();
+
+    let qap = Bn254::multi_miller_loop(
+        [
+            batched_pi_a,
+            batched_ic.into(),
+            batched_pi_c.into(),
+            vk.vk.vk.alpha_g1.mul(r_sum).into(),
+        ],
+        [
+            batched_pi_b.into(),
+            vk.vk.gamma_g2_neg_pc.clone(),
+            vk.vk.delta_g2_neg_pc.clone(),
+            vk.vk.vk.beta_g2.neg().into(),
+        ],
+    );
+
+    let test = Bn254::final_exponentiation(qap).unwrap();
+
+    test.0.is_one()
+}
+
+fn compute_r_powers(h: Fr, size: usize) -> Vec<Fr> {
+    {
+        #[cfg(feature = "parallel")]
+        {
+            (0..size as u64).into_par_iter()
+        }
+        #[cfg(not(feature = "parallel"))]
+        {
+            0..size as u64
+        }
+    }
+        .map(|i| h.pow([i]))
+        .collect()
 }
 
 #[cfg(all(test, feature = "deser"))]

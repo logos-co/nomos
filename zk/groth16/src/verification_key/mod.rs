@@ -65,7 +65,7 @@ impl TryFrom<VerificationKeyJsonDeser> for VerificationKey<ark_bn254::Bn254> {
     }
 }
 pub struct PreparedVerificationKey<E: Pairing> {
-    vk: ark_groth16::PreparedVerifyingKey<E>,
+    pub vk: ark_groth16::PreparedVerifyingKey<E>,
 }
 
 impl<E: Pairing> From<VerificationKey<E>> for ark_groth16::VerifyingKey<E> {
