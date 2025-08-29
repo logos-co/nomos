@@ -353,10 +353,11 @@ where
         )
         .await?;
 
-        let mut stream = membership_service_adapter.subscribe().await.map_err(|e| {
-            tracing::error!("Failed to subscribe to membership service: {e}");
-            e
-        })?;
+        let mut membership_updates_stream =
+            membership_service_adapter.subscribe().await.map_err(|e| {
+                tracing::error!("Failed to subscribe to membership service: {e}");
+                e
+            })?;
 
         status_updater.notify_ready();
         tracing::info!(
@@ -369,7 +370,7 @@ where
                 Some(msg) = inbound_relay.recv() => {
                     Self::handle_network_service_message(msg, backend, &membership_storage, api_adapter, addressbook).await;
                 }
-                Some((block_number, providers)) = stream.next() => {
+                Some((block_number, providers)) = membership_updates_stream.next() => {
                     tracing::debug!(
                         "Received membership update for block {}: {:?}",
                         block_number, providers

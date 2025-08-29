@@ -1,5 +1,5 @@
 use core::{
-    num::NonZeroU64,
+    num::{NonZeroU64, NonZeroUsize},
     ops::{Deref, RangeInclusive},
 };
 use std::{
@@ -71,6 +71,7 @@ where
     rng: Rng,
     max_dial_attempts_per_connection: NonZeroU64,
     ongoing_dials: HashMap<PeerId, DialAttempt>,
+    minimum_network_size: NonZeroUsize,
 }
 
 impl<SessionStream, Rng, ObservationWindowProvider>
@@ -87,6 +88,7 @@ where
         rng: Rng,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
         incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithValidatedPublicHeader>,
+        minimum_network_size: NonZeroUsize,
     ) -> Self {
         let membership = config.membership();
         let keypair = config.backend.keypair();
@@ -120,6 +122,7 @@ where
             ongoing_dials: HashMap::with_capacity(
                 *config.backend.core_peering_degree.start() as usize
             ),
+            minimum_network_size,
         };
 
         self_instance.check_and_dial_new_peers_except(None);
@@ -227,6 +230,11 @@ where
     /// Dial new peers, if necessary, to maintain the peering degree.
     /// We aim to have at least the peering degree number of "healthy" peers.
     fn check_and_dial_new_peers_except(&mut self, except: Option<PeerId>) {
+        let membership_size = self.latest_session_info.size();
+        if self.latest_session_info.size() < self.minimum_network_size.get() {
+            tracing::warn!(target: LOG_TARGET, "Not dialing any peers because set of core nodes is smaller than the minimum network size. {membership_size} < {}", self.minimum_network_size.get());
+            return;
+        }
         let num_new_conns_needed = self
             .minimum_healthy_peering_degree()
             .saturating_sub(self.num_healthy_peers());
@@ -323,6 +331,7 @@ where
     }
 
     #[cfg(test)]
+    #[expect(clippy::too_many_arguments, reason = "Test-only constructor.")]
     pub fn new_test<BehaviourConstructor>(
         behaviour_constructor: BehaviourConstructor,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
@@ -331,6 +340,7 @@ where
         latest_session_info: Membership<PeerId>,
         rng: Rng,
         max_dial_attempts_per_connection: NonZeroU64,
+        minimum_network_size: NonZeroUsize,
     ) -> Self
     where
         BehaviourConstructor:
@@ -347,6 +357,7 @@ where
             session_stream,
             swarm: memory_test_swarm(Duration::from_secs(1), behaviour_constructor),
             swarm_messages_receiver,
+            minimum_network_size,
         }
     }
 }

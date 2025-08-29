@@ -49,16 +49,21 @@ pub type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
         nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
         PeerId,
         nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
+        BlendMembershipAdapter<RuntimeServiceId>,
         RuntimeServiceId,
     >,
     nomos_blend_service::edge::BlendService<
         nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
         PeerId,
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
+        BlendMembershipAdapter<RuntimeServiceId>,
         RuntimeServiceId
     >,
     RuntimeServiceId,
 >;
+
+type BlendMembershipAdapter<RuntimeServiceId> =
+    nomos_blend_service::membership::service::Adapter<MembershipService<RuntimeServiceId>, PeerId>;
 
 pub type VerifierMempoolAdapter<NetworkAdapter, RuntimeServiceId> = KzgrsMempoolAdapter<
     nomos_mempool::network::adapters::libp2p::Libp2pAdapter<

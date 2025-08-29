@@ -64,8 +64,8 @@ impl<RuntimeServiceId> BlendBackend<PeerId, RuntimeServiceId> for Libp2pBlendBac
         }
     }
 
-    fn shutdown(&mut self) {
-        self.swarm_task_abort_handle.abort();
+    fn shutdown(self) {
+        drop(self);
     }
 
     async fn send(&self, msg: EncapsulatedMessage) {
@@ -76,5 +76,11 @@ impl<RuntimeServiceId> BlendBackend<PeerId, RuntimeServiceId> for Libp2pBlendBac
         {
             tracing::error!(target: LOG_TARGET, "Failed to send command to Swarm: {e}");
         }
+    }
+}
+
+impl Drop for Libp2pBlendBackend {
+    fn drop(&mut self) {
+        self.swarm_task_abort_handle.abort();
     }
 }
