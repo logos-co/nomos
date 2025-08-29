@@ -6,6 +6,7 @@ use std::{
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
+use nomos_blend_scheduling::session::SessionEventStream;
 use nomos_network::NetworkService;
 use overwatch::{
     services::{
@@ -123,8 +124,11 @@ where
                 .await?,
             settings.crypto.signing_private_key.public_key(),
         );
-        let mut _membership_stream = membership_adapter.subscribe().await?;
-        // TODO: Use membership_stream as a session stream: https://github.com/logos-co/nomos/issues/1532
+        let mut _session_stream = SessionEventStream::new(
+            membership_adapter.subscribe().await?,
+            settings.time.session_transition_period(),
+        );
+        // TODO: Use session_stream: https://github.com/logos-co/nomos/issues/1532
 
         // TODO: Add logic to start/stop the core or edge service based on the new
         // membership info.

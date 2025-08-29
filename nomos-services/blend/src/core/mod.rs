@@ -19,6 +19,7 @@ use nomos_blend_network::EncapsulatedMessageWithValidatedPublicHeader;
 use nomos_blend_scheduling::{
     message_blend::crypto::CryptographicProcessor,
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
+    session::SessionEventStream,
     UninitializedMessageScheduler,
 };
 use nomos_core::wire;
@@ -151,8 +152,11 @@ where
                 .await?,
             blend_config.crypto.signing_private_key.public_key(),
         );
-        let mut _membership_stream = membership_adapter.subscribe().await?;
-        // TODO: Use membership_stream as a session stream: https://github.com/logos-co/nomos/issues/1532
+        let mut _session_stream = SessionEventStream::new(
+            membership_adapter.subscribe().await?,
+            blend_config.time.session_transition_period(),
+        );
+        // TODO: Use session_stream: https://github.com/logos-co/nomos/issues/1532
 
         // Yields once every randomly-scheduled release round.
         let mut message_scheduler = UninitializedMessageScheduler::<
