@@ -148,7 +148,7 @@ mod tests {
 
         assert_eq!(membership.size(), 3);
         assert_eq!(membership.remote_nodes.len(), 3);
-        assert!(membership.contains_local());
+        assert!(!membership.contains_local());
         assert!(membership.remote_nodes.contains(&1));
         assert!(membership.remote_nodes.contains(&2));
         assert!(membership.remote_nodes.contains(&3));
