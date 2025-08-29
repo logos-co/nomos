@@ -22,6 +22,8 @@ pub struct Membership<NodeId> {
     /// Kept as a separate [`Vec`] to enable efficient random sampling,
     /// which is faster than sampling from the keys in [`HashMap`].
     remote_nodes: Vec<NodeId>,
+    /// ID of the local node if it is part of the membership.
+    local_node: Option<NodeId>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -45,9 +47,12 @@ where
     pub fn new(nodes: &[Node<NodeId>], local_public_key: Option<&Ed25519PublicKey>) -> Self {
         let mut core_nodes = HashMap::with_capacity(nodes.len());
         let mut remote_core_nodes = Vec::with_capacity(nodes.len());
+        let mut local_node = None;
         for node in nodes {
             core_nodes.insert(node.id.clone(), node.clone());
-            if !matches!(local_public_key, Some(key) if node.public_key == *key) {
+            if matches!(local_public_key, Some(key) if node.public_key == *key) {
+                local_node = Some(node.id.clone());
+            } else {
                 remote_core_nodes.push(node.id.clone());
             }
         }
@@ -55,6 +60,7 @@ where
         Self {
             nodes: core_nodes,
             remote_nodes: remote_core_nodes,
+            local_node,
         }
     }
 }
@@ -98,6 +104,10 @@ where
     pub fn contains(&self, node_id: &NodeId) -> bool {
         self.nodes.contains_key(node_id)
     }
+
+    pub const fn contains_local(&self) -> bool {
+        self.local_node.is_some()
+    }
 }
 
 impl<NodeId> Membership<NodeId> {
@@ -124,6 +134,7 @@ mod tests {
 
         assert_eq!(membership.size(), 3);
         assert_eq!(membership.remote_nodes.len(), 2);
+        assert!(membership.contains_local());
         assert!(!membership.remote_nodes.contains(&2));
         assert!(membership.remote_nodes.contains(&1));
         assert!(membership.remote_nodes.contains(&3));
@@ -137,6 +148,7 @@ mod tests {
 
         assert_eq!(membership.size(), 3);
         assert_eq!(membership.remote_nodes.len(), 3);
+        assert!(!membership.contains_local());
         assert!(membership.remote_nodes.contains(&1));
         assert!(membership.remote_nodes.contains(&2));
         assert!(membership.remote_nodes.contains(&3));
