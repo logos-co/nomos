@@ -296,7 +296,6 @@ pub fn verify_multiple_columns(
     let r_roots = compute_h_roots(r, column_proofs.len());
     let r_sum : Fr = r_roots
         .iter()
-        .map(|x| x)
         .sum();
 
     let batched_commitment = G1Projective::msm(&aggregated_commitments,&r_roots).unwrap().into_affine();
