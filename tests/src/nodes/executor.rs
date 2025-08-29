@@ -493,7 +493,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {
                 address: config.api_config.address,
-                cors_origins: vec![],
+                ..Default::default()
             },
             request_timeout: None,
         },
@@ -552,7 +552,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         testing_http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {
                 address: testing_http_address,
-                cors_origins: vec![],
+                ..Default::default()
             },
             request_timeout: None,
         },

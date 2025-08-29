@@ -27,8 +27,11 @@ pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
 use services_utils::wait_until_services_are_ready;
 use tokio::net::TcpListener;
+use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
     cors::{Any, CorsLayer},
+    limit::RequestBodyLimitLayer,
+    timeout::TimeoutLayer,
     trace::TraceLayer,
 };
 
@@ -119,12 +122,6 @@ where
 
         // Simple router with ONLY testing endpoints
         let app = Router::new()
-            .layer(
-                builder
-                    .allow_headers(vec![CONTENT_TYPE, USER_AGENT])
-                    .allow_methods(Any),
-            )
-            .layer(TraceLayer::new_for_http())
             .route(
                 UPDATE_MEMBERSHIP,
                 post(
@@ -165,7 +162,18 @@ where
                     >,
                 ),
             )
-            .with_state(handle);
+            .with_state(handle)
+            .layer(TimeoutLayer::new(self.settings.timeout))
+            .layer(RequestBodyLimitLayer::new(self.settings.max_body_size))
+            .layer(ConcurrencyLimitLayer::new(
+                self.settings.max_concurrent_requests,
+            ))
+            .layer(TraceLayer::new_for_http())
+            .layer(
+                builder
+                    .allow_headers(vec![CONTENT_TYPE, USER_AGENT])
+                    .allow_methods(Any),
+            );
 
         let listener = TcpListener::bind(&self.settings.address)
             .await

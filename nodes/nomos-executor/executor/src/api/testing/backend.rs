@@ -38,7 +38,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 
-use crate::{api::backend::AxumBackendSettings, DaMembershipStorage};
+use crate::DaMembershipStorage;
 
 pub struct TestAxumBackend {
     settings: AxumBackendSettings,

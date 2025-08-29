@@ -34,6 +34,7 @@ use nomos_da_network_service::{
 use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
 use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
 use nomos_http_api_common::paths;
+pub use nomos_http_api_common::settings::AxumBackendSettings;
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
     backend::mockpool::MockPool, tx::service::openapi::Status, DaMempoolService, MempoolMetrics,
@@ -49,8 +50,11 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use subnetworks_assignations::MembershipHandler;
 use tokio::net::TcpListener;
+use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
     cors::{Any, CorsLayer},
+    limit::RequestBodyLimitLayer,
+    timeout::TimeoutLayer,
     trace::TraceLayer,
 };
 use utoipa::OpenApi;
@@ -66,15 +70,6 @@ use super::handlers::{
 pub(crate) type DaStorageBackend<SerdeOp> = RocksBackend<SerdeOp>;
 type DaStorageService<DaStorageSerializer, RuntimeServiceId> =
     StorageService<DaStorageBackend<DaStorageSerializer>, RuntimeServiceId>;
-
-/// Configuration for the Http Server
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct AxumBackendSettings {
-    /// Socket where the server will be listening on for incoming requests.
-    pub address: std::net::SocketAddr,
-    /// Allowed origins for this server deployment requests.
-    pub cors_origins: Vec<String>,
-}
 
 pub struct AxumBackend<
     DaShare,
@@ -623,6 +618,11 @@ where
                 ),
             )
             .with_state(handle)
+            .layer(TimeoutLayer::new(self.settings.timeout))
+            .layer(RequestBodyLimitLayer::new(self.settings.max_body_size))
+            .layer(ConcurrencyLimitLayer::new(
+                self.settings.max_concurrent_requests,
+            ))
             .layer(TraceLayer::new_for_http())
             .layer(
                 builder
